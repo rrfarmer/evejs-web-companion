@@ -6,6 +6,7 @@ const path = require("path");
 const staticData = require("./staticData");
 const { normalizePolicies } = require("./miningOperationPolicies");
 const { normalizeSupport } = require("./miningOperationSupport");
+const { normalizePreparation } = require("./miningPreparation");
 
 const STORE_FILENAME = "mining-operations.json";
 const ROLES = new Set(["MINER", "HAULER", "DEFENDER", "COMMAND"]);
@@ -109,6 +110,7 @@ function normalizeDefinition(value, existing = null, now = () => new Date().toIS
       role,
       routineMode,
       automationID,
+      ...(row.preparation ? { preparation: normalizePreparation(row.preparation, true) } : {}),
     };
   });
   if (!members.some((member) => member.role === "MINER")) {
@@ -139,6 +141,7 @@ function normalizeDefinition(value, existing = null, now = () => new Date().toIS
     unloadDestination,
     policies: normalizePolicies(value.policies, resolveStation, resolveSystem),
     ...(support ? { support } : {}),
+    preparation: normalizePreparation(value.preparation),
     members,
     createdAt: existing?.createdAt || stamp,
     updatedAt: stamp,
@@ -158,6 +161,7 @@ function createMiningOperationStore(options) {
       const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
       return parsed && Array.isArray(parsed.operations) ? parsed.operations.map(row => ({ ...row,
         policies: normalizePolicies(row.policies, resolveStation, resolveSystem),
+        preparation: normalizePreparation(row.preparation),
       })) : [];
     } catch (error) {
       if (error.code === "ENOENT") return [];

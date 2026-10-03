@@ -37,6 +37,7 @@ export type NeocomGlyph = readonly string[];
  * gap in the strip.
  */
 export const NEOCOM_GLYPHS: Readonly<Record<TabID, NeocomGlyph>> = {
+  provisioning: ["M12 3 4 18l8-3 8 3-8-15Z", "M8 21h8"],
   // --- in space ---
   flight: ["M12 3l7 17-7-4-7 4z"],
   mining: ["M3 3l7 7", "M11 12l4-3 6 2-1 7-7 1z"],

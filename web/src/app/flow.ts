@@ -357,6 +357,7 @@ export interface MiningBotRequest {
 }
 
 export interface AppFlowOptions {
+  readonly hostedStartup?: import("../bots/startup.ts").StartupCheckpoint;
   /** Volatile hosted MCC ore custody; this never changes process restart policy. */
   readonly hostedOreJettisonRecovery?: boolean;
   readonly baseUrl?: string;
@@ -11806,7 +11807,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // fresh run must apply for itself rather than believe an old answer.
     fleetApplication = null;
     scriptRunner = createScriptRunner(
-      makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds),
+      { ...makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds), startup: options.hostedStartup },
     );
     scriptRunner.start(doc);
     void scriptRunner.run();
