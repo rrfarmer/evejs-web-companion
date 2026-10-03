@@ -146,6 +146,8 @@ export function describeAction(action: ScriptAction): string {
         : `activate module ${action.moduleID} on self`;
     case "deactivate":
       return `deactivate module ${action.moduleID}`;
+    case "loadCombatAmmo":
+      return `load charge ${action.chargeItemID} into weapon ${action.moduleID}`;
     case "launchDrones":
       return `launch drones ${action.droneItemIDs.join(",")}`;
     case "engageDrones":

@@ -59,12 +59,14 @@ function fakeHost(heldSessions = new Map()) {
   const inputs = [];
   const extensions = [];
   const failures = new Map();
+  const events = [];
   return {
     rows,
     stops,
     inputs,
     extensions,
     failures,
+    events,
     async start(input) {
       inputs.push(input);
       if (failures.has(input.characterID)) return { ok: false, ...failures.get(input.characterID) };
@@ -82,6 +84,10 @@ function fakeHost(heldSessions = new Map()) {
         characterName: character.characterName,
         operationID: input.operationID,
         operationRole: input.operationRole,
+        operationRunID: input.operationRunID,
+        preparation: input.operationPreparation ? { state: "VERIFIED", equipment: "VERIFIED", supplies: "FULL", targets: [] } : null,
+        deferMain: input.deferMain,
+        preparationOwnerAvailable: true,
         status: "running",
         phase: "Starting",
         why: null,
@@ -89,7 +95,15 @@ function fakeHost(heldSessions = new Map()) {
         endedAt: null,
       };
       rows.push(bot);
+      events.push({ kind: "acquired", characterID: input.characterID, operationRunID: input.operationRunID });
       return { ok: true, bot };
+    },
+    async activateOperationMember(botID, accountID, operationID, operationRunID) {
+      const row = rows.find(b => b.botID === botID && b.accountID === accountID && b.operationID === operationID && b.operationRunID === operationRunID && !b.endedAt);
+      if (!row) return { ok: false, code: "BOT_NOT_FOUND" };
+      events.push({ kind: "activated", characterID: row.characterID, operationRunID });
+      row.deferMain = false;
+      return { ok: true, bot: row };
     },
     async stop(botID) {
       stops.push(botID);
@@ -106,7 +120,7 @@ function fakeHost(heldSessions = new Map()) {
     async parkOperationMember(botID) { return this.stop(botID); },
     listAll: () => rows.map((row) => ({ ...row })),
     list: () => rows.map((row) => ({ ...row })),
-    claimedBy: () => null,
+    claimedBy: characterID => rows.find(row => row.characterID === characterID && !row.endedAt)?.botID || null,
     authorizesClaim: () => false,
     operationForClaim: () => null,
     activeCharacterIDs: () => [],
@@ -137,6 +151,7 @@ test("Mining Operations routes persist definitions, launch through botHost, proj
   const heldSessions = new Map();
   const host = fakeHost(heldSessions);
   let structureAccessAllowed = true;
+  let preparationPlanAwait = null;
   const structureAccessCalls = [];
   const app = createApp({
     eveStore: {
@@ -170,6 +185,20 @@ test("Mining Operations routes persist definitions, launch through botHost, proj
     miningOperationStore: operationStore,
     miningTargetBoard: board,
     miningOperations: operations,
+    // This legacy routing fixture has no authoritative fitting/inventory
+    // projection. Real preparation engines are covered in miningPreparation.test.
+    miningPreparation: {
+      ready: value => ["VERIFIED", "DEGRADED"].includes(value?.state),
+      unresolved: () => false,
+      plan: async definition => {
+        const accepted = { state: "READY", planHash: JSON.stringify(definition),
+          members: definition.members.filter(member => member.role !== "DEFENDER").map(member => ({
+            characterID: member.characterID, role: member.role, state: "PENDING", intent: { fixture: true, characterID: member.characterID },
+          })) };
+        if (preparationPlanAwait) await preparationPlanAwait(definition);
+        return accepted;
+      },
+    },
     errorLogger(error) { throw error; },
   });
   const server = app.listen(0, "127.0.0.1");
@@ -242,10 +271,42 @@ test("Mining Operations routes persist definitions, launch through botHost, proj
   assert.equal(saved.response.status, 200);
   const operationID = saved.payload.definition.operationID;
 
+  const missingCustomPin = await request(baseUrl, `/api/mining-operations/${operationID}/start`, {
+    method: "POST", token, body: { grants: {} },
+  });
+  assert.equal(missingCustomPin.payload.error, "OPERATION_LAUNCH_PLAN_STALE", "custom routines also require the combined preparation pin");
+  assert.equal(host.inputs.length, 0);
+
+  // The accepted plan still matches the request, but configuration can change
+  // while its authoritative preparation reads await. Start must recheck the
+  // saved definition before acquisition or crossing the productive barrier.
+  const beforeEditPlan = await request(baseUrl, `/api/mining-operations/${operationID}/launch-plan`, { token });
+  let editedDuringPlan = false;
+  preparationPlanAwait = async acceptedDefinition => {
+    preparationPlanAwait = null;
+    assert.equal(acceptedDefinition.preparation.suppliesRequired, false);
+    const edited = await request(baseUrl, "/api/mining-operations", { method: "POST", token,
+      body: { ...acceptedDefinition, preparation: { ...acceptedDefinition.preparation, suppliesRequired: true } } });
+    assert.equal(edited.response.status, 200);
+    editedDuringPlan = true;
+  };
+  const editedStart = await request(baseUrl, `/api/mining-operations/${operationID}/start`, { method: "POST", token,
+    body: { planHash: beforeEditPlan.payload.planHash,
+      grants: { [character.characterID]: { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 } } } });
+  assert.equal(editedDuringPlan, true);
+  assert.equal(editedStart.response.status, 409);
+  assert.equal(editedStart.payload.error, "OPERATION_LAUNCH_PLAN_STALE");
+  assert.match(editedStart.payload.message, /configuration changed during preflight/);
+  assert.equal(operationStore.get(operationID).preparation.suppliesRequired, true);
+  assert.equal(operations.runtimeFor(operationID).state, "DRAFT");
+  assert.equal(host.inputs.length, 0, "stale accepted preparation never acquires a host owner");
+  assert.deepEqual(host.events, [], "stale accepted preparation never activates a member");
+
   const started = await request(baseUrl, `/api/mining-operations/${operationID}/start`, {
     method: "POST",
     token,
-    body: { grants: { [character.characterID]: { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 } } },
+    body: { planHash: (await request(baseUrl, `/api/mining-operations/${operationID}/launch-plan`, { token })).payload.planHash,
+      grants: { [character.characterID]: { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 } } },
   });
   assert.equal(started.response.status, 200);
   assert.equal(started.payload.operations.find((row) => row.definition.operationID === operationID).runtime.state, "SELECTING");
@@ -352,7 +413,7 @@ test("Mining Operations routes persist definitions, launch through botHost, proj
   assert.match(defenderPlan.payload.warnings[0], /DEFENDER execution is not supported/);
   const defenderStart = await request(baseUrl, `/api/mining-operations/${withDefender.payload.definition.operationID}/start`, {
     method: "POST", token,
-    body: { grants: { [character.characterID]: { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 } } },
+    body: { planHash: defenderPlan.payload.planHash, grants: { [character.characterID]: { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 } } },
   });
   assert.equal(defenderStart.response.status, 200);
   assert.equal(defenderStart.payload.operations.find((row) => row.definition.operationID === withDefender.payload.definition.operationID).runtime.state, "DEGRADED");
@@ -368,6 +429,7 @@ test("Mining Operations routes persist definitions, launch through botHost, proj
   assert.equal(crewOperation.response.status, 200);
   heldSessions.set("other-browser", { characterID: 7003, accountID: account.accountID, bridgeSessionID: "held-cargo", droneRecoveryReady: true });
   const heldStart = await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/start`, { method: "POST", token, body: {
+    planHash: (await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/launch-plan`, { token })).payload.planHash,
     grants: Object.fromEntries(crew.map((row) => [row.characterID, { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 }])),
   } });
   assert.equal(heldStart.payload.operations.find((row) => row.definition.operationID === crewOperation.payload.definition.operationID).runtime.state, "DEGRADED");
@@ -378,10 +440,13 @@ test("Mining Operations routes persist definitions, launch through botHost, proj
   assert.match(heldFailure.reason, /browser session/);
   assert.equal(host.inputs.find((input) => input.characterID === 7003).callerSessionID, null);
   assert.equal(heldSessions.has("other-browser"), true);
+  assert.equal(host.events.filter(event => event.kind === "activated" && event.operationRunID === host.inputs.at(-1).operationRunID).length, 0,
+    "a missing acquired member holds all productive activation behind the real server barrier");
   await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/stop`, { method: "POST", token, body: {} });
   heldSessions.delete("other-browser");
   host.failures.set(7002, { code: "BOT_START_FAILED", message: "Gateway selection refused: session limit" });
   const failedMinerStart = await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/start`, { method: "POST", token, body: {
+    planHash: (await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/launch-plan`, { token })).payload.planHash,
     grants: Object.fromEntries(crew.map((row) => [row.characterID, { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 }])),
   } });
   const failedMiner = failedMinerStart.payload.operations.find((row) => row.definition.operationID === crewOperation.payload.definition.operationID)
@@ -393,11 +458,15 @@ test("Mining Operations routes persist definitions, launch through botHost, proj
   await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/stop`, { method: "POST", token, body: {} });
   host.failures.delete(7002);
   const crewStart = await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/start`, { method: "POST", token, body: {
+    planHash: (await request(baseUrl, `/api/mining-operations/${crewOperation.payload.definition.operationID}/launch-plan`, { token })).payload.planHash,
     grants: Object.fromEntries(crew.map((row) => [row.characterID, { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 60 }])),
   } });
   assert.equal(crewStart.response.status, 200);
   assert.equal(crewStart.payload.results.filter((row) => row.ok).length, 3);
   assert.ok(host.inputs.slice(-3).every((input) => input.callerSessionID === null));
+  const runEvents = host.events.filter(event => event.operationRunID === host.inputs.at(-1).operationRunID);
+  assert.deepEqual(runEvents.map(event => event.kind), ["acquired", "acquired", "acquired", "activated", "activated", "activated"],
+    "production route acquires and prepares every member before first MAIN activation");
 
   // Stopping this fleet must not sweep unrelated hosted/recovered pilots or
   // browser-held sessions, even when they belong to the same account.

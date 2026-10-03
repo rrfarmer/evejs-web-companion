@@ -242,6 +242,26 @@ async function getJson(
   return requestJson(path, { method: "GET" }, options);
 }
 
+export async function provisioningOptions(providerCharacterID: number | null, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ProvisioningOptions> {
+  const data = await getJson(`/api/bridge/provisioning/options${providerCharacterID ? `?providerCharacterID=${providerCharacterID}` : ""}`, options);
+  return data as unknown as import("../bridge/provisioning.ts").ProvisioningOptions;
+}
+export async function reviewProvisioning(input: import("../bridge/provisioning.ts").ProvisioningInput, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ProvisioningReview> {
+  return await postJson("/api/bridge/provisioning/review", input, options) as unknown as import("../bridge/provisioning.ts").ProvisioningReview;
+}
+export async function replenishProvisioning(reviewID: string, reviewHash: string, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ReplenishmentResult> {
+  return await postJson("/api/bridge/provisioning/replenish", { reviewID, reviewHash, confirm: true }, options) as unknown as import("../bridge/provisioning.ts").ReplenishmentResult;
+}
+export async function reconcileProvisioning(operationID: string, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ReplenishmentResult> {
+  return await postJson("/api/bridge/provisioning/reconcile", { operationID }, options) as unknown as import("../bridge/provisioning.ts").ReplenishmentResult;
+}
+export async function reviewShipProvisioning(input: import("../bridge/provisioning.ts").ProvisioningInput, operationID: string | null = null, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ShipReview> {
+  return await postJson("/api/bridge/provisioning/ship-review", { ...input, operationID }, options) as unknown as import("../bridge/provisioning.ts").ShipReview;
+}
+export async function provisionShip(reviewID: string, reviewHash: string, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ShipResult> {
+  return await postJson("/api/bridge/provisioning/provision-ship", { reviewID, reviewHash, confirm: true }, options) as unknown as import("../bridge/provisioning.ts").ShipResult;
+}
+
 function asNumberOrNull(value: JsonValue | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -2856,7 +2876,7 @@ export async function unlockTarget(
 
 function readModuleAction(itemID: number, data: Record<string, JsonValue>): ModuleActionResult {
   return {
-    itemID,
+    itemID: typeof data.itemID === "number" && Number.isSafeInteger(data.itemID) ? data.itemID : Number.NaN,
     active: typeof data.active === "boolean" ? data.active : null,
     stopped: typeof data.stopped === "boolean" ? data.stopped : null,
     activeModuleIDs: data.activeModuleIDs ?? null,
@@ -5182,14 +5202,31 @@ export async function loadMinerTraining(
 
 export async function loadQualification(characterID: number, role: string,
   configurations: readonly import("../training/configurations.ts").TrainingConfiguration[], options: ApiOptions,
-  targetConfigurationID: string | null): Promise<MinerTrainingRead> {
+  targetConfigurationID: string | null, equipmentSource: import("../training/types.ts").TrainingEquipmentSource = { kind: "hangar" }): Promise<MinerTrainingRead> {
   const query = new URLSearchParams({ characterID: String(characterID), role, configurations: JSON.stringify(configurations) });
+  query.set("equipmentSource", JSON.stringify(equipmentSource));
   if (targetConfigurationID) query.set("targetConfigurationID", targetConfigurationID);
   const data = await getJson(`/api/pilot-training/qualification?${query}`, options);
   const report = data.report as unknown as MinerTrainingRead["report"];
   if (!report || report.role !== role || report.pilot?.characterID !== characterID || !Array.isArray(report.stages) ||
     !Array.isArray(data.fittings) || !Number.isSafeInteger(data.corporationID)) throw new BridgeCallError("BRIDGE_BAD_RESPONSE", "Qualification read is incomplete.", 502);
   return { report, corporationID: data.corporationID as number, fittings: data.fittings as unknown as MinerTrainingRead["fittings"], queue: data.queue as unknown as MinerTrainingRead["queue"] };
+}
+
+export async function reviewTrainingEquipment(request: { characterID: number; role: string; configurationID: string;
+  configurations: readonly import("../training/configurations.ts").TrainingConfiguration[]; targetStage: string | null; source: import("../training/types.ts").TrainingEquipmentSource }, options: ApiOptions): Promise<import("../training/types.ts").TrainingEquipmentReview> {
+  const data = await postJson("/api/pilot-training/equipment/review", request, options);
+  const review = data.review as unknown as import("../training/types.ts").TrainingEquipmentReview;
+  if (!review?.applyReview || review.fresh?.report.pilot.characterID !== request.characterID) throw new BridgeCallError("BRIDGE_BAD_RESPONSE", "Equipment plan is unreadable.", 502);
+  return review;
+}
+export async function applyTrainingEquipment(reviewID: string, reviewHash: string, options: ApiOptions): Promise<import("../provisioning/centerClient.ts").ApplyOutcome> {
+  const data = await postJson("/api/pilot-training/equipment/apply", { reviewID, reviewHash, confirm: true }, options);
+  return data.outcome as unknown as import("../provisioning/centerClient.ts").ApplyOutcome;
+}
+export async function recoverTrainingEquipment(operationID: string, options: ApiOptions): Promise<import("../provisioning/centerClient.ts").ApplyOutcome> {
+  const data = await postJson("/api/pilot-training/equipment/recover", { operationID }, options);
+  return data.outcome as unknown as import("../provisioning/centerClient.ts").ApplyOutcome;
 }
 
 export async function reviewTrainingQueue(
@@ -5286,6 +5323,7 @@ export async function finishMiningOperationDrain(targetKey: string, options: Api
 }
 
 export interface MiningOperationMemberDefinition {
+  readonly preparation?: import("./miningPreparation.ts").MiningPreparationFitting;
   readonly characterID: number;
   readonly characterName: string;
   readonly accountName: string;
@@ -5295,6 +5333,7 @@ export interface MiningOperationMemberDefinition {
 }
 
 export interface MiningOperationDefinition {
+  readonly preparation?: import("./miningPreparation.ts").MiningPreparationConfig;
   readonly support?: import("../nav/scriptConditions.ts").MiningSupportOptions;
   readonly policies?: {
     readonly version: 1;
@@ -5342,6 +5381,8 @@ export interface MiningOperationDefinition {
 }
 
 export interface MiningOperationRuntime {
+  readonly operationRunID?: string | null;
+  readonly preparation?: import("./miningPreparation.ts").MiningPreparationProjection;
   readonly operationID: string;
   readonly state: string;
   readonly statusReason?: string | null;
@@ -5349,6 +5390,7 @@ export interface MiningOperationRuntime {
   readonly recoveryRequired?: boolean;
   readonly currentTarget: MiningOperationTarget | null;
   readonly members: readonly (MiningOperationMemberDefinition & {
+    readonly preparation?: import("./miningPreparation.ts").MiningMemberPreparation;
     readonly runtimeState: string;
     readonly phase: string | null;
     readonly reason: string | null;
@@ -5449,11 +5491,23 @@ export interface OperationLaunchPlanMember {
   readonly script: { readonly scriptID: string; readonly name: string; readonly rev: number; readonly doc: JsonValue };
 }
 
-export async function getMiningOperationLaunchPlan(operationID: string, options: ApiOptions = {}): Promise<{ readonly planHash: string; readonly warnings: readonly string[]; readonly members: readonly OperationLaunchPlanMember[] }> {
+export interface MiningOperationLaunchPlan {
+  readonly planHash: string; readonly warnings: readonly string[]; readonly members: readonly OperationLaunchPlanMember[];
+  readonly preparation?: import("./miningPreparation.ts").MiningPreparationProjection;
+}
+export async function getMiningOperationLaunchPlan(operationID: string, options: ApiOptions = {}): Promise<MiningOperationLaunchPlan> {
   const data = await getJson(`/api/mining-operations/${encodeURIComponent(operationID)}/launch-plan`, options);
   return { planHash: typeof data.planHash === "string" ? data.planHash : "",
     warnings: (Array.isArray(data.warnings) ? data.warnings : []).filter((row): row is string => typeof row === "string"),
-    members: (Array.isArray(data.members) ? data.members : []) as unknown as OperationLaunchPlanMember[] };
+    members: (Array.isArray(data.members) ? data.members : []) as unknown as OperationLaunchPlanMember[],
+    ...(data.preparation && typeof data.preparation === "object" ? { preparation: data.preparation as unknown as import("./miningPreparation.ts").MiningPreparationProjection } : {}) };
+}
+
+/** Account-owned fitting observation only; never selects or acquires a pilot. */
+export async function getMiningPreparationOptions(accountName: string, characterID: number, providerCharacterID: number | null = null,
+  options: ApiOptions = {}): Promise<import("./miningPreparation.ts").MiningPreparationOptions> {
+  const query = new URLSearchParams({ accountName, characterID: String(characterID), ...(providerCharacterID ? { providerCharacterID: String(providerCharacterID) } : {}) });
+  return await getJson(`/api/mining-operations/preparation-options?${query}`, options) as unknown as import("./miningPreparation.ts").MiningPreparationOptions;
 }
 
 export interface OperationPilotChoice {

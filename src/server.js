@@ -16,6 +16,9 @@ const staticDataModule = require("./staticData");
 const { readMinerPilot } = require("./pilotTrainingRead");
 const { createTrainingQueueService } = require("./pilotTrainingQueue");
 const { createFactorySessions } = require("./factorySessions");
+const { createReplenishment } = require("./replenishment");
+const { createPilotMutationFence } = require("./pilotMutationFence");
+const { registerProvisioningRoutes } = require("./provisioningRoutes");
 const { createFactorySkills } = require("./factorySkills");
 const { createTrainingOnboarding } = require("./trainingOnboarding");
 const { readTrainingSettingsContext } = require("./trainingSettingsRead");
@@ -122,7 +125,12 @@ function sendBotScriptError(res, error, next) {
 function createApp(options = {}) {
 const app = express();
 const store = options.eveStore || eveStore;
-const gateway = options.eveGatewayClient || eveGatewayClient;
+let replenishment;
+const mutationFence = createPilotMutationFence({ heldSessions: { values: () => bridgeSessions.values() },
+  assertWritable: (pilot, lease) => replenishment?.assertWritable(pilot, lease),
+  assertSelectable: pilot => replenishment.assertSelectable(pilot),
+  enterWrite: (pilot, lease) => replenishment.enterWrite(pilot, lease) });
+const gateway = mutationFence.wrap(options.eveGatewayClient || eveGatewayClient);
 const auth = options.webAuth || webAuth;
 const staticData = options.staticData || staticDataModule;
 // The game-port client the customs-export hop speaks. Injected so the route
@@ -157,6 +165,8 @@ const bridgeSessions = options.bridgeSessionStore || new Map();
 // the await gap between browser select/release and a hosted handoff.
 const characterOperations = new Map();
 const sessionOperations = new Map();
+replenishment = options.replenishment || createReplenishment({ operations: characterOperations, data: staticData,
+  filePath: options.replenishmentJournalPath || (options.eveStore ? null : path.join(config.dataDir, "replenishment-custody.json")) });
 /**
  * Web sessions whose pilot is on the GAME PORT for a moment (the customs-office
  * export hop), by expiry instant.
@@ -186,7 +196,28 @@ function heldOnGamePort(webSessionID) {
   }
   return true;
 }
-async function isCharacterHeld(characterID, callerSessionID = null) {
+async function isCharacterHeld(characterID, callerSessionID = null, preparationOwner = null, probeReservation = null) {
+  const reservation = characterOperations.get(characterID);
+  // Only the exact private customs-export reservation can probe its own hold.
+  // Both maps must still contain it; a name or stale token grants no exception.
+  const ownsProbe = probeReservation !== null && reservation === probeReservation &&
+    sessionOperations.get(callerSessionID) === probeReservation;
+  const handoff = reservation?.kind === "mining-operation-handoff" &&
+    reservation.operationRunID === preparationOwner?.operationRunID &&
+    reservation.operationID === preparationOwner?.operationPreparation?.operationID;
+  if (reservation && !ownsProbe && !handoff) return true;
+  if (replenishment.unresolved(characterID).length) {
+    const checkpoint = preparationOwner?.resumed && botHost.preparationForRun?.(preparationOwner.logicalRunID);
+    const custodyID = checkpoint?.custodyOperationID || checkpoint?.evidence?.custodyOperationID;
+    const pending = replenishment.unresolved(characterID);
+    if (!checkpoint || checkpoint.mainEntered || checkpoint.operationRunID !== preparationOwner.operationRunID ||
+        JSON.stringify(checkpoint.intent) !== JSON.stringify(preparationOwner.operationPreparation) ||
+        pending.some(row=>row.key!==custodyID || row.accountID!==checkpoint.intent.accountID)) return true;
+    // Custody is observation/reconciliation permission only. A restart may
+    // re-establish the same run only after runtime positively proves offline.
+    const status = await gateway.getCharacterStatus(checkpoint.intent.accountID,characterID);
+    if (status?.characterID!==characterID || status.online!==false || status.controlState!=="offline") return true;
+  }
   for (const [sessionID, held] of bridgeSessions) {
     if (sessionID === callerSessionID || Number(held.characterID) !== Number(characterID)) continue;
     try {
@@ -244,6 +275,22 @@ const botHost =
       }
     },
     errorLogger,
+    prepareOperation: record => {
+      const reservation = characterOperations.get(record.characterID);
+      if (reservation?.kind === "mining-operation-handoff" && reservation.operationID===record.operationID &&
+          reservation.operationRunID===record.operationRunID && botHost.authorizesClaim(record.characterID,record.claimSecret))
+        characterOperations.delete(record.characterID);
+      return miningPreparation.prepare(record);
+    },
+    preparationUnresolved: record => miningPreparation.unresolved(record),
+    operationBarrierReady: record => operationPreparationBarrier(record.operationID,record.operationRunID),
+    onOperationResume: async () => {
+      miningOperations.reconcileBots(botHost.listAll());
+      for (const definition of miningOperationStore.list()) {
+        const runtime = miningOperations.runtimeFor(definition.operationID);
+        if (runtime?.operationRunID) await activatePreparedOperation(definition,runtime.operationRunID);
+      }
+    },
     onOperationDeadline: operationID => {
       const definition = miningOperations.definition(operationID);
       if (!definition) throw new Error("The expiring operation definition is unavailable.");
@@ -253,7 +300,9 @@ const botHost =
   });
 app.locals.botHost = botHost;
 app.locals.bridgeSessions = bridgeSessions;
-const factorySessions = createFactorySessions({ store, gateway, operations: characterOperations, heldSessions: bridgeSessions, botHost });
+app.locals.replenishment = replenishment;
+const factorySessions = createFactorySessions({ store, gateway, operations: characterOperations, heldSessions: bridgeSessions, botHost,
+  withLease: mutationFence.withLease });
 const factorySkills = createFactorySkills({ store, gateway, data: staticData, queues: trainingQueues, sessions: factorySessions });
 const trainingOnboarding = createTrainingOnboarding({ store, gateway, sessions: factorySessions });
 // startServer() seeds the starter bots once the port is open, and all it
@@ -472,6 +521,21 @@ const requireTrainingAuth = makeRequireAuth({ cleanupSession: false });
 // optional decoration.
 const requireStreamAuth = makeRequireAuth({ allowQueryParam: true });
 
+// Dispatch gates below also protect requests that passed middleware before
+// Apply acquired its reservation. No browser-supplied lease is accepted.
+app.use("/api/bridge", requireAuth, (req, res, next) => {
+  try {
+    if (req.method === "POST" && !["/call", "/provisioning/review", "/provisioning/ship-review", "/provisioning/provision-ship", "/provisioning/reconcile", "/drone-recovery/ready"].includes(req.path)) {
+      const held = bridgeSessions.get(req.webSessionID);
+      if (req.path === "/select") {
+        const target = Number(req.body?.characterID);
+        if (held && held.characterID !== target) replenishment.assertWritable(held.characterID);
+        replenishment.assertSelectable(target);
+      } else if (held) replenishment.assertWritable(held.characterID);
+    }
+    next();
+  } catch (error) { next(error); }
+});
 app.get("/api/health", async (req, res) => {
   try {
     const storeStatus = await store.getStatus();
@@ -509,10 +573,10 @@ for (const action of ["create", "recover"]) {
     catch (error) { next(error); }
   });
 }
-app.post(["/api/login", "/api/goblin-factory/login", "/api/pilot-training/login"], async (req, res, next) => {
+app.post(["/api/login", "/api/goblin-factory/login", "/api/pilot-training/login", "/api/ship-provisioning/login"], async (req, res, next) => {
   // The standalone training door must never auto-create an unknown account or
   // replace the cookie belonging to an already-running cockpit.
-  const factoryLogin = /^\/api\/(?:goblin-factory|pilot-training)\/login\/?$/i.test(req.path);
+  const factoryLogin = /^\/api\/(?:goblin-factory|pilot-training|ship-provisioning)\/login\/?$/i.test(req.path);
   const username = String(req.body && req.body.username || "").trim();
   try {
     // An empty username can never name or create an account; refuse it here
@@ -607,6 +671,10 @@ app.post("/api/logout", async (req, res) => {
     return;
   }
   const held = payload && payload.sessionID ? bridgeSessions.get(payload.sessionID) : null;
+  if (held) {
+    try { replenishment.assertWritable(held.characterID); }
+    catch (error) { res.status(409).json({ ok: false, error: error.code, message: error.message }); return; }
+  }
   if (held && Number(held.accountID) !== Number(payload.accountID)) {
     res.status(409).json({ ok: false, error: "PILOT_RELEASE_UNVERIFIED", message: "The signed account does not own this pilot session." });
     return;
@@ -646,6 +714,9 @@ const TRANSITION_GATE_EXEMPT_POST_PATHS = new Set([
   "/api/bridge/call", // generic seam is read-only by policy
   "/api/bridge/select",
   "/api/bridge/release",
+  "/api/bridge/provisioning/review", // read-only despite the structured POST body
+  "/api/bridge/provisioning/ship-review", // read-only plan; Apply reserves in the shared engine
+  "/api/bridge/provisioning/reconcile", // evidence reads only; never dispatches
 ]);
 app.use((req, res, next) => {
   if (
@@ -671,6 +742,80 @@ app.use((req, res, next) => {
     transition: publicTransition(held),
   });
 });
+
+const provisioningRoutes = registerProvisioningRoutes({ app, requireAuth, requireHeld: requireHeldBridgeSession, engine: replenishment, store, gateway, data: staticData,
+  flight: readHeldFlight, currentHeld: assertCurrentHeldSession, inventoryLocation: inventoryLocationID,
+  resolvePlace, boundCall, cargoBindSpec, inventoryManagerBindSpec, slots: () => ALL_SLOT_FLAGS, shipBays: () => SHIP_BAYS,
+  capacity: decodeCapacityReading, heldCall: heldTopLevelCall, mutationFence,
+  pendingRecovery: held => hasPendingRecovery(held, held.characterID),
+  boardShip: async (held, sessionID, shipID, revalidate) => {
+    const response = { status() { return this; }, json(value) { throw Object.assign(new Error(value.message || value.error), { code: value.error, statusCode: 409 }); } };
+    if (!await acquireRouteTransition(response, held, "board", { shipID }, revalidate)) return;
+    let dispatchError;
+    try { await boundCall(held, sessionID, shipBindSpec(held), "Board", [shipID, held.activeShipID], null); }
+    catch (error) { dispatchError = error; }
+    markTransitionAccepted(held); // Outcome may be uncertain; observe even on error.
+    const ready = await awaitRouteTransition(held, sessionID, "board", { shipID });
+    if (!ready.ok) throw Object.assign(new Error("Exact target hull transition is unproven."), { code: "PROVISIONING_BOARD_UNPROVEN", statusCode: 409 });
+    held.activeShipID = Number(ready.flight.shipID);
+    if (dispatchError) throw dispatchError;
+  } });
+
+const provisioningCenter = require("./provisioningCenter").registerProvisioningCenter({ app, requireAuth: requireTrainingAuth, gateway, data: staticData,
+  operations: characterOperations, heldSessions: bridgeSessions, botHost, engine: replenishment, sessions: factorySessions,
+  selectedAdapter: provisioningRoutes.adapter,
+  filePath: options.provisioningCenterJournalPath || (options.eveStore ? null : path.join(config.dataDir, "provisioning-center-control.json")),
+  fault: options.provisioningCenterFault || null,
+  attach(account, characterID, selected, operationID) {
+    const webSessionID = `provisioning-center:${operationID}`;
+    if (bridgeSessions.has(webSessionID) || [...bridgeSessions.values()].some(h => h.characterID === characterID))
+      throw Object.assign(new Error("Pilot ownership changed."), { code: "PILOT_BUSY" });
+    const held = makeHeldCharacter(account, characterID, selected);
+    held.temporaryProvisioning = true;
+    held.droneRecoveryReady = !!held.stationID && !held.structureID;
+    bridgeSessions.set(webSessionID, held);
+    return { held, req: { account, webSessionID } };
+  },
+  detach(binding) { if (bridgeSessions.get(binding.req.webSessionID) === binding.held) bridgeSessions.delete(binding.req.webSessionID); },
+});
+
+const trainingEquipment = require("./trainingEquipment").createTrainingEquipment({ center: provisioningCenter,
+  async readQualification(account, input) {
+    return (await readMinerPilot({ store, gateway, data: staticData, account, ...input })).read;
+  } });
+for (const action of ["review", "apply", "recover"]) app.post(`/api/pilot-training/equipment/${action}`, requireTrainingAuth, async (req, res, next) => {
+  try { res.json({ ok: true, [action === "review" ? "review" : "outcome"]: await trainingEquipment[action](req.account, req.body || {}) }); }
+  catch (error) { next(error); }
+});
+
+const miningPreparation = options.miningPreparation || require("./miningPreparation").createMiningPreparation({
+  store, readReview: provisioningCenter.readReview, engine: replenishment, data: staticData, bots: () => botHost.listAll(),
+  currentRun: operationID => miningOperations.runtimeFor(operationID)?.operationRunID ||
+    botHost.listAll().find(b=>b.operationID===operationID && !b.endedAt)?.operationRunID,
+  adapterFor(record) {
+    const held=bridgeSessions.get(record.webSessionID);
+    if (!held || held.characterID!==record.characterID || held.botClaimSecret!==record.claimSecret ||
+        !botHost.authorizesClaim(record.characterID,record.claimSecret)) throw Object.assign(new Error("Hosted preparation authority changed."),{code:"HOSTED_GENERATION_CHANGED"});
+    return provisioningRoutes.adapter({account:{accountID:record.accountID},webSessionID:record.webSessionID},held);
+  },
+  fault: options.miningPreparationFault || null,
+});
+app.locals.miningPreparation=miningPreparation;
+function operationPreparationBarrier(operationID,operationRunID) {
+  const definition=miningOperations.definition(operationID), runtime=miningOperations.runtimeFor(operationID), rows=botHost.listAll();
+  return !!definition && runtime?.operationRunID===operationRunID && !["STOPPING","STOPPED","PARKING","PARKING_FAILED"].includes(runtime.state) &&
+    definition.members.filter(m=>m.role!=="DEFENDER").every(m=>rows.some(b=>b.operationID===operationID && b.operationRunID===operationRunID &&
+      b.characterID===m.characterID && !b.endedAt && b.preparationOwnerAvailable===true &&
+      botHost.claimedBy(m.characterID)===b.botID && miningPreparation.ready(b.preparation)));
+}
+async function activatePreparedOperation(definition,operationRunID) {
+  if (!operationPreparationBarrier(definition.operationID,operationRunID)) return false;
+  for (const bot of botHost.listAll().filter(b=>b.operationID===definition.operationID && b.operationRunID===operationRunID && !b.endedAt && b.deferMain)) {
+    const result=await botHost.activateOperationMember(bot.botID,bot.accountID,definition.operationID,operationRunID);
+    if (!result.ok) miningOperations.memberFailed(definition.operationID,bot.characterID,{code:result.code,message:result.message});
+  }
+  return true;
+}
 
 // Thin bridge proxy for the whitelisted EveJS callMethod path (goal R1).
 // Forwards the retail call tuple (service, method, args, kwargs) to the
@@ -776,32 +921,42 @@ async function releaseHeldBridgeSession(webSessionID, { confirmed = false } = {}
   if (!held) {
     return false;
   }
-  if (confirmed) {
-    try {
-      const outcome = await gateway.releaseBridgeSession(held.bridgeSessionID, { userid: Number(held.accountID) });
-      if (outcome?.released !== true) {
-        throw Object.assign(new Error("Pilot release was not confirmed."), { code: "PILOT_RELEASE_UNVERIFIED", statusCode: 409 });
-      }
-    } catch (error) {
-      if (!error || error.code !== "SESSION_NOT_FOUND") throw error;
-    }
-    if (bridgeSessions.get(webSessionID) === held) forgetBridgeSession(webSessionID);
-    return true;
-  }
-  forgetBridgeSession(webSessionID, held);
+  replenishment.assertWritable(held.characterID);
+  const existing = characterOperations.get(held.characterID);
+  if (existing && sessionOperations.get(webSessionID) !== existing)
+    throw Object.assign(new Error("The pilot has another operation in progress."), { code: "CHARACTER_IN_USE", statusCode: 409 });
+  const reservation = existing || Symbol("pilot-release");
+  if (!existing) characterOperations.set(held.characterID, reservation);
   try {
-    await gateway.releaseBridgeSession(held.bridgeSessionID, {
-      userid: Number(held.accountID),
-    });
-  } catch (error) {
-    if (!(error && RELEASE_BEST_EFFORT_CODES.has(error.code))) {
-      throw error;
+    if (confirmed) {
+      try {
+        const outcome = await gateway.releaseBridgeSession(held.bridgeSessionID, { userid: Number(held.accountID) });
+        if (outcome?.released !== true) {
+          throw Object.assign(new Error("Pilot release was not confirmed."), { code: "PILOT_RELEASE_UNVERIFIED", statusCode: 409 });
+        }
+      } catch (error) {
+        if (!error || error.code !== "SESSION_NOT_FOUND") throw error;
+      }
+      if (bridgeSessions.get(webSessionID) === held) forgetBridgeSession(webSessionID);
+      return true;
     }
-    if (error.code !== "SESSION_NOT_FOUND") {
-      errorLogger(error);
+    forgetBridgeSession(webSessionID, held);
+    try {
+      await gateway.releaseBridgeSession(held.bridgeSessionID, {
+        userid: Number(held.accountID),
+      });
+    } catch (error) {
+      if (!(error && RELEASE_BEST_EFFORT_CODES.has(error.code))) {
+        throw error;
+      }
+      if (error.code !== "SESSION_NOT_FOUND") {
+        errorLogger(error);
+      }
     }
+    return true;
+  } finally {
+    if (!existing && characterOperations.get(held.characterID) === reservation) characterOperations.delete(held.characterID);
   }
-  return true;
 }
 
 // --- R10 live event channel (gateway push -> SSE) --------------------------
@@ -1008,11 +1163,21 @@ function buildStationStatic(stationID) {
 
 // Shared by ordinary select and the narrowly guarded handoff restoration.
 async function selectHeldCharacter(webSessionID, account, characterID) {
-  const outcome = await gateway.selectCharacter(
+  const pendingCustody = replenishment.unresolved(characterID).length > 0;
+  if (pendingCustody && typeof gateway.selectFactoryCharacter !== "function")
+    throw Object.assign(new Error("Free-only custody recovery selection is unavailable; pilot control remains fenced."),
+      { code: "PROVISIONING_RECOVERY_AUTHORITY_UNAVAILABLE", statusCode: 409 });
+  const outcome = pendingCustody ? await mutationFence.withCustodySelection(characterID,
+    () => gateway.selectFactoryCharacter(Number(account.accountID), characterID)) : await gateway.selectCharacter(
     [characterID, null, true], null,
     { userid: Number(account.accountID), userName: String(account.username || "") },
   );
-  bridgeSessions.set(webSessionID, {
+  bridgeSessions.set(webSessionID, makeHeldCharacter(account, characterID, outcome));
+  joinHeldChat(bridgeSessions.get(webSessionID));
+  return outcome;
+}
+function makeHeldCharacter(account, characterID, outcome) {
+  return {
     bridgeSessionID: outcome.bridgeSessionID,
     characterID: Number(outcome.session.characterID) || characterID,
     accountID: Number(account.accountID),
@@ -1035,9 +1200,7 @@ async function selectHeldCharacter(webSessionID, account, characterID) {
     droneRecoveryReady: false,
     droneRecoveryCheckID: randomUUID(),
     recoveryDroneIDs: new Set(),
-  });
-  joinHeldChat(bridgeSessions.get(webSessionID));
-  return outcome;
+  };
 }
 
 // Select a character onto a persistent browser-backed session (goal R2): the
@@ -1100,7 +1263,7 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
     // after proving the gateway session still exists. Re-selecting would
     // disconnect the recovery owner; refusing would strand the tab forever.
     if (previousHeld && Number(previousHeld.characterID) === characterID &&
-        hasPendingRecovery(previousHeld, characterID) &&
+        (hasPendingRecovery(previousHeld, characterID) || replenishment.unresolved(characterID).length) &&
         !botHost.authorizesClaim(characterID, req.get(botHostModule.BOT_HEADER))) {
       const current = await readHeldFlight(previousHeld, req.webSessionID);
       const liveShipID = Number(current.flight?.shipID);
@@ -1467,10 +1630,13 @@ function planetBindSpec(planetID) {
 async function boundCall(held, webSessionID, bindSpec, method, args, kwargs, bindNotifications = null) {
   assertCurrentHeldSession(held, webSessionID);
   if (bindSpec.service === "invbroker" &&
-      ["Add", "MultiAdd", "MultiMerge", "StackAll", "TrashItems", "SplitStack"].includes(method)) {
+      ["Add", "MultiAdd", "MultiMerge", "StackAll", "TrashItems", "SplitStack", "FitFitting"].includes(method)) {
     // A picked structure or earlier service read is not mutation authority.
     // Recheck the live location and access before every inventory write.
     const flight = await readHeldFlight(held, webSessionID);
+    if (bindSpec.expectedShipID && flight.flight?.shipID !== bindSpec.expectedShipID) {
+      throw Object.assign(new Error("The active ship changed before inventory transfer."), { code: "INVENTORY_SHIP_CHANGED", statusCode: 409 });
+    }
     if (bindSpec.expectedDockedLocationID &&
         (flight.flight?.docked !== true || inventoryLocationID(held) !== bindSpec.expectedDockedLocationID ||
          (isPlayerStructureID(bindSpec.expectedDockedLocationID) && held.structureID !== bindSpec.expectedDockedLocationID))) {
@@ -16248,7 +16414,7 @@ function beginRouteTransition(res, held, kind, expected) {
  * Only the latter waits here; ordinary warp/module/inventory calls continue
  * once the prior transition's authoritative readiness phase is `ready`.
  */
-async function acquireRouteTransition(res, held, kind, expected) {
+async function acquireRouteTransition(res, held, kind, expected, beforeBegin = null) {
   if (held.transition && held.transition.phase !== "ready") {
     return beginRouteTransition(res, held, kind, expected);
   }
@@ -16277,6 +16443,7 @@ async function acquireRouteTransition(res, held, kind, expected) {
       }
     }
   }
+  if (beforeBegin) await beforeBegin();
   return beginRouteTransition(res, held, kind, expected);
 }
 
@@ -17420,52 +17587,12 @@ async function readLockedTargetIDs(held, webSessionID) {
 }
 
 /**
- * Did the module the caller named end up RUNNING? Answered as a set DELTA, not
- * by asking whether that exact itemID is in the running set.
- *
- * The reason is weapon banking. dogmaService.js Handle_Activate silently
- * redirects a banked weapon to its bank MASTER, and the snapshot then reports
- * the master's itemID — so a slave weapon can start cycling without its own id
- * ever appearing, and `ids.includes(itemID)` would call a successful shot a
- * failure. Asking "is this id running, OR did the running set grow?" is right
- * either way round.
- *
- * Measured live in R29: banking is NOT reachable from this browser today —
- * banks are built only by dogmaIM.LinkWeapons, which is not allowlisted, and
- * two same-type turrets fired together each reported their OWN itemID with
- * `isBanked:false` on every damage message. This is therefore a guard against
- * a real server behaviour the client cannot currently trigger, not a fix for a
- * bug firing today. It costs one extra snapshot read and cannot be wrong.
- *
- * Returns null when either snapshot could not answer — "unknown", never "off".
+ * Confirm the requested module, including an authoritative bank-master mapping.
+ * Unrelated growth in the active set is not proof. Missing bank authority is
+ * unknown rather than a guessed confirmation of a slave weapon.
  */
-function activationLanded(idsBefore, idsAfter, itemID) {
-  if (idsAfter === null) {
-    return null;
-  }
-  if (idsAfter.includes(itemID)) {
-    return true;
-  }
-  if (idsBefore === null) {
-    return false;
-  }
-  // The named module is absent, but something new IS cycling that was not
-  // before: that is the bank master standing in for the weapon we asked for.
-  const before = new Set(idsBefore);
-  if (idsAfter.some((id) => !before.has(id))) {
-    return true;
-  }
-  // Nothing is running at all, so nothing started. Unambiguous.
-  if (idsAfter.length === 0) {
-    return false;
-  }
-  // Otherwise the running set did not change and the module we named is not in
-  // it. From OUTSIDE, with no bank map, this has two indistinguishable causes:
-  // the weapon joined a bank whose master was already cycling, or the server
-  // took the call and did nothing. This bridge does not get to guess between
-  // "your gun is firing" and "your gun is not", so it says UNKNOWN — the same
-  // answer it gives when the snapshot cannot answer at all.
-  return null;
+function activationLanded(_idsBefore, idsAfter, itemID, banks) {
+  return require("./moduleActionEvidence").moduleActive(idsAfter, itemID, banks);
 }
 
 /**
@@ -17484,6 +17611,7 @@ async function readActiveModuleIDs(held) {
     // null (not []) when the snapshot could not answer at all, so the caller can
     // say "unknown" instead of "nothing is running".
     ids: ids === null ? null : ids.map((value) => Number(value) || 0).filter((v) => v > 0),
+    banks: ship && ship.weaponBanks && typeof ship.weaponBanks === "object" ? ship.weaponBanks : null,
     notifications: outcome ? outcome.notifications : [],
   };
 }
@@ -17677,7 +17805,7 @@ app.post("/api/bridge/modules/activate", requireAuth, async (req, res, next) => 
       ok: true,
       itemID,
       // null when the snapshot could not answer — "unknown", never "off".
-      active: activationLanded(activeBefore.ids, active.ids, itemID),
+      active: activationLanded(activeBefore.ids, active.ids, itemID, active.banks),
       activeModuleIDs: active.ids,
       notifications: [...outcome.notifications, ...active.notifications],
     });
@@ -17729,8 +17857,15 @@ app.post("/api/bridge/modules/deactivate", requireAuth, async (req, res, next) =
       [itemID, effect],
       null,
     );
-    const active = await readActiveModuleIDs(held);
-    const landed = activationLanded(activeBefore.ids, active.ids, itemID);
+    let active = await readActiveModuleIDs(held);
+    let landed = activationLanded(activeBefore.ids, active.ids, itemID, active.banks);
+    // Accepted stop may finish at the cycle boundary. Observe, never resend it.
+    const deadline = Date.now() + (options.moduleReconcileMs ?? 15_000);
+    while (landed === true && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      active = await readActiveModuleIDs(held);
+      landed = activationLanded(activeBefore.ids, active.ids, itemID, active.banks);
+    }
     res.json({
       ok: true,
       itemID,
@@ -19417,7 +19552,11 @@ app.get("/api/pilot-training/qualification", requireTrainingAuth, async (req, re
     try { configurations = JSON.parse(raw); } catch { throw Object.assign(new Error("Invalid configuration."), { statusCode: 400 }); }
     const { read } = await readMinerPilot({ store, gateway, data: staticData, account: req.account,
       characterID, configurations, role: req.query.role, targetStage: req.query.targetConfigurationID || null });
-    res.json({ ok: true, ...read });
+    const sourceText = String(req.query.equipmentSource || '{"kind":"hangar"}');
+    if (sourceText.length > 512) throw Object.assign(new Error("Invalid physical source."), { statusCode: 400 });
+    let source;
+    try { source = JSON.parse(sourceText); } catch { throw Object.assign(new Error("Invalid physical source."), { statusCode: 400 }); }
+    res.json({ ok: true, ...await trainingEquipment.enrich(req.account, read, configurations, source) });
   } catch (error) { next(error); }
 });
 
@@ -20303,7 +20442,7 @@ app.post("/api/pi/customs-export", requireAuth, async (req, res, next) => {
               (Number.isSafeInteger(structureID) && structureID > 0))) return null;
         return { shipID, stationID, structureID };
       };
-      if (await isCharacterHeld(characterID, req.webSessionID)) {
+      if (await isCharacterHeld(characterID, req.webSessionID, null, reservation)) {
         res.status(409).json({
           ok: false,
           error: "CHARACTER_IN_USE",
@@ -20382,7 +20521,7 @@ app.post("/api/pi/customs-export", requireAuth, async (req, res, next) => {
       const confirmOffline = async (attempts = 1) => {
         for (let attempt = 0; attempt < attempts; attempt++) {
           assertExportOwnership();
-          const heldElsewhere = await isCharacterHeld(characterID, req.webSessionID);
+          const heldElsewhere = await isCharacterHeld(characterID, req.webSessionID, null, reservation);
           assertExportOwnership();
           if (heldElsewhere) break;
           const status = await gateway.getCharacterStatus(req.account.accountID, characterID);
@@ -22145,13 +22284,30 @@ function prepareMiningOperationLaunch(definition) {
   return { ok: true, scripts, audits, commonClasses, planHash, warnings };
 }
 
-app.get("/api/mining-operations/:operationID/launch-plan", requireAuth, (req, res, next) => {
+app.get("/api/mining-operations/preparation-options", requireAuth, async (req,res,next) => {
+  try {
+    const account = await store.getAccount(String(req.query.accountName || ""));
+    const characterID=Number(req.query.characterID), providerCharacterID=Number(req.query.providerCharacterID || characterID);
+    if (!account || account.banned || !await store.getCharacterForAccount(account.accountID,characterID))
+      throw Object.assign(new Error("Account-owned pilot unavailable."),{code:"CHARACTER_NOT_FOUND",statusCode:409});
+    const source = req.query.sourceKind==="corp" ? {kind:"corp",corporationID:Number(req.query.corporationID),division:Number(req.query.division)} : {kind:"hangar"};
+    const detail=await provisioningCenter.readReview(account.accountID,{characterID,providerCharacterID,fittingID:0,source});
+    res.json({ok:true,definitions:detail.definitions,pilot:detail.pilot,candidateSource:detail.candidateSource});
+  } catch(error) { next(error); }
+});
+async function withMiningPreparationPlan(definition,plan,req) {
+  if (!plan.ok) return plan;
+  const held=bridgeSessions.get(req.webSessionID);
+  const preparation=await miningPreparation.plan(definition,held ? {characterID:held.characterID,accountID:Number(held.accountID)} : null);
+  return {...plan,preparation,planHash:createHash("sha256").update(JSON.stringify([plan.planHash,preparation.planHash])).digest("hex")};
+}
+app.get("/api/mining-operations/:operationID/launch-plan", requireAuth, async (req, res, next) => {
   try {
     const definition = miningOperations.definition(req.params.operationID);
     if (!definition) { res.status(404).json({ ok: false, error: "MINING_OPERATION_NOT_FOUND" }); return; }
-    const plan = prepareMiningOperationLaunch(definition);
+    const plan = await withMiningPreparationPlan(definition,prepareMiningOperationLaunch(definition),req);
     if (!plan.ok) { res.status(409).json({ ok: false, error: plan.code, message: plan.message }); return; }
-    res.json({ ok: true, planHash: plan.planHash, warnings: plan.warnings,
+    res.json({ ok: true, planHash: plan.planHash, warnings: plan.warnings, preparation: plan.preparation,
       members: definition.members.filter((member) => member.role !== "DEFENDER").map((member) => ({
       characterID: member.characterID, routineMode: member.routineMode || (member.automationID ? "CUSTOM" : "STANDARD"),
       script: plan.scripts.get(member.characterID),
@@ -22170,12 +22326,12 @@ app.post("/api/mining-operations/:operationID/start", requireAuth, async (req, r
       res.status(409).json({ ok: false, error: "MINING_OPERATION_INVALID", message: error.message });
       return;
     }
-    const plan = prepareMiningOperationLaunch(definition);
+    const plan = await withMiningPreparationPlan(definition,prepareMiningOperationLaunch(definition),req);
     if (!plan.ok) { res.status(409).json({ ok: false, error: plan.code, message: plan.message }); return; }
-    if ((definition.members.some((member) => member.role !== "DEFENDER" &&
-        (member.routineMode || (member.automationID ? "CUSTOM" : "STANDARD")) === "STANDARD") ||
-        (definition.policies?.parking.mode && definition.policies.parking.mode !== "STAY_IN_PLACE")) &&
-        req.body?.planHash !== plan.planHash) {
+    if (plan.preparation.state!=="READY") {
+      res.status(409).json({ok:false,error:"OPERATION_EQUIPMENT_NOT_READY",preparation:plan.preparation,message:"Review member equipment/source before Start."});return;
+    }
+    if (req.body?.planHash !== plan.planHash) {
       res.status(409).json({ ok: false, error: "OPERATION_LAUNCH_PLAN_STALE",
         message: "The operation profile or destination changed since preflight. Review and Start again." });
       return;
@@ -22277,7 +22433,11 @@ app.post("/api/mining-operations/:operationID/start", requireAuth, async (req, r
       }
     }
     const { scripts, audits, commonClasses } = plan;
-    const begin = miningOperations.begin(definition.operationID, commonClasses);
+    if (JSON.stringify(miningOperations.definition(definition.operationID))!==JSON.stringify(definition)) {
+      res.status(409).json({ok:false,error:"OPERATION_LAUNCH_PLAN_STALE",message:"Operation configuration changed during preflight. Review and Start again."});return;
+    }
+    const operationRunID = randomUUID();
+    const begin = miningOperations.begin(definition.operationID, commonClasses, operationRunID);
     if (!begin.ok) {
       res.status(MINING_OPERATION_STATUS[begin.code] || 409).json(begin);
       return;
@@ -22325,7 +22485,7 @@ app.post("/api/mining-operations/:operationID/start", requireAuth, async (req, r
         results.push({ characterID: member.characterID, ok: false, error: "CHARACTER_IN_USE", message: failure });
         continue;
       }
-      const reservation = Symbol("mining-operation-handoff");
+      const reservation = {kind:"mining-operation-handoff",operationID:definition.operationID,operationRunID};
       characterOperations.set(member.characterID, reservation);
       if (callerSessionID !== null) sessionOperations.set(callerSessionID, reservation);
       let released = false;
@@ -22344,6 +22504,9 @@ app.post("/api/mining-operations/:operationID/start", requireAuth, async (req, r
           operationID: definition.operationID,
           operationRole: member.role,
           operationControllerAccountID: Number(req.account.accountID),
+          operationRunID,
+          operationPreparation: plan.preparation.members.find(m=>m.characterID===member.characterID).intent,
+          deferMain: true,
           beforeStart: callerSessionID === null ? null : async () => {
             const held = bridgeSessions.get(callerSessionID);
             if (held && Number(held.characterID) === member.characterID) {
@@ -22400,6 +22563,7 @@ app.post("/api/mining-operations/:operationID/start", requireAuth, async (req, r
         results.push({ characterID: member.characterID, ok: true, bot: outcome.bot });
       }
     }
+    await activatePreparedOperation(definition,operationRunID);
     miningOperations.finishLaunch(definition.operationID);
     res.json({ ok: true, results, ...operationPayload() });
   } catch (error) {

@@ -21,8 +21,25 @@ export interface MinerStage {
   readonly hard: readonly RequirementRow[];
   readonly support: readonly RequirementRow[];
   readonly skillQualification: QualificationState;
-  readonly equipmentReadiness: QualificationState;
+  readonly equipmentReadiness: "VERIFIED" | "MODIFIED" | "MISSING" | "UNKNOWN";
   readonly equipmentReason: string;
+  readonly equipment?: TrainingEquipmentObservation;
+  readonly dutyReadiness?: QualificationState;
+}
+
+export interface TrainingEquipmentObservation {
+  readonly status: import("../bridge/provisioning.ts").ProvisioningStatus;
+  readonly reason: string; readonly observedAt: number; readonly validUntil: number;
+  readonly quality: string; readonly revision: string | null; readonly shipID: number | null;
+  readonly hullName: string | null; readonly locationID: number | null;
+  readonly control: { state: string; owner: string };
+}
+export type TrainingEquipmentSource = { kind: "hangar" } | { kind: "corp"; corporationID: number; division: number };
+export interface TrainingEquipmentReview {
+  readonly configurationID: string;
+  readonly detail: import("../provisioning/centerClient.ts").CenterReview;
+  readonly applyReview: import("../provisioning/centerClient.ts").CenterReview["applyReview"];
+  readonly fresh: MinerTrainingRead;
 }
 
 export interface StageFittingSelection {

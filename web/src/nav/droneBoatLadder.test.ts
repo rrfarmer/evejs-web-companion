@@ -27,6 +27,10 @@ import type { ScriptObservation } from "./scriptConditions.ts";
 import type { RatThreat } from "./ratThreat.ts";
 import { decideDroneBoat, EMPTY_GRID_CONFIRM_TICKS, type DroneBoatInputs } from "./droneBoatLadder.ts";
 import { decodeLedger, encodeLedger, enterSite, emptyLedger, visitsTo, MAX_SITE_RETURNS } from "./siteProgress.ts";
+import type { CombatOwnership } from "./combatOwnership.ts";
+
+const ownedFlight: CombatOwnership = { shipID: 9001, modules: {}, locks: [], drones: [7001],
+  initialDrones: [], launched: true, movement: false, fleetCall: false };
 
 const ORIGIN: SpaceVector = { x: 0, y: 0, z: 0 };
 
@@ -64,6 +68,7 @@ function ship(over: Partial<SpaceShipStatus> = {}): SpaceShipStatus {
     position: ORIGIN, velocity: ORIGIN, shieldRatio: 1, armorRatio: 1, hullRatio: 1,
     capacitorRatio: 1, shieldCapacity: null, armorCapacity: null, hullCapacity: null,
     activeModuleIDs: [],
+    weaponBanks: {},
     ...over,
   } as SpaceShipStatus;
 }
@@ -80,6 +85,7 @@ function obs(over: Partial<ScriptObservation> = {}): ScriptObservation {
     snapshot: null, lockedTargetIDs: [], holds: null, droneBayItemIDs: [],
     combatDroneIDs: [], combatDroneBayItemIDs: [], salvageDroneIDs: [], salvageDroneBayItemIDs: [],
     weaponModuleIDs: [],
+    myDrones: [], capacitorRatio: 1,
     ...over,
   };
 }
@@ -426,10 +432,10 @@ test("wantBurn is true while the gap is real", () => {
   assert.equal((out.action as { moduleID: number }).moduleID, 6001);
 });
 
-test('propMode "off" still stops a burner that is already running', () => {
+test('propMode "off" still stops a burner this invocation owns', () => {
   const out = run({
     propMode: "off",
-    mem: { holdM: 25_000, anchorID: 1 },
+    mem: { holdM: 25_000, anchorID: 1, combatOwned: { ...ownedFlight, modules: { 6001: { typeID: MWD.typeID } } } },
     obs: obs({
       snapshot: snapshot([rat(1, 38_000), myDrone(7001)], { activeModuleIDs: [6001] }),
       combatDroneIDs: [7001],
@@ -563,7 +569,10 @@ function engaged(over: Partial<ScriptObservation> = {}) {
 }
 
 test("an unloaded gun is never activated", () => {
-  const out = run(engaged({ weaponModuleIDs: [5001, 5002], unloadedWeaponIDs: [5001] }));
+  const out = run(engaged({ weaponModuleIDs: [5001, 5002], unloadedWeaponIDs: [5001],
+    combatWeapons: { shipID: 9001, cargo: [], weapons: [5001, 5002].map(itemID => ({
+      itemID, typeID: 10, chargeTypeID: itemID === 5001 ? null : 222, chargeQuantity: itemID === 5001 ? 0 : 10,
+      acceptedGroups: [83], chargeSize: 1, reachM: 30_000, tracking: 1 })) } }));
   assert.equal(out.action.kind, "activate");
   assert.equal((out.action as { moduleID: number }).moduleID, 5002);
 });
@@ -719,7 +728,7 @@ test("the close-in budget runs out: the drones come home and the block finishes"
     myDrones: [{ itemID: 7001, shieldRatio: 1, armorRatio: 1, hullRatio: 1 }],
     threatByTypeID: { 100: HARMLESS },
   });
-  const recall = run({ mem: { approachID: 1, closeTicks: 999 }, obs: world });
+  const recall = run({ mem: { approachID: 1, closeTicks: 999, combatOwned: ownedFlight }, obs: world });
   assert.equal(recall.action.kind, "recallDrones");
   assert.notEqual(recall.outcome.kind, "done");
 
@@ -834,6 +843,7 @@ test("a cleared grid calls the drones home and then finishes", () => {
   // The recall waits on the same confirmation the finish does: pulling the
   // drones in on an unpopulated grid is the same mistake one rung earlier.
   const recall = runUntilClear({
+    mem: { combatOwned: ownedFlight },
     obs: obs({
       snapshot: snapshot([myDrone(7001)]),
       combatDroneIDs: [7001],
@@ -873,7 +883,7 @@ test("a site that has been given up on recalls the drones before finishing", () 
     threatByTypeID: { 100: scrammer(20_000) },
   } satisfies Partial<ScriptObservation>;
 
-  const recall = run({ board, mem: { holdM: 25_000, anchorID: 1 }, obs: obs(world) });
+  const recall = run({ board, mem: { holdM: 25_000, anchorID: 1, combatOwned: ownedFlight }, obs: obs(world) });
   assert.equal(recall.action.kind, "recallDrones");
   assert.match(recall.why, /giving up on it/i);
   assert.notEqual(recall.outcome.kind, "done");

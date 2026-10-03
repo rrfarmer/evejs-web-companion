@@ -1,6 +1,9 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { createBotHost } = require("./botHost");
 
 const account = { accountID: 7, username: "test" };
@@ -18,13 +21,14 @@ function fixture(overrides = {}) {
   const store = { station: { get: () => state.station }, flight: { get: () => state.flight }, space: { get: () => state.space },
     customBot: { get: () => state.customBot }, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
   const flow = {
-    async selectCharacter() { log.push("select"); selected++; state.station.online = { characterID: launch.characterID, characterName: "Test" }; },
+    async selectCharacter() { log.push("select"); selected++; await overrides.select?.(); state.station.online = { characterID: launch.characterID, characterName: "Test" }; },
     async startCustomBot() { log.push("start"); push({ status: "running", phase: "Mining" }); },
     suspendHostedSession() { log.push("suspend"); push({ status: "paused" }); return overrides.suspend?.() ?? Promise.resolve(); },
     async verifyHostedSessionRecovery(shipID) { log.push("verify"); assert.equal(shipID, 9001); await overrides.verify?.(); },
     resumeHostedSession() { log.push("resume"); push({ status: "running", phase: "Mining" }); },
     async prepareHostedBotStop() { log.push("settle-stop"); },
     async prepareCustomBotParking() { log.push("settle-parking"); },
+    async parkCustomBot() { log.push("park"); },
     stopCustomBot() { log.push("stop"); }, abortRoute() {}, async logout() { log.push("logout"); },
   };
   const host = createBotHost({ baseUrl: "http://127.0.0.1:0", webAuth: { createSessionToken: () => "owned-token" },
@@ -304,4 +308,145 @@ test("operation fleet reads discard a peer retired while its read was pending", 
   const read = f.host.readOperationFleets("op"); await waitUntil(() => f.log.includes("peer-read"));
   await f.host.stop(f.member.bot.botID, 7); gate.resolve();
   const rows = await read; assert.deepEqual(rows.map(row => row.scope.characterID), [launch.characterID]);
+});
+
+for (const active of [false, true]) test(`hosted reconnect retains completed preparation ${active ? "after" : "before"} MAIN activation`, async () => {
+  let prepared = 0;
+  const f = fixture({ host: { prepareOperation: async record => {
+    prepared++; record.assertPreparationCurrent(); return { state: "VERIFIED", evidence: { supplies: "FULL" } };
+  }, operationBarrierReady: () => true } });
+  const started = await f.host.start({ ...launch, operationRunID: "operation-run", operationPreparation: { source: { kind: "hangar" }, fittingID: 4 }, deferMain: true });
+  const activate = () => f.host.activateOperationMember(started.bot.botID, 7, "op", "operation-run");
+  if (active) assert.equal((await activate()).ok, true);
+  assert.equal(f.host.reconnect(started.bot.botID, 7).ok, true);
+  await waitUntil(() => f.host.list(7)[0].recovery?.state === "READY");
+  const ready = f.host.list(7)[0];
+  assert.equal(ready.logicalRunID, started.bot.logicalRunID);
+  assert.equal(ready.operationRunID, "operation-run");
+  assert.equal(ready.preparation.state, "VERIFIED");
+  assert.equal(prepared, 1);
+  if (active) assert.equal(f.log.filter(row => row === "resume").length, 1);
+  else {
+    assert.equal(f.log.includes("resume"), false);
+    assert.equal(f.log.includes("start"), false);
+    assert.equal((await activate()).ok, true);
+  }
+  assert.equal(f.log.filter(row => row === "start").length, 1);
+  await f.host.stop(started.bot.botID, 7);
+});
+
+test("deferred MAIN stays fenced during reconnect verification and activates only after aggregate recovery callback", async () => {
+  const gate = deferred(); let prepared = 0, aggregates = 0, activation;
+  const f = fixture({ verify: () => gate.promise, host: {
+    prepareOperation: async () => { prepared++; return { state: "VERIFIED", evidence: { supplies: "FULL" } }; },
+    operationBarrierReady: () => true,
+    onOperationResume: async () => {
+      aggregates++;
+      const bot = f.host.list(7)[0];
+      assert.equal(bot.preparationOwnerAvailable, true);
+      activation = await f.host.activateOperationMember(bot.botID, 7, "op", "operation-run");
+    },
+  } });
+  const started = await f.host.start({ ...launch, operationRunID: "operation-run",
+    operationPreparation: { source: { kind: "hangar" }, fittingID: 4 }, deferMain: true });
+  assert.equal(started.bot.preparationOwnerAvailable, true);
+  assert.equal(f.host.reconnect(started.bot.botID, 7).ok, true);
+  await waitUntil(() => f.log.includes("verify"));
+  const pending = f.host.list(7)[0];
+  assert.equal(pending.preparation.state, "VERIFIED");
+  assert.equal(pending.preparationOwnerAvailable, false);
+  assert.equal((await f.host.activateOperationMember(pending.botID, 7, "op", "operation-run")).ok, false);
+  assert.equal(f.host.preparationForRun(pending.logicalRunID).mainEntered, false);
+  assert.equal(f.log.includes("start"), false);
+  assert.equal(aggregates, 0);
+  gate.resolve();
+  await waitUntil(() => activation?.ok === true);
+  assert.equal(aggregates, 1); assert.equal(prepared, 1);
+  assert.equal(f.log.filter(row => row === "start").length, 1);
+  assert.equal(f.host.preparationForRun(pending.logicalRunID).mainEntered, true);
+  await f.host.stop(started.bot.botID, 7);
+});
+
+test("ready preparation cannot activate after reconnect owner verification fails", async () => {
+  let aggregates = 0;
+  const f = fixture({ verify: async () => { throw new Error("owner observation unknown"); }, host: {
+    prepareOperation: async () => ({ state: "VERIFIED", evidence: { supplies: "FULL" } }),
+    operationBarrierReady: () => true, onOperationResume: async () => { aggregates++; },
+  } });
+  const started = await f.host.start({ ...launch, operationRunID: "operation-run",
+    operationPreparation: { source: { kind: "hangar" }, fittingID: 4 }, deferMain: true });
+  f.host.reconnect(started.bot.botID, 7);
+  await waitUntil(() => f.host.list(7)[0].recovery?.state === "BLOCKED");
+  const blocked = f.host.list(7)[0];
+  assert.equal(blocked.preparation.state, "VERIFIED"); assert.equal(blocked.preparationOwnerAvailable, false);
+  assert.equal((await f.host.activateOperationMember(blocked.botID, 7, "op", "operation-run")).ok, false);
+  assert.equal(f.host.preparationForRun(blocked.logicalRunID).mainEntered, false);
+  assert.equal(f.host.claimedBy(launch.characterID), blocked.botID);
+  assert.equal(f.log.includes("start"), false); assert.equal(aggregates, 0);
+  await f.host.stop(started.bot.botID, 7);
+});
+
+test("successful same-run restart retires an unowned failed recovery report without ending custody or blocking Stop", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bot-recovery-report-"));
+  assert.equal(path.dirname(dir), path.resolve(os.tmpdir()));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const persistPath = path.join(dir, "roster.json");
+  const readRoster = () => JSON.parse(fs.readFileSync(persistPath, "utf8")).bots;
+  const readRun = logicalRunID => JSON.parse(fs.readFileSync(`${persistPath}.startup.json`, "utf8")).records[logicalRunID];
+  let issued = 0, reconciled = 0;
+  const first = fixture({ host: { persistPath, prepareOperation: async record => {
+    record.preparationCheckpoint.begin({ before: 3200 });
+    record.preparationCheckpoint.update({ custodyOperationID: "committed-transfer", requested: 1800 });
+    issued++;
+    throw new Error("Shared Add committed but its response was lost.");
+  } } });
+  const started = await first.host.start({ ...launch, operationRunID: "operation-run",
+    operationPreparation: { accountID: 7, characterID: launch.characterID, operationID: "op" }, deferMain: true });
+  assert.equal(started.bot.preparation.state, "RECOVERY_REQUIRED");
+
+  const failed = fixture({ select: async () => { throw new Error("Recovery selector unavailable."); }, host: {
+    persistPath, preparationUnresolved: () => true,
+    prepareOperation: async () => assert.fail("Failed selection cannot reach preparation."),
+  } });
+  await failed.host.resume();
+  const duplicateRows = readRoster();
+  assert.equal(duplicateRows.length, 2);
+  assert.equal(duplicateRows[0].stopBlocked, true);
+  assert.ok(duplicateRows.every(row => row.logicalRunID === started.bot.logicalRunID));
+  assert.equal(readRun(started.bot.logicalRunID).ended, false);
+
+  const restored = fixture({ host: { persistPath, prepareOperation: async record => {
+    const pending = record.preparationCheckpoint.snapshot();
+    assert.equal(pending.invocation, 1);
+    assert.equal(pending.evidence.custodyOperationID, "committed-transfer");
+    assert.throws(() => record.preparationCheckpoint.begin(), /requires reconciliation/);
+    reconciled++;
+    return { state: "VERIFIED", evidence: { after: 5000, reconciled: true } };
+  }, operationBarrierReady: () => true } });
+  await restored.host.resume();
+  const rows = restored.host.list(7), active = rows.filter(row => !row.endedAt);
+  assert.equal(active.length, 1);
+  const owner = active[0], report = rows.find(row => row.botID !== owner.botID);
+  assert.equal(restored.host.claimedBy(launch.characterID), owner.botID);
+  assert.equal(owner.logicalRunID, started.bot.logicalRunID);
+  assert.equal(owner.preparationOwnerAvailable, true);
+  assert.equal(report.status, "error");
+  assert.equal(report.phase, "Superseded recovery report");
+  assert.ok(report.endedAt);
+  assert.match(report.why, /graceful Stop was blocked/);
+  assert.equal(report.preparation.evidence.custodyOperationID, "committed-transfer");
+  assert.equal(readRoster().length, 1);
+  assert.equal(readRun(owner.logicalRunID).ended, false);
+  assert.equal(readRun(owner.logicalRunID).preparation.invocation, 1);
+  assert.equal(issued, 1); assert.equal(reconciled, 1);
+  assert.equal(restored.log.includes("start"), false);
+  assert.equal(restored.log.includes("logout"), false);
+  assert.equal((await restored.host.activateOperationMember(owner.botID, 7, "op", "operation-run")).ok, true);
+  assert.equal((await restored.host.prepareOperationStop(owner.botID, 7, "op")).ok, true);
+  assert.equal((await restored.host.parkOperationMember(owner.botID, 7, "op", { mode: "RETURN_HOME_DOCK" })).ok, true);
+  assert.equal(restored.host.claimedBy(launch.characterID), null);
+  assert.equal(restored.log.filter(step => step === "start").length, 1);
+  assert.equal(restored.log.filter(step => step === "logout").length, 1);
+  assert.equal(readRun(owner.logicalRunID).ended, true);
+  assert.equal(readRoster().length, 0);
 });
