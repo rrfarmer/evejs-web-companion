@@ -9,10 +9,8 @@
 // "fine", which is how a dead-man switch rots). Two guards live here:
 //
 //   • THE ACUTE RULE (sealed, from the hand-written mining bot): a hostile is on
-//     the grid AND ship health cannot be read → pause immediately. You do not
-//     keep working blind next to a pirate. This only applies when no player
-//     interrupt already handled the hostile — if the player chose "launch drones
-//     on a pirate", that fires first and defends the ship.
+//     the grid AND ship health cannot be read → stop safely. Explicit escape
+//     authority may fire first; optional combat cannot mask unreadable health.
 
 import type { Condition, InterruptRow } from "../bots/botScript.ts";
 import type {
@@ -202,6 +200,10 @@ export function pickAdvertisedFleet(
 }
 
 export interface ScriptObservation {
+  readonly combatWeapons?: import("./combatWeapons.ts").CombatWeapons | null;
+  readonly combatUtilities?: import("./combatUtilities.ts").CombatUtilities | null;
+  /** Ordinary continuous hardeners, independent of the starting macro hint. */
+  readonly combatHardenerModuleIDs?: readonly number[];
   /** Fresh normal-flow reads. No saved runtime fleet identity or base-range fallback. */
   readonly fleetMining?: Pick<FleetMinerInput, "anchors" | "modules" | "sceneReceivedAtMs" | "nowMs" | "requirements"> & {
     readonly fleet: MiningSupportFleetObservation | null;

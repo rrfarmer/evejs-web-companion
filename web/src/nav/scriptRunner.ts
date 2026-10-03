@@ -23,10 +23,12 @@
 //   • Session loss is the one error allowed to end the run; any other failed read
 //     becomes a wait, never a confident empty.
 
-import type { BotScript, SquadRoleArg } from "../bots/botScript.ts";
+import type { BotScript, ProgramNode, SquadRoleArg } from "../bots/botScript.ts";
+import { startupSteps, type StartupCheckpoint, type StartupState } from "../bots/startup.ts";
 import { resolveStationRef } from "./scriptMacros.ts";
 import {
   activeMacroID,
+  currentStepID,
   activeStepNeedsTypeNames,
   activeStepToursOreSites,
   activeSquadRole,
@@ -39,6 +41,7 @@ import {
   DEFAULT_SETTLE_TICKS,
   type HomeTravelDecider,
   type MacroRegistry,
+  type MacroDecider,
   type ScriptAction,
   type ScriptBoard,
   type ScriptMemory,
@@ -55,6 +58,7 @@ import {
 } from "./refusalLedger.ts";
 import { isSessionChangeSettling, isTransportTransient, isTransitionTimeout, refusalWords } from "../bridge/refusals.ts";
 import { createTravelAssist, type TravelAssistDeps } from "./travelAssist.ts";
+import { settleCombat } from "./combatOwnership.ts";
 
 /**
  * What the next decide will look at — so `observe` reads ONLY what that macro
@@ -63,6 +67,8 @@ import { createTravelAssist, type TravelAssistDeps } from "./travelAssist.ts";
  */
 export interface ObserveHint {
   readonly activeMacro: string | null;
+  /** A decide tick can advance several nodes before selecting mobile combat. */
+  readonly needsMobileCombat?: boolean;
   /**
    * Whether the active block matches items by NAME, and so needs the type names
    * resolved for what it is looking at. Optional: a caller that does not say
@@ -88,6 +94,11 @@ export interface ObserveHint {
 }
 
 export const SCRIPT_CADENCE_MS = 2000;
+export function needsMobileCombat(nodes: readonly ProgramNode[]): boolean {
+  return nodes.some(node => node.kind === "macro" ? node.macro === "fight-with-drones" :
+    node.kind === "loop" ? needsMobileCombat(node.body) : node.kind === "branch" ?
+      needsMobileCombat(node.then) || needsMobileCombat(node.else) : false);
+}
 /**
  * The settle a world call costs unless `settleTicksFor` knows it can cost less.
  *
@@ -197,8 +208,9 @@ export interface ScriptRunnerDeps {
    * which is what every performer did before this existed and what nearly all
    * still do, means "exactly as asked".
    */
-  issue(action: ScriptAction, claimRunID?: string, invocation?: { readonly runID: string; readonly invocationID: number; readonly stepPath: string }): Promise<void | string | null>;
+  issue(action: ScriptAction, claimRunID?: string, invocation?: { readonly runID: string; readonly invocationID: number; readonly stepPath: string }): Promise<void | string | null | { readonly launchedDroneIDs: readonly number[] }>;
   readonly mutationCustody?: () => boolean;
+  readonly startup?: StartupCheckpoint;
   /** Optional for pure tests; a live loot-containers step requires it. */
   readonly claims?: {
     read(runID: string, systemID: number): Promise<readonly number[]>;
@@ -234,6 +246,9 @@ export interface ScriptRunnerController {
   stop(): void;
   /** Stop new decisions and wait for the tick already observing/issuing. */
   beginGracefulStop(): Promise<void>;
+  /** Called only after decisions and the in-flight issue have been retired. */
+  settleCombatStop?(deadlineMs: number): Promise<void>;
+  combatDronesForStop?(): readonly number[] | null;
   /** Freeze transport without issuing cleanup or surrendering custody. */
   suspendTransport(): Promise<void>;
   transportCustody(): boolean;
@@ -313,19 +328,23 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
   // awaiting the wire. A fresh Start cannot replace that pending transaction.
   let issuePending = false;
   let uncertainAction: ScriptAction | null = null;
+  let combatStopCustody = false;
   // Recovery must not erase an accepted write's completion or quantity. Track
   // whole records, never private macro keys; an unclassified contract pauses.
   const retainedProgress = new Map<string, { visit: string; recoverable: boolean; action: ScriptAction }>();
   let recoveryBlocked = false;
   const visitKey = (mem: ScriptMemory) => JSON.stringify([mem.position, mem.loopPass]);
-  function retainActionProgress(before: ScriptMemory, next: ScriptMemory, action: ScriptAction): void {
+  function retainActionProgress(before: ScriptMemory, next: ScriptMemory, action: ScriptAction, startupFenced = false): void {
     const visit = visitKey(next);
     for (const [key, record] of Object.entries(next.macroMem)) {
       if (record === before.macroMem[key]) continue;
       const previous = retainedProgress.get(key);
       retainedProgress.set(key, { visit,
         action: previous?.visit === visit && !previous.recoverable ? previous.action : action,
-        recoverable: canRecoverConfirmedProgress(action) && (previous?.visit !== visit || previous.recoverable) });
+        // A dispatched Startup step has its own durable postcondition gate.
+        // Only that exact fenced step may resume observation without resetting
+        // progress; unrelated MAIN/interrupt contracts retain Farmer's policy.
+        recoverable: (canRecoverConfirmedProgress(action) || startupFenced) && (previous?.visit !== visit || previous.recoverable) });
     }
   }
   function activeProgress(): readonly { recoverable: boolean; action: ScriptAction }[] {
@@ -461,6 +480,7 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     try {
       obs = await deps.observe({
         activeMacro: activeMacroID(script, memory),
+        needsMobileCombat: needsMobileCombat(script.program),
         needsTypeNames: activeStepNeedsTypeNames(script, memory),
         needsOreSites: activeStepToursOreSites(script, memory),
         squadRole: activeSquadRole(script, memory),
@@ -545,6 +565,32 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       return;
     }
 
+    let registry = deps.registry;
+    if (deps.startup && startupSteps(script).length) {
+      try {
+        const states = new Map<string, StartupState>();
+        const currentID = currentStepID(script, memory);
+        const current = startupSteps(script).find(step => step.id === currentID);
+        if (current) states.set(current.id, await deps.startup.observe(current, obs));
+        if (token !== runToken || status !== "running") return;
+        registry = Object.fromEntries(Object.entries(deps.registry).map(([id, decider]) => [id,
+          ((step, facts, mem, board) => {
+            if (!startupSteps(script!).some(candidate => candidate.id === step.id)) return decider!(step, facts, mem, board);
+            const state = states.get(step.id) ?? "PENDING";
+            const base = { action: { kind: "wait" } as const, phase: "Startup", armed: false, nextMem: mem };
+            if (state === "COMPLETE") return { ...base, why: "Startup postcondition verified.", outcome: { kind: "done" } as const };
+            if (state === "BLOCKED") return { ...base, why: "Startup requires reconciliation.",
+              outcome: { kind: "blocked", reason: "Startup outcome is unknown or its adapter is unsupported; MAIN is blocked." } as const };
+            if (state === "PENDING") return { ...base, why: "Verifying startup outcome.", outcome: { kind: "acting" } as const };
+            const tick = decider!(step, facts, mem, board);
+            // The independent observer owns completion. Macro done/skipped and
+            // its until condition cannot open the main barrier.
+            return { ...tick, armed: false, outcome: tick.outcome.kind === "done" || tick.outcome.kind === "skipped"
+              ? { kind: "acting" } as const : tick.outcome };
+          }) as MacroDecider]));
+      } catch (error) { pauseWith(`Startup checkpoint failed: ${String(error)}`); return; }
+    }
+
     // Deciding is pure and total BY DESIGN, but a macro adapter reaching into a
     // live snapshot could still throw on a shape the tests never saw. If it does,
     // an unwrapped throw would reject run() and kill the loop SILENTLY — the ship
@@ -561,7 +607,7 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         script,
         { ...obs, refusals: ledger.records() },
         memory,
-        deps.registry,
+        registry,
         deps.travelHome,
       );
     } catch (error) {
@@ -578,6 +624,16 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         docked: obs.docked ?? null, modules: obs.travelPropulsionModules ?? [], scrammed: obs.scrammed ?? null,
       });
       if (consumed || token !== runToken || status !== "running") return;
+    }
+    if (deps.startup?.checkpoint) {
+      // The decider may advance a proven Startup prefix and select MAIN in
+      // this same tick. Persist that cursor, never unconfirmed action progress.
+      const cursor = isWorldCall(result.action)
+        ? { ...memory, position: result.memory.position, loopPass: result.memory.loopPass }
+        : result.memory;
+      try { await deps.startup.checkpoint(cursor); }
+      catch (error) { pauseWith(`Startup checkpoint failed: ${String(error)}`); return; }
+      if (token !== runToken || status !== "running") return;
     }
     const selected = result.containerTargetID;
     if (claim && (selected !== claim.itemID || obs.flightStatus?.solarSystemID !== claim.systemID)) {
@@ -643,6 +699,12 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         t: now(), kind: "issue", run: runID, action: result.action, says: describeAction(result.action),
         stepPath: result.stepPath, interruptID: result.interruptID, phase: result.phase, why: result.why,
       });
+      const startupStep = startupSteps(script).find(step => step.id === result.stepPath);
+      if (startupStep && deps.startup) {
+        try { await deps.startup.beforeIssue(startupStep, result.action, actionInvocation + 1); }
+        catch (error) { pauseWith(`Startup dispatch blocked: ${String(error)}`); return; }
+        if (token !== runToken || status !== "running") return;
+      }
       issuePending = true;
       try {
         const note = await deps.issue(result.action, result.action.kind === "lootContainer" ? claim?.runID : undefined,
@@ -651,11 +713,19 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         // Completion belongs to the confirmed action, including one that
         // finished while paused. Preserve a concurrently requested home trip.
         memory = { ...result.memory, latched: memory?.latched ?? result.memory.latched };
-        retainActionProgress(beforeAction, memory, result.action);
+        if (result.action.kind === "launchDrones" && note && typeof note === "object" && result.stepPath) {
+          const state = memory.macroMem[result.stepPath];
+          const owned = state?.combatOwned as import("./combatOwnership.ts").CombatOwnership | undefined;
+          if (owned) memory = { ...memory, macroMem: { ...memory.macroMem, [result.stepPath]: {
+            ...state, combatOwned: { ...owned, pendingLaunch: false,
+              drones: [...new Set([...owned.drones, ...note.launchedDroneIDs])] },
+          } } };
+        }
+        retainActionProgress(beforeAction, memory, result.action, !!startupStep && !!deps.startup);
         issuedSuccessfully = true;
         sessionChangeWaits = 0;
         record({
-          t: now(), kind: "result", run: runID, ok: true, says: describeAction(result.action),
+          t: now(), kind: "result", run: runID, ok: !(typeof note === "string" && note.startsWith("UNCERTAIN")), says: describeAction(result.action),
           status: typeof note === "string" && note.length > 0 ? note : undefined,
         });
         // It worked: the streak is over. Without this a key that failed twice
@@ -688,7 +758,16 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         if (result.action.kind !== "haulTransfer" && !(result.action.kind === "unloadOre" && result.action.strictCorp === true) &&
             !(result.action.kind === "jettison" && deps.mutationCustody?.()) &&
             code !== "EDGE_OWNER_OVERLOADED" &&
-            (isTransportTransient(error) || isTransitionTimeout(error) || code === "BRIDGE_BAD_RESPONSE")) {
+            (isTransportTransient(error) || isTransitionTimeout(error) || code === "BRIDGE_BAD_RESPONSE" ||
+             code === "MODULE_ACTION_UNCERTAIN")) {
+          // Preserve possible ownership for observed Stop reconciliation, not step completion.
+          if (memory) {
+            const macroMem = { ...memory.macroMem };
+            for (const [path, state] of Object.entries(result.memory.macroMem)) {
+              if (state.combatOwned) macroMem[path] = { ...macroMem[path], combatOwned: state.combatOwned };
+            }
+            memory = { ...memory, macroMem };
+          }
           uncertainAction = result.action;
           const reason = deps.refusalReason(error);
           record({ t: now(), kind: "result", run: runID, ok: false, refusal: reason,
@@ -951,19 +1030,20 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     start(next: BotScript): void {
       if (issuePending) throw new Error("The previous script action is still awaiting its outcome.");
       if (uncertainAction) throw new Error("Verify the previous action's outcome, then Stop before starting a new run.");
+      if (combatStopCustody) throw new Error("Combat Stop still owns unresolved settlement; reconcile Stop before restarting.");
       if (recoveryBlocked) throw new Error("Verify the preserved step's state, then Stop before starting a new run.");
       if (deps.mutationCustody?.()) throw new Error("Jettison mutation custody still owns unresolved work.");
       transportSuspended = false;
       releaseAfterIssue();
       runToken += 1;
       script = next;
-      memory = initialMemory(next);
+      memory = deps.startup?.restoreMemory?.() ?? initialMemory(next);
       retainedProgress.clear();
       recoveryBlocked = false;
       // A fresh run id BEFORE the first emit, so every line of this run —
       // starting with its own header — is grouped under it. The header is also
       // what tells a store to rotate the previous run's log out.
-      runID = newRunID(Date.now());
+      runID = deps.startup?.logicalRunID ?? newRunID(Date.now());
       actionInvocation = 0;
       loggedDecision = "";
       loggedEnd = false;
@@ -988,7 +1068,7 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       }
     },
     resume(): void {
-      if (transportSuspended || issuePending || uncertainAction || deps.mutationCustody?.()) return;
+      if (transportSuspended || issuePending || uncertainAction || combatStopCustody || deps.mutationCustody?.()) return;
       if (status === "paused") {
         transportSuspended = false;
         runToken += 1;
@@ -1015,6 +1095,52 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         await releaseClaim();
       });
     },
+    async settleCombatStop(deadlineMs: number): Promise<void> {
+      if (status === "running" || activeTick !== null || memory === null) throw new Error("Combat decisions are not retired.");
+      const token = runToken;
+      combatStopCustody = true;
+      issuePending = true;
+      try {
+        for (const [path, original] of Object.entries(memory.macroMem)) {
+          if (!original.combatOwned) continue;
+          let state = original;
+          for (;;) {
+            if (token !== runToken || Date.now() >= deadlineMs) throw new Error("Combat Stop lost generation or exceeded its settlement deadline.");
+            const obs = await deps.observe({ activeMacro: "fight-with-drones", squadRole: "off", watchSquadRole: "off", board: memory.board });
+            if (token !== runToken) throw new Error("Combat Stop generation changed during observation.");
+            const result = settleCombat(obs, state);
+            if (result.outcome.kind === "blocked") throw new Error(result.outcome.reason);
+            if (result.outcome.kind === "done") break;
+            // Preserve pending cleanup intent before dispatch: an uncertain response
+            // must not make a later Stop replay the same module/drone/order mutation.
+            const beforeCleanup = state;
+            state = result.nextMem;
+            memory = { ...memory, macroMem: { ...memory.macroMem, [path]: state } };
+            if (result.action.kind !== "wait") {
+              try { await deps.issue(result.action); }
+              catch (error) {
+                const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+                if (code === "CALL_REFUSED" && token === runToken) {
+                  state = beforeCleanup;
+                  memory = { ...memory, macroMem: { ...memory.macroMem, [path]: state } };
+                }
+                throw error;
+              }
+            }
+            if (token !== runToken) throw new Error("Combat Stop generation changed during settlement.");
+            await deps.sleep(SCRIPT_CADENCE_MS);
+          }
+          const macroMem: Record<string, import("./scriptDecide.ts").MacroMemory> = { ...memory.macroMem }; delete macroMem[path];
+          memory = { ...memory, macroMem };
+        }
+        combatStopCustody = false;
+      } finally { issuePending = false; }
+    },
+    combatDronesForStop(): readonly number[] | null {
+      const states = Object.values(memory?.macroMem ?? {}).filter(state => state.combatOwned != null);
+      return states.length === 0 ? null : [...new Set(states.flatMap(state =>
+        (state.combatOwned as import("./combatOwnership.ts").CombatOwnership).drones))];
+    },
     suspendTransport(): Promise<void> {
       transportSuspended = true;
       runToken += 1;
@@ -1023,10 +1149,10 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       return activeTick ?? Promise.resolve();
     },
     transportCustody(): boolean {
-      return issuePending || uncertainAction !== null || claim !== null || travelAssist?.pending() === true || deps.mutationCustody?.() === true;
+      return issuePending || uncertainAction !== null || combatStopCustody || claim !== null || travelAssist?.pending() === true || deps.mutationCustody?.() === true;
     },
     resumeTransport(): void {
-      if (!transportSuspended || status !== "paused" || issuePending || uncertainAction || claim || travelAssist?.pending() || deps.mutationCustody?.())
+      if (!transportSuspended || status !== "paused" || issuePending || uncertainAction || combatStopCustody || claim || travelAssist?.pending() || deps.mutationCustody?.())
         throw new Error("Transport recovery still owns unresolved work.");
       const progress = activeProgress();
       const unverified = progress.find(entry => !entry.recoverable);

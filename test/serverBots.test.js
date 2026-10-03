@@ -56,6 +56,8 @@ const lostSessions = new Set();
 
 function fakeGateway(log) {
   return {
+    async getCharacterStatus(_accountID, characterID) { return { characterID, online: false, controlState: "offline" }; },
+    async selectFactoryCharacter(_accountID, characterID) { return this.selectCharacter([characterID]); },
     async readFlightStatus(bridgeSessionID) {
       if (lostSessions.has(bridgeSessionID)) {
         throw Object.assign(new Error("Session not found."), { code: "SESSION_NOT_FOUND" });

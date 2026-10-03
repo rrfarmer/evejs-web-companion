@@ -150,6 +150,12 @@ import {
   decodeMessageEntry,
 } from "../bridge/chat.ts";
 import { itemHasActivationCycle } from "../bridge/boundDogma.ts";
+import { combatFit, weaponHasCycle } from "../nav/combatFit.ts";
+import type { CombatWeapons } from "../nav/combatWeapons.ts";
+import { issueCombatReload } from "../nav/combatReloadIssue.ts";
+import { requireModuleOutcome, moduleSettlementNote } from "../nav/moduleOutcome.ts";
+import { combatUtilityFit, type CombatUtilities } from "../nav/combatUtilities.ts";
+import { issueCombatUtility, issueUtilityReload } from "../nav/combatUtilityIssue.ts";
 import { nameKey, type NameRef } from "../store/names.ts";
 import {
   companionFitWarnings,
@@ -357,6 +363,7 @@ export interface MiningBotRequest {
 }
 
 export interface AppFlowOptions {
+  readonly hostedStartup?: import("../bots/startup.ts").StartupCheckpoint;
   /** Volatile hosted MCC ore custody; this never changes process restart policy. */
   readonly hostedOreJettisonRecovery?: boolean;
   readonly baseUrl?: string;
@@ -7151,9 +7158,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return invite === null ? null : { fleetID: invite.fleetID, inviterID: invite.inviterID };
   }
 
+  async function readCombatLoadout(shipID: number | null, weaponIDs: readonly number[]): Promise<{
+    weapons: CombatWeapons; utilities: CombatUtilities | null;
+  } | null> {
+      if (shipID === null) return null;
+      try {
+        const [fit, bound, inventory, space] = await Promise.all([
+          api.loadFitting(callOptions), api.boundDogma(callOptions), api.loadInventory(callOptions), api.getSpaceSnapshot(callOptions),
+        ]);
+        if (fit.activeShipID !== shipID || fit.errors.slots || fit.errors.online || fit.errors.shipInfo || bound.allInfo.error ||
+            Number(bound.allInfo.value?.activeShipID) !== shipID) return null;
+        const container = decodeContainer(inventory.cargo.list, inventory.cargo.capacity,
+          inventory.cargo.error, inventory.volumes);
+        const rows = container.rows.filter(row => row.categoryID === CHARGE_CATEGORY_ID && row.quantity > 0);
+        const sizes = rows.length > 0 ? await api.fetchTypeDogma([...new Set(rows.map(row => row.typeID))], [128], callOptions) : {};
+        const cargo = container.error !== null ? null : rows.map(row => ({
+          itemID: row.itemID, typeID: row.typeID, groupID: row.groupID, quantity: row.quantity,
+          size: sizes[row.typeID]?.[128] ?? null,
+        }));
+        const snapshot = decodeSpaceSnapshot(space.space);
+        const slots = buildSlots(fit.slots, fit.shipInfo, fit.online);
+        const typeIDs = [...new Set([...slots.flatMap(slot => slot.module ? [slot.module.typeID,
+          ...(slot.module.charge ? [slot.module.charge.typeID] : [])] : []), ...rows.map(row => row.typeID)])];
+        const types = await api.combatUtilityTypes(typeIDs, callOptions);
+        return { utilities: combatUtilityFit(shipID, slots, bound.allInfo.value, types,
+          container.error === null ? rows.flatMap(row => types[row.typeID] ? [{ itemID: row.itemID, quantity: row.quantity, type: types[row.typeID]! }] : []) : null,
+          snapshot?.ship?.itemID === shipID ? snapshot.ship.capacitorRatio : null),
+          weapons: { ...combatFit(shipID, slots, weaponIDs,
+          decodeChargeFits(fit.chargeFits), bound.allInfo.value, cargo),
+          weaponBanks: snapshot?.ship?.itemID === shipID ? snapshot.ship.weaponBanks : null } };
+      } catch { return null; }
+    }
+
+  async function readCombatWeapons(shipID: number | null, weaponIDs: readonly number[]): Promise<CombatWeapons | null> {
+    return (await readCombatLoadout(shipID, weaponIDs))?.weapons ?? null;
+  }
+
   function makeMiningBotDeps(): MiningBotDeps {
-    // The bay's stack sizes from its last read, for `launchDrones` below: the
-    // loop hands over stack ids only. See wholeStackLaunch.
+    // The bay's stack sizes from its last read, for `launchDrones` below.
     let droneStackSizesSeen: ReadonlyMap<number, number> = new Map();
     return {
       getStatus: async () => {
@@ -7531,6 +7573,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // Prevent a pending start or an active tick from issuing new script work.
       // The in-flight issue still has to settle before a drone read is trusted.
       await cancelHostedHome(kind);
+      const combatDrones = kind === "script" ? scriptRunner?.combatDronesForStop?.() ?? null : null;
+      if (kind === "script") await scriptRunner?.settleCombatStop?.(deadlineMs);
       if (kind === "script" && supportScript !== null) {
         const frame = supportScript;
         await settleHostedMiningSupport({ readFlight: async () => decodeFlightStatus((await api.getFlightStatus(callOptions)).flight),
@@ -7550,7 +7594,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
               rows.length !== raw.inSpace.length || raw.inSpace.some((value) =>
                 value === null || typeof value !== "object" || Array.isArray(value) ||
                 typeof value.controlled !== "boolean")) return null;
-          return rows;
+          return combatDrones === null ? rows : rows.filter(row => combatDrones.includes(row.itemID));
         },
         recall: async (ids) => { await api.recallDrones(ids, callOptions); },
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -9151,6 +9195,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readonly cap: readonly number[];
   }
   interface ScriptModuleCapabilities {
+    readonly combatWeaponIDs: readonly number[];
+    readonly combatHardeners: readonly number[];
     readonly shipID: number | null;
     readonly mining: readonly number[];
     readonly oreMining: readonly number[];
@@ -9709,7 +9755,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
     }
     const fit = store.fitting.get();
-    const defense = resolveDefenseModuleIDs();
+    const classifiedDefense = resolveDefenseModuleIDs();
+    // Script combat supports continuous ordinary tank, not strategic burst or ancillary modules.
+    const ordinary = (id: number, group: RegExp): boolean => {
+      const module = fit.slots.find(slot => slot.module?.itemID === id)?.module;
+      return module != null && itemHasActivationCycle(fit.dogma, id) === true &&
+        group.test(store.names.get().resolved[nameKey("typeGroup", module.typeID)] ?? "");
+    };
+    const defense = { ...classifiedDefense,
+      shield: classifiedDefense.shield.filter(id => ordinary(id, /^shield booster$/i)),
+      armor: classifiedDefense.armor.filter(id => ordinary(id, /^armor repair unit$/i)),
+      hull: classifiedDefense.hull.filter(id => ordinary(id, /^hull repair unit$/i)) };
     // ⚠ AWAITED HERE, AND IT IS THE ONLY FIELD ON THIS OBJECT THAT CAN COST A
     // CALL. It is gated twice over (see `resolveDroneControlRange`): a hull with
     // no drone bay pays nothing, and a fit stat that ever answers short-circuits
@@ -9732,6 +9788,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return {
       shipID: fit.activeShipID,
+      combatWeaponIDs: fit.slotsError === null ? fit.slots.filter(slot => slot.family === "high" && slot.module?.online &&
+        isWeaponModuleGroup(store.names.get().resolved[nameKey("typeGroup", slot.module.typeID)] ?? "") &&
+        weaponHasCycle(fit.dogma, slot.module.itemID)).map(slot => slot.module!.itemID) : [],
       mining,
       iceMining,
       oreMining,
@@ -9740,6 +9799,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         effect: store.names.get().resolved[nameKey("propulsionEffect", slot.module.typeID)] ?? null,
       }] : [])) : [],
       salvage: resolveSalvageModuleIDs(),
+      combatHardeners: classifiedDefense.hardeners.filter(id => ordinary(id, /^(shield|armor) hardener$/i)),
       defense,
       remoteReps: resolveRemoteRepModuleIDs(),
       maxTargetRangeM: fit.stats.targeting.maxTargetRange.known
@@ -11100,8 +11160,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           targetGroupNames,
           threatByTypeID,
           squadPrimaryTargetID,
-          hardenerModuleIDs: capabilities.defense.hardeners,
-          weaponModuleIDs: capabilities.defense.weapons,
+          hardenerModuleIDs: hint.activeMacro === "fight-with-drones" ? capabilities.combatHardeners : capabilities.defense.hardeners,
+          combatHardenerModuleIDs: capabilities.combatHardeners,
+          weaponModuleIDs: hint.activeMacro === "fight-with-drones" ? capabilities.combatWeaponIDs : capabilities.defense.weapons,
+          ...await (async () => {
+            const facts = hint.needsMobileCombat || hint.activeMacro === "fight-with-drones"
+              ? await readCombatLoadout(observedShipID, capabilities.combatWeaponIDs) : null;
+            return { combatWeapons: facts?.weapons ?? null, combatUtilities: facts?.utilities ?? null };
+          })(),
           maxTargetRangeM: capabilities.maxTargetRangeM,
           // ⚠ THE SECOND LEASH, AND IT IS NEVER THE SAME NUMBER AS THE ONE
           // ABOVE. Lock range says how far this hull can TARGET; control range
@@ -11150,6 +11216,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       },
       mutationCustody: () => hostedJettisonPending,
       issue: async (action, claimRunID, invocation) => {
+        const generation = customBotGeneration;
+        const token = callOptions.token, pilotGeneration = recoveryGeneration;
+        const characterID = store.station.get().online?.characterID;
         switch (action.kind) {
           case "maintainMiningSupport":
             await maintainOperationSupport(action.relocating);
@@ -11209,13 +11278,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             await api.unlockTarget(action.targetID, callOptions);
             return;
           case "activate":
+            if (action.utility) {
+              const shipID = capabilityCache.peek().shipID;
+              return issueCombatUtility(action, {
+                current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                  token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                  shipID === capabilityCache.peek().shipID,
+                read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
+                targetValid: async module => {
+                  const [scene, targets] = await Promise.all([api.getSpaceSnapshot(callOptions), api.getTargets(callOptions)]);
+                  const fresh = decodeSpaceSnapshot(scene.space), locked = decodeTargetIDs(targets.targetIDs);
+                  const target = fresh?.entities.find(row => row.itemID === action.targetID && row.isNpc && row.characterID === null);
+                  if (fresh?.ship?.itemID !== shipID || !target || !target.geometryAvailable || !fresh.ship.geometryAvailable ||
+                      locked?.includes(action.targetID) !== true || module.rangeM === null || module.rangeM <= 0) return false;
+                  const a = fresh.ship.position, b = target.position;
+                  return Math.max(0, Math.hypot(a.x-b.x, a.y-b.y, a.z-b.z)-fresh.ship.radius-target.radius) <= module.rangeM;
+                },
+                activate: () => api.activateModule(action.moduleID, { typeID: action.typeID,
+                  ...(action.targetID > 0 ? { targetID: action.targetID } : {}), repeat: action.repeat ?? -1 }, callOptions),
+                sleep: () => new Promise(resolve => setTimeout(resolve, 250)),
+              });
+            }
             // targetID 0 = a SELF-targeted module (repairer, hardener) — the
             // target key is omitted so the server activates it on the ship.
-            await api.activateModule(
+            requireModuleOutcome(await api.activateModule(
               action.moduleID,
-              action.targetID > 0 ? { targetID: action.targetID, repeat: -1 } : { repeat: -1 },
+              action.targetID > 0 ? { typeID: action.typeID, targetID: action.targetID, repeat: -1 } : { typeID: action.typeID, repeat: -1 },
               callOptions,
-            );
+            ), action.moduleID, "activate");
             return;
           // ⚠ THE typeID IS WHAT MAKES A PROP-MOD STOP ACTUALLY STOP, and its
           // absence here USED TO RETURN SUCCESS AND DO NOTHING. The server stops
@@ -11228,19 +11318,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // at all. An ordinary module (a repairer, a hardener) needs no effect
           // name and behaves identically with the key omitted, which is why the
           // field is optional and the body simply leaves it out.
-          case "deactivate":
-            await api.deactivateModule(
+          case "deactivate": {
+            const result = await api.deactivateModule(
               action.moduleID,
               action.typeID === undefined ? {} : { typeID: action.typeID },
               callOptions,
             );
+            if (action.settlement) return moduleSettlementNote(result, action.moduleID);
+            requireModuleOutcome(result, action.moduleID, "deactivate");
             return;
+          }
+          case "loadCombatAmmo": {
+            const shipID = capabilityCache.peek().shipID;
+            if (action.utility) return issueUtilityReload(action, {
+              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                shipID === capabilityCache.peek().shipID,
+              read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
+              load: () => api.loadAmmo([action.moduleID], [action.chargeItemID], "cargo", callOptions),
+              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+            });
+            return issueCombatReload(action, {
+              current: () => characterID != null && store.station.get().online?.characterID === characterID &&
+                token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
+                shipID === capabilityCache.peek().shipID,
+              read: () => readCombatWeapons(shipID, [action.moduleID]),
+              load: () => api.loadAmmo([action.moduleID], [action.chargeItemID], "cargo", callOptions),
+              sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
+            });
+          }
           case "launchDrones":
             if (action.droneItemIDs.length > 0) {
-              await api.launchDrones(
+              const result = await api.launchDrones(
                 wholeStackLaunch(action.droneItemIDs, droneStackSizesSeen),
                 callOptions,
               );
+              const rows = decodeDronesInSpace(result.launched);
+              if (rows === null) throw Object.assign(new Error("Drone launch cohort is unconfirmed."), { code: "MODULE_ACTION_UNCERTAIN" });
+              return { launchedDroneIDs: rows.filter(row => row.controlled).map(row => row.itemID) };
             }
             return;
           case "engageDrones":
@@ -11755,6 +11870,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function startCustomBot(input: BotScript, sourceScriptID: string | null = null): Promise<void> {
+    if (hostedStopPending) throw new Error("Combat Stop is still settling; pilot custody is retained.");
+    if (scriptRunner?.transportCustody() || scriptRunner?.combatDronesForStop?.() != null)
+      throw new Error("The previous controller owns unresolved work. Finish Stop settlement before replacing it.");
     requireAutomationReady();
     hostedTransportSuspended = false;
     // Restarting the SAME controller is the one case createShipClaim deliberately
@@ -11806,7 +11924,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // fresh run must apply for itself rather than believe an old answer.
     fleetApplication = null;
     scriptRunner = createScriptRunner(
-      makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds),
+      { ...makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds), startup: options.hostedStartup },
     );
     scriptRunner.start(doc);
     void scriptRunner.run();
@@ -12961,6 +13079,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     resumeCustomBot() {
       requireAutomationReady();
+      if (hostedStopPending) return;
       if (scriptRunner) {
         scriptRunner.resume();
         void scriptRunner.run();
@@ -12968,6 +13087,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     stopCustomBot() {
+      if (scriptRunner?.combatDronesForStop?.() !== null && scriptRunner?.combatDronesForStop?.() !== undefined) {
+        void prepareHostedBotStop("script", Date.now() + 180_000).then(stopCustomController).catch(error => {
+          store.apply({ type: "custom-bot/start-error", message: `Stop retains pilot control: ${String(error)}` });
+        });
+        return;
+      }
       stopCustomController();
     },
 
