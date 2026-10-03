@@ -144,3 +144,13 @@ test("delete is for good", () => {
 test("a decryptor choice is kept per blueprint, canonical", () => {
   assert.deepEqual(guardChoices({ decryptors: { 2457: 34201, 1900: 34202 } }).decryptors, { 1900: 34202, 2457: 34201 });
 });
+
+test("where to build is kept per activity, and left out when none is chosen", () => {
+  assert.deepEqual(guardChoices({ facilities: { reaction: 61000001, manufacturing: 60003760 } }).facilities,
+    { manufacturing: 60003760, reaction: 61000001 });
+  assert.equal("facilities" in guardChoices({}), false);
+  assert.equal("facilities" in guardChoices({ facilities: {} }), false);
+  for (const facilities of [{ invention: 60003760 }, { manufacturing: 0 }, { manufacturing: "here" }, [60003760]]) {
+    assert.throws(() => guardChoices({ facilities }), /facility|readable/);
+  }
+});

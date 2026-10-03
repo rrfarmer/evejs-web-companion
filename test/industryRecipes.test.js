@@ -70,6 +70,8 @@ const ROWS = [
       manufacturing: {
         materials: [{ typeID: 101, quantity: 1 }, { typeID: 203, quantity: 5 }],
         products: [{ typeID: 103, quantity: 1 }],
+        // A science skill shortens the job (dogma 1982); Industry does not.
+        skills: [{ typeID: 3380, level: 5 }, { typeID: 401, level: 1 }],
         time: 900,
       },
     },
@@ -292,7 +294,8 @@ function fakeStaticData() {
         : [];
     },
     getTypeDogmaAttribute(typeID, attributeID, fallback) {
-      const table = { 34201: { 1112: 1.5, 1113: 1, 1114: -2, 1124: 3 }, 34202: { 1112: 1.2, 1113: 2, 1114: 10, 1124: 1 } };
+      // 401 is a science skill: -1% manufacturing time per level (dogma 1982).
+      const table = { 401: { 1982: -1 }, 34201: { 1112: 1.5, 1113: 1, 1114: -2, 1124: 3 }, 34202: { 1112: 1.2, 1113: 2, 1114: 10, 1124: 1 } };
       const value = (table[Number(typeID)] || {})[Number(attributeID)];
       return value === undefined ? fallback : value;
     },
@@ -377,6 +380,7 @@ test("POST /api/industry/recipe-closure sends the tree's recipes and names every
     timeSeconds: 10800,
     maxRunsPerBlueprint: null,
     materials: [{ typeID: 202, quantity: 100 }],
+    skills: [],
     inventedFrom: [],
   });
   assert.deepEqual(payload.types["201"], {
@@ -441,4 +445,13 @@ test("real table: list 799 and the eight decryptors come from the same tables th
   const accelerant = decryptors.find((type) => type.name === "Accelerant Decryptor");
   assert.ok(accelerant);
   assert.deepEqual([1112, 1113, 1114, 1124].map((attributeID) => staticData.getTypeDogmaAttribute(accelerant.typeID, attributeID)), [1.2, 2, 10, 1]);
+});
+
+test("the closure route says how much each manufacturing skill shortens a job, and only those that do", async () => {
+  const { baseUrl } = await startTestServer();
+  const { payload } = await call(baseUrl, "/api/industry/recipe-closure", { body: { productTypeIDs: [103] } });
+  assert.deepEqual(payload.recipes[0].skills, [{ typeID: 3380, level: 5 }, { typeID: 401, level: 1 }]);
+  // Industry has no per-level time bonus of its own here: it is the
+  // character's attribute, not a required-skill bonus.
+  assert.deepEqual(payload.skillTimePercent, { 401: -1 });
 });

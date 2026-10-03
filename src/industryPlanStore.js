@@ -58,7 +58,10 @@ function keyID(key) {
 /**
  * The player's choices, checked and made canonical:
  *   { buy: [typeID...], jobs: { typeID: n }, blueprints: { blueprintTypeID: { materialEfficiency, timeEfficiency } },
- *     decryptors: { blueprintTypeID: decryptorTypeID } }   (decryptors: R109 slice 6)
+ *     decryptors: { blueprintTypeID: decryptorTypeID },   (decryptors: R109 slice 6)
+ *     facilities?: { manufacturing?: facilityID, reaction?: facilityID } }
+ * `facilities` is where a plan's jobs without an owned copy are built, per
+ * activity, and is left out when none is chosen, so older plans read the same.
  */
 function guardChoices(input) {
   if (input === undefined || input === null) return { buy: [], jobs: {}, blueprints: {}, decryptors: {} };
@@ -115,7 +118,22 @@ function guardChoices(input) {
     decryptors[String(id)] = decryptorsIn[key];
   }
 
-  return { buy: [...new Set(buy)].sort((a, b) => a - b), jobs, blueprints, decryptors };
+  const facilitiesIn = input.facilities === undefined ? {} : input.facilities;
+  if (!isPlainObject(facilitiesIn)) {
+    throw fail("INDUSTRY_PLAN_INVALID", "Where to build is not readable.");
+  }
+  const facilities = {};
+  for (const key of Object.keys(facilitiesIn)) {
+    if ((key !== "manufacturing" && key !== "reaction") || !positiveInteger(facilitiesIn[key])) {
+      throw fail("INDUSTRY_PLAN_INVALID", "Where to build names a facility for manufacturing or reactions.");
+    }
+  }
+  for (const key of ["manufacturing", "reaction"]) {
+    if (facilitiesIn[key] !== undefined) facilities[key] = facilitiesIn[key];
+  }
+
+  const choices = { buy: [...new Set(buy)].sort((a, b) => a - b), jobs, blueprints, decryptors };
+  return Object.keys(facilities).length > 0 ? { ...choices, facilities } : choices;
 }
 
 /** Stored text back to choices. A row damaged by hand reads as no choices. */

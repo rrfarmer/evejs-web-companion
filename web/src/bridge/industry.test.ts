@@ -442,3 +442,31 @@ test("R109: a blueprint in the wrong place is refused in plain words, not the ge
     "That blueprint is in a different facility. A job starts where its blueprint is.",
   );
 });
+
+test("a facility keeps its own time and material modifiers per activity, as the server sends them", () => {
+  // The shape captured live from GetFacilities: activities is a dict of
+  // activityID to a tuple of plain lists [time, material, cost, ...], each
+  // entry [value, categoryID, groupID, typeID, reference].
+  const row = keyVal({
+    facilityID: 1035000000001,
+    activities: dict([
+      [1, { type: "tuple", items: [[[0.85, null, null, null, 7]], [[0.99, null, 0, null, 7], [0.976, 18, null, null, 8]], [[0.97, null, null, null, 7]], [], [], []] } as unknown as JsonValue],
+      [8, { type: "tuple", items: [[[0.98, null, null, null, 5]], [], [[0.04, null, null, null, 4]], [], [], []] } as unknown as JsonValue],
+      [5, { type: "tuple", items: [] } as unknown as JsonValue],
+    ]),
+  });
+  const facility = decodeFacilities(list([row]))[0]!;
+  assert.deepEqual(facility.modifiers.manufacturing, {
+    time: [{ value: 0.85, categoryID: null, groupID: null, typeID: null }],
+    material: [
+      { value: 0.99, categoryID: null, groupID: null, typeID: null },
+      { value: 0.976, categoryID: 18, groupID: null, typeID: null },
+    ],
+  });
+  // A 0 id reads as "any", the same as null (the server checks <= 0).
+  // An NPC station's invention: time only, no material entry at all.
+  assert.deepEqual(facility.modifiers.invention, { time: [{ value: 0.98, categoryID: null, groupID: null, typeID: null }], material: [] });
+  // Listed with nothing to say: no entry.
+  assert.equal(facility.modifiers.copying, undefined);
+  assert.deepEqual(facility.activities, ["manufacturing", "copying", "invention"]);
+});

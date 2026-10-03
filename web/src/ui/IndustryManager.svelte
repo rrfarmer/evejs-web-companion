@@ -65,6 +65,7 @@
     updateIndustryPlan,
     withBuying,
     withDecryptor,
+    withFacility,
     withIndustryPlan,
     withoutIndustryPlan,
     type IndustryAskers,
@@ -84,6 +85,7 @@
     decodeBlueprintSearch,
     decodeRecipeClosure,
     type IndustryBlueprintMatch,
+    type IndustryRecipe,
     type IndustryRecipeBook,
   } from "../bridge/industryRecipes.ts";
   import {
@@ -111,6 +113,10 @@
     type PlanStanding,
   } from "../bridge/industryStock.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import { formatDuration } from "../bridge/industry.ts";
+  import { characterTimeMultiplier, facilityMultiplier, jobSeconds, type JobPlace } from "../bridge/industryFacility.ts";
+  import { resolvedName } from "../store/names.ts";
+  import type { IndustryFacilityRow } from "../store/types.ts";
 
   let {
     sessions = [],
@@ -283,6 +289,134 @@
     const blueprintTypeID = line.blueprint?.blueprintTypeID;
     return blueprintTypeID === undefined ? null : planned.get(blueprintTypeID)?.copy ?? null;
   }
+  // --- Where each job runs (bridge/industryFacility.ts) -----------------------
+  // A job runs where its copy sits when an owned copy is in reach (the server
+  // installs it nowhere else); otherwise at the plan's "Build at" facility for
+  // that work, if one is chosen and an online pilot's read lists it. Its
+  // materials and time take that facility's modifiers; its time the skills of
+  // the copy's holder, or of the online pilot who would run it fastest.
+
+  /** Every facility an online pilot's industry read lists, with its modifiers. */
+  const facilityRows = $derived.by(() => {
+    void storeTick;
+    const rows = new Map<number, IndustryFacilityRow>();
+    for (const { session } of onlineSessions()) {
+      for (const facility of session.store.industry.get().facilities) {
+        if (!rows.has(facility.facilityID)) rows.set(facility.facilityID, facility);
+      }
+    }
+    return rows;
+  });
+
+  /** A facility's name, from any online pilot's names (its Industry read asks for them). */
+  function facilityName(facilityID: number): string {
+    for (const { session } of onlineSessions()) {
+      const name = resolvedName(session.store.names.get().resolved, "station", facilityID, "");
+      if (name) return name;
+    }
+    return "An unnamed facility";
+  }
+
+  /** Facilities online pilots can pick for the work, by name. */
+  function buildAtChoices(activity: "manufacturing" | "reaction"): IndustryFacilityRow[] {
+    return [...facilityRows.values()]
+      .filter((facility) => facility.online && facility.activities.includes(activity))
+      .sort((a, b) => facilityName(a.facilityID).localeCompare(facilityName(b.facilityID)));
+  }
+
+  /** The online pilot whose skills run the work fastest, or null when no skills are read. */
+  function fastestPilot(activity: "manufacturing" | "reaction"): { name: string; skills: ReadonlyMap<number, number> } | null {
+    let best: { name: string; skills: ReadonlyMap<number, number>; multiplier: number } | null = null;
+    for (const pilot of installPilots.values()) {
+      if (pilot.skills === null) continue;
+      const multiplier = characterTimeMultiplier(activity, pilot.skills);
+      if (best === null || multiplier < best.multiplier) best = { name: pilot.characterName, skills: pilot.skills, multiplier };
+    }
+    return best;
+  }
+
+  interface LinePlace {
+    readonly facilityID: number | null;
+    /** "copy": where the owned copy is; "chosen": the plan's Build at; "none". */
+    readonly source: "copy" | "chosen" | "none";
+    /** A Build at choice no online pilot's read lists now. */
+    readonly chosenAway: boolean;
+    readonly pilotName: string | null;
+    readonly place: JobPlace;
+  }
+
+  function placeOf(recipe: IndustryRecipe, from: IndustryPlanChoices): LinePlace {
+    const activity = recipe.activity;
+    const copy = planned.get(recipe.blueprintTypeID);
+    if (copy?.inReach && copy.copy.facilityID !== null) {
+      const row = facilityRows.get(copy.copy.facilityID);
+      return {
+        facilityID: copy.copy.facilityID,
+        source: "copy",
+        chosenAway: false,
+        pilotName: copy.copy.characterName,
+        place: {
+          time: row?.modifiers[activity]?.time ?? [],
+          material: row?.modifiers[activity]?.material ?? [],
+          skills: installPilots.get(copy.copy.characterID)?.skills ?? null,
+        },
+      };
+    }
+    const fastest = fastestPilot(activity);
+    const chosenID = from.facilities?.[activity] ?? null;
+    const row = chosenID === null ? undefined : facilityRows.get(chosenID);
+    if (row && row.activities.includes(activity)) {
+      return {
+        facilityID: row.facilityID,
+        source: "chosen",
+        chosenAway: false,
+        pilotName: fastest?.name ?? null,
+        place: { time: row.modifiers[activity]?.time ?? [], material: row.modifiers[activity]?.material ?? [], skills: fastest?.skills ?? null },
+      };
+    }
+    return {
+      facilityID: null,
+      source: "none",
+      chosenAway: chosenID !== null,
+      pilotName: fastest?.name ?? null,
+      place: { time: [], material: [], skills: fastest?.skills ?? null },
+    };
+  }
+
+  /** Per blueprint: the material multiplier of the facility its job runs in. */
+  function materialModifiersFor(forBook: IndustryRecipeBook, from: IndustryPlanChoices): Map<number, number> {
+    const modifiers = new Map<number, number>();
+    for (const recipe of forBook.byProduct.values()) {
+      const multiplier = facilityMultiplier(placeOf(recipe, from).place.material, forBook.types.get(recipe.productTypeID) ?? null);
+      if (multiplier !== 1) modifiers.set(recipe.blueprintTypeID, multiplier);
+    }
+    return modifiers;
+  }
+
+  /** "2 hours 10 minutes", or "3 jobs, up to 1 hour": how long a line's jobs take. */
+  function lineTimeWords(line: IndustryLine): string | null {
+    const recipe = line.recipe;
+    if (!book || !recipe || line.obtain === "buy" || line.jobRuns.length === 0) return null;
+    const where = placeOf(recipe, choices);
+    const product = book.types.get(recipe.productTypeID) ?? null;
+    const each = line.jobRuns.map((jobRunCount) =>
+      jobSeconds(recipe, jobRunCount, line.blueprint?.timeEfficiency ?? 0, where.place, product, book!.skillTimePercent));
+    if (each.some((seconds) => seconds === null)) return null;
+    const longest = Math.max(...(each as number[]));
+    return line.jobRuns.length === 1 ? formatDuration(longest) : `${line.jobRuns.length} jobs, up to ${formatDuration(longest)}`;
+  }
+
+  /** What a line's time is worked with, for its tooltip. */
+  function lineTimeTitle(line: IndustryLine): string {
+    if (!line.recipe) return "";
+    const where = placeOf(line.recipe, choices);
+    const at = where.source === "copy"
+      ? `At ${facilityName(where.facilityID!)}, where the copy is`
+      : where.source === "chosen" ? `At ${facilityName(where.facilityID!)}` : "No facility chosen";
+    const who = where.pilotName ? `, with ${where.pilotName}'s skills` : ", with no pilot's skills known";
+    return `${at}${who}. An estimate: the server works the time out when the job starts.`;
+  }
+
   /** Online pilots whose trained skills are known, for invention odds. */
   const inventors = $derived.by((): Inventor[] => {
     void storeTick;
@@ -316,7 +450,7 @@
       book,
       productTypeID,
       runs,
-      choices: resolverChoices(choices, terms, inventionTerms.decryptors),
+      choices: { ...resolverChoices(choices, terms, inventionTerms.decryptors), materialModifiers: materialModifiersFor(book, choices) },
       held,
       inProduction: supply.inProduction,
     });
@@ -350,7 +484,7 @@
         book: entryBook,
         productTypeID: entry.productTypeID,
         runs: entry.runs,
-        choices: resolverChoices(entry.choices, terms, inventionTerms.decryptors),
+        choices: { ...resolverChoices(entry.choices, terms, inventionTerms.decryptors), materialModifiers: materialModifiersFor(entryBook, entry.choices) },
         held,
         inProduction: entrySupply.inProduction,
       });
@@ -393,7 +527,7 @@
   });
   /**
    * The plan's terms in one line: which blueprint it is planned with, at what
-   * efficiencies, held by whom. The facility is not counted yet, and says so.
+   * efficiencies, held by whom. Where it is built follows (facilityWords).
    */
   const termsWords = $derived.by((): string | null => {
     if (!chain || productTypeID === null) return null;
@@ -406,6 +540,35 @@
     }
     return top.invention ? `Invented copy - ${efficiencies}` : `No owned blueprint - assumed ${efficiencies}`;
   });
+
+  /** Where the top job is built, in words: its facility, or that none is counted. */
+  const facilityWords = $derived.by((): string => {
+    if (!chain || productTypeID === null) return "";
+    const recipe = chain.lines.get(productTypeID)?.recipe;
+    if (!recipe) return "";
+    const where = placeOf(recipe, choices);
+    if (where.source === "copy") return `at ${facilityName(where.facilityID!)}, where the copy is`;
+    if (where.source === "chosen") return `built at ${facilityName(where.facilityID!)}`;
+    return where.chosenAway ? "the chosen facility is out of reach - no facility bonus counted" : "no facility chosen - no bonus counted";
+  });
+  /** The kinds of work this plan has lines for, for its Build at choices. */
+  const planWork = $derived.by((): ("manufacturing" | "reaction")[] => {
+    if (!chain) return [];
+    const kinds = new Set<"manufacturing" | "reaction">();
+    for (const line of chain.lines.values()) {
+      if (line.obtain === "build") kinds.add("manufacturing");
+      if (line.obtain === "react") kinds.add("reaction");
+    }
+    return (["manufacturing", "reaction"] as const).filter((kind) => kinds.has(kind));
+  });
+
+  function setBuildAt(activity: "manufacturing" | "reaction", value: string): void {
+    const facilityID = Number(value);
+    choices = withFacility(choices, activity, Number.isSafeInteger(facilityID) && facilityID > 0 ? facilityID : null);
+    if (openPlan) {
+      void save({ choices });
+    }
+  }
 
   /** The decryptor chosen for a T2 blueprint in these choices, or null. */
   function decryptorOf(from: IndustryPlanChoices, blueprintTypeID: number): DecryptorTerms | null {
@@ -1079,7 +1242,7 @@
               {#if openPlan === null}<span class="im-chip">not saved</span>{/if}
             </h3>
             {#if termsWords}
-              <p class="im-terms">{termsWords} <span class="im-terms-quiet">- no facility bonus counted</span></p>
+              <p class="im-terms">{termsWords} <span class="im-terms-quiet">- {facilityWords}</span></p>
             {/if}
           </div>
           <div class="im-head-actions">
@@ -1104,6 +1267,25 @@
             {/if}
           </div>
         </header>
+        {#if planWork.length > 0}
+          <!-- BUILD AT. Owned copies are built where they sit; this is where
+               the rest are, per kind of work. Its modifiers and the fastest
+               online pilot's skills set those jobs' materials and time. -->
+          <div class="im-build-at">
+            {#each planWork as work (work)}
+              <label>
+                <span>{work === "reaction" ? "React at" : "Build at"}</span>
+                <select value={String(choices.facilities?.[work] ?? "")} onchange={(event) => setBuildAt(work, event.currentTarget.value)}>
+                  <option value="">No facility - no bonus counted</option>
+                  {#each buildAtChoices(work) as facility (facility.facilityID)}
+                    <option value={String(facility.facilityID)}>{facilityName(facility.facilityID)}</option>
+                  {/each}
+                </select>
+              </label>
+            {/each}
+            <span class="im-build-at-note">Owned copies are built where they are.</span>
+          </div>
+        {/if}
         <input
           class="im-note-input"
           aria-label="Note"
@@ -1326,6 +1508,10 @@
                   {/if}
                   {#if line.obtain !== "buy" && line.runs > 0}
                     <span class="im-tag">{countWords(line.runs)} {line.runs === 1 ? "run" : "runs"}</span>
+                    {#if !node.repeat}
+                      {@const time = lineTimeWords(line)}
+                      {#if time}<span class="im-tag" title={lineTimeTitle(line)}>{time}</span>{/if}
+                    {/if}
                   {/if}
                   {#if line.leftover > 0}
                     <span class="im-tag" title="Whole runs make more than the plan needs">{countWords(line.leftover)} left over</span>
@@ -1592,6 +1778,27 @@
     margin: 0;
     color: var(--color-cell);
     font-size: 0.85rem;
+  }
+  .im-build-at {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    align-items: center;
+    margin: 0.2rem 0 0.4rem;
+  }
+  .im-build-at label {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    font-size: 0.85rem;
+  }
+  .im-build-at select {
+    min-height: 32px;
+    max-width: 22rem;
+  }
+  .im-build-at-note {
+    color: var(--color-muted);
+    font-size: 0.8rem;
   }
   .im-terms-quiet {
     color: var(--color-muted);

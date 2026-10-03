@@ -246,18 +246,20 @@ test("an owned blueprint's terms are used and nothing is called assumed or inven
   assert.equal(top.materials.get(203), 50);
 });
 
-test("a facility modifier multiplies with efficiency, for its own activity only", () => {
+test("a facility modifier multiplies with efficiency, for its own blueprint only", () => {
+  const widgetBlueprint = BOOK.byProduct.get(101)!.blueprintTypeID;
+  const gooFormula = BOOK.byProduct.get(102)!.blueprintTypeID;
   const chain = resolveIndustryChain({
     book: BOOK, productTypeID: 900, runs: 10,
-    choices: { materialModifier: { manufacturing: 0.99 } },
+    choices: { materialModifiers: new Map([[widgetBlueprint, 0.99]]) },
   });
   // Widget, unresearched: 10 Tritanium x 10 runs x 0.99 = 99, not 100.
   assert.equal(line(chain, 101).materials.get(201), 99);
-  // Goo is a reaction input and a manufacturing bonus leaves it alone.
+  // Goo runs elsewhere: the Widget's facility leaves it alone.
   assert.equal(line(chain, 102).materials.get(202), 100);
   const reacted = resolveIndustryChain({
     book: BOOK, productTypeID: 900, runs: 10,
-    choices: { materialModifier: { reaction: 0.9 } },
+    choices: { materialModifiers: new Map([[gooFormula, 0.9]]) },
   });
   assert.equal(line(reacted, 102).materials.get(202), 90);
   assert.equal(line(reacted, 101).materials.get(201), 100);

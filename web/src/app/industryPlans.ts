@@ -93,7 +93,25 @@ export function decodeChoices(value: unknown): IndustryPlanChoices {
   for (const [key, decryptorTypeID] of Object.entries(record(o.decryptors) ?? {})) {
     if (positiveInteger(Number(key)) && positiveInteger(decryptorTypeID)) decryptors[key] = decryptorTypeID;
   }
-  return { buy, jobs, blueprints, decryptors };
+  const facilities: { manufacturing?: number; reaction?: number } = {};
+  const facilitiesIn = record(o.facilities) ?? {};
+  for (const key of ["manufacturing", "reaction"] as const) {
+    if (positiveInteger(facilitiesIn[key])) facilities[key] = facilitiesIn[key];
+  }
+  return Object.keys(facilities).length > 0 ? { buy, jobs, blueprints, decryptors, facilities } : { buy, jobs, blueprints, decryptors };
+}
+
+/** The same choices with where one activity's jobs are built set (null clears it). */
+export function withFacility(
+  choices: IndustryPlanChoices,
+  activity: "manufacturing" | "reaction",
+  facilityID: number | null,
+): IndustryPlanChoices {
+  const next: { manufacturing?: number; reaction?: number } = { ...(choices.facilities ?? {}) };
+  if (facilityID === null) delete next[activity];
+  else next[activity] = facilityID;
+  const { facilities: _dropped, ...rest } = choices;
+  return Object.keys(next).length > 0 ? { ...rest, facilities: next } : rest;
 }
 
 /** One row from the server, or null when it is not a plan. */

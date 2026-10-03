@@ -66,10 +66,11 @@ export interface IndustryChoices {
   /** Per product type: how many jobs its runs are split into. Default 1. */
   readonly jobs?: ReadonlyMap<number, number>;
   /**
-   * The facility's material multiplier per activity, from the live facility
-   * read. Absent means 1.0, and the plan should say no bonus was counted.
+   * Per BLUEPRINT type: the material multiplier of the facility its job runs
+   * in, for its product (bridge/industryFacility.ts facilityMultiplier).
+   * Absent means 1.0, and the plan should say no bonus was counted.
    */
-  readonly materialModifier?: Partial<Record<"manufacturing" | "reaction", number>>;
+  readonly materialModifiers?: ReadonlyMap<number, number>;
   /**
    * Per T2 BLUEPRINT type: extra runs each invented copy carries, from the
    * chosen decryptor (slice 6). The server gives a copy its base runs plus
@@ -323,7 +324,7 @@ export function resolveIndustryChain(input: IndustryChainInput): IndustryChain |
     const manufacturing = recipe.activity === "manufacturing";
     const materialEfficiency = manufacturing ? clampEfficiency(terms.materialEfficiency, 10) : 0;
     const timeEfficiency = manufacturing ? clampEfficiency(terms.timeEfficiency, 20) : 0;
-    const facility = choices.materialModifier?.[recipe.activity] ?? 1;
+    const facility = choices.materialModifiers?.get(recipe.blueprintTypeID) ?? 1;
     const modifier = (1 - materialEfficiency / 100) * (Number.isFinite(facility) && facility > 0 ? facility : 1);
 
     const materials = new Map<number, number>();

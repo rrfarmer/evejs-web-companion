@@ -3424,6 +3424,8 @@ export interface IndustryPlanChoices {
   readonly blueprints: Readonly<Record<string, { readonly materialEfficiency: number; readonly timeEfficiency: number }>>;
   /** blueprintTypeID -> the decryptor its copies are invented with (R109 slice 6). */
   readonly decryptors?: Readonly<Record<string, number>>;
+  /** Where jobs without an owned copy are built, per activity; absent when none is chosen. */
+  readonly facilities?: Readonly<{ manufacturing?: number; reaction?: number }>;
 }
 
 /** The fields an industry plan may carry on create or update. */

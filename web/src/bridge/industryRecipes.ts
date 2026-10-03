@@ -65,6 +65,8 @@ export interface IndustryRecipe {
   readonly materials: readonly IndustryMaterial[];
   /** Empty unless the blueprint is a T2 one reached by invention. */
   readonly inventedFrom: readonly IndustryInvention[];
+  /** The skills the activity asks for; empty when the book did not say. */
+  readonly skills: readonly { readonly typeID: number; readonly level: number }[];
 }
 
 export interface IndustryTypeInfo {
@@ -95,6 +97,11 @@ export interface IndustryRecipeBook {
    * call a perfectly buildable item impossible.
    */
   readonly readable: boolean;
+  /**
+   * Per skill a manufacturing recipe asks for: its own time bonus per level
+   * (dogma 1982, negative), for the job time (bridge/industryFacility.ts).
+   */
+  readonly skillTimePercent: ReadonlyMap<number, number>;
 }
 
 /** One search hit: a blueprint or a reaction formula. */
@@ -127,6 +134,7 @@ export const EMPTY_INDUSTRY_BOOK: IndustryRecipeBook = Object.freeze({
   missing: Object.freeze([]) as readonly number[],
   capped: false,
   readable: false,
+  skillTimePercent: new Map<number, number>(),
 });
 
 function asRecord(value: JsonValue | undefined): Record<string, JsonValue> {
@@ -188,13 +196,17 @@ function decodeInvention(value: JsonValue): IndustryInvention | null {
     probability: probability !== null && probability <= 1 ? probability : null,
     timeSeconds: asCount(row.timeSeconds),
     materials: decodeMaterials(row.materials),
-    skills: asArray(row.skills).flatMap((raw) => {
-      const skill = asRecord(raw);
-      const typeID = asIdentifier(skill.typeID);
-      const level = typeof skill.level === "number" && Number.isSafeInteger(skill.level) && skill.level >= 0 ? skill.level : null;
-      return typeID !== null && level !== null ? [{ typeID, level }] : [];
-    }),
+    skills: decodeSkills(row.skills),
   };
+}
+
+function decodeSkills(value: JsonValue | undefined): { readonly typeID: number; readonly level: number }[] {
+  return asArray(value).flatMap((raw) => {
+    const skill = asRecord(raw);
+    const typeID = asIdentifier(skill.typeID);
+    const level = typeof skill.level === "number" && Number.isSafeInteger(skill.level) && skill.level >= 0 ? skill.level : null;
+    return typeID !== null && level !== null ? [{ typeID, level }] : [];
+  });
 }
 
 /** One recipe, or null when it cannot be looked up or multiplied. */
@@ -224,6 +236,7 @@ function decodeRecipe(value: JsonValue): IndustryRecipe | null {
     maxRunsPerBlueprint: asCount(row.maxRunsPerBlueprint),
     materials: decodeMaterials(row.materials),
     inventedFrom,
+    skills: decodeSkills(row.skills),
   };
 }
 
@@ -275,7 +288,14 @@ export function decodeRecipeClosure(value: JsonValue): IndustryRecipeBook {
       missing.push(typeID);
     }
   }
-  return { byProduct, types, missing, capped: body.capped === true, readable: true };
+  const skillTimePercent = new Map<number, number>();
+  for (const [key, raw] of Object.entries(asRecord(body.skillTimePercent))) {
+    const typeID = asIdentifier(key);
+    if (typeID !== null && typeof raw === "number" && Number.isFinite(raw) && raw < 0) {
+      skillTimePercent.set(typeID, raw);
+    }
+  }
+  return { byProduct, types, missing, capped: body.capped === true, readable: true, skillTimePercent };
 }
 
 /** The answer of `GET /api/industry/blueprints/search`. */

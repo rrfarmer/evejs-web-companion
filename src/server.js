@@ -21641,11 +21641,26 @@ app.post("/api/industry/recipe-closure", requireAuth, async (req, res, next) => 
       // from "never asked".
       types[String(typeID)] = industryTypeInfo(typeID);
     }
+    // Per skill a manufacturing recipe asks for: its time bonus per level
+    // (dogma 1982), when it has one. The server shortens a manufacturing job by
+    // these (industryParityHelpers.js resolveRequiredSkillTimeModifier); only a
+    // negative value counts there, so only those are sent.
+    const skillTimePercent = {};
+    for (const recipe of closure.recipes) {
+      if (recipe.activity !== "manufacturing") continue;
+      for (const skill of recipe.skills || []) {
+        const key = String(skill.typeID);
+        if (key in skillTimePercent || typeof staticData.getTypeDogmaAttribute !== "function") continue;
+        const value = Number(staticData.getTypeDogmaAttribute(skill.typeID, 1982, null));
+        if (Number.isFinite(value) && value < 0) skillTimePercent[key] = value;
+      }
+    }
     res.json({
       ok: true,
       source: "static-data",
       recipes: closure.recipes,
       types,
+      skillTimePercent,
       missing: closure.missing,
       capped: closure.capped,
       limit: closure.limit,

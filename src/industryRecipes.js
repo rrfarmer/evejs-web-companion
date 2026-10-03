@@ -119,6 +119,10 @@ function buildIndustryRecipeIndex(rows) {
         timeSeconds: positiveInt(entry.time) || null,
         maxRunsPerBlueprint: positiveInt(row.maxProductionLimit) || null,
         materials: cleanMaterials(entry.materials),
+        // The skills the activity asks for. A manufacturing one may shorten the
+        // job (the server's resolveRequiredSkillTimeModifier); the closure route
+        // says by how much.
+        skills: cleanSkills(entry.skills),
       };
       const known = byProduct.get(product.typeID);
       if (!known || blueprintTypeID < known.blueprintTypeID) {

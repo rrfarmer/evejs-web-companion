@@ -14,6 +14,7 @@ import {
   resolverChoices,
   withAssumedTerms,
   withDecryptor,
+  withFacility,
   withBuying,
   withIndustryPlan,
   withJobs,
@@ -212,4 +213,14 @@ test("a chosen decryptor fixes the invented copy: ME 2 + its ME, TE 4 + its TE, 
   const owned = resolverChoices(choices, new Map([[2457, { materialEfficiency: 10, timeEfficiency: 20, owned: true }]]), decryptors);
   assert.deepEqual(owned.blueprints?.get(2457), { materialEfficiency: 10, timeEfficiency: 20, owned: true });
   assert.deepEqual(withDecryptor(choices, 2457, null).decryptors, {});
+});
+
+test("where to build is kept per activity, cleared to nothing, and decoded only when sound", () => {
+  const built = withFacility(withFacility(NO_CHOICES, "manufacturing", 60003760), "reaction", 1035000000001);
+  assert.deepEqual(built.facilities, { manufacturing: 60003760, reaction: 1035000000001 });
+  const cleared = withFacility(withFacility(built, "manufacturing", null), "reaction", null);
+  // No facilities left: the field goes, so the plan reads as an older one.
+  assert.equal("facilities" in cleared, false);
+  assert.deepEqual(decodeChoices({ buy: [], facilities: { manufacturing: 60003760, invention: 1, reaction: "x" } }).facilities, { manufacturing: 60003760 });
+  assert.equal("facilities" in decodeChoices({ buy: [], facilities: { manufacturing: 0 } }), false);
 });

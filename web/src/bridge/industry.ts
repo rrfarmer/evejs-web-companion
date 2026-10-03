@@ -33,6 +33,8 @@ import type {
   IndustryMaterial,
   IndustryRecipe,
   IndustrySlotUsage,
+  IndustryFacilityModifier,
+  IndustryFacilityModifiers,
 } from "../store/types.ts";
 
 /**
@@ -245,10 +247,18 @@ export function decodeFacilities(result: JsonValue): readonly IndustryFacilityRo
       continue;
     }
     const activities: IndustryActivity[] = [];
+    const modifiers: Partial<Record<IndustryActivity, IndustryFacilityModifiers>> = {};
     for (const entry of dictEntries(readKeyVal(row, "activities"))) {
       const activity = activityOfID(toNumber(entry[0]));
       if (activity && !activities.includes(activity)) {
         activities.push(activity);
+        // A tuple of modifier lists: [time, material, cost, ...].
+        const lists = tupleItems(entry[1]);
+        const time = decodeFacilityModifiers(lists[0]);
+        const material = decodeFacilityModifiers(lists[1]);
+        if (time.length > 0 || material.length > 0) {
+          modifiers[activity] = { time, material };
+        }
       }
     }
     facilities.push({
@@ -263,9 +273,37 @@ export function decodeFacilities(result: JsonValue): readonly IndustryFacilityRo
       activities: activities.sort(
         (left, right) => ACTIVITY_ORDER.indexOf(left) - ACTIVITY_ORDER.indexOf(right),
       ),
+      modifiers,
     });
   }
   return facilities;
+}
+
+/** A tuple's or list's items, or a plain array as it is. */
+function tupleItems(value: JsonValue | undefined): readonly JsonValue[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "object" && value !== null && Array.isArray((value as { items?: unknown }).items)) {
+    return (value as { items: JsonValue[] }).items;
+  }
+  return [];
+}
+
+/** [value, categoryID, groupID, typeID, reference] entries; null or 0 ids mean "any". */
+function decodeFacilityModifiers(value: JsonValue | undefined): IndustryFacilityModifier[] {
+  const out: IndustryFacilityModifier[] = [];
+  for (const raw of tupleItems(value)) {
+    const entry = tupleItems(raw);
+    const factor = toNumberOrNull(entry[0]);
+    if (factor === null) continue;
+    const id = (field: JsonValue | undefined): number | null => {
+      const number = toNumberOrNull(field);
+      return number !== null && number > 0 ? Math.trunc(number) : null;
+    };
+    out.push({ value: factor, categoryID: id(entry[1]), groupID: id(entry[2]), typeID: id(entry[3]) });
+  }
+  return out;
 }
 
 /**

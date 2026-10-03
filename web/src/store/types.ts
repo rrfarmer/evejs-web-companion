@@ -523,6 +523,25 @@ export interface IndustryFacilityRow {
   readonly tax: number | null;
   /** Which activities this facility will host, by name. */
   readonly activities: readonly IndustryActivity[];
+  /**
+   * Per activity, the facility's own time and material modifiers, as the
+   * server prices a job with them (bridge/industryFacility.ts). Absent for an
+   * activity it lists none for.
+   */
+  readonly modifiers: Readonly<Partial<Record<IndustryActivity, IndustryFacilityModifiers>>>;
+}
+
+/** One facility modifier: a factor, and what it applies to (null: anything). */
+export interface IndustryFacilityModifier {
+  readonly value: number;
+  readonly categoryID: number | null;
+  readonly groupID: number | null;
+  readonly typeID: number | null;
+}
+
+export interface IndustryFacilityModifiers {
+  readonly time: readonly IndustryFacilityModifier[];
+  readonly material: readonly IndustryFacilityModifier[];
 }
 
 /** How many job slots of each activity the character currently has in use. */
