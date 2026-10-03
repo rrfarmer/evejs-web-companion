@@ -198,7 +198,7 @@ function makeFakeStack(log, extendFlow = null) {
           });
         },
       };
-      return extendFlow ? extendFlow(flow, store) : flow;
+      return extendFlow ? extendFlow(flow, store, options) : flow;
     },
   });
 }
@@ -937,6 +937,7 @@ test("the running roster is mirrored to disk and cleared when the bot ends", asy
     scriptName: "Miner",
     scriptRev: 1,
     scriptHash: started.bot.scriptHash,
+    logicalRunID: started.bot.logicalRunID,
     restartSafe: true,
     riskClasses: [],
     maxRuntimeMinutes: 720,
@@ -1759,4 +1760,34 @@ test("hosted scene diagnostics retain failed-read unknown instead of presenting 
   const observed = await host.readOwnedObservation(START.characterID, ACCOUNT.accountID);
   assert.equal(observed.space, null);
   assert.equal(observed.spaceError, "View unreadable");
+});
+
+test("hosted attachment keeps one logical run and WC restart restores its startup evidence with a fresh claim", async t => {
+  const rosterPath = tempRosterPath(), dir = path.dirname(rosterPath);
+  t.after(() => { assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep)); fs.rmSync(dir, { recursive: true, force: true }); });
+  const setup = { id: "setup", kind: "macro", macro: "undock", args: {} };
+  const doc = { valid: true, program: [setup, { id: "main", kind: "loop", repeat: { kind: "forever" },
+    body: [{ id: "work", kind: "macro", macro: "wait", args: {} }] }] };
+  let beforeCheckpoint, afterCheckpoint, flows = 0;
+  const before = makeHost({ persistPath: rosterPath, loadStack: makeFakeStack([], (flow, store, options) => {
+    beforeCheckpoint = options.hostedStartup; flows++; return flow;
+  }) });
+  const started = await before.start({ ...START, doc }); assert.equal(started.ok, true);
+  await beforeCheckpoint.observe(setup, { flightStatus: { shipID: 50, docked: false } });
+  const logicalRunID = started.bot.logicalRunID;
+  for (let refresh = 0; refresh < 3; refresh++) {
+    assert.equal(before.list(7)[0].logicalRunID, logicalRunID);
+    assert.equal(before.list(7)[0].botID, started.bot.botID);
+  }
+  assert.equal(flows, 1, "F5 reads the hosted roster without starting another flow");
+  const after = makeHost({ persistPath: rosterPath, loadAccount: async () => ACCOUNT,
+    loadScript: () => ({ scriptID: "s1", name: "Miner", rev: 1, doc }),
+    createClaimSecret: () => "new-process-claim",
+    loadStack: makeFakeStack([], (flow, store, options) => { afterCheckpoint = options.hostedStartup; return flow; }) });
+  await after.resume(); const restored = after.list(7)[0];
+  assert.equal(restored.status, "running"); assert.equal(restored.logicalRunID, logicalRunID);
+  assert.notEqual(restored.botID, started.bot.botID);
+  assert.equal(await afterCheckpoint.observe(setup, { flightStatus: { shipID: 50, docked: true } }), "COMPLETE");
+  assert.equal(readRosterFile(rosterPath)[0].logicalRunID, logicalRunID);
+  await after.stop(restored.botID, 7);
 });
