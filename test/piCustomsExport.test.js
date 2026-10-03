@@ -736,7 +736,7 @@ test("unreadable colonies are refused instead of reported as empty pads", async 
   assert.deepEqual(client.calls, []);
 });
 
-async function startTestServer({ gateway, client, botHost, bridgeSessionStore } = {}) {
+async function startTestServer({ gateway, client, botHost, bridgeSessionStore, beforeListen = () => {} } = {}) {
   const app = createApp({
     eveStore: fakeStore(),
     eveGatewayClient: gateway,
@@ -755,6 +755,7 @@ async function startTestServer({ gateway, client, botHost, bridgeSessionStore } 
     },
     errorLogger() {},
   });
+  beforeListen(app);
   const server = app.listen(0, "127.0.0.1");
   activeServers.add(server);
   await once(server, "listening");
@@ -775,6 +776,39 @@ test.afterEach(async () => {
     closing.push(new Promise((resolve, reject) => server.close((e) => (e ? reject(e) : resolve()))));
   }
   await Promise.all(closing);
+});
+
+test("Provisioning guard recognizes exact customs-export self-reservation and still requires offline proof", async () => {
+  const gateway = fakeGateway(), client = fakeClient();
+  let proofs = 0;
+  const status = gateway.getCharacterStatus;
+  gateway.getCharacterStatus = async (...args) => { proofs++; return status(...args); };
+  const baseUrl = await startTestServer({ gateway, client });
+  const { response, payload } = await post(baseUrl, "/api/pi/customs-export", {
+    confirm: true, characterID: FARMER_ID, planetIDs: [PLANET_A],
+  });
+  assert.equal(response.status, 200);
+  assert.equal(payload.connected, true);
+  assert.ok(proofs >= 2, "preparation and pre-select must both prove offline");
+  assert.deepEqual(gateway.selected, []);
+  assert.equal(client.closed, true);
+});
+
+test("Provisioning guard refuses an unrelated reservation before customs-export can acquire or send", async () => {
+  const gateway = fakeGateway(), client = fakeClient();
+  let release;
+  const baseUrl = await startTestServer({ gateway, client,
+    beforeListen: app => { release = app.locals.replenishment.enterWrite(FARMER_ID); } });
+  try {
+    const { response, payload } = await post(baseUrl, "/api/pi/customs-export", {
+      confirm: true, characterID: FARMER_ID, planetIDs: [PLANET_A],
+    });
+    assert.equal(response.status, 409);
+    assert.equal(payload.error, "CHARACTER_IN_USE");
+    assert.deepEqual(client.calls, []);
+    assert.deepEqual(gateway.selected, []);
+    assert.deepEqual(gateway.asked, []);
+  } finally { release(); }
 });
 
 test("the route exports the ticked colonies and answers per planet", async () => {

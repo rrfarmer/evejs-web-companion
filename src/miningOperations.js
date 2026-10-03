@@ -177,7 +177,7 @@ function createMiningOperations(options) {
     if (runtime.history.length > 100) runtime.history.splice(0, runtime.history.length - 100);
   }
 
-  function begin(operationID, executionTargetClasses) {
+  function begin(operationID, executionTargetClasses, operationRunID = null) {
     const def = definition(operationID);
     if (!def) return { ok: false, code: "MINING_OPERATION_NOT_FOUND", message: "That Mining Operation no longer exists." };
     const classes = executionTargetClasses ?? def.area.targetClasses;
@@ -190,6 +190,7 @@ function createMiningOperations(options) {
       return { ok: false, code: "MINING_OPERATION_ACTIVE", message: "That Mining Operation is already active." };
     }
     runtime.state = "ASSEMBLING";
+    runtime.operationRunID = operationRunID;
     runtime.currentTarget = null;
     runtime.executionTargetClasses = [...new Set(classes)];
     runtime.drainingTargets = [];
@@ -711,6 +712,8 @@ function createMiningOperations(options) {
         row.expiresAt = bot.expiresAt ?? null;
         row.maxRuntimeMinutes = bot.maxRuntimeMinutes ?? null;
         row.botID = bot.botID;
+        if (bot.operationRunID) runtime.operationRunID = bot.operationRunID;
+        row.preparation = bot.preparation || null;
         row.runtimeState = bot.status;
         row.phase = bot.phase;
         row.reason = bot.why;
@@ -759,6 +762,7 @@ function createMiningOperations(options) {
         .filter(bot => bot.operationID === def.operationID && bot.characterID === member.characterID && bot.endedAt)
         .sort((a, b) => String(b.endedAt).localeCompare(String(a.endedAt)))[0] : null;
       return { ...member, ...row, hosted: !!hosted,
+        preparation: row.preparation || (row.failureCode ? {state:"BLOCKED",equipment:"UNKNOWN",supplies:"UNKNOWN",targets:[],reason:row.reason} : null),
         hostStartedAt: hosted?.startedAt ?? null, hostResumedAt: hosted?.resumedAt ?? null,
         expiresAt: hosted?.expiresAt ?? null, maxRuntimeMinutes: hosted?.maxRuntimeMinutes ?? null,
         lastHostReason: last?.why ?? null };
@@ -772,8 +776,16 @@ function createMiningOperations(options) {
       : def.support ? runtime.supportStatus?.reason || "Support observation is unavailable."
       : unhealthy ? `${unhealthy.characterName}: ${unhealthy.reason || unhealthy.phase || "required member unavailable"}`
       : "A required operation member is unavailable.";
+    const preparationMembers = members.filter(m=>m.role!=="DEFENDER");
     return {
       operationID: def.operationID,
+      operationRunID: runtime.operationRunID || null,
+      preparation: { state: preparationMembers.some(m=>["BLOCKED","RECOVERY_REQUIRED"].includes(m.preparation?.state))
+        ? preparationMembers.some(m=>m.preparation?.state==="RECOVERY_REQUIRED") ? "RECOVERY_REQUIRED" : "BLOCKED"
+        : preparationMembers.every(m=>["VERIFIED","DEGRADED"].includes(m.preparation?.state))
+          ? preparationMembers.some(m=>m.preparation?.state==="DEGRADED") ? "DEGRADED" : "VERIFIED"
+          : preparationMembers.some(m=>m.preparation?.state==="PREPARING") ? "PREPARING" : "PENDING",
+        members: preparationMembers.map(m=>({characterID:m.characterID,role:m.role,...(m.preparation || {state:"PENDING",equipment:"UNKNOWN",supplies:"UNKNOWN",targets:[]})})) },
       state: runtime.state,
       statusReason,
       ...(def.support ? { supportStatus: runtime.supportStatus, supportPolicy: supportPolicy(def.support, runtime.supportStatus, runtime.supportLostSinceMs, now()) } : {}),

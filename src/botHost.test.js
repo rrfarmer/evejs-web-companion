@@ -198,7 +198,7 @@ function makeFakeStack(log, extendFlow = null) {
           });
         },
       };
-      return extendFlow ? extendFlow(flow, store) : flow;
+      return extendFlow ? extendFlow(flow, store, options) : flow;
     },
   });
 }
@@ -937,6 +937,7 @@ test("the running roster is mirrored to disk and cleared when the bot ends", asy
     scriptName: "Miner",
     scriptRev: 1,
     scriptHash: started.bot.scriptHash,
+    logicalRunID: started.bot.logicalRunID,
     restartSafe: true,
     riskClasses: [],
     maxRuntimeMinutes: 720,
@@ -1759,4 +1760,301 @@ test("hosted scene diagnostics retain failed-read unknown instead of presenting 
   const observed = await host.readOwnedObservation(START.characterID, ACCOUNT.accountID);
   assert.equal(observed.space, null);
   assert.equal(observed.spaceError, "View unreadable");
+});
+
+test("hosted attachment keeps one logical run and WC restart restores its startup evidence with a fresh claim", async t => {
+  const rosterPath = tempRosterPath(), dir = path.dirname(rosterPath);
+  t.after(() => { assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep)); fs.rmSync(dir, { recursive: true, force: true }); });
+  const setup = { id: "setup", kind: "macro", macro: "undock", args: {} };
+  const doc = { valid: true, program: [setup, { id: "main", kind: "loop", repeat: { kind: "forever" },
+    body: [{ id: "work", kind: "macro", macro: "wait", args: {} }] }] };
+  let beforeCheckpoint, afterCheckpoint, flows = 0;
+  const before = makeHost({ persistPath: rosterPath, loadStack: makeFakeStack([], (flow, store, options) => {
+    beforeCheckpoint = options.hostedStartup; flows++; return flow;
+  }) });
+  const started = await before.start({ ...START, doc }); assert.equal(started.ok, true);
+  await beforeCheckpoint.observe(setup, { flightStatus: { shipID: 50, docked: false } });
+  const logicalRunID = started.bot.logicalRunID;
+  for (let refresh = 0; refresh < 3; refresh++) {
+    assert.equal(before.list(7)[0].logicalRunID, logicalRunID);
+    assert.equal(before.list(7)[0].botID, started.bot.botID);
+  }
+  assert.equal(flows, 1, "F5 reads the hosted roster without starting another flow");
+  const after = makeHost({ persistPath: rosterPath, loadAccount: async () => ACCOUNT,
+    loadScript: () => ({ scriptID: "s1", name: "Miner", rev: 1, doc }),
+    createClaimSecret: () => "new-process-claim",
+    loadStack: makeFakeStack([], (flow, store, options) => { afterCheckpoint = options.hostedStartup; return flow; }) });
+  await after.resume(); const restored = after.list(7)[0];
+  assert.equal(restored.status, "running"); assert.equal(restored.logicalRunID, logicalRunID);
+  assert.notEqual(restored.botID, started.bot.botID);
+  assert.equal(await afterCheckpoint.observe(setup, { flightStatus: { shipID: 50, docked: true } }), "COMPLETE");
+  assert.equal(readRosterFile(rosterPath)[0].logicalRunID, logicalRunID);
+  await after.stop(restored.botID, 7);
+});
+
+const PREPARED_OPERATION = { ...START, operationID: "mining-op", operationRole: "MINER", operationRunID: "operation-run-1",
+  operationPreparation: { providerCharacterID: 140000002, corporationID: 20, fittingID: 4, source: { kind: "hangar" } }, deferMain: true };
+
+test("final hosted selection precedes preparation, and required members open MAIN together exactly once", async () => {
+  const log = []; let releasePreparation;
+  const preparationGate = new Promise(resolve => { releasePreparation = resolve; });
+  let host;
+  host = makeHost({ log, webAuth: { createSessionToken: () => "owned-token",
+    verifySessionToken: () => ({ sessionID: "owned-web-session" }) },
+    prepareOperation: async record => {
+      assert.equal(log.at(-1)[0], "selectCharacter");
+      assert.equal(record.webSessionID, "owned-web-session");
+      assert.equal(host.authorizesClaim(record.characterID, record.claimSecret), true);
+      record.assertPreparationCurrent(); log.push(["prepare", record.characterID]);
+      await preparationGate;
+      return { state: "VERIFIED", evidence: { equipment: "VERIFIED", supplies: "FULL", transfers: 0 } };
+    },
+    operationBarrierReady: () => host.list(7).length === 2 && host.list(7).every(row => row.preparation.state === "VERIFIED") });
+  const pending = host.start(PREPARED_OPERATION);
+  await settle(); assert.equal(host.list(7)[0].preparation.state, "PREPARING");
+  assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+  releasePreparation(); const first = await pending;
+  assert.equal(first.ok, true); assert.equal(first.bot.status, "paused");
+  assert.equal((await host.activateOperationMember(first.bot.botID, 7, "mining-op", "operation-run-1")).code, "OPERATION_NOT_READY");
+  const second = await host.start({ ...PREPARED_OPERATION, characterID: START.characterID + 1 });
+  assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+  for (const bot of [first.bot, second.bot]) {
+    assert.equal((await host.activateOperationMember(bot.botID, 7, "mining-op", "retired-run")).code, "OPERATION_PREPARATION_STALE");
+    assert.equal((await host.activateOperationMember(bot.botID, 7, "mining-op", "operation-run-1")).ok, true);
+    assert.equal((await host.activateOperationMember(bot.botID, 7, "mining-op", "operation-run-1")).ok, true);
+  }
+  assert.equal(log.filter(row => row[0] === "prepare").length, 2);
+  assert.equal(log.filter(row => row[0] === "startCustomBot").length, 2);
+  assert.equal(log.findIndex(row => row[0] === "startCustomBot") > log.findLastIndex(row => row[0] === "prepare"), true);
+  await host.stop(first.bot.botID, 7); await host.stop(second.bot.botID, 7);
+});
+
+test("an asynchronous aggregate predicate cannot authorize deferred MAIN", async () => {
+  const log = [], host = makeHost({ log,
+    prepareOperation: async () => ({ state: "VERIFIED", evidence: { supplies: "FULL" } }),
+    operationBarrierReady: async () => true });
+  const started = await host.start(PREPARED_OPERATION);
+  const result = await host.activateOperationMember(started.bot.botID, 7, "mining-op", "operation-run-1");
+  assert.equal(result.ok, false); assert.equal(result.code, "OPERATION_NOT_READY");
+  assert.equal(host.preparationForRun(started.bot.logicalRunID).mainEntered, false);
+  assert.equal(host.list(7)[0].deferMain, true);
+  assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+  assert.equal(host.claimedBy(START.characterID), started.bot.botID);
+  await host.stop(started.bot.botID, 7);
+});
+
+for (const state of ["BLOCKED", "DEGRADED"]) test(`${state} preparation retains final owner and only operationally ready members activate`, async () => {
+  const log = [], host = makeHost({ log, prepareOperation: async () => ({ state, reason: "Controlled shortage", evidence: { supplies: "LOW" } }),
+    operationBarrierReady: () => true });
+  const result = await host.start(PREPARED_OPERATION);
+  assert.equal(result.ok, true); assert.equal(result.bot.preparation.state, state);
+  assert.equal(host.claimedBy(START.characterID), result.bot.botID);
+  assert.equal(log.some(row => row[0] === "logout"), false);
+  const activation = await host.activateOperationMember(result.bot.botID, 7, "mining-op", "operation-run-1");
+  assert.equal(activation.ok, state === "DEGRADED");
+  assert.equal(log.filter(row => row[0] === "startCustomBot").length, state === "DEGRADED" ? 1 : 0);
+  assert.equal((await host.stop(result.bot.botID, 7)).ok, true);
+});
+
+test("blocked preparation and its deferred peer park through the hosted safety gate without creating MAIN", async () => {
+  const log = [], policy = { mode: "RETURN_HOME_DOCK", destination: { kind: "station", id: 60000649 } };
+  const host = makeHost({ log, preparationUnresolved: () => false,
+    prepareOperation: async record => ({ state: record.characterID === START.characterID ? "BLOCKED" : "VERIFIED",
+      reason: "Required member shortage", evidence: { supplies: "LOW" } }),
+    operationBarrierReady: () => false,
+    loadStack: makeFakeStack(log, (flow, store) => {
+      let runnerCreated = false;
+      return { ...flow,
+        async startCustomBot(doc) { runnerCreated = true; await flow.startCustomBot(doc); },
+        async prepareCustomBotParking() {
+          log.push(["runnerParking"]);
+          if (!runnerCreated) throw new Error("operation runner unavailable; parking cannot take over a different controller");
+        },
+        async prepareHostedBotStop(kind, until) {
+          assert.equal(kind, "script"); assert.equal(runnerCreated, false);
+          assert.ok(Number.isFinite(until) && until > Date.now());
+          log.push(["deferredSafety", store.station.get().online.characterID]);
+          await flow.prepareHostedBotStop(kind);
+        },
+        async parkCustomBot(received, until) {
+          assert.equal(runnerCreated, false); assert.deepEqual(received, policy);
+          const characterID = store.station.get().online.characterID;
+          assert.ok(host.claimedBy(characterID)); assert.ok(Number.isFinite(until));
+          log.push(["deferredPark", characterID]);
+          store._set({ flight: { status: { docked: true, stationID: policy.destination.id } } });
+        },
+      };
+    }) });
+  const blocked = await host.start(PREPARED_OPERATION);
+  const peer = await host.start({ ...PREPARED_OPERATION, characterID: START.characterID + 1 });
+  assert.equal(blocked.bot.preparation.state, "BLOCKED"); assert.equal(peer.bot.preparation.state, "VERIFIED");
+  for (const member of [blocked.bot, peer.bot]) {
+    assert.equal(host.preparationForRun(member.logicalRunID).mainEntered, false);
+    assert.equal((await host.prepareOperationStop(member.botID, 7, "mining-op")).ok, true);
+    assert.equal((await host.parkOperationMember(member.botID, 7, "mining-op", policy)).ok, true);
+    const final = host.list(7).find(row => row.botID === member.botID);
+    assert.equal(final.parking.state, "PARKED"); assert.equal(final.status, "stopped");
+    assert.equal(host.claimedBy(member.characterID), null);
+    assert.equal(host.preparationForRun(member.logicalRunID).mainEntered, false);
+  }
+  assert.equal(log.filter(row => row[0] === "deferredSafety").length, 2);
+  assert.equal(log.filter(row => row[0] === "deferredPark").length, 2);
+  assert.equal(log.filter(row => row[0] === "logout").length, 2);
+  assert.equal(log.some(row => ["startCustomBot", "runnerParking"].includes(row[0])), false);
+});
+
+test("pending preparation blocks Stop/parking release; shared custody proof permits safe Stop and a fresh run", async () => {
+  let pending = true, attempts = 0;
+  const log = [], host = makeHost({ log, preparationUnresolved: () => pending,
+    prepareOperation: async record => {
+      attempts++; record.preparationCheckpoint.begin({ custodyOperationID: `transfer-${attempts}` });
+      throw new Error("Transfer outcome requires exact reconciliation.");
+    }, operationBarrierReady: () => true });
+  const first = await host.start(PREPARED_OPERATION);
+  assert.equal(first.bot.preparation.state, "RECOVERY_REQUIRED");
+  assert.equal(first.bot.preparation.evidence.custodyOperationID, "transfer-1");
+  assert.equal((await host.prepareOperationStop(first.bot.botID, 7, "mining-op")).ok, false);
+  assert.equal(log.some(row => row[0] === "prepareHostedBotStop"), false, "unresolved custody cannot enter the deferred parking safety gate");
+  assert.equal((await host.stop(first.bot.botID, 7)).ok, false);
+  assert.equal(host.claimedBy(START.characterID), first.bot.botID);
+  assert.equal(log.some(row => row[0] === "logout"), false);
+  pending = false;
+  assert.equal((await host.stop(first.bot.botID, 7)).ok, true);
+  const next = await host.start({ ...PREPARED_OPERATION, operationRunID: "operation-run-2" });
+  assert.notEqual(next.bot.logicalRunID, first.bot.logicalRunID);
+  assert.equal(attempts, 2); assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+  await host.stop(next.bot.botID, 7);
+});
+
+test("a stopped preparation invocation cannot complete or activate a newer operation run", async () => {
+  const log = []; let release, captured;
+  const gate = new Promise(resolve => { release = resolve; });
+  let attempts = 0;
+  const host = makeHost({ log, prepareOperation: async record => {
+    if (++attempts === 1) { captured = record; await gate; }
+    return { state: "VERIFIED", evidence: { supplies: "FULL" } };
+  }, operationBarrierReady: () => true, preparationUnresolved: () => false });
+  const oldStart = host.start(PREPARED_OPERATION); await settle();
+  const old = host.list(7)[0]; assert.equal((await host.stop(old.botID, 7)).ok, true);
+  const next = await host.start({ ...PREPARED_OPERATION, operationRunID: "operation-run-2" });
+  assert.throws(() => captured.preparationCheckpoint.complete({ state: "VERIFIED", evidence: {} }), { code: "OPERATION_PREPARATION_STALE" });
+  release(); await oldStart;
+  assert.equal(host.list(7).find(row => row.botID === next.bot.botID).preparation.state, "VERIFIED");
+  assert.equal((await host.activateOperationMember(old.botID, 7, "mining-op", "operation-run-1")).ok, false);
+  assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+  await host.stop(next.bot.botID, 7);
+});
+
+test("restart reconciles durable pending preparation before MAIN without replaying an unsafe productive script", async t => {
+  const rosterPath = tempRosterPath();
+  t.after(() => fs.rmSync(path.dirname(rosterPath), { recursive: true, force: true }));
+  const launch = { ...PREPARED_OPERATION, doc: { valid: true, restartSafe: false } };
+  let issued = 0, reconciled = 0;
+  const before = makeHost({ persistPath: rosterPath, prepareOperation: async record => {
+    record.preparationCheckpoint.begin({ before: 3200 });
+    record.preparationCheckpoint.update({ custodyOperationID: "shared-transfer", reviewHash: "a".repeat(64), requested: 1800 });
+    issued++; throw new Error("Lost result after shared transfer committed.");
+  } });
+  const started = await before.start(launch);
+  assert.equal(started.bot.preparation.state, "RECOVERY_REQUIRED");
+  const disk = readRosterFile(rosterPath)[0];
+  assert.equal(disk.deferMain, true); assert.equal(disk.restartSafe, false);
+  assert.equal(/private-claim-capability|bot-token/.test(fs.readFileSync(rosterPath, "utf8")), false);
+  let after;
+  const log = [];
+  after = makeHost({ log, persistPath: rosterPath, createClaimSecret: () => "restored-private-generation",
+    loadAccount: async () => ACCOUNT, loadScript: () => ({ scriptID: "s1", name: "Miner", rev: 1, doc: launch.doc }),
+    isCharacterHeld: (_pilot, _caller, intent) => {
+      assert.equal(intent.resumed, true); assert.equal(intent.logicalRunID, started.bot.logicalRunID); return false;
+    }, prepareOperation: async record => {
+      const pending = record.preparationCheckpoint.snapshot();
+      assert.equal(pending.state, "RECOVERY_REQUIRED");
+      assert.equal(pending.invocation, 1); assert.equal(pending.evidence.custodyOperationID, "shared-transfer");
+      assert.throws(() => record.preparationCheckpoint.begin(), /requires reconciliation/);
+      reconciled++; return { state: "VERIFIED", evidence: { after: 5000, reconciled: true } };
+    }, operationBarrierReady: () => true,
+    onOperationResume: async () => {
+      const row = after.list(7)[0]; assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+      assert.equal(row.preparation.evidence.custodyOperationID, "shared-transfer");
+      await after.activateOperationMember(row.botID, 7, "mining-op", "operation-run-1");
+    } });
+  await after.resume(); const restored = after.list(7)[0];
+  assert.equal(restored.status, "running"); assert.equal(restored.logicalRunID, started.bot.logicalRunID);
+  assert.equal(restored.preparation.evidence.before, 3200); assert.equal(restored.preparation.evidence.after, 5000);
+  assert.equal(issued, 1); assert.equal(reconciled, 1); assert.equal(log.filter(row => row[0] === "startCustomBot").length, 1);
+  await after.stop(restored.botID, 7);
+});
+
+test("restart restores completed preparation without another preparation call and waits for the aggregate callback", async t => {
+  const rosterPath = tempRosterPath();
+  t.after(() => fs.rmSync(path.dirname(rosterPath), { recursive: true, force: true }));
+  let prepared = 0;
+  const before = makeHost({ persistPath: rosterPath, prepareOperation: async () => {
+    prepared++; return { state: "VERIFIED", evidence: { supplies: "FULL" } };
+  }, operationBarrierReady: () => true });
+  const first = await before.start(PREPARED_OPERATION);
+  await before.activateOperationMember(first.bot.botID, 7, "mining-op", "operation-run-1");
+  const log = []; let after;
+  after = makeHost({ log, persistPath: rosterPath, loadAccount: async () => ACCOUNT,
+    loadScript: () => ({ scriptID: "s1", name: "Miner", rev: 1, doc: START.doc }),
+    prepareOperation: async () => { prepared++; assert.fail("Completed logical run must not top up again."); },
+    operationBarrierReady: () => true, onOperationResume: async () => {
+      const row = after.list(7)[0]; assert.equal(row.deferMain, true);
+      assert.equal(log.some(row => row[0] === "startCustomBot"), false);
+      await after.activateOperationMember(row.botID, 7, "mining-op", "operation-run-1");
+    } });
+  await after.resume(); const row = after.list(7)[0];
+  assert.equal(row.logicalRunID, first.bot.logicalRunID); assert.equal(row.operationRunID, "operation-run-1");
+  assert.equal(row.status, "running"); assert.equal(prepared, 1);
+  await after.stop(row.botID, 7);
+});
+
+test("operation preparation refuses credential additions before final pilot selection", async () => {
+  const log = [], host = makeHost({ log, prepareOperation: async () => assert.fail("Unauthorized intent reached preparation") });
+  const result = await host.start({ ...PREPARED_OPERATION, operationPreparation: { ...PREPARED_OPERATION.operationPreparation,
+    source: { kind: "hangar", claimSecret: "browser-secret" } } });
+  assert.equal(result.code, "OPERATION_PREPARATION_INVALID");
+  assert.equal(log.some(row => row[0] === "selectCharacter"), false);
+  assert.equal(host.claimedBy(START.characterID), null);
+});
+
+test("productive fitting refusal remains blocked and cannot become success through repeated activation", async () => {
+  const log = [];
+  let validations = 0;
+  const host = makeHost({ log, loadStack: makeFakeStack(log, flow => ({ ...flow, async startCustomBot() {
+    validations++; throw Object.assign(new Error("ICE_EQUIPMENT_REQUIRED: fit lacks supported ice equipment"), { code: "ICE_EQUIPMENT_REQUIRED" });
+  } })), prepareOperation: async () => ({ state: "VERIFIED", evidence: { supplies: "FULL" } }), operationBarrierReady: () => true });
+  const started = await host.start(PREPARED_OPERATION);
+  const activate = () => host.activateOperationMember(started.bot.botID, 7, "mining-op", "operation-run-1");
+  assert.equal((await activate()).code, "ICE_EQUIPMENT_REQUIRED");
+  assert.equal((await activate()).ok, false);
+  assert.equal(validations, 1);
+  assert.equal(host.list(7)[0].status, "paused");
+  assert.match(host.list(7)[0].why, /ICE_EQUIPMENT_REQUIRED/);
+  assert.equal(host.claimedBy(START.characterID), started.bot.botID);
+  await host.stop(started.bot.botID, 7);
+});
+
+test("an unavailable resumed owner retains pending evidence without inventing a hosted claim", async t => {
+  const rosterPath = tempRosterPath();
+  t.after(() => fs.rmSync(path.dirname(rosterPath), { recursive: true, force: true }));
+  const before = makeHost({ persistPath: rosterPath, prepareOperation: async record => {
+    record.preparationCheckpoint.begin({ custodyOperationID: "shared-pending" }); throw new Error("Pending shared custody");
+  } });
+  const started = await before.start(PREPARED_OPERATION), log = [];
+  const after = makeHost({ log, persistPath: rosterPath, isCharacterHeld: () => true, loadAccount: async () => ACCOUNT,
+    loadScript: () => ({ scriptID: "s1", name: "Miner", rev: 1, doc: START.doc }), prepareOperation: async () => assert.fail("Unavailable owner cannot prepare") });
+  await after.resume(); const retained = after.list(7)[0];
+  assert.equal(retained.status, "paused"); assert.equal(retained.endedAt, null);
+  assert.equal(retained.preparation.state, "RECOVERY_REQUIRED"); assert.equal(retained.preparationOwnerAvailable, false);
+  assert.equal(retained.logicalRunID, started.bot.logicalRunID);
+  assert.equal(after.claimedBy(START.characterID), null);
+  assert.equal((await after.activateOperationMember(retained.botID, 7, "mining-op", "operation-run-1")).ok, false);
+  const durable = after.preparationForRun(started.bot.logicalRunID);
+  assert.equal(durable.evidence.custodyOperationID, "shared-pending");
+  durable.evidence.custodyOperationID = "browser-addition";
+  assert.equal(after.preparationForRun(started.bot.logicalRunID).evidence.custodyOperationID, "shared-pending");
+  await after.stopAll();
+  assert.equal(readRosterFile(rosterPath).length, 1);
+  assert.equal(log.some(row => row[0] === "selectCharacter" || row[0] === "startCustomBot"), false);
 });

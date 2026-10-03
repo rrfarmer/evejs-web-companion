@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { createControlPlanePoll } from "../app/controlPlanePoll.ts";
   import { hostedDurationLabel } from "../bots/hostedRunPolicy.ts";
   import MiningOperationRun from "./MiningOperationRun.svelte";
+  import MiningPreparation from "./MiningPreparation.svelte";
+  import { miningPreparationDraft, miningPreparationConfig, type MiningPreparationOptions } from "../app/miningPreparation.ts";
   import {
     deleteMiningOperation,
     extendMiningOperation,
@@ -12,6 +14,7 @@
     findAccessibleStructures,
     listDockableAccessPilots,
     getMiningOperationLaunchPlan,
+    getMiningPreparationOptions,
     listOperationAccountPilots,
     listOperationRoutines,
     loadMiningOperations,
@@ -26,6 +29,7 @@
     type MiningOperationDefinition,
     type MiningOperationMemberDefinition,
     type MiningOperationsPayload,
+    type MiningOperationLaunchPlan,
   } from "../app/api.ts";
   import { loadHangarPrefs } from "../app/hangarPrefs.ts";
   import { loadKnownCharacters } from "../app/knownCharacters.ts";
@@ -54,7 +58,15 @@
     editor?.querySelector<HTMLInputElement>('input[name="operationName"]')?.focus({ preventScroll: true });
   }
   let runtimeMinutes = $state(12 * 60);
-  let readiness = $state<Record<string, { key: string; message: string | null }>>({});
+  let readiness = $state<Record<string, { key: string; message: string | null; plan?: MiningOperationLaunchPlan }>>({});
+  let preparation = $state(miningPreparationDraft());
+  let definitionOptions = $state<Record<string, MiningPreparationOptions>>({});
+  let definitionErrors = $state<Record<string, string>>({});
+  let definitionBusy = $state<Record<string, boolean>>({});
+  let editorGeneration = 0;
+  let mounted = true;
+  const definitionRequests = new Map<string, number>();
+  onDestroy(() => { mounted = false; editorGeneration++; });
 
   type DraftMember = MiningOperationMemberDefinition;
   let operationID = $state<string | undefined>(undefined);
@@ -99,6 +111,7 @@
     collection: "TRACTOR_ONLY", compressCollectedOre: false, supportLoss: "PAUSE" } as Omit<NonNullable<MiningOperationDefinition["support"]>, "version" | "characterID">);
   let support = $state(defaultSupport());
   const commands = $derived(members.filter(member => member.role === "COMMAND"));
+  const commonProviders = $derived(roster.filter(pilot => members.length > 0 && members.every(member => member.accountName === pilot.accountName)));
   let seedSquadID = $state("");
   let accountLookup = $state("");
   let roster = $state<OperationPilotChoice[]>(loadKnownCharacters().map(({ accountName, characterID, characterName }) => ({ accountName, characterID, characterName })));
@@ -123,6 +136,47 @@
     return cause instanceof Error ? cause.message : "The Mining Operations request failed.";
   }
 
+  function definitionKey(member: DraftMember, provider: number): string { return JSON.stringify([member.accountName, member.characterID, provider || member.characterID]); }
+  function providerFor(member: DraftMember): number { return member.preparation?.providerCharacterID ?? preparation.providerCharacterID; }
+  function optionsFor(member: DraftMember): MiningPreparationOptions | undefined { return definitionOptions[definitionKey(member, providerFor(member))]; }
+  function providerChoices(member: DraftMember): OperationPilotChoice[] {
+    const pilots = roster.filter(row => row.accountName === member.accountName);
+    return pilots.some(row => row.characterID === member.characterID) ? pilots : [...pilots, member];
+  }
+  async function readDefinitions(member: DraftMember, provider: number): Promise<void> {
+    const key = definitionKey(member, provider), generation = editorGeneration;
+    const request = (definitionRequests.get(key) ?? 0) + 1; definitionRequests.set(key, request);
+    definitionBusy[key] = true; delete definitionErrors[key];
+    try {
+      const result = await getMiningPreparationOptions(member.accountName, member.characterID, provider || null, opts());
+      if (!mounted || generation !== editorGeneration || definitionRequests.get(key) !== request) return;
+      definitionOptions[key] = result;
+    } catch (cause) {
+      if (mounted && generation === editorGeneration && definitionRequests.get(key) === request) { delete definitionOptions[key]; definitionErrors[key] = words(cause); }
+    } finally { if (mounted && generation === editorGeneration && definitionRequests.get(key) === request) definitionBusy[key] = false; }
+  }
+  function refreshDefinitions(): void {
+    for (const member of members) if (member.role !== "DEFENDER") void readDefinitions(member, providerFor(member));
+    const first = members.find(member => member.role !== "DEFENDER");
+    if (first && providerFor(first) !== preparation.providerCharacterID) void readDefinitions(first, preparation.providerCharacterID);
+  }
+  function setCommonProvider(provider: number): void {
+    preparation.providerCharacterID = provider; preparation.fittingID = 0; refreshDefinitions();
+  }
+  function setMemberProvider(member: DraftMember, provider: number): void {
+    patchMember(member.characterID, { preparation: { ...(provider ? { providerCharacterID: provider } : {}) } });
+    void readDefinitions(member, provider || preparation.providerCharacterID);
+  }
+  async function reviewReadiness(definition: MiningOperationDefinition & { operationID: string }): Promise<void> {
+    const key = JSON.stringify(definition), id = definition.operationID;
+    readiness[id] = { key, message: "Checking start readiness…" };
+    try {
+      const plan = await getMiningOperationLaunchPlan(id, opts());
+      if (mounted && readiness[id]?.key === key && payload?.operations.some(row => row.definition.operationID === id && JSON.stringify(row.definition) === key && ["DRAFT", "STOPPED"].includes(row.runtime.state)))
+        readiness[id] = { key, message: plan.warnings.join(" ") || null, plan };
+    } catch (cause) { if (mounted && readiness[id]?.key === key) readiness[id] = { key, message: words(cause) }; }
+  }
+
   function received(next: MiningOperationsPayload): void {
       payload = next;
       const policy = next.capabilities.hostedRunPolicy;
@@ -134,12 +188,7 @@
         if (!["DRAFT", "STOPPED"].includes(row.runtime.state)) continue;
         const key = JSON.stringify(row.definition);
         if (readiness[row.definition.operationID]?.key === key) continue;
-        readiness[row.definition.operationID] = { key, message: "Checking start readiness…" };
-        void getMiningOperationLaunchPlan(row.definition.operationID, opts()).then((plan) => {
-          if (readiness[row.definition.operationID]?.key === key) readiness[row.definition.operationID] = { key, message: plan.warnings.join(" ") || null };
-        }).catch((cause) => {
-          if (readiness[row.definition.operationID]?.key === key) readiness[row.definition.operationID] = { key, message: words(cause) };
-        });
+        void reviewReadiness(row.definition);
       }
   }
   const poll = createControlPlanePoll({ read: () => loadMiningOperations(opts()), received,
@@ -325,6 +374,7 @@
   }
 
   function newOperation(): void {
+    editorGeneration++; preparation = miningPreparationDraft(); definitionOptions = {}; definitionErrors = {}; definitionBusy = {};
     operationID = undefined;
     name = "";
     anchorSystemID = 0;
@@ -358,6 +408,7 @@
   }
 
   function editOperation(definition: MiningOperationDefinition): void {
+    editorGeneration++; preparation = miningPreparationDraft(definition.preparation); definitionOptions = {}; definitionErrors = {}; definitionBusy = {};
     operationID = definition.operationID;
     name = definition.name;
     anchorSystemID = definition.area.anchorSystemID;
@@ -388,6 +439,7 @@
     ++parkingLookupSerial;
     editing = true;
     void revealEditor();
+    refreshDefinitions();
   }
 
   function addPilot(characterID: number): void {
@@ -402,10 +454,12 @@
       routineMode: "STANDARD",
       automationID: "",
     }];
+    refreshDefinitions();
   }
 
   function removePilot(characterID: number): void {
     members = members.filter((member) => member.characterID !== characterID);
+    refreshDefinitions();
   }
 
   function patchMember(characterID: number, patch: Partial<DraftMember>): void {
@@ -425,6 +479,7 @@
     busy = "save";
     error = null;
     try {
+      const preparationConfig = miningPreparationConfig(preparation);
       payload = await saveMiningOperation({
         ...(operationID ? { operationID } : {}),
         name,
@@ -443,6 +498,7 @@
             ? { stationID: unloadStationID, stationName: unloadStationName, systemName: unloadStationSystemName, corporationDivision: unloadDivision, corporationID: unloadDivision === null ? null : unloadCorporationID }
             : null,
         members,
+        preparation: preparationConfig,
         ...(commands.length === 1 ? { support: { ...support, version: 1, characterID: commands[0]!.characterID } } : {}),
       }, opts());
       editing = false;
@@ -462,13 +518,19 @@
     try {
       const grants: Record<string, ReturnType<typeof createBotLaunchGrant>> = {};
       const plan = await getMiningOperationLaunchPlan(definition.operationID, opts());
+      if (!mounted) return;
+      readiness[definition.operationID] = { key: JSON.stringify(definition), message: plan.warnings.join(" ") || null, plan };
+      await tick();
+      if (plan.preparation?.state !== "READY") throw new Error("Member preparation is blocked or unknown. Resolve the listed equipment, supplies or source reasons and review again.");
       for (const member of plan.members) {
         const decoded = decodeScriptValue(member.script.doc);
         if (!decoded.ok) throw new Error(`${member.script.name} is invalid: ${decoded.refusal}`);
         grants[String(member.characterID)] = createBotLaunchGrant(member.script.rev, analyzeBotRunPolicy(decoded.doc), runtimeMinutes);
       }
       const hours = runtimeMinutes / 60;
-      const warning = plan.warnings.length ? `\n\n${plan.warnings.join("\n")}` : "";
+      const preparationSummary = plan.preparation?.members?.map(member => `${definition.members.find(row => row.characterID === member.characterID)?.characterName ?? "Member"}: equipment ${member.equipment}, supplies ${member.supplies}, ${member.state}${member.reason ? ` — ${member.reason}` : ""}`) ?? [];
+      const messages = [...plan.warnings, ...preparationSummary];
+      const warning = messages.length ? `\n\n${messages.join("\n")}` : "";
       if (!window.confirm(`Start “${definition.name}” for ${definition.members.length} members, with a ${hours}-hour server-hosted limit?${warning}`)) return;
       payload = await startMiningOperation(definition.operationID, grants, plan.planHash, opts());
     } catch (cause) {
@@ -642,6 +704,53 @@
       </div>
       {#if members.length === 0}<p class="muted">Select at least one miner.</p>{/if}
       {#if members.length > 0}
+        {@const definitionPilot = members.find(member => member.role !== "DEFENDER")}
+        {@const commonKey = definitionPilot ? definitionKey(definitionPilot, preparation.providerCharacterID) : ""}
+        <fieldset>
+          <legend>Equipment and consumables before operation</legend>
+          <p class="note">Each new run reviews equipment, then prepares consumable deficits under the final hosted owner. Productive work waits for verification. MCC does not build or refit ships.</p>
+          <label>Default fitting definition provider
+            <select value={preparation.providerCharacterID} onchange={(event) => setCommonProvider(Number(event.currentTarget.value))}>
+              <option value={0}>Each member's own corporation library</option>
+              {#each commonProviders as pilot}<option value={pilot.characterID}>{pilot.characterName} · {pilot.accountName}</option>{/each}
+              {#if preparation.providerCharacterID && !commonProviders.some(pilot => pilot.characterID === preparation.providerCharacterID)}<option value={preparation.providerCharacterID} disabled>Configured provider — unavailable for these accounts</option>{/if}
+            </select>
+          </label>
+          <label>Default expected fitting
+            <select bind:value={preparation.fittingID} disabled={!definitionPilot || definitionBusy[commonKey]}>
+              <option value={0}>Unique exact equipment match — ambiguity blocks Start</option>
+              {#each definitionOptions[commonKey]?.definitions.contracts ?? [] as fit}<option value={fit.definition.fittingID}>{fit.name}</option>{/each}
+              {#if preparation.fittingID && !definitionOptions[commonKey]?.definitions.contracts.some(fit => fit.definition.fittingID === preparation.fittingID)}<option value={preparation.fittingID} disabled>Configured fitting — refresh its library</option>{/if}
+            </select>
+          </label>
+          <p class="muted">Common fitting choices use {definitionPilot?.characterName ?? "the first member"}'s library. Different hulls or libraries use the member overrides below. Definition providers do not supply physical items.</p>
+          <button type="button" onclick={refreshDefinitions} disabled={disconnected}>Refresh fitting libraries</button>
+          {#if definitionErrors[commonKey]}<p class="error" role="status">{definitionErrors[commonKey]}</p>{/if}
+          <label>Physical supply source <select bind:value={preparation.sourceKind}><option value="hangar">Each member's local personal hangar</option><option value="corp">Exact local corporation division</option></select></label>
+          {#if preparation.sourceKind === "corp"}
+            <label>Supply corporation ID <input type="number" min="1" step="1" required bind:value={preparation.corporationID} /></label>
+            <label>Exact supply division <select bind:value={preparation.division}>{#each [1, 2, 3, 4, 5, 6, 7] as division}<option value={division}>Corporation division {division}</option>{/each}</select></label>
+            <p class="note">Query and Take authority are checked separately. A denied or unreadable corporation source never falls back to personal inventory.</p>
+          {/if}
+          <label><input type="checkbox" bind:checked={preparation.suppliesRequired} /> Require consumable targets before productive work (Heavy Water follows Core fuel policy)</label>
+          <p class="note">Optional shortages may be DEGRADED; required shortages block the readiness barrier. Command Heavy Water follows the existing Core fuel policy below.</p>
+          <details><summary>Additional cargo supply targets</summary>
+            <p class="muted">Saved-fitting targets remain in effect. Extra targets are shared across members; transfers fill verified deficits once per run.</p>
+            {#each preparation.supplies as supply, i}
+              <div class="supply-target">
+                <label>Supply type ID <input type="number" min="1" step="1" required bind:value={supply.typeID} /></label>
+                {#if supply.typeID === 16272}<span>Heavy Water</span>{/if}
+                <label>Target quantity <input type="number" min="1" step="1" required bind:value={supply.target} /></label>
+                <label>Quantity policy <select bind:value={supply.mode}><option value="TOTAL_ABOARD">Total aboard in configured bays</option><option value="CARRIED_SPARES">Carried spares in configured bays</option></select></label>
+                <small>Counted bays: {supply.eligibleFlags.map(flag => flag === 5 ? "Cargo" : `Bay ${flag}`).join(", ")}</small>
+                <label><input type="checkbox" bind:checked={supply.required} /> Required supply</label>
+                <button type="button" onclick={() => preparation.supplies.splice(i, 1)}>Remove target</button>
+              </div>
+            {/each}
+            <button type="button" onclick={() => preparation.supplies.push({ typeID: 0, target: 0, mode: "CARRIED_SPARES", eligibleFlags: [5], required: false })}>Add cargo target</button>
+            <button type="button" onclick={() => preparation.supplies.push({ typeID: 16272, target: 0, mode: "TOTAL_ABOARD", eligibleFlags: [5], required: false })}>Add Heavy Water cargo target</button>
+          </details>
+        </fieldset>
         {#if commands.length > 0}
           <fieldset>
             <legend>Command / Support</legend>
@@ -659,7 +768,7 @@
           </fieldset>
         {/if}
         <table>
-          <thead><tr><th>Pilot</th><th>Role</th><th>Routine mode</th><th>Effective profile / routine</th></tr></thead>
+          <thead><tr><th>Pilot</th><th>Role</th><th>Routine mode</th><th>Expected fitting override</th><th>Effective profile / routine</th></tr></thead>
           <tbody>
             {#each members as member (member.characterID)}
               <tr>
@@ -674,6 +783,20 @@
                   <option value="STANDARD">Standard / Automatic</option>
                   <option value="CUSTOM">Custom / Advanced</option>
                 </select>{/if}</td>
+                <td>{#if member.role !== "DEFENDER"}
+                  {@const key = definitionKey(member, providerFor(member))}
+                  <label>Definition provider <select value={member.preparation?.providerCharacterID ?? 0} onchange={(event) => setMemberProvider(member, Number(event.currentTarget.value))}>
+                    <option value={0}>Use operation default</option>
+                    {#each providerChoices(member) as pilot}<option value={pilot.characterID}>{pilot.characterName}</option>{/each}
+                  </select></label>
+                  <label>Expected fitting <select value={member.preparation?.fittingID ?? 0} disabled={definitionBusy[key]} onchange={(event) => patchMember(member.characterID, { preparation: { ...member.preparation, fittingID: Number(event.currentTarget.value) || undefined } })}>
+                    <option value={0}>Use operation default / unique exact match</option>
+                    {#each optionsFor(member)?.definitions.contracts ?? [] as fit}<option value={fit.definition.fittingID}>{fit.name}</option>{/each}
+                    {#if member.preparation?.fittingID && !optionsFor(member)?.definitions.contracts.some(fit => fit.definition.fittingID === member.preparation?.fittingID)}<option value={member.preparation.fittingID} disabled>Configured fitting — refresh its library</option>{/if}
+                  </select></label>
+                  {#if definitionErrors[key]}<p class="error">{definitionErrors[key]}</p>{/if}
+                  {#if optionsFor(member)?.definitions.status && optionsFor(member)?.definitions.status !== "READY"}<p class="notice">Fitting library unavailable. Equipment readiness remains unknown.</p>{/if}
+                {:else}Not executable{/if}</td>
                 <td>{#if member.role === "DEFENDER"}Not yet executable{:else if modeOf(member) === "STANDARD"}
                   {#if standardAvailable}{profileName(member)}{:else}<span class="error">No Standard profile for this class/policy; use Custom / Advanced.</span>{/if}
                 {:else}<select required value={member.automationID} onchange={(event) => patchMember(member.characterID, { automationID: event.currentTarget.value })}>
@@ -689,7 +812,7 @@
         </table>
       {/if}
       <p class="note">Defender is a first-class role, but launch is deliberately disabled until an existing combat primitive can stay with the operation target safely.</p>
-      <div class="actions"><button type="submit" disabled={busy !== null || !anchorValid}>Save operation</button><button type="button" onclick={() => (editing = false)}>Cancel</button></div>
+      <div class="actions"><button type="submit" disabled={busy !== null || !anchorValid}>Save operation</button><button type="button" onclick={() => { editing = false; editorGeneration++; }}>Cancel</button></div>
     </form>
   {/if}
 
@@ -713,7 +836,13 @@
       <p><strong>Standard resources:</strong> {row.definition.policies?.resourcePolicy?.mode === "PREFER_LIST" ? row.definition.policies.resourcePolicy.typeIDs.map(id => catalog.find(resource => resource.typeID === id)?.name ?? `Type ${id}`).join(" → ") + " → any eligible" : "Any eligible"}</p>
       <p><strong>On Stop:</strong> {stopLabels[row.definition.policies?.parking.mode ?? "STAY_IN_PLACE"]}{row.definition.policies?.parking.destination ? ` · ${"kind" in row.definition.policies.parking.destination ? row.definition.policies.parking.destination.name : row.definition.policies.parking.destination.stationName}` : ""}</p>
       <p><strong>Delivery:</strong> {row.definition.unloadDestination ? `${"kind" in row.definition.unloadDestination ? row.definition.unloadDestination.name : row.definition.unloadDestination.stationName} · ${row.definition.unloadDestination.corporationDivision === null ? "Personal hangar" : `Corporation Division ${row.definition.unloadDestination.corporationDivision}`}` : row.definition.members.some((member) => modeOf(member) === "STANDARD") ? "Not configured — Standard Start blocked" : "Configured in custom routine"}</p>
-      {#if ["DRAFT", "STOPPED"].includes(row.runtime.state)}<p class={readiness[row.definition.operationID]?.message ? "notice" : "muted"}><strong>Start readiness:</strong> {readiness[row.definition.operationID]?.message ?? "Routine preflight ready; pilot ownership and run grant are checked at Start."}</p>{/if}
+      {#if ["DRAFT", "STOPPED"].includes(row.runtime.state)}
+        <p class={readiness[row.definition.operationID]?.message ? "notice" : "muted"}><strong>Start readiness:</strong> {readiness[row.definition.operationID]?.message ?? "Read-only plan shown below; Start performs a fresh review and revalidation."}</p>
+        <button type="button" disabled={busy !== null || disconnected} onclick={() => void reviewReadiness(row.definition)}>Review member readiness</button>
+        <MiningPreparation preparation={readiness[row.definition.operationID]?.plan?.preparation} members={row.definition.members} planning stale={disconnected || pollError !== null} />
+      {:else}
+        <MiningPreparation preparation={row.runtime.preparation ? { ...row.runtime.preparation, members: row.runtime.preparation.members ?? row.runtime.members.flatMap(member => member.preparation ? [member.preparation] : []) } : undefined} members={row.definition.members} stale={disconnected || pollError !== null} />
+      {/if}
       <p><strong>Current target:</strong> {row.runtime.currentTarget?.targetName ?? (["STOPPING", "PARKING", "PARKING_FAILED", "STOPPED"].includes(row.runtime.state) ? "Released / no current target" : "Waiting for selection")} {row.runtime.currentTarget ? `· ${row.runtime.currentTarget.state}` : ""}</p>
       <p><strong>Current system:</strong> {row.runtime.currentTarget?.systemName ?? (row.runtime.currentTarget ? String(row.runtime.currentTarget.systemID) : "No current mining target")}</p>
       {#if row.runtime.rendezvous}
@@ -763,5 +892,7 @@
   .error { color: #ff9e9e; }
   .danger { border-color: #8e4d50; color: #ffb0b0; }
   .empty { color: #8195a0; font-style: italic; }
+  .supply-target { border: 1px solid #304754; padding: .5rem; margin: .5rem 0; }
+  td select { max-width: 18rem; width: 100%; }
   @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } header, .title-row { align-items: flex-start; flex-direction: column; } table { font-size: .85rem; } }
 </style>

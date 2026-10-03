@@ -9,8 +9,7 @@
 // into public/dist/, and the built index.html links it automatically.
 import "./styles.css";
 import { mount } from "svelte";
-import App from "./ui/App.svelte";
-import { isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath } from "./app/pageRoute.ts";
+import { isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
 import { installErrorOverlay } from "./app/errorOverlay.ts";
 
 // Before anything else: a framework-free net for uncaught errors and unhandled
@@ -24,12 +23,14 @@ installErrorOverlay();
 const target = document.getElementById("app");
 if (isGoblinFactoryPath(window.location.pathname)) window.location.replace(`/pilot-training${window.location.search}${window.location.hash}`);
 if (target && !isGoblinFactoryPath(window.location.pathname)) {
-  if (isPilotTrainingPath(window.location.pathname)) {
+  if (isShipProvisioningPath(window.location.pathname)) {
+    void import("./ui/ProvisioningCenter.svelte").then(({ default: Center }) => mount(Center, { target }));
+  } else if (isPilotTrainingPath(window.location.pathname)) {
     // Standalone: no cockpit restore, active bot or space polling is mounted.
     void import("./ui/GoblinFactory.svelte").then(({ default: Training }) => mount(Training, { target }));
   } else if (isMiningCommandCenterPath(window.location.pathname)) {
     void import("./ui/MiningCommandCenter.svelte").then(({ default: CommandCenter }) => mount(CommandCenter, { target }));
   } else {
-    mount(App, { target });
+    void import("./ui/App.svelte").then(({ default: App }) => mount(App, { target }));
   }
 }
