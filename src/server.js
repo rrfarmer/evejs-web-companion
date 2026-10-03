@@ -16,6 +16,9 @@ const staticDataModule = require("./staticData");
 const { readMinerPilot } = require("./pilotTrainingRead");
 const { createTrainingQueueService } = require("./pilotTrainingQueue");
 const { createFactorySessions } = require("./factorySessions");
+const { createReplenishment } = require("./replenishment");
+const { createPilotMutationFence } = require("./pilotMutationFence");
+const { registerProvisioningRoutes } = require("./provisioningRoutes");
 const { createFactorySkills } = require("./factorySkills");
 const { createTrainingOnboarding } = require("./trainingOnboarding");
 const { readTrainingSettingsContext } = require("./trainingSettingsRead");
@@ -122,7 +125,12 @@ function sendBotScriptError(res, error, next) {
 function createApp(options = {}) {
 const app = express();
 const store = options.eveStore || eveStore;
-const gateway = options.eveGatewayClient || eveGatewayClient;
+let replenishment;
+const mutationFence = createPilotMutationFence({ heldSessions: { values: () => bridgeSessions.values() },
+  assertWritable: (pilot, lease) => replenishment?.assertWritable(pilot, lease),
+  assertSelectable: pilot => replenishment.assertSelectable(pilot),
+  enterWrite: (pilot, lease) => replenishment.enterWrite(pilot, lease) });
+const gateway = mutationFence.wrap(options.eveGatewayClient || eveGatewayClient);
 const auth = options.webAuth || webAuth;
 const staticData = options.staticData || staticDataModule;
 // The game-port client the customs-export hop speaks. Injected so the route
@@ -157,6 +165,8 @@ const bridgeSessions = options.bridgeSessionStore || new Map();
 // the await gap between browser select/release and a hosted handoff.
 const characterOperations = new Map();
 const sessionOperations = new Map();
+replenishment = options.replenishment || createReplenishment({ operations: characterOperations, data: staticData,
+  filePath: options.replenishmentJournalPath || (options.eveStore ? null : path.join(config.dataDir, "replenishment-custody.json")) });
 /**
  * Web sessions whose pilot is on the GAME PORT for a moment (the customs-office
  * export hop), by expiry instant.
@@ -186,7 +196,14 @@ function heldOnGamePort(webSessionID) {
   }
   return true;
 }
-async function isCharacterHeld(characterID, callerSessionID = null) {
+async function isCharacterHeld(characterID, callerSessionID = null, preparationOwner = null, probeReservation = null) {
+  const reservation = characterOperations.get(characterID);
+  // Only the exact private customs-export reservation can probe its own hold.
+  // Both maps must still contain it; a name or stale token grants no exception.
+  const ownsProbe = probeReservation !== null && reservation === probeReservation &&
+    sessionOperations.get(callerSessionID) === probeReservation;
+  if (reservation && !ownsProbe) return true;
+  if (replenishment.unresolved(characterID).length) return true;
   for (const [sessionID, held] of bridgeSessions) {
     if (sessionID === callerSessionID || Number(held.characterID) !== Number(characterID)) continue;
     try {
@@ -253,7 +270,9 @@ const botHost =
   });
 app.locals.botHost = botHost;
 app.locals.bridgeSessions = bridgeSessions;
-const factorySessions = createFactorySessions({ store, gateway, operations: characterOperations, heldSessions: bridgeSessions, botHost });
+app.locals.replenishment = replenishment;
+const factorySessions = createFactorySessions({ store, gateway, operations: characterOperations, heldSessions: bridgeSessions, botHost,
+  withLease: mutationFence.withLease });
 const factorySkills = createFactorySkills({ store, gateway, data: staticData, queues: trainingQueues, sessions: factorySessions });
 const trainingOnboarding = createTrainingOnboarding({ store, gateway, sessions: factorySessions });
 // startServer() seeds the starter bots once the port is open, and all it
@@ -472,6 +491,21 @@ const requireTrainingAuth = makeRequireAuth({ cleanupSession: false });
 // optional decoration.
 const requireStreamAuth = makeRequireAuth({ allowQueryParam: true });
 
+// Dispatch gates below also protect requests that passed middleware before
+// Apply acquired its reservation. No browser-supplied lease is accepted.
+app.use("/api/bridge", requireAuth, (req, res, next) => {
+  try {
+    if (req.method === "POST" && !["/call", "/provisioning/review", "/provisioning/ship-review", "/provisioning/provision-ship", "/provisioning/reconcile", "/drone-recovery/ready"].includes(req.path)) {
+      const held = bridgeSessions.get(req.webSessionID);
+      if (req.path === "/select") {
+        const target = Number(req.body?.characterID);
+        if (held && held.characterID !== target) replenishment.assertWritable(held.characterID);
+        replenishment.assertSelectable(target);
+      } else if (held) replenishment.assertWritable(held.characterID);
+    }
+    next();
+  } catch (error) { next(error); }
+});
 app.get("/api/health", async (req, res) => {
   try {
     const storeStatus = await store.getStatus();
@@ -509,10 +543,10 @@ for (const action of ["create", "recover"]) {
     catch (error) { next(error); }
   });
 }
-app.post(["/api/login", "/api/goblin-factory/login", "/api/pilot-training/login"], async (req, res, next) => {
+app.post(["/api/login", "/api/goblin-factory/login", "/api/pilot-training/login", "/api/ship-provisioning/login"], async (req, res, next) => {
   // The standalone training door must never auto-create an unknown account or
   // replace the cookie belonging to an already-running cockpit.
-  const factoryLogin = /^\/api\/(?:goblin-factory|pilot-training)\/login\/?$/i.test(req.path);
+  const factoryLogin = /^\/api\/(?:goblin-factory|pilot-training|ship-provisioning)\/login\/?$/i.test(req.path);
   const username = String(req.body && req.body.username || "").trim();
   try {
     // An empty username can never name or create an account; refuse it here
@@ -607,6 +641,10 @@ app.post("/api/logout", async (req, res) => {
     return;
   }
   const held = payload && payload.sessionID ? bridgeSessions.get(payload.sessionID) : null;
+  if (held) {
+    try { replenishment.assertWritable(held.characterID); }
+    catch (error) { res.status(409).json({ ok: false, error: error.code, message: error.message }); return; }
+  }
   if (held && Number(held.accountID) !== Number(payload.accountID)) {
     res.status(409).json({ ok: false, error: "PILOT_RELEASE_UNVERIFIED", message: "The signed account does not own this pilot session." });
     return;
@@ -646,6 +684,9 @@ const TRANSITION_GATE_EXEMPT_POST_PATHS = new Set([
   "/api/bridge/call", // generic seam is read-only by policy
   "/api/bridge/select",
   "/api/bridge/release",
+  "/api/bridge/provisioning/review", // read-only despite the structured POST body
+  "/api/bridge/provisioning/ship-review", // read-only plan; Apply reserves in the shared engine
+  "/api/bridge/provisioning/reconcile", // evidence reads only; never dispatches
 ]);
 app.use((req, res, next) => {
   if (
@@ -670,6 +711,42 @@ app.use((req, res, next) => {
     message: `The ${held.transition.kind} transition is not ready for another command.`,
     transition: publicTransition(held),
   });
+});
+
+const provisioningRoutes = registerProvisioningRoutes({ app, requireAuth, requireHeld: requireHeldBridgeSession, engine: replenishment, store, gateway, data: staticData,
+  flight: readHeldFlight, currentHeld: assertCurrentHeldSession, inventoryLocation: inventoryLocationID,
+  resolvePlace, boundCall, cargoBindSpec, inventoryManagerBindSpec, slots: () => ALL_SLOT_FLAGS, shipBays: () => SHIP_BAYS,
+  capacity: decodeCapacityReading, heldCall: heldTopLevelCall, mutationFence,
+  pendingRecovery: held => hasPendingRecovery(held, held.characterID),
+  boardShip: async (held, sessionID, shipID, revalidate) => {
+    const response = { status() { return this; }, json(value) { throw Object.assign(new Error(value.message || value.error), { code: value.error, statusCode: 409 }); } };
+    if (!await acquireRouteTransition(response, held, "board", { shipID }, revalidate)) return;
+    let dispatchError;
+    try { await boundCall(held, sessionID, shipBindSpec(held), "Board", [shipID, held.activeShipID], null); }
+    catch (error) { dispatchError = error; }
+    markTransitionAccepted(held); // Outcome may be uncertain; observe even on error.
+    const ready = await awaitRouteTransition(held, sessionID, "board", { shipID });
+    if (!ready.ok) throw Object.assign(new Error("Exact target hull transition is unproven."), { code: "PROVISIONING_BOARD_UNPROVEN", statusCode: 409 });
+    held.activeShipID = Number(ready.flight.shipID);
+    if (dispatchError) throw dispatchError;
+  } });
+
+require("./provisioningCenter").registerProvisioningCenter({ app, requireAuth: requireTrainingAuth, gateway, data: staticData,
+  operations: characterOperations, heldSessions: bridgeSessions, botHost, engine: replenishment, sessions: factorySessions,
+  selectedAdapter: provisioningRoutes.adapter,
+  filePath: options.provisioningCenterJournalPath || (options.eveStore ? null : path.join(config.dataDir, "provisioning-center-control.json")),
+  fault: options.provisioningCenterFault || null,
+  attach(account, characterID, selected, operationID) {
+    const webSessionID = `provisioning-center:${operationID}`;
+    if (bridgeSessions.has(webSessionID) || [...bridgeSessions.values()].some(h => h.characterID === characterID))
+      throw Object.assign(new Error("Pilot ownership changed."), { code: "PILOT_BUSY" });
+    const held = makeHeldCharacter(account, characterID, selected);
+    held.temporaryProvisioning = true;
+    held.droneRecoveryReady = !!held.stationID && !held.structureID;
+    bridgeSessions.set(webSessionID, held);
+    return { held, req: { account, webSessionID } };
+  },
+  detach(binding) { if (bridgeSessions.get(binding.req.webSessionID) === binding.held) bridgeSessions.delete(binding.req.webSessionID); },
 });
 
 // Thin bridge proxy for the whitelisted EveJS callMethod path (goal R1).
@@ -776,32 +853,42 @@ async function releaseHeldBridgeSession(webSessionID, { confirmed = false } = {}
   if (!held) {
     return false;
   }
-  if (confirmed) {
-    try {
-      const outcome = await gateway.releaseBridgeSession(held.bridgeSessionID, { userid: Number(held.accountID) });
-      if (outcome?.released !== true) {
-        throw Object.assign(new Error("Pilot release was not confirmed."), { code: "PILOT_RELEASE_UNVERIFIED", statusCode: 409 });
-      }
-    } catch (error) {
-      if (!error || error.code !== "SESSION_NOT_FOUND") throw error;
-    }
-    if (bridgeSessions.get(webSessionID) === held) forgetBridgeSession(webSessionID);
-    return true;
-  }
-  forgetBridgeSession(webSessionID, held);
+  replenishment.assertWritable(held.characterID);
+  const existing = characterOperations.get(held.characterID);
+  if (existing && sessionOperations.get(webSessionID) !== existing)
+    throw Object.assign(new Error("The pilot has another operation in progress."), { code: "CHARACTER_IN_USE", statusCode: 409 });
+  const reservation = existing || Symbol("pilot-release");
+  if (!existing) characterOperations.set(held.characterID, reservation);
   try {
-    await gateway.releaseBridgeSession(held.bridgeSessionID, {
-      userid: Number(held.accountID),
-    });
-  } catch (error) {
-    if (!(error && RELEASE_BEST_EFFORT_CODES.has(error.code))) {
-      throw error;
+    if (confirmed) {
+      try {
+        const outcome = await gateway.releaseBridgeSession(held.bridgeSessionID, { userid: Number(held.accountID) });
+        if (outcome?.released !== true) {
+          throw Object.assign(new Error("Pilot release was not confirmed."), { code: "PILOT_RELEASE_UNVERIFIED", statusCode: 409 });
+        }
+      } catch (error) {
+        if (!error || error.code !== "SESSION_NOT_FOUND") throw error;
+      }
+      if (bridgeSessions.get(webSessionID) === held) forgetBridgeSession(webSessionID);
+      return true;
     }
-    if (error.code !== "SESSION_NOT_FOUND") {
-      errorLogger(error);
+    forgetBridgeSession(webSessionID, held);
+    try {
+      await gateway.releaseBridgeSession(held.bridgeSessionID, {
+        userid: Number(held.accountID),
+      });
+    } catch (error) {
+      if (!(error && RELEASE_BEST_EFFORT_CODES.has(error.code))) {
+        throw error;
+      }
+      if (error.code !== "SESSION_NOT_FOUND") {
+        errorLogger(error);
+      }
     }
+    return true;
+  } finally {
+    if (!existing && characterOperations.get(held.characterID) === reservation) characterOperations.delete(held.characterID);
   }
-  return true;
 }
 
 // --- R10 live event channel (gateway push -> SSE) --------------------------
@@ -1008,11 +1095,21 @@ function buildStationStatic(stationID) {
 
 // Shared by ordinary select and the narrowly guarded handoff restoration.
 async function selectHeldCharacter(webSessionID, account, characterID) {
-  const outcome = await gateway.selectCharacter(
+  const pendingCustody = replenishment.unresolved(characterID).length > 0;
+  if (pendingCustody && typeof gateway.selectFactoryCharacter !== "function")
+    throw Object.assign(new Error("Free-only custody recovery selection is unavailable; pilot control remains fenced."),
+      { code: "PROVISIONING_RECOVERY_AUTHORITY_UNAVAILABLE", statusCode: 409 });
+  const outcome = pendingCustody ? await mutationFence.withCustodySelection(characterID,
+    () => gateway.selectFactoryCharacter(Number(account.accountID), characterID)) : await gateway.selectCharacter(
     [characterID, null, true], null,
     { userid: Number(account.accountID), userName: String(account.username || "") },
   );
-  bridgeSessions.set(webSessionID, {
+  bridgeSessions.set(webSessionID, makeHeldCharacter(account, characterID, outcome));
+  joinHeldChat(bridgeSessions.get(webSessionID));
+  return outcome;
+}
+function makeHeldCharacter(account, characterID, outcome) {
+  return {
     bridgeSessionID: outcome.bridgeSessionID,
     characterID: Number(outcome.session.characterID) || characterID,
     accountID: Number(account.accountID),
@@ -1035,9 +1132,7 @@ async function selectHeldCharacter(webSessionID, account, characterID) {
     droneRecoveryReady: false,
     droneRecoveryCheckID: randomUUID(),
     recoveryDroneIDs: new Set(),
-  });
-  joinHeldChat(bridgeSessions.get(webSessionID));
-  return outcome;
+  };
 }
 
 // Select a character onto a persistent browser-backed session (goal R2): the
@@ -1100,7 +1195,7 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
     // after proving the gateway session still exists. Re-selecting would
     // disconnect the recovery owner; refusing would strand the tab forever.
     if (previousHeld && Number(previousHeld.characterID) === characterID &&
-        hasPendingRecovery(previousHeld, characterID) &&
+        (hasPendingRecovery(previousHeld, characterID) || replenishment.unresolved(characterID).length) &&
         !botHost.authorizesClaim(characterID, req.get(botHostModule.BOT_HEADER))) {
       const current = await readHeldFlight(previousHeld, req.webSessionID);
       const liveShipID = Number(current.flight?.shipID);
@@ -1467,10 +1562,13 @@ function planetBindSpec(planetID) {
 async function boundCall(held, webSessionID, bindSpec, method, args, kwargs, bindNotifications = null) {
   assertCurrentHeldSession(held, webSessionID);
   if (bindSpec.service === "invbroker" &&
-      ["Add", "MultiAdd", "MultiMerge", "StackAll", "TrashItems", "SplitStack"].includes(method)) {
+      ["Add", "MultiAdd", "MultiMerge", "StackAll", "TrashItems", "SplitStack", "FitFitting"].includes(method)) {
     // A picked structure or earlier service read is not mutation authority.
     // Recheck the live location and access before every inventory write.
     const flight = await readHeldFlight(held, webSessionID);
+    if (bindSpec.expectedShipID && flight.flight?.shipID !== bindSpec.expectedShipID) {
+      throw Object.assign(new Error("The active ship changed before inventory transfer."), { code: "INVENTORY_SHIP_CHANGED", statusCode: 409 });
+    }
     if (bindSpec.expectedDockedLocationID &&
         (flight.flight?.docked !== true || inventoryLocationID(held) !== bindSpec.expectedDockedLocationID ||
          (isPlayerStructureID(bindSpec.expectedDockedLocationID) && held.structureID !== bindSpec.expectedDockedLocationID))) {
@@ -16248,7 +16346,7 @@ function beginRouteTransition(res, held, kind, expected) {
  * Only the latter waits here; ordinary warp/module/inventory calls continue
  * once the prior transition's authoritative readiness phase is `ready`.
  */
-async function acquireRouteTransition(res, held, kind, expected) {
+async function acquireRouteTransition(res, held, kind, expected, beforeBegin = null) {
   if (held.transition && held.transition.phase !== "ready") {
     return beginRouteTransition(res, held, kind, expected);
   }
@@ -16277,6 +16375,7 @@ async function acquireRouteTransition(res, held, kind, expected) {
       }
     }
   }
+  if (beforeBegin) await beforeBegin();
   return beginRouteTransition(res, held, kind, expected);
 }
 
@@ -20303,7 +20402,7 @@ app.post("/api/pi/customs-export", requireAuth, async (req, res, next) => {
               (Number.isSafeInteger(structureID) && structureID > 0))) return null;
         return { shipID, stationID, structureID };
       };
-      if (await isCharacterHeld(characterID, req.webSessionID)) {
+      if (await isCharacterHeld(characterID, req.webSessionID, null, reservation)) {
         res.status(409).json({
           ok: false,
           error: "CHARACTER_IN_USE",
@@ -20382,7 +20481,7 @@ app.post("/api/pi/customs-export", requireAuth, async (req, res, next) => {
       const confirmOffline = async (attempts = 1) => {
         for (let attempt = 0; attempt < attempts; attempt++) {
           assertExportOwnership();
-          const heldElsewhere = await isCharacterHeld(characterID, req.webSessionID);
+          const heldElsewhere = await isCharacterHeld(characterID, req.webSessionID, null, reservation);
           assertExportOwnership();
           if (heldElsewhere) break;
           const status = await gateway.getCharacterStatus(req.account.accountID, characterID);

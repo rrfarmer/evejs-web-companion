@@ -39,6 +39,9 @@
 </script>
 
 <div class="global-launchers" role="group" aria-label="Every pilot">
+  <a class="global-launch" href="/ship-provisioning" target="_blank" rel="noopener" aria-label="Provisioning Center" title="Open the separate Provisioning Center for owned pilots">
+    <span class="global-launch-text">Provisioning Center</span>
+  </a>
   {#each GLOBAL_LAUNCHERS as launcher (launcher.id)}
     {@const open = openIds.has(launcher.id)}
     {@const count = launcher.id === "companion" ? companionCount : 0}
