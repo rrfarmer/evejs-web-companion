@@ -8,6 +8,17 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const manifest = require("../runtime-patches/mining-support-0.12.9-manifest.json");
+const provisioning = require("../runtime-patches/provisioning-observation-provenance.json");
+const cleanReferenceFiles = { ...manifest.cleanReferenceFiles,
+  ...require("../runtime-patches/upwell-0.12.9-manifest.json").cleanReferenceFiles,
+  ...require("../runtime-patches/pilot-training-0.12.9-manifest.json").cleanReferenceFiles };
+for (const { file, cleanBaselineSHA256 } of provisioning.files) {
+  if (!cleanBaselineSHA256) continue;
+  const expected = cleanBaselineSHA256.toUpperCase();
+  if (cleanReferenceFiles[file] && cleanReferenceFiles[file] !== expected)
+    throw new Error(`Runtime fixture baselines disagree for ${file}`);
+  cleanReferenceFiles[file] = expected;
+}
 const digest = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex").toUpperCase();
 const supplementalFiles = [
   "server/src/common/numbers.js",
@@ -22,7 +33,7 @@ function prepareRuntimeTestReference(repo = process.env.EVEJS_REPO || path.resol
   const git = (...args) => execFileSync("git", ["-C", repo, ...args], { maxBuffer: 8_000_000 });
   const pinned = new Map();
   const revisions = {};
-  for (const [file, expected] of Object.entries(manifest.cleanReferenceFiles)) {
+  for (const [file, expected] of Object.entries(cleanReferenceFiles)) {
     const history = git("log", "--format=%H", "--", file).toString().trim().split(/\s+/).filter(Boolean);
     for (const revision of history) {
       const bytes = git("show", `${revision}:${file}`);

@@ -792,6 +792,11 @@ function openSessionEventStream(options = {}) {
 }
 
 module.exports = {
+  async getProvisioningObservation(accountID, characterID = null, source = { kind: "hangar" }) {
+    const result = await getJson("/provisioning-observation", { accountID, characterID, sourceKind: source.kind,
+      corporationID: source.corporationID, division: source.division }, { timeoutMs: 5000 });
+    return result.projection;
+  },
   EveGatewayError,
   openSessionEventStream,
   // Bridge surface (the live path): the retail call tuple, bound objects, the

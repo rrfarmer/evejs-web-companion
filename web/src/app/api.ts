@@ -242,6 +242,26 @@ async function getJson(
   return requestJson(path, { method: "GET" }, options);
 }
 
+export async function provisioningOptions(providerCharacterID: number | null, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ProvisioningOptions> {
+  const data = await getJson(`/api/bridge/provisioning/options${providerCharacterID ? `?providerCharacterID=${providerCharacterID}` : ""}`, options);
+  return data as unknown as import("../bridge/provisioning.ts").ProvisioningOptions;
+}
+export async function reviewProvisioning(input: import("../bridge/provisioning.ts").ProvisioningInput, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ProvisioningReview> {
+  return await postJson("/api/bridge/provisioning/review", input, options) as unknown as import("../bridge/provisioning.ts").ProvisioningReview;
+}
+export async function replenishProvisioning(reviewID: string, reviewHash: string, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ReplenishmentResult> {
+  return await postJson("/api/bridge/provisioning/replenish", { reviewID, reviewHash, confirm: true }, options) as unknown as import("../bridge/provisioning.ts").ReplenishmentResult;
+}
+export async function reconcileProvisioning(operationID: string, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ReplenishmentResult> {
+  return await postJson("/api/bridge/provisioning/reconcile", { operationID }, options) as unknown as import("../bridge/provisioning.ts").ReplenishmentResult;
+}
+export async function reviewShipProvisioning(input: import("../bridge/provisioning.ts").ProvisioningInput, operationID: string | null = null, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ShipReview> {
+  return await postJson("/api/bridge/provisioning/ship-review", { ...input, operationID }, options) as unknown as import("../bridge/provisioning.ts").ShipReview;
+}
+export async function provisionShip(reviewID: string, reviewHash: string, options: ApiOptions = {}): Promise<import("../bridge/provisioning.ts").ShipResult> {
+  return await postJson("/api/bridge/provisioning/provision-ship", { reviewID, reviewHash, confirm: true }, options) as unknown as import("../bridge/provisioning.ts").ShipResult;
+}
+
 function asNumberOrNull(value: JsonValue | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
