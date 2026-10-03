@@ -4,7 +4,9 @@
   import { fittingsForHull } from "../training/fittingSelection.ts";
   import { requirementCounts, skillTargetLabel, type PlanMode } from "../training/factory.ts";
   import type { MinerTrainingRead, RequirementRow, CorporationSavedFitting, StageFittingSelection } from "../training/types.ts";
-  let { result, selections, mode, busy, onSelect, onAccept, configurations = [], role = "MINER", onSave = () => {}, onRemove = () => {} }: {
+  import { equipmentState } from "../training/equipment.ts";
+  let { result, selections, mode, busy, onSelect, onAccept, configurations = [], role = "MINER", onSave = () => {}, onRemove = () => {}, now = Date.now(), onReviewEquipment = () => {}, equipmentSourceReady = false }: {
+    now?: number; onReviewEquipment?: (id: string) => void; equipmentSourceReady?: boolean;
     configurations?: readonly TrainingConfiguration[]; role?: string; onSave?: (config: TrainingConfiguration) => void; onRemove?: (id: string) => void;
     result: MinerTrainingRead; selections: Readonly<Record<string, StageFittingSelection>>;
     mode: PlanMode; busy: boolean;
@@ -75,11 +77,14 @@
     {@const counts = requirementCounts(stage.hard)}
     {@const support = requirementCounts(stage.support)}
     {@const chosen = selections[stage.id]}
+    {@const readiness = equipmentState(stage, now)}
     <div class="contract-head"><strong>{index + 1}. {stage.hullName || stage.id} · {stage.fitName}</strong>
       <span>{stage.skillQualification === "NOT_READY" ? "NEEDS TRAINING" : stage.skillQualification} · fitting {stage.fitting.status}</span>
       <button class="minor" disabled={busy} onclick={() => edit(stage.id)}>Edit</button>
       <button class="minor" disabled={busy} onclick={() => onRemove(stage.id)}>Remove</button>
     </div>
+    <p>Skills: <strong>{stage.skillQualification}</strong> · Equipment: <strong>{readiness.equipment}</strong> · Supplies: <strong>{readiness.supplies}</strong> · <strong>{readiness.duty}</strong></p>
+    <button class="minor" type="button" disabled={busy || !equipmentSourceReady || stage.fitting.status !== "READY" || stage.skillQualification !== "READY"} onclick={() => onReviewEquipment(stage.id)}>Review Equipment plan · {stage.fitName}</button>
     <details open={stage.fitting.status === "REVIEW_REQUIRED"}>
       <summary>Details</summary>
       <p>Expected hull: {stage.hullName || stage.id} (type {stage.hullTypeID})</p>
@@ -104,14 +109,16 @@
       <details><summary>Support policy · {support.TRAINED} / {stage.support.length} targets trained</summary>
         {@render skillRows(stage.support)}
       </details>
-      <p class="note">Equipment: UNKNOWN. The fitting is a desired manifest; ship ownership, inventory and fitting execution are not checked.</p>
+      <p class="note">Equipment: {readiness.equipment}. {readiness.fresh ? stage.equipmentReason : "Refresh authoritative observations; equipment evidence has expired or is unavailable."}</p>
+      {#if stage.equipment}<p class="note">Actual hull: {stage.equipment.hullName || "Unknown"} · Observation {stage.equipment.quality} · Control {stage.equipment.control.state}. Fresh equipment evidence expires after one minute.</p>{/if}
+      {#if readiness.fresh && stage.equipment}<ul>{#each stage.equipment.status.targets as target}<li>{target.name}: {target.current ?? "UNKNOWN"} / {target.target} · {target.state}</li>{/each}</ul>{/if}
     </details>
   {/each}
   <h3>{mode} preview → {preview.stage ? qualificationName(report, preview.stage) : "No target qualification"}</h3>
   <p class="note">{mode === "FAST" ? "Target qualification hard requirements only." : mode === "BALANCED" ? "Target qualification hard requirements plus selected role support." : "Target qualification requirements and selected support/mastery targets, including intentional level V goals."}</p>
   <p>ETA: {preview.eta.kind === "READY" ? "Already trained" : preview.eta.kind === "SERVER_QUEUE" ? `${formatDuration(preview.eta.remainingMs)} · authoritative server queue` : `UNKNOWN · ${preview.eta.reason}`}</p>
   {#if preview.targets.length > 0}{@render skillRows(preview.targets)}{/if}
-  <p class="note">This preview does not change training. Review the append below before explicitly applying. Equipment is not issued.</p>
+  <p class="note">This preview does not change training or equipment. Queue Apply and manual Provision Equipment are separate actions.</p>
 </section>
 <style>
   details { margin: .75rem 0; padding: .75rem; border: 1px solid var(--border, #364252); border-radius: 6px; }

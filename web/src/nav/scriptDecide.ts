@@ -49,6 +49,8 @@ import { alertSentence, conditionSentence, stepSentence } from "../bots/scriptTe
 import { decideMiningDroneFlight, freshDroneMemory, type MiningDroneMemory } from "./miningDroneFlight.ts";
 import { confirmedDrain } from "./miningLogistics.ts";
 import { hostileRows } from "../space/overview.ts";
+import { settleCombat, combatOwnership, ownCombatAction } from "./combatOwnership.ts";
+import { combatCapSustain } from "./combatUtilities.ts";
 import {
   SENTENCE as COND_SENTENCE,
   bumpCannotTellStreak,
@@ -93,7 +95,8 @@ export type ScriptAction =
   | { readonly kind: "jump"; readonly fromGateID: number; readonly toGateID: number }
   | { readonly kind: "lock"; readonly targetID: number }
   | { readonly kind: "unlock"; readonly targetID: number }
-  | { readonly kind: "activate"; readonly moduleID: number; readonly targetID: number }
+  | { readonly kind: "activate"; readonly moduleID: number; readonly targetID: number; readonly typeID?: number; readonly utility?: true; readonly repeat?: 0; readonly capDemandFloor?: number }
+  | { readonly kind: "loadCombatAmmo"; readonly moduleID: number; readonly chargeItemID: number; readonly chargeTypeID: number; readonly utility?: true }
   /**
    * Switch a fitted module OFF. No target: deactivation always names the
    * caster's own fit.
@@ -114,7 +117,7 @@ export type ScriptAction =
    * name and behaves identically whether the key is present or absent. Only a
    * prop mod cares, and only the rung that names one fills this in.
    */
-  | { readonly kind: "deactivate"; readonly moduleID: number; readonly typeID?: number }
+  | { readonly kind: "deactivate"; readonly moduleID: number; readonly typeID?: number; readonly settlement?: true }
   | { readonly kind: "launchDrones"; readonly droneItemIDs: readonly number[] }
   | { readonly kind: "engageDrones"; readonly droneIDs: readonly number[]; readonly targetID: number }
   | { readonly kind: "mineDrones"; readonly droneIDs: readonly number[]; readonly targetID: number }
@@ -1115,6 +1118,10 @@ export function decideScriptAction(
     (obs.miningOperation == null ||
       (obs.miningOperation.role === "MINER" && obs.miningOperation.currentTarget === null));
   if (operationHeld && base.memory.latched === null) {
+    // The operation-aware combat adapter settles its owned state when site
+    // authority disappears. Do not replace that cleanup with a generic wait.
+    if (activeMacroID(script, mem) === "fight-with-drones" &&
+        Object.values(mem.macroMem).some(state => state.operationDefender === true)) return base;
     const active = new Set(obs.snapshot?.ship?.activeModuleIDs ?? []);
     const miner = obs.miningModuleIDs?.find(id => active.has(id));
     if (miner !== undefined) return { ...base, action: { kind: "deactivate", moduleID: miner },
@@ -1300,6 +1307,10 @@ function decideScriptCore(
   // and repair" is making its round trip, which is the same flight with an
   // ending that goes back to work instead of stopping.
   if (mem.latched !== null) {
+    // A recoverable repair trip must become terminal when acute safety fires.
+    const acute = mem.latched.recover !== undefined ? script.interrupts.find(row =>
+      (row.respond === "dock-and-pause" || row.respond === "pause") && evaluateCondition(row.when, obs) === "met") : null;
+    if (acute) return fireInterrupt(script, acute.id, obs, { ...mem, latched: null }, travelHome, registry);
     return mem.latched.recover === undefined
       ? continueHeadingHome(obs, mem, travelHome)
       : continueRecovering(script, obs, mem, registry, travelHome);
@@ -1311,15 +1322,21 @@ function decideScriptCore(
   const spentAlerts = releaseSpentAlerts(script.interrupts, obs, mem.spentAlerts ?? []);
   const released = releaseRecoverTrips(script, obs, mem);
   const scanMem = spentAlerts === (mem.spentAlerts ?? []) ? released : { ...released, spentAlerts };
+  // Explicit escape/pause authority precedes optional work, regardless of where
+  // a repair or combat watch was placed. Once fired, its latch owns later ticks.
+  const escape = script.interrupts.find((row) =>
+    (row.respond === "dock-and-pause" || row.respond === "pause") &&
+    evaluateCondition(row.when, obs) === "met");
+  if (escape) return fireInterrupt(script, escape.id, obs, scanMem, travelHome, registry);
+  if (obs.hostileOnGrid === true && obs.health === null) {
+    return stopSafely(COND_SENTENCE.safetyBlind, scanMem, null, obs, travelHome);
+  }
   const res = resolveInterrupt(script.interrupts, obs, spentAlerts);
   if (res.kind === "safety-override") {
     // No interrupt row caused this — it is the sealed acute rule firing on its
     // own, so there is honestly no interrupt id to report. A pirate is here and
     // the ship is unreadable, which is the LAST state to sit still in: home first.
     return stopSafely(res.reason, scanMem, null, obs, travelHome);
-  }
-  if (res.kind === "fire") {
-    return fireInterrupt(script, res.row.id, obs, scanMem, travelHome, registry);
   }
 
   // 2.5 The repair thermostat's OFF half: a repair watch whose condition has
@@ -1338,6 +1355,10 @@ function decideScriptCore(
       pauseReason: null,
       memory: scanMem,
     };
+  }
+
+  if (res.kind === "fire") {
+    return fireInterrupt(script, res.row.id, obs, scanMem, travelHome, registry);
   }
 
   // 2.6 The fight-back watch's OTHER half: the pirate is gone, so the drones it
@@ -1413,7 +1434,8 @@ function repairShutdown(
     if (row.respond !== "repair") {
       continue;
     }
-    if (evaluateCondition(row.when, obs) !== "not-met") {
+    if (evaluateCondition(row.when, obs) !== "not-met" &&
+        !(obs.capacitorRatio != null && obs.capacitorRatio < REPAIR_CAP_FLOOR)) {
       continue;
     }
     const running = repairersFor(row.when.kind, obs).find((id) => active.has(id));
@@ -1872,6 +1894,12 @@ function fireInterrupt(
       // repairs nothing and locks the ship up). One action, then the program
       // continues; the watch re-fires next tick while the condition holds.
       const reps = repairersFor(row.when.kind, obs);
+      if (reps.length === 0) return fallThrough(script, row.id, obs, mem, travelHome, registry);
+      // An unreadable rack/cap is not an empty rack/full capacitor. Never issue
+      // another activation from these unknowns; explicit escape was checked first.
+      if (obs.snapshot?.ship?.activeModuleIDs == null || obs.capacitorRatio == null) {
+        return fallThrough(script, row.id, obs, mem, travelHome, registry);
+      }
       const active = new Set(obs.snapshot?.ship?.activeModuleIDs ?? []);
       const cap = obs.capacitorRatio ?? null;
       if (cap !== null && cap < REPAIR_CAP_FLOOR) {
@@ -1887,6 +1915,13 @@ function fireInterrupt(
             pauseReason: null,
             memory: mem,
           };
+        }
+        const sustain = combatCapSustain(obs, mem.macroMem[row.id] ?? {}, REPAIR_CAP_FLOOR);
+        if (sustain.action) {
+          const owned = ownCombatAction(combatOwnership(sustain.memory, obs), sustain.action, obs);
+          return { action: sustain.action, why: sustain.why, phase: "Sustaining repair", stepPath: row.id,
+            interruptID: row.id, status: "running", pauseReason: null,
+            memory: { ...mem, macroMem: { ...mem.macroMem, [row.id]: { ...sustain.memory, combatOwned: owned } } } };
         }
         return fallThrough(script, row.id, obs, mem, travelHome, registry);
       }
@@ -2198,6 +2233,19 @@ function runProgram(
     if ((position.kind === "loop" || position.kind === "loop-branch-enter") && position.body === 0) {
       const loop = script.program[position.node] as LoopBlock;
       if (loop.until !== undefined && evaluateCondition(loop.until, obs) === "met") {
+        const paths = loop.body.flatMap(node => node.kind === "branch" ? [...node.then, ...node.else].map(step => step.id) : [node.id]);
+        for (const path of paths) {
+          const state = macroMem[path];
+          if (!state?.combatOwned) continue;
+          const settlement = settleCombat(obs, state);
+          macroMem = { ...macroMem, [path]: settlement.nextMem };
+          if (settlement.outcome.kind === "blocked") return stopSafely(settlement.outcome.reason,
+            { ...mem, position, loopPass, macroMem, board }, path, obs, travelHome);
+          if (settlement.outcome.kind !== "done") return { action: settlement.action, why: settlement.why,
+            phase: settlement.phase, status: "running", pauseReason: null, stepPath: path, interruptID: null,
+            memory: { ...mem, position, loopPass, macroMem, board } };
+          macroMem = omit(macroMem, path);
+        }
         position = startOfNode(script, position.node + 1);
         invocationAdvanced = true;
         loopPass = 0;
@@ -2290,7 +2338,9 @@ function runProgram(
     }
 
     const stepMem = macroMem[step.id] ?? {};
-    const tick = decider(step, obs, stepMem, board);
+    const untilCombat = step.macro === "fight-with-drones" && stepMem.combatOwned &&
+      (stepMem.combatSettling === true || step.until !== undefined && evaluateCondition(step.until, obs) === "met");
+    const tick = untilCombat ? settleCombat(obs, { ...stepMem, combatSettling: true }) : decider(step, obs, stepMem, board);
     macroMem = { ...macroMem, [step.id]: tick.nextMem };
     if (tick.boardPatch !== undefined) {
       board = { ...board, ...tick.boardPatch };
@@ -2604,6 +2654,10 @@ function enclosingLoopRestart(script: BotScript, position: Position): Position |
  */
 function committedStepID(script: BotScript, position: Position): string | null {
   return position.kind === "loop" || position.kind === "loop-branch" ? activeStep(script, position).id : null;
+}
+
+export function currentStepID(script: BotScript, memory: ScriptMemory): string | null {
+  return ["step", "branch", "loop", "loop-branch"].includes(memory.position.kind) ? activeStep(script, memory.position).id : null;
 }
 
 function positionKey(position: Position): string {

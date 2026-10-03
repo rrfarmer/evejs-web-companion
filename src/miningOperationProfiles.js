@@ -4,6 +4,7 @@
 // while rev and botHost's document hash pin the exact granted implementation.
 const BELT_MINER_ID = "mcc.belt.hauler-service.miner";
 const BELT_HAULER_ID = "mcc.belt.hauler-service.hauler";
+const DEFENDER_PROFILE = Object.freeze({ scriptID: "mcc.standard.defender", name: "Standard Defender", rev: 1 });
 const PROFILES = Object.freeze({
   MINER: { scriptID: BELT_MINER_ID, name: "Belt Miner / Hauler Service", rev: 2 },
   HAULER: { scriptID: BELT_HAULER_ID, name: "Belt Hauler", rev: 1 },
@@ -49,6 +50,7 @@ function standardProfileFor(definition, member) {
       definition?.area?.targetClasses?.length !== 1) return null;
   const family = PROFILE_FAMILIES[definition.area.targetClasses[0]];
   if (!family?.executable) return null;
+  if (member.role === "DEFENDER") return DEFENDER_PROFILE;
   if (member.role === "COMMAND") return definition.support?.characterID === member.characterID
     ? { scriptID: "mcc.command.mining-support", name: "Mining Command / Support", rev: 1 } : null;
   if (member.role === "HAULER" && definition.support) {
@@ -64,6 +66,24 @@ function standardProfileFor(definition, member) {
 }
 
 function buildStandardProfile(definition, member) {
+  if (member.role === "DEFENDER") {
+    const profile = standardProfileFor(definition, member), destination = definition.unloadDestination;
+    if (!profile || !destination) return null;
+    const home = destination.kind === "structure"
+      ? { entity: "structure", id: destination.id, name: destination.name, systemName: destination.solarSystemName }
+      : { entity: "station", id: destination.stationID, name: destination.stationName, systemName: destination.systemName };
+    if (!Number.isSafeInteger(home.id) || home.id <= 0 || !home.name || !home.systemName) return null;
+    return { ...profile, doc: { format: "evejs-bot-script", version: 1, name: profile.name,
+      notes: "MCC operation target only. Shared mobile combat and fit-driven Phase-1 utilities.", home,
+      interrupts: [
+        { id: "hull-emergency", when: { kind: "hull-below", fraction: 0.3 }, respond: "dock-and-pause" },
+        { id: "armor-maintenance", when: { kind: "armor-below", fraction: 0.3 }, respond: "repair" },
+      ], program: [{ id: "operation-loop", kind: "loop", repeat: { kind: "forever" }, body: [
+        { id: "undock", kind: "macro", macro: "undock", args: {} },
+        { id: "defend", kind: "macro", macro: "fight-with-drones", args: {} },
+        { id: "idle", kind: "macro", macro: "wait", args: { seconds: { kind: "count", value: 4 } } },
+      ] }] } };
+  }
   if (member.role === "COMMAND") {
     const profile = standardProfileFor(definition, member), destination = definition.unloadDestination;
     if (!profile || !destination) return null;

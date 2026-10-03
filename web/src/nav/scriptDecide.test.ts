@@ -28,6 +28,60 @@ import {
 } from "./scriptDecide.ts";
 import { MAX_CANNOT_TELL_STREAK } from "./scriptConditions.ts";
 
+test("acute hull escape outranks combat and idle/active/no-op repair even when authored last", () => {
+  const combat: InterruptRow = { id: "combat", when: { kind: "hostile-on-grid" }, respond: "launch-drones" };
+  const repair: InterruptRow = { id: "rep", when: { kind: "hull-below", fraction: 0.5 }, respond: "repair" };
+  const escape: InterruptRow = { id: "acute", when: { kind: "hull-below", fraction: 0.3 }, respond: "dock-and-pause" };
+  const s = underWatches([combat, repair, escape]);
+  for (const active of [[], [13]]) {
+    const r = decideScriptAction(s, obs({ hullRatio: 0.2, hostileOnGrid: true, hullRepairerIDs: [13],
+      combatDroneBayItemIDs: [21], snapshot: running(...active) }), initialMemory(s), registry, home);
+    assert.equal(r.interruptID, "acute"); assert.equal(r.action.kind, "warp");
+    const docked = decideScriptAction(s, obs({ docked: true, inSpace: false, hullRatio: 0.2 }), r.memory, registry, home);
+    assert.equal(docked.status, "paused");
+  }
+});
+test("recovered repairer OFF maintenance outranks a persistent combat watch", () => {
+  const s = underWatches([
+    { id: "combat", when: { kind: "hostile-on-grid" }, respond: "launch-drones" },
+    { id: "rep", when: { kind: "armor-below", fraction: 0.3 }, respond: "repair" },
+  ]);
+  const r = decideScriptAction(s, obs({ hostileOnGrid: true, armorRatio: 1, armorRepairerIDs: [12],
+    combatDroneBayItemIDs: [21], snapshot: running(12) }), initialMemory(s), registry, home);
+  assert.deepEqual(r.action, { kind: "deactivate", moduleID: 12 });
+});
+test("unknown cap or active-module state does not blind-activate a repairer", () => {
+  const s = underWatches([{ id: "rep", when: { kind: "armor-below", fraction: 0.3 }, respond: "repair" }]);
+  for (const unknown of [{ capacitorRatio: null, snapshot: running() }, { capacitorRatio: 1, snapshot: null }]) {
+    const r = decideScriptAction(s, obs({ armorRatio: 0.2, armorRepairerIDs: [12], ...unknown }), initialMemory(s), registry, home);
+    assert.notEqual(r.interruptID, "rep");
+  }
+});
+test("a repair recovery latch becomes terminal when hull emergency appears", () => {
+  const s = underWatches([
+    { id: "repair-trip", when: { kind: "armor-below", fraction: 0.3 }, respond: "dock-and-repair" },
+    { id: "acute", when: { kind: "hull-below", fraction: 0.3 }, respond: "dock-and-pause" },
+  ]);
+  const recovery = decideScriptAction(s, obs({ armorRatio: 0.2 }), initialMemory(s), registry, home);
+  assert.ok(recovery.memory.latched?.recover);
+  const escape = decideScriptAction(s, obs({ hullRatio: 0.2 }), recovery.memory, registry, home);
+  assert.equal(escape.memory.latched?.interruptID, "acute");
+  assert.equal(escape.memory.latched?.recover, undefined);
+  const arrived = decideScriptAction(s, obs({ docked: true, inSpace: false, hullRatio: 0.2 }), escape.memory, registry, home);
+  assert.equal(arrived.status, "paused");
+  assert.notEqual(arrived.action.kind, "undock");
+});
+test("combat until settles ownership before advancing to another block", () => {
+  const s = script([macroStep("fight", "fight-with-drones", { kind: "hold-empty" }), macroStep("work", "mine-at-belt")], []);
+  const memory = { ...initialMemory(s), macroMem: { fight: { combatOwned: { shipID: 9001, modules: { 12: {} },
+    locks: [], drones: [], initialDrones: [], launched: false, movement: false, fleetCall: false } } } };
+  const world = obs({ snapshot: { ...running(12)!, ship: { ...running(12)!.ship!, itemID: 9001 } },
+    combatDroneIDs: [], myDrones: [], lockedTargetIDs: [] });
+  const result = decideScriptAction(s, world, memory, { ...registry, "fight-with-drones": mine }, home);
+  assert.deepEqual(result.action, { kind: "deactivate", moduleID: 12, settlement: true });
+  assert.equal(result.stepPath, "fight");
+});
+
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 function obs(over: Partial<ScriptObservation> = {}): ScriptObservation {
@@ -35,6 +89,7 @@ function obs(over: Partial<ScriptObservation> = {}): ScriptObservation {
     inSpace: true, docked: false, inWarp: false,
     shieldRatio: 1, armorRatio: 1, hullRatio: 1, health: 1,
     oreHoldFraction: 0, holdEmpty: true, hostileOnGrid: false, dronesOut: false,
+    capacitorRatio: 1,
     ...over,
   };
 }
@@ -919,7 +974,7 @@ test("alert: fires once, keeps the program running, and does not repeat while it
   assert.deepEqual(mem.spentAlerts, ["tellme"]);
 });
 
-test("alert: a spent row is TRANSPARENT — the watch under it still fires", () => {
+test("an escape outranks an alert even before the alert is spent", () => {
   // The pattern the design exists for: tell me, AND dock. Same threshold, alert
   // above. Tick 1 alerts; tick 2 must reach the dock-and-pause row below it.
   const dockRow: InterruptRow = { id: "dock", when: { kind: "shield-below", fraction: 0.6 }, respond: "dock-and-pause" };
@@ -927,7 +982,7 @@ test("alert: a spent row is TRANSPARENT — the watch under it still fires", () 
   const hurt = obs({ shieldRatio: 0.4 });
   const { results } = run(s, [hurt, hurt, obs({ shieldRatio: 0.4, docked: true })]);
 
-  assert.equal(results[0]?.action.kind, "alert");
+  assert.equal(results[0]?.action.kind, "warp");
   assert.equal(results[1]?.interruptID, "dock", "the dock watch under the spent alert must fire");
   assert.equal(results[1]?.action.kind, "warp", "and it flies home");
   assert.equal(results[2]?.status, "paused", "then stops, docked");
@@ -962,14 +1017,14 @@ test("alert: an UNREADABLE check does not re-arm the row (no crying wolf on a bl
   assert.equal(step(obs({ shieldRatio: 0.4 })).action.kind, "activate", "so it does not alert again");
 });
 
-test("alert: a dock-and-pause row still fires with a spent alert row sitting above it", () => {
+test("a dock-and-pause row outranks an unspent alert above it", () => {
   // A spent alert must never silence a real response sitting under it. Alert on
   // health above the plain health-below dock-and-pause watch.
   const alertHealth: InterruptRow = { id: "tellhealth", when: { kind: "health-below", fraction: 0.5 }, respond: "alert" };
   const s = script([macroStep("m", "mine-at-belt", { kind: "ore-hold-at-least", fraction: 0.9 })], [alertHealth, floor]);
   const dying = obs({ health: 0.2 });
   const { results } = run(s, [dying, dying, obs({ health: 0.2, docked: true })]);
-  assert.equal(results[0]?.action.kind, "alert");
+  assert.equal(results[0]?.action.kind, "warp");
   assert.equal(results[1]?.interruptID, "floor", "the dock-and-pause row is reached");
   assert.equal(results[2]?.status, "paused");
 });
@@ -1019,8 +1074,8 @@ test("repair: repairers that are ALL already running do not silence it either", 
   // ⚠ AND THE OTHER WAY. Transparency must not turn into "the repair row never
   // wins": with the repairer idle it is the one with work, and it keeps the tick.
   const idle = decideScriptAction(s, obs({ ...hurt, snapshot: running() }), initialMemory(s), registry, home);
-  assert.equal(idle.interruptID, "rep");
-  assert.deepEqual(idle.action, { kind: "activate", moduleID: 12, targetID: 0 });
+  assert.equal(idle.interruptID, "flee");
+  assert.equal(idle.action.kind, "warp");
 });
 
 test("launch-drones: a watch whose drones are already out stands aside", () => {
@@ -1470,7 +1525,7 @@ test("a repair watch fires in space and is SILENT in warp - every tank layer, no
 
     // The in-space half is not decoration: without it a guard that silenced the
     // watch for some unrelated reason would pass the warp half every time.
-    const acting = decideScriptAction(s, obs({ ...w.hurt, inWarp: false }), mem, registry, home);
+    const acting = decideScriptAction(s, obs({ ...w.hurt, inWarp: false, snapshot: running() }), mem, registry, home);
     assert.deepEqual(acting.action, { kind: "activate", moduleID: w.moduleID, targetID: 0 },
       `${w.layer}: the watch has to actually fire, or the warp half proves nothing`);
     assert.equal(acting.interruptID, row.id);
@@ -1510,7 +1565,7 @@ test("an UNREADABLE inWarp fails OPEN - null is not 'in warp'", () => {
   const row: InterruptRow = { id: "r", when: { kind: "armor-below", fraction: 0.5 }, respond: "repair" };
   const s = script([macroStep("m", "mine-at-belt")], [row]);
   const r = decideScriptAction(
-    s, obs({ armorRatio: 0.2, armorRepairerIDs: [12], inWarp: null }), initialMemory(s), registry, home);
+    s, obs({ armorRatio: 0.2, armorRepairerIDs: [12], inWarp: null, snapshot: running() }), initialMemory(s), registry, home);
   assert.deepEqual(r.action, { kind: "activate", moduleID: 12, targetID: 0 });
 });
 

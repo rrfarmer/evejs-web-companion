@@ -72,6 +72,8 @@ import {
   type DroneRoster,
 } from "./droneLaunch.ts";
 import { decideDroneBoat } from "./droneBoatLadder.ts";
+import { settleCombat } from "./combatOwnership.ts";
+import { defenderSiteIdentity } from "./operationDefender.ts";
 import { decideDroneRotation, readRotationMemory } from "./droneRotation.ts";
 import {
   decodeLedger,
@@ -702,7 +704,7 @@ function operationSiteTravel(obs: ScriptObservation, inputMem: MacroMemory, fami
  */
 function operationTravelToBelt(obs: ScriptObservation, mem: MacroMemory): MacroTick | null {
   const operation = obs.miningOperation ?? null;
-  if (operation === null || !["HAULER", "COMMAND"].includes(operation.role)) return null;
+  if (operation === null || !["HAULER", "COMMAND", "DEFENDER"].includes(operation.role)) return null;
   const target = operation.role === "HAULER" ? operation.logisticsTarget ?? operation.currentTarget : operation.currentTarget;
   if (target === null) {
     return tick(WAIT, "Waiting for the operation to choose its next target.", "Waiting for target", ACTING, false, mem);
@@ -3970,6 +3972,30 @@ function nameThePropulsionEffect(decided: MacroTick, obs: ScriptObservation): Ma
  * ladder's own `inReach` applies, so the two agree by construction.
  */
 const fightWithDrones: MacroDecider = (step, obs, mem, board) => {
+  const operation = obs.miningOperation;
+  if (operation?.role === "DEFENDER" || mem.operationDefender === true || obs.miningOperationRequired && operation == null) {
+    const identity = defenderSiteIdentity(operation);
+    const previous = mem.defenderSiteIdentity;
+    if (identity === null || previous !== undefined && previous !== identity) {
+      if (mem.combatOwned) {
+        const settlement = settleCombat(obs, { ...mem, combatSettling: true });
+        if (settlement.outcome.kind !== "done") return nameThePropulsionEffect(settlement, obs);
+      }
+      return tick(WAIT, "Waiting for authoritative operation target after owned combat settlement.",
+        "Waiting for operation target", ACTING, false, { operationDefender: true });
+    }
+    if (previous !== identity) {
+      const family = operation!.currentTarget!.targetType;
+      const travel = family === "BELT" ? operationTravelToBelt(obs, mem) :
+        family === "ORE_ANOMALY" || family === "ICE" ? operationSiteTravel(obs, mem, family) : null;
+      if (travel === null) return tick(WAIT, "Operation target family is unsupported.", "Target unavailable",
+        { kind: "blocked", reason: "Standard Defender requires an executable operation target." });
+      if (travel.outcome.kind !== "done") return { ...travel, nextMem: { ...travel.nextMem, operationDefender: true } };
+      // Travel observations do not become combat state; the same shared ladder
+      // below is the only combat authority after exact operation-site arrival.
+      mem = { operationDefender: true, defenderSiteIdentity: identity };
+    }
+  }
   const snapshot = obs.snapshot ?? null;
   const role = squadRoleOf(step);
   // A called ship can only be resolved off a grid, and the ladder's own guards

@@ -143,6 +143,7 @@
   let home = $state<WorldRef>(initial.home);
   let watches = $state<InterruptRow[]>([...initial.watches]);
   let steps = $state<EditorNode[]>([...initial.steps]);
+  let startupCount = $state(0);
 
   // A program the one-list editor cannot hold — several loops, or a loop beside
   // loose steps — is kept VERBATIM here so it still runs and round-trips
@@ -238,7 +239,7 @@
   const someWatchDocks = $derived(
     watches.some((w) => w.respond === "dock-and-pause" || w.respond === "dock-and-repair"),
   );
-  const hasSubBot = $derived(planHasSubBot(steps));
+  const hasSubBot = $derived(planHasSubBot(steps.slice(startupCount)));
 
   const builtDoc = $derived<BotScript>(buildScript());
   const problems = $derived(validateScript(builtDoc));
@@ -299,7 +300,8 @@
       repeatCount,
       home,
       watches,
-      steps,
+      steps: steps.slice(startupCount),
+      startup: steps.slice(0, startupCount),
       advancedProgram,
       loopID,
       loopUntil,
@@ -373,7 +375,10 @@
     if (spot === null) return;
     menuFor = null;
     if (spot.scope === "top") {
-      steps = reorder(steps as readonly ProgramNode[], spot.index, move) as EditorNode[];
+      const start = spot.index < startupCount ? 0 : startupCount;
+      const end = spot.index < startupCount ? startupCount : steps.length;
+      steps = [...steps.slice(0, start), ...reorder(steps.slice(start, end) as readonly ProgramNode[], spot.index - start, move),
+        ...steps.slice(end)] as EditorNode[];
       return;
     }
     const branch = steps[spot.branchIndex];
@@ -387,6 +392,7 @@
     menuFor = null;
     if (spot.scope === "top") {
       steps = duplicateNode(steps as readonly ProgramNode[], spot.index, makeId) as EditorNode[];
+      if (spot.index < startupCount) startupCount += 1;
       return;
     }
     const branch = steps[spot.branchIndex];
@@ -407,6 +413,7 @@
     }
     if (spot.scope === "top") {
       steps = removeNode(steps as readonly ProgramNode[], spot.index) as EditorNode[];
+      if (spot.index < startupCount) startupCount -= 1;
       return;
     }
     const branch = steps[spot.branchIndex];
@@ -417,6 +424,19 @@
   function selectRow(id: string): void {
     menuFor = null;
     selection = selection !== null && selection.kind === "step" && selection.id === id ? null : { kind: "step", id };
+  }
+
+  function moveSection(id: string): void {
+    const spot = locate(id);
+    if (!spot || spot.scope !== "top" || repeatMode === "once" || hasSubBot || readOnlyPlan) return;
+    const node = steps[spot.index];
+    if (!node || node.kind === "sub-bot") return;
+    const fromStartup = spot.index < startupCount;
+    const remaining = steps.filter((_, index) => index !== spot.index);
+    if (fromStartup) startupCount -= 1;
+    remaining.splice(startupCount, 0, node);
+    if (!fromStartup) startupCount += 1;
+    steps = remaining; menuFor = null;
   }
   function selectWatch(id: string): void {
     menuFor = null;
@@ -429,7 +449,7 @@
   // ── Adding to the plan ──────────────────────────────────────────────────────
   /** Append a node, select it, and open the inspector on it (§3 "Add a step"). */
   function appendNode(node: EditorNode): void {
-    advancedProgram = null;
+    if (readOnlyPlan || (startupCount > 0 && node.kind === "sub-bot")) return;
     steps = insertNode(steps as readonly ProgramNode[], node) as EditorNode[];
     selection = { kind: "step", id: node.id };
   }
@@ -748,7 +768,8 @@
     notes = state.notes;
     home = state.home;
     watches = [...state.watches];
-    steps = [...state.steps];
+    steps = [...state.startup, ...state.steps];
+    startupCount = state.startup.length;
     repeatMode = state.repeatMode;
     repeatCount = state.repeatCount;
     advancedProgram = state.advancedProgram;
@@ -1028,6 +1049,7 @@
    * working, and later edits to that saved bot never change this one.
    */
   async function insertSavedBot(meta: BotScriptSummary): Promise<void> {
+    if (readOnlyPlan) return;
     try {
       const record = await getBotScript(meta.scriptID, await botOpts());
       if (record === null) {
@@ -1039,13 +1061,16 @@
         insertNote = decoded.refusal;
         return;
       }
-      advancedProgram = null;
       const result = insertSavedBotSteps(
         steps,
         decoded.doc,
         makeId,
         new Set(["main-loop", ...watches.map((row) => row.id)]),
       );
+      if (startupCount > 0 && planHasSubBot(result.steps.slice(startupCount))) {
+        insertNote = "These steps contain a saved-bot reference, which cannot go in Main while Startup is present. Inline that reference before copying.";
+        return;
+      }
       steps = result.steps as EditorNode[];
       insertNote =
         result.left.length > 0
@@ -1077,6 +1102,9 @@
         <button type="button" class="minor" onclick={() => moveRow(id, "top")}>Move to top</button>
         <button type="button" class="minor" onclick={() => moveRow(id, "bottom")}>Move to bottom</button>
         <button type="button" class="minor" onclick={() => duplicateRow(id)}>Duplicate</button>
+        {#if repeatMode !== "once" && !hasSubBot && locate(id)?.scope === "top" && steps.find(node => node.id === id)?.kind !== "sub-bot"}
+          <button type="button" class="minor" onclick={() => moveSection(id)}>Move to {steps.findIndex(node => node.id === id) < startupCount ? "Main" : "Startup"}</button>
+        {/if}
         <button type="button" class="danger" onclick={() => deleteRow(id)}>Delete</button>
       </div>
     {/if}
@@ -1348,7 +1376,7 @@
             <select bind:value={repeatMode}>
               <option value="forever">forever</option>
               <option value="times">a set number of times</option>
-              <option value="once">just once</option>
+              <option value="once" disabled={startupCount > 0}>just once</option>
             </select>
           </label>
           {#if repeatMode === "times"}
@@ -1368,12 +1396,17 @@
     </header>
     {@render problemNotes("program")}
     {@render problemNotes("main-loop")}
+    {#if !readOnlyPlan && repeatMode !== "once"}
+      <h3>Startup — once before Main</h3>
+      <p class="note">{startupCount === 0 ? "Empty. Move a setup step here using its row menu." : "These steps run before the main loop."}
+        Durable completion applies to server-hosted runs. Unsupported startup mutations block before dispatch.</p>
+    {/if}
 
     {#if readOnlyPlan}
       <p class="note error">
         This bot repeats more than one group of steps, which this list cannot hold. It is kept exactly as
         written, so it still runs and still exports unchanged — the rows below are a read-only view. Edit it in
-        the <strong>Import or export</strong> box; adding a step here turns it into a plain flat bot.
+        the <strong>Import or export</strong> box to change its program.
       </p>
     {/if}
 
@@ -1383,6 +1416,9 @@
       <ol class="plan-list">
         {#each planRows as row, i (row.nodeId)}
           {@const previous = planRows[i - 1]}
+          {#if !readOnlyPlan && repeatMode !== "once" && row.nodeId === steps[startupCount]?.id}
+            <li class="plan-side-label">Main — repeating work</li>
+          {/if}
           {#if row.branchSide !== null && (previous?.branchSide ?? null) !== row.branchSide}
             <li class="plan-side-label" style={`--depth: ${row.depth}`}>
               {row.branchSide === "then" ? "then" : "otherwise"}
@@ -1419,12 +1455,12 @@
       </ol>
     {/if}
 
-    <div class="plan-add">
+    <div class="plan-add" inert={readOnlyPlan}>
       <button type="button" aria-expanded={stepPickerOpen} onclick={() => (stepPickerOpen = !stepPickerOpen)}>
         + Step
       </button>
       <button type="button" onclick={addBranch}>+ Branch</button>
-      <button type="button" onclick={addSubBot}>+ Saved bot</button>
+      <button type="button" disabled={startupCount > 0} onclick={addSubBot}>+ Saved bot</button>
 
       {#if stepPickerOpen}
         <!-- Browse AND search, not a smaller catalogue: Google's own answer to a

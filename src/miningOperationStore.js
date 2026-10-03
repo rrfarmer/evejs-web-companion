@@ -6,6 +6,7 @@ const path = require("path");
 const staticData = require("./staticData");
 const { normalizePolicies } = require("./miningOperationPolicies");
 const { normalizeSupport } = require("./miningOperationSupport");
+const { normalizePreparation } = require("./miningPreparation");
 
 const STORE_FILENAME = "mining-operations.json";
 const ROLES = new Set(["MINER", "HAULER", "DEFENDER", "COMMAND"]);
@@ -98,7 +99,7 @@ function normalizeDefinition(value, existing = null, now = () => new Date().toIS
     }
     if (!ROLES.has(role)) throw fail("MINING_OPERATION_INVALID", "Every member needs an explicit role.");
     if (!["STANDARD", "CUSTOM"].includes(routineMode)) throw fail("MINING_OPERATION_INVALID", "Choose Standard or Custom routine mode.");
-    if (routineMode === "CUSTOM" && !automationID && role !== "DEFENDER") throw fail("MINING_OPERATION_INVALID", "Custom members need an operation routine reference.");
+    if (routineMode === "CUSTOM" && !automationID) throw fail("MINING_OPERATION_INVALID", "Custom members need an operation routine reference.");
     if (routineMode === "STANDARD" && automationID) throw fail("MINING_OPERATION_INVALID", "A Standard member cannot also select a custom routine.");
     if (!accountName) throw fail("MINING_OPERATION_INVALID", "Every member needs its owning account reference.");
     seen.add(characterID);
@@ -109,6 +110,7 @@ function normalizeDefinition(value, existing = null, now = () => new Date().toIS
       role,
       routineMode,
       automationID,
+      ...(row.preparation ? { preparation: normalizePreparation(row.preparation, true) } : {}),
     };
   });
   if (!members.some((member) => member.role === "MINER")) {
@@ -139,6 +141,7 @@ function normalizeDefinition(value, existing = null, now = () => new Date().toIS
     unloadDestination,
     policies: normalizePolicies(value.policies, resolveStation, resolveSystem),
     ...(support ? { support } : {}),
+    preparation: normalizePreparation(value.preparation),
     members,
     createdAt: existing?.createdAt || stamp,
     updatedAt: stamp,
@@ -158,6 +161,7 @@ function createMiningOperationStore(options) {
       const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
       return parsed && Array.isArray(parsed.operations) ? parsed.operations.map(row => ({ ...row,
         policies: normalizePolicies(row.policies, resolveStation, resolveSystem),
+        preparation: normalizePreparation(row.preparation),
       })) : [];
     } catch (error) {
       if (error.code === "ENOENT") return [];

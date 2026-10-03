@@ -20,9 +20,40 @@ One member's failure degrades that member without silently ending healthy runs.
 | Ore Anomaly | Current-system scanner identity and Farmer's ore-site behavior. |
 | Ice | Ice-site identity and online Ice Harvesters; ore-only fits are refused. Ordinary Mining Drones are not used for Ice harvesting. |
 
-GAS, adjacent-system scouting and a dedicated Defender role are deferred.
+GAS and adjacent-system scouting are deferred.
 Resource preferences order eligible choices; they do not create a remote scan
 or permit two active operations to reserve the same target.
+
+## Standard Defender
+
+Select **Standard Defender** and an ordinary saved corporation fitting, with
+the same preparation source and supply policy used by other operation members.
+Readiness verifies the observed ship, saved equipment, skill prerequisites and
+at least one supported damage path: combat drones or turrets/launchers. Every
+fitted weapon needs proven compatible loaded or carried ammunition. Known
+supply shortages may use the existing preparation engine; final readiness must
+observe ammunition aboard under the hosted owner. Unreadable readiness, a busy
+pilot and unresolved provisioning custody block MAIN. There is no prescribed
+hull or separate Defender equipment loader.
+
+Defender follows the operation's current owned Belt, Ore Anomaly or Ice target.
+It neither reserves a site nor patrols independently. At that site it uses the
+shared `fight-with-drones` core, including existing fit-driven Phase-1 utilities.
+Utilities are optional; their absence does not fail readiness. Acute hull
+damage below the current 30% policy triggers home/dock/pause before combat or
+armor maintenance. Repair without an applicable fitted repairer falls through.
+The operation's delivery destination supplies the emergency home; a structure
+must be dockable by the Defender, but Defender does not need freight-delivery
+corporation access merely to dock there.
+
+On target relocation, owned combat state settles before travel to the new
+target. The operation run and target claim are reread before new combat/site
+mutations; an old decision cannot start work at the retired target. Missing
+target authority settles prior owned state and waits. Clear-grid completion
+uses the core's observed settlement and a four-second yield before rechecking
+the current operation site. Operation Stop uses ordinary hosted settlement and
+release; uncertain cleanup retains ownership. Custom Defender routines remain
+unsupported. No Phase-2 EWAR or separate MCC combat engine is enabled.
 
 ## Command / Support
 

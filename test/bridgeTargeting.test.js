@@ -118,6 +118,7 @@ function fakeGateway(overrides = {}) {
     // When true the snapshot answers without an activeModuleIDs field at all,
     // so the "unknown, not off" path can be exercised.
     hideActiveModules: false,
+    hideWeaponBanks: false,
     // A dogma method name -> refusal, so a handler's OWN reason can be raised.
     refuse: new Map(),
     // Methods that should be accepted and then do nothing (a silent decline).
@@ -173,6 +174,10 @@ function fakeGateway(overrides = {}) {
     async readSpaceSnapshot(bridgeSessionID, sessionFields) {
       calls.snapshot.push({ bridgeSessionID, sessionFields });
       const ship = { itemID: SHIP_ID, typeID: 606, name: "Test Pilot's ship" };
+      if (!state.hideWeaponBanks) {
+        ship.weaponBanks = {};
+        for (const [slave, master] of state.bankMaster) (ship.weaponBanks[master] ??= []).push(slave);
+      }
       if (!state.hideActiveModules) {
         ship.activeModuleIDs = [...state.active];
       }
@@ -252,6 +257,7 @@ function fakeGateway(overrides = {}) {
 
 async function startTestServer(options = {}) {
   const app = createApp({
+    moduleReconcileMs: 20,
     eveStore: options.store || fakeStore(),
     eveGatewayClient: options.gateway || fakeGateway(),
     webAuth: fakeAuth(),
@@ -690,7 +696,7 @@ test("a banked weapon that is genuinely declined is still reported as not runnin
   assert.deepEqual(payload.activeModuleIDs, []);
 });
 
-test("joining an ALREADY-running bank is reported as unknown, not as off", async () => {
+test("an unavailable bank map remains unknown over an already-running rack", async () => {
   // The master is already cycling, so activating the slave changes the running
   // set not at all. From outside, with no bank map, that is indistinguishable
   // from the server ignoring the call outright — and this bridge does not get
@@ -699,6 +705,7 @@ test("joining an ALREADY-running bank is reported as unknown, not as off", async
   gateway.state.locked.add(ROCK_ID);
   gateway.state.bankMaster.set(SLAVE_MODULE_ID, MODULE_ID);
   gateway.state.active.add(MODULE_ID);
+  gateway.state.hideWeaponBanks = true;
 
   const { payload } = await apiRequest(baseUrl, "/api/bridge/modules/activate", {
     method: "POST",

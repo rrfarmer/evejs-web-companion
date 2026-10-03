@@ -174,6 +174,8 @@ export function decodeAttributes(result: JsonValue | undefined): readonly DogmaA
 // --- a GET-INFO ENTRY (ItemGetInfo, each GetAllInfo shipInfo/char entry) -----
 
 export interface DogmaItemInfo {
+  /** Loaded charge identity: [ship, slot flag, type], not an inventory item ID. */
+  readonly sublocation?: readonly [number, number, number] | null;
   readonly itemID: number | string | null;
   readonly typeID: number | null;
   readonly ownerID: number | string | null;
@@ -198,17 +200,23 @@ function optInt(value: JsonValue | undefined): number | null {
 }
 
 /** Decode one GET-INFO ENTRY (a util.KeyVal wrapping an invItem packedrow). */
-export function decodeItemInfo(entry: JsonValue | undefined): DogmaItemInfo | null {
+export function decodeItemInfo(entry: JsonValue | undefined, key?: JsonValue): DogmaItemInfo | null {
   if (asObject(entry).type !== "object") {
     return null;
   }
   const invItem = readKeyVal(entry, "invItem");
+  const identity = readKeyVal(entry, "itemID") ?? key;
+  const tuple = Array.isArray(identity) ? identity : asObject(identity).items;
+  const sublocation = Array.isArray(tuple) && tuple.length === 3 &&
+    tuple.every(value => typeof value === "number" && Number.isSafeInteger(value) && value > 0)
+    ? tuple as [number, number, number] : null;
   return {
+    sublocation,
     itemID: idData(readKeyVal(entry, "itemID") ?? readRowField(invItem, "itemID")),
-    typeID: optInt(readRowField(invItem, "typeID")),
+    typeID: sublocation?.[2] ?? optInt(readRowField(invItem, "typeID")),
     ownerID: idData(readRowField(invItem, "ownerID")),
-    locationID: idData(readRowField(invItem, "locationID")),
-    flagID: optInt(readRowField(invItem, "flagID")),
+    locationID: sublocation?.[0] ?? idData(readRowField(invItem, "locationID")),
+    flagID: sublocation?.[1] ?? optInt(readRowField(invItem, "flagID")),
     groupID: optInt(readRowField(invItem, "groupID")),
     categoryID: optInt(readRowField(invItem, "categoryID")),
     quantity: optInt(readRowField(invItem, "quantity")),
@@ -317,8 +325,8 @@ function topField(value: JsonValue | undefined, key: string): JsonValue | undefi
 export function decodeGetAllInfo(result: JsonValue | undefined): BoundDogmaAllInfo {
   // shipInfo: dict[ itemID -> GET-INFO ENTRY ].
   const ships: DogmaItemInfo[] = [];
-  for (const [, entry] of readDictPairs(topField(result, "shipInfo"))) {
-    const decoded = decodeItemInfo(entry);
+  for (const [key, entry] of readDictPairs(topField(result, "shipInfo"))) {
+    const decoded = decodeItemInfo(entry, key);
     if (decoded) {
       ships.push(decoded);
     }

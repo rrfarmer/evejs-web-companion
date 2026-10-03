@@ -100,6 +100,9 @@ import {
   type SiteVerdict,
 } from "./siteProgress.ts";
 import { DEFAULT_TARGET_PRIORITY, pickPrimary, type TargetClass } from "./targetPriority.ts";
+import { combatReload, weaponUseful } from "./combatWeapons.ts";
+import { combatOwnership, ownCombatAction, settleCombat } from "./combatOwnership.ts";
+import { combatCapSustain, decideCombatUtilities } from "./combatUtilities.ts";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -537,19 +540,7 @@ function leaveGrid(
   sentence: string,
   phase: string,
 ): MacroTick {
-  const standDown = standCallDown(role, mem, `${sentence} Standing the fleet's call down.`, phase);
-  if (standDown !== null) return standDown;
-  if (roster.out.length > 0) {
-    return tick(
-      { kind: "recallDrones", droneIDs: roster.out },
-      `${sentence} Calling the drones home.`,
-      phase,
-      ACTING,
-      true,
-      mem,
-    );
-  }
-  return tick(WAIT, sentence, phase, { kind: "done" });
+  return tick(WAIT, sentence, phase, ACTING, false, { ...mem, combatSettling: true, combatFinishWhy: sentence });
 }
 
 /**
@@ -598,6 +589,19 @@ function maxLocksOf(obs: ScriptObservation): number | null {
  * drones sat idle. None of these is a preference.
  */
 export function decideDroneBoat(inputs: DroneBoatInputs): MacroTick {
+  const owned = combatOwnership(inputs.mem, inputs.obs);
+  const memory: MacroMemory = { ...inputs.mem, combatOwned: owned };
+  if (memory.combatSettling === true) return settleCombat(inputs.obs, memory);
+  const active = inputs.obs.snapshot?.ship?.activeModuleIDs;
+  const obs = { ...inputs.obs, propulsionModules: inputs.obs.propulsionModules?.filter(module =>
+    !active?.includes(module.itemID) || owned.modules[module.itemID] !== undefined) };
+  const result = decideDroneBoatCore({ ...inputs, obs, mem: memory });
+  const merged: MacroMemory = { ...result.nextMem, reloadAttempts: result.nextMem.reloadAttempts ?? memory.reloadAttempts,
+    combatOwned: ownCombatAction(owned, result.action, inputs.obs) };
+  return merged.combatSettling === true ? { ...settleCombat(inputs.obs, merged), boardPatch: result.boardPatch } : { ...result, nextMem: merged };
+}
+
+function decideDroneBoatCore(inputs: DroneBoatInputs): MacroTick {
   const { obs, board, targets, holdRangeM, propMode, squad } = inputs;
   const mem = inputs.mem;
 
@@ -741,12 +745,20 @@ function droneBoatLadder(input: LadderInputs): MacroTick {
   // that our own faults must never be reported as the site's. The player needs
   // that sentence, not a tour of dens being "given up on" by a ship that could
   // never have cleared any of them.
-  const weapons = obs.weaponModuleIDs ?? [];
+  const weapons = obs.combatWeapons?.weapons.map(weapon => weapon.itemID) ?? obs.weaponModuleIDs ?? [];
   if (weapons.length === 0 && roster.roleOut.length === 0 && roster.roleBay.length === 0) {
     return tick(WAIT, "No way to fight.", PHASE_FIGHT, {
       kind: "blocked",
       reason: "This ship has no guns fitted and no combat drones in the bay.",
     }, true, mem);
+  }
+
+  // Ordinary continuous hardeners only; the observation excludes passive/burst families.
+  const active = snapshot.ship?.activeModuleIDs;
+  if (active != null && obs.capacitorRatio != null && obs.capacitorRatio > 0) {
+    const idle = (obs.combatHardenerModuleIDs ?? obs.hardenerModuleIDs)?.find(id => !active.includes(id));
+    if (idle !== undefined) return tick({ kind: "activate", moduleID: idle, targetID: 0 },
+      "Hardening for combat.", PHASE_FIGHT, ACTING, true, mem);
   }
 
   // ─── FINISHING, PART TWO: §13 says leave ──────────────────────────────────
@@ -825,6 +837,25 @@ function droneBoatLadder(input: LadderInputs): MacroTick {
     }
     if (stall.step === "unstick") {
       return tick({ kind: "stopShip" }, STALL_UNSTICK_WHY, PHASE_CLOSE, ACTING, true, { ...stall.mem, closeTicks });
+    }
+    const active = snapshot.ship?.activeModuleIDs;
+    if (active != null && obs.capacitorRatio != null) {
+      const capBlockedProp = (obs.propulsionModules ?? []).some(module => !active.includes(module.itemID) &&
+        !(obs.scrammed === true && module.kind !== "afterburner"));
+      if (input.propMode === "auto" && capBlockedProp && obs.capacitorRatio < PROP_CAP_FLOOR) {
+        const sustain = combatCapSustain(obs, mem, PROP_CAP_FLOOR);
+        mem = sustain.memory;
+        if (sustain.action) return tick(sustain.action, sustain.why, PHASE_CLOSE, ACTING, true, { ...stall.mem, ...mem, closeTicks });
+      }
+      const prop = decidePropulsionModule({ modules: obs.propulsionModules ?? [],
+        activeModuleIDs: new Set(active), capacitorRatio: obs.capacitorRatio,
+        scrammed: obs.scrammed ?? null, wantBurn: input.propMode === "auto", capFloor: PROP_CAP_FLOOR });
+      if (prop.kind === "light") return tick({ kind: "activate", moduleID: prop.module.itemID,
+        typeID: prop.module.typeID, targetID: 0 }, "Using propulsion to close on the distant wave.",
+        PHASE_CLOSE, ACTING, true, { ...stall.mem, closeTicks });
+      if (prop.kind === "stop") return tick({ kind: "deactivate", moduleID: prop.module.itemID,
+        typeID: prop.module.typeID }, "Stopping propulsion while the close cannot use it safely.",
+        PHASE_CLOSE, ACTING, true, { ...stall.mem, closeTicks });
     }
     return tick(
       WAIT,
@@ -1057,6 +1088,7 @@ function droneBoatLadder(input: LadderInputs): MacroTick {
     // gap" is the line the 2026-09-14 log ended on, and the rule that forbids it
     // should be legible exactly where that line is produced.
     const wantBurn =
+      obs.capacitorRatio != null &&
       input.propMode === "auto" &&
       gapM !== null &&
       gapM > PROP_GAP_M &&
@@ -1069,11 +1101,17 @@ function droneBoatLadder(input: LadderInputs): MacroTick {
       wantBurn,
       capFloor: PROP_CAP_FLOOR,
     });
+    if (wantBurn && obs.capacitorRatio != null && obs.capacitorRatio < PROP_CAP_FLOOR &&
+        props.some(module => !activeModuleIDs.includes(module.itemID) && !(obs.scrammed === true && module.kind !== "afterburner"))) {
+      const sustain = combatCapSustain(obs, mem, PROP_CAP_FLOOR);
+      mem = sustain.memory;
+      if (sustain.action) return tick(sustain.action, sustain.why, PHASE_FIGHT, ACTING, true, mem);
+    }
     if (decision.kind === "light") {
       // `targetID: 0` is this tree's "no target" for a self-activating module —
       // the same call the hardener rung makes.
       return tick(
-        { kind: "activate", moduleID: decision.module.itemID, targetID: 0 },
+        { kind: "activate", moduleID: decision.module.itemID, typeID: decision.module.typeID, targetID: 0 },
         closingTheGap
           ? `Burning to close ${km(gapM ?? 0)} of gap.`
           : `Burning to open ${km(gapM ?? 0)} of gap.`,
@@ -1292,25 +1330,34 @@ function droneBoatLadder(input: LadderInputs): MacroTick {
     }
   }
 
+  const utility = decideCombatUtilities(obs, mem, targetID);
+  mem = utility.memory;
+  if (utility.action) return tick(utility.action, utility.why, PHASE_FIGHT,
+    utility.blocked ? { kind: "blocked", reason: utility.blocked } : ACTING, true, mem);
+
   // ─── Rung 8: guns ─────────────────────────────────────────────────────────
   //
   // ⚠ AN UNLOADED GUN IS NEVER ACTIVATED. A gun with no charge will not fire,
-  // and the attempt is booked in the refusal ledger where `MAX_CONSECUTIVE_
-  // REFUSALS` on one key ENDS THE RUN — so an empty rack does not merely waste
-  // ticks, it stops the bot. `unloadedWeaponIDs` is already the narrow answer
-  // (demonstrably takes a charge AND has none loaded); a gun whose charge state
-  // could not be read is not in it and is still fired, which is the right
-  // direction: a false positive here silences a working weapon for the whole run.
+  // and the attempt is booked in the refusal ledger. Fresh combat-fit facts
+  // must prove the loaded charge and individual useful reach before firing.
+  // Unknown charge/range/bank metadata cannot authorize activation.
   //
   // A drone boat whose guns are ALL empty fights with its drones and says so,
   // rather than stopping. That is §7, and it is why this rung falls through
   // instead of blocking.
   if (activeModuleIDs !== null) {
-    const unloaded = new Set(obs.unloadedWeaponIDs ?? []);
     const running = new Set(activeModuleIDs);
-    const idleGun = weapons.find((id) => !running.has(id) && !unloaded.has(id));
+    const reload = combatReload(obs.combatWeapons, mem);
+    mem = reload.memory;
+    if (reload.action !== null) return tick(reload.action, "Loading proven compatible ammunition.", PHASE_FIGHT, ACTING, true, mem);
+    const target = inReach.find(row => row.itemID === targetID);
+    const banks = snapshot.ship?.weaponBanks;
+    const banked = new Set(Object.entries(banks ?? {}).flatMap(([master, slaves]) => [Number(master), ...slaves]));
+    const idleGun = obs.combatWeapons?.weapons.find(weapon => !running.has(weapon.itemID) &&
+      banks != null && !banked.has(weapon.itemID) &&
+      weaponUseful(weapon, target?.distance ?? null));
     if (idleGun !== undefined) {
-      return tick({ kind: "activate", moduleID: idleGun, targetID }, "Guns on it.", PHASE_FIGHT, ACTING, true, mem);
+      return tick({ kind: "activate", moduleID: idleGun.itemID, typeID: idleGun.typeID, targetID }, "Guns on it within their proven reach.", PHASE_FIGHT, ACTING, true, mem);
     }
   }
 

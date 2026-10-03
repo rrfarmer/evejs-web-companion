@@ -47,6 +47,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const jettison = require("./jettisonCustody");
+const { createStartupRuns, credentialFree, preparationReady } = require("./startupRuns");
 const { pathToFileURL } = require("url");
 
 // An unguessable per-run claim capability. The public botID is deliberately NOT
@@ -229,6 +230,7 @@ function createBotHost(options) {
   // Durability: where the running roster is mirrored (absent = memory-only),
   // and the reads resume() needs to rebuild a bot from its persisted row.
   const persistPath = options.persistPath || null;
+  const startupRuns = options.startupRuns || createStartupRuns({ filePath: persistPath ? `${persistPath}.startup.json` : null, now });
   const loadAccount = options.loadAccount || (async () => null);
   // The saved-script library is platform-wide: any account's characters may
   // run any account's script. `loadScript(scriptID) -> Record | null` looks a
@@ -267,6 +269,7 @@ function createBotHost(options) {
             scriptName: record.scriptName,
             scriptRev: record.scriptRev,
             scriptHash: record.scriptHash,
+            logicalRunID: record.logicalRunID,
             restartSafe: record.restartSafe,
             riskClasses: record.riskClasses,
             maxRuntimeMinutes: record.maxRuntimeMinutes,
@@ -278,6 +281,9 @@ function createBotHost(options) {
               operationControllerAccountID: record.operationControllerAccountID,
               operationStopRequested: record.operationStopRequested === true,
               recoveryAttempts: record.recoveryAttempts || 0, recoveryBlocked: record.recovering === true } : {}),
+            ...(record.operationPreparation ? { operationRunID: record.operationRunID,
+              operationPreparation: record.operationPreparation, preparation: record.preparation,
+              deferMain: record.deferMain } : {}),
           };
           if (record.kind === "companion") {
             // THE DIVERGENCE FROM A SCRIPT (docs/fleet-companion-handoff.md,
@@ -339,8 +345,12 @@ function createBotHost(options) {
       scriptName: record.scriptName,
       scriptRev: record.scriptRev,
       scriptHash: record.scriptHash,
+      logicalRunID: record.logicalRunID,
       operationID: record.operationID,
       operationRole: record.operationRole,
+      ...(record.operationPreparation ? { operationRunID: record.operationRunID,
+        preparation: structuredClone(record.preparation), deferMain: record.deferMain,
+        preparationOwnerAvailable: preparationOwnerAvailable(record) } : {}),
       parking: record.parking,
       recovery: record.recovery ? { ...record.recovery } : null,
       restartSafe: record.restartSafe,
@@ -513,7 +523,9 @@ function createBotHost(options) {
   }
 
   async function finalizeBody(record) {
-    if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody)) {
+    if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
+        await preparationCustodyUnresolved(record) ||
+        Object.values(record.startup?.snapshot().blocks || {}).some(block => ["PENDING", "BLOCKED"].includes(block.state))) {
       record.status = "paused"; record.phase = "Unresolved write custody";
       record.why = "The issued write needs reconciliation before pilot control can be released.";
       record.stopBlocked = true; persistRoster(); return false;
@@ -573,6 +585,8 @@ function createBotHost(options) {
       persistRoster();
       return false;
     }
+    record.startup?.end();
+    record.preparationCheckpoint?.end();
     record.finalized = true;
     record.endedAt = nowISO();
     persistRoster();
@@ -721,7 +735,8 @@ function createBotHost(options) {
     persistRoster(); // a process restart must not replay a requested Stop
     const pending = (async () => {
       try {
-        if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody)) throw new Error("An issued write still needs reconciliation; Stop retains pilot control.");
+        if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
+            await preparationCustodyUnresolved(record)) throw new Error("An issued write still needs reconciliation; Stop retains pilot control.");
         if (!record.droneSafetyConfirmed && (!record.flow || typeof record.flow.prepareHostedBotStop !== "function")) {
           if (record.flow) {
             if (record.kind === "companion") record.flow.stopFleetCompanion();
@@ -790,13 +805,24 @@ function createBotHost(options) {
     expectedScriptHash = null,
     expectedExpiresAt = null,
     callerSessionID = null,
+    probeReservation = null,
     beforeStart = null,
     operationID = null,
     operationRole = null,
     operationControllerAccountID = null,
     recoveryAttempts = 0,
+    logicalRunID = null,
+    operationRunID = null,
+    operationPreparation = null,
+    preparation = null,
+    deferMain = false,
   }) {
     const isCompanion = kind === "companion";
+    if (operationPreparation && (isCompanion || typeof operationPreparation !== "object" || Array.isArray(operationPreparation) ||
+        typeof operationID !== "string" || !operationID ||
+        typeof operationRunID !== "string" || !operationRunID || !credentialFree(operationPreparation) ||
+        typeof options.prepareOperation !== "function"))
+      return { ok: false, code: "OPERATION_PREPARATION_INVALID", message: "Operation preparation requires its accepted run identity and shared preparation adapter." };
     let resumingAbandonment = null;
     let stack;
     try {
@@ -900,7 +926,9 @@ function createBotHost(options) {
     if (!grantVerdict.ok) {
       return { ok: false, code: grantVerdict.code, message: grantVerdict.message };
     }
-    if (resumed && !runPolicy.restartSafe) {
+    const pendingPreparationResume = resumed && operationPreparation && deferMain === true &&
+      startupRuns.get(logicalRunID)?.preparation?.mainEntered === false;
+    if (resumed && !runPolicy.restartSafe && !pendingPreparationResume) {
       return {
         ok: false,
         code: "BOT_RESTART_REQUIRES_CONFIRMATION",
@@ -925,7 +953,8 @@ function createBotHost(options) {
     }
     let heldByAnother;
     try {
-      heldByAnother = await isCharacterHeld(characterID, callerSessionID);
+      heldByAnother = await isCharacterHeld(characterID, callerSessionID,
+        { resumed, operationRunID, logicalRunID, operationPreparation, accountID: Number(account.accountID) }, probeReservation);
     } catch (error) {
       logError(error);
       return { ok: false, code: "CHARACTER_OWNERSHIP_UNVERIFIED",
@@ -946,6 +975,7 @@ function createBotHost(options) {
     const botID = crypto.randomUUID();
     const record = {
       botID,
+      logicalRunID: logicalRunID || crypto.randomUUID(),
       accountID: Number(account.accountID),
       username: String(account.username || ""),
       characterID,
@@ -956,7 +986,15 @@ function createBotHost(options) {
       scriptRev: normalizedRev,
       scriptHash: normalizedHash,
       operationID: typeof operationID === "string" && operationID.length > 0 ? operationID : null,
-      operationRole: ["MINER", "HAULER", "COMMAND"].includes(operationRole) ? operationRole : null,
+      operationRole: ["MINER", "HAULER", "COMMAND", "DEFENDER"].includes(operationRole) ? operationRole : null,
+      operationRunID,
+      operationPreparation: operationPreparation ? structuredClone(operationPreparation) : null,
+      preparation: operationPreparation ? { state: "PENDING" } : null,
+      preparationCheckpoint: null,
+      deferMain: !!operationPreparation && (deferMain || resumed),
+      mainStarted: false,
+      activationFailed: false,
+      activatePromise: null,
       operationControllerAccountID: Number.isSafeInteger(Number(operationControllerAccountID)) && Number(operationControllerAccountID) > 0 ? Number(operationControllerAccountID) : null,
       operationStopRequested: false,
       parking: null,
@@ -986,6 +1024,10 @@ function createBotHost(options) {
       store: null,
       unsubscribe: null,
       claimSecret: createClaimSecret(),
+      // A public Start carries only its in-process reservation capability.
+      // Its first select must use the runtime's existing atomic free-only seam.
+      // Neither this flag nor the capability is persisted as resume authority.
+      freePilotOnly: probeReservation !== null,
       // The web session the bot's own token names -- the key its held game
       // session sits under in the server's bridgeSessions. Only ever handed
       // out by readableSessionOf below, and never serialized.
@@ -1063,7 +1105,9 @@ function createBotHost(options) {
           try { fleetAcceptance.assertCurrent(); } catch (error) { return Promise.reject(error); }
           try { exactFleetAcceptance = JSON.parse(String(init?.body)).fleetID === fleetAcceptance.fleetID; } catch { /* Unknown intent stays blocked. */ }
         }
-        const recoveryWrite = exactFleetAcceptance || ["/api/bridge/select", "/api/bridge/entity/drones/reconnect", "/api/bridge/drones/recall",
+        const preparationRecovery = record.operationPreparation && record.preparingRecovery === true &&
+          ["/api/bridge/provisioning/review", "/api/bridge/provisioning/reconcile"].includes(url.pathname);
+        const recoveryWrite = preparationRecovery || exactFleetAcceptance || ["/api/bridge/select", "/api/bridge/entity/drones/reconnect", "/api/bridge/drones/recall",
           "/api/bridge/drone-recovery/ready", "/api/bridge/flight/stop", "/api/bridge/ship/jettison/reconcile"].includes(url.pathname);
         if (record.recovering && !record.windingDown && writes && !recoveryWrite) {
           return Promise.reject(Object.assign(new Error("The hosted session is recovering; productive writes are paused."),
@@ -1094,7 +1138,31 @@ function createBotHost(options) {
         pendingRequests.add(pending);
         return pending;
       };
+      let hostedStartup;
+      if (record.operationPreparation) {
+        const checkpointSecret = record.claimSecret;
+        record.preparationCheckpoint = startupRuns.openPreparation({ logicalRunID: record.logicalRunID,
+          accountID: record.accountID, characterID, scriptHash: normalizedHash, scriptRev: normalizedRev,
+          operationID: record.operationID, operationRunID: record.operationRunID, intent: record.operationPreparation,
+          resumed, assertCurrent: () => preparationOwner(record, checkpointSecret) });
+        record.preparation = record.preparationCheckpoint.snapshot();
+        persistRoster();
+      }
+      if (!isCompanion && Array.isArray(decodedDoc.program)) {
+        const startup = await import(pathToFileURL(path.resolve(__dirname, "../web/src/bots/startup.ts")).href);
+        if (startup.startupPrefix(decodedDoc).length) {
+          if (resumed && !logicalRunID) throw new Error("Older startup run has no durable identity; start manually after review.");
+          hostedStartup = startupRuns.open({ logicalRunID: record.operationPreparation ? record.logicalRunID : resumed ? logicalRunID : null,
+            accountID: record.accountID, characterID, scriptHash: normalizedHash, scriptRev: normalizedRev,
+            steps: startup.startupSteps(decodedDoc), prefixLength: startup.startupPrefix(decodedDoc).length, program: decodedDoc.program,
+            adapters: { postcondition: startup.startupPostcondition, actionSupported: startup.startupActionSupported } });
+          record.startup = hostedStartup;
+          record.logicalRunID = hostedStartup.logicalRunID;
+          persistRoster();
+        }
+      }
       const flow = stack.createAppFlow(store, {
+        hostedStartup,
         baseUrl,
         fetch: botFetch,
         perSessionToken: true,
@@ -1105,6 +1173,11 @@ function createBotHost(options) {
       });
       record.flow = flow;
       record.store = store;
+      record.startProductive = async () => {
+        if (isCompanion) await flow.startFleetCompanion(decodedRequest, resumingAbandonment);
+        else await flow.startCustomBot(decodedDoc);
+        applySnapshot(record, isCompanion ? store.companion.get() : store.customBot.get());
+      };
       record.recoverSession = (disconnect = false) => {
         if (record.recoveryPromise) return record.recoveryPromise;
         if (!record.recoveryEnabled || record.kind !== "script" || !record.operationID || record.windingDown ||
@@ -1167,6 +1240,13 @@ function createBotHost(options) {
             if (record.recoveryWriteUnresolved) throw new Error("A write outcome is unresolved; work custody is retained for reconciliation.");
             await bounded(flow.verifyHostedSessionRecovery(observedShipID));
             current();
+            if (record.operationPreparation) {
+              record.preparingRecovery = true;
+              try { await bounded(prepareOperationRecord(record)); }
+              finally { record.preparingRecovery = false; }
+              current();
+              if (!preparationReady(record.preparation)) throw new Error("Operation preparation still requires recovery before MAIN.");
+            }
             if (record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody))
               throw new Error("Jettison outcome is ambiguous; exact mutation custody and pilot control are retained.");
             if (record.recoveryWriteUnresolved) throw new Error("A late write outcome remains unresolved; control is retained.");
@@ -1281,9 +1361,13 @@ function createBotHost(options) {
             }
             current();
             if (record.recoveryWriteUnresolved) throw new Error("A late write outcome remains unresolved; control is retained.");
-            flow.resumeHostedSession();
+            if (!record.operationPreparation || record.mainStarted) flow.resumeHostedSession();
             record.recovering = false; record.recovery = { state: "READY", attempts: record.recoveryAttempts, reason: null };
-            applySnapshot(record, store.customBot.get()); persistRoster();
+            if (!record.operationPreparation || record.mainStarted) applySnapshot(record, store.customBot.get());
+            else { record.status = "paused"; record.phase = "Waiting for operation readiness"; }
+            persistRoster();
+            if (record.operationPreparation && !record.mainStarted && typeof options.onOperationResume === "function")
+              await options.onOperationResume();
           } catch (error) {
             if (!record.finalized && !record.windingDown) {
               record.status = "paused"; record.phase = "Session recovery blocked"; record.why = error?.message || "Session authority could not be re-established.";
@@ -1298,10 +1382,13 @@ function createBotHost(options) {
         return record.recoveryPromise;
       };
 
-      if (beforeStart) await beforeStart();
+      if (beforeStart) await beforeStart({ claimSecret: record.claimSecret });
       await flow.selectCharacter(characterID);
       const online = store.station.get().online;
       record.characterName = online ? online.characterName : null;
+      if (record.operationPreparation) await prepareOperationRecord(record);
+      if (record.operationPreparation && (record.finalized || record.manualStopRequested || record.operationStopRequested))
+        return { ok: true, bot: publicBot(record) };
 
       // The readout is store-driven exactly like the in-tab panel: project the
       // customBot (or companion) slice onto the record, and treat the loop
@@ -1309,6 +1396,7 @@ function createBotHost(options) {
       let sawRunning = false;
       record.unsubscribe = store.subscribe((state) => {
         if (record.recovering && !record.windingDown) return;
+        if (record.operationPreparation && !record.mainStarted) return;
         const snapshot = isCompanion ? state.companion : state.customBot;
         applySnapshot(record, snapshot);
         if (snapshot.status === "running" || snapshot.status === "paused") {
@@ -1321,14 +1409,10 @@ function createBotHost(options) {
         }
       });
 
-      if (isCompanion) {
-        await flow.startFleetCompanion(decodedRequest, resumingAbandonment);
-        applySnapshot(record, store.companion.get());
-      } else {
-        await flow.startCustomBot(decodedDoc);
-        applySnapshot(record, store.customBot.get());
-      }
-      if (record.startError !== null) {
+      if (!record.operationPreparation) await record.startProductive();
+      else if (!record.deferMain && preparationReady(record.preparation))
+        await activateOperationMember(record.botID, record.accountID, record.operationID, record.operationRunID);
+      if (record.startError !== null && !record.operationPreparation) {
         await finalize(record);
         return { ok: false, code: "BOT_START_FAILED", message: record.startError };
       }
@@ -1372,7 +1456,7 @@ function createBotHost(options) {
       record.status = "error";
       record.why = error && error.message ? String(error.message) : "The bot could not be started.";
       await finalize(record);
-      return { ok: false, code: error && ["PILOT_RELEASE_UNVERIFIED", "DRONE_HANDOFF_UNSAFE", "DRONE_RECOVERY_PENDING"].includes(error.code)
+      return { ok: false, code: error && ["CHARACTER_IN_USE", "PILOT_RELEASE_UNVERIFIED", "DRONE_HANDOFF_UNSAFE", "DRONE_RECOVERY_PENDING"].includes(error.code)
         ? error.code : "BOT_START_FAILED", message: record.why };
     }
   }
@@ -1391,6 +1475,108 @@ function createBotHost(options) {
       record.operationID === operationID && claims.get(record.characterID) === botID ? record : null;
   }
 
+  function preparationOwner(record, secret) {
+    if (record.finalized || record.claimSecret !== secret || claims.get(record.characterID) !== record.botID ||
+        record.windingDown || record.operationStopRequested || record.manualStopRequested || record.deadlineRequested ||
+        Date.parse(record.expiresAt) <= now())
+      throw Object.assign(new Error("Operation preparation owner or run is no longer current."), { code: "OPERATION_PREPARATION_STALE" });
+  }
+
+  function preparationOwnerAvailable(record) {
+    return claims.get(record.characterID) === record.botID && !record.finalized && !!record.flow &&
+      !record.recovering && record.recovery?.state !== "BLOCKED" && !record.activationFailed &&
+      !record.windingDown && !record.operationStopRequested && !record.manualStopRequested &&
+      !record.deadlineRequested && Date.parse(record.expiresAt) > now();
+  }
+
+  async function preparationCustodyUnresolved(record) {
+    if (!record.operationPreparation) return false;
+    if (typeof options.preparationUnresolved === "function") return await options.preparationUnresolved(record) !== false;
+    return ["PREPARING", "RECOVERY_REQUIRED"].includes((record.preparationCheckpoint?.snapshot() || record.preparation)?.state);
+  }
+
+  async function prepareOperationRecord(record) {
+    const secret = record.claimSecret;
+    const assertCurrent = () => preparationOwner(record, secret);
+    const checkpoint = startupRuns.openPreparation({ logicalRunID: record.logicalRunID,
+      accountID: record.accountID, characterID: record.characterID, scriptHash: record.scriptHash, scriptRev: record.scriptRev,
+      operationID: record.operationID, operationRunID: record.operationRunID, intent: record.operationPreparation,
+      resumed: true, assertCurrent });
+    record.preparationCheckpoint = checkpoint;
+    record.assertPreparationCurrent = assertCurrent;
+    record.preparation = checkpoint.snapshot();
+    if (preparationReady(record.preparation)) {
+      record.status = "paused"; record.phase = "Waiting for operation readiness";
+      record.why = record.preparation.reason || null;
+      persistRoster(); return;
+    }
+    record.status = "paused"; record.phase = "Operation preparation";
+    // Do not manufacture an issued mutation. The shared preparation adapter
+    // begins its durable block before asking the existing custody engine to act.
+    record.preparation = { ...record.preparation, state: "PREPARING" }; persistRoster();
+    try {
+      const result = await options.prepareOperation({ ...record, preparationCheckpoint: checkpoint,
+        assertPreparationCurrent: assertCurrent });
+      assertCurrent();
+      record.preparation = preparationReady(result) ? checkpoint.complete(result) : checkpoint.block(result || {
+        state: "BLOCKED", reason: "Preparation did not provide readiness evidence." });
+    } catch (error) {
+      try {
+        assertCurrent();
+        const pending = checkpoint.snapshot();
+        record.preparation = checkpoint.block({ state: pending.state === "PREPARING" || pending.state === "RECOVERY_REQUIRED"
+          ? "RECOVERY_REQUIRED" : "BLOCKED", reason: error?.message || "Preparation could not be verified." });
+      } catch { return; } // A retired invocation cannot settle a newer run.
+    }
+    record.status = "paused";
+    record.phase = preparationReady(record.preparation) ? "Waiting for operation readiness" : "Operation preparation blocked";
+    record.why = record.preparation.reason || null;
+    persistRoster();
+  }
+
+  async function activateOperationMember(botID, accountID, operationID, operationRunID) {
+    const record = operationRecord(botID, accountID, operationID);
+    if (!record || !record.operationPreparation || record.operationRunID !== operationRunID)
+      return { ok: false, code: "OPERATION_PREPARATION_STALE", message: "This operation run does not own the hosted member." };
+    if (record.activatePromise) return record.activatePromise;
+    const pending = (async () => {
+      const secret = record.claimSecret;
+      try {
+        preparationOwner(record, secret);
+        if (!preparationOwnerAvailable(record)) return { ok: false, code: "OPERATION_NOT_READY",
+          message: "The hosted preparation owner has not finished session recovery." };
+        if (record.activationFailed) return { ok: false, code: "BOT_START_FAILED", message: record.why || "Productive fitting validation failed; this run requires review." };
+        // A synchronous predicate proves the current aggregate owner set in
+        // this same turn as enterMain. An awaited approval can outlive a peer.
+        const barrier = typeof options.operationBarrierReady === "function" && options.operationBarrierReady(record);
+        if (barrier && typeof barrier.then === "function") Promise.resolve(barrier).catch(logError);
+        if (!preparationReady(record.preparationCheckpoint.snapshot()) || barrier !== true)
+          return { ok: false, code: "OPERATION_NOT_READY", message: "Required operation members have not crossed the readiness barrier." };
+        preparationOwner(record, secret);
+        if (!preparationOwnerAvailable(record)) return { ok: false, code: "OPERATION_NOT_READY",
+          message: "The hosted preparation owner has not finished session recovery." };
+        if (record.mainStarted) return { ok: true, bot: publicBot(record) };
+        record.preparation = record.preparationCheckpoint.enterMain();
+        record.mainStarted = true; record.deferMain = false;
+        persistRoster(); // MAIN eligibility is durable before the first runner action.
+        await record.startProductive();
+        preparationOwner(record, secret);
+        if (record.startError !== null) throw new Error(record.startError);
+        persistRoster();
+        return { ok: true, bot: publicBot(record) };
+      } catch (error) {
+        if (!record.finalized && record.claimSecret === secret) {
+          if (record.mainStarted) record.activationFailed = true;
+          record.status = "paused"; record.phase = "Operation activation blocked"; record.why = error.message;
+          persistRoster();
+        }
+        return { ok: false, code: error.code || "BOT_START_FAILED", message: error.message };
+      }
+    })();
+    record.activatePromise = pending;
+    try { return await pending; } finally { record.activatePromise = null; }
+  }
+
   async function prepareOperationStop(botID, accountID, operationID) {
     const record = operationRecord(botID, accountID, operationID);
     if (!record) return { ok: false, code: "PARKING_MEMBER_UNAVAILABLE", message: "Operation does not own this live pilot." };
@@ -1404,8 +1590,11 @@ function createBotHost(options) {
     persistRoster();
     const pending = (async () => {
       try {
-        if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody)) throw new Error("An issued write still needs reconciliation; Parking retains pilot control.");
-        await record.flow.prepareCustomBotParking();
+        if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
+            await preparationCustodyUnresolved(record)) throw new Error("An issued write still needs reconciliation; Parking retains pilot control.");
+        if (record.deferMain === true && record.mainStarted === false && record.preparationCheckpoint?.snapshot()?.mainEntered === false)
+          await record.flow.prepareHostedBotStop(record.kind, now() + CONTROLLED_DRONE_CLEANUP_MS * (record.operationRole === "COMMAND" ? 2 : 1));
+        else await record.flow.prepareCustomBotParking();
         record.droneSafetyConfirmed = true;
         record.parking = { state: "READY", reason: null };
         persistRoster();
@@ -1656,8 +1845,11 @@ function createBotHost(options) {
   // same ended-run ring as any other finalized record (evicted below).
   function recordResumeFailure(row, message) {
     const botID = crypto.randomUUID();
+    const retainedPreparation = row.operationPreparation && typeof row.logicalRunID === "string"
+      ? startupRuns.get(row.logicalRunID)?.preparation : null;
     records.set(botID, {
       botID,
+      logicalRunID: row.logicalRunID || null,
       accountID: Number(row.accountID),
       username: String(row.username || ""),
       characterID: Number(row.characterID),
@@ -1669,24 +1861,27 @@ function createBotHost(options) {
       scriptHash: String(row.scriptHash || ""),
       operationID: typeof row.operationID === "string" ? row.operationID : null,
       operationRole: row.operationRole ?? null,
+      operationControllerAccountID: row.operationControllerAccountID ?? null,
+      ...(retainedPreparation ? { operationRunID: retainedPreparation.operationRunID, operationPreparation: retainedPreparation.intent,
+        preparation: { ...retainedPreparation, state: "RECOVERY_REQUIRED", reason: message }, deferMain: true } : {}),
       operationStopRequested: row.operationStopRequested === true,
       parking: row.operationStopRequested ? { state: "PARKING_FAILED", reason: "A restart interrupted operation parking." } : null,
-      restartSafe: false,
+      restartSafe: retainedPreparation ? row.restartSafe === true : false,
       riskClasses: Array.isArray(row.riskClasses) ? row.riskClasses.map(String) : [],
       maxRuntimeMinutes: Number(row.maxRuntimeMinutes || 0),
       expiresAt: typeof row.expiresAt === "string" ? row.expiresAt : null,
       resumedAt: null,
       vitals: null,
-      status: "error",
-      phase: null,
+      status: retainedPreparation ? "paused" : "error",
+      phase: retainedPreparation ? "Operation recovery required" : null,
       why: `This bot was running when the server restarted and could not be restarted: ${message}`,
       stepPath: null,
       pauseReason: null,
       note: null,
       startError: null,
       startedAt: String(row.startedAt || nowISO()),
-      endedAt: nowISO(),
-      finalized: true,
+      endedAt: retainedPreparation ? null : nowISO(),
+      finalized: !retainedPreparation,
       flow: null,
       store: null,
       unsubscribe: null,
@@ -1704,6 +1899,7 @@ function createBotHost(options) {
    */
   async function resume() {
     const rows = readRoster();
+    const restored = [];
     for (const row of rows) {
       const characterID = Number(row.characterID);
       const kind = row.kind === "companion" ? "companion" : "script";
@@ -1733,7 +1929,9 @@ function createBotHost(options) {
           );
           continue;
         }
-        if (row.restartSafe !== true) {
+        const preparationPending = row.operationPreparation && row.deferMain === true &&
+          startupRuns.get(row.logicalRunID)?.preparation?.mainEntered === false;
+        if (row.restartSafe !== true && !preparationPending) {
           recordResumeFailure(row, "it can repeat a consequential action. Review and start it again manually.");
           continue;
         }
@@ -1788,17 +1986,41 @@ function createBotHost(options) {
                 operationRole: row.operationRole ?? null,
                 operationControllerAccountID: row.operationControllerAccountID ?? null,
                 recoveryAttempts: row.recoveryAttempts || 0,
+                logicalRunID: row.logicalRunID || null,
+                operationRunID: row.operationRunID || null,
+                operationPreparation: row.operationPreparation || null,
+                preparation: row.preparation || null,
+                deferMain: row.deferMain === true,
               });
         if (!outcome.ok) {
           recordResumeFailure(row, outcome.message || outcome.code);
-        }
+        } else restored.push(outcome.bot.botID);
       } catch (error) {
         logError(error);
         recordResumeFailure(row, error && error.message ? String(error.message) : "an unexpected error.");
       }
     }
+    // A failed attempt can leave a durable report beside its original roster
+    // row. Retire only that unowned report after this exact run has an owner;
+    // finalizing it would end the owner's shared checkpoint or release it.
+    for (const botID of restored) {
+      const owner = records.get(botID);
+      if (!owner || owner.finalized || !owner.flow || !owner.operationPreparation ||
+          claims.get(owner.characterID) !== botID) continue;
+      for (const report of records.values()) {
+        if (report === owner || report.finalized || report.flow || claims.get(report.characterID) === report.botID ||
+            report.logicalRunID !== owner.logicalRunID || report.accountID !== owner.accountID ||
+            report.characterID !== owner.characterID || report.operationID !== owner.operationID ||
+            report.operationRunID !== owner.operationRunID) continue;
+        report.finalized = true;
+        report.endedAt = nowISO();
+        report.status = "error";
+        report.phase = "Superseded recovery report";
+      }
+    }
     // Rewrite the file to what actually came back, dropping the failures.
     persistRoster();
+    if (typeof options.onOperationResume === "function") await options.onOperationResume();
   }
 
   /** Stop every running bot (server shutdown — best effort). */
@@ -1846,6 +2068,8 @@ function createBotHost(options) {
       return result;
     },
     start,
+    activateOperationMember,
+    preparationForRun: logicalRunID => startupRuns.get(logicalRunID)?.preparation || null,
     reconnect(botID, accountID) {
       const record = records.get(botID);
       if (!record || record.finalized || record.accountID !== Number(accountID) || !record.recoveryEnabled || record.recovering ||
@@ -1866,6 +2090,8 @@ function createBotHost(options) {
     list,
     claimedBy,
     authorizesClaim,
+    requiresFreeSelection: (characterID, secret) => authorizesClaim(characterID, secret) &&
+      records.get(claims.get(Number(characterID)))?.freePilotOnly === true,
     readableSessionOf,
     activeCharacterIDs,
     activeBots,
