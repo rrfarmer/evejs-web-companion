@@ -22,6 +22,7 @@ import {
   MAX_READ_FAILURES,
   SETTLE_TICKS,
   createScriptRunner,
+  needsMobileCombat,
   type ScriptRunnerSnapshot,
 } from "./scriptRunner.ts";
 
@@ -49,9 +50,86 @@ const home: HomeTravelDecider = (o) =>
 
 const registry = { undock, "deliver-ore": deliver };
 
+test("mobile combat observation is requested before a preceding node advances", async () => {
+  const doc = script([macroStep("u", "undock"), { id: "repeat", kind: "loop", repeat: { kind: "forever" },
+    body: [macroStep("fight", "fight-with-drones")] }]);
+  assert.equal(needsMobileCombat(doc.program), true);
+  assert.equal(needsMobileCombat(script([macroStep("stationary", "fight-the-rats")]).program), false);
+  let hint: import("./scriptRunner.ts").ObserveHint | null = null;
+  const runner = createScriptRunner({ observe: async value => { hint = value; return calm(); },
+    issue: async () => {}, registry: { ...registry, "fight-with-drones": () => mt({kind:"wait"}, {kind:"acting"}) },
+    travelHome: home, sleep: async () => {}, onProgress: () => {}, isSessionLost: () => false, refusalReason: String });
+  runner.start(doc); await runner.tick();
+  assert.equal((hint as unknown as import("./scriptRunner.ts").ObserveHint).activeMacro, "undock");
+  assert.equal((hint as unknown as import("./scriptRunner.ts").ObserveHint).needsMobileCombat, true);
+  runner.stop();
+});
+
+test("uncertain requested-module mutation pauses custody and is never replayed by Resume", async () => {
+  const activate: MacroDecider = () => mt({ kind: "activate", moduleID: 11, targetID: 0 }, { kind: "acting" });
+  const h = harness({ registry: { "fight-with-drones": activate }, issueThrows: () =>
+    Object.assign(new Error("Requested module state is unreadable"), { code: "MODULE_ACTION_UNCERTAIN" }) });
+  h.runner.start(script([macroStep("fight", "fight-with-drones")]));
+  await h.runner.tick();
+  assert.equal(h.runner.getStatus(), "paused");
+  h.runner.resume(); await h.runner.tick();
+  assert.equal(h.issued.length, 1);
+});
+test("definite module refusal leaves the action safely retryable", async () => {
+  let calls = 0;
+  const activate: MacroDecider = () => mt({ kind: "activate", moduleID: 11, targetID: 0 }, { kind: "acting" });
+  const h = harness({ registry: { "fight-with-drones": activate }, issueThrows: () => ++calls === 1
+    ? Object.assign(new Error("NotEnoughCapacitor"), { code: "CALL_REFUSED" }) : null });
+  h.runner.start(script([macroStep("fight", "fight-with-drones")]));
+  for (let i = 0; i < 10 && h.issued.length < 2; i++) await h.runner.tick();
+  assert.deepEqual(h.issued[1], h.issued[0]);
+});
+test("retired Stop generation cannot dispatch old combat cleanup", async () => {
+  let releaseRead!: () => void;
+  let stopping = false;
+  const issued: ScriptAction[] = [];
+  const combat: MacroDecider = () => ({ ...mt({ kind: "activate", moduleID: 11, targetID: 0 }, { kind: "acting" }),
+    nextMem: { combatOwned: { shipID: 9001, modules: { 11: {} }, locks: [], drones: [], initialDrones: [],
+      launched: false, movement: false, fleetCall: false } } });
+  const runner = createScriptRunner({ observe: async () => {
+    if (stopping) await new Promise<void>(resolve => { releaseRead = resolve; });
+    return calm({ snapshot: { ship: { itemID: 9001, activeModuleIDs: [11], weaponBanks: {} }, entities: [] } as unknown as import("../store/types.ts").SpaceSnapshot,
+      lockedTargetIDs: [], combatDroneIDs: [], myDrones: [] });
+  }, issue: async action => { issued.push(action); }, registry: { "fight-with-drones": combat }, travelHome: home,
+    sleep: async () => {}, onProgress: () => {}, isSessionLost: () => false, refusalReason: String });
+  runner.start(script([macroStep("fight", "fight-with-drones")])); await runner.tick();
+  await runner.beginGracefulStop(); stopping = true;
+  const pending = runner.settleCombatStop!(Date.now() + 60_000);
+  await Promise.resolve(); runner.stop(); releaseRead();
+  await assert.rejects(pending, /generation changed/);
+  assert.equal(issued.length, 1);
+});
+
 function macroStep(id: string, macro: MacroStep["macro"]): MacroStep {
   return { id, kind: "macro", macro, args: {} };
 }
+test("uncertain Stop retains pending intent, blocks Start/Resume, and reconciles without replay", async () => {
+  let active = true, reads = 0;
+  const issued: ScriptAction[] = [];
+  const combat: MacroDecider = () => ({ ...mt({ kind: "activate", moduleID: 11, targetID: 0 }, { kind: "acting" }),
+    nextMem: { combatOwned: { shipID: 9001, modules: { 11: {} }, locks: [], drones: [], initialDrones: [],
+      launched: false, movement: false, fleetCall: false } } });
+  const runner = createScriptRunner({ observe: async () => {
+    if (++reads > 3) active = false;
+    return calm({ snapshot: { ship: { itemID: 9001, activeModuleIDs: active ? [11] : [], weaponBanks: {} }, entities: [] } as unknown as import("../store/types.ts").SpaceSnapshot,
+      lockedTargetIDs: [], combatDroneIDs: [], myDrones: [] });
+  }, issue: async action => { issued.push(action); if (action.kind === "deactivate")
+    throw Object.assign(new Error("Deferred stop"), { code: "MODULE_ACTION_UNCERTAIN" }); },
+  registry: { "fight-with-drones": combat }, travelHome: home, sleep: async () => {},
+  onProgress: () => {}, isSessionLost: () => false, refusalReason: String });
+  const doc = script([macroStep("fight", "fight-with-drones")]);
+  runner.start(doc); await runner.tick(); await runner.beginGracefulStop();
+  await assert.rejects(runner.settleCombatStop!(Date.now() + 60_000), /Deferred stop/);
+  assert.throws(() => runner.start(doc), /unresolved settlement/);
+  runner.resume(); assert.equal(runner.getStatus(), "paused");
+  await runner.settleCombatStop!(Date.now() + 60_000);
+  assert.equal(issued.filter(action => action.kind === "deactivate").length, 1);
+});
 function script(program: readonly ProgramNode[]): BotScript {
   return {
     format: "evejs-bot-script", version: 1, name: "t", notes: "",

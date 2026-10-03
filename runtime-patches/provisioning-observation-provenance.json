@@ -1,0 +1,47 @@
+{
+  "classification": "D",
+  "artifact": "Ship Provisioning Phase 6A read-only world projection",
+  "runtimeVersion": "0.12.9",
+  "patchScript": "scripts/provisioning-runtime-patch.js",
+  "patchScriptSHA256": "d51c69fd9e2c1f7d5036debd3593c3dc5d69599211f3b2c185e5f60771fb2df4",
+  "helper": "runtime-patches/provisioningObservation.js",
+  "files": [
+    {
+      "file": "server/src/_secondary/express/evejsWebGatewayRuntime.js",
+      "cleanBaselineSHA256": "418aceefc0a049497faf8b01054c8471a653f7210a64fa666b9dc35f5742fe12",
+      "cleanPatchedSHA256": "7de71913cfcfc7493f1c803f9e4229034d2e8fff1683e85e3a7489e0ab9d0bb3",
+      "mutableOriginalSHA256": "c58648113dfeaff60b15d3218bc163e337dfa1d6a8d89170729119d945a5220b",
+      "deployedSHA256": "9b519ada39baece4ecffb2c4f5c65720f88fa61136e8537405d8bb2bcb013fd2"
+    },
+    {
+      "file": "server/src/_secondary/express/evejsWebGateway.js",
+      "cleanBaselineSHA256": "66e957ed82cddc41afab1afe4533b4a2dba30df75b64fbf207ab0a3166df087b",
+      "cleanPatchedSHA256": "9df50a4caa0f165423295070ba289c3629c4fde124b95b3457983ca5f6426891",
+      "mutableOriginalSHA256": "154ecf68c1f828a5ab27a4168de1fd03ae1b41a485916f4e1883e073733ef685",
+      "deployedSHA256": "e0bc2f2a617850de14304a4e1a3620a2204019375b0a11ca383dfa6f04dc9a97"
+    },
+    {
+      "file": "server/src/edge/gateway/gatewayRuntimeProtocol.js",
+      "cleanBaselineSHA256": "e4fbd529f190af3f27c4cd5387bc8dff840a416b029ba87bd5bad4671298df31",
+      "cleanPatchedSHA256": "a1feef2afa0d45ed2d57af1f822aa21565862f9999ad639485f0d976410fdee5",
+      "mutableOriginalSHA256": "987e1b06634da05a1a278bc56d07ee1859b84da5d758f20759970c144e86c307",
+      "deployedSHA256": "3ab0217ad97dddae593a00e212af4cfaf5cf05140223d725e88063dcb8b619fa"
+    },
+    {
+      "file": "server/src/services/online/characterControlRuntime.js",
+      "cleanBaselineSHA256": "918f5134f0705590d5ad507a832869eb6843c263545855dec9d4ceb5f876c817",
+      "cleanPatchedSHA256": "df650a6f0ac9383e2628bde81770d44cf9bd9713cce9ea7f9942e2aab674e430",
+      "mutableOriginalSHA256": "918f5134f0705590d5ad507a832869eb6843c263545855dec9d4ceb5f876c817",
+      "deployedSHA256": "df650a6f0ac9383e2628bde81770d44cf9bd9713cce9ea7f9942e2aab674e430"
+    },
+    {
+      "file": "server/src/_secondary/express/provisioningObservation.js",
+      "cleanBaselineSHA256": null,
+      "cleanPatchedSHA256": "56c2161903b2d5451456ed52f58eeae4472b251bb6324aeac1560a4f74433189",
+      "mutableOriginalSHA256": null,
+      "deployedSHA256": "56c2161903b2d5451456ed52f58eeae4472b251bb6324aeac1560a4f74433189"
+    }
+  ],
+  "scope": "Existing runtime files use unique semantic seams; hashes document provenance and do not claim whole-file exclusive ownership.",
+  "verifier": "Set EVEJS_CLEAN_REFERENCE or EVEJS_REPO, then node --test runtime-patches/provisioningObservation.test.js"
+}

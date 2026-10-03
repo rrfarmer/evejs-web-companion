@@ -226,8 +226,19 @@ function makeFakeFetch(
     if (path === "/api/bridge/flight/status") return { status: 200, body: flightBody() };
     if ((path === "/api/bridge/space/snapshot" || path === "/api/bridge/script/observation")) return { status: 200, body: spaceBody(ratios) };
     if (path === "/api/bridge/fitting") return { status: 200, body: fittingBody(modules) };
+    if (path === "/api/bridge/bound-dogma") return { status: 200, body: { ok: true, reads: { GetAllInfo: { error: null,
+      result: { type: "object", name: "util.KeyVal", args: { type: "dict", entries: [
+        ["activeShipID", SHIP_ID], ["shipInfo", { type: "dict", entries: modules.map(module => [module.itemID,
+          { type: "object", name: "util.KeyVal", args: { type: "dict", entries: [
+            ["itemID", module.itemID], ["attributes", { type: "dict", entries:
+              /amplifier/i.test(module.groupName) ? [] : [[73, 5000]] }],
+          ] } }]) }],
+      ] } } } } } };
+    if (path === "/api/bridge/modules/activate") return { status: 200,
+      body: { ok: true, itemID: body.itemID, active: true, stopped: null } };
     if (path === "/api/names") return { status: 200, body: namesBody(body, modules) };
     if (path === "/api/bridge/targets") return { status: 200, body: { ok: true, targetIDs: [], notifications: [] } };
+    if (path === "/api/bridge/drones") return { status: 200, body: { ok: true, activeShipID: SHIP_ID, inSpace: [], bay: [], notifications: [] } };
     if (path === "/api/bridge/ship/ore-hold") {
       return { status: 200, body: { ok: true, activeShipID: SHIP_ID, stationID: STATION_ID, holds: [] } };
     }
@@ -267,6 +278,21 @@ async function activateCalls(
 }
 
 // ── armor ────────────────────────────────────────────────────────────────────
+
+test("mobile combat reads weapon inventory against the observed ship before Undock advances", async () => {
+  const store = onlineStore();
+  const fake = makeFakeFetch([], {});
+  const flow = createAppFlow(store, { fetch: fake.fetch });
+  const doc: BotScript = { ...script(ARMOR_WATCH), interrupts: [], program: [
+    { id: "undock", kind: "macro", macro: "undock", args: {} },
+    { id: "mobile", kind: "macro", macro: "fight-with-drones", args: {} },
+  ] };
+  await flow.startCustomBot(doc);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  flow.stopCustomBot();
+  assert.ok(fake.requests.some(request => request.path === "/api/bridge/inventory"),
+    "fresh weapon observation must use the observed ship, even before the mobile macro becomes current");
+});
 
 test("a Remote Armor Repairer never self-activates on the armor-below watch — the fix", async () => {
   const activated = await activateCalls([REMOTE_ARMOR_REPAIRER], { armor: 0.3 }, ARMOR_WATCH);

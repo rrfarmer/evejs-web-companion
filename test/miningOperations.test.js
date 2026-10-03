@@ -67,6 +67,29 @@ function anomaly(name = "ABC-123") {
   return { targetType: "ORE_ANOMALY", systemID: 30000142, systemName: "Jita", targetName: name };
 }
 
+test("unsupported Defender remains an operation failure without blocking executable-member preparation", () => {
+  const h=harness([definition("prep-defender",[member(1,"MINER"),member(2,"DEFENDER")])]);
+  startAll(h,"prep-defender");h.operations.memberFailed("prep-defender",2,{code:"MEMBER_NOT_EXECUTABLE",message:"Defender unsupported"});
+  const projected=h.operations.list([{operationID:"prep-defender",characterID:1,botID:"bot-1",status:"running",endedAt:null,
+    preparation:{state:"VERIFIED",equipment:"VERIFIED",supplies:"FULL",targets:[]}}])[0].runtime;
+  assert.equal(projected.state,"DEGRADED");assert.equal(projected.members.find(row=>row.role==="DEFENDER").preparation.state,"BLOCKED");
+  assert.equal(projected.preparation.state,"VERIFIED");assert.deepEqual(projected.preparation.members.map(row=>row.characterID),[1]);
+});
+
+test("aggregate preparation exposes PREPARING and respects recovery/blocked precedence over it", () => {
+  for(const [states,expected] of [
+    [["PREPARING","PENDING"],"PREPARING"], [["VERIFIED","PREPARING"],"PREPARING"],
+    [["PREPARING","BLOCKED"],"BLOCKED"], [["PREPARING","RECOVERY_REQUIRED"],"RECOVERY_REQUIRED"],
+    [["BLOCKED","RECOVERY_REQUIRED"],"RECOVERY_REQUIRED"], [["VERIFIED","PENDING"],"PENDING"],
+    [["VERIFIED","DEGRADED"],"DEGRADED"], [["VERIFIED","VERIFIED"],"VERIFIED"],
+  ]) {
+    const h=harness([definition("prep-aggregate",[member(1,"MINER"),member(2,"MINER")])]);startAll(h,"prep-aggregate");
+    const projected=h.operations.list(states.map((state,index)=>({operationID:"prep-aggregate",characterID:index+1,botID:`bot-${index+1}`,
+      status:"starting",endedAt:null,preparation:{state,equipment:"UNKNOWN",supplies:"UNKNOWN",targets:[]}})))[0].runtime;
+    assert.equal(projected.preparation.state,expected,states.join(" + "));assert.deepEqual(projected.preparation.members.map(row=>row.state),states);
+  }
+});
+
 test("operation definitions save, reload, and retain stable automation references without copying scripts", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mining-operations-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

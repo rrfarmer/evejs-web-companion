@@ -6,6 +6,7 @@
   // still placeholder chrome.
   import StationPanel from "./StationPanel.svelte";
   import Fitting from "./Fitting.svelte";
+  import ProvisioningPanel from "./ProvisioningPanel.svelte";
   import Industry from "./Industry.svelte";
   import Market from "./Market.svelte";
   import Activity from "./Activity.svelte";
@@ -102,6 +103,8 @@
   <StationPanel {store} {flow} {isDocked} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
+{:else if tab === "provisioning"}
+  <ProvisioningPanel {store} {flow} />
 {:else if tab === "industry"}
   <Industry {store} {flow} />
 {:else if tab === "market"}

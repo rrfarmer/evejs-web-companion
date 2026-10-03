@@ -46,11 +46,13 @@ export interface EditorState {
   readonly home: WorldRef;
   readonly watches: readonly InterruptRow[];
   readonly steps: readonly FlatProgramNode[];
+  /** Existing v1 prefix before the final main loop; finite programs stay finite. */
+  readonly startup: readonly FlatProgramNode[];
   /**
    * A program the flat list cannot hold — several loops, or a loop beside loose
    * steps — kept VERBATIM so it still runs and still exports unchanged. When
    * this is set the editor renders read-only and `toScript` returns it
-   * untouched; adding a step clears it and the flat list takes over.
+   * untouched. Its program is edited through import/export, never flattened.
    */
   readonly advancedProgram: readonly ProgramNode[] | null;
   /**
@@ -96,6 +98,7 @@ export function newEditorState(): EditorState {
       },
     ],
     advancedProgram: null,
+    startup: [],
     loopID: null,
     loopUntil: undefined,
   };
@@ -119,16 +122,17 @@ export function toEditorState(doc: BotScript): EditorState {
     home: doc.home,
     watches: [...doc.interrupts],
   };
-  const first = doc.program[0];
-  if (doc.program.length === 1 && first !== undefined && first.kind === "loop") {
+  const last = doc.program.at(-1);
+  if (last?.kind === "loop" && doc.program.slice(0, -1).every(node => node.kind !== "loop")) {
     return {
       ...base,
-      repeatMode: first.repeat.kind === "forever" ? "forever" : "times",
-      repeatCount: first.repeat.kind === "times" ? first.repeat.count : 20,
-      steps: [...first.body],
+      repeatMode: last.repeat.kind === "forever" ? "forever" : "times",
+      repeatCount: last.repeat.kind === "times" ? last.repeat.count : 20,
+      steps: [...last.body],
+      startup: doc.program.slice(0, -1) as FlatProgramNode[],
       advancedProgram: null,
-      loopID: first.id,
-      loopUntil: first.until,
+      loopID: last.id,
+      loopUntil: last.until,
     };
   }
   if (doc.program.every((node): node is FlatProgramNode => node.kind !== "loop")) {
@@ -140,6 +144,7 @@ export function toEditorState(doc: BotScript): EditorState {
       // the flat list may hold, so a filter here would be a comparison the
       // compiler knows can never be true.
       steps: [...doc.program],
+      startup: [],
       advancedProgram: null,
       loopID: null,
       loopUntil: undefined,
@@ -155,6 +160,7 @@ export function toEditorState(doc: BotScript): EditorState {
       node.kind === "macro" || node.kind === "branch" || node.kind === "sub-bot" ? [node] : [...node.body],
     ),
     advancedProgram: doc.program,
+    startup: [],
     loopID: null,
     loopUntil: undefined,
   };
@@ -188,10 +194,9 @@ function buildProgram(state: EditorState): readonly ProgramNode[] {
   if (state.advancedProgram !== null) {
     return state.advancedProgram;
   }
-  if (state.steps.length === 0) {
-    return [];
-  }
+  if (state.steps.length === 0 && state.startup.length === 0) return [];
   if (state.repeatMode === "once" || hasSubBot(state.steps)) {
+    if (state.startup.length) throw new Error("Startup requires an explicit main loop; do not flatten it into a finite program.");
     return [...state.steps];
   }
   const loop: LoopBlock = {
@@ -202,7 +207,7 @@ function buildProgram(state: EditorState): readonly ProgramNode[] {
   };
   // `until` is optional on a loop, and an explicit `undefined` key is not the
   // same document as an absent one once it reaches the encoder.
-  return [state.loopUntil === undefined ? loop : { ...loop, until: state.loopUntil }];
+  return [...state.startup, state.loopUntil === undefined ? loop : { ...loop, until: state.loopUntil }];
 }
 
 function buildRepeat(state: EditorState): Repeat {
