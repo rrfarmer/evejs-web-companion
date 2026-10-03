@@ -16,6 +16,9 @@ const staticDataModule = require("./staticData");
 const { readMinerPilot } = require("./pilotTrainingRead");
 const { createTrainingQueueService } = require("./pilotTrainingQueue");
 const { createFactorySessions } = require("./factorySessions");
+const { createReplenishment } = require("./replenishment");
+const { createPilotMutationFence } = require("./pilotMutationFence");
+const { registerProvisioningRoutes } = require("./provisioningRoutes");
 const { createFactorySkills } = require("./factorySkills");
 const { createTrainingOnboarding } = require("./trainingOnboarding");
 const { readTrainingSettingsContext } = require("./trainingSettingsRead");
@@ -122,7 +125,12 @@ function sendBotScriptError(res, error, next) {
 function createApp(options = {}) {
 const app = express();
 const store = options.eveStore || eveStore;
-const gateway = options.eveGatewayClient || eveGatewayClient;
+let replenishment;
+const mutationFence = createPilotMutationFence({ heldSessions: { values: () => bridgeSessions.values() },
+  assertWritable: (pilot, lease) => replenishment?.assertWritable(pilot, lease),
+  assertSelectable: pilot => replenishment.assertSelectable(pilot),
+  enterWrite: (pilot, lease) => replenishment.enterWrite(pilot, lease) });
+const gateway = mutationFence.wrap(options.eveGatewayClient || eveGatewayClient);
 const auth = options.webAuth || webAuth;
 const staticData = options.staticData || staticDataModule;
 // The game-port client the customs-export hop speaks. Injected so the route
@@ -157,6 +165,8 @@ const bridgeSessions = options.bridgeSessionStore || new Map();
 // the await gap between browser select/release and a hosted handoff.
 const characterOperations = new Map();
 const sessionOperations = new Map();
+replenishment = options.replenishment || createReplenishment({ operations: characterOperations, data: staticData,
+  filePath: options.replenishmentJournalPath || (options.eveStore ? null : path.join(config.dataDir, "replenishment-custody.json")) });
 /**
  * Web sessions whose pilot is on the GAME PORT for a moment (the customs-office
  * export hop), by expiry instant.
@@ -187,6 +197,7 @@ function heldOnGamePort(webSessionID) {
   return true;
 }
 async function isCharacterHeld(characterID, callerSessionID = null) {
+  if (replenishment.unresolved(characterID).length) return true;
   for (const [sessionID, held] of bridgeSessions) {
     if (sessionID === callerSessionID || Number(held.characterID) !== Number(characterID)) continue;
     try {
@@ -253,6 +264,7 @@ const botHost =
   });
 app.locals.botHost = botHost;
 app.locals.bridgeSessions = bridgeSessions;
+app.locals.replenishment = replenishment;
 const factorySessions = createFactorySessions({ store, gateway, operations: characterOperations, heldSessions: bridgeSessions, botHost });
 const factorySkills = createFactorySkills({ store, gateway, data: staticData, queues: trainingQueues, sessions: factorySessions });
 const trainingOnboarding = createTrainingOnboarding({ store, gateway, sessions: factorySessions });
@@ -472,6 +484,21 @@ const requireTrainingAuth = makeRequireAuth({ cleanupSession: false });
 // optional decoration.
 const requireStreamAuth = makeRequireAuth({ allowQueryParam: true });
 
+// Dispatch gates below also protect requests that passed middleware before
+// Apply acquired its reservation. No browser-supplied lease is accepted.
+app.use("/api/bridge", requireAuth, (req, res, next) => {
+  try {
+    if (req.method === "POST" && !["/call", "/provisioning/review", "/provisioning/reconcile"].includes(req.path)) {
+      const held = bridgeSessions.get(req.webSessionID);
+      if (req.path === "/select") {
+        const target = Number(req.body?.characterID);
+        if (held && held.characterID !== target) replenishment.assertWritable(held.characterID);
+        replenishment.assertSelectable(target);
+      } else if (held) replenishment.assertWritable(held.characterID);
+    }
+    next();
+  } catch (error) { next(error); }
+});
 app.get("/api/health", async (req, res) => {
   try {
     const storeStatus = await store.getStatus();
@@ -607,6 +634,10 @@ app.post("/api/logout", async (req, res) => {
     return;
   }
   const held = payload && payload.sessionID ? bridgeSessions.get(payload.sessionID) : null;
+  if (held) {
+    try { replenishment.assertWritable(held.characterID); }
+    catch (error) { res.status(409).json({ ok: false, error: error.code, message: error.message }); return; }
+  }
   if (held && Number(held.accountID) !== Number(payload.accountID)) {
     res.status(409).json({ ok: false, error: "PILOT_RELEASE_UNVERIFIED", message: "The signed account does not own this pilot session." });
     return;
@@ -646,6 +677,8 @@ const TRANSITION_GATE_EXEMPT_POST_PATHS = new Set([
   "/api/bridge/call", // generic seam is read-only by policy
   "/api/bridge/select",
   "/api/bridge/release",
+  "/api/bridge/provisioning/review", // read-only despite the structured POST body
+  "/api/bridge/provisioning/reconcile", // evidence reads only; never dispatches
 ]);
 app.use((req, res, next) => {
   if (
@@ -671,6 +704,12 @@ app.use((req, res, next) => {
     transition: publicTransition(held),
   });
 });
+
+registerProvisioningRoutes({ app, requireAuth, requireHeld: requireHeldBridgeSession, engine: replenishment, store, gateway, data: staticData,
+  flight: readHeldFlight, currentHeld: assertCurrentHeldSession, inventoryLocation: inventoryLocationID,
+  resolvePlace, boundCall, cargoBindSpec, slots: () => ALL_SLOT_FLAGS, shipBays: () => SHIP_BAYS,
+  capacity: decodeCapacityReading, heldCall: heldTopLevelCall, mutationFence,
+  pendingRecovery: held => hasPendingRecovery(held, held.characterID) });
 
 // Thin bridge proxy for the whitelisted EveJS callMethod path (goal R1).
 // Forwards the retail call tuple (service, method, args, kwargs) to the
@@ -776,32 +815,42 @@ async function releaseHeldBridgeSession(webSessionID, { confirmed = false } = {}
   if (!held) {
     return false;
   }
-  if (confirmed) {
-    try {
-      const outcome = await gateway.releaseBridgeSession(held.bridgeSessionID, { userid: Number(held.accountID) });
-      if (outcome?.released !== true) {
-        throw Object.assign(new Error("Pilot release was not confirmed."), { code: "PILOT_RELEASE_UNVERIFIED", statusCode: 409 });
-      }
-    } catch (error) {
-      if (!error || error.code !== "SESSION_NOT_FOUND") throw error;
-    }
-    if (bridgeSessions.get(webSessionID) === held) forgetBridgeSession(webSessionID);
-    return true;
-  }
-  forgetBridgeSession(webSessionID, held);
+  replenishment.assertWritable(held.characterID);
+  const existing = characterOperations.get(held.characterID);
+  if (existing && sessionOperations.get(webSessionID) !== existing)
+    throw Object.assign(new Error("The pilot has another operation in progress."), { code: "CHARACTER_IN_USE", statusCode: 409 });
+  const reservation = existing || Symbol("pilot-release");
+  if (!existing) characterOperations.set(held.characterID, reservation);
   try {
-    await gateway.releaseBridgeSession(held.bridgeSessionID, {
-      userid: Number(held.accountID),
-    });
-  } catch (error) {
-    if (!(error && RELEASE_BEST_EFFORT_CODES.has(error.code))) {
-      throw error;
+    if (confirmed) {
+      try {
+        const outcome = await gateway.releaseBridgeSession(held.bridgeSessionID, { userid: Number(held.accountID) });
+        if (outcome?.released !== true) {
+          throw Object.assign(new Error("Pilot release was not confirmed."), { code: "PILOT_RELEASE_UNVERIFIED", statusCode: 409 });
+        }
+      } catch (error) {
+        if (!error || error.code !== "SESSION_NOT_FOUND") throw error;
+      }
+      if (bridgeSessions.get(webSessionID) === held) forgetBridgeSession(webSessionID);
+      return true;
     }
-    if (error.code !== "SESSION_NOT_FOUND") {
-      errorLogger(error);
+    forgetBridgeSession(webSessionID, held);
+    try {
+      await gateway.releaseBridgeSession(held.bridgeSessionID, {
+        userid: Number(held.accountID),
+      });
+    } catch (error) {
+      if (!(error && RELEASE_BEST_EFFORT_CODES.has(error.code))) {
+        throw error;
+      }
+      if (error.code !== "SESSION_NOT_FOUND") {
+        errorLogger(error);
+      }
     }
+    return true;
+  } finally {
+    if (!existing && characterOperations.get(held.characterID) === reservation) characterOperations.delete(held.characterID);
   }
-  return true;
 }
 
 // --- R10 live event channel (gateway push -> SSE) --------------------------
@@ -1008,7 +1057,12 @@ function buildStationStatic(stationID) {
 
 // Shared by ordinary select and the narrowly guarded handoff restoration.
 async function selectHeldCharacter(webSessionID, account, characterID) {
-  const outcome = await gateway.selectCharacter(
+  const pendingCustody = replenishment.unresolved(characterID).length > 0;
+  if (pendingCustody && typeof gateway.selectFactoryCharacter !== "function")
+    throw Object.assign(new Error("Free-only custody recovery selection is unavailable; pilot control remains fenced."),
+      { code: "PROVISIONING_RECOVERY_AUTHORITY_UNAVAILABLE", statusCode: 409 });
+  const outcome = pendingCustody ? await mutationFence.withCustodySelection(characterID,
+    () => gateway.selectFactoryCharacter(Number(account.accountID), characterID)) : await gateway.selectCharacter(
     [characterID, null, true], null,
     { userid: Number(account.accountID), userName: String(account.username || "") },
   );
@@ -1100,7 +1154,7 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
     // after proving the gateway session still exists. Re-selecting would
     // disconnect the recovery owner; refusing would strand the tab forever.
     if (previousHeld && Number(previousHeld.characterID) === characterID &&
-        hasPendingRecovery(previousHeld, characterID) &&
+        (hasPendingRecovery(previousHeld, characterID) || replenishment.unresolved(characterID).length) &&
         !botHost.authorizesClaim(characterID, req.get(botHostModule.BOT_HEADER))) {
       const current = await readHeldFlight(previousHeld, req.webSessionID);
       const liveShipID = Number(current.flight?.shipID);
@@ -1471,6 +1525,9 @@ async function boundCall(held, webSessionID, bindSpec, method, args, kwargs, bin
     // A picked structure or earlier service read is not mutation authority.
     // Recheck the live location and access before every inventory write.
     const flight = await readHeldFlight(held, webSessionID);
+    if (bindSpec.expectedShipID && flight.flight?.shipID !== bindSpec.expectedShipID) {
+      throw Object.assign(new Error("The active ship changed before inventory transfer."), { code: "INVENTORY_SHIP_CHANGED", statusCode: 409 });
+    }
     if (bindSpec.expectedDockedLocationID &&
         (flight.flight?.docked !== true || inventoryLocationID(held) !== bindSpec.expectedDockedLocationID ||
          (isPlayerStructureID(bindSpec.expectedDockedLocationID) && held.structureID !== bindSpec.expectedDockedLocationID))) {

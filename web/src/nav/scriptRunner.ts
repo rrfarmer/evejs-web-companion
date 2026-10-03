@@ -24,9 +24,11 @@
 //     becomes a wait, never a confident empty.
 
 import type { BotScript, SquadRoleArg } from "../bots/botScript.ts";
+import { startupSteps, type StartupCheckpoint, type StartupState } from "../bots/startup.ts";
 import { resolveStationRef } from "./scriptMacros.ts";
 import {
   activeMacroID,
+  currentStepID,
   activeStepNeedsTypeNames,
   activeStepToursOreSites,
   activeSquadRole,
@@ -39,6 +41,7 @@ import {
   DEFAULT_SETTLE_TICKS,
   type HomeTravelDecider,
   type MacroRegistry,
+  type MacroDecider,
   type ScriptAction,
   type ScriptBoard,
   type ScriptMemory,
@@ -199,6 +202,7 @@ export interface ScriptRunnerDeps {
    */
   issue(action: ScriptAction, claimRunID?: string, invocation?: { readonly runID: string; readonly invocationID: number; readonly stepPath: string }): Promise<void | string | null>;
   readonly mutationCustody?: () => boolean;
+  readonly startup?: StartupCheckpoint;
   /** Optional for pure tests; a live loot-containers step requires it. */
   readonly claims?: {
     read(runID: string, systemID: number): Promise<readonly number[]>;
@@ -318,14 +322,17 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
   const retainedProgress = new Map<string, { visit: string; recoverable: boolean; action: ScriptAction }>();
   let recoveryBlocked = false;
   const visitKey = (mem: ScriptMemory) => JSON.stringify([mem.position, mem.loopPass]);
-  function retainActionProgress(before: ScriptMemory, next: ScriptMemory, action: ScriptAction): void {
+  function retainActionProgress(before: ScriptMemory, next: ScriptMemory, action: ScriptAction, startupFenced = false): void {
     const visit = visitKey(next);
     for (const [key, record] of Object.entries(next.macroMem)) {
       if (record === before.macroMem[key]) continue;
       const previous = retainedProgress.get(key);
       retainedProgress.set(key, { visit,
         action: previous?.visit === visit && !previous.recoverable ? previous.action : action,
-        recoverable: canRecoverConfirmedProgress(action) && (previous?.visit !== visit || previous.recoverable) });
+        // A dispatched Startup step has its own durable postcondition gate.
+        // Only that exact fenced step may resume observation without resetting
+        // progress; unrelated MAIN/interrupt contracts retain Farmer's policy.
+        recoverable: (canRecoverConfirmedProgress(action) || startupFenced) && (previous?.visit !== visit || previous.recoverable) });
     }
   }
   function activeProgress(): readonly { recoverable: boolean; action: ScriptAction }[] {
@@ -545,6 +552,32 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       return;
     }
 
+    let registry = deps.registry;
+    if (deps.startup && startupSteps(script).length) {
+      try {
+        const states = new Map<string, StartupState>();
+        const currentID = currentStepID(script, memory);
+        const current = startupSteps(script).find(step => step.id === currentID);
+        if (current) states.set(current.id, await deps.startup.observe(current, obs));
+        if (token !== runToken || status !== "running") return;
+        registry = Object.fromEntries(Object.entries(deps.registry).map(([id, decider]) => [id,
+          ((step, facts, mem, board) => {
+            if (!startupSteps(script!).some(candidate => candidate.id === step.id)) return decider!(step, facts, mem, board);
+            const state = states.get(step.id) ?? "PENDING";
+            const base = { action: { kind: "wait" } as const, phase: "Startup", armed: false, nextMem: mem };
+            if (state === "COMPLETE") return { ...base, why: "Startup postcondition verified.", outcome: { kind: "done" } as const };
+            if (state === "BLOCKED") return { ...base, why: "Startup requires reconciliation.",
+              outcome: { kind: "blocked", reason: "Startup outcome is unknown or its adapter is unsupported; MAIN is blocked." } as const };
+            if (state === "PENDING") return { ...base, why: "Verifying startup outcome.", outcome: { kind: "acting" } as const };
+            const tick = decider!(step, facts, mem, board);
+            // The independent observer owns completion. Macro done/skipped and
+            // its until condition cannot open the main barrier.
+            return { ...tick, armed: false, outcome: tick.outcome.kind === "done" || tick.outcome.kind === "skipped"
+              ? { kind: "acting" } as const : tick.outcome };
+          }) as MacroDecider]));
+      } catch (error) { pauseWith(`Startup checkpoint failed: ${String(error)}`); return; }
+    }
+
     // Deciding is pure and total BY DESIGN, but a macro adapter reaching into a
     // live snapshot could still throw on a shape the tests never saw. If it does,
     // an unwrapped throw would reject run() and kill the loop SILENTLY — the ship
@@ -561,7 +594,7 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         script,
         { ...obs, refusals: ledger.records() },
         memory,
-        deps.registry,
+        registry,
         deps.travelHome,
       );
     } catch (error) {
@@ -578,6 +611,16 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         docked: obs.docked ?? null, modules: obs.travelPropulsionModules ?? [], scrammed: obs.scrammed ?? null,
       });
       if (consumed || token !== runToken || status !== "running") return;
+    }
+    if (deps.startup?.checkpoint) {
+      // The decider may advance a proven Startup prefix and select MAIN in
+      // this same tick. Persist that cursor, never unconfirmed action progress.
+      const cursor = isWorldCall(result.action)
+        ? { ...memory, position: result.memory.position, loopPass: result.memory.loopPass }
+        : result.memory;
+      try { await deps.startup.checkpoint(cursor); }
+      catch (error) { pauseWith(`Startup checkpoint failed: ${String(error)}`); return; }
+      if (token !== runToken || status !== "running") return;
     }
     const selected = result.containerTargetID;
     if (claim && (selected !== claim.itemID || obs.flightStatus?.solarSystemID !== claim.systemID)) {
@@ -643,6 +686,12 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         t: now(), kind: "issue", run: runID, action: result.action, says: describeAction(result.action),
         stepPath: result.stepPath, interruptID: result.interruptID, phase: result.phase, why: result.why,
       });
+      const startupStep = startupSteps(script).find(step => step.id === result.stepPath);
+      if (startupStep && deps.startup) {
+        try { await deps.startup.beforeIssue(startupStep, result.action, actionInvocation + 1); }
+        catch (error) { pauseWith(`Startup dispatch blocked: ${String(error)}`); return; }
+        if (token !== runToken || status !== "running") return;
+      }
       issuePending = true;
       try {
         const note = await deps.issue(result.action, result.action.kind === "lootContainer" ? claim?.runID : undefined,
@@ -651,7 +700,7 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         // Completion belongs to the confirmed action, including one that
         // finished while paused. Preserve a concurrently requested home trip.
         memory = { ...result.memory, latched: memory?.latched ?? result.memory.latched };
-        retainActionProgress(beforeAction, memory, result.action);
+        retainActionProgress(beforeAction, memory, result.action, !!startupStep && !!deps.startup);
         issuedSuccessfully = true;
         sessionChangeWaits = 0;
         record({
@@ -957,13 +1006,13 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       releaseAfterIssue();
       runToken += 1;
       script = next;
-      memory = initialMemory(next);
+      memory = deps.startup?.restoreMemory?.() ?? initialMemory(next);
       retainedProgress.clear();
       recoveryBlocked = false;
       // A fresh run id BEFORE the first emit, so every line of this run —
       // starting with its own header — is grouped under it. The header is also
       // what tells a store to rotate the previous run's log out.
-      runID = newRunID(Date.now());
+      runID = deps.startup?.logicalRunID ?? newRunID(Date.now());
       actionInvocation = 0;
       loggedDecision = "";
       loggedEnd = false;
