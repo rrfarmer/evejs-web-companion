@@ -47,6 +47,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const jettison = require("./jettisonCustody");
+const { createStartupRuns } = require("./startupRuns");
 const { pathToFileURL } = require("url");
 
 // An unguessable per-run claim capability. The public botID is deliberately NOT
@@ -229,6 +230,7 @@ function createBotHost(options) {
   // Durability: where the running roster is mirrored (absent = memory-only),
   // and the reads resume() needs to rebuild a bot from its persisted row.
   const persistPath = options.persistPath || null;
+  const startupRuns = options.startupRuns || createStartupRuns({ filePath: persistPath ? `${persistPath}.startup.json` : null, now });
   const loadAccount = options.loadAccount || (async () => null);
   // The saved-script library is platform-wide: any account's characters may
   // run any account's script. `loadScript(scriptID) -> Record | null` looks a
@@ -267,6 +269,7 @@ function createBotHost(options) {
             scriptName: record.scriptName,
             scriptRev: record.scriptRev,
             scriptHash: record.scriptHash,
+            logicalRunID: record.logicalRunID,
             restartSafe: record.restartSafe,
             riskClasses: record.riskClasses,
             maxRuntimeMinutes: record.maxRuntimeMinutes,
@@ -339,6 +342,7 @@ function createBotHost(options) {
       scriptName: record.scriptName,
       scriptRev: record.scriptRev,
       scriptHash: record.scriptHash,
+      logicalRunID: record.logicalRunID,
       operationID: record.operationID,
       operationRole: record.operationRole,
       parking: record.parking,
@@ -513,7 +517,8 @@ function createBotHost(options) {
   }
 
   async function finalizeBody(record) {
-    if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody)) {
+    if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
+        Object.values(record.startup?.snapshot().blocks || {}).some(block => ["PENDING", "BLOCKED"].includes(block.state))) {
       record.status = "paused"; record.phase = "Unresolved write custody";
       record.why = "The issued write needs reconciliation before pilot control can be released.";
       record.stopBlocked = true; persistRoster(); return false;
@@ -573,6 +578,7 @@ function createBotHost(options) {
       persistRoster();
       return false;
     }
+    record.startup?.end();
     record.finalized = true;
     record.endedAt = nowISO();
     persistRoster();
@@ -795,6 +801,7 @@ function createBotHost(options) {
     operationRole = null,
     operationControllerAccountID = null,
     recoveryAttempts = 0,
+    logicalRunID = null,
   }) {
     const isCompanion = kind === "companion";
     let resumingAbandonment = null;
@@ -946,6 +953,7 @@ function createBotHost(options) {
     const botID = crypto.randomUUID();
     const record = {
       botID,
+      logicalRunID: logicalRunID || crypto.randomUUID(),
       accountID: Number(account.accountID),
       username: String(account.username || ""),
       characterID,
@@ -1094,7 +1102,22 @@ function createBotHost(options) {
         pendingRequests.add(pending);
         return pending;
       };
+      let hostedStartup;
+      if (!isCompanion && Array.isArray(decodedDoc.program)) {
+        const startup = await import(pathToFileURL(path.resolve(__dirname, "../web/src/bots/startup.ts")).href);
+        if (startup.startupPrefix(decodedDoc).length) {
+          if (resumed && !logicalRunID) throw new Error("Older startup run has no durable identity; start manually after review.");
+          hostedStartup = startupRuns.open({ logicalRunID: resumed ? logicalRunID : null,
+            accountID: record.accountID, characterID, scriptHash: normalizedHash, scriptRev: normalizedRev,
+            steps: startup.startupSteps(decodedDoc), prefixLength: startup.startupPrefix(decodedDoc).length, program: decodedDoc.program,
+            adapters: { postcondition: startup.startupPostcondition, actionSupported: startup.startupActionSupported } });
+          record.startup = hostedStartup;
+          record.logicalRunID = hostedStartup.logicalRunID;
+          persistRoster();
+        }
+      }
       const flow = stack.createAppFlow(store, {
+        hostedStartup,
         baseUrl,
         fetch: botFetch,
         perSessionToken: true,
@@ -1788,6 +1811,7 @@ function createBotHost(options) {
                 operationRole: row.operationRole ?? null,
                 operationControllerAccountID: row.operationControllerAccountID ?? null,
                 recoveryAttempts: row.recoveryAttempts || 0,
+                logicalRunID: row.logicalRunID || null,
               });
         if (!outcome.ok) {
           recordResumeFailure(row, outcome.message || outcome.code);

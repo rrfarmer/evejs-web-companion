@@ -2606,6 +2606,10 @@ function committedStepID(script: BotScript, position: Position): string | null {
   return position.kind === "loop" || position.kind === "loop-branch" ? activeStep(script, position).id : null;
 }
 
+export function currentStepID(script: BotScript, memory: ScriptMemory): string | null {
+  return ["step", "branch", "loop", "loop-branch"].includes(memory.position.kind) ? activeStep(script, memory.position).id : null;
+}
+
 function positionKey(position: Position): string {
   if (position.kind === "loop") {
     return `loop:${position.node}:${position.body}`;
