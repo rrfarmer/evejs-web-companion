@@ -796,9 +796,13 @@ of whoever makes a contract for one or reads its containers: `cc27a59dd`, `4f692
 all unpushed there); and so is a planetary launch's record removed (`12885f1`), which
 a bot's collecting of one does once it has read the container empty; and so are a fleet
 applied to and a broadcast made to the fleet's members in the bubble (`82a21e8`), the
-second with the wait the client keeps before one. Counted by the whole path, 136 are named
-now, 51 of them reads and 85 writes (the count kept before took a path's beginning for a
-path and missed a parameter inside one: it read 130 where 138 was so). Of the phase's "done when", "no
+second with the wait the client keeps before one; and so is a module overloaded and cooled
+(`431b964`), the first of the writes the BFF made on an object it bound for itself: asked
+of the dogma service by its name, made by the game port on the dogma location it keeps, and
+naming the module's own overload effect, which the page asks of the static data. Counted by
+the whole path, 134 are named now, 51 of them reads and 83 writes (the count kept before
+`82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
+where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
 Of 6a's four things, three are carried by the socket or in process, each with a way back
 (the routes' operations, the pushes, the hosted bots), and the cap is lifted for what is

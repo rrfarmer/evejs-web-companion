@@ -529,6 +529,19 @@ Take these defaults, and list each under "For the operator" in the log so they c
 - **A scratch name is checked by itself** (a count over three names says nothing of which
   one is there), **and a script is written with the Write tool**: a heredoc or `node -e` in
   the shell loses backslashes and quotes.
+- **A write the BFF made on an object it bound for itself is asked by the service's name.**
+  Where the client asks the service on a moniker (`MONIKER_SERVICES`), the game port makes a
+  call asked by name on the moniker it keeps, and counts it `reshaped` whatever its arguments.
+  The gateway makes it as it is asked. The entry's judge is handed what godma knows through
+  the transport's context (`contextFor` in `pilots.js`), and `needing(entry, "dogma")` has
+  godma primed first.
+- **What the client knows from its static data, the page asks of the BFF's**, once, and
+  keeps: a route under `/api/types/`, no call of the server's (`overload-effects`,
+  `cycle-times`). A helper for it goes in `staticData.js` with a fixture of the table for
+  its test (`test/typeOverloadEffects.test.js`).
+- **A pilot ready to use its modules**: `/ewar` and `/giveskill me <typeID> <level>` by
+  `gm/slash` (`overload-stage.js`). A module on the rack is held by a `pointerdown`, a wait
+  past 600 ms, and a `pointerup`.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
