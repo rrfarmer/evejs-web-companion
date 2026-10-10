@@ -156,8 +156,12 @@ function isBridgeWritePair(service, method) {
  *                                character, takes any number as one of the three, and takes no one's name.
  *                                The asking before a lower level is the page's selector's, as it is the
  *                                client's. Carried by either transport.
+ *   contractProxy.AcceptContract a contract taken on. Its route confirmed and called, with the contract's ID
+ *                                made a number and `forCorp` made true or false. The handler takes the
+ *                                session's own character as who accepts; for the corporation, only where the
+ *                                character has its Contract Manager role. Carried by either transport.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

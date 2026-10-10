@@ -628,44 +628,36 @@ test("⚠ an offered contract's ids are asked for BY NAME like every other row",
 
 test("⚠ taking a contract on is CONFIRMED to the BFF, personally, by id", async () => {
   const { flow, requests } = makeFlow(
-    respondOk((path, method) =>
-      path === "/api/bridge/contracts/accept" && method === "POST"
+    respondOk((path, _method, body) =>
+      path === "/api/bridge/call" && body.method === "AcceptContract"
         ? {
             status: 200,
-            body: {
-              ok: true,
-              applied: true,
-              result: contractRow({ acceptorID: CHARACTER_ID, status: 1 }),
-            },
+            body: { ok: true, service: "contractProxy", method: "AcceptContract", result: contractRow({ acceptorID: CHARACTER_ID, status: 1 }), notifications: [] },
           }
         : null,
     ),
   );
   await flow.acceptContract(CONTRACT_ID);
 
-  const accept = requests.find((entry) => entry.path === "/api/bridge/contracts/accept");
+  const accept = requests.find((entry) => entry.path === "/api/bridge/call" && entry.body.method === "AcceptContract");
   assert.ok(accept, "the write went out");
-  assert.equal(accept.method, "POST");
-  assert.equal(accept.body.contractID, CONTRACT_ID);
-  // ⚠ The BFF refuses this route outright without it. A stray POST cannot
-  // move ISK.
-  assert.equal(accept.body.confirm, true);
+  // contracts.py 422: the contract proxy's own call, with the contract's ID and for whom.
+  // ⚠ The BFF refuses a write by this call outright unless it is said to be a
+  // pilot's and to be meant. A stray POST cannot move ISK.
   // Accepting for a corporation needs a role this panel cannot see; guessing
-  // would spend the corporation's ISK instead of the player's.
-  assert.equal(accept.body.forCorp, false);
+  // would spend the corporation's ISK instead of the player's: so False.
+  assert.deepEqual(accept.body, { service: "contractProxy", method: "AcceptContract", args: [CONTRACT_ID, false], kwargs: null, pilot: true, confirm: true });
+  // The route it went by before is not asked.
+  assert.deepEqual(requests.filter((entry) => entry.path === "/api/bridge/contracts/accept"), []);
 });
 
 test("a contract taken on RELOADS the panel rather than guessing the new lists", async () => {
   const { store, flow, requests } = makeFlow(
-    respondOk((path, method) =>
-      path === "/api/bridge/contracts/accept" && method === "POST"
+    respondOk((path, _method, body) =>
+      path === "/api/bridge/call" && body.method === "AcceptContract"
         ? {
             status: 200,
-            body: {
-              ok: true,
-              applied: true,
-              result: contractRow({ acceptorID: CHARACTER_ID, status: 1 }),
-            },
+            body: { ok: true, service: "contractProxy", method: "AcceptContract", result: contractRow({ acceptorID: CHARACTER_ID, status: 1 }), notifications: [] },
           }
         : null,
     ),
@@ -688,11 +680,11 @@ test("a contract taken on RELOADS the panel rather than guessing the new lists",
 
 test("⚠ an ack with no contract in it is a DECLINE, not a success", async () => {
   const { store, flow } = makeFlow(
-    respondOk((path, method) =>
-      path === "/api/bridge/contracts/accept" && method === "POST"
+    respondOk((path, _method, body) =>
+      path === "/api/bridge/call" && body.method === "AcceptContract"
         ? // AcceptContract answers the accepted row, and NULL when the
           // settlement did not go through. A 200 is not proof.
-          { status: 200, body: { ok: true, applied: true, result: null } }
+          { status: 200, body: { ok: true, service: "contractProxy", method: "AcceptContract", result: null, notifications: [] } }
         : null,
     ),
   );
@@ -705,8 +697,8 @@ test("⚠ an ack with no contract in it is a DECLINE, not a success", async () =
 
 test("a refusal is surfaced in the SERVER's words, not reworded", async () => {
   const { store, flow } = makeFlow(
-    respondOk((path, method) =>
-      path === "/api/bridge/contracts/accept" && method === "POST"
+    respondOk((path, _method, body) =>
+      path === "/api/bridge/call" && body.method === "AcceptContract"
         ? {
             status: 500,
             body: {
@@ -729,10 +721,32 @@ test("a refusal is surfaced in the SERVER's words, not reworded", async () => {
   assert.equal(store.get().contracts.acceptedContractID, null);
 });
 
+test("which contract was taken on is the server's word: its row's ID is what is marked accepted and opened again", async () => {
+  const { store, flow, requests } = makeFlow(
+    respondOk((path, _method, body) => {
+      const accepted = contractRow({ contractID: CONTRACT_ID + 1, acceptorID: CHARACTER_ID, status: 1 });
+      if (path === "/api/bridge/call" && body.method === "AcceptContract") {
+        return { status: 200, body: { ok: true, service: "contractProxy", method: "AcceptContract", result: accepted, notifications: [] } };
+      }
+      // The details asked for are answered as that contract's.
+      if (path.startsWith("/api/bridge/contracts/detail")) {
+        const detail = keyVal({ items: list([]), bids: list([]), contract: accepted, startSolarSystemID: START_SYSTEM, endSolarSystemID: END_SYSTEM });
+        return { status: 200, body: { ok: true, contractID: CONTRACT_ID + 1, detail } };
+      }
+      return null;
+    }),
+  );
+  await flow.acceptContract(CONTRACT_ID);
+  assert.equal(store.get().contracts.acceptedContractID, CONTRACT_ID + 1);
+  // The details read again are that contract's, as the client's window reads its own again once it is accepted.
+  const opened = requests.filter((entry) => entry.path.startsWith("/api/bridge/contracts/detail")).map((entry) => entry.path);
+  assert.deepEqual(opened, [`/api/bridge/contracts/detail?contractID=${CONTRACT_ID + 1}`]);
+});
+
 test("⚠ opening a DIFFERENT contract drops the last accept's verdict", async () => {
   const { store, flow } = makeFlow(
-    respondOk((path, method) =>
-      path === "/api/bridge/contracts/accept" && method === "POST"
+    respondOk((path, _method, body) =>
+      path === "/api/bridge/call" && body.method === "AcceptContract"
         ? {
             status: 500,
             body: { ok: false, error: "CUSTOM_INFO", message: "Someone got there first." },

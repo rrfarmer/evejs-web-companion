@@ -102,6 +102,7 @@ import { readJournal } from "../bridge/journalReads.ts";
 import { applyFreePoints, pauseTraining, saveQueue, type QueuePlace } from "../bridge/skillWrites.ts";
 import { createTrainingSlots } from "../bridge/trainingSlots.ts";
 import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites.ts";
+import { acceptContract as acceptContractCall } from "../bridge/contractWrites.ts";
 import { readClientStates } from "../bridge/crimewatchReads.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates } from "../bridge/boundCrimewatch.ts";
@@ -4207,9 +4208,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function acceptContract(contractID: number): Promise<void> {
     store.apply({ type: "contracts/accepting", contractID });
-    let ack: Awaited<ReturnType<typeof api.acceptContract>>;
+    let accepted: number;
     try {
-      ack = await api.acceptContract(contractID, callOptions);
+      // The details window's Accept, as the client's contracts service makes it (bridge/contractWrites.ts): for
+      // the character, never for the corporation, whose roles this page is not told.
+      accepted = await acceptContractCall(bridgeDo, contractID, false);
     } catch (error) {
       throwIfRequestRetired(error);
       store.apply({ type: "contracts/accepting", contractID: null });
@@ -4232,7 +4235,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // and null when the settlement did not go through — an ack with no contract
     // in it is a decline, and saying "taken on" there would be a lie the very
     // next reload contradicts.
-    if (!ack.applied || ack.contractID <= 0) {
+    if (accepted <= 0) {
       store.apply({ type: "contracts/accepting", contractID: null });
       store.apply({
         type: "contracts/accept-error",
@@ -4240,14 +4243,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       });
       return;
     }
-    store.apply({ type: "contracts/accepted", contractID: ack.contractID });
+    store.apply({ type: "contracts/accepted", contractID: accepted });
 
     // The lists and every count in the summary have all moved; reload rather
     // than guess at the new shape. The detail pane is reopened so the player
     // sees the contract they now hold, with its status changed.
     try {
       await loadContracts(store.contracts.get().page);
-      await openContract(ack.contractID);
+      await openContract(accepted);
     } finally {
       store.apply({ type: "contracts/accepting", contractID: null });
     }

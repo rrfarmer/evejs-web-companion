@@ -1093,6 +1093,7 @@
   "boundary": {
     "genericBridgeAllowsWrites": true,
     "genericBridgeWrites": [
+      "contractProxy.AcceptContract",
       "crimewatch.SetSafetyLevel",
       "skillHandler.AbortTraining",
       "skillHandler.ApplyFreeSkillPoints",

@@ -1664,3 +1664,31 @@ test("a safety level set is the client's call when it names one of the three lev
     assert.match(made.note, /three safety levels/, why);
   }
 });
+
+test("a contract taken on is the client's call when it names the one contract and says for whom, and nothing else", () => {
+  const accept = (args, kwargs = null) => retailForm("contractProxy", "AcceptContract", args, kwargs);
+  // contracts.py 422: self.GetContractProxySvc().AcceptContract(contractID, forCorp), of the proxy by its name.
+  for (const args of [[233598633, false], [8100, true]]) {
+    const made = accept(args);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy], ["same", "eve/client/script/ui/shared/neocom/contracts/contracts.py:422", args, null, false, true], JSON.stringify(args));
+  }
+  // Anything else goes as it came, and is counted as differing.
+  for (const [args, kwargs, why] of [
+    [[8100], null, "for whom not said"],
+    [[], null, "nothing"],
+    [[8100, false, 1], null, "a third thing"],
+    [[0, false], null, "no contract"],
+    [[-8100, false], null, "a contract below nought"],
+    [[8100.5, false], null, "half a contract"],
+    [["8100", false], null, "a contract as text"],
+    [[8100, 0], null, "for whom as a number"],
+    [[8100, "false"], null, "for whom as text"],
+    [[8100, null], null, "for whom as nothing"],
+    [[[8100], false], null, "a list of contracts"],
+    [[8100, false], { forCorp: true }, "a keyword"],
+  ]) {
+    const made = accept(args, kwargs);
+    assert.deepEqual([made.status, made.args, made.proxy], ["differs", args, true], why);
+    assert.match(made.note, /one contract/, why);
+  }
+});

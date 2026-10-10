@@ -1193,6 +1193,36 @@ test("the safety level set is a write of the page's own: the level goes as it wa
   assert.deepEqual([(await set(7, { pilot: true, confirm: true })).response.status, gateway.calls.call.at(-1).args], [200, [7]]);
 });
 
+test("a contract taken on is a write of the page's own: its ID and for whom go as they were sent", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  const accept = (args, more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "contractProxy", method: "AcceptContract", args, kwargs: null, ...more } });
+  const before = gateway.calls.call.length;
+  // A write, as the pause is: refused unless it is said to be a pilot's and to be meant.
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await accept([8100, false], more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  // The proxy's other writes are their routes' alone, whatever is said.
+  for (const method of ["CreateContract", "CompleteContract", "DeleteContract", "PlaceBid"]) {
+    const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "contractProxy", method, args: [8100], kwargs: null, pilot: true, confirm: true } });
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
+  }
+  assert.equal(gateway.calls.call.length, before);
+  const made = await accept([8100, false], { pilot: true, confirm: true });
+  assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "contractProxy", "AcceptContract"]);
+  const sent = gateway.calls.call.at(-1);
+  assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["contractProxy", "AcceptContract", [8100, false], null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  // The route stands, and makes the same call from its own spelling of the two.
+  const byRoute = await apiRequest(baseUrl, "/api/bridge/contracts/accept", { method: "POST", body: { contractID: 8100, forCorp: false, confirm: true } });
+  const routed = gateway.calls.call.at(-1);
+  assert.deepEqual([byRoute.response.status, gateway.calls.call.length], [200, before + 2]);
+  assert.deepEqual([routed.service, routed.method, routed.args, routed.kwargs, routed.bridgeSessionID], [sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID]);
+  // For the corporation is said by the caller, on either way: whether this character may is the server's to say.
+  assert.deepEqual([(await accept([8100, true], { pilot: true, confirm: true })).response.status, gateway.calls.call.at(-1).args], [200, [8100, true]]);
+});
+
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {
   const gateway = fakeGateway();
   const { baseUrl, app } = await startTestServer({ gateway });

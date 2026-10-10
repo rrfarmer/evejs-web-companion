@@ -198,6 +198,10 @@ const pointsForOneSkill = (args, kwargs) => (args.length === 2 && args.every((va
 const oneSafetyLevel = (args, kwargs) => (args.length === 1 && [0, 1, 2].includes(args[0]) && Object.keys(kwargs).length === 0
   ? {}
   : { status: "differs", note: "The client sets one of the three safety levels (0, 1 or 2), and sends nothing else." });
+/** contracts.AcceptContract (422): the contract's ID, a whole number above nought, and whether it is for the corporation, True or False; nothing else. */
+const oneContractForWhom = (args, kwargs) => (args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 && typeof args[1] === "boolean" && Object.keys(kwargs).length === 0
+  ? {}
+  : { status: "differs", note: "The client names the one contract and says whether it is taken on for the corporation, and nothing else: AcceptContract(contractID, forCorp)." });
 /** A judge for a call the client sends with nothing: no argument, and no keyword. */
 const sentWithNothing = (args, kwargs) => (args.length === 0 && Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "The client sends nothing with this call." });
 const reshaped = (source, shape, note) => Object.freeze({ status: "reshaped", source, shape, note });
@@ -955,6 +959,8 @@ const RETAIL_CALLS = Object.freeze({
   "skillHandler.GetImplants": same(`${SKILL_SVC}:967`, "GetSkillHandler().GetImplants(), no arguments: the implants in the pilot's head, asked once and kept (godma's 'implants' of the character is this). Recorded on Tranquility at login."),
   "skillHandler.GetSkillPoints": same(`${SKILL_SVC}:989`, "GetSkillHandler().GetSkillPoints(), no arguments"),
   "skillHandler.GetSkillQueueAndFreePoints": same("eve/client/script/ui/services/skillQueueSvc.py:117", "GetSkillHandler().GetSkillQueueAndFreePoints(), no arguments: the queue service's priming (PrimeSkillQueue), asked once; the queue is kept, and kept right by the server's notices"),
+  "contractProxy.AcceptContract": judged(`${CONTRACTS_SVC}:422`, oneContractForWhom,
+    "GetContractProxySvc().AcceptContract(contractID, forCorp): the contract and whether it is taken on for the corporation, from the details window's two buttons (contractsDetailsWnd.py 516, 528) once the service has asked the pilot (contracts.py 345 to 420). It answers the contract's row. Recorded on Tranquility with (contractID, False), answering a DBRow."),
   "contractProxy.GetContract": judged(
     `${CONTRACTS_SVC}:336`,
     (args) => (args.length === 1 && args[0] > 0 ? { status: "same" } : { status: "differs", note: "The client names the one contract and nothing else: GetContract(contractID)." }),

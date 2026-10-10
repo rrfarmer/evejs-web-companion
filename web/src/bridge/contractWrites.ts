@@ -22,6 +22,24 @@
 // LOCAL coercions only — this module deliberately does NOT import from market*.ts
 // (a separate session owns those files).
 
+// A CONTRACT TAKEN ON is made by the page itself (the plan's Phase 6b). Until
+// 2026-10-10 it was POST /api/bridge/contracts/accept, which checked that the
+// page had said `confirm` and made one call. The client's contracts service
+// makes that call once it has asked the pilot (contracts.py 345 to 420: the
+// contract read, the stations it starts and ends at, a courier's volume against
+// the ship, and a yes or no on what is to be paid and got):
+//
+//   contractProxy.AcceptContract(contractID, forCorp)
+//                                  contracts.py 422: the contract's ID, and whether it is taken on for
+//                                  the corporation. It answers the contract's row. Recorded on
+//                                  Tranquility with (contractID, False), answering a DBRow.
+//
+// The details window has a button for each (contractsDetailsWnd.py 516, 528); the
+// one for the corporation is shown only to a character with its Contract Manager
+// role. The page has the first alone: it is not told the session's roles.
+// Either transport carries the call.
+
+import type { Ask } from "./ask.ts";
 import { isListValue, readPlainJsonField, readRowField, type JsonValue } from "./wire.ts";
 
 /** The uniform ack every confirm-gated contract write returns. */
@@ -70,18 +88,13 @@ export function decodeCreateContractAck(response: JsonValue): CreateContractAck 
 }
 
 /**
- * AcceptContract ack: the handler returns the accepted contract row (or null).
- * Surface the contract id off the row (0 when absent / declined).
+ * A contract taken on: for the character, or for its corporation where `forCorp`. Answers the ID of the
+ * contract the server says was accepted, read off the row it answers; 0 where it answered no such row, which is
+ * a decline: a call that answered is not proof that anything was settled. Fails as the call fails.
  */
-export interface AcceptContractAck extends ContractWriteAck {
-  readonly contractID: number;
-}
-
-export function decodeAcceptContractAck(response: JsonValue): AcceptContractAck {
-  const row = ackResult(response);
-  const raw = readRowField(row, "contractID");
-  const contractID = Number(raw) || 0;
-  return { ...decodeContractWriteAck(response), contractID: contractID > 0 ? contractID : 0 };
+export async function acceptContract(act: Ask, contractID: number, forCorp: boolean): Promise<number> {
+  const accepted = Number(readRowField(await act("contractProxy", "AcceptContract", [contractID, forCorp]), "contractID"));
+  return accepted > 0 ? accepted : 0;
 }
 
 /**
