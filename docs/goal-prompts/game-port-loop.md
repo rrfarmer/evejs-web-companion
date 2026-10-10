@@ -542,6 +542,21 @@ Take these defaults, and list each under "For the operator" in the log so they c
 - **A pilot ready to use its modules**: `/ewar` and `/giveskill me <typeID> <level>` by
   `gm/slash` (`overload-stage.js`). A module on the rack is held by a `pointerdown`, a wait
   past 600 ms, and a `pointerup`.
+- **What the client does by itself after a call belongs to the call's unit.** Read past the
+  call for the threads it starts and for its session-change hooks (`RepairModule_thread`,
+  `ProcessSessionChange`), and read the server for when the thing asked for is done: it may
+  wait on a second call the client makes unasked, as a repair's mending waits on
+  `StopModuleRepair`.
+- **A hull a slash command boards is not what the BFF's "hold" means** until the pilot is
+  chosen afresh: the BFF holds the ship it last boarded by its own route. Give the ship in one
+  web session, log out, and go on in another (`repair-live.js`).
+- **Damaged modules for a check**: overload the drive and run it, and within two minutes
+  several modules of its rack read 16% damaged. Paste is `/giveitem 28668 200` into the
+  hangar and the transfer route into the hold. `repair-live.js <bff> <account> <characterID>
+  compare|stage`: `stage` leaves the pilot in space for the browser.
+- **After a drive's run the pilot is far from its station.** Dock from the header then takes
+  minutes; where the BFF is restarted and the store put back next, do not wait on it to log
+  the page out by its button, and say that it was left.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,

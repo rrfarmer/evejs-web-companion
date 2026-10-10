@@ -799,8 +799,11 @@ applied to and a broadcast made to the fleet's members in the bubble (`82a21e8`)
 second with the wait the client keeps before one; and so is a module overloaded and cooled
 (`431b964`), the first of the writes the BFF made on an object it bound for itself: asked
 of the dogma service by its name, made by the game port on the dogma location it keeps, and
-naming the module's own overload effect, which the page asks of the static data. Counted by
-the whole path, 134 are named now, 51 of them reads and 83 writes (the count kept before
+naming the module's own overload effect, which the page asks of the static data; and so is
+a module's repair (`766627e`), which the page begins and, as a client does, ends itself
+when the repair's time is up: the server mends a module only then, and the page's repair
+had mended nothing. Counted by the whole path, 132 are named now, 51 of them reads and 81
+writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
