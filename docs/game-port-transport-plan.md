@@ -793,7 +793,9 @@ carries, so its route is not named by the page; and so is the ship's safety leve
 on (`e1fa602`), for the character alone, once the server had been made to want the
 Contract Manager role of whoever accepts for a corporation (eve.js `378ef753f`, and
 of whoever makes a contract for one or reads its containers: `cc27a59dd`, `4f6922a29`;
-all unpushed there). 131 named now, 45 of them reads and 86 writes. Of the phase's "done when", "no
+all unpushed there); and so is a planetary launch's record removed (`12885f1`), which
+a bot's collecting of one does once it has read the container empty. 130 named now, 45 of
+them reads and 85 writes. Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
 Of 6a's four things, three are carried by the socket or in process, each with a way back
 (the routes' operations, the pushes, the hosted bots), and the cap is lifted for what is

@@ -489,6 +489,18 @@ Take these defaults, and list each under "For the operator" in the log so they c
   runner, and see the fix live: `store.sh save` restarts EveJS on the new code. Do not stage
   the live store while its tests run. Continue the same sub-agent (`SendMessage`) for what it
   reports beside.
+- **The store keeps each child of a map in a row of its own**, keyed by the map's name, the
+  unit separator (U+001F) and the child's key (`launchesByID\u001f910000001`). A printed key
+  does not show the separator, and a row staged without it is not read by the server
+  (`launch-store.js`, `colony-store.js`).
+- **A write only a bot makes is tested through the flow first**: a one-block bot started over
+  a stand-in BFF, and what it asks read in order (`web/src/app/launchCollectorFlow.test.ts`).
+  Live, the thing the bot acts on is made real (`colony-store.js` puts goods in a command
+  centre in a copy of the store; `launch-real.js` launches them and saves the one-block bot),
+  and the bot is started from the Bot Manager's Pilots tab, the pilot in space.
+- **"Run here" asks through the browser's `confirm`**, which the hidden pane answers "no" with
+  nothing shown: the row stays at "Nothing is running". Set `window.confirm` in the page to
+  keep its text and answer true before pressing, and write down what it asked.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
