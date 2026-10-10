@@ -655,6 +655,22 @@ Take these defaults, and list each under "For the operator" in the log so they c
 - **One item's move is `OnItemChange`, several are `OnItemsChanged`**: the item as it now is
   (`fields`), and what it was by column (3 where, 4 which flag). A listing of a bay is itself
   answered with one for each stack, nothing changed, the first time after a change.
+- **A call the client makes on an object for a thing it names** (`eveMoniker.GetPlanet(planetID)`,
+  an agent's, a character's): the page's call says which with `of` (the fifth argument of
+  `Ask`), and the BFF makes it on the object bound for that, by the bind the call's route
+  used. To move another: one line in `PAGE_OBJECT_CALLS` (`src/bridgeCallPolicy.js`), and,
+  for a kind of thing that is no planet, its check and its bind in the generic call's
+  handler (`src/server.js`, `objectKind`). A read is listed only with its handler read
+  first: the planet's reads once took an owner from the caller.
+- **A colony for a check**: Test Two's (`test2`, 140000002) on Muvolailen I, planet 40176368,
+  where the pilot is docked: a command centre and a launchpad, one link, no routes, level 0.
+  `net-live.js <bff> <account> <characterID> <planetID> [look]` reads it and changes it. It
+  takes none of a route made, a route removed or a programme installed: the one change it
+  takes is its command centre raised a level (`[[9, [commandPinID, level]]]`), which costs
+  ISK and is undone by the store put back.
+- **A breakage not caught is one of two things.** A guard that does nothing (the answer is
+  the same without it): take the guard out. Or a case no test has: write the case, see it
+  pass, and try the breakage again, and then the next way of writing the same breakage.
 - **A bound call moved to the page leaves behind what its handle left.** The handle's path
   in `pilots.js` does things once a call is answered (the pilot's last order, the banks, a
   fleet's state, the listings forgotten). Read those lines before moving a call, and give the
