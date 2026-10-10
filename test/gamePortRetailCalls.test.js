@@ -1835,3 +1835,29 @@ test("a module overloaded or cooled is the client's call when it names the modul
   // Each wants godma primed first: it is godma that knows what the module is.
   assert.deepEqual(["Overload", "StopOverload"].map((method) => retailNeeds("dogmaIM", method)), ["dogma", "dogma"]);
 });
+
+test("a module's repair begun or ended is the client's call when it names the one module and nothing else", () => {
+  // godma.py 2227 and 2261: GetDogmaLM().InitiateModuleRepair(itemID) and StopModuleRepair(itemID), on the dogma
+  // location's object. No recording has either.
+  for (const [method, line] of [["InitiateModuleRepair", 2227], ["StopModuleRepair", 2261]]) {
+    const ask = (args, kwargs = null) => retailForm("dogmaIM", method, args, kwargs);
+    const made = ask([61001]);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy],
+      ["same", `eve/client/script/environment/godma.py:${line}`, [61001], null, true, false], method);
+    for (const [args, kwargs, why] of [
+      [[], null, "no module"],
+      [[0], null, "no module's ID"],
+      [[-5], null, "a module below nought"],
+      [[61001.5], null, "half a module"],
+      [["61001"], null, "a module as text"],
+      [[null], null, "nothing for the module"],
+      [[[61001]], null, "a list of modules"],
+      [[61001, 61002], null, "two modules"],
+      [[61001], { quick: true }, "a keyword"],
+    ]) {
+      const odd = ask(args, kwargs);
+      assert.deepEqual([odd.status, odd.args], ["differs", args], `${method}: ${why}`);
+      assert.match(odd.note, /one module/, why);
+    }
+  }
+});

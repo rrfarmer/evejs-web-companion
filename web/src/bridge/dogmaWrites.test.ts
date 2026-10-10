@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createOverloadEffects, setOverload } from "./dogmaWrites.ts";
+import { createModuleRepairs, createOverloadEffects, repairWaitMs, setOverload } from "./dogmaWrites.ts";
 import type { Ask } from "./ask.ts";
 import type { JsonValue } from "./wire.ts";
 
@@ -70,4 +70,123 @@ test("an answer that does not speak of the type is no answer: it fails, and is n
   await assert.rejects(() => effects.of(527));
   await assert.rejects(() => effects.of(527));
   assert.equal(asked.length, 2);
+});
+
+// ── A module's repair ────────────────────────────────────────────────────────
+// godma.RepairModule, RepairModule_thread and StopRepairModule (2225 to 2262): InitiateModuleRepair begins it, and
+// godma itself sends StopModuleRepair when the repair's time is up, at Cancel Repair, and at a session's change.
+
+test("a repair's time is the damage over the repair rate, in minutes, cut to whole milliseconds, and a second", () => {
+  // 2248 to 2251: timeToSleep = dmg / rateOfRepair; int(timeToSleep * 60 * 1000); SleepSim(that + 1000).
+  assert.equal(repairWaitMs(10, 10), 61_000);
+  assert.equal(repairWaitMs(40, 10), 241_000);
+  // 8571.428... milliseconds: the part of one is cut off, not rounded.
+  assert.equal(repairWaitMs(1, 7), 9_571);
+  assert.equal(repairWaitMs(2, 7), 18_142);
+  assert.equal(repairWaitMs(0.5, 20), 2_500);
+});
+
+/** Repairs over a stand-in: what was asked, the waits armed (each with what it does when its time is up), and what was said to have ended. */
+function repairing(answer: JsonValue | Error = true) {
+  const { act, asked } = asking(answer);
+  const waits: { ms: number; run: () => void }[] = [];
+  const ended: number[] = [];
+  const repairs = createModuleRepairs(act, { later: (ms, run) => { waits.push({ ms, run }); }, ended: moduleID => { ended.push(moduleID); } });
+  return { asked, waits, ended, repairs };
+}
+const turn = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
+test("a repair begun is godma's InitiateModuleRepair, and is ended by StopModuleRepair when its time is up", async () => {
+  const { asked, waits, ended, repairs } = repairing(true);
+  assert.equal(repairs.beingRepaired(61001), false);
+  assert.equal(await repairs.begin(61001, 61_000), true);
+  assert.deepEqual(asked, [["dogmaIM", "InitiateModuleRepair", [61001]]]);
+  assert.deepEqual([repairs.beingRepaired(61001), repairs.beingRepaired(61002), waits.map(wait => wait.ms), ended], [true, false, [61_000], []]);
+  waits[0]!.run();
+  await turn();
+  assert.deepEqual(asked.slice(1), [["dogmaIM", "StopModuleRepair", [61001]]]);
+  assert.deepEqual([repairs.beingRepaired(61001), ended], [false, [61001]]);
+});
+
+test("the server's answer of False begins nothing: no wait is armed, and nothing is ended", async () => {
+  const { asked, waits, ended, repairs } = repairing(false);
+  assert.equal(await repairs.begin(61001, 61_000), false);
+  assert.deepEqual([asked.length, waits, ended, repairs.beingRepaired(61001)], [1, [], [], false]);
+});
+
+test("an answer that is not False begins it, as godma reads it", async () => {
+  for (const answer of [null, 1, "yes"] as JsonValue[]) {
+    const { waits, repairs } = repairing(answer);
+    assert.equal(await repairs.begin(61001, 5_000), true, JSON.stringify(answer));
+    assert.deepEqual([repairs.beingRepaired(61001), waits.length], [true, 1], JSON.stringify(answer));
+  }
+});
+
+test("a beginning that fails begins nothing, and fails as the call fails", async () => {
+  const { waits, repairs } = repairing(new Error("NotEnoughRepairMaterialToFinishAllRepairs"));
+  await assert.rejects(() => repairs.begin(61001, 61_000), /NotEnoughRepairMaterial/);
+  assert.deepEqual([waits, repairs.beingRepaired(61001)], [[], false]);
+});
+
+test("a repair ended before its time is not ended again when the time comes", async () => {
+  const { asked, waits, ended, repairs } = repairing(true);
+  await repairs.begin(61001, 61_000);
+  await repairs.end(61001);
+  assert.deepEqual(asked.slice(1), [["dogmaIM", "StopModuleRepair", [61001]]]);
+  assert.deepEqual([repairs.beingRepaired(61001), ended], [false, [61001]]);
+  waits[0]!.run();
+  await turn();
+  assert.equal(asked.length, 2);
+  assert.deepEqual(ended, [61001]);
+});
+
+test("the time of an earlier beginning does not end a later one of the same module", async () => {
+  // 2253: the time stamp kept with the module must be the thread's own.
+  const { asked, waits, repairs } = repairing(true);
+  await repairs.begin(61001, 61_000);
+  await repairs.end(61001);
+  await repairs.begin(61001, 30_000);
+  waits[0]!.run();
+  await turn();
+  assert.deepEqual([asked.length, repairs.beingRepaired(61001)], [3, true]);
+  waits[1]!.run();
+  await turn();
+  assert.deepEqual([asked.at(-1), repairs.beingRepaired(61001)], [["dogmaIM", "StopModuleRepair", [61001]], false]);
+});
+
+test("a module that is not being repaired is not ended", async () => {
+  const { asked, ended, repairs } = repairing(true);
+  await repairs.end(61001);
+  assert.deepEqual([asked, ended], [[], []]);
+});
+
+test("every repair begun is ended at a word, each by its own call", async () => {
+  const { asked, ended, repairs } = repairing(true);
+  await repairs.begin(61001, 61_000);
+  await repairs.begin(61002, 61_000);
+  await repairs.endAll();
+  assert.deepEqual(asked.slice(2), [["dogmaIM", "StopModuleRepair", [61001]], ["dogmaIM", "StopModuleRepair", [61002]]]);
+  assert.deepEqual([ended, repairs.beingRepaired(61001), repairs.beingRepaired(61002)], [[61001, 61002], false, false]);
+  await repairs.endAll();
+  assert.equal(asked.length, 4);
+});
+
+test("an ending that fails still forgets the repair and says it ended, as godma's does", async () => {
+  // 2259 to 2264: try StopModuleRepair, finally the event and the forgetting.
+  const asked: unknown[] = [];
+  const ended: number[] = [];
+  const act: Ask = async (service, method, args) => {
+    asked.push([service, method, args]);
+    if (method === "StopModuleRepair") throw new Error("the connection went");
+    return true;
+  };
+  const repairs = createModuleRepairs(act, { later: () => {}, ended: moduleID => { ended.push(moduleID); } });
+  await repairs.begin(61001, 61_000);
+  await assert.rejects(() => repairs.end(61001), /the connection went/);
+  assert.deepEqual([repairs.beingRepaired(61001), ended], [false, [61001]]);
+  // And one of several failing does not keep the rest from being ended.
+  await repairs.begin(61001, 61_000);
+  await repairs.begin(61002, 61_000);
+  await repairs.endAll();
+  assert.deepEqual([repairs.beingRepaired(61001), repairs.beingRepaired(61002), ended], [false, false, [61001, 61001, 61002]]);
 });

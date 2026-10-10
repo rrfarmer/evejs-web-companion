@@ -179,8 +179,14 @@ function isBridgeWritePair(service, method) {
  *                                only picks among the module's own. Asked of the service by its name here:
  *                                the game port makes it on the dogma location godma keeps, as the client
  *                                does, and the gateway as it is asked.
+ *   dogmaIM.InitiateModuleRepair, a module's repair begun, and ended. Each route confirmed and called on the
+ *   dogmaIM.StopModuleRepair     BFF's own dogma object, with the module made a number. The handler begins
+ *                                only for a damaged module the session's character owns, fitted to the ship
+ *                                it is flying and not running, and takes the paste from that ship's hold; it
+ *                                ends only a repair that session began, and mends the module then. Asked of
+ *                                the service by its name, as the overload is.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

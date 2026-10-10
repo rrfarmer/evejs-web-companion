@@ -4566,28 +4566,12 @@ export async function scoopDrones(
 // ⚠ OVERLOADING DAMAGES THE MODULE. It runs harder and takes heat; a module left
 // overloaded burns out and stops. Repair is the complement, below.
 
-/**
- * Start a nanite repair on one module (dogmaIM.InitiateModuleRepair).
- *
- * ⚠ THE COMPLEMENT TO OVERLOADING, and the reason it is not optional: heat
- * damages modules, and without this the client can burn a module out with no
- * way to bring it back. It CONSUMES Nanite Repair Paste from the ship, and the
- * server refuses when there is none — in its own words.
- */
-export async function repairModule(
-  moduleID: number,
-  options: ApiOptions = {},
-): Promise<void> {
-  await postJson("/api/bridge/dogma/module/repair/start", { moduleID, confirm: true }, options);
-}
-
-/** Stop an in-progress module repair (dogmaIM.StopModuleRepair). */
-export async function stopRepairModule(
-  moduleID: number,
-  options: ApiOptions = {},
-): Promise<void> {
-  await postJson("/api/bridge/dogma/module/repair/stop", { moduleID, confirm: true }, options);
-}
+// A module's repair is begun and ended by the page itself, with godma's own two
+// calls (bridge/dogmaWrites.ts; the plan's Phase 6b): the eleventh of its writes
+// to leave its route (POST /api/bridge/dogma/module/repair/start), on 2026-10-10.
+// The route for the ending (.../repair/stop) nothing of the page's ever asked,
+// which is why a repair begun here took the paste and mended nothing: the server
+// mends a module when its repair is ended, and a client ends its own.
 
 /**
  * Bank every compatible weapon on the ship (dogmaIM.LinkAllWeapons), so one

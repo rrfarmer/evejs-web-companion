@@ -578,6 +578,11 @@ function overloading(args, kwargs, context) {
     : "The client names the module's own overload effect. This call names another." };
 }
 
+/** godma.RepairModule and StopRepairModule (2227, 2261): the one module, a whole number above nought, and nothing else. */
+const oneModule = (args, kwargs) => (args.length === 1 && Number.isSafeInteger(args[0]) && args[0] > 0 && Object.keys(kwargs).length === 0
+  ? {}
+  : { status: "differs", note: "The client names the one module and nothing else." });
+
 /** godma's Deactivate(itemID, effectName): the effect is the one the client holds as running, by name. */
 function deactivation(args, kwargs, context) {
   const [itemID, effectName] = args;
@@ -1178,6 +1183,10 @@ const RETAIL_CALLS = Object.freeze({
     note: "GetDogmaLM().StopOverload(itemID, effectID), the same two as Overload. No recording has one.",
     shape: overloading,
   }), "dogma"),
+  "dogmaIM.InitiateModuleRepair": judged(`${GODMA}:2227`, oneModule,
+    "GetDogmaLM().InitiateModuleRepair(itemID), on the dogma location bound for where the pilot is: the module button's Repair, for a module with damage. The server takes the paste and begins; an answer of False begins nothing. No recording has one."),
+  "dogmaIM.StopModuleRepair": judged(`${GODMA}:2261`, oneModule,
+    "GetDogmaLM().StopModuleRepair(itemID): godma's own doing when the repair's time is up (the damage over the character's repair rate, in minutes, and a second), at Cancel Repair, and at a session's change. The server mends the module at this call. No recording has one."),
   "dogmaIM.Activate": needing(reshaped(`${MODULE_BUTTON}:1348`, activation, "godma's GetDogmaLM().Activate(itemID, effectName, target, repeats) (godma.py 2062), on the dogma location bound for where the pilot is"), "dogma"),
   "dogmaIM.Deactivate": needing(reshaped(`${GODMA}:2101`, deactivation, "GetDogmaLM().Deactivate(itemID, effectName), on the dogma location bound for where the pilot is"), "dogma"),
   "dogmaIM.GetTargets": same(`${GODMA}:2361`, "GetDogmaLM().GetTargets(), no arguments"),

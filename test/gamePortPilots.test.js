@@ -2433,6 +2433,32 @@ test("a module is overloaded and cooled as the client does it: on the dogma loca
   assert.equal(session.boundCalls.filter((call) => call.method === "GetAllInfo").length, 1);
 });
 
+test("a module's repair is begun and ended as godma does both: on the dogma location, the module alone", async () => {
+  const hand = handTicked();
+  const allowed = new Set([...MODULE_PAIRS, "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair"]);
+  const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:GetAllInfo": fittedAllInfo(), "bound:InitiateModuleRepair": true, "bound:StopModuleRepair": true } }, { ...hand.options, ...moduleOptions({ allowed }) });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  const made = () => session.boundCalls.findLast((call) => call.method.endsWith("ModuleRepair"));
+  const row = (pair) => built.pilots.callLedger().find((each) => each.pair === pair);
+  // godma.py 2227 and 2261, asked by the service's name and made on godma's own dogma location.
+  const begun = await built.pilots.callMethod("dogmaIM", "InitiateModuleRepair", [FITTED_MODULE], null, WHOSE, handle);
+  assert.equal(begun.result, true);
+  const location = session.boundCalls.find((call) => call.method === "GetAllInfo")?.objectID ?? session.boundCalls[0].objectID;
+  assert.deepEqual(made(), { objectID: location, method: "InitiateModuleRepair", args: [FITTED_MODULE], kwargs: null });
+  await built.pilots.callMethod("dogmaIM", "StopModuleRepair", [FITTED_MODULE], null, WHOSE, handle);
+  assert.deepEqual(made(), { objectID: location, method: "StopModuleRepair", args: [FITTED_MODULE], kwargs: null });
+  assert.equal(session.calls.some((call) => call.service === "dogmaIM" && call.method.endsWith("ModuleRepair")), false, "nothing was asked of the service by name");
+  // (Asked by name and made on the moniker is counted as reshaped.) A call that is not the client's goes as it came.
+  assert.deepEqual([row("dogmaIM.InitiateModuleRepair").statuses, row("dogmaIM.StopModuleRepair").statuses], [{ reshaped: 1 }, { reshaped: 1 }]);
+  await built.pilots.callMethod("dogmaIM", "InitiateModuleRepair", [FITTED_MODULE, 1], null, WHOSE, handle);
+  assert.deepEqual(made().args, [FITTED_MODULE, 1]);
+  assert.deepEqual(row("dogmaIM.InitiateModuleRepair").statuses, { reshaped: 1, differs: 1 });
+  assert.match(row("dogmaIM.InitiateModuleRepair").note, /one module/);
+  // One dogma location for all of it.
+  assert.equal(session.binds.filter((bind) => bind.service === "dogmaIM").length, 1);
+});
+
 test("a module is switched on and off as the client does it: on the dogma location bound for where the pilot is, its effect named", async () => {
   const hand = handTicked();
   const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:GetAllInfo": fittedAllInfo() } }, { ...hand.options, ...moduleOptions() });

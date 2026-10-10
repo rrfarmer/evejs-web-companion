@@ -1095,7 +1095,9 @@
     "genericBridgeWrites": [
       "contractProxy.AcceptContract",
       "crimewatch.SetSafetyLevel",
+      "dogmaIM.InitiateModuleRepair",
       "dogmaIM.Overload",
+      "dogmaIM.StopModuleRepair",
       "dogmaIM.StopOverload",
       "fleetMgr.BroadcastToBubble",
       "fleetProxy.ApplyToJoinFleet",

@@ -346,7 +346,8 @@ import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
-import { createOverloadEffects, setOverload as setOverloadCall } from "../bridge/dogmaWrites.ts";
+import { createModuleRepairs, createOverloadEffects, repairWaitMs, setOverload as setOverloadCall } from "../bridge/dogmaWrites.ts";
+import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
 import {
   FLEET_BROADCAST_SCOPE_ALL,
   FLEET_BROADCAST_TTL_MS,
@@ -1647,6 +1648,17 @@ const ratThreatByTypeID = new Map<number, RatThreat>();
  */
 const droneRangeBonusByTypeID = new Map<number, number | null>();
 
+/** godma.ProcessSessionChange (1156): the session's names at whose change godma primes itself again, and ends the repairs it began. */
+const GODMA_SESSION_NAMES: ReadonlySet<string> = new Set(["stationid", "solarsystemid", "shipid", "charid", "structureid"]);
+/** dogma attributes: a module's hit points, and the hit points a character mends in a minute with nanite paste. */
+const ATTRIBUTE_HP = 9;
+const ATTRIBUTE_MODULE_REPAIR_RATE = 1267;
+/** One of an item's attributes as godma was primed with it, where it is a number. */
+function dogmaNumber(item: DogmaItemInfo | null, attributeID: number): number | null {
+  const value = item?.attributes.find((attribute) => attribute.attributeID === attributeID)?.value;
+  return typeof value === "number" ? value : null;
+}
+
 export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}): AppFlow {
   let sessionCloseGeneration = 0;
   let requestGeneration = 0;
@@ -1716,6 +1728,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const fleetBroadcasts = createFleetBroadcasts(bridgeDo);
   // What a module type's overload effect is: the client's own static data, asked of the BFF's copy once for a type.
   const overloadEffects = createOverloadEffects((typeIDs) => api.loadOverloadEffects(typeIDs, callOptions));
+  // The repairs begun (bridge/dogmaWrites.ts): each is ended by the page when its time is up, as a client ends
+  // its own, and the ship is read again then, which is when the module is mended.
+  const moduleRepairs = createModuleRepairs(bridgeDo, { ended: () => { void loadSpaceSnapshot().catch(() => {}); } });
   // What a client knows of a skill's type without asking the server, asked of the static data once and kept.
   const skillTypeFacts = createSkillTypeFacts({
     // (A type's name is the static data's, and is answered or is none: only a structure's can be left unanswered.)
@@ -2141,6 +2156,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return;
     }
     const sessionNames = sessionChangeNames(method, args);
+    // godma.ProcessSessionChange (1156, 1199): another station, system, ship, character or structure, and godma
+    // ends every repair it began. So does the page.
+    if (sessionNames?.some((name) => GODMA_SESSION_NAMES.has(name))) {
+      void moduleRepairs.endAll();
+    }
     // crimewatchSvc.ProcessSessionChange and OnSessionChanged: another place, or another system or ship, and
     // the client asks crimewatch its states again. So does the page, of the BFF.
     if (sessionNames?.some((name) => CRIMEWATCH_SESSION_NAMES.has(name)) || (method !== null && CRIMEWATCH_NOTICES.has(method))) {
@@ -6168,19 +6188,47 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   /**
-   * Start repairing a damaged module with nanite paste.
+   * How long godma would let this module's repair run (RepairModule_thread): the module's damage over the
+   * character's repair rate, both godma's own from its priming. The damage is the ship's reading of it, a share
+   * of the module's hit points.
+   */
+  async function repairWaitOf(itemID: number): Promise<number> {
+    const primed = (): { hp: number | null; rate: number | null } => {
+      const info = store.dogma.get().allInfo;
+      const module = info?.ships.find((item) => Number(item.itemID) === itemID) ?? null;
+      return { hp: dogmaNumber(module, ATTRIBUTE_HP), rate: dogmaNumber(info?.character ?? null, ATTRIBUTE_MODULE_REPAIR_RATE) };
+    };
+    let known = primed();
+    if (known.hp === null || known.rate === null) {
+      await loadDogma();
+      known = primed();
+    }
+    const share = store.space.get().snapshot?.ship?.moduleDamage?.[itemID] ?? null;
+    if (known.hp === null || known.rate === null || !(known.rate > 0) || share === null) {
+      throw new Error("How long that repair takes could not be worked out, so it was not begun.");
+    }
+    return repairWaitMs(known.hp * share, known.rate);
+  }
+
+  /**
+   * Repair a damaged module with nanite paste, as godma does (godma.py 2225 to 2262): the repair is begun, which
+   * takes the paste, and is ended by the page when its time is up, which is when the server mends the module.
    *
    * ⚠ VERIFIED AGAINST THE DAMAGE READING, not the 200 — this server has a
    * documented habit of answering success for writes that did nothing. Repair
-   * takes TIME, though, so the test is that damage went DOWN, not that it
-   * reached zero: a repair in progress is a success, and saying otherwise would
-   * repeat the cycle-end mistake.
+   * takes TIME, though, so the test here is only that the damage is no HIGHER:
+   * it goes when the repair is ended, and the ship is read again then.
    */
   async function repairModule(itemID: number): Promise<void> {
     const before = store.space.get().snapshot?.ship?.moduleDamage?.[itemID] ?? null;
     await runTargetingAction(
       "Repair",
-      () => api.repairModule(itemID, callOptions),
+      async () => {
+        // A module being repaired has Cancel Repair in the client's menu, and no Repair.
+        if (moduleRepairs.beingRepaired(itemID)) throw new Error("That module is being repaired already.");
+        const waitMs = await repairWaitOf(itemID);
+        if (!(await moduleRepairs.begin(itemID, waitMs))) throw new Error("The server did not begin that repair.");
+      },
       () => loadSpaceSnapshot().catch(() => {}),
       () => {
         const after = store.space.get().snapshot?.ship?.moduleDamage?.[itemID] ?? null;

@@ -1,4 +1,5 @@
-// Dogma's writes made by the page itself (the plan's Phase 6b): a module overloaded, and cooled.
+// Dogma's writes made by the page itself (the plan's Phase 6b): a module overloaded, and cooled; and a
+// module's repair, begun and ended (below, with what a retail client does of each).
 //
 // Until 2026-10-10 each was one route of the BFF (POST /api/bridge/dogma/module/overload and
 // .../stop-overload), which checked that the page had said `confirm` and made one call on a dogma
@@ -56,5 +57,89 @@ export function createOverloadEffects(
       kept.set(typeID, effectID);
       return effectID;
     },
+  };
+}
+
+// ── A module's repair ────────────────────────────────────────────────────────
+//
+// Until 2026-10-10 a repair was one route of the BFF (POST /api/bridge/dogma/module/repair/start), which checked
+// `confirm` and made InitiateModuleRepair on the BFF's own dogma object. Nothing made the other half. A retail
+// client's repair is two calls, both godma's:
+//
+//   InitiateModuleRepair(itemID)   godma.py 2227 (RepairModule). The module button's Repair, offered for a module
+//                                  with damage that is not being repaired (shipmodulebutton.py 497 to 505). The
+//                                  server takes the paste and begins. An answer of False begins nothing.
+//   StopModuleRepair(itemID)       godma.py 2261 (StopRepairModule). GODMA SENDS IT ITSELF: when the repair's time
+//                                  is up (RepairModule_thread: the module's damage over the character's repair
+//                                  rate is the minutes, and it waits a second more), at Cancel Repair, and for
+//                                  every repair it began when the session changes station, system, ship,
+//                                  character or structure (ProcessSessionChange, 1199).
+//
+// THE SERVER MENDS THE MODULE AT THE SECOND CALL, by the time since the first, and not before. A repair that is
+// begun and never ended takes the paste and mends nothing: that is what the page's route did.
+//
+// Neither call is in a Tranquility recording: their forms are from the client's code alone. The server begins a
+// repair only for a damaged module of the session's own character, fitted to the ship it is flying, and ends only
+// a repair that session began. Either transport carries both, asked of the dogma service by its name.
+
+/**
+ * How long godma lets a repair run before it ends it: the module's damage over the character's repair rate is the
+ * minutes (godma.py 2248 to 2251), cut to whole milliseconds as godma cuts them, and the second it adds.
+ */
+export function repairWaitMs(damage: number, repairRate: number): number {
+  return Math.trunc((damage / repairRate) * 60 * 1000) + 1000;
+}
+
+/** The repairs begun here and not yet ended: godma's modulesBeingRepaired. */
+export interface ModuleRepairs {
+  /**
+   * Begins a module's repair, which takes the paste. False where the server answers False: nothing is kept.
+   * Otherwise the repair is ended after `waitMs`, unless it was ended before. Fails as the call fails.
+   */
+  begin(moduleID: number, waitMs: number): Promise<boolean>;
+  /** Ends a repair begun here, which is when the server mends the module. Nothing for a module not being repaired. */
+  end(moduleID: number): Promise<void>;
+  /** Ends every repair begun here: godma's doing at a session's change. One that fails does not keep the rest. */
+  endAll(): Promise<void>;
+  beingRepaired(moduleID: number): boolean;
+}
+
+/**
+ * A pilot's repairs. `later` runs something after so many milliseconds (a timer, unless a test stands in);
+ * `ended` is told of each repair once it has been ended, mended or not.
+ */
+export function createModuleRepairs(
+  act: Ask,
+  options: { readonly later?: (ms: number, run: () => void) => void; readonly ended?: (moduleID: number) => void } = {},
+): ModuleRepairs {
+  const later = options.later ?? ((ms, run) => { setTimeout(run, ms); });
+  /** Each module being repaired, with the mark of the beginning that is its own (godma keeps a time stamp). */
+  const begun = new Map<number, object>();
+  async function end(moduleID: number): Promise<void> {
+    if (!begun.has(moduleID)) return;
+    try {
+      await act("dogmaIM", "StopModuleRepair", [moduleID]);
+    } finally {
+      // 2262 to 2264: said and forgotten whatever became of the call.
+      begun.delete(moduleID);
+      options.ended?.(moduleID);
+    }
+  }
+  return {
+    async begin(moduleID, waitMs) {
+      if ((await act("dogmaIM", "InitiateModuleRepair", [moduleID])) === false) return false;
+      const mark = {};
+      begun.set(moduleID, mark);
+      // RepairModule_thread (2253): when the time is up, only the beginning that is still this module's ends it.
+      later(waitMs, () => {
+        if (begun.get(moduleID) === mark) void end(moduleID).catch(() => {});
+      });
+      return true;
+    },
+    end,
+    async endAll() {
+      for (const moduleID of [...begun.keys()]) await end(moduleID).catch(() => {});
+    },
+    beingRepaired: (moduleID) => begun.has(moduleID),
   };
 }
