@@ -624,6 +624,20 @@ Take these defaults, and list each under "For the operator" in the log so they c
   the companion pilot's character ID, `boss.undock`, `boss.go` with the companion's ship,
   `boss.end`). It sets a tag, hands the fleet to the companion's pilot, undocks and
   scrambles it; the tab then tags the scrambler's ship.
+- **A service the client asks on a Moniker it makes for each call** (`eveMoniker.GetEntityAccess`
+  for the drones, as crimewatch's): it goes in `MONIKER_SERVICES`, `madeAfresh` and, where
+  the session may lack what the Moniker is for, `MONIKER_NEEDS` (`src/gamePort/retailCalls.js`);
+  what it is bound by is `monikerParams` (`pilots.js`). The recordings say which a service
+  is: count the binds that carry a call (`service::MachoBindObject args=(..., ('Method', ...`)
+  against the same method sent on an object (the transport's `Write:` lines).
+- **Look for a name in `retailCalls.js` before adding it.** A constant named twice is no
+  program, and every test file that loads the ledger then fails to load.
+- **Drones for a check**: `salvage-live.js <bff> <account> <characterID>` gives the prepared
+  ship, the skills (3436 to 5, 24241 and 3440 to 1), two light drones (2454) and two salvage
+  drones (32787), and moves them to the bay (`to: { kind: "shipBay", bay: "drone" }`).
+  `/probe2`'s bay already holds five light and five medium drones, and five go out at once:
+  launch the stack wanted by itself, as the drones window does. The window's rows have a
+  Launch each; "Bring them all home" is the recall.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
