@@ -446,6 +446,34 @@ const leavingByName = (args, kwargs, context) => (context.holdsFleet === false &
   note: "The client asks this only where it holds no object for a fleet the session is in. With the object it asks LeaveFleet of that, and in no fleet it asks nothing.",
 });
 
+/**
+ * fleetSvc.ApplyToJoinFleet (1898 to 1910): the one fleet, and whether its invitation is to be taken with no
+ * asking, as True or False; and only from a session in no fleet. In its own fleet the client refuses, and in
+ * another it asks to change and leaves that one first.
+ */
+const applyingToOneFleet = (args, kwargs, context) => {
+  if (!(args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 && typeof args[1] === "boolean" && Object.keys(kwargs).length === 0)) {
+    return { status: "differs", note: "The client names the one fleet and says whether its invitation is taken with no asking, and nothing else: ApplyToJoinFleet(fleetID, autoAccept)." };
+  }
+  return context.fleetID === null || context.fleetID === undefined ? {} : {
+    status: "differs",
+    note: "The client applies only from a session in no fleet: in its own fleet it refuses, and in another it leaves that one first.",
+  };
+};
+/** The broadcasts fleetSvc sends to its bubble, by name (1039 to 1055), and the scopes a client can be set to (evefleet/const.py 33 to 35). */
+const BUBBLE_BROADCASTS = Object.freeze(new Set(["HealArmor", "HealShield", "HealCapacitor", "Target", "HealTarget"]));
+const BROADCAST_SCOPES = Object.freeze(new Set([1, 2, 3]));
+/**
+ * fleetSvc.SendBubbleBroadcast (992 to 998): one of those names, the scope, the item, and None for the type, which
+ * no caller of it gives; and only from a session in a fleet (CheckIsInFleet, 993).
+ */
+const oneBubbleBroadcast = (args, kwargs, context) => {
+  if (!(args.length === 4 && BUBBLE_BROADCASTS.has(args[0]) && BROADCAST_SCOPES.has(args[1]) && Number.isSafeInteger(args[2]) && args[2] > 0 && args[3] === null && Object.keys(kwargs).length === 0)) {
+    return { status: "differs", note: "The client sends one of its five names for the bubble, its scope, the item and None for the type, and nothing else: BroadcastToBubble(name, scope, itemID, None)." };
+  }
+  return context.fleetID === null ? { status: "differs", note: "The client broadcasts only from a session in a fleet: in none it sends nothing." } : {};
+};
+
 /** fleetSvc.KickMember (607): the pilot's own number is not kicked. The client leaves the fleet itself instead. */
 const kickingAnother = (args, kwargs, context) => (String(args[0]) === String(context.characterID) ? {
   status: "differs",
@@ -906,6 +934,10 @@ const RETAIL_CALLS = Object.freeze({
   "fleetObjectHandler.SetOptions": reshaped(`${FLEET_SVC}:449`, fleetOptionsCopy, "self.fleet.SetOptions(options): a copy of the options the client keeps, free move changed"),
   "fleetObjectHandler.Reconnect": same(`${FLEET_SVC}:1714`, "GetFleet(fleetID).Reconnect(), no arguments, on a Moniker for the fleet the connection was lost in"),
   "fleetObjectHandler.LeaveFleet": judged(`${FLEET_SVC}:369`, leavingOnTheObject, "self.fleet.LeaveFleet(), no arguments, on the fleet's object"),
+  "fleetProxy.ApplyToJoinFleet": judged(`${FLEET_SVC}:1907`, applyingToOneFleet,
+    "sm.ProxySvc('fleetProxy').ApplyToJoinFleet(fleetID, autoAccept): from the fleet finder and a fleet's link with False, from the Agency's join window with True. It answers True where the boss must approve and False where an invitation was made. No recording has one."),
+  "fleetMgr.BroadcastToBubble": judged(`${FLEET_SVC}:998`, oneBubbleBroadcast,
+    "sm.RemoteSvc('fleetMgr').BroadcastToBubble(name, self.broadcastScope, itemID, typeID): the client's broadcasts to its bubble (the three calls for repair, Target and HealTarget), the type left at None, and none sent inside the client's own wait since its last broadcast. No recording has one."),
   "fleetMgr.ForceLeaveFleet": judged(`${FLEET_SVC}:367`, leavingByName, "sm.RemoteSvc('fleetMgr').ForceLeaveFleet(), no arguments: asked only where the client holds no object for a fleet the session is in"),
 
   // ── contracts, the market and the calendar: the proxy's services ──────────

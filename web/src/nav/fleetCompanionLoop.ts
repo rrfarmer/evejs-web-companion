@@ -967,7 +967,7 @@ export type FleetCompanionAction =
   /**
    * Rung 4's OTHER half: call the ship out by fleet broadcast instead of
    * lettering it — `Target`, bubble range, which is the retail client's own
-   * `SendBroadcast_Target` down to the argument (see `api.broadcastFleetTarget`).
+   * `SendBroadcast_Target` down to the argument (see bridge/fleetWrites.ts).
    *
    * ⚠ THIS EXISTS BECAUSE THE TAG PATH IS SHUT TO ALMOST EVERY COMPANION, AND
    * PERMANENTLY. A companion alt joins somebody else's fleet as a plain member

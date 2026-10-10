@@ -863,7 +863,7 @@ test("the roster settling on NOT-IN-FLEET mid-run (not a failure) answers canTag
 /** A ship on grid for the jam to name, alongside this pilot's own hull. */
 const TACKLER_ITEM_ID = 200001;
 
-function taggingHarness() {
+function taggingHarness(own: RosterMemberFixture = { charID: OWN_CHARACTER_ID, role: 1 }) {
   const calls: { readonly path: string; readonly body: Record<string, unknown> }[] = [];
 
   function spaceWithTackler(): unknown {
@@ -915,12 +915,16 @@ function taggingHarness() {
         if (path === "/api/bridge/targets") {
           return { ok: true, targetIDs: [], notifications: [] };
         }
+        // The server's answer to a broadcast: whether it sent it.
+        if (path === "/api/bridge/call" && body.method === "BroadcastToBubble") {
+          return { ok: true, service: body.service, method: body.method, result: true, notifications: [] };
+        }
         if (path === "/api/bridge/bound-fleet") {
           return readyFleet({
             members: [
-              // THIS pilot, holding FLEET_ROLE_LEADER -- the roster row
-              // canTagInFleet has to find and approve.
-              { charID: OWN_CHARACTER_ID, role: 1 },
+              // THIS pilot, holding FLEET_ROLE_LEADER unless the test says
+              // otherwise -- the roster row canTagInFleet has to find and approve.
+              own,
               // A human, so the supervision gate passes and the ladder runs at
               // all rather than getting safe.
               { charID: HUMAN_FLEET_MEMBER },
@@ -1017,6 +1021,35 @@ test("a plain member writes no tag, however hard it is being scrambled", async (
     0,
   );
   flow.stopFleetCompanion();
+});
+
+// ⚠ AND WHAT THE PLAIN MEMBER DOES INSTEAD, which is the arm that runs in
+// nearly every real fleet. The rung is proven pure beside the loop; that the
+// flow's dispatcher sends anything for it was reached by no test. It is the
+// client's own call (fleetSvc.py 1050 and 998: SendBroadcast_Target reaches
+// fleetMgr.BroadcastToBubble(name, scope, itemID, None)), made by the page
+// itself, and never by the route it went by until 2026-10-10.
+test("a plain member being scrambled calls the tackler out to the fleet, by the page's own call", async () => {
+  const { store, flow, calls } = taggingHarness({ charID: OWN_CHARACTER_ID, role: 4, job: 0 });
+  seatOnlineCharacter(store, OWN_CHARACTER_ID);
+  store.apply({ type: "fleet/target-tags", tags: new Map() });
+  scramble(store);
+
+  const broadcasts = () => calls.filter((call) => call.path === "/api/bridge/call" && call.body.method === "BroadcastToBubble");
+  await flow.startFleetCompanion(DEFAULT_COMPANION_SETUP);
+  // The companion is stopped whatever is found: one left flying keeps this file's process from ending.
+  try {
+    await waitFor(() => broadcasts().length > 0 || calls.some((call) => call.path === "/api/bridge/fleet/broadcast/bubble"), "a target call to reach the BFF");
+
+    // "Target", to everyone (the client's default scope), the ship that named itself, and no type.
+    assert.deepEqual(broadcasts().map((call) => call.body), [
+      { service: "fleetMgr", method: "BroadcastToBubble", args: ["Target", 3, TACKLER_ITEM_ID, null], kwargs: null, pilot: true, confirm: true },
+    ]);
+    assert.equal(calls.filter((call) => call.path === "/api/bridge/fleet/broadcast/bubble").length, 0, "the route is not asked");
+    assert.equal(tagWrites(calls).length, 0, "and a plain member letters nothing");
+  } finally {
+    flow.stopFleetCompanion();
+  }
 });
 
 // --- rung 5: the drone bay cost gate ----------------------------------------

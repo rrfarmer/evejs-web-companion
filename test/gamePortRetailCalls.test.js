@@ -1715,3 +1715,76 @@ test("a launch's record removed is the client's call when it names the one launc
     assert.match(odd.note, /one launch/, why);
   }
 });
+
+test("a fleet applied to is the client's call when it names the one fleet and says whether its invitation is taken unasked, from a session in no fleet", () => {
+  const apply = (args, kwargs = null, context = {}) => retailForm("fleetProxy", "ApplyToJoinFleet", args, kwargs, context);
+  // fleetSvc.py 1907: sm.ProxySvc('fleetProxy').ApplyToJoinFleet(fleetID, autoAccept), to the client's proxy node.
+  for (const autoAccept of [true, false]) {
+    const made = apply([654500010000, autoAccept]);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy],
+      ["same", "eve/client/script/parklife/fleetSvc.py:1907", [654500010000, autoAccept], null, false, true]);
+  }
+  assert.equal(apply([654500010000, true], null, { fleetID: null, holdsFleet: false }).status, "same");
+  // Anything else goes as it came, and is counted as differing.
+  for (const [args, kwargs, why] of [
+    [[], null, "no fleet"],
+    [[654500010000], null, "the fleet alone"],
+    [[0, true], null, "no fleet's ID"],
+    [[-5, true], null, "an ID below nought"],
+    [[1.5, false], null, "half an ID"],
+    [["654500010000", true], null, "an ID as text"],
+    [[654500010000, 1], null, "a number for the yes or no"],
+    [[654500010000, null], null, "nothing for the yes or no"],
+    [[654500010000, true, 3], null, "a third thing"],
+    [[654500010000, true], { autoAccept: true }, "a keyword"],
+  ]) {
+    const odd = apply(args, kwargs);
+    assert.deepEqual([odd.status, odd.args], ["differs", args], why);
+    assert.match(odd.note, /one fleet/, why);
+  }
+  // 1899 to 1905: in a fleet the client refuses its own, and leaves another before it applies.
+  const fleeted = apply([654500010000, true], null, { fleetID: 654500010999, holdsFleet: true });
+  assert.deepEqual([fleeted.status, fleeted.args], ["differs", [654500010000, true]]);
+  assert.match(fleeted.note, /in no fleet/);
+});
+
+test("a broadcast to the bubble is the client's call with one of its five names, a scope, the item and no type, from a session in a fleet", () => {
+  const send = (args, kwargs = null, context = {}) => retailForm("fleetMgr", "BroadcastToBubble", args, kwargs, context);
+  // fleetSvc.py 998: sm.RemoteSvc('fleetMgr').BroadcastToBubble(name, self.broadcastScope, itemID, typeID), the type
+  // left at None by every caller (1039 to 1055).
+  for (const name of ["HealArmor", "HealShield", "HealCapacitor", "Target", "HealTarget"]) {
+    for (const scope of [1, 2, 3]) {
+      const made = send([name, scope, 200001, null]);
+      assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy],
+        ["same", "eve/client/script/parklife/fleetSvc.py:998", [name, scope, 200001, null], null, false, false], `${name} ${scope}`);
+    }
+  }
+  assert.equal(send(["Target", 3, 200001, null], null, { fleetID: 654500010000, holdsFleet: true }).status, "same");
+  for (const [args, kwargs, why] of [
+    [[], null, "nothing"],
+    [["Target", 3, 200001], null, "no place for the type"],
+    [["Target", 3, 200001, 587], null, "a type"],
+    [["Target", 3, 200001, null, 1], null, "a fifth thing"],
+    [["EnemySpotted", 3, 200001, null], null, "a name the client sends to the whole fleet"],
+    [["target", 3, 200001, null], null, "a name in small letters"],
+    [[null, 3, 200001, null], null, "no name"],
+    [["Target", 0, 200001, null], null, "no scope"],
+    [["Target", 4, 200001, null], null, "a fourth scope"],
+    [["Target", "3", 200001, null], null, "a scope as text"],
+    [["Target", null, 200001, null], null, "nothing for the scope"],
+    [["Target", 3, 0, null], null, "no item"],
+    [["Target", 3, -4, null], null, "an item below nought"],
+    [["Target", 3, 1.5, null], null, "half an item"],
+    [["Target", 3, "200001", null], null, "an item as text"],
+    [["Target", 3, null, null], null, "nothing for the item"],
+    [["Target", 3, 200001, null], { typeID: 587 }, "a keyword"],
+  ]) {
+    const odd = send(args, kwargs);
+    assert.deepEqual([odd.status, odd.args], ["differs", args], why);
+    assert.match(odd.note, /five names/, why);
+  }
+  // 993 (CheckIsInFleet): in no fleet the client sends nothing.
+  const alone = send(["Target", 3, 200001, null], null, { fleetID: null, holdsFleet: false });
+  assert.deepEqual([alone.status, alone.args], ["differs", ["Target", 3, 200001, null]]);
+  assert.match(alone.note, /in a fleet/);
+});

@@ -345,8 +345,9 @@ import { canBroadcastInFleet, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
-import type { FleetApplyOutcome } from "../bridge/fleetWrites.ts";
+import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import {
+  FLEET_BROADCAST_SCOPE_ALL,
   FLEET_BROADCAST_TTL_MS,
   decodeFleetBroadcastNotification,
   decodeFleetStateChangeNotification,
@@ -1710,6 +1711,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const bridgeDo = api.bridgeDo(callOptions, (serverNowMs) => {
     serverClockAheadMs = serverNowMs - Date.now();
   });
+  // The pilot's broadcasts to its fleet, with the wait the client keeps between them (bridge/fleetWrites.ts).
+  const fleetBroadcasts = createFleetBroadcasts(bridgeDo);
   // What a client knows of a skill's type without asking the server, asked of the static data once and kept.
   const skillTypeFacts = createSkillTypeFacts({
     // (A type's name is the static data's, and is answered or is none: only a structure's can be left unanswered.)
@@ -4016,7 +4019,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // and an apply's SUCCESS leaves this pilot out of the fleet, holding an
     // invite. Reporting that as a refused action is how the first version of
     // this round trip lied about itself.
-    return api.applyToJoinFleet(fleetID, callOptions);
+    // The page's own call, and with the invitation to be taken unasked: who applies here has said yes already
+    // (a fleet's name typed for the companions, or a bot's block), as the Agency's join window has.
+    return applyToJoinFleetCall(bridgeDo, fleetID, true);
   }
 
   // --- R17 Mail -------------------------------------------------------------
@@ -7863,7 +7868,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // once and is already shooting the one it just tried to name, so
           // there is nothing to raise and nothing to retry. Logged, not thrown.
           case "broadcastFleetTarget": {
-            const sent = await api.broadcastFleetTarget(action.targetID, callOptions);
+            // The page's own call. To everyone: the scope a client is set to unless its pilot chose another.
+            const sent = await fleetBroadcasts.toBubble("Target", FLEET_BROADCAST_SCOPE_ALL, action.targetID);
             if (!sent) {
               // ⚠ NOT AN ERROR AND NOT RETRIED. The rung calls each ship once
               // and is already shooting the one it just tried to name; a
@@ -10327,7 +10333,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           if (action.kind === "createFleet") await api.createFleet(callOptions);
           else if (action.kind === "inviteToFleet") await api.inviteToFleet(action.charID, callOptions);
           else if (action.kind === "acceptFleetInvite") await api.acceptFleetInvite(action.fleetID, callOptions);
-          else applicationOutcome = await api.applyToJoinFleet(action.fleetID, callOptions);
+          else applicationOutcome = await applyToJoinFleetCall(bridgeDo, action.fleetID, true);
         } catch (error) {
           outcome = "unknown"; code = errorWords(error);
           if (error instanceof BridgeCallError) { diagnosticCode = error.code; httpStatus = error.status; }
@@ -12740,7 +12746,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             // it is the only place that answer exists -- so it is kept rather
             // than discarded, and a throw leaves the previous value alone so a
             // failed apply reads as "no answer yet" and not as somebody else's.
-            const outcome = await api.applyToJoinFleet(action.fleetID, callOptions);
+            const outcome = await applyToJoinFleetCall(bridgeDo, action.fleetID, true);
             fleetApplication = { fleetID: action.fleetID, outcome, ...(action.supportOrder ? { supportOrder: action.supportOrder } : {}) };
             return;
           }

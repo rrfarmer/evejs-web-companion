@@ -1251,6 +1251,41 @@ test("a launch's record removed is a write of the page's own: its ID goes as it 
   assert.deepEqual([routed.service, routed.method, routed.args, routed.kwargs, routed.bridgeSessionID], [sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID]);
 });
 
+test("a fleet applied to and a broadcast to the bubble are writes of the page's own: each goes as it was sent", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  for (const [service, method, args, route, routeBody, others] of [
+    ["fleetProxy", "ApplyToJoinFleet", [654500010000, true], "/api/bridge/fleet/apply", { fleetID: 654500010000, autoAccept: true },
+      ["AddFleetFinderAdvert", "RemoveFleetFinderAdvert", "UpdateAdvertInfo"]],
+    ["fleetMgr", "BroadcastToBubble", ["Target", 3, 200001, null], "/api/bridge/fleet/broadcast/bubble", { name: "Target", scope: 3, itemID: 200001 },
+      ["BroadcastToSystem", "ForceLeaveFleet", "AddToWatchlist", "RemoveFromWatchlist", "RegisterForDamageUpdates"]],
+  ]) {
+    const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service, method, args, kwargs: null, ...more } });
+    const before = gateway.calls.call.length;
+    // A write, as the pause is: refused unless it is said to be a pilot's and to be meant.
+    for (const more of [{}, { pilot: true }, { confirm: true }]) {
+      const refused = await call(more);
+      assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${method} ${JSON.stringify(more)}`);
+    }
+    // The service's other writes are their routes' alone, whatever is said.
+    for (const other of others) {
+      const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service, method: other, args: [], kwargs: null, pilot: true, confirm: true } });
+      assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], other);
+    }
+    assert.equal(gateway.calls.call.length, before, method);
+    const made = await call({ pilot: true, confirm: true });
+    assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, service, method]);
+    const sent = gateway.calls.call.at(-1);
+    assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], [service, method, args, null, BRIDGE_SESSION_ID, { userid: 4 }]);
+    // The route stands, and makes the same call.
+    const byRoute = await apiRequest(baseUrl, route, { method: "POST", body: { ...routeBody, confirm: true } });
+    const routed = gateway.calls.call.at(-1);
+    assert.deepEqual([byRoute.response.status, gateway.calls.call.length], [200, before + 2], method);
+    assert.deepEqual([routed.service, routed.method, routed.args, routed.kwargs, routed.bridgeSessionID], [sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID]);
+  }
+});
+
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {
   const gateway = fakeGateway();
   const { baseUrl, app } = await startTestServer({ gateway });

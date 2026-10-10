@@ -163,8 +163,17 @@ function isBridgeWritePair(service, method) {
  *   planetMgr.DeleteLaunch       a planetary launch's record removed. Its route confirmed and called, with
  *                                the launch's ID made a number. The handler removes the record alone, and
  *                                only a launch of the session's own character. Carried by either transport.
+ *   fleetProxy.ApplyToJoinFleet  a fleet applied to. Its route confirmed and called, with the fleet's ID made a
+ *                                number and `autoAccept` made true or false. The handler takes the session's
+ *                                own character as who applies, and only to a fleet advertised to it; the
+ *                                flag rides the invitation it makes. Carried by either transport.
+ *   fleetMgr.BroadcastToBubble   a broadcast to the fleet's members in the pilot's bubble. Its route confirmed
+ *                                and called, with the item made a number. The handler broadcasts for the
+ *                                session's own character in its own fleet, takes only a name it knows, holds
+ *                                the scope to a number, and hands the item and the type on to the members
+ *                                as they came, as it does a client's. Carried by either transport.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

@@ -12,9 +12,7 @@ import { decodeBoundDogma, type BoundDogma } from "../bridge/boundDogma.ts";
 import { observeDeferredShutdown } from "../bridge/moduleShutdown.ts";
 import { decodeNameValidation, decodeValidRandomName } from "../bridge/charAccount.ts";
 import { decodeBeyonceWriteAck, type BeyonceWriteAck } from "../bridge/boundBeyonceWrites.ts";
-import { decodeFleetApplyOutcome, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { decodeDroneEngageOutcome, type DroneEngageOutcome, type DroneEngageRefusal } from "../bridge/drones.ts";
-import { FLEET_BROADCAST_SCOPE_ALL } from "../bridge/fleetBroadcasts.ts";
 import {
   decodeCharCreationTables,
   type CharCreationTables,
@@ -1458,82 +1456,19 @@ export async function loadFleetAds(options: ApiOptions = {}): Promise<Record<str
   return getJson("/api/bridge/fleet-ads", options);
 }
 
-/**
- * APPLY to an advertised fleet found in the finder. Confirm-gated.
- *
- * ⚠ AN APPLY DOES NOT JOIN YOU. On an open advert the server mints a fleet
- * INVITE and notifies you; membership happens only when the client accepts it.
- * That is the designed round trip, and the returned outcome says which half you
- * are in — so callers MUST act on it rather than waiting for membership that
- * will never arrive on its own.
- *
- * `autoAccept` is an instruction carried on the minted invite ("accept without
- * prompting the player"), which a client is expected to honour; it is not a
- * server-side auto-join, and passing it does not remove the accept step.
- */
-export async function applyToJoinFleet(
-  fleetID: number,
-  options: ApiOptions = {},
-): Promise<FleetApplyOutcome> {
-  const ack = await postJson(
-    "/api/bridge/fleet/apply",
-    { fleetID, autoAccept: true, confirm: true },
-    options,
-  );
-  return decodeFleetApplyOutcome(ack);
-}
+// A fleet is applied to by the page itself, with the client's own call
+// (bridge/fleetWrites.ts; the plan's Phase 6b): the seventh of its writes to
+// leave its route (POST /api/bridge/fleet/apply), on 2026-10-10.
 
 /** LEAVE the session character's current fleet. Confirm-gated. */
 export async function leaveFleet(options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/fleet/leave", { confirm: true }, options);
 }
 
-/**
- * BROADCAST a `Target` call on an entity — "primary this" — to every fleet
- * member in the same bubble (fleetMgr.BroadcastToBubble). Confirm-gated at
- * the BFF.
- *
- * ⚠ THIS IS WHAT A PLAIN MEMBER HAS INSTEAD OF A TAG, and it is the retail
- * client's own path for the same act, call for call. `fleetSvc.py:1050`:
- *
- *     def SendBroadcast_Target(self, itemID):
- *         self.SendBubbleBroadcast(evefleet.BROADCAST_TARGET, itemID)
- *
- * and `SendBubbleBroadcast` (fleetSvc.py:991-998) reaches
- * `fleetMgr.BroadcastToBubble(name, self.broadcastScope, itemID, typeID)` with
- * `typeID` left at its `None` default. So: BUBBLE range (not system, not
- * universe — a target call is for the people who can shoot it), and no typeID.
- * We pass neither differently.
- *
- * ⚠ SCOPE IS `BROADCAST_ALL`, WHICH IS THE CLIENT'S DEFAULT AND NOT A CHOICE
- * MADE HERE. `fleetBroadcastScopeSetting` is a three-option session setting
- * (`BROADCAST_ALL`/`DOWN`/`UP`) whose `default_value` is `BROADCAST_ALL`
- * (fleetbroadcastexports.py:332-333). It matters which: `shouldReceiveBroadcast`
- * (fleetRuntime.js:2430) short-circuits to true for ALL, and for the other two
- * walks the fleet hierarchy — a plain member broadcasting `UP` would be heard
- * only by its own squad commander and above, i.e. by nobody who is on grid to
- * help. ALL is both the default and the only scope that makes a member's
- * target call useful.
- *
- * ⚠ UNLIKE `setFleetTargetTag`, THE ANSWER HERE IS REAL. `sendBroadcast`
- * returns a boolean and `Handle_BroadcastToBubble` returns it rather than
- * discarding it, so `false` is the server saying it dropped the call —
- * `isBroadcastRateLimited`, 2 seconds per repeated name. Callers may act on it.
- * A missing/non-boolean `result` reads as `true`: an older BFF that answered
- * `{ok:true}` and nothing else has not told us it refused anything.
- */
-export async function broadcastFleetTarget(
-  itemID: number,
-  options: ApiOptions = {},
-): Promise<boolean> {
-  const ack = await postJson(
-    "/api/bridge/fleet/broadcast/bubble",
-    { name: "Target", scope: FLEET_BROADCAST_SCOPE_ALL, itemID, confirm: true },
-    options,
-  );
-  const result = (ack as Record<string, unknown>)?.result;
-  return typeof result === "boolean" ? result : true;
-}
+// A broadcast to the fleet in the pilot's bubble is made by the page itself,
+// with the client's own call and the client's own wait before it
+// (bridge/fleetWrites.ts): the eighth of its writes to leave its route
+// (POST /api/bridge/fleet/broadcast/bubble), on 2026-10-10.
 
 // --- Activity Center reads -------------------------------------------------
 // These are thin wrappers over existing aggregate BFF routes. Activity is
