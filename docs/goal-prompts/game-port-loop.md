@@ -483,6 +483,11 @@ Take these defaults, and list each under "For the operator" in the log so they c
   `AcceptContract`'s `forCorp` was taken from any member (fixed in eve.js `378ef753f`). Look
   for the role's check on the path the flag takes, not only for a check of the ID; the
   client's own gate (a button shown by `session.corprole`) says which role.
+- **A handler that hands a store the session's character is read for what the store does with
+  nought.** Nothing between a socket and a service asks whether a character is chosen: an
+  account at its selection screen has none, and a store that reads nought as "no filter"
+  serves it everyone's (`DeleteLaunch`, fixed in eve.js `ccf788b7b`). The BFF lets no such
+  call through; a raw session for seeing one live is `nochar-launch.js`.
 - **A server defect goes to a sub-agent with the reading, the client's file and line, the
   test wanted first, and the checkout's rules** (no branch, no worktree, no push, the other
   sessions' files by name). Then read its diff, run its test file through that repository's
