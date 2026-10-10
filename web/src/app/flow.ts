@@ -346,7 +346,8 @@ import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
-import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, repairWaitMs, setOverload as setOverloadCall } from "../bridge/dogmaWrites.ts";
+import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
+import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
 import {
   FLEET_BROADCAST_SCOPE_ALL,
@@ -755,10 +756,10 @@ export interface AppFlow {
   loadAmmo(
     moduleIDs: readonly number[],
     chargeItemIDs: readonly number[],
-    source: api.AmmoPlace,
+    source: AmmoPlace,
   ): Promise<AmmoOutcome>;
   /** Empty modules of their charges into cargo or the station hangar. */
-  unloadAmmo(moduleIDs: readonly number[], destination: api.AmmoPlace): Promise<AmmoOutcome>;
+  unloadAmmo(moduleIDs: readonly number[], destination: AmmoPlace): Promise<AmmoOutcome>;
   /**
    * DESTROY a fitted rig. Rigs cannot be unfitted, so this is irreversible —
    * the panel confirms before calling it and the BFF confirms again.
@@ -1733,6 +1734,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const moduleRepairs = createModuleRepairs(bridgeDo, { ended: () => { void loadSpaceSnapshot().catch(() => {}); } });
   // The ship's weapons linked and unlinked all at once, with the wait the client's button keeps between two of a kind.
   const weaponGrouping = createWeaponGrouping(bridgeDo);
+  /**
+   * What the session says of the pilot, for a call that names its ship and where it is: the ship it is flying (the
+   * fitting's, or the one read in space where no fitting is), the pilot, and where it is docked
+   * (session.structureid or session.stationid), which is nowhere in space.
+   */
+  function ammoSession(): AmmoSession {
+    const shipID = store.fitting.get().activeShipID ?? store.space.get().snapshot?.shipID ?? null;
+    const online = store.station.get().online;
+    if (shipID === null || !online) throw new Error("Which ship this is is not known yet.");
+    return { shipID, characterID: online.characterID, dockedAt: online.structureID ?? online.stationID ?? null };
+  }
+  /** Charges put into modules from the ship's own hold or the hangar, by the client's own call (bridge/dogmaWrites.ts). */
+  const loadAmmoFrom = async (moduleIDs: readonly number[], chargeItemIDs: readonly number[], source: AmmoPlace): Promise<void> =>
+    loadAmmoCall(bridgeDo, ammoSession(), moduleIDs, chargeItemIDs, source);
   // What a client knows of a skill's type without asking the server, asked of the static data once and kept.
   const skillTypeFacts = createSkillTypeFacts({
     // (A type's name is the static data's, and is answered or is none: only a structure's can be left unanswered.)
@@ -8043,11 +8058,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             return;
           // The reload rung: put rounds in the guns from the ship's own cargo.
           //
-          // ⚠ ALWAYS "cargo", NEVER "hangar". The BFF pins the concrete source
-          // id from the session's own active ship and docked station (see
-          // `api.loadAmmo`), and a companion that needs this is in space, where
-          // there is no station hangar to draw from — asking for one would be
-          // asking the server for a location this pilot is not at.
+          // ⚠ ALWAYS "cargo", NEVER "hangar". A companion that needs this is in
+          // space, where there is no station hangar to draw from. The page's own
+          // call (bridge/dogmaWrites.ts) names the ship as where the charges lie,
+          // and asks nothing for a hangar the pilot is not docked at.
           //
           // ⚠ NOTHING IS READ BACK OFF THIS CALL, AND NOTHING CAN BE. Which
           // charges a module accepts lives in dogma attributes the browser has
@@ -8058,7 +8072,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // later tick and keeps its own attempt budget, exactly as rung 4's
           // tag write does.
           case "loadAmmo":
-            await api.loadAmmo(action.moduleIDs, [action.chargeItemID], "cargo", callOptions);
+            await loadAmmoFrom(action.moduleIDs, [action.chargeItemID], "cargo");
             // ⚠ THE ONE THING THAT MAKES THE RUNG'S ATTEMPT BUDGET MEAN WHAT IT
             // SAYS. Its budget is three ATTEMPTS per gun, but the facts above
             // refresh only every ten seconds against a two-second tick — so
@@ -12343,7 +12357,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
                 token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
                 shipID === capabilityCache.peek().shipID,
               read: async () => (await readCombatLoadout(shipID, []))?.utilities ?? null,
-              load: () => api.loadAmmo([action.moduleID], [action.chargeItemID], "cargo", callOptions),
+              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
               sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
             });
             return issueCombatReload(action, {
@@ -12351,7 +12365,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
                 token === callOptions.token && pilotGeneration === recoveryGeneration && generation === customBotGeneration &&
                 shipID === capabilityCache.peek().shipID,
               read: () => readCombatWeapons(shipID, [action.moduleID]),
-              load: () => api.loadAmmo([action.moduleID], [action.chargeItemID], "cargo", callOptions),
+              load: () => loadAmmoFrom([action.moduleID], [action.chargeItemID], "cargo"),
               sleep: () => new Promise(resolve => setTimeout(resolve, 750)),
             });
           }
@@ -13867,7 +13881,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async loadAmmo(moduleIDs, chargeItemIDs, source) {
       return runAmmoAction(
         moduleIDs,
-        () => api.loadAmmo(moduleIDs, chargeItemIDs, source, callOptions),
+        () => loadAmmoFrom(moduleIDs, chargeItemIDs, source),
         // Nothing about what the module holds changed, so nothing was loaded —
         // unless the server queued it: in space the charges land after the
         // module's reload time, and its announcement is the proof.
@@ -13880,7 +13894,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async unloadAmmo(moduleIDs, destination) {
       return runAmmoAction(
         moduleIDs,
-        () => api.unloadAmmo(moduleIDs, destination, callOptions),
+        async () => unloadAmmoCall(bridgeDo, ammoSession(), moduleIDs, destination),
         // An unload that worked leaves the modules empty.
         (_before, after) => after !== "",
         "The server accepted that and the ammunition is still loaded, and gave no reason.",

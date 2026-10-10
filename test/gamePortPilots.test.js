@@ -2496,6 +2496,40 @@ test("a module's repair is begun and ended as godma does both: on the dogma loca
   assert.equal(session.binds.filter((bind) => bind.service === "dogmaIM").length, 1);
 });
 
+test("ammunition is loaded and unloaded as the client does both: on the dogma location, the modules and the charges as lists, naming the ship the session is flying", async () => {
+  const hand = handTicked();
+  const allowed = new Set([...MODULE_PAIRS, "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo"]);
+  const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:GetAllInfo": fittedAllInfo(), "bound:LoadAmmo": null, "bound:UnloadAmmo": null } }, { ...hand.options, ...moduleOptions({ allowed }) });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  const made = () => session.boundCalls.findLast((call) => call.method === "LoadAmmo" || call.method === "UnloadAmmo");
+  const row = (pair) => built.pilots.callLedger().find((each) => each.pair === pair);
+  const [CHARGES, MORE_CHARGES, OTHER_MODULE, OTHER_SHIP] = [SHIP + 7, SHIP + 8, SHIP + 2, SHIP + 50];
+  const listOf = (...items) => ({ type: "list", items });
+  // clientDogmaLocation.py 991: one module by its ID, the charges a list, and the ship as where they lie. Asked by
+  // the service's name, as the page asks, and made on the dogma location.
+  await built.pilots.callMethod("dogmaIM", "LoadAmmo", [SHIP, FITTED_MODULE, [CHARGES], SHIP], null, WHOSE, handle);
+  const location = made().objectID;
+  assert.deepEqual(made(), { objectID: location, method: "LoadAmmo", args: [SHIP, FITTED_MODULE, listOf(CHARGES), SHIP], kwargs: null });
+  // 996: several modules, as a list.
+  await built.pilots.callMethod("dogmaIM", "LoadAmmo", [SHIP, [FITTED_MODULE, OTHER_MODULE], [CHARGES, MORE_CHARGES], SHIP], null, WHOSE, handle);
+  assert.deepEqual(made(), { objectID: location, method: "LoadAmmo", args: [SHIP, listOf(FITTED_MODULE, OTHER_MODULE), listOf(CHARGES, MORE_CHARGES), SHIP], kwargs: null });
+  // 1140: the modules a list, and the place a tuple, which is what an array is on the wire.
+  await built.pilots.callMethod("dogmaIM", "UnloadAmmo", [SHIP, [FITTED_MODULE], [SHIP, PILOT, 5]], null, WHOSE, handle);
+  assert.deepEqual(made(), { objectID: location, method: "UnloadAmmo", args: [SHIP, listOf(FITTED_MODULE), [SHIP, PILOT, 5]], kwargs: null });
+  assert.equal(session.calls.some((call) => call.service === "dogmaIM" && (call.method === "LoadAmmo" || call.method === "UnloadAmmo")), false, "nothing was asked of the service by name");
+  assert.deepEqual([row("dogmaIM.LoadAmmo").statuses, row("dogmaIM.UnloadAmmo").statuses], [{ reshaped: 2 }, { reshaped: 1 }]);
+  // Another ship than the one the session is flying: it goes shaped as it came, and is counted as not the client's.
+  await built.pilots.callMethod("dogmaIM", "LoadAmmo", [OTHER_SHIP, FITTED_MODULE, [CHARGES], OTHER_SHIP], null, WHOSE, handle);
+  assert.deepEqual(made().args, [OTHER_SHIP, FITTED_MODULE, listOf(CHARGES), OTHER_SHIP]);
+  await built.pilots.callMethod("dogmaIM", "UnloadAmmo", [OTHER_SHIP, [FITTED_MODULE], [OTHER_SHIP, PILOT, 5]], null, WHOSE, handle);
+  assert.deepEqual(made().args, [OTHER_SHIP, listOf(FITTED_MODULE), [OTHER_SHIP, PILOT, 5]]);
+  assert.deepEqual([row("dogmaIM.LoadAmmo").statuses, row("dogmaIM.UnloadAmmo").statuses], [{ reshaped: 2, differs: 1 }, { reshaped: 1, differs: 1 }]);
+  assert.match(row("dogmaIM.LoadAmmo").note, /ship its session is flying/);
+  assert.match(row("dogmaIM.UnloadAmmo").note, /ship its session is flying/);
+  assert.equal(session.binds.filter((bind) => bind.service === "dogmaIM").length, 1);
+});
+
 test("the weapons are linked and unlinked as the client does both: on the dogma location, naming the ship the session is flying", async () => {
   const hand = handTicked();
   const allowed = new Set([...MODULE_PAIRS, "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules"]);

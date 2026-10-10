@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, repairWaitMs, setOverload } from "./dogmaWrites.ts";
+import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo, repairWaitMs, setOverload, unloadAmmo } from "./dogmaWrites.ts";
 import type { Ask } from "./ask.ts";
 import type { JsonValue } from "./wire.ts";
 
@@ -256,4 +256,64 @@ test("a request that fails starts no wait, and fails as the call fails", async (
   await assert.rejects(() => weapons.unlinkAll(7), /CantLinkModuleNotOnline/);
   await assert.rejects(() => weapons.unlinkAll(7), /CantLinkModuleNotOnline/);
   assert.equal(asked.length, 4);
+});
+
+// clientDogmaLocation.py 973 to 1141. Every LoadAmmo Tranquility has recorded is (shipID, moduleID, [chargeItemID], shipID).
+
+const FLYING = { shipID: 9988400023309, characterID: 140000005, dockedAt: null };
+const DOCKED = { ...FLYING, dockedAt: 60003760 };
+
+test("ammunition is loaded into one module by its ID, the stacks as a list, from the ship's own hold: the ship twice", async () => {
+  const { act, asked } = asking(null);
+  await loadAmmo(act, FLYING, [9988400023312], [9988400023400, 9988400023401], "cargo");
+  assert.deepEqual(asked, [["dogmaIM", "LoadAmmo", [9988400023309, 9988400023312, [9988400023400, 9988400023401], 9988400023309]]]);
+});
+
+test("several modules are named as a list", async () => {
+  const { act, asked } = asking(null);
+  await loadAmmo(act, DOCKED, [9988400023312, 9988400023313], [9988400023400], "cargo");
+  assert.deepEqual(asked, [["dogmaIM", "LoadAmmo", [9988400023309, [9988400023312, 9988400023313], [9988400023400], 9988400023309]]]);
+});
+
+test("from the hangar the charges lie where the pilot is docked, and in space there is no hangar: nothing is asked", async () => {
+  const { act, asked } = asking(null);
+  await loadAmmo(act, DOCKED, [9988400023312], [9988400023400], "hangar");
+  assert.deepEqual(asked, [["dogmaIM", "LoadAmmo", [9988400023309, 9988400023312, [9988400023400], 60003760]]]);
+  await assert.rejects(() => loadAmmo(act, FLYING, [9988400023312], [9988400023400], "hangar"), /docked/);
+  await assert.rejects(() => unloadAmmo(act, FLYING, [9988400023312], "hangar"), /docked/);
+  assert.equal(asked.length, 1);
+});
+
+test("with no module, or no charges, nothing is asked: the client's own call is never made with none", async () => {
+  // LoadChargesToModule raises before it calls where there are no charges.
+  const { act, asked } = asking(null);
+  await assert.rejects(() => loadAmmo(act, FLYING, [], [9988400023400], "cargo"), /module/);
+  await assert.rejects(() => loadAmmo(act, FLYING, [9988400023312], [], "cargo"), /charges/);
+  await assert.rejects(() => unloadAmmo(act, FLYING, [], "cargo"), /module/);
+  assert.deepEqual(asked, []);
+});
+
+test("ammunition is unloaded from its modules as a list, to the hold as (the ship, the pilot, the cargo flag)", async () => {
+  // fittingSlotController.py 186: (session.shipid, session.charid, const.flagCargo). No quantity is named.
+  const { act, asked } = asking(null);
+  await unloadAmmo(act, FLYING, [9988400023312], "cargo");
+  await unloadAmmo(act, DOCKED, [9988400023312, 9988400023313], "cargo");
+  assert.deepEqual(asked, [
+    ["dogmaIM", "UnloadAmmo", [9988400023309, [9988400023312], [9988400023309, 140000005, 5]]],
+    ["dogmaIM", "UnloadAmmo", [9988400023309, [9988400023312, 9988400023313], [9988400023309, 140000005, 5]]],
+  ]);
+});
+
+test("and to the hangar as (where the pilot is docked, the pilot, the hangar flag)", async () => {
+  // fittingSlotController.py 180: (session.structureid or session.stationid, session.charid, const.flagHangar).
+  const { act, asked } = asking(null);
+  await unloadAmmo(act, DOCKED, [9988400023312], "hangar");
+  assert.deepEqual(asked, [["dogmaIM", "UnloadAmmo", [9988400023309, [9988400023312], [60003760, 140000005, 4]]]]);
+});
+
+test("a load or an unload the server refuses fails as the call fails", async () => {
+  const { act, asked } = asking(new Error("CannotLoadNotEnoughCharges"));
+  await assert.rejects(() => loadAmmo(act, FLYING, [9988400023312], [9988400023400], "cargo"), /CannotLoadNotEnoughCharges/);
+  await assert.rejects(() => unloadAmmo(act, FLYING, [9988400023312], "cargo"), /CannotLoadNotEnoughCharges/);
+  assert.equal(asked.length, 2);
 });

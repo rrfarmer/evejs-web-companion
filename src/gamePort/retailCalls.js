@@ -604,17 +604,34 @@ function deactivation(args, kwargs, context) {
   return named ? shaped : { ...shaped, status: "differs", note: "The client always names the effect it is stopping. This call names none, and what the module is was not known." };
 }
 
+/** Whether a call naming `shipID` names another ship than the one the session is flying, where that is known. */
+const namesAnotherShip = (shipID, context) => context.shipID !== null && context.shipID !== undefined && Number(context.shipID) !== Number(shipID);
+const ANOTHER_SHIP = Object.freeze({ status: "differs", note: "The client names the ship its session is flying. This call names another." });
+
+/**
+ * clientDogmaLocation.LoadChargesToModule (991): LoadAmmo(shipID, moduleID, [chargeItemID, ...], chargeLocationID),
+ * one module by its ID (a bank's master standing for its bank), which is every one Tranquility has recorded; and
+ * LoadAmmoToModules (996), the same with the modules as a list. The charges are a list either way. The ship is the
+ * one the module sits in, which is the ship the session is flying.
+ */
+function loading(args, kwargs, context) {
+  const [shipID, modules, charges, ...rest] = args;
+  const shaped = { args: [shipID, list(modules), list(charges), ...rest], kwargs };
+  return namesAnotherShip(shipID, context) ? { ...shaped, ...ANOTHER_SHIP } : shaped;
+}
+
 /**
  * clientDogmaLocation.UnloadAmmoFromModules and UnloadAmmoToContainer. With no
  * quantity the client sends the modules as a list; with one it names a single
- * module, the one the charge is in.
+ * module, the one the charge is in. The ship is the one the session is flying.
  */
-function unloading(args, kwargs) {
+function unloading(args, kwargs, context) {
   const [shipID, modules, destination, quantity] = args;
-  if (quantity === undefined || quantity === null) return { args: [shipID, list(modules), destination], kwargs };
+  const whose = namesAnotherShip(shipID, context) ? ANOTHER_SHIP : {};
+  if (quantity === undefined || quantity === null) return { args: [shipID, list(modules), destination], kwargs, ...whose };
   const several = Array.isArray(modules) ? modules : modules && Array.isArray(modules.items) ? modules.items : null;
-  if (several === null) return { args: [shipID, modules, destination, quantity], kwargs };
-  if (several.length === 1) return { args: [shipID, several[0], destination, quantity], kwargs };
+  if (several === null) return { args: [shipID, modules, destination, quantity], kwargs, ...whose };
+  if (several.length === 1) return { args: [shipID, several[0], destination, quantity], kwargs, ...whose };
   return { args: [shipID, modules, destination, quantity], kwargs, status: "differs", note: "With a quantity the client unloads one module, the one the charge is in. This call names several." };
 }
 
@@ -1212,8 +1229,8 @@ const RETAIL_CALLS = Object.freeze({
   "dogmaIM.RemoveTarget": same(`${TARGET_MGR}:1385`, "GetDogmaLM().RemoveTarget(targetID)"),
   "dogmaIM.SetModuleOnline": same(`${CLIENT_DOGMA}:702`, "SetModuleOnline(the ship the module is in, moduleID)"),
   "dogmaIM.TakeModuleOffline": same(`${CLIENT_DOGMA}:718`, "TakeModuleOffline(the ship the module is in, moduleID)"),
-  "dogmaIM.LoadAmmo": reshaped(`${CLIENT_DOGMA}:996`, ([shipID, modules, charges, ...rest], kwargs) => ({ args: [shipID, list(modules), list(charges), ...rest], kwargs }), "LoadAmmo(shipID, [moduleID, ...], [chargeItemID, ...], ammoLocationID): the modules and the charges are lists"),
-  "dogmaIM.UnloadAmmo": reshaped(`${CLIENT_DOGMA}:1140`, unloading, "UnloadAmmo(shipID, [moduleID, ...], destination), or UnloadAmmo(shipID, moduleID, destination, quantity) for one module (1127)"),
+  "dogmaIM.LoadAmmo": reshaped(`${CLIENT_DOGMA}:991`, loading, "LoadAmmo(shipID, moduleID, [chargeItemID, ...], chargeLocationID) for one module, as every recording has it, or with the modules as a list (LoadAmmoToModules, 996): the ship is the one the session is flying, and the charges are a list"),
+  "dogmaIM.UnloadAmmo": reshaped(`${CLIENT_DOGMA}:1140`, unloading, "UnloadAmmo(shipID, [moduleID, ...], destination), or UnloadAmmo(shipID, moduleID, destination, quantity) for one module (1127): the ship is the one the session is flying"),
   "dogmaIM.ShipGetInfo": webOnly(`${GODMA}:2409`, "The client never asks this. What it knows of its ship is in GetAllInfo, which godma is primed from."),
   "dogmaIM.ShipOnlineModules": webOnly(`${GODMA}:697`, "godma has a wrapper for this that nothing in the client calls, and throws its answer away. Which modules are online the client reads from the effects GetAllInfo lists. eve.js answers with the online modules, and the BFF reads that."),
   "ship.LaunchDrones": reshaped(`${EVE_MISC}:29`, launching, "GetShipAccess().LaunchDrones([(itemID, quantity), ...], whoseBehalfID, ignoreWarning): a list of pairs, and None for whose behalf when it is the pilot's own"),

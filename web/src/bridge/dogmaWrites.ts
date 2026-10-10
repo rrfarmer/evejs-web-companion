@@ -192,3 +192,66 @@ export function createWeaponGrouping(act: Ask, now: () => number = Date.now): We
     },
   };
 }
+
+// ── Ammunition loaded and unloaded ───────────────────────────────────────────
+//
+// Until 2026-10-10 each was one route of the BFF (POST /api/bridge/dogma/ammo/load and .../unload), which took a
+// word for the place and named the ship and the place itself. A retail client's dogma location makes them
+// (clientDogmaLocation.py 973 to 1141):
+//
+//   LoadAmmo(shipID, moduleID, [chargeItemID, ...], chargeLocationID)
+//        LoadChargesToModule, 991: one module by its ID, a bank's master standing for its bank. The module's menu
+//        on the rack and a charge dropped on a fitting slot both come to it. Every one Tranquility has recorded is
+//        this, with the ship as the place: (shipID, moduleID, [chargeItemID], shipID), answering nothing.
+//   LoadAmmo(shipID, [moduleID, ...], [chargeItemID, ...], ammoLocationID)
+//        LoadAmmoToModules, 996: several modules at once.
+//   UnloadAmmo(shipID, [moduleID, ...], (locationID, ownerID, flag))
+//        UnloadAmmoFromModules, 1140, as a fitting slot unfits its charge (fittingSlotController.py 172 to 188):
+//        to (where the pilot is docked, the pilot, the hangar flag), or to (the ship, the pilot, the cargo flag).
+//
+// THE SHIP is the one the session is flying. THE PLACE charges are taken from is where they lie: the ship, for its
+// hold, or the station or structure the pilot is docked in, for the hangar. No quantity is named in an unload: the
+// modules are emptied. Whether a charge fits a module is the server's to say.
+//
+// The server holds both calls to the ship the session is flying and to places that session can reach. Either
+// transport carries both, asked of the dogma service by its name.
+
+/** invConst.flagHangar and flagCargo: the flags the client names with a place for ammunition. */
+const FLAG_HANGAR = 4;
+const FLAG_CARGO = 5;
+
+/** Where ammunition lies, or goes: the hold of the ship the pilot is flying, or the hangar of where it is docked. */
+export type AmmoPlace = "cargo" | "hangar";
+
+/** What the session says of the pilot, for a call that names its ship and where it is. */
+export interface AmmoSession {
+  /** session.shipid. */
+  readonly shipID: number;
+  /** session.charid. */
+  readonly characterID: number;
+  /** session.structureid or session.stationid: where the pilot is docked, and null in space. */
+  readonly dockedAt: number | null;
+}
+
+/** A place's ID: the ship for its hold, and where the pilot is docked for the hangar. In space there is no hangar. */
+function placeID(session: AmmoSession, place: AmmoPlace): number {
+  if (place === "cargo") return session.shipID;
+  if (session.dockedAt === null) throw new Error("The hangar is at hand only while docked.");
+  return session.dockedAt;
+}
+
+/** Puts the charges of these stacks into the modules. One module is named by its ID, several as a list. Fails as the call fails. */
+export async function loadAmmo(act: Ask, session: AmmoSession, moduleIDs: readonly number[], chargeItemIDs: readonly number[], from: AmmoPlace): Promise<void> {
+  if (moduleIDs.length === 0) throw new Error("No module was named to load.");
+  // LoadChargesToModule raises before it calls where there are none.
+  if (chargeItemIDs.length === 0) throw new Error("There are no charges to load.");
+  const fromID = placeID(session, from);
+  await act("dogmaIM", "LoadAmmo", [session.shipID, moduleIDs.length === 1 ? moduleIDs[0]! : [...moduleIDs], [...chargeItemIDs], fromID]);
+}
+
+/** Empties the modules of their charges, into the hold or the hangar. Fails as the call fails. */
+export async function unloadAmmo(act: Ask, session: AmmoSession, moduleIDs: readonly number[], to: AmmoPlace): Promise<void> {
+  if (moduleIDs.length === 0) throw new Error("No module was named to unload.");
+  const destination = [placeID(session, to), session.characterID, to === "cargo" ? FLAG_CARGO : FLAG_HANGAR];
+  await act("dogmaIM", "UnloadAmmo", [session.shipID, [...moduleIDs], destination]);
+}

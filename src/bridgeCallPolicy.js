@@ -191,8 +191,14 @@ function isBridgeWritePair(service, method) {
  *                                handed. It holds every bank call to the ship the session is flying now (fixed
  *                                in eve.js on 2026-10-10), so the page names the ship, as a client does. Asked
  *                                of the service by its name, as the overload is.
+ *   dogmaIM.LoadAmmo,            ammunition put into modules and taken out of them. Each route took a word for
+ *   dogmaIM.UnloadAmmo           the place (the hold, or the hangar) and named the ship and the place itself,
+ *                                because the handlers took the ship, the place the charges lie and the place
+ *                                they go from the caller as they came. They hold each to where the session is
+ *                                now (fixed in eve.js on 2026-10-10), so the page names them, as a client does.
+ *                                Asked of the service by its name.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

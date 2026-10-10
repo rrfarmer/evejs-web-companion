@@ -1309,11 +1309,38 @@ test("a module overloaded and cooled, its repair begun and ended, and the weapon
   }
   // The dogma service's other writes are their routes' alone, whatever is said.
   const before = gateway.calls.call.length;
-  for (const method of ["OverloadRack", "StopOverloadRack", "InitiateModuleRepairMany", "LinkWeapons", "MergeModuleGroups", "PeelAndLink", "UnlinkModule", "DestroyWeaponBank", "LoadAmmo", "Activate"]) {
+  for (const method of ["OverloadRack", "StopOverloadRack", "InitiateModuleRepairMany", "LinkWeapons", "MergeModuleGroups", "PeelAndLink", "UnlinkModule", "DestroyWeaponBank", "SetModuleOnline", "TakeModuleOffline", "Activate"]) {
     const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method, args: [], kwargs: null, pilot: true, confirm: true } });
     assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
   }
   assert.equal(gateway.calls.call.length, before);
+});
+
+test("ammunition loaded and unloaded are writes of the page's own, asked of the dogma service by its name: each goes as it was sent, the ship and the place with it", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  for (const [method, args] of [
+    // One module by its ID, from the ship's own hold; several, from where the pilot is docked.
+    ["LoadAmmo", [9988400023309, 9988400023312, [9988400023400], 9988400023309]],
+    ["LoadAmmo", [9988400023309, [9988400023312, 9988400023313], [9988400023400, 9988400023401], 60003760]],
+    // To the hold, and to the hangar: (where, whose, the flag).
+    ["UnloadAmmo", [9988400023309, [9988400023312], [9988400023309, 7, 5]]],
+    ["UnloadAmmo", [9988400023309, [9988400023312, 9988400023313], [60003760, 7, 4]]],
+  ]) {
+    const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method, args, kwargs: null, ...more } });
+    const before = gateway.calls.call.length;
+    // A write: refused unless it is said to be a pilot's and to be meant.
+    for (const more of [{}, { pilot: true }, { confirm: true }]) {
+      const refused = await call(more);
+      assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${method} ${JSON.stringify(more)}`);
+    }
+    assert.equal(gateway.calls.call.length, before, method);
+    const made = await call({ pilot: true, confirm: true });
+    assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "dogmaIM", method]);
+    const sent = gateway.calls.call.at(-1);
+    assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["dogmaIM", method, args, null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  }
 });
 
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {

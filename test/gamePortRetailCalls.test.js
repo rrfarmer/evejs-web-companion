@@ -416,6 +416,38 @@ test("ammunition goes in and out with its modules as a list, and one module by i
   assert.match(several.note, /one module/);
 });
 
+test("ammunition loaded or unloaded names the ship the session is flying: another ship's is counted as not the client's", () => {
+  // clientDogmaLocation.py 991 and 996, 1127 and 1140: the ship is the one the client's module sits in, which is
+  // the ship its session is flying (or the structure it controls). Every LoadAmmo Tranquility has recorded is
+  // (shipID, moduleID, [chargeItemID], shipID): one module by its ID, which stays as it is.
+  const flying = { shipID: 5000 };
+  const ask = (method, args, context = flying) => retailForm("dogmaIM", method, args, null, context);
+  const hold = [5000, 140000001, 5];
+  for (const [method, own, other, shaped] of [
+    ["LoadAmmo", [5000, 7, [31], 5000], [5001, 7, [31], 5001], [5001, 7, list([31]), 5001]],
+    ["LoadAmmo", [5000, [7, 8], [31, 32], 60003760], [5001, [7, 8], [31, 32], 60003760], [5001, list([7, 8]), list([31, 32]), 60003760]],
+    ["UnloadAmmo", [5000, [7], hold], [5001, [7], hold], [5001, list([7]), hold]],
+    ["UnloadAmmo", [5000, 7, hold, 40], [5001, 7, hold, 40], [5001, 7, hold, 40]],
+    // One module in a list with a quantity is named by itself, and whose ship it is still counts.
+    ["UnloadAmmo", [5000, [7], hold, 40], [5001, [7], hold, 40], [5001, 7, hold, 40]],
+  ]) {
+    const made = ask(method, own);
+    assert.deepEqual([made.status, made.moniker, made.args[0]], ["reshaped", true, 5000], method);
+    assert.doesNotMatch(String(made.note), /names another/, method);
+    // Another ship than the session's goes as the client would have shaped it, and is counted as differing.
+    const anothers = ask(method, other);
+    assert.deepEqual([anothers.status, anothers.args], ["differs", shaped], method);
+    assert.match(anothers.note, /ship its session is flying/, method);
+    // Where the session's ship is not known (through the web gateway), a ship named is taken for it.
+    for (const context of [{}, { shipID: null }, { shipID: undefined }]) assert.equal(ask(method, other, context).status, "reshaped", method);
+  }
+  assert.deepEqual(ask("LoadAmmo", [5000, 7, [31], 5000]).args, [5000, 7, list([31]), 5000], "one module by its ID, as it is recorded");
+  // What was already not the client's keeps its own reason.
+  const several = ask("UnloadAmmo", [5001, [7, 8], hold, 40]);
+  assert.deepEqual([several.status, several.args], ["differs", [5001, [7, 8], hold, 40]]);
+  assert.match(several.note, /one module/);
+});
+
 test("drones are launched as a list of stacks, on nobody's behalf when it is the pilot's own", () => {
   const stacks = [[11, 1], [12, 3]];
   const launch = (args, context = { characterID: 140000001 }) => withContext("ship.LaunchDrones", args, null, context);
