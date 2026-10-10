@@ -37097,8 +37097,9 @@ level that is none of the three cannot be stored whatever is sent.
 
 **Slip.** For the second time in two units I wrote a scratch file over one of the same
 name without looking (`break-safety.js`, the breakage list of the earlier safety unit).
-Nothing names it. From here a scratch file's name is looked for before it is written;
-the three written after it in this unit were.
+Nothing names it. From here a scratch file's name is looked for before it is written. Of
+those written after it in this unit two were looked for first; the others were new when
+written, by the tool's word, and had not been looked for. (Corrected: this said all were.)
 
 **Decisions taken in the operator's place.**
 
