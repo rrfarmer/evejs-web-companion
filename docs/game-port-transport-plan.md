@@ -788,8 +788,9 @@ between places, 5 no writes at all, and 37 more than any of those. A change of t
 saved started or not as the client's queue service decides it (`bcf13d5`): unstarted
 where every training slot of the account is in use by its other characters. Free points
 are put into a skill by the client's own call too (`0c81ff1`), which either transport
-carries, so its route is not named by the page. 133 named now, 45 of them reads and 88
-writes. Of the phase's "done when", "no
+carries, so its route is not named by the page; and so is the ship's safety level set
+(`2783179`), whose check of the level is the server's now. 132 named now, 45 of them
+reads and 87 writes. Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
 Of 6a's four things, three are carried by the socket or in process, each with a way back
 (the routes' operations, the pushes, the hosted bots), and the cap is lifted for what is

@@ -479,6 +479,14 @@ Take these defaults, and list each under "For the operator" in the log so they c
   as a read not carried answers null (`saveQueue`, `readSkillSheet`). A refusal by
   `CALL_NOT_ALLOWED` means nothing was made, so asking the route after it is safe; no other
   failure is taken so.
+- **What a route checked of its arguments, the generic call does not.** Read the route for
+  every check besides the confirmation (`safety/set-level` refused a level that was none of
+  three), then read the server's handler for what it makes of what the route would have
+  refused, and the transport for what it KEEPS of the call's arguments: it kept whatever
+  level a set named. Judge the pair in `retailCalls.js`, and have the transport keep nothing
+  of a call that differs.
+- **Look for a scratch file's name before writing it** (`ls <scratch> | grep -c "^name$"`).
+  Two older ones were written over in two units.
 - **A write that either transport carries needs no route behind it.** Look for the pair in the
   manifest's gateway list first (`contracts/evejs-web-bridge-contract.json`): where it is
   there, the page's module only makes the call (`applyFreePoints`), and the route's name goes
