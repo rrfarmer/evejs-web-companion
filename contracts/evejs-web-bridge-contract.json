@@ -1094,6 +1094,7 @@
     "genericBridgeAllowsWrites": true,
     "genericBridgeWrites": [
       "skillHandler.AbortTraining",
+      "skillHandler.ApplyFreeSkillPoints",
       "skillHandler.SaveNewQueue"
     ],
     "browserSessionFields": [

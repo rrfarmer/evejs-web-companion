@@ -7422,6 +7422,51 @@ test("a home station that could not be read is not kept, and another account's s
   await assert.rejects(pilots.callMethod("home_station", "get_home_station", [], null, { userid: 9 }, handle), (error) => error.code === "SESSION_NOT_FOUND");
 });
 
+test("free points put into a skill by the handler's name: the free points had first, the call on the handler, and what it answers kept as the points left", async () => {
+  const APPLIES = { ...SHEET, allowed: new Set([...SHEET.allowed, "skillHandler.ApplyFreeSkillPoints"]) };
+  let free = 5000;
+  let refusal = null;
+  const answers = handlerAnswers({
+    "bound:GetFreeSkillPoints": () => free,
+    "bound:ApplyFreeSkillPoints": ([, points]) => { if (refusal) throw refusedBy(refusal); free -= points; return free; },
+  });
+  const { pilots, session, handle } = await selected({ answers }, APPLIES);
+  const sentOf = (from) => session.boundCalls.slice(from).map((call) => [call.objectID, call.method, call.args, call.kwargs]);
+  const asked = session.boundCalls.length;
+  const applied = await pilots.callMethod("skillHandler", "ApplyFreeSkillPoints", [3327, 1200], null, FIELDS, handle);
+  assert.deepEqual([applied.service, applied.method, applied.result], ["skillHandler", "ApplyFreeSkillPoints", 3800]);
+  // skillsvc.ApplyFreeSkillPoints: the free points where none are kept (868), then the call (886), on the handler's own object.
+  assert.deepEqual(sentOf(asked), [["N=1:1", "GetFreeSkillPoints", [], null], ["N=1:1", "ApplyFreeSkillPoints", [3327, 1200], null]]);
+  assert.deepEqual(session.calls.filter((call) => call.method === "ApplyFreeSkillPoints"), [], "not by name, on any service");
+  // Asked of the handler by its name and made on its moniker: the client's call, reshaped.
+  assert.deepEqual(ledgerOf(pilots, "skillHandler.ApplyFreeSkillPoints"), [{ reshaped: 1 }, "eve/client/script/ui/services/skillsvc.py:886"]);
+  // What the handler answered is the free points the service has (887): asked for by name, nothing more is sent.
+  free = 99;
+  const then = session.boundCalls.length;
+  assert.deepEqual([await skillRead(pilots, handle, "GetFreeSkillPoints"), session.boundCalls.length], [3800, then]);
+  // Again: the points are kept now, and are not asked for first.
+  free = 3800;
+  await pilots.callMethod("skillHandler", "ApplyFreeSkillPoints", [3327, 800], null, FIELDS, handle);
+  assert.deepEqual([sentOf(then).map((sent) => sent.slice(1)), await skillRead(pilots, handle, "GetFreeSkillPoints")], [[["ApplyFreeSkillPoints", [3327, 800], null]], 3000]);
+  // The last of them spent: none left is kept as none, and is not asked for again.
+  await pilots.callMethod("skillHandler", "ApplyFreeSkillPoints", [3327, 3000], null, FIELDS, handle);
+  const spent = session.boundCalls.length;
+  assert.deepEqual([await skillRead(pilots, handle, "GetFreeSkillPoints"), session.boundCalls.length], [0, spent]);
+  // A refusal is the server's word, and what is kept stays as it was.
+  refusal = "CannotApplyFreePointsWhileTrainingSkill";
+  const refused = await pilots.callMethod("skillHandler", "ApplyFreeSkillPoints", [3300, 5], null, FIELDS, handle).then(() => null, (error) => error);
+  assert.deepEqual([refused.code, refused.message, await skillRead(pilots, handle, "GetFreeSkillPoints")], ["CALL_REFUSED", "CannotApplyFreePointsWhileTrainingSkill", 0]);
+  // What is not the client's call goes as it came, and is counted as differing.
+  refusal = null;
+  await pilots.callMethod("skillHandler", "ApplyFreeSkillPoints", [3327, 0], null, FIELDS, handle);
+  assert.deepEqual([session.boundCalls.at(-1).args, ledgerOf(pilots, "skillHandler.ApplyFreeSkillPoints")[0]], [[3327, 0], { reshaped: 4, differs: 1 }]);
+  // Where the list of calls has not got it, it is not made, and nothing is read for it.
+  const without = await selected({ answers }, { ...SHEET, allowed: new Set([...SHEET.allowed].filter((pair) => pair !== "skillHandler.ApplyFreeSkillPoints")) });
+  const before = without.session.boundCalls.length + without.session.calls.length;
+  await rejects(without.pilots.callMethod("skillHandler", "ApplyFreeSkillPoints", [3327, 5], null, FIELDS, without.handle), "CALL_NOT_ALLOWED");
+  assert.equal(without.session.boundCalls.length + without.session.calls.length, before);
+});
+
 // ── the account's training slots, as the client's queue service reads them ───
 
 test("the selection screen's data is kept from the choosing and answered by name with nothing sent; the training slots are asked of the user service", async () => {

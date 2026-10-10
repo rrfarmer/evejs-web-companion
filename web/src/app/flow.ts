@@ -99,7 +99,7 @@ import { readStandings, standingComposition, standingHistory } from "../bridge/s
 import { createSkillTypeFacts, readSkillSheet } from "../bridge/skillReads.ts";
 import { createCharacterSheetReads } from "../bridge/characterSheetReads.ts";
 import { readJournal } from "../bridge/journalReads.ts";
-import { pauseTraining, saveQueue, type QueuePlace } from "../bridge/skillWrites.ts";
+import { applyFreePoints, pauseTraining, saveQueue, type QueuePlace } from "../bridge/skillWrites.ts";
 import { createTrainingSlots } from "../bridge/trainingSlots.ts";
 import { readClientStates } from "../bridge/crimewatchReads.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
@@ -6402,7 +6402,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const before = store.skills.get().freeSkillPoints ?? 0;
     let remaining: number | null;
     try {
-      remaining = await api.applyFreeSkillPoints(skillTypeID, points, callOptions);
+      // A skill's own "apply skill points", as the client's skill service makes it (bridge/skillWrites.ts):
+      // the handler answers the free points left, which is the receipt.
+      const left = await applyFreePoints(bridgeDo, skillTypeID, points);
+      remaining = typeof left === "number" ? left : null;
     } catch (error) {
       if (isSessionLost(error)) {
         stopLiveStream();

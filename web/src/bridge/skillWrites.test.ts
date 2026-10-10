@@ -8,7 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type { Ask } from "./ask.ts";
-import { pauseTraining, saveQueue } from "./skillWrites.ts";
+import { applyFreePoints, pauseTraining, saveQueue } from "./skillWrites.ts";
 
 test("the pause of training is the skill handler's own call, with nothing; it answers nothing, and fails as the call fails", async () => {
   const asked: string[] = [];
@@ -55,4 +55,22 @@ test("a save the pilot's transport does not carry was not made, and says so; any
   // What carries no code is no word that the call is not carried.
   const bare = new Error("CALL_NOT_ALLOWED");
   await assert.rejects(saveQueue(async () => { throw bare; }, [], false), (error) => error === bare);
+});
+
+test("free points are put into a skill by the handler's own call, with the skill and the points; it answers what the handler answers, and fails as the call fails", async () => {
+  const asked: unknown[] = [];
+  const act: Ask = async (service, method, args, kwargs) => {
+    asked.push([service, method, args, kwargs]);
+    return 3800;
+  };
+  // skillsvc.ApplyFreeSkillPoints (886): ApplyFreeSkillPoints(skillTypeID, pointsToApply), and what it answers is the free points left.
+  assert.equal(await applyFreePoints(act, 3327, 1200), 3800);
+  assert.deepEqual(asked, [["skillHandler", "ApplyFreeSkillPoints", [3327, 1200], undefined]]);
+  // Whatever the handler answers is handed on as it came: what it means is the caller's to read.
+  assert.equal(await applyFreePoints(async () => null, 3327, 1200), null);
+  // A refusal, or a transport that does not carry the call, is the call's own failure: there is no other way to ask.
+  for (const code of ["CALL_REFUSED", "CALL_NOT_ALLOWED", "NO_LIVE_SESSION", "SESSION_NOT_FOUND"]) {
+    const failure = Object.assign(new Error("CannotApplyFreePointsWhileTrainingSkill"), { code });
+    await assert.rejects(applyFreePoints(async () => { throw failure; }, 3327, 1200), (error) => error === failure, code);
+  }
 });

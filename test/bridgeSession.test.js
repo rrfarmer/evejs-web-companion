@@ -1089,7 +1089,7 @@ test("a write is made by the generic call only as the page makes one: a pilot's,
     assert.deepEqual(refusedAsARoutes(await call("skillHandler", "AbortTraining", more)), [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
   }
   // A write that is not one of the page's own: refused, whatever is said.
-  for (const [service, method] of [["skillHandler", "ApplyFreeSkillPoints"], ["marketProxy", "PlaceBuyOrder"], ["mailMgr", "DeleteMail"], ["slash", "SlashCmd"]]) {
+  for (const [service, method] of [["skillHandler", "ExtractSkills"], ["skillMgr", "SaveNewQueue"], ["marketProxy", "PlaceBuyOrder"], ["mailMgr", "DeleteMail"], ["slash", "SlashCmd"]]) {
     assert.deepEqual(refusedAsARoutes(await call(service, method, { pilot: true, confirm: true })), [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${service}.${method}`);
   }
   assert.deepEqual([gateway.calls.call.length, accountCalls], [before, []]);
@@ -1138,6 +1138,31 @@ test("the queue's saving is a write of the page's own: its queue and its keyword
   assert.deepEqual([refused.response.status, refused.payload.error, gateway.calls.call.length], [403, "CALL_NOT_ALLOWED", sentBefore]);
   carried = true;
   assert.deepEqual([(await save({ pilot: true, confirm: true })).response.status, gateway.calls.call.at(-1).bridgeSessionID], [200, BRIDGE_SESSION_ID]);
+});
+
+test("free points put into a skill are a write of the page's own: the skill and the points go as they were sent, and the answer comes back", async () => {
+  const gateway = fakeGateway();
+  // The handler answers the free points left.
+  gateway.callMethod = ((made) => async (...given) => ({ ...(await made(...given)), result: 3800 }))(gateway.callMethod);
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  const apply = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "skillHandler", method: "ApplyFreeSkillPoints", args: [3327, 1200], kwargs: null, ...more } });
+  const before = gateway.calls.call.length;
+  // A write, as the pause is: refused unless it is said to be a pilot's and to be meant.
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await apply(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  assert.equal(gateway.calls.call.length, before);
+  const made = await apply({ pilot: true, confirm: true });
+  assert.deepEqual([made.response.status, made.payload.service, made.payload.method, made.payload.result], [200, "skillHandler", "ApplyFreeSkillPoints", 3800]);
+  const sent = gateway.calls.call.at(-1);
+  assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["skillHandler", "ApplyFreeSkillPoints", [3327, 1200], null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  // The route stands, and makes the same call from its own spelling of the two.
+  const byRoute = await apiRequest(baseUrl, "/api/bridge/skills/apply-free-points", { method: "POST", body: { skills: 3327, points: 1200, confirm: true } });
+  const routed = gateway.calls.call.at(-1);
+  assert.deepEqual([byRoute.response.status, byRoute.payload.result, gateway.calls.call.length], [200, 3800, before + 2]);
+  assert.deepEqual([routed.service, routed.method, routed.args, routed.kwargs, routed.bridgeSessionID], [sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID]);
 });
 
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {

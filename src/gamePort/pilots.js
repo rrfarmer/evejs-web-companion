@@ -2492,7 +2492,21 @@ function createGamePortPilots({
     if (isSkillQueueRead(method, args, kwargs)) return skillsDoes(entry, () => skillQueueRead(entry));
     // skillQueueSvc.CommitTransaction: the save, with what the client's queue service and panel do around it.
     if (method === "SaveNewQueue") return skillsDoes(entry, () => saveOnHandler(entry, args, kwargs));
+    // skillsvc.ApplyFreeSkillPoints: the points applied, with what the client's skill service does around it.
+    if (method === "ApplyFreeSkillPoints") return skillsDoes(entry, () => freePointsApplied(entry, args, kwargs));
     return onSkillHandler(entry, method, args, kwargs);
+  }
+
+  /**
+   * ApplyFreeSkillPoints on the handler, as the client's skill service makes it (skillsvc.py 867 to 888): the
+   * free points are had first, asked for where none are kept (868); and what the handler answers is the free
+   * points left, which the service has from then on (887). `args` and `kwargs` are the call's own.
+   */
+  async function freePointsApplied(entry, args, kwargs) {
+    await skillRead(entry, "GetFreeSkillPoints", []);
+    const left = await onSkillHandler(entry, "ApplyFreeSkillPoints", args, kwargs);
+    entry.skills.keep("freeSkillPoints", left);
+    return left;
   }
 
   // ── the skills as they are kept ───────────────────────────────────────────

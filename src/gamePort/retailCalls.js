@@ -190,6 +190,10 @@ const queueByPlace = (args, kwargs) => {
     ? {}
     : { status: "differs", note: "The client sends the whole queue as one dict, each entry (typeID, toLevel) by its place from nought, and says whether it is to be started." };
 };
+/** skillsvc.ApplyFreeSkillPoints (886): one skill and how many points, each a whole number above nought, and nothing else. */
+const pointsForOneSkill = (args, kwargs) => (args.length === 2 && args.every((value) => Number.isSafeInteger(value) && value > 0) && Object.keys(kwargs).length === 0
+  ? {}
+  : { status: "differs", note: "The client names one skill and how many points to put into it, more than none, and nothing else." });
 /** A judge for a call the client sends with nothing: no argument, and no keyword. */
 const sentWithNothing = (args, kwargs) => (args.length === 0 && Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "The client sends nothing with this call." });
 const reshaped = (source, shape, note) => Object.freeze({ status: "reshaped", source, shape, note });
@@ -927,6 +931,8 @@ const RETAIL_CALLS = Object.freeze({
   "skillHandler.GetAllSkills": same(`${SKILL_SVC}:142`, "GetSkillHandler().GetAllSkills(), no arguments"),
   "skillHandler.GetAttributes": same(`${SKILL_SVC}:224`, "GetSkillHandler().GetAttributes(), no arguments"),
   "skillHandler.AbortTraining": same(`${SKILL_SVC}:796`, "GetSkillHandler().AbortTraining(), no arguments: the queue panel's pause, pressed while a skill is in training. The queue is kept, and the server's OnServerSkillsChanged says it is paused"),
+  "skillHandler.ApplyFreeSkillPoints": judged(`${SKILL_SVC}:886`, pointsForOneSkill,
+    "GetSkillHandler().ApplyFreeSkillPoints(skillTypeID, pointsToApply): free points put into one skill, from the skill's own menu (skillQueueSvc.UseFreeSkillPoints, 926). The service has the free points first, sends nothing for a skill in training, one not known, or no points, and takes what the handler answers for the free points left."),
   "skillHandler.SaveNewQueue": judged(
     "eve/client/script/ui/services/skillQueueSvc.py:153",
     queueByPlace,

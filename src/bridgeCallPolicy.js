@@ -147,8 +147,12 @@ function isBridgeWritePair(service, method) {
  *                                entries' shape, saved, and answered the sheet: the page spells the queue and
  *                                reads its own sheet after. The handler saves the session's own character's
  *                                queue and takes no one's name. Carried on the game port alone.
+ *   skillHandler.ApplyFreeSkillPoints   free points put into one skill. Its route confirmed and called, with
+ *                                the skill and the points the page sent. The handler spends the points of
+ *                                the session's own character on a skill of its own, caps them at what the
+ *                                skill can take, and takes no one's name. Carried by either transport.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

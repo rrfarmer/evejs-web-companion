@@ -44,7 +44,7 @@ function skillsBody(freeSkillPoints: number) {
  */
 function makeFakeBff(options: {
   totals: number[];
-  applyResult?: number | null;
+  applyResult?: unknown;
   applyStatus?: number;
   applyBody?: unknown;
 }) {
@@ -61,11 +61,12 @@ function makeFakeBff(options: {
         return payload;
       },
     });
-    if (path === "/api/bridge/skills/apply-free-points") {
+    // The page's own call (bridge/skillWrites.ts): the handler answers the free points left.
+    if (path === "/api/bridge/call" && body.service === "skillHandler" && body.method === "ApplyFreeSkillPoints") {
       if (options.applyStatus && options.applyStatus !== 200) {
         return respond(options.applyStatus, options.applyBody);
       }
-      return respond(200, { ok: true, applied: true, result: options.applyResult ?? null });
+      return respond(200, { ok: true, service: "skillHandler", method: "ApplyFreeSkillPoints", result: options.applyResult ?? null, notifications: [] });
     }
     if (path.startsWith("/api/bridge/skills")) {
       const total = options.totals[Math.min(read, options.totals.length - 1)] ?? 0;
@@ -77,7 +78,7 @@ function makeFakeBff(options: {
   return { fetch: fakeFetch, requests };
 }
 
-test("the request names the skill by TYPE and carries confirm", async () => {
+test("the page's own call names the skill by TYPE and the points, as a pilot's and as a write it means; its route is not asked", async () => {
   const store = createClientStore();
   const bff = makeFakeBff({ totals: [50000, 44000], applyResult: 44000 });
   const flow = createAppFlow(store, { fetch: bff.fetch });
@@ -85,8 +86,10 @@ test("the request names the skill by TYPE and carries confirm", async () => {
   await flow.loadSkills();
   await flow.applyFreeSkillPoints(SKILL_TYPE_ID, 6000);
 
-  const write = bff.requests.find((r) => r.path === "/api/bridge/skills/apply-free-points");
-  assert.deepEqual(write?.body, { skills: SKILL_TYPE_ID, points: 6000, confirm: true });
+  const write = bff.requests.find((r) => r.path === "/api/bridge/call");
+  // skillsvc.ApplyFreeSkillPoints: GetSkillHandler().ApplyFreeSkillPoints(skillTypeID, pointsToApply).
+  assert.deepEqual(write?.body, { service: "skillHandler", method: "ApplyFreeSkillPoints", args: [SKILL_TYPE_ID, 6000], kwargs: null, pilot: true, confirm: true });
+  assert.deepEqual(bff.requests.filter((r) => r.path === "/api/bridge/skills/apply-free-points"), []);
 });
 
 test("what was SPENT is the difference between the totals, not what was asked", async () => {
@@ -143,7 +146,23 @@ test("the sheet is re-read, so the new total is on screen with the message", asy
 
   assert.equal(store.skills.get().freeSkillPoints, 44000);
   const order = bff.requests.map((r) => r.path);
-  const wrote = order.indexOf("/api/bridge/skills/apply-free-points");
+  const wrote = order.indexOf("/api/bridge/call");
   const reread = order.findIndex((p, i) => i > wrote && p.startsWith("/api/bridge/skills"));
   assert.ok(reread > wrote, "the sheet is re-read after the write");
+});
+
+test("what the handler answers is the receipt; where it answers no number, the sheet read after it is", async () => {
+  const spentBy = async (applyResult: unknown): Promise<string | null> => {
+    const store = createClientStore();
+    // The handler says 48,500 are left; the sheet read after it says 44,000.
+    const bff = makeFakeBff({ totals: [50000, 44000], applyResult });
+    const flow = createAppFlow(store, { fetch: bff.fetch });
+    await flow.loadSkills();
+    await flow.applyFreeSkillPoints(SKILL_TYPE_ID, 6000);
+    return store.skills.get().lastAction;
+  };
+  assert.equal(await spentBy(48500), "Applied 1,500 skill points");
+  for (const none of [null, "48500", { type: "long", value: "48500" }, [48500]]) {
+    assert.equal(await spentBy(none), "Applied 6,000 skill points", JSON.stringify(none));
+  }
 });

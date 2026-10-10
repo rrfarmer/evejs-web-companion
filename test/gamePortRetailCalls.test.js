@@ -1610,3 +1610,31 @@ test("a queue's saving is the client's when it is the whole queue by place and s
     assert.match(made.note, /whole queue/, why);
   }
 });
+
+test("free points put into a skill are the client's call when they name one skill and how many points, more than none, and nothing else", () => {
+  const apply = (args, kwargs = null) => retailForm("skillHandler", "ApplyFreeSkillPoints", args, kwargs);
+  // skillsvc.py 886: self.GetSkillHandler().ApplyFreeSkillPoints(skill.typeID, pointsToApply), on the handler's moniker.
+  for (const args of [[3327, 1200], [3300, 1]]) {
+    const made = apply(args);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker], ["same", "eve/client/script/ui/services/skillsvc.py:886", args, null, true], JSON.stringify(args));
+  }
+  // Anything else goes as it came, and is counted as differing: the client sends none of these.
+  for (const [args, kwargs, why] of [
+    [[3327, 0], null, "no points (the service sends nothing for none, 884)"],
+    [[3327, -5], null, "fewer than none"],
+    [[0, 100], null, "no skill"],
+    [[3327], null, "no points said"],
+    [[], null, "nothing"],
+    [[3327, 100, 1], null, "a third thing"],
+    [[3327, 100.5], null, "half a point"],
+    [["3327", 100], null, "a skill as text"],
+    [[3327, "100"], null, "points as text"],
+    [[null, null], null, "nothing for either"],
+    [[[3327], 100], null, "a list of skills"],
+    [[3327, 100], { force: true }, "a keyword"],
+  ]) {
+    const made = apply(args, kwargs);
+    assert.deepEqual([made.status, made.args, made.moniker], ["differs", args, true], why);
+    assert.match(made.note, /one skill/, why);
+  }
+});

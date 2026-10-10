@@ -56,11 +56,39 @@
 // whether a skill is in training. That is the panel's own save, at its closing,
 // which finds nothing changed: the service committed each change as it was made.)
 
+// FREE POINTS PUT INTO A SKILL, the third. Until 2026-10-10 it was
+// POST /api/bridge/skills/apply-free-points, which checked that the page had
+// said `confirm` and made one call with the skill and the points it was sent.
+// The client's counterpart is a skill's own menu, "apply skill points"
+// (skillQueueSvc.UseFreeSkillPoints, 926), offered where the character has free
+// points and the skill is below its fifth level; it asks how many, offering what
+// the skill wants for its next level, and then:
+//
+//   skillHandler.ApplyFreeSkillPoints(skillTypeID, pointsToApply)
+//                                  skillsvc.py 886: on the handler, the skill and the points. It answers
+//                                  the free points left. Not sent for a skill in training, one not known,
+//                                  more points than are held, or none (skillsvc.py 870 to 884).
+//
+// The page's button is that menu's entry with the amount it offers (what the
+// next level wants, or what is held if that is less: bridge/skills.ts,
+// freeSkillPointsPlan, which also keeps the button from a skill in training).
+// Either transport carries the call. The server judges it again whatever the
+// page reckoned, and what it answers is the receipt.
+
 import { failureCode, type Ask } from "./ask.ts";
+import type { JsonValue } from "./wire.ts";
 
 /** The queue panel's Pause: the skill in training stops, and the queue stays as it is. Fails as the call fails. */
 export async function pauseTraining(act: Ask): Promise<void> {
   await act("skillHandler", "AbortTraining", []);
+}
+
+/**
+ * Free points put into one skill. Answers what the handler answers, which is the free points left. Fails as the
+ * call fails.
+ */
+export async function applyFreePoints(act: Ask, skillTypeID: number, points: number): Promise<JsonValue> {
+  return act("skillHandler", "ApplyFreeSkillPoints", [skillTypeID, points]);
 }
 
 /** One place of a queue: a skill, and the level it is to be trained to. */

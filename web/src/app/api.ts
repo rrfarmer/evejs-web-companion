@@ -4608,27 +4608,9 @@ export async function scoopDrones(
   );
 }
 
-/**
- * Spend unallocated skill points into one skill (skillHandler.ApplyFreeSkillPoints).
- *
- * ⚠ ONE SKILL AT A TIME, BY TYPE. The server caps the amount at what the skill
- * is missing for its next level and at the free SP actually held, and refuses
- * outright for a skill that is currently training or that the character does not
- * know. It returns the NEW free-SP total, which is the only trustworthy answer
- * about what was actually spent.
- */
-export async function applyFreeSkillPoints(
-  skillTypeID: number,
-  points: number,
-  options: ApiOptions = {},
-): Promise<number | null> {
-  const data = await postJson(
-    "/api/bridge/skills/apply-free-points",
-    { skills: skillTypeID, points, confirm: true },
-    options,
-  );
-  return asNumberOrNull(data.result);
-}
+// Free skill points are put into a skill by the page itself, with the client's
+// own call (bridge/skillWrites.ts; the plan's Phase 6b): the third of its writes
+// to leave its route (POST /api/bridge/skills/apply-free-points), on 2026-10-10.
 
 // --- Overloading --------------------------------------------------------------
 //
