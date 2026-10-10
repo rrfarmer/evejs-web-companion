@@ -2338,6 +2338,34 @@ function gridWithGateFollowing(distanceM: number): SpaceSnapshot {
   } as unknown as SpaceSnapshot;
 }
 
+test("a follow order ends the gate approach, so a later JumpTo just outside jump range closes in again", () => {
+  // Seen live: three companions approached the called gate, the call lapsed and
+  // formation put them on the commander. At the next JumpTo the ones just
+  // outside jump range read FOLLOW plus the old `closingOn` as "closing" and
+  // waited at the gate until jumped by hand.
+  const approaching = decideCompanionAction(
+    REQUEST,
+    obs({ snapshot: gridWithAnchor(gridWithGate(50_000)), fleetBroadcast: fleetBroadcast("JumpTo", GATE) }),
+  );
+  assert.deepEqual(approaching.action, { kind: "approach", targetID: GATE });
+  assert.equal(approaching.memory.closingOn, GATE);
+
+  const following = decideCompanionAction(
+    REQUEST,
+    obs({ snapshot: gridWithAnchor(gridWithGateFollowing(50_000)) }),
+    approaching.memory,
+  );
+  assert.deepEqual(following.action, { kind: "keepAtRange", targetID: FC_SHIP, range: DEFAULT_FOLLOW_M });
+  assert.equal(following.memory.closingOn, null);
+
+  const called = decideCompanionAction(
+    REQUEST,
+    obs({ snapshot: gridWithAnchor(gridWithGateFollowing(3_000)), fleetBroadcast: fleetBroadcast("JumpTo", GATE) }),
+    following.memory,
+  );
+  assert.deepEqual(called.action, { kind: "approach", targetID: GATE });
+});
+
 test("a chat 'target <link>' from an ALLOWED sender locks the named ship, then fires once the lock is observed", () => {
   const request: FleetCompanionRequest = {
     ...REQUEST,
