@@ -791,8 +791,9 @@ are put into a skill by the client's own call too (`0c81ff1`), which either tran
 carries, so its route is not named by the page; and so is the ship's safety level set
 (`2783179`), whose check of the level is the server's now; and so is a contract taken
 on (`e1fa602`), for the character alone, once the server had been made to want the
-Contract Manager role of whoever accepts for a corporation (eve.js `378ef753f`). 131
-named now, 45 of them reads and 86 writes. Of the phase's "done when", "no
+Contract Manager role of whoever accepts for a corporation (eve.js `378ef753f`, and
+of whoever makes a contract for one or reads its containers: `cc27a59dd`, `4f6922a29`;
+all unpushed there). 131 named now, 45 of them reads and 86 writes. Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
 Of 6a's four things, three are carried by the socket or in process, each with a way back
 (the routes' operations, the pushes, the hosted bots), and the cap is lifted for what is
