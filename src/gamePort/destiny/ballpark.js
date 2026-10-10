@@ -9,16 +9,16 @@
 // client computes what the retail client computes.
 //
 //   destiny/src/Ballpark.cpp   Evolve (421), Integrate (751), EvolveBehaviorForBall (789),
-//                              EvolveFollow (1066), EvolveOldStyleOrbit (1249),
+//                              EvolveMissile (972), EvolveFollow (1066), EvolveOldStyleOrbit (1249),
 //                              EvolveStop (1339), GotoThrust (1398),
 //                              Gradient (2746), Potential (2789), AddBall (3303),
-//                              FollowBall (3879), Orbit (4007),
+//                              MissileFollow (3798), FollowBall (3879), Orbit (4007),
 //                              the orders (4471-4650) and the setters (4652-5090)
 //   destiny/src/Ball.cpp       ClientBall::InterpolatedPosition (1208) and InforceContinuity (877):
 //                              a ball between two ticks, as the client draws and measures it
 //   destiny/src/Collision.cpp  CollideTwoSpheres (108), Quadratic (136)
 //   destiny/src/Partition.cpp  which balls a ball can collide with (302, 344)
-//   destiny/src/Thunkers.cpp   reading a state into the park (2083, 2463, 2897) and
+//   destiny/src/Thunkers.cpp   LaunchMissile (857), reading a state into the park (2083, 2463, 2897) and
 //                              writing the park out as one (2145, 2202, 3180)
 //   destiny/src/Vector3d.h     the arithmetic, which is part of the result
 //
@@ -36,11 +36,13 @@
 // test/destinyBallpark.test.js requires them exactly.
 //
 // PORTED SO FAR: the integrator, STOP, GOTO, FOLLOW and ORBIT (the old style,
-// which is the library's default), WARP, a massive ball's collisions with
-// other balls, adding and removing balls, the orders and setters those need,
-// and reading and writing the state blob.
+// which is the library's default), WARP, MISSILE and its launch, a massive
+// ball's collisions with other balls, adding and removing balls, the orders
+// and setters those need, and reading and writing the state blob.
 // NOT YET, and each stops here or is counted rather than be guessed at:
-// MISSILE, FORMATION, MUSHROOM (evolve throws); a fixed ball's collision
+// FORMATION, MUSHROOM (evolve throws); the facing a missile is launched along
+// from a launcher at rest when it is not aimed (counted in
+// `unported.orientation`: launched along the unturned nose); a fixed ball's collision
 // shapes, its miniballs, capsules and boxes (counted in `unported.minis`: a
 // massive ball is stepped without them); the spatial partition, which here
 // only decides the order a ball's neighbours are taken in (counted in
@@ -172,7 +174,7 @@ class Ballpark {
      * `minis`: a massive ball stepped while a fixed ball in the park had collision shapes of its own.
      * `collisionOrder`: a ball that touched two others in one tick, taken here in order of id.
      */
-    this.unported = { minis: 0, collisionOrder: 0 };
+    this.unported = { minis: 0, collisionOrder: 0, orientation: 0 };
   }
 
   /** Ballpark::ClearAll (5896). */
@@ -679,6 +681,74 @@ class Ballpark {
     this._follow(MODE.ORBIT, id, targetId, range);
   }
 
+  /**
+   * Ballpark::MissileFollow (3798): the missile flies at what it is aimed at,
+   * straight along its launch for a moment first. It is stopped before the
+   * last two checks, so a missile refused by them is left stopped.
+   */
+  missileFollow(id, targetId, ownerId) {
+    if (id === targetId || id === ownerId || targetId === ownerId) return;
+    const missile = this.balls.get(id);
+    const target = this.balls.get(targetId);
+    if (!missile || !target) return;
+    if (target.isMoribund) return; // a dead ball cannot be followed
+    this.stop(id);
+    // The source also refuses a target in another bubble. A client's balls carry no bubble of their own.
+    if (target.isCloaked) return;
+    missile.followId = targetId;
+    missile.followPtr = target;
+    // Negative, so that it makes for the target's centre and not its surface. A float sum, stored as a float.
+    missile.followRange = -f32(missile.radius + target.radius);
+    missile.ownerId = ownerId;
+    // Counted from here, the ticks it flies straight before it turns to follow.
+    missile.effectStamp = this.currentTime;
+    missile.goto = scale(normalize(missile.newVel), 1.0e16);
+    missile.speedFraction = 1.0;
+    this._setMode(missile, MODE.MISSILE);
+    target.followers.add(id);
+  }
+
+  /**
+   * Ballpark::PyLaunchMissile (Thunkers.cpp 857): the missile is put where its
+   * launcher is, given its launch velocity, and sent after the target. An aimed
+   * launch is a unit velocity at the target; any other is the launcher's own
+   * velocity and at least 150 m/s more along it. A negative owner id marks a
+   * defender missile; its launcher is the ball of the id without the sign.
+   */
+  launchMissile(id, targetId, ownerId, aimedLaunch, massive) {
+    if (targetId < 0) throw new Error("Can not launch missile on a negative ballID");
+    const launcher = this.balls.get(ownerId < 0 ? -ownerId : ownerId);
+    if (!launcher) return;
+    const target = targetId !== ownerId ? this.balls.get(targetId) ?? null : null;
+    let maxVelocity = 0.0;
+    const ps = launcher.newPos;
+    let v0;
+    if (target && Number(aimedLaunch) === 1 && !target.isCloaked) {
+      v0 = normalize(sub(target.newPos, ps));
+    } else {
+      const vs = launcher.newVel;
+      maxVelocity = launcher.maxVelocity;
+      let direction = normalize(vs);
+      if (lengthSq(direction) === 0.0) {
+        // A launcher at rest launches along its nose, (0, 0, -1) turned by its yaw, pitch and roll. Orientation
+        // is not ported: this is the nose of a ball that has never turned, which is what CCP's own test sees.
+        this.unported.orientation += 1;
+        direction = vec(0.0, 0.0, -1.0);
+      }
+      // std::max(150.0, maxVelocity)
+      v0 = add(vs, scale(direction, 150.0 < maxVelocity ? maxVelocity : 150.0));
+    }
+    if (massive) this.setBallMassive(id, 1);
+    this.setBallPosition(id, ps.x, ps.y, ps.z);
+    this.setBallVelocity(id, v0.x, v0.y, v0.z);
+    if (target && target.isCloaked) return;
+    if (!target) {
+      if (maxVelocity > 0.0) this.gotoDirection(id, v0.x, v0.y, v0.z);
+      return;
+    }
+    this.missileFollow(id, targetId, ownerId);
+  }
+
   /** Ballpark::GotoPoint (4529). */
   gotoPoint(id, x, y, z) {
     const ball = this.balls.get(id);
@@ -1020,6 +1090,27 @@ class Ballpark {
   }
 
   /**
+   * Ballpark::EvolveMissile (972): straight on along the launch while the
+   * launch is no more than 800 ms old, which with one-second ticks is the
+   * launch tick alone. Then at where the target will be by the time the
+   * missile could reach it standing still, with no easing off at the end.
+   */
+  _evolveMissile(ball) {
+    if ((this.currentTime - ball.effectStamp) * this.tickInterval <= 800) return this.gotoThrust(ball, ball.goto);
+    const other = ball.followPtr;
+    const otherPos = other.newPos;
+    const delta = sub(ball.newPos, otherPos);
+    const dist = length(delta);
+    const cT = dist / ball.maxVelocity;
+    let target = add(otherPos, scale(other.newVel, cT));
+    const r = ball.followRange + ball.radius + other.radius;
+    // Right on top of it: go out along x. Otherwise the range along the line between them.
+    target = dist === 0.0 ? add(otherPos, scale(vec(1.0, 0.0, 0.0), r)) : add(target, divide(scale(delta, r), dist));
+    ball.goto = target;
+    return this.gotoThrust(ball, target, true);
+  }
+
+  /**
    * Ballpark::EvolveOldStyleOrbit (1249). The plane of the orbit comes from the
    * low sixteen bits of the orbiter's id and from the tick counter, so two
    * simulations agree only if they agree on what tick it is.
@@ -1091,6 +1182,8 @@ class Ballpark {
         a = this._evolveWarp(ball);
         break;
       case MODE.MISSILE:
+        a = this._evolveMissile(ball);
+        break;
       case MODE.FORMATION:
         throw new DestinyNotPorted(`The ${MODE_NAME[ball.mode]} mode`);
       default:
@@ -1101,9 +1194,9 @@ class Ballpark {
   }
 
   /**
-   * Ballpark::Gradient (2746), with Partition::GetCollisionCandidates (302)
-   * for a ball that is not a missile: what a massive ball's neighbours do to it
-   * this tick, left in its lastC. `all` is every ball in the park in order of id.
+   * Ballpark::Gradient (2746), with Partition::GetCollisionCandidates (302):
+   * what a massive ball's neighbours do to it this tick, left in its lastC.
+   * `all` is every ball in the park in order of id.
    *
    * The source asks its partition for the balls near enough to matter; this
    * asks every ball, and Potential answers "no contact" for the far ones. What
@@ -1112,21 +1205,32 @@ class Ballpark {
    */
   _gradient(ball, all) {
     this.gradients += 1;
-    for (const neighbor of all) {
-      // Partition::GetNearbyBalls (344): not itself, not the dead, not the cloaked or the massless, not a
-      // missile; and a force field is no obstacle to its own.
-      if (neighbor === ball || neighbor.isMoribund) continue;
-      if (neighbor.isCloaked || !neighbor.isMassive) continue;
-      if (neighbor.mode === MODE.FIELD) {
-        if (ball.harmonic === -2) continue;
-        if (neighbor.harmonic !== -1 && neighbor.harmonic === ball.harmonic) continue;
-        if (neighbor.corporationID !== -1 && neighbor.corporationID === ball.corporationID) continue;
-        if (neighbor.allianceID !== -1 && neighbor.allianceID === ball.allianceID) continue;
+    const missile = ball.mode === MODE.MISSILE;
+    // GetCollisionCandidates: a missile's only candidate is what it is aimed at, unless its owner id is negative
+    // (a defender missile), which sees what any ball sees and missiles too. The source checks the two share a
+    // bubble; a client's balls carry no bubble of their own.
+    const aimedOnly = missile && !(ball.ownerId < 0);
+    const candidates = aimedOnly ? (ball.followPtr ? [ball.followPtr] : []) : all;
+    for (const neighbor of candidates) {
+      if (!aimedOnly) {
+        // Partition::GetNearbyBalls (344): not itself, not the dead, not the cloaked or the massless, not a
+        // missile unless the ball is a defender; and a force field is no obstacle to its own.
+        if (neighbor === ball || neighbor.isMoribund) continue;
+        if (neighbor.isCloaked || !neighbor.isMassive) continue;
+        if (neighbor.mode === MODE.FIELD) {
+          if (ball.harmonic === -2) continue;
+          if (neighbor.harmonic !== -1 && neighbor.harmonic === ball.harmonic) continue;
+          if (neighbor.corporationID !== -1 && neighbor.corporationID === ball.corporationID) continue;
+          if (neighbor.allianceID !== -1 && neighbor.allianceID === ball.allianceID) continue;
+        }
+        if (!missile && neighbor.mode === MODE.MISSILE) continue;
       }
-      if (neighbor.mode === MODE.MISSILE) continue;
-      // Gradient itself: not a mushroom of the ball's own, and wreckage only troubles wreckage. (Its lines
-      // about missiles are for a ball that is one, or a neighbour that is one: neither gets this far.)
-      if (neighbor.mode === MODE.MUSHROOM && byId(ball.id, neighbor.ownerId) === 0) continue;
+      // Gradient itself: a missile does not hit its launcher, nor a miniball of its launcher's; a launcher is not
+      // hit by its own missile or mushroom, nor a target by the missile aimed at it; and wreckage only troubles
+      // wreckage.
+      if (missile && (byId(neighbor.id, ball.ownerId) === 0 || (neighbor.mode === MODE.MINIBALL && byId(neighbor.ownerId, ball.ownerId) === 0))) continue;
+      if ((neighbor.mode === MODE.MISSILE || neighbor.mode === MODE.MUSHROOM) && byId(ball.id, neighbor.ownerId) === 0) continue;
+      if (neighbor.mode === MODE.MISSILE && byId(ball.id, neighbor.followId) === 0) continue;
       if (neighbor.isSpaceJunk && !ball.isSpaceJunk) continue;
       this._potential(ball, neighbor, 0);
     }
@@ -1239,7 +1343,9 @@ class Ballpark {
         // What its neighbours do to it, from where they all are before anyone has moved. mLastCollision
         // is when in the tick it last touched something: nothing yet.
         all ??= [...this.balls.values()].sort((a, b) => byId(a.id, b.id));
-        if (all.some((each) => !each.isFree && (each.miniBalls?.length || each.miniCapsules?.length || each.miniBoxes?.length))) this.unported.minis += 1;
+        // A missile or a mushroom never meets a fixed ball's shapes (Gradient, 2780).
+        const seesShapes = ball.mode !== MODE.MISSILE && ball.mode !== MODE.MUSHROOM;
+        if (seesShapes && all.some((each) => !each.isFree && (each.miniBalls?.length || each.miniCapsules?.length || each.miniBoxes?.length))) this.unported.minis += 1;
         ball.lastCollision = -1.0;
         this._gradient(ball, all);
       }

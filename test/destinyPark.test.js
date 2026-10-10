@@ -572,12 +572,12 @@ test("an entry that fails does not stop the ones after it, and is counted by nam
   const park = simplePark();
   const told = [];
   park.onFail = (name, error) => told.push([name, error.message]);
-  park.flushState([[100, ["LaunchMissile", [1, 2, 3, 4]]], [100, ["NoSuchThing", [1]]], [100, ["GotoDirection", [1, 1, 0, 0]]]], false);
+  park.flushState([[100, ["AddMushroom", [1, 2, 3, 4]]], [100, ["NoSuchThing", [1]]], [100, ["GotoDirection", [1, 1, 0, 0]]]], false);
   park.doPreTick();
-  assert.deepEqual([...park.failed].sort(), [["LaunchMissile", 1], ["NoSuchThing", 1]]);
+  assert.deepEqual([...park.failed].sort(), [["AddMushroom", 1], ["NoSuchThing", 1]]);
   assert.equal(park.ballpark.ball(1).mode, MODE.GOTO);
   // Whoever keeps the park is told which and why, as the client's log is.
-  assert.deepEqual(told, [["LaunchMissile", "LaunchMissile cannot be applied"], ["NoSuchThing", "NoSuchThing cannot be applied"]]);
+  assert.deepEqual(told, [["AddMushroom", "AddMushroom cannot be applied"], ["NoSuchThing", "NoSuchThing cannot be applied"]]);
   park.doDestinyUpdate([[100, ["PackagedAction", Buffer.from("not marshal")]]], false);
   assert.equal(told.at(-1)[0], "PackagedAction");
 });
@@ -611,6 +611,25 @@ test("orders reach the simulation with the client's defaults and conversions", (
   // The engine refuses to follow or orbit a negative id; the entry fails and the ball carries on as it was.
   apply(["SetBallFree", [1, 1]], ["GotoDirection", [1, 1, 0, 0]], ["FollowBall", [1, -3]], ["Orbit", [1, -3]]);
   assert.deepEqual([ball(1).mode, [...park.failed].sort()], [MODE.GOTO, [["FollowBall", 1], ["Orbit", 1]]]);
+});
+
+test("a missile launched by an entry flies after its target, and the park goes on stepping around it", () => {
+  const park = simplePark();
+  const ball = (id) => park.ballpark.ball(id);
+  const apply = (...entries) => { park.flushState(entries.map((entry) => [park.currentTime, entry]), false); park.doPreTick(); };
+  // The server adds the missile ball, then launches it: (missile, target, launcher, aimed, massive), as Python longs and ints.
+  park.ballpark.addBall({ id: 3, isFree: true, mass: 1e4, radius: 5, maxVelocity: 3000, agility: 0.01, speedFraction: 1, x: 900 });
+  apply(["LaunchMissile", [3n, 2n, 1n, 1, 1]]);
+  assert.deepEqual([...park.failed], []);
+  assert.deepEqual([ball(3).mode, ball(3).followId, ball(3).ownerId, ball(3).isMassive, ball(3).newPos, ball(3).newVel], [MODE.MISSILE, 2, 1, true, { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }]);
+  // The step that froze every companion's picture of the grid when a missile was in it.
+  const time = park.currentTime;
+  for (let tick = 0; tick < 3; tick += 1) park.tick();
+  assert.equal(park.currentTime, time + 3);
+  assert.ok(ball(3).newPos.x > 0);
+  // Five arguments, none optional, and no launch at a negative id: either way the entry fails and nothing moves.
+  apply(["LaunchMissile", [1, 2, 3, 1]], ["LaunchMissile", [1, -2, 3, 1, 1]]);
+  assert.deepEqual([...park.failed], [["LaunchMissile", 2]]);
 });
 
 test("the warp orders reach the simulation, with the engine's defaults and its refusal of a fractional warp factor", () => {

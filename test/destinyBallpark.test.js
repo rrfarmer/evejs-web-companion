@@ -327,10 +327,8 @@ test("a ball with no friction to speak of takes the series form of the step", ()
 test("what is not ported yet stops the step by name instead of being guessed at", () => {
   const park = new Ballpark();
   const ball = spaceBall(park);
-  for (const mode of [MODE.MISSILE, MODE.FORMATION]) {
-    ball.mode = mode;
-    assert.throws(() => park.evolve(), (error) => error instanceof DestinyNotPorted && /mode is not ported/.test(error.message));
-  }
+  ball.mode = MODE.FORMATION;
+  assert.throws(() => park.evolve(), (error) => error instanceof DestinyNotPorted && /mode is not ported/.test(error.message));
   // Modes that have no thrust coast like any other ball.
   ball.mode = MODE.TROLL;
   park.setBallVelocity(ball.id, 5, 0, 0);
@@ -341,7 +339,7 @@ test("what is not ported yet stops the step by name instead of being guessed at"
   park.setBallMassive(ball.id, false);
   park.evolve();
   assert.equal(park.gradients, 1);
-  assert.deepEqual(park.unported, { minis: 0, collisionOrder: 0 });
+  assert.deepEqual(park.unported, { minis: 0, collisionOrder: 0, orientation: 0 });
 });
 
 test("a moribund ball is not stepped", () => {
@@ -1885,4 +1883,179 @@ test("a ball that was there at the driver's very first step is drawn off its pat
   const now = step();
   assert.deepEqual([ball.oldTime, ball.newTime], [now - 2000, now - 1000]);
   assert.deepEqual(park.drawn(ball, now + 500), park.between(ball, 0.5));
+});
+
+// ── missiles (test_missile.py, test_movement_controls.py TestMissileFollow) ─
+
+/** TestMissile.setUp: a target 1000 km out, a launcher, a big ball in the way at 2 km, and the missile. */
+function missileRange() {
+  const park = new Ballpark();
+  const dst = spaceBall(park, { id: 1, x: 1e6 });
+  const owner = spaceBall(park, { id: 2 });
+  const collider = spaceBall(park, { id: 3, x: 2e3 });
+  park.setBallRadius(collider.id, 1.9e3);
+  const missile = spaceBall(park, { id: 4 });
+  park.setMaxSpeed(missile.id, 300);
+  park.setBallAgility(missile.id, 0.01);
+  park.setBallMass(missile.id, 1e4);
+  return { park, dst, owner, collider, missile };
+}
+
+/** unittest's assertAlmostEqual: equal once rounded to `places` decimals. */
+const almost = (actual, expected, places = 7) => assert.ok(Math.round((actual - expected) * 10 ** places) === 0, `${actual} is not ${expected} to ${places} places`);
+
+function evolveTimes(park, ticks) {
+  for (let tick = 0; tick < ticks; tick += 1) park.evolve();
+}
+
+test("CCP test_not_aimed_not_massive_from_stationary: launched backwards at 150 m/s, then after the target, through the ball in the way", () => {
+  const { park, dst, owner, collider, missile } = missileRange();
+  park.launchMissile(missile.id, dst.id, owner.id, 0, 0);
+  almost(missile.newVel.x, 0.0);
+  almost(missile.newVel.y, 0.0);
+  almost(missile.newVel.z, -150);
+  // The launcher's facing is not ported: its unturned nose, and counted.
+  assert.equal(park.unported.orientation, 1);
+  evolveTimes(park, 20);
+  almost(missile.newVel.x, missile.maxVelocity * missile.speedFraction, 2);
+  assert.ok(Math.abs(missile.newVel.y) <= 0.5 && Math.abs(missile.newVel.z) <= 0.5);
+  assert.deepEqual(collider.newPos, vec(2e3, 0, 0));
+});
+
+test("CCP test_not_aimed_not_massive_from_moving: launched along the launcher's velocity with 150 m/s on top", () => {
+  const { park, dst, owner, collider, missile } = missileRange();
+  park.setBallVelocity(owner.id, 0, 0, 10);
+  park.launchMissile(missile.id, dst.id, owner.id, 0, 0);
+  park.setBallVelocity(owner.id, 0, 0, 0);
+  almost(missile.newVel.x, 0.0);
+  almost(missile.newVel.y, 0.0);
+  almost(missile.newVel.z, 160);
+  assert.equal(park.unported.orientation, 0);
+  evolveTimes(park, 20);
+  almost(missile.newVel.x, missile.maxVelocity * missile.speedFraction, 4);
+  almost(missile.newVel.y, 0.0, 0);
+  almost(missile.newVel.z, 0.0, 0);
+  assert.deepEqual(collider.newPos, vec(2e3, 0, 0));
+});
+
+for (const massive of [0, 1]) {
+  test(`CCP test_aimed_${massive ? "" : "not_"}massive: an aimed missile leaves at 1 m/s straight at the target and flies through what is in the way`, () => {
+    const { park, dst, owner, collider, missile } = missileRange();
+    park.launchMissile(missile.id, dst.id, owner.id, 1, massive);
+    if (!massive) {
+      almost(missile.newVel.x, 1.0);
+      almost(missile.newVel.y, 0.0);
+      almost(missile.newVel.z, 0.0);
+    }
+    evolveTimes(park, 20);
+    almost(missile.newVel.x, missile.maxVelocity * missile.speedFraction, 4);
+    almost(missile.newVel.y, 0.0, 4);
+    almost(missile.newVel.z, 0.0, 4);
+    assert.deepEqual(collider.newPos, vec(2e3, 0, 0));
+    assert.ok(missile.newPos.x > collider.newPos.x);
+  });
+}
+
+test("CCP TestMissileFollow: ids, a range of minus both radii, the mode, and no following a dead ball", () => {
+  const park = new Ballpark();
+  const [src, dst, owner] = [1, 2, 3].map((id) => park.addBall({ id }));
+  park.setBallRadius(src.id, 1.0);
+  park.setBallRadius(dst.id, 2.0);
+  park.missileFollow(src.id, dst.id, owner.id);
+  assert.deepEqual([src.followId, src.ownerId, src.followRange, src.mode, src.speedFraction], [dst.id, owner.id, -3.0, MODE.MISSILE, 1.0]);
+  assert.ok(dst.followers.has(src.id));
+  // test_stop_missile
+  park.stop(src.id);
+  assert.deepEqual([src.mode, src.followId, src.followRange, dst.followers.has(src.id)], [MODE.STOP, 0, 0, false]);
+  // test_can_not_follow_moribund_ball
+  park.removeBall(dst.id);
+  park.missileFollow(src.id, dst.id, owner.id);
+  assert.notEqual(src.followId, dst.id);
+});
+
+test("a missile flies straight on its launch tick, then leads its target and closes on it", () => {
+  const park = new Ballpark();
+  const target = spaceBall(park, { id: 1, x: 5e3, maxVelocity: 100 });
+  park.setBallRadius(target.id, 50); // a frigate, more or less
+  park.gotoDirection(target.id, 0, 1, 0);
+  park.setBallVelocity(target.id, 0, 95, 0);
+  const owner = spaceBall(park, { id: 2 });
+  // Light and nimble, as TestMissile makes its missile.
+  const missile = spaceBall(park, { id: 3, maxVelocity: 3000, mass: 1e4 });
+  park.setBallAgility(missile.id, 0.01);
+  park.launchMissile(missile.id, target.id, owner.id, 1, 1);
+  assert.equal(missile.effectStamp, park.currentTime);
+  assert.deepEqual(missile.goto, scale(vec(1, 0, 0), 1.0e16));
+  park.evolve();
+  // The launch tick: at the point far down the launch line, as a GOTO does.
+  assert.deepEqual(missile.goto, scale(vec(1, 0, 0), 1.0e16));
+  // After it: where the target will be once the missile could get there. Its range is minus both radii, so
+  // none of the line between them is added: the point is the target's, led by its velocity.
+  const [from, at, going] = [missile.newPos, target.newPos, target.newVel];
+  park.evolve();
+  const [dx, dy, dz] = [from.x - at.x, from.y - at.y, from.z - at.z];
+  const cT = Math.sqrt(dx * dx + dy * dy + dz * dz) / missile.maxVelocity;
+  assert.equal(missile.followRange + missile.radius + target.radius, 0);
+  assert.deepEqual(missile.goto, vec(at.x + going.x * cT, at.y + going.y * cT, at.z + going.z * cT));
+  assert.ok(missile.goto.y > at.y, "it aims ahead of the target, the way it is going");
+  // It reaches the target: the tick it does, the two touch, and the target is among what it met.
+  let hit = false;
+  for (let tick = 0; tick < 10 && !hit; tick += 1) {
+    park.evolve();
+    hit = missile.collisions.includes(target.id);
+  }
+  assert.ok(hit, "it reaches the target");
+  // The target gone, it flies on the way it was going, colliding with nothing.
+  park.removeBall(target.id);
+  assert.deepEqual([missile.mode, missile.isMassive], [MODE.GOTO, false]);
+});
+
+test("a missile meets only what it is aimed at, a defender missile what any ball meets, missiles too", () => {
+  // A target far down x, and a bystander and a second missile on the way, all of them still.
+  const flight = (ownerSign) => {
+    const park = new Ballpark();
+    const target = spaceBall(park, { id: 1, x: 1e5 });
+    const owner = spaceBall(park, { id: 2 });
+    const bystander = spaceBall(park, { id: 3, x: 1e3 });
+    const other = spaceBall(park, { id: 4, x: 2e3 });
+    park.missileFollow(other.id, target.id, 9);
+    park.setSpeedFraction(other.id, 0);
+    const missile = spaceBall(park, { id: 5, maxVelocity: 1000 });
+    park.launchMissile(missile.id, target.id, ownerSign * owner.id, 1, 1);
+    const met = new Set();
+    for (let tick = 0; tick < 12; tick += 1) {
+      park.evolve();
+      for (const id of missile.collisions) met.add(id);
+    }
+    // Nothing it passed through has been touched by it.
+    assert.ok(!owner.collisions.includes(missile.id) && !bystander.collisions.includes(missile.id) && !other.collisions.includes(missile.id));
+    assert.equal(park.unported.minis, 0);
+    return [...met].sort();
+  };
+  // A missile meets nothing on the way. A defender (owner id negative) meets the bystander and the other missile,
+  // and its own launcher too: Gradient compares the neighbour's id with the owner id as signed, so it never matches.
+  assert.deepEqual(flight(1), []);
+  assert.deepEqual(flight(-1), [2, 3, 4]);
+});
+
+test("LaunchMissile is refused at a negative target, and does nothing for a launcher not in the park", () => {
+  const park = new Ballpark();
+  const missile = spaceBall(park, { id: 4, x: 7 });
+  assert.throws(() => park.launchMissile(4, -1, 2, 1, 1), /Can not launch missile on a negative ballID/);
+  park.launchMissile(4, 1, 2, 1, 1);
+  assert.deepEqual([missile.mode, missile.newPos], [MODE.STOP, vec(7, 0, 0)]);
+});
+
+test("a missile read in from a state is stepped like any other ball, and the park's clock goes on", () => {
+  const park = new Ballpark();
+  park.readState(blobOf([
+    record({ id: 1, position: vec(1e6, 0, 0), flags: FLAG.FREE | FLAG.MASSIVE }),
+    record({ id: 2, mode: MODE.MISSILE, maxVelocity: 3000, followId: 1, followRange: -20, ownerId: 3, effectStamp: 400, goto: vec(1e16, 0, 0) }),
+  ]));
+  const missile = park.ball(2);
+  assert.equal(missile.followPtr, park.ball(1));
+  const time = park.currentTime;
+  evolveTimes(park, 5);
+  assert.equal(park.currentTime, time + 5);
+  assert.ok(missile.newPos.x > 0 && missile.newVel.x > 0);
 });

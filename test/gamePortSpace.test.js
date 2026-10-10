@@ -169,9 +169,9 @@ test("what goes wrong in the park's own time is reported and does not stop it", 
   await other.space.start();
   for (const update of destinyUpdates(undock).slice(0, 5)) other.space.feed({ method: "DoDestinyUpdate", args: [{ type: "list", items: update.entries }, update.waitForBubble] });
   other.state.tick();
-  other.space.feed({ method: "DoDestinyUpdate", args: [{ type: "list", items: [[other.space.park.currentTime, [Buffer.from("LaunchMissile"), [1, 2, 3, 4]]]] }, false] });
+  other.space.feed({ method: "DoDestinyUpdate", args: [{ type: "list", items: [[other.space.park.currentTime, [Buffer.from("AddMushroom"), [1, 2, 3, 4]]]] }, false] });
   other.state.tick();
-  assert.deepEqual(other.state.errors, [["entry LaunchMissile", "LaunchMissile cannot be applied"]]);
+  assert.deepEqual(other.state.errors, [["entry AddMushroom", "AddMushroom cannot be applied"]]);
 });
 
 test("a park that has lost its place asks its remote ballpark for the whole state, as the client does", async () => {
