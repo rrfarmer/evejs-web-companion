@@ -497,6 +497,11 @@ class Park {
       case "Stop": return park.stopOrder(id);
       case "WarpTo": return park.warpTo(id, n(1), n(2), n(3), n(4, 20000.0), wholeNumber(n(5, 20), funcName));
       case "EntityWarpIn": return park.entityWarpIn(id, n(1), n(2), n(3), wholeNumber(n(4), funcName));
+      case "LaunchMissile": {
+        // Thunkers.cpp 857, "LLLbb": the missile, its target, its launcher, then whether it is aimed and massive. None is optional.
+        if (args.length < 5) throw new TypeError(`${funcName} takes exactly 5 arguments (${args.length} given)`);
+        return park.launchMissile(id, ballId(args[1]), ballId(args[2]), wholeNumber(Number(n(3)), funcName), wholeNumber(Number(n(4)), funcName));
+      }
       case "SetSpeedFraction": return park.setSpeedFraction(id, n(1));
       case "SetBallPosition": return park.setBallPosition(id, n(1), n(2), n(3));
       case "SetBallVelocity": return park.setBallVelocity(id, n(1), n(2), n(3));
@@ -514,7 +519,7 @@ class Park {
       case "CloakBall": return park.cloakBall(id, n(1));
       case "UncloakBall": return park.uncloakBall(id);
       default:
-        // LaunchMissile, AddMushroom and the formation orders: not ported. Anything
+        // AddMushroom and the formation orders: not ported. Anything
         // else: the client has no such method. Either way the entry fails.
         throw new Error(`${funcName} cannot be applied`);
     }
