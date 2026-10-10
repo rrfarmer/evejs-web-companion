@@ -2071,13 +2071,23 @@ export function decideCompanionAction(
   // cannot prove the previous formation is still in force. Keep the new
   // movement's own pending latch, but let formation resume when its job ends.
   if (decision.action.kind === "align") {
-    return { ...decision, memory: withoutIssuedFollow(decision.memory) };
+    return { ...decision, memory: withoutIssuedFollow(withoutStaleCloseIn(decision.action, decision.memory)) };
   }
   if (changesShipMovement(decision.action)) {
-    const next = { ...decision.memory, alignmentOrder: null };
+    const next = { ...withoutStaleCloseIn(decision.action, decision.memory), alignmentOrder: null };
     return { ...decision, memory: decision.action.kind === "keepAtRange" ? next : withoutIssuedFollow(next) };
   }
   return decision;
+}
+
+// `closingOn` stands for the approach that set it and nothing else. `decideCloseIn`
+// reads FOLLOW plus the latch as "our approach is running", and it cannot see
+// what the ship follows, so a later order (formation on the commander, say) left
+// under it turns a fresh JumpTo into a wait that never ends.
+function withoutStaleCloseIn(action: FleetCompanionAction, memory: CompanionLadderMemory): CompanionLadderMemory {
+  return memory.closingOn === null || (action.kind === "approach" && action.targetID === memory.closingOn)
+    ? memory
+    : { ...memory, closingOn: null };
 }
 
 function changesShipMovement(action: FleetCompanionAction): boolean {
