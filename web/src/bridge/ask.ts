@@ -9,8 +9,12 @@ import type { CallKwargs, JsonValue } from "./wire.ts";
 /**
  * One call of the server's, by its service and method, answered with its result. Fails as the call fails.
  * `kwargs` are the call's keywords, where the client's call has any.
+ *
+ * `of` is for a call the client makes on an object of the service's for a thing it names (its
+ * Moniker(service, what)): what that thing is, a planet's ID for the planet manager's object for that planet.
+ * A call asked of the service by its name has none.
  */
-export type Ask = (service: string, method: string, args: readonly JsonValue[], kwargs?: CallKwargs) => Promise<JsonValue>;
+export type Ask = (service: string, method: string, args: readonly JsonValue[], kwargs?: CallKwargs, of?: JsonValue) => Promise<JsonValue>;
 
 /** Why a call failed, in the code its failure carries. */
 export function failureCode(reason: unknown): string {

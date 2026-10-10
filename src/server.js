@@ -70,6 +70,7 @@ const { colonyRowOf, planetIDsOf, resourceRecordOf } = require("./planetInfoColo
 const {
   isBridgeWritePair,
   isPageWritePair,
+  objectOfPageCall,
   pickSafeBrowserSessionFields,
 } = require("./bridgeCallPolicy");
 const {
@@ -968,6 +969,28 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     });
     return;
   }
+  // A call the client makes on an object of the service's for a thing it names (its Moniker(service, what)) says
+  // which with `of`, and is made on the object bound for it. Only the page's own calls of that kind take one
+  // (bridgeCallPolicy.js): with one, any other is no call; and such a call without one is none either.
+  const objectKind = objectOfPageCall(body.service, body.method);
+  if ((body.of !== undefined && body.of !== null) !== (objectKind !== null)) {
+    res.status(400).json({
+      ok: false,
+      error: "INVALID_REQUEST",
+      message: objectKind !== null
+        ? `${body.service}.${body.method} is made on an object of its own: the call says which with "of".`
+        : `${body.service}.${body.method} is made on no object the page names.`,
+    });
+    return;
+  }
+  if (objectKind === "planet" && !(Number.isSafeInteger(body.of) && body.of > 0)) {
+    res.status(400).json({ ok: false, error: "INVALID_PLANET", message: "A positive planetID is required." });
+    return;
+  }
+  if (objectKind !== null && body.pilot !== true) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "A call on an object is a pilot's." });
+    return;
+  }
   // A call the page makes for a pilot, in place of a route that needed one held (the plan's Phase 6b): with none
   // held it is refused as that route refused, and is not taken for the account's.
   if (body.pilot === true && !requireHeldBridgeSession(req, res)) {
@@ -984,7 +1007,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     // screen), and the seam sends what the retail client asks there to where the account is (pilotTransport.js).
     // (A write is a pilot's, so one is held; and it is made under the checks every write of a held pilot's is
     // under, as its route made it.)
-    const outcome = write
+    // (A call on a planet's object goes by the bind its route went by: bound once for the planet and kept.)
+    const outcome = objectKind === "planet"
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
+        heldBridgeSession, req.webSessionID, planetBindSpec(body.of), body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      : write
       ? await heldTopLevelCall(heldBridgeSession, req.webSessionID, body.service, body.method, body.args, body.kwargs)
       : !heldBridgeSession && typeof gateway.accountCall === "function"
       ? await gateway.accountCall(body.service, body.method, body.args, body.kwargs, {

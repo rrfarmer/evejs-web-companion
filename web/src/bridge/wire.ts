@@ -43,6 +43,12 @@ export interface BridgeCallRequestBody {
    * pilot says both this and `pilot`; the BFF makes it only if it is one of the writes the page makes itself.
    */
   readonly confirm?: true;
+  /**
+   * What the object this call is made on is for: the client's Moniker(service, what), a planet's ID for a call on
+   * the planet manager's object for that planet. Said only for the page's own calls that are made on such an
+   * object (src/bridgeCallPolicy.js, PAGE_OBJECT_CALLS), which are not made without it.
+   */
+  readonly of?: JsonValue;
 }
 
 // --- Response envelopes ----------------------------------------------------

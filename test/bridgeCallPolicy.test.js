@@ -94,7 +94,7 @@ test("browser session projection retains only explicit language preferences", ()
 
 test("the writes the page makes itself are writes, each named once, and the first is the pause of training", () => {
   const { BRIDGE_WRITE_PAIR_KEYS, PAGE_WRITE_PAIR_KEYS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint"]);
+  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork"]);
   // The queue's saving is the client's own call, on its skill handler. The gateway's save of a queue is another
   // pair, a write as it always was, and its route's alone.
   assert.deepEqual([isBridgeWritePair("skillMgr", "SaveNewQueue"), isPageWritePair("skillMgr", "SaveNewQueue")], [true, false]);
@@ -114,4 +114,22 @@ test("the writes the page makes itself are writes, each named once, and the firs
   for (const [service, method] of [[["skillHandler"], "AbortTraining"], ["skillHandler", ["AbortTraining"]], [{ toString: () => "skillHandler" }, "AbortTraining"]]) {
     assert.deepEqual([isPageWritePair(service, method), isBridgeWritePair(service, method)], [false, false], JSON.stringify([service, method]));
   }
+});
+
+test("the page's calls that are made on an object of the service's own say what the object is for", () => {
+  const { PAGE_WRITE_PAIR_KEYS, objectOfPageCall } = require("../src/bridgeCallPolicy");
+  // eveMoniker.GetPlanet(planetID): a colony's network is changed on the planet's own object.
+  assert.equal(objectOfPageCall("planetMgr", "UserUpdateNetwork"), "planet");
+  // Asked of the service by its name, as the client asks them.
+  for (const [service, method] of [["planetMgr", "DeleteLaunch"], ["planetMgr", "GetPlanetsForChar"], ["beyonce", "CmdGotoPoint"], ["skillHandler", "SaveNewQueue"]]) {
+    assert.equal(objectOfPageCall(service, method), null, `${service}.${method}`);
+  }
+  // A name that is no pair's is none, whatever an object happens to have by that name.
+  for (const [service, method] of [["constructor", "prototype"], ["__proto__", "x"], ["toString", ""], ["planetMgr", ""], ["", ""]]) {
+    assert.equal(objectOfPageCall(service, method), null, `${service}.${method}`);
+  }
+  // A list of one name spells that name when it is made into text, and is no name.
+  assert.deepEqual([objectOfPageCall(["planetMgr"], "UserUpdateNetwork"), objectOfPageCall("planetMgr", ["UserUpdateNetwork"]), objectOfPageCall(null, undefined)], [null, null, null]);
+  // Every one of them is a write the page makes itself, so far.
+  assert.equal(PAGE_WRITE_PAIR_KEYS.includes("planetMgr.UserUpdateNetwork"), true);
 });

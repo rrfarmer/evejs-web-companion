@@ -207,8 +207,18 @@ function isBridgeWritePair(service, method) {
  *                                ship and on drones that ship controls, and answers for each drone that could
  *                                not. Asked of entity by its name; the game port makes it on a Moniker made
  *                                for the order, as a client does.
+ *   beyonce.CmdGotoPoint         the ship sent to a point. The route checked `confirm`, that the point was three
+ *                                finite numbers, that the pilot was in space, and that its ship and system were
+ *                                the ones the point was measured in, and made the call on a ballpark handle. The
+ *                                handler flies the session's own ship. The page reads its pilot's flight first
+ *                                and makes the same three refusals. Asked of beyonce by its name; the game port
+ *                                makes it on the ballpark's own object.
+ *   planetMgr.UserUpdateNetwork  a colony's network changed. The route checked `confirm` and that the planet was
+ *                                one, and made the call on the planet's own object. The handler changes the
+ *                                colony the session's own character has on that planet, and no other. It is a
+ *                                call on an object: the page says which planet with `of` (PAGE_OBJECT_CALLS).
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);
@@ -217,6 +227,25 @@ for (const pair of PAGE_WRITE_PAIR_KEYS) {
 /** Whether the page makes this write itself, by the generic call. */
 function isPageWritePair(service, method) {
   return typeof service === "string" && typeof method === "string" && pageWritePairKeySet.has(`${service}.${method}`);
+}
+
+/**
+ * The page's own calls that the client makes on an object of the service's for a thing it names (its
+ * Moniker(service, what)), by what that thing is. Such a call says which with `of`, and the BFF makes it on the
+ * object bound for it. Without one it is no call, and no other call takes one.
+ *
+ *   planetMgr.UserUpdateNetwork  "planet": eveMoniker.GetPlanet(planetID), which the client's planet keeps.
+ */
+const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet" });
+for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
+  if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's calls on an object and is none of its writes.`);
+}
+
+/** What the object of this call of the page's is for ("planet"), or null where the page names no object for it. */
+function objectOfPageCall(service, method) {
+  if (typeof service !== "string" || typeof method !== "string") return null;
+  // (A pair has a full stop in it, and nothing an object has of itself is named so.)
+  return PAGE_OBJECT_CALLS[`${service}.${method}`] ?? null;
 }
 
 // Presentation preference only. Identity, authority, character, corporation,
@@ -251,11 +280,13 @@ module.exports = {
   EARLIER_WRITE_PAIR_KEYS,
   FEATURE_WRITE_METHODS,
   FEATURE_WRITE_PAIR_KEYS,
+  PAGE_OBJECT_CALLS,
   PAGE_WRITE_PAIR_KEYS,
   PLUMBING_SWEEP_WRITE_METHODS,
   PLUMBING_SWEEP_WRITE_PAIR_KEYS,
   SAFE_BROWSER_SESSION_FIELDS,
   isBridgeWritePair,
   isPageWritePair,
+  objectOfPageCall,
   pickSafeBrowserSessionFields,
 };

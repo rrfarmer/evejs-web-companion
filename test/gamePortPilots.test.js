@@ -7880,3 +7880,51 @@ test("a ship sent to a point is the pilot's last order: an approach its ball sti
   assert.equal(already("CmdFollowBall", 9001, 50), false);
   assert.deepEqual(hand.errors, []);
 });
+
+// ── a colony's network changed ───────────────────────────────────────────────
+//
+// clientPlanet._SubmitChanges (171 to 180): self.remoteHandler.UserUpdateNetwork(self.changes.Serialize()), on the
+// planet's own object. Serialize (commandStream.py 185 to 232) answers a LIST of (command's number, its arguments as
+// a tuple). A route's path is a list. Recorded on Tranquility so: the restart of an extractor from the planets
+// window was one call of [(7, (routeID,)), (7, (routeID,)), (13, (pinID, typeID, headRadius)), (6, ((2, 1),
+// [pinID, pinID], typeID, quantity)), (6, ((2, 2), [pinID, pinID], typeID, quantity))].
+
+test("a colony's network changed goes as the client serializes it: a list of commands, each its number and a tuple, and a route's path a list", async () => {
+  const { answers } = planetAnswers({ "bound:UserUpdateNetwork": () => null });
+  const { pilots, session, handle } = await selected({ answers }, PLANET_PAIRS);
+  const { boundHandle } = await pilots.bindObject("planetMgr", "MachoBindObject", [40176368], null, FIELDS, handle);
+  const listOf = (...items) => ({ type: "list", items });
+  const change = (changes, ...more) => pilots.callBoundMethod("planetMgr", "UserUpdateNetwork", [changes, ...more], null, FIELDS, handle, boundHandle);
+  const [ECU, STORE] = [1054656331535, 1054656331531];
+  // The recorded restart, in the page's own JSON: arrays throughout.
+  await change([[7, [1620230403]], [7, [1620204024]], [13, [ECU, 2267, 0.0101]], [6, [[2, 1], [ECU, STORE], 2267, 3000]], [6, [[2, 2], [ECU, STORE], 2267, 414.5]]]);
+  assert.deepEqual(session.boundCalls.at(-1).args, [listOf(
+    [7, [1620230403]], [7, [1620204024]], [13, [ECU, 2267, 0.0101]],
+    [6, [[2, 1], listOf(ECU, STORE), 2267, 3000]], [6, [[2, 2], listOf(ECU, STORE), 2267, 414.5]],
+  )]);
+  assert.deepEqual(ledgerOf(pilots, "planetMgr.UserUpdateNetwork")[0], { reshaped: 1 });
+  // The client's other commands are tuples of plain things, and go so: a pin made, a link, a head.
+  await change([[1, [[1, 1], 2848, 1.5, 0.25]], [3, [[1, 1], STORE, 0]], [10, [ECU, 0, 1.5, 0.3]], [2, [STORE]]]);
+  assert.deepEqual(session.boundCalls.at(-1).args, [listOf([1, [[1, 1], 2848, 1.5, 0.25]], [3, [[1, 1], STORE, 0]], [10, [ECU, 0, 1.5, 0.3]], [2, [STORE]])]);
+  // No changes at all is a list too.
+  await change([]);
+  assert.deepEqual(session.boundCalls.at(-1).args, [listOf()]);
+  assert.deepEqual(ledgerOf(pilots, "planetMgr.UserUpdateNetwork")[0], { reshaped: 3 });
+
+  // What is not the client's goes as it came, and is counted so: no list of changes; a command that is no pair;
+  // a number that is no command's; arguments that are not that command's count; a route whose path is no list;
+  // and anything beside the changes.
+  const notTheClients = [
+    ["changes"], [[7, [5]], "and"], [[null]], [[7]], [[{ length: 2, 0: 7, 1: [5] }]], [[[7]]], [[[7, [5], 1]]], [[[0, [5]]]], [[[14, [5]]]], [[[7.5, [5]]]], [[["7", [5]]]],
+    [[[7, 5]]], [[[7, "5"]]], [[[7, [5, 6]]]], [[[13, [ECU, 2267]]]], [[[6, [[2, 1], "path", 2267, 1]]]], [[[6, [[2, 1], [ECU, STORE], 2267]]]],
+  ];
+  for (const args of notTheClients) {
+    await pilots.callBoundMethod("planetMgr", "UserUpdateNetwork", args, null, FIELDS, handle, boundHandle);
+    assert.deepEqual(session.boundCalls.at(-1).args, args, JSON.stringify(args));
+  }
+  await change([[7, [5]]], "more");
+  assert.deepEqual(session.boundCalls.at(-1).args, [[[7, [5]]], "more"]);
+  await pilots.callBoundMethod("planetMgr", "UserUpdateNetwork", [[[7, [5]]]], { force: true }, FIELDS, handle, boundHandle);
+  assert.deepEqual([session.boundCalls.at(-1).args, session.boundCalls.at(-1).kwargs], [[[[7, [5]]]], { force: true }]);
+  assert.deepEqual(ledgerOf(pilots, "planetMgr.UserUpdateNetwork")[0], { reshaped: 3, differs: notTheClients.length + 2 });
+});

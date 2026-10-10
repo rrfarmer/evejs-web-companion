@@ -217,3 +217,15 @@ test("a write the page means says so, and no other call does", async () => {
     { service: "skillHandler", method: "AbortTraining", args: [], kwargs: null, pilot: true },
   ]);
 });
+
+test("a call on a service's own object says what the object is for, and no other call does", async () => {
+  const { fetch, requests } = stubFetch(() => jsonResponse({ ok: true, service: "planetMgr", method: "UserUpdateNetwork", result: null, notifications: [] }));
+  await callMethod("planetMgr", "UserUpdateNetwork", [[]], null, { fetch, pilot: true, confirm: true, of: 40176368 });
+  await callMethod("planetMgr", "UserUpdateNetwork", [[]], null, { fetch, pilot: true, confirm: true });
+  await callMethod("planetMgr", "UserUpdateNetwork", [[]], null, { fetch, pilot: true, confirm: true, of: undefined });
+  assert.deepEqual(requests.map((request) => request.body), [
+    { service: "planetMgr", method: "UserUpdateNetwork", args: [[]], kwargs: null, pilot: true, confirm: true, of: 40176368 },
+    { service: "planetMgr", method: "UserUpdateNetwork", args: [[]], kwargs: null, pilot: true, confirm: true },
+    { service: "planetMgr", method: "UserUpdateNetwork", args: [[]], kwargs: null, pilot: true, confirm: true },
+  ]);
+});

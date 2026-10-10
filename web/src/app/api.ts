@@ -2331,10 +2331,10 @@ export function bridgeDo(options: ApiOptions = {}, clock?: (serverNowMs: number)
 }
 
 function asking(options: ApiOptions, clock: ((serverNowMs: number) => void) | undefined, write: boolean): Ask {
-  return async (service, method, args, kwargs = null) => {
+  return async (service, method, args, kwargs = null, of) => {
     const notificationSink = options.captureNotificationSink?.();
     // (The options are read as they stand now: a flow's token is another one after another pilot is chosen.)
-    const outcome = await callMethod(service, method, args, kwargs, { ...options, pilot: true, ...(write ? { confirm: true } : {}) });
+    const outcome = await callMethod(service, method, args, kwargs, { ...options, pilot: true, ...(write ? { confirm: true } : {}), ...(of !== undefined ? { of } : {}) });
     if (outcome.serverNowMs !== null) clock?.(outcome.serverNowMs);
     notificationSink?.(outcome.notifications as unknown as readonly JsonValue[]);
     return outcome.result;
@@ -4603,58 +4603,6 @@ export async function repairItems(
   options: ApiOptions = {},
 ): Promise<void> {
   await postJson("/api/bridge/station/repair", { itemIDs: [...itemIDs], confirm: true }, options);
-}
-
-/** Apply one PI network edit (restart an extractor programme). */
-export async function restartExtractorProgram(
-  planetID: number,
-  pinID: number,
-  resourceTypeID: number,
-  headRadius: number,
-  options: ApiOptions = {},
-): Promise<void> {
-  // Command 13 = INSTALLPROGRAM(pinID, programTypeID, headRadius).
-  //
-  // ⚠ THE RADIUS IS THE PIN'S OWN, SENT BACK. It is not "how wide": it is what
-  // sets how long the program runs, and the emulator refuses anything that is
-  // not a real number inside the drill-area bounds — null included, which is
-  // what this used to send on the belief that it meant "keep the current one".
-  // Every restart came back "Cannot install a program with a completely
-  // bonkers radius". The retail client reinstalls with the ECU's current
-  // headRadius too.
-  await postJson(
-    "/api/bridge/planet/network/update",
-    { planetID, changes: [[13, [pinID, resourceTypeID, headRadius]]], confirm: true },
-    options,
-  );
-}
-
-/**
- * Re-size an extractor's routes: remove the old ones and create the new ones
- * in ONE network edit, so the colony is never left with the extractor
- * unrouted between two submits.
- *
- * Command 7 = REMOVEROUTE(routeID); command 6 = CREATEROUTE(routeID, path,
- * typeID, quantity). A new route carries a temporary id the way the retail
- * client mints one (clientColony.GetTemporaryRouteID: the tuple (2, n)); the
- * server allocates the real id.
- */
-export async function rerouteExtractorRoutes(
-  planetID: number,
-  removeRouteIDs: readonly number[],
-  create: readonly { readonly path: readonly number[]; readonly typeID: number; readonly quantity: number }[],
-  options: ApiOptions = {},
-): Promise<void> {
-  const changes: JsonValue[] = [
-    ...removeRouteIDs.map((routeID): JsonValue => [7, [routeID]]),
-    ...create.map((route, index): JsonValue =>
-      [6, [[2, index + 1], [...route.path], route.typeID, route.quantity]]),
-  ];
-  await postJson(
-    "/api/bridge/planet/network/update",
-    { planetID, changes, confirm: true },
-    options,
-  );
 }
 
 /**

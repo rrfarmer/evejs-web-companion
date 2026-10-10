@@ -349,6 +349,7 @@ import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
+import { rerouteExtractorRoutes, restartExtractorProgram, type NewRoute } from "../bridge/planetWrites.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
@@ -895,6 +896,10 @@ export interface AppFlow {
    * order taken, never an arrival; refused where the pilot's flight is now another ship's or another system's.
    */
   flyToPoint(position: SpaceVector, shipID: number, solarSystemID: number): Promise<void>;
+  /** An extractor's programme installed again on a colony, by the client's own call on the planet's object. */
+  restartExtractor(planetID: number, pinID: number, resourceTypeID: number, headRadius: number): Promise<void>;
+  /** An extractor's routes removed and made anew, in one change of a colony's network. */
+  rerouteExtractor(planetID: number, removeRouteIDs: readonly number[], create: readonly NewRoute[]): Promise<void>;
   /**
    * Load the Mail panel: the whole inbox, plus the NAME of everyone who sent or
    * received a message. ⚠ The inbox is a DELTA SYNC the BFF cold-starts, so
@@ -4085,6 +4090,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const own = decodeMyFleetFinderAdvert(raw.myFleetFinderAdvert ?? null);
     const ownFleetName = own !== null && own.fleetName.trim().length > 0 ? own.fleetName : null;
     return { ads, ownFleetName };
+  }
+
+  /** A colony's network changed by the page's own call on the planet's object (bridge/planetWrites.ts). */
+  async function restartExtractor(planetID: number, pinID: number, resourceTypeID: number, headRadius: number): Promise<void> {
+    await restartExtractorProgram(bridgeDo, planetID, pinID, resourceTypeID, headRadius);
+  }
+  async function rerouteExtractor(planetID: number, removeRouteIDs: readonly number[], create: readonly NewRoute[]): Promise<void> {
+    await rerouteExtractorRoutes(bridgeDo, planetID, removeRouteIDs, create);
   }
 
   /** The ship sent to a point by the page's own call (bridge/movementWrites.ts), held to where the point was measured. */
@@ -12689,21 +12702,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             await api.warpToLaunch(action.launchID, callOptions);
             return;
           case "restartExtractor":
-            await api.restartExtractorProgram(
-              action.planetID,
-              action.pinID,
-              action.resourceTypeID,
-              action.headRadius,
-              callOptions,
-            );
+            await restartExtractor(action.planetID, action.pinID, action.resourceTypeID, action.headRadius);
             return;
           case "rerouteExtractor":
-            await api.rerouteExtractorRoutes(
-              action.planetID,
-              action.removeRouteIDs,
-              action.create,
-              callOptions,
-            );
+            await rerouteExtractor(action.planetID, action.removeRouteIDs, action.create);
             return;
           case "launchCommodities":
             await api.launchCommodities(
@@ -14040,6 +14042,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readFleetFinder,
     applyToJoinFleet,
     flyToPoint,
+    restartExtractor,
+    rerouteExtractor,
     loadMail,
     openMail,
     closeMail,

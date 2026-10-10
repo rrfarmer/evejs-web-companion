@@ -60,6 +60,8 @@ export interface CallMethodOptions {
   readonly pilot?: boolean;
   /** The call is a write the page means (wire.ts, BridgeCallRequestBody.confirm). */
   readonly confirm?: boolean;
+  /** What the object this call is made on is for (wire.ts, BridgeCallRequestBody.of). */
+  readonly of?: JsonValue;
 }
 
 /** Client-side (non-server) failure codes, alongside the wire's BridgeErrorCode set. */
@@ -139,6 +141,7 @@ export async function callMethod<TResult = JsonValue>(
     ...(options.session ? { session: options.session } : {}),
     ...(options.pilot === true ? { pilot: true as const } : {}),
     ...(options.confirm === true ? { confirm: true as const } : {}),
+    ...(options.of !== undefined ? { of: options.of } : {}),
   };
 
   let response: Response;

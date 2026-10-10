@@ -489,6 +489,21 @@ const oneBubbleBroadcast = (args, kwargs, context) => {
 
 /** droneFunctions.py: an order to drones names them as a list, as every recorded one does. */
 const dronesListed = ([drones, ...rest], kwargs) => ({ args: [list(drones), ...rest], kwargs });
+
+/** How many arguments each of a colony's commands has, by the command's number (commandStream.Serialize, 185 to 229). */
+const COLONY_COMMAND_ARGUMENTS = Object.freeze({ 1: 4, 2: 1, 3: 3, 4: 2, 5: 3, 6: 4, 7: 1, 8: 2, 9: 2, 10: 4, 11: 2, 12: 4, 13: 3 });
+const COLONY_CREATE_ROUTE = 6;
+// (A number that is no command's has no count, and no arguments are that many.)
+const aColonyCommand = (each) => Array.isArray(each) && each.length === 2 && Number.isInteger(each[0])
+  && Array.isArray(each[1]) && each[1].length === COLONY_COMMAND_ARGUMENTS[each[0]] && (each[0] !== COLONY_CREATE_ROUTE || Array.isArray(each[1][1]));
+/**
+ * clientPlanet._SubmitChanges (171 to 180): remoteHandler.UserUpdateNetwork(self.changes.Serialize()). Serialize
+ * answers a LIST of (the command's number, its arguments as a tuple), and a route's path, the second argument of
+ * CREATEROUTE, is a list. Everything else in a command is a plain thing, or a tuple of two for a temporary ID.
+ */
+const networkChanges = (args, kwargs) => (args.length === 1 && Array.isArray(args[0]) && args[0].every(aColonyCommand) && Object.keys(kwargs).length === 0
+  ? { args: [list(args[0].map(([command, given]) => [command, command === COLONY_CREATE_ROUTE ? [given[0], list(given[1]), ...given.slice(2)] : given]))], kwargs }
+  : { args, kwargs, status: "differs", note: "The client sends its changes alone: a list of commands, each a command's number and that command's own arguments." });
 /**
  * droneFunctions.Salvage (157 to 160): the drones, and the active target's ID, which is None where the pilot has
  * nothing targeted (it does not ask for one). Nought, the BFF's word for "any wreck", is none.
@@ -829,6 +844,8 @@ const RETAIL_CALLS = Object.freeze({
     "self.remoteHandler.GetPlanetResourceInfo(), on the planet's own object and with nothing: what the planet carries, and how rich each is. The transport keeps it by the planet (pilots.js)."),
   "planetMgr.DeleteLaunch": judged("eve/client/script/ui/shared/neocom/journal.py:464", oneLaunch,
     "sm.RemoteSvc('planetMgr').DeleteLaunch(launchID), by name: Remove on a launch in the journal's list, which the client then asks for afresh. No recording has one."),
+  "planetMgr.UserUpdateNetwork": reshaped("eve/client/script/environment/planet/clientPlanet.py:180", networkChanges,
+    "remoteHandler.UserUpdateNetwork(self.changes.Serialize()), on the planet's own object (eveMoniker.GetPlanet(planetID)): the changes a list of (the command's number, its arguments), a route's path a list. Recorded on Tranquility so. It answers the colony as it now is, which the client's planet takes for its own. A restart of an extractor is one call there (its routes removed, its programme installed, the routes made anew); the page's upkeep makes it two."),
   "planetMgr.UserLaunchCommodities": Object.freeze({
     status: "same",
     source: `${CLIENT_PLANET}:412`,
