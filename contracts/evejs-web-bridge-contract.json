@@ -1095,6 +1095,7 @@
     "genericBridgeWrites": [
       "contractProxy.AcceptContract",
       "crimewatch.SetSafetyLevel",
+      "planetMgr.DeleteLaunch",
       "skillHandler.AbortTraining",
       "skillHandler.ApplyFreeSkillPoints",
       "skillHandler.SaveNewQueue"

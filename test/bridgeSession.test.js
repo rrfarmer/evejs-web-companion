@@ -1223,6 +1223,34 @@ test("a contract taken on is a write of the page's own: its ID and for whom go a
   assert.deepEqual([(await accept([8100, true], { pilot: true, confirm: true })).response.status, gateway.calls.call.at(-1).args], [200, [8100, true]]);
 });
 
+test("a launch's record removed is a write of the page's own: its ID goes as it was sent", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  const remove = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "planetMgr", method: "DeleteLaunch", args: [500002], kwargs: null, ...more } });
+  const before = gateway.calls.call.length;
+  // A write, as the pause is: refused unless it is said to be a pilot's and to be meant.
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await remove(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  // The planet manager's other writes are their routes' alone, whatever is said.
+  for (const method of ["UserAbandonPlanet", "UserUpdateNetwork", "UserLaunchCommodities"]) {
+    const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "planetMgr", method, args: [], kwargs: null, pilot: true, confirm: true } });
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
+  }
+  assert.equal(gateway.calls.call.length, before);
+  const made = await remove({ pilot: true, confirm: true });
+  assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "planetMgr", "DeleteLaunch"]);
+  const sent = gateway.calls.call.at(-1);
+  assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["planetMgr", "DeleteLaunch", [500002], null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  // The route stands, and makes the same call.
+  const byRoute = await apiRequest(baseUrl, "/api/bridge/planet/launch/delete", { method: "POST", body: { launchID: 500002, confirm: true } });
+  const routed = gateway.calls.call.at(-1);
+  assert.deepEqual([byRoute.response.status, gateway.calls.call.length], [200, before + 2]);
+  assert.deepEqual([routed.service, routed.method, routed.args, routed.kwargs, routed.bridgeSessionID], [sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID]);
+});
+
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {
   const gateway = fakeGateway();
   const { baseUrl, app } = await startTestServer({ gateway });

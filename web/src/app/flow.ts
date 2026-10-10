@@ -103,6 +103,7 @@ import { applyFreePoints, pauseTraining, saveQueue, type QueuePlace } from "../b
 import { createTrainingSlots } from "../bridge/trainingSlots.ts";
 import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites.ts";
 import { acceptContract as acceptContractCall } from "../bridge/contractWrites.ts";
+import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates } from "../bridge/crimewatchReads.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates } from "../bridge/boundCrimewatch.ts";
@@ -12670,7 +12671,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             if (decodeInventoryRows(left.list, left.volumes).length > 0) {
               return "part of the launch did not fit; it stays listed for the next trip";
             }
-            await api.deleteLaunch(action.launchID, callOptions);
+            // The journal's Remove, as the client makes it (bridge/launchWrites.ts).
+            await removeLaunch(bridgeDo, action.launchID);
             return;
           }
           case "exportCustoms":

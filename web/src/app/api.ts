@@ -4835,15 +4835,9 @@ export async function getPiLaunches(options: ApiOptions = {}): Promise<readonly 
   return decodeLaunchDetails(data.launches);
 }
 
-/**
- * Delete one planetary launch RECORD (planetMgr.DeleteLaunch). Owner-scoped on
- * the server, and it removes the record only: the container and anything in
- * it stay in space. The BFF confirm-gates it, so callers send it only once
- * they have seen that container empty.
- */
-export async function deleteLaunch(launchID: number, options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/planet/launch/delete", { launchID, confirm: true }, options);
-}
+// A planetary launch's record is removed by the page itself, with the client's
+// own call (bridge/launchWrites.ts; the plan's Phase 6b): the sixth of its writes
+// to leave its route (POST /api/bridge/planet/launch/delete), on 2026-10-10.
 
 export async function launchCommodities(
   planetID: number,

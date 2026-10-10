@@ -202,6 +202,10 @@ const oneSafetyLevel = (args, kwargs) => (args.length === 1 && [0, 1, 2].include
 const oneContractForWhom = (args, kwargs) => (args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 && typeof args[1] === "boolean" && Object.keys(kwargs).length === 0
   ? {}
   : { status: "differs", note: "The client names the one contract and says whether it is taken on for the corporation, and nothing else: AcceptContract(contractID, forCorp)." });
+/** journal.DeleteLaunchEntry (464): the one launch's ID, a whole number above nought, and nothing else. */
+const oneLaunch = (args, kwargs) => (args.length === 1 && Number.isSafeInteger(args[0]) && args[0] > 0 && Object.keys(kwargs).length === 0
+  ? {}
+  : { status: "differs", note: "The client names the one launch and nothing else: DeleteLaunch(launchID)." });
 /** A judge for a call the client sends with nothing: no argument, and no keyword. */
 const sentWithNothing = (args, kwargs) => (args.length === 0 && Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "The client sends nothing with this call." });
 const reshaped = (source, shape, note) => Object.freeze({ status: "reshaped", source, shape, note });
@@ -687,7 +691,8 @@ const RETAIL_CALLS = Object.freeze({
     "planetInfo = self.remoteHandler.GetPlanetInfo(), on the planet's own object (eveMoniker.GetPlanet(planetID)) and with nothing. Recorded on Tranquility riding the planet's bind: MachoBindObject(planetID, ('GetPlanetInfo', (), {})). The client asks when it first wants the planet and again when the server says the planet's state changed, reckoning the colony itself between; the transport keeps the answer a minute (pilots.js)."),
   "planetMgr.GetPlanetResourceInfo": judged(`${CLIENT_PLANET}:644`, sentWithNothing,
     "self.remoteHandler.GetPlanetResourceInfo(), on the planet's own object and with nothing: what the planet carries, and how rich each is. The transport keeps it by the planet (pilots.js)."),
-  "planetMgr.DeleteLaunch": same("eve/client/script/ui/shared/neocom/journal.py:464", "sm.RemoteSvc('planetMgr').DeleteLaunch(launchID), by name: Remove on a launch in the journal's list, which the client then asks for afresh. No recording has one."),
+  "planetMgr.DeleteLaunch": judged("eve/client/script/ui/shared/neocom/journal.py:464", oneLaunch,
+    "sm.RemoteSvc('planetMgr').DeleteLaunch(launchID), by name: Remove on a launch in the journal's list, which the client then asks for afresh. No recording has one."),
   "planetMgr.UserLaunchCommodities": Object.freeze({
     status: "same",
     source: `${CLIENT_PLANET}:412`,

@@ -1692,3 +1692,26 @@ test("a contract taken on is the client's call when it names the one contract an
     assert.match(made.note, /one contract/, why);
   }
 });
+
+test("a launch's record removed is the client's call when it names the one launch and nothing else", () => {
+  const remove = (args, kwargs = null) => retailForm("planetMgr", "DeleteLaunch", args, kwargs);
+  // journal.py 464: sm.RemoteSvc('planetMgr').DeleteLaunch(launchID), of the planet manager by its name.
+  const made = remove([500002]);
+  assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker], ["same", "eve/client/script/ui/shared/neocom/journal.py:464", [500002], null, false]);
+  // Anything else goes as it came, and is counted as differing.
+  for (const [args, kwargs, why] of [
+    [[], null, "no launch"],
+    [[0], null, "no launch's ID"],
+    [[-3], null, "an ID below nought"],
+    [[500002.5], null, "half an ID"],
+    [["500002"], null, "an ID as text"],
+    [[null], null, "nothing for the ID"],
+    [[500002, 140000005], null, "an owner beside it"],
+    [[[500002]], null, "a list of launches"],
+    [[500002], { force: true }, "a keyword"],
+  ]) {
+    const odd = remove(args, kwargs);
+    assert.deepEqual([odd.status, odd.args], ["differs", args], why);
+    assert.match(odd.note, /one launch/, why);
+  }
+});
