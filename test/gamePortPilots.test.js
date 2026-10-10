@@ -2442,10 +2442,18 @@ test("which effect a module is switched on by, and whether it repeats, are the m
     7002: [{ effectID: 55, name: "oneShot", effectCategoryID: 2, durationAttributeID: null }],
     7003: [{ effectID: 101, name: "useMissiles", effectCategoryID: 1, durationAttributeID: 51 }],
     7004: [{ effectID: 16, name: "online", effectCategoryID: 1, durationAttributeID: null }, { effectID: 12, name: "hiPower", effectCategoryID: 0, durationAttributeID: null }],
+    // A missile, whose own effect is the one aimed at a target.
+    7005: [{ effectID: 9, name: "missileLaunching", effectCategoryID: 2, durationAttributeID: null }],
   };
-  const fits = async (typeID, more = {}) => {
+  const fits = async (typeID, more = {}, loaded = null) => {
     const allInfo = fittedAllInfo();
-    allInfo.args.entries.find(([name]) => name.toString() === "shipInfo")[1].entries[1][1].args.entries.find(([name]) => name.toString() === "invItem")[1].fields.typeID = typeID;
+    const shipInfo = allInfo.args.entries.find(([name]) => name.toString() === "shipInfo")[1];
+    shipInfo.entries[1][1].args.entries.find(([name]) => name.toString() === "invItem")[1].fields.typeID = typeID;
+    // A charge in the module, as GetAllInfo lists one: keyed by (ship, flag, type), its quantity an attribute.
+    if (loaded !== null) {
+      const id = [BigInt(SHIP), 19, loaded];
+      shipInfo.entries.push([id, keyVal([["itemID", id], ["time", DOGMA_T], ["attributes", { type: "dict", entries: [[805, 20]] }], ["activeEffects", { type: "dict", entries: [] }]])]);
+    }
     const hand = handTicked();
     const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:GetAllInfo": allInfo } }, { ...hand.options, typeEffects: (id) => effects[id] ?? [], typeAttribute: () => null, allowed: MODULE_PAIRS, ...more });
     const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
@@ -2462,7 +2470,12 @@ test("which effect a module is switched on by, and whether it repeats, are the m
   assert.deepEqual(await (await fits(7002))([FITTED_MODULE, "", 9, -1]), [FITTED_MODULE, "oneShot", 9, 0]);
   // An effect that is not aimed at one is sent none, named by the caller or not: the client's button fills a target in for a target effect alone.
   assert.deepEqual(await (await fits(21857))([FITTED_MODULE, "", 9, -1]), [FITTED_MODULE, "moduleBonusAfterburner", null, 1000]);
-  assert.deepEqual(await (await fits(7003))([FITTED_MODULE, "useMissiles", 9, 0]), [FITTED_MODULE, "useMissiles", null, 0]);
+  // A launcher's useMissiles is an activation effect, but the button asks the charge loaded (GetRelevantEffect): a missile is aimed, and keeps the target.
+  assert.deepEqual(await (await fits(7003, {}, 7005))([FITTED_MODULE, "useMissiles", 9, 0]), [FITTED_MODULE, "useMissiles", 9, 0]);
+  assert.deepEqual(await (await fits(7003, {}, 7005))([FITTED_MODULE, "", 9, -1]), [FITTED_MODULE, "useMissiles", 9, 1000]);
+  // A charge whose default effect is not aimed: none. An empty launcher the client would not fire at all: the target goes as it came.
+  assert.deepEqual(await (await fits(7003, {}, 21857))([FITTED_MODULE, "useMissiles", 9, 0]), [FITTED_MODULE, "useMissiles", null, 0]);
+  assert.deepEqual(await (await fits(7003))([FITTED_MODULE, "useMissiles", 9, 0]), [FITTED_MODULE, "useMissiles", 9, 0]);
   // Where the effect is not known, or is not one of the type's, the target goes as it came.
   assert.deepEqual(await (await fits(7001))([FITTED_MODULE, "", 9, -1]), [FITTED_MODULE, "", 9, -1]);
   assert.deepEqual(await (await fits(21857))([FITTED_MODULE, "somethingElse", 9, 0]), [FITTED_MODULE, "somethingElse", 9, 0]);

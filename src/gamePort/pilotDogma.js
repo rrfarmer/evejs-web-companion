@@ -739,16 +739,27 @@ function createPilotDogma({ characterID = null, now = filetimeNow, effectCategor
     for (const [itemID, item] of identity) {
       if (typeof itemID !== "number" || item.locationID !== ship || item.groupID !== groupID) continue;
       if (!attribute(itemID, ATTRIBUTE.IS_ONLINE)) continue;
-      let charge = null;
-      for (const [chargeKey, loaded] of identity) {
-        if (typeof chargeKey !== "string" || loaded.locationID !== ship || loaded.flagID !== item.flagID) continue;
-        const quantity = attribute(chargeKey, ATTRIBUTE.QUANTITY);
-        // One that has run out is still listed until the server takes it away; it is not a charge any more.
-        if (quantity > 0) charge = { typeID: loaded.typeID, quantity };
-      }
-      return { moduleID: itemID, typeID: item.typeID, flagID: item.flagID, charge };
+      return { moduleID: itemID, typeID: item.typeID, flagID: item.flagID, charge: chargeAt(ship, item.flagID) };
     }
     return null;
+  }
+
+  /** What is loaded at a flag of a ship: { typeID, quantity }, or null when nothing is. */
+  function chargeAt(ship, flagID) {
+    let charge = null;
+    for (const [chargeKey, loaded] of identity) {
+      if (typeof chargeKey !== "string" || loaded.locationID !== ship || loaded.flagID !== flagID) continue;
+      const quantity = attribute(chargeKey, ATTRIBUTE.QUANTITY);
+      // One that has run out is still listed until the server takes it away; it is not a charge any more.
+      if (quantity > 0) charge = { typeID: loaded.typeID, quantity };
+    }
+    return charge;
+  }
+
+  /** shipmodulebutton's self.charge: what is loaded in a fitted module, { typeID, quantity }, or null. */
+  function chargeIn(moduleID) {
+    const item = identity.get(key(moduleID));
+    return item ? chargeAt(item.locationID, item.flagID) : null;
   }
 
   /**
@@ -771,6 +782,7 @@ function createPilotDogma({ characterID = null, now = filetimeNow, effectCategor
     applyAttributeChange,
     onlineModule,
     onlineModules,
+    chargeIn,
     /** What a held item is: its type, or null for one godma was not told of. */
     typeOf: (itemID) => identity.get(key(itemID))?.typeID ?? null,
     /** What a held item is and where: { typeID, groupID, categoryID, flagID, locationID }, or null for one godma was not told of. */

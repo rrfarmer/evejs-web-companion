@@ -2685,11 +2685,23 @@ function createGamePortPilots({
     return effect.durationAttributeID !== null && effect.durationAttributeID !== undefined && !typeAttribute(typeID, ATTRIBUTE_DISALLOW_REPEATING);
   }
 
-  /** shipmodulebutton.ActivateEffect (1318): the effect is one aimed at a target (effectCategory 2). Null when the effect is not one of the type's. */
-  function effectTargeted(typeID, effectName) {
+  /**
+   * shipmodulebutton.ActivateEffect (1318): the relevant effect is one aimed at a target (effectCategory 2). Null
+   * when the effect is not one of the type's, or what it depends on is not known.
+   *
+   * GetRelevantEffect (1301): a launcher's useMissiles, and a warpDisruptSphere with a charge in, stand for the
+   * default effect of the charge loaded, not their own. useMissiles is an activation effect; a missile's
+   * missileLaunching is the one aimed at a target.
+   */
+  function effectTargeted(typeID, effectName, chargeTypeID) {
     if (typeID === null) return null;
     const effect = typeEffects(typeID).find((each) => each.name === effectName);
-    return effect ? effect.effectCategoryID === EFFECT_CATEGORY.TARGET : null;
+    if (!effect) return null;
+    if (effectName === "useMissiles" || (effectName === "warpDisruptSphere" && chargeTypeID !== null)) {
+      const charged = chargeTypeID === null ? null : defaultEffectName(chargeTypeID);
+      return charged === null ? null : effectTargeted(chargeTypeID, charged, null);
+    }
+    return effect.effectCategoryID === EFFECT_CATEGORY.TARGET;
   }
 
   /**
@@ -2737,7 +2749,7 @@ function createGamePortPilots({
       // marketQuote.GetAveragePrice, as the entries of the sale being made have it (saleAveragesRead).
       averagePrice: (typeID) => entry.saleAverages.get(positive(typeID)) ?? null,
       effectName: (itemID) => defaultEffectName(typeOf(itemID)),
-      effectTargeted: (itemID, effectName) => effectTargeted(typeOf(itemID), effectName),
+      effectTargeted: (itemID, effectName) => effectTargeted(typeOf(itemID), effectName, entry.dogma.chargeIn(positive(itemID) ?? 0)?.typeID ?? null),
       effectRepeats: (itemID, effectName) => effectRepeats(typeOf(itemID), effectName),
       // fleetSvc.GetMyShipTypeID: godma's word for the ship the pilot is in.
       shipTypeID: () => typeOf(attribute(entry, "shipid")),
