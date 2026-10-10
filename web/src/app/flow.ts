@@ -348,6 +348,7 @@ import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fl
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
+import { goToPoint } from "../bridge/movementWrites.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
@@ -889,6 +890,11 @@ export interface AppFlow {
    * Throws what the call threw: the caller is a watcher that retries.
    */
   applyToJoinFleet(fleetID: number): Promise<FleetApplyOutcome>;
+  /**
+   * Sends the pilot's ship toward a point measured for that ship in that system, by the client's own call. An
+   * order taken, never an arrival; refused where the pilot's flight is now another ship's or another system's.
+   */
+  flyToPoint(position: SpaceVector, shipID: number, solarSystemID: number): Promise<void>;
   /**
    * Load the Mail panel: the whole inbox, plus the NAME of everyone who sent or
    * received a message. ⚠ The inbox is a DELTA SYNC the BFF cold-starts, so
@@ -4079,6 +4085,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const own = decodeMyFleetFinderAdvert(raw.myFleetFinderAdvert ?? null);
     const ownFleetName = own !== null && own.fleetName.trim().length > 0 ? own.fleetName : null;
     return { ads, ownFleetName };
+  }
+
+  /** The ship sent to a point by the page's own call (bridge/movementWrites.ts), held to where the point was measured. */
+  async function flyToPoint(position: SpaceVector, shipID: number, solarSystemID: number): Promise<void> {
+    await goToPoint(bridgeDo, async () => decodeFlightStatus((await api.getFlightStatus(callOptions)).flight), position, { shipID, solarSystemID });
   }
 
   async function applyToJoinFleet(fleetID: number): Promise<FleetApplyOutcome> {
@@ -10730,7 +10741,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         switch (action.kind) {
           case "activate": await api.activateModule(action.moduleID, { targetID: action.targetID, repeat: -1 }, callOptions); break;
           case "deactivate": await api.deactivateModule(action.moduleID, { typeID: action.typeID }, callOptions); break;
-          case "gotoPoint": await api.gotoPoint(action.position, action.shipID, action.solarSystemID, callOptions); break;
+          case "gotoPoint": await flyToPoint(action.position, action.shipID, action.solarSystemID); break;
           case "stopShip": await api.stopShip(callOptions); break;
         }
         return { decision, feedback: { scope, ...(action.kind === "activate" || action.kind === "deactivate"
@@ -12305,7 +12316,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             await api.approach(action.targetID, 0, callOptions);
             return;
           case "gotoPoint":
-            await api.gotoPoint(action.position, action.shipID, action.solarSystemID, callOptions);
+            await flyToPoint(action.position, action.shipID, action.solarSystemID);
             return;
           // Straight to `api.stopShip` and NOT through `flow.stopShip()`: that
           // wrapper also aborts the browser autopilot, which is right for an
@@ -14028,6 +14039,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     leaveFleet,
     readFleetFinder,
     applyToJoinFleet,
+    flyToPoint,
     loadMail,
     openMail,
     closeMail,

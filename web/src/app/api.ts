@@ -2704,13 +2704,6 @@ export async function stopShip(options: ApiOptions = {}): Promise<FlightStepResu
   return readFlightStep(await postJson("/api/bridge/flight/stop", {}, options));
 }
 
-/** Existing runtime CmdGotoPoint; ACK is an order, never arrival proof. */
-export async function gotoPoint(position: import("../store/types.ts").SpaceVector, shipID: number, solarSystemID: number,
-  options: ApiOptions = {}): Promise<FlightStepResult> {
-  if (![position.x, position.y, position.z].every(Number.isFinite) || [shipID, solarSystemID].some(id => !Number.isSafeInteger(id) || id <= 0)) throw new Error("Unknown movement geometry or scope.");
-  return readFlightStep(await postJson("/api/bridge/flight/goto-point", { ...position, expectedShipID: shipID, expectedSolarSystemID: solarSystemID, confirm: true }, options));
-}
-
 /** Jump through an NPC stargate (beyonce.CmdStargateJump). */
 /**
  * Jump through a stargate.

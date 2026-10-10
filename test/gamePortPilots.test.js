@@ -7818,3 +7818,65 @@ test("where no journal is kept the journal asked for by name is asked of the ser
   assert.deepEqual(journalStates((await late.pilots.callMethod("agentMgr", "GetMyJournalDetails", [], null, FIELDS, late.handle)).result), [[1, 3008416, 1]]);
   await assert.rejects(late.pilots.callMethod("agentMgr", "GetMyJournalDetails", [], null, { userid: 9 }, late.handle), (error) => error.code === "SESSION_NOT_FOUND");
 });
+
+// ── a ship sent to a point ───────────────────────────────────────────────────
+//
+// movementFunctions._Ship_GoToPoint (320 to 324): bp = michelle.GetRemotePark(), and bp.CmdGotoPoint(*position),
+// the point's three, from the positional control's drag (positionalControl.py 199 to 213: the ballpark's own
+// position of the ship added to where the pilot dragged to, so three floats). In no Tranquility recording.
+
+test("a ship sent to a point by beyonce's name is sent on the ballpark's own object, the point's three as floats; docked, nothing is sent", async () => {
+  const hand = handTicked();
+  const allowed = new Set(["beyonce.MachoBindObject", "beyonce.CmdGotoPoint"]);
+  const built = build(IN_SPACE, { ...hand.options, allowed });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  const row = () => built.pilots.callLedger().find((each) => each.pair === "beyonce.CmdGotoPoint");
+  const real = (value) => ({ type: "real", value });
+  // A whole number among the three is a float all the same: a client's point is three floats.
+  const sent = await built.pilots.callMethod("beyonce", "CmdGotoPoint", [1000, -2500.5, 300000000000], null, WHOSE, handle);
+  assert.deepEqual([sent.service, sent.method, sent.result], ["beyonce", "CmdGotoPoint", null]);
+  assert.deepEqual(session.boundCalls.at(-1), { objectID: "N=1:1", method: "CmdGotoPoint", args: [real(1000), real(-2500.5), real(300000000000)], kwargs: null });
+  assert.equal(session.calls.some((call) => call.service === "beyonce" && call.method === "CmdGotoPoint"), false, "nothing was asked of the service by name");
+  assert.deepEqual(row().statuses, { reshaped: 1 });
+  // What is not a point goes as it came, and is counted as not the client's.
+  for (const args of [[1, 2], [1, 2, 3, 4], [1, "2", 3], [1, 2, null], [1, Number.POSITIVE_INFINITY, 3]]) {
+    await built.pilots.callMethod("beyonce", "CmdGotoPoint", args, null, WHOSE, handle);
+    assert.deepEqual(session.boundCalls.at(-1).args, args, JSON.stringify(args));
+  }
+  // Nor is a point with a keyword beside it.
+  await built.pilots.callMethod("beyonce", "CmdGotoPoint", [1, 2, 3], { speed: 1 }, WHOSE, handle);
+  assert.deepEqual([session.boundCalls.at(-1).args, session.boundCalls.at(-1).kwargs], [[1, 2, 3], { speed: 1 }]);
+  assert.deepEqual(row().statuses, { reshaped: 1, differs: 6 });
+  assert.deepEqual(hand.errors, []);
+
+  // Docked: GoToPoint finds no park and does nothing. Asked all the same, the call is refused here and not sent.
+  const docked = await selected({}, { allowed });
+  const sentBefore = docked.session.sent.length;
+  await assert.rejects(docked.pilots.callMethod("beyonce", "CmdGotoPoint", [1, 2, 3], null, WHOSE, docked.handle), (error) => error.code === "CALL_REFUSED" && /in space/.test(error.message));
+  assert.equal(docked.session.sent.length, sentBefore, "nothing was sent");
+});
+
+test("a ship sent to a point is the pilot's last order: an approach its ball still shows is not held back after it; and a tag is no order to the ship", async () => {
+  const hand = handTicked();
+  const built = build(IN_SPACE, { ...hand.options, allowed: new Set(["beyonce.MachoBindObject", "beyonce.CmdFollowBall", "beyonce.CmdGotoPoint", "beyonce.CmdFleetTagTarget"]) });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  built.session.attributes.fleetid = 654500010000;
+  const already = (...order) => built.pilots.alreadyFollowing(handle, WHOSE, ...order);
+  for (const update of recordedUpdates.slice(0, 5)) built.session.notify("DoDestinyUpdate", update.args);
+  hand.parks[0].tick();
+  const park = hand.parks[0].space.park;
+  Object.assign(park.ballpark.ball(park.ego), { mode: BALL_MODES.FOLLOW, followId: 9001, followRange: Math.fround(50) });
+  const parkHandle = (await built.pilots.bindObject("beyonce", "MachoBindObject", [], null, WHOSE, handle)).boundHandle;
+  await built.pilots.callBoundMethod("beyonce", "CmdFollowBall", [9001, 50], null, WHOSE, handle, parkHandle);
+  assert.equal(already("CmdFollowBall", 9001, 50), true);
+  // A tag set on something, asked by name and asked on the handle: the ship's order stands.
+  await built.pilots.callMethod("beyonce", "CmdFleetTagTarget", [9001, "A"], null, WHOSE, handle);
+  assert.equal(already("CmdFollowBall", 9001, 50), true, "a tag by name is no order to the ship");
+  await built.pilots.callBoundMethod("beyonce", "CmdFleetTagTarget", [9001, "B"], null, WHOSE, handle, parkHandle);
+  assert.equal(already("CmdFollowBall", 9001, 50), true, "nor is a tag on the handle");
+  // Sent to a point, which the ballpark has not heard of yet: the approach that follows is sent.
+  await built.pilots.callMethod("beyonce", "CmdGotoPoint", [1, 2, 3], null, WHOSE, handle);
+  assert.equal(already("CmdFollowBall", 9001, 50), false);
+  assert.deepEqual(hand.errors, []);
+});

@@ -1362,11 +1362,29 @@ test("a fleet's target tag set and cleared is a write of the page's own, asked o
     assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["beyonce", "CmdFleetTagTarget", args, null, BRIDGE_SESSION_ID, { userid: 4 }]);
   }
   const before = gateway.calls.call.length;
-  for (const method of ["CmdGotoPoint", "CmdAbandonLoot", "CmdJumpThroughFleet", "CmdStop", "CmdWarpToStuff", "CmdDock"]) {
+  for (const method of ["CmdAbandonLoot", "CmdJumpThroughFleet", "CmdStop", "CmdWarpToStuff", "CmdDock"]) {
     const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "beyonce", method, args: [], kwargs: null, pilot: true, confirm: true } });
     assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
   }
   assert.equal(gateway.calls.call.length, before);
+});
+
+test("a ship sent to a point is a write of the page's own, asked of beyonce by its name: it goes as it was sent", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  const args = [1000, -2500.5, 300000000000];
+  const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "beyonce", method: "CmdGotoPoint", args, kwargs: null, ...more } });
+  const before = gateway.calls.call.length;
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await call(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  assert.equal(gateway.calls.call.length, before);
+  const made = await call({ pilot: true, confirm: true });
+  assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "beyonce", "CmdGotoPoint"]);
+  const sent = gateway.calls.call.at(-1);
+  assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["beyonce", "CmdGotoPoint", args, null, BRIDGE_SESSION_ID, { userid: 4 }]);
 });
 
 test("drones sent to salvage is a write of the page's own, asked of entity by its name: it goes as it was sent, and entity's other orders do not", async () => {

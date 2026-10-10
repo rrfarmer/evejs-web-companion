@@ -1566,6 +1566,8 @@ function createGamePortPilots({
     if (service === "dogmaIM" && method === "AddTarget" && itemsOf(result).length > 0 && !itemsOf(result)[0]) entry.targets.added(form.args[0]);
     // clientDogmaLocation's grouping calls (763 to 803): once one is answered, the client's own banks are the answer's.
     if (service === "dogmaIM") afterGroupingCall(entry, method, form.args, result);
+    // An order to the ship made on the park's object is the pilot's last order, as one made on a handle is.
+    if (service === "beyonce" && ON_THE_PARK.has(method)) afterMovementCall(entry, method, form.args, form.kwargs);
     return {
       service,
       method,
@@ -2262,7 +2264,8 @@ function createGamePortPilots({
    */
   function afterMovementCall(entry, method, args, kwargs) {
     // The pilot's last order to its ship, for alreadyFollowing: what was ordered, and after what, at what range.
-    if (method.startsWith("Cmd")) entry.lastMove = { method, targetID: positive(args[0]), range: typeof args[1] === "number" ? args[1] : null };
+    // (A fleet's tag on a thing is the park's to take and no order to the ship: what the ship is flying stands.)
+    if (method.startsWith("Cmd") && method !== "CmdFleetTagTarget") entry.lastMove = { method, targetID: positive(args[0]), range: typeof args[1] === "number" ? args[1] : null };
     if (method === "CmdWarpToStuffAutopilot") {
       entry.warpDestination = positive(args[0]);
     } else if (method === "CmdWarpToStuff") {

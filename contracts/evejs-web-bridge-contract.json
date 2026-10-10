@@ -1094,6 +1094,7 @@
     "genericBridgeAllowsWrites": true,
     "genericBridgeWrites": [
       "beyonce.CmdFleetTagTarget",
+      "beyonce.CmdGotoPoint",
       "contractProxy.AcceptContract",
       "crimewatch.SetSafetyLevel",
       "dogmaIM.InitiateModuleRepair",

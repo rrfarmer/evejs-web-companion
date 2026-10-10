@@ -341,7 +341,7 @@ const ON_AN_ANSWERED_OBJECT = Object.freeze(new Set(["scanMgr.GetFullState"]));
  * What the client asks of its ballpark's own object (michelle.GetRemotePark()) and the page asks of beyonce by its
  * name: made on the park's object, where the pilot has a park.
  */
-const ON_THE_PARK = Object.freeze(new Set(["CmdFleetTagTarget"]));
+const ON_THE_PARK = Object.freeze(new Set(["CmdFleetTagTarget", "CmdGotoPoint"]));
 const madeOnMoniker = (service, method) => Object.hasOwn(MONIKER_SERVICES, service) && !MONIKER_SERVICES[service].has(method) && method !== "MachoBindObject";
 
 const INV_CACHE = "eve/client/script/environment/invCache.py";
@@ -494,6 +494,15 @@ const dronesListed = ([drones, ...rest], kwargs) => ({ args: [list(drones), ...r
  * nothing targeted (it does not ask for one). Nought, the BFF's word for "any wreck", is none.
  */
 const salvaging = ([drones, target, ...rest], kwargs) => ({ args: [list(drones), target === 0 || target === undefined ? null : target, ...rest], kwargs });
+
+/**
+ * movementFunctions._Ship_GoToPoint (320 to 324): bp.CmdGotoPoint(*position), on the ballpark's object. The
+ * position is the positional control's (positionalControl.py 199 to 213): the ballpark's own position of the ship
+ * added to where the pilot dragged to, so three floats, and a whole number among them goes as a float here too.
+ */
+const goingToPoint = (args, kwargs) => (args.length === 3 && args.every((each) => typeof each === "number" && Number.isFinite(each)) && Object.keys(kwargs).length === 0
+  ? { args: args.map((each) => ({ type: "real", value: each })), kwargs }
+  : { args, kwargs, status: "differs", note: "The client sends a point's three numbers and nothing else." });
 
 /** The tags the client's menu offers for a thing in space (menusvc.py 1945 and 1946): the ten digits and thirteen letters. */
 const FLEET_TAGS = new Set("0123456789ABCDEFGHIJXYZ");
@@ -1044,6 +1053,8 @@ const RETAIL_CALLS = Object.freeze({
     "eveMoniker.GetEntityAccess().CmdMineRepeatedly(droneIDs, targetID): the drones a list and the active target. No recording has one."),
   "entity.CmdSalvage": reshaped(`${DRONE_FUNCTIONS}:160`, salvaging,
     "eveMoniker.GetEntityAccess().CmdSalvage(droneIDs, targetID): the drones a list, and the active target or None, from a salvage drone's menu and the drones' primary action. It answers the drones that could not, each with why. No recording has one."),
+  "beyonce.CmdGotoPoint": reshaped("eve/client/script/ui/services/menuSvcExtras/movementFunctions.py:324", goingToPoint,
+    "bp.CmdGotoPoint(*position), on the ballpark's object: the point's three, each a float, from the positional control's drag, once the autopilot's navigation in the system is cancelled. A pilot controlling a structure sends none. It answers nothing. In no recording."),
   "beyonce.CmdFleetTagTarget": judged("eve/client/script/ui/services/menusvc.py:2825", tagging,
     "michelle.GetRemotePark().CmdFleetTagTarget(itemID, tag): a fleet's tag on a thing in space, from the menu and from the shortcuts, on the ballpark's object. It answers nothing, set or not. No recording has one."),
   "fleetMgr.BroadcastToBubble": judged(`${FLEET_SVC}:998`, oneBubbleBroadcast,
