@@ -802,8 +802,10 @@ of the dogma service by its name, made by the game port on the dogma location it
 naming the module's own overload effect, which the page asks of the static data; and so is
 a module's repair (`766627e`), which the page begins and, as a client does, ends itself
 when the repair's time is up: the server mends a module only then, and the page's repair
-had mended nothing. Counted by the whole path, 132 are named now, 51 of them reads and 81
-writes (the count kept before
+had mended nothing; and so are a ship's weapons linked and unlinked (`4bd05a7`), each call
+naming the ship the pilot is flying, once the server was made to hold a bank call to that
+ship (`eve.js` `515ebd911`). Counted by the whole path, 130 are named now, 51 of them
+reads and 79 writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.

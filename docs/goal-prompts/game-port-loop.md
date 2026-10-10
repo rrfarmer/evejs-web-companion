@@ -557,6 +557,19 @@ Take these defaults, and list each under "For the operator" in the log so they c
 - **After a drive's run the pilot is far from its station.** Dock from the header then takes
   minutes; where the BFF is restarted and the store put back next, do not wait on it to log
   the page out by its button, and say that it was left.
+- **What the client does with a call's answer is the transport's to do on every path the
+  call can take.** The game port set its banks after a grouping asked on a handle (the
+  routes' way) and not after one asked by name (the page's): the first live run of the page's
+  write showed the ship's old banks. When a call moves from a route to the page's asking, find
+  what the game port does after the route's call (`afterGroupingCall` and its fellows at the
+  end of `callBoundMethod`) and see that the by-name path does it too, with a test.
+- **A handler that takes whose thing to act on from its caller is a defect of the server**, to
+  be fixed there before the page names the thing, and seen live after. A route of the BFF's
+  that names the thing itself hides it (the weapon banks, and `docs/arg-injection-leak-handoff.md`
+  for the ones written down earlier: read it for the pair in hand).
+- **A ship with weapons to group**: `/probe2` by `gm/slash` gives a hull with three guns of
+  one kind, and no ammunition. `banks-live.js <bff> <account> <characterID> <other bff>
+  <other account> <other characterID>` flies two of them and names one's ship from the other.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
