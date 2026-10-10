@@ -133,7 +133,7 @@ import {
 import { decodeSkillSheet, skillQueueRefusal } from "../bridge/skills.ts";
 import { decodeColonyReport } from "../bridge/planets.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
-import { extractorReroute, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
+import { extractorReroute, factoryInputTypeIDs, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
 import { decodeRecipeBook } from "../bridge/piRecipes.ts";
 import { decodeRepairQuotes, repairTargets, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
@@ -11442,6 +11442,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
                 .filter((pin) => pin.kind === "extractor-control")
                 .map((pin) => extractorReroute(colony, pin.pinID))
                 .filter((plan): plan is ExtractorReroute => plan !== null),
+              // What the factories here are fed: collect-customs sends only
+              // the rest of a launchpad up.
+              factoryInputTypeIDs: factoryInputTypeIDs(colony),
               // Every structure, for the blocks that act on a hold. The two
               // volumes are carried across UNCHANGED, nulls included: null is
               // "the server could not say", and a decider that reads it as 0

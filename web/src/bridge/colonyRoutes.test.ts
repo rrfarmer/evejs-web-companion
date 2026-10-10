@@ -8,7 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { extractorReroute, extractorShortfall, isRoutedInto, routedFrom } from "./colonyRoutes.ts";
+import { extractorReroute, extractorShortfall, factoryInputTypeIDs, isRoutedInto, routedFrom } from "./colonyRoutes.ts";
 import type { Colony, ColonyPin, ColonyRoute } from "../store/types.ts";
 
 function pin(overrides: Partial<ColonyPin> & Pick<ColonyPin, "pinID" | "kind">): ColonyPin {
@@ -132,4 +132,16 @@ test("a route of another commodity is neither counted nor touched", () => {
   assert.equal(extractorShortfall(c, c.pins[0]!), null);
   assert.equal(isRoutedInto(c, 42, 9999), true);
   assert.equal(isRoutedInto(c, 42, 1), false);
+});
+
+test("a factory's inputs are the types routed into it, wherever the route starts", () => {
+  const OXYGEN = 3683;
+  const built = colony([STORAGE, LAUNCHPAD, FACTORY], [
+    route(1, [43, 44], 3000), // imported onto the launchpad, fed to the factory
+    route(2, [43, 42, 44], 40, OXYGEN), // through storage on the way
+    route(3, [44, 43], 20, 9828), // the factory's output, back onto the launchpad
+    route(4, [43, 42], 500, 2393), // stocked, never fed
+  ]);
+  assert.deepEqual(factoryInputTypeIDs(built), [PLASMA, OXYGEN]);
+  assert.deepEqual(factoryInputTypeIDs(colony([LAUNCHPAD, FACTORY], [])), []);
 });

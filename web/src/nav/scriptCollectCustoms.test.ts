@@ -270,6 +270,18 @@ test("only a launchpad is sent up: what a command center, a storage or a factory
   assert.deepEqual(t.action, { kind: "collectCustoms", officeID: OFFICE_A });
 });
 
+test("a factory's inputs on a launchpad stay on the planet: only what the colony makes is sent up", () => {
+  const at = (contents: readonly [number, number][]) => collect(step, obs({
+    snapshot: snapshot([office(OFFICE_A, 1000, { planetID: PLANET_A })]),
+    customsOffices: [holding(OFFICE_A, 300)],
+    // 2268 is routed into a factory here: an import the colony runs on.
+    colonies: [{ ...colony(PLANET_A, [pin(501, "launchpad", contents)]), factoryInputTypeIDs: [2268] }],
+  }), {}, NB).action;
+  assert.deepEqual(at([[2268, 3000], [3645, 300]]), { kind: "exportCustoms", officeID: OFFICE_A, pinID: 501, commodities: { 3645: 300 } });
+  // Nothing but inputs on the pad: nothing to send up, so the office is emptied.
+  assert.deepEqual(at([[2268, 3000]]), { kind: "collectCustoms", officeID: OFFICE_A });
+});
+
 test("an office whose planet is not said, another planet's office, and colonies not read: nothing is sent up", () => {
   const pads = [colony(PLANET_A, [pin(501, "launchpad", [[2268, 200]])])];
   const at = (planetID: number | null | undefined, colonies: ScriptObservation["colonies"], units: number) => collect(step, obs({

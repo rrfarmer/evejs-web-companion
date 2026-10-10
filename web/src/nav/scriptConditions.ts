@@ -555,6 +555,13 @@ export interface ScriptObservation {
      */
     readonly reroutes?: readonly ExtractorReroute[];
     /**
+     * The types a route on this colony delivers into a factory
+     * (bridge/colonyRoutes.ts factoryInputTypeIDs). A launchpad's stock of one
+     * of these is a factory's input, and collect-customs leaves it on the
+     * planet. Absent = nobody looked, and then nothing is held back.
+     */
+    readonly factoryInputTypeIDs?: readonly number[];
+    /**
      * Every structure on the planet, for the blocks that act on a hold rather
      * than on a program.
      *

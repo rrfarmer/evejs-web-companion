@@ -49,6 +49,30 @@ export function isRoutedInto(colony: Colony, pinID: number, typeID: number): boo
     destination(route) === pinID && source(route) !== pinID && route.commodityTypeID === typeID);
 }
 
+/**
+ * The commodities the colony's own factories are fed: every type a route
+ * delivers into a factory. A launchpad holding one of these is holding a
+ * factory's input, not a product, so a haul leaves it on the planet. That is
+ * what lets a colony with no extractors keep its imports on the launchpad
+ * beside what it makes from them.
+ *
+ * Mirrored by factoryInputTypeIDs in src/piCustomsExport.js, for the hop the
+ * Haul button makes before the run starts.
+ */
+export function factoryInputTypeIDs(
+  colony: Pick<Colony, "routes"> & { readonly pins: readonly Pick<ColonyPin, "pinID" | "kind">[] },
+): readonly number[] {
+  const factories = new Set(colony.pins.filter((pin) => pin.kind === "factory").map((pin) => pin.pinID));
+  const inputs = new Set<number>();
+  for (const route of colony.routes) {
+    const into = destination(route);
+    if (into !== undefined && factories.has(into) && route.commodityTypeID > 0) {
+      inputs.add(route.commodityTypeID);
+    }
+  }
+  return [...inputs].sort((left, right) => left - right);
+}
+
 export interface ExtractorShortfall {
   readonly typeID: number;
   readonly maxOutput: number;
