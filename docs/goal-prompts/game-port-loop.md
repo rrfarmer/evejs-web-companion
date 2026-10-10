@@ -655,6 +655,20 @@ Take these defaults, and list each under "For the operator" in the log so they c
 - **One item's move is `OnItemChange`, several are `OnItemsChanged`**: the item as it now is
   (`fields`), and what it was by column (3 where, 4 which flag). A listing of a bay is itself
   answered with one for each stack, nothing changed, the first time after a change.
+- **A bound call moved to the page leaves behind what its handle left.** The handle's path
+  in `pilots.js` does things once a call is answered (the pilot's last order, the banks, a
+  fleet's state, the listings forgotten). Read those lines before moving a call, and give the
+  by-name path the same: a ship sent to a point by name was not the pilot's last order
+  until it was, and the next keep-at-range would have been held back.
+- **A float on the wire is `{ type: "real", value }`.** A whole JS number goes as an int (or a
+  long beyond 32 bits). Where the client's argument is a float (a position, a fraction), the
+  ledger's shape makes it one (`goingToPoint`, `retailCalls.js`).
+- **A pair added to the page's own writes changes the contract's manifest**: run `node
+  scripts/build-bridge-contract.js --write` before the whole suite, or its pin fails.
+- **A ship flown for a check**: `goto-live.js <bff> <account> <characterID> [ledger.json]`
+  undocks, tries the write's refusals, the last order and a flight to a point, and docks.
+  The server's own word for what it received is in `eve.js/_local/logs/server.log`
+  (`[Beyonce] CmdGotoPoint char=... point=(...)`).
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,

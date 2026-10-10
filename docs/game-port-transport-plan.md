@@ -810,8 +810,10 @@ the session is (`eve.js` `e4b924e00`); and so is a fleet's target tag (`7975818`
 first of the ballpark's calls to be made so, which the game port makes on the park's own
 object. Two functions of the page's that nothing called went with it. And so are drones
 sent to salvage (`961f1d1`), with every drone order asked by name now made on a Moniker of
-its own, as the recordings have them. Counted by the whole path, 124 are named now, 50 of
-them reads and 74 writes (the count kept before
+its own, as the recordings have them. And so is a ship sent to a point (`4a2d7c8`), held
+by the page's own read of the pilot's flight to the ship and the system the point was
+measured in. Counted by the whole path, 123 are named now, 50 of them reads and 73 writes
+(the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
