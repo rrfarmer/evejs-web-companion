@@ -479,6 +479,22 @@ Take these defaults, and list each under "For the operator" in the log so they c
   as a read not carried answers null (`saveQueue`, `readSkillSheet`). A refusal by
   `CALL_NOT_ALLOWED` means nothing was made, so asking the route after it is safe; no other
   failure is taken so.
+- **A flag that says "for the corporation" is read in the server before the write is moved.**
+  `AcceptContract`'s `forCorp` was taken from any member (fixed in eve.js `378ef753f`). Look
+  for the role's check on the path the flag takes, not only for a check of the ID; the
+  client's own gate (a button shown by `session.corprole`) says which role.
+- **A server defect goes to a sub-agent with the reading, the client's file and line, the
+  test wanted first, and the checkout's rules** (no branch, no worktree, no push, the other
+  sessions' files by name). Then read its diff, run its test file through that repository's
+  runner, and see the fix live: `store.sh save` restarts EveJS on the new code. Do not stage
+  the live store while its tests run. Continue the same sub-agent (`SendMessage`) for what it
+  reports beside.
+- **A staging script stops where its staging failed.** One that went on asked the server six
+  times with no contract's ID. And a contract is made through the gateway's BFF: its route
+  cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
+  `accept-offer.js <gateway bff>`).
+- **Run a new test before the breakage pass.** A test that fails as written makes every
+  breakage of its file "not tried".
 - **What a route checked of its arguments, the generic call does not.** Read the route for
   every check besides the confirmation (`safety/set-level` refused a level that was none of
   three), then read the server's handler for what it makes of what the route would have
