@@ -1118,6 +1118,46 @@ test("restart-extractors: after the restarts land, routes sized for the old prog
   assert.match(refused.outcome.kind === "blocked" ? refused.outcome.reason : "", /1 extractor reroute did not take/);
 });
 
+test("restart-extractors: a roster of twelve expired extractors is restarted and re-sized to the end, not stopped on a fixed cap", () => {
+  // Live: six colonies of two extractors each, all expired. Every restart and
+  // reroute landed, and the run stopped on its 21st action saying the
+  // reroutes "kept not taking", because the two shared a cap of 20.
+  const restart = SCRIPT_MACROS["restart-extractors"]!;
+  const s = step("restart-extractors" as never);
+  const past = Date.now() - 60_000;
+  const future = Date.now() + 60_000;
+  const running = new Set<number>();
+  const rerouted = new Set<number>();
+  const colonies = () => [1, 2, 3, 4, 5, 6].map((n) => {
+    const pins = [n * 10, n * 10 + 1];
+    return {
+      planetID: 40000000 + n,
+      planetName: `Matar ${n}`,
+      extractors: pins.map((pinID) => ({ pinID, resourceTypeID: 2268, expiresAtMs: running.has(pinID) ? future : past, headRadius: 0.03 })),
+      // A restarted extractor's routes are short of its new maximum until re-sized.
+      reroutes: pins.filter((pinID) => running.has(pinID) && !rerouted.has(pinID)).map((pinID) => ({
+        planetID: 40000000 + n, pinID, removeRouteIDs: [pinID], create: [{ path: [pinID, 99], typeID: 2268, quantity: 10 }],
+      })),
+    };
+  });
+  let mem: MacroMemory = {};
+  const kinds: string[] = [];
+  for (let tickNo = 0; tickNo < 40; tickNo += 1) {
+    const t = restart(s, obs({ colonies: colonies() } as never), mem, NB);
+    if (t.outcome.kind !== "acting") {
+      assert.equal(t.outcome.kind, "done", t.outcome.kind === "blocked" ? t.outcome.reason : "");
+      break;
+    }
+    const action = t.action as { kind: string; pinID: number };
+    kinds.push(action.kind);
+    // Each edit lands, as every one did live.
+    (action.kind === "restartExtractor" ? running : rerouted).add(action.pinID);
+    mem = t.nextMem;
+  }
+  assert.equal(kinds.filter((kind) => kind === "restartExtractor").length, 12);
+  assert.equal(kinds.filter((kind) => kind === "rerouteExtractor").length, 12);
+});
+
 test("restart-extractors: a colony with nothing expired still gets its stale routes fixed", () => {
   const restart = SCRIPT_MACROS["restart-extractors"]!;
   const s = step("restart-extractors" as never);

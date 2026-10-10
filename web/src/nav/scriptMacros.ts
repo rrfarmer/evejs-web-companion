@@ -5372,6 +5372,12 @@ const restartExtractors: MacroDecider = (_step, obs, mem) => {
     return tick(WAIT, "You have no planet colonies.", "Restarting extractors", { kind: "done" });
   }
   const now = Date.now();
+  // ⚠ THE CAP IS SIZED TO THE ROSTER. Restarts and reroutes share one count of
+  // actions, and each extractor can take at most one of each per run (both
+  // are tried once per pin). A fixed cap stopped a roster of twelve expired
+  // extractors on its 21st action with every edit having landed; this one
+  // only ever stops a run that is somehow repeating itself.
+  const budget = 2 * colonies.reduce((total, colony) => total + colony.extractors.length, 0) + MAX_BLOCK_ATTEMPTS;
   const doneRaw = mem["restarted"];
   const restarted = new Set<number>(Array.isArray(doneRaw) ? (doneRaw as number[]) : []);
   let skippedUnknown = 0;
@@ -5395,7 +5401,7 @@ const restartExtractors: MacroDecider = (_step, obs, mem) => {
         continue; // no last drill area — never guess how long it should run
       }
       const attempts = (num(mem, "attempts") ?? 0) + 1;
-      if (attempts > MAX_BLOCK_ATTEMPTS * 4) {
+      if (attempts > budget) {
         return tick(WAIT, "The restarts kept not landing.", "Restarting extractors", {
           kind: "blocked",
           reason: "The extractor restarts kept not taking, so the bot stopped.",
@@ -5448,7 +5454,7 @@ const restartExtractors: MacroDecider = (_step, obs, mem) => {
     for (const plan of colony.reroutes ?? []) {
       if (rerouted.has(plan.pinID)) continue;
       const attempts = (num(mem, "attempts") ?? 0) + 1;
-      if (attempts > MAX_BLOCK_ATTEMPTS * 4) {
+      if (attempts > budget) {
         return tick(WAIT, "The reroutes kept not landing.", "Rerouting extractors", {
           kind: "blocked",
           reason: "The extractor reroutes kept not taking, so the bot stopped.",
