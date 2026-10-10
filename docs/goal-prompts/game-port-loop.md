@@ -570,6 +570,29 @@ Take these defaults, and list each under "For the operator" in the log so they c
 - **A ship with weapons to group**: `/probe2` by `gm/slash` gives a hull with three guns of
   one kind, and no ammunition. `banks-live.js <bff> <account> <characterID> <other bff>
   <other account> <other characterID>` flies two of them and names one's ship from the other.
+- **While a sub-agent mends the server the live store is not staged**, and it may be forty
+  minutes. Do what needs no live store in that time, in the turn: the page's tests, the
+  breakage pass, the whole suite, the live script, a flow test for each asker of the call
+  that has none, and the reading and sizing of the units after. Look at `eve.js` (`git
+  status`, `git log origin/main..main`) for how far it has got; do not ask it.
+- **Count before writing a count.** `loadammo-shapes.js <recordings>` reads every recorded
+  call of one name off the bytes the transport logged, however it was sent (riding a bind,
+  or on the bound object), and says how many are of the shape expected.
+- **Ammunition for a check**: `/giveitem 230 2000` gives a medium hybrid charge, which
+  `/probe2`'s guns take, to the hangar; the transfer route moves a stack into the hold;
+  given again, there is a stack in each. `ammo-live.js <bff> <account> <characterID>
+  <other bff> <other account> <other characterID> [stage]`: `stage` leaves the pilot docked
+  in the ship with its charges, for the browser.
+- **In the browser**: the fitting window's slots are `button.fit-socket` (their
+  `aria-label` names the slot and the module) and a chosen slot's ammunition is `.fit-ammo`.
+  The rack's menu opens on a `contextmenu` event on a `.module-slot.filled` and is
+  `.rack-menu`; "Reload all" is a button of `.rack-ammo`. Two windows can be `.win.focused`
+  at once: find a window by its heading.
+- **A boss for a companion's run goes on the gateway's BFF** (`scram-boss.js`): its advert is
+  a plain object, which the game port cannot send. The companion's pilot must be online in
+  the tab before the Companions window can add it; the fleet's name is typed into
+  `#companion-op-fleet`; the pilot's row reads Running once it has joined. A plain `fetch`
+  from the tab is refused (401): the page's own reads go by its socket.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
