@@ -564,7 +564,7 @@ test("decodeBoundDogma tolerates a missing/empty envelope", () => {
 // --- can this module be cycled at all? --------------------------------------
 
 function dogmaWith(
-  items: readonly { itemID: number; duration?: number | null }[],
+  items: readonly { itemID: number; duration?: number | null; speed?: number | null }[],
 ): BoundDogmaAllInfo {
   return {
     activeShipID: 90000700,
@@ -581,10 +581,11 @@ function dogmaWith(
       customInfo: null,
       time: null,
       wallclockTime: null,
-      attributes:
-        item.duration === undefined
-          ? []
-          : [{ attributeID: DOGMA_ATTR_DURATION, value: item.duration }],
+      attributes: [
+        ...(item.duration === undefined ? [] : [{ attributeID: DOGMA_ATTR_DURATION, value: item.duration }]),
+        // Attribute 51, speed: a weapon's rate of fire.
+        ...(item.speed === undefined ? [] : [{ attributeID: 51, value: item.speed }]),
+      ],
       activeEffects: null,
     })),
     character: null,
@@ -614,6 +615,29 @@ test("a module with a cycle time can be activated; one without cannot", () => {
   assert.equal(itemHasActivationCycle(dogma, 90000102), true, "Assault Damage Control cycles");
   assert.equal(itemHasActivationCycle(dogma, 90000103), true);
   assert.equal(itemHasActivationCycle(dogma, 90000104), false, "no usable duration is no cycle");
+});
+
+test("a weapon cycles by its rate of fire, which is an attribute of its own and not the duration", () => {
+  // The static data's nine weapon effects (targetAttack, projectileFired, useMissiles, the disintegrator's and the
+  // rest) name attribute 51, speed, as their duration, where 130 others name 73. A 250mm railgun carries a speed
+  // of 5825 and no duration at all, and so does every turret and launcher: read off the static data on 2026-10-10.
+  // With the duration alone asked for, a companion's guns were all taken for passive and it had none.
+  const dogma = dogmaWith([
+    { itemID: 90000201, speed: 5825 }, // a turret: a rate of fire, and no duration
+    { itemID: 90000202, speed: 1500, duration: 10000 }, // a probe launcher has both
+    { itemID: 90000203, speed: 0 }, // a rate of fire of nothing
+    { itemID: 90000204, speed: null }, // present, unreadable
+    { itemID: 90000205, speed: 0, duration: 3000 },
+    { itemID: 90000206, speed: 4000, duration: 0 },
+    { itemID: 90000207, speed: null, duration: null },
+  ]);
+  assert.equal(itemHasActivationCycle(dogma, 90000201), true, "a turret cycles");
+  assert.equal(itemHasActivationCycle(dogma, 90000202), true);
+  assert.equal(itemHasActivationCycle(dogma, 90000203), false, "no rate of fire and no duration is no cycle");
+  assert.equal(itemHasActivationCycle(dogma, 90000204), false);
+  assert.equal(itemHasActivationCycle(dogma, 90000205), true, "the duration alone is enough");
+  assert.equal(itemHasActivationCycle(dogma, 90000206), true, "the rate of fire alone is enough");
+  assert.equal(itemHasActivationCycle(dogma, 90000207), false);
 });
 
 test("no dogma, or an item that is not in it, is NOT KNOWN rather than passive", () => {

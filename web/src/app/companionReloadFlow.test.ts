@@ -61,6 +61,38 @@ function gunsFitted(guns: readonly number[]): unknown {
   return { ...body, chargeFits: { [GUN_TYPE]: { size: 2, groups: [CHARGE_GROUP] } } };
 }
 
+/**
+ * What the dogma location says of the guns, as it says it of a live turret: a rate of fire (attribute 51) and no
+ * duration (73) at all. The companion reads its guns off the hull, and drops what does not cycle.
+ */
+function gunsDogma(guns: readonly number[]): unknown {
+  const entry = (itemID: number, at: number) => keyVal([
+    ["itemID", itemID],
+    ["invItem", { type: "packedrow", fields: { itemID, typeID: GUN_TYPE, ownerID: OWN_CHARACTER_ID, locationID: SHIP_ID, flagID: 29 + at, quantity: -1, groupID: 74, categoryID: 7, customInfo: "", stacksize: 1 } }],
+    ["activeEffects", { type: "dict", entries: [] }],
+    ["time", "134292246678390000"],
+    ["attributes", { type: "dict", entries: [[9, 40], [51, 5825]] }],
+    ["wallclockTime", "134292246678390000"],
+  ]);
+  return {
+    ok: true,
+    reads: {
+      GetAllInfo: {
+        error: null,
+        result: keyVal([
+          ["activeShipID", SHIP_ID],
+          ["shipInfo", { type: "dict", entries: guns.map((itemID, at) => [itemID, entry(itemID, at)]) }],
+          ["charInfo", [{ type: "dict", entries: [] }, null]],
+          ["shipState", []],
+          ["systemWideEffectsOnShip", { type: "dict", entries: [] }],
+          ["structureInfo", { type: "dict", entries: [] }],
+          ["locationInfo", { type: "dict", entries: [] }],
+        ]),
+      },
+    },
+  };
+}
+
 /** The hold, with one stack of charges the guns take. */
 function holdBody(): unknown {
   const empty = { list: { type: "list", items: [] }, capacity: null, error: null };
@@ -91,6 +123,7 @@ function harness(guns: readonly number[]) {
     if (path === "/api/bridge/space/snapshot") return spaceBody();
     if (path === "/api/bridge/fitting") return gunsFitted(guns);
     if (path === "/api/bridge/inventory") return holdBody();
+    if (path === "/api/bridge/bound-dogma") return gunsDogma(guns);
     if (path === "/api/bridge/ship/ore-hold") return holdsBody(0, []);
     if (path === "/api/names") {
       // The guns are known for weapons by how the game files their type: the companion reads its guns off the hull.

@@ -260,8 +260,8 @@ export interface BoundDogmaAllInfo {
  * Dogma attribute 73, "Activation time / duration" -- how long one cycle of
  * this module takes.
  *
- * ⚠ IT IS THE ONLY HONEST "CAN THIS BE CYCLED" SIGNAL WE HAVE, and the group
- * NAME is not one. Checked against the SDE on 2026-09-11: group 60 "Damage
+ * ⚠ WITH A WEAPON'S RATE OF FIRE (below) IT IS THE ONLY HONEST "CAN THIS BE
+ * CYCLED" SIGNAL WE HAVE, and the group NAME is not one. Checked against the SDE on 2026-09-11: group 60 "Damage
  * Control" holds Damage Control II with NO duration (passive the moment it is
  * online) AND Assault Damage Control II with a duration of 10125 (a real burst
  * module worth running), so no test on the group name can separate them. Group
@@ -269,6 +269,25 @@ export interface BoundDogmaAllInfo {
  * classifier's `/resistance/` arm.
  */
 export const DOGMA_ATTR_DURATION = 73;
+
+/**
+ * Dogma attribute 51, "speed": a weapon's rate of fire, in milliseconds.
+ *
+ * ⚠ A WEAPON HAS NO DURATION, AND IT CYCLES ALL THE SAME. An effect names the
+ * attribute that is its duration. Read off the static data on 2026-10-10: of
+ * the effects a module is switched on by, 130 name 73, and the nine weapon
+ * effects (`targetAttack`, `projectileFired`, `useMissiles`, the
+ * disintegrator's, the vorton projector's and the rest) name 51. Every turret
+ * and launcher carries a speed and no duration at all: a 250mm railgun's is
+ * 5825. Asked for its duration alone, each was "passive", and a companion,
+ * whose lists are read off the hull, flew with no guns: it neither fired nor
+ * reloaded them. Seen live that day, a companion in space with three empty
+ * guns and charges for them in its hold, standing by.
+ *
+ * The other attributes an effect may name are an NPC's, a fighter's, a
+ * structure's or a capital's own, none of them a module a companion cycles.
+ */
+export const DOGMA_ATTR_SPEED = 51;
 
 /**
  * Whether one fitted item has a cycle of its own -- that is, whether activating
@@ -289,13 +308,13 @@ export function itemHasActivationCycle(
   if (entry === undefined) {
     return null;
   }
-  const duration = entry.attributes.find((attr) => attr.attributeID === DOGMA_ATTR_DURATION);
-  if (duration === undefined || typeof duration.value !== "number") {
-    // Present in the snapshot and carrying no duration at all: that IS the
-    // passive answer, and it is the one the Damage Control case needs.
-    return false;
-  }
-  return duration.value > 0;
+  // Present in the snapshot and carrying neither a duration nor a rate of fire:
+  // that IS the passive answer, and it is the one the Damage Control case needs.
+  const cyclesBy = (attributeID: number): boolean => {
+    const found = entry.attributes.find((attr) => attr.attributeID === attributeID);
+    return found !== undefined && typeof found.value === "number" && found.value > 0;
+  };
+  return cyclesBy(DOGMA_ATTR_DURATION) || cyclesBy(DOGMA_ATTR_SPEED);
 }
 
 /** The inner dict entries of the util.KeyVal top-level wrapper, name-agnostic. */
