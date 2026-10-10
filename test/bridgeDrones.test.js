@@ -1037,3 +1037,35 @@ test("a gateway pilot's launch is answered from the first look, with no waiting"
   const { payload } = await launchOf(baseUrl);
   assert.deepEqual([payload.launched, slept], [[], []]);
 });
+
+// ── a drone just landed ──────────────────────────────────────────────────────
+//
+// dronesUtil.GetDroneIDsInSpace (32 to 35): the client's drones in space are the ones it knows of that are NOT in
+// the bay. A landed drone is in the bay at once and its ball leaves the scene a moment later; on the game port the
+// scene is the pilot's own ballpark, and asked in between it still has the ball. Seen in the tab on 2026-10-10: the
+// page's two reads after a landing, half a second and a second on, were each answered with the drone in the bay AND
+// "returning" in space, and the window went on saying so.
+
+test("a drone the bay holds is not said to be in space as well", async () => {
+  const { gateway, baseUrl } = await inSpace();
+  gateway.state.space.set(BAY_DRONE_ID, gateway.droneRow(BAY_DRONE_ID));
+  gateway.state.space.set(9500001, gateway.droneRow(9500001));
+
+  const { payload } = await apiRequest(baseUrl, "/api/bridge/drones");
+
+  assert.deepEqual(payload.bay.map((row) => row.itemID).sort(), [BAY_DRONE_ID, SECOND_BAY_DRONE_ID]);
+  assert.deepEqual(payload.inSpace.map((drone) => drone.itemID), [9500001]);
+});
+
+test("with the bay unread, the drones in space are said as the scene has them", async () => {
+  const { gateway, baseUrl } = await inSpace();
+  gateway.state.space.set(BAY_DRONE_ID, gateway.droneRow(BAY_DRONE_ID));
+  gateway.callBoundMethod = async () => {
+    throw Object.assign(new Error("Unreadable component"), { code: "CALL_REFUSED", statusCode: 409 });
+  };
+
+  const { payload } = await apiRequest(baseUrl, "/api/bridge/drones");
+
+  assert.equal(payload.bay, null);
+  assert.deepEqual(payload.inSpace.map((drone) => drone.itemID), [BAY_DRONE_ID]);
+});

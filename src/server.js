@@ -20614,6 +20614,14 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
             quantity: row.quantity,
           }))
         : null;
+    // dronesUtil.GetDroneIDsInSpace (32 to 35): the client's drones in space are the ones it knows of that are NOT
+    // in the bay. A landed drone is in the bay at once and its ball leaves the scene a moment later, and on the game
+    // port the scene is the pilot's own ballpark: asked in between, it still has the ball. With the bay unread
+    // there is nothing to take out, and the scene is said as it is.
+    const inBay = new Set((bayRows ?? []).map((row) => Number(row.itemID)));
+    const dronesOut = inSpace.status === "fulfilled" && Array.isArray(inSpace.value.drones)
+      ? inSpace.value.drones.filter((drone) => !inBay.has(Number(drone.itemID)))
+      : null;
     res.json({
       ok: true,
       activeShipID: shipID,
@@ -20624,7 +20632,7 @@ app.get(["/api/bridge/drones", "/api/bridge/script/observation"], requireAuth, a
       // null (not []) on a failed read: "we could not look in the bay" is not
       // "the bay is empty", and the panel says which.
       bay: bayRows,
-      inSpace: inSpace.status === "fulfilled" ? inSpace.value.drones : null,
+      inSpace: dronesOut,
       // Raw, decoded browser-side alongside the fitting panel's attributes.
       shipInfo: shipInfo.status === "fulfilled" ? shipInfo.value.result : null,
       errors: {

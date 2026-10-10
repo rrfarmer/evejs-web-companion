@@ -10,6 +10,7 @@
 // than the player is looking at.
 
 import { canMyShipOrderDrone } from "../space/overview.ts";
+import { droneRoleForGroup } from "../nav/droneRoles.ts";
 import type { DroneInSpace, SpaceEntity } from "../store/types.ts";
 
 /**
@@ -47,5 +48,27 @@ export function orderableDroneIDs(
       }
       return canMyShipOrderDrone(byID.get(drone.itemID) ?? null, myShipID) !== false;
     })
+    .map((drone) => drone.itemID);
+}
+
+/**
+ * The salvage drones among those a group order may act on: the ones a salvage order is for.
+ *
+ * The client offers Salvage for a drone its ship controls that is a salvage drone, and for no other
+ * (droneCheckers.OfferSalvage: the item's group is groupSalvageDrone). The page knows a drone's kind by its
+ * group's name, once that has been read; `groupNameOf` answers null or an empty name until then, and a drone
+ * whose kind is not known is not taken for one.
+ */
+export function salvageDroneIDs(
+  orderable: readonly number[],
+  dronesInSpace: readonly DroneInSpace[] | null,
+  groupNameOf: (typeID: number) => string | null,
+): readonly number[] {
+  if (dronesInSpace === null) {
+    return [];
+  }
+  const mayOrder = new Set(orderable);
+  return dronesInSpace
+    .filter((drone) => mayOrder.has(drone.itemID) && drone.typeID !== null && droneRoleForGroup(groupNameOf(drone.typeID)) === "salvage")
     .map((drone) => drone.itemID);
 }

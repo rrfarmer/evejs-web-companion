@@ -943,3 +943,43 @@ test("recovery controls are real buttons (R8), and carry no ids (R7d)", () => {
     assert.doesNotMatch(text, new RegExp(`\b${id}\b`), `id ${id} reached the screen`);
   }
 });
+
+// --- A salvage drone's own order ---------------------------------------------
+//
+// The client offers Salvage for a salvage drone its ship controls (droneCheckers.OfferSalvage), and sends the
+// order with the pilot's active target, or with none where it has nothing targeted (droneFunctions.py 156 to
+// 161). The window had no such order until 2026-10-10.
+
+const SALVAGE_DRONE_TYPE_ID = 32787;
+const A_SALVAGE_DRONE = { ...A_SPACE_DRONE, itemID: SPACE_DRONE_ID + 1, typeID: SALVAGE_DRONE_TYPE_ID, name: "Salvage Drone I" };
+const KINDS_READ: Record<number, string> = { [SALVAGE_DRONE_TYPE_ID]: "Salvage Drone", [DRONE_TYPE_ID]: "Combat Drone" };
+
+/** The drones window with these drones out, the kinds of drone that have been read, and what is locked. */
+function salvageScene(inSpace: readonly unknown[], locked: readonly number[] = [], kinds: Record<number, string> = KINDS_READ): string {
+  const store = sceneStore({ inSpace: inSpace as never });
+  store.apply({ type: "names/resolved", entries: Object.fromEntries(Object.entries(kinds).map(([typeID, name]) => [`typeGroup:${typeID}`, name])) } as never);
+  if (locked.length > 0) store.apply({ type: "targeting/targets", targetIDs: locked } as never);
+  return render(DronesPanel, { props: { store, flow: fakeFlow() } }).body;
+}
+const LIVE_SALVAGE_BUTTON = /<button(?![^>]*\bdisabled\b)[^>]*>\s*Salvage ([a-z ]+?)\s*<\/button>/i;
+
+test("a salvage drone out is offered its own order: for any wreck where nothing is locked", () => {
+  const body = salvageScene([A_SPACE_DRONE, A_SALVAGE_DRONE]);
+  assert.equal(LIVE_SALVAGE_BUTTON.exec(body)?.[1], "any wreck");
+});
+
+test("with something locked the salvage order is for what is locked", () => {
+  const body = salvageScene([A_SALVAGE_DRONE], [424242]);
+  assert.equal(LIVE_SALVAGE_BUTTON.exec(body)?.[1], "what I have locked");
+});
+
+test("with no salvage drone out, no salvage order is offered at all", () => {
+  // A combat drone alone: the client offers it no salvage (OfferSalvage is for a salvage drone).
+  assert.doesNotMatch(visibleText(salvageScene([A_SPACE_DRONE])), /Salvage/);
+  assert.doesNotMatch(visibleText(salvageScene([])), /Salvage/);
+});
+
+test("a drone whose kind has not been read is not offered the order, and one the ship may not fly is not either", () => {
+  assert.doesNotMatch(visibleText(salvageScene([A_SALVAGE_DRONE], [], {})), /Salvage (any|what)/);
+  assert.doesNotMatch(visibleText(salvageScene([{ ...A_SALVAGE_DRONE, controlled: false }])), /Salvage (any|what)/);
+});

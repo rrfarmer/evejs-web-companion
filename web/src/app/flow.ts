@@ -146,6 +146,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey } from "../b
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { readDictEntry, type JsonValue } from "../bridge/wire.ts";
+import { itemChangeTouchesDroneBay } from "../bridge/droneBayNotices.ts";
 import * as api from "./api.ts";
 import type { ClientStore } from "../store/clientStore.ts";
 import type {
@@ -1179,6 +1180,12 @@ export interface AppFlow {
   engageDrones(droneIDs: readonly number[], targetID: number): Promise<void>;
   /** R25 — put mining drones on a rock. */
   mineWithDrones(droneIDs: readonly number[], targetID: number): Promise<void>;
+  /**
+   * Send salvage drones to a wreck, or to any wreck they may where `targetID`
+   * is null. The page's own call (bridge/boundEntityWrites.ts), as a client's
+   * drones window makes it.
+   */
+  salvageDrones(droneIDs: readonly number[], targetID: number | null): Promise<void>;
   /** R25 — bring drones home (the runtime scoops them itself inside 2500 m). */
   recallDrones(droneIDs: readonly number[]): Promise<void>;
   /**
@@ -2269,6 +2276,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       scheduleDroneRefresh();
       return;
     }
+    if (method === "OnItemChange") {
+      // ONE item's move comes by this name, and several by the one above: the
+      // server sends this one unless a batch is asked for. A drone landing in
+      // its bay is one item, and with only the name above heard the window went
+      // on reading "Coming home" for a drone the server had in the bay.
+      //
+      // Which moves, the client's drones window says (dronesWindow.OnItemChange,
+      // 254 to 260; bridge/droneBayNotices.ts): the ones into or out of this
+      // ship's drone bay. A charge loaded or ore come aboard is not one.
+      //
+      // ⚠ THE DRONES ONLY. Their re-read is gated on the window having been
+      // read; the holds' is not, and what one item's move does to a hold has
+      // not been measured.
+      if (itemChangeTouchesDroneBay(args, droneBayShipID)) {
+        scheduleDroneRefresh();
+      }
+      return;
+    }
     if (method === "OnDamageMessage") {
       applyDamageNotification(args);
     }
@@ -2415,6 +2440,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    */
   const DRONE_REFRESH_COALESCE_MS = 400;
   let droneRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The ship whose bay the drones were last read for: the one an item's move is judged against. */
+  let droneBayShipID: number | null = null;
   function scheduleDroneRefresh(): void {
     if (droneRefreshTimer !== null || !store.get().drones.loaded) {
       return;
@@ -5849,6 +5876,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       });
       return;
     }
+    droneBayShipID = typeof result.activeShipID === "number" ? result.activeShipID : null;
     store.apply({
       type: "drones/loaded",
       // null survives all the way to the panel: a failed read is "not known",
@@ -6027,6 +6055,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await runDroneAction(
       "Mine",
       () => api.mineWithDrones(droneIDs, targetID, callOptions),
+      orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."),
+    );
+  }
+
+  async function salvageDrones(droneIDs: readonly number[], targetID: number | null): Promise<void> {
+    // The client's Salvage is never called with none (droneFunctions.PerformPrimaryAction, the menu's one drone).
+    if (droneIDs.length === 0) return;
+    await runDroneAction(
+      "Salvage",
+      // droneFunctions.Salvage (156 to 161): the order, and then the drones as they are read again. What the
+      // server says of each drone that could not is the order's own answer.
+      async () => {
+        const result = await salvageWithDrones(bridgeDo, droneIDs, targetID);
+        const read = await api.getDrones(callOptions);
+        return { inSpace: read.inSpace, launched: null, result };
+      },
       orderVerifier(droneIDs, "The order was accepted, but space could not be re-read."),
     );
   }
@@ -14212,6 +14256,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     launchDrones,
     engageDrones,
     mineWithDrones,
+    salvageDrones,
     recallDrones,
     reconnectDrones,
     scoopDrones,

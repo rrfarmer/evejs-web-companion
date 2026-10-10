@@ -139,7 +139,7 @@ function makeFakeEventSource(): {
   return { factory, sources };
 }
 
-function itemsChangedFrame(sequence: number) {
+function itemsChangedFrame(sequence: number, method = "OnItemsChanged", args: unknown[] = []) {
   return {
     source: "evejs-web-gateway",
     apiVersion: 1,
@@ -150,8 +150,8 @@ function itemsChangedFrame(sequence: number) {
       notification: {
         kind: "client",
         service: null,
-        method: "OnItemsChanged",
-        args: [],
+        method,
+        args,
         kwargs: null,
       },
     },
@@ -290,4 +290,93 @@ test("a live frame on a session that never opened the window reads nothing", asy
   await settle();
 
   assert.equal(state.droneReads, 0);
+});
+
+// --- one item's move ---------------------------------------------------------
+//
+// The server tells of SEVERAL items' moves by OnItemsChanged and of ONE item's by
+// OnItemChange (its characterState.js sends the second unless a batch is asked
+// for). A drone landing in its bay is one item. Seen in the tab on 2026-10-10: a
+// drone the server had in the bay was still read "Coming home" by the window
+// minutes later, since only the first name made the page look again.
+//
+// Which moves: the ones the client's drones window reads again on
+// (dronesWindow.OnItemChange, 254 to 260; bridge/droneBayNotices.ts).
+
+const SYSTEM = 30000142;
+/** One item's move as the server sends it: the item as it now is, and what it was, by column (3 where, 4 which flag). */
+function oneItemFrame(sequence: number, locationID: number, flagID: number, was: (readonly [number, number])[]) {
+  const fields = { itemID: 101, typeID: HOBGOBLIN_TYPE, ownerID: CHARACTER_ID, locationID, flagID, quantity: -1, groupID: 100, categoryID: 18, customInfo: "", stacksize: 1, singleton: 1 };
+  return itemsChangedFrame(sequence, "OnItemChange", [{ type: "packedrow", fields }, { type: "dict", entries: was }, null]);
+}
+const landed = (sequence: number) => oneItemFrame(sequence, DRONE_BOAT, 87, [[3, SYSTEM], [4, 0]]);
+
+test("a drone come home is told as ONE item, and the window is read again on it", async () => {
+  const { store, flow, source, state } = await onlineFlow();
+  await flow.loadDrones();
+  const before = state.droneReads;
+  state.bayLoaded = true;
+
+  source.emit(landed(1));
+  await settle();
+
+  assert.equal(state.droneReads - before, 1, "the one-item frame did not reach the bay");
+  assert.equal(store.get().drones.bay?.length, 1);
+});
+
+test("one item moved into the HOLD is not the drones' business, and nothing is read", async () => {
+  const { flow, source, state } = await onlineFlow();
+  await flow.loadDrones();
+  const before = state.droneReads;
+
+  source.emit(oneItemFrame(1, DRONE_BOAT, 5, [[3, 60003760], [4, 4]]));
+  await settle();
+
+  assert.equal(state.droneReads, before);
+});
+
+test("the ship whose bay it is, is the one the drones were last read for", async () => {
+  // The same row on another ship is not this window's.
+  const { flow, source, state } = await onlineFlow();
+  await flow.loadDrones();
+  const before = state.droneReads;
+
+  source.emit(oneItemFrame(1, POD, 87, [[3, SYSTEM], [4, 0]]));
+  await settle();
+
+  assert.equal(state.droneReads, before);
+});
+
+test("the two names together still cost ONE re-read", async () => {
+  // A landing sends the item's row and its dogma together, and a batch may follow.
+  const { flow, source, state } = await onlineFlow();
+  await flow.loadDrones();
+  const before = state.droneReads;
+
+  for (let index = 0; index < 6; index += 1) {
+    source.emit(index % 2 === 0 ? landed(index + 1) : itemsChangedFrame(index + 1));
+  }
+  await settle();
+
+  assert.equal(state.droneReads - before, 1, "one coalescing window, one read");
+});
+
+test("a one-item frame on a session that never opened the window reads nothing", async () => {
+  const { source, state } = await onlineFlow();
+
+  source.emit(landed(1));
+  await settle();
+
+  assert.equal(state.droneReads, 0);
+});
+
+test("a frame of another name is no item's move, and nothing is read", async () => {
+  const { flow, source, state } = await onlineFlow();
+  await flow.loadDrones();
+  const before = state.droneReads;
+
+  source.emit(itemsChangedFrame(1, "OnGodmaPrimeItem", landed(1).event.notification.args));
+  await settle();
+
+  assert.equal(state.droneReads, before);
 });

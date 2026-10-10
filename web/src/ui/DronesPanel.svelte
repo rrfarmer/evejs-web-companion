@@ -25,7 +25,7 @@
   } from "../bridge/refusals.ts";
   import { droneActivityLabel, droneIsBusy } from "../bridge/drones.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
-  import { orderableDroneIDs } from "./droneFlight.ts";
+  import { orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
   import { resolvedName } from "../store/names.ts";
   import { isSessionLost } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -147,6 +147,18 @@
   );
 
   /**
+   * The salvage drones among those, which are the ones a salvage order is for.
+   *
+   * The client offers Salvage for a salvage drone its ship controls and for no
+   * other (droneCheckers.OfferSalvage), and its primary action sends the order
+   * to the salvage drones among those chosen. A drone whose kind has not been
+   * read yet is not one: "cannot tell" offers nothing.
+   */
+  const salvageIDs = $derived(
+    salvageDroneIDs(allDroneIDs, dronesInSpace, (typeID) => resolvedName($names.resolved, "typeGroup", typeID, "")),
+  );
+
+  /**
    * The reason a GROUP order cannot run, or null.
    *
    * It is only ever set when there are drones out and NOT ONE of them is ours to
@@ -235,6 +247,8 @@
     for (const drone of dronesInSpace ?? []) {
       if (drone.typeID !== null) {
         refs.push({ kind: "type", id: drone.typeID });
+        // What KIND of drone it is, which is what says it may be sent to salvage.
+        refs.push({ kind: "typeGroup", id: drone.typeID });
       }
     }
     if (refs.length > 0) {
@@ -429,6 +443,21 @@
       >
         {targetOrderUnavailable ?? "Mine what I have locked"}
       </button>
+      {#if salvageIDs.length > 0}
+        <!--
+          A salvage drone's own order, and only where one is out. With nothing
+          locked it is sent with no target, as the client sends it with nothing
+          targeted (droneFunctions.py 157), and the server finds each drone a
+          wreck of the pilot's or its fleet's.
+        -->
+        <button
+          type="button"
+          disabled={busy}
+          onclick={() => run(() => flow.salvageDrones(salvageIDs, autoTargetID > 0 ? autoTargetID : null))}
+        >
+          {autoTargetID > 0 ? "Salvage what I have locked" : "Salvage any wreck"}
+        </button>
+      {/if}
       <button
         type="button"
         disabled={busy || groupOrderUnavailable !== null}
