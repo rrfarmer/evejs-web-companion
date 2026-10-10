@@ -1286,6 +1286,34 @@ test("a fleet applied to and a broadcast to the bubble are writes of the page's 
   }
 });
 
+test("a module overloaded and cooled are writes of the page's own, asked of the dogma service by its name: each goes as it was sent", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  for (const method of ["Overload", "StopOverload"]) {
+    const args = [9988400023312, 3001];
+    const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method, args, kwargs: null, ...more } });
+    const before = gateway.calls.call.length;
+    // A write, as the pause is: refused unless it is said to be a pilot's and to be meant.
+    for (const more of [{}, { pilot: true }, { confirm: true }]) {
+      const refused = await call(more);
+      assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${method} ${JSON.stringify(more)}`);
+    }
+    assert.equal(gateway.calls.call.length, before, method);
+    const made = await call({ pilot: true, confirm: true });
+    assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "dogmaIM", method]);
+    const sent = gateway.calls.call.at(-1);
+    assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["dogmaIM", method, args, null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  }
+  // The dogma service's other writes are their routes' alone, whatever is said.
+  const before = gateway.calls.call.length;
+  for (const method of ["OverloadRack", "StopOverloadRack", "InitiateModuleRepair", "StopModuleRepair", "LinkAllWeapons", "UnlinkAllModules", "LinkWeapons", "LoadAmmo", "Activate"]) {
+    const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method, args: [], kwargs: null, pilot: true, confirm: true } });
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
+  }
+  assert.equal(gateway.calls.call.length, before);
+});
+
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {
   const gateway = fakeGateway();
   const { baseUrl, app } = await startTestServer({ gateway });

@@ -23307,6 +23307,49 @@ app.get("/api/types/cycle-times", requireAuth, async (req, res, next) => {
 });
 
 /**
+ * A module type's overload effect, from static reference data.
+ *
+ * The retail client overloads a module by naming the ID of the module's own
+ * effect of the overload category: its module button finds it among the
+ * module's effects (shipmodulebutton.py 231), and godma sends
+ * Overload(itemID, effectID) with it (godma.py 2075; recorded on Tranquility as
+ * Overload(moduleID, 3001)). The page knows a module's type and nothing of its
+ * effects, so it asks here, once for a type, as it asks a type's cycle time.
+ * Null is a real answer: the type has no overload effect, and the client has
+ * no overload button for such a module.
+ *
+ * No gateway call and no live session: this cannot vary by player.
+ */
+const OVERLOAD_EFFECT_TYPE_LIMIT = 500;
+
+app.get("/api/types/overload-effects", requireAuth, async (req, res, next) => {
+  try {
+    const asked = [];
+    for (const part of String((req.query && req.query.typeIDs) || "").split(",")) {
+      const typeID = Number(part);
+      if (Number.isSafeInteger(typeID) && typeID > 0 && !asked.includes(typeID)) {
+        asked.push(typeID);
+      }
+    }
+    const overloadEffectID = {};
+    for (const typeID of asked.slice(0, OVERLOAD_EFFECT_TYPE_LIMIT)) {
+      overloadEffectID[String(typeID)] = staticData.getOverloadEffectID(typeID);
+    }
+    res.json({
+      ok: true,
+      source: "static-data",
+      overloadEffectID,
+      // Said, not hidden: a type past the limit is not in the answer at all,
+      // and a caller that asked for it must not take that for "has none".
+      capped: asked.length > OVERLOAD_EFFECT_TYPE_LIMIT,
+      limit: OVERLOAD_EFFECT_TYPE_LIMIT,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * PI PLANNER — the planetary production recipe table, from static reference
  * data.
  *

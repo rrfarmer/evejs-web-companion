@@ -346,6 +346,7 @@ import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
+import { createOverloadEffects, setOverload as setOverloadCall } from "../bridge/dogmaWrites.ts";
 import {
   FLEET_BROADCAST_SCOPE_ALL,
   FLEET_BROADCAST_TTL_MS,
@@ -1091,8 +1092,8 @@ export interface AppFlow {
   deactivateModule(itemID: number, opts?: { effect?: string; typeID?: number }): Promise<void>;
   /**
    * Start or stop overloading a module. ⚠ Overloading damages it — the server
-   * refuses an offline, burnt-out or non-overloadable module, and a pilot
-   * without Thermodynamics, in its own words.
+   * refuses an offline or burnt-out module, and a pilot without Thermodynamics,
+   * in its own words. A module with no overload effect is not asked of it.
    */
   setModuleOverload(itemID: number, overloaded: boolean): Promise<void>;
   /**
@@ -1713,6 +1714,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   });
   // The pilot's broadcasts to its fleet, with the wait the client keeps between them (bridge/fleetWrites.ts).
   const fleetBroadcasts = createFleetBroadcasts(bridgeDo);
+  // What a module type's overload effect is: the client's own static data, asked of the BFF's copy once for a type.
+  const overloadEffects = createOverloadEffects((typeIDs) => api.loadOverloadEffects(typeIDs, callOptions));
   // What a client knows of a skill's type without asking the server, asked of the static data once and kept.
   const skillTypeFacts = createSkillTypeFacts({
     // (A type's name is the static data's, and is answered or is none: only a structure's can be left unanswered.)
@@ -6141,10 +6144,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function setModuleOverload(itemID: number, overloaded: boolean): Promise<void> {
     await runTargetingAction(
       overloaded ? "Overload" : "Stop overloading",
-      () =>
-        overloaded
-          ? api.overloadModule(itemID, callOptions)
-          : api.stopOverloadModule(itemID, callOptions),
+      async () => {
+        // The client's button (shipmodulebutton.py 231): the module's own effect of the overload category is what
+        // is named, and for a module that has none nothing is asked of the server at all.
+        const module = store.fitting.get().slots.find((slot) => slot.module?.itemID === itemID)?.module ?? null;
+        if (module === null) throw new Error("That module is not fitted to this ship.");
+        const effectID = await overloadEffects.of(module.typeID);
+        if (effectID === null) throw new Error("That module cannot be overloaded.");
+        await setOverloadCall(bridgeDo, itemID, effectID, overloaded);
+      },
       () => loadSpaceSnapshot().catch(() => {}),
       () => {
         const list = store.space.get().snapshot?.ship?.overloadedModuleIDs ?? null;

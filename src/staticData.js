@@ -529,6 +529,29 @@ function getLauncherEffectName(typeID) {
     : null;
 }
 
+// dogma/const.py dgmEffOverload: the category of the effect that overloading a
+// module switches on.
+const EFFECT_CATEGORY_OVERLOAD = 5;
+
+/**
+ * The ID of a module type's overload effect, or null for a type with none:
+ * the first of the type's effects, as the type lists them, whose category is
+ * overload. It is what the retail client's module button names when it
+ * overloads a module (shipmodulebutton.py 231) and what godma's Overload and
+ * StopOverload carry. The page asks for it by GET /api/types/overload-effects.
+ */
+function getOverloadEffectID(typeID) {
+  const dogma = getTypeDogma(typeID);
+  const effects = dogma && Array.isArray(dogma.effects) ? dogma.effects : [];
+  for (const effectID of effects) {
+    const effect = getEffect(effectID);
+    if (effect && Number(effect.effectCategoryID) === EFFECT_CATEGORY_OVERLOAD) {
+      return Number(effectID);
+    }
+  }
+  return null;
+}
+
 // dogma: 128 is the charge SIZE (1 small, 2 medium, 3 large, 4 x-large) and
 // 604/605/606/609 are the charge GROUP ids a module will accept. Both sides of
 // the match come from the same table, so this needs no bridge call and no
@@ -1910,6 +1933,7 @@ module.exports = {
   getMarketGroupPath,
   getPropulsionEffectName,
   getLauncherEffectName,
+  getOverloadEffectID,
   getModuleChargeFitment,
   getChargeSize,
   getOreValuePerM3,

@@ -1788,3 +1788,50 @@ test("a broadcast to the bubble is the client's call with one of its five names,
   assert.deepEqual([alone.status, alone.args], ["differs", ["Target", 3, 200001, null]]);
   assert.match(alone.note, /in a fleet/);
 });
+
+test("a module overloaded or cooled is the client's call when it names the module and the module's own overload effect", () => {
+  // godma.py 2075 and 2120: GetDogmaLM().Overload(itemID, effectID) and StopOverload(itemID, effectID), on the dogma
+  // location's object. Tranquility has the first recorded: Overload(moduleID, 3001). The effect is the module's own
+  // of the overload category (shipmodulebutton.py 231), which godma knows and `overloadEffect` stands for here.
+  const knows = { overloadEffect: (itemID) => (itemID === 61001 ? 3001 : null) };
+  for (const [method, line] of [["Overload", 2075], ["StopOverload", 2120]]) {
+    const ask = (args, kwargs = null, context = knows) => retailForm("dogmaIM", method, args, kwargs, context);
+    const made = ask([61001, 3001]);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy],
+      ["same", `eve/client/script/environment/godma.py:${line}`, [61001, 3001], null, true, false], method);
+    // No effect named, as the BFF's route asks: it is given the module's own.
+    const given = ask([61001, 0]);
+    assert.deepEqual([given.status, given.args], ["reshaped", [61001, 3001]], method);
+    // Another effect, a module with no overload effect, and a module godma does not know: each goes as it came.
+    for (const [args, why] of [[[61001, 3025], "another effect"], [[61002, 3001], "a module with none"], [[61002, 0], "none named, and none known"]]) {
+      const odd = ask(args);
+      assert.deepEqual([odd.status, odd.args], ["differs", args], `${method}: ${why}`);
+      assert.match(odd.note, /overload effect/, why);
+    }
+    // With no godma to ask (through the web gateway): an effect named is taken for the module's; none named is not the client's.
+    assert.deepEqual([ask([61001, 3001], null, {}).status, ask([61001, 3025], null, {}).status], ["same", "same"], method);
+    const blind = ask([61001, 0], null, {});
+    assert.deepEqual([blind.status, blind.args], ["differs", [61001, 0]], method);
+    // Anything else goes as it came, and is counted as differing: for its form alone, with no godma asked.
+    for (const [args, kwargs, why] of [
+      [[], null, "nothing"],
+      [[61001], null, "the module alone"],
+      [[0, 3001], null, "no module"],
+      [[-5, 3001], null, "a module below nought"],
+      [[61001.5, 3001], null, "half a module"],
+      [["61001", 3001], null, "a module as text"],
+      [[61001, -1], null, "an effect below nought"],
+      [[61001, 3001.5], null, "half an effect"],
+      [[61001, "3001"], null, "an effect as text"],
+      [[61001, null], null, "nothing for the effect"],
+      [[61001, 3001, 1], null, "a third thing"],
+      [[61001, 3001], { repeat: 1 }, "a keyword"],
+    ]) {
+      const odd = ask(args, kwargs, {});
+      assert.deepEqual([odd.status, odd.args], ["differs", args], `${method}: ${why}`);
+      assert.match(odd.note, /overload effect/, why);
+    }
+  }
+  // Each wants godma primed first: it is godma that knows what the module is.
+  assert.deepEqual(["Overload", "StopOverload"].map((method) => retailNeeds("dogmaIM", method)), ["dogma", "dogma"]);
+});

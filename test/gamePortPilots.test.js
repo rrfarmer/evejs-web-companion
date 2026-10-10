@@ -2396,6 +2396,43 @@ test("a module whose online effect is not running is not among the online module
   assert.match(row.note, /online modules by slot/);
 });
 
+test("a module is overloaded and cooled as the client does it: on the dogma location, with the module's own overload effect", async () => {
+  const hand = handTicked();
+  const allowed = new Set([...MODULE_PAIRS, "dogmaIM.Overload", "dogmaIM.StopOverload"]);
+  const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:GetAllInfo": fittedAllInfo() } }, { ...hand.options, ...moduleOptions({ allowed }) });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  const made = () => session.boundCalls.findLast((call) => call.method === "Overload" || call.method === "StopOverload");
+  const row = (pair) => built.pilots.callLedger().find((each) => each.pair === pair);
+  // godma.py 2075: GetDogmaLM().Overload(itemID, effectID). Asked by the service's name, and made on godma's own dogma location.
+  await built.pilots.callMethod("dogmaIM", "Overload", [FITTED_MODULE, 3175], null, WHOSE, handle);
+  assert.equal(session.calls.some((call) => call.service === "dogmaIM" && call.method === "Overload"), false, "nothing was asked of the service by name");
+  const location = session.boundCalls.find((call) => call.method === "GetAllInfo").objectID;
+  assert.deepEqual(made(), { objectID: location, method: "Overload", args: [FITTED_MODULE, 3175], kwargs: null });
+  // (Asked by name and made on the moniker is counted as reshaped, with the client's arguments or not.)
+  assert.deepEqual(row("dogmaIM.Overload").statuses, { reshaped: 1 });
+  // 2120: StopOverload, the same two.
+  await built.pilots.callMethod("dogmaIM", "StopOverload", [FITTED_MODULE, 3175], null, WHOSE, handle);
+  assert.deepEqual(made(), { objectID: location, method: "StopOverload", args: [FITTED_MODULE, 3175], kwargs: null });
+  assert.deepEqual(row("dogmaIM.StopOverload").statuses, { reshaped: 1 });
+  // The BFF's route names no effect: it is given the module's own, as the client's button finds it.
+  await built.pilots.callMethod("dogmaIM", "Overload", [FITTED_MODULE, 0], null, WHOSE, handle);
+  assert.deepEqual(made().args, [FITTED_MODULE, 3175]);
+  assert.deepEqual(row("dogmaIM.Overload").statuses, { reshaped: 2 });
+  // Another of the module's effects is not its overload effect: it goes as it came, and is counted as not the client's.
+  await built.pilots.callMethod("dogmaIM", "StopOverload", [FITTED_MODULE, 6731], null, WHOSE, handle);
+  assert.deepEqual(made().args, [FITTED_MODULE, 6731]);
+  assert.deepEqual(row("dogmaIM.StopOverload").statuses, { reshaped: 1, differs: 1 });
+  assert.match(row("dogmaIM.StopOverload").note, /overload effect/);
+  // A module godma does not know: no effect of its own to name or to hold the call to.
+  await built.pilots.callMethod("dogmaIM", "Overload", [FITTED_MODULE + 1, 3175], null, WHOSE, handle);
+  assert.deepEqual(made().args, [FITTED_MODULE + 1, 3175]);
+  assert.deepEqual(row("dogmaIM.Overload").statuses, { reshaped: 2, differs: 1 });
+  // One dogma location for all of it, godma's own.
+  assert.equal(session.binds.filter((bind) => bind.service === "dogmaIM").length, 1);
+  assert.equal(session.boundCalls.filter((call) => call.method === "GetAllInfo").length, 1);
+});
+
 test("a module is switched on and off as the client does it: on the dogma location bound for where the pilot is, its effect named", async () => {
   const hand = handTicked();
   const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:GetAllInfo": fittedAllInfo() } }, { ...hand.options, ...moduleOptions() });
@@ -2485,7 +2522,7 @@ test("a call on a handle the BFF bound itself is shaped with what the pilot know
 });
 
 test("whatever is asked of ship or dogmaIM by name is made on the moniker, read against the client or not", async () => {
-  const allowed = new Set(["dogmaIM.ItemGetInfo", "dogmaIM.AddTarget", "dogmaIM.Overload", "dogmaIM.CreateNewbieShip", "ship.LeaveShip", "ship.GetShipConfiguration", "ship.LaunchDrones", "ship.GetShipFittingInfo", "station.GetGuests"]);
+  const allowed = new Set(["dogmaIM.ItemGetInfo", "dogmaIM.AddTarget", "dogmaIM.OverloadRack", "dogmaIM.CreateNewbieShip", "ship.LeaveShip", "ship.GetShipConfiguration", "ship.LaunchDrones", "ship.GetShipFittingInfo", "station.GetGuests"]);
   const { pilots, session, handle } = await selected({ answers: { "bound:ItemGetInfo": { type: "list", items: [9001] } } }, { allowed });
   const made = () => session.boundCalls.at(-1);
   const chosen = session.calls.length;
@@ -2499,8 +2536,8 @@ test("whatever is asked of ship or dogmaIM by name is made on the moniker, read 
   await pilots.callMethod("dogmaIM", "AddTarget", [9001], null, FIELDS, handle);
   assert.deepEqual(made(), { objectID: "N=1:1", method: "AddTarget", args: [9001], kwargs: null });
   // One nobody has read against the client: still on the moniker, with its arguments as the BFF spelt them.
-  await pilots.callMethod("dogmaIM", "Overload", [7, 3175], null, FIELDS, handle);
-  assert.deepEqual(made(), { objectID: "N=1:1", method: "Overload", args: [7, 3175], kwargs: null });
+  await pilots.callMethod("dogmaIM", "OverloadRack", [7], null, FIELDS, handle);
+  assert.deepEqual(made(), { objectID: "N=1:1", method: "OverloadRack", args: [7], kwargs: null });
   // The ship's: its own moniker, made anew for each call while the pilot is docked in a station, and what the pilot knows filled in.
   await pilots.callMethod("ship", "GetShipConfiguration", [], null, FIELDS, handle);
   assert.deepEqual(session.binds.at(-1), { service: "ship", params: [STATION, 15] });
@@ -2521,7 +2558,7 @@ test("whatever is asked of ship or dogmaIM by name is made on the moniker, read 
   // The tally: asked by name and made on the moniker is not the client's call as the BFF spelt it, even with the client's arguments.
   const tally = Object.fromEntries(pilots.callLedger().map((row) => [row.pair, row.statuses]));
   assert.deepEqual(
-    [tally["dogmaIM.ItemGetInfo"], tally["dogmaIM.AddTarget"], tally["dogmaIM.Overload"], tally["ship.GetShipConfiguration"], tally["ship.LaunchDrones"], tally["ship.LeaveShip"], tally["dogmaIM.CreateNewbieShip"]],
+    [tally["dogmaIM.ItemGetInfo"], tally["dogmaIM.AddTarget"], tally["dogmaIM.OverloadRack"], tally["ship.GetShipConfiguration"], tally["ship.LaunchDrones"], tally["ship.LeaveShip"], tally["dogmaIM.CreateNewbieShip"]],
     [{ reshaped: 1 }, { reshaped: 1 }, { unchecked: 1 }, { reshaped: 1 }, { reshaped: 1 }, { reshaped: 1 }, { unchecked: 1 }],
   );
 });

@@ -4147,6 +4147,39 @@ export async function loadRosterTraining(
   return rows;
 }
 
+// --- A module type's overload effect (static reference data) -----------------
+// GET /api/types/overload-effects?typeIDs=... answers { overloadEffectID }: for
+// each type the ID of its effect of the overload category, or null where it has
+// none. It is what the client's module button names when it overloads a module,
+// and the page asks it once for a type (bridge/dogmaWrites.ts). Like the cycle
+// times below it is static data and no bridge call.
+
+/**
+ * typeID -> the ID of the type's overload effect, or null for a type that has
+ * none. A type the answer does not speak of, or speaks of with anything but an
+ * effect's ID or null, is left out: it was not answered.
+ */
+export async function loadOverloadEffects(
+  typeIDs: readonly number[],
+  options: ApiOptions = {},
+): Promise<Readonly<Record<number, number | null>>> {
+  const data = await getJson(
+    `/api/types/overload-effects?typeIDs=${encodeURIComponent(typeIDs.join(","))}`,
+    options,
+  );
+  const raw =
+    typeof data.overloadEffectID === "object" && data.overloadEffectID !== null && !Array.isArray(data.overloadEffectID)
+      ? (data.overloadEffectID as Record<string, JsonValue>)
+      : {};
+  const effects: Record<number, number | null> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === null || (typeof value === "number" && Number.isSafeInteger(value) && value > 0)) {
+      effects[Number(key)] = value;
+    }
+  }
+  return effects;
+}
+
 // --- R24 slice C: module cycle times (static reference data) ----------------
 // POST /api/types/cycle-times takes { typeIDs } and returns { baseCycleMs }.
 // Read-only static data over attribute 73 (`duration`) — like /api/names, NOT a
@@ -4525,31 +4558,13 @@ export async function scoopDrones(
 // own call (bridge/skillWrites.ts; the plan's Phase 6b): the third of its writes
 // to leave its route (POST /api/bridge/skills/apply-free-points), on 2026-10-10.
 
-// --- Overloading --------------------------------------------------------------
+// A module is overloaded and cooled by the page itself, with the client's own
+// calls and the module's own overload effect named (bridge/dogmaWrites.ts; the
+// plan's Phase 6b): the ninth and tenth of its writes to leave their routes
+// (POST /api/bridge/dogma/module/overload and .../stop-overload), on 2026-10-10.
 //
 // ⚠ OVERLOADING DAMAGES THE MODULE. It runs harder and takes heat; a module left
-// overloaded burns out and stops. The server owns every rule — it refuses a
-// module that is offline, incapacitated, not overloadable, or on a pilot without
-// Thermodynamics — and those refusals reach the player in the server's words.
-//
-// The effectID is omitted: the server resolves the module's own overload effect
-// from its type, exactly as activation resolves the default activation effect.
-
-/** Start overloading one module (dogmaIM.Overload). */
-export async function overloadModule(
-  moduleID: number,
-  options: ApiOptions = {},
-): Promise<void> {
-  await postJson("/api/bridge/dogma/module/overload", { moduleID, confirm: true }, options);
-}
-
-/** Stop overloading one module (dogmaIM.StopOverload). */
-export async function stopOverloadModule(
-  moduleID: number,
-  options: ApiOptions = {},
-): Promise<void> {
-  await postJson("/api/bridge/dogma/module/stop-overload", { moduleID, confirm: true }, options);
-}
+// overloaded burns out and stops. Repair is the complement, below.
 
 /**
  * Start a nanite repair on one module (dogmaIM.InitiateModuleRepair).

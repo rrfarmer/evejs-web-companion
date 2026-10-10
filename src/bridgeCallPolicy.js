@@ -172,8 +172,15 @@ function isBridgeWritePair(service, method) {
  *                                session's own character in its own fleet, takes only a name it knows, holds
  *                                the scope to a number, and hands the item and the type on to the members
  *                                as they came, as it does a client's. Carried by either transport.
+ *   dogmaIM.Overload,            a module overloaded, and cooled. Each route confirmed and called, on a dogma
+ *   dogmaIM.StopOverload         object the BFF bound for itself, with the module and an effect's ID made
+ *                                numbers (the page named no effect). The handler acts on the ship the session
+ *                                is flying and on a module fitted to it, and takes no one's name; the effect
+ *                                only picks among the module's own. Asked of the service by its name here:
+ *                                the game port makes it on the dogma location godma keeps, as the client
+ *                                does, and the gateway as it is asked.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

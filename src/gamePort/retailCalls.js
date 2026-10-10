@@ -554,6 +554,30 @@ function activation(args, kwargs, context) {
   return shaped;
 }
 
+/**
+ * godma.Overload and StopOverload (2074, 2119): the module, and the ID of its own effect of the overload category,
+ * which the module's button finds among the module's effects (shipmodulebutton.py 231). `context.overloadEffect`
+ * says which that is where godma knows the module, and null where the module has none or godma does not know it.
+ * A call that names no effect (the BFF's routes say 0) is given the module's own.
+ */
+function overloading(args, kwargs, context) {
+  const [itemID, effectID] = args;
+  if (!(args.length === 2 && Number.isSafeInteger(itemID) && itemID > 0 && Number.isSafeInteger(effectID) && effectID >= 0 && Object.keys(kwargs).length === 0)) {
+    return { args, kwargs, status: "differs", note: "The client names the module and the ID of the module's overload effect, and nothing else." };
+  }
+  const own = context.overloadEffect ? context.overloadEffect(itemID) : undefined;
+  if (effectID === 0) {
+    return own
+      ? { args: [itemID, own], kwargs, status: "reshaped" }
+      : { args, kwargs, status: "differs", note: "The client always names the module's overload effect. This call names none, and what the module is was not known." };
+  }
+  // With no godma to ask, an effect named is taken for the module's own.
+  if (own === undefined || own === effectID) return { args, kwargs };
+  return { args, kwargs, status: "differs", note: own === null
+    ? "The client overloads only a module that has an overload effect, and that godma knows. This one has none here."
+    : "The client names the module's own overload effect. This call names another." };
+}
+
 /** godma's Deactivate(itemID, effectName): the effect is the one the client holds as running, by name. */
 function deactivation(args, kwargs, context) {
   const [itemID, effectName] = args;
@@ -1142,6 +1166,18 @@ const RETAIL_CALLS = Object.freeze({
   "officeManager.GetMyCorporationsOffices": same(`${CORP_SVC}/officeManager.py:41`, "RemoteSvc('officeManager').GetMyCorporationsOffices(), no arguments, while it has none; let go at OnOfficeRentalChange of the session's corporation (72) and in another corporation (62); the transport keeps it so (pilots.js, KEPT_UNTIL_CHANGED)"),
   "dogmaIM.LaunchProbes": same(`${SCAN_SVC}:494`, "LaunchProbes(moduleID, numProbes)"),
   "ship.Undock": needing(reshaped(`${STATION_SVC}:498`, undocking, "GetShipAccess().Undock(shipID, ignoreContraband, onlineModules={flagID: moduleID}), on the ship object bound for the station"), "dogma"),
+  "dogmaIM.Overload": needing(Object.freeze({
+    status: "same",
+    source: `${GODMA}:2075`,
+    note: "GetDogmaLM().Overload(itemID, effectID), on the dogma location bound for where the pilot is: the module, and the ID of its own effect of the overload category, which the module's button finds (shipmodulebutton.py 231). Recorded on Tranquility as Overload(moduleID, 3001).",
+    shape: overloading,
+  }), "dogma"),
+  "dogmaIM.StopOverload": needing(Object.freeze({
+    status: "same",
+    source: `${GODMA}:2120`,
+    note: "GetDogmaLM().StopOverload(itemID, effectID), the same two as Overload. No recording has one.",
+    shape: overloading,
+  }), "dogma"),
   "dogmaIM.Activate": needing(reshaped(`${MODULE_BUTTON}:1348`, activation, "godma's GetDogmaLM().Activate(itemID, effectName, target, repeats) (godma.py 2062), on the dogma location bound for where the pilot is"), "dogma"),
   "dogmaIM.Deactivate": needing(reshaped(`${GODMA}:2101`, deactivation, "GetDogmaLM().Deactivate(itemID, effectName), on the dogma location bound for where the pilot is"), "dogma"),
   "dogmaIM.GetTargets": same(`${GODMA}:2361`, "GetDogmaLM().GetTargets(), no arguments"),

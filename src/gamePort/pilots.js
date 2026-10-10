@@ -2711,6 +2711,12 @@ function createGamePortPilots({
     return effect ? effect.effectCategoryID === EFFECT_CATEGORY.TARGET : null;
   }
 
+  /** shipmodulebutton.ToggleOverload (231): the first of a type's effects of the overload category, by its ID. Null when the type has none, or is not known. */
+  function overloadEffectOf(typeID) {
+    const effect = typeEffects(typeID).find((each) => each.effectCategoryID === EFFECT_CATEGORY.OVERLOAD);
+    return effect ? effect.effectID : null;
+  }
+
   /**
    * An item's stack size as the client's inventory cache would have it (item.stacksize), from the item's row in a
    * listing the pilot holds (INVENTORY_LISTINGS): the row's own stack size where the codec gives one, else its
@@ -2758,6 +2764,8 @@ function createGamePortPilots({
       effectName: (itemID) => defaultEffectName(typeOf(itemID)),
       effectTargeted: (itemID, effectName) => effectTargeted(typeOf(itemID), effectName),
       effectRepeats: (itemID, effectName) => effectRepeats(typeOf(itemID), effectName),
+      // The module's own overload effect, by its ID: null for a module with none, and for one godma does not know.
+      overloadEffect: (itemID) => overloadEffectOf(typeOf(itemID)),
       // fleetSvc.GetMyShipTypeID: godma's word for the ship the pilot is in.
       shipTypeID: () => typeOf(attribute(entry, "shipid")),
       fleetID: attribute(entry, "fleetid"),
