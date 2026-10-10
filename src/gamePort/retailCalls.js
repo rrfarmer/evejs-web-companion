@@ -239,6 +239,9 @@ const MONIKER_SERVICES = Object.freeze({
   // officeManager.station (officeManager.py 50): Moniker('officeManager', session.stationid or session.structureid),
   // kept while the session is there. The corporation's own offices, wherever they are, are asked by name (41).
   officeManager: new Set(["GetMyCorporationsOffices"]),
+  // eveMoniker.GetEntityAccess() (58): Moniker('entity', session.solarsystemid2), made at each drone order
+  // (droneFunctions.py) and not kept. Every one Tranquility has recorded rides its own bind.
+  entity: new Set(),
 });
 /**
  * Monikers for something a session may not have, by what it is in the call's context: the client cannot make one
@@ -261,6 +264,11 @@ const MONIKER_NEEDS = Object.freeze({
     source: "eve/client/script/ui/services/corporation/officeManager.py:48",
     note: "The client asks this on a moniker for the station or structure its session is docked in. In space it has none, and does not ask.",
   }),
+  entity: Object.freeze({
+    has: "solarSystemID",
+    source: "eve/common/script/net/eveMoniker.py:58",
+    note: "The client orders its drones on a moniker for the system its session is in space in. Docked it cannot make one (GetEntityAccess raises), and orders none.",
+  }),
 });
 
 /** shipConfigSvc.py 51: eveMoniker.GetShipAccess().GetShipConfiguration(shipID), a Moniker of its own each time. */
@@ -273,7 +281,7 @@ const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration"]);
  * service that makes its own does so wherever the pilot is.
  */
 const madeAfresh = (service, method, { dockedInStation = false } = {}) =>
-  service === "crimewatch" || service === "planetOrbitalRegistryBroker" || (service === "ship" && (dockedInStation || OWN_SHIP_MONIKER.has(method)));
+  service === "crimewatch" || service === "planetOrbitalRegistryBroker" || service === "entity" || (service === "ship" && (dockedInStation || OWN_SHIP_MONIKER.has(method)));
 /**
  * The services the client reaches with sm.ProxySvc(name): every one in the decompiled client, and none
  * of them is asked any other way. Such a call is addressed to the client's proxy node
@@ -478,6 +486,14 @@ const oneBubbleBroadcast = (args, kwargs, context) => {
   }
   return context.fleetID === null ? { status: "differs", note: "The client broadcasts only from a session in a fleet: in none it sends nothing." } : {};
 };
+
+/** droneFunctions.py: an order to drones names them as a list, as every recorded one does. */
+const dronesListed = ([drones, ...rest], kwargs) => ({ args: [list(drones), ...rest], kwargs });
+/**
+ * droneFunctions.Salvage (157 to 160): the drones, and the active target's ID, which is None where the pilot has
+ * nothing targeted (it does not ask for one). Nought, the BFF's word for "any wreck", is none.
+ */
+const salvaging = ([drones, target, ...rest], kwargs) => ({ args: [list(drones), target === 0 || target === undefined ? null : target, ...rest], kwargs });
 
 /** The tags the client's menu offers for a thing in space (menusvc.py 1945 and 1946): the ten digits and thirteen letters. */
 const FLEET_TAGS = new Set("0123456789ABCDEFGHIJXYZ");
@@ -1019,6 +1035,15 @@ const RETAIL_CALLS = Object.freeze({
   "fleetObjectHandler.LeaveFleet": judged(`${FLEET_SVC}:369`, leavingOnTheObject, "self.fleet.LeaveFleet(), no arguments, on the fleet's object"),
   "fleetProxy.ApplyToJoinFleet": judged(`${FLEET_SVC}:1907`, applyingToOneFleet,
     "sm.ProxySvc('fleetProxy').ApplyToJoinFleet(fleetID, autoAccept): from the fleet finder and a fleet's link with False, from the Agency's join window with True. It answers True where the boss must approve and False where an invitation was made. No recording has one."),
+  // ── drones: eveMoniker.GetEntityAccess(), a Moniker made for each order ──
+  "entity.CmdEngage": reshaped(`${DRONE_FUNCTIONS}:93`, dronesListed,
+    "eveMoniker.GetEntityAccess().CmdEngage(droneIDs, targetID): the drones a list and the active target, on a Moniker made for the order. Recorded on Tranquility so fifty times, each riding its own bind and answering the drones that could not, which was none."),
+  "entity.CmdReturnBay": reshaped(`${DRONE_FUNCTIONS}:187`, dronesListed,
+    "eveMoniker.GetEntityAccess().CmdReturnBay(droneIDs): the drones a list. Recorded on Tranquility so eleven times, each riding its own bind."),
+  "entity.CmdMineRepeatedly": reshaped(`${DRONE_FUNCTIONS}:151`, dronesListed,
+    "eveMoniker.GetEntityAccess().CmdMineRepeatedly(droneIDs, targetID): the drones a list and the active target. No recording has one."),
+  "entity.CmdSalvage": reshaped(`${DRONE_FUNCTIONS}:160`, salvaging,
+    "eveMoniker.GetEntityAccess().CmdSalvage(droneIDs, targetID): the drones a list, and the active target or None, from a salvage drone's menu and the drones' primary action. It answers the drones that could not, each with why. No recording has one."),
   "beyonce.CmdFleetTagTarget": judged("eve/client/script/ui/services/menusvc.py:2825", tagging,
     "michelle.GetRemotePark().CmdFleetTagTarget(itemID, tag): a fleet's tag on a thing in space, from the menu and from the shortcuts, on the ballpark's object. It answers nothing, set or not. No recording has one."),
   "fleetMgr.BroadcastToBubble": judged(`${FLEET_SVC}:998`, oneBubbleBroadcast,

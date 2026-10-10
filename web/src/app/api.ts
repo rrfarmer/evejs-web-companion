@@ -5080,21 +5080,10 @@ export async function warpToScanSite(
   return readFlightStep(await postJson("/api/bridge/flight/warp-scan", { target, minRange }, options));
 }
 
-/**
- * Order salvage drones onto a wreck (entity.CmdSalvage). targetID 0 lets the
- * runtime AUTO-PICK a salvageable wreck — the sane default for a sweep.
- */
-export async function salvageDrones(
-  droneIDs: readonly number[],
-  targetID: number,
-  options: ApiOptions = {},
-): Promise<void> {
-  await postJson(
-    "/api/bridge/entity/drones/salvage",
-    { droneIDs: [...droneIDs], targetID, confirm: true },
-    options,
-  );
-}
+// Drones are sent to salvage by the page itself, with the client's own call
+// (bridge/boundEntityWrites.ts; the plan's Phase 6b): the eighteenth of its
+// writes to leave its route (POST /api/bridge/entity/drones/salvage), on
+// 2026-10-10.
 
 // --- R28 Skills: the character sheet and the training queue -------------------
 //

@@ -1369,6 +1369,32 @@ test("a fleet's target tag set and cleared is a write of the page's own, asked o
   assert.equal(gateway.calls.call.length, before);
 });
 
+test("drones sent to salvage is a write of the page's own, asked of entity by its name: it goes as it was sent, and entity's other orders do not", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  // A wreck named, and none: the client's None, where the pilot has nothing targeted.
+  for (const args of [[[9988400023500, 9988400023501], 9001], [[9988400023500], null]]) {
+    const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "entity", method: "CmdSalvage", args, kwargs: null, ...more } });
+    const before = gateway.calls.call.length;
+    for (const more of [{}, { pilot: true }, { confirm: true }]) {
+      const refused = await call(more);
+      assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+    }
+    assert.equal(gateway.calls.call.length, before);
+    const made = await call({ pilot: true, confirm: true });
+    assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "entity", "CmdSalvage"]);
+    const sent = gateway.calls.call.at(-1);
+    assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["entity", "CmdSalvage", args, null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  }
+  const before = gateway.calls.call.length;
+  for (const method of ["CmdEngage", "CmdReturnBay", "CmdMineRepeatedly", "CmdReturnHome", "CmdAbandonDrone", "CmdReconnectToDrones"]) {
+    const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "entity", method, args: [[9988400023500]], kwargs: null, pilot: true, confirm: true } });
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
+  }
+  assert.equal(gateway.calls.call.length, before);
+});
+
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {
   const gateway = fakeGateway();
   const { baseUrl, app } = await startTestServer({ gateway });

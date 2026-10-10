@@ -1104,6 +1104,7 @@
       "dogmaIM.StopOverload",
       "dogmaIM.UnlinkAllModules",
       "dogmaIM.UnloadAmmo",
+      "entity.CmdSalvage",
       "fleetMgr.BroadcastToBubble",
       "fleetProxy.ApplyToJoinFleet",
       "planetMgr.DeleteLaunch",

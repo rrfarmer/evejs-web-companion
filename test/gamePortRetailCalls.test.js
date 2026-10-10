@@ -322,6 +322,8 @@ test("everything of ship, dogmaIM, corpRegistry and the skill handler is made on
     allianceRegistry: ["GetAllianceMembers", "GetAllianceMembersOlderThan", "GetAlliancePublicInfo", "GetDaysInAlliance", "GetEmploymentRecord", "GetRankedAlliances"],
     // Nor a system's orbital registry: each use at a customs office makes a moniker for the system and calls it.
     planetOrbitalRegistryBroker: [],
+    // Nor the drones' service: each order makes a moniker for the system and calls it.
+    entity: [],
     // The office manager asks for its corporation's offices by name; all else is asked of the moniker for where the session is docked.
     officeManager: ["GetMyCorporationsOffices"],
   });
@@ -1541,6 +1543,41 @@ test("an office is rented and given up on the station's own object: the price fo
     const inSpace = retailForm("officeManager", method, args, null, { corporationID: 98000001 });
     assert.deepEqual([inSpace.status, inSpace.moniker], ["web-only", false], method);
   }
+});
+
+test("a drone order is asked on a Moniker made for it, for the system the pilot is in space in, with the drones as a list", () => {
+  // droneFunctions.py: entity = eveMoniker.GetEntityAccess(), which is Moniker('entity', session.solarsystemid2)
+  // made at each use (eveMoniker.py 58), and entity.CmdEngage(droneIDs, targetID) and the rest. Tranquility has 61
+  // recorded, 50 of CmdEngage and 11 of CmdReturnBay, each riding its own bind with the drones in a list.
+  const inSpace = { solarSystemID: 30002780 };
+  const ask = (method, args, context = inSpace) => retailForm("entity", method, args, null, context);
+  for (const [method, line, given, sent] of [
+    ["CmdEngage", 93, [[11, 12], 9001], [list([11, 12]), 9001]],
+    ["CmdReturnBay", 187, [[11]], [list([11])]],
+    ["CmdMineRepeatedly", 151, [[11, 12], 9002], [list([11, 12]), 9002]],
+    ["CmdSalvage", 160, [[11, 12], 9003], [list([11, 12]), 9003]],
+  ]) {
+    const made = ask(method, given);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy],
+      ["reshaped", `eve/client/script/ui/services/menuSvcExtras/droneFunctions.py:${line}`, sent, null, true, false], method);
+    assert.deepEqual(ask(method, sent).args, sent, `${method}: already a list, kept`);
+    assert.deepEqual([madeOnMoniker("entity", method), madeAfresh("entity", method), madeAfresh("entity", method, { dockedInStation: true })], [true, true, true], method);
+    // Docked, the client cannot make the Moniker (GetEntityAccess raises) and orders no drone. What the BFF asks
+    // all the same goes by name, as it was given.
+    for (const context of [{}, { solarSystemID: null }, undefined]) {
+      const docked = retailForm("entity", method, given, null, context);
+      assert.deepEqual([docked.status, docked.args, docked.moniker], ["web-only", given, false], method);
+      assert.match(docked.source, /eveMoniker\.py:58$/);
+      assert.match(docked.note, /space/);
+    }
+  }
+  // droneFunctions.Salvage (157): the active target's ID, or None where the pilot has nothing targeted. Nought,
+  // which the BFF's route sends for "any wreck", is none.
+  assert.deepEqual(ask("CmdSalvage", [[11], 0]).args, [list([11]), null]);
+  assert.deepEqual(ask("CmdSalvage", [[11], null]).args, [list([11]), null]);
+  assert.deepEqual(ask("CmdSalvage", [[11]]).args, [list([11]), null], "no target given at all is none");
+  // An engage keeps the nought it was given: the client never sends one without a target, and the server is to say so.
+  assert.deepEqual(ask("CmdEngage", [[11], 0]).args, [list([11]), 0]);
 });
 
 test("a customs office's tax rate is asked of the system's orbital registry, on a Moniker made for the call, and only in space", () => {

@@ -459,6 +459,45 @@ test("a fleet's target tag asked of beyonce by its name is made on the ballpark'
   assert.equal(docked.session.sent.length, sentBefore, "nothing was sent");
 });
 
+test("a drone order asked of entity by its name is made as the client makes it: on a Moniker of its own for the system, which binds carrying the order", async () => {
+  const hand = handTicked();
+  const allowed = new Set(["entity.CmdSalvage", "entity.CmdEngage", "entity.CmdReturnBay"]);
+  const none = { type: "dict", entries: [] };
+  const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:CmdSalvage": none, "bound:CmdEngage": none, "bound:CmdReturnBay": none } }, { ...hand.options, allowed });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  const listOf = (...items) => ({ type: "list", items });
+  const orders = () => session.binds.map((bind, at) => [bind.service, bind.params, session.carried[at]]).filter(([service]) => service === "entity");
+  const sentLast = () => { const { method, args, kwargs } = session.boundCalls.at(-1); return { method, args, kwargs }; };
+  const row = (pair) => built.pilots.callLedger().find((each) => each.pair === pair);
+  // droneFunctions.Salvage (157 to 161): eveMoniker.GetEntityAccess().CmdSalvage(droneIDs, targetID), the target None
+  // where nothing is targeted. The Moniker is made for the call and binds carrying it.
+  const salvaged = await built.pilots.callMethod("entity", "CmdSalvage", [[11, 12], null], null, WHOSE, handle);
+  assert.deepEqual([salvaged.service, salvaged.method, salvaged.result], ["entity", "CmdSalvage", none]);
+  assert.deepEqual(orders(), [["entity", SYSTEM, "CmdSalvage"]]);
+  assert.deepEqual(sentLast(), { method: "CmdSalvage", args: [listOf(11, 12), null], kwargs: null });
+  // Nought for the wreck, as the BFF's route says "any", is the client's None.
+  await built.pilots.callMethod("entity", "CmdSalvage", [[11], 0], null, WHOSE, handle);
+  assert.deepEqual(sentLast(), { method: "CmdSalvage", args: [listOf(11), null], kwargs: null });
+  // The orders the routes ask by name go the same way: 61 are recorded on Tranquility, each riding its own bind.
+  await built.pilots.callMethod("entity", "CmdEngage", [[11, 12], 9001], null, WHOSE, handle);
+  assert.deepEqual(sentLast(), { method: "CmdEngage", args: [listOf(11, 12), 9001], kwargs: null });
+  await built.pilots.callMethod("entity", "CmdReturnBay", [[11]], null, WHOSE, handle);
+  assert.deepEqual(sentLast(), { method: "CmdReturnBay", args: [listOf(11)], kwargs: null });
+  assert.deepEqual(orders(), [["entity", SYSTEM, "CmdSalvage"], ["entity", SYSTEM, "CmdSalvage"], ["entity", SYSTEM, "CmdEngage"], ["entity", SYSTEM, "CmdReturnBay"]], "each on a Moniker of its own, none kept");
+  assert.equal(session.calls.some((call) => call.service === "entity"), false, "nothing was asked of the service by name");
+  assert.deepEqual([row("entity.CmdSalvage").statuses, row("entity.CmdEngage").statuses, row("entity.CmdReturnBay").statuses], [{ reshaped: 2 }, { reshaped: 1 }, { reshaped: 1 }]);
+  assert.deepEqual(hand.errors, []);
+
+  // Docked, the client cannot make the Moniker and orders no drone. Asked all the same, it goes by name as given.
+  const docked = await selected({}, { allowed });
+  await docked.pilots.callMethod("entity", "CmdSalvage", [[11], 0], null, WHOSE, docked.handle);
+  const last = docked.session.calls.at(-1);
+  assert.deepEqual([last.service, last.method, last.args], ["entity", "CmdSalvage", [[11], 0]]);
+  assert.equal(docked.session.binds.some((bind) => bind.service === "entity"), false);
+  assert.deepEqual(docked.pilots.callLedger().find((each) => each.pair === "entity.CmdSalvage").statuses, { "web-only": 1 });
+});
+
 test("the space snapshot and the flight status are read from the pilot's own ballpark", async () => {
   const hand = handTicked();
   const built = build(IN_SPACE, hand.options);

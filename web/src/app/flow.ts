@@ -346,6 +346,7 @@ import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
+import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
@@ -7991,7 +7992,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             return;
           // ⚠ `targetID: 0` IS THE SERVER'S AUTO-PICK, not a missing value.
           case "salvageDrones":
-            await api.salvageDrones(action.droneIDs, action.targetID, callOptions);
+            await salvageWithDrones(bridgeDo, action.droneIDs, action.targetID);
             return;
           // The `loot` chat order. Two calls because a wreck and a can are
           // different objects on the wire, not because they are different rules.
@@ -12621,9 +12622,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             return; // The macro also verifies exact quantities on the next tick.
           }
           case "salvageDrones":
-            if (action.droneIDs.length > 0) {
-              await api.salvageDrones(action.droneIDs, action.targetID, callOptions);
-            }
+            await salvageWithDrones(bridgeDo, action.droneIDs, action.targetID);
             return;
           case "warpScan":
             await api.warpToScanSite(action.target, 0, callOptions);
