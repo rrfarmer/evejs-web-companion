@@ -606,6 +606,24 @@ Take these defaults, and list each under "For the operator" in the log so they c
   which attribute an effect names as its duration, and what a type carries).
 - **A call in the tab is given up after 45 seconds**, and the script goes on. Wait on a dock
   in calls of half a minute, and read the page again before pressing anything.
+- **Before a test is made to fail, see that it ends.** A test that starts a companion or a
+  bot and stops it after its assertions leaves it flying when an assertion fails, and the
+  run never ends. Look at every test the change will fail on the old code, put each stop in
+  a `finally`, and run old-code checks with `--test-timeout=60000`. A run that hangs all the
+  same is stopped by the one child's own command line.
+- **A call the client makes on its ballpark** (`bp = michelle.GetRemotePark()`), asked by
+  name: add its name to `ON_THE_PARK` (`src/gamePort/retailCalls.js`), and the transport
+  makes it on the park's own object (`parkCall`) and refuses it for a pilot with no park.
+  Look at what the handle's path does after such a call (`afterMovementCall`) and whether
+  it belongs to this one.
+- **A fleet for a check without an advert**: the boss forms it, invites the other by
+  `fleet/invite` (`inviteeCharID`), and the other accepts by `fleet/invite/accept` with the
+  fleet's ID from the boss's `bound-fleet` read (`tag-live.js`). What a fleet's tags are is in
+  the last `OnFleetStateChange` among the notices that come with a pilot's answers.
+- **A companion that is to tag**: `tag-boss.js` on the gateway's BFF (words `boss.lead` with
+  the companion pilot's character ID, `boss.undock`, `boss.go` with the companion's ship,
+  `boss.end`). It sets a tag, hands the fleet to the companion's pilot, undocks and
+  scrambles it; the tab then tags the scrambler's ship.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,

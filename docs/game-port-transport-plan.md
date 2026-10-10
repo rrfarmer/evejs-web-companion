@@ -806,8 +806,10 @@ had mended nothing; and so are a ship's weapons linked and unlinked (`4bd05a7`),
 naming the ship the pilot is flying, once the server was made to hold a bank call to that
 ship (`eve.js` `515ebd911`); and so is ammunition loaded and unloaded (`80741d7`), the
 ship and the place named as a client names them, once the server held both calls to where
-the session is (`eve.js` `e4b924e00`). Counted by the whole path, 128 are named now, 51 of
-them reads and 77 writes (the count kept before
+the session is (`eve.js` `e4b924e00`); and so is a fleet's target tag (`7975818`), the
+first of the ballpark's calls to be made so, which the game port makes on the park's own
+object. Two functions of the page's that nothing called went with it. Counted by the whole
+path, 125 are named now, 50 of them reads and 75 writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
