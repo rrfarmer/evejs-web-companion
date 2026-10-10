@@ -593,6 +593,19 @@ Take these defaults, and list each under "For the operator" in the log so they c
   the tab before the Companions window can add it; the fleet's name is typed into
   `#companion-op-fleet`; the pilot's row reads Running once it has joined. A plain `fetch`
   from the tab is refused (401): the page's own reads go by its socket.
+- **When a loop of the page's does nothing, read its own readout first.** A companion's is
+  in the page (`FleetCompanion.svelte`): its phase in a `<strong>` and its reason in a
+  `p.note` that begins "Why:". Then take the reads it makes off the socket (a `message`
+  listener on the socket, each answer matched to its request by the `id`), and then look at
+  what it works out once at its start. A companion's module lists are read off the hull at
+  the start with the dogma loaded (`resolveDefenseModuleIDs`).
+- **A flow test that leaves a read unanswered proves nothing of what is worked out from
+  it.** A check with a "not known" answer keeps what it cannot judge, so the test passes
+  whatever the rule is. Give the test the answer the live read gives: for a module's dogma,
+  the attributes a module of that kind has (`effect-durations.js <repo> [typeID...]` says
+  which attribute an effect names as its duration, and what a type carries).
+- **A call in the tab is given up after 45 seconds**, and the script goes on. Wait on a dock
+  in calls of half a minute, and read the page again before pressing anything.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
