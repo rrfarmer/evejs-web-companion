@@ -786,8 +786,10 @@ route. The page's 89 writes were sized then: 7 are a confirmation and one call b
 36 a call on an object the BFF binds and holds (10 of them flight commands), 4 moves
 between places, 5 no writes at all, and 37 more than any of those. A change of the queue is
 saved started or not as the client's queue service decides it (`bcf13d5`): unstarted
-where every training slot of the account is in use by its other characters. 134 named
-now, 45 of them reads and 89 writes. Of the phase's "done when", "no
+where every training slot of the account is in use by its other characters. Free points
+are put into a skill by the client's own call too (`0c81ff1`), which either transport
+carries, so its route is not named by the page. 133 named now, 45 of them reads and 88
+writes. Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
 Of 6a's four things, three are carried by the socket or in process, each with a way back
 (the routes' operations, the pushes, the hosted bots), and the cap is lifted for what is

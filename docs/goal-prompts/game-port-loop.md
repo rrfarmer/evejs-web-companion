@@ -479,6 +479,20 @@ Take these defaults, and list each under "For the operator" in the log so they c
   as a read not carried answers null (`saveQueue`, `readSkillSheet`). A refusal by
   `CALL_NOT_ALLOWED` means nothing was made, so asking the route after it is safe; no other
   failure is taken so.
+- **A write that either transport carries needs no route behind it.** Look for the pair in the
+  manifest's gateway list first (`contracts/evejs-web-bridge-contract.json`): where it is
+  there, the page's module only makes the call (`applyFreePoints`), and the route's name goes
+  out of `api.ts`. Where it is not, the module answers false and the flow asks the route
+  (`saveQueue`).
+- **Look for the pair's entry against the client's line before moving a write.**
+  `skillHandler.ApplyFreeSkillPoints` had none, and was counted unchecked on the game port by
+  its route too. `grep` the pair in `src/gamePort/retailCalls.js`; where there is none, write
+  it with the move, from the client's line and the recording's bytes.
+- **A store is staged in a copy, and a reading probe confirms the restore before the copy is
+  deleted.** `free-store.js <repo> <a COPY of the store> <characterID> [points]` reads or sets
+  a character's free skill points; `sheet-read.js <bff> <account> <characterID> [typeID...]`
+  reads a sheet and saves nothing; `free-live.js <bff> <account> <characterID> <points>` sets
+  the route's way beside the page's.
 - **Read every caller of a call before saying what the client sends with it.** The panel's own
   two saves of a queue say whether a skill is in training, and that was written down as what a
   change of the queue does (`cea56d7`). Every adding, removing and moving goes through the
