@@ -2871,6 +2871,10 @@ mutations refuse while docked with 409):
 - `GET /api/bridge/drones` → `{ ok, activeShipID, bay, inSpace, shipInfo, errors }`.
   Three INDEPENDENT reads (`allSettled`): the bay, `ShipGetInfo`, and the
   snapshot. **`bay` / `inSpace` are `null` when a read failed — never `[]`.**
+  A drone the bay holds is left out of `inSpace`, as a client leaves it out
+  (`dronesUtil.GetDroneIDsInSpace`): a landed drone is in the bay at once, and on
+  the game port its ball leaves the pilot's own scene a moment later. With the
+  bay unread, `inSpace` is the scene's as it is.
 - `POST /api/bridge/drones/launch` `{ drones: [{itemID, quantity}] }` →
   `{ ok, requested, inSpace, launched, notifications }`. `launched` is the honest
   claim: the drones in space now that were not in space before. `null` when

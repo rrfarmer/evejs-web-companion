@@ -638,6 +638,23 @@ Take these defaults, and list each under "For the operator" in the log so they c
   `/probe2`'s bay already holds five light and five medium drones, and five go out at once:
   launch the stack wanted by itself, as the drones window does. The window's rows have a
   Launch each; "Bring them all home" is the recall.
+- **Wrecks for a check are made, not fought for**: `/wreck <n>` in space makes n wrecks of
+  the pilot's own within 20 km (`dsalv-live.js <bff> <account> <characterID> [stage]` does the
+  whole of a salvage). `/npc 1` draws any hull: one draw was a frigate, the next a battleship
+  five light drones did not kill in four minutes. A hostile in the snapshot is `kind: "ship"`
+  with `npcEntityType: "npc"`.
+- **A warp is over when the place is near and the ship is slow**, not when the sentry guns are
+  gone from the snapshot: eight are in it at Jita VI's warp-in, the nearest 2,699 km off
+  (`warp-probe.js <bff> <account> <characterID> [planetID]` prints the lot).
+- **When a window says what the server does not, record the page's own reads with their
+  answers before naming a cause** (in the tab: keep each request's ID as it is sent, and the
+  answer that comes with that ID). Twice in one unit a true measurement was called the cause
+  too soon: the notice the page did not hear was real, and the answer it then read was wrong
+  as well. And give a recorder ONE listener per socket: the page's sends come on more than
+  one, and a listener added at each change of socket counts every line many times.
+- **One item's move is `OnItemChange`, several are `OnItemsChanged`**: the item as it now is
+  (`fields`), and what it was by column (3 where, 4 which flag). A listing of a bay is itself
+  answered with one for each stack, nothing changed, the first time after a change.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
