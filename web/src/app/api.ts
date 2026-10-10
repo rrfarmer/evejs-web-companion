@@ -835,13 +835,9 @@ export async function loadCorpHangar(options: ApiOptions = {}): Promise<RawCorpH
 // bridge/cloneGradeReads.ts; the plan's Phase 6b). Until 2026-10-10 each was one
 // route's (GET /api/bridge/crimewatch, GET /api/bridge/clone-grade).
 
-/**
- * Set the ship's safety level, as the client's safety button does. The server's answer says nothing the client
- * reads: the level set is the level from then on.
- */
-export async function setSafetyLevel(level: SafetyLevel, options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/safety/set-level", { level, confirm: true }, options);
-}
+// The ship's safety level is set by the page itself, with the client's own call
+// (bridge/crimewatchWrites.ts; the plan's Phase 6b): the fourth of its writes to
+// leave its route (POST /api/bridge/safety/set-level), on 2026-10-10.
 
 /**
  * The lobby's offices where the pilot is docked: the corporations with an

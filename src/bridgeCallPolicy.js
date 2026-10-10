@@ -151,8 +151,13 @@ function isBridgeWritePair(service, method) {
  *                                the skill and the points the page sent. The handler spends the points of
  *                                the session's own character on a skill of its own, caps them at what the
  *                                skill can take, and takes no one's name. Carried by either transport.
+ *   crimewatch.SetSafetyLevel    the ship's safety level set. Its route confirmed, checked the level was one
+ *                                of the three, and called. The handler sets the level of the session's own
+ *                                character, takes any number as one of the three, and takes no one's name.
+ *                                The asking before a lower level is the page's selector's, as it is the
+ *                                client's. Carried by either transport.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

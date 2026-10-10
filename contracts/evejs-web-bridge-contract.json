@@ -1093,6 +1093,7 @@
   "boundary": {
     "genericBridgeAllowsWrites": true,
     "genericBridgeWrites": [
+      "crimewatch.SetSafetyLevel",
       "skillHandler.AbortTraining",
       "skillHandler.ApplyFreeSkillPoints",
       "skillHandler.SaveNewQueue"

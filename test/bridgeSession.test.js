@@ -1165,6 +1165,34 @@ test("free points put into a skill are a write of the page's own: the skill and 
   assert.deepEqual([routed.service, routed.method, routed.args, routed.kwargs, routed.bridgeSessionID], [sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID]);
 });
 
+test("the safety level set is a write of the page's own: the level goes as it was sent, and what the route checked of it is the server's to judge", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  const set = (level, more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "crimewatch", method: "SetSafetyLevel", args: [level], kwargs: null, ...more } });
+  const before = gateway.calls.call.length;
+  // A write, as the pause is: refused unless it is said to be a pilot's and to be meant.
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await set(1, more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  assert.equal(gateway.calls.call.length, before);
+  const made = await set(1, { pilot: true, confirm: true });
+  assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "crimewatch", "SetSafetyLevel"]);
+  const sent = gateway.calls.call.at(-1);
+  assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["crimewatch", "SetSafetyLevel", [1], null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  // The route stands, and makes the same call.
+  const byRoute = await apiRequest(baseUrl, "/api/bridge/safety/set-level", { method: "POST", body: { level: 1, confirm: true } });
+  const routed = gateway.calls.call.at(-1);
+  assert.deepEqual([byRoute.response.status, gateway.calls.call.length], [200, before + 2]);
+  assert.deepEqual([routed.service, routed.method, routed.args, routed.kwargs, routed.bridgeSessionID], [sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID]);
+  // The route refused a level that is none of the three before asking anything. The generic call hands on what
+  // it was given, as it does for any call: what such a level comes to is the server's to say.
+  const odd = await apiRequest(baseUrl, "/api/bridge/safety/set-level", { method: "POST", body: { level: 7, confirm: true } });
+  assert.deepEqual([odd.response.status, odd.payload.error, gateway.calls.call.length], [400, "INVALID_SAFETY_LEVEL", before + 2]);
+  assert.deepEqual([(await set(7, { pilot: true, confirm: true })).response.status, gateway.calls.call.at(-1).args], [200, [7]]);
+});
+
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {
   const gateway = fakeGateway();
   const { baseUrl, app } = await startTestServer({ gateway });

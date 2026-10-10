@@ -1542,7 +1542,12 @@ function createGamePortPilots({
       if (mayChangeContents(service, method)) entry.listings.forget();
     });
     // crimewatchSvc.SetSafetyLevel (343 to 345): once the server has taken the level, it is the level the client has.
-    if (service === CRIMEWATCH && method === SET_SAFETY_LEVEL) await safetyLevelSet(entry, form.args[0]);
+    // A call that is not the client's (a level that is none of its three) leaves nothing the client would keep:
+    // the states kept are let go, and the next reading asks the server what it made of it.
+    if (service === CRIMEWATCH && method === SET_SAFETY_LEVEL) {
+      if (form.status === "differs") entry.clientStates.forget();
+      else await safetyLevelSet(entry, form.args[0]);
+    }
     // What the client's own code names beside this call, which it does once the call is done (a refusal threw above).
     forgetNamed(entry, namedAfterCall(service, method, argumentsToWire(form.args), entry.session.attributes));
     // targetMgr._LockTarget: (flag, targets) with no flag set says the lock is made already, and the client adds the target itself.

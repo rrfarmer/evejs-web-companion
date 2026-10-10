@@ -7045,6 +7045,24 @@ function statesOfFour(level) {
   return { asked, answers, of, refusing };
 }
 
+test("a safety level that is none of the client's three is sent as it came, and what was kept is let go: the next reading asks the server", async () => {
+  const { asked, answers, of } = statesOfFour(2);
+  const { pilots, handle } = await selected({ answers }, CRIME_PAIRS);
+  const states = async () => (await pilots.callMethod("crimewatch", "GetClientStates", [], null, FIELDS, handle)).result;
+  assert.deepEqual([await states(), asked.states], [of(2), 1]);
+  // Sent as it came, and counted as differing from the client's, which sets one of the three.
+  await pilots.callMethod("crimewatch", "SetSafetyLevel", [7], null, FIELDS, handle);
+  assert.deepEqual([asked.sets, ledgerOf(pilots, "crimewatch.SetSafetyLevel")[0]], [[7], { differs: 1 }]);
+  // Nothing of it is kept as the level: the states are asked for again, and what the server says is the level.
+  assert.deepEqual([await states(), await states(), asked.states], [of(2), of(2), 2]);
+  // One of the three is kept as before, with nothing asked after it.
+  await pilots.callMethod("crimewatch", "SetSafetyLevel", [0], null, FIELDS, handle);
+  assert.deepEqual([await states(), asked.states, asked.sets], [of(0), 2, [7, 0]]);
+  // A level said with something more beside it is not the client's either.
+  await pilots.callMethod("crimewatch", "SetSafetyLevel", [1, 1], null, FIELDS, handle);
+  assert.deepEqual([await states(), asked.states], [of(2), 3]);
+});
+
 test("a safety level the pilot set is the level the states kept say from then on, and crimewatch is asked nothing after it", async () => {
   const { asked, answers, of, refusing } = statesOfFour(2);
   const { pilots, session, handle } = await selected({ answers }, CRIME_PAIRS);

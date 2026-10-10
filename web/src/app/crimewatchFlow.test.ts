@@ -38,7 +38,8 @@ async function online(from: { fail?: boolean; grade?: { result: unknown } | "not
   let gradeReads = 0;
   /** The two reads as the page asked them: each a call of its pilot's, by the generic call. */
   const asked: Record<string, unknown>[] = [];
-  const sets: Array<{ level?: unknown; confirm?: unknown }> = [];
+  const sets: Array<Record<string, unknown>> = [];
+  let routeSets = 0;
   const fetchImpl = (async (input: unknown, init?: { method?: string; body?: unknown }) => {
     const path = String(input);
     const body = init && typeof init.body === "string" ? JSON.parse(init.body) : {};
@@ -47,13 +48,17 @@ async function online(from: { fail?: boolean; grade?: { result: unknown } | "not
     if (path === "/api/bridge/select") {
       answer = { ok: true, character: { characterID: body.characterID, characterName: "Test Pilot", stationID: 60003760, structureID: null, solarSystemID: 30000142, corporationID: 1000044 }, droneRecoveryCheckID: "check-1" };
     } else if (path === "/api/bridge/safety/set-level") {
+      // The route the level was set by until the page made the call itself: nothing asks it now.
+      routeSets += 1;
+    } else if (path === "/api/bridge/call" && body.service === "crimewatch" && body.method === "SetSafetyLevel") {
+      // crimewatchSvc's own call, made by the page (bridge/crimewatchWrites.ts).
       sets.push(body);
       if (state.setHold) await state.setHold;
       if (state.setFails) {
         status = 409;
         answer = { ok: false, error: "SESSION_CHANGE_IN_PROGRESS", message: "The session is changing place." };
       } else {
-        answer = { ok: true, applied: true, result: body.level, notifications: [] };
+        answer = { ok: true, service: body.service, method: body.method, result: (body.args as unknown[])[0], notifications: [] };
       }
     } else if (path === "/api/bridge/call" && body.service === "subscriptionMgr" && body.method === "GetCloneGrade") {
       // clone_grade_svc's own call, asked by the page (bridge/cloneGradeReads.ts).
@@ -109,7 +114,7 @@ async function online(from: { fail?: boolean; grade?: { result: unknown } | "not
     await new Promise((resolve) => setTimeout(resolve, 25));
   };
   const shown = () => store.flight.get().crimewatch;
-  return { store, flow, state, push, shown, reads: () => reads, sets, grade: () => store.station.get().cloneGrade, gradeReads: () => gradeReads, asked };
+  return { store, flow, state, push, shown, reads: () => reads, sets, routeSets: () => routeSets, grade: () => store.station.get().cloneGrade, gradeReads: () => gradeReads, asked };
 }
 
 test("a pilot that comes online has crimewatch's states read, with the server's clock beside them", async () => {
@@ -211,15 +216,18 @@ test("a read that answers after the pilot has gone offline is not shown", async 
 // tells its button so. It asks crimewatch nothing after. A refusal is raised before the line that keeps it.
 
 test("a safety level set from the page is sent once, and is the level shown from then on with crimewatch not read again", async () => {
-  const { flow, shown, reads, sets } = await online();
+  const { flow, shown, reads, sets, routeSets } = await online();
   const before = shown();
   await flow.setSafetyLevel(1);
-  assert.deepEqual([sets, reads(), shown()?.states.safetyLevel], [[{ level: 1, confirm: true }], 1, 1]);
+  // crimewatchSvc.SetSafetyLevel (343): the service's own call with the level, as a pilot's and as a write the page means.
+  assert.deepEqual([sets, reads(), shown()?.states.safetyLevel], [[{ service: "crimewatch", method: "SetSafetyLevel", args: [1], kwargs: null, pilot: true, confirm: true }], 1, 1]);
   // Nothing else of what was read is changed.
   assert.deepEqual([shown()?.states.timers, shown()?.clockOffsetMs], [before?.states.timers, before?.clockOffsetMs]);
   await flow.setSafetyLevel(0);
   await flow.setSafetyLevel(2);
-  assert.deepEqual([sets.map((sent) => sent.level), reads(), shown()?.states.safetyLevel], [[1, 0, 2], 1, 2]);
+  assert.deepEqual([sets.map((sent) => (sent.args as unknown[])[0]), reads(), shown()?.states.safetyLevel], [[1, 0, 2], 1, 2]);
+  // The route it was set by is not asked.
+  assert.equal(routeSets(), 0);
 });
 
 test("a level the server refused is thrown to who set it, and the level shown is left as it was", async () => {

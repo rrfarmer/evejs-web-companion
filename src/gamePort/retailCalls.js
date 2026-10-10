@@ -194,6 +194,10 @@ const queueByPlace = (args, kwargs) => {
 const pointsForOneSkill = (args, kwargs) => (args.length === 2 && args.every((value) => Number.isSafeInteger(value) && value > 0) && Object.keys(kwargs).length === 0
   ? {}
   : { status: "differs", note: "The client names one skill and how many points to put into it, more than none, and nothing else." });
+/** crimewatchSvc.SetSafetyLevel (343): one of the ship's three safety levels (crimewatch/const.py), and nothing else. */
+const oneSafetyLevel = (args, kwargs) => (args.length === 1 && [0, 1, 2].includes(args[0]) && Object.keys(kwargs).length === 0
+  ? {}
+  : { status: "differs", note: "The client sets one of the three safety levels (0, 1 or 2), and sends nothing else." });
 /** A judge for a call the client sends with nothing: no argument, and no keyword. */
 const sentWithNothing = (args, kwargs) => (args.length === 0 && Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "The client sends nothing with this call." });
 const reshaped = (source, shape, note) => Object.freeze({ status: "reshaped", source, shape, note });
@@ -919,7 +923,8 @@ const RETAIL_CALLS = Object.freeze({
     shape: ownersContracts,
   }),
   "crimewatch.GetClientStates": same(`${CRIMEWATCH_SVC}:89`, "CharGetCrimewatchLocation().GetClientStates(), no arguments, on a moniker made for the call. Recorded on Tranquility as the call a bind of crimewatch carried."),
-  "crimewatch.SetSafetyLevel": same(`${CRIMEWATCH_SVC}:343`, "CharGetCrimewatchLocation().SetSafetyLevel(safetyLevel)"),
+  "crimewatch.SetSafetyLevel": judged(`${CRIMEWATCH_SVC}:343`, oneSafetyLevel,
+    "CharGetCrimewatchLocation().SetSafetyLevel(safetyLevel): one of the three levels, from the safety button's selector, at once for a level no lower than the one now and after its Confirm for a lower one (shipSafetyButton.py 464, 660). The service keeps the level it set and asks nothing. In none of the recordings."),
   "crimewatch.GetMySecurityStatus": same(`${CRIMEWATCH_SVC}:592`, "CharGetCrimewatchLocation().GetMySecurityStatus(), no arguments: asked once and kept. Recorded on Tranquility as the call a bind of crimewatch carried."),
   "crimewatch.GetCharacterSecurityStatus": same(`${CRIMEWATCH_SVC}:596`, "CharGetCrimewatchLocation().GetCharacterSecurityStatus(charID)"),
   "crimewatch.GetSecurityStatusTransactions": same(`${CRIMEWATCH_SVC}:603`, "CharGetCrimewatchLocation().GetSecurityStatusTransactions(), no arguments"),

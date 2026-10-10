@@ -101,6 +101,7 @@ import { createCharacterSheetReads } from "../bridge/characterSheetReads.ts";
 import { readJournal } from "../bridge/journalReads.ts";
 import { applyFreePoints, pauseTraining, saveQueue, type QueuePlace } from "../bridge/skillWrites.ts";
 import { createTrainingSlots } from "../bridge/trainingSlots.ts";
+import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites.ts";
 import { readClientStates } from "../bridge/crimewatchReads.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates } from "../bridge/boundCrimewatch.ts";
@@ -2889,7 +2890,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // every request of a pilot's has (SESSION_REQUEST_RETIRED), so what is
   // changed here is this pilot's.
   async function setSafetyLevel(level: SafetyLevel): Promise<void> {
-    await api.setSafetyLevel(level, callOptions);
+    // The selector's call, as the client's crimewatch service makes it (bridge/crimewatchWrites.ts).
+    await setSafetyLevelCall(bridgeDo, level);
     const crimewatch = store.flight.get().crimewatch;
     if (crimewatch !== null) {
       store.apply({ type: "flight/crimewatch", crimewatch: { ...crimewatch, states: { ...crimewatch.states, safetyLevel: level } } });

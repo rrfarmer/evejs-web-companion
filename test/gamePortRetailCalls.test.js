@@ -1638,3 +1638,29 @@ test("free points put into a skill are the client's call when they name one skil
     assert.match(made.note, /one skill/, why);
   }
 });
+
+test("a safety level set is the client's call when it names one of the three levels and nothing else", () => {
+  const set = (args, kwargs = null) => retailForm("crimewatch", "SetSafetyLevel", args, kwargs);
+  // crimewatchSvc.py 343: eveMoniker.CharGetCrimewatchLocation().SetSafetyLevel(safetyLevel), with none, partial or full.
+  for (const level of [0, 1, 2]) {
+    const made = set([level]);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker], ["same", "eve/client/script/ui/services/crimewatchSvc.py:343", [level], null, true], String(level));
+  }
+  // Anything else goes as it came, and is counted as differing.
+  for (const [args, kwargs, why] of [
+    [[3], null, "a level above full"],
+    [[-1], null, "a level below none"],
+    [[1.5], null, "half a level"],
+    [["1"], null, "a level as text"],
+    [[true], null, "a level as a truth"],
+    [[null], null, "nothing for the level"],
+    [[], null, "no level"],
+    [[1, 2], null, "two levels"],
+    [[[1]], null, "a list of one level"],
+    [[1], { confirm: true }, "a keyword"],
+  ]) {
+    const made = set(args, kwargs);
+    assert.deepEqual([made.status, made.args, made.moniker], ["differs", args, true], why);
+    assert.match(made.note, /three safety levels/, why);
+  }
+});
