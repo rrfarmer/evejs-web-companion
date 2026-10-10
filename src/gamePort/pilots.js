@@ -56,7 +56,7 @@ const { GamePortSession } = require("./session");
 const { connectTcp, gameEndpoint } = require("./tcp");
 const { notificationToBridgeJson, sessionChangeToBridgeJson, wireToBridgeJson } = require("./bridgeJson");
 const { GAME_PORT_HANDLE_PREFIX } = require("../pilotTransport");
-const { GAME_PORT_ONLY_CALLS, ON_AN_ANSWERED_OBJECT, createCallLedger, madeAfresh, retailForm, retailNeeds } = require("./retailCalls");
+const { GAME_PORT_ONLY_CALLS, ON_AN_ANSWERED_OBJECT, ON_THE_PARK, createCallLedger, madeAfresh, retailForm, retailNeeds } = require("./retailCalls");
 const { createPilotSpace } = require("./pilotSpace");
 const { createPilotClock } = require("./pilotClock");
 const { EFFECT_CATEGORY, EFFECT_ONLINE, createPilotDogma, rowFields } = require("./pilotDogma");
@@ -1395,6 +1395,17 @@ function createGamePortPilots({
     };
   }
 
+  /**
+   * michelle.GetRemotePark(): what the client asks of its ballpark it asks of the park's own bound object, the one
+   * object everything in space is asked of. With no park, which is a pilot not in space, the client has nothing to
+   * ask and asks nothing (menusvc.TagItem: `if bp:`); asked all the same, the call is refused here and not sent.
+   */
+  async function parkCall(entry, method, args, kwargs) {
+    const objectID = entry.space ? await entry.space.remote() : null;
+    if (!objectID) throw fail("CALL_REFUSED", "The pilot has no ballpark to ask: it is not in space.");
+    return entry.session.callBound(objectID, method, args, kwargs);
+  }
+
   /** A service's own method: at the proxy node for a service the client reaches with sm.ProxySvc, by the name alone for any other. */
   const byName = (session, service, method, form) => (form.proxy
     ? session.proxyCall(service, method, argumentsToWire(form.args), form.kwargs)
@@ -1537,6 +1548,7 @@ function createGamePortPilots({
     // A call the client makes on a service's moniker is made on the object bound for where the pilot is.
     const result = await run(entry, service, method, async () => (form.moniker
       ? monikerCall(entry, service, method, argumentsToWire(form.args), form.kwargs)
+      : service === "beyonce" && ON_THE_PARK.has(method) ? parkCall(entry, method, argumentsToWire(form.args), form.kwargs)
       : byName(entry.session, service, method, form))).finally(() => {
       forgetKeptAfter(entry, service, method);
       if (mayChangeContents(service, method)) entry.listings.forget();

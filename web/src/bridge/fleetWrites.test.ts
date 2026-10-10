@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { applyToJoinFleet, createFleetBroadcasts, decodeFleetWriteAck, decodeFleetAdvertWriteAck } from "./fleetWrites.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+import { applyToJoinFleet, createFleetBroadcasts, decodeFleetWriteAck, decodeFleetAdvertWriteAck, tagFleetTarget } from "./fleetWrites.ts";
 import type { Ask } from "./ask.ts";
 import type { JsonValue } from "./wire.ts";
 
@@ -145,4 +149,37 @@ test("the wait starts when the broadcast is made, whether or not the call comes 
   clock.nowMs += 1000;
   assert.equal(await broadcasts.toBubble("Target", 3, 200001), false);
   assert.equal(asked.length, 1);
+});
+
+// menusvc.py 2822 to 2826: TagItem(itemID, tag) is bp.CmdFleetTagTarget(itemID, tag), on the ballpark's object.
+
+test("a fleet's target tag is set by the ballpark's CmdFleetTagTarget, the thing and the letter", async () => {
+  const asked: unknown[] = [];
+  await tagFleetTarget(async (service, method, args) => { asked.push([service, method, args]); return null; }, 1001, "X");
+  assert.deepEqual(asked, [["beyonce", "CmdFleetTagTarget", [1001, "X"]]]);
+});
+
+test("and taken off by the same call with no tag", async () => {
+  // menusvc.py 1948: the menu's "untag" is TagItem(itemID, None).
+  const asked: unknown[] = [];
+  await tagFleetTarget(async (service, method, args) => { asked.push([service, method, args]); return null; }, 1001, null);
+  assert.deepEqual(asked, [["beyonce", "CmdFleetTagTarget", [1001, null]]]);
+});
+
+test("a tag the server refuses outright fails as the call fails, and whatever it answers is not handed on", async () => {
+  await assert.rejects(() => tagFleetTarget(async () => { throw new Error("the pilot is not in space"); }, 1001, "A"), /not in space/);
+  // The server answers nothing whether the tag was set or dropped: there is no answer worth having.
+  assert.equal(await tagFleetTarget(async () => true, 1001, "A"), undefined);
+  assert.equal(await tagFleetTarget(async () => null, 1001, "A"), undefined);
+});
+
+test("⚠ the module says that the call coming back is not proof the tag was set", () => {
+  // The server drops a tag from a pilot who is no commander of the fleet and answers as it answers one it set.
+  // Pinned so that the warning is not quietly lost from the function's own words.
+  const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fleetWrites.ts"), "utf8");
+  const start = source.indexOf("export async function tagFleetTarget");
+  assert.notEqual(start, -1, "fleetWrites.ts has no tagFleetTarget");
+  const doc = source.slice(source.lastIndexOf("/**", start), start);
+  assert.match(doc, /NOT PROOF/i);
+  assert.match(doc, /targetTags/, "must point the caller at the re-read that does prove it");
 });

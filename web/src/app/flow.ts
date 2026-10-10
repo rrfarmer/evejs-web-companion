@@ -345,7 +345,7 @@ import { canBroadcastInFleet, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
-import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
+import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
@@ -7936,7 +7936,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // rung keeps its own attempt budget rather than trusting this
           // returning cleanly.
           case "setFleetTargetTag":
-            await api.setFleetTargetTag(action.targetID, action.tag, callOptions);
+            await tagFleetTarget(bridgeDo, action.targetID, action.tag);
             return;
           // Rung 4's other arm, the one a plain member actually has: call the
           // tackler out by `Target` broadcast. THE ACK IS REAL HERE — the
@@ -12285,7 +12285,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             // before issuing it, and confirms the write landed by reading
             // `fleetTargetTags` on a LATER tick — never by trusting this call's
             // own success.
-            await api.setFleetTargetTag(action.targetID, action.tag, callOptions);
+            await tagFleetTarget(bridgeDo, action.targetID, action.tag);
             return;
           case "dock":
             await api.dock(action.stationID, callOptions);

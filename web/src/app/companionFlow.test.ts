@@ -951,8 +951,13 @@ function scramble(store: ReturnType<typeof createClientStore>): void {
   store.apply({ type: "space/jam", event: event! });
 }
 
+/** The page's own tag: beyonce's CmdFleetTagTarget by the generic call, as a client's menu makes it on its ballpark (menusvc.py 2825). */
 function tagWrites(calls: readonly { readonly path: string; readonly body: Record<string, unknown> }[]) {
-  return calls.filter((call) => call.path === "/api/bridge/flight/fleet-tag-target");
+  return calls.filter((call) => call.path === "/api/bridge/call" && call.body.service === "beyonce" && call.body.method === "CmdFleetTagTarget");
+}
+/** The route the page asked until 2026-10-10, which nothing of its asks now. */
+function tagRouteAskings(calls: readonly { readonly path: string }[]): number {
+  return calls.filter((call) => call.path === "/api/bridge/flight/fleet-tag-target").length;
 }
 
 test("a scram push reaches the ladder and the tackler is lettered for the fleet", async () => {
@@ -964,13 +969,17 @@ test("a scram push reaches the ladder and the tackler is lettered for the fleet"
   scramble(store);
 
   await flow.startFleetCompanion(DEFAULT_COMPANION_SETUP);
-  await waitFor(() => tagWrites(calls).length > 0, "a tag write to reach the BFF");
+  try {
+    await waitFor(() => tagWrites(calls).length > 0, "a tag write to reach the BFF");
 
-  const write = tagWrites(calls)[0];
-  assert.equal(write?.body.itemID, TACKLER_ITEM_ID, "the ship that named itself is the one tagged");
-  assert.equal(write?.body.tag, "A");
-  assert.equal(write?.body.confirm, true);
-  flow.stopFleetCompanion();
+    const write = tagWrites(calls)[0];
+    // The ship that named itself is the one tagged, with the first letter free, as a pilot's write the page means.
+    assert.deepEqual(write?.body, { service: "beyonce", method: "CmdFleetTagTarget", args: [TACKLER_ITEM_ID, "A"], kwargs: null, pilot: true, confirm: true });
+    assert.equal(tagRouteAskings(calls), 0, "the route is not asked");
+  } finally {
+    // A test that fails before this must not leave the companion flying: the run would never end.
+    flow.stopFleetCompanion();
+  }
 });
 
 // ⚠ The dead-config check, end to end this time. attemptsTagging shipped as a
@@ -1016,10 +1025,7 @@ test("a plain member writes no tag, however hard it is being scrambled", async (
   await waitFor(() => store.get().companion.canTag !== null, "the tagging gate to answer");
 
   assert.equal(store.get().companion.canTag, false);
-  assert.equal(
-    calls.filter((call) => call.path === "/api/bridge/flight/fleet-tag-target").length,
-    0,
-  );
+  assert.deepEqual([tagWrites(calls).length, tagRouteAskings(calls)], [0, 0]);
   flow.stopFleetCompanion();
 });
 
@@ -1406,16 +1412,18 @@ test("the fleet's letter goes to the INTERCEPTOR four times further out, not the
   scrambledBy(store, FAR_CEPTOR_ITEM_ID);
 
   await flow.startFleetCompanion(DEFAULT_COMPANION_SETUP);
-  await waitFor(() => tagWrites(calls).length > 0, "a tag write to reach the BFF");
+  try {
+    await waitFor(() => tagWrites(calls).length > 0, "a tag write to reach the BFF");
 
-  const write = tagWrites(calls)[0];
-  assert.equal(
-    write?.body.itemID,
-    FAR_CEPTOR_ITEM_ID,
-    "tackle outranks everything, and the interceptor is the tackle here",
-  );
-  assert.equal(write?.body.tag, "A");
-  flow.stopFleetCompanion();
+    const write = tagWrites(calls)[0];
+    assert.deepEqual(
+      write?.body.args,
+      [FAR_CEPTOR_ITEM_ID, "A"],
+      "tackle outranks everything, and the interceptor is the tackle here",
+    );
+  } finally {
+    flow.stopFleetCompanion();
+  }
 });
 
 

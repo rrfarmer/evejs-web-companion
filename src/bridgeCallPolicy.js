@@ -197,8 +197,13 @@ function isBridgeWritePair(service, method) {
  *                                they go from the caller as they came. They hold each to where the session is
  *                                now (fixed in eve.js on 2026-10-10), so the page names them, as a client does.
  *                                Asked of the service by its name.
+ *   beyonce.CmdFleetTagTarget    a fleet's tag on a thing in space, set or taken off. The route checked
+ *                                `confirm` and that the pilot was in space, and made the call on a ballpark
+ *                                handle. The handler acts on the session's own fleet, for its creator or a
+ *                                commander of it, and drops the call of anyone else. Asked of beyonce by its
+ *                                name; the game port makes it on the ballpark's own object.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

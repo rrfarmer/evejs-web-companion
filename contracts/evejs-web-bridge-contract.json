@@ -1093,6 +1093,7 @@
   "boundary": {
     "genericBridgeAllowsWrites": true,
     "genericBridgeWrites": [
+      "beyonce.CmdFleetTagTarget",
       "contractProxy.AcceptContract",
       "crimewatch.SetSafetyLevel",
       "dogmaIM.InitiateModuleRepair",

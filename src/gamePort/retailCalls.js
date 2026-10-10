@@ -329,6 +329,11 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
 const ON_AN_ANSWERED_OBJECT = Object.freeze(new Set(["scanMgr.GetFullState"]));
 
 /** Whether the retail client makes this call on the service's moniker for where the pilot is. */
+/**
+ * What the client asks of its ballpark's own object (michelle.GetRemotePark()) and the page asks of beyonce by its
+ * name: made on the park's object, where the pilot has a park.
+ */
+const ON_THE_PARK = Object.freeze(new Set(["CmdFleetTagTarget"]));
 const madeOnMoniker = (service, method) => Object.hasOwn(MONIKER_SERVICES, service) && !MONIKER_SERVICES[service].has(method) && method !== "MachoBindObject";
 
 const INV_CACHE = "eve/client/script/environment/invCache.py";
@@ -472,6 +477,25 @@ const oneBubbleBroadcast = (args, kwargs, context) => {
     return { status: "differs", note: "The client sends one of its five names for the bubble, its scope, the item and None for the type, and nothing else: BroadcastToBubble(name, scope, itemID, None)." };
   }
   return context.fleetID === null ? { status: "differs", note: "The client broadcasts only from a session in a fleet: in none it sends nothing." } : {};
+};
+
+/** The tags the client's menu offers for a thing in space (menusvc.py 1945 and 1946): the ten digits and thirteen letters. */
+const FLEET_TAGS = new Set("0123456789ABCDEFGHIJXYZ");
+/**
+ * menusvc.TagItem (2822): bp.CmdFleetTagTarget(itemID, tag), on the ballpark's object. The tag is one of the
+ * menu's, a string of one character, or None to take a tag off (1948). The menu is offered for a thing that is not
+ * the pilot's own ship, to a fleet's commander (celestialCheckers.OfferFleetTagItem), and the shortcuts do nothing
+ * outside a fleet (eveCommands.py 3043).
+ */
+const tagging = (args, kwargs, context) => {
+  if (!(args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 && (args[1] === null || FLEET_TAGS.has(args[1])) && Object.keys(kwargs).length === 0)) {
+    return { status: "differs", note: "The client names the thing and one of its tags, a digit or one of thirteen letters as text, or None to take the tag off, and nothing else." };
+  }
+  // (A ship that is not known is no number an item's ID can be: the item is above nought.)
+  if (Number(context.shipID) === args[0]) {
+    return { status: "differs", note: "The client offers no tag for the pilot's own ship." };
+  }
+  return context.fleetID === null ? { status: "differs", note: "The client tags only from a session in a fleet: in none it sends nothing." } : {};
 };
 
 /** fleetSvc.KickMember (607): the pilot's own number is not kicked. The client leaves the fleet itself instead. */
@@ -995,6 +1019,8 @@ const RETAIL_CALLS = Object.freeze({
   "fleetObjectHandler.LeaveFleet": judged(`${FLEET_SVC}:369`, leavingOnTheObject, "self.fleet.LeaveFleet(), no arguments, on the fleet's object"),
   "fleetProxy.ApplyToJoinFleet": judged(`${FLEET_SVC}:1907`, applyingToOneFleet,
     "sm.ProxySvc('fleetProxy').ApplyToJoinFleet(fleetID, autoAccept): from the fleet finder and a fleet's link with False, from the Agency's join window with True. It answers True where the boss must approve and False where an invitation was made. No recording has one."),
+  "beyonce.CmdFleetTagTarget": judged("eve/client/script/ui/services/menusvc.py:2825", tagging,
+    "michelle.GetRemotePark().CmdFleetTagTarget(itemID, tag): a fleet's tag on a thing in space, from the menu and from the shortcuts, on the ballpark's object. It answers nothing, set or not. No recording has one."),
   "fleetMgr.BroadcastToBubble": judged(`${FLEET_SVC}:998`, oneBubbleBroadcast,
     "sm.RemoteSvc('fleetMgr').BroadcastToBubble(name, self.broadcastScope, itemID, typeID): the client's broadcasts to its bubble (the three calls for repair, Target and HealTarget), the type left at None, and none sent inside the client's own wait since its last broadcast. No recording has one."),
   "fleetMgr.ForceLeaveFleet": judged(`${FLEET_SVC}:367`, leavingByName, "sm.RemoteSvc('fleetMgr').ForceLeaveFleet(), no arguments: asked only where the client holds no object for a fleet the session is in"),
@@ -1299,4 +1325,4 @@ function createCallLedger() {
   };
 }
 
-module.exports = { CONTRACT_SEARCH_KEYWORDS, GAME_PORT_ONLY_CALLS, MONIKER_SERVICES, ON_AN_ANSWERED_OBJECT, PROXY_SERVICES, REPEATS, RETAIL_CALLS, TRANSPORT_OWN_CALLS, createCallLedger, list, madeAfresh, madeOnMoniker, retailForm, retailNeeds };
+module.exports = { CONTRACT_SEARCH_KEYWORDS, GAME_PORT_ONLY_CALLS, MONIKER_SERVICES, ON_AN_ANSWERED_OBJECT, ON_THE_PARK, PROXY_SERVICES, REPEATS, RETAIL_CALLS, TRANSPORT_OWN_CALLS, createCallLedger, list, madeAfresh, madeOnMoniker, retailForm, retailNeeds };

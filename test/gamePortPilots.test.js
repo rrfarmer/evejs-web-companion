@@ -426,6 +426,39 @@ test("a pilot left in space is selected in space and given a ballpark as the cli
   assert.deepEqual(hand.errors, []);
 });
 
+test("a fleet's target tag asked of beyonce by its name is made on the ballpark's own object, as the client's menu makes it; docked, there is no ballpark and nothing is sent", async () => {
+  const hand = handTicked();
+  const allowed = new Set(["beyonce.MachoBindObject", "beyonce.CmdFleetTagTarget", "beyonce.CmdStop"]);
+  const built = build(IN_SPACE, { ...hand.options, allowed });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  session.attributes.fleetid = 654500010000;
+  const row = () => built.pilots.callLedger().find((each) => each.pair === "beyonce.CmdFleetTagTarget");
+  // menusvc.TagItem (2822): bp = michelle.GetRemotePark(), and bp.CmdFleetTagTarget(itemID, tag).
+  const tagged = await built.pilots.callMethod("beyonce", "CmdFleetTagTarget", [9001, "A"], null, WHOSE, handle);
+  assert.deepEqual([tagged.service, tagged.method, tagged.result], ["beyonce", "CmdFleetTagTarget", null]);
+  assert.deepEqual(session.boundCalls.at(-1), { objectID: "N=1:1", method: "CmdFleetTagTarget", args: [9001, "A"], kwargs: null });
+  await built.pilots.callMethod("beyonce", "CmdFleetTagTarget", [9001, null], null, WHOSE, handle);
+  assert.deepEqual(session.boundCalls.at(-1), { objectID: "N=1:1", method: "CmdFleetTagTarget", args: [9001, null], kwargs: null });
+  assert.equal(session.calls.some((call) => call.service === "beyonce" && call.method === "CmdFleetTagTarget"), false, "nothing was asked of the service by name");
+  // The one ballpark, bound once: the object a route's handle is for is the same one.
+  const { boundHandle } = await built.pilots.bindObject("beyonce", "MachoBindObject", [], null, WHOSE, handle);
+  await built.pilots.callBoundMethod("beyonce", "CmdStop", [], null, WHOSE, handle, boundHandle);
+  assert.deepEqual([session.binds, session.boundCalls.at(-1).objectID], [[{ service: "beyonce", params: SYSTEM }], "N=1:1"]);
+  assert.deepEqual(row().statuses, { same: 2 });
+  // A tag that is none of the client's goes as it came, and is counted as not the client's.
+  await built.pilots.callMethod("beyonce", "CmdFleetTagTarget", [9001, "primary"], null, WHOSE, handle);
+  assert.deepEqual(session.boundCalls.at(-1).args, [9001, "primary"]);
+  assert.deepEqual(row().statuses, { same: 2, differs: 1 });
+  assert.deepEqual(hand.errors, []);
+
+  // Docked: TagItem finds no park and does nothing. Asked all the same, the call is refused here and not sent.
+  const docked = await selected({}, { allowed });
+  const sentBefore = docked.session.sent.length;
+  await assert.rejects(docked.pilots.callMethod("beyonce", "CmdFleetTagTarget", [9001, "A"], null, WHOSE, docked.handle), (error) => error.code === "CALL_REFUSED" && /in space/.test(error.message));
+  assert.equal(docked.session.sent.length, sentBefore, "nothing was sent");
+});
+
 test("the space snapshot and the flight status are read from the pilot's own ballpark", async () => {
   const hand = handTicked();
   const built = build(IN_SPACE, hand.options);

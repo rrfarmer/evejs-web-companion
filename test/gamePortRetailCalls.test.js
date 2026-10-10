@@ -448,6 +448,44 @@ test("ammunition loaded or unloaded names the ship the session is flying: anothe
   assert.match(several.note, /one module/);
 });
 
+test("a fleet's target tag is the client's call when it names a thing that is not the pilot's own ship and one of the client's tags, from a session in a fleet", () => {
+  // menusvc.py 2825: bp.CmdFleetTagTarget(itemID, tag), on the ballpark's object. The menu's tags are the ten
+  // digits and thirteen letters (1945, 1946), each a string of one character, and None to take a tag off (1948).
+  const flying = { shipID: 5000, fleetID: 654500010000 };
+  const ask = (args, kwargs = null, context = flying) => retailForm("beyonce", "CmdFleetTagTarget", args, kwargs, context);
+  for (const tag of [..."0123456789ABCDEFGHIJXYZ", null]) {
+    const made = ask([9001, tag]);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.proxy], ["same", "eve/client/script/ui/services/menusvc.py:2825", [9001, tag], null, false], String(tag));
+  }
+  for (const [args, kwargs, why, note] of [
+    [[], null, "nothing", /one of its tags/],
+    [[9001], null, "no tag named", /one of its tags/],
+    [[9001, "A", 1], null, "a third argument", /one of its tags/],
+    [[9001, "A"], { fleet: true }, "a keyword", /one of its tags/],
+    [[0, "A"], null, "no item", /one of its tags/],
+    [[-9001, "A"], null, "an item below nought", /one of its tags/],
+    [["9001", "A"], null, "an item as text", /one of its tags/],
+    [[9001.5, "A"], null, "half an item", /one of its tags/],
+    [[9001, "K"], null, "a letter the menu has not", /one of its tags/],
+    [[9001, "a"], null, "a small letter", /one of its tags/],
+    [[9001, "AB"], null, "two letters", /one of its tags/],
+    [[9001, ""], null, "an empty tag", /one of its tags/],
+    [[9001, 1], null, "a digit as a number", /one of its tags/],
+    [[9001, undefined], null, "a tag left out", /one of its tags/],
+    [[5000, "A"], null, "the pilot's own ship", /own ship/],
+  ]) {
+    const made = ask(args, kwargs);
+    assert.deepEqual([made.status, made.args], ["differs", args], why);
+    assert.match(made.note, note, why);
+  }
+  // MakeCmdTagItem (eveCommands.py 3043) and the menu's checker: only from a session in a fleet.
+  const fleetless = ask([9001, "A"], null, { shipID: 5000, fleetID: null });
+  assert.equal(fleetless.status, "differs");
+  assert.match(fleetless.note, /in a fleet/);
+  // Where the session's ship or fleet is not known (through the web gateway), neither is held against the call.
+  for (const context of [{}, { shipID: null }, { shipID: undefined, fleetID: undefined }]) assert.equal(ask([5000, "A"], null, context).status, "same");
+});
+
 test("drones are launched as a list of stacks, on nobody's behalf when it is the pilot's own", () => {
   const stacks = [[11, 1], [12, 3]];
   const launch = (args, context = { characterID: 140000001 }) => withContext("ship.LaunchDrones", args, null, context);

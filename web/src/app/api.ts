@@ -2739,30 +2739,10 @@ export async function dock(
   return readFlightStep(await postJson("/api/bridge/flight/dock", { stationID }, options));
 }
 
-/**
- * SET (or CLEAR, `tag: null`) the fleet target tag on an entity
- * (beyonce.CmdFleetTagTarget). Confirm-gated at the BFF.
- *
- * ⚠ THE ACK IS NOT PROOF. The server silently refuses a non-commander by
- * returning a plain `false` from CmdFleetTagTarget, and its only caller
- * (D:\evet\server\src\services\ship\beyonceService.js:3320) discards that
- * boolean and returns null unconditionally — so `{ok: true, applied: true}`
- * comes back identically whether the tag landed or was dropped on the floor.
- * A caller MUST confirm by seeing the tag show up in a later `targetTags`
- * read; this call's own success tells you nothing.
- */
-export async function setFleetTargetTag(
-  itemID: number,
-  tag: string | null,
-  options: ApiOptions = {},
-): Promise<BeyonceWriteAck> {
-  const data = await postJson(
-    "/api/bridge/flight/fleet-tag-target",
-    { itemID, tag, confirm: true },
-    options,
-  );
-  return decodeBeyonceWriteAck(data as unknown as JsonValue);
-}
+// A fleet's target tag is set and cleared by the page itself, with the client's
+// own call on its ballpark (bridge/fleetWrites.ts; the plan's Phase 6b): the
+// seventeenth of its writes to leave its route (POST
+// /api/bridge/flight/fleet-tag-target), on 2026-10-10.
 
 /**
  * JUMP through a fleet-mate's cyno bridge (beyonce.CmdJumpThroughFleet).
@@ -4877,13 +4857,6 @@ export async function loadScanFullStateEnvelope(
   return getJson("/api/bridge/scan-full-state", options);
 }
 
-/** Whole independently-failing small-services envelope (keeps scan errors). */
-export async function loadBoundSmallServices(
-  options: ApiOptions = {},
-): Promise<Record<string, JsonValue>> {
-  return getJson("/api/bridge/bound-small-services", options);
-}
-
 function scannerVector(value: JsonValue | undefined): readonly [number, number, number] {
   if (!Array.isArray(value)) {
     return [0, 0, 0];
@@ -5047,33 +5020,6 @@ export async function compressOreInSpace(
     compressed: data.compressed === true,
     result: data.result ?? null,
   };
-}
-
-/** A full-sweep directional scan covers the whole sky. */
-export const DSCAN_FULL_SWEEP_RADIANS = Math.PI * 2;
-
-/** One astronomical unit, in metres — the unit a scanner range is set in. */
-export const AU_METERS = 149_597_870_700;
-
-/**
- * Run a directional (D-scan) sweep from the session's own ship: the R104
- * ConeScan bound write (confirm-gated on the BFF like every scan-control
- * write). Returns the raw hit list — util.KeyVal rows of {id, typeID, groupID}
- * — decoded by bridge/boundScanWrites.decodeDirectionalScanHitIDs. The server
- * clamps the range to the ship's own scanner reach, so an oversized ask is
- * safe. A full sweep needs SOME direction vector; +x is arbitrary and ignored.
- */
-export async function coneScan(
-  angleRadians: number,
-  rangeMeters: number,
-  options: ApiOptions = {},
-): Promise<JsonValue> {
-  const data = await postJson(
-    "/api/bridge/scan/cone-scan",
-    { angle: angleRadians, range: rangeMeters, dx: 1, dy: 0, dz: 0, confirm: true },
-    options,
-  );
-  return data.result ?? null;
 }
 
 /** The character's active bookmarks, raw (decoded by bridge/bookmarks.ts). */

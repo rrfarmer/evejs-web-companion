@@ -182,3 +182,28 @@ export function createFleetBroadcasts(act: Ask, now: () => number = Date.now): F
 // Re-export the advert type so a later panel can pair a write ack with the
 // GetMyFleetFinderAdvert re-read without importing two modules.
 export type { FleetAdvert };
+
+// ── A fleet's tag on a thing in space ────────────────────────────────────────
+//
+// Until 2026-10-10 this was one route of the BFF (POST /api/bridge/flight/fleet-tag-target), which checked
+// `confirm` and that the pilot was in space and made the call on a ballpark handle of its own. A retail client's
+// menu makes it (menusvc.py 2822 to 2826), on its ballpark's own object:
+//
+//   michelle.GetRemotePark().CmdFleetTagTarget(itemID, tag)
+//       The tag is one character as text: a digit, or one of the letters A to J, X, Y and Z (1945, 1946); or
+//       None, which takes the tag off (1948). Offered to a fleet's commander for a thing that is not its own
+//       ship (celestialCheckers.OfferFleetTagItem). It answers nothing.
+//
+// In no Tranquility recording. The server acts on the session's own fleet, for its creator or a commander of it.
+// Either transport carries it, asked of beyonce by its name; the game port makes it on the ballpark's object.
+
+/**
+ * Sets a fleet's tag on a thing in space, or takes it off with `null`. Fails as the call fails.
+ *
+ * ⚠ THE CALL COMING BACK IS NOT PROOF. The server drops the tag of a pilot who is neither the fleet's creator nor
+ * a commander of it, and answers nothing either way: a tag set and a tag dropped look the same from here. A caller
+ * confirms by seeing the tag in a later read of the fleet's `targetTags`.
+ */
+export async function tagFleetTarget(act: Ask, itemID: number, tag: string | null): Promise<void> {
+  await act("beyonce", "CmdFleetTagTarget", [itemID, tag]);
+}

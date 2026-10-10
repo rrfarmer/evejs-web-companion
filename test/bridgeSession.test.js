@@ -1343,6 +1343,32 @@ test("ammunition loaded and unloaded are writes of the page's own, asked of the 
   }
 });
 
+test("a fleet's target tag set and cleared is a write of the page's own, asked of beyonce by its name: it goes as it was sent, and beyonce's other writes do not", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  // A letter on a thing in space, and the tag taken off it.
+  for (const args of [[9001, "A"], [9001, null]]) {
+    const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "beyonce", method: "CmdFleetTagTarget", args, kwargs: null, ...more } });
+    const before = gateway.calls.call.length;
+    for (const more of [{}, { pilot: true }, { confirm: true }]) {
+      const refused = await call(more);
+      assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+    }
+    assert.equal(gateway.calls.call.length, before);
+    const made = await call({ pilot: true, confirm: true });
+    assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "beyonce", "CmdFleetTagTarget"]);
+    const sent = gateway.calls.call.at(-1);
+    assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["beyonce", "CmdFleetTagTarget", args, null, BRIDGE_SESSION_ID, { userid: 4 }]);
+  }
+  const before = gateway.calls.call.length;
+  for (const method of ["CmdGotoPoint", "CmdAbandonLoot", "CmdJumpThroughFleet", "CmdStop", "CmdWarpToStuff", "CmdDock"]) {
+    const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "beyonce", method, args: [], kwargs: null, pilot: true, confirm: true } });
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
+  }
+  assert.equal(gateway.calls.call.length, before);
+});
+
 test("the page's own write is under the checks every write of a held pilot's is under, and is made as its route makes it", async () => {
   const gateway = fakeGateway();
   const { baseUrl, app } = await startTestServer({ gateway });
