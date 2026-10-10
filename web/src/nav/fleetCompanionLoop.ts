@@ -1565,6 +1565,12 @@ export interface CompanionLadderMemory {
    * and a repeat of the same call is heard without being obeyed again.
    */
   readonly lastWarpedToID: number | null;
+  /**
+   * The drones called home before a fleet order that leaves the grid, or null.
+   * `leftAtMs` is set once the order itself has gone out. See
+   * `recallBeforeLeavingOnOrder`.
+   */
+  readonly orderedLeaveRecall: { readonly startedMs: number; readonly leftAtMs: number | null } | null;
   /** Rung 5's flee, or null when the pilot is not running from anything. */
   readonly flee: CompanionFlee | null;
   /**
@@ -1814,6 +1820,7 @@ export function freshLadderMemory(): CompanionLadderMemory {
     salvageApproachIssued: false,
     areaJob: null,
     lastWarpedToID: null,
+    orderedLeaveRecall: null,
     flee: null,
     fleeTripsSpent: 0,
     fleeRecoverySinceMs: null,
@@ -2205,6 +2212,7 @@ function decideCompanionStep(
     salvageApproachIssued: memory.salvageApproachIssued,
     areaJob: memory.areaJob,
     lastWarpedToID: memory.lastWarpedToID,
+    orderedLeaveRecall: memory.orderedLeaveRecall,
     droneCycle: memory.droneCycle,
     droneCyclesSpent: memory.droneCyclesSpent,
     // ⚠ CARRIED, NOT CLEARED, and the difference from `abandonment` above is
@@ -2322,7 +2330,13 @@ function decideCompanionStep(
   // stop obeying its commander to keep its drones alive. Threaded like rung 3
   // because most of what it does - waiting out a recall, counting down a
   // hold-off - happens on ticks that issue NO action at all.
-  const drones = decideDrones(request, obs, fleeing.memory, nowMs);
+  //
+  // ⚠ STOOD DOWN WHILE A FLEET ORDER TO LEAVE IS CALLING THE DRONES HOME. This
+  // rung runs before rung 7, so without this it would relaunch or re-engage the
+  // very drones rung 7 is waiting to scoop. See `recallBeforeLeavingOnOrder`.
+  const drones = droneRungStoodDown(fleeing.memory, nowMs)
+    ? { decision: null, memory: fleeing.memory }
+    : decideDrones(request, obs, fleeing.memory, nowMs);
   if (drones.decision !== null) {
     return drones.decision;
   }
@@ -2369,7 +2383,13 @@ function decideCompanionStep(
   // as a READOUT while the ladder goes on. Before this, that case returned an
   // ordinary wait and ended the tick, so a standing target call starved every
   // rung beneath it for as long as it stood. See `CompanionDecision.standing`.
-  const obeying = decideFleetOrders(request, obs, reloading.memory);
+  const obeying = recallBeforeLeavingOnOrder(
+    decideFleetOrders(request, obs, reloading.memory),
+    request,
+    obs,
+    reloading.memory,
+    nowMs,
+  );
   if (obeying !== null && obeying.standing !== true) {
     return obeying;
   }
@@ -2601,6 +2621,104 @@ const MAX_GET_SAFE_WARP_ATTEMPTS = 3;
 // At the idle cadence this allows two minutes for a slow-aligning hull.
 // Expiry pauses; elapsed time is never evidence that the ship got safe.
 const MAX_GET_SAFE_WARP_WAIT_TICKS = 60;
+
+/**
+ * How long a fleet order to leave the grid waits for the drones it called home.
+ *
+ * ⚠ CHOSEN BY THE OPERATOR, 2026-10-10. Rung 7 used to obey a `WarpTo` the tick
+ * it heard it, drones and all: three companions warped to a station within two
+ * seconds of the call and left fifteen Hobgoblins on a hostile grid, where every
+ * one of them was killed. The answer asked for was "recall, short wait": call
+ * them home, leave when they are scooped or this has passed, whichever is first,
+ * and leave at once, abandoning them, if the ship is already below its flee
+ * floor. Idle drones near the ship are scooped well inside it.
+ */
+const ORDERED_LEAVE_RECALL_MS = 8000;
+/** How long after the order has gone out the drone rung stays down, so it does not launch into the align. */
+const ORDERED_LEAVE_SETTLE_MS = 5000;
+
+/** The fleet-order actions that take the ship off this grid. */
+const LEAVING_ACTIONS: ReadonlySet<FleetCompanionAction["kind"]> = new Set([
+  "warp",
+  "warpToFleetMember",
+  "travelTo",
+  "jumpGate",
+]);
+
+/** Whether rung 6 stands aside this tick for a fleet order's recall; see `recallBeforeLeavingOnOrder`. */
+function droneRungStoodDown(memory: CompanionLadderMemory, nowMs: number): boolean {
+  const recall = memory.orderedLeaveRecall;
+  if (recall === null) {
+    return false;
+  }
+  return recall.leftAtMs === null
+    ? nowMs - recall.startedMs < ORDERED_LEAVE_RECALL_MS + ORDERED_LEAVE_SETTLE_MS
+    : nowMs - recall.leftAtMs < ORDERED_LEAVE_SETTLE_MS;
+}
+
+/**
+ * Rung 7's decision, held back while this ship's drones come home when it would
+ * take the ship off the grid. See ORDERED_LEAVE_RECALL_MS for the rule and why.
+ *
+ * ⚠ THE HELD TICK KEEPS THE MEMORY RUNG 7 STARTED FROM, NOT THE ONE IT RETURNED.
+ * Rung 7 stamps an order as answered when it issues it (`lastWarpedToID`,
+ * `lastRoutedSystemID`); keeping that stamp on a tick that did NOT warp would
+ * have the order heard as done and never obeyed.
+ */
+function recallBeforeLeavingOnOrder(
+  decision: CompanionDecision | null,
+  request: FleetCompanionRequest,
+  obs: FleetCompanionObservation,
+  memory: CompanionLadderMemory,
+  nowMs: number,
+): CompanionDecision | null {
+  if (decision === null || !LEAVING_ACTIONS.has(decision.action.kind)) {
+    return decision;
+  }
+  const pending = memory.orderedLeaveRecall;
+  // ⚠ JUST LEFT: GO AGAIN, DO NOT RECALL AGAIN. Some leaving orders are re-issued
+  // every tick until the ship is seen in warp (the gate warp has no stamp), and a
+  // timed-out wait leaves the drones out, so without this every re-issue would
+  // start a new recall and the pilot would never leave.
+  if (pending !== null && pending.leftAtMs !== null && nowMs - pending.leftAtMs < ORDERED_LEAVE_SETTLE_MS) {
+    return { ...decision, memory: { ...decision.memory, orderedLeaveRecall: pending } };
+  }
+  const go = (): CompanionDecision => ({
+    ...decision,
+    memory: { ...decision.memory, orderedLeaveRecall: { startedMs: pending?.startedMs ?? nowMs, leftAtMs: nowMs } },
+  });
+  const out = obs.myDroneIDs ?? [];
+  // Nothing out (or every one scooped): leave. An absent read is "nothing out", as in `recallBeforeLeaving`.
+  if (out.length === 0) {
+    return go();
+  }
+  // A ship already below its flee floor does not wait for its drones.
+  const health = tankHealth(request, obs);
+  if (health !== null && health < request.fleeHealthFloor) {
+    return go();
+  }
+  if (pending === null || pending.leftAtMs !== null) {
+    return {
+      action: { kind: "recallDrones", droneIDs: out },
+      phase: decision.phase,
+      why: "Calling the drones home before obeying the fleet's order to leave.",
+      memory: { ...memory, orderedLeaveRecall: { startedMs: nowMs, leftAtMs: null } },
+      followingOrderFrom: decision.followingOrderFrom,
+      lastOrderHeard: decision.lastOrderHeard,
+    };
+  }
+  if (nowMs - pending.startedMs >= ORDERED_LEAVE_RECALL_MS) {
+    return go();
+  }
+  return {
+    action: WAIT,
+    phase: decision.phase,
+    why: "Waiting for the drones to come home before obeying the fleet's order to leave.",
+    memory,
+    followingOrderFrom: decision.followingOrderFrom,
+    lastOrderHeard: decision.lastOrderHeard,
+  };
+}
 
 /**
  * The recall the get-safe ladder makes before it warps, or null when there is
@@ -7668,6 +7786,7 @@ export function createFleetCompanion(deps: FleetCompanionDeps): FleetCompanionCo
           salvageApproachIssued: false,
           areaJob: null,
           lastWarpedToID: null,
+          orderedLeaveRecall: null,
           // A resumed run has tanked up, locked, healed and routed nothing yet
           // either — same reasoning as the get-safe flags just above: this run
           // has not issued any of those calls, so it must not assume one

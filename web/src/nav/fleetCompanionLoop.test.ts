@@ -8368,3 +8368,66 @@ test("the burst is shorter than the cadence", () => {
     "a burst that is not shorter than the cadence is not a burst",
   );
 });
+
+// --- a fleet order to leave calls the drones home first ----------------------
+//
+// Seen 2026-10-10: three companions obeyed a WarpTo within two seconds with
+// their drones out and lost all fifteen on the grid they left. The operator's
+// rule: recall, leave when scooped or after a short wait, and leave at once if
+// the ship is already below its flee floor.
+
+test("a WarpTo with drones out recalls them, waits, and warps once they are home", () => {
+  const order = { snapshot: gridWithGate(500_000), fleetBroadcast: fleetBroadcast("WarpTo", GATE), hostileOnGrid: true };
+  const t0 = 1_000_000;
+  const first = decideCompanionAction(REQUEST, obs({ ...order, myDroneIDs: [DRONE_A, DRONE_B] }), freshLadderMemory(), t0);
+  assert.deepEqual(first.action, { kind: "recallDrones", droneIDs: [DRONE_A, DRONE_B] });
+  assert.equal(first.memory.lastWarpedToID, null, "the order is not heard as answered on a tick that did not warp");
+  // Still coming home: the drone rung does not send them back out, and the order waits.
+  const waiting = decideCompanionAction(REQUEST, obs({ ...order, myDroneIDs: [DRONE_A] }), first.memory, t0 + 3000);
+  assert.equal(waiting.action.kind, "wait");
+  assert.match(waiting.why, /drones to come home/);
+  // Scooped: the warp goes, and the order is answered.
+  const gone = decideCompanionAction(REQUEST, obs({ ...order, myDroneIDs: [] }), waiting.memory, t0 + 4000);
+  assert.deepEqual(gone.action, { kind: "warp", targetID: GATE });
+  assert.equal(gone.memory.lastWarpedToID, GATE);
+});
+
+test("a recall that does not finish in time is left behind, and the warp goes", () => {
+  const order = { snapshot: gridWithGate(500_000), fleetBroadcast: fleetBroadcast("WarpTo", GATE), hostileOnGrid: true, myDroneIDs: [DRONE_A] };
+  const t0 = 1_000_000;
+  const first = decideCompanionAction(REQUEST, obs(order), freshLadderMemory(), t0);
+  assert.equal(first.action.kind, "recallDrones");
+  assert.equal(decideCompanionAction(REQUEST, obs(order), first.memory, t0 + 7999).action.kind, "wait");
+  assert.deepEqual(decideCompanionAction(REQUEST, obs(order), first.memory, t0 + 8000).action, { kind: "warp", targetID: GATE });
+});
+
+test("a ship already below its flee floor obeys the order to leave at once, drones and all", () => {
+  const decision = decideCompanionAction(
+    REQUEST,
+    obs({
+      snapshot: gridWithGate(500_000),
+      fleetBroadcast: fleetBroadcast("WarpTo", GATE),
+      hostileOnGrid: true,
+      myDroneIDs: [DRONE_A],
+      shieldRatio: 0.1,
+      armorRatio: 0.1,
+      hullRatio: 0.1,
+    }),
+    // Its flee budget is spent, so rung 5 stays home and the order reaches rung 7.
+    { ...freshLadderMemory(), fleeTripsSpent: REQUEST.maxFleeAttempts },
+    1_000_000,
+  );
+  assert.deepEqual(decision.action, { kind: "warp", targetID: GATE });
+});
+
+test("an order re-issued just after leaving is not held for another recall", () => {
+  // A gate warp is issued every tick until the ship is seen in warp; a timed-out wait left the drone out.
+  const order = { snapshot: gridWithGate(500_000), fleetBroadcast: fleetBroadcast("JumpTo", GATE), hostileOnGrid: true, myDroneIDs: [DRONE_A] };
+  const t0 = 1_000_000;
+  const first = decideCompanionAction(REQUEST, obs(order), freshLadderMemory(), t0);
+  assert.equal(first.action.kind, "recallDrones");
+  const left = decideCompanionAction(REQUEST, obs(order), first.memory, t0 + 8000);
+  assert.deepEqual(left.action, { kind: "warp", targetID: GATE });
+  const again = decideCompanionAction(REQUEST, obs(order), left.memory, t0 + 9000);
+  assert.deepEqual(again.action, { kind: "warp", targetID: GATE });
+});
