@@ -1861,3 +1861,35 @@ test("a module's repair begun or ended is the client's call when it names the on
     }
   }
 });
+
+test("the weapons linked or unlinked all at once is the client's call when it names the ship the session is flying and nothing else", () => {
+  // clientDogmaLocation.py 800 and 794: remoteDogmaLM.LinkAllWeapons(shipID) and UnlinkAllModules(shipID), on the
+  // dogma location's object, from the group-all button with session.shipid (groupAllIcon.py 36 and 38).
+  const flying = { shipID: 9988400023309 };
+  for (const [method, line] of [["LinkAllWeapons", 800], ["UnlinkAllModules", 794]]) {
+    const ask = (args, kwargs = null, context = flying) => retailForm("dogmaIM", method, args, kwargs, context);
+    const made = ask([9988400023309]);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy],
+      ["same", `eve/client/script/dogma/clientDogmaLocation.py:${line}`, [9988400023309], null, true, false], method);
+    // Another ship than the session's goes as it came, and is counted as differing.
+    const other = ask([9988400099999]);
+    assert.deepEqual([other.status, other.args], ["differs", [9988400099999]], method);
+    assert.match(other.note, /ship its session is flying/);
+    // Where the session's ship is not known (through the web gateway), a ship named is taken for it.
+    for (const context of [{}, { shipID: null }]) assert.equal(ask([9988400099999], null, context).status, "same", method);
+    for (const [args, kwargs, why] of [
+      [[], null, "no ship"],
+      [[0], null, "no ship's ID"],
+      [[-5], null, "a ship below nought"],
+      [[9988400023309.5], null, "half a ship"],
+      [["9988400023309"], null, "a ship as text"],
+      [[null], null, "nothing for the ship"],
+      [[9988400023309, 61001], null, "a module beside it"],
+      [[9988400023309], { merge: true }, "a keyword"],
+    ]) {
+      const odd = ask(args, kwargs, {});
+      assert.deepEqual([odd.status, odd.args], ["differs", args], `${method}: ${why}`);
+      assert.match(odd.note, /one ship/, why);
+    }
+  }
+});

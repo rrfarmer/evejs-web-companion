@@ -346,7 +346,7 @@ import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
-import { createModuleRepairs, createOverloadEffects, repairWaitMs, setOverload as setOverloadCall } from "../bridge/dogmaWrites.ts";
+import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, repairWaitMs, setOverload as setOverloadCall } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
 import {
   FLEET_BROADCAST_SCOPE_ALL,
@@ -1731,6 +1731,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The repairs begun (bridge/dogmaWrites.ts): each is ended by the page when its time is up, as a client ends
   // its own, and the ship is read again then, which is when the module is mended.
   const moduleRepairs = createModuleRepairs(bridgeDo, { ended: () => { void loadSpaceSnapshot().catch(() => {}); } });
+  // The ship's weapons linked and unlinked all at once, with the wait the client's button keeps between two of a kind.
+  const weaponGrouping = createWeaponGrouping(bridgeDo);
   // What a client knows of a skill's type without asking the server, asked of the static data once and kept.
   const skillTypeFacts = createSkillTypeFacts({
     // (A type's name is the static data's, and is answered or is none: only a structure's can be left unanswered.)
@@ -6254,7 +6256,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function setWeaponBanks(linked: boolean): Promise<void> {
     await runTargetingAction(
       linked ? "Link weapons" : "Unlink weapons",
-      () => (linked ? api.linkAllWeapons(callOptions) : api.unlinkAllWeapons(callOptions)),
+      async () => {
+        // groupAllIcon.OnClick (36, 38) names session.shipid: the ship the pilot is flying.
+        const shipID = store.fitting.get().activeShipID ?? store.space.get().snapshot?.shipID ?? null;
+        if (shipID === null) throw new Error("Which ship this is is not known yet.");
+        const asked = linked ? await weaponGrouping.linkAll(shipID) : await weaponGrouping.unlinkAll(shipID);
+        if (!asked) throw new Error("That was done a moment ago. Try again in a moment.");
+      },
       () => loadSpaceSnapshot().catch(() => {}),
       () => {
         const banks = store.space.get().snapshot?.ship?.weaponBanks ?? null;

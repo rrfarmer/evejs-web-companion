@@ -4573,21 +4573,11 @@ export async function scoopDrones(
 // which is why a repair begun here took the paste and mended nothing: the server
 // mends a module when its repair is ended, and a client ends its own.
 
-/**
- * Bank every compatible weapon on the ship (dogmaIM.LinkAllWeapons), so one
- * click fires the group.
- *
- * The ship is the SESSION's own active hull, pinned by the BFF — these routes
- * used to take a browser-supplied shipID and no longer do.
- */
-export async function linkAllWeapons(options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/dogma/weapons/link-all", { confirm: true }, options);
-}
-
-/** Break every weapon bank on the ship (dogmaIM.UnlinkAllModules). */
-export async function unlinkAllWeapons(options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/dogma/weapons/unlink-all", { confirm: true }, options);
-}
+// A ship's weapons are linked and unlinked by the page itself, with the client's
+// own calls and the ship named as the client names it (bridge/dogmaWrites.ts; the
+// plan's Phase 6b): the thirteenth and fourteenth of its writes to leave their
+// routes (POST /api/bridge/dogma/weapons/link-all and .../unlink-all), on
+// 2026-10-10.
 
 // --- Ammunition ---------------------------------------------------------------
 //

@@ -2080,6 +2080,43 @@ test("the snapshot's weapon banks and module damage are dogma's, and the banks f
   assert.deepEqual((await ship()).moduleDamage, { [FITTED_MODULE]: 1 });
 });
 
+test("the banks follow a grouping asked of the service by its name too, as the page asks it: the client sets them from the answer itself", async () => {
+  // clientDogmaLocation.LinkAllWeapons and UnlinkAllWeapons (793 to 803): once the server has answered, the
+  // client's own banks are the answer (OnWeaponBanksChanged(shipID, info)), and none (OnWeaponBanksChanged(shipID, {})).
+  const allInfo = shipAllInfo();
+  const fields = allInfo.args.entries;
+  fields.push([Buffer.from("activeShipID"), BigInt(SHIP)]);
+  fields.push([Buffer.from("shipState"), [{ type: "dict", entries: [] }, { type: "dict", entries: [] }, { type: "dict", entries: [[BigInt(FITTED_MODULE), { type: "list", items: [BigInt(SHIP + 2)] }]] }, { type: "dict", entries: [] }]]);
+  const hand = handTicked();
+  let refused = false;
+  const refusing = (answer) => () => { if (refused) throw Object.assign(new Error("CustomNotify"), { code: "CALL_REFUSED" }); return answer; };
+  const answers = { ...IN_SPACE.answers, "bound:GetAllInfo": allInfo, "bound:UnlinkAllModules": refusing({ type: "dict", entries: [] }), "bound:LinkAllWeapons": refusing({ type: "dict", entries: [[BigInt(SHIP + 2), [BigInt(SHIP + 3)]]] }) };
+  const allowed = new Set(["beyonce.MachoBindObject", "dogmaIM.MachoBindObject", "dogmaIM.GetAllInfo", "dogmaIM.UnlinkAllModules", "dogmaIM.LinkAllWeapons", "dogmaIM.StopOverload"]);
+  const built = build({ ...IN_SPACE, answers }, { ...hand.options, now: () => DOGMA_T_MS, allowed });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  await built.pilots.bindObject("beyonce", "MachoBindObject", [], null, WHOSE, handle);
+  for (const update of recordedUpdates.slice(0, 5)) built.session.notify("DoDestinyUpdate", update.args);
+  hand.parks[0].tick();
+  const banks = async () => (await built.pilots.readSpaceSnapshot(handle)).space.ship.weaponBanks;
+  const ask = (method, args) => built.pilots.callMethod("dogmaIM", method, args, null, WHOSE, handle);
+
+  assert.deepEqual(await banks(), { [FITTED_MODULE]: [SHIP + 2] });
+  await ask("UnlinkAllModules", [SHIP]);
+  assert.deepEqual(await banks(), {});
+  await ask("LinkAllWeapons", [SHIP]);
+  assert.deepEqual(await banks(), { [SHIP + 2]: [SHIP + 3] });
+  // A refusal changes nothing the client has: its banks are set after the answer, and there was none.
+  refused = true;
+  await assert.rejects(ask("UnlinkAllModules", [SHIP]));
+  assert.deepEqual(await banks(), { [SHIP + 2]: [SHIP + 3] });
+  refused = false;
+  // Another call of the dogma location asked by name leaves them alone.
+  await ask("StopOverload", [FITTED_MODULE, 3001]);
+  assert.deepEqual(await banks(), { [SHIP + 2]: [SHIP + 3] });
+  await ask("UnlinkAllModules", [SHIP]);
+  assert.deepEqual(await banks(), {});
+});
+
 // ── rack heat, through the snapshot ──────────────────────────────────────────
 
 test("the snapshot's rack heat is dogma's: the server's word for a rack, and the client's reckoning from there", async () => {
@@ -2456,6 +2493,30 @@ test("a module's repair is begun and ended as godma does both: on the dogma loca
   assert.deepEqual(row("dogmaIM.InitiateModuleRepair").statuses, { reshaped: 1, differs: 1 });
   assert.match(row("dogmaIM.InitiateModuleRepair").note, /one module/);
   // One dogma location for all of it.
+  assert.equal(session.binds.filter((bind) => bind.service === "dogmaIM").length, 1);
+});
+
+test("the weapons are linked and unlinked as the client does both: on the dogma location, naming the ship the session is flying", async () => {
+  const hand = handTicked();
+  const allowed = new Set([...MODULE_PAIRS, "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules"]);
+  const built = build({ ...IN_SPACE, answers: { ...IN_SPACE.answers, "bound:GetAllInfo": fittedAllInfo(), "bound:LinkAllWeapons": { type: "dict", entries: [] }, "bound:UnlinkAllModules": null } }, { ...hand.options, ...moduleOptions({ allowed }) });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  const made = () => session.boundCalls.findLast((call) => call.method === "LinkAllWeapons" || call.method === "UnlinkAllModules");
+  const row = (pair) => built.pilots.callLedger().find((each) => each.pair === pair);
+  // clientDogmaLocation.py 800 and 794, asked by the service's name and made on the dogma location.
+  await built.pilots.callMethod("dogmaIM", "LinkAllWeapons", [SHIP], null, WHOSE, handle);
+  const location = made().objectID;
+  assert.deepEqual(made(), { objectID: location, method: "LinkAllWeapons", args: [SHIP], kwargs: null });
+  await built.pilots.callMethod("dogmaIM", "UnlinkAllModules", [SHIP], null, WHOSE, handle);
+  assert.deepEqual(made(), { objectID: location, method: "UnlinkAllModules", args: [SHIP], kwargs: null });
+  assert.equal(session.calls.some((call) => call.service === "dogmaIM" && (call.method === "LinkAllWeapons" || call.method === "UnlinkAllModules")), false, "nothing was asked of the service by name");
+  assert.deepEqual([row("dogmaIM.LinkAllWeapons").statuses, row("dogmaIM.UnlinkAllModules").statuses], [{ reshaped: 1 }, { reshaped: 1 }]);
+  // Another ship than the one the session is flying: it goes as it came, and is counted as not the client's.
+  await built.pilots.callMethod("dogmaIM", "UnlinkAllModules", [SHIP + 1], null, WHOSE, handle);
+  assert.deepEqual(made().args, [SHIP + 1]);
+  assert.deepEqual(row("dogmaIM.UnlinkAllModules").statuses, { reshaped: 1, differs: 1 });
+  assert.match(row("dogmaIM.UnlinkAllModules").note, /ship its session is flying/);
   assert.equal(session.binds.filter((bind) => bind.service === "dogmaIM").length, 1);
 });
 

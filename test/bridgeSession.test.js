@@ -1286,13 +1286,14 @@ test("a fleet applied to and a broadcast to the bubble are writes of the page's 
   }
 });
 
-test("a module overloaded and cooled, and its repair begun and ended, are writes of the page's own, asked of the dogma service by its name: each goes as it was sent", async () => {
+test("a module overloaded and cooled, its repair begun and ended, and the weapons linked and unlinked are writes of the page's own, asked of the dogma service by its name: each goes as it was sent", async () => {
   const gateway = fakeGateway();
   const { baseUrl } = await startTestServer({ gateway });
   await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
-  for (const method of ["Overload", "StopOverload", "InitiateModuleRepair", "StopModuleRepair"]) {
-    // A module and its overload effect; for a repair, begun and ended, the module alone.
-    const args = method.endsWith("Repair") ? [9988400023312] : [9988400023312, 3001];
+  for (const method of ["Overload", "StopOverload", "InitiateModuleRepair", "StopModuleRepair", "LinkAllWeapons", "UnlinkAllModules"]) {
+    // A module and its overload effect; for a repair, begun and ended, the module alone; for the weapons linked
+    // and unlinked, the ship.
+    const args = method.endsWith("Repair") ? [9988400023312] : method.includes("link") || method.includes("Link") ? [9988400023309] : [9988400023312, 3001];
     const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method, args, kwargs: null, ...more } });
     const before = gateway.calls.call.length;
     // A write, as the pause is: refused unless it is said to be a pilot's and to be meant.
@@ -1308,7 +1309,7 @@ test("a module overloaded and cooled, and its repair begun and ended, are writes
   }
   // The dogma service's other writes are their routes' alone, whatever is said.
   const before = gateway.calls.call.length;
-  for (const method of ["OverloadRack", "StopOverloadRack", "InitiateModuleRepairMany", "LinkAllWeapons", "UnlinkAllModules", "LinkWeapons", "LoadAmmo", "Activate"]) {
+  for (const method of ["OverloadRack", "StopOverloadRack", "InitiateModuleRepairMany", "LinkWeapons", "MergeModuleGroups", "PeelAndLink", "UnlinkModule", "DestroyWeaponBank", "LoadAmmo", "Activate"]) {
     const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method, args: [], kwargs: null, pilot: true, confirm: true } });
     assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], method);
   }

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createModuleRepairs, createOverloadEffects, repairWaitMs, setOverload } from "./dogmaWrites.ts";
+import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, repairWaitMs, setOverload } from "./dogmaWrites.ts";
 import type { Ask } from "./ask.ts";
 import type { JsonValue } from "./wire.ts";
 
@@ -189,4 +189,71 @@ test("an ending that fails still forgets the repair and says it ended, as godma'
   await repairs.begin(61002, 61_000);
   await repairs.endAll();
   assert.deepEqual([repairs.beingRepaired(61001), repairs.beingRepaired(61002), ended], [false, false, [61001, 61001, 61002]]);
+});
+
+// ── The weapons linked and unlinked all at once ──────────────────────────────
+// clientDogmaLocation.LinkAllWeapons and UnlinkAllWeapons (793 to 803), from the group-all button
+// (groupAllIcon.py 28 to 39), which is dead for two seconds after a request of its kind was answered.
+
+/** Grouping over a stand-in, with a clock the test moves; `during` is run inside each call, before it answers. */
+function grouping(answer: JsonValue | Error = null, during: (clock: { nowMs: number }) => void = () => {}) {
+  const asked: unknown[] = [];
+  const clock = { nowMs: 1_000_000 };
+  const act: Ask = async (service, method, args) => {
+    asked.push([service, method, args]);
+    during(clock);
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  return { asked, clock, weapons: createWeaponGrouping(act, () => clock.nowMs) };
+}
+
+test("the weapons are linked by LinkAllWeapons and unlinked by UnlinkAllModules, each naming the ship", async () => {
+  const { asked, weapons } = grouping();
+  assert.equal(await weapons.linkAll(9988400023309), true);
+  assert.equal(await weapons.unlinkAll(9988400023309), true);
+  assert.deepEqual(asked, [["dogmaIM", "LinkAllWeapons", [9988400023309]], ["dogmaIM", "UnlinkAllModules", [9988400023309]]]);
+});
+
+test("the first request of a kind is made whatever the clock says", async () => {
+  const asked: unknown[] = [];
+  const weapons = createWeaponGrouping(async (service, method, args) => { asked.push([service, method, args]); return null; }, () => 5);
+  assert.deepEqual([await weapons.linkAll(1), await weapons.unlinkAll(1), asked.length], [true, true, 2]);
+});
+
+test("a request of the same kind is not made until the button would be alive again: just under two seconds", async () => {
+  // UpdateGroupAllButton: dead while the time since the answer, over two seconds, is no more than 0.999.
+  const { asked, clock, weapons } = grouping();
+  await weapons.linkAll(7);
+  clock.nowMs += 1998;
+  assert.equal(await weapons.linkAll(7), false);
+  assert.equal(asked.length, 1);
+  clock.nowMs += 1;
+  assert.equal(await weapons.linkAll(7), true);
+  assert.equal(asked.length, 2);
+  // What was not made does not start the wait again, and each kind has its own.
+  await weapons.unlinkAll(7);
+  clock.nowMs += 1998;
+  assert.deepEqual([await weapons.unlinkAll(7), await weapons.linkAll(7)], [false, false]);
+  clock.nowMs += 1;
+  assert.deepEqual([await weapons.unlinkAll(7), await weapons.linkAll(7)], [true, true]);
+  assert.equal(asked.length, 5);
+});
+
+test("the wait is from the answer, not from the asking", async () => {
+  // clientDogmaLocation.py 802: the time is noted once the call has come back.
+  const { asked, clock, weapons } = grouping(null, running => { running.nowMs += 700; });
+  await weapons.linkAll(7);
+  clock.nowMs += 1998;
+  assert.equal(await weapons.linkAll(7), false, "2698 ms after the asking, 1998 after the answer");
+  assert.equal(asked.length, 1);
+});
+
+test("a request that fails starts no wait, and fails as the call fails", async () => {
+  const { asked, weapons } = grouping(new Error("CantLinkModuleNotOnline"));
+  await assert.rejects(() => weapons.linkAll(7), /CantLinkModuleNotOnline/);
+  await assert.rejects(() => weapons.linkAll(7), /CantLinkModuleNotOnline/);
+  await assert.rejects(() => weapons.unlinkAll(7), /CantLinkModuleNotOnline/);
+  await assert.rejects(() => weapons.unlinkAll(7), /CantLinkModuleNotOnline/);
+  assert.equal(asked.length, 4);
 });

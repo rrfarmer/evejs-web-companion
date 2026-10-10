@@ -583,6 +583,19 @@ const oneModule = (args, kwargs) => (args.length === 1 && Number.isSafeInteger(a
   ? {}
   : { status: "differs", note: "The client names the one module and nothing else." });
 
+/**
+ * groupAllIcon.OnClick (36, 38): the ship the session is flying, session.shipid, and nothing else.
+ * `context.shipID` is that ship where the session's is known.
+ */
+const ownShipAlone = (args, kwargs, context) => {
+  if (!(args.length === 1 && Number.isSafeInteger(args[0]) && args[0] > 0 && Object.keys(kwargs).length === 0)) {
+    return { status: "differs", note: "The client names the one ship, the one its session is flying, and nothing else." };
+  }
+  return context.shipID === null || context.shipID === undefined || Number(context.shipID) === args[0]
+    ? {}
+    : { status: "differs", note: "The client names the ship its session is flying. This call names another." };
+};
+
 /** godma's Deactivate(itemID, effectName): the effect is the one the client holds as running, by name. */
 function deactivation(args, kwargs, context) {
   const [itemID, effectName] = args;
@@ -1187,6 +1200,10 @@ const RETAIL_CALLS = Object.freeze({
     "GetDogmaLM().InitiateModuleRepair(itemID), on the dogma location bound for where the pilot is: the module button's Repair, for a module with damage. The server takes the paste and begins; an answer of False begins nothing. No recording has one."),
   "dogmaIM.StopModuleRepair": judged(`${GODMA}:2261`, oneModule,
     "GetDogmaLM().StopModuleRepair(itemID): godma's own doing when the repair's time is up (the damage over the character's repair rate, in minutes, and a second), at Cancel Repair, and at a session's change. The server mends the module at this call. No recording has one."),
+  "dogmaIM.LinkAllWeapons": judged(`${CLIENT_DOGMA}:800`, ownShipAlone,
+    "remoteDogmaLM.LinkAllWeapons(shipID), on the dogma location: the group-all button, with session.shipid (groupAllIcon.py 36), where some weapon could still be grouped. It answers the ship's banks. No recording has one; LinkWeapons(shipID, master, slave) is recorded, riding the dogma location's bind."),
+  "dogmaIM.UnlinkAllModules": judged(`${CLIENT_DOGMA}:794`, ownShipAlone,
+    "remoteDogmaLM.UnlinkAllModules(shipID): the same button where every weapon that can be is grouped (groupAllIcon.py 38). No recording has one."),
   "dogmaIM.Activate": needing(reshaped(`${MODULE_BUTTON}:1348`, activation, "godma's GetDogmaLM().Activate(itemID, effectName, target, repeats) (godma.py 2062), on the dogma location bound for where the pilot is"), "dogma"),
   "dogmaIM.Deactivate": needing(reshaped(`${GODMA}:2101`, deactivation, "GetDogmaLM().Deactivate(itemID, effectName), on the dogma location bound for where the pilot is"), "dogma"),
   "dogmaIM.GetTargets": same(`${GODMA}:2361`, "GetDogmaLM().GetTargets(), no arguments"),

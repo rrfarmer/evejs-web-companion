@@ -1552,6 +1552,8 @@ function createGamePortPilots({
     forgetNamed(entry, namedAfterCall(service, method, argumentsToWire(form.args), entry.session.attributes));
     // targetMgr._LockTarget: (flag, targets) with no flag set says the lock is made already, and the client adds the target itself.
     if (service === "dogmaIM" && method === "AddTarget" && itemsOf(result).length > 0 && !itemsOf(result)[0]) entry.targets.added(form.args[0]);
+    // clientDogmaLocation's grouping calls (763 to 803): once one is answered, the client's own banks are the answer's.
+    if (service === "dogmaIM") afterGroupingCall(entry, method, form.args, result);
     return {
       service,
       method,

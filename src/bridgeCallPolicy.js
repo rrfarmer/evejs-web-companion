@@ -185,8 +185,14 @@ function isBridgeWritePair(service, method) {
  *                                it is flying and not running, and takes the paste from that ship's hold; it
  *                                ends only a repair that session began, and mends the module then. Asked of
  *                                the service by its name, as the overload is.
+ *   dogmaIM.LinkAllWeapons,      a ship's weapons linked into banks, and every bank broken. Each route
+ *   dogmaIM.UnlinkAllModules     confirmed and called with the ship the BFF held as the session's, never one
+ *                                of the page's naming, because the handler acted on whatever ship it was
+ *                                handed. It holds every bank call to the ship the session is flying now (fixed
+ *                                in eve.js on 2026-10-10), so the page names the ship, as a client does. Asked
+ *                                of the service by its name, as the overload is.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);

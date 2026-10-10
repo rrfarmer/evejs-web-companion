@@ -143,3 +143,52 @@ export function createModuleRepairs(
     beingRepaired: (moduleID) => begun.has(moduleID),
   };
 }
+
+// ── The weapons linked and unlinked all at once ──────────────────────────────
+//
+// Until 2026-10-10 each was one route of the BFF (POST /api/bridge/dogma/weapons/link-all and .../unlink-all),
+// which checked `confirm` and made the call on the BFF's own dogma object, naming the ship itself. A retail
+// client's group-all button makes them (groupAllIcon.py 28 to 39), through its dogma location:
+//
+//   LinkAllWeapons(shipID)     clientDogmaLocation.py 800: where some weapon could still be grouped (CanGroupAll).
+//                              It answers the ship's banks, each master with its slaves.
+//   UnlinkAllModules(shipID)   clientDogmaLocation.py 794: where every weapon that can be is grouped already.
+//
+// THE SHIP is session.shipid, the one the pilot is flying. THE BUTTON IS DEAD for two seconds after a request of
+// its kind was answered (UpdateGroupAllButton, and GROUPALL_THROTTLE_TIMER), each kind with a wait of its own.
+//
+// Neither is in a Tranquility recording; LinkWeapons(shipID, master, slave), which links two by hand, is, riding
+// the dogma location's bind. The server holds every bank call to the ship the session is flying. Either transport
+// carries both, asked of the dogma service by its name.
+
+/** clientDogmaLocation.py 33, GROUPALL_THROTTLE_TIMER. */
+const GROUP_ALL_WAIT_MS = 2000;
+
+export interface WeaponGrouping {
+  /** Links every weapon of the ship that can be. False, with nothing asked, while the client's button would be dead. Fails as the call fails. */
+  linkAll(shipID: number): Promise<boolean>;
+  /** Breaks every bank of the ship, the same way. */
+  unlinkAll(shipID: number): Promise<boolean>;
+}
+
+/** A pilot's linking and unlinking of all its weapons, with the wait the client's button keeps between two of a kind. */
+export function createWeaponGrouping(act: Ask, now: () => number = Date.now): WeaponGrouping {
+  // lastGroupAllRequest and lastUngroupAllRequest: when the last request of each kind was answered.
+  const answered: { link: number | null; unlink: number | null } = { link: null, unlink: null };
+  // UpdateGroupAllButton: dead until the time since, as a share of the wait, is above 0.999.
+  const dead = (at: number | null): boolean => at !== null && (now() - at) / GROUP_ALL_WAIT_MS <= 0.999;
+  return {
+    async linkAll(shipID) {
+      if (dead(answered.link)) return false;
+      await act("dogmaIM", "LinkAllWeapons", [shipID]);
+      answered.link = now();
+      return true;
+    },
+    async unlinkAll(shipID) {
+      if (dead(answered.unlink)) return false;
+      await act("dogmaIM", "UnlinkAllModules", [shipID]);
+      answered.unlink = now();
+      return true;
+    },
+  };
+}
