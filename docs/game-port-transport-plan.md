@@ -794,8 +794,11 @@ on (`e1fa602`), for the character alone, once the server had been made to want t
 Contract Manager role of whoever accepts for a corporation (eve.js `378ef753f`, and
 of whoever makes a contract for one or reads its containers: `cc27a59dd`, `4f6922a29`;
 all unpushed there); and so is a planetary launch's record removed (`12885f1`), which
-a bot's collecting of one does once it has read the container empty. 130 named now, 45 of
-them reads and 85 writes. Of the phase's "done when", "no
+a bot's collecting of one does once it has read the container empty; and so are a fleet
+applied to and a broadcast made to the fleet's members in the bubble (`82a21e8`), the
+second with the wait the client keeps before one. Counted by the whole path, 136 are named
+now, 51 of them reads and 85 writes (the count kept before took a path's beginning for a
+path and missed a parameter inside one: it read 130 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
 Of 6a's four things, three are carried by the socket or in process, each with a way back
 (the routes' operations, the pushes, the hosted bots), and the cap is lifted for what is

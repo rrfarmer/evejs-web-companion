@@ -506,6 +506,29 @@ Take these defaults, and list each under "For the operator" in the log so they c
 - **"Run here" asks through the browser's `confirm`**, which the hidden pane answers "no" with
   nothing shown: the row stays at "Nothing is running". Set `window.confirm` in the page to
   keep its text and answer true before pressing, and write down what it asked.
+- **A fleet for a check is made by script through the gateway BFF**: `fleet/create`, then
+  `fleet/advert/add` with `{ fleetName, inviteScope: 16, joinNeedsApproval }` (a plain object
+  goes through the gateway and not the game port). Test Pilot and Test Three are docked
+  together at Jita on two accounts. `fleet-writes-live.js <boss bff> <member bff> ...` sets the
+  two writes side by side.
+- **A boss is kept in one script while the browser is driven** (`scram-boss.js`): it does a
+  step, then waits for a word left as a file in the scratch folder. Run it in the background
+  with its output in a file, and see it ended before the iteration is. `/ewar` by `gm/slash`
+  gives the caller a ship with a scrambler, a disruptor, a web and a painter fitted; a ship
+  that has attacked cannot dock for a while.
+- **A companion is started from the Companions window**: type the fleet's name, add the
+  pilot. It applies, accepts, undocks and follows a member who is no companion, by itself.
+  Afterwards: Stop all, Remove, and empty the name.
+- **What the page is answered on its socket can be read**: in the wrapper of
+  `WebSocket.prototype.send`, add a `message` listener to each socket once. A pilot's ship is
+  in the answers to `flight/status`; a pushed notice is found by its method's name.
+- **The named routes are counted with `routes-exact.js`**, by the whole path.
+  `routes-survey.js` took a path's beginning for a path and missed a parameter inside one.
+- **A test that starts a companion or a bot stops it in a `finally`.** One left flying after a
+  failed assertion keeps its file's process from ending, and the run waits on it for ever.
+- **A scratch name is checked by itself** (a count over three names says nothing of which
+  one is there), **and a script is written with the Write tool**: a heredoc or `node -e` in
+  the shell loses backslashes and quotes.
 - **A staging script stops where its staging failed.** One that went on asked the server six
   times with no contract's ID. And a contract is made through the gateway's BFF: its route
   cannot be sent on the game port (`accept-live.js <bff> <stage bff> [corp]`,
