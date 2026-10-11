@@ -826,8 +826,10 @@ giving up are the page's own calls of the station's office manager (`b0bbfff`), 
 going by its listing of the offices and its flight for what their routes checked. The
 scanner's sites are asked of the system's scan manager by the page's own call (`4fb2656`),
 which names no object, the session having one. A GM's command goes by the page's own
-call of the slash service (`169ec79`). Counted by the whole path,
-114 are named now, 48 of them reads and 66 writes (the count kept before
+call of the slash service (`169ec79`). The repair shop is asked as the client asks it
+(`07b0ca1`): its quote and its two repairs on a Moniker the game port makes for each
+call, where the route sent a call of the server's own. Counted by the whole path,
+112 are named now, 47 of them reads and 65 writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.

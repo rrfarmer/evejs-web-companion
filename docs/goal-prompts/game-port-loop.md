@@ -749,6 +749,24 @@ Take these defaults, and list each under "For the operator" in the log so they c
   proved the console's call on both transports and in the tab. `gms-live.js <bff> <account>
   <characterID>` runs them; `gms-help.js <bff> <bff> <account> <characterID>` says how the
   two transports' replies differ.
+- **A route's call is not the client's until the client's caller is read.** The repair's
+  route sent `repairSvc.RepairItems(itemIDs, None)` by name. The client reaches that
+  service only on a Moniker it makes for each call, and sends `RepairItemsInStation` with
+  a payment. Search the decompiled client for how it reaches the SERVICE
+  (`RemoteSvc('<service>')`, `Moniker('<service>'`, a function of `eveMoniker.py`) before
+  reading the route. A service reached only by Moniker wants a line in `MONIKER_SERVICES`,
+  its parameters in `monikerParams` (`pilots.js`), and `madeAfresh` where the client
+  keeps none.
+- **The gateway's list may have a write under another name, or not at all.** Ask what the
+  way back does with the client's name before moving a write to it
+  (`evejsWebGatewayRuntime.js`, the allowlist). `gatewaysNameFor` (`bridgeCallPolicy.js`)
+  names the one the gateway has for the same thing; the answer is still the call that
+  was asked.
+- **`/dmg medium`, sent from the page's console or by `slash.SlashCmd`, damages the active
+  ship and one fitted module where it is docked**; `/heal` mends it. `rps-live.js <bff>
+  <account> <characterID> [space] [<other account> <other characterID>]` damages, quotes,
+  repairs and reads the wallet; with `space` it then asks from space; with another pilot
+  it asks a quote for that pilot's ship. Test Pilot's Reaper costs 615.41 ISK after it.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in
