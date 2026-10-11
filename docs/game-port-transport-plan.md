@@ -817,8 +817,10 @@ calls to be made on an object for a thing the page names: the generic call says 
 planet, and the BFF makes the call on the object bound for it. And an extractor is
 restarted as a client restarts one (`29cdbe2`): the planet asked what the programme will
 yield, then one change, where the page made two. And a colony's commodities are launched
-on the planet's object too (`5b2a215`). Counted by the whole path,
-121 are named now, 50 of them reads and 71 writes (the count kept before
+on the planet's object too (`5b2a215`). And a docked pilot's ship is left by the page's
+own call (`e56b7b9`), which the BFF makes under its own watch of the swap, as the route
+made it: its word for the pilot's ship is kept there. Counted by the whole path,
+120 are named now, 50 of them reads and 70 writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.

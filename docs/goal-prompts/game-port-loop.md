@@ -662,6 +662,20 @@ Take these defaults, and list each under "For the operator" in the log so they c
   for a kind of thing that is no planet, its check and its bind in the generic call's
   handler (`src/server.js`, `objectKind`). A read is listed only with its handler read
   first: the planet's reads once took an owner from the caller.
+- **A name found in the recordings' folders is not yet a recording of it.** `grep -rla` counts
+  the notes kept beside the recordings (`.md`) with them. `LeaveShip` was "in one recording"
+  for two entries of the Next list: the file was a note saying the recorded flow ejects.
+  Open what is found.
+- **What a route keeps of the BFF's own goes with its call.** Leaving the ship's route set the
+  BFF's word for the pilot's ship and held the next swap back; the generic call does the same
+  for a pair listed in `PAGE_SHIP_SWAP_CALLS` (`src/bridgeCallPolicy.js`), by the route's own
+  function. Read a route for such a thing before calling its write short.
+  `ls-live.js <bff> <account> <characterID>` leaves a docked pilot's ship and boards it again.
+- **A stand-in BFF's bare `{ ok: true }` is no answer to the page's own call.** A flow's test
+  whose write moves to the generic call needs its stand-in to answer `/api/bridge/call` with
+  the call's service and method, or the page takes the call for failed (as it should) and
+  the test fails for a reason that is not its subject. The whole suite finds these: the
+  unit's own files do not.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in
