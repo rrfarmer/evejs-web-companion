@@ -4606,18 +4606,6 @@ export async function repairItems(
 }
 
 /**
- * Launch what a colony's command centre is holding into orbit.
- *
- * ⚠ ONLY A COMMAND CENTRE CAN LAUNCH. The emulator refuses every other pin
- * with `CanOnlyLaunchFromCommandCenters`, and refuses the same centre twice
- * inside a minute with `CannotLaunchCommandPinNotReady`. It also debits
- * planetary export tax from the wallet and drops a container in space beside
- * the planet, so this is a costly, externally visible write — the BFF
- * confirm-gates it and the caller is expected to have a reason.
- *
- * `commodities` is typeID -> quantity, as the planetMgr handler wants it.
- */
-/**
  * The session character's planetary launches (planetMgr.GetMyLaunchesDetails,
  * through /api/bridge/pi-colonies). Throws when the launch read itself failed,
  * so a caller never mistakes "could not read" for "no launches".
@@ -4643,19 +4631,6 @@ export async function getPiLaunches(options: ApiOptions = {}): Promise<readonly 
 // A planetary launch's record is removed by the page itself, with the client's
 // own call (bridge/launchWrites.ts; the plan's Phase 6b): the sixth of its writes
 // to leave its route (POST /api/bridge/planet/launch/delete), on 2026-10-10.
-
-export async function launchCommodities(
-  planetID: number,
-  commandPinID: number,
-  commodities: Readonly<Record<number, number>>,
-  options: ApiOptions = {},
-): Promise<void> {
-  await postJson(
-    "/api/bridge/planet/commodities/launch",
-    { planetID, commandPinID, commodities: { ...commodities }, confirm: true },
-    options,
-  );
-}
 
 /** What one colony's launchpads did when the Haul button sent them up. */
 export interface CustomsExportPlanet {

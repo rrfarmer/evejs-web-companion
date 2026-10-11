@@ -1109,6 +1109,7 @@
       "fleetMgr.BroadcastToBubble",
       "fleetProxy.ApplyToJoinFleet",
       "planetMgr.DeleteLaunch",
+      "planetMgr.UserLaunchCommodities",
       "planetMgr.UserUpdateNetwork",
       "skillHandler.AbortTraining",
       "skillHandler.ApplyFreeSkillPoints",

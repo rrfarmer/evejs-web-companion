@@ -94,7 +94,7 @@ test("browser session projection retains only explicit language preferences", ()
 
 test("the writes the page makes itself are writes, each named once, and the first is the pause of training", () => {
   const { BRIDGE_WRITE_PAIR_KEYS, PAGE_WRITE_PAIR_KEYS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork"]);
+  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities"]);
   // The queue's saving is the client's own call, on its skill handler. The gateway's save of a queue is another
   // pair, a write as it always was, and its route's alone.
   assert.deepEqual([isBridgeWritePair("skillMgr", "SaveNewQueue"), isPageWritePair("skillMgr", "SaveNewQueue")], [true, false]);
@@ -134,7 +134,11 @@ test("the page's calls that are made on an object of the service's own say what 
   assert.equal(objectOfPageCall("planetMgr", "GetProgramResultInfo"), "planet");
   // A write among them is one the page makes itself; a read among them is no write of any kind.
   const { PAGE_OBJECT_CALLS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(Object.keys(PAGE_OBJECT_CALLS).sort(), ["planetMgr.GetProgramResultInfo", "planetMgr.UserUpdateNetwork"]);
+  assert.deepEqual(Object.keys(PAGE_OBJECT_CALLS).sort(), ["planetMgr.GetProgramResultInfo", "planetMgr.UserLaunchCommodities", "planetMgr.UserUpdateNetwork"]);
+  // A colony's commodities launched, from the command centre's own window.
+  assert.equal(objectOfPageCall("planetMgr", "UserLaunchCommodities"), "planet");
+  // The planet's other writes are their routes' still.
+  assert.deepEqual([objectOfPageCall("planetMgr", "UserTransferCommodities"), objectOfPageCall("planetMgr", "UserAbandonPlanet")], [null, null]);
   for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
     const [service, method] = pair.split(".");
     assert.equal(isBridgeWritePair(service, method), isPageWritePair(service, method), pair);

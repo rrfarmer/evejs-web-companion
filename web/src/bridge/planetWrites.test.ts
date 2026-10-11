@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { changeColonyNetwork, rerouteExtractorRoutes } from "./planetWrites.ts";
+import { changeColonyNetwork, launchCommodities, rerouteExtractorRoutes } from "./planetWrites.ts";
 
 const PLANET = 40176368;
 const [ECU, STORE, FACTORY] = [1054656331535, 1054656331531, 1054656331540];
@@ -83,4 +83,48 @@ test("the caller's own lists are not what is sent: a path changed afterwards cha
   path.push(FACTORY);
 
   assert.deepEqual((asked[0]![2] as unknown[][][][])[0]![0]![1]![1], [ECU, STORE]);
+});
+
+// --- commodities launched ------------------------------------------------------
+
+const COMMAND = 1054656331534;
+
+test("commodities are launched by one call on the planet's own object: the command centre's pin, and the quantities by type", async () => {
+  const { asked, act } = harness();
+
+  await launchCommodities(act, PLANET, COMMAND, { 2268: 10, 2267: 5 });
+
+  // clientPlanet.py 412: self.remoteHandler.UserLaunchCommodities(commandPinID, commoditiesToLaunch).
+  assert.deepEqual(asked, [["planetMgr", "UserLaunchCommodities", [COMMAND, { 2268: 10, 2267: 5 }], null, PLANET]]);
+});
+
+test("with nothing chosen nothing is asked: the client refuses that itself", async () => {
+  const { asked, act } = harness();
+
+  await assert.rejects(launchCommodities(act, PLANET, COMMAND, {}), /Nothing was chosen to launch\./);
+  assert.deepEqual(asked, []);
+});
+
+test("what is no planet, or no pin, is refused before anything is asked", async () => {
+  for (const [planetID, pinID, words] of [[0, COMMAND, /A positive planetID is required\./], [1.5, COMMAND, /A positive planetID is required\./], [PLANET, 0, /command centre/], [PLANET, -1, /command centre/], [PLANET, 1.5, /command centre/], [PLANET, Number.NaN, /command centre/]] as const) {
+    const { asked, act } = harness();
+    await assert.rejects(launchCommodities(act, planetID, pinID, { 2268: 10 }), words, `${planetID} ${pinID}`);
+    assert.deepEqual(asked, []);
+  }
+});
+
+test("the launch's refusal is the caller's, as it came", async () => {
+  const act = async () => { throw new Error("CannotLaunchCommandPinNotReady"); };
+
+  await assert.rejects(launchCommodities(act, PLANET, COMMAND, { 2268: 10 }), /CannotLaunchCommandPinNotReady/);
+});
+
+test("what is sent is a copy of what was chosen: a quantity changed afterwards changes nothing sent", async () => {
+  const { asked, act } = harness();
+  const chosen: Record<number, number> = { 2268: 10 };
+
+  await launchCommodities(act, PLANET, COMMAND, chosen);
+  chosen[2268] = 99;
+
+  assert.deepEqual((asked[0]![2] as unknown[])[1], { 2268: 10 });
 });

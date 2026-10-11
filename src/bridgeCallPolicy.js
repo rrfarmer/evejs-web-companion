@@ -217,8 +217,13 @@ function isBridgeWritePair(service, method) {
  *                                one, and made the call on the planet's own object. The handler changes the
  *                                colony the session's own character has on that planet, and no other. It is a
  *                                call on an object: the page says which planet with `of` (PAGE_OBJECT_CALLS).
+ *   planetMgr.UserLaunchCommodities  what a colony's command centre holds, launched. The route checked `confirm`
+ *                                and that the planet was one, and made the call on the planet's own object. The
+ *                                handler launches from the colony the session's own character has on that
+ *                                planet, debits that character's wallet, and refuses a pin that is no command
+ *                                centre or is not ready. On the planet's object too, with `of`.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);
@@ -235,6 +240,7 @@ function isPageWritePair(service, method) {
  * object bound for it. Without one it is no call, and no other call takes one.
  *
  *   planetMgr.UserUpdateNetwork     "planet": eveMoniker.GetPlanet(planetID), which the client's planet keeps.
+ *   planetMgr.UserLaunchCommodities "planet": the same object, from the command centre's own window.
  *   planetMgr.GetProgramResultInfo  "planet": a READ, what a programme will yield, asked of the same object before
  *                                   one is installed (clientPlanet.InstallProgram). The handler reads the planet's
  *                                   own resources and the session's own colony, and nothing of anyone else's.
@@ -242,7 +248,7 @@ function isPageWritePair(service, method) {
  * A write among them is one of the page's own writes. A read is listed here only once its handler has been read
  * for what it takes from the caller: a planet's reads once answered with another owner's colony.
  */
-const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet", "planetMgr.GetProgramResultInfo": "planet" });
+const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet", "planetMgr.UserLaunchCommodities": "planet", "planetMgr.GetProgramResultInfo": "planet" });
 for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
   if (bridgeWritePairKeySet.has(pair) && !pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's calls on an object, is a write, and is none of the page's writes.`);
 }

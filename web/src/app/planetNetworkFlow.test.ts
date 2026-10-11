@@ -115,3 +115,29 @@ test("what is no planet never leaves the page", async () => {
   await assert.rejects(flow.rerouteExtractor(0, [5], []), /A positive planetID is required/);
   assert.deepEqual(asked, []);
 });
+
+// --- commodities launched ------------------------------------------------------
+//
+// The same carriage (bridge/planetWrites.ts): the planet manager's UserLaunchCommodities on the planet's own object,
+// and never the route it went by until 2026-10-10. Its asker is a script bot's launch block.
+
+const COMMAND = 1054656331534;
+const theLaunch = (commodities: unknown) => ({ service: "planetMgr", method: "UserLaunchCommodities", args: [COMMAND, commodities], kwargs: null, pilot: true, confirm: true, of: PLANET });
+
+test("commodities are launched by the page's own call on the planet's object, with the pilot's own token", async () => {
+  const { flow, asked } = harness();
+
+  await flow.launchCommodities(PLANET, COMMAND, { 2268: 10, 2267: 5 });
+
+  assert.deepEqual(asked, [{ path: "/api/bridge/call", body: theLaunch({ 2268: 10, 2267: 5 }), token: "Bearer pilot" }]);
+  assert.equal(asked.some((each) => each.path === "/api/bridge/planet/commodities/launch"), false);
+});
+
+test("a launch the server refuses is the caller's to hear, and one of nothing never leaves the page", async () => {
+  const refusing = harness({ refused: "UserLaunchCommodities", message: "CannotLaunchCommandPinNotReady" });
+  await assert.rejects(refusing.flow.launchCommodities(PLANET, COMMAND, { 2268: 10 }), /CannotLaunchCommandPinNotReady/);
+
+  const { flow, asked } = harness();
+  await assert.rejects(flow.launchCommodities(PLANET, COMMAND, {}), /Nothing was chosen to launch/);
+  assert.deepEqual(asked, []);
+});

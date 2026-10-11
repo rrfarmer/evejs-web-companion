@@ -349,7 +349,7 @@ import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
-import { rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
+import { launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
 import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
@@ -904,6 +904,8 @@ export interface AppFlow {
   restartExtractor(planetID: number, pinID: number, resourceTypeID: number, headRadius: number): Promise<void>;
   /** An extractor's routes removed and made anew, in one change of a colony's network. */
   rerouteExtractor(planetID: number, removeRouteIDs: readonly number[], create: readonly NewRoute[]): Promise<void>;
+  /** What a colony's command centre holds, launched into orbit: the quantities by type. It costs export tax. */
+  launchCommodities(planetID: number, commandPinID: number, commodities: Readonly<Record<number, number>>): Promise<void>;
   /**
    * Load the Mail panel: the whole inbox, plus the NAME of everyone who sent or
    * received a message. ⚠ The inbox is a DELTA SYNC the BFF cold-starts, so
@@ -4113,6 +4115,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throw new Error("That colony could not be read.");
     }
     await restartExtractorAsTheClient(bridgeAsk, bridgeDo, colony, pinID, resourceTypeID, headRadius);
+  }
+  /** A command centre's commodities launched by the page's own call on the planet's object (bridge/planetWrites.ts). */
+  async function launchCommodities(planetID: number, commandPinID: number, commodities: Readonly<Record<number, number>>): Promise<void> {
+    await launchCommoditiesCall(bridgeDo, planetID, commandPinID, commodities);
   }
   /** An extractor's routes made anew by the page's own call on the planet's object (bridge/planetWrites.ts). */
   async function rerouteExtractor(planetID: number, removeRouteIDs: readonly number[], create: readonly NewRoute[]): Promise<void> {
@@ -12727,12 +12733,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             await rerouteExtractor(action.planetID, action.removeRouteIDs, action.create);
             return;
           case "launchCommodities":
-            await api.launchCommodities(
-              action.planetID,
-              action.commandPinID,
-              action.commodities,
-              callOptions,
-            );
+            await launchCommodities(action.planetID, action.commandPinID, action.commodities);
             return;
           case "repairItems":
             if (action.itemIDs.length > 0) {
@@ -14063,6 +14064,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     flyToPoint,
     restartExtractor,
     rerouteExtractor,
+    launchCommodities,
     loadMail,
     openMail,
     closeMail,
