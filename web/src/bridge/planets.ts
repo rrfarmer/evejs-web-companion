@@ -141,6 +141,28 @@ function decodeStoredItem(value: JsonValue): ColonyStoredItem | null {
   };
 }
 
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const whole = (value: unknown): value is number => Number.isInteger(value);
+
+/** A unit's heads, each (head, latitude, longitude), or null where what was read is not that throughout. */
+function decodeHeads(value: JsonValue | undefined): readonly (readonly [number, number, number])[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const heads: (readonly [number, number, number])[] = [];
+  for (const each of value) {
+    if (!Array.isArray(each) || each.length !== 3) {
+      return null;
+    }
+    const [head, latitude, longitude] = each;
+    if (!whole(head) || head < 0 || !finite(latitude) || !finite(longitude)) {
+      return null;
+    }
+    heads.push([head, latitude, longitude]);
+  }
+  return heads;
+}
+
 function decodeProgram(value: JsonValue | undefined): ColonyExtractionProgram | null {
   if (value === null || value === undefined) {
     return null;
@@ -163,6 +185,8 @@ function decodeProgram(value: JsonValue | undefined): ColonyExtractionProgram | 
       typeof record.headRadius === "number" && Number.isFinite(record.headRadius) && record.headRadius > 0
         ? record.headRadius
         : null,
+    heads: decodeHeads(record.heads),
+    noiseFactor: finite(record.noiseFactor) && record.noiseFactor >= 0 ? record.noiseFactor : null,
   };
 }
 

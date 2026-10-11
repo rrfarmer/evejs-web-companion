@@ -7928,3 +7928,43 @@ test("a colony's network changed goes as the client serializes it: a list of com
   assert.deepEqual([session.boundCalls.at(-1).args, session.boundCalls.at(-1).kwargs], [[[[7, [5]]]], { force: true }]);
   assert.deepEqual(ledgerOf(pilots, "planetMgr.UserUpdateNetwork")[0], { reshaped: 3, differs: notTheClients.length + 2 });
 });
+
+// ── a programme's yield asked of the planet ──────────────────────────────────
+//
+// clientPlanet.InstallProgram: self.remoteHandler.GetProgramResultInfo(pinID, typeID, pin.heads, headRadius), on the
+// planet's own object. Recorded on Tranquility just before a restart: (pinID, 2267, [(0, latitude, longitude), (1,
+// ..), (5, ..), (6, ..)], 0.0101...), the heads a list of tuples, each angle and the radius a float; answered
+// (1897, 9000000000L, 8): what a cycle yields, a cycle's length, and how many cycles.
+
+test("a programme's yield is asked of the planet's object as the client asks it: the heads a list of (head, latitude, longitude), the angles and the radius floats", async () => {
+  const { answers } = planetAnswers({ "bound:GetProgramResultInfo": () => [1897, 9000000000, 8] });
+  const { pilots, session, handle } = await selected({ answers }, { allowed: new Set([...PLANET_PAIRS.allowed, "planetMgr.GetProgramResultInfo"]) });
+  const { boundHandle } = await pilots.bindObject("planetMgr", "MachoBindObject", [40176368], null, FIELDS, handle);
+  const listOf = (...items) => ({ type: "list", items });
+  const real = (value) => ({ type: "real", value });
+  const ECU = 1054656331536;
+  const ask = (args, kwargs = null) => pilots.callBoundMethod("planetMgr", "GetProgramResultInfo", args, kwargs, FIELDS, handle, boundHandle);
+  // An angle that is a whole number is a float all the same.
+  await ask([ECU, 2267, [[0, 1.05, 1.44], [5, 1, 1.45]], 0.0101]);
+  assert.deepEqual(session.boundCalls.at(-1).args, [ECU, 2267, listOf([0, real(1.05), real(1.44)], [5, real(1), real(1.45)]), real(0.0101)]);
+  // No heads is a list too.
+  await ask([ECU, 2267, [], 1]);
+  assert.deepEqual(session.boundCalls.at(-1).args, [ECU, 2267, listOf(), real(1)]);
+  assert.deepEqual(ledgerOf(pilots, "planetMgr.GetProgramResultInfo")[0], { reshaped: 2 });
+
+  // What is not the client's goes as it came, and is counted so.
+  const notTheClients = [
+    [ECU, 2267, [[0, 1.05, 1.44]]], [ECU, 2267, [[0, 1.05, 1.44]], 0.01, "more"], [ECU, 2267, "heads", 0.01], [ECU, 2267, [null], 0.01], [ECU, 2267, [{ length: 3, 0: 0, 1: 1.05, 2: 1.44 }], 0.01],
+    [ECU, 2267, [[0, 1.05]], 0.01], [ECU, 2267, [[0, 1.05, 1.44, 2]], 0.01], [ECU, 2267, [[0, "1.05", 1.44]], 0.01], [ECU, 2267, [[0, 1.05, null]], 0.01],
+    [ECU, 2267, [[0.5, 1.05, 1.44]], 0.01], [ECU, 2267, [[-1, 1.05, 1.44]], 0.01], [ECU, 2267, [["0", 1.05, 1.44]], 0.01],
+    [ECU, 2267, [[0, 1.05, 1.44]], "0.01"], [ECU, 2267, [[0, 1.05, 1.44]], Number.POSITIVE_INFINITY],
+    [0, 2267, [], 0.01], [1.5, 2267, [], 0.01], [ECU, 0, [], 0.01], [ECU, "2267", [], 0.01],
+  ];
+  for (const args of notTheClients) {
+    await ask(args);
+    assert.deepEqual(session.boundCalls.at(-1).args, args, JSON.stringify(args));
+  }
+  await ask([ECU, 2267, [], 0.01], { why: 1 });
+  assert.deepEqual([session.boundCalls.at(-1).args, session.boundCalls.at(-1).kwargs], [[ECU, 2267, [], 0.01], { why: 1 }]);
+  assert.deepEqual(ledgerOf(pilots, "planetMgr.GetProgramResultInfo")[0], { reshaped: 2, differs: notTheClients.length + 1 });
+});

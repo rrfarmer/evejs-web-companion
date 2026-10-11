@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { restartExtractorProgram, rerouteExtractorRoutes } from "./planetWrites.ts";
+import { changeColonyNetwork, rerouteExtractorRoutes } from "./planetWrites.ts";
 
 const PLANET = 40176368;
 const [ECU, STORE, FACTORY] = [1054656331535, 1054656331531, 1054656331540];
@@ -15,12 +15,12 @@ function harness() {
   return { asked, act };
 }
 
-test("an extractor's programme is installed again by one change on the planet's own object", async () => {
+test("a change of a colony's network is one call on the planet's own object, the commands as they were given", async () => {
   const { asked, act } = harness();
 
-  await restartExtractorProgram(act, PLANET, ECU, 2267, 0.0101);
+  await changeColonyNetwork(act, PLANET, [[13, [ECU, 2267, 0.0101]]]);
 
-  // commandStream.py 226: (COMMAND_INSTALLPROGRAM, (pinID, typeID, headRadius)); the planet is what the object is for.
+  // clientPlanet.py 180: remoteHandler.UserUpdateNetwork(serializedChanges); the planet is what the object is for.
   assert.deepEqual(asked, [["planetMgr", "UserUpdateNetwork", [[[13, [ECU, 2267, 0.0101]]]], null, PLANET]]);
 });
 
@@ -51,10 +51,11 @@ test("routes only removed, and routes only made, are each one change", async () 
   assert.deepEqual(made.asked, [["planetMgr", "UserUpdateNetwork", [[[6, [[2, 1], [ECU, STORE], 2267, 1]]]], null, PLANET]]);
 });
 
-test("with nothing to remove and nothing to make, nothing is asked: the client submits no empty change", async () => {
+test("with nothing to change, nothing is asked: the client submits no empty change", async () => {
   const { asked, act } = harness();
 
   await rerouteExtractorRoutes(act, PLANET, [], []);
+  await changeColonyNetwork(act, PLANET, []);
 
   assert.deepEqual(asked, []);
 });
@@ -62,16 +63,16 @@ test("with nothing to remove and nothing to make, nothing is asked: the client s
 test("what is no planet is refused before anything is asked, in the route's words", async () => {
   for (const planetID of [0, -1, 1.5, Number.NaN]) {
     const { asked, act } = harness();
-    await assert.rejects(restartExtractorProgram(act, planetID, ECU, 2267, 0.0101), /A positive planetID is required\./, String(planetID));
+    await assert.rejects(changeColonyNetwork(act, planetID, [[7, [5]]]), /A positive planetID is required\./, String(planetID));
     await assert.rejects(rerouteExtractorRoutes(act, planetID, [5], []), /A positive planetID is required\./, String(planetID));
     assert.deepEqual(asked, []);
   }
 });
 
 test("the call's refusal is the caller's, as it came", async () => {
-  const act = async () => { throw new Error("Cannot install a program with a completely bonkers radius"); };
+  const act = async () => { throw new Error("RouteDoesNotExist"); };
 
-  await assert.rejects(restartExtractorProgram(act, PLANET, ECU, 2267, 5), /completely bonkers radius/);
+  await assert.rejects(changeColonyNetwork(act, PLANET, [[7, [5]]]), /RouteDoesNotExist/);
 });
 
 test("the caller's own lists are not what is sent: a path changed afterwards changes nothing sent", async () => {

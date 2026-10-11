@@ -1459,6 +1459,30 @@ test("a call on a planet's object with no pilot held is refused as its route ref
   assert.deepEqual([binds, bound], [[], []]);
 });
 
+test("a programme's yield asked of a planet's own object is the page's own read there: it says which planet, and is a pilot's and no write", async () => {
+  const { gateway, binds, bound } = bindingGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  const PLANET = 40176368;
+  const args = [1054656331536, 2267, [[0, 1.225, 1.225]], 0.01];
+  const ask = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "planetMgr", method: "GetProgramResultInfo", args, kwargs: null, ...more } });
+  // With no planet said it is no call; said by no pilot it is none either; and what is no planet is refused.
+  for (const more of [{ pilot: true }, { pilot: true, of: null }, { of: PLANET }, { of: PLANET, confirm: true }, { of: PLANET, pilot: false }]) {
+    const refused = await ask(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [400, "INVALID_REQUEST"], JSON.stringify(more));
+  }
+  const noPlanet = await ask({ pilot: true, of: 0 });
+  assert.deepEqual([noPlanet.response.status, noPlanet.payload.error], [400, "INVALID_PLANET"]);
+  assert.deepEqual([binds, bound], [[], []]);
+
+  // A read: `confirm` is not wanted.
+  const made = await ask({ pilot: true, of: PLANET });
+  assert.deepEqual([made.response.status, made.payload.service, made.payload.method, made.payload.result], [200, "planetMgr", "GetProgramResultInfo", "the colony"]);
+  assert.deepEqual(binds.map((each) => [each.service, each.args]), [["planetMgr", [PLANET]]]);
+  assert.deepEqual(bound, [{ service: "planetMgr", method: "GetProgramResultInfo", args, kwargs: null, sessionFields: { userid: 4 }, bridgeSessionID: BRIDGE_SESSION_ID, boundHandle: `planet ${PLANET}` }]);
+  assert.equal(gateway.calls.call.some((each) => each.service === "planetMgr"), false, "nothing was asked of the service by its name");
+});
+
 test("a ship sent to a point is a write of the page's own, asked of beyonce by its name: it goes as it was sent", async () => {
   const gateway = fakeGateway();
   const { baseUrl } = await startTestServer({ gateway });

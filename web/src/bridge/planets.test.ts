@@ -526,3 +526,39 @@ test("a program carries the drill area it was installed with, for a restart to s
   assert.equal(pins.find((pin) => pin.pinID === 2)!.program!.headRadius, 0.012);
   assert.equal(pins.find((pin) => pin.pinID === 3)!.program!.headRadius, null);
 });
+
+// --- where an extractor's heads are -----------------------------------------
+//
+// What the planet is asked a programme's yield with (clientPlanet.InstallProgram): the BFF hands on the heads as
+// the server has them and the unit's noise. A reading that lacks them, or has what is none, says so with null,
+// and nothing may then guess.
+
+function programOf(more: Record<string, JsonValue>) {
+  const report = decodeColonyReport({ serverNowMs: SERVER_NOW, coloniesReadable: true, colonies: [{ planetID: PLANET_ID, pins: [{
+    pinID: 7, typeID: 2848, kind: "extractor-control", contents: [],
+    program: { resourceTypeID: AQUEOUS, cycleTimeSeconds: 900, quantityPerCycle: 471, headCount: 1, headRadius: 0.01, ...more },
+  }], links: [], routes: [] }] } as JsonValue, SERVER_NOW);
+  return report.colonies[0]!.pins[0]!.program!;
+}
+
+test("an extractor's heads and its noise are read as the BFF hands them on", () => {
+  const program = programOf({ heads: [[0, 1.225, 1.225], [5, 1, 1.45]], noiseFactor: 0.8 });
+  assert.deepEqual(program.heads, [[0, 1.225, 1.225], [5, 1, 1.45]]);
+  assert.equal(program.noiseFactor, 0.8);
+  assert.deepEqual(programOf({ heads: [], noiseFactor: 0 }).heads, []);
+  assert.equal(programOf({ heads: [], noiseFactor: 0 }).noiseFactor, 0);
+});
+
+test("heads that are not said, or are not heads, are not known: null, never none", () => {
+  assert.equal(programOf({}).heads, null);
+  for (const heads of ["heads", null, [[0, 1.225]], [[0, 1.225, 1.225, 3]], [[0, "1.225", 1.225]], [[0, 1.225, "1.225"]], [[0, 1.2, null]], [[0, Number.NaN, 1.2]], [[0, 1.2, Number.POSITIVE_INFINITY]], [["0", 1.2, 1.2]], [[0.5, 1.2, 1.2]], [[-1, 1.2, 1.2]], [null], [[0, 1.2, 1.2], "more"]] as JsonValue[]) {
+    assert.equal(programOf({ heads }).heads, null, JSON.stringify(heads));
+  }
+});
+
+test("a noise that is not said, or is no number a noise can be, is not known", () => {
+  assert.equal(programOf({}).noiseFactor, null);
+  for (const noiseFactor of ["0.8", null, -0.1, [0.8]] as JsonValue[]) {
+    assert.equal(programOf({ noiseFactor }).noiseFactor, null, JSON.stringify(noiseFactor));
+  }
+});

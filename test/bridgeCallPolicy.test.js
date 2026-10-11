@@ -130,6 +130,14 @@ test("the page's calls that are made on an object of the service's own say what 
   }
   // A list of one name spells that name when it is made into text, and is no name.
   assert.deepEqual([objectOfPageCall(["planetMgr"], "UserUpdateNetwork"), objectOfPageCall("planetMgr", ["UserUpdateNetwork"]), objectOfPageCall(null, undefined)], [null, null, null]);
-  // Every one of them is a write the page makes itself, so far.
-  assert.equal(PAGE_WRITE_PAIR_KEYS.includes("planetMgr.UserUpdateNetwork"), true);
+  // The planet asked what a programme will yield, which the client asks of the same object before it installs one.
+  assert.equal(objectOfPageCall("planetMgr", "GetProgramResultInfo"), "planet");
+  // A write among them is one the page makes itself; a read among them is no write of any kind.
+  const { PAGE_OBJECT_CALLS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
+  assert.deepEqual(Object.keys(PAGE_OBJECT_CALLS).sort(), ["planetMgr.GetProgramResultInfo", "planetMgr.UserUpdateNetwork"]);
+  for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
+    const [service, method] = pair.split(".");
+    assert.equal(isBridgeWritePair(service, method), isPageWritePair(service, method), pair);
+  }
+  assert.deepEqual([isBridgeWritePair("planetMgr", "GetProgramResultInfo"), PAGE_WRITE_PAIR_KEYS.includes("planetMgr.UserUpdateNetwork")], [false, true]);
 });

@@ -3025,6 +3025,17 @@ export interface ColonyExtractionProgram {
    * the server gave none (an older BFF), and then nothing may guess one.
    */
   readonly headRadius?: number | null;
+  /**
+   * Where the unit's heads are, as the server has them: (the head's number, latitude, longitude). What the planet
+   * is asked a programme's yield with. Null or absent when the reading had none it could read; an empty list is a
+   * unit with no heads.
+   */
+  readonly heads?: readonly (readonly [number, number, number])[] | null;
+  /**
+   * The unit's noise (attribute 1687): the most a cycle can yield is the whole of one more than this, times what
+   * the programme yields (retail EcuPin.GetMaxOutput). Null or absent when the BFF could not say.
+   */
+  readonly noiseFactor?: number | null;
 }
 
 /** What a pin IS, decided by the BFF from the type's group. */

@@ -349,7 +349,8 @@ import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
-import { rerouteExtractorRoutes, restartExtractorProgram, type NewRoute } from "../bridge/planetWrites.ts";
+import { rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
+import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
@@ -896,7 +897,10 @@ export interface AppFlow {
    * order taken, never an arrival; refused where the pilot's flight is now another ship's or another system's.
    */
   flyToPoint(position: SpaceVector, shipID: number, solarSystemID: number): Promise<void>;
-  /** An extractor's programme installed again on a colony, by the client's own call on the planet's object. */
+  /**
+   * An extractor's programme installed again on a colony, as the client installs one: the planet asked what it
+   * will yield, and one change that takes the extractor's routes off, installs it and makes the routes anew.
+   */
   restartExtractor(planetID: number, pinID: number, resourceTypeID: number, headRadius: number): Promise<void>;
   /** An extractor's routes removed and made anew, in one change of a colony's network. */
   rerouteExtractor(planetID: number, removeRouteIDs: readonly number[], create: readonly NewRoute[]): Promise<void>;
@@ -4092,10 +4096,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { ads, ownFleetName };
   }
 
-  /** A colony's network changed by the page's own call on the planet's object (bridge/planetWrites.ts). */
+  /**
+   * An extractor restarted as the client restarts one (bridge/extractorRestart.ts). The colony it is planned from
+   * is the BFF's reading of it now, where a client has its planet's own colony in hand.
+   *
+   * ⚠ THE RADIUS IS THE UNIT'S OWN, SENT BACK. It sets how long the programme runs, and the server refuses what is
+   * not inside the drill area's bounds. The client reinstalls with the unit's own too (RestartExtractors, 862).
+   */
   async function restartExtractor(planetID: number, pinID: number, resourceTypeID: number, headRadius: number): Promise<void> {
-    await restartExtractorProgram(bridgeDo, planetID, pinID, resourceTypeID, headRadius);
+    if (!Number.isSafeInteger(planetID) || planetID <= 0) {
+      throw new Error("A positive planetID is required.");
+    }
+    const report = decodeColonyReport((await api.getPlanets(callOptions)).planets, Date.now());
+    const colony = report.colonies.find((each) => each.planetID === planetID);
+    if (colony === undefined) {
+      throw new Error("That colony could not be read.");
+    }
+    await restartExtractorAsTheClient(bridgeAsk, bridgeDo, colony, pinID, resourceTypeID, headRadius);
   }
+  /** An extractor's routes made anew by the page's own call on the planet's object (bridge/planetWrites.ts). */
   async function rerouteExtractor(planetID: number, removeRouteIDs: readonly number[], create: readonly NewRoute[]): Promise<void> {
     await rerouteExtractorRoutes(bridgeDo, planetID, removeRouteIDs, create);
   }

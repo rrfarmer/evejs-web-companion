@@ -24,7 +24,7 @@
 import type { Colony, ColonyPin, ColonyRoute } from "../store/types.ts";
 
 /** Pins the retail client treats as storage (BasePin.IsStorage). */
-function isStorage(pin: ColonyPin | undefined): boolean {
+export function isStorage(pin: ColonyPin | undefined): boolean {
   return pin !== undefined && (pin.kind === "storage" || pin.kind === "launchpad" || pin.kind === "command");
 }
 

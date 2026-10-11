@@ -490,6 +490,19 @@ const oneBubbleBroadcast = (args, kwargs, context) => {
 /** droneFunctions.py: an order to drones names them as a list, as every recorded one does. */
 const dronesListed = ([drones, ...rest], kwargs) => ({ args: [list(drones), ...rest], kwargs });
 
+const aFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
+const asReal = (value) => ({ type: "real", value });
+const anExtractorHead = (each) => Array.isArray(each) && each.length === 3 && Number.isInteger(each[0]) && each[0] >= 0 && aFiniteNumber(each[1]) && aFiniteNumber(each[2]);
+/**
+ * clientPlanet.InstallProgram (525): remoteHandler.GetProgramResultInfo(pinID, typeID, pin.heads, headRadius), on
+ * the planet's own object. The heads are a list of (the head's number, latitude, longitude), and each angle and
+ * the radius is a float, a whole number among them too. Recorded on Tranquility so.
+ */
+const programAsked = (args, kwargs) => (args.length === 4 && Number.isSafeInteger(args[0]) && args[0] > 0 && Number.isSafeInteger(args[1]) && args[1] > 0
+  && Array.isArray(args[2]) && args[2].every(anExtractorHead) && aFiniteNumber(args[3]) && Object.keys(kwargs).length === 0
+  ? { args: [args[0], args[1], list(args[2].map(([head, latitude, longitude]) => [head, asReal(latitude), asReal(longitude)])), asReal(args[3])], kwargs }
+  : { args, kwargs, status: "differs", note: "The client sends the unit, the commodity, the unit's heads as a list of (head, latitude, longitude), and the radius, and nothing else." });
+
 /** How many arguments each of a colony's commands has, by the command's number (commandStream.Serialize, 185 to 229). */
 const COLONY_COMMAND_ARGUMENTS = Object.freeze({ 1: 4, 2: 1, 3: 3, 4: 2, 5: 3, 6: 4, 7: 1, 8: 2, 9: 2, 10: 4, 11: 2, 12: 4, 13: 3 });
 const COLONY_CREATE_ROUTE = 6;
@@ -844,8 +857,10 @@ const RETAIL_CALLS = Object.freeze({
     "self.remoteHandler.GetPlanetResourceInfo(), on the planet's own object and with nothing: what the planet carries, and how rich each is. The transport keeps it by the planet (pilots.js)."),
   "planetMgr.DeleteLaunch": judged("eve/client/script/ui/shared/neocom/journal.py:464", oneLaunch,
     "sm.RemoteSvc('planetMgr').DeleteLaunch(launchID), by name: Remove on a launch in the journal's list, which the client then asks for afresh. No recording has one."),
+  "planetMgr.GetProgramResultInfo": reshaped("eve/client/script/environment/planet/clientPlanet.py:525", programAsked,
+    "remoteHandler.GetProgramResultInfo(pinID, typeID, pin.heads, headRadius), on the planet's own object, as a programme is about to be installed: the heads a list of (head, latitude, longitude), the angles and the radius floats. It answers (what a cycle yields, a cycle's length, the count of cycles). Recorded on Tranquility so, 114 ms before the change that installs the programme."),
   "planetMgr.UserUpdateNetwork": reshaped("eve/client/script/environment/planet/clientPlanet.py:180", networkChanges,
-    "remoteHandler.UserUpdateNetwork(self.changes.Serialize()), on the planet's own object (eveMoniker.GetPlanet(planetID)): the changes a list of (the command's number, its arguments), a route's path a list. Recorded on Tranquility so. It answers the colony as it now is, which the client's planet takes for its own. A restart of an extractor is one call there (its routes removed, its programme installed, the routes made anew); the page's upkeep makes it two."),
+    "remoteHandler.UserUpdateNetwork(self.changes.Serialize()), on the planet's own object (eveMoniker.GetPlanet(planetID)): the changes a list of (the command's number, its arguments), a route's path a list. Recorded on Tranquility so. It answers the colony as it now is, which the client's planet takes for its own. A restart of an extractor is one call there (its routes removed, its programme installed, the routes made anew), and one from the page."),
   "planetMgr.UserLaunchCommodities": Object.freeze({
     status: "same",
     source: `${CLIENT_PLANET}:412`,

@@ -234,11 +234,17 @@ function isPageWritePair(service, method) {
  * Moniker(service, what)), by what that thing is. Such a call says which with `of`, and the BFF makes it on the
  * object bound for it. Without one it is no call, and no other call takes one.
  *
- *   planetMgr.UserUpdateNetwork  "planet": eveMoniker.GetPlanet(planetID), which the client's planet keeps.
+ *   planetMgr.UserUpdateNetwork     "planet": eveMoniker.GetPlanet(planetID), which the client's planet keeps.
+ *   planetMgr.GetProgramResultInfo  "planet": a READ, what a programme will yield, asked of the same object before
+ *                                   one is installed (clientPlanet.InstallProgram). The handler reads the planet's
+ *                                   own resources and the session's own colony, and nothing of anyone else's.
+ *
+ * A write among them is one of the page's own writes. A read is listed here only once its handler has been read
+ * for what it takes from the caller: a planet's reads once answered with another owner's colony.
  */
-const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet" });
+const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet", "planetMgr.GetProgramResultInfo": "planet" });
 for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
-  if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's calls on an object and is none of its writes.`);
+  if (bridgeWritePairKeySet.has(pair) && !pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's calls on an object, is a write, and is none of the page's writes.`);
 }
 
 /** What the object of this call of the page's is for ("planet"), or null where the page names no object for it. */

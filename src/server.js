@@ -21576,16 +21576,22 @@ function ecuMaxOutputPerCycle(staticDataSource, pin) {
   if (!(Number(pin && pin.programType) > 0) || qtyPerCycle <= 0 || cycleTicks <= 0) {
     return null;
   }
+  const noise = ecuNoiseFactor(staticDataSource, pin);
+  if (noise === null) {
+    return null;
+  }
+  const output = Math.trunc((1 + noise) * qtyPerCycle)
+    * (cycleTicks / FILETIME_TICKS_PER_SECOND) / 900;
+  return output > 0 ? Math.floor(output) : null;
+}
+
+/** An extractor control unit's noise (attribute 1687), never below nought, or null where the static data cannot say. */
+function ecuNoiseFactor(staticDataSource, pin) {
   const read = staticDataSource && staticDataSource.getTypeDogmaAttributeOrDefault;
   const noise = typeof read === "function"
     ? Number(read(Number(pin && pin.typeID) || 0, ECU_NOISE_FACTOR_ATTRIBUTE_ID, null))
     : NaN;
-  if (!Number.isFinite(noise)) {
-    return null;
-  }
-  const output = Math.trunc((1 + Math.max(0, noise)) * qtyPerCycle)
-    * (cycleTicks / FILETIME_TICKS_PER_SECOND) / 900;
-  return output > 0 ? Math.floor(output) : null;
+  return Number.isFinite(noise) ? Math.max(0, noise) : null;
 }
 
 function projectExtractionProgram(staticDataSource, pin) {
@@ -21604,6 +21610,11 @@ function projectExtractionProgram(staticDataSource, pin) {
     expiresAtMs,
     maxOutputPerCycle: ecuMaxOutputPerCycle(staticDataSource, pin),
     headCount: Array.isArray(pin && pin.heads) ? pin.heads.length : 0,
+    // Where the heads are, as the server has them ([head, latitude, longitude]), and the unit's noise: what a
+    // client asks the planet a programme's yield with, and what it makes of the answer (clientPlanet
+    // .InstallProgram, EcuPin.GetMaxOutput). The page restarts an extractor as the client does, and wants both.
+    heads: Array.isArray(pin && pin.heads) ? pin.heads : [],
+    noiseFactor: ecuNoiseFactor(staticDataSource, pin),
     // The drill area the program was installed with. It is what sets how long a
     // program runs (the emulator's getProgramLengthFromHeadRadius), and a
     // restart has to send it back: InstallProgram refuses anything that is not

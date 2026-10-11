@@ -765,3 +765,14 @@ test("a planet the static map cannot name answers null, never a stringified id",
     "an unnamed planet must not fall back to printing its id",
   );
 });
+
+test("an extractor states where its heads are and its yield's noise: what the planet is asked a programme's yield with", async () => {
+  // clientPlanet.InstallProgram: remoteHandler.GetProgramResultInfo(pinID, typeID, pin.heads, headRadius), and
+  // EcuPin.GetMaxOutput of what it answers, which wants the noise (attribute 1687).
+  const { baseUrl } = await selected();
+  const { payload } = await apiRequest(baseUrl, "/api/bridge/planets");
+  const pins = payload.colonies[0].pins;
+  assert.deepEqual(pins.find((pin) => pin.pinID === 2).program.heads, [[0, 0.121, 0.221], [1, 0.119, 0.223], [2, 0.122, 0.219]]);
+  assert.deepEqual(pins.find((pin) => pin.pinID === 3).program.heads, [[0, 0.311, 0.441]]);
+  assert.deepEqual([pins.find((pin) => pin.pinID === 2).program.noiseFactor, pins.find((pin) => pin.pinID === 3).program.noiseFactor], [0.8, 0.8]);
+});
