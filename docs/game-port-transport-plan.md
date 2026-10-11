@@ -814,7 +814,9 @@ its own, as the recordings have them. And so is a ship sent to a point (`4a2d7c8
 by the page's own read of the pilot's flight to the ship and the system the point was
 measured in. And so is a colony's network changed (`508ac6d`), the first of the page's
 calls to be made on an object for a thing the page names: the generic call says which
-planet, and the BFF makes the call on the object bound for it. Counted by the whole path,
+planet, and the BFF makes the call on the object bound for it. And an extractor is
+restarted as a client restarts one (`29cdbe2`): the planet asked what the programme will
+yield, then one change, where the page made two. Counted by the whole path,
 122 are named now, 50 of them reads and 72 writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no

@@ -662,6 +662,17 @@ Take these defaults, and list each under "For the operator" in the log so they c
   for a kind of thing that is no planet, its check and its bind in the generic call's
   handler (`src/server.js`, `objectKind`). A read is listed only with its handler read
   first: the planet's reads once took an owner from the caller.
+- **A script that writes is not run to look.** `rs-live.js`, `ecu-live.js` and `ecu-stage.js`
+  change the colony whatever is done with their output; `net-live.js <bff> <account>
+  <characterID> <planetID> look` and `colony-read.js <repo> <store> <planetID> <ownerID>`
+  only read. Cutting a writer's output to one line does not stop it.
+- **Python rounds a half away from nought; JavaScript rounds it up.** They differ below
+  nought (-0.5 is -1 there and -0 here), and a sum the client carries its rounding through
+  comes out in another order (two equal shares of five: 2 and 3 there). Where the client's
+  arithmetic is copied, its rounding is copied too (`extractorRestart.ts`, `rounded`).
+- **A read on an object for a thing the page names** is listed in `PAGE_OBJECT_CALLS` like a
+  write, and asked with `bridgeAsk` and `of`: a pilot's, no `confirm`. The planet's yield
+  read is the first (`rs-live.js` asks it and makes the one change of a restart).
 - **An extractor for a check**: `ecu-stage.js <bff> <account> <characterID> <planetID>` builds
   one on Test Two's colony by the page's own write (the centre to level 2, a control unit, a
   link, a head and a programme of Base Metals, a route to the launchpad), and stops where a
