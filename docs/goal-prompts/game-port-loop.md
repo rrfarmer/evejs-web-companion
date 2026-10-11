@@ -695,6 +695,32 @@ Take these defaults, and list each under "For the operator" in the log so they c
   first pilot". Two clicks in quick succession left no pilot in the client.
   `bc-live.js <bff> <account> <characterID>` boards a corvette, asks for a second from
   aboard it, and boards the first ship again.
+- **A handler is read for where it acts, as well as for what it takes.** The office's rent
+  took nothing of the caller's, and acted wherever the session was: asked by name from
+  space, that was the solar system, and the server rented an office there. Its route's
+  check that the pilot was docked was all that kept the page from it. Before a write goes
+  on the page's list, measure it from where a client cannot make it (in space for a docked
+  call, docked for one in space, by name for one on an object): `rof-live.js <bff> <account>
+  <characterID> space` does for the office. What it shows is the server's to mend, by a
+  sub-agent, and is measured again on the mended server.
+- **A panel says a refused call by its reason only since `45ad44d`.** The panels word a
+  caught error with `panelErrorWords`, which worded its code; a server's refusal comes in
+  the envelope `CALL_REFUSED`, whose reason is its message. A flow's test that reads the
+  error's message, or the store's `actionError`, does not go that way: test what the panel
+  itself says (`panelErrorWords(caught)`), with the refusal as the BFF was measured to
+  hand it on, and see it in the tab.
+- **A value the server handed over goes back as it came.** The rent goes with the price the
+  station quoted, a long as a long (Tranquility's was one), not with the number shown.
+- **Test Three is its corporation's chief executive** (98000000, an office in Jita 4-4,
+  nothing in its wallet). `give-cash.js <scratch> <bff> test2 140000003 98000000 30000`
+  gives it three rents; `rof-look.js` reads its offices and the price and writes nothing;
+  `rof-live.js` gives the office up and rents it. Each between `store.sh save` and
+  `restore`.
+- **While a sub-agent works in `eve.js`, the turn is kept and the live store left alone.**
+  Put the store back before it starts (its tests copy it). Then do what touches neither:
+  commit, the old-sources check, the log. Look for its commit with a wait in the same
+  command (`node -e "setTimeout(()=>{}, 240000)"; git log --oneline -1`), read its diff
+  when it is in, restart EveJS on it, and measure again.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in

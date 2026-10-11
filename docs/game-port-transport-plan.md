@@ -821,8 +821,11 @@ on the planet's object too (`5b2a215`). And a docked pilot's ship is left by the
 own call (`e56b7b9`), which the BFF makes under its own watch of the swap, as the route
 made it: its word for the pilot's ship is kept there. A corvette is boarded so too
 (`e91f60a`), with the client's two arguments, its refusals and its question, the game
-port's flight saying the hull's group for them. Counted by the whole path,
-119 are named now, 50 of them reads and 69 writes (the count kept before
+port's flight saying the hull's group for them. An office's price, its rent and its
+giving up are the page's own calls of the station's office manager (`b0bbfff`), the page
+going by its listing of the offices and its flight for what their routes checked. Counted
+by the whole path,
+116 are named now, 49 of them reads and 67 writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
