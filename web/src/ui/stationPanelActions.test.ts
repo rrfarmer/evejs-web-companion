@@ -168,3 +168,20 @@ test("⚠ THE HEADER DOES NOT SAY 'STATION' TO A PILOT IN SPACE", async () => {
   const docked = await renderInventory(onlineStore(60003760), true);
   assert.match(docked, /class="stn-head-title">Station</);
 });
+
+test("aboard a corvette the corvette's button cannot be pressed, as the client's cannot; in another hull, or with the hull not known, it can", async () => {
+  // corvetteButton.py (_update_enabled): is_enabled = not is_aboard_corvette, by the group of godma's ship item.
+  const flightIn = (shipGroupID: number | null) => ({ inSpace: false, docked: true, solarSystemID: 30000142, stationID: 60003760, structureID: null, shipID: 9001, shipTypeID: 588, shipGroupID, shipIsCapsule: shipGroupID === 29, shipMode: null, shipSpeedFraction: null });
+  const pressable = async (shipGroupID: number | null | undefined): Promise<boolean> => {
+    const store = onlineStore(60003760);
+    if (shipGroupID !== undefined) {
+      store.apply({ type: "flight/status", status: flightIn(shipGroupID) });
+    }
+    const body = await renderInventory(store, true);
+    const button = /<button[^>]*>\s*Board corvette\s*<\/button>/.exec(body);
+    assert.ok(button, "the corvette's button is there");
+    return !/\bdisabled\b/.test(button![0]);
+  };
+
+  assert.deepEqual([await pressable(237), await pressable(25), await pressable(29), await pressable(null), await pressable(undefined)], [false, true, true, true, true]);
+});

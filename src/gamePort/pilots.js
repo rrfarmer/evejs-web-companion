@@ -2031,7 +2031,7 @@ function createGamePortPilots({
     const item = entry.dogma.item(place.shipID);
     const typeID = item ? positive(item.typeID) : null;
     const groupID = item ? positive(item.groupID) : null;
-    return { shipID: place.shipID, typeID, isCapsule: typeID === null || groupID === null ? null : groupID === GROUP_CAPSULE };
+    return { shipID: place.shipID, typeID, groupID, isCapsule: typeID === null || groupID === null ? null : groupID === GROUP_CAPSULE };
   }
 
   /** Where the session says the pilot is. In space is `solarsystemid` set, as on any retail session. */
@@ -2137,6 +2137,9 @@ function createGamePortPilots({
         structureID: place.structureID,
         shipID: place.shipID,
         shipTypeID: ship ? ship.typeID : null,
+        // The hull's group, from the same row: what the client's lobby tells a corvette by (corvetteButton.py,
+        // station.CreateNewbieShip). The gateway's flight does not say it.
+        shipGroupID: ship ? ship.groupID : null,
         shipIsCapsule: ship ? ship.isCapsule : null,
         // session.corprole: the roles the pilot has in its corporation, as the server's session has them now. The
         // client's lobby reads its buttons off it (dockedUI/controllers/baseController.py, _HasRole). A 64-bit
@@ -2766,6 +2769,9 @@ function createGamePortPilots({
       solarSystemID: attribute(entry, "solarsystemid"),
       // session.stationid or session.structureid: where the pilot is docked, and none in space.
       dockedAt: attribute(entry, "stationid") ?? attribute(entry, "structureid"),
+      // The group of the ship the pilot is in, as godma holds its item (GetShipItem().groupID), and none where
+      // godma has not been primed for that ship.
+      shipGroupID: positive(entry.dogma.item(positive(attribute(entry, "shipid")) ?? 0)?.groupID),
       onlineModules: () => {
         const shipID = attribute(entry, "shipid");
         return entry.dogmaLoaded && shipID !== null ? entry.dogma.onlineModules(shipID) : null;

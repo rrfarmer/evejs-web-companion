@@ -89,6 +89,7 @@
     type RepairQuoteRow,
   } from "../bridge/repairQuotes.ts";
   import { isSessionLost } from "../app/flow.ts";
+  import { GROUP_CORVETTE } from "../bridge/shipWrites.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { resolvedName, nameKey, type NameKind, type NameRef } from "../store/names.ts";
   import { formatIsk } from "./isk.ts";
@@ -230,6 +231,13 @@
   let targetMenuOpen = $state(false);
 
   const selection = $derived($inventory.selection);
+  // corvetteButton.py: the lobby's button is out of use aboard a corvette, which it tells by the hull's group.
+  const aboardCorvette = $derived($flight.status?.shipGroupID === GROUP_CORVETTE);
+  /**
+   * station.CreateNewbieShip (608 to 611): the pilot is asked before a hull that is no capsule is left for a
+   * corvette. The words are the page's own.
+   */
+  const sureOfTheCorvette = (): boolean => window.confirm("Board a new corvette? You will leave the ship you are in.");
   const openShip = $derived($inventory.openShip);
   const container = $derived($inventory.container);
 
@@ -1642,7 +1650,7 @@
         <p class="stn-controls">
           <!-- The repair shop. This press only ASKS for the quote; the wallet is
                charged by the priced press that appears with the answer. -->
-          <button type="button" class="stn-btn stn-btn-wide" disabled={busy} onclick={() => run(() => flow.boardCorvette())}>
+          <button type="button" class="stn-btn stn-btn-wide" disabled={busy || aboardCorvette} title={aboardCorvette ? "You are already aboard a corvette." : undefined} onclick={() => run(() => flow.boardCorvette(sureOfTheCorvette))}>
             Board corvette
           </button>
           <button type="button" class="stn-btn stn-btn-wide" disabled={busy} onclick={() => run(() => flow.leaveShip())}>

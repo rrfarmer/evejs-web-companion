@@ -349,7 +349,7 @@ import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
-import { leaveShip as leaveShipCall } from "../bridge/shipWrites.ts";
+import { boardCorvette as boardCorvetteCall, leaveShip as leaveShipCall } from "../bridge/shipWrites.ts";
 import { launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
 import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
@@ -637,9 +637,11 @@ export interface AppFlow {
   boardShip(shipID: number): Promise<void>;
   /**
    * Board the corvette while docked (the station-services "Board my Corvette"):
-   * the server spawns/repairs/starter-fits one as needed, then refresh.
+   * the server spawns/repairs/starter-fits one as needed, then refresh. `sure`
+   * asks the pilot, as the client does before a hull that is no capsule is
+   * left; on a no nothing is asked of the server.
    */
-  boardCorvette(): Promise<void>;
+  boardCorvette(sure: () => boolean | Promise<boolean>): Promise<void>;
   /**
    * Leave the active ship while docked — the character ends up in their
    * capsule, the ship stays in the hangar — then refresh.
@@ -2647,9 +2649,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // Run a mutation, then refresh the panel. A lost session is rethrown to
   // unwind the flow; any other failure is surfaced through the store (the page
   // stays put and shows the reason) rather than thrown into the UI handler.
-  async function runMutation(action: () => Promise<void>): Promise<void> {
+  // An action that answers `false` did nothing (the pilot said no): nothing is said, and nothing is read again.
+  async function runMutation(action: () => Promise<void | boolean>): Promise<void> {
     try {
-      await action();
+      if ((await action()) === false) {
+        return;
+      }
       store.apply({ type: "inventory/action-error", message: null });
     } catch (error) {
       if (isSessionLost(error)) {
@@ -2790,6 +2795,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // The fit belongs to the hull. Fire-and-forget: a fitting read that fails
     // must cost the player their module list, never the board that succeeded.
     await loadFitting().catch(() => {});
+    // And the hull is the pilot's flight's too: the lobby's corvette button goes by the group of the ship the
+    // session is in now (corvetteButton.py), and nothing else reads the flight again while docked. A read that
+    // fails costs that and nothing else.
+    await loadFlightStatus().catch(() => {});
   }
 
   // Run a mutation and report what the SERVER says actually happened. The BFF
@@ -13782,9 +13791,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await refreshActiveShipViews();
     },
 
-    async boardCorvette() {
-      await runMutation(() => api.boardCorvette(callOptions));
-      await refreshActiveShipViews();
+    async boardCorvette(sure) {
+      // The page's own call (bridge/shipWrites.ts), as the client's lobby makes it (station.CreateNewbieShip): the
+      // ship, where it is docked and the hull's group are the pilot's flight's, which has them as godma does.
+      let declined = false;
+      await runMutation(async () => {
+        const now = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
+        declined = !(await boardCorvetteCall(bridgeDo, { shipID: now.shipID, dockedAt: now.stationID ?? now.structureID, groupID: now.shipGroupID ?? null, isCapsule: now.shipIsCapsule }, sure));
+        return !declined;
+      });
+      if (!declined) {
+        await refreshActiveShipViews();
+      }
     },
 
     quoteShipRepair,

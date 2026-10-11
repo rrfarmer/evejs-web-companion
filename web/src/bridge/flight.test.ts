@@ -105,3 +105,10 @@ test("decodes readiness separately from the next session-change cooldown", () =>
   assert.equal(status.transition?.sceneReady, false);
   assert.equal(status.transition?.sessionStable, false);
 });
+
+test("the hull's group is the flight's where the BFF says it, and not known where it does not", () => {
+  // station.CreateNewbieShip (base.py 604 to 607) goes by the group of godma's own ship item: a corvette's is 237.
+  const of = (more: Record<string, unknown>) => decodeFlightStatus({ inSpace: false, docked: true, stationID: 60003760, shipID: 9001, ...more } as never).shipGroupID;
+  assert.deepEqual([of({ shipGroupID: 237 }), of({ shipGroupID: { type: "long", value: "25" } }), of({}), of({ shipGroupID: null }), of({ shipGroupID: "a corvette" })], [237, 25, null, null, null]);
+  assert.equal(decodeFlightStatus(undefined).shipGroupID, null);
+});

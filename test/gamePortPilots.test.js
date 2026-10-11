@@ -946,7 +946,7 @@ test("flight status while docked is the gateway's, with the ship's type as godma
   const { flight, notifications } = await pilots.readFlightStatus(handle, { userid: ACCOUNT });
   assert.deepEqual(flight, {
     inSpace: false, docked: true, solarSystemID: SYSTEM, stationID: STATION, structureID: null,
-    shipID: SHIP, shipTypeID: 588, shipIsCapsule: false, shipMode: null, shipSpeedFraction: null,
+    shipID: SHIP, shipTypeID: 588, shipGroupID: 237, shipIsCapsule: false, shipMode: null, shipSpeedFraction: null,
     // And what the gateway does not say: the roles the session has in its corporation, which the BFF keeps for itself.
     corpRole: "0",
   });
@@ -962,21 +962,45 @@ test("flight status while docked is the gateway's, with the ship's type as godma
 test("a capsule is a capsule by its group, and a new ship is asked about again", async () => {
   let info = shipInfo(670, 29);
   const { pilots, session, handle } = await selected({ answers: { "bound:GetAllInfo": () => godmaOf(info) } });
-  assert.equal((await pilots.readFlightStatus(handle)).flight.shipIsCapsule, true);
+  const capsule = (await pilots.readFlightStatus(handle)).flight;
+  assert.deepEqual([capsule.shipIsCapsule, capsule.shipGroupID], [true, 29]);
   session.attributes.shipid = 555;
   info = { type: "dict", entries: [[555, keyVal([["invItem", { type: "packedrow", header: null, columns: [], fields: { itemID: 555, typeID: 603, groupID: 25 }, values: [] }]])]] };
   const { flight } = await pilots.readFlightStatus(handle);
-  assert.deepEqual([flight.shipID, flight.shipTypeID, flight.shipIsCapsule], [555, 603, false]);
+  assert.deepEqual([flight.shipID, flight.shipTypeID, flight.shipGroupID, flight.shipIsCapsule], [555, 603, 25, false]);
   // Godma primed again for the new ship; ShipGetInfo for neither.
   assert.equal(session.boundCalls.filter((call) => call.method === "GetAllInfo").length, 2);
   assert.equal(session.calls.filter((call) => call.method === "ShipGetInfo").length, 0);
+});
+
+test("a corvette asked for by the service's name goes by that name as it came, and is judged with the hull's group as godma holds it", async () => {
+  let info = shipInfo();
+  const allowed = new Set(["dogmaIM.CreateNewbieShip", "dogmaIM.MachoBindObject", "dogmaIM.GetAllInfo"]);
+  const { pilots, session, handle } = await selected({ answers: { "bound:GetAllInfo": () => godmaOf(info), "dogmaIM.CreateNewbieShip": null } }, { allowed });
+  const row = () => pilots.callLedger().find((each) => each.pair === "dogmaIM.CreateNewbieShip");
+  const board = (shipID) => pilots.callMethod("dogmaIM", "CreateNewbieShip", [shipID, STATION], null, WHOSE, handle);
+  // The pilot's flight primes godma, as the client's is primed: a Reaper, which is a corvette (group 237).
+  assert.equal((await pilots.readFlightStatus(handle)).flight.shipGroupID, 237);
+  await board(SHIP);
+  // Sent as it came all the same, and the server answers it in its own words. Counted as none of the client's:
+  // the client refuses this itself aboard a corvette (station.CreateNewbieShip, base.py 606).
+  assert.deepEqual(session.calls.filter((call) => call.method === "CreateNewbieShip").map((call) => [call.service, call.args, call.kwargs]), [["dogmaIM", [SHIP, STATION], null]]);
+  assert.deepEqual(row().statuses, { differs: 1 });
+  // In another hull it is the client's own call.
+  session.attributes.shipid = 555;
+  info = { type: "dict", entries: [[555, keyVal([["invItem", { type: "packedrow", header: null, columns: [], fields: { itemID: 555, typeID: 603, groupID: 25 }, values: [] }]])]] };
+  assert.equal((await pilots.readFlightStatus(handle)).flight.shipGroupID, 25);
+  await board(555);
+  assert.deepEqual(row().statuses, { differs: 1, same: 1 });
+  // sm.RemoteSvc('dogmaIM'): by the service's name, and never on the object bound for the pilot's dogma.
+  assert.equal(session.boundCalls.some((call) => call.method === "CreateNewbieShip"), false);
 });
 
 test("a ship the server will not describe is reported unknown, never guessed, and asked about next time", async () => {
   let fails = true;
   const { pilots, handle } = await selected({ answers: { "bound:GetAllInfo": () => { if (fails) throw sessionError("CALL_TIMEOUT"); return godmaOf(shipInfo()); } } });
   const { flight } = await pilots.readFlightStatus(handle);
-  assert.deepEqual([flight.docked, flight.shipID, flight.shipTypeID, flight.shipIsCapsule], [true, SHIP, null, null]);
+  assert.deepEqual([flight.docked, flight.shipID, flight.shipTypeID, flight.shipGroupID, flight.shipIsCapsule], [true, SHIP, null, null, null]);
   fails = false;
   assert.equal((await pilots.readFlightStatus(handle)).flight.shipTypeID, 588);
 });
@@ -2749,10 +2773,12 @@ test("whatever is asked of ship or dogmaIM by name is made on the moniker, read 
   assert.deepEqual(byName(), ["dogmaIM.CreateNewbieShip", "ship.GetShipFittingInfo", "station.GetGuests"]);
 
   // The tally: asked by name and made on the moniker is not the client's call as the BFF spelt it, even with the client's arguments.
+  // The corvette's is the client's as it stands: by name, the pilot's own ship and where it is docked. Godma has
+  // not been primed here, so the hull's group is not known, and the call is judged by the rest.
   const tally = Object.fromEntries(pilots.callLedger().map((row) => [row.pair, row.statuses]));
   assert.deepEqual(
     [tally["dogmaIM.ItemGetInfo"], tally["dogmaIM.AddTarget"], tally["dogmaIM.OverloadRack"], tally["ship.GetShipConfiguration"], tally["ship.LaunchDrones"], tally["ship.LeaveShip"], tally["dogmaIM.CreateNewbieShip"]],
-    [{ reshaped: 1 }, { reshaped: 1 }, { unchecked: 1 }, { reshaped: 1 }, { reshaped: 1 }, { reshaped: 1 }, { unchecked: 1 }],
+    [{ reshaped: 1 }, { reshaped: 1 }, { unchecked: 1 }, { reshaped: 1 }, { reshaped: 1 }, { reshaped: 1 }, { same: 1 }],
   );
 });
 

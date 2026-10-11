@@ -34,8 +34,7 @@ import {
  * `readWrappedUserErrorRefusal`'s info/notify filter.
  *
  * Names that exist in those files but are NOT reachable from this client are
- * deliberately absent, and their absence is the assertion: Handle_CreateNewbieShip
- * (AlreadyInNewbieShip, ErrorCreatingNewbieShip, MustBeDocked),
+ * deliberately absent, and their absence is the assertion:
  * Handle_InitiateModuleRepair (NotEnoughRepairMaterialToFinishAllRepairs),
  * the overload path (DontHaveThermoDynamicsSkill), the probe-launch and
  * warp-disrupt-field-generator paths, Handle_Scoop (ShpScoopSecureCC) and the
@@ -52,6 +51,10 @@ const EVEJS_REFUSAL_VOCABULARY: readonly string[] = [
   "101,UI/Menusvc/MenuHints/NotWithingMaxJumpDist",
   "101,UI/GateIcons/GateClosed",
   // The bare UserError codes.
+  // dogma Handle_CreateNewbieShip — reachable from the Station panel's "Board corvette".
+  "AlreadyInNewbieShip",
+  "ErrorCreatingNewbieShip",
+  "MustBeDocked",
   "BookmarkNotAvailable",
   "CannotOnlineReachedMaxGroupOnline",
   "CantInHighSecSpace",

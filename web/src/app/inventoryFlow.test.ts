@@ -154,32 +154,147 @@ const LEFT = { status: 200, body: { ok: true, service: "ship", method: "LeaveShi
 /** station.TryLeaveShip (248): GetShipAccess().LeaveShip(shipid), as a pilot's write the page means. */
 const theLeaving = (shipID: number) => ({ service: "ship", method: "LeaveShip", args: [shipID], kwargs: null, pilot: true, confirm: true });
 
-test("boardCorvette posts its confirmed ship swap, and leaveShip makes the page's own call for the ship the pilot is in; each then reloads", async () => {
-  const store = createClientStore();
-  const { fetch, requests } = makeFakeFetch((path) => {
-    if (path === "/api/bridge/ship/board-corvette") {
-      return { status: 200, body: { ok: true, applied: true } };
+/** The generic call's answer to a corvette boarded. */
+const BOARDED = { status: 200, body: { ok: true, service: "dogmaIM", method: "CreateNewbieShip", result: null, notifications: [] } };
+/** station.CreateNewbieShip (613): sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID), as a pilot's write the page means. */
+const theBoarding = (shipID: number, dockedAt: number) => ({ service: "dogmaIM", method: "CreateNewbieShip", args: [shipID, dockedAt], kwargs: null, pilot: true, confirm: true });
+/** The pilot's flight: docked in a hull that is neither a capsule nor a corvette, but for what is said otherwise. */
+const flightIn = (more: Record<string, unknown> = {}) => ({ status: 200, body: { ok: true, flight: { inSpace: false, docked: true, stationID: 60003760, structureID: null, solarSystemID: 30000142, shipID: 9001, shipTypeID: 648, shipGroupID: 28, shipIsCapsule: false, ...more }, notifications: [] } });
+/** A stand-in BFF that answers the pilot's flight, the two swaps of its ship, and the panel. */
+function swapsBff(flight: Record<string, unknown> = {}, boarded: { status: number; body: unknown } = BOARDED) {
+  return makeFakeFetch((path, _method, body) => {
+    if (path === "/api/bridge/flight/status") {
+      return flightIn(flight);
     }
     if (path === "/api/bridge/call") {
-      return LEFT;
+      return body.method === "CreateNewbieShip" ? boarded : LEFT;
+    }
+    return { status: 200, body: inventoryPanel() };
+  });
+}
+const callsOf = (requests: Recorded[]) => requests.filter((r) => r.path === "/api/bridge/call").map((r) => r.body);
+const panelReads = (requests: Recorded[]) => requests.filter((r) => r.path === "/api/bridge/inventory" && r.method === "GET").length;
+/** The question the pilot is asked, answered as told; and how often it was asked. */
+function pilotSays(answer: boolean) {
+  const asked: string[] = [];
+  return { asked, sure: async () => { asked.push("sure"); return answer; } };
+}
+
+test("boardCorvette and leaveShip each make the page's own call for the ship the pilot is in; each then reloads", async () => {
+  const store = createClientStore();
+  const { fetch, requests } = swapsBff();
+  const flow = createAppFlow(store, { fetch });
+
+  // Load first so leaveShip can name the real active hull.
+  await flow.loadInventory();
+  await flow.boardCorvette(pilotSays(true).sure);
+  await flow.leaveShip();
+
+  assert.deepEqual(callsOf(requests), [theBoarding(9001, 60003760), theLeaving(9001)]);
+  assert.equal(requests.some((r) => r.path === "/api/bridge/ship/board-corvette" || r.path === "/api/bridge/ship/leave"), false, "neither route is asked");
+  // Each mutation reloaded the panel (plus the explicit initial load).
+  assert.equal(panelReads(requests), 3);
+  assert.equal(store.inventory.get().actionError, null);
+});
+
+test("the pilot is asked before a hull is left for a corvette, and a no asks the server nothing and reads nothing again", async () => {
+  const store = createClientStore();
+  const { fetch, requests } = swapsBff();
+  const flow = createAppFlow(store, { fetch });
+  const pilot = pilotSays(false);
+
+  await flow.loadInventory();
+  await flow.boardCorvette(pilot.sure);
+
+  // station.CreateNewbieShip (608 to 611): asked unless in a capsule, and on anything but yes it returns.
+  assert.deepEqual([pilot.asked, callsOf(requests), panelReads(requests)], [["sure"], [], 1]);
+  // And nothing at all after the pilot's flight was read: no bay, no fitting.
+  assert.deepEqual(requests.map((r) => r.path), ["/api/bridge/inventory", "/api/bridge/flight/status"]);
+  assert.equal(store.inventory.get().actionError, null);
+});
+
+test("from a capsule the pilot is asked nothing; where it is not known whether the hull is one, the pilot is asked", async () => {
+  for (const [flight, questions] of [[{ shipTypeID: 670, shipGroupID: 29, shipIsCapsule: true }, []], [{ shipTypeID: null, shipGroupID: null, shipIsCapsule: null }, ["sure"]]] as const) {
+    const store = createClientStore();
+    const { fetch, requests } = swapsBff(flight);
+    const flow = createAppFlow(store, { fetch });
+    const pilot = pilotSays(true);
+
+    await flow.boardCorvette(pilot.sure);
+
+    assert.deepEqual([pilot.asked, callsOf(requests)], [questions, [theBoarding(9001, 60003760)]], JSON.stringify(flight));
+    assert.equal(store.inventory.get().actionError, null);
+  }
+});
+
+test("aboard a corvette nothing is asked of the pilot or the server, and the panel says why", async () => {
+  const store = createClientStore();
+  const { fetch, requests } = swapsBff({ shipTypeID: 588, shipGroupID: 237 });
+  const flow = createAppFlow(store, { fetch });
+  const pilot = pilotSays(true);
+
+  await flow.boardCorvette(pilot.sure);
+
+  // station.CreateNewbieShip (606): refused by the client itself.
+  assert.deepEqual([pilot.asked, callsOf(requests)], [[], []]);
+  assert.match(store.inventory.get().actionError ?? "", /already aboard a corvette/);
+});
+
+test("a pilot that is not docked boards nothing; one docked in a structure names the structure; and the ship named is the flight's", async () => {
+  const flying = createClientStore();
+  const inSpace = swapsBff({ inSpace: true, docked: false, stationID: null, structureID: null });
+  await createAppFlow(flying, { fetch: inSpace.fetch }).boardCorvette(pilotSays(true).sure);
+  assert.deepEqual(callsOf(inSpace.requests), []);
+  assert.match(flying.inventory.get().actionError ?? "", /docked/);
+
+  // session.stationid or session.structureid (598). And the ship is godma's own, which the flight says: the
+  // panel's word for it is not asked for.
+  const docked = createClientStore();
+  const inStructure = swapsBff({ stationID: null, structureID: 1030000000001, shipID: 7007 });
+  const flow = createAppFlow(docked, { fetch: inStructure.fetch });
+  await flow.loadInventory();
+  await flow.boardCorvette(pilotSays(true).sure);
+  assert.deepEqual(callsOf(inStructure.requests), [theBoarding(7007, 1030000000001)]);
+  assert.equal(docked.inventory.get().actionError, null);
+});
+
+test("after a swap of its ship the pilot's flight is read again: the panel goes by the hull the pilot is in now", async () => {
+  const store = createClientStore();
+  let hull: Record<string, unknown> = {};
+  const { fetch } = makeFakeFetch((path, _method, body) => {
+    if (path === "/api/bridge/flight/status") {
+      return flightIn(hull);
+    }
+    if (path === "/api/bridge/call") {
+      // The swap is done when the call is answered: the BFF watches it.
+      const corvette = body.method === "CreateNewbieShip";
+      hull = corvette ? { shipID: 9002, shipTypeID: 588, shipGroupID: 237 } : { shipID: 9003, shipTypeID: 670, shipGroupID: 29, shipIsCapsule: true };
+      return corvette ? BOARDED : LEFT;
     }
     return { status: 200, body: inventoryPanel() };
   });
   const flow = createAppFlow(store, { fetch });
 
-  // Load first so leaveShip can name the real active hull.
-  await flow.loadInventory();
-  await flow.boardCorvette();
-  await flow.leaveShip();
+  await flow.boardCorvette(pilotSays(true).sure);
+  // corvetteButton.py: the lobby's button goes by the ship the session is in now.
+  const aboard = store.flight.get().status;
+  assert.deepEqual([aboard?.shipID, aboard?.shipGroupID, aboard?.shipIsCapsule], [9002, 237, false]);
 
-  const corvette = requests.find((r) => r.path === "/api/bridge/ship/board-corvette");
-  assert.ok(corvette, "board-corvette was posted");
-  assert.deepEqual(corvette!.body, { confirm: true });
-  assert.deepEqual(requests.filter((r) => r.path === "/api/bridge/call").map((r) => r.body), [theLeaving(9001)]);
-  assert.equal(requests.some((r) => r.path === "/api/bridge/ship/leave"), false, "the route is not asked");
-  // Each mutation reloaded the panel (plus the explicit initial load).
-  assert.equal(requests.filter((r) => r.path === "/api/bridge/inventory" && r.method === "GET").length, 3);
-  assert.equal(store.inventory.get().actionError, null);
+  await flow.leaveShip();
+  const after = store.flight.get().status;
+  assert.deepEqual([after?.shipID, after?.shipGroupID, after?.shipIsCapsule], [9003, 29, true]);
+});
+
+test("a corvette the server refuses is said in the panel, in the page's words for that refusal", async () => {
+  const store = createClientStore();
+  const { fetch, requests } = swapsBff({}, { status: 409, body: { ok: false, error: "CALL_REFUSED", message: "AlreadyInNewbieShip" } });
+  const flow = createAppFlow(store, { fetch });
+
+  await flow.boardCorvette(pilotSays(true).sure);
+
+  assert.deepEqual(callsOf(requests), [theBoarding(9001, 60003760)]);
+  // The server's word is a key (dogma Handle_CreateNewbieShip): the page has a sentence for each of its three.
+  assert.equal(store.inventory.get().actionError, "You are already aboard a corvette.");
 });
 
 test("leaveShip before the panel has loaded asks the pilot's flight which ship it is in, and names that one", async () => {
@@ -198,7 +313,8 @@ test("leaveShip before the panel has loaded asks the pilot's flight which ship i
   await flow.leaveShip();
 
   const order = requests.map((r) => r.path).filter((path) => path === "/api/bridge/flight/status" || path === "/api/bridge/call");
-  assert.deepEqual(order, ["/api/bridge/flight/status", "/api/bridge/call"]);
+  // The flight before the call, for the ship to name; and again after the swap, for the hull the pilot is in now.
+  assert.deepEqual(order, ["/api/bridge/flight/status", "/api/bridge/call", "/api/bridge/flight/status"]);
   assert.deepEqual(requests.find((r) => r.path === "/api/bridge/call")!.body, theLeaving(7007));
 });
 

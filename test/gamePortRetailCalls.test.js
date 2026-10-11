@@ -2000,6 +2000,43 @@ test("the weapons linked or unlinked all at once is the client's call when it na
   }
 });
 
+test("a corvette boarded is the client's call when it names the ship the pilot is in and where it is docked, from a hull that is no corvette", () => {
+  // station.CreateNewbieShip (base.py 597 to 613): locationID = session.stationid or session.structureid; the ship is
+  // godma's own (GetShipItem); refused by the client itself aboard a corvette (IsNewbieShip); and then
+  // sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID), by the service's name.
+  const docked = { shipID: 5000, dockedAt: 60003760, shipGroupID: 25 };
+  const ask = (args, kwargs = null, context = docked) => retailForm("dogmaIM", "CreateNewbieShip", args, kwargs, context);
+  const made = ask([5000, 60003760]);
+  assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker], ["same", "eve/client/script/ui/station/base.py:613", [5000, 60003760], null, false]);
+  // From a capsule the client asks the pilot nothing first, and makes the same call. And a hull whose group is not
+  // known is judged by the rest.
+  for (const context of [{ ...docked, shipGroupID: 29 }, { ...docked, shipGroupID: null }, { shipID: 5000, dockedAt: 60003760 }]) {
+    assert.equal(ask([5000, 60003760], null, context).status, "same", JSON.stringify(context));
+  }
+  for (const [args, kwargs, context, why, note] of [
+    [[], null, docked, "nothing named, as the route sent it", /names the ship and where/],
+    [[5000], null, docked, "the ship alone", /names the ship and where/],
+    [[5000, 60003760, 1], null, docked, "a third argument", /names the ship and where/],
+    [[5000, 60003760], { force: true }, docked, "a keyword", /names the ship and where/],
+    [[0, 60003760], null, docked, "no ship", /names the ship and where/],
+    [["5000", 60003760], null, docked, "a ship as text", /names the ship and where/],
+    [[5000.5, 60003760], null, docked, "half a ship", /names the ship and where/],
+    [[5000, 0], null, docked, "nowhere", /names the ship and where/],
+    [[5000, "60003760"], null, docked, "a place as text", /names the ship and where/],
+    [[5000, 60003760.5], null, docked, "half a place", /names the ship and where/],
+    [[5000, 60003760], null, { ...docked, dockedAt: null }, "in space", /only where it is docked/],
+    [[5000, 60003760], null, { shipID: 5000, shipGroupID: 25 }, "nothing known of where the pilot is", /only where it is docked/],
+    [[5000, 60008494], null, docked, "another place", /where the pilot is docked/],
+    [[5001, 60003760], null, docked, "another ship", /the ship the pilot is in/],
+    [[5000, 60003760], null, { ...docked, shipID: null }, "a ship not known", /the ship the pilot is in/],
+    [[5000, 60003760], null, { ...docked, shipGroupID: 237 }, "aboard a corvette", /aboard a corvette/],
+  ]) {
+    const refused = ask(args, kwargs, context);
+    assert.deepEqual([refused.status, refused.args, refused.kwargs], ["differs", args, kwargs], why);
+    assert.match(refused.note, note, why);
+  }
+});
+
 test("a ship left is the client's call when it names the ship the pilot is in, from a pilot that is docked", () => {
   // station.TryLeaveShip (236 to 251): only for dogmaLocation.GetCurrentShipID(), and gameui.GetShipAccess().LeaveShip(shipid).
   // In a structure, structureDocking.LeaveShip (92 to 96). In space the client's menu ejects (ship.Eject).

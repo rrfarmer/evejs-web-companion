@@ -511,12 +511,52 @@ test("leaving the ship is a write of the page's own, made under the BFF's own wa
   assert.deepEqual([stored.response.status, stored.payload.activeShipID, clockMs], [200, 2200, 10_000]);
 });
 
+test("a corvette boarded is a write of the page's own, made under the BFF's own watch of the swap, with the client's two arguments", async () => {
+  const gateway = fakeGateway();
+  let clockMs = 0;
+  const { baseUrl } = await startTestServer({
+    gateway,
+    transitionNow: () => clockMs,
+    transitionSleep: async (ms) => { clockMs += ms; },
+  });
+  await selectOnServer(baseUrl);
+  const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method: "CreateNewbieShip", args: [ACTIVE_SHIP_ID, STATION_ID], kwargs: null, ...more } });
+  const boarded = () => gateway.calls.call.filter((each) => each.method === "CreateNewbieShip");
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await call(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  assert.equal(boarded().length, 0);
+
+  const made = await call({ pilot: true, confirm: true });
+  // The generic call's own answer, and none of the route's.
+  assert.deepEqual([made.response.status, made.payload.ok, made.payload.service, made.payload.method, Array.isArray(made.payload.notifications)], [200, true, "dogmaIM", "CreateNewbieShip", true]);
+  assert.deepEqual([made.payload.applied, made.payload.activeShipID, made.payload.flight, made.payload.transition], [undefined, undefined, undefined, undefined]);
+  // station.CreateNewbieShip (base.py 613): sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID), once, by the service's name.
+  assert.deepEqual(boarded().map((each) => [each.service, each.args, each.kwargs]), [["dogmaIM", [ACTIVE_SHIP_ID, STATION_ID], null]]);
+  assert.equal(gateway.calls.boundCall.some((each) => each.method === "CreateNewbieShip"), false);
+  // The BFF's own word for the pilot's ship is the corvette from then on, as after the route's.
+  const inventory = await apiRequest(baseUrl, "/api/bridge/inventory");
+  assert.equal(inventory.payload.activeShipID, 9901);
+  // And the next swap waits out the session's timer, as it does after the route's.
+  const stored = await apiRequest(baseUrl, "/api/bridge/ship/board-stored", { method: "POST", body: { structureID: 1_000_000_001, shipID: 2200, confirm: true } });
+  assert.deepEqual([stored.response.status, stored.payload.activeShipID, clockMs], [200, 2200, 10_000]);
+});
+
+test("a corvette asked for with no pilot held is refused as its route refused it", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "dogmaIM", method: "CreateNewbieShip", args: [ACTIVE_SHIP_ID, STATION_ID], kwargs: null, pilot: true, confirm: true } });
+  assert.deepEqual([refused.response.status, refused.payload.error], [409, "NO_LIVE_SESSION"]);
+  assert.equal(gateway.calls.call.filter((each) => each.method === "CreateNewbieShip").length, 0);
+});
+
 test("the ship's other swaps are their routes' alone, whatever the generic call is told", async () => {
   const gateway = fakeGateway();
   const { baseUrl } = await startTestServer({ gateway });
   await selectOnServer(baseUrl);
   const before = gateway.calls.call.length;
-  for (const [service, method, args] of [["ship", "Eject", []], ["ship", "BoardStoredShip", [1_000_000_001, 2200]], ["ship", "StoreVessel", [1, 2]], ["dogmaIM", "CreateNewbieShip", []]]) {
+  for (const [service, method, args] of [["ship", "Eject", []], ["ship", "BoardStoredShip", [1_000_000_001, 2200]], ["ship", "StoreVessel", [1, 2]]]) {
     const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service, method, args, kwargs: null, pilot: true, confirm: true } });
     assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${service}.${method}`);
   }

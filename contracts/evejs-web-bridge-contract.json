@@ -1097,6 +1097,7 @@
       "beyonce.CmdGotoPoint",
       "contractProxy.AcceptContract",
       "crimewatch.SetSafetyLevel",
+      "dogmaIM.CreateNewbieShip",
       "dogmaIM.InitiateModuleRepair",
       "dogmaIM.LinkAllWeapons",
       "dogmaIM.LoadAmmo",

@@ -227,8 +227,13 @@ function isBridgeWritePair(service, method) {
  *                                for the pilot's ship. The handler does nothing with the ship named: it puts
  *                                the session's own character in a capsule where the session is docked. It is
  *                                made under the same watch of the swap (PAGE_SHIP_SWAP_CALLS).
+ *   dogmaIM.CreateNewbieShip     a corvette boarded, docked. The route checked `confirm` and made the call with
+ *                                no arguments, under the BFF's watch of the swap. The handler reads its two
+ *                                arguments only to log them: it puts the session's own character in a corvette
+ *                                where the session is docked, and refuses in space and aboard one. Made under
+ *                                the same watch, and by the service's name, as the client asks it.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);
@@ -246,9 +251,10 @@ function isPageWritePair(service, method) {
  * (src/server.js, dispatchShipSwapWrite): answered once the pilot's flight says another ship, and refused while
  * another swap is under way.
  *
- *   ship.LeaveShip   station.TryLeaveShip: the pilot in its capsule from then on.
+ *   ship.LeaveShip             station.TryLeaveShip: the pilot in its capsule from then on.
+ *   dogmaIM.CreateNewbieShip   station.CreateNewbieShip: the pilot in a corvette from then on.
  */
-const PAGE_SHIP_SWAP_CALLS = Object.freeze(new Set(["ship.LeaveShip"]));
+const PAGE_SHIP_SWAP_CALLS = Object.freeze(new Set(["ship.LeaveShip", "dogmaIM.CreateNewbieShip"]));
 for (const pair of PAGE_SHIP_SWAP_CALLS) {
   if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's swaps of the pilot's ship and is none of its writes.`);
 }

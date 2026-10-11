@@ -24,11 +24,14 @@
 //      those pairs reach was enumerated (beyonceService.js, dogmaService.js,
 //      shipService.js, structureDockingService.js) and attributed to its
 //      enclosing handler, so unreachable names were excluded rather than
-//      guessed at — Handle_CreateNewbieShip, Handle_InitiateModuleRepair, the
+//      guessed at — Handle_InitiateModuleRepair, the
 //      overload / probe-launch / bookmark / fleet-bridge helpers and
 //      Handle_Scoop are all real UserError sites that this client CANNOT
 //      provoke, and none of them is in the table below.
-//   3. That leaves the 27 bare codes and 2 localization labels in
+//      (Handle_CreateNewbieShip was listed with them and was never one: the
+//      Station panel's "Board corvette" has always reached it. Its three are
+//      in the table since 2026-10-10.)
+//   3. That leaves the 30 bare codes and 2 localization labels in
 //      SERVER_REFUSALS. The list is asserted in refusals.test.ts.
 //
 // ── HOW A REFUSAL ARRIVES ──────────────────────────────────────────────────
@@ -107,6 +110,11 @@ const SERVER_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
   "101,UI/GateIcons/GateClosed":
     "That gate is closed. Nothing can jump through it right now.",
 
+  // dogma Handle_CreateNewbieShip — the pilot is in a corvette already. The page
+  // refuses this itself where the pilot's flight says the hull's group, as the
+  // client does; where it does not say, the server's refusal is what is left.
+  AlreadyInNewbieShip:
+    "You are already aboard a corvette.",
   // beyonce Handle_CmdWarpToStuff — the bookmark is gone or not yours.
   BookmarkNotAvailable:
     "That bookmark is not available to you, so the ship cannot warp to it.",
@@ -161,6 +169,10 @@ const SERVER_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
   // dogma `_throwModuleActivationUserError` — MAX_GROUP_ACTIVE.
   EffectCrowdedOut:
     "Your ship already has as many modules of that kind running as it is allowed.",
+  // dogma Handle_CreateNewbieShip — every failure that is neither of its other
+  // two. The server names no cause, so none is given.
+  ErrorCreatingNewbieShip:
+    "A corvette could not be made ready for you, and the server did not say why.",
   // invbroker Handle_GetInventoryFromId — the itemID bound no inventory target.
   // It covers TWO server conditions that arrive as one code: the item does not
   // exist, and the item exists but failed the handler's own scene/range check.
@@ -172,6 +184,10 @@ const SERVER_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
   // dogma `_throwModuleActivationUserError` — MODULE_REACTIVATING.
   ModuleReactivationDelayed2:
     "That module is still cooling down from its last cycle. Give it a moment.",
+  // dogma Handle_CreateNewbieShip — the session is not docked. Thrown by no
+  // other handler, so the sentence can name what was asked for.
+  MustBeDocked:
+    "You must be docked to board a corvette.",
   // dogma `_throwModuleActivationUserError` — NO_AMMO.
   NoCharges:
     "That module has no ammunition loaded. Load some before using it.",

@@ -546,6 +546,31 @@ const leavingTheShip = (args, kwargs, context) => {
   return Number(context.shipID) === args[0] ? {} : { status: "differs", note: "The client leaves the ship the pilot is in, and no other." };
 };
 
+/** idCheckers.IsNewbieShip: a corvette's group. */
+const GROUP_CORVETTE = 237;
+/**
+ * station.CreateNewbieShip (base.py 597 to 613): locationID = session.stationid or session.structureid, the ship
+ * godma's own, and sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID). Aboard a corvette the client
+ * refuses by itself (606), and its button is out of use (corvetteButton.py). A hull whose group is not known is
+ * judged by the rest.
+ */
+const boardingACorvette = (args, kwargs, context) => {
+  const named = (each) => Number.isSafeInteger(each) && each > 0;
+  if (!(args.length === 2 && named(args[0]) && named(args[1]) && Object.keys(kwargs).length === 0)) {
+    return { status: "differs", note: "The client names the ship and where it is docked, and nothing else." };
+  }
+  if (context.dockedAt === null || context.dockedAt === undefined) {
+    return { status: "differs", note: "The client asks for a corvette only where it is docked." };
+  }
+  if (Number(context.dockedAt) !== args[1]) {
+    return { status: "differs", note: "The client names where the pilot is docked, and no other place." };
+  }
+  if (Number(context.shipID) !== args[0]) {
+    return { status: "differs", note: "The client names the ship the pilot is in, and no other." };
+  }
+  return context.shipGroupID === GROUP_CORVETTE ? { status: "differs", note: "The client asks for no corvette aboard a corvette: it refuses by itself." } : {};
+};
+
 /** The tags the client's menu offers for a thing in space (menusvc.py 1945 and 1946): the ten digits and thirteen letters. */
 const FLEET_TAGS = new Set("0123456789ABCDEFGHIJXYZ");
 /**
@@ -1344,6 +1369,7 @@ const RETAIL_CALLS = Object.freeze({
   "ship.LaunchDrones": reshaped(`${EVE_MISC}:29`, launching, "GetShipAccess().LaunchDrones([(itemID, quantity), ...], whoseBehalfID, ignoreWarning): a list of pairs, and None for whose behalf when it is the pilot's own"),
   "ship.ScoopDrone": same(`${DRONE_FUNCTIONS}:195`, "GetShipAccess().ScoopDrone(droneIDs)"),
   "ship.LeaveShip": judged(`${STATION_SVC}:248`, leavingTheShip, "station.TryLeaveShip: gameui.GetShipAccess().LeaveShip(shipid), for the ship the pilot is in and no other, docked; from the item's menu and before a clone jump. In a structure, structureDocking.LeaveShip makes the same call and then makes the capsule it answers active. In space the menu ejects. In no recording."),
+  "dogmaIM.CreateNewbieShip": judged(`${STATION_SVC}:613`, boardingACorvette, "station.CreateNewbieShip: sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID), by the service's name, for the ship the pilot is in and where it is docked (session.stationid or session.structureid). The client asks the pilot first unless it is in a capsule, and refuses by itself aboard a corvette. From the lobby's corvette button and no other place. In no recording."),
   "ship.Board": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:209", "GetShipAccess().Board(shipID, session.shipid or session.stationid), through sessionMgr.PerformSessionChange('board', ...). Recorded on Tranquility in space as (shipID, the ship left), the bind carrying it."),
   "slash.SlashCmd": same("eve/client/script/ui/services/menusvc.py:834", "RemoteSvc('slash').SlashCmd(command), by name: what the client's GM menus send. No recording has one."),
   "ship.GetShipConfiguration": reshaped(`${SHIP_CONFIG}:51`, configuration, "GetShipAccess().GetShipConfiguration(shipID)"),

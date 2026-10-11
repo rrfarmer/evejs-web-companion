@@ -1613,6 +1613,11 @@ export interface FlightStatus {
   readonly shipID: number | null;
   readonly shipTypeID: number | null;
   /**
+   * The hull's group, as godma's own item of the ship has it; `null`, or absent, where the BFF did not say (the
+   * gateway's flight does not). The client's lobby tells a corvette by it (idCheckers.IsNewbieShip: group 237).
+   */
+  readonly shipGroupID?: number | null;
+  /**
    * Whether the hull being flown is a capsule — i.e. the ship was lost and the
    * pilot is in a pod. TRI-STATE: `null` is "the gateway did not say", which is
    * never a verdict either way (an older BFF omits it entirely).

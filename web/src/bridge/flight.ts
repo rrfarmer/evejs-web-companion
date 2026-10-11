@@ -101,6 +101,7 @@ export function decodeFlightStatus(raw: JsonValue | undefined): FlightStatus {
     structureID,
     shipID: idOrNull(flight.shipID),
     shipTypeID: idOrNull(flight.shipTypeID),
+    shipGroupID: idOrNull(flight.shipGroupID),
     // Tri-state on purpose: an older BFF omits the field, and "we were not told"
     // must not read as "not a capsule" — that would be a confident empty, which
     // is the failure this file avoids everywhere else.
