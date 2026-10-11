@@ -721,6 +721,23 @@ Take these defaults, and list each under "For the operator" in the log so they c
   commit, the old-sources check, the log. Look for its commit with a wait in the same
   command (`node -e "setTimeout(()=>{}, 240000)"; git log --oneline -1`), read its diff
   when it is in, restart EveJS on it, and measure again.
+- **What a route says beside its answer goes with the call too, or the page finds it for
+  itself.** The scanner's route said the BFF's word for the pilot's system with the sites,
+  and the page went by it. The page's own call has only the answer; the client pairs it
+  with its own session's system, read before it asks, and so does the page now. Read a
+  route's whole answer, and every use the flow makes of each part, before calling it one
+  call.
+- **A call on an object the session has one of names none** (`PAGE_OBJECT_CALLS`, a kind
+  that is not in `OBJECTS_THE_PAGE_NAMES`): the BFF asks the object it keeps for the pilot.
+  The system's scan manager is the first. `sfs-look.js <bff> <account> <characterID>` asks
+  the sites so and writes nothing. GM Elysian's system, Maurasi, has six anomalies and
+  seven signatures; Jita has none.
+- **The Bot Manager's "Run here" asks with the browser's own box**, as the Station panel's
+  corvette does. In the tab, put `window.confirm = () => true` first, or nothing starts and
+  nothing says why. A bot's own log is in `bffgp-data/bot-logs/<characterID>.jsonl`. A bot
+  flies no script for a pilot in a capsule: it looks once and stops.
+- **A patch that rewrites a whole test file counts first**, the tests and a name that is in
+  every one, and stops where the count is not what was read. It did this time.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in

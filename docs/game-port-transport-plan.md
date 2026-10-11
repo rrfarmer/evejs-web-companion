@@ -823,9 +823,10 @@ made it: its word for the pilot's ship is kept there. A corvette is boarded so t
 (`e91f60a`), with the client's two arguments, its refusals and its question, the game
 port's flight saying the hull's group for them. An office's price, its rent and its
 giving up are the page's own calls of the station's office manager (`b0bbfff`), the page
-going by its listing of the offices and its flight for what their routes checked. Counted
-by the whole path,
-116 are named now, 49 of them reads and 67 writes (the count kept before
+going by its listing of the offices and its flight for what their routes checked. The
+scanner's sites are asked of the system's scan manager by the page's own call (`4fb2656`),
+which names no object, the session having one. Counted by the whole path,
+115 are named now, 48 of them reads and 67 writes (the count kept before
 `82a21e8` took a path's beginning for a path and missed a parameter inside one: it read 130
 where 138 was so). Of the phase's "done when", "no
 `EventSource` is opened" holds with the setting on and the socket up, and not otherwise.
