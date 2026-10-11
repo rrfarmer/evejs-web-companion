@@ -2647,14 +2647,6 @@ export async function orbit(
   return readFlightStep(await postJson("/api/bridge/flight/orbit", body, options));
 }
 
-/** Point the ship at a target and hold that heading (beyonce.CmdAlignTo). */
-export async function alignTo(
-  targetID: number,
-  options: ApiOptions = {},
-): Promise<FlightStepResult> {
-  return readFlightStep(await postJson("/api/bridge/flight/align", { targetID }, options));
-}
-
 /** Cut the engines (beyonce.CmdStop). */
 export async function stopShip(options: ApiOptions = {}): Promise<FlightStepResult> {
   return readFlightStep(await postJson("/api/bridge/flight/stop", {}, options));

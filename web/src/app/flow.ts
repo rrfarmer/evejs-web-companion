@@ -349,7 +349,7 @@ import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fl
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, leaveFleet as leaveFleetCall, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
-import { goToPoint } from "../bridge/movementWrites.ts";
+import { alignTo as alignToCall, goToPoint, type FlightNow } from "../bridge/movementWrites.ts";
 import { boardCorvette as boardCorvetteCall, leaveShip as leaveShipCall } from "../bridge/shipWrites.ts";
 import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/officeWrites.ts";
 import { runSlashCommand } from "../bridge/gmWrites.ts";
@@ -4152,6 +4152,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** The ship sent to a point by the page's own call (bridge/movementWrites.ts), held to where the point was measured. */
   async function flyToPoint(position: SpaceVector, shipID: number, solarSystemID: number): Promise<void> {
     await goToPoint(bridgeDo, async () => decodeFlightStatus((await api.getFlightStatus(callOptions)).flight), position, { shipID, solarSystemID });
+  }
+
+  /**
+   * The ship aligned to a thing by the page's own call (bridge/movementWrites.ts), for the bots. A refusal is the
+   * bot's to see, and what the ship does after, the bot reads for itself.
+   */
+  async function alignShip(targetID: number): Promise<void> {
+    await alignToCall(bridgeDo, async () => decodeFlightStatus((await api.getFlightStatus(callOptions)).flight), targetID);
+  }
+
+  /**
+   * One order to the ship from the flight panel that the page makes itself, with the pilot's flight read before
+   * it, for the order to go by, and after it, for the panel to show: the order's route read both. Where the
+   * reading after fails the one before stands, as it did in the route, since the order was taken; a session lost
+   * is a session lost.
+   */
+  async function orderedStep(order: (flightNow: () => Promise<FlightNow>) => Promise<void>): Promise<FlightStepResult> {
+    const before = await api.getFlightStatus(callOptions);
+    await order(async () => decodeFlightStatus(before.flight));
+    try {
+      return await api.getFlightStatus(callOptions);
+    } catch (error) {
+      if (isSessionLost(error)) throw error;
+      return before;
+    }
   }
 
   async function applyToJoinFleet(fleetID: number): Promise<FleetApplyOutcome> {
@@ -7998,8 +8023,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // Straight to the api layer for the same reason every case above
           // is — the companion has to see a refusal to decide on it, not have
           // it swallowed the way the flow's own lockTarget()/alignTo() do.
+          // (The align is the page's own call, bridge/movementWrites.ts, and
+          // its refusal comes back here all the same.)
           case "align":
-            await api.alignTo(action.targetID, callOptions);
+            await alignShip(action.targetID);
             return;
           case "lock":
             await api.lockTarget(action.targetID, callOptions);
@@ -12391,7 +12418,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             await api.stopShip(callOptions);
             return;
           case "align":
-            await api.alignTo(action.targetID, callOptions);
+            await alignShip(action.targetID);
             return;
           case "orbit":
             await api.orbit(action.targetID, action.range, callOptions);
@@ -13265,7 +13292,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (out.length > 0 && !shouldAbort()) {
       await recallDrones(out).catch(() => {});
       if (best !== null && !shouldAbort()) {
-        await api.alignTo(best.itemID, callOptions).catch(() => {});
+        await alignShip(best.itemID).catch(() => {});
       }
       for (let i = 0; i < 10 && !shouldAbort() && dronesStillOut().length > 0; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -14309,7 +14336,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     async alignTo(targetID) {
-      await runFlightStep("Align", () => api.alignTo(targetID, callOptions));
+      await runFlightStep("Align", () => orderedStep((flightNow) => alignToCall(bridgeDo, flightNow, targetID)));
     },
 
     async stopShip() {

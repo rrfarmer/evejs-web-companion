@@ -41,3 +41,16 @@ test("a launchpad sent up at its office is carried out by the customs office's o
   // The block needs what each launchpad holds, so the read that gives it runs for this block too.
   assert.match(flow, /if \(macro === "restart-extractors" \|\| macro === "launch-commodities" \|\| macro === "collect-customs"\) \{/);
 });
+
+test("an align is carried out by the page's own call wherever the page carries a bot's actions out, and before a recall's warp home", () => {
+  const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
+  // The fleet companion's actions and a script bot's: two places, and the same call in each.
+  assert.equal(flow.split('case "align":').length - 1, 2);
+  assert.equal([...flow.matchAll(/case "align":\s+await alignShip\(action\.targetID\);\s+return;/g)].length, 2);
+  // Drones called home before a dock: the ship is aligned out while they come, and a refusal is let go.
+  assert.equal(flow.split("await alignShip(best.itemID).catch(() => {});").length - 1, 1);
+  // The route's asker is gone from the flow, and from the page's askers.
+  assert.equal(flow.includes("api.alignTo("), false);
+  const api = readFileSync(fileURLToPath(new URL("./api.ts", import.meta.url)), "utf8");
+  assert.equal(api.includes("/api/bridge/flight/align"), false);
+});

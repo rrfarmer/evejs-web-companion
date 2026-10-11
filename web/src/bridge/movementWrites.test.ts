@@ -1,9 +1,10 @@
-// A ship sent to a point in space by the page itself, held to the ship and the system the point was measured in.
+// A ship sent to a point in space by the page itself, held to the ship and the system the point was measured in;
+// and a ship aligned to a thing.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { goToPoint, type FlightNow } from "./movementWrites.ts";
+import { alignTo, goToPoint, type FlightNow } from "./movementWrites.ts";
 
 const [SHIP, SYSTEM] = [9988400023309, 30000144];
 const POINT = { x: 1000, y: -2500.5, z: 300000000000 };
@@ -95,5 +96,56 @@ test("the call's refusal is the caller's, as it came", async () => {
   const { did, act, flightNow } = harness(HERE, new Error("You are warping."));
 
   await assert.rejects(goToPoint(act, flightNow, POINT, MEASURED), /You are warping\./);
+  assert.deepEqual(did, ["read", "sent"]);
+});
+
+// ── aligned to a thing ───────────────────────────────────────────────────────
+
+test("an align names the thing by name and no bookmark, with nothing by position, once the pilot's flight has been read", async () => {
+  const { did, asked, act, flightNow } = harness();
+
+  await alignTo(act, flightNow, 40009089);
+
+  // menusvc.py 2790: bp.CmdAlignTo(dstID=targetID, bookmarkID=bookmarkID), and nothing else.
+  assert.deepEqual(asked, [["beyonce", "CmdAlignTo", [], { dstID: 40009089, bookmarkID: null }]]);
+  assert.deepEqual(did, ["read", "sent"]);
+});
+
+test("nothing is aligned for a pilot that is not in space", async () => {
+  const { did, act, flightNow } = harness({ ...HERE, inSpace: false });
+
+  await assert.rejects(alignTo(act, flightNow, 40009089), /^Error: The ship is not in space; undock first\.$/);
+  assert.deepEqual(did, ["read"]);
+});
+
+test("the pilot's own ship is aligned to by no call, and a ship that is not known is not taken for the thing", async () => {
+  const own = harness();
+  await assert.rejects(alignTo(own.act, own.flightNow, SHIP), /^Error: A ship cannot align to itself\.$/);
+  assert.deepEqual(own.did, ["read"]);
+
+  const unknown = harness({ ...HERE, shipID: null });
+  await alignTo(unknown.act, unknown.flightNow, SHIP);
+  assert.deepEqual(unknown.asked, [["beyonce", "CmdAlignTo", [], { dstID: SHIP, bookmarkID: null }]]);
+});
+
+test("what is no thing never leaves: nothing is read either", async () => {
+  for (const thing of [0, -40009089, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
+    const { did, act, flightNow } = harness();
+    await assert.rejects(alignTo(act, flightNow, thing), /^Error: That target could not be identified\.$/, String(thing));
+    assert.deepEqual(did, [], String(thing));
+  }
+});
+
+test("a flight that cannot be read aligns nothing, and the failure is the caller's", async () => {
+  const { did, act, flightNow } = harness(new Error("the session was lost"));
+
+  await assert.rejects(alignTo(act, flightNow, 40009089), /the session was lost/);
+  assert.deepEqual(did, ["read"]);
+});
+
+test("the align's refusal is the caller's, as it came", async () => {
+  const { did, act, flightNow } = harness(HERE, new Error("The pilot has no ballpark to ask: it is not in space."));
+
+  await assert.rejects(alignTo(act, flightNow, 40009089), /The pilot has no ballpark to ask/);
   assert.deepEqual(did, ["read", "sent"]);
 });

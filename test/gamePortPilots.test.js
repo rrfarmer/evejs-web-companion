@@ -457,6 +457,7 @@ test("a fleet's target tag asked of beyonce by its name is made on the ballpark'
   const sentBefore = docked.session.sent.length;
   await assert.rejects(docked.pilots.callMethod("beyonce", "CmdFleetTagTarget", [9001, "A"], null, WHOSE, docked.handle), (error) => error.code === "CALL_REFUSED" && /in space/.test(error.message));
   assert.equal(docked.session.sent.length, sentBefore, "nothing was sent");
+  assert.equal(docked.pilots.callLedger().some((each) => each.pair === "beyonce.CmdFleetTagTarget"), false, "and what was not sent is not counted");
 });
 
 test("a drone order asked of entity by its name is made as the client makes it: on a Moniker of its own for the system, which binds carrying the order", async () => {
@@ -7925,6 +7926,7 @@ test("a ship sent to a point by beyonce's name is sent on the ballpark's own obj
   const sentBefore = docked.session.sent.length;
   await assert.rejects(docked.pilots.callMethod("beyonce", "CmdGotoPoint", [1, 2, 3], null, WHOSE, docked.handle), (error) => error.code === "CALL_REFUSED" && /in space/.test(error.message));
   assert.equal(docked.session.sent.length, sentBefore, "nothing was sent");
+  assert.equal(docked.pilots.callLedger().some((each) => each.pair === "beyonce.CmdGotoPoint"), false, "and what was not sent is not counted");
 });
 
 test("a ship sent to a point is the pilot's last order: an approach its ball still shows is not held back after it; and a tag is no order to the ship", async () => {
@@ -8037,4 +8039,52 @@ test("a programme's yield is asked of the planet's object as the client asks it:
   await ask([ECU, 2267, [], 0.01], { why: 1 });
   assert.deepEqual([session.boundCalls.at(-1).args, session.boundCalls.at(-1).kwargs], [[ECU, 2267, [], 0.01], { why: 1 }]);
   assert.deepEqual(ledgerOf(pilots, "planetMgr.GetProgramResultInfo")[0], { reshaped: 2, differs: notTheClients.length + 1 });
+});
+
+// ── a ship aligned ───────────────────────────────────────────────────────────
+//
+// menusvc._AlignTo (2778 to 2793): bp = michelle.GetRemotePark(), and bp.CmdAlignTo(dstID=targetID,
+// bookmarkID=bookmarkID): nothing by position, a thing and no bookmark or a bookmark and no thing. Tranquility's two
+// recordings have it so, on the ballpark's bound object.
+
+test("a ship aligned by beyonce's name is aligned on the ballpark's own object, its two by name, and kept as an align on a handle is; docked, nothing is sent", async () => {
+  const hand = handTicked();
+  const allowed = new Set(["beyonce.MachoBindObject", "beyonce.CmdAlignTo"]);
+  const built = build(IN_SPACE, { ...hand.options, allowed });
+  const { bridgeSessionID: handle } = await built.pilots.selectCharacter([PILOT, null, true], null, FIELDS);
+  const { session } = built;
+  for (const update of recordedUpdates.slice(0, 5)) session.notify("DoDestinyUpdate", update.args);
+  hand.parks[0].tick();
+  const ship = async () => (await built.pilots.readSpaceSnapshot(handle)).space.ship;
+  const row = () => built.pilots.callLedger().find((each) => each.pair === "beyonce.CmdAlignTo");
+  assert.deepEqual([(await ship()).mode, (await ship()).alignTarget], ["GOTO", null]);
+
+  const toAThing = { dstID: 40009089, bookmarkID: null };
+  const sent = await built.pilots.callMethod("beyonce", "CmdAlignTo", [], toAThing, WHOSE, handle);
+  assert.deepEqual([sent.service, sent.method, sent.result], ["beyonce", "CmdAlignTo", null]);
+  assert.deepEqual(session.boundCalls.at(-1), { objectID: "N=1:1", method: "CmdAlignTo", args: [], kwargs: toAThing });
+  assert.equal(session.calls.some((call) => call.service === "beyonce" && call.method === "CmdAlignTo"), false, "nothing was asked of the service by name");
+  assert.deepEqual(row().statuses, { same: 1 });
+  // menusvc.StoreAlignTarget: what was aligned to is kept, for the HUD to name while the ship flies that course.
+  assert.deepEqual((await ship()).alignTarget, { itemID: 40009089, bookmark: false });
+
+  // A bookmark instead: the client's call too, and kept as one.
+  const toABookmark = { dstID: null, bookmarkID: 777 };
+  await built.pilots.callMethod("beyonce", "CmdAlignTo", [], toABookmark, WHOSE, handle);
+  assert.deepEqual(session.boundCalls.at(-1), { objectID: "N=1:1", method: "CmdAlignTo", args: [], kwargs: toABookmark });
+  assert.deepEqual((await ship()).alignTarget, { itemID: null, bookmark: true });
+  assert.deepEqual(row().statuses, { same: 2 });
+
+  // What is not the client's goes as it came, and is counted as not the client's.
+  await built.pilots.callMethod("beyonce", "CmdAlignTo", [40009089], null, WHOSE, handle);
+  assert.deepEqual([session.boundCalls.at(-1).args, session.boundCalls.at(-1).kwargs], [[40009089], null]);
+  assert.deepEqual(row().statuses, { same: 2, differs: 1 });
+  assert.deepEqual(hand.errors, []);
+
+  // Docked: _AlignTo finds no park and does nothing. Asked all the same, the call is refused here and not sent.
+  const docked = await selected({}, { allowed });
+  const sentBefore = docked.session.sent.length;
+  await assert.rejects(docked.pilots.callMethod("beyonce", "CmdAlignTo", [], toAThing, WHOSE, docked.handle), (error) => error.code === "CALL_REFUSED" && /in space/.test(error.message));
+  assert.equal(docked.session.sent.length, sentBefore, "nothing was sent");
+  assert.equal(docked.pilots.callLedger().some((each) => each.pair === "beyonce.CmdAlignTo"), false, "and what was not sent is not counted");
 });

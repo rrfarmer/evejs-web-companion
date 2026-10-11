@@ -1400,10 +1400,10 @@ function createGamePortPilots({
    * object everything in space is asked of. With no park, which is a pilot not in space, the client has nothing to
    * ask and asks nothing (menusvc.TagItem: `if bp:`); asked all the same, the call is refused here and not sent.
    */
-  async function parkCall(entry, method, args, kwargs) {
+  async function parkObject(entry) {
     const objectID = entry.space ? await entry.space.remote() : null;
     if (!objectID) throw fail("CALL_REFUSED", "The pilot has no ballpark to ask: it is not in space.");
-    return entry.session.callBound(objectID, method, args, kwargs);
+    return objectID;
   }
 
   /** A service's own method: at the proxy node for a service the client reaches with sm.ProxySvc, by the name alone for any other. */
@@ -1540,6 +1540,9 @@ function createGamePortPilots({
     // What the client's skill services keep is noted where it is asked for, which is not every time it is wanted (skillRead).
     const keptByAService = (service === SKILL_HANDLER && (Object.hasOwn(SKILL_KEPT, method) || isSkillQueueRead(method, form.args, form.kwargs))) ||
       (service === CORP_REGISTRY && method === AGGRESSION_SETTINGS);
+    // A call on the park is made on the park's own object. With no park it is refused here, before it is counted:
+    // nothing is sent, and the ledger is of what was asked.
+    const park = service === "beyonce" && ON_THE_PARK.has(method) ? await run(entry, service, method, () => parkObject(entry)) : null;
     if (!keptByAService) {
       ledger.note(service, method, ON_AN_ANSWERED_OBJECT.has(`${service}.${method}`)
         ? { ...form, status: "differs", note: "Asked of the service by its name. The client asks the object another call answered." }
@@ -1548,7 +1551,7 @@ function createGamePortPilots({
     // A call the client makes on a service's moniker is made on the object bound for where the pilot is.
     const result = await run(entry, service, method, async () => (form.moniker
       ? monikerCall(entry, service, method, argumentsToWire(form.args), form.kwargs)
-      : service === "beyonce" && ON_THE_PARK.has(method) ? parkCall(entry, method, argumentsToWire(form.args), form.kwargs)
+      : park !== null ? entry.session.callBound(park, method, argumentsToWire(form.args), form.kwargs)
       : byName(entry.session, service, method, form))).finally(() => {
       forgetKeptAfter(entry, service, method);
       if (mayChangeContents(service, method)) entry.listings.forget();
@@ -1567,7 +1570,7 @@ function createGamePortPilots({
     // clientDogmaLocation's grouping calls (763 to 803): once one is answered, the client's own banks are the answer's.
     if (service === "dogmaIM") afterGroupingCall(entry, method, form.args, result);
     // An order to the ship made on the park's object is the pilot's last order, as one made on a handle is.
-    if (service === "beyonce" && ON_THE_PARK.has(method)) afterMovementCall(entry, method, form.args, form.kwargs);
+    if (park !== null) afterMovementCall(entry, method, form.args, form.kwargs);
     return {
       service,
       method,

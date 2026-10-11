@@ -277,14 +277,17 @@ function chatHarness(
     };
   }
 
-  const fakeFetch = (async (input: unknown) => {
+  const fakeFetch = (async (input: unknown, init?: { body?: unknown }) => {
     const path = String(input);
     calls.push(path);
+    // A call the page makes itself is said by its name and what it went with, beside its path.
+    const asked = path === "/api/bridge/call" && typeof init?.body === "string" ? JSON.parse(init.body) : null;
+    if (asked !== null) calls.push(`${asked.service}.${asked.method} ${JSON.stringify([asked.args, asked.kwargs, asked.pilot, asked.confirm])}`);
     return {
       ok: true,
       status: 200,
       async json() {
-        return respond(path);
+        return asked !== null ? { ok: true, service: asked.service, method: asked.method, result: null, notifications: [] } : respond(path);
       },
     };
   }) as unknown as typeof fetch;
@@ -309,7 +312,6 @@ function chatHarness(
         },
       };
     }
-    if (path === "/api/bridge/flight/align") return { ok: true, flight: null, notifications: [] };
     return { ok: true };
   }
 
@@ -625,7 +627,7 @@ test("a chat order older than FLEET_BROADCAST_TTL_MS does not reach the loop", a
 
   assert.ok(calls.includes("/api/bridge/chat/local"), "the read itself still happens");
   assert.ok(
-    !calls.includes("/api/bridge/flight/align"),
+    !calls.some((each) => each.startsWith("beyonce.CmdAlignTo") || each === "/api/bridge/flight/align"),
     "a chat order past its TTL must not be obeyed -- a lapsed order is exactly as stale as a lapsed broadcast",
   );
   assert.equal(
@@ -648,16 +650,23 @@ test("a chat order inside FLEET_BROADCAST_TTL_MS reaches the loop and is obeyed"
   await flow.startFleetCompanion(request);
   await waitForCompanionTick(() => store.get().companion.why);
 
-  assert.ok(
-    calls.includes("/api/bridge/flight/align"),
-    "a fresh chat order must reach the loop and be obeyed",
-  );
-  assert.equal(
-    store.get().companion.followingOrderFrom,
-    "chat",
-    "and the readout must attribute it to chat, not the fleet's own ladder",
-  );
-  flow.stopFleetCompanion();
+  // Obeyed by the page's own call, the client's (menusvc.py 2790), as a pilot's write the page means; and never
+  // by the route it went by until 2026-10-11.
+  // (The companion is stopped whatever the checks find: one that failed left it ticking, and the file's process
+  // never ended.)
+  try {
+    const aligns = calls.filter((each) => each.startsWith("beyonce.CmdAlignTo"));
+    assert.ok(aligns.length > 0, "a fresh chat order must reach the loop and be obeyed");
+    for (const each of aligns) assert.match(each, /^beyonce\.CmdAlignTo \[\[\],\{"dstID":\d+,"bookmarkID":null\},true,true\]$/);
+    assert.equal(calls.includes("/api/bridge/flight/align"), false, "the route is not asked");
+    assert.equal(
+      store.get().companion.followingOrderFrom,
+      "chat",
+      "and the readout must attribute it to chat, not the fleet's own ladder",
+    );
+  } finally {
+    flow.stopFleetCompanion();
+  }
 });
 
 // --- the tagging gate: the flow feeds canTagInFleet the right row, and the --

@@ -3766,3 +3766,26 @@ test("crimewatch's states that cannot be read are an error, and a pilot not chos
   const { response, payload } = await apiRequest(baseUrl, "/api/bridge/crimewatch");
   assert.deepEqual([response.ok, payload.ok, "clientStates" in payload], [false, false, false], JSON.stringify(payload));
 });
+
+test("a ship aligned is a write of the page's own, asked of beyonce by its name with the thing and the bookmark by name: it goes as it was sent", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  // menusvc.py 2790: bp.CmdAlignTo(dstID=targetID, bookmarkID=bookmarkID). Nothing by position.
+  const kwargs = { dstID: 40009089, bookmarkID: null };
+  const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "beyonce", method: "CmdAlignTo", args: [], kwargs, ...more } });
+  const before = gateway.calls.call.length;
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await call(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  // The ballpark is the session's own, of which it has one: the call names none.
+  const named = await call({ pilot: true, confirm: true, of: 30000142 });
+  assert.deepEqual([named.response.status, named.payload.error], [400, "INVALID_REQUEST"]);
+  assert.equal(gateway.calls.call.length, before);
+  const made = await call({ pilot: true, confirm: true });
+  assert.deepEqual([made.response.status, made.payload.service, made.payload.method], [200, "beyonce", "CmdAlignTo"]);
+  const sent = gateway.calls.call.at(-1);
+  assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["beyonce", "CmdAlignTo", [], kwargs, BRIDGE_SESSION_ID, { userid: 4 }]);
+  assert.equal(gateway.calls.call.length, before + 1);
+});

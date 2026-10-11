@@ -2153,3 +2153,47 @@ test("a ship left is the client's call when it names the ship the pilot is in, f
     assert.match(refused.note, note, why);
   }
 });
+
+test("an align is the client's call when it names a thing or a bookmark by name, one of the two and not the other, and not the pilot's own ship", () => {
+  // menusvc.py 2790: bp.CmdAlignTo(dstID=targetID, bookmarkID=bookmarkID), on the ballpark's object. _AlignTo
+  // (2784 to 2787) sets one of the two and None for the other; AlignTo (2771) does nothing for session.shipid.
+  const flying = { shipID: 5000 };
+  const ask = (args, kwargs, context = flying) => retailForm("beyonce", "CmdAlignTo", args, kwargs, context);
+  for (const kwargs of [{ dstID: 40009089, bookmarkID: null }, { dstID: null, bookmarkID: 777 }, { bookmarkID: null, dstID: 9988400023309 }]) {
+    const made = ask([], kwargs);
+    assert.deepEqual([made.status, made.source, made.args, made.kwargs, made.moniker, made.proxy], ["same", "eve/client/script/ui/services/menusvc.py:2790", [], kwargs, false, false], JSON.stringify(kwargs));
+  }
+  for (const [args, kwargs, why, note] of [
+    [[], null, "nothing", /by name/],
+    [[40009089], null, "a thing by position", /by name/],
+    [[40009089], { dstID: 40009089, bookmarkID: null }, "a thing by position beside the two", /by name/],
+    [[], { dstID: 40009089 }, "no bookmark named", /by name/],
+    [[], { bookmarkID: 777 }, "no thing named", /by name/],
+    [[], { dstID: 40009089, bookmarkID: 777 }, "both a thing and a bookmark", /by name/],
+    [[], { dstID: null, bookmarkID: null }, "neither", /by name/],
+    [[], { dstID: 40009089, bookmarkID: null, range: 1 }, "a third keyword", /by name/],
+    [[], { dstID: 40009089, range: 1 }, "another keyword in the bookmark's place", /by name/],
+    [[], { dstID: 0, bookmarkID: null }, "no thing", /by name/],
+    [[], { dstID: -40009089, bookmarkID: null }, "a thing below nought", /by name/],
+    [[], { dstID: "40009089", bookmarkID: null }, "a thing as text", /by name/],
+    [[], { dstID: 40009089.5, bookmarkID: null }, "half a thing", /by name/],
+    [[], { dstID: 2 ** 53, bookmarkID: null }, "a thing too large to be held exactly", /by name/],
+    [[], { dstID: null, bookmarkID: 2 ** 53 }, "a bookmark too large to be held exactly", /by name/],
+    [[], { dstID: 40009089, bookmarkID: 0 }, "a thing, and a bookmark of nought", /by name/],
+    [[], { dstID: null, bookmarkID: 0 }, "no bookmark", /by name/],
+    [[], { dstID: null, bookmarkID: "777" }, "a bookmark as text", /by name/],
+    [[], { dstID: 0, bookmarkID: 777 }, "a bookmark, and a thing of nought", /by name/],
+    [[], { dstID: 5000, bookmarkID: null }, "the pilot's own ship", /own ship/],
+  ]) {
+    const refused = ask(args, kwargs);
+    assert.deepEqual([refused.status, refused.args, refused.kwargs], ["differs", args, kwargs], why);
+    assert.match(refused.note, note, why);
+  }
+  // A bookmark whose number is the ship's is a bookmark: only a thing is held against the pilot's ship.
+  assert.equal(ask([], { dstID: null, bookmarkID: 5000 }).status, "same");
+  // Where the session's ship is not known (through the web gateway), it is not held against the call.
+  for (const context of [{}, { shipID: null }, { shipID: undefined }]) {
+    assert.equal(ask([], { dstID: 5000, bookmarkID: null }, context).status, "same");
+    assert.equal(ask([], { dstID: null, bookmarkID: 777 }, context).status, "same");
+  }
+});

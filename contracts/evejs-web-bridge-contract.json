@@ -1095,6 +1095,7 @@
   "boundary": {
     "genericBridgeAllowsWrites": true,
     "genericBridgeWrites": [
+      "beyonce.CmdAlignTo",
       "beyonce.CmdFleetTagTarget",
       "beyonce.CmdGotoPoint",
       "contractProxy.AcceptContract",
