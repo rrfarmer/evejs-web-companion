@@ -294,3 +294,39 @@ test("it needs a live session, and a web login", async () => {
   assert.equal(anonymous.response.status, 401);
   assert.equal(slashCalls(gateway).length, 0);
 });
+
+// ── the page's own call ──────────────────────────────────────────────────────
+//
+// The console's command is one of the writes the page makes itself: slash.SlashCmd by the generic call, as a
+// pilot's call the page says it means. What the route checked of the line, the page checks before it asks.
+
+test("a GM command by the page's own call is a write the page means: refused without both words, and sent verbatim with them", async () => {
+  const gateway = fakeGateway({ result: "Gave 5000 x Phased Plasma S." });
+  const baseUrl = await startTestServer(gateway);
+  await selectOnServer(baseUrl);
+  const command = "/giveitem Phased Plasma S 5000";
+  const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "slash", method: "SlashCmd", args: [command], kwargs: null, ...more } });
+
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await call(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  assert.equal(slashCalls(gateway).length, 0, "nothing reaches the world unmeant");
+
+  const made = await call({ pilot: true, confirm: true });
+  // The generic call's own answer, with the world's reply as it came; none of the route's envelope.
+  assert.deepEqual([made.response.status, made.payload.ok, made.payload.service, made.payload.method, made.payload.result, made.payload.applied],
+    [200, true, "slash", "SlashCmd", "Gave 5000 x Phased Plasma S.", undefined]);
+  // sm.RemoteSvc('slash').SlashCmd(line): the one line, on the pilot's own session, once.
+  assert.deepEqual(slashCalls(gateway).map((each) => [each.service, each.args, each.kwargs, each.bridgeSessionID]), [["slash", [command], null, BRIDGE_SESSION_ID]]);
+});
+
+test("the page's own GM command needs a pilot held, as its route did", async () => {
+  const gateway = fakeGateway();
+  const baseUrl = await startTestServer(gateway);
+
+  const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "slash", method: "SlashCmd", args: ["/gmships"], kwargs: null, pilot: true, confirm: true } });
+
+  assert.deepEqual([refused.response.status, refused.payload.error], [409, "NO_LIVE_SESSION"]);
+  assert.equal(slashCalls(gateway).length, 0);
+});

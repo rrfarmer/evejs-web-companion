@@ -1117,7 +1117,8 @@
       "ship.LeaveShip",
       "skillHandler.AbortTraining",
       "skillHandler.ApplyFreeSkillPoints",
-      "skillHandler.SaveNewQueue"
+      "skillHandler.SaveNewQueue",
+      "slash.SlashCmd"
     ],
     "browserSessionFields": [
       "languageID",

@@ -4520,29 +4520,10 @@ export async function scoopDrones(
 // was handed; it holds both calls to where the session is now.
 
 // --- The GM console -----------------------------------------------------------
-
-/**
- * Run one of this world's own chat commands (slash.SlashCmd).
- *
- * ⚠⚠ DEV-ONLY, AND IT REACHES EVERYTHING. ~150 commands, including destructive
- * ones (/suicide), world-spawning ones (/npc) and the item-granting ones this
- * exists for (/giveitem, /gmships, /gmweapons, /giveskill). eve.js applies no
- * role gate to any of them; the BFF's confirmation is the only gate.
- *
- * The command goes VERBATIM — this is an operator's console, and a client that
- * curated the command list would be a worse, staler copy of the server's own.
- * The reply is the server's own message, INCLUDING its failures: eve.js catches
- * a bad command and returns "Command failed: …" rather than throwing, so a
- * refusal arrives as an ordinary success with a sentence in it. Callers must
- * render that sentence rather than reading the 200 as "it worked".
- */
-export async function runGmCommand(
-  command: string,
-  options: ApiOptions = {},
-): Promise<string> {
-  const data = await postJson("/api/bridge/gm/slash", { command, confirm: true }, options);
-  return typeof data.result === "string" ? data.result : "";
-}
+//
+// A GM's command is the page's own call of the slash service
+// (bridge/gmWrites.ts; the plan's Phase 6b): it left its route
+// (POST /api/bridge/gm/slash) on 2026-10-10.
 
 /** The repair shop's quote for these items: which of them it lists as damaged. */
 export async function getRepairQuotes(

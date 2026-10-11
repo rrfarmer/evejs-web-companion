@@ -381,6 +381,29 @@ test("an approach, the speed set before the autopilot's, and a GM's command are 
   assert.match(RETAIL_CALLS["beyonce.CmdSetSpeedFraction"].note, /send none before theirs, and on the game port the BFF's routes send none either; through the gateway they do/);
 });
 
+test("a GM's command is the client's call with its one line of text, and nothing else", () => {
+  // menusvc.py's GM entries (834 and its neighbours) and svc_slash.py 522: sm.RemoteSvc('slash').SlashCmd(line).
+  // The client's own slash service asks the bare stroke once, for the server's list of commands (470).
+  const ask = (args, kwargs = null) => retailForm("slash", "SlashCmd", args, kwargs, {});
+  for (const line of ["/giveskill me 3386 3", "/", ".container1"]) {
+    const made = ask([line]);
+    assert.deepEqual([made.status, made.args, made.kwargs, made.moniker], ["same", [line], null, false], line);
+  }
+  for (const [args, kwargs, why] of [
+    [[], null, "no line"],
+    [["/heal", "local"], null, "a second argument"],
+    [[""], null, "an empty line"],
+    [[42], null, "a number"],
+    [[null], null, "nothing"],
+    [[["/heal"]], null, "a list of one line"],
+    [["/heal"], { channelID: 1 }, "a keyword"],
+  ]) {
+    const odd = ask(args, kwargs);
+    assert.deepEqual([odd.status, odd.args, odd.kwargs], ["differs", args, kwargs], why);
+    assert.match(odd.note, /one line of text/, why);
+  }
+});
+
 test("targeting, onlining, scooping and boarding a ship are the client's calls as they stand", () => {
   for (const [pair, args, where] of [
     ["dogmaIM.GetTargets", [], /godma\.py:2361$/],

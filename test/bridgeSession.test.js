@@ -1089,7 +1089,7 @@ test("a write is made by the generic call only as the page makes one: a pilot's,
     assert.deepEqual(refusedAsARoutes(await call("skillHandler", "AbortTraining", more)), [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
   }
   // A write that is not one of the page's own: refused, whatever is said.
-  for (const [service, method] of [["skillHandler", "ExtractSkills"], ["skillMgr", "SaveNewQueue"], ["marketProxy", "PlaceBuyOrder"], ["mailMgr", "DeleteMail"], ["slash", "SlashCmd"]]) {
+  for (const [service, method] of [["skillHandler", "ExtractSkills"], ["skillMgr", "SaveNewQueue"], ["marketProxy", "PlaceBuyOrder"], ["mailMgr", "DeleteMail"], ["ship", "Eject"]]) {
     assert.deepEqual(refusedAsARoutes(await call(service, method, { pilot: true, confirm: true })), [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${service}.${method}`);
   }
   assert.deepEqual([gateway.calls.call.length, accountCalls], [before, []]);

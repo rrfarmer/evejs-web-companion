@@ -211,6 +211,10 @@ const oneLaunch = (args, kwargs) => (args.length === 1 && Number.isSafeInteger(a
   : { status: "differs", note: "The client names the one launch and nothing else: DeleteLaunch(launchID)." });
 /** A judge for a call the client sends with nothing: no argument, and no keyword. */
 const sentWithNothing = (args, kwargs) => (args.length === 0 && Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "The client sends nothing with this call." });
+/** menusvc.py's GM entries and svc_slash.py 522: sm.RemoteSvc('slash').SlashCmd(line), the one line of text. */
+const aSlashCommand = (args, kwargs) => (args.length === 1 && typeof args[0] === "string" && args[0] !== "" && Object.keys(kwargs).length === 0
+  ? {}
+  : { status: "differs", note: "The client sends the command's one line of text, and nothing else." });
 const reshaped = (source, shape, note) => Object.freeze({ status: "reshaped", source, shape, note });
 const differs = (source, note) => Object.freeze({ status: "differs", source, note });
 /** Same or differs, depending on what the call carries: `judge` answers { status, note }. */
@@ -1374,7 +1378,7 @@ const RETAIL_CALLS = Object.freeze({
   "ship.LeaveShip": judged(`${STATION_SVC}:248`, leavingTheShip, "station.TryLeaveShip: gameui.GetShipAccess().LeaveShip(shipid), for the ship the pilot is in and no other, docked; from the item's menu and before a clone jump. In a structure, structureDocking.LeaveShip makes the same call and then makes the capsule it answers active. In space the menu ejects. In no recording."),
   "dogmaIM.CreateNewbieShip": judged(`${STATION_SVC}:613`, boardingACorvette, "station.CreateNewbieShip: sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID), by the service's name, for the ship the pilot is in and where it is docked (session.stationid or session.structureid). The client asks the pilot first unless it is in a capsule, and refuses by itself aboard a corvette. From the lobby's corvette button and no other place. In no recording."),
   "ship.Board": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:209", "GetShipAccess().Board(shipID, session.shipid or session.stationid), through sessionMgr.PerformSessionChange('board', ...). Recorded on Tranquility in space as (shipID, the ship left), the bind carrying it."),
-  "slash.SlashCmd": same("eve/client/script/ui/services/menusvc.py:834", "RemoteSvc('slash').SlashCmd(command), by name: what the client's GM menus send. No recording has one."),
+  "slash.SlashCmd": judged("eve/client/script/ui/services/menusvc.py:834", aSlashCommand, "RemoteSvc('slash').SlashCmd(line), by name, with the one line of text: what the client's GM menus send, and what its own slash service sends for a line typed in chat once its aliases are worked out (svc_slash.py 520 to 523). No recording has one."),
   "ship.GetShipConfiguration": reshaped(`${SHIP_CONFIG}:51`, configuration, "GetShipAccess().GetShipConfiguration(shipID)"),
 });
 

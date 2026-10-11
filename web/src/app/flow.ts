@@ -351,6 +351,7 @@ import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
 import { boardCorvette as boardCorvetteCall, leaveShip as leaveShipCall } from "../bridge/shipWrites.ts";
 import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/officeWrites.ts";
+import { runSlashCommand } from "../bridge/gmWrites.ts";
 import { launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
 import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
@@ -6227,7 +6228,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * of the call.
    */
   async function runGmCommand(command: string): Promise<string> {
-    const reply = await api.runGmCommand(command, callOptions);
+    // The page's own call (bridge/gmWrites.ts): the line as it was typed, to the slash service.
+    const reply = await runSlashCommand(bridgeDo, command);
     await Promise.allSettled([
       loadInventory().catch(() => {}),
       loadFitting().catch(() => {}),
