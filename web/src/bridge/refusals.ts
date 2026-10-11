@@ -31,7 +31,9 @@
 //      (Handle_CreateNewbieShip was listed with them and was never one: the
 //      Station panel's "Board corvette" has always reached it. Its three are
 //      in the table since 2026-10-10.)
-//   3. That leaves the 30 bare codes and 2 localization labels in
+//      (officeManager's RentOffice is the page's own call since the same day,
+//      and its NotEnoughMoney is in the table with them.)
+//   3. That leaves the 31 bare codes and 2 localization labels in
 //      SERVER_REFUSALS. The list is asserted in refusals.test.ts.
 //
 // ── HOW A REFUSAL ARRIVES ──────────────────────────────────────────────────
@@ -202,6 +204,13 @@ const SERVER_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
   // read that went stale between the fit calc and the move).
   NotEnoughCargoSpace:
     "There isn't enough room in that hold.",
+  // officeManager Handle_RentOffice — the corporation's wallet holds less than
+  // the rent. The server names the amount and the balance beside the key; what
+  // reaches the page is the key alone (measured 2026-10-10), so the sentence
+  // names neither, and says "the wallet that pays" because other handlers
+  // throw the same key for a pilot's own.
+  NotEnoughMoney:
+    "There is not enough ISK in the wallet that pays for that.",
   // dogma `_throwModuleActivationUserError` — TARGET_OUT_OF_RANGE for anything
   // that is not a mining laser — and `_throwTargetingUserError` for a lock on
   // something beyond the ship's own targeting range. The sentence is true of
@@ -720,7 +729,11 @@ export function panelErrorWords(cause: unknown): string {
       ? String((cause as { diagnosis?: unknown }).diagnosis)
       : "";
   if (code !== "") {
-    const words = describeRefusal(code).text;
+    // CALL_REFUSED is the envelope a server's refusal comes in and never a reason itself (it has no sentence, by
+    // design): the reason is its message, a key the table words or the server's own sentence. Every other code
+    // is its own reason, and its message is for a console.
+    const raw = code === "CALL_REFUSED" && cause instanceof Error ? `${code}: ${cause.message}` : code;
+    const words = describeRefusal(raw).text;
     return diagnosis === "" ? words : `${words} ${diagnosis}`;
   }
   // Not one of ours — a decode blowing up, say. Its own message is all there is,

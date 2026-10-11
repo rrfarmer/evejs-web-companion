@@ -77,6 +77,8 @@ const EVEJS_REFUSAL_VOCABULARY: readonly string[] = [
   "NotEnoughCapacitorForOnline",
   // invbroker Add/MultiAdd — reachable via the docked hangar→ship-hold move.
   "NotEnoughCargoSpace",
+  // officeManager Handle_RentOffice — reachable from the Station panel's "Rent it and pay".
+  "NotEnoughMoney",
   "TargetNotWithinRangeGeneric",
   "TargetTooFar",
   "TargetingAttemptCancelled",

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 
 import { createAppFlow } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
+import { panelErrorWords } from "../bridge/refusals.ts";
 
 const PILOT = 140000003;
 const CORPORATION = 98000001;
@@ -25,7 +26,7 @@ interface PushSource {
 /** A docked pilot online with its live channel open. `answer` is what the offices read answers now; `hold` keeps an answer back until it is let go. */
 async function docked() {
   const store = createClientStore();
-  const state: { answer: unknown; fail: boolean; hold: Promise<void> | null; flight: unknown; price: unknown; refuse: string | null } = {
+  const state: { answer: unknown; fail: boolean; hold: Promise<void> | null; flight: unknown; price: unknown; refuse: string | null; refusal: { status: number; error: string; message: string } | null } = {
     answer: { ok: true, available: true, stationID: STATION, corporationIDs: [98000000, 98000003], freeOffices: 17 },
     fail: false,
     hold: null,
@@ -34,6 +35,8 @@ async function docked() {
     // What the station's office manager answers for a price.
     price: 10000,
     refuse: null,
+    // A call the server refuses, as the BFF hands the refusal on.
+    refusal: null,
   };
   let reads = 0;
   const sent: Array<[string, unknown]> = [];
@@ -61,7 +64,10 @@ async function docked() {
       answer = { ok: true, flight: state.flight, notifications: [] };
     } else if (path === "/api/bridge/call" && body.service === "officeManager") {
       sent.push([body.method, body]);
-      if (state.refuse) {
+      if (state.refusal) {
+        status = state.refusal.status;
+        answer = { ok: false, error: state.refusal.error, message: state.refusal.message };
+      } else if (state.refuse) {
         status = 502;
         answer = { ok: false, error: "EVE_GATEWAY_CALL_FAILED", message: state.refuse };
       } else {
@@ -271,4 +277,16 @@ test("the page asks the office manager nothing where the client's lobby has no b
   structure.state.flight = { inSpace: true, docked: false, stationID: null, structureID: null, solarSystemID: 30000142, shipID: 9001 };
   await assert.rejects(structure.flow.giveUpStationOffice(), /while docked/);
   assert.deepEqual([unlisted.sent, noRole.sent, structure.sent], [[], [], []]);
+});
+
+test("a rent the corporation's wallet cannot pay is said in the panel's own words for that refusal", async () => {
+  const { flow, state } = await docked();
+  state.answer = mayDoBoth(false);
+  await flow.loadStationOffices();
+  // As the game port's BFF answered one, measured 2026-10-10: the server's key and nothing beside it.
+  state.refusal = { status: 409, error: "CALL_REFUSED", message: "NotEnoughMoney" };
+  let caught: unknown = null;
+  await flow.rentStationOffice({ cost: 10000, days: 30, quoted: 10000 }).catch((error: unknown) => { caught = error; });
+  // The Station panel says a failed press with panelErrorWords (StationPanel.svelte, run).
+  assert.equal(panelErrorWords(caught), "There is not enough ISK in the wallet that pays for that.");
 });
