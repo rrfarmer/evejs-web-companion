@@ -767,6 +767,16 @@ Take these defaults, and list each under "For the operator" in the log so they c
   <account> <characterID> [space] [<other account> <other characterID>]` damages, quotes,
   repairs and reads the wallet; with `space` it then asks from space; with another pilot
   it asks a quote for that pilot's ship. Test Pilot's Reaper costs 615.41 ISK after it.
+- **A stand-in that says only the names of what was asked cannot say what a call went
+  with.** The fleet's test helper logged `service.method`; a forced leaving sent with the
+  page's arguments passed it. Where a breakage of what a call carries is not caught, look
+  at what the stand-in keeps before adding a row.
+- **A choice the route made by what the pilot's connection holds stays the BFF's.** The
+  page asks the client's first call; the BFF makes it, or the one the client makes in
+  its place, by the route's own function, and answers as the call that was asked
+  (`leaveFleetCall`). `flv-live.js <bff> <account> <characterID>` forms a fleet and
+  leaves it; the Fleet window's "Form fleet" and "Leave fleet" each ask with the
+  browser's own box.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in
