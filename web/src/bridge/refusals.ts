@@ -32,8 +32,9 @@
 //      Station panel's "Board corvette" has always reached it. Its three are
 //      in the table since 2026-10-10.)
 //      (officeManager's RentOffice is the page's own call since the same day,
-//      and its NotEnoughMoney is in the table with them.)
-//   3. That leaves the 31 bare codes and 2 localization labels in
+//      and its NotEnoughMoney is in the table with them. So is a fleet's
+//      leaving, on the fleet's object, and its FleetNotInFleet.)
+//   3. That leaves the 32 bare codes and 2 localization labels in
 //      SERVER_REFUSALS. The list is asserted in refusals.test.ts.
 //
 // ── HOW A REFUSAL ARRIVES ──────────────────────────────────────────────────
@@ -183,6 +184,11 @@ const SERVER_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
   // which a bare panel read does not hold).
   FakeItemNotFound:
     "That ship or container is no longer there, or is too far away to reach.",
+  // fleetObjectHandler Handle_LeaveFleet (ensureFleetMembership) — the pilot is
+  // no member of the fleet the object is for: it was left, or the pilot was
+  // put out of it, since the page last read it.
+  FleetNotInFleet:
+    "You are not in that fleet.",
   // dogma `_throwModuleActivationUserError` — MODULE_REACTIVATING.
   ModuleReactivationDelayed2:
     "That module is still cooling down from its last cycle. Give it a moment.",

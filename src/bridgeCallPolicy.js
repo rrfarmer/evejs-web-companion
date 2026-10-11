@@ -260,8 +260,15 @@ function isBridgeWritePair(service, method) {
  *                                and modules paid for in part.
  *   repairSvc.RepairItemsInStructure  the same in a structure, where nothing is paid. The handler asks for the
  *                                structure's repair service for itself.
+ *   fleetObjectHandler.LeaveFleet  the pilot's fleet left, on the fleet's own object. The route checked
+ *                                `confirm`; asked the object where the pilot's connection holds one, and
+ *                                fleetMgr's ForceLeaveFleet where it holds none; and kept none of the BFF's
+ *                                handles for the fleet after, whatever came of it. The handler takes nothing:
+ *                                it takes the session's own character out of the fleet the object is for,
+ *                                and refuses one who is no member of it. It is made as the route made it
+ *                                (PAGE_OBJECT_CALLS, "fleet").
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure", "fleetObjectHandler.LeaveFleet"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);
@@ -312,18 +319,25 @@ function swapsThePilotsShip(service, method) {
  *                                   There is nothing to say which: such a call takes no `of`, and with one is no
  *                                   call. The handler takes nothing from the caller and answers for the session's
  *                                   own system.
+ *   fleetObjectHandler.LeaveFleet   "fleet": a WRITE, the pilot's fleet left (fleetSvc.LeaveFleet, 365 to 371). The
+ *                                   object is the fleet service's self.fleet: what CreateFleet answered, or the
+ *                                   Moniker that accepted an invite. A session is in one fleet, so the call names
+ *                                   none. Where the pilot's connection holds no such object the client asks
+ *                                   fleetMgr's ForceLeaveFleet by name instead, and so does the BFF in this
+ *                                   call's place: only it knows which the connection holds (src/server.js,
+ *                                   leaveFleetCall).
  *
  * A write among them is one of the page's own writes. A read is listed here only once its handler has been read
  * for what it takes from the caller: a planet's reads once answered with another owner's colony.
  */
-const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet", "planetMgr.UserLaunchCommodities": "planet", "planetMgr.GetProgramResultInfo": "planet", "scanMgr.GetFullState": "scanManager" });
-/** The objects there are many of, which a call says which of with `of`. A scan manager is the session's own. */
+const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet", "planetMgr.UserLaunchCommodities": "planet", "planetMgr.GetProgramResultInfo": "planet", "scanMgr.GetFullState": "scanManager", "fleetObjectHandler.LeaveFleet": "fleet" });
+/** The objects there are many of, which a call says which of with `of`. A scan manager and a fleet are the session's own. */
 const OBJECTS_THE_PAGE_NAMES = Object.freeze(new Set(["planet"]));
 for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
   if (bridgeWritePairKeySet.has(pair) && !pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's calls on an object, is a write, and is none of the page's writes.`);
 }
 
-/** What the object of this call of the page's is ("planet", "scanManager"), or null where it is made on none. */
+/** What the object of this call of the page's is ("planet", "scanManager", "fleet"), or null where it is made on none. */
 function objectOfPageCall(service, method) {
   if (typeof service !== "string" || typeof method !== "string") return null;
   // (A pair has a full stop in it, and nothing an object has of itself is named so.)

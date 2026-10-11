@@ -37,9 +37,8 @@ import {
  * deliberately absent, and their absence is the assertion:
  * Handle_InitiateModuleRepair (NotEnoughRepairMaterialToFinishAllRepairs),
  * the overload path (DontHaveThermoDynamicsSkill), the probe-launch and
- * warp-disrupt-field-generator paths, Handle_Scoop (ShpScoopSecureCC) and the
- * fleet-bridge helpers (FleetNotInFleet) are all real UserError sites behind
- * methods this client cannot call. (NotEnoughCargoSpace WAS here too, until the
+ * warp-disrupt-field-generator paths and Handle_Scoop (ShpScoopSecureCC) are
+ * all real UserError sites behind methods this client cannot call. (NotEnoughCargoSpace WAS here too, until the
  * docked hangar→ship-hold move made invbroker's copy of it reachable.)
  *
  * If eve.js widens the allowlist, this test fails and the table gets an entry —
@@ -72,6 +71,8 @@ const EVEJS_REFUSAL_VOCABULARY: readonly string[] = [
   "EffectCrowdedOut",
   // invbroker Handle_GetInventoryFromId — reachable on every cargo/bay bind.
   "FakeItemNotFound",
+  // fleetObjectHandler Handle_LeaveFleet (ensureFleetMembership) — reachable from the Fleet window's "Leave fleet".
+  "FleetNotInFleet",
   "ModuleReactivationDelayed2",
   "NoCharges",
   "NotEnoughCapacitorForOnline",

@@ -1034,6 +1034,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "scanManager"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => systemScanCall(
         heldBridgeSession, req.webSessionID, body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      // (And the pilot's fleet left, as its route leaves it: on the fleet's object, or of fleetMgr where none is
+      // held. Answered as the call that was asked.)
+      : objectKind === "fleet"
+      ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => leaveFleetCall(
+        heldBridgeSession, req.webSessionID, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)), service: body.service, method: body.method }
       // (A write the gateway's list has under another name is asked by that name there, and answered as the call
       // that was asked: bridgeCallPolicy.js, gatewaysNameFor.)
       : write
@@ -9603,9 +9608,27 @@ app.post("/api/bridge/fleet/advert/update", requireAuth, async (req, res, next) 
 
 // fleetMgr fleet-management WRITES -------------------------------------------
 
-// Leave the session char's fleet (no args). fleetSvc.LeaveFleet (365): self.fleet.LeaveFleet(), on the fleet's
-// own object, where the client holds one; fleetMgr's ForceLeaveFleet only where it holds none. The game port says
-// whether the object is held (pilots.js fleet); the gateway's session cannot, and asks fleetMgr as it always did.
+/**
+ * The pilot's fleet left, as the client's fleet service leaves one (fleetSvc.LeaveFleet, 365 to 371):
+ * self.fleet.LeaveFleet(), on the fleet's own object, where the client holds one; fleetMgr's ForceLeaveFleet only
+ * where it holds none. The game port says whether the object is held (pilots.js fleet); the gateway's session
+ * cannot, and asks fleetMgr as it always did. Whatever comes of it, none of the BFF's handles for the fleet is
+ * kept: the write may have been made before a failure was heard of.
+ */
+async function leaveFleetCall(held, webSessionID, args = [], kwargs = null) {
+  try {
+    const own = gamePortPilots && isGamePortHandle(held.bridgeSessionID) && typeof gamePortPilots.fleet === "function"
+      ? gamePortPilots.fleet({ userid: held.accountID }, held.bridgeSessionID)
+      : null;
+    return own && own.holdsObject === true
+      ? await boundCall(held, webSessionID, fleetBindSpec(), "LeaveFleet", args, kwargs)
+      : await heldTopLevelCall(held, webSessionID, "fleetMgr", "ForceLeaveFleet", [], null);
+  } finally {
+    invalidateFleetBoundHandles(held);
+  }
+}
+
+// Leave the session char's fleet (no args): leaveFleetCall, which the page's own call is made by too.
 app.post("/api/bridge/fleet/leave", requireAuth, async (req, res, next) => {
   if (!requireWriteConfirmation(req, res, "This removes you from your current fleet. Confirm to continue.")) {
     return;
@@ -9615,18 +9638,9 @@ app.post("/api/bridge/fleet/leave", requireAuth, async (req, res, next) => {
     return;
   }
   try {
-    const own = gamePortPilots && isGamePortHandle(held.bridgeSessionID) && typeof gamePortPilots.fleet === "function"
-      ? gamePortPilots.fleet({ userid: held.accountID }, held.bridgeSessionID)
-      : null;
-    const outcome = own && own.holdsObject === true
-      ? await boundCall(held, req.webSessionID, fleetBindSpec(), "LeaveFleet", [], null)
-      : await heldTopLevelCall(held, req.webSessionID, "fleetMgr", "ForceLeaveFleet", [], null);
-    invalidateFleetBoundHandles(held);
+    const outcome = await leaveFleetCall(held, req.webSessionID);
     res.json({ ok: true, applied: true, result: outcome.result ?? null, notifications: outcome.notifications });
   } catch (error) {
-    // The remote write may have committed before transport failure; never retain a
-    // membership-scoped handle across an uncertain outcome.
-    invalidateFleetBoundHandles(held);
     if (error && error.code === "SESSION_NOT_FOUND") forgetBridgeSession(req.webSessionID, held);
     next(error);
   }

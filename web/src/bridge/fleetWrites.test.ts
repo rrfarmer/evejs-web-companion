@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { applyToJoinFleet, createFleetBroadcasts, decodeFleetWriteAck, decodeFleetAdvertWriteAck, tagFleetTarget } from "./fleetWrites.ts";
+import { applyToJoinFleet, createFleetBroadcasts, decodeFleetWriteAck, decodeFleetAdvertWriteAck, leaveFleet, tagFleetTarget } from "./fleetWrites.ts";
 import type { Ask } from "./ask.ts";
 import type { JsonValue } from "./wire.ts";
 
@@ -182,4 +182,20 @@ test("⚠ the module says that the call coming back is not proof the tag was set
   const doc = source.slice(source.lastIndexOf("/**", start), start);
   assert.match(doc, /NOT PROOF/i);
   assert.match(doc, /targetTags/, "must point the caller at the re-read that does prove it");
+});
+
+// --- a fleet left -------------------------------------------------------------
+
+test("a fleet is left by one call on the fleet's own object, with nothing, and of no object the page names", async () => {
+  const { act, asked } = asking(true);
+
+  await leaveFleet(act);
+
+  // fleetSvc.LeaveFleet (369): self.fleet.LeaveFleet(). Tranquility's recording has it on the fleet's bound object,
+  // with an empty tuple.
+  assert.deepEqual(asked, [["fleetObjectHandler", "LeaveFleet", []]]);
+});
+
+test("a leaving the server refuses fails as the call fails", async () => {
+  await assert.rejects(leaveFleet(asking(new Error("FleetNotInFleet")).act), /FleetNotInFleet/);
 });

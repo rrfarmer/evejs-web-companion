@@ -207,3 +207,29 @@ export type { FleetAdvert };
 export async function tagFleetTarget(act: Ask, itemID: number, tag: string | null): Promise<void> {
   await act("beyonce", "CmdFleetTagTarget", [itemID, tag]);
 }
+
+// --- A fleet left (the plan's Phase 6b) --------------------------------------
+//
+// Until 2026-10-10 it was one route of the BFF (POST /api/bridge/fleet/leave).
+//
+// THE CALL, as the client makes it (fleetSvc.LeaveFleet, 365 to 371): self.fleet.LeaveFleet(), on the fleet's own
+// object, and then the service forgets the fleet (Clear). Tranquility's recording has it on the fleet's bound
+// object, with an empty tuple, and the session's fleet gone straight after. From the fleet's menu, from a kick of
+// the pilot's own character, and before an application to another fleet.
+//
+// THE OBJECT IS THE BFF'S TO FIND. A session is in one fleet, so the call names none (it takes no `of`). The
+// object is what CreateFleet answered or the Moniker that accepted an invite: the pilot's connection holds it,
+// and the page does not. Where the connection holds none for a fleet the session is in, the client asks
+// fleetMgr's ForceLeaveFleet by name instead (367); the BFF does the same in this call's place, since only it
+// knows which the connection holds (src/server.js, leaveFleetCall). Through the web gateway, whose session cannot
+// say, it is ForceLeaveFleet every time, as the route asked it there.
+//
+// WHAT THE SERVER TAKES FROM THE CALLER: nothing. It takes the session's own character out of the fleet, hands
+// the boss on where the boss left, and refuses one who is no member (FleetNotInFleet).
+//
+// ⚠ THE ANSWER IS NO PROOF OF ANYTHING. As with every fleet write here, the fleet is read again after.
+
+/** Leaves the fleet the pilot is in. Fails as the call fails. */
+export async function leaveFleet(act: Ask): Promise<void> {
+  await act("fleetObjectHandler", "LeaveFleet", []);
+}

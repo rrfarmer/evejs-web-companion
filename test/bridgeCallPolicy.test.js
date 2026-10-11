@@ -94,7 +94,7 @@ test("browser session projection retains only explicit language preferences", ()
 
 test("the writes the page makes itself are writes, each named once, and the first is the pause of training", () => {
   const { BRIDGE_WRITE_PAIR_KEYS, PAGE_WRITE_PAIR_KEYS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure"]);
+  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure", "fleetObjectHandler.LeaveFleet"]);
   // The repair shop's two repairs go by the server's own name through the gateway, whose list has no other; every
   // other call goes by its own.
   const { gatewaysNameFor } = require("../src/bridgeCallPolicy");
@@ -143,13 +143,17 @@ test("the page's calls that are made on an object of the service's own say what 
   assert.equal(objectOfPageCall("planetMgr", "GetProgramResultInfo"), "planet");
   // A write among them is one the page makes itself; a read among them is no write of any kind.
   const { PAGE_OBJECT_CALLS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(Object.keys(PAGE_OBJECT_CALLS).sort(), ["planetMgr.GetProgramResultInfo", "planetMgr.UserLaunchCommodities", "planetMgr.UserUpdateNetwork", "scanMgr.GetFullState"]);
+  assert.deepEqual(Object.keys(PAGE_OBJECT_CALLS).sort(), ["fleetObjectHandler.LeaveFleet", "planetMgr.GetProgramResultInfo", "planetMgr.UserLaunchCommodities", "planetMgr.UserUpdateNetwork", "scanMgr.GetFullState"]);
+  // fleetSvc.LeaveFleet: on the fleet's own object, of which the session has one. A write, and one of the page's.
+  // The fleet's other calls are their routes' still.
+  assert.deepEqual([objectOfPageCall("fleetObjectHandler", "LeaveFleet"), objectOfPageCall("fleetObjectHandler", "KickMember"), objectOfPageCall("fleetMgr", "ForceLeaveFleet")], ["fleet", null, null]);
+  assert.deepEqual([isBridgeWritePair("fleetObjectHandler", "LeaveFleet"), isPageWritePair("fleetObjectHandler", "LeaveFleet"), isPageWritePair("fleetMgr", "ForceLeaveFleet")], [true, true, false]);
   // sensorSuiteService: the sites, asked of the object GetSystemScanMgr() answered for the system the session is
   // in. A read. The scan manager's other calls are their routes' still.
   assert.deepEqual([objectOfPageCall("scanMgr", "GetFullState"), objectOfPageCall("scanMgr", "RequestScans"), objectOfPageCall("scanMgr", "GetSystemScanMgr")], ["scanManager", null, null]);
   // A planet's object is one of many, and the call says which. The scan manager is the session's own: nothing is said.
   const { pageNamesTheObject } = require("../src/bridgeCallPolicy");
-  assert.deepEqual([pageNamesTheObject("planet"), pageNamesTheObject("scanManager"), pageNamesTheObject(null), pageNamesTheObject(undefined), pageNamesTheObject("constructor"), pageNamesTheObject(["planet"])], [true, false, false, false, false, false]);
+  assert.deepEqual([pageNamesTheObject("planet"), pageNamesTheObject("scanManager"), pageNamesTheObject("fleet"), pageNamesTheObject(null), pageNamesTheObject(undefined), pageNamesTheObject("constructor"), pageNamesTheObject(["planet"])], [true, false, false, false, false, false, false]);
   // A colony's commodities launched, from the command centre's own window.
   assert.equal(objectOfPageCall("planetMgr", "UserLaunchCommodities"), "planet");
   // The planet's other writes are their routes' still.

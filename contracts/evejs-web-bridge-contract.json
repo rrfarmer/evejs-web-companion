@@ -1110,6 +1110,7 @@
       "dogmaIM.UnloadAmmo",
       "entity.CmdSalvage",
       "fleetMgr.BroadcastToBubble",
+      "fleetObjectHandler.LeaveFleet",
       "fleetProxy.ApplyToJoinFleet",
       "officeManager.RentOffice",
       "officeManager.UnrentOffice",

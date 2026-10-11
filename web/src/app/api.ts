@@ -1417,10 +1417,9 @@ export async function loadFleetAds(options: ApiOptions = {}): Promise<Record<str
 // (bridge/fleetWrites.ts; the plan's Phase 6b): the seventh of its writes to
 // leave its route (POST /api/bridge/fleet/apply), on 2026-10-10.
 
-/** LEAVE the session character's current fleet. Confirm-gated. */
-export async function leaveFleet(options: ApiOptions = {}): Promise<void> {
-  await postJson("/api/bridge/fleet/leave", { confirm: true }, options);
-}
+// A fleet is left by the page itself too, with the client's own call on the
+// fleet's object (bridge/fleetWrites.ts): it left its route
+// (POST /api/bridge/fleet/leave) on 2026-10-10.
 
 // A broadcast to the fleet in the pilot's bubble is made by the page itself,
 // with the client's own call and the client's own wait before it

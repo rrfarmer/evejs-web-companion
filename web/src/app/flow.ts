@@ -347,7 +347,7 @@ import { canBroadcastInFleet, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
-import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
+import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, leaveFleet as leaveFleetCall, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
 import { boardCorvette as boardCorvetteCall, leaveShip as leaveShipCall } from "../bridge/shipWrites.ts";
@@ -4091,7 +4091,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function leaveFleet(): Promise<void> {
-    await runFleetAction("leave", () => api.leaveFleet(callOptions), "not-in-fleet");
+    // The page's own call, on the fleet's object (bridge/fleetWrites.ts).
+    await runFleetAction("leave", () => leaveFleetCall(bridgeDo), "not-in-fleet");
   }
 
   async function readFleetFinder(): Promise<FleetFinderRead> {
@@ -7987,7 +7988,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             await api.dock(action.stationID, callOptions);
             return;
           case "leaveFleet":
-            await api.leaveFleet(callOptions);
+            await leaveFleetCall(bridgeDo);
             return;
           case "acceptFleetInvite":
             await api.acceptFleetInvite(action.fleetID, callOptions);

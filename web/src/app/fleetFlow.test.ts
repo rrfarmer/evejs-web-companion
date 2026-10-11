@@ -246,20 +246,39 @@ test("acceptFleetInvite uses the fleetID from OnFleetInvite and re-reads", async
   assert.equal(store.get().fleet.pendingInvite, null);
 });
 
-test("leaveFleet does not trust the write ack and lands the no-fleet reread", async () => {
-  const calls: string[] = [];
-  const fetch: typeof globalThis.fetch = async (input) => {
+test("leaveFleet makes the page's own call on the fleet's object, does not trust its answer, and lands the no-fleet reread", async () => {
+  const calls: Array<{ url: string; body: unknown }> = [];
+  const fetch: typeof globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
-    calls.push(url);
-    if (url.endsWith("/api/bridge/fleet/leave")) return json({ ok: true, applied: true });
+    calls.push({ url, body: typeof init.body === "string" ? JSON.parse(init.body) : null });
+    if (url.endsWith("/api/bridge/call")) return json({ ok: true, service: "fleetObjectHandler", method: "LeaveFleet", result: true, notifications: [] });
     if (url.endsWith("/api/bridge/bound-fleet")) return json(noFleet());
     throw new Error(`unexpected fetch ${url}`);
   };
   const store = createClientStore();
   await createAppFlow(store, { fetch }).leaveFleet();
-  assert.deepEqual(calls, ["/api/bridge/fleet/leave", "/api/bridge/bound-fleet"]);
+  // fleetSvc.LeaveFleet (369): self.fleet.LeaveFleet(), as a pilot's write the page means. And nothing of the route.
+  assert.deepEqual(calls, [
+    { url: "/api/bridge/call", body: { service: "fleetObjectHandler", method: "LeaveFleet", args: [], kwargs: null, pilot: true, confirm: true } },
+    { url: "/api/bridge/bound-fleet", body: null },
+  ]);
   assert.equal(store.get().fleet.availability, "not-in-fleet");
   assert.equal(store.get().fleet.actionError, null);
+});
+
+test("a leaving the server refuses is said, in the page's words for that refusal, and the fleet is read again all the same", async () => {
+  const calls: string[] = [];
+  const fetch: typeof globalThis.fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/api/bridge/call")) return json({ ok: false, error: "CALL_REFUSED", message: "FleetNotInFleet" }, 409);
+    if (url.endsWith("/api/bridge/bound-fleet")) return json(noFleet());
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const store = createClientStore();
+  await createAppFlow(store, { fetch }).leaveFleet();
+  assert.deepEqual(calls, ["/api/bridge/call", "/api/bridge/bound-fleet"]);
+  assert.equal(store.get().fleet.actionError, "The fleet action was refused. You are not in that fleet.");
 });
 
 test("every Fleet snapshot invalidation notification triggers an authoritative reread", async () => {
