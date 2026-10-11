@@ -662,6 +662,17 @@ Take these defaults, and list each under "For the operator" in the log so they c
   for a kind of thing that is no planet, its check and its bind in the generic call's
   handler (`src/server.js`, `objectKind`). A read is listed only with its handler read
   first: the planet's reads once took an owner from the caller.
+- **A command centre launches once a minute.** A launch inside the minute after another is
+  refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
+  transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in
+  the same command; a bare `sleep` is not for this). `cc-goods.sh '<launchpad JSON>'
+  '<command centre JSON>'` puts goods on Test Two's colony with EveJS stopped, and
+  `la-live.js <bff> <account> <characterID> <planetID>` launches ten and tries the refusals.
+  A bot's block with settings is saved with them: `bot-save.js <bff> <account>
+  launch-commodities <name> '{"anyAmount":{"kind":"toggle","enabled":true}}'`.
+- **A check in a patch script is as narrow as what it checks.** One that looked for the word
+  "export" to tell code from comment stopped on a comment about export tax. It stopped
+  before writing, which is what the check is for; look for the line that begins so.
 - **A script that writes is not run to look.** `rs-live.js`, `ecu-live.js` and `ecu-stage.js`
   change the colony whatever is done with their output; `net-live.js <bff> <account>
   <characterID> <planetID> look` and `colony-read.js <repo> <store> <planetID> <ownerID>`
