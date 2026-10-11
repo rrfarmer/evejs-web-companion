@@ -777,6 +777,26 @@ Take these defaults, and list each under "For the operator" in the log so they c
   (`leaveFleetCall`). `flv-live.js <bff> <account> <characterID>` forms a fleet and
   leaves it; the Fleet window's "Form fleet" and "Leave fleet" each ask with the
   browser's own box.
+- **A test that fails must still stop what it started.** The companion's check failed
+  before its code, as it should, and its companion was stopped on the line after the
+  checks: the loop ticked on, and `node --test` waited for the file's process for ever.
+  A check on something a test set running goes in `try`, with the stopping in
+  `finally`. A run that hangs so is stopped by its own PID (`taskkill //PID <n> //T
+  //F`), never by stopping every node.
+- **The ledger is of what was sent: read its count in the live check.** An align asked
+  for a docked pilot was refused by the BFF before anything was sent, and stood in the
+  ledger as one of the client's, because the note was made before the park was looked
+  for. A call the BFF may refuse by itself is noted after that refusal.
+- **A refusal the page makes is a sentence a player reads.** The panel shows a page's
+  own refusal as it stands only where it reads as plain language (`describeRefusal`
+  in `refusals.ts`): a sentence with `targetID` or a `SCREAMING_NAME` in it is taken
+  for jargon and replaced. Pin the panel's words in the flow's test.
+- **A flight order's route read the flight before and after: `orderedStep`** in
+  `flow.ts` does both for the panel, and keeps the reading before where the one after
+  fails. `aln-live.js <bff> <account> <characterID> [ledger.json]` undocks, aligns
+  and says how many degrees off the thing the ship flies. In the tab: a row's
+  `.spc-row-btn`, then `.spc-action-btn[title="Align to"]`; the station's row has
+  "Dock", and the pilot is logged out once docked.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in
