@@ -25,11 +25,14 @@ interface PushSource {
 /** A docked pilot online with its live channel open. `answer` is what the offices read answers now; `hold` keeps an answer back until it is let go. */
 async function docked() {
   const store = createClientStore();
-  const state: { answer: unknown; fail: boolean; hold: Promise<void> | null; quote: unknown; refuse: string | null } = {
+  const state: { answer: unknown; fail: boolean; hold: Promise<void> | null; flight: unknown; price: unknown; refuse: string | null } = {
     answer: { ok: true, available: true, stationID: STATION, corporationIDs: [98000000, 98000003], freeOffices: 17 },
     fail: false,
     hold: null,
-    quote: { ok: true, stationID: STATION, cost: 10000, days: 30 },
+    // The pilot's flight: docked in the station.
+    flight: { inSpace: false, docked: true, stationID: STATION, structureID: null, solarSystemID: 30000142, shipID: 9001 },
+    // What the station's office manager answers for a price.
+    price: 10000,
     refuse: null,
   };
   let reads = 0;
@@ -51,16 +54,18 @@ async function docked() {
       } else {
         answer = answered;
       }
-    } else if (path === "/api/bridge/station/office/quote") {
-      sent.push([path, null]);
-      answer = state.quote;
-    } else if (path === "/api/bridge/station/office/rent" || path === "/api/bridge/station/office/give-up") {
+    } else if (path.startsWith("/api/bridge/station/office/")) {
+      // The three routes the page asked before: none of them is asked now, and one asked would show here.
       sent.push([path, body]);
+    } else if (path === "/api/bridge/flight/status") {
+      answer = { ok: true, flight: state.flight, notifications: [] };
+    } else if (path === "/api/bridge/call" && body.service === "officeManager") {
+      sent.push([body.method, body]);
       if (state.refuse) {
         status = 502;
         answer = { ok: false, error: "EVE_GATEWAY_CALL_FAILED", message: state.refuse };
       } else {
-        answer = { ok: true, stationID: STATION };
+        answer = { ok: true, service: body.service, method: body.method, result: body.method === "GetPriceQuote" ? state.price : null, notifications: [] };
       }
     } else if (path === "/api/bridge/call") {
       answer = { ok: true, service: body.service, method: body.method, result: null, notifications: [] };
@@ -198,30 +203,72 @@ test("told twice of one office, of the station and of the corporation, the page 
 // dockedUI/offices.py: the rent button asks the price, asks the player, and rents at that price; the other asks the
 // player and gives the office up. Neither lists anything itself: the server's notice of the office does.
 
-test("an office's price is asked as the button is pressed, and the rent goes with the price the player was shown", async () => {
+/** What the page's own call of the office manager sends: a pilot's read, or a pilot's write the page means. */
+const theCall = (method: string, args: readonly unknown[], write: boolean) => ({ service: "officeManager", method, args, kwargs: null, pilot: true, ...(write ? { confirm: true } : {}) });
+/** The listing of a pilot who may rent and may give up, with or without an office here. */
+const mayDoBoth = (ownOffice: boolean) => ({ ok: true, available: true, stationID: STATION, corporationIDs: [98000000, 98000003], freeOffices: 17, ownOffice, impounded: false, canRent: true, canGiveUp: true });
+
+test("an office's price is asked of the office manager as the button is pressed, and the rent goes with the price as the station said it", async () => {
   const { flow, state, sent, reads } = await docked();
+  state.answer = mayDoBoth(false);
   await flow.loadStationOffices();
-  assert.deepEqual(await flow.quoteStationOffice(), { cost: 10000, days: 30 });
-  assert.deepEqual(sent, [["/api/bridge/station/office/quote", null]]);
-  await flow.rentStationOffice(10000);
-  assert.deepEqual(sent.at(-1), ["/api/bridge/station/office/rent", { cost: 10000, confirm: true }]);
-  // Nothing is listed again by the rent: the notice does that.
-  assert.equal(reads(), 1);
+  // officeManager.GetPriceQuote (114): for the session's corporation. A read.
+  assert.deepEqual(await flow.quoteStationOffice(), { cost: 10000, days: 30, quoted: 10000 });
+  assert.deepEqual(sent, [["GetPriceQuote", theCall("GetPriceQuote", [CORPORATION], false)]]);
+  // officeManager.RentOffice (117): the price, and nothing else. A write the page means.
+  await flow.rentStationOffice({ cost: 10000, days: 30, quoted: 10000 });
+  assert.deepEqual(sent.at(-1), ["RentOffice", theCall("RentOffice", [10000], true)]);
+  // Nothing is listed again by the rent: the notice does that. And neither route is asked.
+  assert.deepEqual([reads(), sent.length], [1, 2]);
+  // Tranquility's station answered a long: shown as its number, and rented with as it came.
+  state.price = { type: "long", value: "100113" };
+  const long = await flow.quoteStationOffice();
+  assert.deepEqual(long, { cost: 100113, days: 30, quoted: { type: "long", value: "100113" } });
+  await flow.rentStationOffice(long);
+  assert.deepEqual(sent.at(-1), ["RentOffice", theCall("RentOffice", [{ type: "long", value: "100113" }], true)]);
   // A price of nought is a price; what is no price is not handed on as one.
-  state.quote = { ok: true, stationID: STATION, cost: 0, days: 30 };
-  assert.deepEqual(await flow.quoteStationOffice(), { cost: 0, days: 30 });
-  for (const quote of [{ ok: true, cost: "10000", days: 30 }, { ok: true, cost: -1, days: 30 }, { ok: true, cost: 10.5, days: 30 }, { ok: true, days: 30 }, { ok: true, cost: 100, days: 0 }, { ok: true, cost: 100 }]) {
-    state.quote = quote;
-    await assert.rejects(flow.quoteStationOffice(), /did not say what an office costs/, JSON.stringify(quote));
+  state.price = 0;
+  assert.deepEqual(await flow.quoteStationOffice(), { cost: 0, days: 30, quoted: 0 });
+  for (const price of ["10000", -1, 10.5, null, { type: "long", value: "cheap" }]) {
+    state.price = price;
+    await assert.rejects(flow.quoteStationOffice(), /did not say what an office costs/, JSON.stringify(price));
   }
 });
 
-test("an office is given up with the player's yes, and a rent or a giving up that is refused says why", async () => {
+test("an office is given up with the player's yes, by the page's own call, and a rent or a giving up that is refused says why", async () => {
   const { flow, state, sent, reads } = await docked();
+  state.answer = mayDoBoth(true);
   await flow.loadStationOffices();
   await flow.giveUpStationOffice();
-  assert.deepEqual([sent, reads()], [[["/api/bridge/station/office/give-up", { confirm: true }]], 1]);
+  // officeManager.UnrentOffice (122): nothing.
+  assert.deepEqual([sent, reads()], [[["UnrentOffice", theCall("UnrentOffice", [], true)]], 1]);
   state.refuse = "Your corporation's wallet has too little for the rent.";
-  await assert.rejects(flow.rentStationOffice(10000), /too little for the rent/);
   await assert.rejects(flow.giveUpStationOffice(), /too little for the rent/);
+  const renting = await docked();
+  renting.state.answer = mayDoBoth(false);
+  await renting.flow.loadStationOffices();
+  renting.state.refuse = "Your corporation's wallet has too little for the rent.";
+  await assert.rejects(renting.flow.rentStationOffice({ cost: 10000, days: 30, quoted: 10000 }), /too little for the rent/);
+});
+
+test("the page asks the office manager nothing where the client's lobby has no button, and nothing in a structure", async () => {
+  // Before the offices are listed there is no button on the page either.
+  const unlisted = await docked();
+  await assert.rejects(unlisted.flow.quoteStationOffice(), /have not been listed yet/);
+  // A pilot with neither role: the listing says so, and the page goes by it.
+  const noRole = await docked();
+  noRole.state.answer = { ...mayDoBoth(true), canRent: false, canGiveUp: false };
+  await noRole.flow.loadStationOffices();
+  await assert.rejects(noRole.flow.giveUpStationOffice(), /takes a director/);
+  await assert.rejects(noRole.flow.quoteStationOffice(), /role that may rent one/);
+  // The pilot's flight says where it is docked now: in a structure the page rents and gives up nothing.
+  const structure = await docked();
+  structure.state.answer = mayDoBoth(true);
+  await structure.flow.loadStationOffices();
+  structure.state.flight = { inSpace: false, docked: true, stationID: null, structureID: 1030000000001, solarSystemID: 30000142, shipID: 9001 };
+  await assert.rejects(structure.flow.giveUpStationOffice(), /in a structure/);
+  // And in space nothing either.
+  structure.state.flight = { inSpace: true, docked: false, stationID: null, structureID: null, solarSystemID: 30000142, shipID: 9001 };
+  await assert.rejects(structure.flow.giveUpStationOffice(), /while docked/);
+  assert.deepEqual([unlisted.sent, noRole.sent, structure.sent], [[], [], []]);
 });

@@ -979,7 +979,7 @@
 
   async function payOfficeRent(): Promise<void> {
     if (officeQuote === null) return;
-    await flow.rentStationOffice(officeQuote.cost);
+    await flow.rentStationOffice(officeQuote);
     officeQuote = null;
   }
 

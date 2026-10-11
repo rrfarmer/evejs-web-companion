@@ -1109,6 +1109,8 @@
       "entity.CmdSalvage",
       "fleetMgr.BroadcastToBubble",
       "fleetProxy.ApplyToJoinFleet",
+      "officeManager.RentOffice",
+      "officeManager.UnrentOffice",
       "planetMgr.DeleteLaunch",
       "planetMgr.UserLaunchCommodities",
       "planetMgr.UserUpdateNetwork",

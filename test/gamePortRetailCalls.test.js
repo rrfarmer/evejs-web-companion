@@ -1523,6 +1523,12 @@ test("an office is rented and given up on the station's own object: the price fo
   assert.deepEqual(asked("GetPriceQuote", [98000001]), ["same", [98000001], null, true, `${SOURCE}:114`]);
   assert.deepEqual(asked("RentOffice", [10000]), ["same", [10000], null, true, `${SOURCE}:117`]);
   assert.deepEqual(asked("RentOffice", [0]), ["same", [0], null, true, `${SOURCE}:117`]);
+  // The recording's price is a long, sent back as it came: the page hands on what the station said.
+  const LONG = { type: "long", value: "100113" };
+  assert.deepEqual(asked("RentOffice", [LONG]), ["same", [LONG], null, true, `${SOURCE}:117`]);
+  for (const odd of [{ type: "long", value: "-1" }, { type: "long", value: "cheap" }, { type: "long", value: 100113 }, { type: "long" }, { type: "real", value: 10000 }, { value: "100113" }, [10000]]) {
+    assert.equal(asked("RentOffice", [odd])[0], "differs", JSON.stringify(odd));
+  }
   for (const [method, line] of [["UnrentOffice", 122], ["PrimeOfficeItem", 108], ["HasCorpImpoundedItems", 143]]) {
     assert.deepEqual(asked(method, []), ["same", [], null, true, `${SOURCE}:${line}`], method);
     assert.equal(asked(method, [60003760])[0], "differs", method);

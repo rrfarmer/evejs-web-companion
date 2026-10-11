@@ -3499,6 +3499,34 @@ test("an office is given up by a director whose corporation has one here, once t
   assert.deepEqual([nothing.response.status, nothing.payload.error, methodsAsked(none)], [409, "NO_OFFICE_HERE", ["GetMyCorporationsOffices"]]);
 });
 
+test("an office's rent and its giving up are writes of the page's own, made on the pilot's connection as they came; the price is a read", async () => {
+  const gamePort = gamePortWithOffices(aSet(), 5, { corpRole: "0" });
+  const baseUrl = await atTheLobby(gamePort);
+  const call = (method, args, more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "officeManager", method, args, kwargs: null, ...more } });
+  for (const [method, args] of [["RentOffice", [10000]], ["UnrentOffice", []]]) {
+    for (const more of [{}, { pilot: true }, { confirm: true }]) {
+      const refused = await call(method, args, more);
+      assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${method} ${JSON.stringify(more)}`);
+    }
+  }
+  assert.deepEqual(methodsAsked(gamePort), []);
+  // officeManager.RentOffice (117): the price as the station said it, which Tranquility's did as a long.
+  const PRICE = { type: "long", value: "100113" };
+  const rented = await call("RentOffice", [PRICE], { pilot: true, confirm: true });
+  assert.deepEqual([rented.response.status, rented.payload.ok, rented.payload.service, rented.payload.method, Array.isArray(rented.payload.notifications)], [200, true, "officeManager", "RentOffice", true]);
+  assert.equal(rented.payload.stationID, undefined);
+  // officeManager.UnrentOffice (122): nothing.
+  const givenUp = await call("UnrentOffice", [], { pilot: true, confirm: true });
+  assert.deepEqual([givenUp.response.status, givenUp.payload.ok, givenUp.payload.method], [200, true, "UnrentOffice"]);
+  // Each as it came, and nothing beside it: no look at the corporation's offices, and no role read. The page does
+  // what its routes did of those, from what it was listed; the server refuses for itself (CrpAccessDenied).
+  assert.deepEqual(askedOfTheOffices(gamePort), [["RentOffice", [PRICE], null, GAME_PORT_SESSION_ID], ["UnrentOffice", [], null, GAME_PORT_SESSION_ID]]);
+  // officeManager.GetPriceQuote (114): a read, which a pilot's call asks with nothing confirmed.
+  const quoted = await call("GetPriceQuote", [ownCorporation], { pilot: true });
+  assert.deepEqual([quoted.response.status, quoted.payload.result], [200, 10000]);
+  assert.deepEqual(askedOfTheOffices(gamePort).at(-1), ["GetPriceQuote", [ownCorporation], null, GAME_PORT_SESSION_ID]);
+});
+
 test("a rent or a giving up the server refuses is an error, and is not said to be done", async () => {
   const rent = await rentRoute(gamePortWithOffices(aSet(), 5, { corpRole: ROLE_CEO, rent: refusedBy("NotEnoughMoney") }), { cost: 10000, confirm: true });
   assert.deepEqual([rent.response.ok, rent.payload.ok], [false, false], JSON.stringify(rent.payload));

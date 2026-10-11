@@ -350,6 +350,7 @@ import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFle
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
 import { boardCorvette as boardCorvetteCall, leaveShip as leaveShipCall } from "../bridge/shipWrites.ts";
+import { giveUpOffice, quoteOffice, rentOffice, type DockedIn } from "../bridge/officeWrites.ts";
 import { launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
 import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
@@ -714,8 +715,8 @@ export interface AppFlow {
   loadStationOffices(): Promise<void>;
   /** What an office here costs the pilot's corporation, asked as the rent button is pressed. */
   quoteStationOffice(): Promise<StationOfficeQuote>;
-  /** Rent an office here at the price the player was shown. The server's notice lists the offices again. */
-  rentStationOffice(cost: number): Promise<void>;
+  /** Rent an office here at the price the player was shown, as the station said it. The server's notice lists the offices again. */
+  rentStationOffice(quote: StationOfficeQuote): Promise<void>;
   /** Give up the corporation's office here. The server's notice lists the offices again. */
   giveUpStationOffice(): Promise<void>;
   /**
@@ -3023,9 +3024,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // dockedUI/offices.py, _rent_office and _unrent_office: the price asked,
   // the player asked, and the one call sent. Neither lists anything after:
   // the server says the office changed, and that lists them.
-  const quoteStationOffice = (): Promise<StationOfficeQuote> => api.quoteStationOffice(callOptions);
-  const rentStationOffice = (cost: number): Promise<void> => api.rentStationOffice(cost, callOptions);
-  const giveUpStationOffice = (): Promise<void> => api.giveUpStationOffice(callOptions);
+  // Each is the page's own call of the station's office manager (bridge/officeWrites.ts). What the lobby's
+  // buttons go by is the page's listing of the offices; where the pilot is docked is its flight's, read as the
+  // press is made, as the routes read it.
+  const dockedIn = async (): Promise<DockedIn> => {
+    const now = decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);
+    return { stationID: now.stationID, structureID: now.structureID };
+  };
+  const quoteStationOffice = async (): Promise<StationOfficeQuote> =>
+    quoteOffice(bridgeAsk, store.station.get().online?.corporationID ?? null, store.station.get().offices, await dockedIn());
+  const rentStationOffice = async (quote: StationOfficeQuote): Promise<void> =>
+    rentOffice(bridgeDo, store.station.get().offices, await dockedIn(), quote.quoted);
+  const giveUpStationOffice = async (): Promise<void> =>
+    giveUpOffice(bridgeDo, store.station.get().offices, await dockedIn());
 
   async function loadCorpHangar(): Promise<void> {
     let reads: Awaited<ReturnType<typeof api.loadCorpHangar>>;

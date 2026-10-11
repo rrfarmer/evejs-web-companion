@@ -17,6 +17,7 @@ import type {
   FleetPendingInvite,
 } from "../bridge/fleetCenter.ts";
 import type { ShipStats } from "../bridge/shipStats.ts";
+import type { OfficeQuote } from "../bridge/officeWrites.ts";
 import type { ScanFullState } from "../bridge/boundSmallServices.ts";
 import type {
   ScannerDataState,
@@ -102,11 +103,8 @@ export interface StationOffices {
   readonly canGiveUp: boolean;
 }
 
-/** What an office in the station costs the pilot's corporation, and the days that pays for. */
-export interface StationOfficeQuote {
-  readonly cost: number;
-  readonly days: number;
-}
+/** What an office in the station costs the pilot's corporation, the days that pays for, and the price as the station said it. */
+export type StationOfficeQuote = OfficeQuote;
 
 /** One docked guest from station.GetGuests: (charID, corp, alliance, warFaction). */
 export interface StationGuest {

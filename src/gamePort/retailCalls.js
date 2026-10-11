@@ -174,8 +174,11 @@ const isAPrice = (value) => Number.isSafeInteger(value) && value >= 0;
 const priceForOwnCorporation = (args, kwargs, context) => (args.length === 1 && Object.keys(kwargs).length === 0 && args[0] === context.corporationID
   ? {}
   : { status: "differs", note: "The client asks the price with the session's corporation, and nothing else." });
+/** A price as it is handed back: the whole number, or the long of one (its digits) that Tranquility's station answered. */
+const isAQuotedPrice = (value) => isAPrice(value)
+  || (value !== null && value.type === "long" && typeof value.value === "string" && /^\d+$/.test(value.value));
 /** officeManager.RentOffice (117): self.station.RentOffice(cost), the price it was quoted. */
-const rentAtThePrice = (args, kwargs) => (args.length === 1 && Object.keys(kwargs).length === 0 && isAPrice(args[0])
+const rentAtThePrice = (args, kwargs) => (args.length === 1 && Object.keys(kwargs).length === 0 && isAQuotedPrice(args[0])
   ? {}
   : { status: "differs", note: "The client rents with the one price it was quoted, and nothing else." });
 /**
