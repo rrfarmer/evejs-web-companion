@@ -676,6 +676,25 @@ Take these defaults, and list each under "For the operator" in the log so they c
   the call's service and method, or the page takes the call for failed (as it should) and
   the test fails for a reason that is not its subject. The whole suite finds these: the
   unit's own files do not.
+- **What a panel goes by after a write is seen in the tab.** The corvette's button goes by
+  the flight in the page's store. Its test put a flight there and rendered, and passed; in
+  the tab nothing put a new one there after the swap, and the button stayed in use. While
+  docked nothing reads the pilot's flight again but a swap of the ship
+  (`refreshActiveShipViews`). Before calling a panel's state done, find what writes the part
+  of the store it reads, and press the button in the tab twice.
+- **The page words the server's refusals from a table** (`web/src/bridge/refusals.ts`, its
+  keys pinned by a test). A write whose handler refuses by a bare key wants that key there,
+  or the pilot reads that it was turned down without a reason. Read the handler's refusals
+  when reading what it trusts.
+- **In the tab a wrapped `fetch` sees nothing once a pilot is chosen**: the page's requests
+  go over the pilot's socket, and `read_network_requests` does not list them either. To read
+  what a press sent, wrap `JSON.stringify` and keep what has the call's `service` and
+  `method` (the answer passes through it too), or wrap `WebSocket.prototype.send`. Put
+  `JSON.stringify` back after. The BFF's ledger counts the calls whatever the recorder saw.
+- **A pilot is opened in the tab with one click of its row after a fresh load**, then "Go to
+  first pilot". Two clicks in quick succession left no pilot in the client.
+  `bc-live.js <bff> <account> <characterID>` boards a corvette, asks for a second from
+  aboard it, and boards the first ship again.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in
