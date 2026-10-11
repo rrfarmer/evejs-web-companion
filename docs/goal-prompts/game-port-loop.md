@@ -738,6 +738,17 @@ Take these defaults, and list each under "For the operator" in the log so they c
   flies no script for a pilot in a capsule: it looks once and stops.
 - **A patch that rewrites a whole test file counts first**, the tests and a name that is in
   every one, and stops where the count is not what was read. It did this time.
+- **"One call by name" is read off the route, not off its length.** `routes-calls.js` showed
+  `fleet/leave` as 28 lines and one call. It is two calls, chosen by what the transport
+  says the pilot holds, and a state of the BFF's dropped after. Read the route's body
+  before naming it short.
+- **A stand-in whose usual answer is a default argument cannot be told to answer nothing.**
+  `harness(undefined)` answers as usual. A row for an answer of nothing answers it in the
+  row. The test failed on the code, which is how it was found.
+- **A proof that changes nothing needs no copy of the store.** `/help` and the bare stroke
+  proved the console's call on both transports and in the tab. `gms-live.js <bff> <account>
+  <characterID>` runs them; `gms-help.js <bff> <bff> <account> <characterID>` says how the
+  two transports' replies differ.
 - **A command centre launches once a minute.** A launch inside the minute after another is
   refused (`CannotLaunchCommandPinNotReady`), whatever else is wrong with it: a check on two
   transports waits the minute out between them (`node -e "setTimeout(()=>{}, 25000)"` in
