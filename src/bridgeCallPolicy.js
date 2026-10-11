@@ -88,7 +88,9 @@ const EARLIER_WRITE_METHODS = freezeMethodMap({
 });
 
 const FEATURE_WRITE_METHODS = freezeMethodMap({
-  repairSvc: ["RepairItems"],
+  // RepairItems is the server's own name for a repair, which the gateway's list has. The other two are the
+  // client's, on the shop's Moniker (base_repairshop.py 65 to 70).
+  repairSvc: ["RepairItems", "RepairItemsInStation", "RepairItemsInStructure"],
   officeManager: ["RentOffice", "UnrentOffice"],
   // Direct acquisition belongs only to the reviewed Factory route. Keep the
   // generic bridge closed even if a future runtime allowlist grows.
@@ -250,8 +252,16 @@ function isBridgeWritePair(service, method) {
  *                                commands, for the session that asked and whatever the line names, and asks
  *                                for no role: on this server any pilot may type the same in chat. The page's
  *                                console is an operator's, and says so.
+ *   repairSvc.RepairItemsInStation    a repair paid for at a station's shop, as the client asks one. The route
+ *                                asked the server's own RepairItems with no payment named, after reading the
+ *                                pilot's flight. The handler repairs what of the items named is the session's
+ *                                own character's and is where the session is docked, for the payment named,
+ *                                from that character's wallet; it refuses a session that is docked nowhere,
+ *                                and modules paid for in part.
+ *   repairSvc.RepairItemsInStructure  the same in a structure, where nothing is paid. The handler asks for the
+ *                                structure's repair service for itself.
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);
@@ -320,6 +330,22 @@ function objectOfPageCall(service, method) {
   return PAGE_OBJECT_CALLS[`${service}.${method}`] ?? null;
 }
 
+/**
+ * The page's own calls that the web gateway's list has under another name. The page asks as the client asks; the
+ * game port makes the client's call; and through the gateway the same is asked by the one name its list has.
+ *
+ *   repairSvc.RepairItemsInStation, RepairItemsInStructure   RepairItems, the server's own name for both: it looks
+ *       at where the session is docked and does the one or the other, with the same arguments.
+ */
+const GATEWAYS_NAMES = Object.freeze({ "repairSvc.RepairItemsInStation": "RepairItems", "repairSvc.RepairItemsInStructure": "RepairItems" });
+
+/** The name a call of the page's goes by through the web gateway: its own, but for the few its list has otherwise. */
+function gatewaysNameFor(service, method) {
+  return (typeof service === "string" && typeof method === "string" && Object.hasOwn(GATEWAYS_NAMES, `${service}.${method}`))
+    ? GATEWAYS_NAMES[`${service}.${method}`]
+    : method;
+}
+
 /** Whether a call on an object of this kind says which one, with `of`. */
 function pageNamesTheObject(kind) {
   return OBJECTS_THE_PAGE_NAMES.has(kind);
@@ -363,6 +389,7 @@ module.exports = {
   PLUMBING_SWEEP_WRITE_METHODS,
   PLUMBING_SWEEP_WRITE_PAIR_KEYS,
   SAFE_BROWSER_SESSION_FIELDS,
+  gatewaysNameFor,
   isBridgeWritePair,
   isPageWritePair,
   objectOfPageCall,

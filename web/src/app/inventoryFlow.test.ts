@@ -434,26 +434,34 @@ function fittingPanel() {
   };
 }
 
-test("quoteShipRepair quotes the hull and its fitted modules, and reports only the damaged", async () => {
+/** The repair shop's calls, as the page's own: the quote a pilot's read, a repair a pilot's write the page means. */
+const theShopsCall = (method: string, args: readonly unknown[], write: boolean) => ({ service: "repairSvc", method, args, kwargs: null, pilot: true, ...(write ? { confirm: true } : {}) });
+const shopAnswers = (method: string, result: unknown) => ({ status: 200, body: { ok: true, service: "repairSvc", method, result, notifications: [] } });
+const callsOfTheShop = (requests: Recorded[]) => requests.filter((r) => r.path === "/api/bridge/call" && r.body.service === "repairSvc").map((r) => r.body);
+const dockedAt = (where: Record<string, unknown>) => ({ status: 200, body: { ok: true, flight: { inSpace: false, docked: true, stationID: 60003760, structureID: null, solarSystemID: 30000142, shipID: 9001, ...where }, notifications: [] } });
+/** A quote in hand: a hull and a module under it, 1250 and 0.5 ISK. */
+const A_QUOTE = [{
+  itemID: 9001,
+  repairItemIDs: [9001, 5001],
+  damagedParts: 2,
+  parts: [{ itemID: 9001, typeID: null, damage: 10, maxHealth: 100, cost: 1250 }, { itemID: 5001, typeID: null, damage: 1, maxHealth: 10, cost: 0.5 }],
+  cost: 1250.5,
+}];
+
+test("quoteShipRepair asks the shop by the page's own call for the hull and its fitted modules, and reports only the damaged", async () => {
   const store = createClientStore();
-  const { fetch, requests } = makeFakeFetch((path) => {
+  const { fetch, requests } = makeFakeFetch((path, _method, body) => {
     if (path === "/api/bridge/fitting") {
       return { status: 200, body: fittingPanel() };
     }
-    if (path.startsWith("/api/bridge/station/repair-quotes")) {
-      return {
-        status: 200,
-        body: {
-          ok: true,
-          quotes: {
-            type: "dict",
-            entries: [
-              [9001, { type: "list", items: [{ type: "packedrow", fields: { cost: 1250 } }] }],
-              [5001, { type: "list", items: [] }],
-            ],
-          },
-        },
-      };
+    if (path === "/api/bridge/call" && body.service === "repairSvc") {
+      return shopAnswers("GetRepairQuotes", {
+        type: "dict",
+        entries: [
+          [9001, { type: "list", items: [{ type: "packedrow", fields: { cost: 1250 } }] }],
+          [5001, { type: "list", items: [] }],
+        ],
+      });
     }
     return { status: 200, body: inventoryPanel() };
   });
@@ -462,9 +470,9 @@ test("quoteShipRepair quotes the hull and its fitted modules, and reports only t
   await flow.loadInventory();
   const quote = await flow.quoteShipRepair();
 
-  const asked = requests.find((r) => r.path.startsWith("/api/bridge/station/repair-quotes"));
-  assert.ok(asked, "the shop was asked for a quote");
-  assert.match(asked!.path, /itemIDs=9001,5001$/, "the hull and the fitted module were quoted");
+  // repair.GetRepairQuotes (base_repairshop.py 63): the hull and the fitted module, as a pilot's read.
+  assert.deepEqual(callsOfTheShop(requests), [theShopsCall("GetRepairQuotes", [[9001, 5001]], false)]);
+  assert.equal(requests.some((r) => r.path.startsWith("/api/bridge/station/repair")), false, "neither route is asked");
   assert.deepEqual(quote, [{
     itemID: 9001,
     repairItemIDs: [9001],
@@ -487,18 +495,17 @@ test("quoteShipRepair with no hull to quote asks nothing and answers null", asyn
   await flow.loadInventory();
 
   assert.equal(await flow.quoteShipRepair(), null);
-  assert.equal(
-    requests.filter((r) => r.path.startsWith("/api/bridge/station/repair-quotes")).length,
-    0,
-    "nothing to quote must not reach the shop",
-  );
+  assert.deepEqual(callsOfTheShop(requests), [], "nothing to quote must not reach the shop");
 });
 
-test("repairShip posts the confirmed repair for exactly the quoted ids, then reloads", async () => {
+test("repairShip pays for exactly the quoted parts at the quote's cost, by the client's call for a station, then reloads", async () => {
   const store = createClientStore();
-  const { fetch, requests } = makeFakeFetch((path) => {
-    if (path === "/api/bridge/station/repair") {
-      return { status: 200, body: { ok: true, result: null } };
+  const { fetch, requests } = makeFakeFetch((path, _method, body) => {
+    if (path === "/api/bridge/flight/status") {
+      return dockedAt({});
+    }
+    if (path === "/api/bridge/call" && body.service === "repairSvc") {
+      return shopAnswers(String(body.method), null);
     }
     if (path === "/api/bridge/fitting") {
       return { status: 200, body: fittingPanel() };
@@ -507,30 +514,72 @@ test("repairShip posts the confirmed repair for exactly the quoted ids, then rel
   });
   const flow = createAppFlow(store, { fetch });
 
-  await flow.repairShip([9001]);
+  await flow.repairShip(A_QUOTE);
 
-  const repair = requests.find((r) => r.path === "/api/bridge/station/repair");
-  assert.ok(repair, "the repair was posted");
-  assert.deepEqual(repair!.body, { itemIDs: [9001], confirm: true });
+  // repair.RepairItems (65 to 67): RepairItemsInStation(itemIDs, payment), as a pilot's write the page means.
+  assert.deepEqual(callsOfTheShop(requests), [theShopsCall("RepairItemsInStation", [[9001, 5001], 1250.5], true)]);
+  assert.equal(requests.some((r) => r.path.startsWith("/api/bridge/station/repair")), false, "the route is not asked");
   assert.ok(requests.some((r) => r.path === "/api/bridge/inventory" && r.method === "GET"), "the panel reloaded");
   assert.equal(store.inventory.get().actionError, null);
 });
 
-test("a refused repair surfaces the server's words instead of charging silently", async () => {
+test("docked in a structure, repairShip asks the structure's own repair, with no payment", async () => {
   const store = createClientStore();
-  const { fetch } = makeFakeFetch((path) => {
-    if (path === "/api/bridge/station/repair") {
-      return {
-        status: 400,
-        body: { ok: false, error: "CALL_REFUSED", message: "You cannot afford these repairs." },
-      };
+  const { fetch, requests } = makeFakeFetch((path, _method, body) => {
+    if (path === "/api/bridge/flight/status") {
+      return dockedAt({ stationID: null, structureID: 1030000000001 });
+    }
+    if (path === "/api/bridge/call" && body.service === "repairSvc") {
+      return shopAnswers(String(body.method), null);
     }
     return { status: 200, body: inventoryPanel() };
   });
   const flow = createAppFlow(store, { fetch });
 
-  await flow.repairShip([9001]);
+  await flow.repairShip(A_QUOTE);
 
-  // R31 — the handler's OWN sentence, surfaced rather than thrown.
-  assert.match(store.inventory.get().actionError ?? "", /cannot afford these repairs/);
+  // repair.RepairItems (68 and 69): RepairItemsInStructure(itemIDs).
+  assert.deepEqual(callsOfTheShop(requests), [theShopsCall("RepairItemsInStructure", [[9001, 5001]], true)]);
+  assert.equal(store.inventory.get().actionError, null);
+});
+
+test("a refused repair surfaces the server's words instead of charging silently", async () => {
+  for (const [message, words] of [
+    // The handler's OWN sentence, surfaced rather than thrown.
+    ["Modules must be repaired in full.", /Modules must be repaired in full\./],
+    // And the one it refuses by a key: the page's sentence for it.
+    ["NotEnoughMoney", /There is not enough ISK in the wallet that pays for that\./],
+  ] as const) {
+    const store = createClientStore();
+    const { fetch } = makeFakeFetch((path, _method, body) => {
+      if (path === "/api/bridge/flight/status") {
+        return dockedAt({});
+      }
+      if (path === "/api/bridge/call" && body.service === "repairSvc") {
+        return { status: 409, body: { ok: false, error: "CALL_REFUSED", message } };
+      }
+      return { status: 200, body: inventoryPanel() };
+    });
+    const flow = createAppFlow(store, { fetch });
+
+    await flow.repairShip(A_QUOTE);
+
+    assert.match(store.inventory.get().actionError ?? "", words, message);
+  }
+});
+
+test("a repair with no price to pay, or with the pilot docked nowhere, asks the shop nothing and says why", async () => {
+  for (const [quote, where, words] of [
+    [[{ ...A_QUOTE[0]!, cost: null }], dockedAt({}), /did not say what that costs/],
+    [A_QUOTE, dockedAt({ inSpace: true, docked: false, stationID: null, structureID: null }), /You must be docked to use the repair shop\./],
+  ] as const) {
+    const store = createClientStore();
+    const { fetch, requests } = makeFakeFetch((path) => (path === "/api/bridge/flight/status" ? where : { status: 200, body: inventoryPanel() }));
+    const flow = createAppFlow(store, { fetch });
+
+    await flow.repairShip(quote);
+
+    assert.deepEqual(callsOfTheShop(requests), []);
+    assert.match(store.inventory.get().actionError ?? "", words);
+  }
 });

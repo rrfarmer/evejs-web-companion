@@ -70,6 +70,7 @@ const { colonyRowOf, planetIDsOf, resourceRecordOf } = require("./planetInfoColo
 const {
   isBridgeWritePair,
   isPageWritePair,
+  gatewaysNameFor,
   objectOfPageCall,
   pageNamesTheObject,
   pickSafeBrowserSessionFields,
@@ -1033,8 +1034,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "scanManager"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => systemScanCall(
         heldBridgeSession, req.webSessionID, body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      // (A write the gateway's list has under another name is asked by that name there, and answered as the call
+      // that was asked: bridgeCallPolicy.js, gatewaysNameFor.)
       : write
-      ? await heldTopLevelCall(heldBridgeSession, req.webSessionID, body.service, body.method, body.args, body.kwargs)
+      ? { ...await heldTopLevelCall(heldBridgeSession, req.webSessionID, body.service,
+        gamePortPilots && isGamePortHandle(heldBridgeSession.bridgeSessionID) ? body.method : gatewaysNameFor(body.service, body.method), body.args, body.kwargs), method: body.method }
       : !heldBridgeSession && typeof gateway.accountCall === "function"
       ? await gateway.accountCall(body.service, body.method, body.args, body.kwargs, {
         accountID: Number(req.account.accountID),

@@ -728,8 +728,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 357,
-    "sha256": "547e8d15dd4c44aaee52d75355fb55f79e8e80f893f1b73331d1afb2e9fa1231",
+    "count": 359,
+    "sha256": "7d9a77b8886738f9839e48f168defc23952d1607c411bbfdda534dc8b8290e8b",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1031,6 +1031,8 @@
       "pvpFilamentMgr.JoinPVPQueue",
       "pvpFilamentMgr.LeavePVPQueue",
       "repairSvc.RepairItems",
+      "repairSvc.RepairItemsInStation",
+      "repairSvc.RepairItemsInStructure",
       "reprocessingSvc.Reprocess",
       "scanMgr.ConeScan",
       "scanMgr.DestroyProbe",
@@ -1114,6 +1116,8 @@
       "planetMgr.DeleteLaunch",
       "planetMgr.UserLaunchCommodities",
       "planetMgr.UserUpdateNetwork",
+      "repairSvc.RepairItemsInStation",
+      "repairSvc.RepairItemsInStructure",
       "ship.LeaveShip",
       "skillHandler.AbortTraining",
       "skillHandler.ApplyFreeSkillPoints",

@@ -2425,6 +2425,12 @@ function createGamePortPilots({
         return attribute(entry, "solarsystemid") ?? undefined;
       case OFFICE_MANAGER: // officeManager.station: Moniker('officeManager', session.stationid or session.structureid)
         return attribute(entry, "stationid") ?? attribute(entry, "structureid") ?? undefined;
+      case "repairSvc": { // repair.GetRemoteRepairMgr: Moniker('repairSvc', (the dockable place, the place, the place's group))
+        const stationID = attribute(entry, "stationid");
+        if (stationID !== null) return [stationID, stationID, GROUP_STATION];
+        const structureID = attribute(entry, "structureid");
+        return structureID === null ? undefined : [structureID, attribute(entry, "solarsystemid2"), GROUP_SOLAR_SYSTEM];
+      }
       case "reprocessingSvc": // GetReprocessingManager
         return attribute(entry, "structureid") ?? attribute(entry, "stationid") ?? undefined;
       case "corpRegistry": // GetCorpRegistry: Moniker('corpRegistry', session.corpid)
@@ -2769,6 +2775,8 @@ function createGamePortPilots({
       solarSystemID: attribute(entry, "solarsystemid"),
       // session.stationid or session.structureid: where the pilot is docked, and none in space.
       dockedAt: attribute(entry, "stationid") ?? attribute(entry, "structureid"),
+      // session.structureid: the structure the pilot is docked in, and none in a station or in space.
+      structureID: attribute(entry, "structureid"),
       // The group of the ship the pilot is in, as godma holds its item (GetShipItem().groupID), and none where
       // godma has not been primed for that ship.
       shipGroupID: positive(entry.dogma.item(positive(attribute(entry, "shipid")) ?? 0)?.groupID),

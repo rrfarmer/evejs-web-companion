@@ -326,6 +326,8 @@ test("everything of ship, dogmaIM, corpRegistry and the skill handler is made on
     entity: [],
     // The office manager asks for its corporation's offices by name; all else is asked of the moniker for where the session is docked.
     officeManager: ["GetMyCorporationsOffices"],
+    // Nor the repair shop: each use makes a moniker for where the session is docked and calls it.
+    repairSvc: [],
   });
   assert.deepEqual([madeOnMoniker("corpRegistry", "GetCorporation"), madeOnMoniker("corpRegistry", "AddBulletin"), madeOnMoniker("corpRegistry", "MachoBindObject")], [true, true, false]);
   assert.deepEqual([madeOnMoniker("ship", "Undock"), madeOnMoniker("dogmaIM", "GetTargets"), madeOnMoniker("ship", "SomethingNobodyRead"), madeOnMoniker("dogmaIM", "Overload")], [true, true, true, true]);
@@ -379,6 +381,65 @@ test("an approach, the speed set before the autopilot's, and a GM's command are 
   }
   // Where the client sends none, and that the game port's routes send none there either, is said beside it.
   assert.match(RETAIL_CALLS["beyonce.CmdSetSpeedFraction"].note, /send none before theirs, and on the game port the BFF's routes send none either; through the gateway they do/);
+});
+
+test("the repair shop's quote and its repairs are the client's on the shop's Moniker: a list of items, and in a station a payment", () => {
+  // base_repairshop.py: GetRepairQuotes (63), RepairItemsInStation (67) and RepairItemsInStructure (69), each on
+  // GetRemoteRepairMgr(), a Moniker made for the one call.
+  const SOURCE = "eve/client/script/ui/station/repairshop/base_repairshop.py";
+  const IN_STATION = { dockedAt: 60003760, structureID: null };
+  const IN_STRUCTURE = { dockedAt: 1030000000001, structureID: 1030000000001 };
+  const ask = (method, args, kwargs = null, context = IN_STATION) => { const made = retailForm("repairSvc", method, args, kwargs, context); return [made.status, made.args, made.kwargs, made.moniker, made.source]; };
+  const listed = (...ids) => ({ type: "list", items: ids });
+  const real = (value) => ({ type: "real", value });
+  assert.deepEqual(ask("GetRepairQuotes", [[5000, 77]]), ["reshaped", [listed(5000, 77)], null, true, `${SOURCE}:63`]);
+  assert.deepEqual(ask("GetRepairQuotes", [[5000]], null, IN_STRUCTURE), ["reshaped", [listed(5000)], null, true, `${SOURCE}:63`]);
+  assert.deepEqual(ask("RepairItemsInStation", [[5000, 77], 1500.5]), ["reshaped", [listed(5000, 77), real(1500.5)], null, true, `${SOURCE}:67`]);
+  // A payment of nought is the client's where nothing is owed (311), and a whole number goes as a float all the same.
+  assert.deepEqual(ask("RepairItemsInStation", [[5000], 0])[1], [listed(5000), real(0)]);
+  assert.deepEqual(ask("RepairItemsInStructure", [[5000, 77]], null, IN_STRUCTURE), ["reshaped", [listed(5000, 77)], null, true, `${SOURCE}:69`]);
+  // What is no list of items, or has something beside what the client sends: as it came, and none of the client's.
+  for (const [method, args, kwargs, context, why, note] of [
+    ["GetRepairQuotes", [], null, IN_STATION, "nothing", /a list of items/],
+    ["GetRepairQuotes", [[]], null, IN_STATION, "no items", /a list of items/],
+    ["GetRepairQuotes", [[5000, 0]], null, IN_STATION, "an item that is none", /a list of items/],
+    ["GetRepairQuotes", [["5000"]], null, IN_STATION, "an item as text", /a list of items/],
+    ["GetRepairQuotes", [5000], null, IN_STATION, "one item and no list", /a list of items/],
+    ["GetRepairQuotes", [[5000], 1], null, IN_STATION, "a second argument", /a list of items/],
+    ["GetRepairQuotes", [[5000]], { all: true }, IN_STATION, "a keyword", /a list of items/],
+    ["RepairItemsInStation", [[5000]], null, IN_STATION, "no payment", /one payment/],
+    ["RepairItemsInStation", [[5000], null], null, IN_STATION, "a payment of None, as the route sent", /one payment/],
+    ["RepairItemsInStation", [[5000], -1], null, IN_STATION, "a payment below nought", /one payment/],
+    ["RepairItemsInStation", [[5000], "1500"], null, IN_STATION, "a payment as text", /one payment/],
+    ["RepairItemsInStation", [[5000], Number.POSITIVE_INFINITY], null, IN_STATION, "a payment without end", /one payment/],
+    ["RepairItemsInStation", [[], 10], null, IN_STATION, "no items", /one payment/],
+    ["RepairItemsInStation", [[5000], 10, 1], null, IN_STATION, "a third argument", /one payment/],
+    ["RepairItemsInStation", [[5000], 10], { all: true }, IN_STATION, "a keyword", /one payment/],
+    ["RepairItemsInStation", [[5000], 10], null, IN_STRUCTURE, "in a structure", /RepairItemsInStructure/],
+    ["RepairItemsInStructure", [[5000]], null, IN_STATION, "in a station", /RepairItemsInStation/],
+    ["RepairItemsInStructure", [[5000], 10], null, IN_STRUCTURE, "a payment", /nothing else/],
+    ["RepairItemsInStructure", [[]], null, IN_STRUCTURE, "no items", /nothing else/],
+    ["RepairItemsInStructure", [[5000]], { all: true }, IN_STRUCTURE, "a keyword", /nothing else/],
+  ]) {
+    const odd = retailForm("repairSvc", method, args, kwargs, context);
+    assert.deepEqual([odd.status, odd.args, odd.kwargs], ["differs", args, kwargs], `${method}: ${why}`);
+    assert.match(odd.note, note, `${method}: ${why}`);
+  }
+  // The server's own name for both repairs is none of the client's, whatever it is asked with.
+  for (const [args, context] of [[[[5000], null], IN_STATION], [[[5000], 10], IN_STATION], [[[5000]], IN_STRUCTURE]]) {
+    const own = retailForm("repairSvc", "RepairItems", args, null, context);
+    assert.deepEqual([own.status, own.args], ["differs", args]);
+    assert.match(own.note, /server's own/);
+  }
+  // In space the client's repair service has no Moniker to make, and asks none of them.
+  for (const [method, args] of [["GetRepairQuotes", [[5000]]], ["RepairItemsInStation", [[5000], 10]], ["RepairItemsInStructure", [[5000]]]]) {
+    const inSpace = retailForm("repairSvc", method, args, null, {});
+    assert.deepEqual([inSpace.status, inSpace.moniker], ["web-only", false], method);
+  }
+  // Each use makes its Moniker, docked in a station or in a structure.
+  for (const method of ["GetRepairQuotes", "RepairItemsInStation", "RepairItemsInStructure", "SomethingNobodyRead"]) {
+    assert.deepEqual([madeAfresh("repairSvc", method), madeAfresh("repairSvc", method, { dockedInStation: true })], [true, true], method);
+  }
 });
 
 test("a GM's command is the client's call with its one line of text, and nothing else", () => {
@@ -1662,6 +1723,8 @@ test("the game port carries the customs office's transfer, the station's offices
     "home_station.get_home_station",
     "skillHandler.SaveNewQueue",
     "userSvc.GetMultiCharactersTrainingSlots",
+    // The repair shop's two repairs by the client's names. The gateway's list has the server's own name for both.
+    "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure",
   ]);
   // skillQueueSvc.py 851: sm.RemoteSvc('userSvc').GetMultiCharactersTrainingSlots(), by the service's name and with nothing.
   const slots = retailForm("userSvc", "GetMultiCharactersTrainingSlots", [], null);

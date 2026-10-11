@@ -2911,6 +2911,54 @@ test("the scanner's sites asked by the page's own call are asked of the same obj
   assert.deepEqual([refused.first.response.status, refused.first.payload.ok, refused.first.payload.error], [409, false, "CALL_REFUSED"]);
 });
 
+// ── the repair shop ──────────────────────────────────────────────────────────
+//
+// The client asks the shop on a Moniker of repairSvc: GetRepairQuotes(itemIDs), and to repair,
+// RepairItemsInStation(itemIDs, payment) or RepairItemsInStructure(itemIDs) (base_repairshop.py 62 to 70). The page
+// asks by those names. The game port makes the Moniker. The web gateway's list has the quote and, for both repairs,
+// only the server's own name for them, RepairItems, which does the same with the same: through the gateway the
+// repair goes by that name.
+
+/** The page's own call of the repair shop on a test server; on the game port unless told otherwise. Says what the transport was asked. */
+async function repairShopCall(body, { transport = "gameport" } = {}) {
+  const gamePort = gamePortWithQuestions(() => ({ answered: true }));
+  const gateway = fakeGateway();
+  const backend = transport === "gameport" ? gamePort : gateway;
+  const asked = [];
+  backend.callMethod = async (service, method, args, kwargs) => { asked.push([`${service}.${method}`, args, kwargs]); return { service, method, result: "done", notifications: [] }; };
+  const { baseUrl } = await startTestServer({ gateway, gamePortPilots: gamePort, pilotTransportFor: () => transport });
+  await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
+  asked.length = 0;
+  const answer = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "repairSvc", kwargs: null, ...body } });
+  return { answer, asked };
+}
+
+test("the repair shop's repairs are writes of the page's own, asked by the client's names: made so on the game port, and by the server's own name through the gateway", async () => {
+  const MEANT = { pilot: true, confirm: true };
+  for (const [method, args] of [["RepairItemsInStation", [[9001, 9002], 1500.5]], ["RepairItemsInStructure", [[9001, 9002]]]]) {
+    for (const more of [{}, { pilot: true }, { confirm: true }]) {
+      const refused = await repairShopCall({ method, args, ...more });
+      assert.deepEqual([refused.answer.response.status, refused.answer.payload.error, refused.asked], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE", []], `${method} ${JSON.stringify(more)}`);
+    }
+    const onGamePort = await repairShopCall({ method, args, ...MEANT });
+    // The transport is asked by the client's name, with what the page sent: it makes the shop's Moniker for the call.
+    assert.deepEqual([onGamePort.answer.response.status, onGamePort.answer.payload.ok, onGamePort.answer.payload.service, onGamePort.answer.payload.method, onGamePort.answer.payload.result],
+      [200, true, "repairSvc", method, "done"], method);
+    assert.deepEqual(onGamePort.asked, [[`repairSvc.${method}`, args, null]], method);
+    // Through the gateway: the same, by the one name its list has. The answer names the call that was asked.
+    const onGateway = await repairShopCall({ method, args, ...MEANT }, { transport: "gateway" });
+    assert.deepEqual([onGateway.answer.response.status, onGateway.answer.payload.service, onGateway.answer.payload.method, onGateway.answer.payload.result], [200, "repairSvc", method, "done"], method);
+    assert.deepEqual(onGateway.asked, [["repairSvc.RepairItems", args, null]], method);
+  }
+});
+
+test("the repair shop's quote is a read by its own name on both transports", async () => {
+  for (const transport of ["gameport", "gateway"]) {
+    const quoted = await repairShopCall({ method: "GetRepairQuotes", args: [[9001, 9002]], pilot: true }, { transport });
+    assert.deepEqual([quoted.answer.response.status, quoted.answer.payload.method, quoted.asked], [200, "GetRepairQuotes", [["repairSvc.GetRepairQuotes", [[9001, 9002]], null]]], transport);
+  }
+});
+
 // cfg.eveowners names a player's corporation, alliance or character by asking the game server
 // (config.GetMultiOwnersEx). The game port asks as the client does and keeps the rows (pilots.js ownersNamed), and
 // the names route asks it for what the static tables cannot name.

@@ -84,7 +84,6 @@
   } from "./inventoryModel.ts";
   import {
     repairQuoteTotal,
-    repairTargets,
     type RepairQuotePart,
     type RepairQuoteRow,
   } from "../bridge/repairQuotes.ts";
@@ -1098,7 +1097,7 @@
   }
 
   async function payRepairQuote(rows: readonly RepairQuoteRow[]): Promise<void> {
-    await flow.repairShip(repairTargets(rows));
+    await flow.repairShip(rows);
     await askRepairQuote();
   }
 
@@ -1339,7 +1338,7 @@
     </div>
     <p class="stn-note">
       {#if repairTotal === null}
-        The repair service did not quote a price; repairing still charges your wallet.
+        The repair service did not quote a price. In a station nothing is paid that was not quoted.
       {:else}
         The repair service will charge {formatIsk(repairTotal.toFixed(2))}.
       {/if}

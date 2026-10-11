@@ -47,8 +47,8 @@ test("the generic-call write policy covers the complete canonical plumbing inven
 
 test("the write policy adds every pre-sweep and post-sweep write without duplicates", () => {
   assert.equal(EARLIER_WRITE_PAIR_KEYS.length, 49);
-  assert.deepEqual(FEATURE_WRITE_PAIR_KEYS, ["repairSvc.RepairItems", "officeManager.RentOffice", "officeManager.UnrentOffice", "skillHandler.PurchaseSkills", "skillHandler.SaveNewQueue", "slash.SlashCmd", "invbroker.ImportExportWithPlanet"]);
-  assert.equal(BRIDGE_WRITE_PAIR_KEYS.length, 357);
+  assert.deepEqual(FEATURE_WRITE_PAIR_KEYS, ["repairSvc.RepairItems", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure", "officeManager.RentOffice", "officeManager.UnrentOffice", "skillHandler.PurchaseSkills", "skillHandler.SaveNewQueue", "slash.SlashCmd", "invbroker.ImportExportWithPlanet"]);
+  assert.equal(BRIDGE_WRITE_PAIR_KEYS.length, 359);
   assert.equal(new Set(BRIDGE_WRITE_PAIR_KEYS).size, BRIDGE_WRITE_PAIR_KEYS.length);
 
   assert.equal(isBridgeWritePair("charUnboundMgr", "SelectCharacterID"), true);
@@ -94,7 +94,16 @@ test("browser session projection retains only explicit language preferences", ()
 
 test("the writes the page makes itself are writes, each named once, and the first is the pause of training", () => {
   const { BRIDGE_WRITE_PAIR_KEYS, PAGE_WRITE_PAIR_KEYS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd"]);
+  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip", "dogmaIM.CreateNewbieShip", "officeManager.RentOffice", "officeManager.UnrentOffice", "slash.SlashCmd", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure"]);
+  // The repair shop's two repairs go by the server's own name through the gateway, whose list has no other; every
+  // other call goes by its own.
+  const { gatewaysNameFor } = require("../src/bridgeCallPolicy");
+  assert.deepEqual([gatewaysNameFor("repairSvc", "RepairItemsInStation"), gatewaysNameFor("repairSvc", "RepairItemsInStructure")], ["RepairItems", "RepairItems"]);
+  assert.deepEqual([gatewaysNameFor("repairSvc", "GetRepairQuotes"), gatewaysNameFor("repairSvc", "RepairItems"), gatewaysNameFor("ship", "RepairItemsInStation"), gatewaysNameFor("slash", "SlashCmd"), gatewaysNameFor("constructor", "prototype")],
+    ["GetRepairQuotes", "RepairItems", "RepairItemsInStation", "SlashCmd", "prototype"]);
+  // A list of one name spells that name when it is made into text, and is no name: it goes as it came.
+  const listOfOne = ["RepairItemsInStation"];
+  assert.deepEqual([gatewaysNameFor(["repairSvc"], "RepairItemsInStation"), gatewaysNameFor("repairSvc", listOfOne) === listOfOne, gatewaysNameFor(null, undefined)], ["RepairItemsInStation", true, undefined]);
   // The queue's saving is the client's own call, on its skill handler. The gateway's save of a queue is another
   // pair, a write as it always was, and its route's alone.
   assert.deepEqual([isBridgeWritePair("skillMgr", "SaveNewQueue"), isPageWritePair("skillMgr", "SaveNewQueue")], [true, false]);

@@ -137,7 +137,8 @@ import { decodeColonyReport } from "../bridge/planets.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
 import { extractorReroute, type ExtractorReroute } from "../bridge/colonyRoutes.ts";
 import { decodeRecipeBook } from "../bridge/piRecipes.ts";
-import { decodeRepairQuotes, repairTargets, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
+import { repairTargets, type RepairQuoteRow } from "../bridge/repairQuotes.ts";
+import { quoteRepairs, repairItemsAtShop, repairQuoted } from "../bridge/repairShop.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
 import type { CorpOfficesResult, DronesResult, FlightStepResult } from "./api.ts";
@@ -656,10 +657,10 @@ export interface AppFlow {
    */
   quoteShipRepair(): Promise<readonly RepairQuoteRow[] | null>;
   /**
-   * Pay the station to repair exactly these items — the ids the caller just
-   * quoted, never a broader "everything". The wallet charge is the server's.
+   * Pay the station to repair exactly what this quote lists — the rows the
+   * caller was just shown, never a broader "everything" — at the quote's cost.
    */
-  repairShip(itemIDs: readonly number[]): Promise<void>;
+  repairShip(quotes: readonly RepairQuoteRow[]): Promise<void>;
   // --- R14 inventory depth ---
   /** Tick or untick a row for a bulk move / trash. */
   toggleSelection(itemID: number): void;
@@ -2784,7 +2785,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (targets.length === 0) {
       return null;
     }
-    return decodeRepairQuotes(await api.getRepairQuotes(targets, callOptions));
+    // The page's own call of the shop (bridge/repairShop.ts).
+    return quoteRepairs(bridgeAsk, targets);
   }
 
   async function refreshActiveShipViews(): Promise<void> {
@@ -8129,7 +8131,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // decides, and the request's risk classes say `financial` because of
           // it.
           case "repairItems":
-            await api.repairItems(action.itemIDs, callOptions);
+            // A tick names items and has no quote in hand: the shop is asked for one, and paid at it.
+            await repairItemsAtShop(bridgeAsk, bridgeDo, action.itemIDs, await dockedIn());
             return;
           // Rung 5, the last step of a round trip: back out into space. The
           // only call this loop makes that deliberately re-enters danger, which
@@ -12759,7 +12762,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             return;
           case "repairItems":
             if (action.itemIDs.length > 0) {
-              await api.repairItems(action.itemIDs, callOptions);
+              await repairItemsAtShop(bridgeAsk, bridgeDo, action.itemIDs, await dockedIn());
             }
             return;
           case "boardShip":
@@ -13819,8 +13822,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     quoteShipRepair,
 
-    async repairShip(itemIDs) {
-      await runMutation(() => api.repairItems(itemIDs, callOptions));
+    async repairShip(quotes) {
+      // The page's own call (bridge/repairShop.ts): the station's repair with the quote's cost for its payment,
+      // or the structure's, by where the pilot's flight says it is docked now.
+      await runMutation(async () => {
+        await repairQuoted(bridgeDo, quotes, await dockedIn());
+      });
       await refreshActiveShipViews();
     },
 

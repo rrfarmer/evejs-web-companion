@@ -4054,6 +4054,50 @@ test("every call of crimewatch is on a Moniker of its own: bound for the one cal
   assert.deepEqual(flying.session.crimewatch[0].params, [SYSTEM, 5]);
 });
 
+test("the repair shop's calls are each on a Moniker made for the one call: bound for where the pilot is docked, carrying the call, and never by name", async () => {
+  // repair.GetRemoteRepairMgr (base_repairshop.py 45 to 60): a new Moniker('repairSvc', (the dockable place, the
+  // place, the place's group)) at each use, and the call on it. In a station the place is the station, thrice told.
+  const REPAIR_PAIRS = { allowed: new Set(["repairSvc.GetRepairQuotes", "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure"]) };
+  const quotes = { type: "dict", entries: [] };
+  const { pilots, session, handle } = await selected({ answers: { "bound:GetRepairQuotes": quotes } }, REPAIR_PAIRS);
+  session.calls.length = 0;
+  const before = session.binds.length;
+  const ofTheShop = () => session.boundCalls.filter((call) => /Repair/.test(call.method)).map((call) => [call.method, call.args, call.kwargs]);
+  const quoted = await pilots.callMethod("repairSvc", "GetRepairQuotes", [[SHIP, 77]], null, FIELDS, handle);
+  assert.deepEqual([quoted.service, quoted.method, quoted.result], ["repairSvc", "GetRepairQuotes", quotes]);
+  await pilots.callMethod("repairSvc", "RepairItemsInStation", [[SHIP, 77], 1500], null, FIELDS, handle);
+  assert.deepEqual(session.binds.slice(before), Array(2).fill({ service: "repairSvc", params: [STATION, STATION, 15] }));
+  assert.deepEqual(session.carried.slice(before), ["GetRepairQuotes", "RepairItemsInStation"]);
+  // The items' IDs as a list, as the client's are; and the payment a float, as the client's is, whole or not.
+  assert.deepEqual(ofTheShop(), [
+    ["GetRepairQuotes", [{ type: "list", items: [SHIP, 77] }], null],
+    ["RepairItemsInStation", [{ type: "list", items: [SHIP, 77] }, { type: "real", value: 1500 }], null],
+  ]);
+  assert.deepEqual(session.calls, [], "nothing was asked of the service by its name");
+  const tally = () => Object.fromEntries(pilots.callLedger().filter((row) => row.pair.startsWith("repairSvc.")).map((row) => [row.pair, row.statuses]));
+  assert.deepEqual(tally(), { "repairSvc.GetRepairQuotes": { reshaped: 1 }, "repairSvc.RepairItemsInStation": { reshaped: 1 } });
+
+  // In a structure: the structure, the solar system and the system's group, and the structure's own repair (50 to 55, 69).
+  Object.assign(session.attributes, { stationid: null, structureid: 1052851966475n });
+  session.change({ stationid: [STATION, null], structureid: [null, 1052851966475n] });
+  await pilots.callMethod("repairSvc", "RepairItemsInStructure", [[SHIP]], null, FIELDS, handle);
+  assert.deepEqual(session.binds.at(-1), { service: "repairSvc", params: [1052851966475, SYSTEM, 5] });
+  assert.deepEqual([session.carried.at(-1), ofTheShop().at(-1)], ["RepairItemsInStructure", ["RepairItemsInStructure", [{ type: "list", items: [SHIP] }], null]]);
+  // The station's repair asked there is not the client's: it goes as it came, and is counted so.
+  await pilots.callMethod("repairSvc", "RepairItemsInStation", [[SHIP], 10], null, FIELDS, handle);
+  assert.deepEqual([ofTheShop().at(-1), tally()["repairSvc.RepairItemsInStation"]], [["RepairItemsInStation", [[SHIP], 10], null], { reshaped: 1, differs: 1 }]);
+});
+
+test("in space the client has no repair shop to ask: a call of it goes by the service's name, and is counted as none of the client's", async () => {
+  // GetRemoteRepairMgr raises with neither a station nor a structure (56).
+  const flying = await selectedInSpace({ allowed: new Set(["repairSvc.GetRepairQuotes"]) });
+  flying.session.calls.length = 0;
+  await flying.pilots.callMethod("repairSvc", "GetRepairQuotes", [[SHIP]], null, WHOSE, flying.handle);
+  assert.deepEqual(flying.session.calls.map((call) => [call.service, call.method]), [["repairSvc", "GetRepairQuotes"]]);
+  assert.equal(flying.session.binds.some((bind) => bind.service === "repairSvc"), false);
+  assert.deepEqual(flying.pilots.callLedger().find((row) => row.pair === "repairSvc.GetRepairQuotes").statuses, { "web-only": 1 });
+});
+
 test("the ship's Moniker is made anew for each call while the pilot is docked in a station", async () => {
   const { pilots, session, handle } = await selected(undefined, CRIME_PAIRS);
   await pilots.callMethod("ship", "LeaveShip", [SHIP], null, FIELDS, handle);

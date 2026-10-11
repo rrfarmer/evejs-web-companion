@@ -211,6 +211,36 @@ const oneLaunch = (args, kwargs) => (args.length === 1 && Number.isSafeInteger(a
   : { status: "differs", note: "The client names the one launch and nothing else: DeleteLaunch(launchID)." });
 /** A judge for a call the client sends with nothing: no argument, and no keyword. */
 const sentWithNothing = (args, kwargs) => (args.length === 0 && Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "The client sends nothing with this call." });
+/** Items' IDs as the client's repair shop lists them: whole numbers above nought, and one at least. */
+const itemIDsListed = (value) => Array.isArray(value) && value.length > 0 && value.every((each) => Number.isSafeInteger(each) && each > 0);
+/** repair.GetRepairQuotes (base_repairshop.py 63): GetRemoteRepairMgr().GetRepairQuotes(itemIDs), the IDs a list. */
+const quotingRepairs = (args, kwargs) => (args.length === 1 && itemIDsListed(args[0]) && Object.keys(kwargs).length === 0
+  ? { args: [list(args[0])], kwargs }
+  : { args, kwargs, status: "differs", note: "The client asks a quote for a list of items, and nothing else." });
+/**
+ * repair.RepairItems (65 to 67), docked in a station: RepairItemsInStation(itemIDs, payment). The payment is the
+ * shop window's amount (300 to 327): the whole cost, the part of it the pilot chose, or 0.0 where nothing is owed.
+ * A float always, so a whole number goes as one.
+ */
+const repairingInAStation = (args, kwargs, context) => {
+  if (!(args.length === 2 && itemIDsListed(args[0]) && Number.isFinite(args[1]) && args[1] >= 0 && Object.keys(kwargs).length === 0)) {
+    return { args, kwargs, status: "differs", note: "The client repairs a list of items for one payment, and nothing else." };
+  }
+  if (context.structureID !== null && context.structureID !== undefined) {
+    return { args, kwargs, status: "differs", note: "Docked in a structure the client asks RepairItemsInStructure, with no payment." };
+  }
+  return { args: [list(args[0]), { type: "real", value: args[1] }], kwargs };
+};
+/** repair.RepairItems (68 and 69), docked in a structure: RepairItemsInStructure(itemIDs), with nothing paid. */
+const repairingInAStructure = (args, kwargs, context) => {
+  if (!(args.length === 1 && itemIDsListed(args[0]) && Object.keys(kwargs).length === 0)) {
+    return { args, kwargs, status: "differs", note: "The client repairs a list of items in a structure, and nothing else." };
+  }
+  if (context.structureID === null || context.structureID === undefined) {
+    return { args, kwargs, status: "differs", note: "Docked in a station the client asks RepairItemsInStation, with its payment." };
+  }
+  return { args: [list(args[0])], kwargs };
+};
 /** menusvc.py's GM entries and svc_slash.py 522: sm.RemoteSvc('slash').SlashCmd(line), the one line of text. */
 const aSlashCommand = (args, kwargs) => (args.length === 1 && typeof args[0] === "string" && args[0] !== "" && Object.keys(kwargs).length === 0
   ? {}
@@ -249,6 +279,9 @@ const MONIKER_SERVICES = Object.freeze({
   // eveMoniker.GetEntityAccess() (58): Moniker('entity', session.solarsystemid2), made at each drone order
   // (droneFunctions.py) and not kept. Every one Tranquility has recorded rides its own bind.
   entity: new Set(),
+  // repair.GetRemoteRepairMgr (base_repairshop.py 45 to 60): Moniker('repairSvc', (the dockable place, the place,
+  // the place's group)), made anew at each use. Nothing of the repair service is asked by its name.
+  repairSvc: new Set(),
 });
 /**
  * Monikers for something a session may not have, by what it is in the call's context: the client cannot make one
@@ -271,6 +304,11 @@ const MONIKER_NEEDS = Object.freeze({
     source: "eve/client/script/ui/services/corporation/officeManager.py:48",
     note: "The client asks this on a moniker for the station or structure its session is docked in. In space it has none, and does not ask.",
   }),
+  repairSvc: Object.freeze({
+    has: "dockedAt",
+    source: "eve/client/script/ui/station/repairshop/base_repairshop.py:56",
+    note: "The client asks this on a moniker for the station or structure its session is docked in. In space its repair service raises instead of making one, and does not ask.",
+  }),
   entity: Object.freeze({
     has: "solarSystemID",
     source: "eve/common/script/net/eveMoniker.py:58",
@@ -288,7 +326,7 @@ const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration"]);
  * service that makes its own does so wherever the pilot is.
  */
 const madeAfresh = (service, method, { dockedInStation = false } = {}) =>
-  service === "crimewatch" || service === "planetOrbitalRegistryBroker" || service === "entity" || (service === "ship" && (dockedInStation || OWN_SHIP_MONIKER.has(method)));
+  service === "crimewatch" || service === "planetOrbitalRegistryBroker" || service === "entity" || service === "repairSvc" || (service === "ship" && (dockedInStation || OWN_SHIP_MONIKER.has(method)));
 /**
  * The services the client reaches with sm.ProxySvc(name): every one in the decompiled client, and none
  * of them is asked any other way. Such a call is addressed to the client's proxy node
@@ -334,6 +372,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // The account's extra training slots, which the client's queue service asks for to tell whether a change of
   // the queue may start it (skillQueueSvc.py 851). The gateway's list has nothing of the user service's.
   "userSvc.GetMultiCharactersTrainingSlots",
+  // The repair shop's two repairs by the client's names, on the shop's Moniker. The gateway's list has only the
+  // server's own name for both, RepairItems, which the BFF asks there in their place (bridgeCallPolicy.js).
+  "repairSvc.RepairItemsInStation", "repairSvc.RepairItemsInStructure",
 ]);
 
 /**
@@ -1378,6 +1419,10 @@ const RETAIL_CALLS = Object.freeze({
   "ship.LeaveShip": judged(`${STATION_SVC}:248`, leavingTheShip, "station.TryLeaveShip: gameui.GetShipAccess().LeaveShip(shipid), for the ship the pilot is in and no other, docked; from the item's menu and before a clone jump. In a structure, structureDocking.LeaveShip makes the same call and then makes the capsule it answers active. In space the menu ejects. In no recording."),
   "dogmaIM.CreateNewbieShip": judged(`${STATION_SVC}:613`, boardingACorvette, "station.CreateNewbieShip: sm.RemoteSvc('dogmaIM').CreateNewbieShip(shipID, locationID), by the service's name, for the ship the pilot is in and where it is docked (session.stationid or session.structureid). The client asks the pilot first unless it is in a capsule, and refuses by itself aboard a corvette. From the lobby's corvette button and no other place. In no recording."),
   "ship.Board": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:209", "GetShipAccess().Board(shipID, session.shipid or session.stationid), through sessionMgr.PerformSessionChange('board', ...). Recorded on Tranquility in space as (shipID, the ship left), the bind carrying it."),
+  "repairSvc.GetRepairQuotes": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:63", quotingRepairs, "GetRemoteRepairMgr().GetRepairQuotes(itemIDs): the items as a list, on a Moniker of repairSvc made for the one call (45 to 60). In no recording."),
+  "repairSvc.RepairItemsInStation": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:67", repairingInAStation, "GetRemoteRepairMgr().RepairItemsInStation(itemIDs, payment), docked in a station: the items as a list and the payment a float, the amount the shop's window worked out (300 to 327). In no recording."),
+  "repairSvc.RepairItemsInStructure": reshaped("eve/client/script/ui/station/repairshop/base_repairshop.py:69", repairingInAStructure, "GetRemoteRepairMgr().RepairItemsInStructure(itemIDs), docked in a structure, with nothing paid. In no recording."),
+  "repairSvc.RepairItems": differs("eve/client/script/ui/station/repairshop/base_repairshop.py:65", "The client's repair service asks RepairItemsInStation or RepairItemsInStructure of the shop's Moniker. This name is the server's own for both, and what the web gateway's list has."),
   "slash.SlashCmd": judged("eve/client/script/ui/services/menusvc.py:834", aSlashCommand, "RemoteSvc('slash').SlashCmd(line), by name, with the one line of text: what the client's GM menus send, and what its own slash service sends for a line typed in chat once its aliases are worked out (svc_slash.py 520 to 523). No recording has one."),
   "ship.GetShipConfiguration": reshaped(`${SHIP_CONFIG}:51`, configuration, "GetShipAccess().GetShipConfiguration(shipID)"),
 });

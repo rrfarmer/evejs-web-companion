@@ -4525,23 +4525,10 @@ export async function scoopDrones(
 // (bridge/gmWrites.ts; the plan's Phase 6b): it left its route
 // (POST /api/bridge/gm/slash) on 2026-10-10.
 
-/** The repair shop's quote for these items: which of them it lists as damaged. */
-export async function getRepairQuotes(
-  itemIDs: readonly number[],
-  options: ApiOptions = {},
-): Promise<JsonValue> {
-  const query = itemIDs.map((id) => encodeURIComponent(String(id))).join(",");
-  const data = await getJson(`/api/bridge/station/repair-quotes?itemIDs=${query}`, options);
-  return data.quotes ?? null;
-}
-
-/** Pay the station to repair these items (the server debits the wallet). */
-export async function repairItems(
-  itemIDs: readonly number[],
-  options: ApiOptions = {},
-): Promise<void> {
-  await postJson("/api/bridge/station/repair", { itemIDs: [...itemIDs], confirm: true }, options);
-}
+// The repair shop's quote and its repairs are the page's own calls of the
+// repair service (bridge/repairShop.ts; the plan's Phase 6b): they left their
+// routes (GET /api/bridge/station/repair-quotes, POST /api/bridge/station/repair)
+// on 2026-10-10.
 
 /**
  * The session character's planetary launches (planetMgr.GetMyLaunchesDetails,
