@@ -662,6 +662,19 @@ Take these defaults, and list each under "For the operator" in the log so they c
   for a kind of thing that is no planet, its check and its bind in the generic call's
   handler (`src/server.js`, `objectKind`). A read is listed only with its handler read
   first: the planet's reads once took an owner from the caller.
+- **An extractor for a check**: `ecu-stage.js <bff> <account> <characterID> <planetID>` builds
+  one on Test Two's colony by the page's own write (the centre to level 2, a control unit, a
+  link, a head and a programme of Base Metals, a route to the launchpad), and stops where a
+  step is refused. A programme that is running cannot be installed again
+  (`CantInstallProgramNeedsCooldown`): run it out with `ecu-expire.sh <planetID> <ownerID>
+  <hours>`, which stops EveJS, moves the unit's times back in the store and starts it again
+  (both BFFs want starting again after). `ecu-live.js` sends the page's two forms and reads
+  the colony round them.
+- **A bot run from the tab**: save one of a single block with `bot-save.js <bff> <account>
+  <macro> <name>` (the BFF's own route), choose the pilot and "Go to first pilot", then in
+  the Bot Manager's Pilots list pick it in the pilot's row ("Choose a bot") and press "Run
+  here". Its own words are in the BFF's data folder, `bot-logs/<characterID>.jsonl`: the
+  Bot Manager's "Recent runs" does not list a run made in the tab.
 - **A colony for a check**: Test Two's (`test2`, 140000002) on Muvolailen I, planet 40176368,
   where the pilot is docked: a command centre and a launchpad, one link, no routes, level 0.
   `net-live.js <bff> <account> <characterID> <planetID> [look]` reads it and changes it. It
