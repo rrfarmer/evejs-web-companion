@@ -41,8 +41,12 @@
 //
 // The page aligns to things only: it has no align to a bookmark. What the client keeps of an align for itself
 // (StoreAlignTarget, for the HUD's words) the BFF keeps for a pilot on the game port (pilots.js,
-// afterMovementCall). The client cancels its autopilot's navigation after the call; the page's flight panel does
-// not order a ship beside its autopilot at all.
+// afterMovementCall).
+//
+// ⚠ AND NOTHING IS CANCELLED HERE EITHER. After the call the client forgets its own navigation in the system
+// (autoPilot.CancelSystemNavigation, autopilot.py 494: a destination in the system it was flying to by steps of
+// its own). The page's travel autopilot is not stopped by an align, as it was not when the route made it; the
+// overview holds its own movement buttons while an order it began is still running, and no more than that.
 
 import type { Ask } from "./ask.ts";
 
