@@ -349,6 +349,7 @@ import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
 import { applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, tagFleetTarget, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { salvageWithDrones } from "../bridge/boundEntityWrites.ts";
 import { goToPoint } from "../bridge/movementWrites.ts";
+import { leaveShip as leaveShipCall } from "../bridge/shipWrites.ts";
 import { launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, type NewRoute } from "../bridge/planetWrites.ts";
 import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { createModuleRepairs, createOverloadEffects, createWeaponGrouping, loadAmmo as loadAmmoCall, repairWaitMs, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall } from "../bridge/dogmaWrites.ts";
@@ -13794,12 +13795,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     async leaveShip() {
-      // The server resolves the docked swap from the session and ignores the
-      // shipID beyond logging, so a not-yet-loaded inventory (null → 0) is
-      // fine; when the panel has loaded we pass the real active hull, as the
-      // retail client does.
-      const activeShipID = store.get().inventory.activeShipID ?? 0;
-      await runMutation(() => api.leaveShip(activeShipID, callOptions));
+      // The page's own call (bridge/shipWrites.ts), for the ship the pilot is in, as the client's is
+      // (station.TryLeaveShip). The panel has that ship once it has loaded; before then the pilot's flight says.
+      // The server does nothing with the ship named, but a call that names another, or none, is not the client's.
+      await runMutation(async () => {
+        const shipID = store.get().inventory.activeShipID
+          ?? decodeFlightStatus((await api.getFlightStatus(callOptions)).flight).shipID
+          ?? 0;
+        await leaveShipCall(bridgeDo, shipID);
+      });
       await refreshActiveShipViews();
     },
 

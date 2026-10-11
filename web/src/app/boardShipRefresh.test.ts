@@ -195,13 +195,18 @@ test("leaving a ship closes the bays instead of leaving a ghost hull open", asyn
             cargo: { list: [], capacity: null, error: null },
             volumes: {},
           }
-        : { ok: true };
+        : path === "/api/bridge/call"
+          // The page's own call for the ship left (bridge/shipWrites.ts), answered as a call is.
+          ? { ok: true, service: "ship", method: "LeaveShip", result: null, notifications: [] }
+          : { ok: true };
     return { ok: true, status: 200, async json() { return body; } };
   }) as unknown as typeof fetch;
   const leaving = createAppFlow(store, { fetch: impl });
 
   await leaving.leaveShip();
 
+  assert.equal(store.get().inventory.actionError, null, "the leaving itself went through");
+  assert.equal(net.requests.some((request) => request.path === "/api/bridge/call"), true, "by the page's own call");
   assert.equal(
     store.get().inventory.openShip,
     null,

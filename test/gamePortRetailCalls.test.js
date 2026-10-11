@@ -381,7 +381,7 @@ test("an approach, the speed set before the autopilot's, and a GM's command are 
   assert.match(RETAIL_CALLS["beyonce.CmdSetSpeedFraction"].note, /send none before theirs, and on the game port the BFF's routes send none either; through the gateway they do/);
 });
 
-test("targeting, onlining, scooping and leaving a ship are the client's calls as they stand", () => {
+test("targeting, onlining, scooping and boarding a ship are the client's calls as they stand", () => {
   for (const [pair, args, where] of [
     ["dogmaIM.GetTargets", [], /godma\.py:2361$/],
     ["dogmaIM.AddTarget", [9001], /targetMgr\.py:1366$/],
@@ -390,7 +390,6 @@ test("targeting, onlining, scooping and leaving a ship are the client's calls as
     ["dogmaIM.SetModuleOnline", [5000, 7], /clientDogmaLocation\.py:702$/],
     ["dogmaIM.TakeModuleOffline", [5000, 7], /clientDogmaLocation\.py:718$/],
     ["ship.ScoopDrone", [[11, 12]], /droneFunctions\.py:195$/],
-    ["ship.LeaveShip", [5000], /ui\/station\/base\.py:248$/],
     ["ship.Board", [5001, 5000], /menuFunctions\.py:209$/],
   ]) {
     const answer = form(pair, args);
@@ -1998,5 +1997,30 @@ test("the weapons linked or unlinked all at once is the client's call when it na
       assert.deepEqual([odd.status, odd.args], ["differs", args], `${method}: ${why}`);
       assert.match(odd.note, /one ship/, why);
     }
+  }
+});
+
+test("a ship left is the client's call when it names the ship the pilot is in, from a pilot that is docked", () => {
+  // station.TryLeaveShip (236 to 251): only for dogmaLocation.GetCurrentShipID(), and gameui.GetShipAccess().LeaveShip(shipid).
+  // In a structure, structureDocking.LeaveShip (92 to 96). In space the client's menu ejects (ship.Eject).
+  const docked = { shipID: 5000, dockedAt: 60003760 };
+  const ask = (args, kwargs = null, context = docked) => retailForm("ship", "LeaveShip", args, kwargs, context);
+  const made = ask([5000]);
+  assert.deepEqual([made.status, made.source, made.args, made.kwargs], ["same", "eve/client/script/ui/station/base.py:248", [5000], null]);
+  for (const [args, kwargs, context, why, note] of [
+    [[], null, docked, "no ship named", /names the ship/],
+    [[5000, 1], null, docked, "a second argument", /names the ship/],
+    [[5000], { force: true }, docked, "a keyword", /names the ship/],
+    [[0], null, docked, "nought", /names the ship/],
+    [["5000"], null, docked, "a ship as text", /names the ship/],
+    [[5000.5], null, docked, "half a ship", /names the ship/],
+    [[5001], null, docked, "another ship", /the ship the pilot is in/],
+    [[5000], null, { shipID: null, dockedAt: 60003760 }, "a ship not known", /the ship the pilot is in/],
+    [[5000], null, { shipID: 5000, dockedAt: null }, "in space", /ejects/],
+    [[5000], null, { shipID: 5000 }, "nothing known of where the pilot is", /ejects/],
+  ]) {
+    const refused = ask(args, kwargs, context);
+    assert.deepEqual([refused.status, refused.args, refused.kwargs], ["differs", args, kwargs], why);
+    assert.match(refused.note, note, why);
   }
 });

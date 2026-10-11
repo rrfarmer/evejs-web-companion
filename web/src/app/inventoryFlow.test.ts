@@ -149,14 +149,19 @@ test("stackContainer and boardShip post their BFF mutations then reload", async 
   assert.equal(requests.filter((r) => r.path === "/api/bridge/inventory").length, 2);
 });
 
-test("boardCorvette and leaveShip post their confirmed ship swaps then reload", async () => {
+/** The generic call's answer to a ship left. */
+const LEFT = { status: 200, body: { ok: true, service: "ship", method: "LeaveShip", result: null, notifications: [] } };
+/** station.TryLeaveShip (248): GetShipAccess().LeaveShip(shipid), as a pilot's write the page means. */
+const theLeaving = (shipID: number) => ({ service: "ship", method: "LeaveShip", args: [shipID], kwargs: null, pilot: true, confirm: true });
+
+test("boardCorvette posts its confirmed ship swap, and leaveShip makes the page's own call for the ship the pilot is in; each then reloads", async () => {
   const store = createClientStore();
   const { fetch, requests } = makeFakeFetch((path) => {
     if (path === "/api/bridge/ship/board-corvette") {
       return { status: 200, body: { ok: true, applied: true } };
     }
-    if (path === "/api/bridge/ship/leave") {
-      return { status: 200, body: { ok: true, applied: true } };
+    if (path === "/api/bridge/call") {
+      return LEFT;
     }
     return { status: 200, body: inventoryPanel() };
   });
@@ -170,19 +175,21 @@ test("boardCorvette and leaveShip post their confirmed ship swaps then reload", 
   const corvette = requests.find((r) => r.path === "/api/bridge/ship/board-corvette");
   assert.ok(corvette, "board-corvette was posted");
   assert.deepEqual(corvette!.body, { confirm: true });
-  const leave = requests.find((r) => r.path === "/api/bridge/ship/leave");
-  assert.ok(leave, "leave was posted");
-  assert.deepEqual(leave!.body, { shipID: 9001, confirm: true });
+  assert.deepEqual(requests.filter((r) => r.path === "/api/bridge/call").map((r) => r.body), [theLeaving(9001)]);
+  assert.equal(requests.some((r) => r.path === "/api/bridge/ship/leave"), false, "the route is not asked");
   // Each mutation reloaded the panel (plus the explicit initial load).
   assert.equal(requests.filter((r) => r.path === "/api/bridge/inventory" && r.method === "GET").length, 3);
   assert.equal(store.inventory.get().actionError, null);
 });
 
-test("leaveShip before the panel has loaded sends shipID 0 (the server resolves the session's ship)", async () => {
+test("leaveShip before the panel has loaded asks the pilot's flight which ship it is in, and names that one", async () => {
   const store = createClientStore();
   const { fetch, requests } = makeFakeFetch((path) => {
-    if (path === "/api/bridge/ship/leave") {
-      return { status: 200, body: { ok: true, applied: true } };
+    if (path === "/api/bridge/flight/status") {
+      return { status: 200, body: { ok: true, flight: { inSpace: false, docked: true, stationID: 60003760, solarSystemID: 30000142, shipID: 7007 }, notifications: [] } };
+    }
+    if (path === "/api/bridge/call") {
+      return LEFT;
     }
     return { status: 200, body: inventoryPanel() };
   });
@@ -190,8 +197,41 @@ test("leaveShip before the panel has loaded sends shipID 0 (the server resolves 
 
   await flow.leaveShip();
 
-  const leave = requests.find((r) => r.path === "/api/bridge/ship/leave");
-  assert.deepEqual(leave!.body, { shipID: 0, confirm: true });
+  const order = requests.map((r) => r.path).filter((path) => path === "/api/bridge/flight/status" || path === "/api/bridge/call");
+  assert.deepEqual(order, ["/api/bridge/flight/status", "/api/bridge/call"]);
+  assert.deepEqual(requests.find((r) => r.path === "/api/bridge/call")!.body, theLeaving(7007));
+});
+
+test("with no ship known from the panel or the flight, nothing is asked to be left, and the page says so", async () => {
+  const store = createClientStore();
+  const { fetch, requests } = makeFakeFetch((path) => {
+    if (path === "/api/bridge/flight/status") {
+      return { status: 200, body: { ok: true, flight: { inSpace: false, docked: true, stationID: 60003760, shipID: null }, notifications: [] } };
+    }
+    return { status: 200, body: inventoryPanel() };
+  });
+  const flow = createAppFlow(store, { fetch });
+
+  await flow.leaveShip();
+
+  assert.equal(requests.some((r) => r.path === "/api/bridge/call" || r.path === "/api/bridge/ship/leave"), false);
+  assert.match(String(store.inventory.get().actionError), /Which ship this is is not known yet/);
+});
+
+test("a leaving the server refuses is said in the panel, in its words", async () => {
+  const store = createClientStore();
+  const { fetch } = makeFakeFetch((path) => {
+    if (path === "/api/bridge/call") {
+      return { status: 409, body: { ok: false, error: "CALL_REFUSED", message: "A session change is already in progress." } };
+    }
+    return { status: 200, body: inventoryPanel() };
+  });
+  const flow = createAppFlow(store, { fetch });
+
+  await flow.loadInventory();
+  await flow.leaveShip();
+
+  assert.match(String(store.inventory.get().actionError), /A session change is already in progress/);
 });
 
 test("a refused mutation is surfaced through the store, not thrown", async () => {

@@ -94,7 +94,7 @@ test("browser session projection retains only explicit language preferences", ()
 
 test("the writes the page makes itself are writes, each named once, and the first is the pause of training", () => {
   const { BRIDGE_WRITE_PAIR_KEYS, PAGE_WRITE_PAIR_KEYS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities"]);
+  assert.deepEqual(PAGE_WRITE_PAIR_KEYS, ["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip"]);
   // The queue's saving is the client's own call, on its skill handler. The gateway's save of a queue is another
   // pair, a write as it always was, and its route's alone.
   assert.deepEqual([isBridgeWritePair("skillMgr", "SaveNewQueue"), isPageWritePair("skillMgr", "SaveNewQueue")], [true, false]);
@@ -144,4 +144,15 @@ test("the page's calls that are made on an object of the service's own say what 
     assert.equal(isBridgeWritePair(service, method), isPageWritePair(service, method), pair);
   }
   assert.deepEqual([isBridgeWritePair("planetMgr", "GetProgramResultInfo"), PAGE_WRITE_PAIR_KEYS.includes("planetMgr.UserUpdateNetwork")], [false, true]);
+});
+
+test("the page's writes that swap the pilot's ship are made under the BFF's watch of the swap", () => {
+  const { PAGE_WRITE_PAIR_KEYS, swapsThePilotsShip } = require("../src/bridgeCallPolicy");
+  // station.TryLeaveShip: the pilot in its capsule from then on.
+  assert.equal(swapsThePilotsShip("ship", "LeaveShip"), true);
+  // The ship's other swaps have their routes; and a write that swaps nothing is none.
+  for (const [service, method] of [["ship", "Eject"], ["ship", "BoardStoredShip"], ["dogmaIM", "CreateNewbieShip"], ["skillHandler", "SaveNewQueue"], ["ship", ""], [["ship"], "LeaveShip"], ["ship", ["LeaveShip"]], [null, undefined]]) {
+    assert.equal(swapsThePilotsShip(service, method), false, `${service}.${method}`);
+  }
+  assert.equal(PAGE_WRITE_PAIR_KEYS.includes("ship.LeaveShip"), true);
 });

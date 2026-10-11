@@ -222,8 +222,13 @@ function isBridgeWritePair(service, method) {
  *                                handler launches from the colony the session's own character has on that
  *                                planet, debits that character's wallet, and refuses a pin that is no command
  *                                centre or is not ready. On the planet's object too, with `of`.
+ *   ship.LeaveShip               the pilot's ship left, docked. The route checked `confirm`, made the call, and
+ *                                answered once the pilot's flight said another ship, keeping the BFF's own word
+ *                                for the pilot's ship. The handler does nothing with the ship named: it puts
+ *                                the session's own character in a capsule where the session is docked. It is
+ *                                made under the same watch of the swap (PAGE_SHIP_SWAP_CALLS).
  */
-const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities"]);
+const PAGE_WRITE_PAIR_KEYS = Object.freeze(["skillHandler.AbortTraining", "skillHandler.SaveNewQueue", "skillHandler.ApplyFreeSkillPoints", "crimewatch.SetSafetyLevel", "contractProxy.AcceptContract", "planetMgr.DeleteLaunch", "fleetProxy.ApplyToJoinFleet", "fleetMgr.BroadcastToBubble", "dogmaIM.Overload", "dogmaIM.StopOverload", "dogmaIM.InitiateModuleRepair", "dogmaIM.StopModuleRepair", "dogmaIM.LinkAllWeapons", "dogmaIM.UnlinkAllModules", "dogmaIM.LoadAmmo", "dogmaIM.UnloadAmmo", "beyonce.CmdFleetTagTarget", "entity.CmdSalvage", "beyonce.CmdGotoPoint", "planetMgr.UserUpdateNetwork", "planetMgr.UserLaunchCommodities", "ship.LeaveShip"]);
 const pageWritePairKeySet = new Set(PAGE_WRITE_PAIR_KEYS);
 for (const pair of PAGE_WRITE_PAIR_KEYS) {
   if (!bridgeWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's writes and is no write.`);
@@ -232,6 +237,25 @@ for (const pair of PAGE_WRITE_PAIR_KEYS) {
 /** Whether the page makes this write itself, by the generic call. */
 function isPageWritePair(service, method) {
   return typeof service === "string" && typeof method === "string" && pageWritePairKeySet.has(`${service}.${method}`);
+}
+
+/**
+ * The page's own writes that put the pilot in another ship. A client's session changes ship when the server says
+ * so, and it holds its next session change back for a time. The BFF keeps its own word for the pilot's ship,
+ * which its other routes go by; so such a write is made under the BFF's watch of the swap, as its route made it
+ * (src/server.js, dispatchShipSwapWrite): answered once the pilot's flight says another ship, and refused while
+ * another swap is under way.
+ *
+ *   ship.LeaveShip   station.TryLeaveShip: the pilot in its capsule from then on.
+ */
+const PAGE_SHIP_SWAP_CALLS = Object.freeze(new Set(["ship.LeaveShip"]));
+for (const pair of PAGE_SHIP_SWAP_CALLS) {
+  if (!pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's swaps of the pilot's ship and is none of its writes.`);
+}
+
+/** Whether this write of the page's puts the pilot in another ship. */
+function swapsThePilotsShip(service, method) {
+  return typeof service === "string" && typeof method === "string" && PAGE_SHIP_SWAP_CALLS.has(`${service}.${method}`);
 }
 
 /**
@@ -293,6 +317,7 @@ module.exports = {
   FEATURE_WRITE_METHODS,
   FEATURE_WRITE_PAIR_KEYS,
   PAGE_OBJECT_CALLS,
+  PAGE_SHIP_SWAP_CALLS,
   PAGE_WRITE_PAIR_KEYS,
   PLUMBING_SWEEP_WRITE_METHODS,
   PLUMBING_SWEEP_WRITE_PAIR_KEYS,
@@ -301,4 +326,5 @@ module.exports = {
   isPageWritePair,
   objectOfPageCall,
   pickSafeBrowserSessionFields,
+  swapsThePilotsShip,
 };

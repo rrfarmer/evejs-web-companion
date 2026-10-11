@@ -1111,6 +1111,7 @@
       "planetMgr.DeleteLaunch",
       "planetMgr.UserLaunchCommodities",
       "planetMgr.UserUpdateNetwork",
+      "ship.LeaveShip",
       "skillHandler.AbortTraining",
       "skillHandler.ApplyFreeSkillPoints",
       "skillHandler.SaveNewQueue"

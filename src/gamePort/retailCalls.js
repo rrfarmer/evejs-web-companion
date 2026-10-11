@@ -532,6 +532,20 @@ const goingToPoint = (args, kwargs) => (args.length === 3 && args.every((each) =
   ? { args: args.map((each) => ({ type: "real", value: each })), kwargs }
   : { args, kwargs, status: "differs", note: "The client sends a point's three numbers and nothing else." });
 
+/**
+ * station.TryLeaveShip (base.py 236 to 251): LeaveShip(shipid) only for dogmaLocation.GetCurrentShipID(), from a
+ * pilot that is docked. In space the client's menu ejects, which is ship.Eject.
+ */
+const leavingTheShip = (args, kwargs, context) => {
+  if (!(args.length === 1 && Number.isSafeInteger(args[0]) && args[0] > 0 && Object.keys(kwargs).length === 0)) {
+    return { status: "differs", note: "The client names the ship it leaves, and nothing else." };
+  }
+  if (context.dockedAt === null || context.dockedAt === undefined) {
+    return { status: "differs", note: "In space the client ejects: it leaves a ship so only where it is docked." };
+  }
+  return Number(context.shipID) === args[0] ? {} : { status: "differs", note: "The client leaves the ship the pilot is in, and no other." };
+};
+
 /** The tags the client's menu offers for a thing in space (menusvc.py 1945 and 1946): the ten digits and thirteen letters. */
 const FLEET_TAGS = new Set("0123456789ABCDEFGHIJXYZ");
 /**
@@ -1329,7 +1343,7 @@ const RETAIL_CALLS = Object.freeze({
   "dogmaIM.ShipOnlineModules": webOnly(`${GODMA}:697`, "godma has a wrapper for this that nothing in the client calls, and throws its answer away. Which modules are online the client reads from the effects GetAllInfo lists. eve.js answers with the online modules, and the BFF reads that."),
   "ship.LaunchDrones": reshaped(`${EVE_MISC}:29`, launching, "GetShipAccess().LaunchDrones([(itemID, quantity), ...], whoseBehalfID, ignoreWarning): a list of pairs, and None for whose behalf when it is the pilot's own"),
   "ship.ScoopDrone": same(`${DRONE_FUNCTIONS}:195`, "GetShipAccess().ScoopDrone(droneIDs)"),
-  "ship.LeaveShip": same(`${STATION_SVC}:248`, "GetShipAccess().LeaveShip(shipID)"),
+  "ship.LeaveShip": judged(`${STATION_SVC}:248`, leavingTheShip, "station.TryLeaveShip: gameui.GetShipAccess().LeaveShip(shipid), for the ship the pilot is in and no other, docked; from the item's menu and before a clone jump. In a structure, structureDocking.LeaveShip makes the same call and then makes the capsule it answers active. In space the menu ejects. In no recording."),
   "ship.Board": same("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:209", "GetShipAccess().Board(shipID, session.shipid or session.stationid), through sessionMgr.PerformSessionChange('board', ...). Recorded on Tranquility in space as (shipID, the ship left), the bind carrying it."),
   "slash.SlashCmd": same("eve/client/script/ui/services/menusvc.py:834", "RemoteSvc('slash').SlashCmd(command), by name: what the client's GM menus send. No recording has one."),
   "ship.GetShipConfiguration": reshaped(`${SHIP_CONFIG}:51`, configuration, "GetShipAccess().GetShipConfiguration(shipID)"),

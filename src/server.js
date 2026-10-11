@@ -72,6 +72,7 @@ const {
   isPageWritePair,
   objectOfPageCall,
   pickSafeBrowserSessionFields,
+  swapsThePilotsShip,
 } = require("./bridgeCallPolicy");
 const {
   beginHeldTransition,
@@ -994,6 +995,20 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
   // A call the page makes for a pilot, in place of a route that needed one held (the plan's Phase 6b): with none
   // held it is refused as that route refused, and is not taken for the account's.
   if (body.pilot === true && !requireHeldBridgeSession(req, res)) {
+    return;
+  }
+  // A write that puts the pilot in another ship is made under the BFF's own watch of the swap, as its route made
+  // it (bridgeCallPolicy.js, PAGE_SHIP_SWAP_CALLS): the BFF's word for the pilot's ship is kept there. It is
+  // answered as any call here is, once the pilot's flight says another ship.
+  if (swapsThePilotsShip(body.service, body.method)) {
+    await dispatchShipSwapWrite(req, res, next, body.service, body.method, Array.isArray(body.args) ? body.args : [], null, (outcome, after) => ({
+      ok: true,
+      service: body.service,
+      method: body.method,
+      result: outcome.result ?? null,
+      notifications: [...outcome.notifications, ...after.notifications],
+      ...pilotClock(bridgeSessions.get(req.webSessionID) || null),
+    }), body.kwargs ?? null);
     return;
   }
   const clientSessionFields = pickSafeBrowserSessionFields(body.session);
@@ -7089,7 +7104,7 @@ async function accountLevelCall(req, service, method, args, kwargs = null) {
  * match it too. The write is issued once and an uncertain timeout stays
  * latched, exactly like dock/undock/gate transitions.
  */
-async function dispatchShipSwapWrite(req, res, next, service, method, args, targetShipID = null) {
+async function dispatchShipSwapWrite(req, res, next, service, method, args, targetShipID = null, answer = null, kwargs = null) {
   const held = requireHeldBridgeSession(req, res);
   if (!held) {
     return;
@@ -7103,14 +7118,15 @@ async function dispatchShipSwapWrite(req, res, next, service, method, args, targ
     if (!await acquireRouteTransition(res, held, "board", expected)) {
       return;
     }
-    const outcome = await heldTopLevelCall(held, req.webSessionID, service, method, args, null);
+    const outcome = await heldTopLevelCall(held, req.webSessionID, service, method, args, kwargs);
     markTransitionAccepted(held);
     const after = await awaitRouteTransition(held, req.webSessionID, "board", expected);
     if (!after.ok) {
       sendTransitionTimeout(res, after, outcome.notifications);
       return;
     }
-    res.json({
+    // (The generic call's own answer, where that is what asked.)
+    res.json(answer !== null ? answer(outcome, after) : {
       ok: true,
       applied: true,
       result: outcome.result ?? null,

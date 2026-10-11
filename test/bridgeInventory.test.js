@@ -480,6 +480,57 @@ test("alternate hull-swap writes wait for the authoritative active ship before a
   assert.equal(clockMs, 10_000, "the next hull swap waits out the retail session timer");
 });
 
+test("leaving the ship is a write of the page's own, made under the BFF's own watch of the swap: it answers once the pilot is in the capsule", async () => {
+  const gateway = fakeGateway();
+  let clockMs = 0;
+  const { baseUrl } = await startTestServer({
+    gateway,
+    transitionNow: () => clockMs,
+    transitionSleep: async (ms) => { clockMs += ms; },
+  });
+  await selectOnServer(baseUrl);
+  const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "ship", method: "LeaveShip", args: [ACTIVE_SHIP_ID], kwargs: null, ...more } });
+  const left = () => gateway.calls.call.filter((each) => each.method === "LeaveShip");
+  for (const more of [{}, { pilot: true }, { confirm: true }]) {
+    const refused = await call(more);
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], JSON.stringify(more));
+  }
+  assert.equal(left().length, 0);
+
+  const made = await call({ pilot: true, confirm: true });
+  // The generic call's own answer, and none of the route's: the page reads its ship again for itself.
+  assert.deepEqual([made.response.status, made.payload.ok, made.payload.service, made.payload.method, Array.isArray(made.payload.notifications)], [200, true, "ship", "LeaveShip", true]);
+  assert.deepEqual([made.payload.applied, made.payload.activeShipID, made.payload.flight, made.payload.transition], [undefined, undefined, undefined, undefined]);
+  // station.TryLeaveShip (236 to 251): GetShipAccess().LeaveShip(shipid), once.
+  assert.deepEqual(left().map((each) => [each.service, each.args, each.kwargs]), [["ship", [ACTIVE_SHIP_ID], null]]);
+  // The BFF's own word for the pilot's ship is the capsule from then on, as after the route's.
+  const inventory = await apiRequest(baseUrl, "/api/bridge/inventory");
+  assert.equal(inventory.payload.activeShipID, 9900);
+  // And the next swap waits out the session's timer, as it does after the route's.
+  const stored = await apiRequest(baseUrl, "/api/bridge/ship/board-stored", { method: "POST", body: { structureID: 1_000_000_001, shipID: 2200, confirm: true } });
+  assert.deepEqual([stored.response.status, stored.payload.activeShipID, clockMs], [200, 2200, 10_000]);
+});
+
+test("the ship's other swaps are their routes' alone, whatever the generic call is told", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  await selectOnServer(baseUrl);
+  const before = gateway.calls.call.length;
+  for (const [service, method, args] of [["ship", "Eject", []], ["ship", "BoardStoredShip", [1_000_000_001, 2200]], ["ship", "StoreVessel", [1, 2]], ["dogmaIM", "CreateNewbieShip", []]]) {
+    const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service, method, args, kwargs: null, pilot: true, confirm: true } });
+    assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REQUIRES_DEDICATED_ROUTE"], `${service}.${method}`);
+  }
+  assert.equal(gateway.calls.call.length, before);
+});
+
+test("a ship left with no pilot held is refused as its route refused it", async () => {
+  const gateway = fakeGateway();
+  const { baseUrl } = await startTestServer({ gateway });
+  const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "ship", method: "LeaveShip", args: [ACTIVE_SHIP_ID], kwargs: null, pilot: true, confirm: true } });
+  assert.deepEqual([refused.response.status, refused.payload.error], [409, "NO_LIVE_SESSION"]);
+  assert.equal(gateway.calls.call.filter((each) => each.method === "LeaveShip").length, 0);
+});
+
 test("a successful safe logoff drops the BFF's held session immediately", async () => {
   const gateway = fakeGateway();
   const { baseUrl } = await startTestServer({ gateway });
