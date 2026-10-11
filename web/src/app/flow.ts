@@ -328,8 +328,8 @@ import {
   resolveDroneControlRangeM,
   type DroneRangeSkillReading,
 } from "../nav/droneControlRange.ts";
-import { decodeBoundSmallServices, decodeFullState } from "../bridge/boundSmallServices.ts";
-import { scannerStateFromBoundRead } from "../scanner/scannerCenter.ts";
+import { readScanFullState } from "../bridge/scanFullState.ts";
+import { scannerStateFromRead } from "../scanner/scannerCenter.ts";
 import { siteKind } from "../scanner/siteKind.ts";
 import { decodeFittings } from "../bridge/fittings.ts";
 import { decodeCorpFittings, refitLibrary, type SourcedFitting } from "../bridge/sharedFittings.ts";
@@ -3688,8 +3688,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // (The client's scanner asks nothing of the ballpark's formations, beyonce.GetFormations: michelle asks for
     // those as the ballpark is made (michelle.py 324), and so does the transport. Until 2026-10-10 this read
     // them by a route of their own, for a readout the client's scanner has not got.)
+    // The sites are the page's own call of the system's scan manager (bridge/scanFullState.ts). The client hands
+    // the answer on with the system its session was in before it asked (sensorSuiteService.py 718), and so does
+    // this: the system the pilot's flight says now.
+    const systemAsked = store.flight.get().status?.solarSystemID ?? null;
     const [scanResult, operationsResult] = await Promise.allSettled([
-      api.loadScanFullStateEnvelope(callOptions),
+      readScanFullState(bridgeAsk),
       api.loadScannerOperations(callOptions),
     ] as const);
     assertCurrent?.();
@@ -3702,12 +3706,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
     }
 
-    let scan = scanResult.status === "fulfilled"
-      ? scannerStateFromBoundRead(decodeBoundSmallServices(scanResult.value).fullState)
-      : {
-          status: "unavailable" as const,
-          reason: "Scanner data could not be read from the live session.",
-        };
+    let scan = scannerStateFromRead(scanResult.status === "fulfilled" ? scanResult.value : null);
     const operations = operationsResult.status === "fulfilled"
       ? { status: "ready" as const, value: operationsResult.value }
       : {
@@ -3722,7 +3721,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return;
     }
     const rawSolarSystemID = scanResult.status === "fulfilled"
-      ? scanResult.value.solarSystemID
+      ? systemAsked
       : null;
     const scanSolarSystemID =
       typeof rawSolarSystemID === "number" &&
@@ -11764,7 +11763,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (macro !== null && (ANOMALY_MACROS.has(macro) || hint.needsOreSites === true || (macro === "mining-support" || miningOperation?.role === "DEFENDER") &&
             miningOperation?.area.targetClasses.some(family => family === "ORE_ANOMALY" || family === "ICE"))) {
           try {
-            const full = decodeFullState(await api.loadScanFullState(callOptions));
+            const full = await readScanFullState(bridgeAsk);
             // The whole row is classified here, not just labelled: `targetID` is
             // the handle a warp is issued against, and `scanStrengthAttribute`
             // (with `archetypeID` as its backstop) is what separates a rock

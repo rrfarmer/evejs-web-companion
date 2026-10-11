@@ -2849,7 +2849,7 @@ test("where the transport cannot make a sheet, and on the gateway, the sheet is 
 // answers. The scanner's route asks so on the game port, and by the service's name on the gateway, as it did.
 
 /** The scanner's read through the route; on the game port unless told otherwise. Says what was bound, and asked of what. */
-async function scanFullState({ transport = "gameport", answer = () => ({ type: "list", items: ["sites"] }) } = {}) {
+async function scanFullState({ transport = "gameport", answer = () => ({ type: "list", items: ["sites"] }), call = null } = {}) {
   const gamePort = gamePortWithQuestions(() => ({ answered: true }));
   const gateway = fakeGateway();
   const backend = transport === "gameport" ? gamePort : gateway;
@@ -2863,7 +2863,8 @@ async function scanFullState({ transport = "gameport", answer = () => ({ type: "
   const { baseUrl } = await startTestServer({ gateway, gamePortPilots: gamePort, pilotTransportFor: () => transport });
   await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
   asked.length = 0;
-  const read = () => apiRequest(baseUrl, "/api/bridge/scan-full-state");
+  // By its route; or, given a call, by the page's own call.
+  const read = () => (call === null ? apiRequest(baseUrl, "/api/bridge/scan-full-state") : apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: call }));
   return { first: await read(), again: await read(), asked };
 }
 
@@ -2878,6 +2879,36 @@ test("on the game port the scanner's sites are asked of the system's scan manage
   // A read the server refuses is the read's own failure, in the route's envelope, on either transport.
   const refused = await scanFullState({ answer: () => { throw Object.assign(new Error("NotNow"), { code: "CALL_REFUSED", statusCode: 409 }); } });
   assert.deepEqual([refused.first.response.status, refused.first.payload.reads], [200, { GetFullState: { error: "CALL_REFUSED", message: "NotNow" } }]);
+});
+
+test("the scanner's sites asked by the page's own call are asked of the same object on the game port and by name on the gateway; the call names no object", async () => {
+  const theCall = (more = { pilot: true }) => ({ service: "scanMgr", method: "GetFullState", args: [], kwargs: null, ...more });
+  const SITES = { type: "list", items: ["sites"] };
+  const onGamePort = await scanFullState({ call: theCall() });
+  // The generic call's own answer, and none of the route's envelope.
+  assert.deepEqual([onGamePort.first.response.status, onGamePort.first.payload.ok, onGamePort.first.payload.service, onGamePort.first.payload.method, onGamePort.first.payload.result, onGamePort.first.payload.reads],
+    [200, true, "scanMgr", "GetFullState", SITES, undefined]);
+  // scanSvc.GetScanMan(): GetSystemScanMgr() once, kept, and GetFullState() on what it answered each time.
+  const onObject = { onObject: "scanMgr.GetFullState", args: [], kwargs: null, sessionFields: { userid: 4 }, handle: "the-scan-manager" };
+  assert.deepEqual(onGamePort.asked, [{ bound: "scanMgr.GetSystemScanMgr", args: [] }, onObject, onObject]);
+  // Through the gateway, by the service's name, as its route asks it there.
+  const onGateway = await scanFullState({ transport: "gateway", call: theCall() });
+  assert.deepEqual([onGateway.first.payload.result, onGateway.asked], [SITES, [{ byName: "scanMgr.GetFullState", args: [] }, { byName: "scanMgr.GetFullState", args: [] }]]);
+  // The scan manager is the session's own system's: there is nothing to say which, and a call that says is none.
+  for (const of of [30000142, "system", 0]) {
+    const named = await scanFullState({ call: theCall({ pilot: true, of }) });
+    assert.deepEqual([named.first.response.status, named.first.payload.error, named.asked], [400, "INVALID_REQUEST", []], String(of));
+    assert.match(named.first.payload.message, /no object the page names/);
+  }
+  // And it is a pilot's.
+  for (const transport of ["gameport", "gateway"]) {
+    const unsaid = await scanFullState({ transport, call: theCall({}) });
+    assert.deepEqual([unsaid.first.response.status, unsaid.first.payload.error, unsaid.asked], [400, "INVALID_REQUEST", []], transport);
+    assert.match(unsaid.first.payload.message, /a pilot's/);
+  }
+  // A read the server refuses is the call's own failure.
+  const refused = await scanFullState({ call: theCall(), answer: () => { throw Object.assign(new Error("NotNow"), { code: "CALL_REFUSED", statusCode: 409 }); } });
+  assert.deepEqual([refused.first.response.status, refused.first.payload.ok, refused.first.payload.error], [409, false, "CALL_REFUSED"]);
 });
 
 // cfg.eveowners names a player's corporation, alliance or character by asking the game server

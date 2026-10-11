@@ -71,6 +71,7 @@ const {
   isBridgeWritePair,
   isPageWritePair,
   objectOfPageCall,
+  pageNamesTheObject,
   pickSafeBrowserSessionFields,
   swapsThePilotsShip,
 } = require("./bridgeCallPolicy");
@@ -973,12 +974,14 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
   // A call the client makes on an object of the service's for a thing it names (its Moniker(service, what)) says
   // which with `of`, and is made on the object bound for it. Only the page's own calls of that kind take one
   // (bridgeCallPolicy.js): with one, any other is no call; and such a call without one is none either.
+  // (An object the session has only one of, its system's scan manager, is named by nothing: such a call takes
+  // no `of` either.)
   const objectKind = objectOfPageCall(body.service, body.method);
-  if ((body.of !== undefined && body.of !== null) !== (objectKind !== null)) {
+  if ((body.of !== undefined && body.of !== null) !== pageNamesTheObject(objectKind)) {
     res.status(400).json({
       ok: false,
       error: "INVALID_REQUEST",
-      message: objectKind !== null
+      message: pageNamesTheObject(objectKind)
         ? `${body.service}.${body.method} is made on an object of its own: the call says which with "of".`
         : `${body.service}.${body.method} is made on no object the page names.`,
     });
@@ -1026,6 +1029,10 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     const outcome = objectKind === "planet"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
         heldBridgeSession, req.webSessionID, planetBindSpec(body.of), body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      // (And a call on the system's scan manager, by the object its route went by.)
+      : objectKind === "scanManager"
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => systemScanCall(
+        heldBridgeSession, req.webSessionID, body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
       : write
       ? await heldTopLevelCall(heldBridgeSession, req.webSessionID, body.service, body.method, body.args, body.kwargs)
       : !heldBridgeSession && typeof gateway.accountCall === "function"
@@ -1814,6 +1821,16 @@ function entityBindSpec() {
 // OID substruct so it rides the same /bound/bind two-step.
 function systemScanBindSpec() {
   return { key: "scanMgr", service: "scanMgr", method: "GetSystemScanMgr", args: [], kwargs: null };
+}
+/**
+ * A call the client makes on its system's scan manager, scanSvc.GetScanMan(): the object GetSystemScanMgr()
+ * answered, kept while the session is in that system. On the game port it is asked so, of the one object the
+ * scanner's other calls are made on too. The gateway answers it by the service's name, from the session's system.
+ */
+function systemScanCall(held, webSessionID, method, args, kwargs) {
+  return gamePortPilots && isGamePortHandle(held.bridgeSessionID)
+    ? boundCall(held, webSessionID, systemScanBindSpec(), method, args, kwargs)
+    : heldTopLevelCall(held, webSessionID, "scanMgr", method, args, kwargs);
 }
 // ⚠ fleetObjectHandler.MachoBindObject accepts a CALLER fleetID (no membership
 // check) and stores it for the bound reads to honor — a binds-arbitrary-OID
@@ -2939,12 +2956,8 @@ app.get("/api/bridge/scan-full-state", requireAuth, async (req, res, next) => {
   }
   let cell;
   try {
-    // sensorSuiteService asks the system's scan manager, scanSvc.GetScanMan().GetFullState(): the object that
-    // GetSystemScanMgr() answers, which the scanner's other calls are made on too. On the game port it is asked
-    // so. The gateway answers it by the service's name, from the session's system, as before.
-    const value = gamePortPilots && isGamePortHandle(held.bridgeSessionID)
-      ? await boundCall(held, req.webSessionID, systemScanBindSpec(), "GetFullState", [], null)
-      : await heldTopLevelCall(held, req.webSessionID, "scanMgr", "GetFullState", [], null);
+    // sensorSuiteService asks the system's scan manager, scanSvc.GetScanMan().GetFullState() (systemScanCall).
+    const value = await systemScanCall(held, req.webSessionID, "GetFullState", [], null);
     cell = { result: value.result };
   } catch (error) {
     // A lost live session cannot be recovered by any read; surface it so the page

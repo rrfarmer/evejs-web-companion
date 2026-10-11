@@ -134,7 +134,13 @@ test("the page's calls that are made on an object of the service's own say what 
   assert.equal(objectOfPageCall("planetMgr", "GetProgramResultInfo"), "planet");
   // A write among them is one the page makes itself; a read among them is no write of any kind.
   const { PAGE_OBJECT_CALLS, isBridgeWritePair, isPageWritePair } = require("../src/bridgeCallPolicy");
-  assert.deepEqual(Object.keys(PAGE_OBJECT_CALLS).sort(), ["planetMgr.GetProgramResultInfo", "planetMgr.UserLaunchCommodities", "planetMgr.UserUpdateNetwork"]);
+  assert.deepEqual(Object.keys(PAGE_OBJECT_CALLS).sort(), ["planetMgr.GetProgramResultInfo", "planetMgr.UserLaunchCommodities", "planetMgr.UserUpdateNetwork", "scanMgr.GetFullState"]);
+  // sensorSuiteService: the sites, asked of the object GetSystemScanMgr() answered for the system the session is
+  // in. A read. The scan manager's other calls are their routes' still.
+  assert.deepEqual([objectOfPageCall("scanMgr", "GetFullState"), objectOfPageCall("scanMgr", "RequestScans"), objectOfPageCall("scanMgr", "GetSystemScanMgr")], ["scanManager", null, null]);
+  // A planet's object is one of many, and the call says which. The scan manager is the session's own: nothing is said.
+  const { pageNamesTheObject } = require("../src/bridgeCallPolicy");
+  assert.deepEqual([pageNamesTheObject("planet"), pageNamesTheObject("scanManager"), pageNamesTheObject(null), pageNamesTheObject(undefined), pageNamesTheObject("constructor"), pageNamesTheObject(["planet"])], [true, false, false, false, false, false]);
   // A colony's commodities launched, from the command centre's own window.
   assert.equal(objectOfPageCall("planetMgr", "UserLaunchCommodities"), "planet");
   // The planet's other writes are their routes' still.

@@ -15,8 +15,16 @@ const emptyDict = { type: "dict", entries: [] } as const;
 const SYSTEM_A = 30000142;
 const SYSTEM_B = 30000144;
 
-function scanEnvelope(cell: unknown, solarSystemID = SYSTEM_A) {
-  return { ok: true, solarSystemID, reads: { GetFullState: cell } };
+/** Where the page's own calls go. */
+const CALL = "/api/bridge/call";
+/**
+ * sensorSuiteService (718, 722): scanSvc.GetScanMan().GetFullState(), as a pilot's read. It names no object: the
+ * scan manager is the one for the system the session is in, and the BFF asks that one.
+ */
+const THE_SCAN = { service: "scanMgr", method: "GetFullState", args: [], kwargs: null, pilot: true };
+/** The generic call's answer to it: the four parts, as the server sends them. */
+function scanAnswer(result: unknown = [emptyDict, emptyDict, emptyDict, emptyDict]) {
+  return { ok: true, service: "scanMgr", method: "GetFullState", result, notifications: [] };
 }
 
 function operationsEnvelope(solarSystemID = SYSTEM_A) {
@@ -33,14 +41,29 @@ function operationsEnvelope(solarSystemID = SYSTEM_A) {
   };
 }
 
-test("loadScanner keeps a successful empty current-system scan distinct from unavailable", async () => {
-  const calls: string[] = [];
-  const fetch: typeof globalThis.fetch = async (input) => {
+function flightIn(solarSystemID: number) {
+  return {
+    ok: true,
+    flight: {
+      inSpace: true,
+      docked: false,
+      solarSystemID,
+      stationID: null,
+      structureID: null,
+      shipID: 9001,
+      shipMode: "STOP",
+      shipSpeedFraction: 0,
+    },
+    notifications: [],
+  };
+}
+
+test("loadScanner asks the scan manager by the page's own call, and keeps a successful empty scan distinct from unavailable", async () => {
+  const calls: Array<{ url: string; body: unknown }> = [];
+  const fetch: typeof globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
-    calls.push(url);
-    if (url === "/api/bridge/scan-full-state") {
-      return json(scanEnvelope({ result: [emptyDict, emptyDict, emptyDict, emptyDict] }));
-    }
+    calls.push({ url, body: typeof init.body === "string" ? JSON.parse(init.body) : null });
+    if (url === CALL) return json(scanAnswer());
     if (url === "/api/bridge/scanner/state") return json(operationsEnvelope());
     throw new Error(`unexpected fetch: ${url}`);
   };
@@ -48,10 +71,9 @@ test("loadScanner keeps a successful empty current-system scan distinct from una
   const store = createClientStore();
   await createAppFlow(store, { fetch }).loadScanner();
 
-  assert.deepEqual(calls.sort(), [
-    "/api/bridge/scan-full-state",
-    "/api/bridge/scanner/state",
-  ]);
+  // The one call and the probes' state, and nothing of the route that read the sites before.
+  assert.deepEqual(calls.map((call) => call.url).sort(), [CALL, "/api/bridge/scanner/state"]);
+  assert.deepEqual(calls.find((call) => call.url === CALL)!.body, THE_SCAN);
   const scanner = store.get().scanner;
   assert.equal(scanner.loaded, true);
   assert.equal(scanner.loading, false);
@@ -66,12 +88,10 @@ test("loadScanner keeps a successful empty current-system scan distinct from una
   assert.equal("formations" in scanner, false);
 });
 
-test("a failed GetFullState arm stays unavailable while the probes' state remains useful", async () => {
+test("a scan the server refuses stays unavailable while the probes' state remains useful", async () => {
   const fetch: typeof globalThis.fetch = async (input) => {
     const url = String(input);
-    if (url === "/api/bridge/scan-full-state") {
-      return json(scanEnvelope({ error: "CALL_REFUSED", message: "scanner offline" }));
-    }
+    if (url === CALL) return json({ ok: false, error: "CALL_REFUSED", message: "scanner offline" }, 409);
     if (url === "/api/bridge/scanner/state") return json(operationsEnvelope());
     throw new Error(`unexpected fetch: ${url}`);
   };
@@ -80,7 +100,7 @@ test("a failed GetFullState arm stays unavailable while the probes' state remain
   await createAppFlow(store, { fetch }).loadScanner();
 
   const scanner = store.get().scanner;
-  assert.equal(scanner.scan.status, "unavailable");
+  assert.deepEqual(scanner.scan, { status: "unavailable", reason: "Scanner data could not be read from the live session." });
   assert.equal(scanner.operations.status, "ready");
 });
 
@@ -96,9 +116,7 @@ test("probe reconnect confirms the write and always follows it with authoritativ
     if (url === "/api/bridge/scanner/reconnect") {
       return json({ ok: true, applied: true, result: null, notifications: [] });
     }
-    if (url === "/api/bridge/scan-full-state") {
-      return json(scanEnvelope({ result: [emptyDict, emptyDict, emptyDict, emptyDict] }));
-    }
+    if (url === CALL) return json(scanAnswer());
     if (url === "/api/bridge/scanner/state") return json(operationsEnvelope());
     throw new Error(`unexpected fetch: ${url}`);
   };
@@ -111,13 +129,8 @@ test("probe reconnect confirms the write and always follows it with authoritativ
     method: "POST",
     body: { confirm: true },
   });
-  assert.deepEqual(
-    calls.slice(1).map((call) => call.url).sort(),
-    [
-        "/api/bridge/scan-full-state",
-      "/api/bridge/scanner/state",
-    ],
-  );
+  assert.deepEqual(calls.slice(1).map((call) => call.url).sort(), [CALL, "/api/bridge/scanner/state"]);
+  assert.deepEqual(calls.find((call) => call.url === CALL)!.body, THE_SCAN);
   assert.equal(store.get().scanner.scan.status, "ready");
 });
 
@@ -137,9 +150,7 @@ test("launch, analyze, and recover use no-input product routes and re-read after
         body: typeof init.body === "string" ? JSON.parse(init.body) : null,
       });
       if (url === expectedPath) return json({ ok: true, applied: true });
-      if (url === "/api/bridge/scan-full-state") {
-        return json(scanEnvelope({ result: [emptyDict, emptyDict, emptyDict, emptyDict] }));
-      }
+      if (url === CALL) return json(scanAnswer());
       if (url === "/api/bridge/scanner/state") return json(operationsEnvelope());
       throw new Error(`unexpected fetch: ${url}`);
     };
@@ -150,29 +161,8 @@ test("launch, analyze, and recover use no-input product routes and re-read after
       method: "POST",
       body: { confirm: true },
     });
-    assert.deepEqual(calls.slice(1).map((call) => call.url).sort(), ["/api/bridge/scan-full-state", "/api/bridge/scanner/state"], "one write, then the scanner's two reads");
+    assert.deepEqual(calls.slice(1).map((call) => call.url).sort(), [CALL, "/api/bridge/scanner/state"], "one write, then the scanner's two reads");
   }
-});
-
-test("loadScanFullState rejects a failed per-arm read instead of inventing no anomalies", async () => {
-  const fetch: typeof globalThis.fetch = async () =>
-    json(scanEnvelope({ error: "CALL_REFUSED", message: "scanner offline" }));
-  const { loadScanFullState } = await import("./api.ts");
-  await assert.rejects(
-    () => loadScanFullState({ fetch }),
-    /scanner state is unavailable/i,
-  );
-});
-
-test("loadScanFullState reads only the scanner route, never the eight-read small-services batch", async () => {
-  const calls: string[] = [];
-  const fetch: typeof globalThis.fetch = async (input) => {
-    calls.push(String(input));
-    return json(scanEnvelope({ result: [emptyDict, emptyDict, emptyDict, emptyDict] }));
-  };
-  const { loadScanFullState } = await import("./api.ts");
-  await loadScanFullState({ fetch });
-  assert.deepEqual(calls, ["/api/bridge/scan-full-state"]);
 });
 
 test("a system change clears the old scan and automatically reads the new system", async () => {
@@ -180,28 +170,13 @@ test("a system change clears the old scan and automatically reads the new system
   let scanReads = 0;
   const fetch: typeof globalThis.fetch = async (input) => {
     const url = String(input);
-    if (url === "/api/bridge/scan-full-state") {
+    if (url === CALL) {
       scanReads += 1;
-      return json(scanEnvelope({ result: [emptyDict, emptyDict, emptyDict, emptyDict] }, solarSystemID));
+      return json(scanAnswer());
     }
     if (url === "/api/bridge/formations") return json({ ok: true, formations: null });
     if (url === "/api/bridge/scanner/state") return json(operationsEnvelope(solarSystemID));
-    if (url === "/api/bridge/flight/status") {
-      return json({
-        ok: true,
-        flight: {
-          inSpace: true,
-          docked: false,
-          solarSystemID,
-          stationID: null,
-          structureID: null,
-          shipID: 9001,
-          shipMode: "STOP",
-          shipSpeedFraction: 0,
-        },
-        notifications: [],
-      });
-    }
+    if (url === "/api/bridge/flight/status") return json(flightIn(solarSystemID));
     if (url === "/api/names") return json({ ok: true, names: {} });
     throw new Error(`unexpected fetch: ${url}`);
   };
@@ -221,4 +196,51 @@ test("a system change clears the old scan and automatically reads the new system
   assert.equal(store.get().scanner.solarSystemID, SYSTEM_B);
   assert.equal(store.get().scanner.scan.status, "ready");
   assert.equal(scanReads, 2, "the old system and the new system are each read once");
+});
+
+test("sites asked for in one system are not shown as another's: the page pairs the answer with the system it was in when it asked", async () => {
+  // sensorSuiteService (718): OnSignalTrackerFullState(session.solarsystemid2, ...GetFullState(), ...), the
+  // session's system read before the call is made. The route said the BFF's word for the system beside the
+  // sites; the page's own call has only the page's.
+  let probesIn = SYSTEM_A;
+  let refused = false;
+  const fetch: typeof globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url === CALL) return refused ? json({ ok: false, error: "CALL_REFUSED", message: "scanner offline" }, 409) : json(scanAnswer());
+    if (url === "/api/bridge/scanner/state") return json(operationsEnvelope(probesIn));
+    if (url === "/api/bridge/flight/status") return json(flightIn(SYSTEM_A));
+    if (url === "/api/names") return json({ ok: true, names: {} });
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const store = createClientStore();
+  const flow = createAppFlow(store, { fetch });
+  await flow.loadFlightStatus();
+  await flow.loadScanner();
+  assert.deepEqual([store.get().scanner.solarSystemID, store.get().scanner.scan.status], [SYSTEM_A, "ready"]);
+
+  // The ship jumps while the page still has it in the system before: the probes' state is the new system's.
+  probesIn = SYSTEM_B;
+  await flow.loadScanner();
+  assert.deepEqual(store.get().scanner.scan, { status: "unavailable", reason: "The ship changed systems while scanner data was refreshing." });
+  assert.equal(store.get().scanner.solarSystemID, SYSTEM_B);
+
+  // A read that failed is a read that failed, there too: nothing was answered to pair with a system.
+  refused = true;
+  await flow.loadScanner();
+  assert.deepEqual(store.get().scanner.scan, { status: "unavailable", reason: "Scanner data could not be read from the live session." });
+});
+
+test("with the pilot's flight not read yet, the sites go with the system the probes' state names", async () => {
+  const fetch: typeof globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url === CALL) return json(scanAnswer());
+    if (url === "/api/bridge/scanner/state") return json(operationsEnvelope(SYSTEM_B));
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const store = createClientStore();
+  await createAppFlow(store, { fetch }).loadScanner();
+
+  assert.deepEqual([store.get().scanner.solarSystemID, store.get().scanner.scan.status], [SYSTEM_B, "ready"]);
 });

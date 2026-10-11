@@ -286,19 +286,36 @@ function swapsThePilotsShip(service, method) {
  *                                   one is installed (clientPlanet.InstallProgram). The handler reads the planet's
  *                                   own resources and the session's own colony, and nothing of anyone else's.
  *
+ *
+ * And one the client makes on an object another call answered, of which the session has only one:
+ *
+ *   scanMgr.GetFullState            "scanManager": a READ, the sites of the system the session is in
+ *                                   (sensorSuiteService.py 718 and 722). The object is scanSvc.GetScanMan(), which
+ *                                   GetSystemScanMgr() answered and the client keeps while it is in that system.
+ *                                   There is nothing to say which: such a call takes no `of`, and with one is no
+ *                                   call. The handler takes nothing from the caller and answers for the session's
+ *                                   own system.
+ *
  * A write among them is one of the page's own writes. A read is listed here only once its handler has been read
  * for what it takes from the caller: a planet's reads once answered with another owner's colony.
  */
-const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet", "planetMgr.UserLaunchCommodities": "planet", "planetMgr.GetProgramResultInfo": "planet" });
+const PAGE_OBJECT_CALLS = Object.freeze({ "planetMgr.UserUpdateNetwork": "planet", "planetMgr.UserLaunchCommodities": "planet", "planetMgr.GetProgramResultInfo": "planet", "scanMgr.GetFullState": "scanManager" });
+/** The objects there are many of, which a call says which of with `of`. A scan manager is the session's own. */
+const OBJECTS_THE_PAGE_NAMES = Object.freeze(new Set(["planet"]));
 for (const pair of Object.keys(PAGE_OBJECT_CALLS)) {
   if (bridgeWritePairKeySet.has(pair) && !pageWritePairKeySet.has(pair)) throw new Error(`${pair} is among the page's calls on an object, is a write, and is none of the page's writes.`);
 }
 
-/** What the object of this call of the page's is for ("planet"), or null where the page names no object for it. */
+/** What the object of this call of the page's is ("planet", "scanManager"), or null where it is made on none. */
 function objectOfPageCall(service, method) {
   if (typeof service !== "string" || typeof method !== "string") return null;
   // (A pair has a full stop in it, and nothing an object has of itself is named so.)
   return PAGE_OBJECT_CALLS[`${service}.${method}`] ?? null;
+}
+
+/** Whether a call on an object of this kind says which one, with `of`. */
+function pageNamesTheObject(kind) {
+  return OBJECTS_THE_PAGE_NAMES.has(kind);
 }
 
 // Presentation preference only. Identity, authority, character, corporation,
@@ -342,6 +359,7 @@ module.exports = {
   isBridgeWritePair,
   isPageWritePair,
   objectOfPageCall,
+  pageNamesTheObject,
   pickSafeBrowserSessionFields,
   swapsThePilotsShip,
 };

@@ -7,7 +7,6 @@
 // honestly display and keeps unavailable distinct from successful-empty.
 
 import type {
-  BoundReadResult,
   ScanFieldValue,
   ScanFullState,
   ScanSite,
@@ -258,18 +257,18 @@ function sortSites(sites: readonly ScannerSiteView[]): readonly ScannerSiteView[
   });
 }
 
-/** Convert the existing independently-failing bound read into panel state. */
-export function scannerStateFromBoundRead(
-  read: BoundReadResult<ScanFullState>,
+/** The sites as the panel has them: what was read, or, for a read that failed (null), that they are not known. */
+export function scannerStateFromRead(
+  read: ScanFullState | null,
 ): ScannerDataState<ScanFullState> {
-  if (read.error !== null) {
+  if (read === null) {
     return {
       status: "unavailable",
       // Do not surface raw gateway codes/resource strings as player copy.
       reason: "Scanner data could not be read from the live session.",
     };
   }
-  return { status: "ready", value: read.value };
+  return { status: "ready", value: read };
 }
 
 /** Build the named, grouped site view without inventing missing scanner facts. */

@@ -4701,34 +4701,9 @@ export async function applySavedFitting(
   );
 }
 
-/**
- * The onboard scanner's full state — the session's OWN system's anomalies /
- * signatures / static sites / structures, raw (decoded by
- * bridge/boundSmallServices.decodeFullState).
- */
-export async function loadScanFullState(options: ApiOptions = {}): Promise<JsonValue> {
-  const data = await loadScanFullStateEnvelope(options);
-  const reads = (data.reads ?? {}) as Record<string, JsonValue>;
-  const slot = (reads.GetFullState ?? {}) as Record<string, JsonValue>;
-  if (typeof slot.error === "string" && slot.error.length > 0) {
-    // A failed arm is UNKNOWN, never a successfully empty system. Existing bot
-    // callers catch this and keep their observation null rather than acting on
-    // an invented empty scan.
-    throw new Error("The current system scanner state is unavailable.");
-  }
-  return slot.result ?? null;
-}
-
-/**
- * The small-services envelope carrying ONLY reads.GetFullState: one server read
- * where the full small-services route costs eight. Decodes with
- * decodeBoundSmallServices(...).fullState like the full envelope.
- */
-export async function loadScanFullStateEnvelope(
-  options: ApiOptions = {},
-): Promise<Record<string, JsonValue>> {
-  return getJson("/api/bridge/scan-full-state", options);
-}
+// The scanner's sites are the page's own call of the system's scan manager
+// (bridge/scanFullState.ts; the plan's Phase 6b): they left their route
+// (GET /api/bridge/scan-full-state) on 2026-10-10.
 
 function scannerVector(value: JsonValue | undefined): readonly [number, number, number] {
   if (!Array.isArray(value)) {

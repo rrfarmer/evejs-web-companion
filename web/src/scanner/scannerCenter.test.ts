@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type {
-  BoundReadResult,
   ScanFieldValue,
   ScanFullState,
   ScanSite,
@@ -11,7 +10,7 @@ import {
   SCANNER_ACTION_IDS,
   buildScannerSitesView,
   scannerActionAvailability,
-  scannerStateFromBoundRead,
+  scannerStateFromRead,
   type ScannerActionBindings,
 } from "./scannerCenter.ts";
 
@@ -49,23 +48,15 @@ test("successful empty scanner state is distinct from loading and unavailable", 
   assert.equal(empty.groups.length, 4, "a successful read knows that all four slots are empty");
 });
 
-test("bound-read failures become unavailable, while a successful empty tuple stays ready", () => {
-  const failed: BoundReadResult<ScanFullState> = {
-    value: fullState(),
-    error: "EVE_GATEWAY_TIMEOUT",
-    message: "technical gateway text",
-  };
-  assert.deepEqual(scannerStateFromBoundRead(failed), {
+test("a read that failed becomes unavailable, while a successful empty one stays ready", () => {
+  // Whatever the failure said is for a console: the panel's sentence is its own.
+  assert.deepEqual(scannerStateFromRead(null), {
     status: "unavailable",
     reason: "Scanner data could not be read from the live session.",
   });
 
-  const succeeded: BoundReadResult<ScanFullState> = {
-    value: fullState(),
-    error: null,
-    message: null,
-  };
-  assert.equal(scannerStateFromBoundRead(succeeded).status, "ready");
+  const empty: ScanFullState = fullState();
+  assert.deepEqual(scannerStateFromRead(empty), { status: "ready", value: empty });
 });
 
 // The Group column is what tells a player the bot and the panel are reading the
