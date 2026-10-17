@@ -296,6 +296,9 @@ test("the launcher is the first online module of its group that the server liste
   assert.equal(shipWith(item(101), charge(5001, 27, PROBE_TYPE, 0)).onlineModule(5001, LAUNCHER_GROUP).charge, null);
   assert.equal(shipWith(item(101), charge(5001, 28, PROBE_TYPE, 8)).onlineModule(5001, LAUNCHER_GROUP).charge, null);
   assert.equal(shipWith(item(101), charge(6001, 27, PROBE_TYPE, 8)).onlineModule(5001, LAUNCHER_GROUP).charge, null);
+  // What is in one module, online or not, by its own flag: a module godma was not told of holds nothing.
+  const two = shipWith(item(101, { flagID: 27, online: 0 }), item(102, { flagID: 28 }), charge(5001, 27, PROBE_TYPE, 8));
+  assert.deepEqual([two.chargeIn(101), two.chargeIn(102), two.chargeIn(103)], [{ typeID: PROBE_TYPE, quantity: 8 }, null, null]);
   // The row spelled by position, as the codec also gives it.
   const byPosition = createPilotDogma({ characterID: PILOT });
   byPosition.loadAllInfo(keyVal({ shipInfo: { type: "dict", entries: [[101n, keyVal({ itemID: 101n, invItem: { type: "packedrow", columns: [["itemID", 20], ["typeID", 3], ["locationID", 20], ["flagID", 2], ["groupID", 3]], values: [101, 17938, 5001, 27, LAUNCHER_GROUP] }, time: 1n, attributes: { type: "dict", entries: [[ATTRIBUTE.IS_ONLINE, 1]] }, activeEffects: { type: "dict", entries: [] } })]] } }));
