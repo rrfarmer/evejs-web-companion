@@ -256,12 +256,13 @@ test("the recorded updates queue as the client queues them: the state supersedes
   assert.equal(park.validState, false, "nothing is applied until the park ticks");
 });
 
-test("a state keeps what is already queued for its own tick", () => {
+test("a state keeps what is already queued for its own tick, and goes first in it", () => {
+  // The client appends it behind them, where RealFlushState never reads it (park.js flushState, "NOT THE CLIENT'S").
   const park = new Park();
   park.flushState([[50, STOP]], false);
   park.flushState([[51, GOTO_DIRECTION]], false);
-  park.flushState([[51, ["SetState", [null]]]], false);
-  assert.deepEqual(park.history.map(([entries]) => entries.map(([at, [name]]) => `${at} ${name}`)), [["51 GotoDirection", "51 SetState"]]);
+  park.flushState([[51, ["SetState", [null]]], [51, STOP], [52, STOP]], false);
+  assert.deepEqual(park.history.map(([entries]) => entries.map(([at, [name]]) => `${at} ${name}`)), [["51 SetState", "51 GotoDirection", "51 Stop"], ["52 Stop"]]);
 });
 
 test("played through, the park holds the grid the server described, and nothing failed", () => {
@@ -407,6 +408,39 @@ test("an update from before the last order applied cannot be reached: the park a
   park.flushState([[103, ["Stop", [2]]]], false);
   park.doPreTick();
   assert.deepEqual([park.ballpark.ball(2).mode, park.history.length], [MODE.GOTO, 0]);
+});
+
+test("⚠ a park that lost its place is given the state it asked for, even when the state lands on a tick already queued", () => {
+  // Seen 2026-10-14 12:00: in a fight an update for the next tick was already queued when the answer to the
+  // reset came, stamped for that same tick; the state joined the update's group behind it and was never read.
+  const park = simplePark();
+  const reasons = [];
+  let asked = 0;
+  park.requestState = () => { asked += 1; };
+  park.onReset = (reason) => reasons.push(reason);
+  park.tick();
+  park.flushState([[101, ["GotoDirection", [2, 0, 1, 0]]]], false);
+  park.tick();
+  park.tick();
+  park.flushState([[100, ["SetBallMassive", [1, 1]]]], false);
+  park.doPreTick();
+  assert.deepEqual([park.validState, park.resets, asked, park.currentTime], [false, 1, 1, 103]);
+  // The reset is told, with why, as the client logs it.
+  assert.deepEqual(reasons, ["failed to synchronise to tick 100: the park is at 103, its snapshots at 101, 102"]);
+  // An update for the next tick waits in the queue; the server's state for that same tick joins it.
+  park.flushState([[104, ["GotoDirection", [1, 1, 0, 0]]]], false);
+  park.tick();
+  const source = new Ballpark();
+  source.addBall({ id: 1, isFree: true, mass: 1e6, radius: 10, maxVelocity: 100, agility: 1, speedFraction: 1 });
+  source.addBall({ id: 2, isFree: true, mass: 1e6, radius: 10, maxVelocity: 100, agility: 1, speedFraction: 1, x: 5000 });
+  source.currentTime = 104;
+  park.flushState([[104, ["SetState", [bag(source.writeState(), 1, [slim(1), slim(2)])]]]], false);
+  const seen = [];
+  park.onEvent = (name) => seen.push(name);
+  park.doPreTick();
+  // The state is read, and the update queued for its tick is applied on top of it.
+  assert.deepEqual([park.validState, park.resets, park.history.length, park.currentTime, seen], [true, 1, 0, 104, ["GotoDirection"]]);
+  assert.deepEqual([park.ballpark.ball(1).mode, park.ballpark.ball(2).mode], [MODE.GOTO, MODE.STOP]);
 });
 
 test("a group still waiting for its bubble blocks the queue until the rest of its tick arrives", () => {

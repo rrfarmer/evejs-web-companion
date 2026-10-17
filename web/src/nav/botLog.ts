@@ -36,6 +36,7 @@
 // operator's own BFF and is not for the game UI.
 
 import type { ScriptAction } from "./scriptDecide.ts";
+import type { FleetCompanionAction } from "./fleetCompanionLoop.ts";
 
 /** What a line is about. */
 export type BotLogKind =
@@ -67,8 +68,15 @@ export interface BotLogEntry {
   readonly phase?: string | null;
   readonly why?: string | null;
   readonly status?: string | null;
-  /** The action itself, verbatim — plain data by rule 1. */
-  readonly action?: ScriptAction;
+  /**
+   * The action itself, verbatim — plain data by rule 1. A fleet companion's
+   * lines carry its own action union (nav/companionLog.ts).
+   */
+  readonly action?: ScriptAction | FleetCompanionAction;
+  /** issue lines (companion): how long that tick's reads took, in ms. */
+  readonly observeMs?: number;
+  /** result lines (companion): how long the call took, in ms. */
+  readonly callMs?: number;
   /** A one-line rendering of that action, by rule 2. */
   readonly says?: string;
   /** result lines: whether the call landed, and the server's words when not. */
@@ -77,6 +85,17 @@ export interface BotLogEntry {
   /** start/end lines: the script and how it finished. */
   readonly script?: string;
   readonly reason?: string | null;
+  /**
+   * Companion only. `seq` ties a `decide` line to the `issue` and `result` lines
+   * of the same tick; `trace` is the rungs' codes and numbers (companionTrace.ts);
+   * `verdict` is how the ladder classed a failed call; `heartbeat` marks a
+   * `decide` line written because nothing changed for a while, not because
+   * something did.
+   */
+  readonly seq?: number;
+  readonly trace?: import("./companionTrace.ts").CompanionTrace;
+  readonly verdict?: "refused" | "uncertain" | "deferred";
+  readonly heartbeat?: boolean;
 }
 
 /**

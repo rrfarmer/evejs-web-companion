@@ -3502,8 +3502,8 @@ const RAT_GROUPS = {
   [PLAIN_RAT_TYPE]: "Asteroid Serpentis Frigate",
   [SCRAM_RAT_TYPE]: "Asteroid Serpentis Frigate",
 };
-const SCRAMMER: RatThreat = { scram: true, scramRangeM: 20_000, web: false, ewar: false };
-const HARMLESS: RatThreat = { scram: false, scramRangeM: null, web: false, ewar: false };
+const SCRAMMER: RatThreat = { scram: true, scramRangeM: 20_000, web: false, ewar: false, ecm: false };
+const HARMLESS: RatThreat = { scram: false, scramRangeM: null, web: false, ewar: false, ecm: false };
 
 /** A rat at a distance, hostile the way `hostileRows` reads hostility. */
 function rat(itemID: number, metres: number, typeID = PLAIN_RAT_TYPE): SpaceEntity {

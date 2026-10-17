@@ -1403,6 +1403,7 @@ test("a companion's badge facts reach the wire, and a script's stay null", async
       inFleet: true,
       followingOrderFrom: "broadcast",
       lastOrderHeard: "the fleet's target call",
+      targetMode: "all",
       canTag: false,
       fitWarnings: ["One weapon has nothing loaded. It will not fire until you load it."],
     },
@@ -1414,6 +1415,7 @@ test("a companion's badge facts reach the wire, and a script's stay null", async
     inFleet: true,
     followingOrderFrom: "broadcast",
     lastOrderHeard: "the fleet's target call",
+    targetMode: "all",
     canTag: false,
     // ⚠ THE ONLY ROUTE THESE HAVE TO A PLAYER ON A HEADLESS RUN. No panel is
     // open for a bot on the host, and a squad start is the case they exist for.

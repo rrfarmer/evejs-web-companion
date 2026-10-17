@@ -220,8 +220,8 @@ function droneBoatObs(over: Partial<ScriptObservation> = {}): ScriptObservation 
     threatByTypeID: {
       // The pair from nav/ratThreat.ts's header: same family, same size, and
       // only the dogma separates the one that will hold the ship on the field.
-      1001: { scram: true, scramRangeM: 20_000, web: true, ewar: false },
-      1002: { scram: false, scramRangeM: null, web: false, ewar: false },
+      1001: { scram: true, scramRangeM: 20_000, web: true, ewar: false, ecm: false },
+      1002: { scram: false, scramRangeM: null, web: false, ewar: false, ecm: false },
     },
     jammingSourceIDs: [900_100, 900_101],
     myDrones: [

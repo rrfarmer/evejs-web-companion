@@ -126,11 +126,11 @@ function runUntilClear(over: Partial<DroneBoatInputs> & { obs: ScriptObservation
 
 /** A rat type that scrams at `rangeM`. */
 function scrammer(rangeM: number): RatThreat {
-  return { scram: true, scramRangeM: rangeM, web: false, ewar: false };
+  return { scram: true, scramRangeM: rangeM, web: false, ewar: false, ecm: false };
 }
-const WEBBER: RatThreat = { scram: false, scramRangeM: null, web: true, ewar: false };
-const EWAR: RatThreat = { scram: false, scramRangeM: null, web: false, ewar: true };
-const HARMLESS: RatThreat = { scram: false, scramRangeM: null, web: false, ewar: false };
+const WEBBER: RatThreat = { scram: false, scramRangeM: null, web: true, ewar: false, ecm: false };
+const EWAR: RatThreat = { scram: false, scramRangeM: null, web: false, ewar: true, ecm: false };
+const HARMLESS: RatThreat = { scram: false, scramRangeM: null, web: false, ewar: false, ecm: false };
 
 // ─── Guards ──────────────────────────────────────────────────────────────────
 

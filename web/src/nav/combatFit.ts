@@ -32,9 +32,11 @@ export function combatFit(shipID: number, slots: readonly FittingSlot[],
     const reachM = charge != null && turret && optimal !== null && optimal > 0 && falloff !== null && falloff >= 0
       ? optimal + falloff : info != null && !turret && velocity !== null && velocity > 0 && flightMS !== null && flightMS > 0
       ? velocity * flightMS / 1000 : null;
+    // A turret's optimal with its charge loaded: the `flight auto` orbit range. Launchers have none.
+    const optimalM = turret && charge != null && optimal !== null && optimal > 0 ? optimal : null;
     return [{ itemID: module.itemID, typeID: module.typeID,
       chargeTypeID: module.charge?.typeID ?? null, chargeQuantity: module.charge?.quantity ?? 0,
       acceptedGroups: fits[module.typeID]?.groups ?? null, chargeSize: fits[module.typeID]?.size ?? null,
-      reachM, tracking }];
+      reachM, optimalM, tracking }];
   }) };
 }

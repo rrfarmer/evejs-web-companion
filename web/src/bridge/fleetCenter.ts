@@ -176,6 +176,43 @@ export function fleetCommanderCharacterIDs(
   return Object.freeze([...ids]);
 }
 
+/** Where one commander is: its system, and its station (null in space). Null fields are ones the roster did not say. */
+export interface FleetCommanderWhereabouts {
+  readonly characterID: number;
+  readonly solarSystemID: number | null;
+  readonly stationID: number | null;
+}
+
+/**
+ * Where each COMMANDER is, by the same rows `fleetCommanderCharacterIDs` reads and the same word for a member's
+ * place the panel uses (`memberWhereabouts`), so a companion that has lost its commander's grid can tell a
+ * commander in space in its own system from one docked or elsewhere. `null` for an unreadable roster, as there.
+ */
+export function fleetCommanderWhereabouts(
+  snapshot: FleetCenterSnapshot,
+): readonly FleetCommanderWhereabouts[] | null {
+  if (snapshot.availability === "unavailable") {
+    return null;
+  }
+  if (snapshot.availability === "not-in-fleet") {
+    return Object.freeze([]);
+  }
+  const found: FleetCommanderWhereabouts[] = [];
+  for (const member of snapshot.fleet.initState.value.members) {
+    const characterID = positiveSafeID(member.charID);
+    if (characterID === null || !isFleetCommander(member) || found.some((entry) => entry.characterID === characterID)) {
+      continue;
+    }
+    const where = memberWhereabouts(member, snapshot.fleet.composition.value);
+    found.push({
+      characterID,
+      solarSystemID: positiveSafeID(where.solarSystemID),
+      stationID: positiveSafeID(where.stationID),
+    });
+  }
+  return Object.freeze(found);
+}
+
 function positiveSafeID(value: unknown): number | null {
   const unwrapped = unwrapLong(value);
   if (

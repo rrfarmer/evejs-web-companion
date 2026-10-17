@@ -32,7 +32,7 @@ test("a rat that will hold the ship down is read off its dogma, reach and all", 
     ["Arch Angel Rogue", ARCH_ANGEL_ROGUE],
   ] as const) {
     const threat = threatFromAttributes(attributes);
-    assert.deepEqual(threat, { scram: true, scramRangeM: 20_000, web: true, ewar: false }, name);
+    assert.deepEqual(threat, { scram: true, scramRangeM: 20_000, web: true, ewar: false, ecm: false }, name);
   }
 });
 
@@ -41,7 +41,7 @@ test("the same family, one tier down, is not a threat — and only the attribute
   // differ by one word: a group match and a name match both put these two in
   // the same bucket, and the dogma does not.
   const harmless = threatFromAttributes(PITHI_ARROGATOR);
-  assert.deepEqual(harmless, { scram: false, scramRangeM: null, web: false, ewar: false });
+  assert.deepEqual(harmless, { scram: false, scramRangeM: null, web: false, ewar: false, ecm: false });
   const tackler = threatFromAttributes(DIRE_PITHI_ARROGATOR);
   assert.notEqual(harmless.scram, tackler.scram, "the classifier must separate them");
 });
@@ -71,25 +71,40 @@ test("webbing is speedFactor STRICTLY below zero — carrying the attribute at 0
   assert.equal(threatFromAttributes({ 20: 10 }).web, false, "a positive speed factor is not a web");
 });
 
-test("each of the three ewar chances is read, and only above zero", () => {
-  for (const id of [931, 932, 935]) {
+test("each of the four ewar chances is read, and only above zero", () => {
+  for (const id of [930, 931, 932, 935]) {
     assert.equal(threatFromAttributes({ [id]: 0.05 }).ewar, true, `attribute ${id} at 0.05`);
     assert.equal(threatFromAttributes({ [id]: 0 }).ewar, false, `attribute ${id} at 0`);
   }
   const watchman = threatFromAttributes(SERPENTIS_WATCHMAN);
-  assert.deepEqual(watchman, { scram: false, scramRangeM: null, web: false, ewar: true });
+  assert.deepEqual(watchman, { scram: false, scramRangeM: null, web: false, ewar: true, ecm: false });
+});
+
+test("ECM is gated on ECMEntityChance above zero — and a jammer is ewar too", () => {
+  // Guristas Despoiler: 930 = 1, 504 = 0, 20 = 0 — jams, holds nobody.
+  const jammer = threatFromAttributes({ 20: 0, 103: 0, 504: 0, 930: 1 });
+  assert.deepEqual(jammer, { scram: false, scramRangeM: null, web: false, ewar: true, ecm: true });
+  // The attribute listed at zero does nothing, same as the scram gate.
+  const dormant = threatFromAttributes({ 20: 0, 504: 0, 930: 0 });
+  assert.equal(dormant.ecm, false);
+  assert.equal(dormant.ewar, false);
+  // A damper is ewar but not ECM: the two are told apart.
+  assert.equal(threatFromAttributes({ 932: 0.05 }).ecm, false);
+  // Missing attribute is "not told" for the flag, never a jam; unreadable too.
+  assert.equal(threatFromAttributes({ 504: 0.25 }).ecm, false);
+  assert.equal(threatFromAttributes({ 930: Number.NaN }).ecm, false);
 });
 
 test("a rat can be more than one thing at once — the flags do not compete", () => {
   const both = threatFromAttributes({ 504: 0.25, 103: 20_000, 20: -50, 931: 0.1 });
-  assert.deepEqual(both, { scram: true, scramRangeM: 20_000, web: true, ewar: true });
+  assert.deepEqual(both, { scram: true, scramRangeM: 20_000, web: true, ewar: true, ecm: false });
 });
 
 test("nothing known is UNKNOWN — 'not told', which is never the same as 'harmless'", () => {
   assert.deepEqual(threatFromAttributes(null), UNKNOWN_THREAT);
   assert.deepEqual(threatFromAttributes(undefined), UNKNOWN_THREAT);
   assert.deepEqual(threatFromAttributes({}), UNKNOWN_THREAT, "an empty fetch is not an answer");
-  assert.deepEqual(UNKNOWN_THREAT, { scram: false, scramRangeM: null, web: false, ewar: false });
+  assert.deepEqual(UNKNOWN_THREAT, { scram: false, scramRangeM: null, web: false, ewar: false, ecm: false });
 });
 
 test("an unreadable value is treated as absent, not as a threat", () => {
@@ -105,5 +120,5 @@ test("the fetch list carries every attribute the classifier reads", () => {
   // Two lists on purpose — this one is what a caller ASKS for, the classifier
   // is what it READS — so an attribute added to one and forgotten in the other
   // would silently classify every rat off half its dogma.
-  assert.deepEqual([...THREAT_ATTRIBUTE_IDS].sort((a, b) => a - b), [20, 103, 504, 931, 932, 935]);
+  assert.deepEqual([...THREAT_ATTRIBUTE_IDS].sort((a, b) => a - b), [20, 103, 504, 930, 931, 932, 935]);
 });

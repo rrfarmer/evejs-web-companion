@@ -4582,10 +4582,10 @@ function createGamePortPilots({
       const park = entry.space ? entry.space.park : null;
       const readings = park && park.validState ? await shipReadings(entry, place) : null;
       return {
-        // Until the server's state has arrived there is a park and nothing in it.
+        // Until the server's state has arrived there is a park and nothing in it: said so (stateValid), so that blind is not read as empty.
         space: park && park.validState
           ? { ...projectSpace(park, { solarSystemID: place.solarSystemID, shipID: place.shipID, readings, warpDestination: entry.warpDestination ?? null, warpBookmark: entry.warpBookmark ? entry.warpBookmark.row : null, alignTarget: alignTargetOf(entry, park), simTime: entry.space.simTime() }), timeDilation }
-          : { inSpace: true, solarSystemID: place.solarSystemID, shipID: place.shipID, sampledAtMs: now(), entities: [], ship: null, timeDilation },
+          : { inSpace: true, solarSystemID: place.solarSystemID, shipID: place.shipID, sampledAtMs: now(), entities: [], ship: null, timeDilation, stateValid: false },
         notifications: drain(entry),
       };
     }

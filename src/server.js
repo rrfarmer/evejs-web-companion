@@ -9515,12 +9515,19 @@ async function readLockedTargetIDs(held, webSessionID) {
  * The ships that have the pilot's locked RIGHT NOW (dogmaIM.GetTargeters), asked straight after GetTargets as the
  * client's godma.RefreshTargets asks it (2364); the client keeps the answer as its target service's targetedBy, each
  * one OnTarget('otheradd'). On the game port it is answered from the list kept the same way.
+ *
+ * ⚠ A FAILURE IS UNREADABLE, NEVER A THROW. The lock list beside it is what the Targeting panel reads, and a page
+ * must not lose that because this half could not answer.
  */
 async function readTargeterIDs(held, webSessionID) {
-  const outcome = await heldTopLevelCall(held, webSessionID, "dogmaIM", "GetTargeters", [], null);
-  const raw = outcome.result;
-  const readable = raw?.type === "list" && Array.isArray(raw.items);
-  return { ids: decodeTargetIDList(raw), readable, notifications: outcome.notifications };
+  try {
+    const outcome = await heldTopLevelCall(held, webSessionID, "dogmaIM", "GetTargeters", [], null);
+    const raw = outcome.result;
+    const readable = raw?.type === "list" && Array.isArray(raw.items);
+    return { ids: decodeTargetIDList(raw), readable, notifications: outcome.notifications };
+  } catch {
+    return { ids: [], readable: false, notifications: [] };
+  }
 }
 
 /**
@@ -14518,6 +14525,45 @@ app.get("/api/types/overload-effects", requireAuth, async (req, res, next) => {
 });
 
 /**
+ * Whether a module type can be switched on at all, from static reference data:
+ * the eve.js server's own test (staticData.getTypeActivatable), so the page can
+ * leave a passive module alone instead of asking the server and being told
+ * "... cannot be activated." The group says what a module is FOR; this says
+ * whether it is something a pilot switches on. Null is a real answer: the
+ * tables have no dogma for the type, which is "not known", never "passive".
+ *
+ * No gateway call and no live session: this cannot vary by player.
+ */
+const TYPE_ACTIVATION_TYPE_LIMIT = 500;
+
+app.get("/api/types/activation", requireAuth, async (req, res, next) => {
+  try {
+    const asked = [];
+    for (const part of String((req.query && req.query.typeIDs) || "").split(",")) {
+      const typeID = Number(part);
+      if (Number.isSafeInteger(typeID) && typeID > 0 && !asked.includes(typeID)) {
+        asked.push(typeID);
+      }
+    }
+    const activatable = {};
+    for (const typeID of asked.slice(0, TYPE_ACTIVATION_TYPE_LIMIT)) {
+      activatable[String(typeID)] = staticData.getTypeActivatable(typeID);
+    }
+    res.json({
+      ok: true,
+      source: "static-data",
+      activatable,
+      // Said, not hidden: a type past the limit is not in the answer at all,
+      // and a caller that asked for it must not take that for "passive".
+      capped: asked.length > TYPE_ACTIVATION_TYPE_LIMIT,
+      limit: TYPE_ACTIVATION_TYPE_LIMIT,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * PI PLANNER — the planetary production recipe table, from static reference
  * data.
  *
@@ -16099,7 +16145,10 @@ app.get("/api/bots/bot-log", requireAuth, (req, res, next) => {
     if (!held) {
       return;
     }
-    const which = req.query.which === "previous" ? "previous" : "current";
+    const which =
+      req.query.which === "previous" || req.query.which === "previous2"
+        ? req.query.which
+        : "current";
     res.json({
       ok: true,
       characterID: held.characterID,

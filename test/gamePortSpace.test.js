@@ -10,7 +10,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { BIND_TRIES, FRAME_MS, createPilotSpace, rebaseDelta } = require("../src/gamePort/pilotSpace");
+const { BIND_TRIES, FRAME_MS, INVALID_STATE_ASKS, INVALID_STATE_GRACE_MS, INVALID_STATE_RETRY_MS, INVALID_STATE_SLOW_RETRY_MS, createPilotSpace, rebaseDelta } = require("../src/gamePort/pilotSpace");
 const { CATEGORY, checkWarpDestination, compressionFacilityOf, healthOf, kindOf, npcKindOf, projectEntity, projectFlight, projectSpace } = require("../src/gamePort/spaceProjection");
 const { Ballpark } = require("../src/gamePort/destiny/ballpark");
 const { Park } = require("../src/gamePort/destiny/park");
@@ -113,6 +113,73 @@ test("the bind is tried again a second later, ten times at most", async () => {
   assert.equal(gone.session.asked.filter((line) => line.startsWith("bind")).length, 2);
 });
 
+test("a drone of the pilot's left in space with no state asks for the whole state, and goes on asking while it stays so", async () => {
+  const clock = { ms: 0 };
+  const { session, space, state } = handTicked({}, { now: () => clock.ms });
+  session.attributes = { charid: 90000001, shipid: undock.shipID };
+  await space.start();
+  for (const notification of notifications(undock)) space.feed(notification);
+  state.tick();
+  state.sim += 1;
+  state.frame();
+  assert.equal(space.park.validState, true);
+  const asks = () => session.asked.filter((line) => line.endsWith("UpdateStateRequest")).length;
+  const slim = (fields) => new Map(Object.entries(fields));
+  // Three drones in space: the pilot's without a state, the pilot's with one, and somebody else's.
+  const [lost, kept, theirs] = [9100000000001, 9100000000002, 9100000000003];
+  for (const [id, ownerID] of [[lost, 90000001], [kept, 90000001], [theirs, 90000002]]) {
+    space.park.ballpark.addBall({ id, isFree: true, mass: 5000, x: id % 10 });
+    space.park.slimItems.set(id, slim({ itemID: BigInt(id), typeID: 2454, groupID: 100, categoryID: 18, ownerID }));
+  }
+  space.park.OnDroneStateChange(kept, 90000001, undock.shipID, 0, 2454, 90000001, null);
+  // Within the grace a state may still be on its way: nothing is asked.
+  state.frame();
+  clock.ms = 4999;
+  state.frame();
+  assert.equal(asks(), 0);
+  // Past it, the whole state, and on record.
+  clock.ms = 5000;
+  state.frame();
+  assert.equal(asks(), 1);
+  assert.deepEqual(state.errors.map(([what]) => what), ["drone state"]);
+  assert.match(state.errors[0][1], new RegExp(`^1 of the pilot's drones .*\\(${lost}\\).*ask 1 of 3`));
+  // The park is not thrown away while the answer is on its way: an answer that never comes leaves the pilot flying.
+  assert.equal(space.park.validState, true);
+  // An answer that leaves the drone out is asked again, 15 s on, three times at that pace.
+  clock.ms = 19999;
+  state.frame();
+  assert.equal(asks(), 1);
+  clock.ms = 20000;
+  state.frame();
+  clock.ms = 35000;
+  state.frame();
+  assert.equal(asks(), 3);
+  // Then every 30 s for as long as it lasts (seen 2026-10-12: three asks spent in 36 s, eleven minutes blind).
+  clock.ms = 64999;
+  state.frame();
+  assert.equal(asks(), 3);
+  clock.ms = 65000;
+  state.frame();
+  assert.equal(asks(), 4);
+  assert.match(state.errors.at(-1)[1], /ask 4, every 30 s while it lasts/);
+  clock.ms = 95000;
+  state.frame();
+  assert.equal(asks(), 5);
+  // Given its state, then losing it again, it starts over: the grace first, then the quick asks.
+  space.park.OnDroneStateChange(lost, 90000001, undock.shipID, 0, 2454, 90000001, null);
+  state.frame();
+  space.park.stateByDroneID.delete(lost);
+  clock.ms = 96000;
+  state.frame();
+  clock.ms = 100999;
+  state.frame();
+  assert.equal(asks(), 5);
+  clock.ms = 101000;
+  state.frame();
+  assert.equal(asks(), 6);
+  assert.match(state.errors.at(-1)[1], /ask 1 of 3/);
+});
+
 test("a park is fed the session's ballpark updates and nothing else, and steps when ticked", async () => {
   const { space, state } = handTicked();
   await space.start();
@@ -185,7 +252,47 @@ test("a park that has lost its place asks its remote ballpark for the whole stat
   session.callBound = async () => { throw new Error("gone"); };
   space.park.requestReset();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(state.errors, [["UpdateStateRequest", "gone"]]);
+  // Each reset is on record, as the client logs it; then the failed asking.
+  assert.deepEqual(state.errors, [
+    ["state", "the park lost its place (no reason given); not bound, nobody to ask"],
+    ["state", "the park lost its place (no reason given); the whole state was asked for"],
+    ["state", "the park lost its place (no reason given); the whole state was asked for"],
+    ["UpdateStateRequest", "gone"],
+  ]);
+});
+
+test("⚠ a bound park without a valid state asks for it again, and goes on asking until it has one", async () => {
+  // Seen 2026-10-14 12:00: the one answer to a reset was lost, and a pilot in a fight saw nothing for ten minutes.
+  const clock = { ms: 0 };
+  const { session, space, state } = handTicked({}, { now: () => clock.ms });
+  const asks = () => session.asked.filter((line) => line.endsWith("UpdateStateRequest")).length;
+  const at = (ms) => { clock.ms = ms; state.frame(); return asks(); };
+  await space.start();
+  assert.equal(space.park.validState, false);
+  // Bound with no state yet: the bind's answer may still be on its way, so not before the grace.
+  assert.deepEqual([at(0), at(INVALID_STATE_GRACE_MS - 1)], [0, 0]);
+  assert.equal(at(INVALID_STATE_GRACE_MS), 1);
+  assert.deepEqual(state.errors.at(-1), ["state", "the park has had no valid state for 5 s; the whole state was asked for again (ask 1 of 3)"]);
+  // Then every 15 s, three asks in all at that pace; then every 30 s for as long as it lasts.
+  assert.deepEqual([at(5000 + 14999), at(20000), at(35000), at(64999), at(65000), at(95000)], [1, 2, 3, 3, 4, 5]);
+  assert.deepEqual([INVALID_STATE_GRACE_MS, INVALID_STATE_RETRY_MS, INVALID_STATE_ASKS, INVALID_STATE_SLOW_RETRY_MS], [5000, 15000, 3, 30000]);
+  assert.match(state.errors.at(-1)[1], /no valid state for 95 s; .*\(ask 5, every 30 s while it lasts\)$/);
+  // The state comes: no more asking, however long it stays valid.
+  for (const notification of notifications(undock)) space.feed(notification);
+  state.tick();
+  state.sim += 1;
+  state.frame();
+  assert.equal(space.park.validState, true);
+  assert.deepEqual([at(200000), at(400000)], [5, 5]);
+  // It loses its place: asked at once, then again past the grace, the count starting over.
+  space.park.requestReset("a test");
+  assert.equal(asks(), 6);
+  assert.deepEqual(state.errors.at(-1), ["state", "the park lost its place (a test); the whole state was asked for"]);
+  assert.deepEqual([at(400000), at(400000 + 4999), at(405000)], [6, 6, 7]);
+  assert.match(state.errors.at(-1)[1], /\(ask 1 of 3\)$/);
+  // Let go, it asks for nothing more.
+  space.release();
+  assert.equal(at(1_000_000), 7);
 });
 
 test("a park let go stops ticking, takes nothing more, and asks for nothing", async () => {

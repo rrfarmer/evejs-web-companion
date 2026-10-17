@@ -197,7 +197,7 @@ const PILOT_B = 90000002;
 
 function squadConfig(over: Partial<CompanionSetup> = {}): CompanionSetup {
   // What a squad member actually stores now: no role, no module lists -- just
-  // the six thresholds/budget/wait/money-spend fields nothing can read off a
+  // the thresholds, budget and money-spend fields nothing can read off a
   // ship. See docs/fleet-companion-simplification.md, "The request, after".
   return { ...DEFAULT_COMPANION_SETUP, ...over };
 }
@@ -265,14 +265,14 @@ test("deleting a squad prunes its setups, and forgetting a pilot prunes just its
 
 test("the squad roster is the members that are actually set up to fly", () => {
   let prefs = squadWith(PILOT_A, PILOT_B);
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_B, squadConfig({ droneHealthFloor: 0.6 }));
+  prefs = setCompanionConfig(prefs, MINING.id, PILOT_B, squadConfig({ fleeHealthFloor: 0.6 }));
   const roster = companionSquadRoster(prefs, MINING.id);
   assert.deepEqual(
     roster.map((row) => row.characterID),
     [PILOT_B],
     "a member with no setup has nothing to start it with",
   );
-  assert.equal(roster[0]!.setup.droneHealthFloor, 0.6);
+  assert.equal(roster[0]!.setup.fleeHealthFloor, 0.6);
 });
 
 test("a stored setup that cannot be decoded is dropped, not defaulted", () => {

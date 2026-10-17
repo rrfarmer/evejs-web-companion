@@ -1,17 +1,20 @@
 "use strict";
 
 // The bot flight recorder's storage: one log per CHARACTER, rotated when a run
-// starts, so the current run and the one before it are always on disk.
+// starts, so the current run and the two before it are always on disk.
 //
 // WHY PER CHARACTER. A character is what flies. The question an operator
 // actually asks is "what did this pilot do", across whatever script happened to
 // be running — not "what did script X do", which could be three pilots at once.
 //
-// WHY TWO. The question is nearly always "what happened in the run that just
-// ended", and occasionally "the one before, which was fine". A third file earns
-// nothing and a directory that grows forever earns less than nothing. A run's
-// `start` line is the rotation signal: current becomes previous, previous is
-// dropped, and the new run writes from an empty file.
+// WHY THREE. The question is nearly always "what happened in the run that just
+// ended", and occasionally "the one before, which was fine". The companion's
+// auto-restart begins a NEW run, so with only two files one restart erased the
+// run that preceded it; a third keeps the run before the restart readable. More
+// than that earns nothing and a directory that grows forever earns less than
+// nothing. A run's `start` line is the rotation signal: current becomes
+// previous, previous becomes previous2, previous2 is deleted, and the new run
+// writes from an empty file.
 //
 // ⚠ THE RECORDER IS NEVER LOAD-BEARING. Every failure here — a full disk, a
 // path that cannot be created, a file that will not open — is swallowed and
@@ -48,7 +51,7 @@ const fs = require("fs");
 const path = require("path");
 
 /** How many of a run's newest lines are kept once it outgrows the file. */
-const DEFAULT_MAX_LINES = 5000;
+const DEFAULT_MAX_LINES = 20000;
 
 /** The head line that says how much of a run's beginning is gone. */
 const TRIM_KIND = "trimmed";
@@ -102,6 +105,10 @@ function createBotLogStore(options = {}) {
     return path.join(dir, `${name}.prev.jsonl`);
   }
 
+  function previous2Path(name) {
+    return path.join(dir, `${name}.prev2.jsonl`);
+  }
+
   function ensureDir() {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -121,17 +128,24 @@ function createBotLogStore(options = {}) {
     }
   }
 
-  /** current -> previous, and the new run starts from nothing. */
+  /** current -> previous -> previous2 (oldest deleted); the new run starts from nothing. */
   function rotate(name) {
     const current = currentPath(name);
     const previous = previousPath(name);
+    const previous2 = previous2Path(name);
     try {
       if (fs.existsSync(current)) {
+        // Only shift the older runs when there is a current run to take the
+        // slot: a start with nothing on disk must not age the history.
+        if (fs.existsSync(previous)) {
+          fs.rmSync(previous2, { force: true });
+          fs.renameSync(previous, previous2);
+        }
         fs.rmSync(previous, { force: true });
         fs.renameSync(current, previous);
       }
     } catch {
-      // A rotation that fails costs the PREVIOUS run's log, never the new one:
+      // A rotation that fails costs an OLD run's log, never the new one:
       // the append below truncates the current file either way.
     }
     written.set(name, 0);
@@ -249,7 +263,7 @@ function createBotLogStore(options = {}) {
   }
 
   /**
-   * The lines of one character's current or previous run — the newest
+   * The lines of one character's current, previous or previous2 run — the newest
    * `maxLines` of them, oldest first, however far past that the file has drifted
    * since its last compaction. A missing file is an empty list — "this pilot has
    * not run a bot" is a real answer, not a failure.
@@ -259,7 +273,12 @@ function createBotLogStore(options = {}) {
     if (!name) {
       return [];
     }
-    const file = which === "previous" ? previousPath(name) : currentPath(name);
+    const file =
+      which === "previous"
+        ? previousPath(name)
+        : which === "previous2"
+          ? previous2Path(name)
+          : currentPath(name);
     return capped(
       readLines(file).map((line) => {
         try {

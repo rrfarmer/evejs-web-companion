@@ -146,6 +146,7 @@ export function inFleetFrom(
 export interface CompanionRunFacts<T> {
   readonly followingOrderFrom: T | null;
   readonly lastOrderHeard: string | null;
+  readonly targetMode: "called" | "all" | null;
   readonly canTag: boolean | null;
 }
 
@@ -154,11 +155,129 @@ export function runFactsFor<T>(
   facts: CompanionRunFacts<T> | null,
 ): CompanionRunFacts<T> {
   if (!holding || facts === null) {
-    return { followingOrderFrom: null, lastOrderHeard: null, canTag: null };
+    return { followingOrderFrom: null, lastOrderHeard: null, targetMode: null, canTag: null };
   }
   return {
     followingOrderFrom: facts.followingOrderFrom,
     lastOrderHeard: facts.lastOrderHeard,
+    targetMode: facts.targetMode,
     canTag: facts.canTag,
   };
+}
+
+// --- Getting a companion back up --------------------------------------------
+//
+// ⚠ A COMPANION THAT WENT DOWN BY ITSELF COMES BACK BY ITSELF. Before this,
+// every state but "running" was the operator's to leave: a read lost in a
+// server stall, or a command whose answer the stall swallowed, parked the pilot
+// until somebody noticed, opened its panel and pressed Start -- in the middle of
+// the fight the stall happened in. The operator's rule is that their OWN Stop
+// and Pause stay put; everything the companion did to itself is a condition to
+// recover from, on a bound.
+//
+// Recoverable is exactly two things: "error" (a read or a decision failed) and
+// a pause the run gave ITSELF (`selfPaused`). Never "stopped" -- that is the
+// operator's Stop, another bot taking the ship, or one of the ladder's two
+// deliberate endings (nobody came back in thirty minutes; nowhere safe to go),
+// and each of those is an answer, not an accident.
+
+/** The waits before each successive restart, from when the pilot went down. */
+export const COMPANION_RESTART_DELAYS_MS: readonly number[] = [10_000, 20_000, 40_000, 80_000, 120_000];
+/** Restarts counted against the bound only while they are this recent. */
+export const COMPANION_RESTART_WINDOW_MS = 10 * 60_000;
+/**
+ * Restarts inside the window before the watch gives up and leaves it to the
+ * operator. A companion that falls over five times in ten minutes is not having
+ * a bad moment; it has a cause a restart will not fix.
+ */
+export const COMPANION_RESTART_LIMIT = 5;
+
+export interface CompanionRestartMemory {
+  /** When this pilot was first seen down in its current outage, or null while it is up. */
+  readonly downSinceMs: number | null;
+  /** When each recent restart was made, oldest first. */
+  readonly restartsAtMs: readonly number[];
+  /** What the last restart recovered from, in the run's own words. */
+  readonly lastReason: string | null;
+}
+
+export const EMPTY_RESTART_MEMORY: CompanionRestartMemory = Object.freeze({
+  downSinceMs: null,
+  restartsAtMs: Object.freeze([]) as readonly number[],
+  lastReason: null,
+});
+
+export interface CompanionRestartInput {
+  readonly status: string | null;
+  readonly selfPaused: boolean;
+  readonly failureReason: string | null;
+  readonly why: string | null;
+}
+
+export interface CompanionRestartDecision {
+  readonly restart: boolean;
+  /** Down, recoverable, and out of restarts: the operator has to look. */
+  readonly givenUp: boolean;
+  readonly memory: CompanionRestartMemory;
+}
+
+/** The wait before restart number `n` (0-based) inside the window. */
+export function companionRestartDelayMs(n: number): number {
+  const last = COMPANION_RESTART_DELAYS_MS.length - 1;
+  return COMPANION_RESTART_DELAYS_MS[Math.max(0, Math.min(n, last))] ?? 0;
+}
+
+/** Did this run go down by itself, in a way a fresh start can recover? */
+export function isRecoverableDown(status: string | null, selfPaused: boolean): boolean {
+  return status === "error" || (status === "paused" && selfPaused);
+}
+
+export function decideCompanionRestart(
+  input: CompanionRestartInput,
+  memory: CompanionRestartMemory,
+  nowMs: number,
+): CompanionRestartDecision {
+  const recent = memory.restartsAtMs.filter((at) => nowMs - at < COMPANION_RESTART_WINDOW_MS);
+  if (!isRecoverableDown(input.status, input.selfPaused)) {
+    return { restart: false, givenUp: false, memory: { ...memory, downSinceMs: null, restartsAtMs: recent } };
+  }
+  const downSinceMs = memory.downSinceMs ?? nowMs;
+  if (recent.length >= COMPANION_RESTART_LIMIT) {
+    return { restart: false, givenUp: true, memory: { ...memory, downSinceMs, restartsAtMs: recent } };
+  }
+  if (nowMs - downSinceMs < companionRestartDelayMs(recent.length)) {
+    return { restart: false, givenUp: false, memory: { ...memory, downSinceMs, restartsAtMs: recent } };
+  }
+  return {
+    restart: true,
+    givenUp: false,
+    memory: {
+      downSinceMs: null,
+      restartsAtMs: [...recent, nowMs],
+      lastReason: input.failureReason ?? input.why ?? null,
+    },
+  };
+}
+
+/**
+ * The roster's note about restarts, or null when there is nothing to say.
+ *
+ * ⚠ SAID EVEN WHEN IT WORKED. A pilot that was restarted three times in ten
+ * minutes and is flying now is still a pilot whose server is struggling, and
+ * the player should be able to see that without having watched it happen.
+ */
+export function companionRestartWords(
+  memory: CompanionRestartMemory,
+  givenUp: boolean,
+  nowMs: number,
+): string | null {
+  const recent = memory.restartsAtMs.filter((at) => nowMs - at < COMPANION_RESTART_WINDOW_MS).length;
+  if (givenUp) {
+    return `Restarted ${recent} times in ten minutes and still stopping, so it is waiting for you.`;
+  }
+  if (recent === 0) return null;
+  const times = recent === 1 ? "once" : `${recent} times`;
+  return memory.lastReason
+    ? `Restarted by itself ${times} in ten minutes, last after: ${memory.lastReason}`
+    : `Restarted by itself ${times} in ten minutes.`;
 }

@@ -2222,6 +2222,12 @@ export interface SpaceSnapshot {
    * of its own; null or absent when it is not known.
    */
   readonly timeDilation?: number | null;
+  /**
+   * The BFF's own word that it could not read this pilot's ballpark, when it says so.
+   * `false` is a snapshot to disbelieve; absent is an older BFF, which `isSceneBlind` still
+   * catches by the missing ship.
+   */
+  readonly stateValid?: boolean;
 }
 
 /**
@@ -2842,6 +2848,8 @@ export interface FleetCompanionState {
   /** Which authority the last decision came from, for the readout. */
   readonly followingOrderFrom: CompanionOrderAuthority | null;
   readonly lastOrderHeard: string | null;
+  /** `targets called|all`. Null until the loop has reported. */
+  readonly targetMode: "called" | "all" | null;
   readonly canTag: boolean | null;
   /**
    * What was missing or unusable about this pilot's fit when it started: no
@@ -2866,6 +2874,8 @@ export interface FleetCompanionState {
   readonly startedAt: number | null;
   readonly startError: string | null;
   readonly failureReason: string | null;
+  /** The run paused itself rather than being paused by the operator. See FleetCompanionProgress. */
+  readonly selfPaused: boolean;
 }
 
 export interface MissionBotState {

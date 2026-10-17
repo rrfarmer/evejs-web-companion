@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { createBotLogStore } = require("../src/botLogStore");
+const { createBotLogStore, DEFAULT_MAX_LINES } = require("../src/botLogStore");
 
 // ESI's own documented example character id — obviously synthetic, nobody's.
 const CHARACTER = 90000001;
@@ -60,7 +60,7 @@ test("a new run rotates: the last run becomes previous, the new one starts empty
   assert.equal(previous[0].script, "first");
 });
 
-test("only two runs are kept — the third start drops the oldest", () => {
+test("three runs are kept: current, previous and previous2", () => {
   const { store } = tempStore();
   store.append(CHARACTER, [line("start", { script: "first" })]);
   store.append(CHARACTER, [line("start", { script: "second" })]);
@@ -68,6 +68,54 @@ test("only two runs are kept — the third start drops the oldest", () => {
 
   assert.deepEqual(store.read(CHARACTER, "current").map((l) => l.script), ["third"]);
   assert.deepEqual(store.read(CHARACTER, "previous").map((l) => l.script), ["second"]);
+  assert.deepEqual(store.read(CHARACTER, "previous2").map((l) => l.script), ["first"]);
+});
+
+test("the fourth start deletes the oldest run from disk", () => {
+  const { dir, store } = tempStore();
+  for (const script of ["first", "second", "third", "fourth"]) {
+    store.append(CHARACTER, [line("start", { script })]);
+  }
+
+  assert.deepEqual(store.read(CHARACTER, "current").map((l) => l.script), ["fourth"]);
+  assert.deepEqual(store.read(CHARACTER, "previous").map((l) => l.script), ["third"]);
+  assert.deepEqual(store.read(CHARACTER, "previous2").map((l) => l.script), ["second"]);
+  assert.deepEqual(
+    fs.readdirSync(dir).sort(),
+    [`${CHARACTER}.jsonl`, `${CHARACTER}.prev.jsonl`, `${CHARACTER}.prev2.jsonl`],
+    "no fourth file survives anywhere",
+  );
+});
+
+test("a pilot with one run has an empty previous2, not a failure", () => {
+  const { store } = tempStore();
+  store.append(CHARACTER, [line("start")]);
+  store.append(CHARACTER, [line("start")]);
+  assert.deepEqual(store.read(CHARACTER, "previous2"), []);
+});
+
+test("an unknown which reads the current run", () => {
+  const { store } = tempStore();
+  store.append(CHARACTER, [line("start", { script: "only" })]);
+  assert.deepEqual(store.read(CHARACTER, "bogus").map((l) => l.script), ["only"]);
+});
+
+test("the default ceiling is 20000 lines per run file", () => {
+  assert.equal(DEFAULT_MAX_LINES, 20000);
+  const { dir, store } = tempStore();
+  store.append(CHARACTER, [line("start")]);
+  const batch = Array.from({ length: 2500 }, (_, i) => line("decide", { says: `step ${i}` }));
+  for (let i = 0; i < 9; i++) {
+    store.append(CHARACTER, batch); // 22500 + start = 22501 lines, still under 2x
+  }
+  const lines = store.read(CHARACTER, "current");
+  assert.equal(lines.length, 20000, "read hands back at most the ceiling");
+  assert.equal(lines[0].kind, "trimmed", "the head line says the beginning is gone");
+  assert.equal(lines[0].dropped, 22501 - 19999);
+  assert.ok(
+    fs.readFileSync(path.join(dir, `${CHARACTER}.jsonl`), "utf8").trim().split("\n").length <= 40000,
+    "and the file itself is bounded by twice the ceiling",
+  );
 });
 
 test("a run that spans a rotation keeps the lines that came before it", () => {

@@ -9,6 +9,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  COMPANION_RESTART_DELAYS_MS,
+  COMPANION_RESTART_LIMIT,
+  COMPANION_RESTART_WINDOW_MS,
+  EMPTY_RESTART_MEMORY,
+  companionRestartDelayMs,
+  companionRestartWords,
+  decideCompanionRestart,
+  isRecoverableDown,
+  type CompanionRestartMemory,
   companionStatusWords,
   companionSummaryWords,
   inFleetFrom,
@@ -121,6 +130,7 @@ test("a companion that has not reported yet falls back rather than saying no", (
 const LAST_RUN = {
   followingOrderFrom: "own-ladder" as const,
   lastOrderHeard: "align",
+  targetMode: "all" as const,
   canTag: false,
 };
 
@@ -133,6 +143,7 @@ test("⚠ a STOPPED companion's row stops talking about the run that ended", () 
   assert.deepEqual(runFactsFor(false, LAST_RUN), {
     followingOrderFrom: null,
     lastOrderHeard: null,
+    targetMode: null,
     canTag: null,
   });
 });
@@ -145,6 +156,113 @@ test("a pilot with no companion slice at all reads as unknown, never as no", () 
   assert.deepEqual(runFactsFor(true, null), {
     followingOrderFrom: null,
     lastOrderHeard: null,
+    targetMode: null,
     canTag: null,
   });
+});
+
+// --- getting a companion back up --------------------------------------------
+
+const down = (status: string, selfPaused = false) => ({
+  status, selfPaused, failureReason: "The game server could not be reached.", why: null,
+});
+
+test("only what the companion did to itself is recoverable; the operator's Stop and Pause are not", () => {
+  assert.equal(isRecoverableDown("error", false), true);
+  assert.equal(isRecoverableDown("paused", true), true);
+  // The operator's Pause.
+  assert.equal(isRecoverableDown("paused", false), false);
+  // The operator's Stop, another bot taking the ship, and the ladder's two
+  // deliberate endings all arrive as "stopped".
+  assert.equal(isRecoverableDown("stopped", false), false);
+  assert.equal(isRecoverableDown("running", false), false);
+  assert.equal(isRecoverableDown("idle", false), false);
+  assert.equal(isRecoverableDown(null, false), false);
+});
+
+test("a stopped companion is never restarted, however long it stays down", () => {
+  let memory: CompanionRestartMemory = EMPTY_RESTART_MEMORY;
+  for (let t = 0; t <= 60 * 60_000; t += 10_000) {
+    const decision = decideCompanionRestart(down("stopped"), memory, t);
+    assert.equal(decision.restart, false);
+    assert.equal(decision.givenUp, false);
+    memory = decision.memory;
+  }
+});
+
+test("a companion that went down by itself is restarted after the first delay, not at once", () => {
+  let decision = decideCompanionRestart(down("error"), EMPTY_RESTART_MEMORY, 1_000);
+  assert.equal(decision.restart, false);
+  decision = decideCompanionRestart(down("error"), decision.memory, 1_000 + companionRestartDelayMs(0) - 1);
+  assert.equal(decision.restart, false);
+  decision = decideCompanionRestart(down("error"), decision.memory, 1_000 + companionRestartDelayMs(0));
+  assert.equal(decision.restart, true);
+  assert.equal(decision.memory.downSinceMs, null);
+  assert.equal(decision.memory.lastReason, "The game server could not be reached.");
+});
+
+test("a self-pause is restarted the same way an error is", () => {
+  const first = decideCompanionRestart(down("paused", true), EMPTY_RESTART_MEMORY, 0);
+  const second = decideCompanionRestart(down("paused", true), first.memory, companionRestartDelayMs(0));
+  assert.equal(second.restart, true);
+});
+
+test("each restart in the window waits longer, and the limit hands it to the operator", () => {
+  let memory: CompanionRestartMemory = EMPTY_RESTART_MEMORY;
+  let now = 0;
+  const waits: number[] = [];
+  for (let n = 0; n < COMPANION_RESTART_LIMIT; n += 1) {
+    const wentDown = now;
+    let decision = decideCompanionRestart(down("error"), memory, now);
+    while (!decision.restart) {
+      assert.equal(decision.givenUp, false);
+      now += 1_000;
+      decision = decideCompanionRestart(down("error"), decision.memory, now);
+    }
+    waits.push(now - wentDown);
+    memory = decision.memory;
+    now += 1_000; // up for a second, then down again
+  }
+  assert.deepEqual(waits, COMPANION_RESTART_DELAYS_MS.slice(0, COMPANION_RESTART_LIMIT));
+  const out = decideCompanionRestart(down("error"), memory, now);
+  assert.equal(out.restart, false);
+  assert.equal(out.givenUp, true);
+  assert.match(companionRestartWords(out.memory, true, now) ?? "", /waiting for you/);
+});
+
+test("restarts age out of the window, so a bad ten minutes does not cost the evening", () => {
+  const old: CompanionRestartMemory = {
+    downSinceMs: null,
+    restartsAtMs: Array.from({ length: COMPANION_RESTART_LIMIT }, (_, i) => i * 1_000),
+    lastReason: "x",
+  };
+  const later = COMPANION_RESTART_WINDOW_MS + COMPANION_RESTART_LIMIT * 1_000;
+  const first = decideCompanionRestart(down("error"), old, later);
+  assert.equal(first.givenUp, false);
+  const second = decideCompanionRestart(down("error"), first.memory, later + companionRestartDelayMs(0));
+  assert.equal(second.restart, true);
+});
+
+test("coming back up clears the outage clock but keeps the count, so a flapping pilot still backs off", () => {
+  const first = decideCompanionRestart(down("error"), EMPTY_RESTART_MEMORY, 0);
+  const restarted = decideCompanionRestart(down("error"), first.memory, companionRestartDelayMs(0));
+  const up = decideCompanionRestart(down("running"), restarted.memory, companionRestartDelayMs(0) + 5_000);
+  assert.equal(up.memory.downSinceMs, null);
+  assert.equal(up.memory.restartsAtMs.length, 1);
+  const again = decideCompanionRestart(down("error"), up.memory, companionRestartDelayMs(0) + 6_000);
+  const tooSoon = decideCompanionRestart(down("error"), again.memory, companionRestartDelayMs(0) + 6_000 + companionRestartDelayMs(0));
+  assert.equal(tooSoon.restart, false, "the second restart waits the second delay");
+});
+
+test("the roster says a restart happened, in plain words, and says nothing when none did", () => {
+  assert.equal(companionRestartWords(EMPTY_RESTART_MEMORY, false, 0), null);
+  const once: CompanionRestartMemory = { downSinceMs: null, restartsAtMs: [0], lastReason: "The game server could not be reached." };
+  assert.equal(
+    companionRestartWords(once, false, 1_000),
+    "Restarted by itself once in ten minutes, last after: The game server could not be reached.",
+  );
+  assert.equal(companionRestartWords(once, false, COMPANION_RESTART_WINDOW_MS), null);
+  for (const text of [companionRestartWords(once, false, 1_000), companionRestartWords(once, true, 1_000)]) {
+    assert.match(text ?? "", /^[ -~]+$/, "plain ASCII");
+  }
 });

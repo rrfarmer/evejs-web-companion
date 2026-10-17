@@ -9,6 +9,8 @@ export interface CombatWeapon {
   readonly acceptedGroups: readonly number[] | null;
   readonly chargeSize: number | null;
   readonly reachM: number | null;
+  /** A turret's optimal with its loaded charge; `null` for launchers and when unread. The `flight auto` orbit range. */
+  readonly optimalM?: number | null;
   readonly tracking: number | null;
 }
 export interface CombatAmmo {

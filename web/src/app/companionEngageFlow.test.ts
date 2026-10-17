@@ -36,7 +36,8 @@ function harness(role: "combat" | "repair", unreadable = false) {
     // An order to the ship is the page's own call (bridge/movementWrites.ts), answered as its route was: taken.
     if (path === "/api/bridge/call" && body.service === "beyonce") answer = { ok: true, service: body.service, method: body.method, result: null, notifications: [] };
     if (path === "/api/bridge/fitting") answer = fittingBody({});
-    if (path === "/api/bridge/targets") answer = { ok: true, targetIDs: role === "combat" ? [TARGET] : [], notifications: [] };
+    // The targets read also says who has the ship locked (GetTargeters).
+    if (path.split("?")[0] === "/api/bridge/targets") answer = { ok: true, targetIDs: role === "combat" ? [TARGET] : [], notifications: [] };
     if (path === "/api/bots/active") answer = { ok: true, bots: [], characterIDs: [] };
     if (path === "/api/names") {
       const base = namesBody(body) as { names: Record<string, string> };
@@ -108,16 +109,17 @@ test("the real companion flow confirms same-corp repair drones without a target 
   } finally { flow.stopFleetCompanion(); t.mock.timers.reset(); }
 });
 
-test("the real companion flow retries a definite refusal while retaining the other drone's uncertain outcome", async t => {
+test("the real companion flow retries a definite refusal at once and resends the flight when an outcome is unknown", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { flow, store, orders } = harness("combat", true);
   try {
     await flow.startFleetCompanion(DEFAULT_COMPANION_SETUP);
     for (let tick = 0; tick < 5; tick += 1) { await turn(); t.mock.timers.tick(2000); }
-    assert.deepEqual(orders, [[601, 602], [602]], "only the definite refused subset may be retried");
-    assert.equal(store.companion.get().status, "paused");
-    flow.resumeFleetCompanion();
-    for (let tick = 0; tick < 3; tick += 1) { await turn(); t.mock.timers.tick(2000); }
-    assert.equal(orders.length, 2, "ordinary resume cannot replay a drone whose outcome is unknown");
+    assert.deepEqual(orders.slice(0, 2), [[601, 602], [602]], "the definite refused subset is retried first");
+    assert.equal(store.companion.get().status, "running", "an unknown outcome is never a pause");
+    for (let tick = 0; tick < 6; tick += 1) { await turn(); t.mock.timers.tick(2000); }
+    assert.ok(orders.length >= 3, "the flight is sent again after the short wait");
+    assert.deepEqual(orders[2], [601, 602], "engaging a drone already on the target is the same order, so the whole flight goes");
+    assert.equal(store.companion.get().status, "running");
   } finally { flow.stopFleetCompanion(); t.mock.timers.reset(); }
 });

@@ -10,15 +10,13 @@ import {
 import {
   DEFAULT_COMPANION_SETUP,
   MAX_CAPACITOR_FLOOR,
-  MAX_DRONE_HOLD_OFF_SECONDS,
   MAX_FLEE_ATTEMPTS,
   MAX_FLEE_HEALTH_FLOOR,
   MIN_CAPACITOR_FLOOR,
-  MIN_DRONE_HOLD_OFF_SECONDS,
   MIN_FLEE_ATTEMPTS,
-  MAX_DRONE_HEALTH_FLOOR,
-  MIN_DRONE_HEALTH_FLOOR,
   MIN_FLEE_HEALTH_FLOOR,
+  MIN_ABANDON_DRONES_HEALTH_FLOOR,
+  MAX_ABANDON_DRONES_HEALTH_FLOOR,
   type CompanionSetup,
 } from "../nav/fleetCompanionLoop.ts";
 
@@ -94,11 +92,9 @@ test("validateBotLaunchGrant works on a companion's policy unchanged", () => {
 function validPayload(): Record<string, unknown> {
   return {
     fleeHealthFloor: 0.3,
-    droneHealthFloor: 0.5,
     capacitorFloor: 0.2,
     maxFleeAttempts: 3,
     repairsAtStation: false,
-    droneRedeployHoldOffSeconds: 10,
   };
 }
 
@@ -111,8 +107,6 @@ test("a well-formed setup round-trips", () => {
       capacitorFloor: 0.2,
       maxFleeAttempts: 3,
       repairsAtStation: false,
-      droneHealthFloor: 0.5,
-      droneRedeployHoldOffSeconds: 10,
     });
   }
 });
@@ -210,41 +204,49 @@ test("fleeHealthFloor refuses NaN, Infinity, and non-numbers", () => {
 // ⚠ THE CLOSED KEY SET IS WHAT MAKES THIS WORTH TESTING. A setup that reaches
 // the bot host has crossed a process boundary and been sat in a database; the
 // decoder refuses anything it does not recognise (outside the retired list)
-// and anything out of domain, which is why adding droneHealthFloor broke every
-// fixture in this file until they carried it. A field with no bounds test is
-// a field that can arrive as 47 and have a rung quietly compare a health
-// ratio against it.
-test("droneHealthFloor is refused outside its real domain bounds", () => {
+// and anything out of domain.
+test("a missing threshold is refused, never defaulted", () => {
+  const withoutIt: Record<string, unknown> = { ...validPayload() };
+  delete withoutIt.fleeHealthFloor;
   assert.equal(
-    decodeCompanionSetupValue({ ...validPayload(), droneHealthFloor: MIN_DRONE_HEALTH_FLOOR - 0.01 }).ok,
+    decodeCompanionSetupValue(withoutIt).ok,
     false,
-  );
-  assert.equal(
-    decodeCompanionSetupValue({ ...validPayload(), droneHealthFloor: MAX_DRONE_HEALTH_FLOOR + 0.01 }).ok,
-    false,
-  );
-  assert.equal(
-    decodeCompanionSetupValue({ ...validPayload(), droneHealthFloor: MIN_DRONE_HEALTH_FLOOR }).ok,
-    true,
-    "the bound itself is inside the domain",
+    "a silent default here would fly a pilot on a number nobody chose",
   );
 });
 
-test("droneHealthFloor refuses NaN, Infinity, a string and an absent key", () => {
-  for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, "0.5", null]) {
+// ⚠ THE ONE THRESHOLD THAT MAY BE MISSING, and it stays missing. Every setup
+// saved before 2026-10-13 lacks it: refusing would drop every saved squad's
+// setup, and filling it in here would move the hash a resumed server run is
+// checked against. The loop reads absence as half the flee floor.
+test("abandonDronesHealthFloor is optional, and absent stays absent", () => {
+  const without = decodeCompanionSetupValue(validPayload());
+  assert.equal(without.ok, true);
+  if (without.ok) {
+    assert.equal("abandonDronesHealthFloor" in without.setup, false);
+  }
+  const withIt = decodeCompanionSetupValue({ ...validPayload(), abandonDronesHealthFloor: 0.1 });
+  assert.equal(withIt.ok, true);
+  if (withIt.ok) {
+    assert.equal(withIt.setup.abandonDronesHealthFloor, 0.1);
+  }
+  assert.equal(decodeCompanionSetupValue({ ...validPayload(), abandonDronesHealthFloor: 0 }).ok, true);
+});
+
+test("abandonDronesHealthFloor is refused outside its bounds and when not a number", () => {
+  for (const bad of [
+    MIN_ABANDON_DRONES_HEALTH_FLOOR - 0.01,
+    MAX_ABANDON_DRONES_HEALTH_FLOOR + 0.01,
+    Number.NaN,
+    "0.1",
+    null,
+  ]) {
     assert.equal(
-      decodeCompanionSetupValue({ ...validPayload(), droneHealthFloor: bad }).ok,
+      decodeCompanionSetupValue({ ...validPayload(), abandonDronesHealthFloor: bad }).ok,
       false,
       String(bad),
     );
   }
-  const withoutIt: Record<string, unknown> = { ...validPayload() };
-  delete withoutIt.droneHealthFloor;
-  assert.equal(
-    decodeCompanionSetupValue(withoutIt).ok,
-    false,
-    "a missing threshold is refused, never defaulted -- a silent default here would fly a pilot on a number nobody chose",
-  );
 });
 
 test("maxFleeAttempts is a bounded, positive, safe integer", () => {
@@ -260,23 +262,6 @@ test("maxFleeAttempts is a bounded, positive, safe integer", () => {
   assert.equal(
     decodeCompanionSetupValue({ ...validPayload(), maxFleeAttempts: MAX_FLEE_ATTEMPTS }).ok,
     true,
-  );
-});
-
-test("droneRedeployHoldOffSeconds is refused outside its real domain bounds", () => {
-  assert.equal(
-    decodeCompanionSetupValue({
-      ...validPayload(),
-      droneRedeployHoldOffSeconds: MIN_DRONE_HOLD_OFF_SECONDS - 1,
-    }).ok,
-    false,
-  );
-  assert.equal(
-    decodeCompanionSetupValue({
-      ...validPayload(),
-      droneRedeployHoldOffSeconds: MAX_DRONE_HOLD_OFF_SECONDS + 1,
-    }).ok,
-    false,
   );
 });
 
@@ -304,6 +289,8 @@ function oldShapePayload(): Record<string, unknown> {
     obeys: ["broadcast", "tag"],
     chatCommandSenders: [SYNTHETIC_CHARACTER_ID],
     safeSpotBookmarkID: 4242,
+    droneHealthFloor: 0.5,
+    droneRedeployHoldOffSeconds: 10,
   };
 }
 
@@ -316,8 +303,6 @@ test("a stored old-shape config decodes to a valid setup — every retired key a
       capacitorFloor: 0.2,
       maxFleeAttempts: 3,
       repairsAtStation: false,
-      droneHealthFloor: 0.5,
-      droneRedeployHoldOffSeconds: 10,
     });
   }
 });
@@ -338,11 +323,17 @@ const RETIRED_KEYS = [
   "obeys",
   "chatCommandSenders",
   "safeSpotBookmarkID",
+  "droneHealthFloor",
+  "droneRedeployHoldOffSeconds",
 ] as const;
 
-test("each of the fifteen retired keys is accepted and dropped, one at a time", () => {
+test("each of the seventeen retired keys is accepted and dropped, one at a time", () => {
   const old = oldShapePayload();
-  assert.equal(RETIRED_KEYS.length, 15, "the list this test walks must match the spec's fifteen");
+  assert.equal(
+    RETIRED_KEYS.length,
+    17,
+    "the list this test walks must match the spec's fifteen plus the two drone settings",
+  );
   for (const key of RETIRED_KEYS) {
     const payload = { ...validPayload(), [key]: old[key] };
     const result = decodeCompanionSetupValue(payload);

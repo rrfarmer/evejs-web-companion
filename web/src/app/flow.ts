@@ -351,7 +351,7 @@ import {
   decodeHomeStationID,
 } from "../bridge/characterSheet.ts";
 import { decodeFlightStatus } from "../bridge/flight.ts";
-import { decodeSpaceSnapshot, decodeTargetIDs } from "../bridge/space.ts";
+import { decodeSpaceSnapshot, decodeTargetIDs, isSceneBlind } from "../bridge/space.ts";
 import {
   decodeMiningHolds,
   decodeReprocessingQuotes,
@@ -429,9 +429,20 @@ import {
 import { decodeInstanceRows, infoTimeMs, itemHasActivationCycle } from "../bridge/boundDogma.ts";
 import { combatFit, weaponHasCycle } from "../nav/combatFit.ts";
 import type { CombatWeapons } from "../nav/combatWeapons.ts";
+import {
+  RAT_RESONANCE_ATTRIBUTE_IDS,
+  WEAPON_CYCLE_ATTRIBUTE_IDS,
+  ratResonancesFromAttributes,
+  weaponCycleFromAttributes,
+  type RatResonances,
+  type WeaponCycleFacts,
+} from "../nav/companionAmmo.ts";
+import { CHARGE_ATTRIBUTE_IDS, chargeFactsFromAttributes, type ChargeFacts } from "../nav/ammoReach.ts";
+import { RAT_COMBAT_ATTRIBUTE_IDS, ratCombatFromAttributes, type RatCombatFacts } from "../nav/combatPosition.ts";
 import { issueCombatReload } from "../nav/combatReloadIssue.ts";
 import { requireModuleOutcome, moduleSettlementNote } from "../nav/moduleOutcome.ts";
 import { combatUtilityFit, type CombatUtilities } from "../nav/combatUtilities.ts";
+import { AUTOMATIC_UTILITY_FAMILIES } from "../nav/combatUtilityPolicy.ts";
 import { issueCombatUtility, issueUtilityReload } from "../nav/combatUtilityIssue.ts";
 import { nameKey, type NameRef } from "../store/names.ts";
 import {
@@ -441,6 +452,7 @@ import {
 } from "../bots/companionFitCheck.ts";
 import { voteTankLayer } from "../bots/tankLayer.ts";
 import type { BotLogDraft, BotLogSink } from "../nav/botLog.ts";
+import { createBotLogBuffer } from "./botLogBuffer.ts";
 import {
   routeAlong,
   type SystemGraph,
@@ -529,14 +541,21 @@ import {
   createFleetCompanion,
   type FleetCompanionController,
   type FleetCompanionDeps,
+  type CompanionHitPoints,
   type FleetCompanionObservation,
   type CompanionSetup,
   type FleetCompanionRequest,
   type CompanionAbandonmentRecord,
   type CompanionCargoCharge,
+  type CompanionLoadedCharge,
   type CompanionPropulsionModule,
   type CompanionTankLayer,
 } from "../nav/fleetCompanionLoop.ts";
+import {
+  DRONE_SIZING_ATTRIBUTE_IDS,
+  droneFactsFromAttributes,
+  type DroneFacts,
+} from "../nav/droneSizing.ts";
 import { highSlotMiningModules, isDockableKind, ungroupedHighSlotModules } from "../space/rowActions.ts";
 import {
   DEFAULT_MAX_JUMPS,
@@ -646,6 +665,7 @@ import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import {
   authoritativeFleetMemberCharacterIDs,
   fleetCommanderCharacterIDs,
+  fleetCommanderWhereabouts,
   decodeFleetCenter,
   decodeFleetInviteAnswerNotification,
   decodeFleetInviteNotification,
@@ -710,6 +730,7 @@ import { launchCommodities as launchCommoditiesCall, rerouteExtractorRoutes, typ
 import { restartExtractor as restartExtractorAsTheClient } from "../bridge/extractorRestart.ts";
 import { activateModule as activateModuleCall, createDefaultEffects, createModuleRepairs, createOverloadEffects, createWeaponGrouping, deactivateModule as deactivateModuleCall, loadAmmo as loadAmmoCall, repairWaitMs, setModuleOnline as setModuleOnlineCall, setOverload as setOverloadCall, unloadAmmo as unloadAmmoCall, type ModuleActionResult, type ModuleDeps } from "../bridge/dogmaWrites.ts";
 import { keptByType, keptTypeAttributes, keptWhereKnown } from "../bridge/keptTypeFacts.ts";
+import { moduleActivation, type ModuleActivation } from "../nav/moduleActivation.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
 import {
@@ -3437,6 +3458,41 @@ export function foregroundCallPriority(active: boolean): RequestPriority | undef
 const ratThreatByTypeID = new Map<number, RatThreat>();
 
 /**
+ * Each rat type's signature radius (dogma 552), filled by the SAME fetch as
+ * `ratThreatByTypeID` and cached under the same rule: only what the route
+ * answered for. A type the static tables gave no 552 for is simply absent,
+ * which the kill order sorts after every known size.
+ */
+const ratSignatureByTypeID = new Map<number, number>();
+const ATTR_SIGNATURE_RADIUS = 552;
+
+/**
+ * Each rat type's full shield, armour and hull (263, 265, 9), riding the same
+ * fetch, so the drone rung can tell a nearly dead ship from a fresh one when it
+ * prices a size switch.
+ */
+const ratHitPointsByTypeID = new Map<number, CompanionHitPoints>();
+/**
+ * What each hostile type fights with and how it moves -- missile or turret,
+ * optimal, falloff, attack range, orbit range, speed -- for the `flight auto`
+ * positioning rung. Filled by the same fetch and under the same rules as the
+ * three caches above: static type dogma, permanent, one round trip per new type.
+ */
+const ratCombatByTypeID = new Map<number, RatCombatFacts>();
+/** Each rat type's resonances by layer, for ammo by target. Same fetch, same rules. */
+const ratResonancesByTypeID = new Map<number, RatResonances>();
+const ATTR_SHIELD_CAPACITY = 263;
+const ATTR_ARMOR_HP = 265;
+const ATTR_HULL_HP = 9;
+
+/**
+ * Each combat drone type's sizing facts, or null for a type whose dogma came
+ * back without the essentials (never invented; see `droneFactsFromAttributes`).
+ * Permanent for the session, like the rat caches: type dogma is static.
+ */
+const droneFactsByTypeID = new Map<number, DroneFacts | null>();
+
+/**
  * Metres of drone control range each drone-range SKILL buys per level, off that
  * skill type's own dogma attribute 459 (`droneRangeBonus`).
  *
@@ -3568,6 +3624,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // (That read leaves out a type the tables do not know: once it has answered, that is what is known of the type.)
   const combatUtilityOfTypes = keptWhereKnown((typeIDs: readonly number[]) => api.combatUtilityTypes(typeIDs, callOptions));
   const attributesOfTypes = keptTypeAttributes((typeIDs, attributeIDs) => api.fetchTypeDogma(typeIDs, attributeIDs, callOptions));
+  // Whether a module type can be switched on at all, by the server's own test (nav/moduleActivation.ts): asked
+  // once for a type, and copied here as it arrives so the module classifiers, which are synchronous, can read it.
+  const activationOfTypes = keptByType((typeIDs: readonly number[]) => api.loadTypeActivation(typeIDs, callOptions));
+  const typeActivatable = new Map<number, boolean | null>();
+  async function readTypeActivation(typeIDs: readonly number[]): Promise<void> {
+    try {
+      for (const [typeID, answer] of Object.entries(await activationOfTypes(typeIDs))) typeActivatable.set(Number(typeID), answer);
+    } catch { /* Not read is not known: `fittedModuleActivation` falls back, and never excludes on it. */ }
+  }
+  /** The one test every list of modules to switch on is gated by: only "passive" excludes. */
+  function fittedModuleActivation(module: { readonly typeID: number; readonly itemID: number }): ModuleActivation {
+    return moduleActivation({
+      typeActivatable: typeActivatable.get(module.typeID),
+      itemCycles: itemHasActivationCycle(store.fitting.get().dogma, module.itemID),
+    });
+  }
   // The repairs begun (bridge/dogmaWrites.ts): each is ended by the page when its time is up, as a client ends
   // its own, and the ship is read again then, which is when the module is mended.
   // The scanner's four orders, as the client's scan service makes them (bridge/scannerWrites.ts).
@@ -18228,7 +18300,57 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     emptyWeaponModuleIDs: readonly number[] | null;
     cargoCharges: readonly CompanionCargoCharge[] | null;
     weaponChargeGroups: Readonly<Record<number, readonly number[]>> | null;
-  } = { emptyWeaponModuleIDs: null, cargoCharges: null, weaponChargeGroups: null };
+    loadedCharges: readonly CompanionLoadedCharge[] | null;
+  } = { emptyWeaponModuleIDs: null, cargoCharges: null, weaponChargeGroups: null, loadedCharges: null };
+  /**
+   * The hull's lock count and lock range, off the fit `readCompanionFitFacts`
+   * reads at start. The lock-ahead needs the count (unreadable means it never
+   * pre-locks) and free fire and the lock-ahead both need the range; neither
+   * was reaching the companion's observation before, so free fire's range gate
+   * was always open. `null` until a fit is read, and for a fit that said
+   * nothing -- never a guess.
+   */
+  let companionTargeting: { maxLockedTargets: number | null; maxTargetRangeM: number | null } = {
+    maxLockedTargets: null,
+    maxTargetRangeM: null,
+  };
+  /**
+   * The drone boat's leash for `flight auto`. Same read as `companionTargeting`
+   * and the same rule: once, at start, off the hull and the pilot's skills;
+   * `null` is "cannot say".
+   */
+  let companionDroneControlRangeM: number | null = null;
+  /**
+   * The fitted weapons with the reach of their LOADED charge (`combatFit`), for
+   * the range gate and the `flight auto` rung. `null` until read, and whenever
+   * the read fails -- the gate fails open on it.
+   *
+   * ⚠ BUILT FROM THE AMMO READ'S OWN FIT AND CARGO, AND THE DOGMA ONLY WHEN A
+   * CHARGE CHANGED. Reach needs the bound dogma (`boundDogma`), which fans out
+   * to about eleven gateway reads; reading it on every ammo interval tripled a
+   * pilot's gateway calls, the saturation that has caused gateway timeouts
+   * before. Reach moves only when a gun's loaded charge or the fit moves, so the
+   * dogma is re-read only when `companionCombatChargeKey` changes.
+   */
+  let companionCombatWeapons: CombatWeapons | null = null;
+  let companionCombatChargeKey: string | null = null;
+  /**
+   * The fitted combat utilities (`combatUtilityFit`) for rung 8a, built from the
+   * SAME fit and the SAME bound dogma read as `companionCombatWeapons`, under the
+   * same key (widened with each utility module's item, online and charge state).
+   * Their `active` flags are stale by design: the rung reads what is running off
+   * the snapshot every tick. `null` until read and whenever the read fails.
+   */
+  let companionCombatUtilities: CombatUtilities | null = null;
+  /**
+   * Ammo by target: each charge type aboard or loaded, and each gun type's
+   * cycle, from static type dogma via `attributesOfTypes` (kept per type, so a
+   * type costs one read ever). `null` is unread, which ranks on nothing.
+   */
+  let companionChargeFacts: {
+    chargeFactsByTypeID: Readonly<Record<number, ChargeFacts>> | null;
+    weaponCycleByTypeID: Readonly<Record<number, WeaponCycleFacts>> | null;
+  } = { chargeFactsByTypeID: null, weaponCycleByTypeID: null };
 
   // --- waking the companion on a push ---------------------------------------
   //
@@ -18354,7 +18476,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // "I locked that" and trusted the stamp would never retry —
           // permanently and silently, for the rest of the run. Reading the real
           // list every tick is what makes the fleet-order rung's already-locked
-          // check honest rather than hopeful.
+          // check honest rather than hopeful. It also says what has this ship
+          // locked, which a fleet order to leave reads to know whether to wait
+          // for the drones.
           api.getTargets(callOptions),
           botDrivenCharacterIDs(),
           // LOCAL, deliberately. Fleet chat is not reachable: the gateway's chat
@@ -18400,6 +18524,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // companion flies so the panel never shows a stale lock list.
         const lockedTargetIDs = decodeTargetIDs(targetsResult.targetIDs);
         store.apply({ type: "targeting/targets", targetIDs: lockedTargetIDs });
+        // Absent stays absent: `null` is "could not say who has us locked", and
+        // the fleet-order recall falls back to its short wait on it.
+        const lockedByIDs = targetsResult.targeterIDs == null ? null : decodeTargetIDs(targetsResult.targeterIDs);
         const status = decodeFlightStatus(statusStep.flight);
         void observeFlightStatus(status);
         // ⚠ THE REPAIR QUOTE IS GATED ON BEING DOCKED, AND ON NOTHING ELSE ANY
@@ -18462,6 +18589,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
         const ship = snapshot?.ship ?? null;
         const origin = ship?.position ?? { x: 0, y: 0, z: 0 };
+        // ⚠ A BLIND SCENE IS UNKNOWN, NOT EMPTY (seen live 2026-10-14 12:00:11 UTC: a
+        // dead ballpark answered `{inSpace:true, entities:[], ship:null}` with a 200
+        // for ten minutes). `decodeSpaceSnapshot` never returns null, so the
+        // `snapshot === null ? null : ...` guards below were dead and every fact read
+        // off the empty list came out a confident "none": no hostile, no drones out,
+        // grid clear. Those facts are null here instead, and `sceneBlind` lets the
+        // ladder say so and wait.
+        const sceneBlind = isSceneBlind(status.inSpace, snapshot);
 
         // What the OTHER pilots have already emptied. Gated on there being
         // something lootable on this grid and rationed to a slow beat, so a
@@ -18483,7 +18618,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // test unless this field is set — which is how this shipped: the field
         // was declared, never filled, and a companion in a player gatecamp had
         // no reason to switch a hardener on.
-        const targetedByPlayer = isTargetedByPlayer(snapshot, ship?.itemID ?? null);
+        const targetedByPlayer = sceneBlind ? null : isTargetedByPlayer(snapshot, ship?.itemID ?? null);
         // ⚠ THIS ONE IS GATED, because unlike the line above it can cost a
         // round trip. `classifyTargetGroups` resolves a GROUP NAME per ship
         // type on grid: nothing on an empty grid, nothing on a repeat tick
@@ -18538,12 +18673,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         const myShipID = ship?.itemID ?? null;
         companionShipID = myShipID;
         const myDroneIDs: number[] = [];
+        // Per drone, for the rotation in rung 6: it pulls the ONE drone that is
+        // being shot, so it needs that drone's own shield and not the fold.
+        const myDrones: { itemID: number; shieldRatio: number | null; armorRatio: number | null; hullRatio: number | null }[] = [];
         let lowestDroneHealth: number | null = null;
         for (const entity of snapshot?.entities ?? []) {
           if (canMyShipOrderDrone(entity, myShipID) !== true) {
             continue;
           }
           myDroneIDs.push(entity.itemID);
+          myDrones.push({
+            itemID: entity.itemID,
+            shieldRatio: entity.shieldRatio,
+            armorRatio: entity.armorRatio,
+            hullRatio: entity.hullRatio,
+          });
           // The worst of the three layers, per drone, then the worst across
           // them -- the same fold `makeScriptRunnerDeps` makes, so a companion
           // and a script bot judge an identical rack identically. A layer that
@@ -18577,9 +18721,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // means one answer to "what is this drone for", not two.
         const companionDroneRoles = await classifyDroneRoles(
           companionBay,
-          snapshot,
+          sceneBlind ? null : snapshot,
           ship?.itemID ?? null,
         );
+        // ── Drone sizing's inputs. The combat stacks WITH their types (the
+        // role split above keeps only ids), the hull's limits off the same
+        // drones read, and each combat type's dogma -- bay types and the types
+        // already out, since a size switch compares the two.
+        const combatBayIDs = new Set(companionDroneRoles.bay?.combat ?? []);
+        const combatDroneStacks =
+          companionBay === null || companionDroneRoles.bay === null
+            ? null
+            : companionBay.filter((stack) => combatBayIDs.has(stack.itemID));
+        const limits = droneRaw === null ? null : decodeDroneLimits(droneRaw.shipInfo);
+        const companionDroneLimits =
+          limits === null || limits.droneBandwidth === null || limits.maxActiveDrones === null
+            ? null
+            : { bandwidthMbit: limits.droneBandwidth, maxActive: limits.maxActiveDrones };
+        const combatOutIDs = new Set(companionDroneRoles.out?.combat ?? []);
+        const companionDroneFacts = await combatDroneFacts([
+          ...(combatDroneStacks ?? []).map((stack) => stack.typeID),
+          ...(snapshot?.entities ?? [])
+            .filter((entity) => combatOutIDs.has(entity.itemID) && entity.typeID !== null)
+            .map((entity) => entity.typeID as number),
+        ]);
 
         // The roster is read EVERY tick and not gated, because a companion with
         // no fleet has nothing to obey — this is its most load-bearing read, not
@@ -18640,12 +18805,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // nobody read, and it is what every threshold treats as cannot-tell.
           oreHoldFraction: null,
           holdEmpty: null,
-          hostileOnGrid: snapshot === null ? null : hostileRows(snapshot, origin).length > 0,
+          hostileOnGrid: snapshot === null || sceneBlind ? null : hostileRows(snapshot, origin).length > 0,
+          sceneBlind,
           targetedByPlayer,
           targetGroupNames,
           threatByTypeID,
+          signatureByTypeID: ratSignaturesOnGrid(snapshot, origin),
+          hitPointsByTypeID: ratHitPointsOnGrid(snapshot, origin),
+          ratCombatByTypeID: ratCombatOnGrid(snapshot, origin),
+          ratResonancesByTypeID: ratResonancesOnGrid(snapshot, origin),
+          droneControlRangeM: companionDroneControlRangeM,
+          combatDroneStacks,
+          droneFactsByTypeID: companionDroneFacts,
+          droneLimits: companionDroneLimits,
           dronesOut:
-            snapshot === null
+            snapshot === null || sceneBlind
               ? null
               : snapshot.entities.some((entity) =>
                   canMyShipOrderDrone(entity, ship?.itemID ?? null),
@@ -18662,6 +18836,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           fleetTargetTags,
           fleetBroadcast,
           lockedTargetIDs,
+          lockedByIDs,
+          maxLockedTargets: companionTargeting.maxLockedTargets,
+          maxTargetRangeM: companionTargeting.maxTargetRangeM,
           // ⚠ THE GATE IS CLIENT-SIDE BECAUSE THE SERVER REFUSES SILENTLY.
           // `setFleetTargetTag` returns a bare `false` for a non-commander and
           // its only caller discards that boolean, so the write's own ack says
@@ -18688,6 +18865,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // here, and a companion polls no extra route for it.
           pendingFleetInvite: companionPendingInvite(),
           chatMessages,
+          // Who this pilot is, so a `status` or `repair` line naming pilots can
+          // be told apart from one naming somebody else.
+          selfCharacterID: ownCharacterID,
+          selfCharacterName: store.station.get().online?.characterName ?? null,
           // Rung 4, "tackle → tag". Narrowed to the two tackle jam types and
           // freshness-filtered HERE, at observation build, for the same reason
           // `fleetBroadcast` is: the slice keeps every jam the wire carried
@@ -18718,7 +18899,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
               }
             : null,
           lowestDroneHealth,
-          myDroneIDs,
+          // Absent, not empty, on a blind scene: "did not look" (see `sceneBlind`).
+          myDroneIDs: sceneBlind ? undefined : myDroneIDs,
+          // Absent, not empty, when there was no snapshot: "did not look".
+          myDrones: snapshot == null || sceneBlind ? undefined : myDrones,
           droneBayItemIDs,
           // ⚠ WHAT THE LOOT CALLS ACTUALLY ACHIEVED, which the ladder cannot see
           // for itself: it issues one atomic call and never learns what came
@@ -18745,6 +18929,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // orders", never as "anybody will do".
           fleetCommanderCharacterIDs:
             fleetSnapshot === null ? null : fleetCommanderCharacterIDs(fleetSnapshot),
+          // Where those commanders are, off the same rows: the rejoin warp
+          // (rung 9b) does not warp to one that is docked or in another system.
+          fleetCommanderWhereabouts:
+            fleetSnapshot === null ? null : fleetCommanderWhereabouts(fleetSnapshot),
           // The reload rung's three facts. ⚠ THE REQUEST IS WHAT SAYS WHICH
           // MODULES ARE GUNS — `weaponModuleIDs` is derived from the hull at
           // start (`requestForFit`), and without it this read cannot tell a
@@ -18755,13 +18943,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
                 emptyWeaponModuleIDs: null,
                 cargoCharges: null,
                 weaponChargeGroups: null,
+                loadedCharges: null,
               }
             : await readCompanionAmmoFacts(
                 liveCompanionRequest,
                 status.inSpace === true,
                 Date.now(),
               )),
+          // The guns' reach with what is LOADED, for the range gate and the
+          // `flight auto` rung. ⚠ AFTER THE AMMO READ, WHICH FILLS IT: a literal
+          // evaluates in order, so above it this was always one read stale and
+          // `null` on the first tick in space.
+          combatWeapons: companionCombatWeapons,
+          // Rung 8a's fit facts, filled by the same read (and the same order rule).
+          combatUtilities: companionCombatUtilities,
+          // Ammo by target's static facts, filled by the same ammo read.
+          chargeFactsByTypeID: companionChargeFacts.chargeFactsByTypeID,
+          weaponCycleByTypeID: companionChargeFacts.weaponCycleByTypeID,
         };
+      },
+      // ⚠ STRAIGHT TO THE WRAPPER, NEVER THROUGH `sendChatMessage`. That one
+      // re-reads the channel into the store, which would repaint the Chat panel
+      // of whichever pilot the player is looking at; a background companion must
+      // not move the furniture in front of a human (see `readCompanionAmmoFacts`).
+      // Local, for the reason the chat READ is local: fleet chat is not reachable.
+      say: async (text) => {
+        await api.sendChat("local", text, callOptions);
       },
       issue: async (action) => {
         // Straight to the `api.*` wrapper, the way `makeMiningBotDeps` does —
@@ -18894,7 +19101,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // refusal dict and the authoritative post-call target read.
           case "launchDrones":
             // ⚠ THE WHOLE STACK, NOT ONE FROM IT. See wholeStackLaunch.
-            await launchedThenRead(wholeStackLaunch(action.droneItemIDs, companionDroneStackSizes));
+            await launchedThenRead(
+              action.quantities === undefined
+                ? wholeStackLaunch(action.droneItemIDs, companionDroneStackSizes)
+                : action.droneItemIDs.map((itemID) => ({
+                    itemID,
+                    quantity: action.quantities?.[itemID] ?? companionDroneStackSizes.get(itemID) ?? 1,
+                  })),
+            );
             return;
           // ⚠ NO SCOOP FOLLOWS THIS. The server flies them home at full speed
           // and scoops them itself inside 2500 m; a scoop call would only ever
@@ -18962,6 +19176,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           case "keepAtRange":
             await keepShipAtRange(action.targetID, action.range);
             return;
+          // `flight auto`: a gun boat orbits what it is shooting. Standing on the
+          // server like keep-at-range, and gated the same way up in the ladder
+          // (`holdNeedsReissue`), so this case is sent once per anchor and range.
+          case "orbit":
+            await orbitShip(action.targetID, action.range);
+            return;
           // `stop` in fleet chat — the only companion action that exists to
           // UNDO standing orders rather than to issue one.
           //
@@ -19020,6 +19240,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // it is the one loop for which sleeping out a fixed cadence means sitting
       // on an order it already has.
       sleep: companionSleep,
+      // The same per-character log the script runner writes; see nav/companionLog.ts.
+      log: botLogSink,
       onProgress: (progress) => {
         store.apply({
           type: "companion/progress",
@@ -19030,9 +19252,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           inFleet: progress.inFleet,
           followingOrderFrom: progress.followingOrderFrom,
           lastOrderHeard: progress.lastOrderHeard,
+          targetMode: progress.targetMode,
           canTag: progress.canTag,
           abandonment: progress.abandonment,
           failureReason: progress.failureReason,
+          selfPaused: progress.selfPaused,
         });
       },
     };
@@ -19836,6 +20060,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     remoteCapacitorModuleIDs: [],
     weaponModuleIDs: [],
     salvagerModuleIDs: [],
+    droneAssistModuleIDs: [],
     propulsionModules: [],
     modules: [],
     droneBay: null,
@@ -19903,14 +20128,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     let emptyWeaponModuleIDs: readonly number[] | null = null;
     let weaponChargeGroups: Readonly<Record<number, readonly number[]>> | null = null;
+    let loadedCharges: CompanionLoadedCharge[] | null = null;
+    let fitReads: Awaited<ReturnType<typeof api.loadFitting>> | null = null;
     try {
       const reads = await api.loadFitting(callOptions);
+      fitReads = reads;
       if (!reads.errors.slots && !reads.errors.online) {
         const slots = buildSlots(reads.slots, reads.shipInfo, reads.online);
         const chargeFits = decodeChargeFits(reads.chargeFits);
         const guns = new Set(request.weaponModuleIDs);
         const empty: number[] = [];
         const groups: Record<number, readonly number[]> = {};
+        const loaded: CompanionLoadedCharge[] = [];
         for (const slot of slots) {
           const module = slot.module;
           if (module === null || !module.online || !guns.has(module.itemID)) {
@@ -19928,9 +20157,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           if (module.charge === null && (fitment?.groups.length ?? 0) > 0) {
             empty.push(module.itemID);
           }
+          // What is in it, for the `status` answer and the low-ammo warning.
+          if (module.charge !== null && module.charge.quantity > 0) {
+            loaded.push({ moduleID: module.itemID, typeID: module.charge.typeID, quantity: module.charge.quantity });
+          }
         }
         emptyWeaponModuleIDs = empty;
         weaponChargeGroups = groups;
+        loadedCharges = loaded;
       }
     } catch {
       // Left null on purpose. See the three-state note above.
@@ -19960,14 +20194,157 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // Left null on purpose. See the three-state note above.
     }
 
-    companionAmmoFacts = { emptyWeaponModuleIDs, cargoCharges, weaponChargeGroups };
+    companionAmmoFacts = { emptyWeaponModuleIDs, cargoCharges, weaponChargeGroups, loadedCharges };
+    companionCombatWeapons = await readCompanionCombatWeapons(request, fitReads);
+    companionChargeFacts = await readCompanionChargeFacts(cargoCharges, companionCombatWeapons);
     return companionAmmoFacts;
+  }
+
+  /**
+   * The static facts ammo by target ranks with (companionAmmo.ts): every charge
+   * type in the cargo or in a gun, and every gun type. `attributesOfTypes`
+   * keeps what it was told per type, so after the first read of a type this
+   * costs no call. A failure leaves that half `null`; names are warmed with the
+   * same cache the panels use and are only ever a readout nicety.
+   */
+  async function readCompanionChargeFacts(
+    cargo: readonly CompanionCargoCharge[] | null,
+    weapons: CombatWeapons | null,
+  ): Promise<typeof companionChargeFacts> {
+    const chargeTypes = [...new Set([
+      ...(cargo ?? []).map((charge) => charge.typeID),
+      ...(weapons?.weapons ?? []).flatMap((weapon) => (weapon.chargeTypeID === null ? [] : [weapon.chargeTypeID])),
+    ])];
+    const weaponTypes = [...new Set((weapons?.weapons ?? []).map((weapon) => weapon.typeID))];
+    let chargeFactsByTypeID: Record<number, ChargeFacts> | null = null;
+    let weaponCycleByTypeID: Record<number, WeaponCycleFacts> | null = null;
+    try {
+      await resolveNamesNow(chargeTypes.map((id) => ({ kind: "type" as const, id }))).catch(() => {});
+      const rows: Readonly<Record<number, Readonly<Record<number, number>>>> =
+        chargeTypes.length > 0 ? await attributesOfTypes(chargeTypes, CHARGE_ATTRIBUTE_IDS) : {};
+      const resolved = store.names.get().resolved;
+      chargeFactsByTypeID = {};
+      for (const typeID of chargeTypes) {
+        if (rows[typeID] !== undefined) {
+          chargeFactsByTypeID[typeID] = chargeFactsFromAttributes(rows[typeID], resolved[nameKey("type", typeID)] ?? null);
+        }
+      }
+    } catch {
+      chargeFactsByTypeID = null;
+    }
+    try {
+      const rows: Readonly<Record<number, Readonly<Record<number, number>>>> =
+        weaponTypes.length > 0 ? await attributesOfTypes(weaponTypes, WEAPON_CYCLE_ATTRIBUTE_IDS) : {};
+      weaponCycleByTypeID = {};
+      for (const typeID of weaponTypes) {
+        const cycle = weaponCycleFromAttributes(rows[typeID]);
+        if (cycle !== null) {
+          weaponCycleByTypeID[typeID] = cycle;
+        }
+      }
+    } catch {
+      weaponCycleByTypeID = null;
+    }
+    return { chargeFactsByTypeID, weaponCycleByTypeID };
+  }
+
+  /**
+   * The guns' reach with their loaded charges, from the fit the ammo read just
+   * made. See `companionCombatWeapons` for why the bound dogma is read only when
+   * `companionCombatChargeKey` changes: the key is every gun's loaded charge
+   * type plus the hull, which is everything reach depends on that can change
+   * mid-run. Any failure answers `null`, which the range gate reads as "fire".
+   *
+   * It also fills `companionCombatUtilities` (rung 8a) off the same two reads:
+   * the key carries the utility modules' state too, so a ship with no guns but a
+   * web still reads its dogma once, and again only when that module changes.
+   */
+  async function readCompanionCombatWeapons(
+    request: FleetCompanionRequest,
+    reads: Awaited<ReturnType<typeof api.loadFitting>> | null,
+  ): Promise<CombatWeapons | null> {
+    const shipID = companionShipID;
+    if (shipID === null || reads === null ||
+      reads.activeShipID !== shipID || reads.errors.slots || reads.errors.online || reads.errors.shipInfo) {
+      companionCombatChargeKey = null;
+      companionCombatUtilities = null;
+      return null;
+    }
+    const slots = buildSlots(reads.slots, reads.shipInfo, reads.online);
+    const guns = new Set(request.weaponModuleIDs);
+    // Rung 8a's modules, told apart by the static data's group (kept per type, so
+    // a call only the first time a type is seen). A read that stumbles finds no
+    // utility this time; the next interval asks again.
+    let types: Awaited<ReturnType<typeof combatUtilityOfTypes>> = {};
+    try {
+      types = await combatUtilityOfTypes([...new Set(slots.flatMap((slot) => slot.module === null ? []
+        : [slot.module.typeID, ...(slot.module.charge === null ? [] : [slot.module.charge.typeID])]))]);
+    } catch {
+      types = {};
+    }
+    const utilityIDs = new Set(slots.flatMap((slot) => slot.module !== null &&
+      AUTOMATIC_UTILITY_FAMILIES[types[slot.module.typeID]?.groupID ?? -1] !== undefined ? [slot.module.itemID] : []));
+    if (request.weaponModuleIDs.length === 0 && utilityIDs.size === 0) {
+      companionCombatChargeKey = null;
+      companionCombatUtilities = null;
+      return null;
+    }
+    const stateOf = (ids: ReadonlySet<number>): string => slots
+      .flatMap((slot) => slot.module !== null && ids.has(slot.module.itemID)
+        ? [`${slot.module.itemID}:${slot.module.online ? 1 : 0}:${slot.module.charge?.typeID ?? "-"}`] : [])
+      .join(",");
+    // ⚠ WIDENED, NOT A SECOND KEY: one dogma read serves both the guns and the
+    // utilities, and it is re-read only when either's item, online or loaded
+    // charge state moved.
+    const key = `${shipID}|${stateOf(guns)}|${stateOf(utilityIDs)}`;
+    if (key === companionCombatChargeKey) {
+      return companionCombatWeapons;
+    }
+    try {
+      const bound = await api.boundDogma(callOptions);
+      if (bound.allInfo.error || Number(bound.allInfo.value?.activeShipID) !== shipID) {
+        companionCombatChargeKey = null;
+        companionCombatUtilities = null;
+        return null;
+      }
+      companionCombatChargeKey = key;
+      // No cargo for either: the reload rung reads its own (`cargoCharges`), reach
+      // does not depend on what is in the hold, and the capacitor booster (the one
+      // utility that loads from it) is not run by the companion. The ratio only
+      // scales the capacity back out (`companionUtilities.ts`), so the page's own
+      // last snapshot is enough.
+      const seen = store.space.get().snapshot?.ship ?? null;
+      const utilities = utilityIDs.size === 0 ? null : combatUtilityFit(shipID, slots, bound.allInfo.value,
+        types, null, seen !== null && seen.itemID === shipID ? seen.capacitorRatio : null);
+      // Gated like every other list of modules to switch on (`fittedModuleActivation`).
+      if (utilities !== null) await readTypeActivation(utilities.modules.map((module) => module.typeID));
+      companionCombatUtilities = utilities === null ? null
+        : { ...utilities, modules: utilities.modules.filter((module) => fittedModuleActivation(module) !== "passive") };
+      return request.weaponModuleIDs.length === 0 ? null
+        : combatFit(shipID, slots, request.weaponModuleIDs, decodeChargeFits(reads.chargeFits), bound.allInfo.value, null);
+    } catch {
+      companionCombatChargeKey = null;
+      companionCombatUtilities = null;
+      return null;
+    }
   }
 
   async function readCompanionFitFacts(): Promise<CompanionFitFacts> {
     try {
       await loadFitting();
       const fit = store.fitting.get();
+      // Read before the slots gate: the stats come off the hull, not the slots.
+      companionTargeting = {
+        maxLockedTargets: fit.stats.targeting.maxLockedTargets.known
+          ? fit.stats.targeting.maxLockedTargets.value
+          : null,
+        maxTargetRangeM: fit.stats.targeting.maxTargetRange.known
+          ? fit.stats.targeting.maxTargetRange.value
+          : null,
+      };
+      // The DSL's own resolver: the fit stat when it is known, the pilot's
+      // drone skills otherwise, `null` for a hull with a known-empty bay.
+      companionDroneControlRangeM = await resolveDroneControlRange(fit);
       if (fit.slotsError !== null) {
         return UNREADABLE_COMPANION_FIT;
       }
@@ -19993,6 +20370,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // classifier falls back to the name every time and inherits the very
       // defect it now avoids.
       await loadDogma().catch(() => {});
+      // ⚠ AWAITED FOR THE SAME REASON, and before every classifier below: each
+      // list is gated by whether its module can be switched on at all
+      // (`fittedModuleActivation`), and that is this read. Kept per type, so it
+      // is a call only the first time a type is fitted.
+      await readTypeActivation(fit.slots.flatMap((slot) => slot.module === null ? [] : [slot.module.typeID]));
       const defense = resolveDefenseModuleIDs();
       const remote = resolveRemoteRepModuleIDs();
       // The buffer fit's own answer to "where is this ship's tank", voted off
@@ -20051,6 +20433,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         shieldBoosterModuleIDs: defense.shield,
         armorRepairerModuleIDs: defense.armor,
         hullRepairerModuleIDs: defense.hull,
+        ancillaryRepairerModuleIDs: defense.ancillary,
         remoteShieldModuleIDs: remote.shield,
         remoteArmorModuleIDs: remote.armor,
         remoteCapacitorModuleIDs: remote.cap,
@@ -20060,6 +20443,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // game's own "Salvager" group in high slots only; reusing it means one
         // answer to "is this a salvager", not two that can drift.
         salvagerModuleIDs: resolveSalvageModuleIDs(),
+        droneAssistModuleIDs: resolveDroneAssistModuleIDs(),
         propulsionModules: defense.propulsion,
         modules,
         droneBay,
@@ -20357,6 +20741,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readonly shield: readonly number[];
     readonly armor: readonly number[];
     readonly hull: readonly number[];
+    /** The ancillary ones among shield/armor/hull: they eat a charge a cycle. */
+    readonly ancillary: readonly number[];
     readonly hardeners: readonly number[];
     readonly weapons: readonly number[];
     readonly propulsion: readonly CompanionPropulsionModule[];
@@ -20365,6 +20751,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const shield: number[] = [];
     const armor: number[] = [];
     const hull: number[] = [];
+    const ancillary: number[] = [];
     const hardeners: number[] = [];
     const weapons: number[] = [];
     const propulsion: CompanionPropulsionModule[] = [];
@@ -20394,7 +20781,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // cycling a passive module wastes a call, refusing to cycle a real one
         // loses the tank or the guns. `itemHasActivationCycle` is three-state and
         // only an explicit `false` excludes.
-        if (itemHasActivationCycle(fit.dogma, slot.module.itemID) === false) {
+        //
+        // ⚠ SINCE 2026-10-14 THE TYPE'S OWN ANSWER COMES FIRST: the server's
+        // test of whether the type has an effect a pilot switches on
+        // (`fittedModuleActivation`, nav/moduleActivation.ts), with the item's
+        // cycle standing in only while that is unread. Still only "passive"
+        // excludes.
+        if (fittedModuleActivation(slot.module) === "passive") {
           continue;
         }
         if (/remote/i.test(group)) {
@@ -20423,8 +20816,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // Anchoring on "booster" keeps "Shield Booster" and "Ancillary Shield
           // Booster" and drops the amplifier, with no extra branch needed.
           shield.push(slot.module.itemID);
+          if (/ancillary/i.test(group)) ancillary.push(slot.module.itemID);
         } else if (/armor repair/i.test(group)) {
           armor.push(slot.module.itemID);
+          if (/ancillary/i.test(group)) ancillary.push(slot.module.itemID);
         } else if (/hull repair/i.test(group)) {
           hull.push(slot.module.itemID);
         } else if (/hardener|damage control|resistance/i.test(group)) {
@@ -20491,7 +20886,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         }
       }
     }
-    return { shield, armor, hull, hardeners, weapons, propulsion };
+    return { shield, armor, hull, ancillary, hardeners, weapons, propulsion };
   }
 
   /**
@@ -20520,8 +20915,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // every family. No remote repairer group is known to be passive, so this
         // is expected to exclude nothing — it is here so that "group says what,
         // duration says whether" is one rule with no exceptions to remember,
-        // rather than a rule with a footnote. Three-state; only `false` excludes.
-        if (itemHasActivationCycle(fit.dogma, slot.module.itemID) === false) {
+        // rather than a rule with a footnote. Three-state; only "passive" excludes.
+        if (fittedModuleActivation(slot.module) === "passive") {
           continue;
         }
         if (/remote shield/i.test(group)) {
@@ -20612,7 +21007,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function classifyDroneRoles(
     bay: ReturnType<typeof decodeDroneBay>,
-    snapshot: ReturnType<typeof decodeSpaceSnapshot>,
+    snapshot: ReturnType<typeof decodeSpaceSnapshot> | null,
     shipID: number | null,
   ): Promise<{ readonly bay: DroneRoleIDs | null; readonly out: DroneRoleIDs | null }> {
     const drones = snapshot === null ? null : snapshot.entities.filter((e) => canMyShipOrderDrone(e, shipID) === true);
@@ -20789,7 +21184,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const missing = [...typeIDs].filter((typeID) => !ratThreatByTypeID.has(typeID));
     if (missing.length > 0) {
       try {
-        const attributes = await api.fetchTypeDogma(missing, THREAT_ATTRIBUTE_IDS, callOptions);
+        // The signature radius rides along: same types, same round trip, and
+        // `threatFromAttributes` reads only the ids it names.
+        const attributes = await api.fetchTypeDogma(
+          missing,
+          // ⚠ 30 IDS OF THE ROUTE'S 32 (TYPE_ATTRIBUTES_MAX_ATTRIBUTES): one more
+          // set of this size needs its own call, never a silently short answer.
+          [...THREAT_ATTRIBUTE_IDS, ATTR_SIGNATURE_RADIUS, ATTR_SHIELD_CAPACITY, ATTR_ARMOR_HP, ATTR_HULL_HP, ...RAT_COMBAT_ATTRIBUTE_IDS,
+            ...RAT_RESONANCE_ATTRIBUTE_IDS],
+          callOptions,
+        );
         for (const typeID of missing) {
           const row = attributes[typeID];
           // ⚠ ONLY WHAT THE ROUTE ACTUALLY ANSWERED FOR. A typeID the response
@@ -20799,6 +21203,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // there", and those two must not both become a permanent verdict.
           if (row !== undefined) {
             ratThreatByTypeID.set(typeID, threatFromAttributes(row));
+            const signature = row[ATTR_SIGNATURE_RADIUS];
+            if (typeof signature === "number" && Number.isFinite(signature) && signature > 0) {
+              ratSignatureByTypeID.set(typeID, signature);
+            }
+            const layer = (id: number): number | null => {
+              const value = row[id];
+              return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+            };
+            ratHitPointsByTypeID.set(typeID, {
+              shield: layer(ATTR_SHIELD_CAPACITY),
+              armor: layer(ATTR_ARMOR_HP),
+              hull: layer(ATTR_HULL_HP),
+            });
+            ratCombatByTypeID.set(typeID, ratCombatFromAttributes(row));
+            const resonances = ratResonancesFromAttributes(row);
+            if (resonances !== null) {
+              ratResonancesByTypeID.set(typeID, resonances);
+            }
           }
         }
       } catch {
@@ -20818,6 +21240,113 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
     }
     return threats;
+  }
+
+  /**
+   * The signature radius of each hostile type on this grid, from the cache
+   * `classifyRatThreats` fills. Free: it reads no route, so it must run AFTER
+   * that call on the same tick to see this tick's new types.
+   */
+  function ratSignaturesOnGrid(
+    snapshot: ReturnType<typeof decodeSpaceSnapshot>,
+    origin: SpaceVector,
+  ): Readonly<Record<number, number>> | null {
+    if (snapshot === null) {
+      return null;
+    }
+    const signatures: Record<number, number> = {};
+    for (const row of hostileRows(snapshot, origin)) {
+      const signature = row.typeID === null ? undefined : ratSignatureByTypeID.get(row.typeID);
+      if (row.typeID !== null && signature !== undefined) {
+        signatures[row.typeID] = signature;
+      }
+    }
+    return signatures;
+  }
+
+  /** As `ratSignaturesOnGrid`, for the positioning facts. Free; same ordering rule. */
+  function ratCombatOnGrid(
+    snapshot: ReturnType<typeof decodeSpaceSnapshot>,
+    origin: SpaceVector,
+  ): Readonly<Record<number, RatCombatFacts>> | null {
+    if (snapshot === null) {
+      return null;
+    }
+    const facts: Record<number, RatCombatFacts> = {};
+    for (const row of hostileRows(snapshot, origin)) {
+      const known = row.typeID === null ? undefined : ratCombatByTypeID.get(row.typeID);
+      if (row.typeID !== null && known !== undefined) {
+        facts[row.typeID] = known;
+      }
+    }
+    return facts;
+  }
+
+  /** As `ratSignaturesOnGrid`, for the resonances ammo is ranked on. Free; same ordering rule. */
+  function ratResonancesOnGrid(
+    snapshot: ReturnType<typeof decodeSpaceSnapshot>,
+    origin: SpaceVector,
+  ): Readonly<Record<number, RatResonances>> | null {
+    if (snapshot === null) {
+      return null;
+    }
+    const resonances: Record<number, RatResonances> = {};
+    for (const row of hostileRows(snapshot, origin)) {
+      const known = row.typeID === null ? undefined : ratResonancesByTypeID.get(row.typeID);
+      if (row.typeID !== null && known !== undefined) {
+        resonances[row.typeID] = known;
+      }
+    }
+    return resonances;
+  }
+
+  /** As `ratSignaturesOnGrid`, for the full hit points. Free; same ordering rule. */
+  function ratHitPointsOnGrid(
+    snapshot: ReturnType<typeof decodeSpaceSnapshot>,
+    origin: SpaceVector,
+  ): Readonly<Record<number, CompanionHitPoints>> | null {
+    if (snapshot === null) {
+      return null;
+    }
+    const hitPoints: Record<number, CompanionHitPoints> = {};
+    for (const row of hostileRows(snapshot, origin)) {
+      const full = row.typeID === null ? undefined : ratHitPointsByTypeID.get(row.typeID);
+      if (row.typeID !== null && full !== undefined) {
+        hitPoints[row.typeID] = full;
+      }
+    }
+    return hitPoints;
+  }
+
+  /**
+   * Sizing facts for these combat drone types, reading only the ones never
+   * looked up. One round trip per NEW drone type this tab ever sees. A failed
+   * read is not cached and costs only this tick's sizing: the rung then
+   * launches the whole bay as it always did.
+   */
+  async function combatDroneFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, DroneFacts>> {
+    const missing = [...new Set(typeIDs)].filter((typeID) => !droneFactsByTypeID.has(typeID));
+    if (missing.length > 0) {
+      try {
+        const attributes = await api.fetchTypeDogma(missing, DRONE_SIZING_ATTRIBUTE_IDS, callOptions);
+        for (const typeID of missing) {
+          const row = attributes[typeID];
+          if (row !== undefined) {
+            droneFactsByTypeID.set(typeID, droneFactsFromAttributes(typeID, row));
+          }
+        }
+      } catch {
+        // Left uncached: asked again next tick.
+      }
+    }
+    const facts = new Map<number, DroneFacts>();
+    for (const typeID of typeIDs) {
+      const known = droneFactsByTypeID.get(typeID);
+      if (known !== undefined && known !== null) {
+        facts.set(typeID, known);
+      }
+    }
+    return facts;
   }
 
   // --- the drone leash, from the PILOT --------------------------------------
@@ -21036,6 +21565,38 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return resolveDroneControlRangeM(null, droneControlRangeFromSkills(readings)).rangeM;
   }
 
+  /**
+   * Fitted, online modules that boost the DRONES and must be switched on to do
+   * it: the game's "Drone Tracking Modules" (Omnidirectional Tracking Link) and
+   * "Drone Navigation Computer" groups, matched exactly. The passive "Drone
+   * Tracking Enhancer" group is a different name and is never matched.
+   *
+   * ⚠ THE GROUP NAME DID NOT MAKE THEM SWITCHABLE. Seen live 2026-10-14: on this
+   * server a Drone Navigation Computer I has no effect a pilot switches on, and
+   * companions asked for it once a fight ("... cannot be activated."). The
+   * group says what a module is FOR; whether it can be switched on is
+   * `fittedModuleActivation`, here as in every list.
+   */
+  function resolveDroneAssistModuleIDs(): readonly number[] {
+    const fit = store.fitting.get();
+    if (fit.slotsError !== null) {
+      return [];
+    }
+    const resolved = store.names.get().resolved;
+    const ids: number[] = [];
+    for (const slot of fit.slots) {
+      if (slot.module === null || !slot.module.online || slot.family === "rig" || slot.family === "subsystem") {
+        continue;
+      }
+      const group = resolved[nameKey("typeGroup", slot.module.typeID)] ?? null;
+      if (group !== null && /^(drone tracking modules|drone navigation computer)$/i.test(group.trim()) &&
+        fittedModuleActivation(slot.module) !== "passive") {
+        ids.push(slot.module.itemID);
+      }
+    }
+    return ids;
+  }
+
   function resolveSalvageModuleIDs(): readonly number[] {
     const fit = store.fitting.get();
     if (fit.slotsError !== null) {
@@ -21048,7 +21609,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         continue;
       }
       const group = resolved[nameKey("typeGroup", slot.module.typeID)] ?? null;
-      if (group !== null && /salvager/i.test(group)) {
+      if (group !== null && /salvager/i.test(group) && fittedModuleActivation(slot.module) !== "passive") {
         ids.push(slot.module.itemID);
       }
     }
@@ -22095,50 +22656,54 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * ship them to this character's log on the BFF.
    *
    * ⚠ IT MUST NEVER COST THE RUN ANYTHING. Nothing here is awaited by the
-   * runner, a failed flush drops its batch rather than retrying forever, and
-   * the buffer is capped — a recorder that cannot reach the BFF must not grow
-   * until the tab dies. A `start` line flushes at once, because it is what
-   * rotates the previous run's log and a run that ends badly must not take its
-   * own header with it.
+   * runner, and the buffer is capped (web/src/app/botLogBuffer.ts) — a
+   * recorder that cannot reach the BFF must not grow until the tab dies. A
+   * failed flush puts its batch back for exactly ONE retry; a batch that fails
+   * twice is dropped, so the log can never become an unbounded queue. A `start`
+   * line flushes at once, because it is what rotates the previous run's log and
+   * a run that ends badly must not take its own header with it.
    */
   const BOT_LOG_FLUSH_MS = 3000;
-  const BOT_LOG_MAX_BUFFER = 200;
-  let botLogBuffer: BotLogDraft[] = [];
+  const botLogBuffer = createBotLogBuffer<BotLogDraft>();
   let botLogTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleBotLogFlush(): void {
+    if (botLogTimer === null) {
+      botLogTimer = setTimeout(() => {
+        void flushBotLog();
+      }, BOT_LOG_FLUSH_MS);
+    }
+  }
 
   async function flushBotLog(): Promise<void> {
     if (botLogTimer !== null) {
       clearTimeout(botLogTimer);
       botLogTimer = null;
     }
-    if (botLogBuffer.length === 0) {
+    if (botLogBuffer.size === 0) {
       return;
     }
-    const batch = botLogBuffer;
-    botLogBuffer = [];
+    const batch = botLogBuffer.take();
     try {
-      await api.appendBotLog(batch, callOptions);
+      await api.appendBotLog(batch.lines, callOptions);
     } catch {
-      // The lines are gone. That is the deal: a diary that cannot be written
-      // must not become a queue that grows, or a reason a bot stops.
+      // Back to the front for one retry; a second failure drops it.
+      botLogBuffer.requeue(batch);
+    }
+    // More than one route-sized batch, or a retry, is still waiting.
+    if (botLogBuffer.size > 0) {
+      scheduleBotLogFlush();
     }
   }
 
   const botLogSink: BotLogSink = {
     write(draft) {
       botLogBuffer.push(draft);
-      if (botLogBuffer.length > BOT_LOG_MAX_BUFFER) {
-        botLogBuffer = botLogBuffer.slice(-BOT_LOG_MAX_BUFFER);
-      }
       if (draft.kind === "start" || draft.kind === "end") {
         void flushBotLog();
         return;
       }
-      if (botLogTimer === null) {
-        botLogTimer = setTimeout(() => {
-          void flushBotLog();
-        }, BOT_LOG_FLUSH_MS);
-      }
+      scheduleBotLogFlush();
     },
   };
 
@@ -22289,9 +22854,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           typeof used === "number" && typeof total === "number" && total > 0 ? used / total : null;
         const holdEmpty = holdsEmpty(holds);
         const origin = ship?.position ?? { x: 0, y: 0, z: 0 };
-        const hostileOnGrid = snapshot === null ? null : hostileRows(snapshot, origin).length > 0;
+        // ⚠ A BLIND SCENE (inSpace, no ship) IS UNKNOWN, NOT EMPTY -- see the companion
+        // observation's `sceneBlind`. `decodeSpaceSnapshot` never returns null, so a dead
+        // ballpark's empty list used to read as "no hostile" and "no drones out".
+        const sceneBlind = isSceneBlind(status.inSpace, snapshot);
+        const hostileOnGrid = snapshot === null || sceneBlind ? null : hostileRows(snapshot, origin).length > 0;
         const dronesOut =
-          snapshot === null
+          snapshot === null || sceneBlind
             ? null
             : snapshot.entities.some((entity) => canMyShipOrderDrone(entity, ship?.itemID ?? null));
 
@@ -22601,7 +23170,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // second copy that could drift.
         // `lowestDroneHealth` is null with no drones out (nothing to judge).
         const myShipID = snapshot?.ship?.itemID ?? null;
-        const targetedByPlayer = isTargetedByPlayer(snapshot, myShipID);
+        const targetedByPlayer = sceneBlind ? null : isTargetedByPlayer(snapshot, myShipID);
         // ⚠ ONE WALK, TWO ANSWERS, AND THE OLD ONE IS UNCHANGED. `myDrones` is
         // the per-drone list the drone-boat block needs (it decides which drone
         // to pull, not merely whether the rack is hurt); `lowestDroneHealth` is
@@ -23055,7 +23624,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // The walk above cannot tell the two apart on its own -- it produces
           // an empty array either way -- so the distinction is made here, at the
           // one place that knows whether there was a snapshot at all.
-          myDrones: snapshot === null ? undefined : myDrones,
+          myDrones: snapshot === null || sceneBlind ? undefined : myDrones,
           cargoFraction,
           savedFittings,
           activeFitting,

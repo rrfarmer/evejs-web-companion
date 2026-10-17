@@ -177,6 +177,37 @@
 //   • `destination` returns `null` without a system, exactly like the four link
 //     verbs: "go somewhere" with no somewhere named is not a trip.
 //
+// ─── `targets called|all`: A MODE, NOT AN ORDER ─────────────────────────────
+//
+// ⚠ `targets` IS THE SECOND TOGGLE IN THE VOCABULARY, after `props on|off`, and
+// it is parsed the same way: a value verb whose word is MANDATORY. It sets a
+// companion's TARGET MODE:
+//
+//   • `called` (the default) -- shoot only what the fleet calls: a fleet tag, a
+//     `Target` broadcast, a `target`/`primary` chat line.
+//   • `all` -- free fire: kill every hostile by the kill order. Fleet tags still
+//     shoot first; the mode only widens what is allowed AFTER them.
+//
+// It is a standing toggle rather than an order because nothing about it is done
+// once or finishes: it is a preference about how the companion chooses targets,
+// in force until somebody flips it back. That is also why both halves are
+// required -- a commander who can only say "all" has no way back to "called"
+// short of restarting the companion -- and why a bare `targets`, or one followed
+// by any other word, is NOT a command: there is no obvious half of a toggle, and
+// reading a bare mention as either half would flip the mode on a casual remark.
+//
+// ⚠ `stop` DOES NOT RESET IT, for the reason it does not reset `props`: `stop`
+// cancels standing ORDERS (the follow, the trip, the area job) and halts the
+// hull, and a mode is not an order. An FC who types `stop` to halt a trip has not
+// said "and stop shooting the rats I told you were free", and a companion that
+// quietly went back to `called` on every `stop` would make free fire impossible
+// to keep while also steering the ship. Reset it the way it was set: `targets
+// called`.
+//
+// ⚠ `targets` IS NOT `target`. The link verb's `^target\b` already refuses
+// "targets" (no word boundary inside the word), so the two cannot collide; this
+// verb's own pattern is `^targets\b`, and "target" with no `s` is not this verb.
+//
 // ⚠ `destination` ACCEPTS A BARE NUMBER AND `travel` DOES NOT. That is an
 // ADDITION, not a mirror of the `travel` verb it otherwise matches: both carry
 // a solar SYSTEM id rather than an on-grid object, but a system id is a number
@@ -205,7 +236,37 @@ export type ChatCommandKind =
   | "loot"
   | "stop"
   | "follow"
-  | "destination";
+  | "destination"
+  | "warp"
+  | "props"
+  | "targets"
+  | "flight"
+  | "status"
+  | "repair";
+
+/**
+ * Which pilots a `status` or `repair` line is addressed to.
+ *
+ * ⚠ NAMES AND LINKS BOTH, BECAUSE A COMMANDER WRITES EITHER. Dragging a pilot
+ * into chat makes a showinfo link that carries the character id, and that id is
+ * the reliable half; typing the name is the quick half, and is matched as a
+ * whole word against what is left once the links are taken out. Nothing here
+ * knows the fleet's names, so the parser keeps both and `selectsPilot` asks each
+ * pilot whether it is one of them.
+ *
+ * ⚠ A LINE THAT NAMES NOBODY WE KNOW IS NOBODY, NEVER EVERYONE. Only an empty
+ * remainder (or `all` / `everyone` / `everybody`) addresses the whole fleet. So a
+ * misspelt name sends no ship to a station, which is the safe way to be wrong
+ * for an order that spends ISK and leaves the fight.
+ */
+export interface PilotSelector {
+  /** True when the line named nobody, or said `all`: every pilot answers. */
+  readonly everyone: boolean;
+  /** Character ids read out of showinfo links after the verb. */
+  readonly characterIDs: readonly number[];
+  /** The rest of the line with the links removed, entities decoded, lower-cased. */
+  readonly text: string;
+}
 
 /**
  * One parsed chat command. The four link verbs carry exactly the resolved
@@ -258,7 +319,31 @@ export type ChatCommand =
    * commander could not halt a trip without also stripping the speed off a ship
    * that may need it to get out.
    */
-  | { readonly kind: "props"; readonly on: boolean };
+  | { readonly kind: "props"; readonly on: boolean }
+  /**
+   * `targets called` / `targets all` -- the companion's target mode. A standing
+   * toggle like `props`, not an order, and `stop` does not reset it. See the
+   * header's "a mode, not an order".
+   */
+  | { readonly kind: "targets"; readonly mode: "called" | "all" }
+  /**
+   * `flight follow` / `flight auto` -- the companion's flight mode. A standing
+   * toggle like `targets`, not an order, and `stop` does not reset it. See the
+   * table entry's section comment.
+   */
+  | { readonly kind: "flight"; readonly mode: "follow" | "auto" }
+  /**
+   * `status [pilots]` -- each named pilot (every pilot when none is named) says
+   * in chat how much ammunition and how many drones it has left. A question, not
+   * an order: it moves nothing and `stop` has nothing to cancel.
+   */
+  | { readonly kind: "status"; readonly who: PilotSelector }
+  /**
+   * `repair [pilots]` -- each named pilot (every pilot when none is named) docks
+   * in this system, pays the station to repair the ship and comes back to the
+   * fleet commander.
+   */
+  | { readonly kind: "repair"; readonly who: PilotSelector };
 
 /**
  * Verb -> command kind, each with its own anchored, case-insensitive
@@ -509,7 +594,173 @@ const VALUE_COMMAND_VERBS: ReadonlyArray<{
       return word === undefined ? null : { kind: "props", on: word.toLowerCase() === "on" };
     },
   },
+  {
+    // ⚠ `targets`, PLURAL ONLY. `\b` after the `s` keeps "targeting" and
+    // "targetsss" out, and the link verb's `^target\b` already refuses
+    // "targets", so the two never both match one line.
+    verb: "targets",
+    pattern: /^targets\b/i,
+    // ⚠ BOTH WORDS ARE MANDATORY AND NOTHING MAY FOLLOW THEM, exactly as for
+    // `props`: no default half of a toggle, and trailing chatter ("targets all
+    // please") is a sentence, not a mode switch. See the header.
+    read: (remainder) => {
+      const said = /^\s*(called|all)\s*$/i.exec(remainder);
+      const word = said?.[1];
+      return word === undefined
+        ? null
+        : { kind: "targets", mode: word.toLowerCase() === "all" ? "all" : "called" };
+    },
+  },
+  // ─── `flight follow|auto`: A MODE, NOT AN ORDER ───────────────────────────
+  //
+  // ⚠ `flight` IS THE THIRD TOGGLE IN THE VOCABULARY, after `props on|off` and
+  // `targets called|all`, and it is parsed the same way: a value verb whose word
+  // is MANDATORY. It sets the companion's FLIGHT MODE:
+  //
+  //   • `follow` (the default) -- the fleet commander leads the flight and the
+  //     companion holds station on them.
+  //   • `auto` -- the companion flies itself into weapon range of its target
+  //     while it fights.
+  //
+  // It is a standing mode like `targets`, not a one-off order, for the same
+  // reason: it is a preference about how the companion flies, in force until
+  // somebody flips it back. Both halves are required, and a bare `flight`, or
+  // one followed by any other word, is NOT a command.
+  //
+  // ⚠ `flight` IS NOT `follow`. The two cannot collide: `^follow\b` does not
+  // match a line that starts with "flight", and `^flight\b` does not match a
+  // line that starts with "follow". A line starting with `follow` still parses
+  // as the escort order, and `flight follow` is this mode, not that order.
+  {
+    verb: "flight",
+    pattern: /^flight\b/i,
+    // ⚠ BOTH WORDS ARE MANDATORY AND NOTHING MAY FOLLOW THEM, exactly as for
+    // `targets`: no default half of a mode, and trailing chatter is a sentence.
+    read: (remainder) => {
+      const said = /^\s*(follow|auto)\s*$/i.exec(remainder);
+      const word = said?.[1];
+      return word === undefined
+        ? null
+        : { kind: "flight", mode: word.toLowerCase() === "auto" ? "auto" : "follow" };
+    },
+  },
+  // ─── `status` and `repair`: VERBS ADDRESSED TO PILOTS ─────────────────────
+  //
+  // ⚠ THEIR VALUE IS WHO, NOT HOW MUCH. Both always parse -- a bare verb is the
+  // whole fleet -- and what follows the verb only narrows which pilots answer.
+  // See `PilotSelector` for why a line naming nobody we know reaches nobody.
+  // `^status\b` and `^repair\b` keep "statuses", "repairs" and "repaired" out.
+  {
+    verb: "status",
+    pattern: /^status\b/i,
+    read: (remainder) => ({ kind: "status", who: pilotSelectorFrom(remainder) }),
+  },
+  {
+    verb: "repair",
+    pattern: /^repair\b/i,
+    read: (remainder) => ({ kind: "repair", who: pilotSelectorFrom(remainder) }),
+  },
 ];
+
+/** Every showinfo link in a line, either tag form, for stripping and reading ids. */
+const SHOWINFO_LINKS =
+  /<url=showinfo:\d+\/\/(\d+)>[^<]*<\/url>|<a href="showinfo:\d+\/\/(\d+)">[^<]*<\/a>/g;
+
+/** The entities the chat client escapes in message text, decoded for name matching. */
+function decodeChatEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/** Who the text after a `status` or `repair` verb names. See `PilotSelector`. */
+function pilotSelectorFrom(remainder: string): PilotSelector {
+  const characterIDs: number[] = [];
+  for (const match of remainder.matchAll(SHOWINFO_LINKS)) {
+    const digits = match[1] ?? match[2];
+    const id = digits === undefined ? null : parseItemID(digits);
+    if (id !== null && !characterIDs.includes(id)) {
+      characterIDs.push(id);
+    }
+  }
+  // Punctuation at the ends is not part of anybody's name: "status?" and
+  // "repair, Test Two!" are the same lines without it.
+  const text = decodeChatEntities(remainder.replace(SHOWINFO_LINKS, " "))
+    .toLowerCase()
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  const everyone = characterIDs.length === 0 && (text === "" || /^(all|everyone|everybody)$/.test(text));
+  return { everyone, characterIDs, text };
+}
+
+/**
+ * Whether the pilot `characterID` / `characterName` is one a `status` or `repair`
+ * line addressed.
+ *
+ * A typed name counts only as a WHOLE WORD of the line, case-insensitively, so
+ * "Test" does not answer for "Test Two" and "Al" does not answer for "all". A
+ * pilot whose own name could not be read answers only to a link or to everyone.
+ */
+export function selectsPilot(
+  who: PilotSelector,
+  characterID: number | null,
+  characterName: string | null,
+): boolean {
+  if (who.everyone) {
+    return true;
+  }
+  if (characterID !== null && who.characterIDs.includes(characterID)) {
+    return true;
+  }
+  const name = characterName?.trim().toLowerCase() ?? "";
+  if (name === "") {
+    return false;
+  }
+  const isWordChar = (char: string | undefined): boolean => char !== undefined && /[\p{L}\p{N}]/u.test(char);
+  for (let at = who.text.indexOf(name); at !== -1; at = who.text.indexOf(name, at + 1)) {
+    if (!isWordChar(who.text[at - 1]) && !isWordChar(who.text[at + name.length])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * One row of the human-facing command help: what to type, and what it does.
+ *
+ * ⚠ HAND-WRITTEN, NOT DERIVED FROM THE VERB TABLES, because a verb table knows
+ * a pattern and not the syntax a human types after it (a link, a range, a
+ * word). The test beside this file ties the two together instead: every
+ * `ChatCommandKind` must show up in some row, so a new kind without help fails
+ * there. `does` is one short plain-ASCII line.
+ */
+export const CHAT_COMMAND_HELP: readonly { readonly usage: string; readonly does: string }[] =
+  Object.freeze([
+    // Orders on an object.
+    { usage: "target|primary <link>", does: "Shoot this ship first" },
+    { usage: "align <link>", does: "Align toward this object" },
+    { usage: "warp <link>", does: "Warp to this object or fleet member" },
+    // Trips.
+    { usage: "travel <link>", does: "Fly to this solar system" },
+    { usage: "destination <link|id>", does: "Set the route to this system" },
+    { usage: "jump <link>", does: "Go to this gate and hold" },
+    // Standing behaviours with a value.
+    { usage: "follow [range]", does: "Escort the FC; range in km, default 2 km" },
+    // Area jobs.
+    { usage: "salvage", does: "Salvage the wrecks in vicinity" },
+    { usage: "loot", does: "Loot your wrecks and containers in vicinity" },
+    // Toggles.
+    { usage: "props on|off", does: "Run the afterburner or MWD, or stand it down" },
+    { usage: "targets called|all", does: "Shoot only called targets, or free fire" },
+    { usage: "flight follow|auto", does: "Hold station on the FC, or fly into range by itself" },
+    // Addressed to pilots: none named is everyone.
+    { usage: "status [names]", does: "Say ammo and drones left in local" },
+    { usage: "repair [names]", does: "Dock in this system, repair, come back to the FC" },
+    // Cancel.
+    { usage: "stop", does: "Cancel orders, a repair trip included, and halt the ship" },
+  ]);
 
 /**
  * The chat verbs this parser recognises (`target`/`primary` alias to the

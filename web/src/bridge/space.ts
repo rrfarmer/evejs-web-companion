@@ -433,7 +433,28 @@ export function decodeSpaceSnapshot(raw: JsonValue | undefined): SpaceSnapshot {
     entities,
     ship: decodeShip(space.ship),
     timeDilation: paceOrNull(space.timeDilation),
+    ...(typeof space.stateValid === "boolean" ? { stateValid: space.stateValid } : {}),
   };
+}
+
+/**
+ * ⚠ A BLIND SCENE IS UNKNOWN, NOT EMPTY (seen live 2026-10-14 12:00:11 UTC). A fleet
+ * companion's ballpark on the BFF went invalid and the space read then answered
+ * `{inSpace:true, entities:[], ship:null}` with a 200 for ten minutes. Decoded, that
+ * is a snapshot like any other, so "no hostile on grid", "no drones out" and "the
+ * grid is clear" were all read off a scene nobody could see: the clear-grid reload
+ * fired mid-fight and the rejoin stood by for ever.
+ *
+ * A pilot that is in space always has a ship in its own scene, so no ship there
+ * (or the BFF saying `stateValid: false`) means the read failed, whatever the
+ * entity list says. Callers make every fact they would derive from the entities
+ * `null` -- cannot tell -- rather than false.
+ */
+export function isSceneBlind(inSpace: boolean | null | undefined, snapshot: SpaceSnapshot | null): boolean {
+  if (inSpace !== true || snapshot === null) {
+    return false;
+  }
+  return snapshot.ship === null || snapshot.stateValid === false;
 }
 
 /** The origin the browser measures distances from (the ship's own position). */

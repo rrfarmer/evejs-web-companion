@@ -48,7 +48,9 @@
   // companion doing something else.
   import { onMount } from "svelte";
   import FleetCompanion from "./FleetCompanion.svelte";
-  import { stopServerBot, type ServerBot } from "../app/api.ts";
+  import { readBotLog, stopServerBot, type ServerBot } from "../app/api.ts";
+  import { buildLogView, parseLogLines } from "./companionLogView.ts";
+  import type { BotLogEntry } from "../nav/botLog.ts";
   import { createPilotReach } from "../app/pilotReach.ts";
   import { skipWhileBusy } from "../app/skipWhileBusy.ts";
   import { holdsTheShip, type ShipControllerID } from "../nav/botRegistry.ts";
@@ -59,8 +61,12 @@
   // every field for one pilot rather than one field for every pilot.
   import { inFleetWords, orderFromWords } from "../bots/companionReadout.ts";
   import {
+    EMPTY_RESTART_MEMORY,
+    companionRestartWords,
     companionStatusWords,
     companionSummaryWords,
+    decideCompanionRestart,
+    type CompanionRestartMemory,
     inFleetFrom,
     runFactsFor,
     serverCompanions,
@@ -87,18 +93,17 @@
   import { loadKnownAccounts, loadKnownCharacters } from "../app/knownCharacters.ts";
   import {
     MAX_CAPACITOR_FLOOR,
-    MAX_DRONE_HEALTH_FLOOR,
-    MAX_DRONE_HOLD_OFF_SECONDS,
     MAX_FLEE_ATTEMPTS,
     MAX_FLEE_HEALTH_FLOOR,
     MIN_CAPACITOR_FLOOR,
-    MIN_DRONE_HEALTH_FLOOR,
-    MIN_DRONE_HOLD_OFF_SECONDS,
     MIN_FLEE_ATTEMPTS,
     MIN_FLEE_HEALTH_FLOOR,
+    MIN_ABANDON_DRONES_HEALTH_FLOOR,
+    abandonDronesFloor,
     type CompanionSetup,
   } from "../nav/fleetCompanionLoop.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
+  import { CHAT_COMMAND_HELP } from "../nav/chatCommands.ts";
   import type { Session } from "../app/sessions.ts";
   import type { FleetCompanionState } from "../store/types.ts";
 
@@ -259,6 +264,14 @@
      * the roster is where that pilot is.
      */
     readonly refusal: string | null;
+    /**
+     * The restart bound for a companion that went down by itself. See
+     * `decideCompanionRestart`: the operator's own Stop and Pause are never
+     * restarted, and `started` above still guards the join-start.
+     */
+    readonly restart: CompanionRestartMemory;
+    /** Out of restarts: the row says it is waiting for the operator. */
+    readonly givenUp: boolean;
   }
 
   const EMPTY_WATCH: Watch = {
@@ -269,6 +282,8 @@
     started: false,
     stoodDown: false,
     refusal: null,
+    restart: EMPTY_RESTART_MEMORY,
+    givenUp: false,
   };
 
   let watches = $state<Record<number, Watch>>({});
@@ -379,6 +394,7 @@
       // and on this tab actually flying the pilot: a hull the SERVER is flying
       // is not ours to take.
       let started = verdict.state === "watching" ? false : watch.started;
+      let joinStarted = false;
       if (
         verdict.state === "in" &&
         !started &&
@@ -386,11 +402,39 @@
         !serverHeldCharacterIDs.has(characterID)
       ) {
         started = true;
+        joinStarted = true;
         try {
           await session.flow.startFleetCompanion(roster.setup);
         } catch {
           // The start's own refusal lands on the pilot's companion slice and is
           // shown by the embedded panel, which is the view that owns it.
+        }
+      }
+
+      // ⚠ THE OTHER START WITHOUT A PRESS: A COMPANION THAT WENT DOWN BY
+      // ITSELF. Not gated on the fleet verdict -- a run the operator had going
+      // is the operator's intent whether or not this tick could read the fleet,
+      // and the ladder decides for itself what being out of one means. It IS
+      // gated on the ship being this tab's: a hull the server is flying is not
+      // ours to restart. The abandonment record goes back in, so a restart in
+      // the middle of getting safe keeps the ORIGINAL thirty-minute clock
+      // rather than handing the pilot a fresh one.
+      const restartDecision = decideCompanionRestart(
+        {
+          status: companion?.status ?? null,
+          selfPaused: companion?.selfPaused ?? false,
+          failureReason: companion?.failureReason ?? null,
+          why: companion?.why ?? null,
+        },
+        watch.restart,
+        Date.now(),
+      );
+      if (restartDecision.restart && !joinStarted && !serverHeldCharacterIDs.has(characterID)) {
+        started = true;
+        try {
+          await session.flow.startFleetCompanion(roster.setup, companion?.abandonment ?? null);
+        } catch {
+          // As above: a refused start says so on the companion slice.
         }
       }
 
@@ -405,6 +449,12 @@
           started,
           stoodDown,
           refusal,
+          // A join-start this tick already brought the pilot up; that start is
+          // not one of the bounded restarts, so it is not counted as one.
+          restart: restartDecision.restart && joinStarted
+            ? { ...watch.restart, downSinceMs: null }
+            : restartDecision.memory,
+          givenUp: restartDecision.givenUp,
         });
       }
     } finally {
@@ -516,6 +566,35 @@
   );
   const summary = $derived(companionSummaryWords(tally));
 
+  /**
+   * `targets called|all` across every flying pilot, for the header chip.
+   *
+   * ⚠ THE MODE IS PER PILOT, so the chip says "mixed" rather than picking one
+   * when they disagree: a commander who switched only some of them (a pilot
+   * that was offline when `targets all` was typed, say) needs to see that, not
+   * a word that is true of half the fleet. No flying pilot reported one, no chip.
+   */
+  const targetMode = $derived.by((): string | null => {
+    const modes = new Set<string>();
+    for (const row of tabRows) {
+      if (!row.onServer && row.facts.targetMode !== null) {
+        modes.add(row.facts.targetMode);
+      }
+    }
+    for (const bot of serverRows) {
+      if (bot.companion?.targetMode != null) {
+        modes.add(bot.companion.targetMode);
+      }
+    }
+    if (modes.size === 0) {
+      return null;
+    }
+    if (modes.size > 1) {
+      return "mixed";
+    }
+    return modes.has("all") ? "free fire" : "called";
+  });
+
   /** Which row's detail is open: a session id, or `server:<botID>`. */
   let selected = $state<string | null>(null);
   const selectedSession = $derived(pilots.find((session) => session.id === selected) ?? null);
@@ -551,6 +630,78 @@
   function goToSelectedPilot(): void {
     const id = selectedSession?.id;
     if (id !== undefined) onGoToPilot?.(id);
+  }
+
+  // --- the flight log ---------------------------------------------------------
+  //
+  // READ-ONLY, ONE PILOT AT A TIME, AND ONLY WHEN ASKED. The log is the file the
+  // BFF keeps for the character of the session the request is made as, so the
+  // read goes through THAT pilot's own flow options (`flow.requestOptions()`,
+  // which carries its session token) and can never show another pilot's lines.
+  // No polling: Refresh is the only thing that reads it.
+  interface PilotLog {
+    open: boolean;
+    which: "current" | "previous";
+    loading: boolean;
+    error: string;
+    /** Null until the first read has landed. */
+    entries: readonly BotLogEntry[] | null;
+    /** Row indexes whose full trace is open. */
+    expanded: readonly number[];
+  }
+  const NO_LOG: PilotLog = {
+    open: false,
+    which: "current",
+    loading: false,
+    error: "",
+    entries: null,
+    expanded: [],
+  };
+
+  let logs = $state<Record<string, PilotLog>>({});
+  let logFilter = $state("");
+  // A read that comes back after a newer one was asked for is dropped.
+  const logReads = new Map<string, number>();
+
+  function logOf(sessionID: string): PilotLog {
+    return logs[sessionID] ?? NO_LOG;
+  }
+
+  function patchLog(sessionID: string, patch: Partial<PilotLog>): void {
+    logs = { ...logs, [sessionID]: { ...logOf(sessionID), ...patch } };
+  }
+
+  async function loadLog(session: Session): Promise<void> {
+    const ticket = (logReads.get(session.id) ?? 0) + 1;
+    logReads.set(session.id, ticket);
+    patchLog(session.id, { loading: true, error: "" });
+    try {
+      const raw = await readBotLog(logOf(session.id).which, session.flow.requestOptions());
+      if (logReads.get(session.id) !== ticket) return;
+      patchLog(session.id, { loading: false, entries: parseLogLines(raw), expanded: [] });
+    } catch (cause) {
+      if (logReads.get(session.id) !== ticket) return;
+      patchLog(session.id, { loading: false, error: panelErrorWords(cause) });
+    }
+  }
+
+  function toggleLog(session: Session): void {
+    const next = !logOf(session.id).open;
+    patchLog(session.id, { open: next });
+    if (next && logOf(session.id).entries === null) void loadLog(session);
+  }
+
+  function pickLogRun(session: Session, which: "current" | "previous"): void {
+    if (logOf(session.id).which === which) return;
+    patchLog(session.id, { which, entries: null, expanded: [] });
+    void loadLog(session);
+  }
+
+  function toggleTrace(sessionID: string, index: number): void {
+    const open = logOf(sessionID).expanded;
+    patchLog(sessionID, {
+      expanded: open.includes(index) ? open.filter((entry) => entry !== index) : [...open, index],
+    });
   }
 
   let busy = $state(false);
@@ -652,7 +803,7 @@
   // same question, and only one of them would reach the loop.
 
   let fleeHealthFloorPercent = $state(Math.round(roster.setup.fleeHealthFloor * 100));
-  let droneHealthFloorPercent = $state(Math.round(roster.setup.droneHealthFloor * 100));
+  let abandonDronesFloorPercent = $state(Math.round(abandonDronesFloor(roster.setup) * 100));
   let capacitorFloorPercent = $state(Math.round(roster.setup.capacitorFloor * 100));
   let maxFleeAttempts = $state(roster.setup.maxFleeAttempts);
   /**
@@ -662,7 +813,6 @@
    * leaving it off means such a pilot stays docked and says so.
    */
   let repairsAtStation = $state(roster.setup.repairsAtStation);
-  let droneHoldOffSeconds = $state(roster.setup.droneRedeployHoldOffSeconds);
 
   function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
@@ -678,26 +828,18 @@
    * window already refuses to show for the same reason.
    */
   function keepSetup(): void {
+    const fleePercent = clamp(fleeHealthFloorPercent, MIN_FLEE_HEALTH_FLOOR * 100, MAX_FLEE_HEALTH_FLOOR * 100);
     keepRoster(
       setRosterSetup(roster, {
-        fleeHealthFloor:
-          clamp(fleeHealthFloorPercent, MIN_FLEE_HEALTH_FLOOR * 100, MAX_FLEE_HEALTH_FLOOR * 100) /
-          100,
+        fleeHealthFloor: fleePercent / 100,
+        // Never above the flee floor: the drones are left only once the flee
+        // has already started, so a higher number would just mean "never wait".
+        abandonDronesHealthFloor:
+          clamp(abandonDronesFloorPercent, MIN_ABANDON_DRONES_HEALTH_FLOOR * 100, fleePercent) / 100,
         capacitorFloor:
           clamp(capacitorFloorPercent, MIN_CAPACITOR_FLOOR * 100, MAX_CAPACITOR_FLOOR * 100) / 100,
         maxFleeAttempts: clamp(maxFleeAttempts, MIN_FLEE_ATTEMPTS, MAX_FLEE_ATTEMPTS),
         repairsAtStation,
-        droneHealthFloor:
-          clamp(
-            droneHealthFloorPercent,
-            MIN_DRONE_HEALTH_FLOOR * 100,
-            MAX_DRONE_HEALTH_FLOOR * 100,
-          ) / 100,
-        droneRedeployHoldOffSeconds: clamp(
-          droneHoldOffSeconds,
-          MIN_DRONE_HOLD_OFF_SECONDS,
-          MAX_DRONE_HOLD_OFF_SECONDS,
-        ),
       } satisfies CompanionSetup),
     );
   }
@@ -725,6 +867,14 @@
          thought, and splitting them across the divider made the strip look like
          a toolbar with a caption. -->
     <p class="stat-line">{summary}</p>
+    {#if targetMode !== null}
+      <span
+        class="mode-chip"
+        title="What companions shoot when nobody calls a target. Change it with targets called or targets all in fleet chat."
+      >
+        Targets: {targetMode}
+      </span>
+    {/if}
     <span class="controls">
       <button type="button" class="danger" disabled={busy || !anyFlying} onclick={stopAll}>
         Stop all
@@ -855,6 +1005,23 @@
                 </td>
                 <td data-label="Companion">
                   {companionStatusWords(state?.status ?? null)}
+                  <!-- ⚠ THE REASON RIDES WITH THE WORD. "Stopped after a
+                       problem" alone sends the player into the panel and down
+                       past the start checklist to find which problem; the row
+                       is where they are already looking. -->
+                  {#if state?.status === "error" && state.failureReason}
+                    <span class="note"> - {state.failureReason}</span>
+                  {/if}
+                  {#if watches[row.characterID]}
+                    {@const restartWords = companionRestartWords(
+                      watches[row.characterID].restart,
+                      watches[row.characterID].givenUp,
+                      Date.now(),
+                    )}
+                    {#if restartWords}
+                      <span class="note"> - {restartWords}</span>
+                    {/if}
+                  {/if}
                   <!-- ⚠ SAID OUT LOUD, THOUGH A BOT IS NOT THIS WINDOW'S
                        BUSINESS. Starting a companion on a hull a bot is flying
                        takes the ship off that bot; a roster that showed only
@@ -959,6 +1126,21 @@
        ⚠ ONLY PILOTS ALREADY SIGNED IN. Bringing one online is the Pilot
        hangar's job and needs an account password; this window takes pilots that
        are already flying and puts them in a fleet. -->
+  <!-- ⚠ GENERATED FROM `CHAT_COMMAND_HELP`, never written out here. The parser
+       owns the verbs, and its own test fails when a command has no help row, so
+       this list cannot fall behind what the companions actually obey. Closed by
+       default: it is a reference, and the roster above it is what the window
+       is for. -->
+  <details class="chat-help">
+    <summary>Chat commands <span class="note">- type them in fleet or local chat</span></summary>
+    <dl>
+      {#each CHAT_COMMAND_HELP as row (row.usage)}
+        <dt>{row.usage}</dt>
+        <dd>{row.does}</dd>
+      {/each}
+    </dl>
+  </details>
+
   <div class="op-add">
     <label for="companion-add-pilot">Add a pilot</label>
     <select id="companion-add-pilot" bind:value={addChoice} disabled={addable.length === 0}>
@@ -1041,6 +1223,18 @@
       />
       <span class="note">% of shield, armour or hull</span>
 
+      <label for="companion-abandon-drones-floor">Leave the drones below</label>
+      <input
+        id="companion-abandon-drones-floor"
+        type="number"
+        min={Math.round(MIN_ABANDON_DRONES_HEALTH_FLOOR * 100)}
+        max={fleeHealthFloorPercent}
+        step="5"
+        bind:value={abandonDronesFloorPercent}
+        onchange={keepSetup}
+      />
+      <span class="note">% and warp at once</span>
+
       <label for="companion-cap-floor">Do not run repairers below</label>
       <input
         id="companion-cap-floor"
@@ -1075,39 +1269,6 @@
         Pay a station to repair armour
       </label>
     </div>
-
-    <div class="limit-group">
-      <h3>Drones</h3>
-
-      <label for="companion-drone-floor">Bring a drone home below</label>
-      <input
-        id="companion-drone-floor"
-        type="number"
-        min={Math.round(MIN_DRONE_HEALTH_FLOOR * 100)}
-        max={Math.round(MAX_DRONE_HEALTH_FLOOR * 100)}
-        step="5"
-        bind:value={droneHealthFloorPercent}
-        onchange={keepSetup}
-      />
-      <span class="note">% of its shield, armour or hull</span>
-
-      <label for="companion-drone-holdoff">Hold drones in the bay</label>
-      <input
-        id="companion-drone-holdoff"
-        type="number"
-        min={MIN_DRONE_HOLD_OFF_SECONDS}
-        max={MAX_DRONE_HOLD_OFF_SECONDS}
-        step="1"
-        bind:value={droneHoldOffSeconds}
-        onchange={keepSetup}
-      />
-      <span class="note">seconds before relaunching</span>
-
-      <!-- Not a unit on either row above, though it used to ride on the first
-           one: it is what COMING HOME does, which is the thing both rows are
-           about. Under them both, once. -->
-      <span class="note group-note">Coming home refills a drone's shield.</span>
-    </div>
   </div>
 </section>
 
@@ -1140,6 +1301,107 @@
       onGoToPilot={onGoToPilot ? goToSelectedPilot : undefined}
     />
   {/key}
+  <!-- THE FLIGHT LOG for the pilot above: read-only, closed until asked for,
+       and read again only by Refresh. The line wording is companionLogView.ts. -->
+  {@const logSession = selectedSession}
+  {@const log = logOf(logSession.id)}
+  {@const logView = buildLogView(log.entries ?? [], logFilter)}
+  <section class="panel log-panel">
+    <header class="panel-head">
+      <h2>Log</h2>
+      <span class="controls">
+        <button
+          type="button"
+          class="minor"
+          aria-pressed={log.open}
+          onclick={() => toggleLog(logSession)}
+        >
+          {log.open ? "Hide log" : "Show log"}
+        </button>
+      </span>
+    </header>
+    {#if log.open}
+      <div class="log-bar">
+        <button
+          type="button"
+          class="minor"
+          aria-pressed={log.which === "current"}
+          onclick={() => pickLogRun(logSession, "current")}
+        >
+          This run
+        </button>
+        <button
+          type="button"
+          class="minor"
+          aria-pressed={log.which === "previous"}
+          onclick={() => pickLogRun(logSession, "previous")}
+        >
+          Previous run
+        </button>
+        <button type="button" disabled={log.loading} onclick={() => loadLog(logSession)}>
+          {log.loading ? "Loading" : "Refresh"}
+        </button>
+        <input
+          type="text"
+          class="log-filter"
+          aria-label="Filter the log"
+          placeholder="filter the log"
+          bind:value={logFilter}
+        />
+      </div>
+      {#if log.error}
+        <p class="note log-error">{log.error}</p>
+      {/if}
+      {#if log.entries === null}
+        {#if !log.error}
+          <p class="note">Loading the log.</p>
+        {/if}
+      {:else if log.entries.length === 0}
+        <p class="note">Nothing logged for the {log.which} run.</p>
+      {:else}
+        <p class="note">
+          {logView.matched} of {logView.total} lines, newest first, times in UTC.
+          {#if logView.hidden > 0}{logView.hidden} older lines are not drawn; filter to find them.{/if}
+        </p>
+        <div class="log-rows">
+          {#each logView.rows as row (row.index)}
+            <div
+              class="log-row"
+              class:log-grouped={row.inGroup}
+              class:log-start={row.groupStart}
+              class:log-heartbeat={row.heartbeat}
+            >
+              <span class="log-time">{row.time}</span>
+              <span class="log-kind">{row.kind}</span>
+              <span class="log-phase">{row.phase}</span>
+              <span
+                class="log-text"
+                class:log-good={row.tone === "good"}
+                class:log-warn={row.tone === "warn"}
+                class:log-bad={row.tone === "bad"}
+              >
+                {row.text}{row.heartbeat ? " (heartbeat)" : ""}
+              </span>
+              {#if row.summary !== null && row.trace !== null}
+                {@const traceOpen = log.expanded.includes(row.index)}
+                <button
+                  type="button"
+                  class="log-trace"
+                  aria-expanded={traceOpen}
+                  onclick={() => toggleTrace(logSession.id, row.index)}
+                >
+                  {row.summary === "" ? "(empty trace)" : row.summary}
+                </button>
+                {#if traceOpen}
+                  <pre class="log-json">{JSON.stringify(row.trace, null, 2)}</pre>
+                {/if}
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+  </section>
 {:else if selectedServerBot}
   <!-- The server row keeps its panel: unlike the bar above, this one has a body
        — what the run is doing, why, and what is wrong with the fit. -->
@@ -1237,6 +1499,48 @@
   }
   .op-add > .note {
     flex-basis: 100%;
+  }
+
+  /* The target mode beside the count: a bordered word, not a colour alone. */
+  .mode-chip {
+    border: 1px solid var(--color-accent-dim);
+    color: var(--color-accent);
+    padding: 0 0.4rem;
+    font-size: 0.85em;
+    white-space: nowrap;
+  }
+
+  /* The command reference: verb column and meaning column, stacking when the
+     window is too narrow for both. */
+  .chat-help {
+    margin-top: 0.7rem;
+    border: 1px solid var(--color-line);
+    padding: 0.35rem 0.6rem;
+  }
+  .chat-help > summary {
+    cursor: pointer;
+    color: var(--color-text-bright);
+  }
+  .chat-help dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.15rem 1rem;
+    margin: 0.5rem 0 0.2rem;
+  }
+  .chat-help dt {
+    font-family: var(--font-mono, monospace);
+    color: var(--color-accent);
+  }
+  .chat-help dd {
+    margin: 0;
+  }
+  @container (max-width: 26rem) {
+    .chat-help dl {
+      grid-template-columns: 1fr;
+    }
+    .chat-help dd {
+      margin-bottom: 0.3rem;
+    }
   }
 
   /* ------------------------------------------------------------- the roster --
@@ -1452,6 +1756,125 @@
     }
     .limit-group > .check {
       margin-top: 0.5rem;
+    }
+  }
+
+  /* ------------------------------------------------------- the flight log --
+     Compact rows in the window's own width: time, kind and phase are narrow
+     columns, the sentence takes the rest and wraps. The kind is a word, not a
+     colour; only a result's outcome is toned, and it says ok or the refusal in
+     words as well. */
+  .log-panel {
+    container-type: inline-size;
+  }
+  .log-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.4rem 0;
+  }
+  .log-bar > button[aria-pressed="true"] {
+    border-color: var(--color-accent-dim);
+    color: var(--color-accent);
+  }
+  .log-filter {
+    flex: 1 1 12rem;
+    min-width: 8rem;
+  }
+  .log-error {
+    color: var(--color-danger);
+  }
+  .log-rows {
+    max-height: 32rem;
+    overflow: auto;
+    border: 1px solid var(--color-line);
+    font-family: var(--font-mono, monospace);
+    font-size: 0.85em;
+  }
+  .log-row {
+    display: grid;
+    grid-template-columns: 4.5rem 3.8rem 6rem minmax(0, 1fr);
+    gap: 0 0.5rem;
+    padding: 0.1rem 0.4rem;
+    border-bottom: 1px solid var(--color-row-line);
+  }
+  /* A tick's decide, issue and result: one block with a rule down its left. */
+  .log-row.log-grouped {
+    border-left: 2px solid var(--color-accent-dim);
+  }
+  .log-row.log-start:not(:first-child) {
+    border-top: 1px solid var(--color-line-strong);
+  }
+  .log-row.log-heartbeat {
+    opacity: 0.5;
+  }
+  .log-time,
+  .log-kind {
+    color: var(--color-muted);
+  }
+  .log-phase {
+    color: var(--color-cell);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .log-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--color-text);
+  }
+  .log-text.log-good {
+    color: var(--color-good);
+  }
+  .log-text.log-warn {
+    color: var(--color-warn);
+  }
+  .log-text.log-bad {
+    color: var(--color-danger);
+  }
+  .log-trace,
+  .log-json {
+    grid-column: 4;
+  }
+  /* The trace summary is a button so it can be reached by keyboard, but it is
+     drawn as text: the global button chrome would make each row a slab. */
+  .log-trace {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-accent);
+    text-align: left;
+    font: inherit;
+    letter-spacing: 0;
+    overflow-wrap: anywhere;
+  }
+  .log-trace:hover:not(:disabled) {
+    background: none;
+    color: var(--color-accent-bright);
+  }
+  .log-json {
+    margin: 0.2rem 0;
+    padding: 0.3rem 0.4rem;
+    overflow: auto;
+    max-height: 18rem;
+    border: 1px solid var(--color-line);
+    background: var(--color-field);
+    color: var(--color-cell);
+  }
+  /* Narrow window: the sentence goes under the columns instead of crushing. */
+  @container (max-width: 34rem) {
+    .log-row {
+      grid-template-columns: 4.5rem 3.8rem minmax(0, 1fr);
+    }
+    .log-phase {
+      display: none;
+    }
+    .log-text,
+    .log-trace,
+    .log-json {
+      grid-column: 1 / -1;
     }
   }
 

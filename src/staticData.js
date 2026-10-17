@@ -690,6 +690,49 @@ function getOverloadEffectID(typeID) {
   return null;
 }
 
+// The eve.js server's own test of what a pilot can switch on, word for word:
+// server/src/space/runtime/moduleActivationEffectRecord.js, isActivatableEffectRecord
+// (and resolveDefaultActivationEffect, which asks it of each of a type's effects
+// in turn). An effect of the activation, target or area category, or one that
+// names both a duration and a discharge attribute -- and never one of the
+// fitting effects, `online` among them, which this table files under
+// activation (category 1) all the same.
+const ACTIVATABLE_EFFECT_CATEGORIES = new Set([1, 2, 3]);
+const PASSIVE_SLOT_EFFECT_NAMES = new Set(["online", "hipower", "medpower", "lopower",
+  "rigslot", "subsystem", "turretfitted", "launcherfitted"]);
+
+function isActivatableEffect(effect) {
+  if (!effect || PASSIVE_SLOT_EFFECT_NAMES.has(String(effect.name || "").toLowerCase())) {
+    return false;
+  }
+  if (ACTIVATABLE_EFFECT_CATEGORIES.has(Number(effect.effectCategoryID) || 0)) {
+    return true;
+  }
+  return (Number(effect.durationAttributeID) || 0) > 0 && (Number(effect.dischargeAttributeID) || 0) > 0;
+}
+
+/**
+ * Whether a module type can be switched on at all: true when one of its
+ * effects passes the server's test above, false when none does, and null for a
+ * type the tables have no dogma for (not known, which is not "passive"). A
+ * false is the type the server refuses with NO_ACTIVATABLE_EFFECT ("... cannot
+ * be activated."), whatever its group says it is for. The page asks for it by
+ * GET /api/types/activation.
+ *
+ * ⚠ SEEN LIVE 2026-10-14: a Drone Navigation Computer I (group "Drone Navigation
+ * Computer") has only medPower, online and a category-4 bonus effect, so the
+ * server refuses it -- and companions picked by the group name tried it once a
+ * fight.
+ */
+function getTypeActivatable(typeID) {
+  const dogma = getTypeDogma(typeID);
+  if (!dogma) {
+    return null;
+  }
+  const effects = Array.isArray(dogma.effects) ? dogma.effects : [];
+  return effects.some((effectID) => isActivatableEffect(getEffect(effectID)));
+}
+
 // dogma: 128 is the charge SIZE (1 small, 2 medium, 3 large, 4 x-large) and
 // 604/605/606/609 are the charge GROUP ids a module will accept. Both sides of
 // the match come from the same table, so this needs no bridge call and no
@@ -2316,6 +2359,7 @@ module.exports = {
   getDefaultEffectName,
   getLauncherEffectName,
   getOverloadEffectID,
+  getTypeActivatable,
   getMarketTypeNames,
   getSkillImportNames,
   isSkillType,

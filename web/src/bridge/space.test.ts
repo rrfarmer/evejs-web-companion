@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { decodeSpaceSnapshot, decodeTargetIDs, egoPosition } from "./space.ts";
+import { decodeSpaceSnapshot, decodeTargetIDs, egoPosition, isSceneBlind } from "./space.ts";
 import type { JsonValue } from "./wire.ts";
 
 test("a full snapshot decodes into overview rows and a ship readout", () => {
@@ -506,4 +506,37 @@ test("a customs office's row carries its planet where the BFF says it, and null 
     row({ planetID: 40176368 }), row({ itemID: 1200040176369 }), row({ itemID: 1200040176370, planetID: "x" }), row({ itemID: 1200040176371, planetID: 0 }),
   ] });
   assert.deepEqual(snapshot.entities.map((entity) => entity.planetID), [40176368, null, null, null]);
+});
+
+test("a scene with no ship in space is blind, not empty (seen live 2026-10-14)", () => {
+  const dead = decodeSpaceSnapshot({ inSpace: true, entities: [], ship: null });
+  assert.equal(dead.ship, null);
+  assert.equal(isSceneBlind(true, dead), true);
+  // Not in space (docked) there is no scene to be blind to.
+  assert.equal(isSceneBlind(false, dead), false);
+  assert.equal(isSceneBlind(null, dead), false);
+  assert.equal(isSceneBlind(true, null), false);
+});
+
+test("a scene with the ship in it is never blind, however empty the grid", () => {
+  const quiet = decodeSpaceSnapshot({
+    inSpace: true,
+    entities: [],
+    ship: { itemID: 1200090000001, typeID: 17480, position: { x: 0, y: 0, z: 0 } },
+  });
+  assert.notEqual(quiet.ship, null);
+  assert.equal(isSceneBlind(true, quiet), false);
+});
+
+test("the BFF's own stateValid: false makes a scene blind even with a ship in it", () => {
+  const withShip = {
+    inSpace: true,
+    entities: [],
+    ship: { itemID: 1200090000001, typeID: 17480, position: { x: 0, y: 0, z: 0 } },
+  };
+  const invalid = decodeSpaceSnapshot({ ...withShip, stateValid: false });
+  assert.equal(invalid.stateValid, false);
+  assert.equal(isSceneBlind(true, invalid), true);
+  assert.equal(decodeSpaceSnapshot({ ...withShip, stateValid: true }).stateValid, true);
+  assert.equal(decodeSpaceSnapshot(withShip).stateValid, undefined);
 });

@@ -138,11 +138,13 @@ test("an approach and a keep at range are carried out by the page's own calls wh
   assert.deepEqual([api.includes("/api/bridge/flight/approach"), api.includes("/api/bridge/flight/keep-at-range")], [false, false]);
 });
 
-test("an orbit is carried out by the page's own call where the page carries a script bot's actions out", () => {
+test("an orbit is carried out by the page's own call wherever the page carries a bot's actions out", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  assert.equal([...flow.matchAll(/case "orbit":/g)].length, 1);
-  assert.equal([...flow.matchAll(/case "orbit":\s+await orbitShip\(action\.targetID, action\.range\);\s+return;/g)].length, 1);
+  // Two dispatchers, as for keep-at-range: the script bot's, and the fleet
+  // companion's (`flight auto`, where a gun boat orbits what it is shooting).
+  assert.equal([...flow.matchAll(/case "orbit":/g)].length, 2);
+  assert.equal([...flow.matchAll(/case "orbit":\s+await orbitShip\(action\.targetID, action\.range\);\s+return;/g)].length, 2);
   // The page's own write (bridgeDo), with the pilot's flight read before it.
   assert.equal(times("await orbitCall(bridgeDo, readFlightNow, targetID, range);"), 1);
   // The route's asker is gone from the flow, and from the page's askers.

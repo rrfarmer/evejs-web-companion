@@ -64,12 +64,16 @@ export interface CompanionFitFacts {
   readonly shieldBoosterModuleIDs: readonly number[];
   readonly armorRepairerModuleIDs: readonly number[];
   readonly hullRepairerModuleIDs: readonly number[];
+  /** The ancillary ones among the three above. See the request's field. */
+  readonly ancillaryRepairerModuleIDs?: readonly number[];
   readonly remoteShieldModuleIDs: readonly number[];
   readonly remoteArmorModuleIDs: readonly number[];
   readonly remoteCapacitorModuleIDs: readonly number[];
   readonly weaponModuleIDs: readonly number[];
   /** Fitted salvagers, for the `salvage` chat order. See the request's field. */
   readonly salvagerModuleIDs: readonly number[];
+  /** Fitted drone tracking links and navigation computers. See the request's field. */
+  readonly droneAssistModuleIDs: readonly number[];
   /**
    * Fitted afterburners/MWDs. Objects rather than ids because stopping one
    * needs its typeID and gating one on a scram needs to know which it is — see
@@ -141,11 +145,15 @@ export function requestForFit(
     shieldBoosterModuleIDs: [...facts.shieldBoosterModuleIDs],
     armorRepairerModuleIDs: [...facts.armorRepairerModuleIDs],
     hullRepairerModuleIDs: [...facts.hullRepairerModuleIDs],
+    ...(facts.ancillaryRepairerModuleIDs === undefined
+      ? {}
+      : { ancillaryRepairerModuleIDs: [...facts.ancillaryRepairerModuleIDs] }),
     remoteShieldModuleIDs: [...facts.remoteShieldModuleIDs],
     remoteArmorModuleIDs: [...facts.remoteArmorModuleIDs],
     remoteCapacitorModuleIDs: [...facts.remoteCapacitorModuleIDs],
     weaponModuleIDs: [...facts.weaponModuleIDs],
     salvagerModuleIDs: [...facts.salvagerModuleIDs],
+    droneAssistModuleIDs: [...facts.droneAssistModuleIDs],
     propulsionModules: [...facts.propulsionModules],
     tankLayer: facts.tankLayer,
   };

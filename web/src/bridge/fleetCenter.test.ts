@@ -6,6 +6,7 @@ import {
   decodeFleetCenter,
   decodeFleetInviteAnswerNotification,
   decodeFleetInviteNotification,
+  fleetCommanderWhereabouts,
   fleetInviteAnswerWords,
   memberWhereabouts,
 } from "./fleetCenter.ts";
@@ -117,6 +118,41 @@ test("bot fleet-member IDs distinguish a missing roster from an authoritative em
     },
   } as never;
   assert.deepEqual(authoritativeFleetMemberCharacterIDs(ready), [140000002, 140000005]);
+});
+
+test("each commander's place is read off the roster, the composition's word first, and a missing roster stays null", () => {
+  const unavailable = decodeFleetCenter({
+    ok: true,
+    characterID: 140000005,
+    fleetID: 999000001,
+    reads: errorReads("Read timed out"),
+  } as never);
+  assert.equal(fleetCommanderWhereabouts(unavailable), null);
+
+  const ready = {
+    availability: "ready",
+    fleet: {
+      initState: {
+        value: {
+          members: [
+            // The boss: docked by its own record, but the composition says in space.
+            { charID: 140000002, role: 1, job: 0, stationID: 60000004, solarSystemID: 30002780 },
+            // A squad member: not a commander, so not listed.
+            { charID: 140000003, role: 4, job: 0, stationID: null, solarSystemID: 30002780 },
+            // The creator, docked, with no composition entry.
+            { charID: "140000005", role: 4, job: 2, stationID: 60000004, solarSystemID: 30002780 },
+          ],
+        },
+      },
+      composition: {
+        value: [{ characterID: 140000002, shipTypeID: 648, stationID: null, solarSystemID: 30002781 }],
+      },
+    },
+  } as never;
+  assert.deepEqual(fleetCommanderWhereabouts(ready), [
+    { characterID: 140000002, solarSystemID: 30002781, stationID: null },
+    { characterID: 140000005, solarSystemID: 30002780, stationID: 60000004 },
+  ]);
 });
 
 test("fleet invite notification retains the authoritative fleet and inviter IDs", () => {

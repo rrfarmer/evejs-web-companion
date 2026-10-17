@@ -571,6 +571,22 @@ type DecisionMemory = Pick<
 > &
   Partial<Pick<LoopMemory, "approachingTargetID" | "approachingByMenu">>;
 
+/**
+ * How long a freshly sent approach is believed regardless of the ship's mode:
+ * about two ticks.
+ *
+ * ⚠ THE FIRST SNAPSHOT AFTER AN APPROACH OFTEN STILL READS GOTO (or the STOP of
+ * a ship that had come to rest). The gateway opens the throttle BEFORE it sends
+ * the follow, and a ship coasting after its orbit target died is in GOTO too, so
+ * the mode turns FOLLOW one tick after the order. A rung that trusted the mode
+ * alone re-sent the same approach on that tick and the server refused it
+ * (observed live: "ThrottleGeneric"). Inside the window the order is trusted;
+ * after it, the mode decides again, so an approach that genuinely did not take
+ * is still re-sent. Shared by `decideCloseIn` and the companion's loot and
+ * salvage rungs.
+ */
+export const APPROACH_SETTLE_MS = 4000;
+
 /** True when the server says the ship is currently following/approaching. */
 export function isFollowing(shipMode: string | null): boolean {
   return shipMode !== null && /follow|approach/i.test(shipMode);
@@ -597,6 +613,10 @@ export function isFollowing(shipMode: string | null): boolean {
  * none is said), `AUTOPILOT_WARP_STOPS_SHORT_M` for the client's autopilot's.
  * The floor under which a warp is not asked for is that much further out.
  *
+ * `issuedAtMs` and `nowMs` are OPTIONAL and a caller that omits them gets exactly
+ * the mode-only behaviour: when both are given and the approach was sent less
+ * than `APPROACH_SETTLE_MS` ago, a GOTO or STOP reading still counts as closing.
+ *
  * Returns null when the target is not measurable this tick, which sends the
  * caller back to whatever refusal-driven fallback it has.
  */
@@ -616,6 +636,8 @@ export function decideCloseIn(
   measurement: SpaceMeasurement | null,
   approachingTargetID: number | null = null,
   warpStopsShortM: number = MENU_WARP_RANGE_M,
+  issuedAtMs?: number | null,
+  nowMs?: number,
 ): CloseInStep | null {
   const distance = measurement?.distances.get(targetID);
   if (!measurement || distance === undefined) {
@@ -625,7 +647,11 @@ export function decideCloseIn(
     return { kind: "arrive" };
   }
   if (distance < warpFloorMeters(measurement.shipRadius, warpStopsShortM)) {
-    if (approachingTargetID === targetID && isFollowing(measurement.shipMode)) {
+    const settling =
+      issuedAtMs !== undefined && issuedAtMs !== null && nowMs !== undefined &&
+      nowMs - issuedAtMs < APPROACH_SETTLE_MS &&
+      /^(goto|stop)$/i.test(measurement.shipMode ?? "");
+    if (approachingTargetID === targetID && (isFollowing(measurement.shipMode) || settling)) {
       return { kind: "closing" };
     }
     return { kind: "approach" };

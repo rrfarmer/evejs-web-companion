@@ -34,6 +34,54 @@
 //
 // Not here: the formations GetFormations answers with (they feed the FORMATION
 // mode, which is not ported).
+//
+// NOT THE CLIENT'S: a drone of the pilot's own that is in the park with no
+// state of its own (park.stateByDroneID) for DRONE_STATE_GRACE_MS. The client
+// learns its drones from the state's drone rows and from OnDroneStateChange,
+// and only those; a drone that misses both stays in space unrecallable, and
+// CmdReconnectToDrones does not help, because the server reconnects only a
+// drone nobody controls. Seen 2026-10-10: five drones launched on landing,
+// owned and controlled by the pilot's ship on the server, absent from the
+// park's states for the whole fight; UpdateStateRequest brought all five back.
+// So a pilot's space asks for the whole state for each such drone, and asks
+// again while the answer leaves it out: seen 2026-10-10 20:39, an answer with
+// no drone rows at all while the server held eighteen controlled drones in the
+// bubble; the same question two minutes later was answered in full.
+//
+// ⚠ AND IT NEVER STOPS ASKING while the drone stays so, only asks less often.
+// Seen 2026-10-12 14:31: three asks in 36 s after a landing, all answered
+// without the five drones, and then nothing more; the pilot's companion could
+// not see its own drones for eleven minutes and sent a launch it could not make
+// on every tick. After the first DRONE_STATE_ASKS the asking goes on every
+// DRONE_STATE_SLOW_RETRY_MS for as long as the drone is in space with no state.
+//
+// ⚠ NOT THE CLIENT'S EITHER: a bound park without a valid state asks for the
+// whole state again, and goes on asking until it has one. The client asks once
+// when its park loses its place (Park.RequestReset) and never again; if that
+// answer is lost, the park drops every update for good. Seen 2026-10-14 12:00:
+// a reset in a fight, an answer that joined a tick already queued and was never
+// read (destiny/park.js flushState), and a pilot shown an empty grid for ten
+// minutes. INVALID_STATE_GRACE_MS after the park goes without a state it asks,
+// then every INVALID_STATE_RETRY_MS for INVALID_STATE_ASKS asks, then every
+// INVALID_STATE_SLOW_RETRY_MS for as long as it lasts. Each reset and each ask
+// is on record (onError, "state").
+
+/** How long a bound park may go without a valid state before the whole state is asked for again. */
+const INVALID_STATE_GRACE_MS = 5000;
+/** How long after asking it is asked again, while the park still has none; how many times at that pace; and the pace after. */
+const INVALID_STATE_RETRY_MS = 15000;
+const INVALID_STATE_ASKS = 3;
+const INVALID_STATE_SLOW_RETRY_MS = 30000;
+
+/** How long a drone of the pilot's may be in the park with no state before the whole state is asked for. */
+const DRONE_STATE_GRACE_MS = 5000;
+/** How long after asking it is asked again, while the drone still has no state; and how many times at that pace. */
+const DRONE_STATE_RETRY_MS = 15000;
+const DRONE_STATE_ASKS = 3;
+/** How long after asking it is asked again once those are spent, for as long as the drone stays so. */
+const DRONE_STATE_SLOW_RETRY_MS = 30000;
+/** invCategories: Drone. */
+const CATEGORY_DRONE = 18;
 
 const { Ballpark } = require("./destiny/ballpark");
 const { Park } = require("./destiny/park");
@@ -78,6 +126,7 @@ function createPilotSpace({
   onPost = null,
   // michelle.AddBallpark's own asking for the formations; a pilot's transport gives it one that asks the server once.
   askFormations = () => session.call("beyonce", "GetFormations", []),
+  now = () => Date.now(),
 } = {}) {
   let timer = null;
   let released = false;
@@ -96,10 +145,82 @@ function createPilotSpace({
   });
   // An entry the park could not apply is not thrown: the park goes on to the next, as the client does. It is still worth knowing.
   park.onFail = (name, error) => onError(error ?? new Error("the entry could not be applied"), `entry ${name}`);
+  // The client logs a reset ("Failed to synchronize to ... Requesting new state"); so is it here.
+  park.onReset = (reason) => onError(new Error(`the park lost its place (${reason ?? "no reason given"}); ${remotePark === null ? "not bound, nobody to ask" : "the whole state was asked for"}`), "state");
   const ownClock = simTime === null ? new SimClock(Date.now()) : null;
   const readClock = simTime ?? (() => ownClock.frame(Date.now()));
   /** One frame: the park is shown the clock, and steps if a second of it has gone by. */
-  const frame = () => guard("tick", () => park.onTick(readClock()));
+  const frame = () => {
+    guard("tick", () => park.onTick(readClock()));
+    guard("drone state", lostDrones);
+    guard("state", noState);
+  };
+
+  /** Since when the bound park has had no valid state, and how often and when last the whole state was asked for. */
+  let stateless = null;
+  /** See "NOT THE CLIENT'S EITHER" above: a bound park without a valid state asks for one until it has one. */
+  function noState() {
+    if (park.validState || remotePark === null) {
+      stateless = null;
+      return;
+    }
+    const at = now();
+    stateless ??= { since: at, asks: 0, askedAt: null };
+    const wait = stateless.asks === 0 ? INVALID_STATE_GRACE_MS
+      : stateless.asks < INVALID_STATE_ASKS ? INVALID_STATE_RETRY_MS : INVALID_STATE_SLOW_RETRY_MS;
+    if (at - (stateless.askedAt ?? stateless.since) < wait) return;
+    stateless.asks += 1;
+    stateless.askedAt = at;
+    park.requestState();
+    const pace = stateless.asks <= INVALID_STATE_ASKS ? `ask ${stateless.asks} of ${INVALID_STATE_ASKS}`
+      : `ask ${stateless.asks}, every ${INVALID_STATE_SLOW_RETRY_MS / 1000} s while it lasts`;
+    onError(new Error(`the park has had no valid state for ${Math.round((at - stateless.since) / 1000)} s; the whole state was asked for again (${pace})`), "state");
+  }
+
+  // The pilot's drones the park has no state for, each with since when, and how often and when last the whole state was asked for.
+  const strays = new Map();
+  /** The pilot's own drones in the park (its slim items) that have no state of their own. */
+  function statelessDrones() {
+    const charID = Number(session.attributes?.charid);
+    if (!park.validState || !Number.isFinite(charID) || !park.slimItems) return [];
+    const stray = [];
+    for (const [id, slim] of park.slimItems) {
+      if (Number(slim.get("categoryID")) !== CATEGORY_DRONE || Number(slim.get("ownerID")) !== charID) continue;
+      if (park.ballpark.balls.has(id) && !park.stateByDroneID.has(id)) stray.push(id);
+    }
+    return stray;
+  }
+  /** See "NOT THE CLIENT'S" above: a drone stateless past the grace asks for the whole state, and asks again while it stays so. */
+  function lostDrones() {
+    const stray = new Set(statelessDrones());
+    // A drone that has its state again, or has gone, starts over if it strays again.
+    for (const id of strays.keys()) if (!stray.has(id)) strays.delete(id);
+    const at = now();
+    const due = [];
+    for (const id of stray) {
+      if (!strays.has(id)) strays.set(id, { since: at, asks: 0, askedAt: null });
+      const each = strays.get(id);
+      const wait = each.asks === 0 ? DRONE_STATE_GRACE_MS
+        : each.asks < DRONE_STATE_ASKS ? DRONE_STATE_RETRY_MS : DRONE_STATE_SLOW_RETRY_MS;
+      if (at - (each.askedAt ?? each.since) >= wait) due.push(id);
+    }
+    if (due.length === 0 || remotePark === null) return;
+    for (const id of due) {
+      const each = strays.get(id);
+      each.asks += 1;
+      each.askedAt = at;
+    }
+    // ⚠ ASKED FOR, NOT RESET. Park.RequestReset would also mark the park invalid until the state comes, and
+    // every update meanwhile is dropped; seen 2026-10-10 20:01, two pilots blind for minutes when the answer
+    // did not come. The park the pilot has is good but for these drones: it keeps flying on it, and the
+    // state replaces it whenever the server sends one.
+    park.requestState();
+    // Told as the park's other troubles are, so that each time it happens is on record.
+    const asks = Math.max(...due.map((id) => strays.get(id).asks));
+    const pace = asks <= DRONE_STATE_ASKS ? `ask ${asks} of ${DRONE_STATE_ASKS}`
+      : `ask ${asks}, every ${DRONE_STATE_SLOW_RETRY_MS / 1000} s while it lasts`;
+    onError(new Error(`${due.length} of the pilot's drones in space had no state (${due.join(", ")}); the whole state was asked for (${pace})`), "drone state");
+  }
   const guard = (what, action) => {
     try {
       action();
@@ -171,6 +292,7 @@ function createPilotSpace({
     if (timer !== null) stopTicking(timer);
     timer = null;
     remotePark = null;
+    stateless = null;
   }
 
   return {
@@ -195,4 +317,4 @@ function createPilotSpace({
   };
 }
 
-module.exports = { BIND_TRIES, FRAME_MS, createPilotSpace, rebaseDelta };
+module.exports = { BIND_TRIES, FRAME_MS, INVALID_STATE_GRACE_MS, INVALID_STATE_RETRY_MS, INVALID_STATE_ASKS, INVALID_STATE_SLOW_RETRY_MS, createPilotSpace, rebaseDelta };

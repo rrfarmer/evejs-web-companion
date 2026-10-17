@@ -679,12 +679,14 @@ const INITIAL_FLEET_COMPANION: FleetCompanionState = Object.freeze({
   inFleet: null,
   followingOrderFrom: null,
   lastOrderHeard: null,
+  targetMode: null,
   canTag: null,
   fitWarnings: Object.freeze([]),
   abandonment: null,
   startedAt: null,
   startError: null,
   failureReason: null,
+  selfPaused: false,
 });
 
 const INITIAL_MISSION_BOT: MissionBotState = Object.freeze({
@@ -2673,9 +2675,11 @@ export function createClientStore(): ClientStore {
             inFleet: event.inFleet,
           followingOrderFrom: event.followingOrderFrom,
           lastOrderHeard: event.lastOrderHeard,
+          targetMode: event.targetMode,
           canTag: event.canTag,
           abandonment: event.abandonment,
           failureReason: event.failureReason,
+          selfPaused: event.selfPaused,
         });
         break;
       case "companion/start-error":

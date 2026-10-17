@@ -147,6 +147,41 @@ export function tackleSubRank(threat: RatThreat | null | undefined): number {
 }
 
 /**
+ * The sub-rank `pickPrimary` compares: `tackleSubRank` inside tackle, and inside
+ * ewar a jammer before every other kind. 0 = first.
+ *
+ * ⚠ A JAM TAKES THE LOCK; A DAMP, A NEUT AND A PAINT ONLY DEGRADE IT. A jammed
+ * ship cannot shoot anything at all until the cycle ends, which is the same
+ * argument that puts ewar above logi, one level down: the ewar that switches the
+ * ship off outright dies before the ewar that merely makes it worse.
+ *
+ * ONE NUMBER SERVES BOTH CLASSES because it is only ever compared between rows
+ * of the same class rank. A tackle row and an ewar row never meet in this
+ * comparison (class decides first), so scram 0 / web 1 and ECM 0 / other ewar 1
+ * can share the scale without one meaning the other. A rat that is both tackle
+ * and ECM is a tackle row and takes its tackle sub-rank; the worse job decides,
+ * as it does for the class.
+ *
+ * Anything with no opinion (no threat, nothing flagged) answers 2, the same
+ * finite tie rank `tackleSubRank` uses, so the comparison is unconditional.
+ */
+export function threatSubRank(threat: RatThreat | null | undefined): number {
+  if (threat === null || threat === undefined) {
+    return 2;
+  }
+  if (threat.scram || threat.web) {
+    return tackleSubRank(threat);
+  }
+  if (threat.ecm) {
+    return 0;
+  }
+  if (threat.ewar) {
+    return 1;
+  }
+  return 2;
+}
+
+/**
  * Where a class sits in one player's ordering.
  *
  * ⚠ A PRIORITY LIST IS A RANKING, NOT A FILTER. This is the one place it
@@ -270,11 +305,23 @@ function defaultItemIDOf<T>(row: T): number | null {
  * classify ranks with "other", and an unmeasurable distance sorts last inside
  * its group. The worst thing that happens to any row here is being shot second.
  *
+ * SIZE IS THE LAST THING BEFORE DISTANCE: up the chain, smallest hull first.
+ * Once tag, live jam, class and sub-rank are level, the small hull dies before
+ * the big one - frigates track and hit hardest at close range and are the
+ * quickest to remove, so every kill thins the damage taken fastest. `sizeOf`
+ * reads the target's SIGNATURE RADIUS in metres, not a group-name size word:
+ * radius is the number the server's turret and drone hit formula runs on, and it
+ * exists for every rat type, where "Frigate" / "Cruiser" in a name is missing
+ * for officers, haulers and rogue drones. A size that cannot be read (null) sorts
+ * AFTER every known size - not-told is never "smallest" - and then distance
+ * decides, so an unreadable row is still a target.
+ *
  * Every new parameter is optional and defaults to "nothing is known", which
  * collapses the ordering back to exactly the old (class, distance) behaviour —
  * `tagOf` to "nothing is tagged", `threat` to "no dogma was read" (so the group
  * classifier decides alone, as it did), `jammingSources` to "nothing is holding
- * us". Every existing caller keeps its current result unchanged.
+ * us", `sizeOf` to "every size is unknown" (all rows tie on size, so distance
+ * decides as before). Every existing caller keeps its current result unchanged.
  *
  * A row whose distance is unreadable sorts last WITHIN its tag-and-class
  * group rather than being dropped: an unmeasurable ship is still a ship, and
@@ -292,12 +339,14 @@ export function pickPrimary<T>(
   threat?: (typeID: number) => RatThreat | null,
   jammingSources?: ReadonlySet<number>,
   itemIDOf: (row: T) => number | null = defaultItemIDOf,
+  sizeOf?: (row: T) => number | null,
 ): T | null {
   let best: T | null = null;
   let bestTagRank = Number.POSITIVE_INFINITY;
   let bestJamRank = Number.POSITIVE_INFINITY;
   let bestClassRank = Number.POSITIVE_INFINITY;
   let bestSubRank = Number.POSITIVE_INFINITY;
+  let bestSize = Number.POSITIVE_INFINITY;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const row of rows) {
     const typeID = typeIDOf(row);
@@ -308,7 +357,11 @@ export function pickPrimary<T>(
     const cls =
       targetClassForThreat(rowThreat) ?? targetClassForGroup(typeID === null ? null : groupOf(typeID));
     const classRank = rankOf(cls, priority);
-    const subRank = tackleSubRank(rowThreat);
+    const subRank = threatSubRank(rowThreat);
+    // An unreadable (or non-finite) size is the largest possible one, so it
+    // sorts after every known size and ties with other unknowns.
+    const rawSize = sizeOf === undefined ? null : sizeOf(row);
+    const size = rawSize !== null && Number.isFinite(rawSize) ? rawSize : Number.POSITIVE_INFINITY;
     const tagRank = fleetTagRank(tagOf(row));
     const itemID = jammingSources === undefined ? null : itemIDOf(row);
     const jamRank = itemID !== null && jammingSources?.has(itemID) === true ? 0 : 1;
@@ -320,13 +373,16 @@ export function pickPrimary<T>(
           (jamRank === bestJamRank &&
             (classRank < bestClassRank ||
               (classRank === bestClassRank &&
-                (subRank < bestSubRank || (subRank === bestSubRank && distance < bestDistance)))))));
+                (subRank < bestSubRank ||
+                  (subRank === bestSubRank &&
+                    (size < bestSize || (size === bestSize && distance < bestDistance)))))))));
     if (better) {
       best = row;
       bestTagRank = tagRank;
       bestJamRank = jamRank;
       bestClassRank = classRank;
       bestSubRank = subRank;
+      bestSize = size;
       bestDistance = distance;
     }
   }

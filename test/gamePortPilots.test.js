@@ -2845,11 +2845,11 @@ test("a pilot's clock is the client's: slowed by the server's notice, and its pa
   // The park's first frame came when it started; a second of frames later the state is applied and the park has stepped.
   assert.equal(run(950), 0);
   assert.equal(park().validState, false);
-  // In space with nothing in the park yet, the snapshot still says the pace.
-  assert.deepEqual(((space) => [space.inSpace, space.ship, space.timeDilation])(await snapshot()), [true, null, 1]);
+  // In space with nothing in the park yet, the snapshot still says the pace, and that it has no state (blind, not empty).
+  assert.deepEqual(((space) => [space.inSpace, space.ship, space.timeDilation, space.stateValid])(await snapshot()), [true, null, 1, false]);
   run(50);
   assert.deepEqual([park().validState, park().currentTime], [true, stamp + 1]);
-  assert.equal((await snapshot()).timeDilation, 1);
+  assert.deepEqual(((space) => [space.timeDilation, "stateValid" in space])(await snapshot()), [1, false]);
 
   // The server slows the system to half pace. The client's clock changes pace two real seconds on.
   built.session.notify("OnSetTimeDilation", [0.5, 0.5, 0]);

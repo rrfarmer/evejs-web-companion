@@ -14,6 +14,7 @@ import {
   fleetTagRank,
   pickPrimary,
   tackleSubRank,
+  threatSubRank,
   targetClassForGroup,
   targetClassForThreat,
 } from "./targetPriority.ts";
@@ -457,4 +458,159 @@ test("passing the dogma reader alone leaves every old call path where it was", (
     ratThreatOf,
   );
   assert.equal(withDogma?.id, pick(rows)?.id);
+});
+
+// ── ECM and the size chain ───────────────────────────────────────────────────
+//
+// The operator's kill order: tacklers (scram, then web), then ECM, then up the
+// size chain, smallest first. Size is the target's signature radius in metres.
+
+const ECM_RAT = 5; // ECMEntityChance 1 (a Guristas Despoiler carries it), nothing holding
+const NEUT_RAT = 6; // energyNeutralizerEntityChance 0.1
+const PAINT_RAT = 7; // entityTargetPaintDurationChance 0.1
+const ECM_SCRAM_RAT = 8; // jams and scrams
+
+const ECM_ATTRIBUTES: Record<number, Record<number, number>> = {
+  [ECM_RAT]: { 20: 0, 103: 0, 504: 0, 930: 1 },
+  [NEUT_RAT]: { 20: 0, 103: 0, 504: 0, 931: 0.1 },
+  [PAINT_RAT]: { 20: 0, 103: 0, 504: 0, 935: 0.1 },
+  [ECM_SCRAM_RAT]: { 20: 0, 103: 20_000, 504: 0.25, 930: 1 },
+};
+
+function ecmThreatOf(typeID: number) {
+  const attributes = ECM_ATTRIBUTES[typeID] ?? RAT_ATTRIBUTES[typeID];
+  return attributes === undefined ? null : threatFromAttributes(attributes);
+}
+
+interface SizedRow extends Row {
+  readonly size: number | null;
+}
+
+function pickSized(
+  rows: readonly SizedRow[],
+  jamming?: ReadonlySet<number>,
+  withSize = true,
+): SizedRow | null {
+  return pickPrimary(
+    rows,
+    (row) => row.typeID,
+    (row) => row.distance,
+    (typeID) => RAT_GROUPS[typeID] ?? GROUPS[typeID] ?? null,
+    DEFAULT_TARGET_PRIORITY,
+    (row) => row.tag,
+    ecmThreatOf,
+    jamming,
+    (row) => row.id,
+    withSize ? (row) => row.size : undefined,
+  );
+}
+
+test("an ECM rat is the ewar class, and a plain ewar rat is not ECM", () => {
+  assert.equal(targetClassForThreat(ecmThreatOf(ECM_RAT)), "ewar");
+  assert.equal(threatFromAttributes({ 930: 0 }).ecm, false);
+  assert.equal(threatFromAttributes({ 20: 0 }).ecm, false, "a missing attribute is not a jam");
+  // Tackle still beats ewar when a rat is both.
+  assert.equal(targetClassForThreat(ecmThreatOf(ECM_SCRAM_RAT)), "tackle");
+});
+
+test("within ewar a jammer sub-ranks ahead of damp, neut and paint", () => {
+  assert.equal(threatSubRank(ecmThreatOf(ECM_RAT)), 0);
+  assert.equal(threatSubRank(ecmThreatOf(NEUT_RAT)), 1);
+  assert.equal(threatSubRank(ecmThreatOf(PAINT_RAT)), 1);
+  assert.equal(threatSubRank(ecmThreatOf(DAMP_RAT)), 1);
+  // Tackle keeps its own scale, and everything else ties at 2.
+  assert.equal(threatSubRank(ecmThreatOf(SCRAM_RAT)), tackleSubRank(ecmThreatOf(SCRAM_RAT)));
+  assert.equal(threatSubRank(ecmThreatOf(WEB_RAT)), 1);
+  assert.equal(threatSubRank(ecmThreatOf(ECM_SCRAM_RAT)), 0, "a scrammer that jams ranks as the scrammer");
+  assert.equal(threatSubRank(ecmThreatOf(PLAIN_RAT)), 2);
+  assert.equal(threatSubRank(UNKNOWN_THREAT), 2);
+  assert.equal(threatSubRank(null), 2);
+  assert.equal(threatSubRank(undefined), 2);
+});
+
+test("the jammer dies before the damper, neut and painter, even when it is farther", () => {
+  const neut = { id: 1, typeID: NEUT_RAT, distance: 2_000, size: 30 };
+  const paint = { id: 2, typeID: PAINT_RAT, distance: 3_000, size: 30 };
+  const damp = { id: 3, typeID: DAMP_RAT, distance: 4_000, size: 30 };
+  const ecm = { id: 4, typeID: ECM_RAT, distance: 60_000, size: 400 };
+  assert.equal(pickSized([neut, paint, damp, ecm])?.id, 4);
+});
+
+test("tackle is still before ECM", () => {
+  const ecm = { id: 1, typeID: ECM_RAT, distance: 1_000, size: 30 };
+  const web = { id: 2, typeID: WEB_RAT, distance: 90_000, size: 400 };
+  assert.equal(pickSized([ecm, web])?.id, 2);
+  const scram = { id: 3, typeID: SCRAM_RAT, distance: 90_000, size: 400 };
+  assert.equal(pickSized([web, ecm, scram])?.id, 3, "scram, web, then ECM");
+});
+
+test("inside one class the smaller signature dies first, however far", () => {
+  const cruiser = { id: 1, typeID: PLAIN_RAT, distance: 1_000, size: 130 };
+  const frigate = { id: 2, typeID: PLAIN_RAT, distance: 60_000, size: 35 };
+  const battleship = { id: 3, typeID: PLAIN_RAT, distance: 500, size: 400 };
+  assert.equal(pickSized([cruiser, battleship, frigate])?.id, 2);
+  assert.equal(pickSized([battleship, cruiser])?.id, 1);
+});
+
+test("size is below tag, live jam, class and sub-rank - it never overrides them", () => {
+  const smallPlain = { id: 1, typeID: PLAIN_RAT, distance: 1_000, size: 20 };
+  const bigScram = { id: 2, typeID: SCRAM_RAT, distance: 1_000, size: 500 };
+  assert.equal(pickSized([smallPlain, bigScram])?.id, 2, "class beats size");
+
+  const smallWeb = { id: 3, typeID: WEB_RAT, distance: 1_000, size: 20 };
+  const bigScram2 = { id: 4, typeID: SCRAM_RAT, distance: 1_000, size: 500 };
+  assert.equal(pickSized([smallWeb, bigScram2])?.id, 4, "sub-rank beats size");
+
+  const smallPlain2 = { id: 5, typeID: PLAIN_RAT, distance: 1_000, size: 20 };
+  const bigPlain = { id: 6, typeID: PLAIN_RAT, distance: 1_000, size: 500 };
+  assert.equal(pickSized([smallPlain2, bigPlain], new Set([6]))?.id, 6, "a live jam beats size");
+
+  const smallUntagged = { id: 7, typeID: PLAIN_RAT, distance: 1_000, size: 20 };
+  const bigTagged = { id: 8, typeID: PLAIN_RAT, distance: 1_000, size: 500, tag: "3" };
+  assert.equal(pickSized([smallUntagged, bigTagged])?.id, 8, "the FC's tag beats size");
+});
+
+test("an unreadable size sorts after every known size, and is still a target", () => {
+  const unknown = { id: 1, typeID: PLAIN_RAT, distance: 100, size: null };
+  const huge = { id: 2, typeID: PLAIN_RAT, distance: 90_000, size: 9_000 };
+  assert.equal(pickSized([unknown, huge])?.id, 2);
+  assert.equal(pickSized([unknown])?.id, 1);
+  const farUnknown = { id: 3, typeID: PLAIN_RAT, distance: 50_000, size: null };
+  assert.equal(pickSized([farUnknown, unknown])?.id, 1, "distance breaks a tie between unknowns");
+  const nan = { id: 4, typeID: PLAIN_RAT, distance: 1, size: Number.NaN };
+  assert.equal(pickSized([nan, huge])?.id, 2, "a non-finite size is not a size");
+});
+
+test("equal sizes fall through to distance", () => {
+  const far = { id: 1, typeID: PLAIN_RAT, distance: 30_000, size: 35 };
+  const near = { id: 2, typeID: PLAIN_RAT, distance: 4_000, size: 35 };
+  assert.equal(pickSized([far, near])?.id, 2);
+});
+
+test("without sizeOf the result is exactly the old (tag, jam, class, sub-rank, distance) order", () => {
+  const rows: SizedRow[] = [
+    { id: 1, typeID: PLAIN_RAT, distance: 9_000, size: 20 },
+    { id: 2, typeID: PLAIN_RAT, distance: 2_000, size: 900 },
+    { id: 3, typeID: DAMP_RAT, distance: 50_000, size: 900 },
+    { id: 4, typeID: PLAIN_RAT, distance: null, size: 5 },
+  ];
+  // Size on the rows is ignored when nothing reads it: nearest within class.
+  assert.equal(pickSized(rows, undefined, false)?.id, 3);
+  assert.equal(pickSized(rows.filter((r) => r.id !== 3), undefined, false)?.id, 2);
+  // A sizeOf that knows nothing is the same as none at all.
+  const unknownSizes = pickPrimary(
+    rows,
+    (row) => row.typeID,
+    (row) => row.distance,
+    (typeID) => RAT_GROUPS[typeID] ?? GROUPS[typeID] ?? null,
+    DEFAULT_TARGET_PRIORITY,
+    (row) => row.tag,
+    ecmThreatOf,
+    undefined,
+    (row) => row.id,
+    () => null,
+  );
+  assert.equal(unknownSizes?.id, 3);
+  // And the existing seven-argument call path still lands where it always did.
+  assert.equal(pickRats(rows.filter((r) => r.id !== 3))?.id, 2);
 });

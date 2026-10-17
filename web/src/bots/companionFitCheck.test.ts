@@ -45,6 +45,7 @@ function facts(over: Partial<CompanionFitFacts> = {}): CompanionFitFacts {
     propulsionModules: [],
     weaponModuleIDs: [GUN_A],
     salvagerModuleIDs: [],
+    droneAssistModuleIDs: [],
     // A fit that said nothing about where its tank is — which is what a hull
     // with one hardener and a gun genuinely does say.
     tankLayer: null,
@@ -79,16 +80,12 @@ test("requestForFit keeps every setting that is not read off the fit", () => {
     fleeHealthFloor: 0.45,
     maxFleeAttempts: 7,
     repairsAtStation: true,
-    droneHealthFloor: 0.6,
-    droneRedeployHoldOffSeconds: 42,
     capacitorFloor: 0.2,
   };
   const flown = requestForFit(configured, facts());
   assert.equal(flown.fleeHealthFloor, 0.45);
   assert.equal(flown.maxFleeAttempts, 7);
   assert.equal(flown.repairsAtStation, true);
-  assert.equal(flown.droneHealthFloor, 0.6);
-  assert.equal(flown.droneRedeployHoldOffSeconds, 42);
   assert.equal(flown.capacitorFloor, 0.2);
 });
 

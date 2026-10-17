@@ -1041,6 +1041,7 @@ export type FeedEvent =
       readonly inFleet: boolean | null;
       readonly followingOrderFrom: CompanionOrderAuthority | null;
       readonly lastOrderHeard: string | null;
+      readonly targetMode: "called" | "all";
       readonly canTag: boolean | null;
       /**
        * Decision 5's abandonment, or null. Carried through the slice rather
@@ -1050,6 +1051,7 @@ export type FeedEvent =
        */
       readonly abandonment: CompanionAbandonmentRecord | null;
       readonly failureReason: string | null;
+      readonly selfPaused: boolean;
     }
   | { readonly type: "companion/start-error"; readonly message: string | null }
   | { readonly type: "companion/cleared" }

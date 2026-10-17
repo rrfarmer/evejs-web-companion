@@ -10,6 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  APPROACH_SETTLE_MS,
   AUTOPILOT_WARP_STOPS_SHORT_M,
   MAX_SILENT_DOCK_ATTEMPTS,
   MAX_WARP_ATTEMPTS,
@@ -954,6 +955,30 @@ test("the floor follows the call that warps: a warp at nought is taken from near
     "closing",
   );
   assert.equal(decideCloseIn(GATE_ORIGIN, 2_500, null, null, AUTOPILOT_WARP_STOPS_SHORT_M), null);
+});
+
+test("decideCloseIn: a fresh approach is believed through a GOTO or STOP reading, only when the caller says when it was sent", () => {
+  const inside = (mode: string) => measuredAt(GATE_ORIGIN, 50_000, mode);
+  const T0 = 1_000_000;
+  const call = (mode: string, issuedAtMs?: number | null, nowMs?: number) =>
+    decideCloseIn(GATE_ORIGIN, 2_500, inside(mode), GATE_ORIGIN, AUTOPILOT_WARP_STOPS_SHORT_M, issuedAtMs, nowMs)?.kind;
+  // A caller that omits the new parameters gets today's behaviour exactly: only FOLLOW is closing.
+  for (const mode of ["GOTO", "STOP", "ORBIT"]) {
+    assert.equal(call(mode), "approach", `${mode} without a stamp`);
+    assert.equal(call(mode, null, T0 + 1_000), "approach", `${mode} with a null stamp`);
+  }
+  assert.equal(call("FOLLOW"), "closing");
+  // With a stamp inside the window, GOTO and STOP count as closing...
+  assert.equal(call("GOTO", T0, T0 + APPROACH_SETTLE_MS - 1), "closing");
+  assert.equal(call("STOP", T0, T0 + 1_000), "closing");
+  // ...but not ORBIT, and not once the window has passed.
+  assert.equal(call("ORBIT", T0, T0 + 1_000), "approach");
+  assert.equal(call("GOTO", T0, T0 + APPROACH_SETTLE_MS), "approach");
+  // The window never makes up an approach that is not ours.
+  assert.equal(
+    decideCloseIn(GATE_ORIGIN, 2_500, inside("GOTO"), null, AUTOPILOT_WARP_STOPS_SHORT_M, T0, T0 + 1_000)?.kind,
+    "approach",
+  );
 });
 
 // --- a pilot's own Dock and Jump, and the autopilot's last leg ----------------

@@ -34,6 +34,13 @@
 //   931 energyNeutralizerEntityChance
 //   935 entityTargetPaintDurationChance
 //                                 — the three ewar chances a rat can carry.
+//   930 ECMEntityChance           — will it try to JAM. Read on its own as well
+//                                   as inside the ewar group, because a jammer
+//                                   is not the same worry as a damper: a jam
+//                                   takes the lock away outright, so the kill
+//                                   order ranks ECM ahead of the other ewar.
+//                                   `Guristas Despoiler` carries 930 = 1 and
+//                                   504 = 0 — a jammer that holds nobody.
 //
 // ⚠ THE CHANCE IS THE GATE, NOT THE RANGE AND NOT THE STRENGTH. `Pithum
 // Silencer` carries warpScrambleRange 15000 and warpScrambleStrength 1 with
@@ -51,7 +58,13 @@ export interface RatThreat {
   /** Metres it scrams at, null when unknown/not a scrammer. */
   readonly scramRangeM: number | null;
   readonly web: boolean;
+  /** Any ewar at all, ECM included. */
   readonly ewar: boolean;
+  /**
+   * It will try to jam (ECMEntityChance > 0). A subset of `ewar`: an ECM rat is
+   * always `ewar` too, so a caller that only knows the old flag still sees it.
+   */
+  readonly ecm: boolean;
 }
 
 /**
@@ -65,6 +78,7 @@ export const THREAT_ATTRIBUTE_IDS: readonly number[] = Object.freeze([
   20, // speedFactor          — web (negative)
   103, // warpScrambleRange   — the scram's reach
   504, // entityWarpScrambleChance — the scram gate
+  930, // ECMEntityChance — the ECM gate
   931, // energyNeutralizerEntityChance
   932, // entitySensorDampenDurationChance
   935, // entityTargetPaintDurationChance
@@ -73,11 +87,13 @@ export const THREAT_ATTRIBUTE_IDS: readonly number[] = Object.freeze([
 const ATTR_SPEED_FACTOR = 20;
 const ATTR_WARP_SCRAMBLE_RANGE = 103;
 const ATTR_ENTITY_WARP_SCRAMBLE_CHANCE = 504;
+const ATTR_ECM_ENTITY_CHANCE = 930;
 const ATTR_ENERGY_NEUTRALIZER_ENTITY_CHANCE = 931;
 const ATTR_ENTITY_SENSOR_DAMPEN_DURATION_CHANCE = 932;
 const ATTR_ENTITY_TARGET_PAINT_DURATION_CHANCE = 935;
 
 const EWAR_CHANCE_ATTRIBUTES: readonly number[] = [
+  ATTR_ECM_ENTITY_CHANCE,
   ATTR_ENTITY_SENSOR_DAMPEN_DURATION_CHANCE,
   ATTR_ENERGY_NEUTRALIZER_ENTITY_CHANCE,
   ATTR_ENTITY_TARGET_PAINT_DURATION_CHANCE,
@@ -100,6 +116,7 @@ export const UNKNOWN_THREAT: RatThreat = Object.freeze({
   scramRangeM: null,
   web: false,
   ewar: false,
+  ecm: false,
 });
 
 /** A finite number for an attribute, or null — a missing or NaN value is not a fact. */
@@ -151,5 +168,9 @@ export function threatFromAttributes(
 
   const ewar = EWAR_CHANCE_ATTRIBUTES.some((id) => (attr(attributes, id) ?? 0) > 0);
 
-  return { scram, scramRangeM, web, ewar };
+  // Same gate as the scram: the chance, strictly above zero. ECMEntityChance
+  // is also in EWAR_CHANCE_ATTRIBUTES, so `ecm` implies `ewar`.
+  const ecm = (attr(attributes, ATTR_ECM_ENTITY_CHANCE) ?? 0) > 0;
+
+  return { scram, scramRangeM, web, ewar, ecm };
 }

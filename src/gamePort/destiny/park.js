@@ -176,6 +176,8 @@ class Park {
     this.failed = new Map();
     /** Told of each entry that fails, with the error: `onFail(name, error)`. */
     this.onFail = null;
+    /** Told each time the park loses its place, with why: `onReset(reason)`. */
+    this.onReset = null;
     this.resets = 0;
     /** Updates that held more than one tick: the client reports each to its statistics and carries on. */
     this.fatalDesyncs = 0;
@@ -239,6 +241,18 @@ class Park {
       return; // older than the state we hold
     }
     mergeStateIntoHistory(state, this.history, waitForBubble);
+    // ⚠ NOT THE CLIENT'S: a SetState that joins a tick already queued goes first in it. The client's merge
+    // (michelle.py FlushState 1098, destiny/net/client/_util.py) keeps the queued entries of the state's own tick
+    // and appends the state behind them, and RealFlushState (1142) reads a SetState only as the first entry of its
+    // group: so that state is never read, and a park waiting for one stays without one. Seen 2026-10-14 12:00, a
+    // pilot in a fight: the park reset, the server answered within 51 ms, the answer joined that tick's updates,
+    // and the pilot saw nothing for ten minutes. Put first, it is read, and the rest of its tick is applied on top
+    // of it, as an update for that tick arriving after the state would be.
+    if (state[0][1][0] === "SetState") {
+      const group = this.history.find(([entries]) => entries.includes(state[0]));
+      const at = group ? group[0].indexOf(state[0]) : 0;
+      if (at > 0) group[0].unshift(...group[0].splice(at, 1));
+    }
   }
 
   // ── a tick ────────────────────────────────────────────────────────────────
@@ -391,11 +405,12 @@ class Park {
     return true;
   }
 
-  /** Park.RequestReset (848): the park no longer knows where it is. */
-  requestReset() {
+  /** Park.RequestReset (848): the park no longer knows where it is. `reason` is told to `onReset`, as the client logs it. */
+  requestReset(reason = null) {
     this.validState = false;
     this.flushSimulationHistory(false);
     this.resets += 1;
+    if (typeof this.onReset === "function") this.onReset(reason);
     if (typeof this.requestState === "function") this.requestState();
   }
 
@@ -427,7 +442,8 @@ class Park {
         } else {
           if (!synchronised) synchronised = this.synchroniseToSimulationTime(eventStamp);
           if (!synchronised) {
-            this.requestReset();
+            // The client logs "Failed to synchronize to <stamp> Requesting new state".
+            this.requestReset(`failed to synchronise to tick ${eventStamp}: the park is at ${this.currentTime}, its snapshots at ${this.states.map((item) => item[1]).join(", ") || "none"}`);
             return;
           }
           this.shouldRebase = true;

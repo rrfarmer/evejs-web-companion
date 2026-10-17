@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  CHAT_COMMAND_HELP,
   CHAT_COMMAND_VERBS,
+  type ChatCommandKind,
   COMPANION_FOLLOW_RANGE_M,
   isChatCommandSenderAllowed,
   parseChatCommand,
+  selectsPilot,
 } from "./chatCommands.ts";
 import type { ChatMessage } from "../store/types.ts";
 
@@ -483,18 +486,183 @@ test("CHAT_COMMAND_VERBS lists exactly the recognised verbs, target/primary incl
     [
       "align",
       "destination",
+      "flight",
       "follow",
       "jump",
       "loot",
       "primary",
       "props",
+      "repair",
       "salvage",
+      "status",
       "stop",
       "target",
+      "targets",
       "travel",
       "warp",
     ],
   );
+});
+
+// --- `targets called` / `targets all` ----------------------------------------
+//
+// The second toggle: a target MODE, not an order. Parsed like `props` -- both
+// words required, nothing allowed after them.
+
+test("targets called and targets all both parse, and carry which mode was said", () => {
+  assert.deepEqual(parseChatCommand(chatMessage("targets called")), {
+    kind: "targets",
+    mode: "called",
+  });
+  assert.deepEqual(parseChatCommand(chatMessage("targets all")), { kind: "targets", mode: "all" });
+});
+
+test("targets is case-insensitive and tolerates the surrounding and inner whitespace", () => {
+  assert.deepEqual(parseChatCommand(chatMessage("  TARGETS   ALL  ")), {
+    kind: "targets",
+    mode: "all",
+  });
+  assert.deepEqual(parseChatCommand(chatMessage("Targets Called")), {
+    kind: "targets",
+    mode: "called",
+  });
+});
+
+test("a bare `targets`, an unknown mode word, or trailing chatter is not an order", () => {
+  assert.equal(parseChatCommand(chatMessage("targets")), null);
+  assert.equal(parseChatCommand(chatMessage("targets please")), null);
+  assert.equal(parseChatCommand(chatMessage("targets none")), null);
+  assert.equal(parseChatCommand(chatMessage("targets alll")), null);
+  assert.equal(parseChatCommand(chatMessage("targets all please")), null);
+  assert.equal(parseChatCommand(chatMessage("targets called all")), null);
+});
+
+test("`targets` is anchored and word-bounded, and never reads as the `target` link verb", () => {
+  assert.equal(parseChatCommand(chatMessage("targeting all")), null);
+  assert.equal(parseChatCommand(chatMessage("those targets all died")), null);
+  // The plural with a link is not a `target` order either: `^target\b` refuses it.
+  assert.equal(
+    parseChatCommand(chatMessage("targets <url=showinfo:670//1099511628000>Some Rifter</url>")),
+    null,
+  );
+  // And the singular is still the link verb.
+  assert.deepEqual(
+    parseChatCommand(chatMessage("target <url=showinfo:670//1099511628000>Some Rifter</url>")),
+    { kind: "target", itemID: 1099511628000 },
+  );
+});
+
+// --- `flight follow` / `flight auto` -----------------------------------------
+//
+// The third toggle: a flight MODE, not an order. Parsed exactly like `targets` --
+// both words required, nothing allowed after them.
+
+test("flight follow and flight auto both parse, and carry which mode was said", () => {
+  assert.deepEqual(parseChatCommand(chatMessage("flight follow")), {
+    kind: "flight",
+    mode: "follow",
+  });
+  assert.deepEqual(parseChatCommand(chatMessage("flight auto")), { kind: "flight", mode: "auto" });
+});
+
+test("flight is case-insensitive and tolerates the surrounding and inner whitespace", () => {
+  assert.deepEqual(parseChatCommand(chatMessage("  FLIGHT   AUTO  ")), {
+    kind: "flight",
+    mode: "auto",
+  });
+  assert.deepEqual(parseChatCommand(chatMessage("Flight Follow")), {
+    kind: "flight",
+    mode: "follow",
+  });
+});
+
+test("a bare `flight`, an unknown mode word, or trailing chatter is not an order", () => {
+  assert.equal(parseChatCommand(chatMessage("flight")), null);
+  assert.equal(parseChatCommand(chatMessage("flight fast")), null);
+  assert.equal(parseChatCommand(chatMessage("flight please")), null);
+  assert.equal(parseChatCommand(chatMessage("flight autoo")), null);
+  assert.equal(parseChatCommand(chatMessage("flight auto please")), null);
+  assert.equal(parseChatCommand(chatMessage("flight follow auto")), null);
+  // A link is not a mode either: `flight` takes a word, never an object.
+  assert.equal(
+    parseChatCommand(chatMessage("flight <url=showinfo:670//1099511628000>Some Rifter</url>")),
+    null,
+  );
+});
+
+test("`flight` is anchored and word-bounded, and is not `follow` or `flights`", () => {
+  assert.equal(parseChatCommand(chatMessage("flights auto")), null);
+  assert.equal(parseChatCommand(chatMessage("flying auto")), null);
+  assert.equal(parseChatCommand(chatMessage("the flight follow was fine")), null);
+  assert.equal(parseChatCommand(chatMessage("did you flight auto earlier?")), null);
+});
+
+test("`flight follow` is the flight verb, and `follow N km` is still the follow verb", () => {
+  // The two verbs share the word "follow", so each must be checked both ways.
+  assert.deepEqual(parseChatCommand(chatMessage("flight follow")), {
+    kind: "flight",
+    mode: "follow",
+  });
+  assert.deepEqual(parseChatCommand(chatMessage("follow 10 km")), {
+    kind: "follow",
+    rangeM: 10_000,
+  });
+  assert.deepEqual(parseChatCommand(chatMessage("follow")), {
+    kind: "follow",
+    rangeM: COMPANION_FOLLOW_RANGE_M,
+  });
+  // A line starting with `follow` is never read as the flight verb.
+  assert.notEqual(parseChatCommand(chatMessage("follow auto"))?.kind, "flight");
+  assert.deepEqual(parseChatCommand(chatMessage("follow auto")), {
+    kind: "follow",
+    rangeM: COMPANION_FOLLOW_RANGE_M,
+  });
+});
+
+// --- CHAT_COMMAND_HELP ---------------------------------------------------------
+
+// Exhaustive on purpose: the compiler refuses a new `ChatCommandKind` that is
+// not listed here, and the test below then refuses one with no help row.
+const ALL_KINDS: Record<ChatCommandKind, true> = {
+  target: true,
+  align: true,
+  travel: true,
+  jump: true,
+  salvage: true,
+  loot: true,
+  stop: true,
+  follow: true,
+  destination: true,
+  warp: true,
+  props: true,
+  targets: true,
+  flight: true,
+  status: true,
+  repair: true,
+};
+
+test("every ChatCommandKind has a help row whose usage starts with its verb", () => {
+  for (const kind of Object.keys(ALL_KINDS)) {
+    const shown = CHAT_COMMAND_HELP.some((row) =>
+      new RegExp(`(^|\\|)${kind}\\b`).test(row.usage),
+    );
+    assert.equal(shown, true, `no help row for ${kind}`);
+  }
+});
+
+test("every recognised verb has a help row, and help rows are short plain ASCII", () => {
+  for (const verb of CHAT_COMMAND_VERBS) {
+    assert.equal(
+      CHAT_COMMAND_HELP.some((row) => new RegExp(`(^|\\|)${verb}\\b`).test(row.usage)),
+      true,
+      `no help row for verb ${verb}`,
+    );
+  }
+  for (const row of CHAT_COMMAND_HELP) {
+    assert.match(row.usage, /^[\x20-\x7e]+$/);
+    assert.match(row.does, /^[\x20-\x7e]+$/);
+    assert.ok(row.does.length <= 60, `too long: ${row.does}`);
+  }
 });
 
 // --- the sender gate ---------------------------------------------------------
@@ -529,4 +697,66 @@ test("isChatCommandSenderAllowed: gated on characterID alone, never on character
     createdAtMs: 1_000,
   };
   assert.equal(isChatCommandSenderAllowed(impostorName, [SENDER_ID]), false);
+});
+
+// --- status / repair: addressed to pilots ------------------------------------
+
+// Synthetic pilots: the documented example id, and names nobody flies.
+const PILOT_ID = 90000003;
+const PILOT_NAME = "Pilot Alpha";
+
+function who(line: string) {
+  const command = parseChatCommand(chatMessage(line));
+  assert.ok(command !== null && (command.kind === "status" || command.kind === "repair"), line);
+  return command.who;
+}
+
+test("a bare 'status' and a bare 'repair' address every pilot", () => {
+  assert.deepEqual(parseChatCommand(chatMessage("status")), {
+    kind: "status", who: { everyone: true, characterIDs: [], text: "" },
+  });
+  assert.deepEqual(parseChatCommand(chatMessage("repair")), {
+    kind: "repair", who: { everyone: true, characterIDs: [], text: "" },
+  });
+  assert.equal(who("Status?").everyone, true, "punctuation is not a name");
+  assert.equal(who("repair all").everyone, true);
+  assert.equal(who("status everyone").everyone, true);
+});
+
+test("'repairs', 'repaired' and 'statuses' are not the verbs, nor is a mid-sentence mention", () => {
+  for (const line of ["repairs are expensive", "repaired", "statuses", "need a repair", "what is your status"]) {
+    assert.equal(parseChatCommand(chatMessage(line)), null, line);
+  }
+});
+
+test("a typed name addresses that pilot, as a whole word and in any case", () => {
+  assert.equal(selectsPilot(who("repair pilot alpha"), PILOT_ID, PILOT_NAME), true);
+  assert.equal(selectsPilot(who("status Pilot Alpha, Pilot Beta"), PILOT_ID, PILOT_NAME), true);
+  assert.equal(selectsPilot(who("repair Pilot Beta"), PILOT_ID, PILOT_NAME), false);
+  // A name that is only the start of another word, or of a longer name, is not this pilot.
+  assert.equal(selectsPilot(who("repair Pilot Alphas"), PILOT_ID, PILOT_NAME), false);
+  assert.equal(selectsPilot(who("repair Pilot Alpha"), PILOT_ID, "Pilot Al"), false);
+});
+
+test("a dragged pilot link addresses that pilot by id, whatever its display text", () => {
+  const selector = who(`repair <url=showinfo:1377//${PILOT_ID}>Someone Else</url>`);
+  assert.deepEqual(selector, { everyone: false, characterIDs: [PILOT_ID], text: "" });
+  assert.equal(selectsPilot(selector, PILOT_ID, PILOT_NAME), true);
+  assert.equal(selectsPilot(selector, 90000004, "Pilot Beta"), false);
+});
+
+test("a line that names nobody we know reaches nobody, never everyone", () => {
+  const selector = who("repair my armour please");
+  assert.equal(selector.everyone, false);
+  assert.equal(selectsPilot(selector, PILOT_ID, PILOT_NAME), false);
+});
+
+test("an escaped apostrophe in a typed name still matches", () => {
+  assert.equal(selectsPilot(who("status O&#39;Brien Two"), PILOT_ID, "O'Brien Two"), true);
+});
+
+test("a pilot whose own name is unread answers only to everyone or to its link", () => {
+  assert.equal(selectsPilot(who("status"), PILOT_ID, null), true);
+  assert.equal(selectsPilot(who("status Pilot Alpha"), PILOT_ID, null), false);
+  assert.equal(selectsPilot(who(`status <a href="showinfo:1377//${PILOT_ID}">x</a>`), PILOT_ID, null), true);
 });
