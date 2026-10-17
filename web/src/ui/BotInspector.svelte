@@ -87,6 +87,7 @@
     agents = [],
     fittings = [],
     spots = [],
+    folders = [],
     savedBots = [],
     oreFamilies = [],
     problems = [],
@@ -107,6 +108,7 @@
     agents?: readonly { agentID: number; name: string; stationName?: string | null; solarSystemName?: string | null }[];
     fittings?: readonly PickerFitting[];
     spots?: readonly { bookmarkID: number; name: string }[];
+    folders?: readonly { folderID: number; name: string }[];
     savedBots?: readonly { scriptID: string; name: string }[];
     /** Every ore family the mine block can prioritise (Veldspar, Kernite, …).
      * A grade within a family (0-Grade, II-, III-, …) is the runtime's business
@@ -435,6 +437,15 @@
     const match = spots.find((bm) => bm.bookmarkID === Number(raw));
     if (match === undefined) return;
     onArg(key, { kind: "bookmark", bookmarkID: match.bookmarkID, name: match.name });
+  }
+  function folderValue(step: MacroStep, key: string): string {
+    const arg = argOf(step, key);
+    return arg !== undefined && arg.kind === "bookmarkFolder" && arg.folderID !== null ? String(arg.folderID) : "";
+  }
+  function setFolder(key: string, raw: string): void {
+    const match = folders.find((f) => f.folderID === Number(raw));
+    if (match === undefined) return;
+    onArg(key, { kind: "bookmarkFolder", folderID: match.folderID, name: match.name });
   }
   /**
    * The one argument picker that is a plain text field: no live corporation
@@ -982,6 +993,11 @@
         <select id={fieldId} value={bookmarkValue(step, arg.key)} onchange={(e) => setBookmark(arg.key, e.currentTarget.value)}>
           <option value="" disabled>pick a saved spot…</option>
           {#each spots as bm (bm.bookmarkID)}<option value={String(bm.bookmarkID)}>{bm.name}</option>{/each}
+        </select>
+      {:else if arg.widget === "folder-picker"}
+        <select id={fieldId} value={folderValue(step, arg.key)} onchange={(e) => setFolder(arg.key, e.currentTarget.value)}>
+          <option value="" disabled>pick a bookmark folder…</option>
+          {#each folders as folder (folder.folderID)}<option value={String(folder.folderID)}>{folder.name}</option>{/each}
         </select>
       {:else if arg.widget === "item-type-picker"}
         <select id={fieldId} value={itemTypeValue(step, arg.key)} onchange={(e) => setItemType(arg.key, e.currentTarget.value)}>

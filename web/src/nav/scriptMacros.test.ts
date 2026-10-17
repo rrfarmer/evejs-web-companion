@@ -1349,7 +1349,9 @@ test("loot: only YOUR wrecks are ever opened — others' and unknown-owner wreck
   const loot = SCRIPT_MACROS["loot-wrecks"]!;
   const s = { id: "lw", kind: "macro", macro: "loot-wrecks", args: {} } as const;
   const mine = entity({ itemID: 70001, kind: "wreck", ownerID: 90000001, position: { x: 1000, y: 0, z: 0 } });
-  const theirs = entity({ itemID: 70002, kind: "wreck", ownerID: 555, position: { x: 500, y: 0, z: 0 } });
+  // Another PILOT's: an owner in the players' range. (An owner below it is the system's or an NPC's, and the
+  // server lets anyone take from that: see the system-owned case below.)
+  const theirs = entity({ itemID: 70002, kind: "wreck", ownerID: 90000555, position: { x: 500, y: 0, z: 0 } });
   const unknown = entity({ itemID: 70003, kind: "wreck", ownerID: null, position: { x: 200, y: 0, z: 0 } });
 
   // Mine is FARTHEST, yet it is the only one this block will ever touch.
@@ -1359,6 +1361,11 @@ test("loot: only YOUR wrecks are ever opened — others' and unknown-owner wreck
   // Nothing of ours left -> done, with the other wrecks still on grid untouched.
   const done = loot(s, obs({ snapshot: snapshot([theirs, unknown]), myCharacterID: 90000001 }), {}, {});
   assert.equal(done.outcome.kind, "done");
+
+  // A wreck no player owns (a site's own, owner 1) is free to anyone, as the server's loot right has it.
+  const sites = entity({ itemID: 70004, kind: "wreck", ownerID: 1, position: { x: 300, y: 0, z: 0 } });
+  const free = loot(s, obs({ snapshot: snapshot([theirs, unknown, sites]), myCharacterID: 90000001 }), {}, {});
+  assert.ok(free.action.kind === "lootWreck" && free.action.wreckID === 70004);
 });
 
 test("loot: far from your wreck -> approach first; looted wrecks are not reopened", () => {

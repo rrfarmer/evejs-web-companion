@@ -249,6 +249,28 @@ export const MACRO_SPECS: Readonly<Record<MacroID, MacroSpec>> = {
     args: [{ key: "bookmark", kind: "bookmark", required: true }],
     untilRequired: false,
   },
+  // Anywhere: take up and switch on the bookmark folders a bot works from, by
+  // name. Done when every one is on.
+  "use-bookmark-folders": {
+    args: [
+      { key: "folder", kind: "bookmarkFolder", required: true },
+      { key: "alsoFolder", kind: "bookmarkFolder", required: false },
+    ],
+    untilRequired: false,
+  },
+  // The salvager's lap: sites from one folder, finished sites filed in
+  // another, the hold emptied at a station, and a wait docked there when no
+  // site is left. Never finishes on its own.
+  "salvage-bookmarked-sites": {
+    args: [
+      { key: "fromFolder", kind: "bookmarkFolder", required: true },
+      { key: "doneFolder", kind: "bookmarkFolder", required: true },
+      { key: "station", kind: "station", required: true, dockable: true },
+      { key: "into", kind: "corpDivision", required: false },
+      { key: "keepItems", kind: "itemList", required: false },
+    ],
+    untilRequired: false,
+  },
   // The combat twin of find-distribution-agent: same criteria, security agents.
   "find-combat-agent": {
     args: [

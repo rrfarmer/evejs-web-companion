@@ -698,6 +698,7 @@
   // ── What the inspector's pickers can offer ──────────────────────────────────
   let savedFittings = $state<readonly PickerFitting[]>([]);
   let savedSpots = $state<readonly { bookmarkID: number; name: string }[]>([]);
+  let savedFolders = $state<readonly { folderID: number; name: string }[]>([]);
   // The ore-family catalogue for the mine block's priority list — static
   // reference data, loaded once. An empty result (offline, or not shipped
   // yet) leaves the picker's own empty-state to say so.
@@ -711,6 +712,7 @@
   $effect(() => {
     savedFittings = [];
     savedSpots = [];
+    savedFolders = [];
     knownPilots = loadKnownCharacters().map((k) => ({ characterID: k.characterID, characterName: k.characterName }));
     void flow
       .listSavedFittings()
@@ -728,6 +730,12 @@
       .listBookmarks()
       .then((rows) => {
         savedSpots = rows;
+      })
+      .catch(() => {});
+    void flow
+      .listBookmarkFolders()
+      .then((rows) => {
+        savedFolders = rows;
       })
       .catch(() => {});
     void flow
@@ -1181,6 +1189,7 @@
     agents={$finder.agents}
     fittings={savedFittings}
     spots={savedSpots}
+    folders={savedFolders}
     oreFamilies={oreFamilies}
     savedBots={savedList}
     problems={selectedProblems}

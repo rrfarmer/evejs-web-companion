@@ -1990,6 +1990,12 @@ export interface SpaceEntity {
   readonly characterID: number | null;
   readonly corporationID: number | null;
   readonly allianceID: number | null;
+  /**
+   * A wreck's or a container's loot rights, the slim item's (ownerID, corpID,
+   * fleetID, abandoned) that the client's HaveLootRight reads. Optional: only
+   * the game port reports it, and only for wrecks and containers.
+   */
+  readonly lootRights?: { readonly ownerID: number | null; readonly corpID: number | null; readonly fleetID: number | null; readonly abandoned: boolean } | null;
   /** The militia it is in, its slim item's warFactionID; none where there is none (the game port's rows). */
   readonly warFactionID?: number | null;
   readonly securityStatus: number | null;
@@ -2185,6 +2191,15 @@ export interface SpaceShipStatus {
    * answer and the page must say "unknown", not "off".
    */
   readonly activeModuleIDs: readonly number[] | null;
+  /**
+   * What each running module is cycling on, from godma's effect environment:
+   * a tractor beam's wreck, a salvager's. A module running with no target is
+   * absent. Optional and null alike mean "not reported": only the game port
+   * reports it.
+   */
+  readonly activeModuleTargets?: readonly { readonly moduleID: number; readonly targetID: number }[] | null;
+  /** How far each fitted module reaches (dogma's maxRange, bonuses applied). Optional and null: not reported. */
+  readonly moduleRanges?: readonly { readonly moduleID: number; readonly rangeM: number }[] | null;
   /**
    * Which fitted modules are OVERLOADED, from the ship entity's own overload
    * map — the same contract as `activeModuleIDs` above and for the same reason.

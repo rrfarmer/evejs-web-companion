@@ -417,3 +417,60 @@ export function planBayTransfers(
   }
   return groups;
 }
+
+/**
+ * Rows split by whether ONE unit of them could ever be carried by this hull.
+ */
+export interface NeverFitSplit {
+  /** Rows whose single unit exceeds the EMPTY capacity of every hold they could go to. */
+  readonly neverFits: readonly InventoryItemRow[];
+  /** Everything else, in the original order: fits, might fit, or cannot be judged. */
+  readonly rest: readonly InventoryItemRow[];
+}
+
+/**
+ * Which rows can NEVER be carried, however empty the ship is.
+ *
+ * ⚠ CAPACITY, NOT FREE SPACE. `planLootTransfers` plans nothing both for a ship
+ * that is full NOW (go home, unload, come back — correct) and for a row whose
+ * single unit is bigger than any hold it may enter (a 4,000 m3 item against a
+ * 350 m3 cargo bay — going home changes nothing, so a salvager that treats both
+ * alike flies the same wreck home for ever). This function tells the two apart:
+ * a row is `neverFits` only when one unit exceeds the whole capacity of EVERY
+ * destination `planLootTransfers` would walk for it.
+ *
+ * The chain is the planner's own: the row's preferred bays that the hull has,
+ * else the cargo hold alone (a row with a specialised bay is never sent to
+ * cargo, so cargo capacity does not rescue it). `capacityFor(null)` is the cargo
+ * hold's total capacity.
+ *
+ * UNKNOWN IS NEVER A VERDICT. A row with no volume (or volume <= 0), a
+ * destination whose capacity could not be read (null, or not above zero), all
+ * make the row "rest": the server judges it, exactly as the planner does.
+ * A stack of several units where one unit fits is also "rest" — a stack that is
+ * too big as a whole is split by the planner, not abandoned.
+ */
+export function splitNeverFits(
+  rows: readonly InventoryItemRow[],
+  bays: readonly ShipBay[],
+  capacityFor: (bay: string | null) => number | null,
+  preferences: readonly BayPreference[] = BAY_PREFERENCES,
+): NeverFitSplit {
+  const neverFits: InventoryItemRow[] = [];
+  const rest: InventoryItemRow[] = [];
+  for (const row of rows) {
+    const unit = row.volume ?? null;
+    if (unit === null || !(unit > 0)) {
+      rest.push(row);
+      continue;
+    }
+    const preferred = preferredBays(row, preferences).filter((key) => bayIsPresent(bays, key));
+    const chain: (string | null)[] = preferred.length > 0 ? preferred : [null];
+    const tooBig = chain.every((bay) => {
+      const capacity = capacityFor(bay);
+      return capacity !== null && capacity > 0 && unit > capacity;
+    });
+    (tooBig ? neverFits : rest).push(row);
+  }
+  return { neverFits, rest };
+}

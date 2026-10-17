@@ -54,6 +54,17 @@ const positive = (value) => {
 const vector = (v) => ({ x: v.x, y: v.y, z: v.z });
 
 /**
+ * A wreck's or a container's slim `lootRights`, (ownerID, corpID, fleetID, abandoned): the tuple the client's
+ * Michelle.HaveLootRight reads (michelle.py 1450) and the server builds from its loot-rights snapshot
+ * (destiny/index.js, "lootRights"). Null when the slim item has none.
+ */
+function lootRightsOf(value) {
+  const items = Array.isArray(value) ? value : value && Array.isArray(value.items) ? value.items : null;
+  if (items === null || items.length < 4) return null;
+  return { ownerID: positive(items[0]), corpID: positive(items[1]), fleetID: positive(items[2]), abandoned: items[3] === true || items[3] === 1 };
+}
+
+/**
  * The word the gateway's rows carry for what a thing is. There it is the
  * server's own name for the entity; here it is told from the slim item's
  * category and group, which is all the retail client has to go on.
@@ -212,6 +223,11 @@ function projectEntity(park, ball, slim, ego, placed) {
     isSelf: ego !== null && ball.id === ego,
     ...healthOf(park.damageState.get(ball.id), seen === undefined ? 0 : park.currentTime - seen),
   };
+  if (kind === "wreck" || kind === "container") {
+    // Whose it is to loot: the corporation it was left under and the loot rights the client judges by.
+    row.corporationID = positive(slim.get("corpID"));
+    row.lootRights = lootRightsOf(slim.get("lootRights"));
+  }
   if (kind === "ship" || kind === "structure") {
     const security = number(slim.get("securityStatus"));
     row.characterID = positive(slim.get("charID"));
@@ -394,6 +410,10 @@ function projectSpace(park, { solarSystemID, shipID, readings = null, warpDestin
       hullCapacity: readings ? readings.hullCapacity : null,
       // Which modules are running or overloaded: godma's effects.
       activeModuleIDs: readings && Array.isArray(readings.activeModuleIDs) ? readings.activeModuleIDs : [],
+      // What each running module is cycling on, [moduleID, targetID] pairs. Null where dogma could not be asked.
+      activeModuleTargets: readings && Array.isArray(readings.activeModuleTargets) ? readings.activeModuleTargets : null,
+      // How far each fitted module reaches, [moduleID, metres] pairs, bonuses applied. Null where dogma was not asked.
+      moduleRanges: readings && Array.isArray(readings.moduleRanges) ? readings.moduleRanges : null,
       overloadedModuleIDs: readings && Array.isArray(readings.overloadedModuleIDs) ? readings.overloadedModuleIDs : [],
       // How damaged each module is, {itemID: 0..1}, and which weapons are grouped, {masterID: [slaveID, ...]}:
       // dogma's as well. Null, not empty, when dogma could not be asked: empty means "none".

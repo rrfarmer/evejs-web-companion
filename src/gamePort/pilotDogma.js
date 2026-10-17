@@ -122,6 +122,8 @@ const { marshalDecode } = require("../gameProtocol/marshal");
 // Only the ship's items are kept here, and only what the panel and the scanner need.
 
 /** dogma attribute IDs (dogma/const.py). */
+/** dogma's maxRange: a module's optimal range, in metres. */
+const ATTRIBUTE_MAX_RANGE = 54;
 const ATTRIBUTE = Object.freeze({
   IS_ONLINE: 2,
   DAMAGE: 3,
@@ -782,6 +784,44 @@ function createPilotDogma({ characterID = null, now = filetimeNow, effectCategor
     return found.sort((a, b) => a - b);
   }
 
+  /**
+   * What each running module of `shipID` is cycling on: [moduleID, targetID] pairs, by module, for the modules with
+   * a running effect that names a target (OnGodmaShipEffect's environment[3], as the client's godma keeps it). A
+   * tractor beam or a salvager is told apart from its fellows by this alone.
+   */
+  function moduleTargets(shipID, kinds) {
+    const ship = key(shipID);
+    const pairs = [];
+    for (const [itemID, held] of effects) {
+      if (itemID === ship || typeof itemID !== "number") continue;
+      for (const [effectID, effect] of held) {
+        if (!effect.isActive || effectID === EFFECT_ONLINE || !kinds.has(effectCategory(effectID))) continue;
+        const targetID = number(effect.targetID);
+        if (targetID !== null && targetID > 0) {
+          pairs.push([itemID, targetID]);
+          break;
+        }
+      }
+    }
+    return pairs.sort((a, b) => a[0] - b[0]);
+  }
+
+  /**
+   * How far each of `shipID`'s fitted modules with an optimal range reaches (maxRange, attribute 54), as dogma has
+   * it now: ship, skill and hull bonuses applied, which the static type data does not say. [moduleID, metres]
+   * pairs, by module. A tractor beam's and a salvager's reach is read from here.
+   */
+  function moduleRanges(shipID) {
+    const ship = key(shipID);
+    const pairs = [];
+    for (const itemID of effects.keys()) {
+      if (itemID === ship || typeof itemID !== "number") continue;
+      const range = attribute(itemID, ATTRIBUTE_MAX_RANGE);
+      if (typeof range === "number" && Number.isFinite(range) && range > 0) pairs.push([itemID, range]);
+    }
+    return pairs.sort((a, b) => a[0] - b[0]);
+  }
+
   /** What is left of something as a fraction of its whole, or null when either is not known or there is no whole. */
   const fraction = (left, whole) => (left === null || whole === null || !(whole > 0) ? null : Math.min(1, Math.max(0, left / whole)));
 
@@ -861,6 +901,8 @@ function createPilotDogma({ characterID = null, now = filetimeNow, effectCategor
       hullCapacity: attribute(id, ATTRIBUTE.HP, at),
       // Which of its modules are running, and which are overloaded.
       activeModuleIDs: modulesWith(id, RUNNING),
+      activeModuleTargets: moduleTargets(id, RUNNING),
+      moduleRanges: moduleRanges(id),
       overloadedModuleIDs: modulesWith(id, new Set([EFFECT_CATEGORY.OVERLOAD])),
       moduleDamage: moduleDamage(id, at),
       weaponBanks: weaponBanks(id),

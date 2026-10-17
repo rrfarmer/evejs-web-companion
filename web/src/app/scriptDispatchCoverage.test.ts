@@ -57,8 +57,8 @@ test("a mission's marked spot is warped to by asking its agent, by the page's ow
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   assert.equal([...flow.matchAll(/case "warpMissionLocation":\s+await warpToMissionSpot\(action\.agentID, action\.locationType, action\.locationNumber\);\s+return;/g)].length, 1);
   assert.equal(flow.split("await warpToMissionLocationCall(bridgeDo, readFlightNow, { agentID, locationType, locationNumber });").length - 1, 1);
-  // The bookmarks' folders are read for a saved spot's block, and no more for the mission's.
-  assert.equal(flow.split('if (macro === "warp-to-bookmark") {').length - 1, 1);
+  // The bookmarks' folders are read for a saved spot's block and the salvager's, and no more for the mission's.
+  assert.equal(flow.split('if (macro === "warp-to-bookmark" || macro === "salvage-bookmarked-sites") {').length - 1, 1);
   assert.equal(flow.includes('macro === "warp-to-bookmark" || macro === "fly-to-mission-site"'), false);
 });
 

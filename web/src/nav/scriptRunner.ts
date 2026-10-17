@@ -28,6 +28,8 @@ import { startupSteps, type StartupCheckpoint, type StartupState } from "../bots
 import { resolveStationRef } from "./scriptMacros.ts";
 import {
   activeMacroID,
+  activeStepNeedsFolderSearch,
+  activeStepSalvagerUnloading,
   currentStepID,
   activeStepNeedsTypeNames,
   activeStepMinesIce,
@@ -77,6 +79,10 @@ export interface ObserveHint {
    * means "no", which is what every block but a name-matching one wants.
    */
   readonly needsTypeNames?: boolean;
+  /** Whether the active block is still taking up its bookmark folders, and so needs the folders it may add by name. */
+  readonly needsFolderSearch?: boolean;
+  /** Whether the active block is a salvager emptying its hold, the one time it needs the docked hold read. */
+  readonly salvagerUnloading?: boolean;
   /**
    * Whether the active block is a mining block touring ORE SITES, and so needs
    * the onboard scanner read that only the fly-to-an-anomaly blocks otherwise
@@ -492,6 +498,8 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         activeMacro: activeMacroID(script, memory),
         needsMobileCombat: needsMobileCombat(script.program),
         needsTypeNames: activeStepNeedsTypeNames(script, memory),
+        needsFolderSearch: activeStepNeedsFolderSearch(script, memory),
+        salvagerUnloading: activeStepSalvagerUnloading(script, memory),
         needsOreSites: activeStepToursOreSites(script, memory),
         minesIce: activeStepMinesIce(script, memory),
         squadRole: activeSquadRole(script, memory),
@@ -526,7 +534,11 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     const travelAuthority = operation?.travelAssist === "AUTO" && !operation.stopRequested &&
       !!ownedTarget && ownedTarget.claimedByOperationID === operation.operationID &&
       ["RESERVED", "ACTIVE", "DRAINING"].includes(ownedTarget.state);
-    if (travelAssist?.pending() && !travelAuthority) {
+    // The dedicated salvager has no mining operation: its subwarp approaches are its own
+    // authority (the macro being active), scoped by step path; the entity or point
+    // approached is the assist's own key.
+    const salvagerTravel = activeMacroID(script, memory) === "salvage-bookmarked-sites";
+    if (travelAssist?.pending() && !travelAuthority && !salvagerTravel) {
       await travelAssist.beforeAction({ enabled: false, scope: null, action: { kind: "wait" },
         snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null, docked: obs.docked ?? null,
         modules: [], scrammed: obs.scrammed ?? null });
@@ -627,11 +639,13 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     }
     if (travelAssist) {
       const movementMacro = activeMacroID(script, memory);
+      const scopeIsSalvager = salvagerTravel && !ownedTarget;
       const consumed = await travelAssist.beforeAction({
-        enabled: travelAuthority && result.status === "running" && result.memory.latched === null &&
-          ["mine-at-belt", "fleet-mine", "loot-containers"].includes(movementMacro ?? ""),
-        scope: ownedTarget ? `${ownedTarget.targetKey}:${result.stepPath}` : null,
-        action: result.action, snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null,
+        enabled: result.status === "running" && result.memory.latched === null &&
+          ((travelAuthority && ["mine-at-belt", "fleet-mine", "loot-containers"].includes(movementMacro ?? "")) ||
+            (salvagerTravel && movementMacro === "salvage-bookmarked-sites")),
+        scope: ownedTarget ? `${ownedTarget.targetKey}:${result.stepPath}` : salvagerTravel ? `salvager:${result.stepPath}` : null,
+        action: result.action, workWhileMoving: scopeIsSalvager, snapshot: obs.snapshot ?? null, inWarp: obs.inWarp ?? null,
         docked: obs.docked ?? null, modules: obs.travelPropulsionModules ?? [], scrammed: obs.scrammed ?? null,
       });
       if (consumed || token !== runToken || status !== "running") return;

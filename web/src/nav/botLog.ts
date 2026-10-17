@@ -193,6 +193,14 @@ export function describeAction(action: ScriptAction): string {
       return `warp to scan result ${action.target}`;
     case "warpBookmark":
       return `warp to bookmark ${action.bookmarkID}`;
+    case "addKnownFolder":
+      return `add bookmark folder ${action.folderID}`;
+    case "setFolderActive":
+      return `switch bookmark folder ${action.folderID} ${action.active ? "on" : "off"}`;
+    case "salvageBatch":
+      return `salvage work: ${action.steps.map((s) => s.kind === "lock" || s.kind === "unlock" ? `${s.kind} ${s.targetID}` : s.kind === "activate" ? `module ${s.moduleID} on ${s.targetID}` : `module ${s.moduleID} off`).join(", ")}`;
+    case "moveBookmarks":
+      return `move bookmark ${action.bookmarkIDs.join(",")} from folder ${action.fromFolderID} to ${action.toFolderID}`;
     case "warpLaunch":
       return `warp to launch ${action.launchID}`;
     case "warpMissionLocation":
@@ -253,6 +261,8 @@ export function describeAction(action: ScriptAction): string {
       return "stack the hangar";
     case "startSystemRoute":
       return `set course to system ${action.systemID}`;
+    case "stopRoute":
+      return "stop the route";
     case "createFleet":
       return "form a fleet";
     case "inviteToFleet":

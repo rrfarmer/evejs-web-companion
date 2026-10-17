@@ -14,10 +14,19 @@ export function travelPropulsionActivation(module: PropulsionModule): { effect: 
   return { effect: module.kind === "afterburner" ? "moduleBonusAfterburner" : "moduleBonusMicrowarpdrive", repeat: -1 };
 }
 
+/** Centre-to-point distance from the ship; null when the ship's position is unknown. */
+function distanceToPoint(snapshot: SpaceSnapshot, point: { x: number; y: number; z: number }): number | undefined {
+  if (!snapshot.inSpace) return undefined;
+  const origin = snapshot.ship?.position ?? snapshot.entities.find(entity => entity.isSelf)?.position ?? null;
+  return origin ? Math.hypot(origin.x - point.x, origin.y - point.y, origin.z - point.z) : undefined;
+}
+
 export interface TravelAssistInput {
   enabled: boolean;
   scope: string | null;
-  action: { kind: string; targetID?: number | null; range?: number };
+  action: { kind: string; targetID?: number | null; range?: number; position?: { x: number; y: number; z: number }; moduleID?: number };
+  /** Salvager scope: module work, looting and target handling while a leg is flown do not end the owned approach. */
+  workWhileMoving?: boolean;
   snapshot: SpaceSnapshot | null;
   inWarp: boolean | null;
   docked: boolean | null;
@@ -33,9 +42,14 @@ export interface TravelAssistDeps {
 
 /** Optional shared movement decorator. No MCC/profile selector and no reads or
  * polling of its own. Only a confirmed subwarp approach can create intent. */
+/** Two points this close are one leg (see the salvager's next spot). */
+const POINT_SAME_LEG_M = 1_000;
+
 export function createTravelAssist(deps: TravelAssistDeps) {
-  let movement: { targetID: number; scope: string; range: number } | null = null;
-  let owned: { module: PropulsionModule; targetID: number; scope: string; stopAttempts: number;
+  // `key` names the thing approached: an entity ("t<id>") or a fixed point ("p<x>,<y>,<z>"),
+  // so a gotoPoint approach is owned and cleaned up exactly like an entity approach.
+  let movement: { key: string; targetID: number | null; point: { x: number; y: number; z: number } | null; scope: string; range: number } | null = null;
+  let owned: { module: PropulsionModule; key: string; scope: string; stopAttempts: number;
     baselineMax: number | null; baselineSpeed: number | null; observations: number; effectSeen: boolean; accelerationSeen: boolean } | null = null;
   let refused: string | null = null;
   let logged = "";
@@ -57,10 +71,14 @@ export function createTravelAssist(deps: TravelAssistDeps) {
   return {
     async beforeAction(input: TravelAssistInput): Promise<boolean> {
       const active = input.snapshot?.ship?.activeModuleIDs;
+      const kind = input.action.kind;
+      const isWork = input.workWhileMoving === true && (
+        ["lock", "unlock", "lootWreck", "lootContainer", "salvageDrones", "launchDrones", "recallDrones", "salvageBatch"].includes(kind) ||
+        (["activate", "deactivate"].includes(kind) && !input.modules.some(module => module.itemID === input.action.moduleID)));
       const usable = input.enabled && input.scope !== null && input.inWarp === false && input.docked === false && active != null;
       if (owned && active != null && !active.includes(owned.module.itemID)) {
         log(`Travel assist off confirmed: ${owned.module.itemID}; no automatic restart on the same approach.`);
-        refused = `${owned.scope}:${owned.targetID}`;
+        refused = `${owned.scope}:${owned.key}`;
         owned = null;
       }
       if (owned && active?.includes(owned.module.itemID)) {
@@ -78,16 +96,34 @@ export function createTravelAssist(deps: TravelAssistDeps) {
         }
         if (!owned.effectSeen && owned.observations === 3) log(`Travel assist ${owned.module.itemID}: cycling, but physical speed bonus not confirmed by current snapshots.`);
       }
+      const point = input.action.kind === "gotoPoint" ? input.action.position : undefined;
       if (usable && ["approach", "orbit"].includes(input.action.kind) && input.action.targetID != null) {
-        movement = { targetID: input.action.targetID, scope: input.scope!, range: input.action.range ?? 0 };
-      } else if (!usable || !["wait", "lock"].includes(input.action.kind) || movement?.scope !== input.scope) movement = null;
-      const measured = movement && input.snapshot ? measureSpace(input.snapshot)?.distances.get(movement.targetID) : undefined;
+        movement = { key: `t${input.action.targetID}`, targetID: input.action.targetID, point: null, scope: input.scope!, range: input.action.range ?? 0 };
+      } else if (usable && point && [point.x, point.y, point.z].every(Number.isFinite)) {
+        // ⚠ A POINT A FEW METRES ON IS THE SAME LEG. A salvager's next spot is worked out afresh each time it is
+        // sent, and lands metres from the last: keyed exactly, each send ended the leg and lit the prop again,
+        // flicking the afterburner every cycle (seen live 2026-10-14). Within POINT_SAME_LEG_M it keeps its key.
+        const same = movement?.point && movement.scope === input.scope &&
+          Math.hypot(movement.point.x - point.x, movement.point.y - point.y, movement.point.z - point.z) <= POINT_SAME_LEG_M;
+        movement = same ? { ...movement!, point } : { key: `p${Math.round(point.x)},${Math.round(point.y)},${Math.round(point.z)}`, targetID: null, point, scope: input.scope!, range: 0 };
+      } else if (!usable || !(["wait", "lock"].includes(kind) || isWork) || movement?.scope !== input.scope) movement = null;
+      const measured = !movement || !input.snapshot ? undefined
+        : movement.point ? distanceToPoint(input.snapshot, movement.point)
+        : measureSpace(input.snapshot)?.distances.get(movement.targetID!);
       const distance = measured == null || !Number.isFinite(measured) ? undefined : measured - (movement?.range ?? 0);
       if (distance == null || distance <= 5_000) movement = null;
-      if (owned && (!movement || owned.scope !== movement.scope || owned.targetID !== movement.targetID ||
-          (input.scrammed === true && owned.module.kind === "microwarpdrive"))) return stop();
-      if (!movement || owned || distance! <= 10_000 || input.action.kind === "lock") return false;
-      const key = `${movement.scope}:${movement.targetID}`;
+      // ⚠ WHILE MOVING WITH WORK TO DO, THE PROP NEVER TAKES THE TICK. The runner drops the tick's own action when
+      // this answers true, which a mining loop re-decides next tick but a salvager does not: its one order to fly
+      // to the next spot was swallowed whenever the prop came on or off, and the ship drifted (seen live
+      // 2026-10-14: fifteen sends, three reached the server). Here the change is made and the action still goes.
+      const keepTick = input.workWhileMoving === true;
+      if (owned && (!movement || owned.scope !== movement.scope || owned.key !== movement.key ||
+          (input.scrammed === true && owned.module.kind === "microwarpdrive"))) {
+        const stopped = await stop();
+        return keepTick ? false : stopped;
+      }
+      if (!movement || owned || distance! <= 10_000 || input.action.kind === "lock" || isWork) return false;
+      const key = `${movement.scope}:${movement.key}`;
       if (refused === key) return false;
       // Respect externally active modules. AB first, then itemID; shared policy
       // still owns capacitor/scram rules. Never activate both AB and MWD.
@@ -105,12 +141,12 @@ export function createTravelAssist(deps: TravelAssistDeps) {
       const baselineMax = input.snapshot?.ship?.maxVelocity;
       const velocity = input.snapshot?.ship?.velocity;
       const baselineSpeed = velocity ? Math.hypot(velocity.x, velocity.y, velocity.z) : NaN;
-      owned = { module: picked.module, ...movement, stopAttempts: 0,
+      owned = { module: picked.module, key: movement.key, scope: movement.scope, stopAttempts: 0,
         baselineMax: baselineMax != null && Number.isFinite(baselineMax) ? baselineMax : null,
         baselineSpeed: Number.isFinite(baselineSpeed) ? baselineSpeed : null, observations: 0, effectSeen: false, accelerationSeen: false };
       try {
         if (!await deps.change(picked.module, true)) throw new Error("activation not confirmed");
-        log(`Travel assist ${picked.module.kind} ${picked.module.itemID}: activation/cycling confirmed for approach ${movement.targetID}; awaiting physical effect observation.`);
+        log(`Travel assist ${picked.module.kind} ${picked.module.itemID}: activation/cycling confirmed for approach ${movement.key}; awaiting physical effect observation.`);
       } catch (error) {
         refused = key;
         movement = null;
@@ -120,7 +156,7 @@ export function createTravelAssist(deps: TravelAssistDeps) {
         log(`Travel assist activation refused/unconfirmed: ${String(error)}; ordinary movement continues.`);
         // Keep custody of an ambiguous write until the next observation/off.
       }
-      return true;
+      return !keepTick;
     },
     async requestStop(): Promise<void> { movement = null; await stop(); },
     pending(): boolean { return owned !== null; },

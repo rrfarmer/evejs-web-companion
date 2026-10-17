@@ -75,7 +75,7 @@ test("GetAllInfo from a real server: the ship and its module are held, and the s
   // What the gateway's snapshot said of the same ship: capacitor 1, capacities 175, 150, 150.
   assert.deepEqual(dogma.shipReadings(SHIP), {
     capacitorRatio: 1, shieldRatio: 1, armorRatio: 1, hullRatio: 1, shieldCapacity: 175, armorCapacity: 150, hullCapacity: 150,
-    activeModuleIDs: [], overloadedModuleIDs: [], moduleDamage: {}, weaponBanks: {},
+    activeModuleIDs: [], activeModuleTargets: [], moduleRanges: [], overloadedModuleIDs: [], moduleDamage: {}, weaponBanks: {},
     // A real ship's row carries its racks' heat capacities, so its racks are known, and cold.
     rackHeat: { high: 0, mid: 0, low: 0 },
   });
@@ -208,7 +208,7 @@ test("when the capacity or the recharge time changes, the charge carries on from
   // What was never said (no armour damage, no hull damage, no ship state) is not known, and is not made up.
   assert.deepEqual(small().shipReadings(5001), {
     capacitorRatio: 1, shieldRatio: 1, armorRatio: null, hullRatio: null, shieldCapacity: 200, armorCapacity: 300, hullCapacity: 400,
-    activeModuleIDs: [], overloadedModuleIDs: [], moduleDamage: {}, weaponBanks: null, rackHeat: null,
+    activeModuleIDs: [], activeModuleTargets: [], moduleRanges: [], overloadedModuleIDs: [], moduleDamage: {}, weaponBanks: null, rackHeat: null,
   });
   assert.ok(Math.abs(small({ charge: 25 }).shipReadings(5001, T0).capacitorRatio - 0.25) < 1e-12);
 });
@@ -1116,4 +1116,16 @@ test("what the ship changes of its pilot is laid over the character at a priming
   const late = createPilotDogma({ characterID: P_PILOT });
   late.loadAllInfo(answer);
   assert.deepEqual([late.attribute(P_PILOT, MISSILE_DAMAGE), late.attributesOf(P_PILOT).length, late.holdsCharacter()], [1.07, 1, false]);
+});
+
+test("a running module's target is said beside it: what a tractor beam or a salvager is cycling on", () => {
+  const dogma = createPilotDogma({ characterID: PILOT, effectCategory });
+  dogma.loadAllInfo(answers(flight).find((answer) => answer.during === "GetAllInfo in space" && answer.value && answer.value.type === "object").value);
+  const WRECK = 9000000123;
+  // OnGodmaShipEffect(itemID, effectID, when, ?, active, environment, startTime, duration, repeat): environment[3] is the target.
+  assert.equal(dogma.feed({ method: "OnGodmaShipEffect", args: [MODULE, AFTERBURNER, 0n, null, 1, [MODULE, PILOT, SHIP, WRECK], 0n, 10000, 1000] }), true);
+  assert.deepEqual(dogma.shipReadings(SHIP).activeModuleTargets, [[MODULE, WRECK]]);
+  // Stopped: no longer said.
+  dogma.feed({ method: "OnGodmaShipEffect", args: [MODULE, AFTERBURNER, 0n, null, 0, [MODULE, PILOT, SHIP, WRECK], 0n, 10000, 0] });
+  assert.deepEqual(dogma.shipReadings(SHIP).activeModuleTargets, []);
 });

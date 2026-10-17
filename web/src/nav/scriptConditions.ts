@@ -354,6 +354,8 @@ export interface ScriptObservation {
   readonly miningModuleIDs?: readonly number[];
   /** Fitted salvager ids, refreshed when the active hull or fit changes. */
   readonly salvageModuleIDs?: readonly number[];
+  /** The fitted, online tractor beams (group "Tractor Beam"), as `salvageModuleIDs` reads the salvagers. */
+  readonly tractorModuleIDs?: readonly number[];
   /** Fitted repairers by layer, refreshed when the active hull or fit changes. */
   readonly shieldRepairerIDs?: readonly number[];
   readonly armorRepairerIDs?: readonly number[];
@@ -523,8 +525,23 @@ export interface ScriptObservation {
   readonly bookmarks?: readonly {
     readonly bookmarkID: number;
     readonly name: string;
+    /** The folder it is filed in. */
+    readonly folderID?: number;
+    /** How long ago it was made, by the server's clock; null where it does not say. */
+    readonly ageMs?: number | null;
     readonly solarSystemID: number | null;
+    /** Where in its system it is, for a bookmark of a place (an item's bookmark has none). */
+    readonly position?: { readonly x: number; readonly y: number; readonly z: number } | null;
   }[] | null;
+  /**
+   * The pilot's bookmark folders, read when a folder-using step is active: those it KNOWS (its personal ones and
+   * the shared ones it has added, active or not; GetMyActiveBookmarks) and those it may add by name (the shared
+   * folders it administers; SearchFoldersWithAdminAccess). null = unreadable.
+   */
+  readonly bookmarkFolders?: {
+    readonly known: readonly { readonly folderID: number; readonly name: string; readonly isPersonal: boolean; readonly isActive: boolean }[];
+    readonly addable: readonly { readonly folderID: number; readonly name: string; readonly isPersonal: boolean }[];
+  } | null;
   /** The ACTIVE ship's item id (from the docked inventory read). */
   readonly activeShipID?: number | null;
   /** Item ids the repair shop quotes as DAMAGED (read when a repair step is active). */

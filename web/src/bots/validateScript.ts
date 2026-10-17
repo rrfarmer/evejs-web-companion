@@ -65,6 +65,10 @@ const ARG_LABEL: Readonly<Record<string, string>> = {
   system: "a solar system to go to",
   fitting: "a fitting to switch to",
   bookmark: "a saved bookmark to warp to",
+  folder: "a bookmark folder to use",
+  alsoFolder: "another bookmark folder to use",
+  fromFolder: "the bookmark folder of sites to salvage",
+  doneFolder: "the bookmark folder to file finished sites in",
   from: "where to move items from",
   to: "where to move items to",
   items: "something to load",
@@ -197,6 +201,9 @@ function validateStep(step: MacroStep, problems: ScriptProblem[]): void {
     // entirely is fine — the step then uses the agent the find block remembered.
     if (arg.kind === "bookmark" && arg.bookmarkID === null && (arg.name === null || arg.name === "")) {
       problems.push(blocking(step.id, "Pick the saved spot for this step."));
+    }
+    if (arg.kind === "bookmarkFolder" && arg.folderID === null && (arg.name === null || arg.name.trim() === "")) {
+      problems.push(blocking(step.id, "Pick the bookmark folder for this step."));
     }
     // A list the player ADDED but left empty. Only a REQUIRED one is a problem:
     // an empty "keep aboard" list means "keep nothing", which is the shipped

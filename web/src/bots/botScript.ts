@@ -295,6 +295,9 @@ export type Arg =
   /** A saved BOOKMARK. The id is a same-world hint; the NAME (its label) is what
    * the block matches at run time, so an imported script still finds "Safe spot". */
   | { readonly kind: "bookmark"; readonly bookmarkID: number | null; readonly name: string | null }
+  /** A BOOKMARK FOLDER, personal or shared. The id is a same-world hint; the NAME is what the block matches at run
+   * time, as it is for `bookmark`. */
+  | { readonly kind: "bookmarkFolder"; readonly folderID: number | null; readonly name: string | null }
   /** An ISK amount the player sets — a buy ceiling or a sell floor (per unit). */
   | { readonly kind: "isk"; readonly value: number }
   /** A market quantity — how many units a buy order is for. */
@@ -850,6 +853,14 @@ export type MacroID =
   | "board-planetary-hauler"
   | "move-items"
   | "warp-to-bookmark"
+  // Take up and switch on the bookmark folders a bot works from (a shared folder is
+  // seen only once a pilot has added it and switched it on). Done when every one is on.
+  | "use-bookmark-folders"
+  // The dedicated salvager's lap: work through the sites bookmarked in one
+  // folder (loot your corporation's wrecks, salvage every wreck), file each
+  // finished site's bookmark in another, unload at a station when the hold is
+  // full, and dock there to wait when no site is left. Never finishes.
+  | "salvage-bookmarked-sites"
   | "find-combat-agent"
   | "fly-to-mission-site"
   | "restart-extractors"
@@ -950,6 +961,8 @@ export const MACRO_IDS: readonly MacroID[] = Object.freeze<MacroID[]>([
   "board-planetary-hauler",
   "move-items",
   "warp-to-bookmark",
+  "use-bookmark-folders",
+  "salvage-bookmarked-sites",
   "find-combat-agent",
   "fly-to-mission-site",
   "restart-extractors",

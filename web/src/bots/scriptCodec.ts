@@ -889,6 +889,18 @@ function readArg(raw: unknown, expected: Arg["kind"], label: string, ctx: Ctx, d
         : readText(nameRaw, { min: 0, max: MAX_WORLD_NAME_LEN, allowNewline: false }, ctx, SAY.badArg(label));
     return { kind: "bookmark", bookmarkID: id === null || id === undefined ? null : (id as number), name };
   }
+  if (expected === "bookmarkFolder") {
+    const id = obj["folderID"];
+    if (id !== null && id !== undefined && (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0)) {
+      refuse(SAY.badArg(label));
+    }
+    const nameRaw = obj["name"];
+    const name =
+      nameRaw === null || nameRaw === undefined
+        ? null
+        : readText(nameRaw, { min: 0, max: MAX_WORLD_NAME_LEN, allowNewline: false }, ctx, SAY.badArg(label));
+    return { kind: "bookmarkFolder", folderID: id === null || id === undefined ? null : (id as number), name };
+  }
   if (expected === "corp") {
     const id = obj["id"];
     if (id !== null && (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0)) {
@@ -1422,6 +1434,8 @@ function orderArg(arg: Arg): unknown {
       return { kind: "corpDivision", division: arg.division, name: arg.name };
     case "bookmark":
       return { kind: "bookmark", bookmarkID: arg.bookmarkID, name: arg.name };
+    case "bookmarkFolder":
+      return { kind: "bookmarkFolder", folderID: arg.folderID, name: arg.name };
     case "isk":
       return { kind: "isk", value: arg.value };
     case "qty":

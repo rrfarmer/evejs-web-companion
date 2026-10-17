@@ -394,7 +394,7 @@ test("the snapshot of a real grid: every ball that has a slim item, in the gatew
     position: { ...ball.newPos }, velocity: { ...ball.newVel }, shieldRatio: 1, armorRatio: 1, hullRatio: 1,
     capacitorRatio: null, shieldCapacity: null, armorCapacity: null, hullCapacity: null,
     // Dogma has not been asked: what only it knows is not known, which is null and not "none".
-    activeModuleIDs: [], overloadedModuleIDs: [], moduleDamage: null, weaponBanks: null, rackHeat: null,
+    activeModuleIDs: [], activeModuleTargets: null, moduleRanges: null, overloadedModuleIDs: [], moduleDamage: null, weaponBanks: null, rackHeat: null,
   });
   // A station: no ship's fields, and the health the server sent for it.
   const station = row(60003760);
@@ -1103,4 +1103,19 @@ test("a drone's notice of its own goes to the pilot's park, as michelle sends it
   assert.equal(space.feed({ method: "OnDroneStateChange", args: null }), false);
   assert.equal(space.feed({ method: "OnDroneActivityChange", args: undefined }), false);
   assert.deepEqual([space.park.stateByDroneID.size, state.errors], [1, []]);
+});
+
+test("a wreck's and a can's row carry the corporation and the loot rights their slim item names, as the client's HaveLootRight reads them", () => {
+  const park = undockedPark();
+  const slim = (fields) => new Map(Object.entries(fields));
+  // destiny/index.js: a wreck's slim item has corpID and lootRights = [ownerID, corpID, fleetID, abandoned].
+  park.ballpark.addBall({ id: 9000000000101, isFree: false, mass: 1, radius: 50, x: 4000 });
+  park.slimItems.set(9000000000101, slim({ itemID: 9000000000101, typeID: 26468, groupID: 186, categoryID: 2, ownerID: 90000002, corpID: 98999901, lootRights: [90000002, 98999901, null, false] }));
+  park.ballpark.addBall({ id: 9000000000102, isFree: false, mass: 1, radius: 50, x: -4000 });
+  park.slimItems.set(9000000000102, slim({ itemID: 9000000000102, typeID: 23, groupID: 12, categoryID: 2, ownerID: 90000003, corpID: 0, lootRights: { type: "list", items: [90000003, 0, 7000123, true] } }));
+  const rows = projectSpace(park, { solarSystemID: SYSTEM, shipID: undock.shipID }).entities;
+  const wreck = rows.find((each) => each.itemID === 9000000000101);
+  assert.deepEqual([wreck.kind, wreck.corporationID, wreck.lootRights], ["wreck", 98999901, { ownerID: 90000002, corpID: 98999901, fleetID: null, abandoned: false }]);
+  const can = rows.find((each) => each.itemID === 9000000000102);
+  assert.deepEqual([can.kind, can.corporationID, can.lootRights], ["container", null, { ownerID: 90000003, corpID: null, fleetID: 7000123, abandoned: true }]);
 });
