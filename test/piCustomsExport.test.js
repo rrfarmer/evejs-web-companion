@@ -181,6 +181,45 @@ test("a colony whose launchpads are all empty says so rather than planning a cal
   assert.equal(entry.reason, "nothing-on-the-pads");
 });
 
+test("a launchpad's factory inputs stay on the planet: only what the colony makes goes up", () => {
+  // No extractors: the launchpad is the colony's only store. Aqueous Liquids
+  // are imported onto it and routed to the factory; the factory routes Water
+  // back onto it.
+  const spaceportOnly = [{
+    ...projectedColony(PLANET_A, "Alpha I", [
+      pin(5, "launchpad", { [WATER_TYPE_ID]: 300, [AQUEOUS_TYPE_ID]: 3000 }),
+      pin(7, "factory", {}),
+    ]),
+    routes: [
+      { routeID: 1, path: [5, 7], commodityTypeID: AQUEOUS_TYPE_ID, commodityQuantity: 3000 },
+      { routeID: 2, path: [7, 5], commodityTypeID: WATER_TYPE_ID, commodityQuantity: 20 },
+    ],
+  }];
+  const [entry] = planCustomsExports(spaceportOnly, [PLANET_A]);
+  assert.deepEqual(entry.pads, [{ pinID: 5, commodities: { [WATER_TYPE_ID]: 300 } }]);
+  assert.equal(unitsOf(entry), 300);
+});
+
+test("a launchpad holding nothing but factory inputs counts as empty and plans no call", () => {
+  const inputsOnly = [{
+    ...projectedColony(PLANET_A, "Alpha I", [pin(5, "launchpad", { [AQUEOUS_TYPE_ID]: 3000 }), pin(7, "factory", {})]),
+    // Through a storage pin on the way: the route's END is what feeds.
+    routes: [{ routeID: 1, path: [5, 8, 7], commodityTypeID: AQUEOUS_TYPE_ID, commodityQuantity: 3000 }],
+  }];
+  const [entry] = planCustomsExports(inputsOnly, [PLANET_A]);
+  assert.deepEqual(entry.pads, []);
+  assert.equal(entry.reason, "nothing-on-the-pads");
+});
+
+test("a type routed somewhere that is not a factory is still a product", () => {
+  const toStorage = [{
+    ...projectedColony(PLANET_A, "Alpha I", [pin(5, "launchpad", { [WATER_TYPE_ID]: 300 }), pin(8, "storage", {})]),
+    routes: [{ routeID: 1, path: [5, 8], commodityTypeID: WATER_TYPE_ID, commodityQuantity: 300 }],
+  }];
+  const [entry] = planCustomsExports(toStorage, [PLANET_A]);
+  assert.deepEqual(entry.pads, [{ pinID: 5, commodities: { [WATER_TYPE_ID]: 300 } }]);
+});
+
 test("the office is read off the system's items by group and orbited planet", () => {
   const offices = officesByPlanetID(rowsetRows(solarSystemItems()));
   assert.equal(offices.get(PLANET_A), OFFICE_A);

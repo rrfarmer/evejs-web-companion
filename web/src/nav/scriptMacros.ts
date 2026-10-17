@@ -5810,8 +5810,9 @@ function customsOfficesOnGrid(snapshot: SpaceSnapshot): readonly SpaceEntity[] {
 /**
  * The launchpads of the colony on an office's planet that hold goods and have
  * not been given up on: what the retail client's customs window would send up
- * from that office. None where the office does not say its planet (the web
- * gateway's snapshot), or where the colonies were not read.
+ * from that office, less what the colony's factories are fed. None where the
+ * office does not say its planet (the web gateway's snapshot), or where the
+ * colonies were not read.
  */
 function launchpadsToSendUp(
   office: SpaceEntity,
@@ -5825,13 +5826,22 @@ function launchpadsToSendUp(
     if (colony.planetID !== planetID) {
       continue;
     }
+    // ⚠ ONLY WHAT THE COLONY MAKES. A launchpad can be a colony's only store,
+    // holding the imports its factories run on beside their output. A route
+    // into a factory says which is which, and an input stays on the planet.
+    const inputs = new Set(colony.factoryInputTypeIDs ?? []);
     for (const pin of colony.pins) {
-      if (pin.kind !== "launchpad" || pin.contents.length === 0) {
+      if (pin.kind !== "launchpad") {
         continue; // only a spaceport's goods go up through an office
       }
       const commodities: Record<number, number> = {};
       for (const item of pin.contents) {
-        commodities[item.typeID] = item.quantity;
+        if (!inputs.has(item.typeID)) {
+          commodities[item.typeID] = item.quantity;
+        }
+      }
+      if (Object.keys(commodities).length === 0) {
+        continue;
       }
       pads.push({
         pinID: pin.pinID,

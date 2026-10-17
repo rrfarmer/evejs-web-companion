@@ -104,11 +104,34 @@ function officesByPlanetID(solarSystemItems) {
 }
 
 /**
+ * The commodities a colony's own factories are fed: every type a route
+ * delivers into a factory pin. Mirrors factoryInputTypeIDs in
+ * web/src/bridge/colonyRoutes.ts, which the run's collect-customs block uses.
+ */
+function factoryInputTypeIDs(colony) {
+  const pins = Array.isArray(colony && colony.pins) ? colony.pins : [];
+  const factories = new Set(pins.filter((pin) => pin && pin.kind === "factory").map((pin) => Number(pin.pinID) || 0));
+  const inputs = new Set();
+  for (const route of Array.isArray(colony && colony.routes) ? colony.routes : []) {
+    const path = Array.isArray(route && route.path) ? route.path : [];
+    const into = Number(path[path.length - 1]) || 0;
+    const typeID = Number(route && route.commodityTypeID) || 0;
+    if (into > 0 && factories.has(into) && typeID > 0) inputs.add(typeID);
+  }
+  return inputs;
+}
+
+/**
  * What to export, read off the colonies the gateway snapshot already carries.
  *
  * One entry per planet asked about, in the order asked. A planet with no
  * colony, or whose launchpads are empty, comes back with no pads: the caller
  * says so rather than connecting for nothing.
+ *
+ * ⚠ ONLY WHAT THE COLONY MAKES. A launchpad can be a colony's only store,
+ * holding the imports its factories run on beside their output. A type a route
+ * delivers into a factory is an input and stays on the planet; a pad holding
+ * nothing else counts as empty.
  */
 function planCustomsExports(colonies, planetIDs) {
   const byPlanetID = new Map();
@@ -126,6 +149,7 @@ function planCustomsExports(colonies, planetIDs) {
       continue;
     }
     const pads = [];
+    const inputs = factoryInputTypeIDs(colony);
     for (const pin of Array.isArray(colony.pins) ? colony.pins : []) {
       if (pin.kind !== "launchpad") continue;
       const commodities = {};
@@ -133,7 +157,7 @@ function planCustomsExports(colonies, planetIDs) {
       for (const entry of Array.isArray(pin.contents) ? pin.contents : []) {
         const typeID = Number(entry && entry.typeID) || 0;
         const quantity = Math.trunc(Number(entry && entry.quantity) || 0);
-        if (typeID > 0 && quantity > 0) {
+        if (typeID > 0 && quantity > 0 && !inputs.has(typeID)) {
           commodities[typeID] = (commodities[typeID] || 0) + quantity;
           any = true;
         }
