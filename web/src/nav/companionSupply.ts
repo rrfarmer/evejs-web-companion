@@ -177,7 +177,14 @@ export function droneSupply(obs: FleetCompanionObservation): DroneSupply | null 
   // as -1 (the client reads it so: eveMisc.LaunchFromShip). Summed raw, a bay of
   // eleven recovered drones read "-11 in bay" (seen live 2026-10-16).
   const inBay = stacks.reduce((sum, stack) => sum + (stack.quantity < 0 ? 1 : stack.quantity), 0);
-  return { inBay, out: out.length };
+  // ⚠ A DRONE BEING SCOOPED IS IN BOTH READS FOR A MOMENT. It comes back a
+  // singleton with its own item id, and the bay read has it a second or so
+  // before the scene read lets it go; counted in both, a flight coming home
+  // read as eleven drones plus five, the run's most-carried mark went up to
+  // match, and once they were all aboard the real eleven read "low" (seen live
+  // 2026-10-20). A drone the bay already holds is counted there and only there.
+  const aboard = new Set(stacks.map((stack) => stack.itemID));
+  return { inBay, out: out.filter((droneID) => !aboard.has(droneID)).length };
 }
 
 function ammoLevel(ammo: AmmoSupply | null): SupplyLevel | null {

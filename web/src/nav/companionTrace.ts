@@ -254,6 +254,8 @@ export interface DroneRowTrace {
 export interface DronesTrace {
   /** What the hurt-drone rotation decided: `RotationReason` (companionDroneRotation.ts). */
   readonly rotation: string;
+  /** The pilot's active-drone cap as the tick read it; null when it did not read. */
+  readonly cap?: number | null;
   readonly rows: readonly DroneRowTrace[];
   /** Launches the rotation is waiting to see land: a spare from a stack, or the drone itself. */
   readonly launching: readonly { readonly hurtID: number; readonly via: "same" | "spare"; readonly stackID: number }[];
