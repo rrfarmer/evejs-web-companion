@@ -146,6 +146,23 @@ export function learnDivisionNames(
   return { ...prefs, divisionNames: withEntry(prefs.divisionNames, corporationID, [...divisions]) };
 }
 
+/**
+ * A pilot's picked division as the player reads it, by its corporation's
+ * names as last learned. A pick saved before the names were known carries no
+ * name, and must not keep saying "Division 1" once the name is known.
+ */
+export function pickedDivisionWords(
+  prefs: PiHaulPrefs,
+  corporationID: number | null,
+  division: PiHaulDivision,
+): string | null {
+  if (division === null) return null;
+  const learned = corporationID === null
+    ? null
+    : prefs.divisionNames.get(corporationID)?.find((entry) => entry.division === division.division)?.name ?? null;
+  return divisionLabel(division.division, learned ?? division.name);
+}
+
 /** A division as the player reads it: its name, else its number. */
 export function divisionLabel(division: number, name: string | null): string {
   return name !== null && name.trim().length > 0 ? name : `Division ${division}`;

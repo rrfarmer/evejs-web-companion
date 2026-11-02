@@ -55,9 +55,9 @@
   } from "../bridge/piBoard.ts";
   import { haulFor, restartExtractorsFor, type PiHaulDivision } from "../app/piDispatch.ts";
   import {
-    divisionLabel,
     learnDivisionNames,
     loadPiHaulPrefs,
+    pickedDivisionWords,
     savePiHaulPrefs,
     withEntry,
     withPiHaulDelivery,
@@ -1405,7 +1405,7 @@
             {@const tickedCount = group.rows.filter((row) => ticked.has(row.planetID)).length}
             {@const division = haulPrefs.divisions.get(group.characterID) ?? null}
             {@const deliverTo = haulPrefs.deliverTo.get(group.characterID) ?? null}
-            {@const intoWords = division === null ? null : divisionLabel(division.division, division.name)}
+            {@const intoWords = pickedDivisionWords(haulPrefs, corporationOf(group.characterID), division)}
             {@const haulOffer = piHaulWords(group.pilotName, tickedCount, intoWords, deliverTo?.name ?? null)}
             {@const namesHere = namesKnown(group.characterID)}
             {@const haulState = haulDispatch.get(group.characterID) ?? null}
