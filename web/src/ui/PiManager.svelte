@@ -76,6 +76,7 @@
   import PiHelp from "./PiHelp.svelte";
   import {
     colonyRunMark,
+    leftCollectingStage,
     piRunView,
     startWatch,
     watchEnded,
@@ -301,14 +302,21 @@
     runWatch = next;
   }
 
-  /** Move every watched run on by the roster just read; ask how ended ones went. */
+  /**
+   * Move every watched run on by the roster just read; ask how ended ones went.
+   * A haul that has just left a system it collected in has its pilot read
+   * again, so those colonies' storage moves while the run is still flying.
+   */
   function followRuns(): void {
+    const leftSystem: number[] = [];
     for (const [characterID, watch] of runWatch) {
       const next = watchPoll(watch, liveBots.get(characterID) ?? null);
       if (next === watch) continue;
       setWatch(characterID, next);
       if (next.ending) void lookUpEnding(characterID);
+      else if (leftCollectingStage(watch, next)) leftSystem.push(characterID);
     }
+    if (leftSystem.length > 0) void reread(leftSystem);
   }
 
   async function lookUpEnding(characterID: number): Promise<void> {
@@ -585,6 +593,9 @@
     set(outcome);
     setWatch(characterID, outcome.kind === "started" ? startWatch("haul", Date.now(), outcome.stages ?? [], colonies.map((colony) => colony.planetID)) : null);
     await loadActiveBots();
+    // The launch hop emptied launchpads before the run began: read them now,
+    // not when the lap is over.
+    if (outcome.kind === "started" && (outcome.exported?.units ?? 0) > 0) void reread([characterID]);
   }
 
   function keep(next: PiRosterPrefs): void {

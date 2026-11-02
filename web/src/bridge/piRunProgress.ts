@@ -182,6 +182,19 @@ export function watchPoll(watch: PiRunWatch, bot: PiRunBot | null): PiRunWatch {
   return watch.seen && reached === watch.reached ? watch : { ...watch, seen: true, reached };
 }
 
+/**
+ * True when a poll moved the haul past a system it collects in: those
+ * colonies' launchpads have just been emptied, so their storage as last read
+ * is now wrong and worth reading again.
+ */
+export function leftCollectingStage(before: PiRunWatch, after: PiRunWatch): boolean {
+  if (after.kind !== "haul" || after.reached <= before.reached) return false;
+  for (let index = Math.max(0, before.reached); index < after.reached; index++) {
+    if (after.stages[index]?.solarSystemID !== undefined) return true;
+  }
+  return false;
+}
+
 /** The owner's read answered (or failed, `null`): the run's ending is known. */
 export function watchEnded(watch: PiRunWatch, end: PiRunEnd | null): PiRunWatch {
   return { ...watch, ending: false, ended: end };

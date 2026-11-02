@@ -6,6 +6,7 @@ import { lastEndedRun } from "../app/piRunOutcome.ts";
 import type { ServerBot } from "../app/api.ts";
 import {
   colonyRunMark,
+  leftCollectingStage,
   piHaulStages,
   piRunView,
   startWatch,
@@ -130,4 +131,20 @@ test("each hauled colony says where the run is with it, by its system's stage", 
   assert.equal(colonyRunMark(finished, 40000003, 30000002), "collected");
   // A restart marks no colony.
   assert.equal(colonyRunMark(startWatch("restart", 0), 40000001, 30000001), null);
+});
+
+test("leaving a system the haul collected in is the moment to read the pilot's colonies again", () => {
+  const stages = piHaulStages(piHaulBotDoc(COLONIES, null));
+  const atAlpha = watchPoll(startWatch("haul", 0, stages, [40000001, 40000003]), bot("collect-1"));
+  // Launch to Board, or within Alpha: no collecting stage has been left.
+  const boarding = watchPoll(startWatch("haul", 0, stages), bot("board-hauler"));
+  assert.equal(leftCollectingStage(watchPoll(startWatch("haul", 0, stages), bot("launch")), boarding), false);
+  assert.equal(leftCollectingStage(atAlpha, watchPoll(atAlpha, bot("launches-1"))), false);
+  // Alpha to Beta: Alpha's launchpads were emptied.
+  assert.equal(leftCollectingStage(atAlpha, watchPoll(atAlpha, bot("fly-2"))), true);
+  // A poll that skipped straight from Board past Alpha still counts.
+  assert.equal(leftCollectingStage(boarding, watchPoll(boarding, bot("collect-2"))), true);
+  // Beta to Unload as well.
+  const atBeta = watchPoll(atAlpha, bot("collect-2"));
+  assert.equal(leftCollectingStage(atBeta, watchPoll(atBeta, bot("deliver"))), true);
 });
