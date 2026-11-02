@@ -2815,9 +2815,10 @@
     text-align: left;
     cursor: pointer;
   }
+  /* The menu rail's own hover and selected surface, so the two read alike. */
   .pi-pilot-row:hover,
   .pi-pilot-row[aria-expanded="true"] {
-    background: var(--color-cell);
+    background: var(--color-panel-3);
   }
   .pi-pilot-row.edge-bad {
     border-left-color: var(--color-danger);
