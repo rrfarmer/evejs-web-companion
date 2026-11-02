@@ -396,7 +396,7 @@
 
   function elapsedWords(startedAtMs: number): string {
     const minutes = Math.max(0, Math.round((browserNowMs - startedAtMs) / 60_000));
-    return minutes === 0 ? "just started" : `${minutes} min`;
+    return minutes === 0 ? "" : ` - ${minutes} min`;
   }
 
   /** Stop a paused run, as its owner; the roster poll then sees it end and says how. */
@@ -1409,8 +1409,8 @@
             {@const haulOffer = piHaulWords(group.pilotName, tickedCount, intoWords, deliverTo?.name ?? null)}
             {@const namesHere = namesKnown(group.characterID)}
             {@const haulState = haulDispatch.get(group.characterID) ?? null}
-            {@const haulWords = piHaulDispatchWords(haulState)}
             {@const watch = runWatch.get(group.characterID) ?? null}
+            {@const haulWords = piHaulDispatchWords(haulState, watch?.kind === "haul")}
             {@const run = runViewFor(group.characterID)}
             {@const runKind = watch?.kind ?? null}
             {@const open = pilotOpen(group.characterID, facts.needYouNow, run)}
@@ -1563,7 +1563,7 @@
                             </li>
                           {/each}
                         </ol>
-                        <span class="note pi-run-words">{run.words} - {elapsedWords(watch.startedAtMs)}</span>
+                        <span class="note pi-run-words">{run.words}{elapsedWords(watch.startedAtMs)}</span>
                       </div>
                     {/if}
                     {#if run && run.tone === "paused"}
@@ -2780,6 +2780,12 @@
   }
   .pilot-note {
     flex: 1 1 100%;
+  }
+  /* The global .note caps a line at 68ch, which let a full-width line shrink
+     and sit beside the haul buttons. A status line here is its own row. */
+  .pi-group-action .pilot-note,
+  .pi-group-action .pi-run-words {
+    max-width: none;
   }
   /* A restart, on the pilot's colonies: its sentence, then the button. */
   .pi-group-action {

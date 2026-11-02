@@ -686,17 +686,23 @@ export function pilotRowFacts(rows: readonly PiColonyRow[]): PiPilotRowFacts {
   };
 }
 
-/** What a Haul start from this window did, as one sentence. */
-export function piHaulDispatchWords(state: PiDispatchState | null): string | null {
+/**
+ * What a Haul start from this window did, as one sentence. `watched`: the
+ * window is drawing the run's route, which already says it started and how far
+ * it is, so only what the launch hop sent up (the half the route cannot show)
+ * is said; null when there is nothing else to say.
+ */
+export function piHaulDispatchWords(state: PiDispatchState | null, watched = false): string | null {
   if (state === null) return null;
   if (state.kind === "starting") return "Launching into the customs offices, then starting the haul...";
   if (state.kind !== "started") return state.sentence;
   const started = "The haul has started on the server. Its steps show in the Bot Manager.";
   const exported = state.exported ?? null;
-  if (exported === null) return started;
+  if (exported === null) return watched ? null : started;
   // The run sends the launchpads up itself, at each office: nothing went up yet,
   // and that is not "nothing was on them".
   if (exported.atTheOffices === true) {
+    if (watched) return exported.refusals.length === 0 ? null : exported.refusals.join(" ");
     return "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.";
   }
   // What went up is said first, because it is the half the Bot Manager cannot
@@ -706,5 +712,5 @@ export function piHaulDispatchWords(state: PiDispatchState | null): string | nul
     : `Launched ${exported.units} ${exported.units === 1 ? "unit" : "units"} from ` +
       `${exported.colonies === 1 ? "1 colony" : `${exported.colonies} colonies`} into their customs offices.`;
   // A colony the server refused is named in its own words; the rest still haul.
-  return [launched, ...exported.refusals, started].join(" ");
+  return [launched, ...exported.refusals, ...(watched ? [] : [started])].join(" ");
 }

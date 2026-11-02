@@ -565,3 +565,13 @@ test("a haul whose run sends the launchpads up itself says so, and not that noth
   const words = piHaulDispatchWords({ kind: "started", exported: { units: 0, colonies: 0, refusals: [], atTheOffices: true } });
   assert.equal(words, "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.");
 });
+
+test("while the window draws a haul's route, the start says only what the launch sent up", () => {
+  const exported = { kind: "started" as const, exported: { units: 370, colonies: 2, refusals: [] } };
+  assert.equal(piHaulDispatchWords(exported, true), "Launched 370 units from 2 colonies into their customs offices.");
+  // Nothing went up here and nothing was refused: the route says the rest.
+  assert.equal(piHaulDispatchWords({ kind: "started", exported: { units: 0, colonies: 0, refusals: [], atTheOffices: true } }, true), null);
+  assert.equal(piHaulDispatchWords({ kind: "started" }, true), null);
+  // Not drawn: the old sentence, unchanged.
+  assert.match(piHaulDispatchWords(exported) ?? "", /Its steps show in the Bot Manager\.$/);
+});
