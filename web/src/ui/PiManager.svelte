@@ -212,7 +212,7 @@
     collected: "Collected",
     missed: "Not collected",
   };
-  /** How full a colony must be for "Tick 70% full" to tick it. */
+  /** How full a colony must be for "Tick colonies 70%+ full" to tick it. */
   const TICK_FULL_FRACTION = 0.7;
   // HAUL (the Colonies view's per-pilot Haul button). Which colonies are
   // ticked lives only in this open window; where the goods go is remembered
@@ -1418,6 +1418,7 @@
             {@const hauling = run !== null && runKind === "haul" && !run.over}
             <section
               class="pi-group"
+              class:compact={density === "compact"}
               id="pi-pilot-{group.characterID}"
               aria-label={`${group.pilotName}'s colonies`}
             >
@@ -1491,7 +1492,13 @@
                       Change
                     </button>
                     <span class="pi-haul-go">
-                      <button type="button" onclick={() => tickFull(group.characterID, group.rows)}>Tick 70% full</button>
+                      <button
+                        type="button"
+                        title="Ticks this pilot's colonies whose storage is at least 70% full, for the next haul."
+                        onclick={() => tickFull(group.characterID, group.rows)}
+                      >
+                        Tick colonies 70%+ full
+                      </button>
                       {#if haulOffer.hint}
                         <span class="note">{haulOffer.hint}</span>
                       {/if}
@@ -2970,21 +2977,51 @@
     color: var(--color-danger);
     border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
   }
-  /* COMPACT: one line per colony, no icon and no program bar. */
-  .pi-colonies.density-compact .pi-colony {
+  /* COMPACT: one line per pilot, per haul line and per colony; no icons and
+     no program bar. The cells are grids in Normal, so each becomes a row here. */
+  .pi-group.compact .pi-pilot-row {
+    min-height: 0;
     padding-top: 0.2rem;
     padding-bottom: 0.2rem;
+  }
+  .pi-group.compact .pi-pilot-id {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+  .pi-group.compact .pi-group-action {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  .pi-group.compact .pi-group-action button {
     min-height: 0;
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+  }
+  .pi-colonies.density-compact .pi-colony {
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+    row-gap: 0;
   }
   .pi-colonies.density-compact .pi-colony-place > span:last-child {
-    flex-direction: row;
-    gap: 0.5rem;
+    display: flex;
     align-items: baseline;
+    gap: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
   }
+  .pi-colonies.density-compact .pi-colony-program,
   .pi-colonies.density-compact .pi-colony-storage {
-    flex-direction: row;
+    display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.5rem;
+  }
+  .pi-colonies.density-compact .pi-colony-storage .pi-bar {
+    flex: 1 1 auto;
+  }
+  .pi-colonies.density-compact .pi-haul-tick {
+    width: 0.9rem;
+    height: 0.9rem;
   }
   .pi-help-open {
     min-width: 2rem;

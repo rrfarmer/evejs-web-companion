@@ -79,7 +79,7 @@
       <p>
         A haul runs for two hours at most. Goods put in a corporation hangar belong to the corporation; if the office or
         your role is gone when the ship docks, they go into the pilot's own hangar. "Change" on a pilot's haul line picks
-        where it delivers and which division it unloads into. "Tick 70% full" ticks that pilot's colonies whose storage is
+        where it delivers and which division it unloads into. "Tick colonies 70%+ full" ticks that pilot's colonies whose storage is
         at least 70% full.
       </p>
       <h4>Before you haul</h4>

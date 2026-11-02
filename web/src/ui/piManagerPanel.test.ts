@@ -260,7 +260,7 @@ test("how things work is one help for the window; a pilot's line keeps only its 
   assert.doesNotMatch(colonies, /What this does/);
   // Where this pilot's haul goes stays on its line, before its button; what to
   // do first sits by the button, so a disabled Haul still says why.
-  assert.match(visibleText(colonies), /To the pilot's station, the pilot's own hangar Change Tick 70% full Tick the colonies to haul\. Haul/);
+  assert.match(visibleText(colonies), /To the pilot's station, the pilot's own hangar Change Tick colonies 70%\+ full Tick the colonies to haul\. Haul/);
 });
 
 test("a pilot that needs the player opens by itself; the rest are one line", () => {
