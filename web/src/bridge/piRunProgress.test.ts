@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { piHaulBotDoc } from "../app/piDispatch.ts";
 import { lastEndedRun } from "../app/piRunOutcome.ts";
@@ -7,6 +8,7 @@ import type { ServerBot } from "../app/api.ts";
 import {
   colonyRunMark,
   leftCollectingStage,
+  pauseHint,
   piHaulStages,
   piRunView,
   startWatch,
@@ -61,6 +63,53 @@ test("a paused run says so, in the bot's own words", () => {
   const view = piRunView(watch, bot("board-hauler", { status: "paused", why: "No ship with a planetary hold is parked here." }));
   assert.equal(view.tone, "paused");
   assert.equal(view.words, "Paused: No ship with a planetary hold is parked here.");
+  // An unknown reason has no fix to offer: the player reads the bot's words.
+  assert.equal(view.todo, null);
+});
+
+const ISK_REASON = "This pilot does not have enough ISK to pay the customs office's export tax. Add ISK to its wallet and start the haul again.";
+
+test("a paused run whose reason is known says it short, with what to do", () => {
+  const stages = piHaulStages(piHaulBotDoc(COLONIES, null));
+  const watch = watchPoll(startWatch("haul", 0, stages), bot("collect-1"));
+  const view = piRunView(watch, bot("collect-1", { status: "paused", why: ISK_REASON }));
+  assert.equal(view.tone, "paused");
+  assert.equal(view.words, "Paused: The pilot has too little ISK to pay the customs office's export tax.");
+  // A server run has no Resume: the fix always ends with Stop and a new start.
+  assert.equal(view.todo, "Stop the run, put ISK in the pilot's wallet, then Haul again.");
+  // Only a paused run is given a fix; the same words while running are just words.
+  assert.equal(piRunView(watch, bot("collect-1", { why: ISK_REASON })).todo, null);
+});
+
+test("a restart's refusals point at the Bot Manager's log and say restart, not Haul", () => {
+  const hint = pauseHint(
+    "restart",
+    "2 of 5 extractor restarts did not take - the server refused them. The bot log names the reason.",
+  );
+  assert.deepEqual(hint, {
+    says: "2 of 5 extractor restarts did not take - the server refused them.",
+    todo: "The Bot Manager's log for this run has the server's answer. Stop the run, then restart the extractors again once that is sorted.",
+  });
+  assert.match(pauseHint("restart", "The extractor restarts kept not taking, so the bot stopped.")!.todo, /Bot Manager's log/);
+  assert.equal(pauseHint("haul", "Something nobody wrote a hint for."), null);
+  assert.equal(pauseHint("haul", null), null);
+});
+
+test("every reason with a hint is still said, word for word, by the macros", () => {
+  // Reworded there, a reason falls back to the bot's words here: right, but the
+  // hint is lost without anyone noticing. This is the noticing.
+  const macros = readFileSync(new URL("../nav/scriptMacros.ts", import.meta.url), "utf8");
+  for (const said of [
+    ISK_REASON,
+    "No ship with a planetary commodities hold (an Epithal) is parked at this station.",
+    "The trip home failed and the ship docked elsewhere for safety. Dock at home before boarding the planetary hauler.",
+  ]) {
+    assert.ok(macros.includes(`"${said}"`), said);
+    assert.notEqual(pauseHint("haul", said), null, said);
+  }
+  // The two matched by their ending, as the template literals write them.
+  assert.ok(macros.includes(". The bot log names the reason.`"));
+  assert.ok(macros.includes(' kept not taking, so the bot stopped."'));
 });
 
 test("a run that drops off the roster is ending until its owner's read answers", () => {

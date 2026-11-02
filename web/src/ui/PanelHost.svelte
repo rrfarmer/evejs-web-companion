@@ -181,7 +181,7 @@
        accounts and reads through its own throwaway sign-ins, so it takes neither
        this pilot's store nor its flow. It is given the tab's sessions only to
        read corp hangars through a pilot of that corp already online. -->
-  <PiManager {sessions} />
+  <PiManager {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} />
 {:else if tab === "industryManager"}
   <!-- ⚠ NOT THE MOUNTED PILOT'S either: a plan spans every signed-in pilot's
        blueprints, read on each pilot's own session. -->

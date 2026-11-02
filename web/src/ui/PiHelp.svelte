@@ -98,8 +98,12 @@
       <h4>While a run flies</h4>
       <p>
         The pilot's line shows the route and what the bot is doing, and each colony in a haul says whether it is queued,
-        being collected or collected. A paused or stopped run is also shown at the top of the view; Stop ends a paused run.
-        When a run ends, that pilot's colonies are read again. Its full log is in the Bot Manager.
+        being collected or collected. A paused or stopped run is also shown at the top of the view. When a run ends, that
+        pilot's colonies are read again. Its full log is in the Bot Manager.
+      </p>
+      <p>
+        A paused run waits where it is and never carries on by itself. For a cause the window knows, it says what to do;
+        otherwise, Stop it, fix what it says and start it again. "Bot Manager" in its box opens the run's log.
       </p>
       <p>
         Reading colonies brings nobody online. Acting does, and only through the server, which will not take a pilot

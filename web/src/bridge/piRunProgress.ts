@@ -58,6 +58,8 @@ export type PiStageState = "done" | "current" | "todo" | "stopped";
 export interface PiRunView {
   readonly stages: readonly { readonly label: string; readonly state: PiStageState }[];
   readonly words: string;
+  /** What the player does about a paused run whose reason is known (pauseHint); null otherwise. */
+  readonly todo: string | null;
   readonly tone: "running" | "paused" | "done" | "stopped" | "ended";
   /** True once the run is over: the panel can be dismissed. */
   readonly over: boolean;
@@ -201,6 +203,71 @@ export function watchEnded(watch: PiRunWatch, end: PiRunEnd | null): PiRunWatch 
 }
 
 const KIND_WORDS = { haul: "haul", restart: "restart" } as const;
+const AGAIN_WORDS = { haul: "Haul again", restart: "restart the extractors again" } as const;
+
+/** A paused run's reason the window knows the fix for: the cause, short, and what to do. */
+export interface PiPauseHint {
+  readonly says: string;
+  readonly todo: string;
+}
+
+// ⚠ THE REASONS ARE THE MACROS' OWN WORDS (nav/scriptMacros.ts: collectCustoms,
+// boardPlanetaryHauler, restartExtractors, launchCommodities, ...), matched
+// exactly. Reword one there and it falls back to the bot's words here, which is
+// still right; piRunProgress.test.ts pins that each one is still said there.
+//
+// ⚠ A PAUSED SERVER RUN NEVER CARRIES ON BY ITSELF. A blocked step pauses the
+// runner and a server bot has no Resume (only Stop), so every fix ends with
+// stopping the run and starting it again.
+const PAUSE_HINTS: readonly {
+  readonly match: string | RegExp;
+  readonly hint: (said: string, again: string) => PiPauseHint;
+}[] = [
+  {
+    match: "This pilot does not have enough ISK to pay the customs office's export tax. Add ISK to its wallet and start the haul again.",
+    hint: (_said, again) => ({
+      says: "The pilot has too little ISK to pay the customs office's export tax.",
+      todo: `Stop the run, put ISK in the pilot's wallet, then ${again}.`,
+    }),
+  },
+  {
+    match: "No ship with a planetary commodities hold (an Epithal) is parked at this station.",
+    hint: (_said, again) => ({
+      says: "No ship with a planetary hold (an Epithal) is parked at the pilot's station.",
+      todo: `Stop the run, park an Epithal (or another ship with a planetary hold) at that station, then ${again}.`,
+    }),
+  },
+  {
+    match: "The trip home failed and the ship docked elsewhere for safety. Dock at home before boarding the planetary hauler.",
+    hint: (_said, again) => ({
+      says: "The trip to the hauler failed, so the ship docked elsewhere for safety.",
+      todo: `Stop the run, fly the pilot to the station where its Epithal is parked, then ${again}.`,
+    }),
+  },
+  {
+    // restartExtractors: "2 of 5 extractor restarts did not take - the server refused them. The bot log names the reason."
+    match: /^(.+) The bot log names the reason\.$/,
+    hint: (said, again) => ({
+      says: said.replace(/ The bot log names the reason\.$/, ""),
+      todo: `The Bot Manager's log for this run has the server's answer. Stop the run, then ${again} once that is sorted.`,
+    }),
+  },
+  {
+    // "The extractor restarts kept not taking, so the bot stopped." and its kin.
+    match: /kept not taking, so the bot stopped\.$/,
+    hint: (said, again) => ({
+      says: said,
+      todo: `The Bot Manager's log for this run has what the server answered. Stop the run, then ${again}.`,
+    }),
+  },
+];
+
+/** The fix for a paused run's reason, or null when the window does not know it. */
+export function pauseHint(kind: PiRunWatch["kind"], said: string | null): PiPauseHint | null {
+  if (said === null) return null;
+  const found = PAUSE_HINTS.find(({ match }) => (typeof match === "string" ? match === said : match.test(said)));
+  return found === undefined ? null : found.hint(said, AGAIN_WORDS[kind]);
+}
 
 /** What the board draws for a watched run. `bot` is the live row, or null. */
 export function piRunView(watch: PiRunWatch, bot: PiRunBot | null): PiRunView {
@@ -217,6 +284,7 @@ export function piRunView(watch: PiRunWatch, bot: PiRunBot | null): PiRunView {
       return {
         stages: stagesWith(() => "done"),
         words: `The ${what} finished. The colonies are read again.`,
+        todo: null,
         tone: "done",
         over: true,
       };
@@ -227,6 +295,7 @@ export function piRunView(watch: PiRunWatch, bot: PiRunBot | null): PiRunView {
         words: watch.ending
           ? `The ${what} has ended. Looking up how it went...`
           : `The ${what} has ended. The Bot Manager says how it went.`,
+        todo: null,
         tone: "ended",
         over: !watch.ending,
       };
@@ -236,6 +305,7 @@ export function piRunView(watch: PiRunWatch, bot: PiRunBot | null): PiRunView {
       stages: stagesWith((index) =>
         index < watch.reached ? "done" : index === watch.reached ? "stopped" : "todo"),
       words: `The ${what} stopped${at}${end.why ? `: ${end.why}` : "."}`,
+      todo: null,
       tone: "stopped",
       over: true,
     };
@@ -244,11 +314,14 @@ export function piRunView(watch: PiRunWatch, bot: PiRunBot | null): PiRunView {
   const current = Math.max(0, watch.reached);
   const said = bot?.why ?? bot?.phase ?? null;
   const paused = bot?.status === "paused";
+  // A known reason is said short, with what to do; any other in the bot's words.
+  const hint = paused ? pauseHint(watch.kind, said) : null;
   return {
     stages: stagesWith((index) => (index < current ? "done" : index === current ? "current" : "todo")),
     words: paused
-      ? `Paused${said ? `: ${said}` : "."}`
+      ? `Paused${hint ? `: ${hint.says}` : said ? `: ${said}` : "."}`
       : said ?? (watch.seen ? "Running." : "Starting on the server..."),
+    todo: hint?.todo ?? null,
     tone: paused ? "paused" : "running",
     over: false,
   };

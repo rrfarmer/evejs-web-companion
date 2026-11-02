@@ -152,6 +152,7 @@
     type PiPlanView,
   } from "../app/piPlanView.ts";
   import type { Session } from "../app/sessions.ts";
+  import type { TabID } from "./tabs.ts";
   import TypeIcon from "./TypeIcon.svelte";
 
   // ⚠ THE SESSIONS ARE FOR CORP HANGARS ONLY. Corp-owned goods are in no
@@ -159,7 +160,12 @@
   // is already online: in this tab, on that pilot's own session, or flown by a
   // server bot, on the bot's session through a read-only route
   // (app/piCorpRead.ts). Nothing here selects or brings anyone online.
-  let { sessions = [] }: { sessions?: readonly Session[] } = $props();
+  //
+  // `onOpen` opens another window: the Bot Manager, from a paused run's box.
+  let { sessions = [], onOpen }: {
+    sessions?: readonly Session[];
+    onOpen?: (tab: TabID, sessionID?: string) => void;
+  } = $props();
 
   let roster = $state<PiRosterPrefs>(loadPiRoster());
   let known = $state<KnownCharacter[]>(loadKnownCharacters());
@@ -1578,17 +1584,25 @@
                       </div>
                     {/if}
                     {#if run && run.tone === "paused"}
+                      <!-- ⚠ A PAUSED SERVER RUN NEVER CARRIES ON BY ITSELF: a server
+                           bot has Stop and no Resume. A reason the window knows
+                           says what to do (piRunProgress.ts pauseHint). -->
                       <div class="pi-banner">
                         <span>
-                          The run waits where it is. Fix what it says and it carries on, or stop it. Its full log is in the Bot Manager.
+                          {run.todo ?? "The run waits where it is and does not carry on by itself. Stop it, fix what it says, then start it again."}
                         </span>
-                        <button
-                          type="button"
-                          disabled={stopping.has(group.characterID)}
-                          onclick={() => void stopRun(group.characterID)}
-                        >
-                          {stopping.has(group.characterID) ? "Stopping..." : "Stop"}
-                        </button>
+                        <span class="pi-banner-actions">
+                          {#if onOpen}
+                            <button type="button" onclick={() => onOpen("botManager")}>Bot Manager</button>
+                          {/if}
+                          <button
+                            type="button"
+                            disabled={stopping.has(group.characterID)}
+                            onclick={() => void stopRun(group.characterID)}
+                          >
+                            {stopping.has(group.characterID) ? "Stopping..." : "Stop"}
+                          </button>
+                        </span>
                       </div>
                     {/if}
                     {#if stopWords.get(group.characterID)}
@@ -2975,6 +2989,11 @@
     padding: 0.4rem 0.75rem;
     border: 1px solid color-mix(in srgb, var(--color-warn) 45%, transparent);
     border-left: 3px solid var(--color-warn);
+  }
+  .pi-banner-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.5rem;
   }
   .pi-mark {
     font-size: 0.75rem;

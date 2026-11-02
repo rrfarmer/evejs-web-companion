@@ -367,3 +367,15 @@ test("the corp hangar read rides a session already online, and never selects any
   const api = readFileSync(path.join(UI_DIR, "../app/api.ts"), "utf8");
   assert.match(api, /getJson\(`\/api\/bots\/corp-assets\?/, "the bot read is a GET");
 });
+
+test("a paused run's box says what to do and opens the Bot Manager from both mounts", () => {
+  // A paused server run has no Resume, so the box never promises it carries on.
+  assert.doesNotMatch(SOURCE, /it carries on/);
+  assert.match(SOURCE, /\{run\.todo \?\? "The run waits where it is and does not carry on by itself\./);
+  assert.match(SOURCE, /onclick=\{\(\) => onOpen\("botManager"\)\}>Bot Manager<\/button>/);
+  // The floating window and a phone's panel both hand the window its opener.
+  const globalPanel = readFileSync(path.join(UI_DIR, "GlobalPanel.svelte"), "utf8");
+  const panelHost = readFileSync(path.join(UI_DIR, "PanelHost.svelte"), "utf8");
+  assert.match(globalPanel, /<PiManager \{sessions\} \{onOpen\} \/>/);
+  assert.match(panelHost, /<PiManager \{sessions\} onOpen=\{/);
+});
