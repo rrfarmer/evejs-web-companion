@@ -637,25 +637,24 @@ export function pilotsByAccount(
  * The Haul offer on a pilot's line: what the run will do, said BEFORE the
  * button, the same rule as the restart offer. `ticked` is how many of this
  * pilot's colonies are ticked; `into` the picked division's words, or null
- * for the pilot's own hangar.
+ * for the pilot's own hangar. `words` is said whether or not anything is
+ * ticked; `hint` says what to do first when nothing is.
  */
 export function piHaulWords(
   pilotName: string,
   ticked: number,
   into: string | null,
   deliverTo: string | null = null,
-): { label: string; words: string } {
+): { label: string; words: string; hint: string | null } {
   const where = into === null ? "your own hangar" : `the corporation's ${into}`;
   const station = deliverTo === null
     ? "flies back"
     : `flies to ${deliverTo}`;
   const andBack = deliverTo === null ? "" : "flies back to where it started, ";
-  if (ticked === 0) {
-    return { label: "Haul", words: "Tick the colonies to haul." };
-  }
   const colonies = ticked === 1 ? "1 colony" : `${ticked} colonies`;
   return {
-    label: `Haul ${colonies}`,
+    label: ticked === 0 ? "Haul" : `Haul ${colonies}`,
+    hint: ticked === 0 ? "Tick the colonies to haul." : null,
     words:
       `This sends what the ticked colonies' launchpads hold up into their customs offices, then starts a server run for ${pilotName} ` +
       `that launches what their command centres hold, gets into a ship parked where the pilot is docked that has a planetary hold, ` +

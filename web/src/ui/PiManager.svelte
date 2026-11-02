@@ -1285,14 +1285,10 @@
                 </div>
               {/if}
               <div class="pi-group-action pi-haul">
-                {#if tickedCount === 0}
-                  <span class="note pi-what">{haulOffer.words}</span>
-                {:else}
-                  <details class="pi-what">
-                    <summary>What this does</summary>
-                    <p class="note">{haulOffer.words}</p>
-                  </details>
-                {/if}
+                <details class="pi-what">
+                  <summary>What this does</summary>
+                  <p class="note">{haulOffer.words}</p>
+                </details>
                 <span class="pi-haul-into">
                   <span class="note">Deliver to</span>
                   <StationPicker
@@ -1317,6 +1313,9 @@
                     <span class="note">Division names show once a pilot of this corporation has been online here.</span>
                   {/if}
                 </span>
+                {#if haulOffer.hint}
+                  <span class="note">{haulOffer.hint}</span>
+                {/if}
                 <button
                   type="button"
                   disabled={tickedCount === 0 || Boolean(pilot?.botWords) || haulState?.kind === "starting"}

@@ -255,8 +255,10 @@ test("what a run does is folded under the button's own disclosure, still before 
   // Closed by default: the paragraph is one click away, not in the way.
   assert.match(colonies, /<details class="pi-what[^"]*"><summary[^>]*>What this does<\/summary>\s*<p[^>]*>1 extractor has ended/);
   assert.ok(colonies.indexOf("What this does") < colonies.indexOf("Restart extractors"));
-  // With nothing ticked there is nothing to fold: the instruction stays in view.
-  assert.match(visibleText(colonies), /Tick the colonies to haul\. Deliver to/);
+  // The haul's is there with nothing ticked too, and what to do first sits by
+  // its button, so a disabled Haul still says why.
+  assert.match(colonies, /<details class="pi-what[^"]*"><summary[^>]*>What this does<\/summary>\s*<p[^>]*>This sends what the ticked colonies/);
+  assert.match(visibleText(colonies), /Tick the colonies to haul\. Haul/);
 });
 
 test("the roster is grouped by account, and a shared age is said once", () => {
