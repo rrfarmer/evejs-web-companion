@@ -24,6 +24,7 @@
 import type { Colony } from "../store/types.ts";
 import type { PilotColonyReading } from "./piRoster.ts";
 import type { PiRecipeBook } from "./piRecipes.ts";
+import type { PiRunStage } from "./piRunProgress.ts";
 import {
   attentionByColony,
   bySeverityThenTime,
@@ -82,6 +83,7 @@ export type PiDispatchState =
         readonly refusals: readonly string[];
         readonly atTheOffices?: true;
       };
+      readonly stages?: readonly PiRunStage[];
     }
   | { readonly kind: "refused"; readonly sentence: string };
 

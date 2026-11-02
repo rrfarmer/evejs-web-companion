@@ -436,6 +436,7 @@ function activeBot(over: Partial<ActiveServerBot> = {}): ActiveServerBot {
     status: "running",
     phase: null,
     why: null,
+    stepPath: null,
     note: null,
     vitals: null,
     ...over,

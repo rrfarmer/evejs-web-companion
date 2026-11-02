@@ -245,8 +245,18 @@ test("the restart is offered on the pilot's colonies, not on the roster", () => 
   const body = renderSeeded();
   const colonies = body.slice(body.indexOf('id="pi-view-colonies"'), body.indexOf('id="pi-view-pilots"'));
   const pilots = body.slice(body.indexOf('id="pi-view-pilots"'), body.indexOf('id="pi-view-stock"'));
-  assert.match(visibleText(colonies), /Ada Farmer - 2 colonies, Alpha Read 2 hours ago 1 extractor has ended/);
+  assert.match(visibleText(colonies), /Ada Farmer - 2 colonies, Alpha Read 2 hours ago What this does 1 extractor has ended/);
   assert.doesNotMatch(pilots, /Restart extractors/);
+});
+
+test("what a run does is folded under the button's own disclosure, still before the button", () => {
+  const body = renderSeeded();
+  const colonies = body.slice(body.indexOf('id="pi-view-colonies"'), body.indexOf('id="pi-view-pilots"'));
+  // Closed by default: the paragraph is one click away, not in the way.
+  assert.match(colonies, /<details class="pi-what[^"]*"><summary[^>]*>What this does<\/summary>\s*<p[^>]*>1 extractor has ended/);
+  assert.ok(colonies.indexOf("What this does") < colonies.indexOf("Restart extractors"));
+  // With nothing ticked there is nothing to fold: the instruction stays in view.
+  assert.match(visibleText(colonies), /Tick the colonies to haul\. Deliver to/);
 });
 
 test("the roster is grouped by account, and a shared age is said once", () => {

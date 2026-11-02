@@ -1114,6 +1114,8 @@ test("vitals sampling projects ship health, hold fill and the bot's words", asyn
   assert.equal(rows[0].characterID, 140000001);
   assert.equal(rows[0].status, "running");
   assert.equal(rows[0].phase, "Working");
+  // The step id, so a board that started the run can draw how far it is.
+  assert.equal("stepPath" in rows[0], true);
   const vitals = rows[0].vitals;
   assert.equal(vitals.docked, false);
   assert.equal(vitals.shield, 0.9);

@@ -19,6 +19,13 @@
   // tick below moves the ages on and touches no network. When to read on its
   // own is the scheduler's job, a later slice.
   //
+  // ⚠ ONE EXCEPTION: WHILE A SERVER BOT FLIES A ROSTER PILOT. Then the public
+  // bot roster (/api/bots/active, the BFF's own memory, no game call) is polled
+  // every RUN_POLL_MS so a haul or restart started here shows how far it has
+  // got, and a pilot whose run ends has its colonies read again: a run is the
+  // one thing that changes a colony while the window looks at it. With no bot
+  // flying anybody the poll makes no request at all.
+  //
   // ⚠ EVERY ROW SAYS HOW OLD IT IS. Pilots are read at different moments; the
   // board never presents them as one (bridge/piBoard.ts).
   import { onMount } from "svelte";
@@ -61,7 +68,18 @@
   import { findMapLocations } from "../app/api.ts";
   import { readBotDivisionNames, type PiDivisionNamesRead } from "../app/piHaulNames.ts";
   import { startingStation, type WorldRef } from "../bots/botScript.ts";
-  import { listActiveServerBots } from "../app/api.ts";
+  import { listActiveServerBots, type ActiveServerBot } from "../app/api.ts";
+  import { readPiRunOutcome } from "../app/piRunOutcome.ts";
+  import { skipWhileBusy } from "../app/skipWhileBusy.ts";
+  import {
+    piRunView,
+    startWatch,
+    watchEnded,
+    watchPoll,
+    type PiRunEnd,
+    type PiRunView,
+    type PiRunWatch,
+  } from "../bridge/piRunProgress.ts";
   import { commodityName, decodeRecipeBook, madeThings, tierOf, type PiRecipeBook, type PiTier } from "../bridge/piRecipes.ts";
   import {
     countWords,
@@ -154,6 +172,15 @@
   // never on a timer.
   let activeBots = $state<Set<number>>(new Set());
   let dispatch = $state<Map<number, PiDispatchState>>(new Map());
+  // The public roster's rows by pilot, and the runs this window started and is
+  // following (bridge/piRunProgress.ts). A watch stays after its run ends, so
+  // the outcome stays said, until the next start or Refresh.
+  let liveBots = $state<Map<number, ActiveServerBot>>(new Map());
+  let runWatch = $state<Map<number, PiRunWatch>>(new Map());
+  // Pilots whose run ended while a read was in flight; read when it is done.
+  let rereadPending = new Set<number>();
+  /** How often the bot roster is polled while a bot flies a roster pilot (BotManager's cadence). */
+  const RUN_POLL_MS = 3000;
   // HAUL (the Colonies view's per-pilot Haul button). Which colonies are
   // ticked lives only in this open window; where the goods go is remembered
   // per pilot in this browser, because it is the same answer every haul.
@@ -215,13 +242,69 @@
   let draftSettings = $state<{ homeSystemID: number; maxJumps: number; nullsecTolerance: number } | null>(null);
   let richness = $state<RichnessMap>(loadRichness());
 
-  async function loadActiveBots(): Promise<void> {
+  /** `covered`: pilots a read is about to take anyway, so an ended run there is not read twice. */
+  async function loadActiveBots(covered: readonly number[] = []): Promise<void> {
+    let rows: ActiveServerBot[];
     try {
-      activeBots = new Set((await listActiveServerBots()).map((bot) => bot.characterID));
+      rows = await listActiveServerBots();
     } catch {
       // Keep what we had: the server still refuses a start for a flown pilot,
       // in its own words, so a stale list here cannot cause a takeover.
+      return;
     }
+    const before = activeBots;
+    liveBots = new Map(rows.map((bot) => [bot.characterID, bot]));
+    activeBots = new Set(liveBots.keys());
+    // A roster pilot whose run ended: its colonies may have changed under it.
+    const ended = [...before].filter((id) => !activeBots.has(id) && roster.members.includes(id) && !covered.includes(id));
+    followRuns();
+    if (ended.length > 0) void reread(ended);
+  }
+
+  function setWatch(characterID: number, watch: PiRunWatch | null): void {
+    const next = new Map(runWatch);
+    if (watch === null) next.delete(characterID);
+    else next.set(characterID, watch);
+    runWatch = next;
+  }
+
+  /** Move every watched run on by the roster just read; ask how ended ones went. */
+  function followRuns(): void {
+    for (const [characterID, watch] of runWatch) {
+      const next = watchPoll(watch, liveBots.get(characterID) ?? null);
+      if (next === watch) continue;
+      setWatch(characterID, next);
+      if (next.ending) void lookUpEnding(characterID);
+    }
+  }
+
+  async function lookUpEnding(characterID: number): Promise<void> {
+    const accountName = known.find((pilot) => pilot.characterID === characterID)?.accountName;
+    let end: PiRunEnd | null = null;
+    if (accountName) {
+      try {
+        end = await readPiRunOutcome(accountName, characterID);
+      } catch {
+        // Unread: the board says the run ended and points at the Bot Manager.
+      }
+    }
+    const watch = runWatch.get(characterID);
+    if (watch?.ending) setWatch(characterID, watchEnded(watch, end));
+  }
+
+  /** What the board draws for this pilot's watched run, or null when none is watched. */
+  function runViewFor(characterID: number): PiRunView | null {
+    const watch = runWatch.get(characterID);
+    return watch ? piRunView(watch, liveBots.get(characterID) ?? null) : null;
+  }
+
+  /** Read these pilots' colonies again, and the corp stock; queued behind a read in flight. */
+  async function reread(characterIDs: readonly number[]): Promise<void> {
+    for (const id of characterIDs) rereadPending.add(id);
+    if (reading) return;
+    const asked = roster.members.filter((id) => rereadPending.has(id));
+    rereadPending = new Set();
+    await readPilots(asked);
   }
 
   /**
@@ -240,7 +323,9 @@
       return;
     }
     set({ kind: "starting" });
-    set(await restartExtractorsFor(accountName, characterID));
+    const outcome = await restartExtractorsFor(accountName, characterID);
+    set(outcome);
+    setWatch(characterID, outcome.kind === "started" ? startWatch("restart") : null);
     await loadActiveBots();
   }
 
@@ -363,13 +448,15 @@
         solarSystemName: row.solarSystemName,
       }));
     set({ kind: "starting" });
-    set(await haulFor(
+    const outcome = await haulFor(
       accountName,
       characterID,
       colonies,
       haulPrefs.divisions.get(characterID) ?? null,
       haulPrefs.deliverTo.get(characterID) ?? null,
-    ));
+    );
+    set(outcome);
+    setWatch(characterID, outcome.kind === "started" ? startWatch("haul", outcome.stages ?? []) : null);
     await loadActiveBots();
   }
 
@@ -984,13 +1071,22 @@
   );
 
   async function refresh(): Promise<void> {
-    if (reading || roster.members.length === 0) return;
+    // A run that is over has said how it went; a Refresh is the player moving on.
+    const live = new Map([...runWatch].filter(([characterID]) => !runViewFor(characterID)?.over));
+    if (live.size !== runWatch.size) runWatch = live;
+    await readPilots(roster.members);
+  }
+
+  /** Read these roster pilots' colonies (all of them on Refresh), then the corp stock. */
+  async function readPilots(asked: readonly number[]): Promise<void> {
+    if (reading || asked.length === 0) return;
     reading = true;
     known = loadKnownCharacters();
     // Awaited before the corp read below, which reads through bot-flown pilots.
-    const botsRead = loadActiveBots();
-    const asked = roster.members;
-    attempts = new Map(asked.map((id) => [id, "reading" as const]));
+    const botsRead = loadActiveBots(asked);
+    const marked = new Map(asked.length === roster.members.length ? [] : attempts);
+    for (const id of asked) marked.set(id, "reading");
+    attempts = marked;
     try {
       await readPiRoster(asked, known, undefined, (result) => {
         let next = roster;
@@ -1016,6 +1112,7 @@
       reading = false;
       browserNowMs = Date.now();
     }
+    if (rereadPending.size > 0) void reread([]);
   }
 
   function add(): void {
@@ -1044,7 +1141,17 @@
     void loadPlans();
     void loadExpansions();
     const tick = setInterval(() => (browserNowMs = Date.now()), 30_000);
-    return () => clearInterval(tick);
+    // Guarded (app/skipWhileBusy.ts), and silent while no bot flies anybody here.
+    const poll = skipWhileBusy(async () => {
+      const flying = roster.members.some((id) => activeBots.has(id));
+      if (!flying && ![...runWatch.values()].some((watch) => !watch.seen)) return;
+      await loadActiveBots();
+    });
+    const runs = setInterval(() => void poll(), RUN_POLL_MS);
+    return () => {
+      clearInterval(tick);
+      clearInterval(runs);
+    };
   });
 </script>
 
@@ -1142,6 +1249,8 @@
             {@const namesHere = namesKnown(group.characterID)}
             {@const haulState = haulDispatch.get(group.characterID) ?? null}
             {@const haulWords = piHaulDispatchWords(haulState)}
+            {@const run = runViewFor(group.characterID)}
+            {@const runKind = runWatch.get(group.characterID)?.kind ?? null}
             <section class="pi-group" aria-label={`${group.pilotName}'s colonies`}>
               <header class="pi-group-head">
                 <h3>{group.pilotName} <span class="note">- {group.countWords}</span></h3>
@@ -1151,8 +1260,12 @@
                 <div class="pi-group-action">
                   {#if pilot.restart}
                     <!-- What the run does is said BEFORE the button, so the
-                         click is the decision; there is no dialog after it. -->
-                    <span class="note">{pilot.restart.words}</span>
+                         click is the decision; there is no dialog after it.
+                         Folded, so the button is not under a paragraph. -->
+                    <details class="pi-what">
+                      <summary>What this does</summary>
+                      <p class="note">{pilot.restart.words}</p>
+                    </details>
                     <button
                       type="button"
                       disabled={!pilot.restart.enabled}
@@ -1161,16 +1274,25 @@
                       {pilot.restart.label}
                     </button>
                   {/if}
-                  {#if pilot.botWords}
+                  {#if pilot.botWords && (!run || run.over)}
                     <span class="note pilot-note">{pilot.botWords}</span>
                   {/if}
-                  {#if pilot.dispatchWords}
+                  {#if run && runKind === "restart"}
+                    <span class="note pilot-note pi-run-words tone-{run.tone}" role="status">{run.words}</span>
+                  {:else if pilot.dispatchWords}
                     <span class="note pilot-note" role="status">{pilot.dispatchWords}</span>
                   {/if}
                 </div>
               {/if}
               <div class="pi-group-action pi-haul">
-                <span class="note">{haulOffer.words}</span>
+                {#if tickedCount === 0}
+                  <span class="note pi-what">{haulOffer.words}</span>
+                {:else}
+                  <details class="pi-what">
+                    <summary>What this does</summary>
+                    <p class="note">{haulOffer.words}</p>
+                  </details>
+                {/if}
                 <span class="pi-haul-into">
                   <span class="note">Deliver to</span>
                   <StationPicker
@@ -1204,6 +1326,20 @@
                 </button>
                 {#if haulWords}
                   <span class="note pilot-note" role="status">{haulWords}</span>
+                {/if}
+                {#if run && runKind === "haul"}
+                  <!-- The lap's route, from the step the server says the run
+                       is on (bridge/piRunProgress.ts). -->
+                  <div class="pi-run tone-{run.tone}" role="status">
+                    <ol class="pi-stages" aria-label="Haul route">
+                      {#each run.stages as stage, index (index)}
+                        <li class="pi-stage {stage.state}" aria-current={stage.state === "current" ? "step" : undefined}>
+                          {stage.label}
+                        </li>
+                      {/each}
+                    </ol>
+                    <span class="note pi-run-words">{run.words}</span>
+                  </div>
                 {/if}
               </div>
               <ul class="pi-colonies">
@@ -2415,8 +2551,90 @@
     border-bottom: 1px solid var(--color-row-line);
     border-left: 3px solid var(--color-warn);
   }
-  .pi-group-action > .note:first-child {
+  .pi-group-action > .note:first-child,
+  .pi-group-action > .pi-what {
     flex: 1 1 24rem;
+  }
+  .pi-what summary {
+    cursor: pointer;
+    color: var(--color-muted);
+    width: fit-content;
+  }
+  .pi-what p {
+    margin: 0.35rem 0 0;
+  }
+  /* A watched run: the haul's route as stages, then what the bot is doing. */
+  .pi-run {
+    flex: 1 1 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .pi-stages {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .pi-stage {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: var(--color-muted);
+  }
+  .pi-stage::before {
+    content: "";
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    border: 1px solid var(--color-line-strong);
+  }
+  .pi-stage + .pi-stage::after {
+    order: -1;
+    content: "";
+    width: 1rem;
+    height: 1px;
+    margin-right: 0.15rem;
+    background: var(--color-line-strong);
+  }
+  .pi-stage.done::before {
+    background: var(--color-good);
+    border-color: var(--color-good);
+  }
+  .pi-stage.current {
+    color: var(--color-text-bright);
+  }
+  .pi-stage.current::before {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .pi-stage.stopped {
+    color: var(--color-danger);
+  }
+  .pi-stage.stopped::before {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+  }
+  .pi-run.tone-paused .pi-stage.current::before,
+  .pi-run-words.tone-paused,
+  .pi-run.tone-paused .pi-run-words {
+    color: var(--color-warn);
+  }
+  .pi-run.tone-paused .pi-stage.current::before {
+    background: var(--color-warn);
+    border-color: var(--color-warn);
+  }
+  .pi-run-words.tone-stopped,
+  .pi-run.tone-stopped .pi-run-words {
+    color: var(--color-danger);
+  }
+  .pi-run-words.tone-done,
+  .pi-run.tone-done .pi-run-words {
+    color: var(--color-good);
   }
   .pi-group-action button {
     min-height: 40px;
