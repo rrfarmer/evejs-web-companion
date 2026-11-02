@@ -358,7 +358,7 @@ test("a pilot with ended extractors is offered a restart, with what it does said
   const [farmer, hauler] = board.pilots;
   assert.deepEqual(farmer!.restart, {
     enabled: true,
-    label: "Restart extractors",
+    label: "Restart 3 extractors",
     words: "3 extractors have ended on 2 colonies. This starts a server run for Ada Farmer that restarts every ended extractor on all of its colonies, re-sizes the storage routes of any extractor that yields more than they carry, then stops. It changes nothing else and runs for an hour at most.",
   });
   // A pilot with nothing ended is offered nothing.

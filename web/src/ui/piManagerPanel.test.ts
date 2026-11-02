@@ -175,8 +175,9 @@ test("an empty roster says what to do, and offers the hangar's pilots", () => {
 
 test("stored readings are printed by pilot: worst first, under the pilot's age", () => {
   const text = visibleText(renderSeeded());
-  // The age of a pilot's one reading is said once, on the line above its rows.
-  assert.match(text, /Ada Farmer - 2 colonies, Alpha Read 2 hours ago/);
+  // The age of a pilot's one reading is said once, on the pilot's own line,
+  // with what needs the player and the fullest store.
+  assert.match(text, /Ada Farmer 2 colonies, Alpha 1 needs you Read 2 hours ago/);
   // What needs you is said on the colony's own row, and that row comes first.
   const stopped = text.indexOf("Alpha II Barren - CC 5");
   const running = text.indexOf("Alpha I Barren - CC 5");
@@ -231,34 +232,42 @@ test("no id as data and no machinery words in anything a player reads", () => {
   assert.match(`Pilot ${FARMER}`, /\d{5,}/);
 });
 
-test("a pilot with an ended extractor is offered a restart, said before the button", () => {
-  const text = visibleText(renderSeeded());
+test("a pilot with an ended extractor is offered a restart, its count on the button", () => {
+  const body = renderSeeded();
+  // The count is on the button; the full sentence is its tooltip.
   assert.match(
-    text,
-    /1 extractor has ended on 1 colony\. This starts a server run for Ada Farmer that restarts every ended extractor on all of its colonies, re-sizes the storage routes of any extractor that yields more than they carry, then stops\. It changes nothing else and runs for an hour at most\. Restart extractors/,
+    body,
+    /title="1 extractor has ended on 1 colony\. This starts a server run for Ada Farmer that restarts every ended extractor on all of its colonies, re-sizes the storage routes of any extractor that yields more than they carry, then stops\. It changes nothing else and runs for an hour at most\."[^>]*>\s*Restart 1 extractor\s*</,
   );
   // Only one pilot has anything to restart.
-  assert.equal(text.match(/Restart extractors/g)?.length, 1);
+  assert.equal(visibleText(body).match(/Restart 1 extractor/g)?.length, 1);
 });
 
 test("the restart is offered on the pilot's colonies, not on the roster", () => {
   const body = renderSeeded();
   const colonies = body.slice(body.indexOf('id="pi-view-colonies"'), body.indexOf('id="pi-view-pilots"'));
   const pilots = body.slice(body.indexOf('id="pi-view-pilots"'), body.indexOf('id="pi-view-stock"'));
-  assert.match(visibleText(colonies), /Ada Farmer - 2 colonies, Alpha Read 2 hours ago What this does 1 extractor has ended/);
-  assert.doesNotMatch(pilots, /Restart extractors/);
+  assert.match(visibleText(colonies), /Ada Farmer 2 colonies, Alpha .*Restart 1 extractor To the pilot's station/);
+  assert.doesNotMatch(pilots, /Restart \d+ extractor/);
 });
 
-test("what a run does is folded under the button's own disclosure, still before the button", () => {
+test("how things work is one help for the window; a pilot's line keeps only its particulars", () => {
   const body = renderSeeded();
   const colonies = body.slice(body.indexOf('id="pi-view-colonies"'), body.indexOf('id="pi-view-pilots"'));
-  // Closed by default: the paragraph is one click away, not in the way.
-  assert.match(colonies, /<details class="pi-what[^"]*"><summary[^>]*>What this does<\/summary>\s*<p[^>]*>1 extractor has ended/);
-  assert.ok(colonies.indexOf("What this does") < colonies.indexOf("Restart extractors"));
-  // The haul's is there with nothing ticked too, and what to do first sits by
-  // its button, so a disabled Haul still says why.
-  assert.match(colonies, /<details class="pi-what[^"]*"><summary[^>]*>What this does<\/summary>\s*<p[^>]*>This sends what the ticked colonies/);
-  assert.match(visibleText(colonies), /Tick the colonies to haul\. Haul/);
+  // One "?" beside Refresh opens it, on the view the window shows.
+  assert.match(body, /aria-label="How Planetary Industry works"/);
+  assert.match(SOURCE, /<PiHelp open=\{helpOpen\} section=\{view\}/);
+  assert.doesNotMatch(colonies, /What this does/);
+  // Where this pilot's haul goes stays on its line, before its button; what to
+  // do first sits by the button, so a disabled Haul still says why.
+  assert.match(visibleText(colonies), /To the pilot's station, the pilot's own hangar Change Tick 70% full Tick the colonies to haul\. Haul/);
+});
+
+test("a pilot that needs the player opens by itself; the rest are one line", () => {
+  // onMount does not run under SSR, so the rule is pinned where it is decided.
+  assert.match(SOURCE, /return needYouNow > 0 \|\| \(run !== null && \(!run\.over \|\| run\.tone === "stopped"\)\);/);
+  const body = renderSeeded();
+  assert.match(body, /aria-expanded="true"[^>]*>[\s\S]*?Ada Farmer/);
 });
 
 test("the roster is grouped by account, and a shared age is said once", () => {

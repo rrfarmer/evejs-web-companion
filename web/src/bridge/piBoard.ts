@@ -285,7 +285,10 @@ function dispatchFor(
         // Not while a bot flies the pilot, while it is being read, or while a
         // start from here is in flight or has just gone out.
         enabled: !flying && attempt !== "reading" && state?.kind !== "starting" && state?.kind !== "started",
-        label: extractors > 0 ? "Restart extractors" : "Fix extractor routes",
+        // The count rides on the button: the sentence below is one click away.
+        label: extractors > 0
+          ? `Restart ${extractors === 1 ? "1 extractor" : `${extractors} extractors`}`
+          : `Fix ${reroutes === 1 ? "1 extractor route" : `${reroutes} extractor routes`}`,
         // "an hour": PI_RESTART_RUNTIME_MINUTES in app/piDispatch.ts.
         words:
           `${[ended, short].filter((part) => part !== null).join(" ")} This starts a server run for ${pilotName} that restarts every ` +
@@ -660,6 +663,26 @@ export function piHaulWords(
       `that launches what their command centres hold, gets into a ship parked where the pilot is docked that has a planetary hold, ` +
       `empties those customs offices and collects the launches, ${station} and unloads into ${where}, ` +
       `then ${andBack}gets back into the ship it started in. The launch is taxed. It runs for two hours at most.`,
+  };
+}
+
+/** What a pilot's closed row says about its colonies: how many want the player, and the fullest store. */
+export interface PiPilotRowFacts {
+  readonly needYouNow: number;
+  readonly soon: number;
+  /** The fullest colony's storage; null when no colony's fill can be stated. */
+  readonly fullest: PiFillBar | null;
+}
+
+export function pilotRowFacts(rows: readonly PiColonyRow[]): PiPilotRowFacts {
+  let fullest: PiFillBar | null = null;
+  for (const row of rows) {
+    if (row.storage !== null && (fullest === null || row.storage.fraction > fullest.fraction)) fullest = row.storage;
+  }
+  return {
+    needYouNow: rows.filter((row) => row.tone === "stopped").length,
+    soon: rows.filter((row) => row.tone === "soon").length,
+    fullest,
   };
 }
 

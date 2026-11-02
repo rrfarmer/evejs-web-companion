@@ -28,7 +28,7 @@
   //
   // ⚠ EVERY ROW SAYS HOW OLD IT IS. Pilots are read at different moments; the
   // board never presents them as one (bridge/piBoard.ts).
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { loadKnownCharacters, type KnownCharacter } from "../app/knownCharacters.ts";
   import { loadHangarPrefs } from "../app/hangarPrefs.ts";
   import {
@@ -46,6 +46,7 @@
     buildPiBoard,
     piHaulDispatchWords,
     piHaulWords,
+    pilotRowFacts,
     pilotsByAccount,
     type PiAccountGroup,
     type PiColonyRow,
@@ -71,11 +72,15 @@
   import { listActiveServerBots, type ActiveServerBot } from "../app/api.ts";
   import { readPiRunOutcome } from "../app/piRunOutcome.ts";
   import { skipWhileBusy } from "../app/skipWhileBusy.ts";
+  import { stopServerBotFor } from "../app/stopBotFor.ts";
+  import PiHelp from "./PiHelp.svelte";
   import {
+    colonyRunMark,
     piRunView,
     startWatch,
     watchEnded,
     watchPoll,
+    type PiColonyRunMark,
     type PiRunEnd,
     type PiRunView,
     type PiRunWatch,
@@ -181,6 +186,34 @@
   let rereadPending = new Set<number>();
   /** How often the bot roster is polled while a bot flies a roster pilot (BotManager's cadence). */
   const RUN_POLL_MS = 3000;
+
+  // THE COLONIES VIEW'S LAYOUT. Normal shows planet icons and two bars per
+  // colony; Compact one line per colony. Remembered in this browser only.
+  type Density = "normal" | "compact";
+  const DENSITY_KEY = "evejs.piManager.density";
+  function loadDensity(): Density {
+    try {
+      return globalThis.localStorage?.getItem(DENSITY_KEY) === "compact" ? "compact" : "normal";
+    } catch {
+      return "normal";
+    }
+  }
+  let density = $state<Density>(loadDensity());
+  // Lines the player opened or closed; every other line opens when it needs
+  // the player (pilotOpen). Per window, not remembered.
+  let openOverride = $state<Map<number, boolean>>(new Map());
+  let haulSettingsOpen = $state<Set<number>>(new Set());
+  let helpOpen = $state(false);
+  let stopping = $state<Set<number>>(new Set());
+  let stopWords = $state<Map<number, string>>(new Map());
+  const MARK_WORDS: Record<PiColonyRunMark, string> = {
+    queued: "Queued",
+    collecting: "Collecting",
+    collected: "Collected",
+    missed: "Not collected",
+  };
+  /** How full a colony must be for "Tick 70% full" to tick it. */
+  const TICK_FULL_FRACTION = 0.7;
   // HAUL (the Colonies view's per-pilot Haul button). Which colonies are
   // ticked lives only in this open window; where the goods go is remembered
   // per pilot in this browser, because it is the same answer every haul.
@@ -298,6 +331,100 @@
     return watch ? piRunView(watch, liveBots.get(characterID) ?? null) : null;
   }
 
+  function pickDensity(next: Density): void {
+    density = next;
+    try {
+      globalThis.localStorage?.setItem(DENSITY_KEY, next);
+    } catch {
+      // Private window or blocked storage: the choice lasts this window.
+    }
+  }
+
+  /** Open when the player said so; otherwise when it needs the player or a run is worth seeing. */
+  function pilotOpen(characterID: number, needYouNow: number, run: PiRunView | null): boolean {
+    const chosen = openOverride.get(characterID);
+    if (chosen !== undefined) return chosen;
+    return needYouNow > 0 || (run !== null && (!run.over || run.tone === "stopped"));
+  }
+
+  function setOpen(characterID: number, open: boolean): void {
+    const next = new Map(openOverride);
+    next.set(characterID, open);
+    openOverride = next;
+  }
+
+  function showPilot(characterID: number): void {
+    setOpen(characterID, true);
+    void tick().then(() => document.getElementById(`pi-pilot-${characterID}`)?.scrollIntoView({ block: "nearest" }));
+  }
+
+  function toggleHaulSettings(characterID: number): void {
+    const next = new Set(haulSettingsOpen);
+    if (next.has(characterID)) next.delete(characterID);
+    else next.add(characterID);
+    haulSettingsOpen = next;
+  }
+
+  /** Tick every colony of this pilot's whose storage is at least 70% full; leaves other ticks alone. */
+  function tickFull(characterID: number, rows: readonly PiColonyRow[]): void {
+    const next = new Map(haulTicked);
+    const ticked = new Set(next.get(characterID) ?? []);
+    for (const row of rows) {
+      if (row.storage !== null && row.storage.fraction >= TICK_FULL_FRACTION) ticked.add(row.planetID);
+    }
+    next.set(characterID, ticked);
+    haulTicked = next;
+  }
+
+  /** The left edge of a pilot's line: red when something needs the player, amber for a paused run. */
+  function pilotEdge(needYouNow: number, run: PiRunView | null): "bad" | "warn" | "none" {
+    if (run?.tone === "stopped" || needYouNow > 0) return "bad";
+    if (run?.tone === "paused") return "warn";
+    return "none";
+  }
+
+  /** The short word on a closed line for a watched run. */
+  function runFlag(run: PiRunView, kind: "haul" | "restart" | null): string {
+    if (run.tone === "paused") return "Paused";
+    if (run.tone === "stopped") return "Stopped";
+    if (run.tone === "done") return kind === "haul" ? "Hauled" : "Restarted";
+    if (run.tone === "ended") return "Ended";
+    if (kind !== "haul") return "Restarting";
+    const at = run.stages.findIndex((stage) => stage.state === "current");
+    return `Hauling ${Math.max(0, at) + 1}/${run.stages.length}`;
+  }
+
+  function elapsedWords(startedAtMs: number): string {
+    const minutes = Math.max(0, Math.round((browserNowMs - startedAtMs) / 60_000));
+    return minutes === 0 ? "just started" : `${minutes} min`;
+  }
+
+  /** Stop a paused run, as its owner; the roster poll then sees it end and says how. */
+  async function stopRun(characterID: number): Promise<void> {
+    const accountName = known.find((pilot) => pilot.characterID === characterID)?.accountName;
+    const words = new Map(stopWords);
+    words.delete(characterID);
+    if (!accountName) {
+      words.set(characterID, "This pilot is no longer in the hangar, so there is no account to stop it with.");
+      stopWords = words;
+      return;
+    }
+    stopWords = words;
+    stopping = new Set(stopping).add(characterID);
+    try {
+      await stopServerBotFor(accountName, characterID);
+      await loadActiveBots();
+    } catch {
+      const failed = new Map(stopWords);
+      failed.set(characterID, "The run could not be stopped just now.");
+      stopWords = failed;
+    } finally {
+      const next = new Set(stopping);
+      next.delete(characterID);
+      stopping = next;
+    }
+  }
+
   /** Read these pilots' colonies again, and the corp stock; queued behind a read in flight. */
   async function reread(characterIDs: readonly number[]): Promise<void> {
     for (const id of characterIDs) rereadPending.add(id);
@@ -325,7 +452,7 @@
     set({ kind: "starting" });
     const outcome = await restartExtractorsFor(accountName, characterID);
     set(outcome);
-    setWatch(characterID, outcome.kind === "started" ? startWatch("restart") : null);
+    setWatch(characterID, outcome.kind === "started" ? startWatch("restart", Date.now()) : null);
     await loadActiveBots();
   }
 
@@ -456,7 +583,7 @@
       haulPrefs.deliverTo.get(characterID) ?? null,
     );
     set(outcome);
-    setWatch(characterID, outcome.kind === "started" ? startWatch("haul", outcome.stages ?? []) : null);
+    setWatch(characterID, outcome.kind === "started" ? startWatch("haul", Date.now(), outcome.stages ?? [], colonies.map((colony) => colony.planetID)) : null);
     await loadActiveBots();
   }
 
@@ -470,6 +597,13 @@
   const board = $derived(
     buildPiBoard({ members: roster.members, names, readings, attempts, browserNowMs, recipes, activeBots, dispatch }),
   );
+  // Runs that want the player, said at the top of the Colonies view.
+  const runAlerts = $derived(board.groups.flatMap((group) => {
+    const run = runViewFor(group.characterID);
+    return run !== null && (run.tone === "paused" || run.tone === "stopped")
+      ? [{ characterID: group.characterID, pilotName: group.pilotName, run }]
+      : [];
+  }));
   // THE ROSTER BY ACCOUNT. What a pilot's colonies are ("5 colonies, Alpha")
   // is the Colonies view's own words, so the two views cannot disagree.
   const accounts = $derived(
@@ -1164,6 +1298,15 @@
     <span class="controls">
       <button
         type="button"
+        class="pi-help-open"
+        aria-label="How Planetary Industry works"
+        title="How Planetary Industry works"
+        onclick={() => (helpOpen = true)}
+      >
+        ?
+      </button>
+      <button
+        type="button"
         disabled={reading || roster.members.length === 0}
         onclick={() => void refresh()}
       >
@@ -1171,6 +1314,7 @@
       </button>
     </span>
   </header>
+  <PiHelp open={helpOpen} section={view} onClose={() => (helpOpen = false)} />
 
   <div class="pi-body">
     <!-- THE WINDOW'S OWN MENU. A side rail while the window is wide, a row across
@@ -1235,165 +1379,255 @@
             </div>
           </dl>
 
-          <!-- ② COLONIES BY PILOT. One reading per pilot, so its age is said
-               once, on the pilot's line, and is true of every row under it.
-               What needs you is said ON the colony's row, worst first — there
-               is no second list to keep in step with this one. -->
+          <!-- A RUN THAT WANTS THE PLAYER is said above every pilot, so a paused
+               haul on a closed line is not missed. -->
+          {#each runAlerts as alert (alert.characterID)}
+            <div class="pi-alert tone-{alert.run.tone}" role="alert">
+              <span><strong>{alert.pilotName}</strong>: {alert.run.words}</span>
+              <button type="button" class="pi-link" onclick={() => showPilot(alert.characterID)}>Show</button>
+            </div>
+          {/each}
+
+          <div class="pi-colonies-tools" role="group" aria-label="Colony rows">
+            <button type="button" aria-pressed={density === "normal"} onclick={() => pickDensity("normal")}>Normal</button>
+            <button type="button" aria-pressed={density === "compact"} onclick={() => pickDensity("compact")}>Compact</button>
+          </div>
+
+          <!-- ② COLONIES BY PILOT. One line per pilot, opened on demand: the
+               line says what needs the player, how full the fullest store is and
+               what a run is doing, so a closed line hides nothing urgent. A line
+               that needs the player opens by itself. One reading per pilot, so
+               its age is said once and is true of every row under it. -->
           {#each board.groups as group (group.characterID)}
             {@const pilot = pilotRows.get(group.characterID)}
+            {@const facts = pilotRowFacts(group.rows)}
             {@const ticked = haulTicked.get(group.characterID) ?? new Set()}
             {@const tickedCount = group.rows.filter((row) => ticked.has(row.planetID)).length}
             {@const division = haulPrefs.divisions.get(group.characterID) ?? null}
             {@const deliverTo = haulPrefs.deliverTo.get(group.characterID) ?? null}
-            {@const haulOffer = piHaulWords(group.pilotName, tickedCount, division === null ? null : divisionLabel(division.division, division.name), deliverTo?.name ?? null)}
+            {@const intoWords = division === null ? null : divisionLabel(division.division, division.name)}
+            {@const haulOffer = piHaulWords(group.pilotName, tickedCount, intoWords, deliverTo?.name ?? null)}
             {@const namesHere = namesKnown(group.characterID)}
             {@const haulState = haulDispatch.get(group.characterID) ?? null}
             {@const haulWords = piHaulDispatchWords(haulState)}
+            {@const watch = runWatch.get(group.characterID) ?? null}
             {@const run = runViewFor(group.characterID)}
-            {@const runKind = runWatch.get(group.characterID)?.kind ?? null}
-            <section class="pi-group" aria-label={`${group.pilotName}'s colonies`}>
-              <header class="pi-group-head">
-                <h3>{group.pilotName} <span class="note">- {group.countWords}</span></h3>
-                <span class="note">{group.readAgeWords}</span>
-              </header>
-              {#if pilot?.restart || pilot?.botWords || pilot?.dispatchWords}
-                <div class="pi-group-action">
-                  {#if pilot.restart}
-                    <!-- What the run does is said BEFORE the button, so the
-                         click is the decision; there is no dialog after it.
-                         Folded, so the button is not under a paragraph. -->
-                    <details class="pi-what">
-                      <summary>What this does</summary>
-                      <p class="note">{pilot.restart.words}</p>
-                    </details>
+            {@const runKind = watch?.kind ?? null}
+            {@const open = pilotOpen(group.characterID, facts.needYouNow, run)}
+            {@const settingsOpen = haulSettingsOpen.has(group.characterID)}
+            {@const hauling = run !== null && runKind === "haul" && !run.over}
+            <section
+              class="pi-group"
+              id="pi-pilot-{group.characterID}"
+              aria-label={`${group.pilotName}'s colonies`}
+            >
+              <button
+                type="button"
+                class="pi-pilot-row edge-{pilotEdge(facts.needYouNow, run)}"
+                aria-expanded={open}
+                aria-controls="pi-pilot-body-{group.characterID}"
+                onclick={() => setOpen(group.characterID, !open)}
+              >
+                <span class="pi-chevron" class:open aria-hidden="true"></span>
+                <span class="pi-pilot-id">
+                  <span class="pi-pilot-name">{group.pilotName}</span>
+                  <span class="note">{group.countWords}</span>
+                </span>
+                {#if density === "normal"}
+                  <span class="pi-planet-strip" aria-hidden="true">
+                    {#each group.rows as row (row.key)}
+                      <TypeIcon typeID={row.planetTypeID} name={row.kindWords} />
+                    {/each}
+                  </span>
+                {/if}
+                {#if facts.needYouNow > 0}
+                  <span class="pi-flag bad">{facts.needYouNow === 1 ? "1 needs you" : `${facts.needYouNow} need you`}</span>
+                {:else if facts.soon > 0}
+                  <span class="pi-flag warn">{facts.soon} soon</span>
+                {:else}
+                  <span class="pi-flag good">Fine</span>
+                {/if}
+                <span class="pi-pilot-run">
+                  {#if run}
+                    <span class="pi-flag run tone-{run.tone}">{runFlag(run, runKind)}</span>
+                    <span class="note">{run.words}</span>
+                  {/if}
+                </span>
+                <span class="note pi-pilot-age">{group.readAgeWords}</span>
+                {#if facts.fullest}
+                  <span class="pi-pilot-fill">
+                    <span class="pi-bar" aria-hidden="true">
+                      <span class="pi-bar-fill storage" class:high={facts.fullest.high} style:width={`${facts.fullest.fraction * 100}%`}></span>
+                    </span>
+                    <span class="note" class:warn={facts.fullest.high}>{Math.floor(facts.fullest.fraction * 100)}%</span>
+                  </span>
+                {/if}
+              </button>
+
+              {#if open}
+                <div class="pi-pilot-body" id="pi-pilot-body-{group.characterID}">
+                  <div class="pi-group-action pi-haul">
+                    {#if pilot?.restart}
+                      <!-- The count is on the button; what the run does is in the
+                           help, and in full on hover. -->
+                      <button
+                        type="button"
+                        title={pilot.restart.words}
+                        disabled={!pilot.restart.enabled}
+                        onclick={() => void restartExtractors(pilot.characterID)}
+                      >
+                        {pilot.restart.label}
+                      </button>
+                    {/if}
+                    <span class="note pi-haul-where">
+                      To {deliverTo?.name ?? "the pilot's station"}, {intoWords ?? "the pilot's own hangar"}
+                    </span>
                     <button
                       type="button"
-                      disabled={!pilot.restart.enabled}
-                      onclick={() => void restartExtractors(pilot.characterID)}
+                      class="pi-link"
+                      aria-expanded={settingsOpen}
+                      onclick={() => toggleHaulSettings(group.characterID)}
                     >
-                      {pilot.restart.label}
+                      Change
                     </button>
-                  {/if}
-                  {#if pilot.botWords && (!run || run.over)}
-                    <span class="note pilot-note">{pilot.botWords}</span>
-                  {/if}
-                  {#if run && runKind === "restart"}
-                    <span class="note pilot-note pi-run-words tone-{run.tone}" role="status">{run.words}</span>
-                  {:else if pilot.dispatchWords}
-                    <span class="note pilot-note" role="status">{pilot.dispatchWords}</span>
-                  {/if}
+                    <span class="pi-haul-go">
+                      <button type="button" onclick={() => tickFull(group.characterID, group.rows)}>Tick 70% full</button>
+                      {#if haulOffer.hint}
+                        <span class="note">{haulOffer.hint}</span>
+                      {/if}
+                      <button
+                        type="button"
+                        disabled={tickedCount === 0 || Boolean(pilot?.botWords) || haulState?.kind === "starting" || hauling}
+                        onclick={() => void haul(group.characterID, group.rows)}
+                      >
+                        {hauling ? "Haul running" : haulOffer.label}
+                      </button>
+                    </span>
+                    {#if settingsOpen}
+                      <!-- Where this pilot's hauls go, and the sentence that says
+                           what a haul will do with these choices. -->
+                      <div class="pi-haul-settings">
+                        <span class="pi-haul-into">
+                          <span class="note">Deliver to</span>
+                          <StationPicker
+                            flow={stationSearch}
+                            value={deliverTo ?? startingStation()}
+                            current={null}
+                            boardBindings={false}
+                            onPick={(ref) => pickDeliverTo(group.characterID, ref)}
+                          />
+                        </span>
+                        <span class="pi-haul-into">
+                          <span class="note">Unload into</span>
+                          {#key `${group.characterID}:${namesHere}`}
+                            <CorpHangarPicker
+                              flow={divisionSource(group.characterID)}
+                              value={division}
+                              station={null}
+                              onPick={(picked) => pickHaulDivision(group.characterID, picked)}
+                            />
+                          {/key}
+                          {#if !namesHere}
+                            <span class="note">Division names show once a pilot of this corporation has been online here.</span>
+                          {/if}
+                        </span>
+                        <p class="note">{haulOffer.words}</p>
+                      </div>
+                    {/if}
+                    {#if pilot?.botWords && (!run || run.over)}
+                      <span class="note pilot-note">{pilot.botWords}</span>
+                    {/if}
+                    {#if run && runKind === "restart"}
+                      <span class="note pilot-note pi-run-words tone-{run.tone}" role="status">{run.words}</span>
+                    {:else if pilot?.dispatchWords}
+                      <span class="note pilot-note" role="status">{pilot.dispatchWords}</span>
+                    {/if}
+                    {#if haulWords}
+                      <span class="note pilot-note" role="status">{haulWords}</span>
+                    {/if}
+                    {#if run && watch && runKind === "haul"}
+                      <!-- The lap's route, from the step the server says the run
+                           is on (bridge/piRunProgress.ts). -->
+                      <div class="pi-run tone-{run.tone}" role="status">
+                        <ol class="pi-stages" aria-label="Haul route">
+                          {#each run.stages as stage, index (index)}
+                            <li class="pi-stage {stage.state}" aria-current={stage.state === "current" ? "step" : undefined}>
+                              {stage.label}
+                            </li>
+                          {/each}
+                        </ol>
+                        <span class="note pi-run-words">{run.words} - {elapsedWords(watch.startedAtMs)}</span>
+                      </div>
+                    {/if}
+                    {#if run && run.tone === "paused"}
+                      <div class="pi-banner">
+                        <span>
+                          The run waits where it is. Fix what it says and it carries on, or stop it. Its full log is in the Bot Manager.
+                        </span>
+                        <button
+                          type="button"
+                          disabled={stopping.has(group.characterID)}
+                          onclick={() => void stopRun(group.characterID)}
+                        >
+                          {stopping.has(group.characterID) ? "Stopping..." : "Stop"}
+                        </button>
+                      </div>
+                    {/if}
+                    {#if stopWords.get(group.characterID)}
+                      <span class="note pilot-note bad" role="status">{stopWords.get(group.characterID)}</span>
+                    {/if}
+                  </div>
+                  <ul class="pi-colonies density-{density}">
+                    {#each group.rows as row (row.key)}
+                      {@const mark = watch ? colonyRunMark(watch, row.planetID, row.solarSystemID) : null}
+                      <li class="pi-colony tone-{row.tone}">
+                        <span class="pi-colony-place">
+                          <input
+                            type="checkbox"
+                            class="pi-haul-tick"
+                            aria-label={`Haul from ${row.placeWords}`}
+                            checked={ticked.has(row.planetID)}
+                            onchange={() => toggleHaul(group.characterID, row.planetID)}
+                          />
+                          {#if density === "normal"}
+                            <TypeIcon typeID={row.planetTypeID} name={row.kindWords} size="md" />
+                          {/if}
+                          <span>
+                            <span class="pi-colony-name">{row.placeWords}</span>
+                            <span class="note">{row.kindWords}</span>
+                          </span>
+                        </span>
+                        <span class="pi-colony-resources">
+                          {#each row.resources as resource (resource)}
+                            <span class="pi-chip">{resource}</span>
+                          {/each}
+                          {#if mark}
+                            <span class="pi-mark {mark}">{MARK_WORDS[mark]}</span>
+                          {/if}
+                        </span>
+                        <span class="pi-colony-program">
+                          {#if row.program && density === "normal"}
+                            <span class="pi-bar" aria-hidden="true">
+                              <span class="pi-bar-fill program" class:ended={row.program.ended} style:width={`${row.program.fraction * 100}%`}></span>
+                            </span>
+                          {/if}
+                          <span class="pi-status">{row.statusWords}</span>
+                        </span>
+                        <span class="pi-colony-storage">
+                          {#if row.storage}
+                            <span class="pi-bar" aria-hidden="true">
+                              <span class="pi-bar-fill storage" class:high={row.storage.high} style:width={`${row.storage.fraction * 100}%`}></span>
+                            </span>
+                            <span class="note" class:warn={row.storage.high}>{density === "normal" ? row.storage.words : `${Math.floor(row.storage.fraction * 100)}%`}</span>
+                          {/if}
+                        </span>
+                      </li>
+                    {/each}
+                  </ul>
                 </div>
               {/if}
-              <div class="pi-group-action pi-haul">
-                <details class="pi-what">
-                  <summary>What this does</summary>
-                  <p class="note">{haulOffer.words}</p>
-                </details>
-                <span class="pi-haul-into">
-                  <span class="note">Deliver to</span>
-                  <StationPicker
-                    flow={stationSearch}
-                    value={deliverTo ?? startingStation()}
-                    current={null}
-                    boardBindings={false}
-                    onPick={(ref) => pickDeliverTo(group.characterID, ref)}
-                  />
-                </span>
-                <span class="pi-haul-into">
-                  <span class="note">Unload into</span>
-                  {#key `${group.characterID}:${namesHere}`}
-                    <CorpHangarPicker
-                      flow={divisionSource(group.characterID)}
-                      value={division}
-                      station={null}
-                      onPick={(picked) => pickHaulDivision(group.characterID, picked)}
-                    />
-                  {/key}
-                  {#if !namesHere}
-                    <span class="note">Division names show once a pilot of this corporation has been online here.</span>
-                  {/if}
-                </span>
-                {#if haulOffer.hint}
-                  <span class="note">{haulOffer.hint}</span>
-                {/if}
-                <button
-                  type="button"
-                  disabled={tickedCount === 0 || Boolean(pilot?.botWords) || haulState?.kind === "starting"}
-                  onclick={() => void haul(group.characterID, group.rows)}
-                >
-                  {haulOffer.label}
-                </button>
-                {#if haulWords}
-                  <span class="note pilot-note" role="status">{haulWords}</span>
-                {/if}
-                {#if run && runKind === "haul"}
-                  <!-- The lap's route, from the step the server says the run
-                       is on (bridge/piRunProgress.ts). -->
-                  <div class="pi-run tone-{run.tone}" role="status">
-                    <ol class="pi-stages" aria-label="Haul route">
-                      {#each run.stages as stage, index (index)}
-                        <li class="pi-stage {stage.state}" aria-current={stage.state === "current" ? "step" : undefined}>
-                          {stage.label}
-                        </li>
-                      {/each}
-                    </ol>
-                    <span class="note pi-run-words">{run.words}</span>
-                  </div>
-                {/if}
-              </div>
-              <ul class="pi-colonies">
-                {#each group.rows as row (row.key)}
-                  <li class="pi-colony tone-{row.tone}">
-                    <span class="pi-colony-place">
-                      <input
-                        type="checkbox"
-                        class="pi-haul-tick"
-                        aria-label={`Haul from ${row.placeWords}`}
-                        checked={ticked.has(row.planetID)}
-                        onchange={() => toggleHaul(group.characterID, row.planetID)}
-                      />
-                      <TypeIcon typeID={row.planetTypeID} name={row.kindWords} size="md" />
-                      <span>
-                        <span class="pi-colony-name">{row.placeWords}</span>
-                        <span class="note">{row.kindWords}</span>
-                      </span>
-                    </span>
-                    <span class="pi-colony-resources">
-                      {#each row.resources as resource (resource)}
-                        <span class="pi-chip">{resource}</span>
-                      {/each}
-                    </span>
-                    <span class="pi-colony-program">
-                      {#if row.program}
-                        <span class="pi-bar" aria-hidden="true">
-                          <span class="pi-bar-fill program" class:ended={row.program.ended} style:width={`${row.program.fraction * 100}%`}></span>
-                        </span>
-                      {/if}
-                      <span class="pi-status">{row.statusWords}</span>
-                    </span>
-                    <span class="pi-colony-storage">
-                      {#if row.storage}
-                        <span class="pi-bar" aria-hidden="true">
-                          <span class="pi-bar-fill storage" class:high={row.storage.high} style:width={`${row.storage.fraction * 100}%`}></span>
-                        </span>
-                        <span class="note" class:warn={row.storage.high}>{row.storage.words}</span>
-                      {/if}
-                    </span>
-                  </li>
-                {/each}
-              </ul>
             </section>
           {/each}
-
-          <!-- ⚠ SAID, NOT IMPLIED. Reading brings nobody online. Acting does, and
-               only through the server bot host, which refuses a pilot already
-               flown from this site or by another bot — so that refusal, not a
-               promise from this window, is what keeps a ship from being taken. -->
-          <p class="note pi-footnote">
-            A restart or a haul runs on the server, which will not take a pilot already flown
-            from this site or by another bot; if it refuses, its reason is shown
-            above that pilot's colonies.
-          </p>
         {/if}
       </section>
 
@@ -2550,17 +2784,209 @@
     border-bottom: 1px solid var(--color-row-line);
     border-left: 3px solid var(--color-warn);
   }
-  .pi-group-action > .note:first-child,
-  .pi-group-action > .pi-what {
+  .pi-group-action > .note:first-child {
     flex: 1 1 24rem;
   }
-  .pi-what summary {
-    cursor: pointer;
-    color: var(--color-muted);
-    width: fit-content;
+  /* THE PILOT LINE: one button that opens the pilot's colonies. */
+  .pi-colonies-tools {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    padding: 0.25rem 0;
   }
-  .pi-what p {
-    margin: 0.35rem 0 0;
+  .pi-colonies-tools button[aria-pressed="true"] {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+  .pi-pilot-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.75rem;
+    width: 100%;
+    min-height: 40px;
+    padding: 0.4rem 0.75rem 0.4rem 0.5rem;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-bottom: 1px solid var(--color-row-line);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .pi-pilot-row:hover,
+  .pi-pilot-row[aria-expanded="true"] {
+    background: var(--color-cell);
+  }
+  .pi-pilot-row.edge-bad {
+    border-left-color: var(--color-danger);
+  }
+  .pi-pilot-row.edge-warn {
+    border-left-color: var(--color-warn);
+  }
+  .pi-chevron {
+    width: 0;
+    height: 0;
+    border-top: 0.3rem solid transparent;
+    border-bottom: 0.3rem solid transparent;
+    border-left: 0.4rem solid var(--color-muted);
+    flex: none;
+  }
+  .pi-chevron.open {
+    transform: rotate(90deg);
+  }
+  .pi-pilot-id {
+    display: flex;
+    flex-direction: column;
+    min-width: 11rem;
+  }
+  .pi-pilot-name {
+    color: var(--color-text-bright);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+  }
+  .pi-planet-strip {
+    display: inline-flex;
+    gap: 0.15rem;
+  }
+  .pi-flag {
+    font-size: 0.75rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--color-line-strong);
+    white-space: nowrap;
+  }
+  .pi-flag.bad {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  }
+  .pi-flag.warn,
+  .pi-flag.run.tone-paused {
+    color: var(--color-warn);
+    border-color: color-mix(in srgb, var(--color-warn) 45%, transparent);
+  }
+  .pi-flag.good,
+  .pi-flag.run.tone-done {
+    color: var(--color-good);
+    border-color: color-mix(in srgb, var(--color-good) 45%, transparent);
+  }
+  .pi-flag.run {
+    color: var(--color-accent);
+    border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+  .pi-flag.run.tone-stopped {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  }
+  .pi-pilot-run {
+    flex: 1 1 12rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .pi-pilot-run .note {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pi-pilot-fill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .pi-pilot-fill .pi-bar {
+    width: 4.5rem;
+  }
+  .pi-pilot-body {
+    border-bottom: 1px solid var(--color-line);
+  }
+  .pi-haul-where {
+    flex: 0 1 auto;
+  }
+  .pi-haul-go {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+  .pi-haul-settings {
+    flex: 1 1 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.5rem;
+    border: 1px solid var(--color-line);
+  }
+  .pi-haul-settings p {
+    flex: 1 1 100%;
+    margin: 0;
+  }
+  .pi-alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.4rem 0.75rem;
+    margin: 0 0 0.35rem;
+    border: 1px solid color-mix(in srgb, var(--color-warn) 45%, transparent);
+    border-left: 3px solid var(--color-warn);
+    color: var(--color-warn);
+  }
+  .pi-alert.tone-stopped {
+    border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+    border-left-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+  .pi-banner {
+    flex: 1 1 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--color-warn) 45%, transparent);
+    border-left: 3px solid var(--color-warn);
+  }
+  .pi-mark {
+    font-size: 0.75rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--color-line-strong);
+    color: var(--color-muted);
+  }
+  .pi-mark.collecting {
+    color: var(--color-accent);
+    border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+  .pi-mark.collected {
+    color: var(--color-good);
+    border-color: color-mix(in srgb, var(--color-good) 45%, transparent);
+  }
+  .pi-mark.missed {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  }
+  /* COMPACT: one line per colony, no icon and no program bar. */
+  .pi-colonies.density-compact .pi-colony {
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+    min-height: 0;
+  }
+  .pi-colonies.density-compact .pi-colony-place > span:last-child {
+    flex-direction: row;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+  .pi-colonies.density-compact .pi-colony-storage {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .pi-help-open {
+    min-width: 2rem;
   }
   /* A watched run: the haul's route as stages, then what the bot is doing. */
   .pi-run {

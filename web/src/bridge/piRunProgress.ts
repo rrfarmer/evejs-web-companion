@@ -16,6 +16,8 @@ import type { BotScript } from "../bots/botScript.ts";
 export interface PiRunStage {
   readonly label: string;
   readonly stepIDs: readonly string[];
+  /** The system a collecting stage visits, so a colony row can say where the run is with it. */
+  readonly solarSystemID?: number;
 }
 
 /** The public roster's row for the pilot, as far as progress needs it. */
@@ -37,6 +39,10 @@ export interface PiRunWatch {
   readonly kind: "haul" | "restart";
   /** The haul's route; empty for a restart, which is one step. */
   readonly stages: readonly PiRunStage[];
+  /** The colonies the haul was started for; empty for a restart. */
+  readonly planetIDs: readonly number[];
+  /** The browser's clock when this window started the run. */
+  readonly startedAtMs: number;
   /** The furthest stage the roster has shown, or -1 before the first sighting. */
   readonly reached: number;
   /** True once the roster has listed the run at least once. */
@@ -71,11 +77,12 @@ const FINISHED = "idle";
  * station was picked; board-back rides on whichever stage is last.
  */
 export function piHaulStages(doc: BotScript): PiRunStage[] {
-  const stages: { key: string; label: string; stepIDs: string[] }[] = [];
+  const stages: { key: string; label: string; stepIDs: string[]; solarSystemID?: number }[] = [];
   for (const step of doc.program) {
     const id = step.id;
     let key: string;
     let label: string;
+    let solarSystemID: number | undefined;
     const system = /^(?:fly|collect|launches)-(\d+)$/.exec(id);
     if (id === "launch") {
       key = "launch";
@@ -86,6 +93,7 @@ export function piHaulStages(doc: BotScript): PiRunStage[] {
     } else if (system) {
       key = `system-${system[1]}`;
       label = systemName(step) ?? `System ${system[1]}`;
+      solarSystemID = systemID(step) ?? undefined;
     } else if (id === "deliver" || id === "unload") {
       key = "unload";
       label = "Unload";
@@ -105,23 +113,53 @@ export function piHaulStages(doc: BotScript): PiRunStage[] {
     if (last && last.key === key) {
       last.stepIDs.push(id);
     } else {
-      stages.push({ key, label, stepIDs: [id] });
+      stages.push({ key, label, stepIDs: [id], ...(solarSystemID === undefined ? {} : { solarSystemID }) });
     }
   }
-  return stages.map(({ label, stepIDs }) => ({ label, stepIDs }));
+  return stages.map(({ label, stepIDs, solarSystemID }) =>
+    solarSystemID === undefined ? { label, stepIDs } : { label, stepIDs, solarSystemID });
+}
+
+function systemRef(step: BotScript["program"][number]): { name?: unknown; id?: unknown } | null {
+  if (step.kind !== "macro") return null;
+  const arg = (step.args as Record<string, unknown>).system as
+    | { kind?: string; ref?: { name?: unknown; id?: unknown } }
+    | undefined;
+  return arg?.ref ?? null;
 }
 
 function systemName(step: BotScript["program"][number]): string | null {
-  if (step.kind !== "macro") return null;
-  const arg = (step.args as Record<string, unknown>).system as
-    | { kind?: string; ref?: { name?: unknown } }
-    | undefined;
-  const name = arg?.ref?.name;
+  const name = systemRef(step)?.name;
   return typeof name === "string" && name.length > 0 ? name : null;
 }
 
-export function startWatch(kind: "haul" | "restart", stages: readonly PiRunStage[] = []): PiRunWatch {
-  return { kind, stages, reached: -1, seen: false };
+function systemID(step: BotScript["program"][number]): number | null {
+  const id = systemRef(step)?.id;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+export function startWatch(
+  kind: "haul" | "restart",
+  startedAtMs: number,
+  stages: readonly PiRunStage[] = [],
+  planetIDs: readonly number[] = [],
+): PiRunWatch {
+  return { kind, stages, planetIDs, startedAtMs, reached: -1, seen: false };
+}
+
+/** Where a watched haul is with one colony; null when the colony is not in the run. */
+export type PiColonyRunMark = "queued" | "collecting" | "collected" | "missed";
+
+export function colonyRunMark(watch: PiRunWatch, planetID: number, solarSystemID: number): PiColonyRunMark | null {
+  if (watch.kind !== "haul" || !watch.planetIDs.includes(planetID)) return null;
+  const finished = watch.ended?.status === FINISHED;
+  if (finished) return "collected";
+  const stage = watch.stages.findIndex((candidate) => candidate.solarSystemID === solarSystemID);
+  if (stage < 0) return null;
+  if (stage < watch.reached) return "collected";
+  const over = watch.ended !== undefined || watch.ending === true;
+  if (over) return "missed";
+  return stage === watch.reached ? "collecting" : "queued";
 }
 
 function stageOf(stages: readonly PiRunStage[], stepPath: string | null): number {
