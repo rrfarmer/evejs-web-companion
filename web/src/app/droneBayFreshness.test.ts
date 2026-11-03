@@ -397,3 +397,49 @@ test("a frame of another name is no item's move, and nothing is read", async () 
 
   assert.equal(state.droneReads, before);
 });
+
+// --- the active-drone cap is the pilot's -------------------------------------
+//
+// The client reads it off the character, `godma.GetItem(session.charid)
+// .maxActiveDrones`, and since server v261018.1 the ship's dogma no longer
+// carries it at all (dogmaService/itemInfo.js, PILOT_DRONE_ATTRIBUTE_IDS). Read
+// off the ship it was null from then on.
+
+/** GetAllInfo as the store keeps it, with the character's (and the ship-modified) cap. */
+function allInfoWithCap(character: number | null, shipModified: number | null = null) {
+  const entry = (value: number | null) => value === null
+    ? null
+    : { itemID: CHARACTER_ID, typeID: 1373, attributes: [{ attributeID: 352, value }] };
+  return {
+    activeShipID: DRONE_BOAT,
+    ships: [],
+    character: entry(character),
+    characterID: CHARACTER_ID,
+    shipModifiedCharAttributes: entry(shipModified),
+    shipState: null,
+    charBrain: null,
+    systemWideEffectsOnShip: null,
+    structureInfo: null,
+    locationInfo: null,
+  };
+}
+
+test("the drone cap is read off the pilot when the ship does not carry it", async () => {
+  const { store, flow } = await onlineFlow();
+  store.apply({ type: "dogma/loaded", allInfo: allInfoWithCap(4), error: null } as never);
+  await flow.loadDrones();
+  assert.equal(store.get().drones.limits.maxActiveDrones, 4);
+});
+
+test("the ship-modified pilot entry wins over the plain one, as godma refreshes it", async () => {
+  const { store, flow } = await onlineFlow();
+  store.apply({ type: "dogma/loaded", allInfo: allInfoWithCap(4, 6), error: null } as never);
+  await flow.loadDrones();
+  assert.equal(store.get().drones.limits.maxActiveDrones, 6);
+});
+
+test("with no pilot dogma read and no ship figure, the cap stays unknown, never zero", async () => {
+  const { store, flow } = await onlineFlow();
+  await flow.loadDrones();
+  assert.equal(store.get().drones.limits.maxActiveDrones, null);
+});

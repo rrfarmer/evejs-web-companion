@@ -994,6 +994,25 @@ function createBotHost(options) {
         message: "A web session is flying this character. Log it out (or wait for it to expire), then start the bot.",
       };
     }
+    // ONE CLIENT PER ACCOUNT. Where the game server closes an account's other
+    // clients at each login (gamePort/pilots.js closedByServer), this start's
+    // select would log out a run already flying another pilot of the account,
+    // and that run would end mid-step. Checked with the claim below, after the
+    // last await, so two starts on one account cannot both pass.
+    const sharing = typeof options.oneClientPerAccount === "function" &&
+      options.oneClientPerAccount({ accountID: Number(account.accountID), characterID, userName: String(account.username || "") })
+      ? [...records.values()].find((row) => !row.finalized && row.accountID === Number(account.accountID) &&
+          row.characterID !== characterID && claims.get(row.characterID) === row.botID)
+      : undefined;
+    if (sharing) {
+      return {
+        ok: false,
+        code: "ACCOUNT_IN_USE_BY_BOT",
+        message: `${sharing.characterName || "Another pilot of this account"} is flying a server run, and the game server ` +
+          "lets one pilot of an account be in game at a time: starting this one would log that one out. Let that run " +
+          "end, or stop it, then start this one.",
+      };
+    }
 
     const botID = crypto.randomUUID();
     const record = {
@@ -1435,6 +1454,21 @@ function createBotHost(options) {
         if (record.recovering && !record.windingDown) return;
         if (record.operationPreparation && !record.mainStarted) return;
         const snapshot = isCompanion ? state.companion : state.customBot;
+        // ⚠ A PILOT THAT WENT OFFLINE IS NOT A FINISHED RUN. Losing the session
+        // (another login of the account closes this one) resets every slice to
+        // its start, and a reset slice reads "idle", which is how a run that
+        // reached its end reads too. The last readout is kept, and the run ends
+        // as an error that says what happened.
+        if (sawRunning && !record.windingDown && state.station.online === null && ENDED_STATUSES.has(snapshot.status)) {
+          const closed = typeof options.closedByServer === "function" ? options.closedByServer(characterID) : null;
+          record.status = "error";
+          record.pauseReason = null;
+          record.why = closed
+            ? `The game server closed this pilot's connection: ${closed.reason}.`
+            : "The pilot went offline, so the run stopped.";
+          void finalize(record);
+          return;
+        }
         applySnapshot(record, snapshot);
         if (snapshot.status === "running" || snapshot.status === "paused") {
           sawRunning = true;
@@ -1827,6 +1861,10 @@ function createBotHost(options) {
           status: record.status,
           phase: record.phase,
           why: record.why,
+          // The program step's own id ("fly-2"), so a board that started the
+          // run can say how far along it is. Ids are the document's, not the
+          // owner's, so nothing identifying rides on it.
+          stepPath: record.stepPath,
           note: record.note,
           vitals: record.vitals,
         });

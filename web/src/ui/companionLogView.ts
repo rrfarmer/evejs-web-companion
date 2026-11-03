@@ -128,7 +128,8 @@ export function traceSummary(trace: CompanionTrace | null | undefined): string {
       ? `${row.id} aboard ${Math.round((row.heldMs ?? 0) / 1000)}s`
       : `${row.id} ${row.state === "homeward" ? "home " : ""}${pct(row.shield)}${row.attackers.length > 0 ? ` x${row.attackers.length}` : ""}`);
     // Five: a full flight, so the drone being shot is never the one cut off.
-    parts.push(`drones: ${d.rotation}${rows.length === 0 ? "" : ` ${capped(rows, 5)}`}`);
+    const cap = d.cap === undefined ? "" : `, cap ${d.cap ?? "?"}`;
+    parts.push(`drones: ${d.rotation}${cap}${rows.length === 0 ? "" : ` ${capped(rows, 5)}`}`);
   }
 
   return parts.join(" | ");

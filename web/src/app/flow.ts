@@ -454,7 +454,7 @@ import { BUFF_SLOTS } from "../bridge/dbuffs.ts";
 import { BUFF_BAR_FX_GUIDS, decodeDbuffUpdate, decodeEwarNotice, decodeSpecialFx, ewarNoticed, jamNoticed, jammersReset, jammersWithout, NO_BUFFS, shipEffectNoticed, shipEffectsReset, type BuffBarState } from "../bridge/buffBar.ts";
 import { buyUseCorp, setBuyUseCorp } from "./buyUseCorp.ts";
 import type { ClientStore } from "../store/clientStore.ts";
-import type { FittingResources, MarketEscrow } from "../store/types.ts";
+import type { DroneLimits, FittingResources, MarketEscrow } from "../store/types.ts";
 import type {
   ActivityRead,
   AgentAction,
@@ -4688,6 +4688,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       ?? staticData.types[typeID]?.attributes.find(([id]) => id === attributeID)?.[1]
       ?? staticData.attributes[attributeID]?.defaultValue
       ?? null;
+  }
+  /** dogma/const.py attributeMaxActiveDrones. */
+  const ATTRIBUTE_MAX_ACTIVE_DRONES = 352;
+  /**
+   * The drone limits with the active-drone cap read off the PILOT, as the client
+   * reads it: `godma.GetItem(session.charid).maxActiveDrones` (dronesUtil.py 104,
+   * clientDogmaLocation.py 1287), the character item godma seeds from GetAllInfo's
+   * charInfo and then refreshes from `shipModifiedCharAttribs` (godma.py 2446).
+   *
+   * ⚠ THE SHIP DOES NOT CARRY IT, AND SINCE SERVER v261018.1 IT SAYS SO. The cap is
+   * a character attribute (the Drones skill and hull traits modify the pilot), and
+   * no ship in Tranquility's answers lists it; the server stopped putting it on
+   * ShipGetInfo (dogmaService/itemInfo.js, PILOT_DRONE_ATTRIBUTE_IDS). Read off
+   * the ship it was null from then on, so the companion's drone sizing never ran
+   * and its low-drone warning measured against the wrong thing (seen live
+   * 2026-10-20: "Low on drones: 11 left (11 in bay, 0 out)", nothing lost). The
+   * ship's figure is kept only as the fallback for a server that still sends it.
+   */
+  function withPilotDroneCap(limits: DroneLimits): DroneLimits {
+    const allInfo = store.dogma.get().allInfo;
+    const pilot = dogmaNumber(allInfo?.shipModifiedCharAttributes ?? null, ATTRIBUTE_MAX_ACTIVE_DRONES)
+      ?? dogmaNumber(allInfo?.character ?? null, ATTRIBUTE_MAX_ACTIVE_DRONES);
+    return pilot === null ? limits : { ...limits, maxActiveDrones: Math.max(0, Math.trunc(pilot)) };
   }
   /** dogma/const.py attributeDamage and attributeShipBrokenModuleRepairCostMultiplier; inventorycommon typeNaniteRepairPaste. */
   const ATTRIBUTE_DAMAGE = 3;
@@ -20089,7 +20112,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // never an empty bay and never "no drones in space".
       bay: decodeDroneBay(result.bay),
       inSpace: decodeDronesInSpace(result.inSpace),
-      limits: decodeDroneLimits(result.shipInfo),
+      limits: withPilotDroneCap(decodeDroneLimits(result.shipInfo)),
     });
   }
 
@@ -23068,7 +23091,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           companionBay === null || companionDroneRoles.bay === null
             ? null
             : companionBay.filter((stack) => combatBayIDs.has(stack.itemID));
-        const limits = droneRaw === null ? null : decodeDroneLimits(droneRaw.shipInfo);
+        const limits = droneRaw === null ? null : withPilotDroneCap(decodeDroneLimits(droneRaw.shipInfo));
         const companionDroneLimits =
           limits === null || limits.droneBandwidth === null || limits.maxActiveDrones === null
             ? null
@@ -25330,7 +25353,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       typeof (row as Record<string, unknown>).controlled !== "boolean")) return null;
     const bay = decodeDroneBay(result.bay);
     const out = decodeDronesInSpace(result.inSpace);
-    const maxActive = decodeDroneLimits(result.shipInfo).maxActiveDrones;
+    const maxActive = withPilotDroneCap(decodeDroneLimits(result.shipInfo)).maxActiveDrones;
     if (out === null || !Array.isArray(result.inSpace) || out.length !== result.inSpace.length) return null;
     const typeIDs = [...new Set([
       ...(bay ?? []).map((stack: DroneBayStack) => stack.typeID),

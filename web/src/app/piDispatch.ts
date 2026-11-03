@@ -34,6 +34,7 @@ import {
   type CustomsExportResult,
 } from "./api.ts";
 import { BridgeCallError } from "../bridge/callMethod.ts";
+import { piHaulStages, type PiRunStage } from "../bridge/piRunProgress.ts";
 import {
   SCRIPT_FORMAT,
   SCRIPT_VERSION,
@@ -87,7 +88,8 @@ export function isPiRestartBot(doc: BotScript): boolean {
 export type PiDispatchOutcome =
   // `exported` rides on a haul's start only: what the customs-office hop sent
   // up, so the row can say it. Absent on a restart, which exports nothing.
-  | { readonly kind: "started"; readonly exported?: PiHaulExportSummary }
+  // `stages` too: the route of the lap that was started, for the board's stepper.
+  | { readonly kind: "started"; readonly exported?: PiHaulExportSummary; readonly stages?: readonly PiRunStage[] }
   | { readonly kind: "refused"; readonly sentence: string };
 
 /** What dispatch needs from the outside world; tests supply their own. */
@@ -407,7 +409,7 @@ export async function haulFor(
     }
     const grant = createBotLaunchGrant(saved.rev, analyzeBotRunPolicy(doc), PI_HAUL_RUNTIME_MINUTES);
     await deps.startServerBot(characterID, saved.scriptID, grant, token);
-    return { kind: "started", exported };
+    return { kind: "started", exported, stages: piHaulStages(doc) };
   } catch (error) {
     if (error instanceof BridgeCallError && error.status > 0 && error.message) {
       return refused(error.message);

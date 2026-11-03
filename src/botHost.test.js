@@ -813,6 +813,38 @@ test("a second bot may not take a claimed character", async () => {
   assert.equal(second.code, "BOT_ALREADY_RUNNING");
 });
 
+test("one client per account: a run on another pilot of the account is refused, naming the pilot flying", async () => {
+  const log = [];
+  const asked = [];
+  const host = makeHost({ log, oneClientPerAccount: (who) => { asked.push(who); return true; } });
+  assert.equal((await host.start(START)).ok, true);
+  const second = await host.start({ ...START, characterID: 140000003 });
+  assert.equal(second.ok, false);
+  assert.equal(second.code, "ACCOUNT_IN_USE_BY_BOT");
+  assert.match(second.message, /^Test Pilot is flying a server run/);
+  assert.deepEqual(asked.at(-1), { accountID: 7, characterID: 140000003, userName: "test" });
+  assert.equal(host.claimedBy(140000003), null);
+  assert.equal(log.filter((row) => row[0] === "selectCharacter").length, 1, "the refused start never selects");
+  // Another account is not this one's to wait on.
+  const other = await host.start({ ...START, account: { accountID: 8, username: "other" }, characterID: 140000004 });
+  assert.equal(other.ok, true);
+});
+
+test("one client per account: once the account's run ends, another pilot of it may start", async () => {
+  const log = [];
+  const host = makeHost({ log, oneClientPerAccount: () => true });
+  await host.start(START);
+  lastStore(log)._set({ customBot: { ...IDLE_SLICE, status: "stopped", phase: "Done" } });
+  await settle();
+  assert.equal((await host.start({ ...START, characterID: 140000003 })).ok, true);
+});
+
+test("an account whose pilots are not one client each may fly two runs at once", async () => {
+  const host = makeHost({ oneClientPerAccount: () => false });
+  assert.equal((await host.start(START)).ok, true);
+  assert.equal((await host.start({ ...START, characterID: 140000003 })).ok, true);
+});
+
 test("only the private per-run capability authorizes a claimed character", async () => {
   const host = makeHost();
   const started = await host.start(START);
@@ -908,6 +940,39 @@ test("a script that ends on its own releases the character", async () => {
   assert.equal(after.botID, started.bot.botID);
   assert.equal(after.status, "stopped");
   assert.notEqual(after.endedAt, null);
+});
+
+test("a pilot the game server closed mid-run ends the run as an error, never as finished", async () => {
+  const log = [];
+  const host = makeHost({
+    log,
+    closedByServer: (characterID) => characterID === 140000001
+      ? { reasonCode: "CLIENTDISCONNECTED", reason: "Another client logged in to this account" }
+      : null,
+  });
+  await host.start(START);
+  const store = lastStore(log);
+  store._set({ customBot: { ...IDLE_SLICE, status: "running", phase: "Collecting", stepPath: "collect-1" } });
+  // Losing the session resets every slice to its start: offline, and an idle bot slice.
+  store._set({ station: { online: null }, customBot: { ...IDLE_SLICE } });
+  await settle();
+  const after = host.list(7)[0];
+  assert.equal(after.status, "error");
+  assert.equal(after.why, "The game server closed this pilot's connection: Another client logged in to this account.");
+  assert.equal(after.stepPath, "collect-1", "the last readout is kept, not the reset slice's");
+  assert.notEqual(after.endedAt, null);
+  assert.equal(host.claimedBy(140000001), null);
+});
+
+test("a pilot that went offline for no reason the server gave still ends as an error", async () => {
+  const log = [];
+  const host = makeHost({ log });
+  await host.start(START);
+  lastStore(log)._set({ station: { online: null }, customBot: { ...IDLE_SLICE } });
+  await settle();
+  const after = host.list(7)[0];
+  assert.equal(after.status, "error");
+  assert.equal(after.why, "The pilot went offline, so the run stopped.");
 });
 
 test("a fresh start on the character keeps the finished record — the ring replaces per-character pruning", async () => {
@@ -1133,6 +1198,8 @@ test("vitals sampling projects ship health, hold fill and the bot's words", asyn
   assert.equal(rows[0].characterID, 140000001);
   assert.equal(rows[0].status, "running");
   assert.equal(rows[0].phase, "Working");
+  // The step id, so a board that started the run can draw how far it is.
+  assert.equal("stepPath" in rows[0], true);
   const vitals = rows[0].vitals;
   assert.equal(vitals.docked, false);
   assert.equal(vitals.shield, 0.9);

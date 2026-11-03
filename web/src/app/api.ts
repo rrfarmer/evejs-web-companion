@@ -3259,6 +3259,8 @@ export interface ActiveServerBot {
   readonly status: string;
   readonly phase: string | null;
   readonly why: string | null;
+  /** The program step the run is on, by its id; null before the first tick. */
+  readonly stepPath: string | null;
   readonly note: string | null;
   readonly vitals: ActiveBotVitals | null;
 }
@@ -3274,6 +3276,7 @@ function asActiveServerBot(value: JsonValue): ActiveServerBot {
     status: typeof row.status === "string" ? row.status : "unknown",
     phase: typeof row.phase === "string" ? row.phase : null,
     why: typeof row.why === "string" ? row.why : null,
+    stepPath: typeof row.stepPath === "string" ? row.stepPath : null,
     note: typeof row.note === "string" ? row.note : null,
     vitals: rawVitals
       ? {

@@ -1168,6 +1168,9 @@ export interface ScriptTickResult {
 
 // ─── Local sentences (R9a) ───────────────────────────────────────────────────
 
+/** The phase a run is left in when it reached the end of its program (done), as an ended run's record keeps it. */
+export const PROGRAM_DONE_PHASE = "Finished";
+
 const SAY = {
   programDone: "The program finished, so the bot stopped.",
   livelock: "This program has nothing it can do right now, so the bot stopped.",
@@ -2804,7 +2807,7 @@ function done(mem: ScriptMemory): ScriptTickResult {
   return {
     action: WAIT,
     why: SAY.programDone,
-    phase: "Finished",
+    phase: PROGRAM_DONE_PHASE,
     stepPath: null,
     interruptID: null,
     status: "done",

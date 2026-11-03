@@ -49,7 +49,7 @@
 {:else if tab === "companion"}
   <FleetCompanions {sessions} {onGoToPilot} />
 {:else if tab === "piManager"}
-  <PiManager {sessions} />
+  <PiManager {sessions} {onOpen} />
 {:else if tab === "industryManager"}
   <IndustryManager {sessions} {onOpen} />
 {/if}
