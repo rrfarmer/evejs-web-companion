@@ -1432,6 +1432,21 @@ function createBotHost(options) {
         if (record.recovering && !record.windingDown) return;
         if (record.operationPreparation && !record.mainStarted) return;
         const snapshot = isCompanion ? state.companion : state.customBot;
+        // ⚠ A PILOT THAT WENT OFFLINE IS NOT A FINISHED RUN. Losing the session
+        // (another login of the account closes this one) resets every slice to
+        // its start, and a reset slice reads "idle", which is how a run that
+        // reached its end reads too. The last readout is kept, and the run ends
+        // as an error that says what happened.
+        if (sawRunning && !record.windingDown && state.station.online === null && ENDED_STATUSES.has(snapshot.status)) {
+          const closed = typeof options.closedByServer === "function" ? options.closedByServer(characterID) : null;
+          record.status = "error";
+          record.pauseReason = null;
+          record.why = closed
+            ? `The game server closed this pilot's connection: ${closed.reason}.`
+            : "The pilot went offline, so the run stopped.";
+          void finalize(record);
+          return;
+        }
         applySnapshot(record, snapshot);
         if (snapshot.status === "running" || snapshot.status === "paused") {
           sawRunning = true;
