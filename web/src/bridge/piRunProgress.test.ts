@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { piHaulBotDoc } from "../app/piDispatch.ts";
 import { lastEndedRun } from "../app/piRunOutcome.ts";
+import { PROGRAM_DONE_PHASE } from "../nav/scriptDecide.ts";
 import type { ServerBot } from "../app/api.ts";
 import {
   colonyRunMark,
@@ -120,12 +121,12 @@ test("a run that drops off the roster is ending until its owner's read answers",
   assert.equal(piRunView(watch, null).over, false);
   assert.match(piRunView(watch, null).words, /Looking up how it went/);
 
-  const finished = piRunView(watchEnded(watch, { status: "idle", why: "The program finished, so the bot stopped." }), null);
+  const finished = piRunView(watchEnded(watch, { status: "stopped", why: "The program finished, so the bot stopped.", finished: true }), null);
   assert.equal(finished.tone, "done");
   assert.ok(finished.stages.every((stage) => stage.state === "done"));
   assert.equal(finished.over, true);
 
-  const stopped = piRunView(watchEnded(watch, { status: "stopped", why: "The approved run time ended, so the server stopped this bot." }), null);
+  const stopped = piRunView(watchEnded(watch, { status: "stopped", why: "The approved run time ended, so the server stopped this bot.", finished: false }), null);
   assert.equal(stopped.tone, "stopped");
   assert.equal(stopped.words, "The haul stopped at Unload: The approved run time ended, so the server stopped this bot.");
   assert.equal(stopped.stages[4]!.state, "stopped");
@@ -143,7 +144,7 @@ test("a start the roster has not shown yet is not mistaken for an ended run", ()
 test("a restart has no stages, only its words and how it ended", () => {
   let watch = watchPoll(startWatch("restart", 0), bot("restart-extractors", { why: "Restarting extractors on Alpha I." }));
   assert.deepEqual(piRunView(watch, bot("restart-extractors", { why: "Restarting extractors on Alpha I." })).stages, []);
-  watch = watchEnded(watchPoll(watch, null), { status: "idle", why: null });
+  watch = watchEnded(watchPoll(watch, null), { status: "stopped", why: null, finished: true });
   assert.equal(piRunView(watch, null).words, "The restart finished. The colonies are read again.");
 });
 
@@ -153,12 +154,35 @@ test("the owner's list answers with the pilot's latest ENDED run", () => {
   } as ServerBot);
   const bots = [
     row({ status: "error", why: "Older.", endedAt: "2026-11-01T10:00:00.000Z" }),
-    row({ status: "idle", why: "Newer.", endedAt: "2026-11-01T12:00:00.000Z" }),
+    row({ status: "stopped", phase: "Finished", why: "Newer.", endedAt: "2026-11-01T12:00:00.000Z" }),
     row({ status: "running", endedAt: null }),
     row({ characterID: 90000002, status: "stopped", endedAt: "2026-11-01T13:00:00.000Z" }),
   ];
-  assert.deepEqual(lastEndedRun(bots, 90000001), { status: "idle", why: "Newer." });
+  assert.deepEqual(lastEndedRun(bots, 90000001), { status: "stopped", why: "Newer.", finished: true });
   assert.equal(lastEndedRun(bots, 90000003), null);
+});
+
+test("a run that reached its program's end is finished; a Stop click and a problem are not", () => {
+  const ended = (over: Partial<ServerBot>): ServerBot => ({
+    characterID: 90000001, status: "stopped", phase: null, why: null, pauseReason: null,
+    endedAt: "2026-11-01T12:00:00.000Z", ...over,
+  } as ServerBot);
+  // As the runner leaves a finished program (nav/scriptRunner.ts: done is "stopped", in the done phase).
+  const done = lastEndedRun([ended({ phase: PROGRAM_DONE_PHASE, why: "The program finished, so the bot stopped." })], 90000001);
+  assert.equal(done?.finished, true);
+  assert.equal(PROGRAM_DONE_PHASE, "Finished");
+  // A Stop click mid-run ends "stopped" in whatever phase it was in.
+  assert.equal(lastEndedRun([ended({ phase: "Recalling drones", why: "Stopping after controlled drones return." })], 90000001)?.finished, false);
+  // A problem, and a pilot that went offline (an "idle" slice), are never finished.
+  assert.equal(lastEndedRun([ended({ status: "error", phase: PROGRAM_DONE_PHASE })], 90000001)?.finished, false);
+  assert.equal(lastEndedRun([ended({ status: "idle" })], 90000001)?.finished, false);
+
+  const stages = piHaulStages(piHaulBotDoc(COLONIES, null));
+  const atUnload = watchPoll(watchPoll(startWatch("haul", 0, stages), bot("unload")), null);
+  const view = piRunView(watchEnded(atUnload, done), null);
+  assert.equal(view.tone, "done");
+  assert.equal(view.words, "The haul finished. The colonies are read again.");
+  assert.ok(view.stages.every((stage) => stage.state === "done"));
 });
 
 test("each hauled colony says where the run is with it, by its system's stage", () => {
@@ -172,11 +196,11 @@ test("each hauled colony says where the run is with it, by its system's stage", 
   assert.equal(colonyRunMark(watch, 40000001, 30000001), "collected");
   assert.equal(colonyRunMark(watch, 40000003, 30000002), "collecting");
   // Stopped before reaching Beta: Beta's colony was not collected.
-  const stopped = watchEnded(watchPoll(watch, null), { status: "stopped", why: null });
+  const stopped = watchEnded(watchPoll(watch, null), { status: "stopped", why: null, finished: false });
   assert.equal(colonyRunMark(stopped, 40000001, 30000001), "collected");
   assert.equal(colonyRunMark(stopped, 40000003, 30000002), "missed");
   // A run that finished collected every colony it was started for.
-  const finished = watchEnded(watchPoll(watch, null), { status: "idle", why: null });
+  const finished = watchEnded(watchPoll(watch, null), { status: "stopped", why: null, finished: true });
   assert.equal(colonyRunMark(finished, 40000003, 30000002), "collected");
   // A restart marks no colony.
   assert.equal(colonyRunMark(startWatch("restart", 0), 40000001, 30000001), null);

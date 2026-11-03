@@ -16,6 +16,7 @@ import {
   type ServerBot,
 } from "./api.ts";
 import type { PiRunEnd } from "../bridge/piRunProgress.ts";
+import { PROGRAM_DONE_PHASE } from "../nav/scriptDecide.ts";
 
 /** Transport only — the token is this function's to mint, never the caller's. */
 export type PiRunOutcomeOptions = Pick<ApiOptions, "fetch" | "baseUrl">;
@@ -28,7 +29,13 @@ export function lastEndedRun(bots: readonly ServerBot[], characterID: number): P
     if (latest === null || Date.parse(bot.endedAt) > Date.parse(latest.endedAt!)) latest = bot;
   }
   if (latest === null) return null;
-  return { status: latest.status, why: latest.pauseReason ?? latest.why };
+  return {
+    status: latest.status,
+    why: latest.pauseReason ?? latest.why,
+    // ⚠ A FINISHED PROGRAM ENDS "stopped", AS A STOP CLICK DOES. The runner leaves a run that reached its program's
+    // end stopped, in the done phase (nav/scriptRunner.ts, scriptDecide.ts done); only that phase tells the two apart.
+    finished: latest.status === "stopped" && latest.phase === PROGRAM_DONE_PHASE,
+  };
 }
 
 /**

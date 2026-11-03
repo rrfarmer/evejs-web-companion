@@ -32,6 +32,8 @@ export interface PiRunBot {
 export interface PiRunEnd {
   readonly status: string;
   readonly why: string | null;
+  /** True when the run reached the end of its program (app/piRunOutcome.ts lastEndedRun). */
+  readonly finished: boolean;
 }
 
 /** What the window keeps per pilot while it watches a run it started. */
@@ -64,13 +66,6 @@ export interface PiRunView {
   /** True once the run is over: the panel can be dismissed. */
   readonly over: boolean;
 }
-
-/**
- * The status a run that reached its program's end is left in (botHost.js
- * ENDED_STATUSES, bots/pilotRoster.ts runOutcomePhrase). "stopped" is a Stop
- * click or the run-time cap, "error" a problem.
- */
-const FINISHED = "idle";
 
 /**
  * The haul's route, grouped off its step ids (app/piDispatch.ts piHaulBotDoc):
@@ -154,7 +149,7 @@ export type PiColonyRunMark = "queued" | "collecting" | "collected" | "missed";
 
 export function colonyRunMark(watch: PiRunWatch, planetID: number, solarSystemID: number): PiColonyRunMark | null {
   if (watch.kind !== "haul" || !watch.planetIDs.includes(planetID)) return null;
-  const finished = watch.ended?.status === FINISHED;
+  const finished = watch.ended?.finished === true;
   if (finished) return "collected";
   const stage = watch.stages.findIndex((candidate) => candidate.solarSystemID === solarSystemID);
   if (stage < 0) return null;
@@ -280,7 +275,7 @@ export function piRunView(watch: PiRunWatch, bot: PiRunBot | null): PiRunView {
     const end = watch.ended ?? null;
     // Judged by the server's status, never by the last stage the poll saw: a
     // quick final step can end between two polls.
-    if (end !== null && end.status === FINISHED) {
+    if (end !== null && end.finished) {
       return {
         stages: stagesWith(() => "done"),
         words: `The ${what} finished. The colonies are read again.`,
