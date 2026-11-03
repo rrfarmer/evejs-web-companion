@@ -1824,6 +1824,10 @@ function createBotHost(options) {
           status: record.status,
           phase: record.phase,
           why: record.why,
+          // The program step's own id ("fly-2"), so a board that started the
+          // run can say how far along it is. Ids are the document's, not the
+          // owner's, so nothing identifying rides on it.
+          stepPath: record.stepPath,
           note: record.note,
           vitals: record.vitals,
         });

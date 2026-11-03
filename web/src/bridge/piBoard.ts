@@ -24,6 +24,7 @@
 import type { Colony } from "../store/types.ts";
 import type { PilotColonyReading } from "./piRoster.ts";
 import type { PiRecipeBook } from "./piRecipes.ts";
+import type { PiRunStage } from "./piRunProgress.ts";
 import {
   attentionByColony,
   bySeverityThenTime,
@@ -82,6 +83,7 @@ export type PiDispatchState =
         readonly refusals: readonly string[];
         readonly atTheOffices?: true;
       };
+      readonly stages?: readonly PiRunStage[];
     }
   | { readonly kind: "refused"; readonly sentence: string };
 
@@ -283,7 +285,10 @@ function dispatchFor(
         // Not while a bot flies the pilot, while it is being read, or while a
         // start from here is in flight or has just gone out.
         enabled: !flying && attempt !== "reading" && state?.kind !== "starting" && state?.kind !== "started",
-        label: extractors > 0 ? "Restart extractors" : "Fix extractor routes",
+        // The count rides on the button: the sentence below is one click away.
+        label: extractors > 0
+          ? `Restart ${extractors === 1 ? "1 extractor" : `${extractors} extractors`}`
+          : `Fix ${reroutes === 1 ? "1 extractor route" : `${reroutes} extractor routes`}`,
         // "an hour": PI_RESTART_RUNTIME_MINUTES in app/piDispatch.ts.
         words:
           `${[ended, short].filter((part) => part !== null).join(" ")} This starts a server run for ${pilotName} that restarts every ` +
@@ -635,25 +640,24 @@ export function pilotsByAccount(
  * The Haul offer on a pilot's line: what the run will do, said BEFORE the
  * button, the same rule as the restart offer. `ticked` is how many of this
  * pilot's colonies are ticked; `into` the picked division's words, or null
- * for the pilot's own hangar.
+ * for the pilot's own hangar. `words` is said whether or not anything is
+ * ticked; `hint` says what to do first when nothing is.
  */
 export function piHaulWords(
   pilotName: string,
   ticked: number,
   into: string | null,
   deliverTo: string | null = null,
-): { label: string; words: string } {
+): { label: string; words: string; hint: string | null } {
   const where = into === null ? "your own hangar" : `the corporation's ${into}`;
   const station = deliverTo === null
     ? "flies back"
     : `flies to ${deliverTo}`;
   const andBack = deliverTo === null ? "" : "flies back to where it started, ";
-  if (ticked === 0) {
-    return { label: "Haul", words: "Tick the colonies to haul." };
-  }
   const colonies = ticked === 1 ? "1 colony" : `${ticked} colonies`;
   return {
-    label: `Haul ${colonies}`,
+    label: ticked === 0 ? "Haul" : `Haul ${colonies}`,
+    hint: ticked === 0 ? "Tick the colonies to haul." : null,
     words:
       `This sends what the ticked colonies' launchpads hold up into their customs offices, then starts a server run for ${pilotName} ` +
       `that launches what their command centres hold, gets into a ship parked where the pilot is docked that has a planetary hold, ` +
@@ -662,17 +666,43 @@ export function piHaulWords(
   };
 }
 
-/** What a Haul start from this window did, as one sentence. */
-export function piHaulDispatchWords(state: PiDispatchState | null): string | null {
+/** What a pilot's closed row says about its colonies: how many want the player, and the fullest store. */
+export interface PiPilotRowFacts {
+  readonly needYouNow: number;
+  readonly soon: number;
+  /** The fullest colony's storage; null when no colony's fill can be stated. */
+  readonly fullest: PiFillBar | null;
+}
+
+export function pilotRowFacts(rows: readonly PiColonyRow[]): PiPilotRowFacts {
+  let fullest: PiFillBar | null = null;
+  for (const row of rows) {
+    if (row.storage !== null && (fullest === null || row.storage.fraction > fullest.fraction)) fullest = row.storage;
+  }
+  return {
+    needYouNow: rows.filter((row) => row.tone === "stopped").length,
+    soon: rows.filter((row) => row.tone === "soon").length,
+    fullest,
+  };
+}
+
+/**
+ * What a Haul start from this window did, as one sentence. `watched`: the
+ * window is drawing the run's route, which already says it started and how far
+ * it is, so only what the launch hop sent up (the half the route cannot show)
+ * is said; null when there is nothing else to say.
+ */
+export function piHaulDispatchWords(state: PiDispatchState | null, watched = false): string | null {
   if (state === null) return null;
   if (state.kind === "starting") return "Launching into the customs offices, then starting the haul...";
   if (state.kind !== "started") return state.sentence;
   const started = "The haul has started on the server. Its steps show in the Bot Manager.";
   const exported = state.exported ?? null;
-  if (exported === null) return started;
+  if (exported === null) return watched ? null : started;
   // The run sends the launchpads up itself, at each office: nothing went up yet,
   // and that is not "nothing was on them".
   if (exported.atTheOffices === true) {
+    if (watched) return exported.refusals.length === 0 ? null : exported.refusals.join(" ");
     return "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.";
   }
   // What went up is said first, because it is the half the Bot Manager cannot
@@ -682,5 +712,5 @@ export function piHaulDispatchWords(state: PiDispatchState | null): string | nul
     : `Launched ${exported.units} ${exported.units === 1 ? "unit" : "units"} from ` +
       `${exported.colonies === 1 ? "1 colony" : `${exported.colonies} colonies`} into their customs offices.`;
   // A colony the server refused is named in its own words; the rest still haul.
-  return [launched, ...exported.refusals, started].join(" ");
+  return [launched, ...exported.refusals, ...(watched ? [] : [started])].join(" ");
 }

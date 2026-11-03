@@ -358,7 +358,7 @@ test("a pilot with ended extractors is offered a restart, with what it does said
   const [farmer, hauler] = board.pilots;
   assert.deepEqual(farmer!.restart, {
     enabled: true,
-    label: "Restart extractors",
+    label: "Restart 3 extractors",
     words: "3 extractors have ended on 2 colonies. This starts a server run for Ada Farmer that restarts every ended extractor on all of its colonies, re-sizes the storage routes of any extractor that yields more than they carry, then stops. It changes nothing else and runs for an hour at most.",
   });
   // A pilot with nothing ended is offered nothing.
@@ -564,4 +564,14 @@ test("a restart's start carries no export sentence", () => {
 test("a haul whose run sends the launchpads up itself says so, and not that nothing was on them", () => {
   const words = piHaulDispatchWords({ kind: "started", exported: { units: 0, colonies: 0, refusals: [], atTheOffices: true } });
   assert.equal(words, "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.");
+});
+
+test("while the window draws a haul's route, the start says only what the launch sent up", () => {
+  const exported = { kind: "started" as const, exported: { units: 370, colonies: 2, refusals: [] } };
+  assert.equal(piHaulDispatchWords(exported, true), "Launched 370 units from 2 colonies into their customs offices.");
+  // Nothing went up here and nothing was refused: the route says the rest.
+  assert.equal(piHaulDispatchWords({ kind: "started", exported: { units: 0, colonies: 0, refusals: [], atTheOffices: true } }, true), null);
+  assert.equal(piHaulDispatchWords({ kind: "started" }, true), null);
+  // Not drawn: the old sentence, unchanged.
+  assert.match(piHaulDispatchWords(exported) ?? "", /Its steps show in the Bot Manager\.$/);
 });

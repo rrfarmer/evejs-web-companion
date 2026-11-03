@@ -175,8 +175,9 @@ test("an empty roster says what to do, and offers the hangar's pilots", () => {
 
 test("stored readings are printed by pilot: worst first, under the pilot's age", () => {
   const text = visibleText(renderSeeded());
-  // The age of a pilot's one reading is said once, on the line above its rows.
-  assert.match(text, /Ada Farmer - 2 colonies, Alpha Read 2 hours ago/);
+  // The age of a pilot's one reading is said once, on the pilot's own line,
+  // with what needs the player and the fullest store.
+  assert.match(text, /Ada Farmer 2 colonies, Alpha 1 needs you Read 2 hours ago/);
   // What needs you is said on the colony's own row, and that row comes first.
   const stopped = text.indexOf("Alpha II Barren - CC 5");
   const running = text.indexOf("Alpha I Barren - CC 5");
@@ -231,22 +232,42 @@ test("no id as data and no machinery words in anything a player reads", () => {
   assert.match(`Pilot ${FARMER}`, /\d{5,}/);
 });
 
-test("a pilot with an ended extractor is offered a restart, said before the button", () => {
-  const text = visibleText(renderSeeded());
+test("a pilot with an ended extractor is offered a restart, its count on the button", () => {
+  const body = renderSeeded();
+  // The count is on the button; the full sentence is its tooltip.
   assert.match(
-    text,
-    /1 extractor has ended on 1 colony\. This starts a server run for Ada Farmer that restarts every ended extractor on all of its colonies, re-sizes the storage routes of any extractor that yields more than they carry, then stops\. It changes nothing else and runs for an hour at most\. Restart extractors/,
+    body,
+    /title="1 extractor has ended on 1 colony\. This starts a server run for Ada Farmer that restarts every ended extractor on all of its colonies, re-sizes the storage routes of any extractor that yields more than they carry, then stops\. It changes nothing else and runs for an hour at most\."[^>]*>\s*Restart 1 extractor\s*</,
   );
   // Only one pilot has anything to restart.
-  assert.equal(text.match(/Restart extractors/g)?.length, 1);
+  assert.equal(visibleText(body).match(/Restart 1 extractor/g)?.length, 1);
 });
 
 test("the restart is offered on the pilot's colonies, not on the roster", () => {
   const body = renderSeeded();
   const colonies = body.slice(body.indexOf('id="pi-view-colonies"'), body.indexOf('id="pi-view-pilots"'));
   const pilots = body.slice(body.indexOf('id="pi-view-pilots"'), body.indexOf('id="pi-view-stock"'));
-  assert.match(visibleText(colonies), /Ada Farmer - 2 colonies, Alpha Read 2 hours ago 1 extractor has ended/);
-  assert.doesNotMatch(pilots, /Restart extractors/);
+  assert.match(visibleText(colonies), /Ada Farmer 2 colonies, Alpha .*Restart 1 extractor To the pilot's station/);
+  assert.doesNotMatch(pilots, /Restart \d+ extractor/);
+});
+
+test("how things work is one help for the window; a pilot's line keeps only its particulars", () => {
+  const body = renderSeeded();
+  const colonies = body.slice(body.indexOf('id="pi-view-colonies"'), body.indexOf('id="pi-view-pilots"'));
+  // One "?" beside Refresh opens it, on the view the window shows.
+  assert.match(body, /aria-label="How Planetary Industry works"/);
+  assert.match(SOURCE, /<PiHelp open=\{helpOpen\} section=\{view\}/);
+  assert.doesNotMatch(colonies, /What this does/);
+  // Where this pilot's haul goes stays on its line, before its button; what to
+  // do first sits by the button, so a disabled Haul still says why.
+  assert.match(visibleText(colonies), /To the pilot's station, the pilot's own hangar Change Tick colonies 70%\+ full Tick the colonies to haul\. Haul/);
+});
+
+test("a pilot that needs the player opens by itself; the rest are one line", () => {
+  // onMount does not run under SSR, so the rule is pinned where it is decided.
+  assert.match(SOURCE, /return needYouNow > 0 \|\| \(run !== null && \(!run\.over \|\| run\.tone === "stopped"\)\);/);
+  const body = renderSeeded();
+  assert.match(body, /aria-expanded="true"[^>]*>[\s\S]*?Ada Farmer/);
 });
 
 test("the roster is grouped by account, and a shared age is said once", () => {
@@ -345,4 +366,16 @@ test("the corp hangar read rides a session already online, and never selects any
   assert.match(corpRead, /apiLogin\(accountName, "", \{ token: null \}\)/);
   const api = readFileSync(path.join(UI_DIR, "../app/api.ts"), "utf8");
   assert.match(api, /getJson\(`\/api\/bots\/corp-assets\?/, "the bot read is a GET");
+});
+
+test("a paused run's box says what to do and opens the Bot Manager from both mounts", () => {
+  // A paused server run has no Resume, so the box never promises it carries on.
+  assert.doesNotMatch(SOURCE, /it carries on/);
+  assert.match(SOURCE, /\{run\.todo \?\? "The run waits where it is and does not carry on by itself\./);
+  assert.match(SOURCE, /onclick=\{\(\) => onOpen\("botManager"\)\}>Bot Manager<\/button>/);
+  // The floating window and a phone's panel both hand the window its opener.
+  const globalPanel = readFileSync(path.join(UI_DIR, "GlobalPanel.svelte"), "utf8");
+  const panelHost = readFileSync(path.join(UI_DIR, "PanelHost.svelte"), "utf8");
+  assert.match(globalPanel, /<PiManager \{sessions\} \{onOpen\} \/>/);
+  assert.match(panelHost, /<PiManager \{sessions\} onOpen=\{/);
 });

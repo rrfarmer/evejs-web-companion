@@ -10,6 +10,7 @@ import {
   divisionLabel,
   learnDivisionNames,
   loadPiHaulPrefs,
+  pickedDivisionWords,
   savePiHaulPrefs,
   withEntry,
 } from "./piHaulPrefs.ts";
@@ -68,4 +69,16 @@ test("withEntry sets and removes", () => {
   const set = withEntry(new Map<number, string>(), 1, "a");
   assert.equal(set.get(1), "a");
   assert.equal(withEntry(set, 1, null).has(1), false);
+});
+
+test("a pick saved before the names were known reads by the corporation's name once it is learned", () => {
+  const picked = { division: 1, name: null };
+  const learned = learnDivisionNames(EMPTY_PI_HAUL_PREFS, 98000001, [{ division: 1, name: "Industry" }, { division: 2, name: null }]);
+  assert.equal(pickedDivisionWords(learned, 98000001, picked), "Industry");
+  // Unknown corporation, or no name for that division: the number, as before.
+  assert.equal(pickedDivisionWords(learned, null, picked), "Division 1");
+  assert.equal(pickedDivisionWords(learned, 98000001, { division: 2, name: null }), "Division 2");
+  // The learned name wins over a stale one saved with the pick.
+  assert.equal(pickedDivisionWords(learned, 98000001, { division: 1, name: "Old name" }), "Industry");
+  assert.equal(pickedDivisionWords(learned, 98000001, null), null);
 });
