@@ -99,6 +99,7 @@ const { createMiningOperationStopper } = require("./miningOperationStop");
 const { createMiningOperations, auditMiningScript, operationRoutineCompatibility, EXECUTABLE_TARGET_CLASSES } = require("./miningOperations");
 const { reconnectCandidate, hasPendingRecovery, recoveryReadyProof, handoffFlightReady } = require("./droneRecoveryGate");
 const { createBotLogStore } = require("./botLogStore");
+const { createPluginHost } = require("./pluginHost");
 const { colonyRowOf, planetIDsOf, resourceRecordOf } = require("./planetInfoColony");
 const {
   isBridgeWritePair,
@@ -623,6 +624,11 @@ const trainingOnboarding = createTrainingOnboarding({ store, gateway, sessions: 
 // holds is the app -- never createApp's locals. Published here so that call
 // reaches THIS app's store, including one injected by a test.
 app.locals.botScripts = botScripts;
+// Every plugin backend, each in a process of its own (src/pluginHost.js). Nothing
+// is started here: startServer starts them once the port is open, so an app made
+// for a test forks nothing unless it hands in a host of its own.
+const pluginHost = options.pluginHost || createPluginHost({ dataDir: config.dataDir });
+app.locals.pluginHost = pluginHost;
 // Shared, in-process (never persisted — see src/beltMemory.js) memory of belts
 // mining bots have found dry, keyed by solar-system NAME then belt NAME. Every
 // account's bots share the one instance; a restart forgets it, which is fine —
@@ -11658,6 +11664,41 @@ function rosterCharacterIDs(value) {
 // sessionMgr.CloseUserSessions), so the hangar opening would put off a retail client playing on the account. Asked of
 // the gateway as the account and no character. What each pilot is training is read from it too, as the client's
 // selection screen reads it (charselData.py GetSkillInTrainingInfo, 185 to 191; web/src/app/knownCharacters.ts).
+/**
+ * GET /api/plugins - each plugin backend's process as this BFF runs it: running,
+ * restarting, or stopped after failing, and its last error. The Plugins window
+ * shows it beside what loaded into the page.
+ */
+app.get("/api/plugins", requireAuth, (req, res) => {
+  res.json({ ok: true, plugins: pluginHost.statuses() });
+});
+
+/**
+ * /api/plugins/<id>/... - a plugin's own routes, answered by its backend in its
+ * own process. The session is checked here; the plugin is told only the account
+ * the request was made as. A backend that is down or slow costs this request a
+ * 503 or 504 and nothing else.
+ */
+app.all("/api/plugins/:pluginID/*rest", requireAuth, async (req, res, next) => {
+  try {
+    const rest = Array.isArray(req.params.rest) ? req.params.rest : [String(req.params.rest || "")];
+    const query = {};
+    for (const [key, value] of Object.entries(req.query || {})) {
+      if (typeof value === "string") query[key] = value;
+    }
+    const answer = await pluginHost.request(String(req.params.pluginID), {
+      method: req.method,
+      path: `/${rest.map((part) => encodeURIComponent(part)).join("/")}`,
+      query,
+      body: req.body === undefined ? null : req.body,
+      account: { accountID: Number(req.account.accountID), username: String(req.account.username || "") },
+    });
+    res.status(answer.status).json(answer.body);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/roster/characters", requireAuth, async (req, res, next) => {
   try {
     const outcome = await gateway.callMethod(
@@ -17541,6 +17582,11 @@ function startServer(options = {}) {
     } catch (error) {
       console.error(error);
     }
+    // Every plugin backend, each in a process of its own. A plugin that fails to
+    // start is logged and shown in the Plugins window; it never stops the server.
+    if (options.plugins !== false) {
+      void appToStart.locals.pluginHost?.start().catch((error) => console.error(error));
+    }
     // Bots that were running when the server last stopped come back now —
     // AFTER listen, because every server bot drives this server over loopback,
     // and AFTER the last process's sessions are released, because until then
@@ -17579,6 +17625,7 @@ function startServer(options = {}) {
   server.on("close", () => {
     startupRetired = true;
     appToStart.locals.gamePortPilots?.shutdown?.();
+    appToStart.locals.pluginHost?.stop();
   });
   return server;
 }
