@@ -11,11 +11,19 @@ import "./styles.css";
 import { mount } from "svelte";
 import { isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
 import { installErrorOverlay } from "./app/errorOverlay.ts";
+import { activatePagePlugins } from "./plugins/pluginHost.ts";
+import { PLUGINS } from "../../plugins/index.ts";
+import { PLUGIN_VIEWS } from "../../plugins/views.ts";
 
 // Before anything else: a framework-free net for uncaught errors and unhandled
 // rejections, so a throw that wedges the UI still shows a message instead of a
 // silent freeze.
 installErrorOverlay();
+
+// The build's plugins, before anything is drawn: their windows and bot blocks
+// are registered now, and a plugin that fails to load fails only itself
+// (plugins/pluginHost.ts says how each went, in the Plugins window).
+activatePagePlugins(PLUGINS, PLUGIN_VIEWS);
 
 // R107 — App owns the pilot roster now: it creates one isolated session per
 // pilot (store + per-session-token flow) and warms each one's health ping

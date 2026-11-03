@@ -24,6 +24,7 @@ export type CoreTabID =
   | "botBuilder"
   | "botManager"
   | "companion"
+  | "pluginManager"
   | "inventory"
   | "market"
   | "industry"
@@ -170,6 +171,9 @@ export const TABS: readonly CoreTabDef[] = [
   // title comes from `tabLabel`, and `NEOCOM_GLYPHS` is exhaustive over the
   // union whether or not a glyph is ever rendered in the strip.
   { id: "companion", label: "Fleet companions", where: "both", launchable: false },
+  // A GLOBAL window too: what this client adds beyond the game's own windows,
+  // which is about the client, not a pilot. Its door is beside the brand.
+  { id: "pluginManager", label: "Plugins", where: "both", launchable: false },
   // In space only — flying, what's around the ship.
   { id: "flight", label: "Flight", where: "in-space" },
   // ⚠ BOTH, THOUGH MINING IS DONE IN SPACE. The window is the mining loop's

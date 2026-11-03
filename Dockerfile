@@ -22,6 +22,9 @@ RUN apt-get update \
 
 COPY tsconfig.json vite.config.ts ./
 COPY web ./web
+# The plugins this build carries (plugins/index.ts lists them); the web build
+# compiles their windows and blocks in.
+COPY plugins ./plugins
 # The starter-bot seeds are BFF data, but only the browser's codec can prove
 # they are valid documents — the server is plain JS and cannot run it. So the
 # web-side test that decodes them lives here and needs the file, even though
@@ -65,6 +68,8 @@ COPY --chown=node:node scripts ./scripts
 # presses start. Source only, and the graph it pulls is relative-import-only,
 # so this needs nothing from the pruned devDependencies.
 COPY --chown=node:node web/src ./web/src
+# The BFF runs each plugin's backend, and the bot host its blocks, from here.
+COPY --chown=node:node plugins ./plugins
 COPY --from=node-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=web-build --chown=node:node /app/public/dist ./public/dist
 

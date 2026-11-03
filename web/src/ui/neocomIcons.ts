@@ -68,6 +68,8 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   // somebody, which is the whole of what a companion does. It is drawn for the
   // character bar's button rather than the rail, which never offers this tab.
   companion: ["M13 3l5 10-5-2.5L8 13z", "M6 13l3 7-3-1.5L3 20z"],
+  // The plugins window: a plug, two pins into a socket.
+  pluginManager: ["M9 3v5M15 3v5", "M6 8h12v4a6 6 0 0 1-12 0z", "M12 18v3"],
 
   // --- goods and money ---
   inventory: ["M4 8l8-4 8 4v8l-8 4-8-4z", "M4 8l8 4 8-4M12 12v8"],

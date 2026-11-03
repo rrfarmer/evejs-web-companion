@@ -258,6 +258,30 @@ async function getJson(
   return requestJson(path, { method: "GET" }, options);
 }
 
+/** One plugin backend as the BFF runs it (src/pluginHost.js). */
+export interface PluginBackendStatus {
+  readonly id: string;
+  /** running, starting, restarting, failed or stopped. */
+  readonly state: string;
+  readonly restarts: number;
+  readonly error: string | null;
+}
+
+/** GET /api/plugins: each plugin backend's process, as the BFF sees it. */
+export async function listPluginBackends(options: ApiOptions = {}): Promise<PluginBackendStatus[]> {
+  const data = await getJson("/api/plugins", options);
+  const rows = Array.isArray(data.plugins) ? data.plugins : [];
+  return rows.map((row) => {
+    const entry = row !== null && typeof row === "object" && !Array.isArray(row) ? (row as Record<string, JsonValue>) : {};
+    return {
+      id: typeof entry.id === "string" ? entry.id : "",
+      state: typeof entry.state === "string" ? entry.state : "stopped",
+      restarts: typeof entry.restarts === "number" ? entry.restarts : 0,
+      error: typeof entry.error === "string" ? entry.error : null,
+    };
+  });
+}
+
 /**
  * GET /api/roster/characters: an account's characters as its selection screen lists them, for the Pilot Hangar, read
  * with no game login (a launcher's listing: a login would close the account's other client). The answer is

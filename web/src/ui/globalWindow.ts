@@ -99,6 +99,12 @@ export const CORE_GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
     title: "Fleet companions",
     hint: "Fleet companions — every pilot flying with a fleet",
   },
+  {
+    id: "pluginManager",
+    label: "Plugins",
+    title: "Plugins",
+    hint: "Plugins — what this client adds beyond the game's own windows",
+  },
 ];
 
 // The global windows plugins added, in the order they registered.
