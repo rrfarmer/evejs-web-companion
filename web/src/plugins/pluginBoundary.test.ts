@@ -47,9 +47,12 @@ function relativeImports(file: string): string[] {
 
 const inside = (file: string, dir: string): boolean => file === dir || file.startsWith(dir + path.sep);
 
+// A plugin's tests may drive it through core's own harness: a test is not shipped.
+const isTest = (file: string): boolean => /\.test\.ts$/.test(file) || file.split(path.sep).includes("test");
+
 test("a plugin imports only the plugin API and its own folder", () => {
   const strays: string[] = [];
-  for (const file of sources(PLUGINS)) {
+  for (const file of sources(PLUGINS).filter((file) => !isTest(file))) {
     const own = LISTS.has(file) ? PLUGINS : path.join(PLUGINS, path.relative(PLUGINS, file).split(path.sep)[0]!);
     for (const target of relativeImports(file)) {
       if (inside(target, API) || inside(target, own)) continue;

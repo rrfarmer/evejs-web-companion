@@ -18,14 +18,14 @@ import { pluginMacro } from "./pluginMacros.ts";
  * - `customsOffices`  the customs offices in the system, and what is in them
  * - `shipNames`       the names the pilot gave the ship flown and the ships
  *                     parked here (the client's cfg.evelocations)
+ * - `holds`           the ship's holds and, docked, the station hangar (the
+ *                     inventory panel's one read)
+ * - `planetaryHolds`  which hulls here, the one flown among them, have a
+ *                     planetary commodities hold (a capacity read per hull)
  */
-export type ObservationRead = "colonies" | "piLaunches" | "customsOffices" | "shipNames";
+export type ObservationRead = "colonies" | "piLaunches" | "customsOffices" | "shipNames" | "holds" | "planetaryHolds";
 
 const CORE_MACRO_READS: Readonly<Partial<Record<CoreMacroID, readonly ObservationRead[]>>> = {
-  "restart-extractors": ["colonies"],
-  "launch-commodities": ["colonies"],
-  "collect-launches": ["piLaunches"],
-  "collect-customs": ["colonies", "customsOffices"],
   "board-ship": ["shipNames"],
 };
 

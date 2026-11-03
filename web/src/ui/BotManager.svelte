@@ -31,7 +31,7 @@
   // and error/empty/loading kept as three distinguishable states rather than
   // collapsed into one "nothing to show".
   //
-  // THE LAYOUT IS PiManager.svelte's: a menu rail down the left, one view at a
+  // THE LAYOUT IS THE PI MANAGER'S (plugins/pi-manager/ui/PiManager.svelte): a menu rail down the left, one view at a
   // time beside it, and a strip of four numbers over every view. The regions
   // used to be stacked, which put the library a long scroll under five groups
   // whose rows each repeated the same two explanations. Every view is still
@@ -1152,7 +1152,7 @@
 </section>
 
 <style>
-  /* PiManager.svelte's rail and strip, value for value, so the two windows read
+  /* The PI Manager's rail and strip, value for value, so the two windows read
      as one family. Kept scoped rather than shared: each window owns its layout,
      and a change to one must not quietly move the other. */
   /* ⚠ THE PANEL IS ITS OWN SIZE CONTAINER, or the `@container` rules below

@@ -7,5 +7,6 @@
 // BFF can read this file without loading Svelte.
 
 import type { PluginManifest } from "../web/src/plugin-api/index.ts";
+import piManager from "./pi-manager/plugin.ts";
 
-export const PLUGINS: readonly PluginManifest[] = [];
+export const PLUGINS: readonly PluginManifest[] = [piManager];

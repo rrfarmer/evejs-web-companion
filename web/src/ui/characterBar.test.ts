@@ -59,7 +59,7 @@ function renderCompanionBar(props: Record<string, unknown>): string {
 test("the bar carries a door onto each global window", () => {
   const body = renderCompanionBar({});
   assert.match(body, /data-launch="botManager"/);
-  assert.match(body, /data-launch="piManager"/);
+  assert.match(body, /data-launch="pluginManager"/);
   assert.match(body, /data-launch="companion"/);
   assert.match(body, /Fleet companions/);
 });

@@ -2,7 +2,7 @@
 // pilots (the PI board, R108 slice 5; the Industry Manager, R109).
 //
 // ⚠ THE ONE READ THAT NEEDS A PILOT ONLINE. Colonies and personal hangars come
-// from each pilot's gateway snapshot with nobody selected (piRosterRead.ts),
+// from each pilot's gateway snapshot with nobody selected (the PI Manager plugin's piRosterRead.ts),
 // but corp-owned goods are in no pilot's snapshot: the snapshot is filtered to
 // the character as owner. The corp asset read (corpmgr) runs on a HELD session,
 // so it is made through a pilot of that corporation who is ALREADY online:
@@ -24,7 +24,7 @@
 // ended) is recorded against that pilot and the next one is tried: in a game
 // where roles differ, one pilot's refusal must not hide goods another can see.
 //
-// ⚠ ONE OFFICE AT A TIME, for the reason piRosterRead.ts reads one account at
+// ⚠ ONE OFFICE AT A TIME, for the reason the PI roster read takes one account at
 // a time: the browser allows about six connections per origin, and the player's
 // own clicks must not queue behind a sweep.
 

@@ -48,6 +48,11 @@ export interface PluginMacro {
   readonly newArgs?: () => Readonly<Record<string, Arg>>;
   /** The step as one sentence; the palette name when absent. */
   readonly sentence?: (step: MacroStep) => string;
+  /**
+   * The ids this block had before it was a plugin's (a core block that moved
+   * out). A saved script naming one is read as this block (scriptCodec.ts).
+   */
+  readonly formerly?: readonly string[];
 }
 
 const registered = new Map<PluginMacroID, PluginMacro>();
@@ -69,6 +74,12 @@ export function registerPluginMacro(macro: PluginMacro): void {
 /** A plugin's block, or null when no plugin in this build registered it. */
 export function pluginMacro(id: PluginMacroID): PluginMacro | null {
   return registered.get(id) ?? null;
+}
+
+/** The plugin block that used to be called `id`, or null. */
+export function pluginMacroFormerly(id: string): PluginMacroID | null {
+  for (const macro of registered.values()) if (macro.formerly?.includes(id)) return macro.id;
+  return null;
 }
 
 /** Every plugin block, in the order they registered. */

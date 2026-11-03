@@ -89,7 +89,6 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   planets: ["M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12", "M3 14c6 3.5 12 3.5 18 0"],
   // Planetary Industry: a small world over a row of three, the whole roster's
   // colonies rather than one planet.
-  piManager: ["M12 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10", "M4 20h.01M12 20h.01M20 20h.01", "M4 17h16"],
   // Industry Manager: one box over three, a build tree.
   industryManager: ["M9 3h6v5H9z", "M12 8v4M5 12h14M5 12v3M12 12v3M19 12v3", "M3 15h4v5H3zM10 15h4v5h-4zM17 15h4v5h-4z"],
   // A building: the corporation.

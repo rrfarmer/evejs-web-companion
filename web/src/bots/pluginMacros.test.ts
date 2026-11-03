@@ -97,8 +97,8 @@ test("once its plugin registers it, the block is read, checked, priced, offered,
 });
 
 test("core's blocks keep their own reads", () => {
-  assert.equal(macroReads("restart-extractors", "colonies"), true);
-  assert.equal(macroReads("collect-customs", "customsOffices"), true);
+  assert.equal(macroReads("board-ship", "shipNames"), true);
+  assert.equal(macroReads("board-ship", "colonies"), false);
   assert.equal(macroReads("mine-at-belt", "colonies"), false);
   assert.equal(macroReads(null, "colonies"), false);
 });

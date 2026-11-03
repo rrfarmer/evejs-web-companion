@@ -2907,84 +2907,26 @@ export async function setBotScriptsCategory(
   await postJson("/api/botscripts/category", { scriptIDs, categoryID }, options);
 }
 
-// ─── Saved PI plans (src/piPlanStore.js) ─────────────────────────────────────
-// Rows from the companion's own database. The answers are handed back RAW:
-// app/piPlans.ts decodes them, so a stored row and a fresh one go through the
-// same door.
+// ─── A plugin's own routes (src/pluginHost.js) ─────────────────────────────────
+// /api/plugins/<id>/..., answered by the plugin's backend in its own process, on
+// the session `options` names. A plugin reaches its backend only through these.
 
-/** The fields a plan may carry on create or update. */
-export interface PiPlanFields {
-  readonly typeID?: number;
-  readonly quantity?: number;
-  readonly note?: string;
-  readonly status?: "active" | "done";
+/** GET one of a plugin's own routes: `path` is under its prefix, as "/plans". */
+export async function pluginGetJson(pluginID: string, path: string, options: ApiOptions = {}): Promise<Record<string, JsonValue>> {
+  return getJson(`/api/plugins/${encodeURIComponent(pluginID)}${path}`, options);
 }
 
-export async function listPiPlans(options: ApiOptions = {}): Promise<JsonValue> {
-  return (await getJson("/api/pi/plans", options)).plans ?? null;
-}
-
-export async function createPiPlan(fields: PiPlanFields, options: ApiOptions = {}): Promise<JsonValue> {
-  return (await postJson("/api/pi/plans", fields, options)).plan ?? null;
-}
-
-export async function updatePiPlan(
-  planID: string,
-  fields: PiPlanFields,
-  baseRev: number,
+/** POST to one of a plugin's own routes. */
+export async function pluginPostJson(
+  pluginID: string,
+  path: string,
+  body: unknown,
   options: ApiOptions = {},
-): Promise<JsonValue> {
-  const data = await postJson(`/api/pi/plans/${encodeURIComponent(planID)}`, { ...fields, baseRev }, options);
-  return data.plan ?? null;
+): Promise<Record<string, JsonValue>> {
+  return postJson(`/api/plugins/${encodeURIComponent(pluginID)}${path}`, body, options);
 }
 
-export async function deletePiPlan(planID: string, options: ApiOptions = {}): Promise<void> {
-  await postJson(`/api/pi/plans/${encodeURIComponent(planID)}/delete`, {}, options);
-}
-
-// ─── Saved PI expansion plans (src/piExpansionStore.js) ──────────────────────
-// Handed back RAW: app/piExpansions.ts decodes them.
-
-export interface PiExpansionFields {
-  readonly settings?: {
-    readonly homeSystemID: number;
-    readonly maxJumps: number;
-    readonly nullsecTolerance: number;
-    readonly characterIDs: readonly number[];
-  };
-  readonly rows?: readonly {
-    readonly characterID: number;
-    readonly planetID: number;
-    readonly resourceTypeID: number;
-    readonly productTypeID: number;
-  }[];
-  readonly note?: string;
-  readonly status?: "active" | "done";
-}
-
-export async function listPiExpansions(options: ApiOptions = {}): Promise<JsonValue> {
-  return (await getJson("/api/pi/expansions", options)).plans ?? null;
-}
-
-export async function createPiExpansion(fields: PiExpansionFields, options: ApiOptions = {}): Promise<JsonValue> {
-  return (await postJson("/api/pi/expansions", fields, options)).plan ?? null;
-}
-
-export async function updatePiExpansion(
-  planID: string,
-  fields: PiExpansionFields,
-  baseRev: number,
-  options: ApiOptions = {},
-): Promise<JsonValue> {
-  const data = await postJson(`/api/pi/expansions/${encodeURIComponent(planID)}`, { ...fields, baseRev }, options);
-  return data.plan ?? null;
-}
-
-export async function deletePiExpansion(planID: string, options: ApiOptions = {}): Promise<void> {
-  await postJson(`/api/pi/expansions/${encodeURIComponent(planID)}/delete`, {}, options);
-}
-
-/** Every planet within `jumps` of a system, from static data (raw; bridge/piExpansion.ts decodes). */
+/** Every planet within `jumps` of a system, from static data (raw; the PI Manager plugin decodes it). */
 export async function getPlanetsNear(systemID: number, jumps: number, options: ApiOptions = {}): Promise<JsonValue> {
   return await getJson(`/api/pi/planets-near?systemID=${encodeURIComponent(systemID)}&jumps=${encodeURIComponent(jumps)}`, options) as JsonValue;
 }
@@ -3568,7 +3510,7 @@ export async function loadMissionKeywords(
 // GET /api/roster/planets?characterIDs=a,b,c answers each of those pilots'
 // colonies through the gateway's ownership check alone. The body goes back RAW:
 // the PI roster stores each pilot's entry as it arrived and decodes it with
-// bridge/piRoster.ts on the way out, so a live answer and a stored one pass
+// the PI Manager plugin's piRoster.ts on the way out, so a live answer and a stored one pass
 // through one decoder.
 
 /** At most this many pilots per ask — the route refuses more. */

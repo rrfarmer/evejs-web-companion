@@ -1,7 +1,7 @@
 // Reading what the pilots and their corporations hold of one build tree
 // (goal R109 slice 4) — with NO character selected.
 //
-// ⚠ A SIGN-IN, NEVER A SELECT, exactly as the PI roster read (app/piRosterRead.ts).
+// ⚠ A SIGN-IN, NEVER A SELECT, exactly as the PI roster read (plugins/pi-manager/lib/piRosterRead.ts).
 // A pilot's stock is in the gateway snapshot, which answers for any pilot the
 // signed-in account owns. So each account is signed in on a throwaway token,
 // asked about its pilots, and signed out. A sign-in claims no hull; a bot

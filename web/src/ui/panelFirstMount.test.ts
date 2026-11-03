@@ -76,7 +76,6 @@ const PANELS = [
   "Skills",
   "Planets",
   // R108 slice 3 — the PI Manager, a global window over the whole PI roster.
-  "PiManager",
   "IndustryManager",
   "Travel",
   // R43 — the launcher. It embeds MiningBot and MissionBot, so a first-mount

@@ -35,7 +35,6 @@ export type CoreTabID =
   | "finder"
   | "skills"
   | "planets"
-  | "piManager"
   | "industryManager"
   | "miningOperations"
   | "activity"
@@ -207,12 +206,8 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "finder", label: "Agent Finder", where: "both" },
   { id: "skills", label: "Skills", where: "both" },
   { id: "planets", label: "Planets", where: "both" },
-  // R108 slice 3 — a GLOBAL window (globalWindow.ts): every assigned pilot's
-  // colonies on one board, read with no character selected. Out of the rail
-  // like the Bot Manager: its door is beside the brand (GlobalLaunchers.svelte).
-  { id: "piManager", label: "Planetary Industry", where: "both", launchable: false },
   // R109 — a GLOBAL window: a blueprint expanded into its whole build tree,
-  // across every signed-in pilot's blueprints. Out of the rail, like PI.
+  // across every signed-in pilot's blueprints. Out of the rail, like the Bot Manager.
   { id: "industryManager", label: "Industry Manager", where: "both", launchable: false },
   { id: "miningOperations", label: "Mining Command Center", where: "both", launchable: false },
   { id: "activity", label: "Activity", where: "both" },

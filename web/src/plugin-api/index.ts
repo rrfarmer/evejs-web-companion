@@ -85,3 +85,72 @@ export type { Arg, MacroStep, PluginMacroID } from "../bots/botScript.ts";
 export type { MacroDecider, MacroMemory, MacroTick, ScriptAction, ScriptBoard } from "../nav/scriptDecide.ts";
 export type { ScriptObservation } from "../nav/scriptConditions.ts";
 export type { TabID } from "../ui/tabs.ts";
+
+// ─── What core offers a plugin to read and do ────────────────────────────────
+//
+// The reads and helpers a plugin builds on: the game's own reads (colonies,
+// recipes, holdings, the map), the bot library and its server runs, and the
+// words core says things with. A plugin calls these; it never reaches past
+// them into core's internals. Svelte components are in ./ui.ts.
+
+export {
+  createBotScript,
+  findMapLocations,
+  getBotScript,
+  getPiSchematics,
+  getPlanetRichness,
+  getPlanetsNear,
+  listActiveServerBots,
+  listBotScripts,
+  listServerBots,
+  loadBotCorpDivisionNames,
+  loadRosterPlanets,
+  login,
+  logout,
+  pluginGetJson,
+  pluginPostJson,
+  startServerBot,
+  updateBotScript,
+  ROSTER_PLANETS_MAX_IDS,
+} from "../app/api.ts";
+export type { ActiveServerBot, ApiOptions, ServerBot } from "../app/api.ts";
+export { readCorpStock } from "../app/corpStockRead.ts";
+export type { BotPilot, CorpItemFilter, OnlinePilot } from "../app/corpStockRead.ts";
+export type { AppFlow } from "../app/flow.ts";
+export { loadHangarPrefs } from "../app/hangarPrefs.ts";
+export { loadKnownCharacters } from "../app/knownCharacters.ts";
+export type { KnownCharacter } from "../app/knownCharacters.ts";
+export type { Session } from "../app/sessions.ts";
+export { skipWhileBusy } from "../app/skipWhileBusy.ts";
+export { stopServerBotFor } from "../app/stopBotFor.ts";
+export { SCRIPT_FORMAT, SCRIPT_VERSION, startingStation } from "../bots/botScript.ts";
+export type { BotScript, WorldRef } from "../bots/botScript.ts";
+export { analyzeBotRunPolicy, createBotLaunchGrant } from "../bots/runPolicy.ts";
+export type { BotLaunchGrant } from "../bots/runPolicy.ts";
+export { decodeScriptValue } from "../bots/scriptCodec.ts";
+export { decodePlanetResourceInfo } from "../bridge/boundPlanets.ts";
+export { BridgeCallError } from "../bridge/callMethod.ts";
+export {
+  attentionByColony,
+  bySeverityThenTime,
+  colonyAttentionWords,
+  colonyLineWords,
+  pinFill,
+} from "../bridge/colonyAttention.ts";
+export type { ColonyAttention, ColonyFindingUrgency } from "../bridge/colonyAttention.ts";
+export { extractorReroute } from "../bridge/colonyRoutes.ts";
+export { commodityName, decodeRecipeBook, madeThings, recipeFor, tierOf } from "../bridge/piRecipes.ts";
+export type { PiRecipeBook, PiSchematic, PiTier } from "../bridge/piRecipes.ts";
+export { colonyPlaceWords, decodeColonyReport, formatDuration, serverNow, summarizeColony } from "../bridge/planets.ts";
+export {
+  compareHoldings,
+  countWords,
+  decodeStockStack,
+  holdingsFromCorpReads,
+  isPlayerCorporation,
+  stationWords,
+} from "../bridge/stockHoldings.ts";
+export type { CorpStockRead, Holding, HoldingSource, PilotStockStack } from "../bridge/stockHoldings.ts";
+export type { JsonValue } from "../bridge/wire.ts";
+export { PROGRAM_DONE_PHASE } from "../nav/scriptDecide.ts";
+export type { Colony, ColonyPin, ColonyPinKind, ColonyReport } from "../store/types.ts";

@@ -93,7 +93,7 @@ import {
 } from "./botScript.ts";
 import { macroSpec, type MacroSpec } from "./macroSpecs.ts";
 import { isPluginMacro } from "./botScript.ts";
-import { pluginOfMacro } from "./pluginMacros.ts";
+import { pluginMacroFormerly, pluginOfMacro } from "./pluginMacros.ts";
 
 // ─── Result ──────────────────────────────────────────────────────────────────
 
@@ -485,7 +485,10 @@ function readBranchSide(raw: unknown, ctx: Ctx): readonly MacroStep[] {
 }
 
 function readMacroStep(obj: Readonly<Record<string, unknown>>, ctx: Ctx): MacroStep {
-  const macro = obj["macro"];
+  // A block that moved out of core into a plugin is read under its new id, so
+  // a script saved before the move runs on as it was written.
+  const named = obj["macro"];
+  const macro = typeof named === "string" ? pluginMacroFormerly(named) ?? named : named;
   if (typeof macro === "string" && RETIRED_WEB_COMPANION_MACROS.has(macro)) {
     refuse(SAY.retiredWebCompanionFeature(safeToken(macro)));
   }

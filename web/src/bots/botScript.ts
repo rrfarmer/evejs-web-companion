@@ -850,10 +850,6 @@ export type CoreMacroID =
   // Docked: board a ship parked here, by the name the pilot gave it, by its
   // type, or both: the client's hangar pick and Board, as one block.
   | "board-ship"
-  // Docked: board whichever ship parked here has a planetary commodities hold
-  // (an Epithal), as it is fitted, noting the hull it leaves for
-  // board-previous-ship. Done at once when the active ship already has one.
-  | "board-planetary-hauler"
   | "move-items"
   | "warp-to-bookmark"
   // Take up and switch on the bookmark folders a bot works from (a shared folder is
@@ -866,23 +862,6 @@ export type CoreMacroID =
   | "salvage-bookmarked-sites"
   | "find-combat-agent"
   | "fly-to-mission-site"
-  | "restart-extractors"
-  // Goods leave a colony ONLY from its command centre pin — the emulator
-  // refuses every other pin with CanOnlyLaunchFromCommandCenters. Watches
-  // each colony's command centre and launches what it holds once the centre
-  // is at least `fullPercent` full (default 80 when unset), dropping a
-  // container in space beside the planet for a hauler to collect. The server
-  // charges planetary export tax for the launch.
-  | "launch-commodities"
-  // The hauler's half of launch-commodities: in space, fly to each of your
-  // planetary launch containers in this system and take what is inside,
-  // using the server's own launch list (GetMyLaunchesDetails) to find them.
-  | "collect-launches"
-  // The hauler's half of the CUSTOMS-OFFICE export: at each office it sends the
-  // colony's launchpad goods up on the pilot's own session, then, in space, empties every customs office in this system that holds goods of
-  // yours into the ship. An office is a structure, not a listed launch, so the
-  // block reads each one to find out whether it holds anything.
-  | "collect-customs"
   | "repair-ship"
   // ── The market set. Place orders at the station's market (server confirm-gated).
   | "buy-item"
@@ -976,17 +955,12 @@ export const MACRO_IDS: readonly CoreMacroID[] = Object.freeze<CoreMacroID[]>([
   "refit-ship",
   "board-previous-ship",
   "board-ship",
-  "board-planetary-hauler",
   "move-items",
   "warp-to-bookmark",
   "use-bookmark-folders",
   "salvage-bookmarked-sites",
   "find-combat-agent",
   "fly-to-mission-site",
-  "restart-extractors",
-  "launch-commodities",
-  "collect-launches",
-  "collect-customs",
   "repair-ship",
   "buy-item",
   "sell-item",

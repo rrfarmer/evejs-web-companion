@@ -37,7 +37,7 @@ test("the shared WC header opens the standalone MCC URL instead of a floating wi
   } as never);
   assert.match(output.body, /<a\b[^>]*data-launch="miningOperations"[^>]*href="\/mining-command-center"/);
   assert.doesNotMatch(output.body, /<button\b[^>]*data-launch="miningOperations"/);
-  for (const id of ["botManager", "piManager", "industryManager", "companion"]) {
+  for (const id of ["botManager", "pluginManager", "industryManager", "companion"]) {
     assert.match(output.body, new RegExp(`<button\\b[^>]*data-launch="${id}"`));
   }
 });

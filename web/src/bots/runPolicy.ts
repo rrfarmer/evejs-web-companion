@@ -139,27 +139,22 @@ export const MACRO_RUN_POLICY: Readonly<Record<CoreMacroID, MacroRunPolicy>> = O
   "refit-ship": policy(["inventory"]),
   "board-previous-ship": policy(["inventory"]),
   "board-ship": policy(["inventory"]),
-  "board-planetary-hauler": policy(["inventory"]),
   "move-items": policy(["inventory"]),
   "warp-to-bookmark": SAFE,
   "use-bookmark-folders": SAFE,
   "salvage-bookmarked-sites": policy(["combat", "inventory"]),
   "find-combat-agent": SAFE,
   "fly-to-mission-site": policy(["mission", "combat"]),
-  "restart-extractors": policy(["colony"]),
   // Same treatment as buy-item and repair-ship: the block spends money (the
   // server debits planetary export tax on every launch) as well as changing
   // a colony, so it carries both risk classes and cannot be replayed blind
   // after a process restart.
-  "launch-commodities": policy(["colony", "financial"], false),
   // Restart-safe: every tick re-reads the launch list and only takes from a
   // container of the pilot's own. Deleting a launch record happens only after
   // a re-read shows that container empty, so a replay finds nothing to undo.
-  "collect-launches": policy(["inventory", "colony"]),
   // Restart-safe for the same reason, and one fewer moving part: there is no
   // record to delete. Every tick re-reads each office and takes only from the
   // pilot's own depositor-scoped rows, so a replay finds nothing to undo.
-  "collect-customs": policy(["inventory", "colony"]),
   "repair-ship": policy(["financial", "inventory"], false),
   "buy-item": policy(["financial"], false),
   "sell-item": policy(["financial", "inventory"], false),

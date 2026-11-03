@@ -26039,7 +26039,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     "fly-to-mission-site",
   ]);
   const CONVO_MACROS = new Set(["request-mission", "accept-mission", "turn-in-mission"]);
-  const CARGO_MACROS = new Set(["accept-mission", "load-mission-cargo", "turn-in-mission", "unload-cargo", "refine-ore", "refit-ship", "board-previous-ship", "board-ship", "board-planetary-hauler", "move-items", "repair-ship", "sell-item", "jettison-cargo", "load-cargo", "haul-all", "route-hauler", "salvage-bookmarked-sites"]);
+  const CARGO_MACROS = new Set(["accept-mission", "load-mission-cargo", "turn-in-mission", "unload-cargo", "refine-ore", "refit-ship", "board-previous-ship", "board-ship", "move-items", "repair-ship", "sell-item", "jettison-cargo", "load-cargo", "haul-all", "route-hauler", "salvage-bookmarked-sites"]);
   // Blocks that need the ACTIVE HULL'S BAY LIST, contents included. Kept apart
   // from CARGO_MACROS because the two reads have very different prices: the
   // inventory panel is one call, `/bays` is one capacity call per candidate
@@ -27765,7 +27765,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         }
         // The salvager reads its hold only while emptying it at its station, not each tick it waits there for a site.
         const readsHolds = macro !== "salvage-bookmarked-sites" || hint.salvagerUnloading === true;
-        if (macro !== null && (MISSION_MACROS.has(macro) || (CARGO_MACROS.has(macro) && readsHolds))) {
+        // A plugin block asks for the holds by its definition (bots/macroReads.ts).
+        const cargoBlock = macro !== null && (CARGO_MACROS.has(macro) || macroReads(macro, "holds"));
+        if (macro !== null && (MISSION_MACROS.has(macro) || (cargoBlock && readsHolds))) {
           if (MISSION_MACROS.has(macro)) {
             try {
               journal = decodeJournal(await readJournal(bridgeAsk));
@@ -27793,7 +27795,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
               briefing = null;
             }
           }
-          if (CARGO_MACROS.has(macro) && readsHolds) {
+          if (cargoBlock && readsHolds) {
             try {
               const panel = await api.loadInventory(callOptions);
               // ⚠ THE VOLUMES ARE NOT DECORATION. Per-unit m³ is what lets the
@@ -27844,7 +27846,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // reads; proving none is parked requires every hull's answer. In space
           // there is no hangar, and the one hull asked is the ship flown: a
           // hauler already out can haul from where it is.
-          if (macro === "board-planetary-hauler" && activeShipID !== null) {
+          if (macroReads(macro, "planetaryHolds") && activeShipID !== null) {
             const shipIDs = [...new Set([
               activeShipID,
               ...(stationHangar ?? []).filter((row) => row.categoryID === 6 && row.singleton).map((row) => row.itemID),

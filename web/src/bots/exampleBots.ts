@@ -110,26 +110,6 @@ const RATTING_NIGHT: BotScript = {
   ],
 };
 
-/** The PI keeper: restart what expired, nap, repeat. */
-const PLANET_KEEPER: BotScript = {
-  ...FORMAT,
-  name: "Planet keeper",
-  notes: "Restarts expired extractors, then checks again after a break.",
-  home: startingStation(),
-  interrupts: [],
-  program: [
-    {
-      id: "loop",
-      kind: "loop",
-      repeat: { kind: "forever" },
-      body: [
-        { id: "s1", kind: "macro", macro: "restart-extractors", args: {} },
-        { id: "s2", kind: "macro", macro: "wait", args: { seconds: { kind: "count", value: 500 } } },
-      ],
-    },
-  ],
-};
-
 /** A branch demo, forever: mine a belt, haul home, then FORK on the ship's
  * shields — repair if it took a beating this lap, otherwise refine what it
  * mined. The branch lives INSIDE the loop, so the choice is made fresh each lap. */
@@ -295,7 +275,7 @@ const ANOMALY_MINING: BotScript = {
 const OPERATIONS_CLOSEOUT: BotScript = {
   ...FORMAT,
   name: "Operations closeout",
-  notes: "Docks, unloads, repairs, tidies the hangar, and checks every colony for expired extractors.",
+  notes: "Docks, unloads, repairs, and tidies the hangar.",
   home: startingStation(),
   interrupts: [],
   program: [
@@ -303,7 +283,6 @@ const OPERATIONS_CLOSEOUT: BotScript = {
     { id: "s2", kind: "macro", macro: "unload-cargo", args: {} },
     { id: "s3", kind: "macro", macro: "repair-ship", args: {} },
     { id: "s4", kind: "macro", macro: "tidy-hangar", args: {} },
-    { id: "s5", kind: "macro", macro: "restart-extractors", args: {} },
   ],
 };
 
@@ -311,11 +290,10 @@ export const EXAMPLE_BOTS: readonly ExampleBot[] = Object.freeze([
   { key: "mining", label: "Mining day", blurb: "Mine, haul home, refine — forever.", doc: MINING_DAY },
   { key: "delivery", label: "Delivery runs", blurb: "Find an agent, run 20 deliveries.", doc: DELIVERY_RUNS },
   { key: "ratting", label: "Ratting night", blurb: "Den to den: fight, loot, salvage.", doc: RATTING_NIGHT },
-  { key: "planets", label: "Planet keeper", blurb: "Keep the extractors running.", doc: PLANET_KEEPER },
   { key: "smart", label: "Smart miner", blurb: "Mine, haul, then repair or refine.", doc: SMART_MINER },
   { key: "fleet-medic", label: "Fleet medic", blurb: "Cycle remote repairs and capacitor support.", doc: FLEET_MEDIC },
   { key: "fleet-anchor", label: "Fleet anchor", blurb: "Stay close and keep fleet-mates repaired.", doc: FLEET_ANCHOR },
   { key: "anomaly-expedition", label: "Anomaly expedition", blurb: "Explore, clear, loot, salvage, turn around.", doc: ANOMALY_EXPEDITION },
   { key: "anomaly-mining", label: "Anomaly mining", blurb: "Mine the scanner's ore sites, not the belts.", doc: ANOMALY_MINING },
-  { key: "operations-closeout", label: "Operations closeout", blurb: "Dock, unload, repair, tidy, check colonies.", doc: OPERATIONS_CLOSEOUT },
+  { key: "operations-closeout", label: "Operations closeout", blurb: "Dock, unload, repair, tidy.", doc: OPERATIONS_CLOSEOUT },
 ]);

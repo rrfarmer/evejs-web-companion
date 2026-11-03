@@ -48,6 +48,11 @@ function createPluginHost(options = {}) {
   const requestTimeoutMs = options.requestTimeoutMs || REQUEST_TIMEOUT_MS;
   const decideTimeoutMs = options.decideTimeoutMs || DECIDE_TIMEOUT_MS;
   const backoffMs = options.backoffMs || BACKOFF_MS;
+  // What core kept for a plugin before it was one, handed over once when its
+  // backend first comes up: plugin id -> () => records. The marker file says
+  // which handovers are done, so a restart never hands the same rows over twice.
+  const handoffs = options.handoffs || {};
+  const handoffMarker = options.handoffMarkerPath || path.join(dataDir, "plugin-handoffs.json");
   /** id -> the backend's state */
   const backends = new Map();
   let nextMessageID = 1;
@@ -82,6 +87,8 @@ function createPluginHost(options = {}) {
           `--allow-fs-read=${path.join(rootDir, "node_modules")}`,
           `--allow-fs-read=${pluginDataDir}`,
           `--allow-fs-write=${pluginDataDir}`,
+          // A backend may use a native package (better-sqlite3 for its own database).
+          "--allow-addons",
         ]
       : [];
     entry.state = entry.restarts === 0 ? "starting" : "restarting";
@@ -111,6 +118,7 @@ function createPluginHost(options = {}) {
         entry.state = "running";
         entry.error = null;
         entry.readyWaiters.splice(0).forEach((resolve) => resolve(true));
+        void handOver(entry.id);
         return;
       }
       if (message.type === "pong") {
@@ -176,6 +184,34 @@ function createPluginHost(options = {}) {
   }
 
   let watchTimer = null;
+
+  function handoffsDone() {
+    try {
+      return JSON.parse(fs.readFileSync(handoffMarker, "utf8")) || {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Hand a plugin what core kept for it, once; logged, never fatal. */
+  async function handOver(id) {
+    const provide = handoffs[id];
+    if (typeof provide !== "function" || handoffsDone()[id]) return;
+    let records;
+    try {
+      records = await provide();
+    } catch (error) {
+      log(`${id}: what core kept for it could not be read: ${error && error.message}`);
+      return;
+    }
+    const error = await adopt(id, records);
+    if (error) {
+      log(`${id}: it did not take over what core kept for it: ${error}`);
+      return;
+    }
+    fs.writeFileSync(handoffMarker, JSON.stringify({ ...handoffsDone(), [id]: new Date().toISOString() }, null, 2));
+    log(`${id}: took over what core kept for it.`);
+  }
 
   // The plugins as they loaded into this BFF's copy of the bot code.
   let webStatuses = [];

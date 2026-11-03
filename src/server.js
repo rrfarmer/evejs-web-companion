@@ -74,9 +74,7 @@ const config = require("./config");
 const { createSeasonalCampaignDefinitions } = require("./seasonalCampaignDefinitions");
 const botScriptStoreModule = require("./botScriptStore");
 const { lazyCompanionDb } = require("./companionDb");
-const { createPiPlanStore } = require("./piPlanStore");
 const { createPilotRouteSettings } = require("./pilotRouteSettings");
-const { createPiExpansionStore } = require("./piExpansionStore");
 const { createIndustryPlanStore } = require("./industryPlanStore");
 const industryRecipes = require("./industryRecipes");
 const botHostModule = require("./botHost");
@@ -138,20 +136,6 @@ const BOTSCRIPT_STATUS = {
   BOTCATEGORY_LIMIT_REACHED: 409,
   BOTCATEGORY_NOT_FOUND: 404,
 };
-// The same for a saved PI plan (src/piPlanStore.js).
-const PI_PLAN_STATUS = {
-  PI_PLAN_INVALID: 400,
-  PI_PLAN_LIMIT_REACHED: 409,
-  PI_PLAN_REV_CONFLICT: 409,
-  PI_PLAN_NOT_FOUND: 404,
-};
-// The same for a saved PI expansion plan (src/piExpansionStore.js).
-const PI_EXPANSION_STATUS = {
-  PI_EXPANSION_INVALID: 400,
-  PI_EXPANSION_LIMIT_REACHED: 409,
-  PI_EXPANSION_REV_CONFLICT: 409,
-  PI_EXPANSION_NOT_FOUND: 404,
-};
 // The same for a saved Industry Manager plan (src/industryPlanStore.js).
 const INDUSTRY_PLAN_STATUS = {
   INDUSTRY_PLAN_INVALID: 400,
@@ -161,22 +145,6 @@ const INDUSTRY_PLAN_STATUS = {
 };
 function sendIndustryPlanError(res, error, next) {
   const status = error && INDUSTRY_PLAN_STATUS[error.code];
-  if (status) {
-    res.status(status).json({ ok: false, error: error.code, message: error.message });
-    return;
-  }
-  next(error);
-}
-function sendPiExpansionError(res, error, next) {
-  const status = error && PI_EXPANSION_STATUS[error.code];
-  if (status) {
-    res.status(status).json({ ok: false, error: error.code, message: error.message });
-    return;
-  }
-  next(error);
-}
-function sendPiPlanError(res, error, next) {
-  const status = error && PI_PLAN_STATUS[error.code];
   if (status) {
     res.status(status).json({ ok: false, error: error.code, message: error.message });
     return;
@@ -457,13 +425,6 @@ const botScripts =
 const pilotRouteSettings = options.pilotRouteSettings || createPilotRouteSettings({
   filePath: options.eveStore ? null : path.join(config.dataDir, "pilot-route-settings.json"),
 });
-// Saved PI plans, in the companion's own data/companion.sqlite (src/companionDb.js),
-// opened on the first request that needs it -- never eve.js's gamestore.
-const piPlans =
-  options.piPlanStore || createPiPlanStore({ db: lazyCompanionDb({ dataDir: config.dataDir }) });
-// Saved PI expansion plans: where to look and the colonies the player accepted.
-const piExpansions =
-  options.piExpansionStore || createPiExpansionStore({ db: lazyCompanionDb({ dataDir: config.dataDir }) });
 // Saved Industry Manager plans (R109), in the same file. A second lazy handle
 // is a second connection to it, which WAL and the busy timeout are there for.
 const industryPlans =
@@ -627,7 +588,27 @@ app.locals.botScripts = botScripts;
 // Every plugin backend, each in a process of its own (src/pluginHost.js). Nothing
 // is started here: startServer starts them once the port is open, so an app made
 // for a test forks nothing unless it hands in a host of its own.
-const pluginHost = options.pluginHost || createPluginHost({ dataDir: config.dataDir, activateWebStack: true });
+const pluginHost = options.pluginHost || createPluginHost({
+  dataDir: config.dataDir,
+  activateWebStack: true,
+  handoffs: {
+    // ⚠ TRANSITIONAL, AND THE ONE PLACE CORE NAMES A PLUGIN. The PI Manager's
+    // saved plans lived in this database before it was a plugin; they are handed
+    // to its backend once, raw, and it keeps them from then on. The tables stay
+    // here untouched. Remove this once every deployment has run it.
+    "pi-manager": () => {
+      const db = lazyCompanionDb({ dataDir: config.dataDir });
+      try {
+        return {
+          plans: db.get().prepare("SELECT * FROM pi_plans").all(),
+          expansions: db.get().prepare("SELECT * FROM pi_expansion_plans").all(),
+        };
+      } finally {
+        db.close();
+      }
+    },
+  },
+});
 app.locals.pluginHost = pluginHost;
 // Shared, in-process (never persisted — see src/beltMemory.js) memory of belts
 // mining bots have found dry, keyed by solar-system NAME then belt NAME. Every
@@ -15709,36 +15690,6 @@ app.get("/api/industry/invention-terms", requireAuth, async (req, res, next) => 
   }
 });
 
-// Saved PI expansion plans. Same four routes as PI plans.
-app.get("/api/pi/expansions", requireAuth, (req, res, next) => {
-  try {
-    res.json({ ok: true, plans: piExpansions.list() });
-  } catch (error) {
-    sendPiExpansionError(res, error, next);
-  }
-});
-app.post("/api/pi/expansions", requireAuth, (req, res, next) => {
-  try {
-    res.json({ ok: true, plan: piExpansions.create(req.body || {}) });
-  } catch (error) {
-    sendPiExpansionError(res, error, next);
-  }
-});
-app.post("/api/pi/expansions/:planID", requireAuth, (req, res, next) => {
-  try {
-    const { baseRev, ...fields } = req.body || {};
-    res.json({ ok: true, plan: piExpansions.update(req.params.planID, fields, baseRev) });
-  } catch (error) {
-    sendPiExpansionError(res, error, next);
-  }
-});
-app.post("/api/pi/expansions/:planID/delete", requireAuth, (req, res, next) => {
-  try {
-    res.json({ ok: true, removed: piExpansions.remove(req.params.planID) });
-  } catch (error) {
-    sendPiExpansionError(res, error, next);
-  }
-});
 
 /**
  * GET /api/pi/planets-near?systemID=&jumps= -- every planet within that many
@@ -15966,39 +15917,9 @@ app.post("/api/botcategories/:categoryID/delete", requireAuth, (req, res, next) 
   }
 });
 
-// ── Saved Planetary Industry plans (R108) ──────────────────────────────────
-// CRUD over pi_plans in data/companion.sqlite. A plan is intent -- commodity,
-// quantity, note, active or done -- and the browser re-plans it from live
-// stock. Global like the bot library; requireAuth only proves a sign-in.
-app.get("/api/pi/plans", requireAuth, (req, res, next) => {
-  try {
-    res.json({ ok: true, plans: piPlans.list() });
-  } catch (error) {
-    sendPiPlanError(res, error, next);
-  }
-});
-app.post("/api/pi/plans", requireAuth, (req, res, next) => {
-  try {
-    res.json({ ok: true, plan: piPlans.create(req.body || {}) });
-  } catch (error) {
-    sendPiPlanError(res, error, next);
-  }
-});
-app.post("/api/pi/plans/:planID", requireAuth, (req, res, next) => {
-  try {
-    const { baseRev, ...fields } = req.body || {};
-    res.json({ ok: true, plan: piPlans.update(req.params.planID, fields, baseRev) });
-  } catch (error) {
-    sendPiPlanError(res, error, next);
-  }
-});
-app.post("/api/pi/plans/:planID/delete", requireAuth, (req, res, next) => {
-  try {
-    res.json({ ok: true, removed: piPlans.remove(req.params.planID) });
-  } catch (error) {
-    sendPiPlanError(res, error, next);
-  }
-});
+// Saved Planetary Industry plans and expansion plans are the PI Manager plugin's
+// now, answered by its own backend (plugins/pi-manager/backend.ts) under
+// /api/plugins/pi-manager/.
 
 const MINING_OPERATION_STATUS = {
   MINING_OPERATION_INVALID: 400,

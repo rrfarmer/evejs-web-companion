@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // THE SAME HOLDINGS AS PLANETARY INDUSTRY.
 //
-// A unit held is a `Holding` (bridge/piStock.ts): so much of one type, in one
+// A unit held is a `Holding` (bridge/stockHoldings.ts): so much of one type, in one
 // place, belonging to one pilot or corporation, read at one instant. Holdings
 // are never merged across places; the resolver is handed the per-type sum, and
 // the screen keeps every place so a unit is always said with where it sits.

@@ -327,12 +327,6 @@ const ENTRIES: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = {
     "Boards the right hull from your hangar if you are flying something else, then applies the saved fitting you picked (yours or your corporation's) — modules pulled from this station's hangar.",
     "Being docked, the saved fitting, and its modules in the hangar",
   ),
-  "board-planetary-hauler": entry(
-    "board-planetary-hauler",
-    "ship",
-    "Gets into a ship parked here that has a planetary commodities hold, such as an Epithal, as it is fitted. Nothing to pick: it reads each hull's holds. Back into the earlier ship takes you back to the ship you left.",
-    "Being docked where a ship with a planetary hold is parked",
-  ),
   "board-ship": entry(
     "board-ship",
     "ship",
@@ -380,30 +374,6 @@ const ENTRIES: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = {
     "missions",
     "Warps to the site of the mission you accepted — the spot the agent marked for you. Finishes when the warp lands. Put Fight the rats right after it.",
     "An accepted mission, in the mission's system",
-  ),
-  "restart-extractors": entry(
-    "restart-extractors",
-    "planets",
-    "Checks every planet colony you own and restarts each extractor whose program has run out, on the same resource it was already pulling. Works from anywhere.",
-    "A planet colony with extractors",
-  ),
-  "launch-commodities": entry(
-    "launch-commodities",
-    "planets",
-    "Watches the command centre of every colony you own and launches what it is holding once the centre is full enough, dropping a container in space beside the planet for a hauler to collect. The server charges planetary export tax for the launch.",
-    "A planet colony whose command centre is holding goods",
-  ),
-  "collect-launches": entry(
-    "collect-launches",
-    "planets",
-    "Flies to each container your command centres launched in this system and takes what is inside, each into the right hold (an Epithal's planetary hold takes planetary goods). It finds them from your launch list, so there is no scanning. Finishes when every launch here is collected, or when the ship is full.",
-    "Being in space in the system of your launches",
-  ),
-  "collect-customs": entry(
-    "collect-customs",
-    "planets",
-    "Flies to each customs office in this system that is holding planetary goods of yours and takes what is inside, each into the right hold (an Epithal's planetary hold takes planetary goods). The Planetary Industry window's Haul button puts the goods there; this block brings them home. Finishes when every office here is empty, or when the ship is full.",
-    "Being in space in the system of your colonies",
   ),
   "repair-ship": entry(
     "repair-ship",

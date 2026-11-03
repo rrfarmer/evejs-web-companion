@@ -22,9 +22,8 @@
 //     here than for the Manager: the very act of checking on another pilot is
 //     what would destroy the view you were checking with.
 //
-//   • PLANETARY INDUSTRY (R108). Every assigned pilot's colonies on one board,
-//     read with no character selected. It is about all of them, and the read it
-//     is part-way through would be lost to a switch like the Manager's poll.
+//   • A PLUGIN'S WINDOW (the PI Manager, for one), registered while plugins
+//     load (registerGlobalWindow): about every pilot, as these are.
 //
 // So they are hoisted ABOVE that key, into App, onto their own layer over
 // whichever workspace is showing. This module is that layer's model: which tabs
@@ -80,12 +79,6 @@ export const CORE_GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
     label: "Bots",
     title: "Bot Manager",
     hint: "Bot Manager — start and watch bots on every pilot and squad",
-  },
-  {
-    id: "piManager",
-    label: "PI",
-    title: "Planetary Industry",
-    hint: "Planetary Industry — every pilot's colonies on one board",
   },
   {
     id: "industryManager",

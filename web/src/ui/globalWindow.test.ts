@@ -90,12 +90,6 @@ test("every global tab has a door somewhere", () => {
   assert.match(HANGAR, /<GlobalLaunchers/, "the Pilot Hangar must carry the launchers");
 });
 
-test("the PI Manager is global", () => {
-  // R108 slice 3. A board of every assigned pilot's colonies is about all of
-  // them, so a pilot switch must not tear it down.
-  assert.equal(isGlobalTab("piManager"), true);
-});
-
 test("a global tab that is not launchable is still a named tab", () => {
   // The window's title comes from `tabLabel`, and NEOCOM_GLYPHS is exhaustive
   // over TabID — so a global tab missing from the table would be a window

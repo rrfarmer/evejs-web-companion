@@ -7,7 +7,7 @@
   // drawn with nobody in the client. These three are about every pilot, open
   // from the Pilot Hangar as readily as over a cockpit, and take neither — each
   // reaches the pilots it acts on through their own sessions or their accounts
-  // (app/pilotReach.ts, app/piRosterRead.ts). PanelHost still carries the same
+  // (app/pilotReach.ts, or a plugin's own reads). PanelHost still carries the same
   // three for a phone, where a global tab is an ordinary workspace panel.
   //
   // The Bot Builder is the one pilot panel drawn here (globalWindow.ts

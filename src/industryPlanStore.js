@@ -1,7 +1,7 @@
 "use strict";
 
 // Saved Industry Manager plans (R109 slice 3), in the companion's own database
-// (src/companionDb.js, table industry_plans). Shaped after piPlanStore.js on
+// (src/companionDb.js, table industry_plans). Shaped after the PI Manager's piPlanStore on
 // purpose: a plan is INTENT, kept on the server so it outlives one browser.
 //
 // What a plan holds: the product, how many runs of its blueprint, a note,
