@@ -891,6 +891,39 @@ test("a script that ends on its own releases the character", async () => {
   assert.notEqual(after.endedAt, null);
 });
 
+test("a pilot the game server closed mid-run ends the run as an error, never as finished", async () => {
+  const log = [];
+  const host = makeHost({
+    log,
+    closedByServer: (characterID) => characterID === 140000001
+      ? { reasonCode: "CLIENTDISCONNECTED", reason: "Another client logged in to this account" }
+      : null,
+  });
+  await host.start(START);
+  const store = lastStore(log);
+  store._set({ customBot: { ...IDLE_SLICE, status: "running", phase: "Collecting", stepPath: "collect-1" } });
+  // Losing the session resets every slice to its start: offline, and an idle bot slice.
+  store._set({ station: { online: null }, customBot: { ...IDLE_SLICE } });
+  await settle();
+  const after = host.list(7)[0];
+  assert.equal(after.status, "error");
+  assert.equal(after.why, "The game server closed this pilot's connection: Another client logged in to this account.");
+  assert.equal(after.stepPath, "collect-1", "the last readout is kept, not the reset slice's");
+  assert.notEqual(after.endedAt, null);
+  assert.equal(host.claimedBy(140000001), null);
+});
+
+test("a pilot that went offline for no reason the server gave still ends as an error", async () => {
+  const log = [];
+  const host = makeHost({ log });
+  await host.start(START);
+  lastStore(log)._set({ station: { online: null }, customBot: { ...IDLE_SLICE } });
+  await settle();
+  const after = host.list(7)[0];
+  assert.equal(after.status, "error");
+  assert.equal(after.why, "The pilot went offline, so the run stopped.");
+});
+
 test("a fresh start on the character keeps the finished record — the ring replaces per-character pruning", async () => {
   const host = makeHost();
   const first = await host.start(START);
