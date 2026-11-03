@@ -8,8 +8,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { createRequire } from "node:module";
+
 import { createAppFlow } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
+
+const { createPilotRouteSettings } = createRequire(import.meta.url)("../../../src/pilotRouteSettings.js");
 
 // A 3-system line: Alpha(1) <-> Bravo(2) <-> Charlie(3). The origin is Alpha
 // (from flight-status), the destination station 60000003 is in Charlie.
@@ -520,6 +524,57 @@ test("the settings are kept for the character: another flow reads them back, and
   unkept.flow.setAutopilotRouteType("shortest");
   assert.deepEqual(unkept.flow.autopilotSettings(), { pfRouteType: "shortest" });
   assert.deepEqual(await unkept.wayTo(SETTINGS_DELTA), [SETTINGS_LOW, SETTINGS_DELTA]);
+});
+
+test("a page's flow hands the pilot's route settings to the BFF as they change; a flow not told to share does not", async () => {
+  const sent: unknown[] = [];
+  const flowWith = (shareRouteSettings: boolean) => {
+    const store = createClientStore();
+    const flow = createAppFlow(store, {
+      fetch: makeFakeFetch((path, method, body) => {
+        if (path === "/api/pilot-route-settings" && method === "POST") {
+          sent.push(body);
+          return { status: 200, body: { ok: true } };
+        }
+        return path === "/api/map/graph" ? { status: 200, body: SETTINGS_GRAPH } : defaultResponder(path);
+      }),
+      storage: null,
+      shareRouteSettings,
+    });
+    store.apply({ type: "character/online", character: { characterID: 90000001, characterName: "Test", stationID: 60000001, structureID: null, solarSystemID: ALPHA, corporationID: 98000000 }, station: null });
+    return flow;
+  };
+  flowWith(false).setAutopilotRouteType("shortest");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(sent, []);
+  flowWith(true).setAutopilotRouteType("shortest");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(sent, [{ characterID: 90000001, settings: { pfRouteType: "shortest" } }]);
+});
+
+test("a hosted run plans by the route settings its pilot's page handed the BFF", async () => {
+  // As the bot host builds it: the BFF's store, answering with what the page sent (src/pilotRouteSettings.js).
+  const shared = createPilotRouteSettings();
+  const hosted = (characterID: number) => {
+    const store = createClientStore();
+    const flow = createAppFlow(store, {
+      fetch: makeFakeFetch((path) => (path === "/api/map/graph" ? { status: 200, body: SETTINGS_GRAPH } : defaultResponder(path))),
+      storage: shared.storageFor(characterID),
+    });
+    store.apply({ type: "character/online", character: { characterID, characterName: "Test", stationID: 60000001, structureID: null, solarSystemID: ALPHA, corporationID: 98000000 }, station: null });
+    return async (destination: number) => {
+      await flow.startRoute(destination);
+      const systems = store.travel.get().route.map((hop) => hop.toSystemID);
+      flow.abortRoute();
+      return systems;
+    };
+  };
+  // Nothing handed over: "Prefer safer", round the low-security system.
+  assert.deepEqual(await hosted(90000001)(SETTINGS_DELTA), [BRAVO, CHARLIE, SETTINGS_DELTA]);
+  shared.set(90000001, { pfRouteType: "shortest" });
+  assert.deepEqual(await hosted(90000001)(SETTINGS_DELTA), [SETTINGS_LOW, SETTINGS_DELTA]);
+  // Another pilot's settings are its own.
+  assert.deepEqual(await hosted(90000002)(SETTINGS_DELTA), [BRAVO, CHARLIE, SETTINGS_DELTA]);
 });
 
 test("the jumps worked out are by the settings too, and are forgotten when a setting changes or the pilot does", async () => {

@@ -987,6 +987,11 @@ export interface AppFlowOptions {
   /** Browser-selected pilots must settle a nearby lost flight before automation. */
   readonly browserPilotRecovery?: boolean;
   /**
+   * Whether this flow hands its pilots' route settings to the BFF, for the runs the server hosts for them
+   * (shareRouteSettings). The page's own sessions do; a hosted flow, and every test, does not.
+   */
+  readonly shareRouteSettings?: boolean;
+  /**
    * How long the agent's window waits before asking again when the BFF says the pilot is busy with a
    * write (AGENT_TALK_AGAIN_WAIT_MS). Tests shorten it.
    */
@@ -21235,6 +21240,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return autopilotKept.stored;
   }
   /**
+   * The pilot's route settings, handed to the BFF so a run the server hosts for the pilot plans its routes as this page
+   * does (src/pilotRouteSettings.js); a hosted run has no browser storage, and with none every route is "Prefer
+   * safer". Only a flow told to share does: a hosted flow reads them from there and has nothing of its own to give.
+   * A send that fails changes nothing here; the next change or choosing of the pilot sends them again.
+   */
+  function shareRouteSettings(characterID: number, stored: StoredAutopilotSettings): void {
+    if (options.shareRouteSettings !== true) return;
+    void api.savePilotRouteSettings(characterID, stored as unknown as JsonValue, callOptions).catch(() => {});
+  }
+  /**
    * The settings the pathfinder is given: the list's constellations and regions as their systems on this map, and the
    * server's lists whose ticks are on, read first (avoidedListsFor).
    */
@@ -21344,6 +21359,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     autopilotKept = { characterID, stored };
     if (characterID !== null) {
       saveAutopilotSettings(settingsStorage, characterID, stored);
+      shareRouteSettings(characterID, stored);
     }
     routeSettingsSignal.set(stored);
     // The client's pathfinder keeps what it has worked out by its settings, and works it out again when they change.
@@ -29926,6 +29942,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // R10: the session is live, so open the push channel before the docked
       // reads — anything the reads trigger is then already being observed.
       startLiveStream();
+      // What this page keeps of the pilot's route settings, for the runs the server hosts for it.
+      shareRouteSettings(characterID, loadAutopilotSettings(settingsStorage, characterID));
       void retryDroneRecovery();
       void loadCrimewatch().catch(() => {});
       void loadCloneGrade().catch(() => {});

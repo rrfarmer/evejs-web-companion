@@ -1199,6 +1199,9 @@ function createBotHost(options) {
         eventSource: url => createHostedEventSource(url, { fetch: botFetch }),
         miningOperationID: record.operationID,
         hostedOreJettisonRecovery: record.hostedOreJettisonRecovery,
+        // The pilot's own route settings, as its page keeps them (src/pilotRouteSettings.js): a run with none plans
+        // every route "Prefer safer", whatever the pilot chose.
+        ...(typeof options.settingsStorageFor === "function" ? { storage: options.settingsStorageFor(characterID) } : {}),
       });
       record.flow = flow;
       record.store = store;
