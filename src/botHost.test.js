@@ -794,6 +794,38 @@ test("a second bot may not take a claimed character", async () => {
   assert.equal(second.code, "BOT_ALREADY_RUNNING");
 });
 
+test("one client per account: a run on another pilot of the account is refused, naming the pilot flying", async () => {
+  const log = [];
+  const asked = [];
+  const host = makeHost({ log, oneClientPerAccount: (who) => { asked.push(who); return true; } });
+  assert.equal((await host.start(START)).ok, true);
+  const second = await host.start({ ...START, characterID: 140000003 });
+  assert.equal(second.ok, false);
+  assert.equal(second.code, "ACCOUNT_IN_USE_BY_BOT");
+  assert.match(second.message, /^Test Pilot is flying a server run/);
+  assert.deepEqual(asked.at(-1), { accountID: 7, characterID: 140000003, userName: "test" });
+  assert.equal(host.claimedBy(140000003), null);
+  assert.equal(log.filter((row) => row[0] === "selectCharacter").length, 1, "the refused start never selects");
+  // Another account is not this one's to wait on.
+  const other = await host.start({ ...START, account: { accountID: 8, username: "other" }, characterID: 140000004 });
+  assert.equal(other.ok, true);
+});
+
+test("one client per account: once the account's run ends, another pilot of it may start", async () => {
+  const log = [];
+  const host = makeHost({ log, oneClientPerAccount: () => true });
+  await host.start(START);
+  lastStore(log)._set({ customBot: { ...IDLE_SLICE, status: "stopped", phase: "Done" } });
+  await settle();
+  assert.equal((await host.start({ ...START, characterID: 140000003 })).ok, true);
+});
+
+test("an account whose pilots are not one client each may fly two runs at once", async () => {
+  const host = makeHost({ oneClientPerAccount: () => false });
+  assert.equal((await host.start(START)).ok, true);
+  assert.equal((await host.start({ ...START, characterID: 140000003 })).ok, true);
+});
+
 test("only the private per-run capability authorizes a claimed character", async () => {
   const host = makeHost();
   const started = await host.start(START);

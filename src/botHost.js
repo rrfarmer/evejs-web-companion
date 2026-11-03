@@ -994,6 +994,25 @@ function createBotHost(options) {
         message: "A web session is flying this character. Log it out (or wait for it to expire), then start the bot.",
       };
     }
+    // ONE CLIENT PER ACCOUNT. Where the game server closes an account's other
+    // clients at each login (gamePort/pilots.js closedByServer), this start's
+    // select would log out a run already flying another pilot of the account,
+    // and that run would end mid-step. Checked with the claim below, after the
+    // last await, so two starts on one account cannot both pass.
+    const sharing = typeof options.oneClientPerAccount === "function" &&
+      options.oneClientPerAccount({ accountID: Number(account.accountID), characterID, userName: String(account.username || "") })
+      ? [...records.values()].find((row) => !row.finalized && row.accountID === Number(account.accountID) &&
+          row.characterID !== characterID && claims.get(row.characterID) === row.botID)
+      : undefined;
+    if (sharing) {
+      return {
+        ok: false,
+        code: "ACCOUNT_IN_USE_BY_BOT",
+        message: `${sharing.characterName || "Another pilot of this account"} is flying a server run, and the game server ` +
+          "lets one pilot of an account be in game at a time: starting this one would log that one out. Let that run " +
+          "end, or stop it, then start this one.",
+      };
+    }
 
     const botID = crypto.randomUUID();
     const record = {
