@@ -8,16 +8,14 @@ import type { Colony, ColonyPin } from "../store/types.ts";
 import type { PilotColonyReading } from "./piRoster.ts";
 import type { PiCommodity, PiRecipeBook, PiTier } from "./piRecipes.ts";
 import {
-  corpDivisionOfFlag,
-  holdingsFromCorpReads,
   holdingsFromReadings,
-  isPlayerCorporation,
+  piHoldingsFromCorpReads,
   stockByTier,
   stockLines,
   stockSources,
   stockSummary,
-  type CorpStockRead,
 } from "./piStock.ts";
+import type { CorpStockRead } from "./stockHoldings.ts";
 
 const PILOT = 90000001;
 const OTHER_PILOT = 90000002;
@@ -89,7 +87,7 @@ const CORP_READ: CorpStockRead = {
 test("every holding is said with its place: colony structure, hangar, ship's cargo, corp division", () => {
   const holdings = [
     ...holdingsFromReadings(new Map([[PILOT, reading(PILOT)]]), NAMES),
-    ...holdingsFromCorpReads([CORP_READ], BOOK),
+    ...piHoldingsFromCorpReads([CORP_READ], BOOK),
   ];
   assert.deepEqual(
     holdings.map((holding) => [holding.source, holding.placeWords, holding.ownerWords, holding.quantity]),
@@ -109,7 +107,7 @@ test("every holding is said with its place: colony structure, hangar, ship's car
 test("a line per commodity keeps colony, hangar and corp apart, and sums them", () => {
   const holdings = [
     ...holdingsFromReadings(new Map([[PILOT, reading(PILOT)]]), NAMES),
-    ...holdingsFromCorpReads([CORP_READ], BOOK),
+    ...piHoldingsFromCorpReads([CORP_READ], BOOK),
   ];
   const lines = stockLines(holdings, BOOK);
   const water = lines.find((line) => line.typeID === WATER)!;
@@ -124,7 +122,7 @@ test("a line per commodity keeps colony, hangar and corp apart, and sums them", 
 
 test("a corp that could not be read adds nothing, and the sources say why", () => {
   const unreachable: CorpStockRead = { ...CORP_READ, state: "unreachable", corporationName: null, viaCharacterID: null, readAtMs: null, items: [] };
-  assert.deepEqual(holdingsFromCorpReads([unreachable], BOOK), []);
+  assert.deepEqual(piHoldingsFromCorpReads([unreachable], BOOK), []);
   const lines = stockSources({
     members: [PILOT],
     readings: new Map([[PILOT, reading(PILOT)]]),
@@ -172,14 +170,4 @@ test("⚠ a reading stored before stock was sent is 'not read yet', never 'holds
     "Personal hangars of Pilot One not read yet. Refresh reads them.",
     "Pilot Two not read, so nothing they hold is counted.",
   ]);
-});
-
-test("corp divisions are flags 115 to 121; NPC corporations have no hangars worth reading", () => {
-  assert.equal(corpDivisionOfFlag(115), 1);
-  assert.equal(corpDivisionOfFlag(121), 7);
-  assert.equal(corpDivisionOfFlag(4), null);
-  assert.equal(corpDivisionOfFlag(122), null);
-  assert.equal(isPlayerCorporation(1000044), false);
-  assert.equal(isPlayerCorporation(CORP), true);
-  assert.equal(isPlayerCorporation(null), false);
 });

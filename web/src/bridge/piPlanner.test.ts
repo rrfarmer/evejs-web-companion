@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { decodeRecipeBook, type PiCommodity, type PiRecipeBook, type PiSchematic, type PiTier } from "./piRecipes.ts";
 import type { JsonValue } from "./wire.ts";
 import type { Colony, ColonyPin } from "../store/types.ts";
-import type { Holding } from "./piStock.ts";
+import type { Holding } from "./stockHoldings.ts";
 import { missingByTier, planStepCounts, planWithStock, type PlannerColony, type PlannerInput } from "./piPlanner.ts";
 
 // --- a small book with known numbers ---------------------------------------

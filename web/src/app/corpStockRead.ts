@@ -1,4 +1,5 @@
-// Reading corporation hangars for the PI board (R108 slice 5).
+// Reading corporation hangars, for every view that counts goods across
+// pilots (the PI board, R108 slice 5; the Industry Manager, R109).
 //
 // ⚠ THE ONE READ THAT NEEDS A PILOT ONLINE. Colonies and personal hangars come
 // from each pilot's gateway snapshot with nobody selected (piRosterRead.ts),
@@ -39,7 +40,7 @@ import {
 import type { JsonValue } from "../bridge/wire.ts";
 import type { NameRef } from "../store/names.ts";
 import { decodeCorpAssetItems, decodeCorpAssetLocations } from "../bridge/corpAssets.ts";
-import { corpDivisionOfFlag, isPlayerCorporation, type CorpStockItem, type CorpStockRead } from "../bridge/piStock.ts";
+import { corpDivisionOfFlag, isPlayerCorporation, type CorpStockItem, type CorpStockRead } from "../bridge/stockHoldings.ts";
 
 /** A pilot online in this tab, as the corp read needs it. */
 export interface OnlinePilot {
@@ -57,7 +58,7 @@ export interface BotPilot {
   readonly accountName: string;
 }
 
-export interface PiCorpReadDeps {
+export interface CorpStockReadDeps {
   loadCorpAssets(locationID: number | null, options: ApiOptions): Promise<Record<string, JsonValue>>;
   loadBotCorpAssets(characterID: number, locationID: number | null, options: ApiOptions): Promise<Record<string, JsonValue>>;
   resolveNames(items: readonly NameRef[], options: ApiOptions): Promise<ResolveNamesResult>;
@@ -68,7 +69,7 @@ export interface PiCorpReadDeps {
   now(): number;
 }
 
-const LIVE_DEPS: PiCorpReadDeps = {
+const LIVE_DEPS: CorpStockReadDeps = {
   loadCorpAssets: (locationID, options) => apiLoadCorpAssets(locationID, options),
   loadBotCorpAssets: (characterID, locationID, options) => apiLoadBotCorpAssets(characterID, locationID, options),
   resolveNames: (items, options) => apiResolveNames(items, options),
@@ -94,17 +95,11 @@ interface Reader {
   load(locationID: number | null, options: ApiOptions): Promise<Record<string, JsonValue>>;
 }
 
-// The server's classification of planetary goods, by category (the same rule
-// the roster read applies to a pilot's own items in src/server.js).
-const PLANETARY_CATEGORY_IDS = new Set([42, 43]);
-
 /**
- * Which corp stacks a read keeps. Planetary goods by default; the Industry
- * Manager (R109) passes the types of one build tree instead.
+ * Which corp stacks a read keeps. Every caller says: the PI board keeps
+ * planetary goods, the Industry Manager (R109) the types of one build tree.
  */
 export type CorpItemFilter = (item: { readonly typeID: number; readonly categoryID: number }) => boolean;
-
-export const PLANETARY_CORP_ITEMS: CorpItemFilter = (item) => PLANETARY_CATEGORY_IDS.has(item.categoryID);
 
 function refusalWords(error: unknown): string {
   const message = error instanceof Error && error.message.length > 0 ? error.message : null;
@@ -122,7 +117,7 @@ function errorCode(body: Record<string, JsonValue>, field: string): string | nul
 async function readThrough(
   reader: Reader,
   corporationID: number,
-  deps: PiCorpReadDeps,
+  deps: CorpStockReadDeps,
   keep: CorpItemFilter,
 ): Promise<{ items: CorpStockItem[]; name: string | null }> {
   const options = await reader.options();
@@ -189,9 +184,9 @@ async function readThrough(
 export async function readCorpStock(
   corporationIDs: readonly number[],
   online: readonly OnlinePilot[],
-  bots: readonly BotPilot[] = [],
-  deps: PiCorpReadDeps = LIVE_DEPS,
-  keep: CorpItemFilter = PLANETARY_CORP_ITEMS,
+  bots: readonly BotPilot[],
+  keep: CorpItemFilter,
+  deps: CorpStockReadDeps = LIVE_DEPS,
 ): Promise<CorpStockRead[]> {
   // One throwaway sign-in per account, made the first time one of its bots is
   // tried, and every one of them signed out when the read ends.

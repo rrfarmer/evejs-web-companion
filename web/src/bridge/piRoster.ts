@@ -27,6 +27,7 @@
 import type { JsonValue } from "./wire.ts";
 import type { ColonyReport } from "../store/types.ts";
 import { decodeColonyReport } from "./planets.ts";
+import { decodeStockStack, type PilotStockStack } from "./stockHoldings.ts";
 
 export interface PilotColonyReading {
   readonly characterID: number;
@@ -64,47 +65,6 @@ function decodePlanetSkills(value: JsonValue | undefined): PlanetSkills | null {
   const consolidation = level(record.consolidation);
   const commandCenterUpgrades = level(record.commandCenterUpgrades);
   return consolidation === null || commandCenterUpgrades === null ? null : { consolidation, commandCenterUpgrades };
-}
-
-/** What holds a stack inside the station: nothing (the hangar), a ship, a container. */
-export type StockHolder = "hangar" | "ship" | "container";
-
-/** So much of one planetary good, in one place, owned by the pilot. */
-export interface PilotStockStack {
-  readonly typeID: number;
-  readonly typeName: string | null;
-  readonly quantity: number;
-  /** The station it is docked at; null when the read could not place it. */
-  readonly locationID: number | null;
-  /** Null when the static map does not name the place — never the id (R7d). */
-  readonly locationName: string | null;
-  readonly holder: StockHolder;
-  /** The ship's or container's name; null in the hangar. */
-  readonly holderName: string | null;
-}
-
-const HOLDERS: readonly StockHolder[] = ["hangar", "ship", "container"];
-
-export function decodeStockStack(value: JsonValue): PilotStockStack | null {
-  const record = asRecord(value);
-  const typeID = Number(record.typeID);
-  const quantity = Number(record.quantity);
-  if (!Number.isSafeInteger(typeID) || typeID <= 0 || !Number.isFinite(quantity) || quantity <= 0) {
-    return null;
-  }
-  const locationID = Number(record.locationID);
-  const holder = HOLDERS.find((entry) => entry === record.holder) ?? "hangar";
-  const name = (field: JsonValue | undefined): string | null =>
-    typeof field === "string" && field.length > 0 ? field : null;
-  return {
-    typeID,
-    typeName: name(record.typeName),
-    quantity,
-    locationID: Number.isSafeInteger(locationID) && locationID > 0 ? locationID : null,
-    locationName: name(record.locationName),
-    holder,
-    holderName: holder === "hangar" ? null : name(record.holderName),
-  };
 }
 
 /** Null when the entry carried no stock list at all; see PilotColonyReading. */

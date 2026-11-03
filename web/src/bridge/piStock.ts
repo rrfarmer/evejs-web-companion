@@ -5,9 +5,12 @@
 //   • a colony's own storage — read in the roster's snapshot, pin by pin;
 //   • a pilot's hangars, ships and containers — the same snapshot's items;
 //   • corporation hangars — read through a pilot of that corporation who is
-//     online in this tab or flown by a server bot (app/piCorpRead.ts), because
-//     corp-owned goods are in no pilot's snapshot and the corp asset read needs
-//     a held session.
+//     online in this tab or flown by a server bot (app/corpStockRead.ts),
+//     because corp-owned goods are in no pilot's snapshot and the corp asset
+//     read needs a held session.
+//
+// A holding, a corp read and the words for them are shared with the Industry
+// Manager and live in stockHoldings.ts; what is here is PI's own.
 //
 // ---------------------------------------------------------------------------
 // EVERY UNIT IS SAID WITH ITS PLACE.
@@ -25,96 +28,24 @@
 
 import type { Colony, ColonyPinKind } from "../store/types.ts";
 import { colonyPlaceWords, formatDuration, serverNow } from "./planets.ts";
-import type { PilotColonyReading, PilotStockStack } from "./piRoster.ts";
+import type { PilotColonyReading } from "./piRoster.ts";
 import { commodityName, tierOf, type PiRecipeBook, type PiTier } from "./piRecipes.ts";
+import {
+  compareHoldings,
+  holdingsFromCorpReads,
+  stationWords,
+  type CorpStockRead,
+  type Holding,
+  type HoldingSource,
+} from "./stockHoldings.ts";
 
-/** Where a holding sits, in the three kinds that plan differently. */
-export type HoldingSource = "colony" | "hangar" | "corp";
+// The server's classification of planetary goods, by category (the same rule
+// the roster read applies to a pilot's own items in src/server.js).
+const PLANETARY_CATEGORY_IDS = new Set([42, 43]);
 
-/** So much of one commodity, in one place. */
-export interface Holding {
-  readonly typeID: number;
-  readonly typeName: string | null;
-  readonly quantity: number;
-  readonly source: HoldingSource;
-  /** "Alpha III launchpad", "Alpha VI - Moon 1 - Station, in Hauler One". */
-  readonly placeWords: string;
-  /** The pilot, or the corporation, it belongs to. */
-  readonly ownerWords: string;
-  /** The planet a colony holding sits on; null for a hangar or a corp office. */
-  readonly planetID: number | null;
-  /**
-   * True for what sits in a factory's input buffer: it is held, but already
-   * committed to the recipe that factory runs, so the planner does not count it.
-   */
-  readonly inFactory?: boolean;
-  /** When it was read, on the server's clock; null when unknown. */
-  readonly readAtMs: number | null;
-  /** The server's clock minus the browser's, for this holding's read. */
-  readonly clockOffsetMs: number;
-}
-
-/** One corporation-owned stack, from the corp asset read. */
-export interface CorpStockItem {
-  readonly typeID: number;
-  readonly quantity: number;
-  readonly locationID: number;
-  /** Null when the place could not be named — never the id (R7d). */
-  readonly locationName: string | null;
-  /** The hangar division, 1 to 7; null when the flag is not a division. */
-  readonly division: number | null;
-}
-
-/** What reading one corporation's hangars came to. */
-export interface CorpStockRead {
-  readonly corporationID: number;
-  readonly corporationName: string | null;
-  /**
-   * - `read`         a pilot of it answered; `items` is the whole answer
-   * - `failed`       every pilot of it online here or flown by a server bot
-   *                  was tried and refused
-   * - `unreachable`  none of its pilots is online in this tab or flown by a
-   *                  server bot
-   */
-  readonly state: "read" | "failed" | "unreachable";
-  /** The pilot whose session read it. */
-  readonly viaCharacterID: number | null;
-  /** True when that session was a server bot's, not this tab's. */
-  readonly viaBot: boolean;
-  /** The browser's clock when the read landed. */
-  readonly readAtMs: number | null;
-  readonly items: readonly CorpStockItem[];
-  /** Pilots tried before one answered (or all of them, when none did). */
-  readonly refusals: readonly { readonly characterID: number; readonly reason: string }[];
-}
-
-// flagCorpSAG1..7 are flags 115..121: division N is flag 114 + N (the same
-// mapping src/server.js keeps for the corp hangar routes).
-const CORP_DIVISION_FLAG_BASE = 114;
-
-/** The corp hangar division a flag names, or null for any other flag. */
-export function corpDivisionOfFlag(flagID: number): number | null {
-  const division = flagID - CORP_DIVISION_FLAG_BASE;
-  return Number.isSafeInteger(division) && division >= 1 && division <= 7 ? division : null;
-}
-
-// NPC corporations own no hangars a player plans with: EVE's documented id
-// range for them is 1,000,000 to 1,999,999 (as standings.ts reads it).
-const NPC_CORP_MIN = 1_000_000;
-const NPC_CORP_MAX = 1_999_999;
-
-/** A player corporation, whose hangars are worth reading. */
-export function isPlayerCorporation(corporationID: number | null | undefined): corporationID is number {
-  return typeof corporationID === "number"
-    && Number.isSafeInteger(corporationID)
-    && corporationID > 0
-    && (corporationID < NPC_CORP_MIN || corporationID > NPC_CORP_MAX);
-}
-
-/** Whole numbers the way the rest of the app writes them. */
-export function countWords(value: number): string {
-  return Math.round(Math.max(0, value)).toLocaleString("en-US");
-}
+/** The corp stacks the PI board keeps: planetary goods (app/corpStockRead.ts). */
+export const PLANETARY_CORP_ITEMS = (item: { readonly typeID: number; readonly categoryID: number }): boolean =>
+  PLANETARY_CATEGORY_IDS.has(item.categoryID);
 
 const PIN_WORDS: Readonly<Record<ColonyPinKind, string>> = Object.freeze({
   command: "command centre",
@@ -159,17 +90,6 @@ function colonyHoldings(
   return [...merged.values()];
 }
 
-export function stationWords(stack: PilotStockStack): string {
-  const place = stack.locationName ?? "a place this map does not name";
-  if (stack.holder === "ship") {
-    return stack.holderName ? `${place}, in ${stack.holderName}'s cargo` : `${place}, in a ship's cargo`;
-  }
-  if (stack.holder === "container") {
-    return stack.holderName ? `${place}, in ${stack.holderName}` : `${place}, in a container`;
-  }
-  return `${place} hangar`;
-}
-
 /**
  * Every holding the roster's readings state: colony storage and personal
  * hangars. `names` names the pilots; one the hangar no longer knows is still
@@ -202,32 +122,12 @@ export function holdingsFromReadings(
   return holdings;
 }
 
-/** Corporation hangar holdings, for the corps that were read. */
-export function holdingsFromCorpReads(
+/** Corporation hangar holdings, named by the recipe book when there is one. */
+export function piHoldingsFromCorpReads(
   reads: readonly CorpStockRead[],
   book: PiRecipeBook | null,
 ): Holding[] {
-  const holdings: Holding[] = [];
-  for (const read of reads) {
-    if (read.state !== "read") continue;
-    const ownerWords = read.corporationName ?? "Your corporation";
-    for (const item of read.items) {
-      const place = item.locationName ?? "a station this map does not name";
-      holdings.push({
-        typeID: item.typeID,
-        typeName: book ? commodityName(book, item.typeID) : null,
-        quantity: item.quantity,
-        source: "corp",
-        placeWords: item.division === null ? `${place} office` : `${place} office, division ${item.division}`,
-        ownerWords,
-        planetID: null,
-        // The corp read is stamped on the browser's clock, so no correction.
-        readAtMs: read.readAtMs,
-        clockOffsetMs: 0,
-      });
-    }
-  }
-  return holdings;
+  return holdingsFromCorpReads(reads, book ? (typeID) => commodityName(book, typeID) : null);
 }
 
 /** One commodity, summed across everywhere it is held. */
@@ -272,13 +172,6 @@ export function tierLabel(tier: PiTier | null): string {
 /** "P2", "raw" — the short tag beside a commodity. */
 export function tierTag(tier: PiTier | null): string | null {
   return tier === null ? null : tier === 0 ? "raw" : `P${tier}`;
-}
-
-const SOURCE_ORDER: Readonly<Record<HoldingSource, number>> = Object.freeze({ colony: 0, hangar: 1, corp: 2 });
-
-/** Colony first, then hangars, then corp; largest first within each. */
-export function compareHoldings(left: Holding, right: Holding): number {
-  return SOURCE_ORDER[left.source] - SOURCE_ORDER[right.source] || right.quantity - left.quantity;
 }
 
 function nameOf(holdings: readonly Holding[], book: PiRecipeBook | null, typeID: number): string {

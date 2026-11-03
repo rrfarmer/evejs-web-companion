@@ -1,4 +1,4 @@
-// Reading corporation hangars for the PI board (R108 slice 5): through a pilot
+// Reading corporation hangars (R108 slice 5, R109): through a pilot
 // of that corporation who is online here, one office at a time, and with every
 // refusal kept against the pilot it happened to.
 
@@ -8,7 +8,10 @@ import assert from "node:assert/strict";
 import type { ApiOptions, ResolveNamesResult } from "./api.ts";
 import type { NameRef } from "../store/names.ts";
 import type { JsonValue } from "../bridge/wire.ts";
-import { readCorpStock, type BotPilot, type OnlinePilot, type PiCorpReadDeps } from "./piCorpRead.ts";
+import { readCorpStock, type BotPilot, type CorpItemFilter, type CorpStockReadDeps, type OnlinePilot } from "./corpStockRead.ts";
+
+// What the PI board keeps: planetary goods, by category.
+const PLANETARY: CorpItemFilter = (item) => item.categoryID === 42 || item.categoryID === 43;
 
 // The corpmgr wire shape: a CachedMethodCallResult around a CRowset of
 // packedrows, as bridge/corpAssets.test.ts captured it.
@@ -75,7 +78,7 @@ function deps(behaviour: (options: ApiOptions, locationID: number | null) => Rec
   const named: NameRef[][] = [];
   const signedIn: string[] = [];
   const signedOut: string[] = [];
-  const value: PiCorpReadDeps = {
+  const value: CorpStockReadDeps = {
     async loadCorpAssets(locationID, options) {
       calls.push({ token: options.token, locationID });
       const answer = behaviour(options, locationID);
@@ -111,9 +114,9 @@ function bot(characterID: number, corporationID: number | null, accountName = "e
 const answersEverything = (_options: ApiOptions, locationID: number | null) =>
   (locationID === null ? OFFICES : OFFICE_ITEMS) as unknown as Record<string, JsonValue>;
 
-test("a corp's planetary goods are read through its online pilot, office by office, with division and names", async () => {
+test("a corp's goods the caller keeps are read through its online pilot, office by office, with division and names", async () => {
   const { value, calls } = deps(answersEverything);
-  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], value))[0]!;
+  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], PLANETARY, value))[0]!;
   assert.equal(read.state, "read");
   assert.equal(read.viaCharacterID, PILOT_A);
   assert.equal(read.corporationName, "Example Corp");
@@ -132,16 +135,16 @@ test("a corp's planetary goods are read through its online pilot, office by offi
   ]);
 });
 
-test("R109: a caller may keep other types instead, and the planetary rule is then not applied", async () => {
+test("R109: the caller's filter alone decides what is kept", async () => {
   const { value } = deps(answersEverything);
   const keepTritanium = (entry: { readonly typeID: number }) => entry.typeID === 34;
-  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], value, keepTritanium))[0]!;
+  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], keepTritanium, value))[0]!;
   assert.deepEqual(read.items.map((entry) => [entry.typeID, entry.quantity, entry.division]), [[34, 9000, 1]]);
 });
 
 test("⚠ a corp with none of its pilots online here is 'unreachable', and nothing is asked", async () => {
   const { value, calls } = deps(answersEverything);
-  const reads = await readCorpStock([CORP], [pilot(PILOT_B, OTHER_CORP)], [], value);
+  const reads = await readCorpStock([CORP], [pilot(PILOT_B, OTHER_CORP)], [], PLANETARY, value);
   assert.deepEqual(reads.map((read) => read.state), ["unreachable"]);
   assert.equal(calls.length, 0);
 });
@@ -151,7 +154,7 @@ test("a refused pilot is recorded against itself, and the next pilot of the corp
     options.token === `token-${PILOT_A}`
       ? new Error("No character is online; select a character first.")
       : answersEverything(options, locationID));
-  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP), pilot(PILOT_B, CORP)], [], value))[0]!;
+  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP), pilot(PILOT_B, CORP)], [], PLANETARY, value))[0]!;
   assert.equal(read.state, "read");
   assert.equal(read.viaCharacterID, PILOT_B);
   assert.deepEqual(read.refusals, [
@@ -161,7 +164,7 @@ test("a refused pilot is recorded against itself, and the next pilot of the corp
 
 test("a read the server refuses inside the answer counts as a refusal too", async () => {
   const { value } = deps(() => ({ ok: true, inventory: null, errors: { inventory: "READ_FAILED" } }) as unknown as Record<string, JsonValue>);
-  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], value))[0]!;
+  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], PLANETARY, value))[0]!;
   assert.equal(read.state, "failed");
   assert.deepEqual(read.refusals, [
     { characterID: PILOT_A, reason: "the server refused the corporation asset read (READ_FAILED)" },
@@ -170,7 +173,7 @@ test("a read the server refuses inside the answer counts as a refusal too", asyn
 
 test("NPC corporations and repeats are never read", async () => {
   const { value, calls } = deps(answersEverything);
-  const reads = await readCorpStock([NPC_CORP, CORP, CORP], [pilot(PILOT_A, CORP), pilot(PILOT_B, NPC_CORP)], [], value);
+  const reads = await readCorpStock([NPC_CORP, CORP, CORP], [pilot(PILOT_A, CORP), pilot(PILOT_B, NPC_CORP)], [], PLANETARY, value);
   assert.deepEqual(reads.map((read) => read.corporationID), [CORP]);
   assert.equal(calls.filter((call) => call.locationID === null).length, 1);
 });
@@ -180,7 +183,7 @@ test("names that do not come back leave the goods counted, unnamed", async () =>
   value.resolveNames = async () => {
     throw new Error("names unavailable");
   };
-  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], value))[0]!;
+  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [], PLANETARY, value))[0]!;
   assert.equal(read.corporationName, null);
   assert.ok(read.items.every((entry) => entry.locationName === null));
   assert.equal(read.items.reduce((total, entry) => total + entry.quantity, 0), 550);
@@ -192,7 +195,7 @@ test("names that do not come back leave the goods counted, unnamed", async () =>
 
 test("a corp with only a bot-flown pilot is read through the bot, on a throwaway sign-in", async () => {
   const { value, calls, signedIn, signedOut } = deps(answersEverything);
-  const read = (await readCorpStock([CORP], [], [bot(PILOT_A, CORP)], value))[0]!;
+  const read = (await readCorpStock([CORP], [], [bot(PILOT_A, CORP)], PLANETARY, value))[0]!;
   assert.equal(read.state, "read");
   assert.equal(read.viaCharacterID, PILOT_A);
   assert.equal(read.viaBot, true);
@@ -206,7 +209,7 @@ test("a corp with only a bot-flown pilot is read through the bot, on a throwaway
 
 test("a pilot online in this tab is tried before a bot, and nobody signs in", async () => {
   const { value, calls, signedIn } = deps(answersEverything);
-  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [bot(PILOT_B, CORP)], value))[0]!;
+  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [bot(PILOT_B, CORP)], PLANETARY, value))[0]!;
   assert.equal(read.viaCharacterID, PILOT_A);
   assert.equal(read.viaBot, false);
   assert.ok(calls.every((call) => call.bot === undefined));
@@ -218,7 +221,7 @@ test("a refused tab pilot falls through to the bot", async () => {
     options.token === `token-${PILOT_A}`
       ? new Error("No character is online; select a character first.")
       : answersEverything(options, locationID));
-  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [bot(PILOT_B, CORP)], value))[0]!;
+  const read = (await readCorpStock([CORP], [pilot(PILOT_A, CORP)], [bot(PILOT_B, CORP)], PLANETARY, value))[0]!;
   assert.equal(read.viaCharacterID, PILOT_B);
   assert.equal(read.viaBot, true);
   assert.equal(read.refusals.length, 1);
@@ -226,7 +229,7 @@ test("a refused tab pilot falls through to the bot", async () => {
 
 test("a bot that has ended is a refusal against that pilot, and the corp says failed", async () => {
   const { value, signedOut } = deps(() => new Error("No server bot of this account is flying this pilot."));
-  const read = (await readCorpStock([CORP], [], [bot(PILOT_A, CORP)], value))[0]!;
+  const read = (await readCorpStock([CORP], [], [bot(PILOT_A, CORP)], PLANETARY, value))[0]!;
   assert.equal(read.state, "failed");
   assert.deepEqual(read.refusals, [
     { characterID: PILOT_A, reason: "No server bot of this account is flying this pilot." },
@@ -239,7 +242,7 @@ test("an account that will not sign in is a refusal, never a throw", async () =>
   value.signIn = async () => {
     throw new Error("refused");
   };
-  const read = (await readCorpStock([CORP], [], [bot(PILOT_A, CORP)], value))[0]!;
+  const read = (await readCorpStock([CORP], [], [bot(PILOT_A, CORP)], PLANETARY, value))[0]!;
   assert.equal(read.state, "failed");
   assert.deepEqual(read.refusals, [{ characterID: PILOT_A, reason: "could not sign in to this pilot's account" }]);
   assert.equal(calls.length, 0);
@@ -247,14 +250,14 @@ test("an account that will not sign in is a refusal, never a throw", async () =>
 
 test("one sign-in per account, however many corps its bots read", async () => {
   const { value, signedIn, signedOut } = deps(answersEverything);
-  await readCorpStock([CORP, OTHER_CORP], [], [bot(PILOT_A, CORP), bot(PILOT_B, OTHER_CORP)], value);
+  await readCorpStock([CORP, OTHER_CORP], [], [bot(PILOT_A, CORP), bot(PILOT_B, OTHER_CORP)], PLANETARY, value);
   assert.deepEqual(signedIn, ["example-account"]);
   assert.deepEqual(signedOut, ["throwaway-example-account"]);
 });
 
 test("a bot of another corporation is never asked", async () => {
   const { value, calls, signedIn } = deps(answersEverything);
-  const reads = await readCorpStock([CORP], [], [bot(PILOT_B, OTHER_CORP)], value);
+  const reads = await readCorpStock([CORP], [], [bot(PILOT_B, OTHER_CORP)], PLANETARY, value);
   assert.deepEqual(reads.map((read) => read.state), ["unreachable"]);
   assert.equal(calls.length, 0);
   assert.deepEqual(signedIn, []);

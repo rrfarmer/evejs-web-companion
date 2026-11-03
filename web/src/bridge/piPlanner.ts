@@ -48,7 +48,7 @@ import type { Colony, ColonyPin } from "../store/types.ts";
 import { colonyPlaceWords, formatDuration, serverNow } from "./planets.ts";
 import { resolveChain, type ChainNode } from "./piChain.ts";
 import { commodityName, tierOf, type PiRecipeBook, type PiSchematic, type PiTier } from "./piRecipes.ts";
-import { compareHoldings, countWords, type Holding } from "./piStock.ts";
+import { compareHoldings, countWords, type Holding } from "./stockHoldings.ts";
 
 /** One colony the planner may count on, with the clock it was read against. */
 export interface PlannerColony {

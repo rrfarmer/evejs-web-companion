@@ -88,19 +88,18 @@
   } from "../bridge/piRunProgress.ts";
   import { commodityName, decodeRecipeBook, madeThings, tierOf, type PiRecipeBook, type PiTier } from "../bridge/piRecipes.ts";
   import {
-    countWords,
+    PLANETARY_CORP_ITEMS,
     holdingAgeWords,
-    holdingsFromCorpReads,
     holdingsFromReadings,
-    isPlayerCorporation,
+    piHoldingsFromCorpReads,
     stockByTier,
     stockLines,
     stockSources,
     stockSummary,
     tierLabel,
     tierTag,
-    type CorpStockRead,
   } from "../bridge/piStock.ts";
+  import { countWords, isPlayerCorporation, type CorpStockRead } from "../bridge/stockHoldings.ts";
   import { balancedDemand, buildCoverage, type CoverageLine } from "../bridge/piCoverage.ts";
   import {
     commandCentresToBuy,
@@ -133,7 +132,7 @@
   import { getPlanetsNear } from "../app/api.ts";
   import { DEFAULT_PI_PLAN_DEPS, signedIn } from "../app/piPlans.ts";
   import { missingByTier, planStepCounts, planWithStock, type PlanNode, type PlannerColony } from "../bridge/piPlanner.ts";
-  import { readCorpStock, type BotPilot, type OnlinePilot } from "../app/piCorpRead.ts";
+  import { readCorpStock, type BotPilot, type OnlinePilot } from "../app/corpStockRead.ts";
   import {
     createPiPlan,
     deletePiPlan,
@@ -159,7 +158,7 @@
   // pilot's snapshot, so they are read through a pilot of that corporation who
   // is already online: in this tab, on that pilot's own session, or flown by a
   // server bot, on the bot's session through a read-only route
-  // (app/piCorpRead.ts). Nothing here selects or brings anyone online.
+  // (app/corpStockRead.ts). Nothing here selects or brings anyone online.
   //
   // `onOpen` opens another window: the Bot Manager, from a paused run's box.
   let { sessions = [], onOpen }: {
@@ -668,7 +667,7 @@
   const memberReadings = $derived(readings);
   const holdings = $derived([
     ...holdingsFromReadings(memberReadings, names),
-    ...holdingsFromCorpReads(corpReads, recipes),
+    ...piHoldingsFromCorpReads(corpReads, recipes),
   ]);
   const lines = $derived(stockLines(holdings, recipes));
   const summary = $derived(stockSummary(lines));
@@ -1214,7 +1213,7 @@
       ...online.map((pilot) => pilot.corporationID),
     ].filter(isPlayerCorporation);
     try {
-      corpReads = await readCorpStock(corporations, online, botPilots());
+      corpReads = await readCorpStock(corporations, online, botPilots(), PLANETARY_CORP_ITEMS);
     } catch {
       // Each corp's outcome is caught inside the read; keep the last answer.
     }

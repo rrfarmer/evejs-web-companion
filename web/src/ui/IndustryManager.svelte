@@ -40,7 +40,7 @@
     type InventionTerms,
   } from "../bridge/industryInvention.ts";
   import { readIndustryStock, type IndustryStock } from "../app/industryStockRead.ts";
-  import type { OnlinePilot } from "../app/piCorpRead.ts";
+  import type { OnlinePilot } from "../app/corpStockRead.ts";
   import { installTarget } from "../app/industryInstallTarget.ts";
   import {
     installBlockWords,
@@ -105,7 +105,7 @@
     ownedWords,
     type PilotBlueprintRead,
   } from "../bridge/industryOwned.ts";
-  import { countWords, type Holding } from "../bridge/piStock.ts";
+  import { countWords, type Holding } from "../bridge/stockHoldings.ts";
   import {
     heldByType,
     holdingsByType,

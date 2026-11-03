@@ -12,15 +12,14 @@
 // player's own clicks behind them.
 //
 // ⚠ CORP HANGARS NEED A PILOT OF THAT CORP ONLINE, here or flown by a server
-// bot (app/piCorpRead.ts), because corp goods are in no pilot's snapshot. A
+// bot (app/corpStockRead.ts), because corp goods are in no pilot's snapshot. A
 // corp nobody can read through says so; it is not reported as empty.
 
 import { loadRosterStock as apiLoadRosterStock, login as apiLogin, logout as apiLogout, ROSTER_PLANETS_MAX_IDS } from "./api.ts";
 import type { JsonValue } from "../bridge/wire.ts";
-import { readCorpStock, type BotPilot, type OnlinePilot } from "./piCorpRead.ts";
-import { holdingsFromCorpReads, type CorpStockRead, type Holding } from "../bridge/piStock.ts";
+import { readCorpStock, type BotPilot, type OnlinePilot } from "./corpStockRead.ts";
+import { holdingsFromCorpReads, type CorpStockRead, type Holding, type PilotStockStack } from "../bridge/stockHoldings.ts";
 import { decodeRosterStock } from "../bridge/industryStock.ts";
-import type { PilotStockStack } from "../bridge/piRoster.ts";
 
 /** A hangar pilot whose stock counts. */
 export interface StockPilot {
@@ -71,7 +70,7 @@ export const LIVE_INDUSTRY_STOCK_DEPS: IndustryStockDeps = {
   },
   loadRosterStock: (characterIDs, typeIDs, token) =>
     apiLoadRosterStock(characterIDs, typeIDs, { token, priority: "user" }) as Promise<JsonValue>,
-  readCorpStock: (corporationIDs, online, bots, keep) => readCorpStock(corporationIDs, online, bots, undefined, keep),
+  readCorpStock: (corporationIDs, online, bots, keep) => readCorpStock(corporationIDs, online, bots, keep),
   now: () => Date.now(),
 };
 

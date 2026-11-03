@@ -380,7 +380,7 @@ test("the corp hangar read rides a session already online, and never selects any
   // A tab pilot is read on its own options; a bot-flown pilot through the
   // bot's session, on a throwaway sign-in that leaves the tab's own untouched.
   assert.match(SOURCE, /session\.flow\.requestOptions\(\)/);
-  const corpRead = readFileSync(path.join(UI_DIR, "../app/piCorpRead.ts"), "utf8");
+  const corpRead = readFileSync(path.join(UI_DIR, "../app/corpStockRead.ts"), "utf8");
   assert.doesNotMatch(corpRead, /selectCharacter|\/api\/bridge\/select|startServerBot|stopServerBot/);
   assert.match(corpRead, /apiLogin\(accountName, "", \{ token: null \}\)/);
   const api = readFileSync(path.join(UI_DIR, "../app/api.ts"), "utf8");

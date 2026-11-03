@@ -14,7 +14,7 @@ import {
 } from "./industryStock.ts";
 import { decodeRecipeClosure } from "./industryRecipes.ts";
 import { resolveIndustryChain } from "./industryChain.ts";
-import type { Holding } from "./piStock.ts";
+import type { Holding } from "./stockHoldings.ts";
 import type { JsonValue } from "./wire.ts";
 
 const PILOT = 90000001;

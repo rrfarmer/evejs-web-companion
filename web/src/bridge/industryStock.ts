@@ -21,8 +21,7 @@
 
 import type { JsonValue } from "./wire.ts";
 import type { IndustryChain, IndustryLine } from "./industryChain.ts";
-import { compareHoldings, stationWords, type Holding } from "./piStock.ts";
-import { decodeStockStack, type PilotStockStack } from "./piRoster.ts";
+import { compareHoldings, decodeStockStack, stationWords, type Holding, type PilotStockStack } from "./stockHoldings.ts";
 
 /** One pilot's answer to a stock read. */
 export interface PilotStockAnswer {

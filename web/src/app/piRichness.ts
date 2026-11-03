@@ -9,7 +9,7 @@
 // ⚠ TWO SOURCES, NEITHER A SELECT. Planets a roster pilot has colonised carry
 // their richness in the colony read already. Any other planet is asked with
 // the game's own GetPlanetResourceInfo, on the session of a pilot ALREADY
-// online in this tab (the corp-hangar read's rule, app/piCorpRead.ts). With
+// online in this tab (the corp-hangar read's rule, app/corpStockRead.ts). With
 // nobody online, nothing is read and the plan says which planets are unknown.
 
 import { getPlanetRichness, type ApiOptions } from "./api.ts";
