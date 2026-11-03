@@ -167,7 +167,7 @@ if (typeof process.send === "function") {
 | Loading | Each plugin is checked whole before anything of it registers: a window or block id that is not its own, a duplicate, or another API version, and it loads nothing and says why. Every other plugin loads regardless. |
 | Page | Each window is drawn inside an error boundary. **Not isolated:** a plugin's infinite loop in page code still freezes the tab. Keep heavy work in the backend. |
 | BFF | Each backend is its own process. A throw is that request's 500; a request in flight when it dies gets a 503; one it does not answer within 30 s gets a 504. The watchdog pings every 5 s and kills a backend that misses two pings. A backend that exits is restarted after 1 s, 5 s, then 30 s, and stays stopped after five failures in ten minutes. |
-| Files | Each backend runs under Node's permission model. It may read its plugin folder, the web sources and `node_modules`, and write only `data/plugins/<id>`. The core database is out of reach. Node calls this a seat belt for trusted code, not a sandbox against hostile code. |
+| Files | Each backend runs under Node's permission model. It may read its plugin folder, the web sources and `node_modules`, and write only `data/plugins/<id>`. The core database is out of reach. Node calls this a seat belt for trusted code, not a sandbox against hostile code. Backends are also allowed native packages (`--allow-addons`, for SQLite), and Node warns that native code can step outside the model, so a plugin that ships native code is trusted code. |
 | Bots | A hosted bot's plugin blocks are decided in the plugin's process (2 s per answer); a plugin that cannot answer pauses only its own bots. |
 
 The Plugins window (beside the brand) shows each plugin: whether it loaded, why

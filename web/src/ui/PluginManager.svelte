@@ -11,10 +11,15 @@
   // (web/src/plugins/pluginHost.ts), and everything else carries on.
   //
   // Its backend's state, where it has one, is the BFF's word (GET /api/plugins):
-  // whether its process is running, and how often it has been restarted.
+  // whether its process is running, and how often it has been restarted. It is
+  // asked on the session of a pilot already signed in here, and never by
+  // signing anybody in: a sign-in closes the account's other clients.
   import { onMount } from "svelte";
   import { loadDisabledPlugins, pagePluginStatuses, saveDisabledPlugin, type PluginStatus } from "../plugins/pluginHost.ts";
   import { listPluginBackends, type PluginBackendStatus } from "../app/api.ts";
+  import type { GlobalWindowProps } from "./pluginWindowViews.ts";
+
+  let { sessions = [] }: GlobalWindowProps = $props();
 
   const statuses: readonly PluginStatus[] = pagePluginStatuses();
   let switchedOff = $state(new Set(loadDisabledPlugins()));
@@ -57,12 +62,17 @@
   onMount(() => {
     // Only when a plugin has a server part: otherwise there is nothing to ask.
     if (!statuses.some((status) => status.hasBackend)) return;
-    listPluginBackends()
+    const online = sessions.find((session) => session.store.station.get().online !== null) ?? null;
+    if (online === null) {
+      backendError = "shown once a pilot is signed in here.";
+      return;
+    }
+    listPluginBackends(online.flow.requestOptions())
       .then((rows) => {
         backends = rows;
       })
       .catch(() => {
-        backendError = "The server's side of the plugins could not be read just now.";
+        backendError = "could not be read just now.";
       });
   });
 </script>
@@ -104,7 +114,7 @@
                 Server part: {BACKEND_WORDS[backend.state] ?? backend.state}{backend.restarts > 0 ? `, restarted ${backend.restarts} ${backend.restarts === 1 ? "time" : "times"}` : ""}{backend.error ? `. ${backend.error}` : "."}
               </p>
             {:else if backendError !== null}
-              <p class="plugin-backend">{backendError}</p>
+              <p class="plugin-backend">Server part: {backendError}</p>
             {/if}
           {/if}
         </li>
