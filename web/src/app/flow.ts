@@ -987,6 +987,11 @@ export interface AppFlowOptions {
   /** Browser-selected pilots must settle a nearby lost flight before automation. */
   readonly browserPilotRecovery?: boolean;
   /**
+   * Whether this flow hands its pilots' route settings to the BFF, for the runs the server hosts for them
+   * (shareRouteSettings). The page's own sessions do; a hosted flow, and every test, does not.
+   */
+  readonly shareRouteSettings?: boolean;
+  /**
    * How long the agent's window waits before asking again when the BFF says the pilot is busy with a
    * write (AGENT_TALK_AGAIN_WAIT_MS). Tests shorten it.
    */
@@ -21258,6 +21263,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return autopilotKept.stored;
   }
   /**
+   * The pilot's route settings, handed to the BFF as they are changed here, so a run the server hosts for the pilot
+   * plans its routes the same way (src/pilotRouteSettings.js); a hosted run has no browser storage, and with none every
+   * route is "Prefer safer". Only a flow told to share does: a hosted flow reads them from there and has nothing of its
+   * own to give.
+   *
+   * ⚠ ONLY A CHANGE IS SENT, NEVER WHAT IS MERELY KEPT. The BFF's copy can be set without this page (for a pilot
+   * nobody has logged in here); sending this browser's copy each time the pilot is chosen would put back "Prefer
+   * safer" over it for every pilot never changed here. The latest change, wherever it was made, is the one kept.
+   */
+  function shareRouteSettings(characterID: number, stored: StoredAutopilotSettings): void {
+    if (options.shareRouteSettings !== true) return;
+    void api.savePilotRouteSettings(characterID, stored as unknown as JsonValue, callOptions).catch(() => {});
+  }
+  /**
    * The settings the pathfinder is given: the list's constellations and regions as their systems on this map, and the
    * server's lists whose ticks are on, read first (avoidedListsFor).
    */
@@ -21367,6 +21386,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     autopilotKept = { characterID, stored };
     if (characterID !== null) {
       saveAutopilotSettings(settingsStorage, characterID, stored);
+      shareRouteSettings(characterID, stored);
     }
     routeSettingsSignal.set(stored);
     // The client's pathfinder keeps what it has worked out by its settings, and works it out again when they change.

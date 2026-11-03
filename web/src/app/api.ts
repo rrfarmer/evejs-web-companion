@@ -284,6 +284,14 @@ export async function readClosedByServer(characterID: number, options: ApiOption
 }
 
 /**
+ * POST /api/pilot-route-settings: the pilot's route settings as this page keeps them, so a run the server hosts for
+ * the pilot plans its routes the same way (src/pilotRouteSettings.js).
+ */
+export async function savePilotRouteSettings(characterID: number, settings: JsonValue, options: ApiOptions = {}): Promise<void> {
+  await postJson("/api/pilot-route-settings", { characterID, settings }, options);
+}
+
+/**
  * GET /api/bridge/pocket-timer: the Abyssal pocket's timer as the pilot was last told it (the end_time of
  * OnAddExpiryDurationForAbyssalContent, as the wire carries it), or null; `known` false where nothing is kept.
  */

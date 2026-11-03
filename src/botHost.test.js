@@ -786,6 +786,25 @@ test("a resumed bot's token covers what its ORIGINAL grant has left, not a fresh
   assert.ok(minted[0].ttlMs < 60 * 60_000, "but nowhere near a fresh grant");
 });
 
+test("a run's flow is given its pilot's route settings, where the host has them", async () => {
+  const log = [];
+  let given;
+  const storage = { getItem: () => null, setItem: () => {} };
+  const host = makeHost({
+    log,
+    loadStack: makeFakeStack(log, (flow, _store, options) => { given = options.storage; return flow; }),
+    settingsStorageFor: (characterID) => (characterID === 140000001 ? storage : null),
+  });
+  assert.equal((await host.start(START)).ok, true);
+  assert.equal(given, storage);
+
+  // A host without them leaves the flow to its default, as before.
+  let unset = "never built";
+  const plain = makeHost({ loadStack: makeFakeStack([], (flow, _store, options) => { unset = options.storage; return flow; }) });
+  assert.equal((await plain.start(START)).ok, true);
+  assert.equal(unset, undefined);
+});
+
 test("a second bot may not take a claimed character", async () => {
   const host = makeHost();
   assert.equal((await host.start(START)).ok, true);

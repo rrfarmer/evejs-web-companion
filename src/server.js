@@ -75,6 +75,7 @@ const { createSeasonalCampaignDefinitions } = require("./seasonalCampaignDefinit
 const botScriptStoreModule = require("./botScriptStore");
 const { lazyCompanionDb } = require("./companionDb");
 const { createPiPlanStore } = require("./piPlanStore");
+const { createPilotRouteSettings } = require("./pilotRouteSettings");
 const { createPiExpansionStore } = require("./piExpansionStore");
 const { createIndustryPlanStore } = require("./industryPlanStore");
 const industryRecipes = require("./industryRecipes");
@@ -457,6 +458,11 @@ const characterCreation = createCharacterCreation({ call: (...args) => accountLe
 // is our own JSON file.
 const botScripts =
   options.botScriptStore || botScriptStoreModule.createBotScriptStore({ dataDir: config.dataDir });
+// Each pilot's route settings as its page keeps them, for the runs the server hosts (src/pilotRouteSettings.js).
+// Injected EveJS stores (unit fixtures) keep them in memory, as the creation journal above does.
+const pilotRouteSettings = options.pilotRouteSettings || createPilotRouteSettings({
+  filePath: options.eveStore ? null : path.join(config.dataDir, "pilot-route-settings.json"),
+});
 // Saved PI plans, in the companion's own data/companion.sqlite (src/companionDb.js),
 // opened on the first request that needs it -- never eve.js's gamestore.
 const piPlans =
@@ -593,6 +599,8 @@ const botHost =
     // pilot is not logged in again by a run's recovery (gamePort/pilots.js closedByServer).
     closedByServer: (characterID) =>
       gamePortPilots && typeof gamePortPilots.closedByServer === "function" ? gamePortPilots.closedByServer(characterID) : null,
+    // A run plans its routes by its pilot's own route settings, as the pilot's page keeps them.
+    settingsStorageFor: (characterID) => pilotRouteSettings.storageFor(characterID),
     // A pilot chosen on the game port is a client of its own, and its login closes the account's other clients: a
     // second run on the account would log the first one out.
     oneClientPerAccount: (who) =>
@@ -10975,6 +10983,32 @@ app.get("/api/bridge/pocket-timer", requireAuth, (req, res, next) => {
 // Why a pilot of this account went offline, where the game server closed its connection with a reason of its own
 // (another login of the account: gamePort/pilots.js closedByServer). The page asks as it lets the pilot go, and says
 // so, as the retail client puts up its connection-lost notice. Null where the server closed nothing.
+// POST /api/pilot-route-settings: the pilot's route settings as its page keeps them (pfRouteType and the rest), so a
+// run the server hosts for the pilot plans its routes the same way (src/pilotRouteSettings.js). The pilot must be the
+// account's own.
+app.post("/api/pilot-route-settings", requireAuth, async (req, res, next) => {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const characterID = Number(body.characterID);
+  if (!Number.isSafeInteger(characterID) || characterID <= 0) {
+    res.status(400).json({ ok: false, error: "INVALID_CHARACTER", message: "A character is required." });
+    return;
+  }
+  try {
+    if (!(await store.getCharacterForAccount(req.account.accountID, characterID))) {
+      res.status(404).json({ ok: false, error: "CHARACTER_NOT_FOUND" });
+      return;
+    }
+    pilotRouteSettings.set(characterID, body.settings);
+    res.json({ ok: true });
+  } catch (error) {
+    if (error && error.code === "INVALID_ROUTE_SETTINGS") {
+      res.status(400).json({ ok: false, error: error.code, message: error.message });
+      return;
+    }
+    next(error);
+  }
+});
+
 app.get("/api/bridge/closed-by-server", requireAuth, (req, res) => {
   const characterID = Number(req.query.characterID);
   if (!Number.isSafeInteger(characterID) || characterID <= 0) {
