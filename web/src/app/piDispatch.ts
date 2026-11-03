@@ -30,8 +30,6 @@ import {
   login as apiLogin,
   logout as apiLogout,
   startServerBot as apiStartServerBot,
-  exportToCustomsOffices as apiExportToCustomsOffices,
-  type CustomsExportResult,
 } from "./api.ts";
 import { BridgeCallError } from "../bridge/callMethod.ts";
 import { piHaulStages, type PiRunStage } from "../bridge/piRunProgress.ts";
@@ -86,10 +84,9 @@ export function isPiRestartBot(doc: BotScript): boolean {
 }
 
 export type PiDispatchOutcome =
-  // `exported` rides on a haul's start only: what the customs-office hop sent
-  // up, so the row can say it. Absent on a restart, which exports nothing.
-  // `stages` too: the route of the lap that was started, for the board's stepper.
-  | { readonly kind: "started"; readonly exported?: PiHaulExportSummary; readonly stages?: readonly PiRunStage[] }
+  // `stages` rides on a haul's start: the route of the lap that was started,
+  // for the board's stepper. Absent on a restart.
+  | { readonly kind: "started"; readonly stages?: readonly PiRunStage[] }
   | { readonly kind: "refused"; readonly sentence: string };
 
 /** What dispatch needs from the outside world; tests supply their own. */
@@ -101,8 +98,6 @@ export interface PiDispatchDeps {
   createScript(doc: BotScript, token: string): Promise<{ scriptID: string; rev: number }>;
   updateScript(scriptID: string, doc: BotScript, baseRev: number, token: string): Promise<{ rev: number }>;
   startServerBot(characterID: number, scriptID: string, grant: BotLaunchGrant, token: string): Promise<void>;
-  /** Send these colonies' launchpads up into their customs offices (the game-port hop). */
-  exportToCustoms(characterID: number, planetIDs: readonly number[], token: string): Promise<CustomsExportResult>;
 }
 
 export const DEFAULT_PI_DISPATCH_DEPS: PiDispatchDeps = {
@@ -121,8 +116,6 @@ export const DEFAULT_PI_DISPATCH_DEPS: PiDispatchDeps = {
   async startServerBot(characterID, scriptID, grant, token) {
     await apiStartServerBot(characterID, scriptID, grant, { token, priority: "user" });
   },
-  exportToCustoms: (characterID, planetIDs, token) =>
-    apiExportToCustomsOffices(characterID, planetIDs, { token, priority: "user" }),
 };
 
 const refused = (sentence: string): PiDispatchOutcome => ({ kind: "refused", sentence });
@@ -232,16 +225,15 @@ export function piHaulBotDoc(
     }
   }
   // ⚠ TWO WAYS OFF A COLONY, AND THE LAP USES BOTH. A LAUNCHPAD goes up into
-  // the planet's own customs office before the run starts (haulFor below, POST
-  // /api/pi/customs-export) - the retail route, and the only one that moves the
-  // 10,000 m3 the factories actually fill. A COMMAND CENTRE cannot: the server
+  // the planet's own customs office at the office, on the pilot's own session
+  // (collect-customs, as the client's customs window does it) - the only way
+  // that moves the 10,000 m3 the factories actually fill. A COMMAND CENTRE cannot: the server
   // takes only a spaceport pin for a customs export, so the 500 m3 a centre
   // holds still leaves the old way, as a container in space. Dropping either
   // one strands goods, so each system gets both collectors below.
   //
   // ⚠ BOARD BEFORE LAUNCHING. A launch charges export tax and leaves a container
   // in space for five days. A pilot with no hauler must stop before paying that.
-  // This covers the lap only: haulFor's launchpad hop runs before it starts.
   const program: MacroStep[] = [
     { id: "board-hauler", kind: "macro", macro: "board-planetary-hauler", args: {} },
     {
@@ -299,10 +291,10 @@ export function piHaulBotDoc(
     version: SCRIPT_VERSION,
     name: PI_HAUL_BOT_NAME,
     notes:
-      "Saved by the Planetary Industry window, and rewritten by its Haul button on every haul. The button sends the " +
-      "ticked colonies' launchpads up into their customs offices first; this lap boards a ship parked at the starting " +
-      "station that has a planetary hold, launches what their command centres hold, empties the customs offices and " +
-      "collects the launches in each colony's system, flies back, unloads and gets back into the earlier ship.",
+      "Saved by the Planetary Industry window, and rewritten by its Haul button on every haul. This lap " +
+      "boards a ship parked at the starting station that has a planetary hold, launches what the ticked colonies' " +
+      "command centres hold, and in each colony's system sends the launchpads up into the customs office, empties it " +
+      "and collects the launches. It flies back, unloads and gets back into the earlier ship.",
     // The Deliver-to station, when one is picked, is home: a run that starts in
     // space docks there to board, delivers there and comes back there (flow.ts
     // resolves the starting station to it). Without one, home is where the run
@@ -313,67 +305,11 @@ export function piHaulBotDoc(
   };
 }
 
-/** What the export hop did, in the few numbers the window says out loud. */
-export interface PiHaulExportSummary {
-  /** Units sent up, across every colony that answered. */
-  readonly units: number;
-  /** How many colonies sent something up. */
-  readonly colonies: number;
-  /** One sentence per colony the server refused, in its own words where it gave any. */
-  readonly refusals: readonly string[];
-  /**
-   * Present when nothing went up here because the run itself sends each
-   * colony's launchpads up at its customs office (a pilot on the game port).
-   */
-  readonly atTheOffices?: true;
-}
-
-/** Read an export answer into the summary the row shows. */
-export function summarizeCustomsExport(result: CustomsExportResult): PiHaulExportSummary {
-  let units = 0;
-  let colonies = 0;
-  const refusals: string[] = [];
-  for (const planet of result.planets) {
-    if (planet.exported) {
-      units += planet.units;
-      colonies += 1;
-    }
-    // A later pad can refuse after an earlier pad exported successfully.
-    // Count that progress and still retain the refusal from the same colony.
-    if (planet.reason === null) continue;
-    const where = planet.planetName ?? "One colony";
-    // "nothing on the pads" is the ordinary case between hauls, not a refusal.
-    if (planet.reason === "nothing-on-the-pads") continue;
-    if (planet.reason === "no-colony") continue;
-    // The run sends this colony's launchpads up itself, at the office.
-    if (planet.reason === "at-the-office") continue;
-    refusals.push(
-      planet.reason === "no-office"
-        ? `${where} has no customs office to launch into.`
-        : planet.message !== null
-          ? `${where}: ${planet.message}`
-          : `${where} would not launch just now.`,
-    );
-  }
-  return result.atTheOffices === true ? { units, colonies, refusals, atTheOffices: true } : { units, colonies, refusals };
-}
-
 /**
  * Haul these colonies of this pilot's, as a server run.
  *
- * ⚠ TWO STEPS, IN THIS ORDER. The goods go up into the customs offices FIRST,
- * over the game port (POST /api/pi/customs-export), and only then does the bot
- * start. They cannot be swapped: the export selects the character in game, and
- * a character may be in game on one session — doing it second would take the
- * ship out from under the bot that was already flying it. Doing it first takes
- * nothing from the run, because the pilot is not online yet. It can cost tax: a
- * pilot on the gateway transport pays export tax here, before the run can find
- * out that no hauler is parked.
- *
- * An export that is REFUSED outright (a bot or another tab is flying this
- * pilot) stops the haul: there is nothing in the offices to fetch and the
- * refusal is the thing to show. A single colony's refusal does not — the rest
- * of the goods are up and worth collecting.
+ * The run itself sends each colony's launchpads up at its customs office, on
+ * the pilot's own session, so nothing is sent before it starts.
  */
 export async function haulFor(
   accountName: string,
@@ -393,17 +329,6 @@ export async function haulFor(
     return refused("Could not sign in to this pilot's account just now.");
   }
   try {
-    let exported: PiHaulExportSummary;
-    try {
-      exported = summarizeCustomsExport(
-        await deps.exportToCustoms(characterID, colonies.map((colony) => colony.planetID), token),
-      );
-    } catch (error) {
-      if (error instanceof BridgeCallError && error.status > 0 && error.message) {
-        return refused(error.message);
-      }
-      return refused("The colonies could not be launched into their customs offices just now.");
-    }
     const doc = piHaulBotDoc(colonies, division, deliverTo);
     const named = (await deps.listScripts(token)).find((row) => row.name === PI_HAUL_BOT_NAME) ?? null;
     let saved: { scriptID: string; rev: number };
@@ -415,7 +340,7 @@ export async function haulFor(
     }
     const grant = createBotLaunchGrant(saved.rev, analyzeBotRunPolicy(doc), PI_HAUL_RUNTIME_MINUTES);
     await deps.startServerBot(characterID, saved.scriptID, grant, token);
-    return { kind: "started", exported, stages: piHaulStages(doc) };
+    return { kind: "started", stages: piHaulStages(doc) };
   } catch (error) {
     if (error instanceof BridgeCallError && error.status > 0 && error.message) {
       return refused(error.message);

@@ -5088,78 +5088,10 @@ export class DroneEngageOutcomeError extends BridgeCallError {
 // own call (bridge/launchWrites.ts; the plan's Phase 6b): the sixth of its writes
 // to leave its route (POST /api/bridge/planet/launch/delete), on 2026-10-10.
 
-/** What one colony's launchpads did when the Haul button sent them up. */
-export interface CustomsExportPlanet {
-  readonly planetID: number;
-  readonly planetName: string | null;
-  readonly solarSystemID: number;
-  readonly solarSystemName: string | null;
-  /** The office the goods went into; null when none was reached. */
-  readonly officeID: number | null;
-  readonly exported: boolean;
-  readonly units: number;
-  /** Why not, in a word: "no-colony", "nothing-on-the-pads", "no-office", "refused". */
-  readonly reason: string | null;
-  /** The server's own sentence where it gave one. */
-  readonly message: string | null;
-}
-
-export interface CustomsExportResult {
-  /**
-   * True when nothing was sent up here because the haul's own run will send
-   * each colony's launchpads up at its customs office, as the retail client
-   * does (a pilot on the game port). Each planet then reads "at-the-office".
-   */
-  readonly atTheOffices?: boolean;
-  /** False when nothing needed sending, so nobody was logged out. */
-  readonly connected: boolean;
-  /** True/false when the caller's own pilot was re-selected; null when it was not ours. */
-  readonly handedBack: boolean | null;
-  readonly planets: readonly CustomsExportPlanet[];
-}
-
-/**
- * Send these colonies' launchpad goods up into their customs offices.
- *
- * ⚠ THIS BRIEFLY LOGS THE PILOT OUT. The call the retail client makes here
- * (invbroker.ImportExportWithPlanet) is not on the web gateway, so the BFF
- * makes it over the GAME PORT, which means selecting the character there — and
- * a character may be in game on one session. The BFF refuses a pilot a bot or
- * another tab is flying, and hands the caller's own pilot straight back.
- */
-export async function exportToCustomsOffices(
-  characterID: number,
-  planetIDs: readonly number[],
-  options: ApiOptions = {},
-): Promise<CustomsExportResult> {
-  const data = await postJson(
-    "/api/pi/customs-export",
-    { characterID, planetIDs: [...planetIDs], confirm: true },
-    options,
-  );
-  const planets = Array.isArray(data.planets) ? data.planets : [];
-  return {
-    atTheOffices: data.atTheOffices === true,
-    connected: data.connected === true,
-    handedBack: typeof data.handedBack === "boolean" ? data.handedBack : null,
-    planets: planets.map((row) => {
-      const entry = row !== null && typeof row === "object" && !Array.isArray(row)
-        ? (row as { readonly [key: string]: JsonValue })
-        : {};
-      return {
-        planetID: asNumberOrNull(entry.planetID) ?? 0,
-        planetName: typeof entry.planetName === "string" ? entry.planetName : null,
-        solarSystemID: asNumberOrNull(entry.solarSystemID) ?? 0,
-        solarSystemName: typeof entry.solarSystemName === "string" ? entry.solarSystemName : null,
-        officeID: asNumberOrNull(entry.officeID),
-        exported: entry.exported === true,
-        units: asNumberOrNull(entry.units) ?? 0,
-        reason: typeof entry.reason === "string" ? entry.reason : null,
-        message: typeof entry.message === "string" ? entry.message : null,
-      };
-    }),
-  };
-}
+// A launchpad's goods go up into the customs office on the pilot's own session,
+// as the client's customs window sends them (bridge/customsWrites.ts). The route
+// that logged the pilot in over the game port to do it (POST /api/pi/customs-export)
+// is gone.
 
 // The saved fittings, the pilot's own and its corporation's, are read by the
 // page itself, with the client's own call for each owner

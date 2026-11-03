@@ -32,10 +32,8 @@ import {
   piHaulBotDoc,
   PI_HAUL_BOT_NAME,
   PI_HAUL_RUNTIME_MINUTES,
-  summarizeCustomsExport,
   type PiDispatchDeps,
 } from "./piDispatch.ts";
-import type { CustomsExportResult } from "./api.ts";
 import { decodeScriptValue } from "../bots/scriptCodec.ts";
 import { analyzeBotRunPolicy, validateBotLaunchGrant } from "../bots/runPolicy.ts";
 import { BridgeCallError } from "../bridge/callMethod.ts";
@@ -56,21 +54,16 @@ function deps(
   options: {
     refuseSignIn?: boolean;
     refuseStart?: BridgeCallError;
-    refuseExport?: BridgeCallError;
-    exportResult?: CustomsExportResult;
   } = {},
 ): PiDispatchDeps & {
   log: string[];
   started: { characterID: number; scriptID: string; grant: BotLaunchGrant }[];
-  exportedPlanetIDs: number[][];
 } {
   const log: string[] = [];
-  const exportedPlanetIDs: number[][] = [];
   const started: { characterID: number; scriptID: string; grant: BotLaunchGrant }[] = [];
   return {
     log,
     started,
-    exportedPlanetIDs,
     async signIn(accountName) {
       if (options.refuseSignIn) throw new Error("refused");
       log.push(`signIn:${accountName}`);
@@ -103,26 +96,6 @@ function deps(
       log.push(`start:${scriptID}`);
       if (options.refuseStart) throw options.refuseStart;
       started.push({ characterID, scriptID, grant });
-    },
-    async exportToCustoms(_characterID, planetIDs) {
-      log.push(`export:${planetIDs.join(",")}`);
-      exportedPlanetIDs.push([...planetIDs]);
-      if (options.refuseExport) throw options.refuseExport;
-      return options.exportResult ?? {
-        connected: true,
-        handedBack: null,
-        planets: planetIDs.map((planetID) => ({
-          planetID,
-          planetName: `Planet ${planetID}`,
-          solarSystemID: 30000001,
-          solarSystemName: "Alpha",
-          officeID: 1_200_000_000_000 + planetID,
-          exported: true,
-          units: 100,
-          reason: null,
-          message: null,
-        })),
-      };
     },
   };
 }
@@ -290,11 +263,10 @@ test("haul: saves the bot once, then rewrites it on the next haul and starts tha
   const first = deps(library);
   const started = await haulFor("acct", PILOT, COLONIES, null, null, first);
   assert.equal(started.kind, "started");
-  // ⚠ THE EXPORT COMES FIRST, BEFORE THE BOT. It selects the character in game,
-  // so doing it afterwards would take the ship out from under the running bot.
+  // Nothing is sent before the bot starts: the run sends each launchpad up at
+  // its office, on the pilot's own session.
   assert.deepEqual(first.log, [
     "signIn:acct",
-    "export:40000001,40000002,40000003",
     "create",
     "start:s1",
     "signOut:tok",
@@ -303,7 +275,7 @@ test("haul: saves the bot once, then rewrites it on the next haul and starts tha
 
   const second = deps(library);
   assert.equal((await haulFor("acct", PILOT, COLONIES.slice(2), null, null, second)).kind, "started");
-  assert.deepEqual(second.log, ["signIn:acct", "export:40000003", "update:s1@1", "start:s1", "signOut:tok"]);
+  assert.deepEqual(second.log, ["signIn:acct", "update:s1@1", "start:s1", "signOut:tok"]);
   const grant = second.started[0]!.grant;
   assert.equal(grant.scriptRev, 2);
   assert.equal(grant.maxRuntimeMinutes, PI_HAUL_RUNTIME_MINUTES);
@@ -341,113 +313,4 @@ test("no station picked, or the starting station picked: one trip back, no secon
     const doc = piHaulBotDoc(COLONIES.slice(0, 1), null, deliverTo);
     assert.equal(doc.program.filter((step) => step.kind === "macro" && step.macro === "travel-to-station").length, 1);
   }
-});
-
-test("⚠ an export the server refuses outright stops the haul: no bot is started", async () => {
-  // Nothing reached the offices, so there is nothing out there to fetch — and
-  // the refusal (a bot or another tab is flying this pilot) is the thing to say.
-  const d = deps([], { refuseExport: refusal(409, "A server bot is flying this pilot. Stop the bot first.") });
-  const outcome = await haulFor("acct", PILOT, COLONIES, null, null, d);
-  assert.deepEqual(outcome, { kind: "refused", sentence: "A server bot is flying this pilot. Stop the bot first." });
-  assert.deepEqual(d.log, ["signIn:acct", "export:40000001,40000002,40000003", "signOut:tok"]);
-  assert.deepEqual(d.started, []);
-});
-
-test("one colony's refusal does not stop the haul; it is carried back with the start", async () => {
-  const d = deps([], {
-    exportResult: {
-      connected: true,
-      handedBack: null,
-      planets: [
-        { planetID: 40000001, planetName: "Alpha II", solarSystemID: 30000001, solarSystemName: "Alpha",
-          officeID: 1_200_040_000_001, exported: true, units: 220, reason: null, message: null },
-        { planetID: 40000002, planetName: "Alpha IX", solarSystemID: 30000001, solarSystemName: "Alpha",
-          officeID: null, exported: false, units: 0, reason: "refused", message: "CannotLaunchCommoditiesNotFound" },
-        // Between hauls a pad is often simply empty. That is not a refusal and
-        // must not read as one.
-        { planetID: 40000003, planetName: "Beta V", solarSystemID: 30000002, solarSystemName: "Beta",
-          officeID: null, exported: false, units: 0, reason: "nothing-on-the-pads", message: null },
-      ],
-    },
-  });
-  const outcome = await haulFor("acct", PILOT, COLONIES, null, null, d);
-  assert.equal(outcome.kind, "started");
-  assert.deepEqual(outcome.kind === "started" ? outcome.exported : null, {
-    units: 220,
-    colonies: 1,
-    refusals: ["Alpha IX: CannotLaunchCommoditiesNotFound"],
-  });
-  assert.equal(d.started.length, 1);
-});
-
-test("the export summary names a planet with no office, and says nothing about an empty pad", () => {
-  const summary = summarizeCustomsExport({
-    connected: true,
-    handedBack: true,
-    planets: [
-      { planetID: 1, planetName: "Alpha II", solarSystemID: 2, solarSystemName: "Alpha",
-        officeID: null, exported: false, units: 0, reason: "no-office", message: null },
-      { planetID: 2, planetName: "Alpha IX", solarSystemID: 2, solarSystemName: "Alpha",
-        officeID: null, exported: false, units: 0, reason: "nothing-on-the-pads", message: null },
-      { planetID: 3, planetName: null, solarSystemID: 2, solarSystemName: "Alpha",
-        officeID: 9, exported: true, units: 40, reason: null, message: null },
-    ],
-  });
-  assert.deepEqual(summary, {
-    units: 40,
-    colonies: 1,
-    refusals: ["Alpha II has no customs office to launch into."],
-  });
-});
-
-test("a partial pad export keeps its successful units and refusal while the haul still collects them", async () => {
-  const result: CustomsExportResult = {
-    connected: true,
-    handedBack: null,
-    planets: [{
-      planetID: 40000001, planetName: "Alpha II", solarSystemID: 30000001, solarSystemName: "Alpha",
-      officeID: 1_200_040_000_001, exported: true, units: 70,
-      reason: "refused", message: "CannotLaunchCommoditiesNotFound",
-    }],
-  };
-  assert.deepEqual(summarizeCustomsExport(result), {
-    units: 70,
-    colonies: 1,
-    refusals: ["Alpha II: CannotLaunchCommoditiesNotFound"],
-  });
-  const library: Saved[] = [];
-  const d = deps(library, { exportResult: result });
-  const outcome = await haulFor("acct", PILOT, COLONIES.slice(0, 1), null, null, d);
-  assert.equal(outcome.kind, "started");
-  const doc = library[0]!.doc as ReturnType<typeof piHaulBotDoc>;
-  const collector = doc.program.find((step) => step.kind === "macro" && step.macro === "collect-customs");
-  assert.ok(collector?.kind === "macro");
-  // A partial export goes into the same depositor-scoped office. The generated
-  // collector still takes that positive inventory rather than omitting it.
-  const collected = SCRIPT_MACROS["collect-customs"]!(collector, {
-    inSpace: true, inWarp: false, holds: null,
-    flightStatus: { docked: false },
-    snapshot: {
-      inSpace: true,
-      entities: [{ itemID: 1_200_040_000_001, groupID: 1025, radius: 1000, position: { x: 1000, y: 0, z: 0 } }],
-      ship: { position: { x: 0, y: 0, z: 0 } },
-    },
-    customsOffices: [{ officeID: 1_200_040_000_001, units: 70, stacks: 1 }],
-  } as never, {}, {});
-  assert.deepEqual(collected.action, { kind: "collectCustoms", officeID: 1_200_040_000_001 });
-});
-
-// On the game port the BFF does not send the launchpads up before the run: the run does it itself, at each
-// office, as the client does. The BFF says so, and that is no refusal.
-test("an export the run itself will make at the offices is no refusal, and the summary says whose it is", () => {
-  const summary = summarizeCustomsExport({
-    connected: false,
-    handedBack: null,
-    atTheOffices: true,
-    planets: [
-      { planetID: 1, planetName: "Alpha II", solarSystemID: 2, solarSystemName: "Alpha", officeID: null, exported: false, units: 0, reason: "at-the-office", message: null },
-      { planetID: 2, planetName: "Alpha IX", solarSystemID: 2, solarSystemName: "Alpha", officeID: null, exported: false, units: 0, reason: "at-the-office", message: null },
-    ],
-  });
-  assert.deepEqual(summary, { units: 0, colonies: 0, refusals: [], atTheOffices: true });
 });

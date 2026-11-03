@@ -534,46 +534,15 @@ test("the Haul offer says the launchpads go into the customs offices", () => {
   assert.ok(words.indexOf("gets into a ship") < words.indexOf("launches what"));
 });
 
-test("a started haul says what went up before it says the run began", () => {
-  const words = piHaulDispatchWords({
-    kind: "started",
-    exported: { units: 370, colonies: 2, refusals: [] },
-  });
+test("a haul's start says the run sends the launchpads up itself, and not that nothing was on them", () => {
   assert.equal(
-    words,
-    "Launched 370 units from 2 colonies into their customs offices. The haul has started on the server. Its steps show in the Bot Manager.",
+    piHaulDispatchWords({ kind: "started" }),
+    "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.",
   );
+  assert.equal(piHaulDispatchWords({ kind: "starting" }), "Starting the haul...");
 });
 
-test("⚠ a colony the server refused is named, and the haul still started", () => {
-  const words = piHaulDispatchWords({
-    kind: "started",
-    exported: { units: 40, colonies: 1, refusals: ["Alpha IX: CannotLaunchCommoditiesNotFound"] },
-  });
-  assert.match(words ?? "", /Alpha IX: CannotLaunchCommoditiesNotFound/);
-  assert.match(words ?? "", /The haul has started/);
-});
-
-test("an empty set of launchpads is said plainly, not as a failure", () => {
-  const words = piHaulDispatchWords({ kind: "started", exported: { units: 0, colonies: 0, refusals: [] } });
-  assert.match(words ?? "", /^Nothing was on the launchpads, so nothing new went up\./);
-});
-
-test("a restart's start carries no export sentence", () => {
-  assert.equal(piHaulDispatchWords({ kind: "started" }), "The haul has started on the server. Its steps show in the Bot Manager.");
-});
-
-test("a haul whose run sends the launchpads up itself says so, and not that nothing was on them", () => {
-  const words = piHaulDispatchWords({ kind: "started", exported: { units: 0, colonies: 0, refusals: [], atTheOffices: true } });
-  assert.equal(words, "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.");
-});
-
-test("while the window draws a haul's route, the start says only what the launch sent up", () => {
-  const exported = { kind: "started" as const, exported: { units: 370, colonies: 2, refusals: [] } };
-  assert.equal(piHaulDispatchWords(exported, true), "Launched 370 units from 2 colonies into their customs offices.");
-  // Nothing went up here and nothing was refused: the route says the rest.
-  assert.equal(piHaulDispatchWords({ kind: "started", exported: { units: 0, colonies: 0, refusals: [], atTheOffices: true } }, true), null);
+test("while the window draws a haul's route, the start says nothing more: the route says the rest", () => {
   assert.equal(piHaulDispatchWords({ kind: "started" }, true), null);
-  // Not drawn: the old sentence, unchanged.
-  assert.match(piHaulDispatchWords(exported) ?? "", /Its steps show in the Bot Manager\.$/);
+  assert.equal(piHaulDispatchWords({ kind: "refused", sentence: "No." }, true), "No.");
 });

@@ -65,12 +65,14 @@
       </p>
       <h4>Haul</h4>
       <ol>
-        <li>What the ticked colonies' launchpads hold goes up into their customs offices first, before any bot starts.</li>
         <li>
-          A server run then boards a ship with a planetary hold parked where the pilot is docked and launches what the
-          command centres hold (the launch is taxed).
+          A server run boards a ship with a planetary hold parked where the pilot is docked and launches what the ticked
+          colonies' command centres hold (the launch is taxed).
         </li>
-        <li>It flies to each colony's system, empties those customs offices and collects the launches.</li>
+        <li>
+          It flies to each colony's system, sends what the launchpads hold up into the customs office (the export is taxed),
+          empties that office and collects the launches.
+        </li>
         <li>
           It flies to the pilot's Deliver to station, unloads into the picked division, flies back and gets back into the
           ship it started in.

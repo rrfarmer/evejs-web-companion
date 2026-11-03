@@ -878,8 +878,8 @@ export type CoreMacroID =
   // planetary launch containers in this system and take what is inside,
   // using the server's own launch list (GetMyLaunchesDetails) to find them.
   | "collect-launches"
-  // The hauler's half of the CUSTOMS-OFFICE export (src/piCustomsExport.js):
-  // in space, empty every customs office in this system that holds goods of
+  // The hauler's half of the CUSTOMS-OFFICE export: at each office it sends the
+  // colony's launchpad goods up on the pilot's own session, then, in space, empties every customs office in this system that holds goods of
   // yours into the ship. An office is a structure, not a listed launch, so the
   // block reads each one to find out whether it holds anything.
   | "collect-customs"

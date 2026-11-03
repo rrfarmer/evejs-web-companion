@@ -6413,8 +6413,8 @@ const collectLaunches: MacroDecider = (step, obs, mem) => {
 
 // ── collect-customs ──────────────────────────────────────────────────────────
 // The hauler's half of the customs-office export. A colony's launchpad goods go
-// up into the planet's own customs office (the PI window's Haul button does that
-// hop before the run starts, over the game port - see src/piCustomsExport.js),
+// up into the planet's own customs office (this block sends them up at the
+// office, on the pilot's own session, as the client's customs window does),
 // and this block empties every office in THIS system that holds goods of the
 // pilot's into the ship.
 //

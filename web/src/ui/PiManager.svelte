@@ -602,9 +602,6 @@
     set(outcome);
     setWatch(characterID, outcome.kind === "started" ? startWatch("haul", Date.now(), outcome.stages ?? [], colonies.map((colony) => colony.planetID)) : null);
     await loadActiveBots();
-    // The launch hop emptied launchpads before the run began: read them now,
-    // not when the lap is over.
-    if (outcome.kind === "started" && (outcome.exported?.units ?? 0) > 0) void reread([characterID]);
   }
 
   function keep(next: PiRosterPrefs): void {

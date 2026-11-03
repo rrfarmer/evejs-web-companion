@@ -73,18 +73,7 @@ export interface PiBoardInput {
 /** A start from this window, as far as it has got. */
 export type PiDispatchState =
   | { readonly kind: "starting" }
-  // `exported` rides on a HAUL's start: what the customs-office hop sent up
-  // before the lap began. Absent on a restart, which exports nothing.
-  | {
-      readonly kind: "started";
-      readonly exported?: {
-        readonly units: number;
-        readonly colonies: number;
-        readonly refusals: readonly string[];
-        readonly atTheOffices?: true;
-      };
-      readonly stages?: readonly PiRunStage[];
-    }
+  | { readonly kind: "started"; readonly stages?: readonly PiRunStage[] }
   | { readonly kind: "refused"; readonly sentence: string };
 
 /**
@@ -659,10 +648,10 @@ export function piHaulWords(
     label: ticked === 0 ? "Haul" : `Haul ${colonies}`,
     hint: ticked === 0 ? "Tick the colonies to haul." : null,
     words:
-      `This sends what the ticked colonies' launchpads hold up into their customs offices, then starts a server run for ${pilotName} ` +
-      `that gets into a ship parked where the pilot is docked that has a planetary hold, launches what their command centres hold, ` +
+      `This starts a server run for ${pilotName} on the ticked colonies. It gets into a ship parked where the pilot is docked ` +
+      `that has a planetary hold, launches what their command centres hold, sends what their launchpads hold up into their customs offices, ` +
       `empties those customs offices and collects the launches, ${station} and unloads into ${where}, ` +
-      `then ${andBack}gets back into the ship it started in. The launch is taxed. It runs for two hours at most.`,
+      `then ${andBack}gets back into the ship it started in. The launches and the customs exports are taxed. It runs for two hours at most.`,
   };
 }
 
@@ -689,28 +678,15 @@ export function pilotRowFacts(rows: readonly PiColonyRow[]): PiPilotRowFacts {
 /**
  * What a Haul start from this window did, as one sentence. `watched`: the
  * window is drawing the run's route, which already says it started and how far
- * it is, so only what the launch hop sent up (the half the route cannot show)
- * is said; null when there is nothing else to say.
+ * it is, so there is nothing else to say.
  */
 export function piHaulDispatchWords(state: PiDispatchState | null, watched = false): string | null {
   if (state === null) return null;
-  if (state.kind === "starting") return "Launching into the customs offices, then starting the haul...";
+  if (state.kind === "starting") return "Starting the haul...";
   if (state.kind !== "started") return state.sentence;
-  const started = "The haul has started on the server. Its steps show in the Bot Manager.";
-  const exported = state.exported ?? null;
-  if (exported === null) return watched ? null : started;
-  // The run sends the launchpads up itself, at each office: nothing went up yet,
-  // and that is not "nothing was on them".
-  if (exported.atTheOffices === true) {
-    if (watched) return exported.refusals.length === 0 ? null : exported.refusals.join(" ");
-    return "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.";
-  }
-  // What went up is said first, because it is the half the Bot Manager cannot
-  // show: the hop happens before the run exists.
-  const launched = exported.units === 0
-    ? "Nothing was on the launchpads, so nothing new went up."
-    : `Launched ${exported.units} ${exported.units === 1 ? "unit" : "units"} from ` +
-      `${exported.colonies === 1 ? "1 colony" : `${exported.colonies} colonies`} into their customs offices.`;
-  // A colony the server refused is named in its own words; the rest still haul.
-  return [launched, ...exported.refusals, ...(watched ? [] : [started])].join(" ");
+  // The run sends each colony's launchpads up at its own customs office, so
+  // nothing has gone up yet, and that is not "nothing was on them".
+  return watched
+    ? null
+    : "The haul has started on the server. It sends each colony's launchpads up at its customs office. Its steps show in the Bot Manager.";
 }
