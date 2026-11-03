@@ -209,6 +209,29 @@ test("losing drones below a full flight is said; launching them is not", () => {
   assert.deepEqual(said, ["Low on drones: 3 left (0 in bay, 3 out)."]);
 });
 
+// ⚠ SEEN LIVE 2026-10-20, with the cap unread: "Low on drones: 11 left (11 in
+// bay, 0 out)" mid-site, every drone aboard. A scooped drone is in the bay read
+// a moment before the scene read lets it go, and counted in both it pushed the
+// run's most-carried mark to sixteen.
+test("a drone being scooped is counted once, so a flight coming home is never low", () => {
+  const spare = { itemID: 8001, typeID: 2488, quantity: 6 };
+  const home = (id: number) => ({ itemID: id, typeID: 2488, quantity: -1 });
+  const blindCap = { droneLimits: null };
+  const out = obs({ ...blindCap, combatDroneStacks: [spare], combatDroneIDs: [1, 2, 3, 4, 5] });
+  // The bay has all five back while the scene still lists them out.
+  const seam = obs({ ...blindCap, combatDroneStacks: [spare, home(1), home(2), home(3), home(4), home(5)], combatDroneIDs: [1, 2, 3, 4, 5] });
+  const aboard = obs({ ...blindCap, combatDroneStacks: [spare, home(1), home(2), home(3), home(4), home(5)], combatDroneIDs: [] });
+  const { said } = supervise([
+    { at: 0, obs: out },
+    { at: 2_000, obs: seam },
+    { at: 4_000, obs: aboard },
+    { at: 4_000 + SUPPLY_ALERT_SETTLE_MS, obs: aboard },
+    { at: 60_000, obs: aboard },
+  ]);
+  assert.deepEqual(said, []);
+  assert.match(statusLine(REQUEST, seam, FRESH_COMPANION_SUPPLY), /Drones: 11 in bay, 0 out\.$/);
+});
+
 test("a recovered drone, a singleton the bay reports as -1, counts as one", () => {
   const recovered = obs({ combatDroneStacks: [
     { itemID: 8001, typeID: 2488, quantity: -1 },

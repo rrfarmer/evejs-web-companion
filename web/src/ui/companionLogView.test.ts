@@ -85,6 +85,11 @@ test("traceSummary names each drone: how hurt, how many rats on it, and how long
   );
 });
 
+test("traceSummary says the drone cap the tick read, and a ? when it did not read", () => {
+  assert.match(traceSummary({ drones: { ...DRONES, cap: 5 } }), /^drones: recalling, cap 5 701/);
+  assert.match(traceSummary({ drones: { ...DRONES, cap: null } }), /^drones: recalling, cap \? 701/);
+});
+
 test("the drone key moves on a tenth of shield or a rat, never on the hundredths", () => {
   const key = coarseTraceKey({ drones: DRONES });
   const bled = (shield: number): string => coarseTraceKey({
