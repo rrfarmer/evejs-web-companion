@@ -21240,10 +21240,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return autopilotKept.stored;
   }
   /**
-   * The pilot's route settings, handed to the BFF so a run the server hosts for the pilot plans its routes as this page
-   * does (src/pilotRouteSettings.js); a hosted run has no browser storage, and with none every route is "Prefer
-   * safer". Only a flow told to share does: a hosted flow reads them from there and has nothing of its own to give.
-   * A send that fails changes nothing here; the next change or choosing of the pilot sends them again.
+   * The pilot's route settings, handed to the BFF as they are changed here, so a run the server hosts for the pilot
+   * plans its routes the same way (src/pilotRouteSettings.js); a hosted run has no browser storage, and with none every
+   * route is "Prefer safer". Only a flow told to share does: a hosted flow reads them from there and has nothing of its
+   * own to give.
+   *
+   * ⚠ ONLY A CHANGE IS SENT, NEVER WHAT IS MERELY KEPT. The BFF's copy can be set without this page (for a pilot
+   * nobody has logged in here); sending this browser's copy each time the pilot is chosen would put back "Prefer
+   * safer" over it for every pilot never changed here. The latest change, wherever it was made, is the one kept.
    */
   function shareRouteSettings(characterID: number, stored: StoredAutopilotSettings): void {
     if (options.shareRouteSettings !== true) return;
@@ -29942,8 +29946,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // R10: the session is live, so open the push channel before the docked
       // reads — anything the reads trigger is then already being observed.
       startLiveStream();
-      // What this page keeps of the pilot's route settings, for the runs the server hosts for it.
-      shareRouteSettings(characterID, loadAutopilotSettings(settingsStorage, characterID));
       void retryDroneRecovery();
       void loadCrimewatch().catch(() => {});
       void loadCloneGrade().catch(() => {});

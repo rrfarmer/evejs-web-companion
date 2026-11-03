@@ -9,8 +9,10 @@
 // the same way, in the browser's storage (web/src/nav/autopilotSettings.ts). A
 // hosted run has no browser, so it planned with the defaults: "Prefer safer",
 // which around low-sec space turns a three-jump hop into twenty. So the page
-// hands the pilot's settings here as they are kept, and the bot host gives a
-// hosted run a storage that answers with them (storageFor).
+// hands the pilot's settings here as they are changed, and the bot host gives a
+// hosted run a storage that answers with them (storageFor). They can be set
+// here for a pilot nobody has logged in on a page (POST
+// /api/pilot-route-settings), and the latest change is the one kept.
 //
 // ⚠ KEPT AS THE PAGE SENT THEM, CHECKED WHERE THEY ARE READ. The settings'
 // meaning is loadAutopilotSettings' (autopilotSettings.ts), which reads every
