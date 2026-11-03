@@ -11,7 +11,7 @@
 
 import type { FlightStatus, OnlineCharacterState } from "../store/types.ts";
 
-export type TabID =
+export type CoreTabID =
   | "fitting"
   | "provisioning"
   | "flight"
@@ -58,6 +58,20 @@ export type TabID =
   | "log"
   | "settings";
 
+/**
+ * A window a plugin contributes. Namespaced so it can never take a core
+ * panel's id, and open-ended because core does not know which plugins a build
+ * carries: a plugin registers its tab (`registerTab`) while plugins load.
+ */
+export type PluginTabID = `plugin:${string}`;
+
+export type TabID = CoreTabID | PluginTabID;
+
+/** True for a plugin's tab, false for one of core's. */
+export function isPluginTab(id: TabID): id is PluginTabID {
+  return id.startsWith("plugin:");
+}
+
 /** Where a tab may appear: only DOCKED, only IN SPACE, or in BOTH. */
 export type Where = "docked" | "in-space" | "both";
 
@@ -76,11 +90,21 @@ export interface TabDef {
    * `undefined` is a yes here and a bare truthiness test gets that backwards.
    */
   readonly launchable?: boolean;
+  /**
+   * A plugin tab's Neocom glyph, as neocomIcons.ts draws one. Core tabs leave it
+   * out: theirs are in `NEOCOM_GLYPHS`, which is exhaustive over `CoreTabID`.
+   */
+  readonly glyph?: readonly string[];
+}
+
+/** One of core's own tabs, which TABS lists. */
+export interface CoreTabDef extends TabDef {
+  readonly id: CoreTabID;
 }
 
 // ⚠ THE TAB TABLE — the one place tab visibility is decided. Render order is the
 // order of this list (state-specific tabs first, then the shared ones).
-export const TABS: readonly TabDef[] = [
+export const TABS: readonly CoreTabDef[] = [
   { id: "provisioning", label: "Ready Fit", where: "both" },
   // The Fitting window opens in space as well as docked, as the client's does
   // (eveCommands._OpenNewFittingWnd: `session.stationid is None or
@@ -227,6 +251,25 @@ export const TABS: readonly TabDef[] = [
   { id: "settings", label: "Settings", where: "both" },
 ];
 
+// The tabs plugins added, in the order they registered. Empty in a build that
+// carries no plugin, which is why every reader below goes through `allTabs`.
+const pluginTabs: TabDef[] = [];
+
+/**
+ * Add a plugin's tab. Called while plugins load, before the first paint; an id
+ * that is already a tab is refused, so two plugins can never share a window.
+ */
+export function registerTab(def: TabDef & { readonly id: PluginTabID }): void {
+  if (!isPluginTab(def.id)) throw new Error(`A plugin tab id starts with "plugin:", not "${def.id}".`);
+  if (allTabs().some((tab) => tab.id === def.id)) throw new Error(`There is already a tab called "${def.id}".`);
+  pluginTabs.push(def);
+}
+
+/** Every tab: core's, then the plugins'. */
+export function allTabs(): readonly TabDef[] {
+  return pluginTabs.length === 0 ? TABS : [...TABS, ...pluginTabs];
+}
+
 /**
  * May this tab be opened from the launcher rail?
  *
@@ -274,12 +317,12 @@ export function deriveDocked(
 /** The tabs visible in the current state: every "both" tab plus the matching ones. */
 export function visibleTabsFor(isDocked: boolean): readonly TabDef[] {
   const state: Where = isDocked ? "docked" : "in-space";
-  return TABS.filter((tab) => tab.where === "both" || tab.where === state);
+  return allTabs().filter((tab) => tab.where === "both" || tab.where === state);
 }
 
 /** The display label for a tab id (falls back to the id if somehow unknown). */
 export function tabLabel(id: TabID): string {
-  return TABS.find((tab) => tab.id === id)?.label ?? id;
+  return allTabs().find((tab) => tab.id === id)?.label ?? id;
 }
 
 /** Whether a tab id is openable in the current state (used to filter windows). */
@@ -294,7 +337,7 @@ export function isTabVisible(id: TabID, isDocked: boolean): boolean {
  * that the set never changes with dock/undock is the point.
  */
 export function staticTabs(): readonly TabDef[] {
-  return TABS.filter((tab) => tab.where === "both");
+  return allTabs().filter((tab) => tab.where === "both");
 }
 
 /** The default landing tab for the current state. */

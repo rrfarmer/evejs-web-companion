@@ -33,10 +33,6 @@
   import TypeCompare from "./TypeCompare.svelte";
   import Bots from "./Bots.svelte";
   import BotBuilder from "./BotBuilder.svelte";
-  import BotManager from "./BotManager.svelte";
-  import FleetCompanions from "./FleetCompanions.svelte";
-  import PiManager from "./PiManager.svelte";
-  import IndustryManager from "./IndustryManager.svelte";
   import Chat from "./Chat.svelte";
   import Wallet from "./Wallet.svelte";
   import CorpWallet from "./CorpWallet.svelte";
@@ -50,6 +46,7 @@
   import NoticeLog from "./NoticeLog.svelte";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { deriveDocked, tabLabel, type TabID } from "./tabs.ts";
+  import { globalWindowView } from "./globalWindowViews.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { Session } from "../app/sessions.ts";
@@ -108,13 +105,27 @@
    * docked read had left in the store.
    */
   const isDocked = $derived(deriveDocked($flight.status, $stationSlice.online));
+
+  /**
+   * A global window's body, when `tab` is one (globalWindowViews.ts). On the
+   * desktop these float on App's layer and never reach this host; a phone has no
+   * floating layer, so here a global tab is a panel like any other.
+   *
+   * ⚠ NOT THE MOUNTED PILOT'S. Each is about every pilot and is given neither
+   * this pilot's store nor its flow: the Bot Manager and Fleet companions read
+   * each session's own store, the PI board reads through throwaway sign-ins,
+   * and an industry plan spans every signed-in pilot's blueprints.
+   */
+  const GlobalView = $derived(globalWindowView(tab));
 </script>
 
 <!-- One panel's failure is that panel's failure: a boundary per host keeps a
      broken Market from taking the Overview, the HUD and the character bar down
      with it, and names the panel in the report (see ErrorBoundary.svelte). -->
 <ErrorBoundary name={tabLabel(tab)}>
-{#if tab === "inventory"}
+{#if GlobalView}
+  <GlobalView {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} {onGoToPilot} />
+{:else if tab === "inventory"}
   <StationPanel {store} {flow} {isDocked} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
@@ -169,23 +180,6 @@
   <Bots {store} {flow} />
 {:else if tab === "botBuilder"}
   <BotBuilder {store} {flow} />
-{:else if tab === "botManager"}
-  <BotManager {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} />
-{:else if tab === "companion"}
-  <!-- ⚠ NOT GIVEN `store` OR `flow`. Every other panel here is a view of the
-       mounted pilot; this one is a view of ALL of them, reads each session's
-       own store, and reads the server's roster as each account. -->
-  <FleetCompanions {sessions} {onGoToPilot} />
-{:else if tab === "piManager"}
-  <!-- ⚠ NOT THE MOUNTED PILOT'S. The board is the player's PI roster across
-       accounts and reads through its own throwaway sign-ins, so it takes neither
-       this pilot's store nor its flow. It is given the tab's sessions only to
-       read corp hangars through a pilot of that corp already online. -->
-  <PiManager {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} />
-{:else if tab === "industryManager"}
-  <!-- ⚠ NOT THE MOUNTED PILOT'S either: a plan spans every signed-in pilot's
-       blueprints, read on each pilot's own session. -->
-  <IndustryManager {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} />
 {:else if tab === "wallet"}
   <Wallet {store} {flow} />
 {:else if tab === "corpWallet"}

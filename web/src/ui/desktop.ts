@@ -9,7 +9,7 @@
 // windows — they are the fixed top-right dock panel — so they never enter this
 // model (App drops them; loadLayout filters them out).
 
-import { TABS, type TabID } from "./tabs.ts";
+import { allTabs, type TabID } from "./tabs.ts";
 import { isGlobalWindow } from "./globalWindow.ts";
 
 export interface WinState {
@@ -259,7 +259,9 @@ export interface DesktopLayout {
 }
 
 const STORAGE_VERSION = 1;
-const KNOWN_TABS = new Set<string>(TABS.map((t) => t.id));
+// Asked when a layout is read, not at load: a plugin's tab registers after this
+// module has loaded, and a window saved for it must still come back.
+const isKnownTab = (id: string): boolean => allTabs().some((t) => t.id === id);
 
 const storageKey = (characterID: number): string =>
   `evejs-web-desktop:v${STORAGE_VERSION}:${characterID}`;
@@ -273,7 +275,7 @@ function isWinState(v: unknown): v is WinState {
   const o = v as Record<string, unknown>;
   return (
     typeof o.id === "string" &&
-    KNOWN_TABS.has(o.id) &&
+    isKnownTab(o.id) &&
     isWindowTab(o.id as TabID) &&
     // A layout saved before a tab became global still carries a window for it.
     // Dropping it here is the migration: the global layer has its own storage,
@@ -302,7 +304,7 @@ function placesOf(value: unknown): Record<string, RegisteredPlace> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const places: Record<string, RegisteredPlace> = {};
   for (const [id, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!KNOWN_TABS.has(id) || !raw || typeof raw !== "object") continue;
+    if (!isKnownTab(id) || !raw || typeof raw !== "object") continue;
     const p = raw as Record<string, unknown>;
     if ([p.x, p.y, p.w, p.h, p.dw, p.dh].every(isFiniteNumber)) {
       places[id] = { x: p.x as number, y: p.y as number, w: p.w as number, h: p.h as number, dw: p.dw as number, dh: p.dh as number };

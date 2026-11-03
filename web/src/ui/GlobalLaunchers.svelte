@@ -17,8 +17,8 @@
   // ⚠ THE GLYPH IS NEVER THE ONLY LABEL (neocomIcons.ts states the rule). The
   // word rides with it wherever there is room, and `aria-label` carries it —
   // and the companions count in words — when a narrow bar drops the text.
-  import { NEOCOM_GLYPHS } from "./neocomIcons.ts";
-  import { GLOBAL_LAUNCHERS } from "./globalWindow.ts";
+  import { NEOCOM_GLYPHS, neocomGlyph } from "./neocomIcons.ts";
+  import { globalLaunchers } from "./globalWindow.ts";
   import type { TabID } from "./tabs.ts";
 
   let {
@@ -49,7 +49,7 @@
     </svg>
     <span class="global-launch-text">Provisioning Center</span>
   </a>
-  {#each GLOBAL_LAUNCHERS as launcher (launcher.id)}
+  {#each globalLaunchers() as launcher (launcher.id)}
     {@const open = openIds.has(launcher.id)}
     {@const count = launcher.id === "companion" ? companionCount : 0}
     <button
@@ -63,7 +63,7 @@
       onclick={() => onOpen(launcher.id)}
     >
       <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">
-        {#each NEOCOM_GLYPHS[launcher.id] as d (d)}
+        {#each neocomGlyph(launcher.id) as d (d)}
           <path {d} />
         {/each}
       </svg>

@@ -395,6 +395,7 @@ test("a paused run's box says what to do and opens the Bot Manager from both mou
   // The floating window and a phone's panel both hand the window its opener.
   const globalPanel = readFileSync(path.join(UI_DIR, "GlobalPanel.svelte"), "utf8");
   const panelHost = readFileSync(path.join(UI_DIR, "PanelHost.svelte"), "utf8");
-  assert.match(globalPanel, /<PiManager \{sessions\} \{onOpen\} \/>/);
-  assert.match(panelHost, /<PiManager \{sessions\} onOpen=\{/);
+  // Both draw the window's registered view (globalWindowViews.ts) and hand it on.
+  assert.match(globalPanel, /<View \{sessions\} \{onOpen\} \{onGoToPilot\} \/>/);
+  assert.match(panelHost, /<GlobalView \{sessions\} onOpen=\{/);
 });

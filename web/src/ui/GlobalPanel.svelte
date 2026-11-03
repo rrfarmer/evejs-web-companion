@@ -1,6 +1,6 @@
 <script lang="ts">
-  // The body of one GLOBAL window (globalWindow.ts) — the Bot Manager,
-  // Planetary Industry or Fleet companions.
+  // The body of one GLOBAL window (globalWindow.ts): whatever its tab registered
+  // to draw (globalWindowViews.ts), core's or a plugin's.
   //
   // ⚠ NOT PanelHost, AND THAT IS THE POINT. PanelHost is a pilot's panel host:
   // every branch in it takes that pilot's `store` and `flow`, so it cannot be
@@ -13,11 +13,8 @@
   // The Bot Builder is the one pilot panel drawn here (globalWindow.ts
   // `BUILDER_TAB`), reading the pilot App bound it to — or nobody — through
   // HangarBotBuilder, which also carries its "Data from" picker.
-  import BotManager from "./BotManager.svelte";
   import HangarBotBuilder from "./HangarBotBuilder.svelte";
-  import FleetCompanions from "./FleetCompanions.svelte";
-  import PiManager from "./PiManager.svelte";
-  import IndustryManager from "./IndustryManager.svelte";
+  import { globalWindowView } from "./globalWindowViews.ts";
   import type { Session } from "../app/sessions.ts";
   import type { TabID } from "./tabs.ts";
 
@@ -40,16 +37,12 @@
     /** Make a pilot the active cockpit. */
     onGoToPilot: (sessionID: string) => void;
   } = $props();
+
+  const View = $derived(globalWindowView(tab));
 </script>
 
-{#if tab === "botManager"}
-  <BotManager {sessions} {onOpen} />
-{:else if tab === "botBuilder"}
+{#if tab === "botBuilder"}
   <HangarBotBuilder {sessions} pilot={builderSession} onPilot={onBuilderPilot} />
-{:else if tab === "companion"}
-  <FleetCompanions {sessions} {onGoToPilot} />
-{:else if tab === "piManager"}
-  <PiManager {sessions} {onOpen} />
-{:else if tab === "industryManager"}
-  <IndustryManager {sessions} {onOpen} />
+{:else if View}
+  <View {sessions} {onOpen} {onGoToPilot} />
 {/if}

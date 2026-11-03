@@ -22,7 +22,7 @@
 // and joins), so a one-point "path" like `M12 12h.01` renders as a DOT. That
 // trick is used for eyes, studs and indicator lights throughout.
 
-import type { TabID } from "./tabs.ts";
+import { allTabs, isPluginTab, type CoreTabID, type TabID } from "./tabs.ts";
 
 /** One glyph: the primitives to stroke, in a 24x24 box. */
 export type NeocomGlyph = readonly string[];
@@ -30,13 +30,13 @@ export type NeocomGlyph = readonly string[];
 /**
  * The glyph for every tab.
  *
- * ⚠ KEYED BY TabID AND EXHAUSTIVE BY CONSTRUCTION. `Record<TabID, …>` makes a
+ * ⚠ KEYED BY CoreTabID AND EXHAUSTIVE BY CONSTRUCTION. `Record<CoreTabID, …>` makes a
  * new tab a TYPE ERROR here rather than a button that silently renders an empty
  * box in the rail — which is exactly the failure a hand-maintained icon map
  * invites, and it is caught at compile time rather than by someone noticing a
  * gap in the strip.
  */
-export const NEOCOM_GLYPHS: Readonly<Record<TabID, NeocomGlyph>> = {
+export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   provisioning: ["M12 3 4 18l8-3 8 3-8-15Z", "M8 21h8"],
   // --- in space ---
   flight: ["M12 3l7 17-7-4-7 4z"],
@@ -119,9 +119,16 @@ export const NEOCOM_GLYPHS: Readonly<Record<TabID, NeocomGlyph>> = {
   compare: ["M4 6h6v13H4z", "M14 6h6v13h-6z", "M12 3v18"],
 };
 
-/** The glyph for a tab. */
+// A plugin tab that registered no glyph still gets a box, never an empty button.
+const PLUGIN_FALLBACK_GLYPH: NeocomGlyph = ["M5 5h14v14H5z", "M12 9v6M9 12h6"];
+
+/**
+ * The glyph for a tab: core's from the table, a plugin's from what it
+ * registered (tabs.ts `registerTab`).
+ */
 export function neocomGlyph(id: TabID): NeocomGlyph {
-  return NEOCOM_GLYPHS[id];
+  if (!isPluginTab(id)) return NEOCOM_GLYPHS[id];
+  return allTabs().find((tab) => tab.id === id)?.glyph ?? PLUGIN_FALLBACK_GLYPH;
 }
 
 /**
