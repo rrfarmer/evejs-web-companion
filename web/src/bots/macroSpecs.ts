@@ -235,6 +235,15 @@ export const MACRO_SPECS: Readonly<Record<CoreMacroID, MacroSpec>> = {
   // Docked: board the hull refit-ship swapped out earlier in this run. No
   // args: the hull is whatever this run was flying, read off the run's board.
   "board-previous-ship": { args: [], untilRequired: false },
+  // Docked: board a ship parked here by its name, its type, or both. Neither is
+  // required on its own; the validator asks for at least one.
+  "board-ship": {
+    args: [
+      { key: "shipName", kind: "text", required: false },
+      { key: "shipType", kind: "itemType", required: false },
+    ],
+    untilRequired: false,
+  },
   // Docked: board a ship parked here that has a planetary hold, as fitted.
   // No args: the hold is read off each hull, never picked by the player.
   "board-planetary-hauler": { args: [], untilRequired: false },

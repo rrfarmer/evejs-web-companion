@@ -174,6 +174,8 @@ const ARG_KEY_LABEL: Readonly<Record<string, string>> = {
   fullPercent: "Launch once this full (%)",
   anyAmount: "Launch any amount",
   planets: "Only these colonies",
+  shipName: "Ship's name",
+  shipType: "Ship type",
   corporation: "Corporation",
   seconds: "Seconds",
   fitting: "Saved fitting",

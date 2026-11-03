@@ -285,6 +285,17 @@ function validateStep(step: MacroStep, problems: ScriptProblem[]): void {
     }
   }
 
+  if (step.macro === "board-ship") {
+    // Neither argument is required alone; a ship with neither is no ship at all.
+    const name = step.args["shipName"];
+    const type = step.args["shipType"];
+    const named = name?.kind === "text" && name.text.trim().length > 0;
+    const typed = type?.kind === "itemType" && type.typeID !== null;
+    if (!named && !typed) {
+      problems.push(blocking(step.id, "Say which ship to board: its name, its type, or both."));
+    }
+  }
+
   // The move block: moving a thing onto itself is a no-op the player did not mean.
   const fromArg = step.args["from"];
   const toArg = step.args["to"];

@@ -35,7 +35,7 @@ import { NO_IDLE_PROBE, SCAN_IN_PROGRESS, launchOf, recallOf, scanOf } from "../
 import type { Arg, MacroStep, OreFamilyArg, SquadRoleArg, WorldRef } from "../bots/botScript.ts";
 import { dockedAt, type DockableKind } from "./dockableLocation.ts";
 import { launchFullPercent } from "../bots/macroSpecs.ts";
-import type { SpaceEntity, SpaceSnapshot, SpaceVector } from "../store/types.ts";
+import type { InventoryItemRow, SpaceEntity, SpaceSnapshot, SpaceVector } from "../store/types.ts";
 import { beltTravelStep, freightHoldItemIDs, holdsFreeM3, isMineableRock } from "./miningBotLoop.ts";
 import { nearestUnworkedBelt, type BeltOption } from "./beltRotation.ts";
 import {
@@ -6715,44 +6715,27 @@ const boardPlanetaryHauler: MacroDecider = (step, obs, mem, board) => {
       reason: "The trip home failed and the ship docked elsewhere for safety. Dock at home before boarding the planetary hauler.",
     });
   }
-  const hangar = obs.stationHangar ?? null;
-  if (hangar === null || activeShipID === null || haulers === null) {
+  const unread = "The ships parked here could not be read, so the bot cannot tell which one has a planetary hold.";
+  if (haulers === null) {
+    // Counted with the hangar's own unread ticks (boardParkedShip), on the same key.
     const blindChecks = (num(mem, "blindChecks") ?? 0) + 1;
     if (blindChecks > MAX_BLOCK_ATTEMPTS * 2) {
-      return tick(WAIT, "The parked ships could not be read.", phase, {
-        kind: "blocked",
-        reason: "The ships parked here could not be read, so the bot cannot tell which one has a planetary hold.",
-      });
+      return tick(WAIT, "The parked ships could not be read.", phase, { kind: "blocked", reason: unread });
     }
     return tick(WAIT, "Reading the ships parked here.", phase, ACTING, false, { ...mem, blindChecks });
   }
-  if (haulers.includes(activeShipID)) {
-    return tick(WAIT, "This ship has a planetary hold.", phase, { kind: "done" });
-  }
-  const candidate = hangar.find(
-    (row) => row.categoryID === CATEGORY_SHIP_ROW && row.singleton && row.itemID !== activeShipID && haulers.includes(row.itemID),
-  );
-  if (candidate === undefined) {
-    return tick(WAIT, "No ship with a planetary hold is parked here.", phase, {
-      kind: "blocked",
-      reason: "No ship with a planetary commodities hold (an Epithal) is parked at this station.",
-    });
-  }
-  const boards = (num(mem, "boards") ?? 0) + 1;
-  if (boards > MAX_BLOCK_ATTEMPTS) {
-    return tick(WAIT, "Boarding kept not landing.", phase, {
-      kind: "blocked",
-      reason: "The ship swap kept not taking, so the bot stopped.",
-    });
-  }
-  const boarding = tick({ kind: "boardShip", shipID: candidate.itemID }, "Boarding the planetary hauler.", phase, ACTING, false, {
-    ...mem,
-    boards,
-  });
-  const recorded = board[PREVIOUS_SHIP_BOARD_KEY];
-  return typeof recorded === "number" && recorded > 0
-    ? boarding
-    : withBoardPatch(boarding, { [PREVIOUS_SHIP_BOARD_KEY]: activeShipID });
+  // The hull is chosen by its hold; the boarding is every block's (boardParkedShip).
+  return boardParkedShip(obs, mem, board, phase, (parked, flown) => {
+    if (haulers.includes(flown)) return { kind: "already", words: "This ship has a planetary hold." };
+    const candidate = parked.find((row) => haulers.includes(row.itemID));
+    return candidate === undefined
+      ? {
+          kind: "blocked",
+          words: "No ship with a planetary hold is parked here.",
+          reason: "No ship with a planetary commodities hold (an Epithal) is parked at this station.",
+        }
+      : { kind: "board", shipID: candidate.itemID, words: "Boarding the planetary hauler." };
+  }, unread);
 };
 
 // ── board-previous-ship ──────────────────────────────────────────────────────
@@ -6797,6 +6780,101 @@ const boardPreviousShip: MacroDecider = (_step, obs, mem, board) => {
     });
   }
   return tick({ kind: "boardShip", shipID: previous }, "Boarding the earlier ship.", phase, ACTING, false, { ...mem, boards });
+};
+
+// ── boarding a parked ship ───────────────────────────────────────────────────
+// What a block decides when it boards a hull parked here: which one, or why
+// none. `board-ship` decides by name or type; a block of a plugin decides by
+// whatever it is for (a planetary hold, say) and hands the boarding itself to
+// `boardParkedShip`, so every block changes ships the same way.
+export type ParkedShipChoice =
+  | { readonly kind: "board"; readonly shipID: number; readonly words: string }
+  | { readonly kind: "already"; readonly words: string }
+  | { readonly kind: "reading"; readonly words: string }
+  | { readonly kind: "blocked"; readonly words: string; readonly reason: string };
+
+/**
+ * Docked: board the parked hull `choose` picks, noting the hull it leaves on
+ * the run's board as refit-ship does, so board-previous-ship goes back to it.
+ *
+ * `choose` sees the ships parked here other than the one flown. Ships are
+ * changed in a station, as in the client: undocked, this blocks.
+ */
+export function boardParkedShip(
+  obs: ScriptObservation,
+  mem: MacroMemory,
+  board: ScriptBoard,
+  phase: string,
+  choose: (parked: readonly InventoryItemRow[], activeShipID: number) => ParkedShipChoice,
+  unreadReason = "The ships parked here could not be read, so the bot cannot tell which one to board.",
+): MacroTick {
+  if (obs.flightStatus?.docked !== true) {
+    return tick(WAIT, "Not docked - ships are changed in a station.", phase, {
+      kind: "blocked",
+      reason: "Dock at the station where the ship is parked first.",
+    });
+  }
+  const hangar = obs.stationHangar ?? null;
+  const activeShipID = obs.activeShipID ?? null;
+  if (hangar === null || activeShipID === null) {
+    const blindChecks = (num(mem, "blindChecks") ?? 0) + 1;
+    if (blindChecks > MAX_BLOCK_ATTEMPTS * 2) {
+      return tick(WAIT, "The parked ships could not be read.", phase, {
+        kind: "blocked",
+        reason: unreadReason,
+      });
+    }
+    return tick(WAIT, "Reading the ships parked here.", phase, ACTING, false, { ...mem, blindChecks });
+  }
+  const parked = hangar.filter((row) => row.categoryID === CATEGORY_SHIP_ROW && row.singleton && row.itemID !== activeShipID);
+  const choice = choose(parked, activeShipID);
+  if (choice.kind === "already") return tick(WAIT, choice.words, phase, { kind: "done" });
+  if (choice.kind === "reading") return tick(WAIT, choice.words, phase, ACTING, false, mem);
+  if (choice.kind === "blocked") return tick(WAIT, choice.words, phase, { kind: "blocked", reason: choice.reason });
+  const boards = (num(mem, "boards") ?? 0) + 1;
+  if (boards > MAX_BLOCK_ATTEMPTS) {
+    return tick(WAIT, "Boarding kept not landing.", phase, {
+      kind: "blocked",
+      reason: "The ship swap kept not taking, so the bot stopped.",
+    });
+  }
+  const boarding = tick({ kind: "boardShip", shipID: choice.shipID }, choice.words, phase, ACTING, false, { ...mem, boards });
+  const recorded = board[PREVIOUS_SHIP_BOARD_KEY];
+  return typeof recorded === "number" && recorded > 0
+    ? boarding
+    : withBoardPatch(boarding, { [PREVIOUS_SHIP_BOARD_KEY]: activeShipID });
+}
+
+// ── board-ship ───────────────────────────────────────────────────────────────
+// Docked: board a ship parked here, named as the player knows it: by the name
+// they gave it ("My Tengu sucks"), by its type ("Tengu"), or both. As the
+// client's hangar does it: a pick, then Board. Of several that match, the one
+// parked longest (the lowest item id) is boarded, so a run always picks the same.
+const boardShip: MacroDecider = (step, obs, mem, board) => {
+  const nameArg = step.args["shipName"];
+  const typeArg = step.args["shipType"];
+  const wantName = nameArg?.kind === "text" && nameArg.text.trim().length > 0 ? nameArg.text.trim().toLowerCase() : null;
+  const wantType = typeArg?.kind === "itemType" ? typeArg.typeID : null;
+  const shipWords = typeArg?.kind === "itemType" && typeArg.name ? typeArg.name : "ship";
+  return boardParkedShip(obs, mem, board, "Changing ships", (parked, activeShipID) => {
+    if (wantName === null && wantType === null) {
+      return { kind: "blocked", words: "No ship to board was named.", reason: "Say which ship to board: its name, its type, or both." };
+    }
+    const names = obs.shipNames ?? null;
+    if (wantName !== null && names === null) return { kind: "reading", words: "Reading the ships' names." };
+    const matches = (itemID: number, typeID: number | null): boolean =>
+      (wantType === null || typeID === wantType) &&
+      (wantName === null || (names?.[itemID] ?? "").trim().toLowerCase() === wantName);
+    if (matches(activeShipID, obs.flightStatus?.shipTypeID ?? null)) {
+      return { kind: "already", words: "Already in that ship." };
+    }
+    const candidate = [...parked].sort((left, right) => left.itemID - right.itemID).find((row) => matches(row.itemID, row.typeID));
+    if (candidate === undefined) {
+      const which = wantName !== null ? `named "${nameArg?.kind === "text" ? nameArg.text.trim() : ""}"` : "of that type";
+      return { kind: "blocked", words: `No ${shipWords} ${which} is parked here.`, reason: `No ${shipWords} ${which} is parked at this station.` };
+    }
+    return { kind: "board", shipID: candidate.itemID, words: `Boarding the ${shipWords}.` };
+  });
 };
 
 // ── repair-ship ──────────────────────────────────────────────────────────────
@@ -8315,6 +8393,7 @@ export const SCRIPT_MACROS: CompleteMacroRegistry = {
   "warp-to-ore-anomaly": warpToOreAnomaly,
   "refit-ship": refitShip,
   "board-previous-ship": boardPreviousShip,
+  "board-ship": boardShip,
   "board-planetary-hauler": boardPlanetaryHauler,
   "move-items": moveItems,
   "warp-to-bookmark": warpToBookmark,

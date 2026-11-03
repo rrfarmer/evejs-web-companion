@@ -165,6 +165,8 @@ export function macroName(macro: MacroID): string {
       return "Refit from a saved fitting";
     case "board-previous-ship":
       return "Back into the earlier ship";
+    case "board-ship":
+      return "Board a ship";
     case "board-planetary-hauler":
       return "Board a planetary hauler";
     case "move-items":
@@ -800,6 +802,16 @@ function macroPhrase(step: MacroStep): string {
       return "Empty every customs office in this system that holds your goods";
     case "board-previous-ship":
       return "Get back into the ship this run was flying before the refit";
+    case "board-ship": {
+      const name = step.args["shipName"];
+      const type = step.args["shipType"];
+      const named = name?.kind === "text" && name.text.trim().length > 0 ? name.text.trim() : null;
+      const typeName = type?.kind === "itemType" && type.typeID !== null ? type.name ?? "ship of the chosen type" : null;
+      if (named !== null && typeName !== null) return `Board the ${typeName} named "${named}"`;
+      if (named !== null) return `Board the ship named "${named}"`;
+      if (typeName !== null) return `Board a ${typeName} parked here`;
+      return "Board a ship parked here";
+    }
     case "board-planetary-hauler":
       return "Get into a ship parked here that has a planetary hold";
     case "repair-ship":

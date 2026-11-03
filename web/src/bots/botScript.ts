@@ -847,6 +847,9 @@ export type CoreMacroID =
   // was flying before refit-ship swapped it out. Nothing to do when no
   // refit-ship in this run boarded anything.
   | "board-previous-ship"
+  // Docked: board a ship parked here, by the name the pilot gave it, by its
+  // type, or both: the client's hangar pick and Board, as one block.
+  | "board-ship"
   // Docked: board whichever ship parked here has a planetary commodities hold
   // (an Epithal), as it is fitted, noting the hull it leaves for
   // board-previous-ship. Done at once when the active ship already has one.
@@ -972,6 +975,7 @@ export const MACRO_IDS: readonly CoreMacroID[] = Object.freeze<CoreMacroID[]>([
   "warp-to-ore-anomaly",
   "refit-ship",
   "board-previous-ship",
+  "board-ship",
   "board-planetary-hauler",
   "move-items",
   "warp-to-bookmark",

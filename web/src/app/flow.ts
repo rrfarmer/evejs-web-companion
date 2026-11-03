@@ -26039,7 +26039,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     "fly-to-mission-site",
   ]);
   const CONVO_MACROS = new Set(["request-mission", "accept-mission", "turn-in-mission"]);
-  const CARGO_MACROS = new Set(["accept-mission", "load-mission-cargo", "turn-in-mission", "unload-cargo", "refine-ore", "refit-ship", "board-previous-ship", "board-planetary-hauler", "move-items", "repair-ship", "sell-item", "jettison-cargo", "load-cargo", "haul-all", "route-hauler", "salvage-bookmarked-sites"]);
+  const CARGO_MACROS = new Set(["accept-mission", "load-mission-cargo", "turn-in-mission", "unload-cargo", "refine-ore", "refit-ship", "board-previous-ship", "board-ship", "board-planetary-hauler", "move-items", "repair-ship", "sell-item", "jettison-cargo", "load-cargo", "haul-all", "route-hauler", "salvage-bookmarked-sites"]);
   // Blocks that need the ACTIVE HULL'S BAY LIST, contents included. Kept apart
   // from CARGO_MACROS because the two reads have very different prices: the
   // inventory panel is one call, `/bays` is one capacity call per candidate
@@ -27340,6 +27340,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         let piLaunches: ScriptObservation["piLaunches"] = null;
         let customsOffices: ScriptObservation["customsOffices"] = null;
         let planetaryHaulerShipIDs: ScriptObservation["planetaryHaulerShipIDs"] = null;
+        let shipNames: ScriptObservation["shipNames"] = null;
         let damagedItemIDs: ScriptObservation["damagedItemIDs"] = null;
         let scannerOperations: ScriptObservation["scannerOperations"] = null;
         const systemName = store.flight.get().solarSystemName;
@@ -27864,6 +27865,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
               ? null
               : haulers;
           }
+          // The names the pilot gave its ships, for a block that boards one by
+          // name: the ship flown and every hull parked here, in one names read,
+          // as the client's hangar shows them (cfg.evelocations).
+          if (macroReads(macro, "shipNames") && activeShipID !== null) {
+            const shipIDs = [...new Set([
+              activeShipID,
+              ...(stationHangar ?? []).filter((row) => row.categoryID === 6 && row.singleton).map((row) => row.itemID),
+            ])];
+            try {
+              const answer = await api.resolveNames(shipIDs.map((id) => ({ kind: "evelocation" as const, id })), callOptions);
+              shipNames = Object.fromEntries(shipIDs.map((id) => [id, answer.names[`evelocation:${id}`] ?? null]));
+            } catch (error) {
+              if (isSessionLost(error)) throw error;
+              shipNames = null;
+            }
+          }
           if (macro === "haul-all" || macro === "route-hauler") {
             try {
               const corp = await api.loadCorpHangar(callOptions);
@@ -28045,6 +28062,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           piLaunches,
           customsOffices,
           planetaryHaulerShipIDs,
+          shipNames,
           damagedItemIDs,
           inSpace: status.inSpace,
           docked: status.docked,

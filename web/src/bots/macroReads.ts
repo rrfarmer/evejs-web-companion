@@ -16,14 +16,17 @@ import { pluginMacro } from "./pluginMacros.ts";
  * - `colonies`        the pilot's colonies, pins and extractor programs
  * - `piLaunches`      the pilot's commodity launches still in space
  * - `customsOffices`  the customs offices in the system, and what is in them
+ * - `shipNames`       the names the pilot gave the ship flown and the ships
+ *                     parked here (the client's cfg.evelocations)
  */
-export type ObservationRead = "colonies" | "piLaunches" | "customsOffices";
+export type ObservationRead = "colonies" | "piLaunches" | "customsOffices" | "shipNames";
 
 const CORE_MACRO_READS: Readonly<Partial<Record<CoreMacroID, readonly ObservationRead[]>>> = {
   "restart-extractors": ["colonies"],
   "launch-commodities": ["colonies"],
   "collect-launches": ["piLaunches"],
   "collect-customs": ["colonies", "customsOffices"],
+  "board-ship": ["shipNames"],
 };
 
 /** True when `macro`, while it runs, needs `read` made each tick. */

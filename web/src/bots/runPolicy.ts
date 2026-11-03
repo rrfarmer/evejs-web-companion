@@ -138,6 +138,7 @@ export const MACRO_RUN_POLICY: Readonly<Record<CoreMacroID, MacroRunPolicy>> = O
   "warp-to-ore-anomaly": SAFE,
   "refit-ship": policy(["inventory"]),
   "board-previous-ship": policy(["inventory"]),
+  "board-ship": policy(["inventory"]),
   "board-planetary-hauler": policy(["inventory"]),
   "move-items": policy(["inventory"]),
   "warp-to-bookmark": SAFE,

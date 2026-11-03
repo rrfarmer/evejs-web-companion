@@ -544,6 +544,12 @@ export interface ScriptObservation {
   } | null;
   /** The ACTIVE ship's item id (from the docked inventory read). */
   readonly activeShipID?: number | null;
+  /**
+   * The names the pilot gave the ship flown and each ship parked in this hangar
+   * (the client's cfg.evelocations), by item id; null for one never renamed or
+   * not answered. Read only while a block that boards a ship by name runs.
+   */
+  readonly shipNames?: Readonly<Record<number, string | null>> | null;
   /** Item ids the repair shop quotes as DAMAGED (read when a repair step is active). */
   readonly damagedItemIDs?: readonly number[] | null;
   /**

@@ -128,6 +128,8 @@ const PARAM_LABEL: Readonly<Record<string, string>> = {
   fullPercent: "Launch once this full (%)",
   anyAmount: "Launch any amount",
   planets: "Only these colonies",
+  shipName: "Ship's name",
+  shipType: "Ship type",
 };
 
 function paramView(arg: MacroArgSpec): MacroParamView {
@@ -330,6 +332,12 @@ const ENTRIES: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = {
     "ship",
     "Gets into a ship parked here that has a planetary commodities hold, such as an Epithal, as it is fitted. Nothing to pick: it reads each hull's holds. Back into the earlier ship takes you back to the ship you left.",
     "Being docked where a ship with a planetary hold is parked",
+  ),
+  "board-ship": entry(
+    "board-ship",
+    "ship",
+    "Gets into a ship parked here, picked as you know it: by the name you gave it, by its type, or both. Of several that match, the same one every run.",
+    "Being docked where the ship is parked",
   ),
   "board-previous-ship": entry(
     "board-previous-ship",
