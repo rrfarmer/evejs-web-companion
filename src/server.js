@@ -593,6 +593,10 @@ const botHost =
     // pilot is not logged in again by a run's recovery (gamePort/pilots.js closedByServer).
     closedByServer: (characterID) =>
       gamePortPilots && typeof gamePortPilots.closedByServer === "function" ? gamePortPilots.closedByServer(characterID) : null,
+    // A pilot chosen on the game port is a client of its own, and its login closes the account's other clients: a
+    // second run on the account would log the first one out.
+    oneClientPerAccount: (who) =>
+      typeof gateway.getSelectTransport === "function" && gateway.getSelectTransport(who) === "gameport",
     disconnectOwnedSession: async ({ webSessionID, characterID, accountID, claimSecret, previousSecret }) => {
       const held = bridgeSessions.get(webSessionID);
       if (!held || held.characterID !== characterID || Number(held.accountID) !== accountID ||
@@ -16964,6 +16968,7 @@ const BOT_START_STATUS = {
   BOT_RESTART_REQUIRES_CONFIRMATION: 409,
   BOT_SUBBOT_GRANT_UNAVAILABLE: 409,
   BOT_ALREADY_RUNNING: 409,
+  ACCOUNT_IN_USE_BY_BOT: 409,
   CHARACTER_IN_USE: 409,
   CHARACTER_OWNERSHIP_UNVERIFIED: 409,
   PILOT_RELEASE_UNVERIFIED: 409,
