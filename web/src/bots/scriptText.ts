@@ -27,7 +27,9 @@ import type {
   SquadRoleArg,
   WorldRef,
 } from "./botScript.ts";
+import { isPluginMacro } from "./botScript.ts";
 import { launchFullPercent } from "./macroSpecs.ts";
+import { pluginMacro } from "./pluginMacros.ts";
 
 /** A percentage a player reads — always with its unit, never a bare number. */
 function pct(fraction: number): string {
@@ -91,6 +93,8 @@ function beltPhrase(belt: BeltArg): string {
 
 /** The palette/menu name of a macro. */
 export function macroName(macro: MacroID): string {
+  // A plugin's block names itself; one whose plugin left the build keeps its id.
+  if (isPluginMacro(macro)) return pluginMacro(macro)?.name ?? macro;
   switch (macro) {
     case "undock":
       return "Leave the station";
@@ -564,6 +568,10 @@ function targetPhrase(step: MacroStep): string {
 }
 
 function macroPhrase(step: MacroStep): string {
+  if (isPluginMacro(step.macro)) {
+    const macro = pluginMacro(step.macro);
+    return macro?.sentence?.(step) ?? macroName(step.macro);
+  }
   switch (step.macro) {
     case "join-support-fleet": {
       const support = step.args["support"];

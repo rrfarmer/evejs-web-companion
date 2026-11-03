@@ -25,8 +25,10 @@ import {
   type SubBotNode,
   type WorldRef,
   MAX_NOTES_LEN,
+  isPluginMacro,
   startingStation,
 } from "./botScript.ts";
+import { pluginMacro } from "./pluginMacros.ts";
 import type { FlatProgramNode, IdGen } from "./scriptEdit.ts";
 
 /** How the top-level repeat reads in the editor's own control. */
@@ -232,6 +234,10 @@ function buildRepeat(state: EditorState): Repeat {
 /** A fresh step of this macro, with the starting arguments worth having. */
 export function newStepFor(macro: MacroID, makeId: IdGen): MacroStep {
   const id = makeId();
+  if (isPluginMacro(macro)) {
+    // A plugin block starts with what its definition says is worth having.
+    return { id, kind: "macro", macro, args: { ...(pluginMacro(macro)?.newArgs?.() ?? {}) } };
+  }
   if (macro === "mine-at-belt") {
     return {
       id,

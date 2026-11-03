@@ -2,16 +2,20 @@
 // single, exhaustive description of the player-impacting capabilities each
 // macro may exercise and whether restarting the script at step one is safe.
 //
-// It is deliberately shared by the browser and the BFF bot host. A new MacroID
-// cannot compile until its run policy is classified here.
+// It is deliberately shared by the browser and the BFF bot host. A new core
+// MacroID cannot compile until its run policy is classified here; a plugin's
+// block carries its own (pluginMacros.ts).
 
-import type {
-  BotScript,
-  InterruptResponse,
-  MacroID,
-  MacroStep,
-  ProgramNode,
+import {
+  isPluginMacro,
+  type BotScript,
+  type CoreMacroID,
+  type InterruptResponse,
+  type MacroID,
+  type MacroStep,
+  type ProgramNode,
 } from "./botScript.ts";
+import { pluginMacro } from "./pluginMacros.ts";
 
 export type BotRiskClass =
   | "financial"
@@ -85,7 +89,7 @@ function policy(risks: readonly BotRiskClass[], restartSafe = true): MacroRunPol
 }
 
 /** Exhaustive by construction: adding a macro requires an explicit policy. */
-export const MACRO_RUN_POLICY: Readonly<Record<MacroID, MacroRunPolicy>> = Object.freeze({
+export const MACRO_RUN_POLICY: Readonly<Record<CoreMacroID, MacroRunPolicy>> = Object.freeze({
   undock: SAFE,
   "travel-to-station": SAFE,
   "travel-to-system": SAFE,
@@ -288,6 +292,21 @@ export function validateBotLaunchGrant(
   };
 }
 
+/**
+ * A block's run policy, core's from the table, a plugin's from its definition.
+ *
+ * ⚠ THROWS FOR A BLOCK NO PLUGIN IN THIS BUILD KNOWS, rather than guessing. A
+ * script holding one is refused when it is read (scriptCodec.ts), so reaching
+ * here with one is a bug; pricing it as harmless would let it run without the
+ * grant its risks need.
+ */
+export function macroRunPolicy(id: MacroID): MacroRunPolicy {
+  if (!isPluginMacro(id)) return MACRO_RUN_POLICY[id];
+  const macro = pluginMacro(id);
+  if (macro === null) throw new Error(`No plugin in this build provides the block "${id}".`);
+  return macro.runPolicy;
+}
+
 function visitStep(
   step: MacroStep,
   macroIDs: Set<MacroID>,
@@ -295,7 +314,7 @@ function visitStep(
   restartBlockers: Set<MacroID>,
 ): void {
   macroIDs.add(step.macro);
-  const entry = MACRO_RUN_POLICY[step.macro];
+  const entry = macroRunPolicy(step.macro);
   for (const risk of entry.risks) {
     risks.add(risk);
   }

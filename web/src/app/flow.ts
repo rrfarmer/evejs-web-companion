@@ -656,6 +656,8 @@ import { decideSupportCollection, freshSupportCollectionMemory, recordSupportCol
   type SupportCollectionResult, type SupportCollectionInput } from "../nav/miningSupportCollection.ts";
 import { SUPPORT_FLEET_READ_MAX_AGE_MS, decideMiningSupportFleet, freshMiningSupportFleetMemory, miningSupportFleetDiagnostic, type MiningSupportFleetCallDiagnostic, type MiningSupportFleetDiagnostic, type MiningSupportFleetFeedback, type MiningSupportFleetObservation, type MiningSupportFleetResult, type SupportFleetJoinAuthority } from "../nav/miningSupportFleet.ts";
 import { SCRIPT_MACROS, resolveStationRef, scriptTravelHome } from "../nav/scriptMacros.ts";
+import { pluginDeciders } from "../bots/pluginMacros.ts";
+import { macroReads } from "../bots/macroReads.ts";
 import {
   EMPTY_SURVEY_MEMORY,
   decideSurveyScan,
@@ -27382,7 +27384,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             damagedItemIDs = null;
           }
         }
-        if (macro === "restart-extractors" || macro === "launch-commodities" || macro === "collect-customs") {
+        if (macroReads(macro, "colonies")) {
           try {
             const readAt = Date.now();
             const report = decodeColonyReport((await api.getPlanets(callOptions)).planets, readAt);
@@ -27435,7 +27437,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             colonies = null;
           }
         }
-        if (macro === "collect-launches") {
+        if (macroReads(macro, "piLaunches")) {
           try {
             // The page's own call (bridge/launchReads.ts), as the client's planet service makes it.
             piLaunches = (await readMyLaunches(bridgeAsk)).map((launch) => ({
@@ -27452,7 +27454,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             piLaunches = null;
           }
         }
-        if (macro === "collect-customs") {
+        if (macroReads(macro, "customsOffices")) {
           // ONE CONTAINER READ PER OFFICE IN THE SYSTEM, and only while this
           // block is active — the same bargain board-planetary-hauler strikes
           // when it pays one capacity read per parked ship. An office is a
@@ -28844,7 +28846,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // describeRefusal itself and classifies on the code, so it must not be
       // pre-translated here.
       refusalReason: readRefusalReason,
-      registry: SCRIPT_MACROS,
+      // Core's blocks, then every plugin block this build carries.
+      registry: { ...SCRIPT_MACROS, ...pluginDeciders() },
       travelHome: scriptTravelHome,
       log: botLogSink,
     };

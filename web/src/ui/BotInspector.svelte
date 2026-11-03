@@ -41,7 +41,7 @@
     MIN_ISK_ARG,
   } from "../bots/botScript.ts";
   import {
-    MACRO_ARG_DESCRIPTORS,
+    argDescriptorsFor,
     argBounds,
     clampConditionFraction,
     clampConditionIsk,
@@ -59,7 +59,7 @@
     UNTIL_CONDITION_KINDS,
     WATCH_CONDITION_KINDS,
   } from "../bots/editorOptions.ts";
-  import { MACRO_CATALOG_LIST, macroEntry } from "../bots/macroCatalogView.ts";
+  import { macroCatalogList, macroEntry } from "../bots/macroCatalogView.ts";
   import { MAX_WORLD_NAME_LEN } from "../bots/scriptCodec.ts";
   import { conditionAdvice, interruptSentence, targetClassWord } from "../bots/scriptText.ts";
   import type { ScriptProblem } from "../bots/validateScript.ts";
@@ -581,16 +581,16 @@
    * step is opened.
    */
   function summaryArgs(step: MacroStep): readonly ArgDescriptor[] {
-    return MACRO_ARG_DESCRIPTORS[step.macro].all.filter((arg) => arg.required || step.args[arg.key] !== undefined);
+    return argDescriptorsFor(step.macro).all.filter((arg) => arg.required || step.args[arg.key] !== undefined);
   }
   function moreArgs(step: MacroStep): readonly ArgDescriptor[] {
-    return MACRO_ARG_DESCRIPTORS[step.macro].all.filter((arg) => !arg.required && step.args[arg.key] === undefined);
+    return argDescriptorsFor(step.macro).all.filter((arg) => !arg.required && step.args[arg.key] === undefined);
   }
   function offersUntil(step: MacroStep): boolean {
-    return MACRO_ARG_DESCRIPTORS[step.macro].untilOffered || step.until !== undefined;
+    return argDescriptorsFor(step.macro).untilOffered || step.until !== undefined;
   }
   function untilRequired(step: MacroStep): boolean {
-    return MACRO_ARG_DESCRIPTORS[step.macro].untilRequired;
+    return argDescriptorsFor(step.macro).untilRequired;
   }
 
   // ── Condition edits, reported whole ─────────────────────────────────────────
@@ -1141,7 +1141,7 @@
           }}
         >
           <option value="">pick a step…</option>
-          {#each MACRO_CATALOG_LIST as entry (entry.id)}<option value={entry.id}>{entry.name}</option>{/each}
+          {#each macroCatalogList() as entry (entry.id)}<option value={entry.id}>{entry.name}</option>{/each}
         </select>
       </label>
     {/each}

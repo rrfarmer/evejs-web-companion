@@ -30,7 +30,7 @@ import {
 import { branchSentence, repeatSentence, stepSentence, subBotSentence } from "./scriptText.ts";
 import {
   CATEGORY_LABEL,
-  MACRO_CATALOG_LIST,
+  macroCatalogList,
   type BlockCategory,
   type MacroCatalogEntry,
 } from "./macroCatalogView.ts";
@@ -213,7 +213,7 @@ export function filterMacroPicker(
   category: BlockCategory | null,
 ): readonly MacroCatalogEntry[] {
   const byCategory =
-    category === null ? MACRO_CATALOG_LIST : MACRO_CATALOG_LIST.filter((entry) => entry.category === category);
+    category === null ? macroCatalogList() : macroCatalogList().filter((entry) => entry.category === category);
   const q = query.trim().toLowerCase();
   if (q.length === 0) {
     return byCategory;

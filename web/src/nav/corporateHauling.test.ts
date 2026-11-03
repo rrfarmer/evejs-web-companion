@@ -30,7 +30,7 @@ function obs(at: number, corp: Record<number, readonly InventoryItemRow[] | null
 }
 function driver(step = all) {
   let mem: MacroMemory = {};
-  return (o: ScriptObservation) => { const result = SCRIPT_MACROS[step.macro](step,o,mem,{}); mem=result.nextMem; return result; };
+  return (o: ScriptObservation) => { const result = SCRIPT_MACROS[step.macro]!(step,o,mem,{}); mem=result.nextMem; return result; };
 }
 test("corp haul owns only verified quantity, even when it merged into unrelated cargo", () => {
   const tick=driver();

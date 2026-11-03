@@ -35,41 +35,41 @@ test("public join block is codec-valid, named and grants fleet authority", () =>
   assert.equal(decodeScriptValue({ ...doc, program: [{ ...step, args: {} }] }).ok, false);
 });
 test("docked hauler completes only from fresh selected support membership", () => {
-  assert.equal(SCRIPT_MACROS[step.macro](step, observation(), {}, {}).outcome.kind, "done");
-  const joining = SCRIPT_MACROS[step.macro](step, observation(fleet(A, null, [], F)), {}, {});
+  assert.equal(SCRIPT_MACROS[step.macro]!(step, observation(), {}, {}).outcome.kind, "done");
+  const joining = SCRIPT_MACROS[step.macro]!(step, observation(fleet(A, null, [], F)), {}, {});
   assert.deepEqual(joining.action, { kind: "acceptFleetInvite", fleetID: F });
   assert.equal(joining.outcome.kind, "acting");
-  assert.equal(SCRIPT_MACROS[step.macro](step, observation(fleet(A, null, [], F)), joining.nextMem, {}).action.kind, "wait");
+  assert.equal(SCRIPT_MACROS[step.macro]!(step, observation(fleet(A, null, [], F)), joining.nextMem, {}).action.kind, "wait");
 });
 test("foreign fleet, unknown support and stale old invitations cannot authorize a split or leave", () => {
-  const foreign = SCRIPT_MACROS[step.macro](step, observation(fleet(A, F + 1)), {}, {});
+  const foreign = SCRIPT_MACROS[step.macro]!(step, observation(fleet(A, F + 1)), {}, {});
   assert.equal(foreign.action.kind, "wait"); assert.equal(foreign.outcome.kind, "blocked");
   for (const obs of [observation(fleet(A, null, [], F), null), observation(fleet(A, null, [], F), fleet(S, F + 1)), observation(fleet(A, null, [], F), fleet(S, F), false)]) {
-    assert.equal(SCRIPT_MACROS[step.macro](step, obs, {}, {}).action.kind, "wait");
+    assert.equal(SCRIPT_MACROS[step.macro]!(step, obs, {}, {}).action.kind, "wait");
   }
 });
 test("managed grant does not permit changing the assigned support identity", () => {
   const wrong = { ...step, args: { support: { kind: "character" as const, charID: S + 1, name: "Another" } } };
-  const result = SCRIPT_MACROS[step.macro](wrong, observation(), {}, {});
+  const result = SCRIPT_MACROS[step.macro]!(wrong, observation(), {}, {});
   assert.equal(result.action.kind, "wait"); assert.equal(result.outcome.kind, "blocked");
 });
 
 test("only correlated apply source proof can accept when its invitation notification is delayed", () => {
   const own = fleet(A, null);
   const advertised = { ...own, join: { ...own.join, ads: [{ fleetID: F, fleetName: "Support", numMembers: 1 }] } };
-  const first = SCRIPT_MACROS[step.macro](step, observation(advertised), {}, {});
+  const first = SCRIPT_MACROS[step.macro]!(step, observation(advertised), {}, {});
   assert.equal(first.action.kind, "applyToJoinFleet");
   if (first.action.kind !== "applyToJoinFleet") return;
   const freshOwn = { ...advertised, receivedAtMs: now + 1 };
   const original = observation(freshOwn);
   const base = { ...original, fleetMining: { ...original.fleetMining!, nowMs: now + 1 } };
   const proof = { fleetID: F, outcome: "invited" as const, supportOrder: first.action.supportOrder };
-  const accepted = SCRIPT_MACROS[step.macro](step, { ...base, fleetApplication: proof }, first.nextMem, {});
+  const accepted = SCRIPT_MACROS[step.macro]!(step, { ...base, fleetApplication: proof }, first.nextMem, {});
   assert.deepEqual(accepted.action, { kind: "acceptFleetInvite", fleetID: F });
   for (const application of [{ ...proof, supportOrder: undefined }, { ...proof, fleetID: F + 1 },
     { ...proof, supportOrder: { ...proof.supportOrder!, actionID: 99 } },
     { ...proof, supportOrder: { ...proof.supportOrder!, scope: { characterID: A, sessionEpoch: "old" } } },
     { ...proof, outcome: "unknown" as const }]) {
-    assert.equal(SCRIPT_MACROS[step.macro](step, { ...base, fleetApplication: application }, first.nextMem, {}).action.kind, "wait");
+    assert.equal(SCRIPT_MACROS[step.macro]!(step, { ...base, fleetApplication: application }, first.nextMem, {}).action.kind, "wait");
   }
 });

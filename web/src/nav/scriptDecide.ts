@@ -40,9 +40,11 @@ import type {
   BotScript,
   BranchBlock,
   Condition,
+  CoreMacroID,
   LoopBlock,
   MacroID,
   MacroStep,
+  PluginMacroID,
   SquadRoleArg,
 } from "../bots/botScript.ts";
 import { alertSentence, conditionSentence, stepSentence } from "../bots/scriptText.ts";
@@ -762,8 +764,11 @@ export type MacroDecider = (
 /** A partial lookup is useful to focused pure tests (an omitted macro pauses plainly). */
 export type MacroRegistry = Readonly<Partial<Record<MacroID, MacroDecider>>>;
 
-/** The production registry must implement EVERY format-level MacroID. */
-export type CompleteMacroRegistry = Readonly<Record<MacroID, MacroDecider>>;
+/**
+ * The production registry must implement EVERY core MacroID; a plugin's blocks
+ * are added from their definitions (bots/pluginMacros.ts `pluginDeciders`).
+ */
+export type CompleteMacroRegistry = Readonly<Record<CoreMacroID, MacroDecider>> & Readonly<Partial<Record<PluginMacroID, MacroDecider>>>;
 
 /**
  * Flies the ship to `home` for a latched dock-and-pause. `done` == docked home.

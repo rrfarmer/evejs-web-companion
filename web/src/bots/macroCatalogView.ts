@@ -7,9 +7,10 @@
 // The parameters are DERIVED from the shared `macroSpecs.ts`, so the palette can
 // never offer a control for an argument the codec/validator don't know about.
 
-import { MACRO_IDS, type Arg, type MacroID } from "./botScript.ts";
+import { MACRO_IDS, isPluginMacro, type Arg, type CoreMacroID, type MacroID } from "./botScript.ts";
 import { MACRO_SPECS, type MacroArgSpec } from "./macroSpecs.ts";
 import { macroName } from "./scriptText.ts";
+import { pluginMacro, pluginMacros, type PluginMacro } from "./pluginMacros.ts";
 
 /** Which inspector widget fills a parameter — one per Arg kind (kept in step). */
 export type ParamPicker = Arg["kind"];
@@ -132,13 +133,13 @@ const PARAM_LABEL: Readonly<Record<string, string>> = {
 function paramView(arg: MacroArgSpec): MacroParamView {
   return {
     key: arg.key,
-    label: PARAM_LABEL[arg.key] ?? arg.key,
+    label: arg.label ?? PARAM_LABEL[arg.key] ?? arg.key,
     picker: arg.kind,
     required: arg.required,
   };
 }
 
-function entry(id: MacroID, category: BlockCategory, does: string, needs: string | null): MacroCatalogEntry {
+function entry(id: CoreMacroID, category: BlockCategory, does: string, needs: string | null): MacroCatalogEntry {
   const spec = MACRO_SPECS[id];
   return {
     id,
@@ -152,7 +153,7 @@ function entry(id: MacroID, category: BlockCategory, does: string, needs: string
 }
 
 /** Exhaustive by the Record type — a new macro cannot compile without an entry. */
-const ENTRIES: Readonly<Record<MacroID, MacroCatalogEntry>> = {
+const ENTRIES: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = {
   undock: entry("undock", "movement", "Undocks your ship.", null),
   "travel-to-station": entry(
     "travel-to-station",
@@ -533,13 +534,42 @@ const ENTRIES: Readonly<Record<MacroID, MacroCatalogEntry>> = {
   ),
 };
 
-export const MACRO_CATALOG: Readonly<Record<MacroID, MacroCatalogEntry>> = ENTRIES;
+export const MACRO_CATALOG: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = ENTRIES;
 
-/** The palette list, in menu order. */
+/** Core's palette list, in menu order. */
 export const MACRO_CATALOG_LIST: readonly MacroCatalogEntry[] = MACRO_IDS.map((id) => ENTRIES[id]);
 
+function pluginEntry(macro: PluginMacro): MacroCatalogEntry {
+  return {
+    id: macro.id,
+    name: macro.name,
+    category: macro.category,
+    does: macro.does,
+    needs: macro.needs,
+    params: macro.spec.args.map(paramView),
+    untilRequired: macro.spec.untilRequired,
+  };
+}
+
+/**
+ * The palette list: core's blocks in menu order, then each plugin's in the
+ * order it registered them. The category chips sort them into their loops.
+ */
+export function macroCatalogList(): readonly MacroCatalogEntry[] {
+  const plugins = pluginMacros();
+  return plugins.length === 0 ? MACRO_CATALOG_LIST : [...MACRO_CATALOG_LIST, ...plugins.map(pluginEntry)];
+}
+
+/**
+ * A block's palette entry. A plugin block whose plugin has left the build is
+ * still named, by its id, so a draft opened before it left can be edited away.
+ */
 export function macroEntry(id: MacroID): MacroCatalogEntry {
-  return ENTRIES[id];
+  if (!isPluginMacro(id)) return ENTRIES[id];
+  const macro = pluginMacro(id);
+  return macro === null
+    ? { id, name: id, category: "flow", does: "A block from a plugin this app does not have.", needs: null, params: [], untilRequired: false }
+    : pluginEntry(macro);
 }
 
 /**
@@ -549,6 +579,6 @@ export function macroEntry(id: MacroID): MacroCatalogEntry {
  * an empty bucket.
  */
 export function categoriesInUse(): readonly BlockCategory[] {
-  const present = new Set(MACRO_CATALOG_LIST.map((e) => e.category));
+  const present = new Set(macroCatalogList().map((e) => e.category));
   return CATEGORY_ORDER.filter((c) => present.has(c));
 }

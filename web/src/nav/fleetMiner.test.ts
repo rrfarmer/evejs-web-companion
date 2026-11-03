@@ -107,7 +107,7 @@ test("fresh covered empty-belt evidence still depletes, and classic mining keeps
   ] as const) {
     let memory: MacroMemory = {};
     for (let i = 0; i < 3; i++) {
-      const result = SCRIPT_MACROS[macro.macro](macro, obs, memory, {});
+      const result = SCRIPT_MACROS[macro.macro]!(macro, obs, memory, {});
       assert.equal(result.action.kind, i === 2 ? "depleteMiningTarget" : "wait");
       memory = result.nextMem;
     }

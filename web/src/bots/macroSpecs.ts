@@ -4,7 +4,8 @@
 // about what a macro needs. The runtime behaviour of each macro is separate
 // (nav/macros, slice B).
 
-import type { Arg, MacroID } from "./botScript.ts";
+import { isPluginMacro, type Arg, type CoreMacroID } from "./botScript.ts";
+import { pluginMacro } from "./pluginMacros.ts";
 
 export interface MacroArgSpec {
   readonly key: string;
@@ -12,6 +13,11 @@ export interface MacroArgSpec {
   readonly required: boolean;
   /** Station-shaped argument which also accepts a dockable player structure. */
   readonly dockable?: boolean;
+  /**
+   * What the editor calls it. A plugin's block says it here; core's are named by
+   * key in editorOptions.ts and macroCatalogView.ts.
+   */
+  readonly label?: string;
 }
 
 export interface MacroSpec {
@@ -20,7 +26,7 @@ export interface MacroSpec {
   readonly untilRequired: boolean;
 }
 
-export const MACRO_SPECS: Readonly<Record<MacroID, MacroSpec>> = {
+export const MACRO_SPECS: Readonly<Record<CoreMacroID, MacroSpec>> = {
   undock: { args: [], untilRequired: false },
   "travel-to-station": {
     args: [{ key: "station", kind: "station", required: true, dockable: true }],
@@ -432,4 +438,13 @@ export function launchFullPercent(arg: Arg | undefined, anyAmount: Arg | undefin
     return LAUNCH_FULL_PERCENT_DEFAULT;
   }
   return Math.min(100, Math.max(1, Math.round(arg.value)));
+}
+
+/**
+ * A block's spec, core's or a plugin's; null for an id no table and no plugin
+ * in this build knows.
+ */
+export function macroSpec(id: string): MacroSpec | null {
+  if (isPluginMacro(id)) return pluginMacro(id)?.spec ?? null;
+  return Object.hasOwn(MACRO_SPECS, id) ? MACRO_SPECS[id as CoreMacroID] : null;
 }

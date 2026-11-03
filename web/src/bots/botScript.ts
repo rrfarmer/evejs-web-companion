@@ -796,7 +796,7 @@ export interface InterruptRow {
  * work, accept, load the package, fly the delivery, turn it in, fly back), cut
  * into blocks a player wires up — usually inside a Repeat loop.
  */
-export type MacroID =
+export type CoreMacroID =
   | "undock"
   | "travel-to-station"
   | "travel-to-system"
@@ -924,8 +924,22 @@ export type MacroID =
   | "analyze-signatures"
   | "recover-scan-probes";
 
-/** Every macro id — for exhaustive iteration in menus and tests. */
-export const MACRO_IDS: readonly MacroID[] = Object.freeze<MacroID[]>([
+/**
+ * A block a plugin adds: "<plugin>:<block>", as "pi-manager:restart-extractors".
+ * Namespaced so it can never take a core block's id, and open-ended because core
+ * does not know which plugins a build carries (bots/pluginMacros.ts).
+ */
+export type PluginMacroID = `${string}:${string}`;
+
+export type MacroID = CoreMacroID | PluginMacroID;
+
+/** True for a plugin's block, false for one of core's. Core ids never hold a colon. */
+export function isPluginMacro(id: string): id is PluginMacroID {
+  return id.includes(":");
+}
+
+/** Every core macro id — for exhaustive iteration in menus and tests. Plugins' are in pluginMacros.ts. */
+export const MACRO_IDS: readonly CoreMacroID[] = Object.freeze<CoreMacroID[]>([
   "undock",
   "travel-to-station",
   "travel-to-system",
