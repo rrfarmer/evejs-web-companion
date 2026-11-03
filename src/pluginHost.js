@@ -87,9 +87,16 @@ function createPluginHost(options = {}) {
     entry.state = entry.restarts === 0 ? "starting" : "restarting";
     const child = forkProcess(entry.entry, [], {
       execArgv,
-      env: { PATH: process.env.PATH, NODE_ENV: process.env.NODE_ENV, EVEJS_PLUGIN_ID: entry.id, EVEJS_PLUGIN_DATA_DIR: pluginDataDir },
+      env: {
+        PATH: process.env.PATH,
+        NODE_ENV: process.env.NODE_ENV,
+        EVEJS_PLUGIN_ID: entry.id,
+        EVEJS_PLUGIN_DATA_DIR: pluginDataDir,
+        EVEJS_PLUGIN_MANIFEST: path.join(rootDir, "plugins", entry.id, "plugin.ts"),
+      },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
-      serialization: "json",
+      // Structured clone, so an observation's Maps and Sets reach a decider whole.
+      serialization: "advanced",
     });
     entry.child = child;
     entry.lastPong = Date.now();
@@ -170,7 +177,16 @@ function createPluginHost(options = {}) {
 
   let watchTimer = null;
 
-  /** Fork every plugin backend the build lists. Called once the server listens. */
+  // The plugins as they loaded into this BFF's copy of the bot code.
+  let webStatuses = [];
+
+  /**
+   * Load the build's plugins: their bot blocks into this BFF's copy of the bot
+   * code (so a saved script using one is read, priced and run here, with each
+   * block's next step asked of its plugin's process), and a process for each
+   * plugin with a backend or a block. Resolves once the blocks are in, which is
+   * before any bot is resumed; the processes come up on their own time.
+   */
   async function start() {
     stopping = false;
     let manifests;
@@ -180,11 +196,31 @@ function createPluginHost(options = {}) {
       log(`The build's plugin list could not be read: ${error && error.message}`);
       return;
     }
+    if (options.activateWebStack) {
+      try {
+        const web = (relative) => import(pathToFileURL(path.join(rootDir, "web", "src", relative)).href);
+        const [loader, blocks] = await Promise.all([web("plugins/pluginHost.ts"), web("bots/pluginMacros.ts")]);
+        webStatuses = loader.activatePlugins(manifests, null);
+        for (const status of webStatuses) if (status.error) log(`${status.id}: ${status.error}`);
+        blocks.setRemotePluginDecider((macro, step, obs, mem, board) =>
+          decide(blocks.pluginOfMacro(macro), macro, step, obs, mem, board));
+      } catch (error) {
+        log(`The plugins' bot blocks could not be loaded: ${error && error.message}`);
+      }
+    }
     for (const manifest of manifests) {
-      if (!manifest || typeof manifest.backend !== "string" || backends.has(manifest.id)) continue;
+      if (!manifest || backends.has(manifest.id)) continue;
+      const hasBackend = typeof manifest.backend === "string";
+      const hasBlocks = Array.isArray(manifest.macros) && manifest.macros.length > 0;
+      if (!hasBackend && !hasBlocks) continue;
+      if (options.activateWebStack && webStatuses.find((status) => status.id === manifest.id)?.state !== "active") continue;
       const entry = {
         id: manifest.id,
-        entry: path.join(rootDir, "plugins", manifest.id, manifest.backend),
+        // A plugin with blocks and no backend of its own still decides them in a
+        // process of its own: the plugin API's, which loads its manifest.
+        entry: hasBackend
+          ? path.join(rootDir, "plugins", manifest.id, manifest.backend)
+          : path.join(rootDir, "web", "src", "plugin-api", "deciderProcess.ts"),
         state: "starting",
         restarts: 0,
         failures: [],
@@ -293,6 +329,7 @@ function createPluginHost(options = {}) {
     adopt,
     uninstall,
     statuses: () => [...backends.values()].map(status),
+    webStatuses: () => webStatuses,
     has: (id) => backends.has(id),
   };
 }

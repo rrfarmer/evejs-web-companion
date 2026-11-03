@@ -21,7 +21,8 @@ import type { Arg, MacroStep, PluginMacroID } from "./botScript.ts";
 import type { BlockCategory } from "./macroCatalogView.ts";
 import type { MacroSpec } from "./macroSpecs.ts";
 import type { MacroRunPolicy } from "./runPolicy.ts";
-import type { MacroDecider } from "../nav/scriptDecide.ts";
+import type { MacroDecider, MacroMemory, MacroTick, ScriptBoard } from "../nav/scriptDecide.ts";
+import type { ScriptObservation } from "../nav/scriptConditions.ts";
 import type { ObservationRead } from "./macroReads.ts";
 
 /** Everything core needs to offer, check, price, run and describe a plugin's block. */
@@ -78,4 +79,31 @@ export function pluginMacros(): readonly PluginMacro[] {
 /** Every plugin block's decider, to sit beside core's in the runner's registry. */
 export function pluginDeciders(): Readonly<Record<PluginMacroID, MacroDecider>> {
   return Object.fromEntries(pluginMacros().map((macro) => [macro.id, macro.decide]));
+}
+
+// ─── Deciding in the plugin's own process ──────────────────────────────────────
+//
+// In the browser a plugin block decides in the page, as core's do. For a bot the
+// BFF hosts, its next step is asked of the plugin's own process
+// (src/pluginHost.js), so a plugin that hangs or throws stops its own bots and
+// never the BFF. The BFF sets this once at startup; the runner then asks it for
+// every plugin block's tick (nav/scriptRunner.ts).
+
+export type RemotePluginDecider = (
+  macro: PluginMacroID,
+  step: MacroStep,
+  obs: ScriptObservation,
+  mem: MacroMemory,
+  board: ScriptBoard,
+) => Promise<{ readonly tick: MacroTick } | { readonly error: string }>;
+
+let remote: RemotePluginDecider | null = null;
+
+/** Decide plugin blocks elsewhere (the BFF's plugin processes); null decides them here. */
+export function setRemotePluginDecider(decider: RemotePluginDecider | null): void {
+  remote = decider;
+}
+
+export function remotePluginDecider(): RemotePluginDecider | null {
+  return remote;
 }

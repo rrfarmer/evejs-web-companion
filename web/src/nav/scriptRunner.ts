@@ -25,6 +25,8 @@
 
 import type { BotScript, ProgramNode, SquadRoleArg } from "../bots/botScript.ts";
 import { startupSteps, type StartupCheckpoint, type StartupState } from "../bots/startup.ts";
+import { isPluginMacro } from "../bots/botScript.ts";
+import { remotePluginDecider } from "../bots/pluginMacros.ts";
 import { resolveStationRef, settleSalvageBatchMemory } from "./scriptMacros.ts";
 import {
   activeMacroID,
@@ -45,6 +47,8 @@ import {
   type HomeTravelDecider,
   type MacroRegistry,
   type MacroDecider,
+  type MacroMemory,
+  type MacroTick,
   type ScriptAction,
   type ScriptBoard,
   type ScriptMemory,
@@ -320,6 +324,19 @@ const READ_GAVE_UP_SENT_HOME =
   "Could not read your ship for several tries, so the bot sent it to a station and stopped.";
 const SESSION_LOST = "Lost the connection to your ship, so the bot stopped.";
 const DECIDE_FAILED = "The bot hit an unexpected problem working out its next move, so it stopped.";
+
+/** How many times one tick is decided again for plugin answers (the chain a plugin step done can start). */
+const MAX_REMOTE_PASSES = 4;
+
+/** A plugin block's question, recorded by its asker, to put to the plugin's process. */
+interface RemoteQuestion {
+  readonly key: string;
+  readonly macro: string;
+  readonly step: Parameters<MacroDecider>[0];
+  readonly facts: ScriptObservation;
+  readonly mem: MacroMemory;
+  readonly board: ScriptBoard;
+}
 const IN_A_CAPSULE = "Your ship is gone and you are in a capsule, so the bot stopped flying the script.";
 // Commands turned back with 409 SESSION_CHANGE_IN_PROGRESS while a previous
 // transition settles. The same bound and the same reasoning as the autopilot's
@@ -634,7 +651,24 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       return;
     }
 
+    // A plugin block decided in its plugin's own process (bots/pluginMacros.ts):
+    // in a bot the BFF hosts, every plugin block in the registry is replaced by
+    // an asker that answers from `remote.answered`, or records the question and
+    // waits. The deciding below runs again once the questions are answered.
+    const remoteDecider = remotePluginDecider();
+    const remote = { answered: new Map<string, MacroTick>(), asked: [] as RemoteQuestion[], seq: 0 };
     let registry = deps.registry;
+    if (remoteDecider !== null) {
+      registry = Object.fromEntries(Object.entries(deps.registry).map(([id, decider]) => [id, !isPluginMacro(id) ? decider
+        : ((step, facts, mem, board) => {
+          const key = `${step.id}#${remote.seq++}`;
+          const known = remote.answered.get(key);
+          if (known !== undefined) return known;
+          remote.asked.push({ key, macro: id, step, facts, mem, board });
+          return { action: { kind: "wait" }, why: "Asking the plugin what next.", phase: "Waiting for the plugin", armed: false,
+            outcome: { kind: "acting" }, nextMem: mem };
+        }) as MacroDecider]));
+    }
     if (deps.startup && startupSteps(script).length) {
       try {
         const states = new Map<string, StartupState>();
@@ -666,22 +700,43 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
     // freezes mid-task with no reason on screen. So a throw here becomes a plain
     // pause the player can read and recover from, never a dead loop.
     let result: ReturnType<typeof decideScriptAction>;
-    try {
-      // ⚠ THE LEDGER RIDES IN ON THE OBSERVATION. A decider's whole interface is
-      // "here are the facts, choose" — and "this can has refused me nine times
-      // running, across four laps" is a fact about the world exactly like a
-      // distance is. Handing it over here rather than as a fifth argument keeps
-      // every macro reading one thing, and keeps `decideScriptAction` pure.
-      result = decideScriptAction(
-        script,
-        { ...obs, refusals: ledger.records() },
-        memory,
-        registry,
-        deps.travelHome,
-      );
-    } catch (error) {
-      stopOrHeadHome(`${DECIDE_FAILED} (${String(error)})`);
-      return;
+    // ⚠ DECIDED AGAIN, NOT AWAITED INSIDE. Deciding is pure, so a pass that met a
+    // plugin block it had no answer for is thrown away, the questions it asked
+    // are put to the plugin, and the pass is made again with the answers: the
+    // same facts give the same calls in the same order, now answered. A block
+    // reached only through an answer (a plugin step done, the next one begun) is
+    // asked in the pass after; MAX_REMOTE_PASSES bounds the chain.
+    for (let pass = 0; ; pass++) {
+      remote.seq = 0;
+      remote.asked = [];
+      try {
+        // ⚠ THE LEDGER RIDES IN ON THE OBSERVATION. A decider's whole interface is
+        // "here are the facts, choose" — and "this can has refused me nine times
+        // running, across four laps" is a fact about the world exactly like a
+        // distance is. Handing it over here rather than as a fifth argument keeps
+        // every macro reading one thing, and keeps `decideScriptAction` pure.
+        result = decideScriptAction(
+          script,
+          { ...obs, refusals: ledger.records() },
+          memory,
+          registry,
+          deps.travelHome,
+        );
+      } catch (error) {
+        stopOrHeadHome(`${DECIDE_FAILED} (${String(error)})`);
+        return;
+      }
+      if (remoteDecider === null || remote.asked.length === 0 || pass >= MAX_REMOTE_PASSES) break;
+      for (const question of remote.asked) {
+        const answer = await remoteDecider(question.macro as never, question.step, question.facts, question.mem, question.board);
+        if (token !== runToken || status !== "running") return;
+        if ("error" in answer) {
+          // The plugin is down, slow or threw: its bot stops here, and says why.
+          pauseWith(`The plugin could not decide its block "${question.macro}": ${answer.error}`);
+          return;
+        }
+        remote.answered.set(question.key, answer.tick);
+      }
     }
     if (travelAssist) {
       const movementMacro = activeMacroID(script, memory);

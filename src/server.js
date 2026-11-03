@@ -627,7 +627,7 @@ app.locals.botScripts = botScripts;
 // Every plugin backend, each in a process of its own (src/pluginHost.js). Nothing
 // is started here: startServer starts them once the port is open, so an app made
 // for a test forks nothing unless it hands in a host of its own.
-const pluginHost = options.pluginHost || createPluginHost({ dataDir: config.dataDir });
+const pluginHost = options.pluginHost || createPluginHost({ dataDir: config.dataDir, activateWebStack: true });
 app.locals.pluginHost = pluginHost;
 // Shared, in-process (never persisted — see src/beltMemory.js) memory of belts
 // mining bots have found dry, keyed by solar-system NAME then belt NAME. Every
@@ -17582,11 +17582,13 @@ function startServer(options = {}) {
     } catch (error) {
       console.error(error);
     }
-    // Every plugin backend, each in a process of its own. A plugin that fails to
-    // start is logged and shown in the Plugins window; it never stops the server.
-    if (options.plugins !== false) {
-      void appToStart.locals.pluginHost?.start().catch((error) => console.error(error));
-    }
+    // The build's plugins: their bot blocks into this BFF's bot code, and a
+    // process for each. A plugin that fails is logged and shown in the Plugins
+    // window; it never stops the server. Bots resume only after the blocks are
+    // in, so a saved script using one is read as it was saved.
+    const pluginsLoaded = options.plugins === false
+      ? Promise.resolve()
+      : Promise.resolve(appToStart.locals.pluginHost?.start()).catch((error) => console.error(error));
     // Bots that were running when the server last stopped come back now —
     // AFTER listen, because every server bot drives this server over loopback,
     // and AFTER the last process's sessions are released, because until then
@@ -17600,7 +17602,7 @@ function startServer(options = {}) {
       })
       .catch((error) => console.error(error));
     if (options.resumeServerBots !== false) {
-      void Promise.resolve(released)
+      void Promise.all([released, pluginsLoaded])
         .then(() => isCurrent() ? appToStart.locals.botHost?.resume() : undefined)
         .catch((error) => console.error(error));
     }

@@ -50,7 +50,9 @@ function makeRoot() {
   fs.mkdirSync(path.join(root, "web", "src", "plugin-api"), { recursive: true });
   fs.mkdirSync(path.join(root, "node_modules"), { recursive: true });
   fs.mkdirSync(path.join(root, "data"), { recursive: true });
-  fs.copyFileSync(path.join(REPO, "web", "src", "plugin-api", "backend.ts"), path.join(root, "web", "src", "plugin-api", "backend.ts"));
+  for (const file of ["backend.ts", "deciderProcess.ts"]) {
+    fs.copyFileSync(path.join(REPO, "web", "src", "plugin-api", file), path.join(root, "web", "src", "plugin-api", file));
+  }
   fs.writeFileSync(path.join(root, "plugins", "echo", "backend.ts"), BACKEND);
   fs.writeFileSync(path.join(root, "data", "companion.sqlite"), "core data");
   // The plugin side's own package scope, as the image has none for it.
@@ -151,4 +153,22 @@ test("what core kept is handed over, and uninstalling runs the plugin's cleanup,
   const outcome = await plugins.uninstall("echo");
   assert.deepEqual(outcome, { cleaned: true, error: null });
   assert.equal(fs.existsSync(path.join(root, "data", "plugins", "echo")), false);
+});
+
+test("a plugin with blocks and no backend still decides them in a process of its own", async (t) => {
+  const root = makeRoot();
+  fs.mkdirSync(path.join(root, "plugins", "counter"), { recursive: true });
+  fs.writeFileSync(path.join(root, "plugins", "counter", "plugin.ts"), `
+export default {
+  id: "counter", name: "Counter", version: "1.0.0", apiVersion: 1, description: "Test.",
+  macros: [{ id: "counter:count", decide: (step, obs, mem) => ({ action: { kind: "wait" }, why: "seen " + obs.seen.size, phase: "p", armed: false, outcome: { kind: "done" }, nextMem: mem }) }],
+};
+`);
+  const plugins = host(root, { manifests: [{ id: "counter", macros: [{ id: "counter:count" }] }] });
+  t.after(() => plugins.stop());
+  await plugins.start();
+  // A Set reaches the decider whole: the channel carries structured clones.
+  const decided = await plugins.decide("counter", "counter:count", { id: "s" }, { seen: new Set([1, 2]) }, {}, {});
+  assert.equal(decided.tick?.why, "seen 2", decided.error);
+  assert.equal((await plugins.request("counter", { method: "GET", path: "/x", query: {}, body: null, account: ACCOUNT })).status, 404);
 });
