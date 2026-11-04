@@ -676,7 +676,9 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         const current = startupSteps(script).find(step => step.id === currentID);
         if (current) states.set(current.id, await deps.startup.observe(current, obs));
         if (token !== runToken || status !== "running") return;
-        registry = Object.fromEntries(Object.entries(deps.registry).map(([id, decider]) => [id,
+        // Over `registry`, not `deps.registry`: a plugin block must keep its asker
+        // above, or a hosted bot's startup run decides it here in the BFF.
+        registry = Object.fromEntries(Object.entries(registry).map(([id, decider]) => [id,
           ((step, facts, mem, board) => {
             if (!startupSteps(script!).some(candidate => candidate.id === step.id)) return decider!(step, facts, mem, board);
             const state = states.get(step.id) ?? "PENDING";
@@ -731,8 +733,10 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
         const answer = await remoteDecider(question.macro as never, question.step, question.facts, question.mem, question.board);
         if (token !== runToken || status !== "running") return;
         if ("error" in answer) {
-          // The plugin is down, slow or threw: its bot stops here, and says why.
-          pauseWith(`The plugin could not decide its block "${question.macro}": ${answer.error}`);
+          // The plugin is down, slow or threw: its bot stops as for any block that
+          // failed, and says why. Docked that is a pause; in space it flies home
+          // first, and the flight asks no plugin.
+          stopOrHeadHome(`The plugin could not decide its block "${question.macro}": ${answer.error}`);
           return;
         }
         remote.answered.set(question.key, answer.tick);

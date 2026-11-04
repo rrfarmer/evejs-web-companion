@@ -57,14 +57,50 @@ test("the plugin's answer is acted on, and a plugin step done hands on to the ne
   bot.stop();
 });
 
-test("⚠ a plugin that cannot answer pauses its own bot, and nothing is acted on", async (t) => {
-  setRemotePluginDecider(async () => ({ error: "The plugin's server part did not answer in time." }));
+test("⚠ a bot with a startup prefix still asks the plugin's process, never decides in the BFF", async (t) => {
+  const asked: string[] = [];
+  setRemotePluginDecider(async (macro) => {
+    asked.push(macro);
+    return { tick: mt({ kind: "warp", targetID: 7 }, { kind: "acting" }) };
+  });
   t.after(() => setRemotePluginDecider(null));
   const issued: ScriptAction[] = [];
-  const bot = runner(issued);
+  const bot = createScriptRunner({
+    observe: async () => calm(), issue: async (action) => { issued.push(action); }, registry: { "test:first": stub, "test:second": stub },
+    travelHome: home, sleep: async () => {}, onProgress: () => {}, isSessionLost: () => false, refusalReason: String,
+    startup: { logicalRunID: "run", observe: async () => "NEEDED", beforeIssue: async () => {} },
+  });
+  // A step ahead of a final loop is a startup step (bots/startup.ts).
+  bot.start({ ...doc([]), program: [step("a", "test:first"), { id: "l", kind: "loop", repeat: { kind: "forever" }, body: [step("b", "test:second")] }] });
+  await bot.tick();
+  assert.deepEqual(asked, ["test:first"]);
+  assert.deepEqual(issued, [{ kind: "warp", targetID: 7 }]);
+  bot.stop();
+});
+
+test("⚠ a plugin that cannot answer stops its own bot as any failed block does: home first, then a pause that says why", async (t) => {
+  let asks = 0;
+  setRemotePluginDecider(async () => {
+    asks += 1;
+    return { error: "The plugin's server part did not answer in time." };
+  });
+  t.after(() => setRemotePluginDecider(null));
+  const issued: ScriptAction[] = [];
+  const bot = createScriptRunner({
+    observe: async () => calm(), issue: async (action) => { issued.push(action); }, registry: { "test:first": stub },
+    // In space, the first consultation flies; the next finds the ship home.
+    travelHome: () => issued.length > 0 ? mt({ kind: "wait" }, { kind: "done" }) : mt({ kind: "warp", targetID: 9 }, { kind: "acting" }),
+    sleep: async () => {}, onProgress: () => {}, isSessionLost: () => false, refusalReason: String,
+  });
   bot.start(doc([step("a", "test:first")]));
   await bot.tick();
+  assert.equal(bot.getStatus(), "running", "a ship in space is not left where it floats");
+  assert.deepEqual(issued, [], "nothing of the failed tick is acted on");
+  await bot.tick();
+  assert.deepEqual(issued, [{ kind: "warp", targetID: 9 }], "it heads home");
+  // The runner's usual gap between actions comes before it looks again.
+  for (let ticks = 0; ticks < 10 && bot.getStatus() === "running"; ticks++) await bot.tick();
   assert.equal(bot.getStatus(), "paused");
   assert.match(bot.snapshot().pauseReason ?? "", /could not decide its block "test:first": The plugin's server part did not answer in time/);
-  assert.deepEqual(issued, []);
+  assert.equal(asks, 1, "the flight home asks no plugin");
 });
