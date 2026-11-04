@@ -18,7 +18,7 @@
     { "wait": 3, "note": "the board keeps the run's own line until the bot has let go of the pilot" },
     { "webClick": { "role": "button", "name": "Refresh" } },
     { "webClick": { "role": "tab", "name": "Stock" } },
-    { "webExpect": { "role": "row", "name": "Base Metals" }, "text": "2,0" },
+    { "webExpect": { "role": "row", "name": "Base Metals" }, "text": "3,413", "note": "the 2,000 launched from the command centre, and the 1,413 its launchpad held" },
     { "webShot": "stock after the launch" },
     { "colonyRead": "e2epi", "note": "what the server holds now" }
   ],
