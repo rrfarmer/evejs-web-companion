@@ -7391,18 +7391,34 @@
   /* The global-window doors (GlobalLaunchers.svelte) in the hangar's own
      palette — the same strip as the character bar's, so the Bot Manager is
      found beside the brand whether or not anybody is in the client. */
-  .hangar .global-launchers { align-self: center; height: 28px; }
+  /* ⚠ THE DOORS WRAP WHEN THE LINE RUNS OUT. At `flex: 0 0 auto` a strip wider
+     than the header runs the whole hangar past the screen, and each plugin adds
+     a door. Scrolling instead would cut the last door off with no sign that more
+     is there, since a mouse has no swipe and the scrollbar has no room. Phones
+     do scroll (below). So each door sets its own height, not the strip. */
+  .hangar .global-launchers {
+    align-self: center;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
   /* Filled, with a border and a blue glyph, so the doors read as buttons: at
      line-3 on the header's own background they read as labels. */
+  /* ⚠ PADDING AND BORDER ARE SAID AGAIN HERE. The hangar's reset of `button`
+     has the same weight as `.global-launch` and comes later, so without them
+     a door that is a <button> loses both while a door that is an <a> keeps them. */
   .hangar .global-launch {
+    height: 28px;
+    padding: 0 0.5rem;
     background: var(--hangar-row-hover);
-    border-color: var(--hangar-line-5);
+    border: 1px solid var(--hangar-line-5);
     color: var(--hangar-text-mid);
     font-family: var(--hangar-mono, inherit);
     font-size: 11px;
     letter-spacing: 1px;
     text-transform: uppercase;
     text-decoration: none;
+    transition: background 120ms linear, border-color 120ms linear, color 120ms linear;
   }
   .hangar .global-launch-glyph { color: var(--hangar-link); }
   .hangar .global-launch:hover { color: var(--hangar-text-bright); border-color: var(--hangar-accent); }
@@ -8377,12 +8393,11 @@
       min-width: 100%;
       max-width: none;
     }
-    /* ⚠ THE DOORS SCROLL INSIDE THEMSELVES, like the chip row below and the character bar's (B4). Six with their
-     * words are 499px at 375, and at `flex: 0 0 auto` they ran the header, and the whole hangar with it, 612px wide.
+    /* ⚠ THE DOORS SCROLL INSIDE THEMSELVES HERE, like the chip row below and the character bar's (B4): a phone has no
+     * room for rows of them, and a swipe is natural. The panels they open are on <body> (portal.ts), so none is clipped.
      * The scrollbar is hidden: the strip is 28px tall, and a bar would take half of it. */
     .hangar .global-launchers {
-      flex: 0 1 auto;
-      min-width: 0;
+      flex-wrap: nowrap;
       overflow-x: auto;
       overflow-y: hidden;
       scrollbar-width: none;

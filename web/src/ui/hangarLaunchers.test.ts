@@ -1,0 +1,44 @@
+// The doors beside the brand in the Pilot Hangar. Some are links and some are
+// buttons, and they must look alike. The hangar's reset of `button` removes
+// padding and border with the same weight as `.global-launch`, and comes later,
+// so the hangar's own rule has to say both again.
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+function ruleBody(selector: string): string {
+  const start = css.indexOf(`${selector} {`);
+  assert.notEqual(start, -1, `${selector} is in styles.css`);
+  return css.slice(start, css.indexOf("}", start));
+}
+
+test("⚠ a door that is a button keeps its padding and border in the hangar, as a door that is a link does", () => {
+  const reset = ruleBody(":is(.hangar, .hangar-chrome) :where(button)");
+  assert.match(reset, /\bpadding: 0;/, "the reset the rule below has to answer");
+  assert.match(reset, /\bborder: 0;/, "the reset the rule below has to answer");
+  const door = ruleBody(".hangar .global-launch");
+  assert.match(door, /\bpadding: 0 0\.5rem;/);
+  assert.match(door, /\bborder: 1px solid /);
+});
+
+test("⚠ the strip wraps above a phone's width, so no door runs off the screen or is cut off", () => {
+  const strip = ruleBody(".hangar .global-launchers");
+  assert.match(strip, /\bflex: 0 1 auto;/);
+  assert.match(strip, /\bflex-wrap: wrap;/);
+  assert.match(strip, /\bmin-width: 0;/);
+  assert.doesNotMatch(strip, /\boverflow/);
+  assert.doesNotMatch(strip, /\bheight:/, "a fixed height would spill a second row out of the strip");
+  assert.match(ruleBody(".hangar .global-launch"), /\bheight: 28px;/);
+});
+
+test("on a phone the strip scrolls inside itself instead", () => {
+  const phone = css.slice(css.indexOf("@media (max-width: 759px)"));
+  const start = phone.indexOf(".hangar .global-launchers {");
+  assert.notEqual(start, -1, "the phone block has its own rule for the strip");
+  const strip = phone.slice(start, phone.indexOf("}", start));
+  assert.match(strip, /\bflex-wrap: nowrap;/);
+  assert.match(strip, /\boverflow-x: auto;/);
+});
