@@ -185,10 +185,10 @@ The recipe `pi-colonies` has two pilots with every skill in Amamake, docked at t
 | `pi-restart` | A finished programme shows as needing the pilot; Restart runs a hosted bot; the server holds running programmes and the board says so. |
 | `pi-haul` | Two colonies hauled: board, send up at each customs office, empty it, fly home, unload, board back. Stock shows the goods. |
 | `pi-launch` | A command centre's goods launched and the container collected in space. |
-| `pi-no-hauler` | A haul with no planetary hold pauses, the board says why, and Stop ends it. |
+| `pi-no-hauler` | A haul with no planetary hold pauses, the board says why, and Stop ends it. Checks nothing was launched: needs `fix/companion-pi-haul-boards-first`, and fails without it. |
 | `pi-planner` | A plan created, done, reopened, deleted. An expansion plan proposed and kept. |
 | `pi-plugin-crash` | The plugin's backend killed: the Plugins window says it restarted, and the plans it keeps are still there. Needs the web client's plugin system, which isn't on `master` yet, and fails without it. |
-| `pi-add-pilot` | Adding a pilot shows its colonies with no Refresh. Fails today: that is a real bug, as the panel stays blank until Refresh. |
+| `pi-add-pilot` | Adding a pilot shows its colonies with no Refresh. Needs `fix/companion-pi-added-pilot-colonies`, and fails without it, as the panel stays blank until Refresh. |
 
 They live in `tools/gridcheck-plugin/scenarios/`. To check a feature of your own, add a scenario there
 with the feature, or write one in the tree's `tools/gridcheck-scenarios/`, or pass a path.

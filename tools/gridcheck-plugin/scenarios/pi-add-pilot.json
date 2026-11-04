@@ -1,5 +1,5 @@
 {
-  "description": "PI Manager: adding a pilot shows that pilot's colonies, with no Refresh. Found failing on 2026-11-04: the Colonies panel stays blank until Refresh is pressed.",
+  "description": "PI Manager: adding a pilot shows that pilot's colonies, with no Refresh.",
   "recipe": "pi-colonies",
   "setup": [
     { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },

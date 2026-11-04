@@ -1,5 +1,5 @@
 {
-  "description": "PI Manager: a haul by a pilot with no ship that has a planetary hold stops and says why, and the player can stop it.",
+  "description": "PI Manager: a haul by a pilot with no ship that has a planetary hold stops and says why before anything is launched, and the player can stop it.",
   "recipe": "pi-colonies",
   "watch": { "pilot": "e2epi2" },
   "setup": [
@@ -27,6 +27,8 @@
   "until": { "any": ["COLONY user=e2epi2"], "from": "start", "timeout": 30, "grace": 3 },
   "expect": [
     { "match": "BOT what=end status=paused", "note": "the bot paused rather than going on without a hold" },
+    { "match": "no BOT says~\"from command centre\"", "note": "nothing was launched, so no tax was paid and no container left in space" },
+    { "match": "COLONY user=e2epi2 commandUnits>0", "note": "the server says the goods are still in the command centre" },
     { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" },
     { "match": "no WEB_ERROR what=response", "note": "no API call answered 5xx" }
   ]
