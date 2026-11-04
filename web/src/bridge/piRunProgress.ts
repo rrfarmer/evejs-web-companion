@@ -69,7 +69,7 @@ export interface PiRunView {
 
 /**
  * The haul's route, grouped off its step ids (app/piDispatch.ts piHaulBotDoc):
- * launch, board (board-hauler + undock), one stage per system (fly-N +
+ * board, launch (launch + undock), one stage per system (fly-N +
  * collect-N + launches-N), unload (deliver + unload), home when a Deliver-to
  * station was picked; board-back rides on whichever stage is last.
  */
@@ -81,12 +81,12 @@ export function piHaulStages(doc: BotScript): PiRunStage[] {
     let label: string;
     let solarSystemID: number | undefined;
     const system = /^(?:fly|collect|launches)-(\d+)$/.exec(id);
-    if (id === "launch") {
-      key = "launch";
-      label = "Launch";
-    } else if (id === "board-hauler" || id === "undock") {
+    if (id === "board-hauler") {
       key = "board";
       label = "Board";
+    } else if (id === "launch" || id === "undock") {
+      key = "launch";
+      label = "Launch";
     } else if (system) {
       key = `system-${system[1]}`;
       label = systemName(step) ?? `System ${system[1]}`;

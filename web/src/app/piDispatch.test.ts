@@ -231,8 +231,8 @@ test("⚠ the lap collects BOTH ways off a colony, in every system it visits", (
   // leaves as a container in space. Dropping either collector strands goods.
   const doc = piHaulBotDoc(COLONIES, { division: 3, name: "Industry" });
   assert.deepEqual(doc.program.map((step) => (step.kind === "macro" ? `${step.macro}` : step.kind)), [
-    "launch-commodities",
     "board-planetary-hauler",
+    "launch-commodities",
     "undock",
     "travel-to-system",
     "collect-customs",
@@ -254,6 +254,11 @@ test("⚠ the lap collects BOTH ways off a colony, in every system it visits", (
   assert.ok(decoded.ok);
 });
 
+test("⚠ the lap finds its hauler before a launch charges export tax", () => {
+  const macros = piHaulBotDoc(COLONIES, null).program.map((step) => (step.kind === "macro" ? step.macro : step.kind));
+  assert.ok(macros.indexOf("board-planetary-hauler") < macros.indexOf("launch-commodities"));
+});
+
 test("the haul doc with no division unloads into the pilot's own hangar", () => {
   const unload = piHaulBotDoc(COLONIES.slice(0, 1), null).program.find((step) => step.kind === "macro" && step.macro === "unload-cargo");
   assert.ok(unload !== undefined && unload.kind === "macro");
@@ -264,7 +269,7 @@ test("the saved haul launches nonempty command centres even below one percent fu
   const decoded = decodeScriptValue(piHaulBotDoc(COLONIES.slice(0, 1), null));
   assert.ok(decoded.ok);
   if (!decoded.ok) return;
-  const launch = decoded.doc.program[0]!;
+  const launch = decoded.doc.program.find((step) => step.id === "launch")!;
   assert.ok(launch.kind === "macro");
   const result = SCRIPT_MACROS["launch-commodities"]!(launch, {
     colonies: [{
