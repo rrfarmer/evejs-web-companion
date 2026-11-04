@@ -221,7 +221,17 @@ test("adding to the list reads the newcomers' colonies, with no Refresh", () => 
   // onMount and clicks do not run under the server generator, so the wiring is
   // read off the source. gridcheck's pi-add-pilot clicks it in a real browser.
   const body = /function add\(\): void \{[\s\S]*?\n  \}\n/.exec(SOURCE)?.[0] ?? "";
-  assert.match(body, /void reread\(roster\.members\.filter\(\(member\) => !before\.has\(member\)\)\);/);
+  // In this order: a list taken after keep() has everybody on it, and reads nobody.
+  assert.match(
+    body,
+    /const before = new Set\(roster\.members\);[\s\S]*keep\([\s\S]*void reread\(roster\.members\.filter\(\(member\) => !before\.has\(member\)\)\);/,
+  );
+});
+
+test("whoever waits behind a read is read after it fails, and not after the window closes", () => {
+  assert.match(SOURCE, /\} finally \{[^}]*if \(rereadPending\.size > 0\) void reread\(\[\]\);\s*\}/);
+  assert.match(SOURCE, /if \(reading \|\| closed\) return;/);
+  assert.match(SOURCE, /return \(\) => \{\s*closed = true;/);
 });
 
 test("the add list offers pilots not yet on it, and a squad with someone new", () => {
