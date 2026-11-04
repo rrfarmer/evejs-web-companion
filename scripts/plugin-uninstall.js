@@ -27,12 +27,19 @@ async function main() {
   }
   const rootDir = path.resolve(__dirname, "..");
   const list = await import(pathToFileURL(path.join(rootDir, "plugins", "index.ts")).href);
-  const manifest = (list.PLUGINS || []).find((entry) => entry && entry.id === id);
-  if (!manifest) {
+  const listed = (list.PLUGINS || []).find((entry) => entry && entry.id === id);
+  if (!listed) {
     console.error(`No plugin called "${id}" is in this build's plugin list (plugins/index.ts).`);
     process.exit(1);
   }
-  const host = createPluginHost({ rootDir, dataDir: config.dataDir, manifests: [manifest], log: (line) => console.log(line) });
+  // A plugin that will not load can run no cleanup of its own; its data still goes.
+  let manifests = [];
+  try {
+    manifests = [(await listed.load()).default];
+  } catch (error) {
+    console.error(`${id}: it could not be loaded, so its own cleanup cannot run: ${error && error.message}`);
+  }
+  const host = createPluginHost({ rootDir, dataDir: config.dataDir, manifests, log: (line) => console.log(line) });
   await host.start();
   const outcome = await host.uninstall(id);
   host.stop();

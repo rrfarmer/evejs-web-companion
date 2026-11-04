@@ -69,6 +69,18 @@ export interface PluginViews {
   readonly windows: Readonly<Record<`plugin:${string}`, GlobalWindowView>>;
 }
 
+/** A plugin in the build's list (plugins/index.ts): its module runs only when loaded. */
+export interface PluginEntry {
+  readonly id: PluginID;
+  readonly load: () => Promise<{ readonly default: PluginManifest }>;
+}
+
+/** A plugin's views in the build's list (plugins/views.ts), for the browser only. */
+export interface PluginViewsEntry {
+  readonly id: PluginID;
+  readonly load: () => Promise<{ readonly default: PluginViews }>;
+}
+
 export function definePlugin(manifest: PluginManifest): PluginManifest {
   return Object.freeze({ ...manifest });
 }

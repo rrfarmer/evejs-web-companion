@@ -10,11 +10,12 @@
 // `activatePlugins`; what went wrong is kept against that plugin and shown in
 // the Plugins window (ui/PluginManager.svelte).
 
-import { PLUGIN_API_VERSION, type PluginManifest, type PluginViews } from "../plugin-api/index.ts";
+import { PLUGIN_API_VERSION, type PluginEntry, type PluginManifest, type PluginViews, type PluginViewsEntry } from "../plugin-api/index.ts";
+import { loadPluginModules } from "./loadPlugins.ts";
 import { registerGlobalWindow, isGlobalTab } from "../ui/globalWindow.ts";
 import { registerGlobalWindowView } from "../ui/pluginWindowViews.ts";
 import { allTabs } from "../ui/tabs.ts";
-import { pluginMacro, registerPluginMacro, pluginOfMacro } from "../bots/pluginMacros.ts";
+import { pluginMacro, registerPluginMacro } from "../bots/pluginMacros.ts";
 
 /**
  * - `active`        loaded: its windows and blocks are in
@@ -42,16 +43,22 @@ const PLUGIN_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 /** Why this plugin cannot load, or null when it may. Pure: registers nothing. */
 export function pluginProblem(manifest: PluginManifest, views: PluginViews | null): string | null {
   if (!PLUGIN_ID.test(manifest.id)) return `"${manifest.id}" is not a plugin id: lowercase words joined by hyphens.`;
+  // Seen within this manifest too: a second window or block of the same id is
+  // refused here, not when registering it, by which time the first is in.
+  const windowsSeen = new Set<string>();
   for (const window of manifest.windows ?? []) {
     if (window.id !== `plugin:${manifest.id}` && !window.id.startsWith(`plugin:${manifest.id}.`)) {
       return `The window "${window.id}" is not this plugin's: its id must be plugin:${manifest.id} or start with plugin:${manifest.id}.`;
     }
-    if (isGlobalTab(window.id) || allTabs().some((tab) => tab.id === window.id)) return `There is already a window called "${window.id}".`;
+    if (windowsSeen.has(window.id) || isGlobalTab(window.id) || allTabs().some((tab) => tab.id === window.id)) return `There is already a window called "${window.id}".`;
+    windowsSeen.add(window.id);
     if (views !== null && views.windows[window.id] === undefined) return `The window "${window.id}" has nothing to draw.`;
   }
+  const blocksSeen = new Set<string>();
   for (const macro of manifest.macros ?? []) {
-    if (pluginOfMacro(macro.id) !== manifest.id) return `The block "${macro.id}" is not this plugin's: its id must start with ${manifest.id}:.`;
-    if (pluginMacro(macro.id) !== null) return `There is already a block called "${macro.id}".`;
+    if (!macro.id.startsWith(`${manifest.id}:`) || macro.id.length === manifest.id.length + 1) return `The block "${macro.id}" is not this plugin's: its id must start with ${manifest.id}:.`;
+    if (blocksSeen.has(macro.id) || pluginMacro(macro.id) !== null) return `There is already a block called "${macro.id}".`;
+    blocksSeen.add(macro.id);
   }
   return null;
 }
@@ -93,12 +100,13 @@ export function activatePlugins(
       continue;
     }
     const pluginViews = views === null ? null : views.find((entry) => entry.id === manifest.id) ?? { id: manifest.id, windows: {} };
-    const problem = pluginProblem(manifest, pluginViews);
-    if (problem !== null) {
-      say("failed", problem);
-      continue;
-    }
     try {
+      // Inside the try: a malformed manifest makes this throw, and it is one plugin's failure.
+      const problem = pluginProblem(manifest, pluginViews);
+      if (problem !== null) {
+        say("failed", problem);
+        continue;
+      }
       for (const window of manifest.windows ?? []) {
         registerGlobalWindow({
           ...window,
@@ -146,9 +154,16 @@ export function saveDisabledPlugin(id: string, disabled: boolean): void {
 // What the page's own load came to, for the Plugins window.
 let pageStatuses: readonly PluginStatus[] = [];
 
-/** Load the build's plugins into this page. Called once by main.ts, before App mounts. */
-export function activatePagePlugins(manifests: readonly PluginManifest[], views: readonly PluginViews[]): readonly PluginStatus[] {
-  pageStatuses = activatePlugins(manifests, views, loadDisabledPlugins());
+/**
+ * Load the build's plugins into this page. Called once by main.ts, before App
+ * mounts. Never rejects: a plugin that cannot be loaded is a row saying why in
+ * the Plugins window.
+ */
+export async function activatePagePlugins(entries: readonly PluginEntry[], viewEntries: readonly PluginViewsEntry[]): Promise<readonly PluginStatus[]> {
+  const disabled = loadDisabledPlugins();
+  const loaded = await loadPluginModules(entries, viewEntries, { disabled });
+  pageStatuses = [...activatePlugins(loaded.manifests, loaded.views, disabled), ...loaded.failures];
+  for (const failure of loaded.failures) console.error(`Plugin ${failure.id}: ${failure.error}`);
   return pageStatuses;
 }
 

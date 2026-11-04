@@ -52,6 +52,18 @@ test("⚠ a plugin is refused whole: a window or block that is not its own loads
   assert.equal(isGlobalTab("plugin:beta"), false, "beta's own window did not load either");
 });
 
+test("⚠ an id listed twice in one plugin, or a block with no colon, is refused before any of it registers", () => {
+  const twice = activatePlugins([manifest("kappa", { windows: [window("plugin:kappa"), window("plugin:kappa")] })], null);
+  assert.equal(twice[0]?.state, "failed");
+  assert.match(twice[0]?.error ?? "", /already a window called "plugin:kappa"/);
+  assert.equal(isGlobalTab("plugin:kappa"), false, "its first window did not load either");
+  const blocks = activatePlugins([manifest("lambda", { macros: [block("lambda:wait"), block("lambda:wait")] })], null);
+  assert.match(blocks[0]?.error ?? "", /already a block called "lambda:wait"/);
+  assert.equal(pluginMacro("lambda:wait"), null, "its first block did not load either");
+  const colonless = activatePlugins([manifest("mu", { macros: [block("mux" as `${string}:${string}`)] })], null);
+  assert.match(colonless[0]?.error ?? "", /block "mux" is not this plugin's/);
+});
+
 test("one plugin's failure leaves the next one loading", () => {
   const statuses = activatePlugins([manifest("Bad Id"), manifest("epsilon", { macros: [block("epsilon:wait")] })], null);
   assert.deepEqual(statuses.map((s) => s.state), ["failed", "active"]);

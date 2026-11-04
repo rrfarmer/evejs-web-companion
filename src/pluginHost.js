@@ -33,6 +33,15 @@ const { pathToFileURL } = require("node:url");
 const PING_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DECIDE_TIMEOUT_MS = 2_000;
+// How long a backend may take to say it is ready. A request or a decide waits
+// this long for one still starting, however short its own answer's timeout: a
+// bot resumed as the BFF starts must not pause over a plugin coming up. One
+// still not ready by then has hung, and is killed like any other.
+const START_TIMEOUT_MS = 30_000;
+// How long a plugin's modules may take to load into the BFF. Bots resume only
+// after this, and one given up on loses its blocks until the BFF restarts, so
+// it is generous; it exists so that one that never finishes cannot hold them all.
+const MANIFEST_LOAD_TIMEOUT_MS = 60_000;
 const BACKOFF_MS = [1_000, 5_000, 30_000];
 const MAX_FAILURES = 5;
 const FAILURE_WINDOW_MS = 10 * 60_000;
@@ -47,6 +56,7 @@ function createPluginHost(options = {}) {
   const pingMs = options.pingMs || PING_MS;
   const requestTimeoutMs = options.requestTimeoutMs || REQUEST_TIMEOUT_MS;
   const decideTimeoutMs = options.decideTimeoutMs || DECIDE_TIMEOUT_MS;
+  const startTimeoutMs = options.startTimeoutMs || START_TIMEOUT_MS;
   const backoffMs = options.backoffMs || BACKOFF_MS;
   // What core kept for a plugin before it was one, handed over once when its
   // backend first comes up: plugin id -> () => records. The marker file says
@@ -60,8 +70,15 @@ function createPluginHost(options = {}) {
 
   async function loadManifests() {
     if (options.manifests) return options.manifests;
-    const list = await import(pathToFileURL(path.join(rootDir, "plugins", "index.ts")).href);
-    return Array.isArray(list.PLUGINS) ? list.PLUGINS : [];
+    const [list, loader] = await Promise.all([
+      import(pathToFileURL(path.join(rootDir, "plugins", "index.ts")).href),
+      import(pathToFileURL(path.join(rootDir, "web", "src", "plugins", "loadPlugins.ts")).href),
+    ]);
+    const loaded = await loader.loadPluginModules(Array.isArray(list.PLUGINS) ? list.PLUGINS : [], null, {
+      timeoutMs: options.manifestLoadTimeoutMs || MANIFEST_LOAD_TIMEOUT_MS,
+    });
+    for (const failure of loaded.failures) log(`${failure.id}: ${failure.error}`);
+    return loaded.manifests;
   }
 
   function status(entry) {
@@ -76,7 +93,44 @@ function createPluginHost(options = {}) {
     entry.pending.clear();
   }
 
+  /**
+   * What ends one backend's process: count the failure, then start it again
+   * after a backoff, or leave it failed once it has failed too often.
+   */
+  function afterFailure(entry) {
+    const now = Date.now();
+    entry.failures = entry.failures.filter((at) => now - at < FAILURE_WINDOW_MS).concat(now);
+    if (entry.failures.length >= MAX_FAILURES) {
+      entry.state = "failed";
+      log(`${entry.id}: stopped after ${entry.failures.length} failures. ${entry.error}`);
+      return;
+    }
+    entry.state = "restarting";
+    const delay = backoffMs[Math.min(entry.failures.length - 1, backoffMs.length - 1)];
+    log(`${entry.id}: ${entry.error} Starting again in ${delay / 1000} s.`);
+    entry.restartTimer = setTimeout(() => {
+      entry.restartTimer = null;
+      if (!stopping) {
+        entry.restarts += 1;
+        spawn(entry);
+      }
+    }, delay);
+    entry.restartTimer.unref?.();
+  }
+
+  /** Start one backend's process. Never throws: what stops it is that plugin's failure. */
   function spawn(entry) {
+    try {
+      startProcess(entry);
+    } catch (error) {
+      entry.child = null;
+      entry.error = `Its process could not be started: ${error && error.message}`;
+      entry.readyWaiters.splice(0).forEach((resolve) => resolve(false));
+      afterFailure(entry);
+    }
+  }
+
+  function startProcess(entry) {
     const pluginDataDir = path.join(dataDir, "plugins", entry.id);
     fs.mkdirSync(pluginDataDir, { recursive: true });
     const execArgv = permission
@@ -106,7 +160,22 @@ function createPluginHost(options = {}) {
       serialization: "advanced",
     });
     entry.child = child;
-    entry.lastPong = Date.now();
+    entry.startedAt = Date.now();
+    entry.lastPong = entry.startedAt;
+    // ⚠ WITHOUT A LISTENER, AN ERROR HERE ENDS THE BFF. A send to a closed channel
+    // and a process that cannot start are reported as this event, not thrown, and
+    // Node treats an unheard 'error' as an uncaught exception. A process that
+    // never started has no exit event to come, so it is that plugin's failure here.
+    child.on("error", (error) => {
+      if (entry.child !== child) return;
+      log(`${entry.id}: ${error && error.message}`);
+      if (child.pid !== undefined) return;
+      entry.child = null;
+      entry.error = `Its process could not be started: ${error && error.message}`;
+      failPending(entry, 503, "The plugin's server part stopped. Try again in a moment.");
+      entry.readyWaiters.splice(0).forEach((resolve) => resolve(false));
+      if (!stopping && entry.state !== "stopped") afterFailure(entry);
+    });
     const prefix = (stream, write) => stream?.on("data", (chunk) => {
       for (const line of String(chunk).split("\n")) if (line.trim()) write(`[plugin ${entry.id}] ${line}`);
     });
@@ -117,6 +186,8 @@ function createPluginHost(options = {}) {
       if (message.type === "ready") {
         entry.state = "running";
         entry.error = null;
+        // The watchdog's clock starts now: the time it took to start is not silence.
+        entry.lastPong = Date.now();
         entry.readyWaiters.splice(0).forEach((resolve) => resolve(true));
         void handOver(entry.id);
         return;
@@ -140,25 +211,8 @@ function createPluginHost(options = {}) {
         entry.state = "stopped";
         return;
       }
-      const now = Date.now();
-      entry.failures = entry.failures.filter((at) => now - at < FAILURE_WINDOW_MS).concat(now);
       entry.error = entry.error || `Its process ended (${signal || `exit code ${code}`}).`;
-      if (entry.failures.length >= MAX_FAILURES) {
-        entry.state = "failed";
-        log(`${entry.id}: stopped after ${entry.failures.length} failures. ${entry.error}`);
-        return;
-      }
-      entry.state = "restarting";
-      const delay = backoffMs[Math.min(entry.failures.length - 1, backoffMs.length - 1)];
-      log(`${entry.id}: ${entry.error} Starting again in ${delay / 1000} s.`);
-      entry.restartTimer = setTimeout(() => {
-        entry.restartTimer = null;
-        if (!stopping) {
-          entry.restarts += 1;
-          spawn(entry);
-        }
-      }, delay);
-      entry.restartTimer.unref?.();
+      afterFailure(entry);
     });
   }
 
@@ -166,7 +220,15 @@ function createPluginHost(options = {}) {
     const timer = setInterval(() => {
       for (const entry of backends.values()) {
         const child = entry.child;
-        if (!child || entry.state !== "running") continue;
+        if (!child) continue;
+        if (entry.state !== "running") {
+          // Hung before it said it was ready: no ping would be answered either.
+          if (entry.state !== "stopped" && Date.now() - entry.startedAt > startTimeoutMs) {
+            entry.error = "It did not finish starting, so it was stopped.";
+            child.kill("SIGKILL");
+          }
+          continue;
+        }
         if (Date.now() - entry.lastPong > pingMs * 2) {
           entry.error = "It stopped answering, so it was stopped.";
           child.kill("SIGKILL");
@@ -209,7 +271,13 @@ function createPluginHost(options = {}) {
       log(`${id}: it did not take over what core kept for it: ${error}`);
       return;
     }
-    fs.writeFileSync(handoffMarker, JSON.stringify({ ...handoffsDone(), [id]: new Date().toISOString() }, null, 2));
+    try {
+      fs.writeFileSync(handoffMarker, JSON.stringify({ ...handoffsDone(), [id]: new Date().toISOString() }, null, 2));
+    } catch (writeError) {
+      // Unmarked, it is handed over again on the next start, which keeps every plan it already has.
+      log(`${id}: took over what core kept for it, but that could not be noted: ${writeError && writeError.message}`);
+      return;
+    }
     log(`${id}: took over what core kept for it.`);
   }
 
@@ -263,6 +331,7 @@ function createPluginHost(options = {}) {
         error: null,
         child: null,
         lastPong: 0,
+        startedAt: 0,
         pending: new Map(),
         readyWaiters: [],
         restartTimer: null,
@@ -299,7 +368,7 @@ function createPluginHost(options = {}) {
   async function ask(id, message, timeoutMs) {
     const entry = backends.get(id);
     if (!entry) return { type: "failed", status: 404, message: "No plugin with a server part is called that." };
-    if (!(await whenReady(entry, timeoutMs))) {
+    if (!(await whenReady(entry, Math.max(timeoutMs, startTimeoutMs)))) {
       return { type: "failed", status: 503, message: entry.error || "The plugin's server part is not running." };
     }
     const messageID = nextMessageID++;

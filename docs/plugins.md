@@ -70,8 +70,10 @@ export default definePlugin({
 });
 ```
 
-Add it to the build by listing its manifest in `plugins/index.ts` and its views in
-`plugins/views.ts`. Nothing in core changes.
+Add it to the build by listing a loader for its manifest in `plugins/index.ts` and
+one for its views in `plugins/views.ts`: `{ id: "my-plugin", load: () => import("./my-plugin/plugin.ts") }`.
+Never a static import: a plugin's code runs when its module loads, and each loader is
+run on its own so that one that throws fails alone. Nothing in core changes.
 
 ## What a plugin can add
 
@@ -141,8 +143,9 @@ places:
   in passes. A pass that meets a plugin block with no answer yet records the
   question and is thrown away. The plugin process is asked, and the pass runs
   again with the answer. Deciding is pure, so the second pass is exact. If the
-  plugin cannot answer, its bot pauses and says why, and nothing of that tick is
-  acted on.
+  plugin cannot answer, nothing of that tick is acted on and its bot stops as for
+  any block that failed: docked it pauses at once, and in space it flies home first,
+  asking no plugin on the way. Either way it says why.
 
 A script that uses a block of a plugin the build does not have (or a browser has
 switched off) is refused when it is read, naming the plugin. The stored script is
@@ -184,10 +187,11 @@ if (typeof process.send === "function") {
 | Where | What contains a failure |
 | --- | --- |
 | Loading | Each plugin is checked whole before anything of it registers: a window or block id that is not its own, a duplicate, or another API version, and it loads nothing and says why. Every other plugin loads regardless. |
-| Page | Each window is drawn inside an error boundary. **Not isolated:** a plugin's infinite loop in page code still freezes the tab. Keep heavy work in the backend. |
+| Loading | Each plugin's modules are loaded on their own, in the page and the BFF (`web/src/plugins/loadPlugins.ts`). One that throws, rejects or never finishes loading is left out and says why, and the client and the other plugins load regardless. In the page it is given 20 s, because nothing is drawn until plugins are in. |
+| Page | Each window is drawn inside an error boundary. **Not isolated:** a plugin's infinite loop in page code, including one at the top of its module, still freezes the tab. In the BFF the same loop at the top of a manifest's module freezes the BFF, because the BFF loads manifests to read their blocks. Keep a module's top level to declarations, and heavy work in the backend. |
 | BFF | Each backend is its own process. A throw is that request's 500; a request in flight when it dies gets a 503; one it does not answer within 30 s gets a 504. The watchdog pings every 5 s and kills a backend that misses two pings. A backend that exits is restarted after 1 s, 5 s, then 30 s, and stays stopped after five failures in ten minutes. |
 | Files | Each backend runs under Node's permission model. It may read its plugin folder, the web sources and `node_modules`, and write only `data/plugins/<id>`. The core database is out of reach. Node calls this a seat belt for trusted code, not a sandbox against hostile code. Backends are also allowed native packages (`--allow-addons`, for SQLite), and Node warns that native code can step outside the model, so a plugin that ships native code is trusted code. |
-| Bots | A hosted bot's plugin blocks are decided in the plugin's process (2 s per answer); a plugin that cannot answer pauses only its own bots. |
+| Bots | A hosted bot's plugin blocks are decided in the plugin's process (2 s per answer); a plugin that cannot answer stops only its own bots, which fly home first if they are in space. |
 
 The Plugins window ("Manage plugins" in the Plugins menu) shows each plugin: whether it loaded, why
 not, and its backend's state and restarts (`GET /api/plugins`).
