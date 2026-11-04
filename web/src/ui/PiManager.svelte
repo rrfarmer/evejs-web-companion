@@ -1281,8 +1281,13 @@
     }
     choice = "";
     // Only the newcomers: everyone else's reading stands, and a read already
-    // under way picks them up when it ends.
-    void reread(roster.members.filter((member) => !before.has(member)));
+    // under way picks them up when it ends. Their rows say so from now, not from
+    // when that read ends. They have no colonies yet, so this holds no button back.
+    const newcomers = roster.members.filter((member) => !before.has(member));
+    const marked = new Map(attempts);
+    for (const member of newcomers) marked.set(member, "reading");
+    attempts = marked;
+    void reread(newcomers);
   }
 
   /** Off the PI list only: nothing is signed in, selected or undocked. */

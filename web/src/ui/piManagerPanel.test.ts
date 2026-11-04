@@ -224,8 +224,10 @@ test("adding to the list reads the newcomers' colonies, with no Refresh", () => 
   // In this order: a list taken after keep() has everybody on it, and reads nobody.
   assert.match(
     body,
-    /const before = new Set\(roster\.members\);[\s\S]*keep\([\s\S]*void reread\(roster\.members\.filter\(\(member\) => !before\.has\(member\)\)\);/,
+    /const before = new Set\(roster\.members\);[\s\S]*keep\([\s\S]*const newcomers = roster\.members\.filter\(\(member\) => !before\.has\(member\)\);[\s\S]*void reread\(newcomers\);/,
   );
+  // A newcomer waiting behind a read in progress already says it is being looked at.
+  assert.match(body, /for \(const member of newcomers\) marked\.set\(member, "reading"\);/);
 });
 
 test("whoever waits behind a read is read after it fails, and not after the window closes", () => {
