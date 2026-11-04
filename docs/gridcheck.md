@@ -70,8 +70,9 @@ when this tree has them.
 
 Every connection the web client makes is set to this tree's server. The client's own defaults are the
 stock ports, which on your machine may be a server people play on, so `web up` refuses a checkout
-that reads a host, port or URL variable the plugin doesn't set. Add the variable to `containerEnv`
-in `tools/gridcheck-plugin/tool/webClient.js`. It also refuses a server `gridcheck up` didn't start.
+that reads a host, port or URL variable the plugin doesn't set. A prebuilt image (`--no-build`,
+`--image`) is read the same way, from inside the image. Add the variable to `containerEnv` in
+`tools/gridcheck-plugin/tool/webClient.js`. It also refuses a server `gridcheck up` didn't start.
 
 ## Pilots
 
@@ -139,8 +140,8 @@ against the server's wall clock.
 
 | Kind | Fields |
 | --- | --- |
-| `WEB` | `what` (`up`), `url`, `commit`, `dirty`, `image`, `channel`. The commit under test is in the report. |
-| `WEB_ERROR` | `what`: `exception` (the page threw), `console` (an error it logged), `response` (an API call answered 5xx), `dialog`. `text`, `url`, `status`. Comes with each web step. |
+| `WEB` | `what` (`up`), `url`, `commit`, `dirty`, `image`, `channel`. The commit under test is in the report, read from the image's labels: an image this plugin didn't build has none. |
+| `WEB_ERROR` | `what`: `exception` (the page threw), `console` (an error it logged), `response` (an API call answered 5xx), `dialog`. `text`, `url`, `status`. Comes with each web step, `botWait` and `colonyRead`, so what the page does after the last of them isn't heard. |
 | `COLONY` | `characterID`, `user`, `planetID`, `planetName`, `level`, `pins`, `extractors`, `extracting`, `finished`, `launchpadUnits`, `commandUnits`, `routes`. |
 | `BOT` | `what`: `phase`, `issue`, `result`, `end`. `says`, `phase`, `status`, `reason`, `ok`, `run`. |
 

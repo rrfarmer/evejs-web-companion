@@ -5,8 +5,8 @@
 //
 // Everything it connects to must be this tree's server. The companion's defaults are the stock
 // ports, which on this machine may be a server people play on, so a variable left unset here is a
-// connection to that server. containerEnv sets every one, and web up refuses a checkout that reads
-// a host, port or URL variable this file doesn't know.
+// connection to that server. containerEnv sets every one, and web up refuses a checkout or a prebuilt
+// image that reads a host, port or URL variable this file doesn't know.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -16,7 +16,11 @@ const { spawn } = require("node:child_process");
 const WEB_OFFSET = 11;
 const CONTAINER_PORT = 26500;
 const HOST_FROM_CONTAINER = "host.docker.internal";
+const COMMIT_LABEL = "gridcheck.commit";
+const DIRTY_LABEL = "gridcheck.dirty";
 const BOT_LOGS = "/app/data/bot-logs";
+// Where the BFF's own code is: src/botHost.js runs web/src, and a plugin's backend is its own process.
+const BFF_CODE = ["src", "web/src", "plugins"];
 
 const HANDLED_CONNECTION_VARS = new Set([
   "EVEJS_GATEWAY_URL", "EVEJS_GAME_HOST", "EVEJS_GAME_PORT", "EVEJS_PUBLIC_GATEWAY_URL", "EVEJS_XMPP_HOST", "EVEJS_XMPP_PORT",
@@ -110,20 +114,42 @@ function containerEnv(ports, { sdeFolder }) {
   };
 }
 
+const unhandled = (names) => [...new Set(names)].filter((name) => !HANDLED_CONNECTION_VARS.has(name)).sort();
+
 // The connection variables a checkout reads and containerEnv doesn't set. -> names
 function unhandledConnectionVars(checkout) {
-  const found = new Set();
+  const found = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const file = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(file);
-      else if (/\.c?js$/.test(entry.name) && !/\.test\./.test(entry.name)) {
-        for (const match of fs.readFileSync(file, "utf8").matchAll(/\bEVEJS_(?:[A-Z0-9]+_)*(?:HOST|PORT|URL)\b/g)) found.add(match[0]);
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules") walk(file);
+      } else if (/\.[cm]?[jt]s$/.test(entry.name) && !/\.test\./.test(entry.name)) {
+        for (const match of fs.readFileSync(file, "utf8").matchAll(/\bEVEJS_(?:[A-Z0-9]+_)*(?:HOST|PORT|URL)\b/g)) found.push(match[0]);
       }
     }
   };
-  walk(path.join(checkout, "src"));
-  return [...found].filter((name) => !HANDLED_CONNECTION_VARS.has(name)).sort();
+  for (const folder of BFF_CODE) {
+    const dir = path.join(checkout, folder);
+    if (fs.existsSync(dir)) walk(dir);
+  }
+  return unhandled(found);
+}
+
+// The same, read from inside an image that wasn't just built from the checkout. -> names
+async function unhandledConnectionVarsInImage(io, image) {
+  const folders = BFF_CODE.map((folder) => `/app/${folder}`).join(" ");
+  const grep = `grep -rhosE --exclude='*.test.*' --include='*.js' --include='*.cjs' --include='*.mjs' --include='*.ts' ` +
+    `'EVEJS_([A-Z0-9]+_)*(HOST|PORT|URL)\\b' ${folders}; exit 0`;
+  const reply = await docker(["run", "--rm", "--network", "none", "--entrypoint", "sh", image, "-c", grep]);
+  if (reply.status !== 0) throw new io.CliError(`couldn't read the image ${image}: ${String(reply.stderr).trim()}`);
+  return unhandled(reply.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+}
+
+function refuseUnhandled(io, names) {
+  if (!names.length) return;
+  throw new io.CliError(`this web client reads ${names.join(", ")}, which this plugin doesn't set, so it could reach a server ` +
+    "other than this tree's. Add them to containerEnv (tools/gridcheck-plugin/tool/webClient.js in the web client) first.");
 }
 
 function sdeFolderIn(reference) {
@@ -141,6 +167,22 @@ async function checkoutInfo(checkout) {
   const head = await run("git", ["rev-parse", "--short", "HEAD"], { cwd: checkout });
   const status = await run("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: checkout });
   return { commit: head.status === 0 ? head.stdout.trim() : null, dirty: status.status === 0 && status.stdout.trim() !== "" };
+}
+
+// What an image's labels say it was built from. An image this plugin didn't build says nothing.
+function builtFrom(labels) {
+  const commit = labels && labels[COMMIT_LABEL];
+  return { commit: commit || null, dirty: Boolean(labels) && labels[DIRTY_LABEL] === "true" };
+}
+
+async function imageInfo(image) {
+  const reply = await docker(["image", "inspect", "--format", "{{json .Config.Labels}}", image]);
+  if (reply.status !== 0) return builtFrom(null);
+  try {
+    return builtFrom(JSON.parse(reply.stdout));
+  } catch (_error) {
+    return builtFrom(null);
+  }
 }
 
 // Which checkout to test, and which tree's reference data (the static tables and the SDE) it reads.
@@ -164,7 +206,9 @@ async function imageFor(io, checkout, { build = true, image = null } = {}) {
   const logFile = path.join(baseDir(io), "build.log");
   fs.mkdirSync(baseDir(io), { recursive: true });
   io.print(`web: building ${tag} from ${checkout}; log in ${io.relativePath(logFile)}`);
-  const built = await docker(["build", "-t", tag, checkout], { timeoutMs: 1_200_000, logFile });
+  const { commit, dirty } = await checkoutInfo(checkout);
+  const built = await docker(["build", "-t", tag, "--label", `${COMMIT_LABEL}=${commit || ""}`, "--label", `${DIRTY_LABEL}=${dirty}`, checkout],
+    { timeoutMs: 1_200_000, logFile });
   if (built.status !== 0) {
     throw new io.CliError(`the web client's image didn't build: ${String(built.stderr).trim().split(/\r?\n/).slice(-6).join(" ")}`);
   }
@@ -175,12 +219,11 @@ async function imageFor(io, checkout, { build = true, image = null } = {}) {
 async function startWebClient(io, options = {}) {
   const ports = serverPorts(io);
   const { checkout, reference, sdeFolder } = chooseCheckout(io, options);
-  const unknown = unhandledConnectionVars(checkout);
-  if (unknown.length) {
-    throw new io.CliError(`this web client reads ${unknown.join(", ")}, which this plugin doesn't set, so it could reach a server ` +
-      "other than this tree's. Add them to containerEnv (tools/gridcheck-plugin/tool/webClient.js in the web client) first.");
-  }
+  // An image built now is the checkout. A prebuilt one is whatever it was built from, so it is read itself.
+  const prebuilt = Boolean(options.image) || options.build === false;
+  if (!prebuilt) refuseUnhandled(io, unhandledConnectionVars(checkout));
   const image = await imageFor(io, checkout, options);
+  if (prebuilt) refuseUnhandled(io, await unhandledConnectionVarsInImage(io, image));
   const name = containerName(ports);
   const volume = volumeName(ports);
   await docker(["rm", "-f", name]);
@@ -209,7 +252,7 @@ async function startWebClient(io, options = {}) {
     }
     await io.sleep(1_000);
   }
-  return { url, image, checkout, ...(await checkoutInfo(checkout)) };
+  return { url, image, checkout, ...(await imageInfo(image)) };
 }
 
 async function webClientStatus(io) {
@@ -223,7 +266,13 @@ async function webClientStatus(io) {
   return { up: reply.status === 0 && reply.stdout.trim() === "running", url: webUrl(ports), name: containerName(ports) };
 }
 
-// Every container of ours. A run may end after the server went, when the block isn't known.
+// This tree's web client, of every tree's. run.json outlives `gridcheck down`, so no slot means this
+// tree never started a server, and a web client that is running is another tree's.
+function containersOfSlot(names, slot) {
+  return slot === null || slot === undefined ? [] : names.filter((name) => name === containerName({ slot }));
+}
+
+// Every web client on this machine, whichever tree's.
 async function ourContainers() {
   const listed = await docker(["ps", "-a", "--filter", "label=gridcheck-web=1", "--format", "{{.Names}}"]);
   return listed.status === 0 ? listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) : [];
@@ -233,9 +282,7 @@ async function ourContainers() {
 async function stopWebClient(io, { runDir = null } = {}) {
   const started = io.readRun();
   const slot = started && started.ports ? started.ports.slot : null;
-  for (const name of await ourContainers()) {
-    // Another tree's web client is that tree's.
-    if (slot !== null && name !== `gridcheck-web-${slot}`) continue;
+  for (const name of containersOfSlot(await ourContainers(), slot)) {
     if (runDir) {
       const out = path.join(runDir, "web");
       fs.mkdirSync(out, { recursive: true });
@@ -253,6 +300,11 @@ async function stopWebClient(io, { runDir = null } = {}) {
 async function botLog(io, characterID) {
   const ports = serverPorts(io);
   const reply = await docker(["exec", containerName(ports), "sh", "-c", `cat ${BOT_LOGS}/${Number(characterID)}.jsonl 2>/dev/null || true`], { timeoutMs: 20_000 });
+  // A missing log is fine (the cat is guarded). A failure here that isn't a slow docker is a dead BFF,
+  // and waiting on its log would only run out the clock.
+  if (reply.status !== 0 && !(await webClientStatus(io)).up) {
+    throw new io.CliError(`the web client isn't running: ${String(reply.stderr).trim()}`);
+  }
   const lines = [];
   for (const text of reply.stdout.split(/\r?\n/)) {
     if (!text.trim()) continue;
@@ -284,9 +336,11 @@ module.exports = {
   WEB_OFFSET,
   baseDir,
   botLog,
+  builtFrom,
   chooseCheckout,
   containerEnv,
   containerName,
+  containersOfSlot,
   readSettings,
   run,
   serverPorts,

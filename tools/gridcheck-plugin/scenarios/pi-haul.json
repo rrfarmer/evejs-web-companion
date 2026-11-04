@@ -33,7 +33,8 @@
     { "match": "BOT what=result says~\"empty customs office\"", "note": "it emptied the office" },
     { "match": "BOT what=end status=stopped", "note": "the lap finished rather than pausing" },
     "no BOT ok=false",
-    { "match": "COLONY launchpadUnits=0", "note": "the server says a launchpad was emptied" },
+    { "match": "COLONY planetID=40161463 launchpadUnits=0", "note": "the server says Amamake I's launchpad was emptied" },
+    { "match": "COLONY planetID=40161469 launchpadUnits=0", "note": "and Amamake IV's" },
     { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" },
     { "match": "no WEB_ERROR what=response", "note": "no API call answered 5xx" }
   ]

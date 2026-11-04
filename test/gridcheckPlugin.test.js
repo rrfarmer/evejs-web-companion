@@ -9,7 +9,9 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -17,6 +19,9 @@ const plan = require("../tools/gridcheck-plugin/colonyPlan");
 const { botEvents, newestRun, runFinished } = require("../tools/gridcheck-plugin/tool/botLog");
 const { nodeFromFlags, nodeProblems } = require("../tools/gridcheck-plugin/tool/nodes");
 const web = require("../tools/gridcheck-plugin/tool/webClient");
+const { stopBrowser } = require("../tools/gridcheck-plugin/tool/browser");
+const { steps } = require("../tools/gridcheck-plugin/tool");
+const { createCompanionServer } = require("../tools/gridcheck-plugin/server");
 
 const PLUGIN_DIR = path.join(__dirname, "..", "tools", "gridcheck-plugin");
 const GRIDCHECK = String(process.env.GRIDCHECK_CHECKOUT || "").trim();
@@ -120,6 +125,109 @@ test("a checkout that reads a connection variable this plugin doesn't set is fou
   fs.writeFileSync(path.join(dir, "src", "deep", "b.js"), "process.env.EVEJS_MARKET_HOST; process.env.EVEJS_NEW_THING_URL;");
   fs.writeFileSync(path.join(dir, "src", "deep", "b.test.js"), "process.env.EVEJS_TEST_PORT;");
   assert.deepStrictEqual(web.unhandledConnectionVars(dir), ["EVEJS_MARKET_HOST", "EVEJS_NEW_THING_URL"]);
+});
+
+test("code the BFF runs outside src is read too, and what it installed is not", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, "web", "src", "nav"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "plugins", "one", "node_modules", "dep"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "web", "src", "nav", "macro.ts"), "process.env.EVEJS_BOT_URL;");
+  fs.writeFileSync(path.join(dir, "plugins", "one", "backend.mjs"), "process.env.EVEJS_PLUGIN_HOST;");
+  fs.writeFileSync(path.join(dir, "plugins", "one", "node_modules", "dep", "index.js"), "process.env.EVEJS_DEP_PORT;");
+  assert.deepStrictEqual(web.unhandledConnectionVars(dir), ["EVEJS_BOT_URL", "EVEJS_PLUGIN_HOST"]);
+});
+
+test("only this tree's web client is this tree's to stop, and with no slot none is", () => {
+  const names = ["gridcheck-web-1", "gridcheck-web-12", "gridcheck-web-2"];
+  assert.deepStrictEqual(web.containersOfSlot(names, 1), ["gridcheck-web-1"]);
+  assert.deepStrictEqual(web.containersOfSlot(names, null), []);
+  assert.deepStrictEqual(web.containersOfSlot(names, undefined), []);
+});
+
+test("an image says what it was built from, and one this plugin didn't build says nothing", () => {
+  assert.deepStrictEqual(web.builtFrom({ "gridcheck.commit": "abc1234", "gridcheck.dirty": "true" }), { commit: "abc1234", dirty: true });
+  assert.deepStrictEqual(web.builtFrom({ "gridcheck.commit": "abc1234", "gridcheck.dirty": "false" }), { commit: "abc1234", dirty: false });
+  assert.deepStrictEqual(web.builtFrom({ other: "x" }), { commit: null, dirty: false });
+  assert.deepStrictEqual(web.builtFrom(null), { commit: null, dirty: false });
+});
+
+test("a step's mistakes are found when it is read", () => {
+  const problems = (name, raw) => {
+    const found = [];
+    steps[name].parse(raw, { problem: (key, message) => found.push(`${key}: ${message}`) });
+    return found.join("; ");
+  };
+  assert.strictEqual(problems("colony", { colony: { planetID: 7, extract: [{ resource: "Base Metals" }] } }), "");
+  assert.match(problems("colony", { colony: { planetID: 7, extract: [{ resource: "x", into: "moon" }] } }), /into/);
+  assert.strictEqual(problems("colonyStock", { colonyStock: { planetID: 7, pin: "command", type: "Base Metals", quantity: 5 } }), "");
+  assert.match(problems("colonyStock", { colonyStock: { planetID: 7, pin: "commandcentre", type: "Base Metals", quantity: 5 } }), /pin: launchpad or command/);
+  assert.match(problems("colonyStock", { colonyStock: { planetID: 7, pin: "command", type: "Base Metals" } }), /quantity/);
+  assert.strictEqual(problems("webUp", { webUp: true }), "");
+  assert.strictEqual(problems("webUp", { webUp: { build: false, image: "x" } }), "");
+  assert.match(problems("webUp", { webUp: { biuld: false } }), /biuld: unknown key/);
+  assert.match(problems("colonyAge", { colonyAge: 8, planetID: "x" }), /planetID/);
+});
+
+test("goods the colony refuses are a refusal, and a pin must be one it knows", () => {
+  let answer = { success: false, errorMsg: "NO_ROOM" };
+  const modules = {
+    "services/planet/planetRuntimeStore": {
+      getColony: () => ({ pins: [{ pinID: 1, typeID: 10 }, { pinID: 2, typeID: 20 }] }),
+      addCommodityToColonyPin: () => answer,
+    },
+    "services/planet/planetStaticData": {
+      getPinEntityType: (typeID) => ({ 10: "command", 20: "spaceport" })[typeID],
+      listPITypeInfos: () => [{ typeID: 2267, typeName: "Base Metals" }],
+    },
+  };
+  const { routes } = createCompanionServer({ require: (name) => modules[name] });
+  const stock = (pin) => routes["POST /companion/colony/stock"]({ body: { characterID: 9, planetID: 7, pin, type: "Base Metals", quantity: 5 } });
+  assert.strictEqual(stock("command").statusCode, 400);
+  assert.match(stock("command").body.error, /NO_ROOM/);
+  answer = { success: true };
+  assert.deepStrictEqual(stock("command").body, { ok: true, pinID: 1 });
+  assert.deepStrictEqual(stock("launchpad").body, { ok: true, pinID: 2 });
+  assert.match(stock("commandcentre").body.error, /launchpad or command/);
+});
+
+test("stopping the browser never kills a pid its host doesn't claim", async (t) => {
+  const e2eDir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-"));
+  const someoneElse = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+  const gone = new Promise((resolve) => { someoneElse.on("exit", resolve); });
+  const claiming = http.createServer((_request, response) => response.end(JSON.stringify({ ok: true, pid: someoneElse.pid + 1 })));
+  await new Promise((resolve) => { claiming.listen(0, "127.0.0.1", resolve); });
+  t.after(async () => {
+    someoneElse.kill();
+    await gone;
+    claiming.close();
+    fs.rmSync(e2eDir, { recursive: true, force: true });
+  });
+  const io = {
+    e2eDir,
+    pidAlive: () => assert.fail("a pid nobody claimed was looked at"),
+    sleep: async () => {},
+  };
+  const saved = (port) => {
+    fs.mkdirSync(web.baseDir(io), { recursive: true });
+    fs.writeFileSync(path.join(web.baseDir(io), "browser.json"), JSON.stringify({ pid: someoneElse.pid, port }));
+  };
+
+  // The host is gone: nothing answers on its port.
+  const closed = http.createServer();
+  await new Promise((resolve) => { closed.listen(0, "127.0.0.1", resolve); });
+  const closedPort = closed.address().port;
+  await new Promise((resolve) => { closed.close(resolve); });
+  saved(closedPort);
+  assert.strictEqual(await stopBrowser(io), true);
+
+  // Something answers there, under another pid.
+  saved(claiming.address().port);
+  assert.strictEqual(await stopBrowser(io), true);
+
+  assert.strictEqual(someoneElse.exitCode, null);
+  assert.strictEqual(someoneElse.signalCode, null);
+  assert.ok(!fs.existsSync(path.join(web.baseDir(io), "browser.json")));
 });
 
 test("a node names something on the page, and a bad one says why", () => {

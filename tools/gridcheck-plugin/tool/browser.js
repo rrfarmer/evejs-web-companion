@@ -11,6 +11,7 @@ const { WEB_OFFSET, baseDir, run, serverPorts } = require("./webClient");
 
 const PLAYWRIGHT_VERSION = "1.64.1";
 const BROWSER_OFFSET = WEB_OFFSET + 1;
+const STOP_WAIT_MS = 10_000;
 
 const stateFile = (io) => path.join(baseDir(io), "browser.json");
 const modulesDir = (io) => path.join(baseDir(io), "playwright");
@@ -73,7 +74,11 @@ async function startBrowser(io) {
   await stopBrowser(io);
   const port = browserPort(io);
   const profile = path.join(baseDir(io), "browser-profile");
-  fs.rmSync(profile, { recursive: true, force: true });
+  try {
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (error) {
+    throw new io.CliError(`the browser's profile is still in use, so a browser from an earlier run may still be up: ${error.message}`);
+  }
   const logFile = path.join(baseDir(io), "browser.log");
   const log = fs.openSync(logFile, "w");
   const child = spawn(process.execPath, [path.join(__dirname, "browserHost.js")], {
@@ -89,7 +94,8 @@ async function startBrowser(io) {
   for (;;) {
     try {
       const status = await ask(port, { op: "status" }, 2_000);
-      if (status.ok) return status;
+      // An old host still on the port answers too, with a browser that is signed in.
+      if (status.ok && status.pid === child.pid) return status;
     } catch (_error) {
       // Not listening yet.
     }
@@ -104,11 +110,17 @@ async function stopBrowser(io) {
   const state = readBrowserState(io);
   if (!state) return false;
   fs.rmSync(stateFile(io), { force: true });
+  let reply = null;
   try {
-    await ask(state.port, { op: "stop" }, 5_000);
+    reply = await ask(state.port, { op: "stop" }, 5_000);
   } catch (_error) {
     // It was gone already, or didn't answer.
   }
+  // The saved pid is only ours if the host says so: after a reboot it can be anyone's.
+  if (!reply || reply.pid !== state.pid) return true;
+  // The host answers first and then closes its browser, which has to let go of the profile.
+  const deadline = Date.now() + STOP_WAIT_MS;
+  while (io.pidAlive(state.pid) && Date.now() < deadline) await io.sleep(100);
   if (io.pidAlive(state.pid)) {
     try {
       process.kill(state.pid);
@@ -117,6 +129,16 @@ async function stopBrowser(io) {
     }
   }
   return true;
+}
+
+// The page's events since anyone last asked. The position is kept with the host's state, as each
+// command is a process of its own.
+async function unreadPageEvents(io) {
+  const state = readBrowserState(io);
+  if (!state) return [];
+  const { events, last } = await browserOp(io, "events", { since: state.eventsRead || 0 });
+  fs.writeFileSync(stateFile(io), `${JSON.stringify({ ...state, eventsRead: last })}\n`);
+  return events;
 }
 
 // One browser op. A refusal is a CliError in Playwright's words, which name what it found.
@@ -133,4 +155,4 @@ async function browserOp(io, op, args = {}) {
   return reply;
 }
 
-module.exports = { PLAYWRIGHT_VERSION, browserOp, playwrightInstalled, readBrowserState, setupBrowser, startBrowser, stopBrowser };
+module.exports = { PLAYWRIGHT_VERSION, browserOp, playwrightInstalled, readBrowserState, setupBrowser, startBrowser, stopBrowser, unreadPageEvents };

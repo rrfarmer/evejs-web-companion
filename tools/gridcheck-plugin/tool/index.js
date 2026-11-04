@@ -6,8 +6,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { browserOp, playwrightInstalled, readBrowserState, setupBrowser, startBrowser, stopBrowser } = require("./browser");
+const { browserOp, playwrightInstalled, readBrowserState, setupBrowser, startBrowser, stopBrowser, unreadPageEvents } = require("./browser");
 const colony = require("./colony");
+const { specProblems } = require("../colonyPlan");
 const { botEvents, newestRun, runFinished } = require("./botLog");
 const { NODE_KEYS, nodeFromFlags, nodeProblems } = require("./nodes");
 const web = require("./webClient");
@@ -34,12 +35,8 @@ const FORMAT = {
 // ---------- what steps and commands share ----------
 
 // The page's errors since the last time anyone asked, as timeline events.
-let lastErrorSeq = 0;
 async function pageEvents(io) {
-  if (!readBrowserState(io)) return [];
-  const { events, last } = await browserOp(io, "events", { since: lastErrorSeq });
-  lastErrorSeq = last;
-  return events.map(({ seq: _seq, ...event }) => ({ kind: "WEB_ERROR", ...event }));
+  return (await unreadPageEvents(io)).map(({ seq: _seq, ...event }) => ({ kind: "WEB_ERROR", ...event }));
 }
 
 // A step's result, with the page errors that happened by the time it ended.
@@ -50,7 +47,6 @@ async function done(io, text, events = []) {
 async function webUp(io, options = {}) {
   const started = await web.startWebClient(io, options);
   const browser = await startBrowser(io);
-  lastErrorSeq = 0;
   await browserOp(io, "goto", { url: started.url });
   return { started, browser };
 }
@@ -112,6 +108,7 @@ async function botWait(io, user, timeoutMs) {
 // ---------- steps ----------
 
 const number = (value, fallback) => (value === undefined ? fallback : value);
+const positiveInteger = (value) => Number.isInteger(value) && value > 0;
 
 function timeoutOf(raw, ctx, fallback) {
   if (raw.timeout === undefined) return fallback * 1000;
@@ -134,7 +131,12 @@ const STEPS = {
     keys: () => [],
     parse: (raw, ctx) => {
       const value = raw.webUp;
-      if (value !== true && (value === null || typeof value !== "object")) ctx.problem("webUp", 'true, or { "build": false, "image": "<tag>" }');
+      if (value !== true && (value === null || typeof value !== "object" || Array.isArray(value))) ctx.problem("webUp", 'true, or { "build": false, "image": "<tag>" }');
+      else if (value !== true) {
+        for (const key of Object.keys(value)) {
+          if (!["dir", "reference", "build", "image"].includes(key)) ctx.problem(`webUp.${key}`, "unknown key; webUp takes dir, reference, build and image");
+        }
+      }
       return { options: value === true ? {} : value };
     },
     describe: () => "start the web client and a browser",
@@ -238,7 +240,10 @@ const STEPS = {
   colony: {
     recipe: true,
     keys: () => [],
-    parse: (raw) => ({ spec: raw.colony }),
+    parse: (raw, ctx) => {
+      for (const problem of specProblems(raw.colony)) ctx.problem("colony", problem);
+      return { spec: raw.colony };
+    },
     describe: (step) => `build a colony on planet ${step.spec && step.spec.planetID}`,
     async run(step, io) {
       return { ok: true, text: await colony.buildColony(io, step.spec) };
@@ -249,6 +254,7 @@ const STEPS = {
     keys: () => ["user", "planetID"],
     parse: (raw, ctx) => {
       if (!(typeof raw.colonyAge === "number" && raw.colonyAge > 0)) ctx.problem("colonyAge", "days, above 0");
+      if (raw.planetID !== undefined && !positiveInteger(raw.planetID)) ctx.problem("planetID", "the planet's ID");
       return { days: raw.colonyAge, user: raw.user, planetID: raw.planetID };
     },
     describe: (step) => `age ${step.user || "the character"}'s colonies by ${step.days} days`,
@@ -261,7 +267,16 @@ const STEPS = {
     keys: () => ["user"],
     parse: (raw, ctx) => {
       const value = raw.colonyStock;
-      if (value === null || typeof value !== "object") ctx.problem("colonyStock", '{ "planetID", "pin": "launchpad"|"command", "type", "quantity" }');
+      if (value === null || typeof value !== "object" || Array.isArray(value)) ctx.problem("colonyStock", '{ "planetID", "pin": "launchpad"|"command", "type", "quantity" }');
+      else {
+        for (const key of Object.keys(value)) {
+          if (!["planetID", "pin", "type", "quantity"].includes(key)) ctx.problem(`colonyStock.${key}`, "unknown key; colonyStock takes planetID, pin, type and quantity");
+        }
+        if (!positiveInteger(value.planetID)) ctx.problem("colonyStock.planetID", "the planet's ID");
+        if (!["launchpad", "command"].includes(value.pin)) ctx.problem("colonyStock.pin", "launchpad or command");
+        if (typeof value.type !== "string" || !value.type) ctx.problem("colonyStock.type", "the commodity's name");
+        if (!positiveInteger(value.quantity)) ctx.problem("colonyStock.quantity", "how many, above 0");
+      }
       const { type: commodity, ...rest } = value || {};
       return { ...rest, commodity, user: raw.user };
     },
@@ -277,7 +292,7 @@ const STEPS = {
     describe: (step) => `read ${step.user || "the character"}'s colonies`,
     async run(step, io) {
       const events = await colony.readColonies(io, step.user);
-      return { ok: true, text: `${events.length} colonies`, events };
+      return done(io, `${events.length} colonies`, events);
     },
   },
   pilotSlash: {

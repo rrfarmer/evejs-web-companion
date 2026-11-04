@@ -112,14 +112,18 @@ function createCompanionServer({ require: serverRequire, log }) {
     if (!characterID || !planetID || !quantity) return refused("characterID, planetID and quantity are required.");
     const colony = store().getColony(planetID, characterID);
     if (!colony) return { statusCode: 404, body: { ok: false, error: "That character has no colony on that planet." } };
-    const kind = body.pin === "command" ? "command" : "spaceport";
+    const kind = body.pin === "command" ? "command" : body.pin === "launchpad" ? "spaceport" : null;
+    if (!kind) return refused("pin: launchpad or command");
     const pin = colony.pins.find((row) => entityOf(row.typeID) === kind);
     if (!pin) return refused(`that colony has no ${body.pin} pin`);
+    let added;
     try {
-      store().addCommodityToColonyPin({ planetID, ownerID: characterID, pinID: pin.pinID, typeID: typeNamed(body.type), quantity });
+      added = store().addCommodityToColonyPin({ planetID, ownerID: characterID, pinID: pin.pinID, typeID: typeNamed(body.type), quantity });
     } catch (error) {
       return refused(error.message);
     }
+    // The store says no by returning it, not by throwing.
+    if (!added || !added.success) return refused(`the colony refused the goods: ${(added && added.errorMsg) || "no reason given"}`);
     return { statusCode: 200, body: { ok: true, pinID: pin.pinID } };
   }
 

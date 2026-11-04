@@ -100,8 +100,14 @@ const OPS = {
     const deadline = Date.now() + timeoutMs;
     let last = "";
     for (;;) {
-      const visible = await found.filter({ visible: true }).count().catch(() => 0);
-      if (hidden) {
+      const visible = await found.filter({ visible: true }).count().catch((error) => {
+        last = `couldn't read the page: ${errorWords(error)}`;
+        return null;
+      });
+      if (visible === null) {
+        // Tried again until the deadline. Not knowing isn't none showing: a broken selector or a dead
+        // page must not pass hidden or count: 0.
+      } else if (hidden) {
         if (!visible) return { text: "" };
         last = `${visible} still showing`;
       } else if (count !== null) {
@@ -137,7 +143,7 @@ const OPS = {
     return { events: events.filter((event) => event.seq > since), last: seq };
   },
   async status() {
-    return { url: page.url(), channel: config.channel || "bundled", last: seq };
+    return { url: page.url(), channel: config.channel || "bundled", last: seq, pid: process.pid };
   },
 };
 
@@ -185,7 +191,7 @@ async function main() {
       try {
         const { op, ...args } = text ? JSON.parse(text) : { op: "status" };
         if (op === "stop") {
-          send(200, { ok: true });
+          send(200, { ok: true, pid: process.pid });
           await context.close().catch(() => {});
           process.exit(0);
         }
