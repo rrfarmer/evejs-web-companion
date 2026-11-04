@@ -69,6 +69,17 @@ test("names not read yet are waited for, never guessed", () => {
   assert.equal(result.outcome.kind, "acting");
 });
 
+test("⚠ names that never come stop the block and say so, rather than waiting for good", () => {
+  let mem = {};
+  let result = boardShip(byName, docked({ shipNames: null }), mem, {});
+  for (let ticks = 0; ticks < 50 && result.outcome.kind === "acting"; ticks++) {
+    mem = result.nextMem;
+    result = boardShip(byName, docked({ shipNames: null }), mem, {});
+  }
+  assert.equal(result.outcome.kind, "blocked");
+  assert.match(result.outcome.kind === "blocked" ? result.outcome.reason : "", /could not be read/);
+});
+
 test("in space, ships are not changed: the block says to dock first", () => {
   const result = boardShip(byType, docked({ flightStatus: { docked: false } } as Partial<ScriptObservation>), {}, {});
   assert.equal(result.outcome.kind, "blocked");

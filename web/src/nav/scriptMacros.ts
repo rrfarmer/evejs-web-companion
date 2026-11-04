@@ -6087,7 +6087,13 @@ export function boardParkedShip(
   const parked = hangar.filter((row) => row.categoryID === CATEGORY_SHIP_ROW && row.singleton && row.itemID !== activeShipID);
   const choice = choose(parked, activeShipID);
   if (choice.kind === "already") return tick(WAIT, choice.words, phase, { kind: "done" });
-  if (choice.kind === "reading") return tick(WAIT, choice.words, phase, ACTING, false, mem);
+  if (choice.kind === "reading") {
+    // Bounded on the same key as the unread hangar above: a read that never
+    // answers says so, and never leaves the bot waiting with no reason shown.
+    const blindChecks = (num(mem, "blindChecks") ?? 0) + 1;
+    if (blindChecks > MAX_BLOCK_ATTEMPTS * 2) return tick(WAIT, choice.words, phase, { kind: "blocked", reason: unreadReason });
+    return tick(WAIT, choice.words, phase, ACTING, false, { ...mem, blindChecks });
+  }
   if (choice.kind === "blocked") return tick(WAIT, choice.words, phase, { kind: "blocked", reason: choice.reason });
   const boards = (num(mem, "boards") ?? 0) + 1;
   if (boards > MAX_BLOCK_ATTEMPTS) {
