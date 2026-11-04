@@ -1,0 +1,18 @@
+{
+  "description": "Two PI pilots with every skill in Amamake, docked at the Brutor Tribe Bureau. e2epi has an Epithal and two colonies that deliver to launchpads: Base Metals on Amamake I, and Water from a factory on Amamake IV. e2epi2 has no hauler and one colony that delivers to its command centre, on Amamake II. Age them in the scenario: { \"colonyAge\": 8, \"user\": \"e2epi\" }.",
+  "steps": [
+    "fresh",
+    { "login": { "user": "e2epi", "name": "PI Hauler" } },
+    { "slash": "/allskills" },
+    { "slash": "/setisk 5000000000" },
+    { "slash": "/tr me 60004603" },
+    { "slash": "/giveme Epithal" },
+    { "colony": { "planetID": 40161463, "extract": [{ "resource": "Base Metals" }] } },
+    { "colony": { "planetID": 40161469, "extract": [{ "resource": "Aqueous Liquids", "make": "Water" }] } },
+    { "login": { "user": "e2epi2", "name": "PI Launcher" } },
+    { "slash": "/allskills" },
+    { "slash": "/setisk 5000000000" },
+    { "slash": "/tr me 60004603" },
+    { "colony": { "planetID": 40161464, "extract": [{ "resource": "Aqueous Liquids", "into": "command" }] } }
+  ]
+}

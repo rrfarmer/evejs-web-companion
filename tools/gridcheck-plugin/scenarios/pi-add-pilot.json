@@ -1,0 +1,19 @@
+{
+  "description": "PI Manager: adding a pilot shows that pilot's colonies, with no Refresh.",
+  "recipe": "pi-colonies",
+  "setup": [
+    { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
+    "webUp",
+    { "webLogin": "e2epi" },
+    { "webClick": { "role": "button", "name": "Planetary Industry" } },
+    { "webSelect": { "role": "combobox", "name": "Add" }, "option": "PI Hauler" },
+    { "webClick": { "role": "button", "name": "Add", "exact": true } },
+    { "webClick": { "role": "tab", "name": "Colonies" } },
+    { "webExpect": { "role": "region", "name": "PI Hauler's colonies" }, "text": "Amamake", "timeout": 15 },
+    { "colonyRead": "e2epi" }
+  ],
+  "until": { "any": ["COLONY user=e2epi"], "from": "start", "timeout": 30, "grace": 3 },
+  "expect": [
+    { "match": "COLONY user=e2epi" }
+  ]
+}
