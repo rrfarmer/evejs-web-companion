@@ -67,8 +67,8 @@
       <ol>
         <li>What the ticked colonies' launchpads hold goes up into their customs offices first, before any bot starts.</li>
         <li>
-          A server run then launches what the command centres hold (the launch is taxed) and boards a ship with a planetary
-          hold parked where the pilot is docked.
+          A server run then boards a ship with a planetary hold parked where the pilot is docked and launches what the
+          command centres hold (the launch is taxed).
         </li>
         <li>It flies to each colony's system, empties those customs offices and collects the launches.</li>
         <li>

@@ -229,10 +229,12 @@ test("⚠ the lap collects BOTH ways off a colony, in every system it visits", (
   // A launchpad goes up into the customs office before the run starts; a
   // command centre cannot (the server takes only a spaceport pin), so it still
   // leaves as a container in space. Dropping either collector strands goods.
+  // ⚠ The hauler comes before the launch: a launch charges export tax, so a
+  // pilot with no hauler has to stop before paying it.
   const doc = piHaulBotDoc(COLONIES, { division: 3, name: "Industry" });
   assert.deepEqual(doc.program.map((step) => (step.kind === "macro" ? `${step.macro}` : step.kind)), [
-    "launch-commodities",
     "board-planetary-hauler",
+    "launch-commodities",
     "undock",
     "travel-to-system",
     "collect-customs",
@@ -264,7 +266,7 @@ test("the saved haul launches nonempty command centres even below one percent fu
   const decoded = decodeScriptValue(piHaulBotDoc(COLONIES.slice(0, 1), null));
   assert.ok(decoded.ok);
   if (!decoded.ok) return;
-  const launch = decoded.doc.program[0]!;
+  const launch = decoded.doc.program.find((step) => step.id === "launch")!;
   assert.ok(launch.kind === "macro");
   const result = SCRIPT_MACROS["launch-commodities"]!(launch, {
     colonies: [{

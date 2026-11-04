@@ -187,8 +187,8 @@ export async function restartExtractorsFor(
 // plan for THIS haul: written, then started. It is still an ordinary saved bot,
 // visible in the Bot Manager, so a player can see exactly what ran.
 //
-// The lap: launch what the ticked colonies hold (any amount), board a ship
-// parked here with a planetary hold, fly to each ticked colony's system and
+// The lap: board a ship parked here with a planetary hold, launch what the
+// ticked colonies hold (any amount), fly to each ticked colony's system and
 // collect the launches there, fly to the delivery station (the station the run
 // started at, unless one is picked), unload there (into the picked corporation
 // division, else the pilot's own hangar), and get back into the ship the pilot
@@ -238,7 +238,12 @@ export function piHaulBotDoc(
   // takes only a spaceport pin for a customs export, so the 500 m3 a centre
   // holds still leaves the old way, as a container in space. Dropping either
   // one strands goods, so each system gets both collectors below.
+  //
+  // ⚠ BOARD BEFORE LAUNCHING. A launch charges export tax and leaves a container
+  // in space for five days. A pilot with no hauler must stop before paying that.
+  // This covers the lap only: haulFor's launchpad hop runs before it starts.
   const program: MacroStep[] = [
+    { id: "board-hauler", kind: "macro", macro: "board-planetary-hauler", args: {} },
     {
       id: "launch",
       kind: "macro",
@@ -252,7 +257,6 @@ export function piHaulBotDoc(
         },
       },
     },
-    { id: "board-hauler", kind: "macro", macro: "board-planetary-hauler", args: {} },
     { id: "undock", kind: "macro", macro: "undock", args: {} },
   ];
   systems.forEach((system, index) => {
@@ -296,8 +300,8 @@ export function piHaulBotDoc(
     name: PI_HAUL_BOT_NAME,
     notes:
       "Saved by the Planetary Industry window, and rewritten by its Haul button on every haul. The button sends the " +
-      "ticked colonies' launchpads up into their customs offices first; this lap launches what their command centres " +
-      "hold, boards a ship parked at the starting station that has a planetary hold, empties the customs offices and " +
+      "ticked colonies' launchpads up into their customs offices first; this lap boards a ship parked at the starting " +
+      "station that has a planetary hold, launches what their command centres hold, empties the customs offices and " +
       "collects the launches in each colony's system, flies back, unloads and gets back into the earlier ship.",
     // The Deliver-to station, when one is picked, is home: a run that starts in
     // space docks there to board, delivers there and comes back there (flow.ts
@@ -361,8 +365,10 @@ export function summarizeCustomsExport(result: CustomsExportResult): PiHaulExpor
  * over the game port (POST /api/pi/customs-export), and only then does the bot
  * start. They cannot be swapped: the export selects the character in game, and
  * a character may be in game on one session — doing it second would take the
- * ship out from under the bot that was already flying it. Doing it first costs
- * nothing, because the pilot is not online yet.
+ * ship out from under the bot that was already flying it. Doing it first takes
+ * nothing from the run, because the pilot is not online yet. It can cost tax: a
+ * pilot on the gateway transport pays export tax here, before the run can find
+ * out that no hauler is parked.
  *
  * An export that is REFUSED outright (a bot or another tab is flying this
  * pilot) stops the haul: there is nothing in the offices to fetch and the

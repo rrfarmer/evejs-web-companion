@@ -28,9 +28,12 @@ const DELIVER = { entity: "station" as const, id: 60000001, name: "Gamma - Stati
 const bot = (stepPath: string | null, over: Partial<PiRunBot> = {}): PiRunBot =>
   ({ status: "running", phase: "Working", why: "Flying.", stepPath, ...over });
 
-test("a haul's stages are its route: launch, board, each system once, unload, home", () => {
+test("a haul's stages are its route: board, launch, each system once, unload, home", () => {
   const stages = piHaulStages(piHaulBotDoc(COLONIES, null, DELIVER));
-  assert.deepEqual(stages.map((stage) => stage.label), ["Launch", "Board", "Alpha", "Beta", "Unload", "Home"]);
+  assert.deepEqual(stages.map((stage) => stage.label), ["Board", "Launch", "Alpha", "Beta", "Unload", "Home"]);
+  // Undock rides on Launch, so Board does not appear twice.
+  assert.deepEqual(stages[0]!.stepIDs, ["board-hauler"]);
+  assert.deepEqual(stages[1]!.stepIDs, ["launch", "undock"]);
   assert.deepEqual(stages[2]!.stepIDs, ["fly-1", "collect-1", "launches-1"]);
   // A collecting stage knows its system, so a colony row can find its stage.
   assert.equal(stages[2]!.solarSystemID, 30000001);
@@ -41,7 +44,7 @@ test("a haul's stages are its route: launch, board, each system once, unload, ho
 
 test("without a Deliver-to station there is no Home stage; board-back joins Unload", () => {
   const stages = piHaulStages(piHaulBotDoc(COLONIES.slice(0, 1), null));
-  assert.deepEqual(stages.map((stage) => stage.label), ["Launch", "Board", "Alpha", "Unload"]);
+  assert.deepEqual(stages.map((stage) => stage.label), ["Board", "Launch", "Alpha", "Unload"]);
   assert.deepEqual(stages[3]!.stepIDs, ["deliver", "unload", "board-back"]);
 });
 
@@ -209,9 +212,9 @@ test("each hauled colony says where the run is with it, by its system's stage", 
 test("leaving a system the haul collected in is the moment to read the pilot's colonies again", () => {
   const stages = piHaulStages(piHaulBotDoc(COLONIES, null));
   const atAlpha = watchPoll(startWatch("haul", 0, stages, [40000001, 40000003]), bot("collect-1"));
-  // Launch to Board, or within Alpha: no collecting stage has been left.
+  // Board to Launch, or within Alpha: no collecting stage has been left.
   const boarding = watchPoll(startWatch("haul", 0, stages), bot("board-hauler"));
-  assert.equal(leftCollectingStage(watchPoll(startWatch("haul", 0, stages), bot("launch")), boarding), false);
+  assert.equal(leftCollectingStage(boarding, watchPoll(boarding, bot("launch"))), false);
   assert.equal(leftCollectingStage(atAlpha, watchPoll(atAlpha, bot("launches-1"))), false);
   // Alpha to Beta: Alpha's launchpads were emptied.
   assert.equal(leftCollectingStage(atAlpha, watchPoll(atAlpha, bot("fly-2"))), true);

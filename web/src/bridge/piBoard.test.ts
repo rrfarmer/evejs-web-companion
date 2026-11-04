@@ -530,6 +530,8 @@ test("the Haul offer says the launchpads go into the customs offices", () => {
   // Both ways off a colony are said, because the lap does both.
   assert.match(words, /launches what their command centres hold/);
   assert.match(words, /collects the launches/);
+  // In the lap's own order: a pilot with no hauler stops before the taxed launch.
+  assert.ok(words.indexOf("gets into a ship") < words.indexOf("launches what"));
 });
 
 test("a started haul says what went up before it says the run began", () => {
