@@ -241,6 +241,7 @@ export function piHaulBotDoc(
   //
   // ⚠ BOARD BEFORE LAUNCHING. A launch charges export tax and leaves a container
   // in space for five days. A pilot with no hauler must stop before paying that.
+  // This covers the lap only: haulFor's launchpad hop runs before it starts.
   const program: MacroStep[] = [
     { id: "board-hauler", kind: "macro", macro: "board-planetary-hauler", args: {} },
     {
@@ -364,8 +365,10 @@ export function summarizeCustomsExport(result: CustomsExportResult): PiHaulExpor
  * over the game port (POST /api/pi/customs-export), and only then does the bot
  * start. They cannot be swapped: the export selects the character in game, and
  * a character may be in game on one session — doing it second would take the
- * ship out from under the bot that was already flying it. Doing it first costs
- * nothing, because the pilot is not online yet.
+ * ship out from under the bot that was already flying it. Doing it first takes
+ * nothing from the run, because the pilot is not online yet. It can cost tax: a
+ * pilot on the gateway transport pays export tax here, before the run can find
+ * out that no hauler is parked.
  *
  * An export that is REFUSED outright (a bot or another tab is flying this
  * pilot) stops the haul: there is nothing in the offices to fetch and the

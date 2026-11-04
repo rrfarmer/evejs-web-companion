@@ -31,6 +31,9 @@ const bot = (stepPath: string | null, over: Partial<PiRunBot> = {}): PiRunBot =>
 test("a haul's stages are its route: board, launch, each system once, unload, home", () => {
   const stages = piHaulStages(piHaulBotDoc(COLONIES, null, DELIVER));
   assert.deepEqual(stages.map((stage) => stage.label), ["Board", "Launch", "Alpha", "Beta", "Unload", "Home"]);
+  // Undock rides on Launch, so Board does not appear twice.
+  assert.deepEqual(stages[0]!.stepIDs, ["board-hauler"]);
+  assert.deepEqual(stages[1]!.stepIDs, ["launch", "undock"]);
   assert.deepEqual(stages[2]!.stepIDs, ["fly-1", "collect-1", "launches-1"]);
   // A collecting stage knows its system, so a colony row can find its stage.
   assert.equal(stages[2]!.solarSystemID, 30000001);

@@ -660,7 +660,7 @@ export function piHaulWords(
     hint: ticked === 0 ? "Tick the colonies to haul." : null,
     words:
       `This sends what the ticked colonies' launchpads hold up into their customs offices, then starts a server run for ${pilotName} ` +
-      `that launches what their command centres hold, gets into a ship parked where the pilot is docked that has a planetary hold, ` +
+      `that gets into a ship parked where the pilot is docked that has a planetary hold, launches what their command centres hold, ` +
       `empties those customs offices and collects the launches, ${station} and unloads into ${where}, ` +
       `then ${andBack}gets back into the ship it started in. The launch is taxed. It runs for two hours at most.`,
   };

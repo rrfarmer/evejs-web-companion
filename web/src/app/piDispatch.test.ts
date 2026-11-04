@@ -229,6 +229,8 @@ test("⚠ the lap collects BOTH ways off a colony, in every system it visits", (
   // A launchpad goes up into the customs office before the run starts; a
   // command centre cannot (the server takes only a spaceport pin), so it still
   // leaves as a container in space. Dropping either collector strands goods.
+  // ⚠ The hauler comes before the launch: a launch charges export tax, so a
+  // pilot with no hauler has to stop before paying it.
   const doc = piHaulBotDoc(COLONIES, { division: 3, name: "Industry" });
   assert.deepEqual(doc.program.map((step) => (step.kind === "macro" ? `${step.macro}` : step.kind)), [
     "board-planetary-hauler",
@@ -252,11 +254,6 @@ test("⚠ the lap collects BOTH ways off a colony, in every system it visits", (
   // It must survive the library's own reader, or the start would refuse it.
   const decoded = decodeScriptValue(JSON.parse(JSON.stringify(doc)));
   assert.ok(decoded.ok);
-});
-
-test("⚠ the lap finds its hauler before a launch charges export tax", () => {
-  const macros = piHaulBotDoc(COLONIES, null).program.map((step) => (step.kind === "macro" ? step.macro : step.kind));
-  assert.ok(macros.indexOf("board-planetary-hauler") < macros.indexOf("launch-commodities"));
 });
 
 test("the haul doc with no division unloads into the pilot's own hangar", () => {
