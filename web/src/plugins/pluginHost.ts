@@ -100,7 +100,10 @@ export function activatePlugins(
     }
     try {
       for (const window of manifest.windows ?? []) {
-        registerGlobalWindow(window);
+        registerGlobalWindow({
+          ...window,
+          plugin: { id: manifest.id, name: manifest.name, label: manifest.label ?? manifest.windows![0]!.label },
+        });
         const view = pluginViews?.windows[window.id];
         if (view !== undefined) registerGlobalWindowView(window.id, view);
       }

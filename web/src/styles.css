@@ -3067,6 +3067,122 @@
     color: var(--color-bg);
     font-size: 0.72rem;
   }
+  /* The plugins' half of the strip (PluginLauncher.svelte, PluginMenu.svelte): a
+     hairline after core's launchers, the launchers the player pinned, and the
+     Plugins menu's button last. */
+  .global-launch-divider {
+    flex: 0 0 1px;
+    align-self: stretch;
+    margin: 0.2rem 0.15rem;
+    background: var(--color-line-strong);
+  }
+  .plugin-menu-count {
+    min-width: 1.1rem;
+    padding: 0 0.25rem;
+    text-align: center;
+    border: 1px solid var(--color-line-strong);
+    font-size: 0.72rem;
+  }
+  /* ⚠ ON <body>, FIXED, AND PLACED BY THE BUTTON THAT OPENED IT (portal.ts). The
+     strip scrolls sideways on a narrow bar and sits in headers with stacking
+     orders of their own; a panel drawn inside it is clipped, or under the
+     floating windows. */
+  .plugin-panel {
+    position: fixed;
+    z-index: 2000;
+    width: 300px;
+    max-height: 70vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-strong);
+    font-size: 0.82rem;
+  }
+  .plugin-launcher-panel { width: 240px; }
+  .plugin-panel-find {
+    margin: 0.4rem;
+    padding: 0.3rem 0.45rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-line);
+    border-radius: 0;
+    color: var(--color-text);
+    font: inherit;
+  }
+  .plugin-panel-row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .plugin-panel-window { background: var(--color-panel-2); }
+  .plugin-panel-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.5rem;
+    background: none;
+    border: none;
+    border-radius: 0;
+    color: var(--color-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .plugin-panel-window .plugin-panel-name { padding-left: 2.6rem; }
+  .plugin-panel-name:hover { background: var(--color-panel-2); color: var(--color-accent-bright); }
+  .plugin-panel-name.open { color: var(--color-accent-bright); }
+  .plugin-panel-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .plugin-panel-chevron {
+    flex: 0 0 auto;
+    width: 0.9rem;
+    height: 0.9rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 120ms;
+  }
+  .plugin-panel-chevron.down { transform: rotate(90deg); }
+  .plugin-panel-pin {
+    flex: 0 0 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    border-radius: 0;
+    color: var(--color-muted);
+    cursor: pointer;
+  }
+  .plugin-panel-pin svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .plugin-panel-pin:hover { color: var(--color-text); }
+  .plugin-panel-pin.pinned { color: var(--color-accent-bright); }
+  .plugin-panel-pin.pinned svg { fill: var(--color-accent-dim); }
+  .plugin-panel-pin.covered { color: var(--color-accent-dim); cursor: default; }
+  .plugin-panel-note { margin: 0; padding: 0.5rem; color: var(--color-muted); }
+  .plugin-panel-manage {
+    padding: 0.45rem 0.5rem;
+    background: none;
+    border: none;
+    border-radius: 0;
+    color: var(--color-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .plugin-panel-manage:hover { color: var(--color-text); background: var(--color-panel-2); }
+  @media (prefers-reduced-motion: reduce) { .plugin-panel-chevron { transition: none; } }
   .char-bar-list {
     display: flex;
     align-items: stretch;
@@ -7412,6 +7528,8 @@
     background: var(--hangar-accent-fill);
   }
   .hangar .global-launch-count { background: var(--hangar-good); color: var(--hangar-page); }
+  .hangar .global-launch-divider { background: var(--hangar-line-5); }
+  .hangar .plugin-menu-count { border-color: var(--hangar-line-5); }
   .hangar-wordmark {
     font-size: 13px;
     letter-spacing: 3px;

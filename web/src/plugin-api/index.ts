@@ -1,10 +1,9 @@
 // THE PLUGIN API — the only part of core a plugin may import.
 //
-// A plugin adds to the client; it never edits core. Core owns a small set of
-// contribution points (a global window, a bot builder block, a backend) and
-// reads what each plugin registers for them. This module is where a plugin
-// finds those points and the types it needs to fill them, so a plugin that
-// builds against it keeps building when core's internals move.
+// A plugin adds to the client; it never edits core. It can add a global window,
+// a bot builder block and a backend, and core reads what each plugin registers.
+// This module has the types a plugin needs to add them, so a plugin that builds
+// against it keeps building when core's internals move.
 //
 // ⚠ A PLUGIN IMPORTS FROM HERE AND FROM ITS OWN FOLDER, NOTHING ELSE.
 // web/src/plugins/pluginBoundary.test.ts enforces it, and it also holds core to
@@ -25,12 +24,12 @@ export type PluginID = string;
 
 /**
  * A global window: about every pilot rather than the one on screen, opened
- * from a door beside the brand (ui/globalWindow.ts). Its id is
+ * from a launcher beside the brand (ui/globalWindow.ts). Its id is
  * `plugin:<plugin id>` or `plugin:<plugin id>.<name>`.
  */
 export interface PluginWindow {
   readonly id: `plugin:${string}`;
-  /** The word on its door. Short: it shares a header with the brand. */
+  /** The word on its launcher. Short: it shares a header with the brand. */
   readonly label: string;
   /** The window's full name. */
   readonly title: string;
@@ -49,6 +48,11 @@ export interface PluginManifest {
   readonly apiVersion: number;
   /** One line: what it adds. */
   readonly description: string;
+  /**
+   * The word on the plugin's launcher when the whole plugin is pinned beside the
+   * brand; its first window's label when absent.
+   */
+  readonly label?: string;
   readonly windows?: readonly PluginWindow[];
   /** Blocks for the bot builder; each id is "<plugin id>:<block>". */
   readonly macros?: readonly PluginMacro[];
@@ -73,7 +77,7 @@ export function definePluginViews(views: PluginViews): PluginViews {
   return Object.freeze({ ...views });
 }
 
-// ─── What a contribution point is made of ────────────────────────────────────
+// ─── What a plugin's additions are made of ───────────────────────────────────
 
 export type { GlobalWindowProps, GlobalWindowView } from "../ui/pluginWindowViews.ts";
 export type { PluginMacro } from "../bots/pluginMacros.ts";

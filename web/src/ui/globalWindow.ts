@@ -51,8 +51,10 @@
 import type { WinState } from "./desktop.ts";
 import { registerTab, type PluginTabID, type TabID } from "./tabs.ts";
 
-/** One door onto a global window, as the brand strip draws it. */
+/** One launcher of a global window, as the brand strip draws it. */
 export interface GlobalLauncher {
+  /** The plugin it belongs to; absent for core's own windows. */
+  readonly plugin?: PluginOfWindow;
   readonly id: TabID;
   /** The word beside the glyph. Short: it shares a header with the brand. */
   readonly label: string;
@@ -63,12 +65,12 @@ export interface GlobalLauncher {
 }
 
 /**
- * Core's global windows, as the brand strip's doors (GlobalLaunchers.svelte)
+ * Core's global windows, as the brand strip's launchers (GlobalLaunchers.svelte)
  * draw them, in the order drawn. Plugins' follow (`registerGlobalWindow`).
  *
- * ⚠ A WINDOW IS GLOBAL BECAUSE IT HAS A DOOR HERE, AND FOR NO OTHER REASON.
+ * ⚠ A WINDOW IS GLOBAL BECAUSE IT HAS A LAUNCHER HERE, AND FOR NO OTHER REASON.
  * These windows are out of the rail (tabs.ts `launchable: false`), so this list
- * is their only door; `isGlobalTab` reads it, so a global tab without a door
+ * is their only launcher; `isGlobalTab` reads it, so a global tab without one
  * cannot exist. The rule "is this tab global?" is asked in four places (the
  * rail's open-state, both open paths in Workspace, and desktop.ts's guard),
  * which is why it is one list rather than a comparison spelled out four times.
@@ -103,27 +105,62 @@ export const CORE_GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
 // The global windows plugins added, in the order they registered.
 const pluginLaunchers: GlobalLauncher[] = [];
 
-/** A plugin's global window: its door, and the glyph the door and its chip draw. */
+/** Which plugin a window is one of, as the Plugins menu groups them. */
+export interface PluginOfWindow {
+  readonly id: string;
+  readonly name: string;
+  /** The word on the plugin's launcher when the whole plugin is pinned. */
+  readonly label: string;
+}
+
+/** A plugin's global window: its launcher, and the glyph the launcher and its chip draw. */
 export interface PluginGlobalWindow extends GlobalLauncher {
   readonly id: PluginTabID;
   readonly glyph: readonly string[];
+  readonly plugin: PluginOfWindow;
 }
 
 /**
  * Add a plugin's global window: a tab of its own (tabs.ts `registerTab`), out of
- * the rail like every global window, and a door beside the brand. Called while
+ * the rail like every global window, and a launcher beside the brand. Called while
  * plugins load, before the first paint. Its body is registered apart
  * (globalWindowViews.ts), because this module is read by desktop.ts and must
  * not pull a Svelte component into it.
  */
 export function registerGlobalWindow(window: PluginGlobalWindow): void {
   registerTab({ id: window.id, label: window.title, where: "both", launchable: false, glyph: window.glyph });
-  pluginLaunchers.push({ id: window.id, label: window.label, title: window.title, hint: window.hint });
+  pluginLaunchers.push({ id: window.id, label: window.label, title: window.title, hint: window.hint, plugin: window.plugin });
 }
 
-/** Every door beside the brand: core's, then the plugins'. */
+/** Every global window's launcher: core's, then the plugins'. */
 export function globalLaunchers(): readonly GlobalLauncher[] {
   return pluginLaunchers.length === 0 ? CORE_GLOBAL_LAUNCHERS : [...CORE_GLOBAL_LAUNCHERS, ...pluginLaunchers];
+}
+
+/**
+ * Core's launchers as the strip draws them. The Plugins window is not one of them:
+ * it is reached from the Plugins menu (PluginMenu.svelte), as "Manage plugins".
+ */
+export function coreStripLaunchers(): readonly GlobalLauncher[] {
+  return CORE_GLOBAL_LAUNCHERS.filter((launcher) => launcher.id !== "pluginManager");
+}
+
+/** One plugin's windows, in the order it registered them. */
+export interface PluginWindowGroup {
+  readonly plugin: PluginOfWindow;
+  readonly windows: readonly GlobalLauncher[];
+}
+
+/** Every plugin window, grouped by its plugin, plugins in the order they loaded. */
+export function pluginWindowGroups(): readonly PluginWindowGroup[] {
+  const groups: { plugin: PluginOfWindow; windows: GlobalLauncher[] }[] = [];
+  for (const launcher of pluginLaunchers) {
+    if (!launcher.plugin) continue;
+    const known = groups.find((group) => group.plugin.id === launcher.plugin!.id);
+    if (known) known.windows.push(launcher);
+    else groups.push({ plugin: launcher.plugin, windows: [launcher] });
+  }
+  return groups;
 }
 
 /** True when this tab opens as a global window, not a workspace window. */

@@ -1,7 +1,7 @@
 <script lang="ts">
   // THE DOORS ONTO THE GLOBAL WINDOWS, beside the brand.
   //
-  // The Bot Manager, Planetary Industry and Fleet companions are each about
+  // The Bot Manager, Fleet companions and the plugins' windows are each about
   // EVERY pilot, not the one on screen (globalWindow.ts). So their doors sit in
   // the one piece of chrome that is not about a pilot either: the brand strip,
   // which the Pilot Hangar and the character bar both carry. The same three
@@ -18,7 +18,11 @@
   // word rides with it wherever there is room, and `aria-label` carries it —
   // and the companions count in words — when a narrow bar drops the text.
   import { NEOCOM_GLYPHS, neocomGlyph } from "./neocomIcons.ts";
-  import { globalLaunchers } from "./globalWindow.ts";
+  import { coreStripLaunchers, pluginWindowGroups } from "./globalWindow.ts";
+  import { pluginLaunchers } from "./pluginPins.ts";
+  import { pinStore } from "./pluginPinStore.ts";
+  import PluginLauncher from "./PluginLauncher.svelte";
+  import PluginMenu from "./PluginMenu.svelte";
   import type { TabID } from "./tabs.ts";
 
   let {
@@ -36,6 +40,12 @@
     companionCount?: number;
     onOpen: (id: TabID) => void;
   } = $props();
+
+  // The plugins' launchers: what the player pinned (pluginPins.ts). Every plugin
+  // window is in the Plugins menu at the end, whatever is pinned.
+  const pins = pinStore();
+  const groups = pluginWindowGroups();
+  const pinnedLaunchers = $derived(pluginLaunchers($pins, groups, openIds));
 </script>
 
 <div class="global-launchers" role="group" aria-label="Every pilot">
@@ -49,7 +59,7 @@
     </svg>
     <span class="global-launch-text">Provisioning Center</span>
   </a>
-  {#each globalLaunchers() as launcher (launcher.id)}
+  {#each coreStripLaunchers() as launcher (launcher.id)}
     {@const open = openIds.has(launcher.id)}
     {@const count = launcher.id === "companion" ? companionCount : 0}
     <button
@@ -87,4 +97,9 @@
     </svg>
     <span class="global-launch-text">MCC</span>
   </a>
+  <span class="global-launch-divider" aria-hidden="true"></span>
+  {#each pinnedLaunchers as launcher (launcher.key)}
+    <PluginLauncher {launcher} {openIds} {onOpen} />
+  {/each}
+  <PluginMenu {openIds} {onOpen} />
 </div>

@@ -171,7 +171,7 @@ export const TABS: readonly CoreTabDef[] = [
   // union whether or not a glyph is ever rendered in the strip.
   { id: "companion", label: "Fleet companions", where: "both", launchable: false },
   // A GLOBAL window too: what this client adds beyond the game's own windows,
-  // which is about the client, not a pilot. Its door is beside the brand.
+  // which is about the client, not a pilot. It opens from the Plugins menu beside the brand.
   { id: "pluginManager", label: "Plugins", where: "both", launchable: false },
   // In space only — flying, what's around the ship.
   { id: "flight", label: "Flight", where: "in-space" },

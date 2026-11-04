@@ -321,19 +321,19 @@ test("a floating Bot Builder is not reopened by a reload", () => {
 
 // ─── a plugin's global window ───────────────────────────────────────────────
 
-test("a plugin's global window gets a door, a named tab, a glyph and a stored place, and core keeps its own", async () => {
+test("a plugin's global window gets a launcher, a named tab, a glyph and a stored place, and core keeps its own", async () => {
   const { registerGlobalWindow } = await import("./globalWindow.ts");
   const { neocomGlyph } = await import("./neocomIcons.ts");
   const { allTabs, tabLabel } = await import("./tabs.ts");
   const glyph = ["M4 4h16v16H4z"];
-  registerGlobalWindow({ id: "plugin:test-board", label: "Board", title: "Test board", hint: "A plugin board", glyph });
+  registerGlobalWindow({ id: "plugin:test-board", label: "Board", title: "Test board", hint: "A plugin board", glyph, plugin: { id: "test-board", name: "Test", label: "Board" } });
   assert.equal(isGlobalTab("plugin:test-board"), true);
-  assert.deepEqual(globalLaunchers().slice(0, CORE_GLOBAL_LAUNCHERS.length), [...CORE_GLOBAL_LAUNCHERS], "core's doors come first, unchanged");
+  assert.deepEqual(globalLaunchers().slice(0, CORE_GLOBAL_LAUNCHERS.length), [...CORE_GLOBAL_LAUNCHERS], "core's launchers come first, unchanged");
   assert.equal(tabLabel("plugin:test-board"), "Test board");
   assert.deepEqual(neocomGlyph("plugin:test-board"), glyph);
   const tab = allTabs().find((entry) => entry.id === "plugin:test-board");
   assert.equal(tab?.launchable, false, "a global window never sits in the rail");
-  assert.throws(() => registerGlobalWindow({ id: "plugin:test-board", label: "Again", title: "Again", hint: "", glyph }), /already a tab/);
+  assert.throws(() => registerGlobalWindow({ id: "plugin:test-board", label: "Again", title: "Again", hint: "", glyph, plugin: { id: "test-board", name: "Test", label: "Again" } }), /already a tab/);
   installStorage();
   saveGlobalWindows(openGlobal([], "plugin:test-board"));
   assert.deepEqual(loadGlobalWindows().map((win) => win.id), ["plugin:test-board"]);

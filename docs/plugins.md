@@ -15,8 +15,7 @@ example for everything below.
    its reads and each single action a bot can take (warp, loot, board a ship,
    launch from a command centre). Anything else is a plugin.
 2. **No mods.** A plugin never edits or overrides core. If it needs core to do
-   something new, it asks for a new contribution point or primitive in a core
-   change.
+   something new, that is a core change.
 3. **Plugins never depend on other plugins.** What two plugins both need goes
    into core.
 4. **A failing plugin fails only itself.** A plugin that refuses to load, throws
@@ -74,18 +73,38 @@ export default definePlugin({
 Add it to the build by listing its manifest in `plugins/index.ts` and its views in
 `plugins/views.ts`. Nothing in core changes.
 
-## Contribution points
+## What a plugin can add
 
-A contribution point is a slot core owns and a plugin fills. Core defines its
-shape, reads what each plugin registered for it, and decides where and when to
-show or call it. The list below is the plugin API: a plugin that needs a new
-slot proposes it as a core change.
+Core defines what each of these looks like, reads what each plugin registered,
+and decides where and when to show or call it. These are the plugin API's only
+extension points: a plugin that needs another one proposes it as a core change.
 
 ### A global window
 
-A window about every pilot rather than the one on screen. It opens from a door
-beside the brand, floats on the global layer on the desktop, and is a panel on a
-phone (`web/src/ui/globalWindow.ts`, `globalWindowViews.ts`).
+A window about every pilot rather than the one on screen. It floats on the global
+layer on the desktop and is a panel on a phone (`web/src/ui/globalWindow.ts`,
+`globalWindowViews.ts`).
+
+Plugin windows open from the **Plugins menu** at the end of the brand strip, not
+from buttons of their own (`PluginMenu.svelte`, `pluginPins.ts`):
+
+- The menu lists each plugin. One with several windows opens them in place, on
+  hover or on a click (a phone has no hover).
+- The pin at the end of a row puts a launcher (a toolbar button) in the strip. A
+  plugin row's pin pins the whole plugin, and its launcher lists its windows. A
+  window row's pin pins that one window. A plugin with a single window has no list,
+  and its launcher opens the window. Windows of a plugin pinned whole are covered by
+  its launcher and are not pinned twice.
+- A plugin this browser has not seen before pins itself, whole, while fewer than
+  three are pinned. The first plugins show up without any setup, and the
+  tenth pushes nothing out.
+- Unpinned means no launcher, even while the window is open; it still opens from
+  the Plugins menu.
+- Pins are kept per browser. "Manage plugins" at the foot of the menu opens the
+  Plugins window.
+
+A plugin may register as many windows as it needs. Its manifest's `label` is the
+word on its launcher when it is pinned whole (its first window's label when absent).
 
 - Its id is `plugin:<plugin id>` or `plugin:<plugin id>.<name>`.
 - Its view is a Svelte component given `{ sessions, onOpen, onGoToPilot }`
@@ -170,7 +189,7 @@ if (typeof process.send === "function") {
 | Files | Each backend runs under Node's permission model. It may read its plugin folder, the web sources and `node_modules`, and write only `data/plugins/<id>`. The core database is out of reach. Node calls this a seat belt for trusted code, not a sandbox against hostile code. Backends are also allowed native packages (`--allow-addons`, for SQLite), and Node warns that native code can step outside the model, so a plugin that ships native code is trusted code. |
 | Bots | A hosted bot's plugin blocks are decided in the plugin's process (2 s per answer); a plugin that cannot answer pauses only its own bots. |
 
-The Plugins window (beside the brand) shows each plugin: whether it loaded, why
+The Plugins window ("Manage plugins" in the Plugins menu) shows each plugin: whether it loaded, why
 not, and its backend's state and restarts (`GET /api/plugins`).
 
 ## State and cleanup
