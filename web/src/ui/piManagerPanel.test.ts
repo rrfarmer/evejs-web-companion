@@ -217,6 +217,13 @@ test("taking a pilot off the list is called Remove, never 'Take off'", () => {
   assert.doesNotMatch(body, /take off/i);
 });
 
+test("adding to the list reads the newcomers' colonies, with no Refresh", () => {
+  // onMount and clicks do not run under the server generator, so the wiring is
+  // read off the source. gridcheck's pi-add-pilot clicks it in a real browser.
+  const body = /function add\(\): void \{[\s\S]*?\n  \}\n/.exec(SOURCE)?.[0] ?? "";
+  assert.match(body, /void reread\(roster\.members\.filter\(\(member\) => !before\.has\(member\)\)\);/);
+});
+
 test("the add list offers pilots not yet on it, and a squad with someone new", () => {
   const body = renderSeeded();
   assert.match(body, /<option value="pilot:90000004">Eve Spare<\/option>/);

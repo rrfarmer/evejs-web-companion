@@ -1267,6 +1267,7 @@
   }
 
   function add(): void {
+    const before = new Set(roster.members);
     const [kind, id] = choice.split(":");
     if (kind === "pilot") {
       keep(addPiMember(roster, Number(id)));
@@ -1274,6 +1275,9 @@
       keep(addPiMembers(roster, hangar.members[id] ?? []));
     }
     choice = "";
+    // Only the newcomers: everyone else's reading stands, and a read already
+    // under way picks them up when it ends.
+    void reread(roster.members.filter((member) => !before.has(member)));
   }
 
   /** Off the PI list only: nothing is signed in, selected or undocked. */
