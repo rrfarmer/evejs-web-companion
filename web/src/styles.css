@@ -7391,7 +7391,21 @@
   /* The global-window doors (GlobalLaunchers.svelte) in the hangar's own
      palette — the same strip as the character bar's, so the Bot Manager is
      found beside the brand whether or not anybody is in the client. */
-  .hangar .global-launchers { align-self: center; height: 28px; }
+  /* ⚠ THE DOORS SCROLL INSIDE THEMSELVES at every width, like the chip row and
+     the character bar's (B4): at `flex: 0 0 auto` a strip wider than the header
+     runs the whole hangar past the screen, and each plugin adds a door. The
+     panels they open are on <body> (portal.ts), so this clips none of them. The
+     scrollbar is hidden: the strip is 28px tall, and a bar would take half of it. */
+  .hangar .global-launchers {
+    align-self: center;
+    height: 28px;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .hangar .global-launchers::-webkit-scrollbar { display: none; }
   /* Filled, with a border and a blue glyph, so the doors read as buttons: at
      line-3 on the header's own background they read as labels. */
   /* ⚠ PADDING AND BORDER ARE SAID AGAIN HERE. The hangar's reset of `button`
@@ -7407,6 +7421,7 @@
     letter-spacing: 1px;
     text-transform: uppercase;
     text-decoration: none;
+    transition: background 120ms linear, border-color 120ms linear, color 120ms linear;
   }
   .hangar .global-launch-glyph { color: var(--hangar-link); }
   .hangar .global-launch:hover { color: var(--hangar-text-bright); border-color: var(--hangar-accent); }
@@ -8381,18 +8396,7 @@
       min-width: 100%;
       max-width: none;
     }
-    /* ⚠ THE DOORS SCROLL INSIDE THEMSELVES, like the chip row below and the character bar's (B4). Six with their
-     * words are 499px at 375, and at `flex: 0 0 auto` they ran the header, and the whole hangar with it, 612px wide.
-     * The scrollbar is hidden: the strip is 28px tall, and a bar would take half of it. */
-    .hangar .global-launchers {
-      flex: 0 1 auto;
-      min-width: 0;
-      overflow-x: auto;
-      overflow-y: hidden;
-      scrollbar-width: none;
-    }
-    .hangar .global-launchers::-webkit-scrollbar { display: none; }
-    /* ⚠ AND THE ACTIONS MAY SHRINK HERE. They "never shrink" above (a row of its own instead), but at 375 the row
+    /* ⚠ THE ACTIONS MAY SHRINK HERE. They "never shrink" above (a row of its own instead), but at 375 the row
      * alone is 440px with a pilot in the client (Pilot Training, Manage, + Add account, ◀ To client) and ran the
      * hangar 452px wide. Shrinking to the line lets its own `flex-wrap` put the buttons on two lines. */
     .hangar-head-actions {

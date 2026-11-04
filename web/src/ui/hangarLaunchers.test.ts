@@ -23,3 +23,12 @@ test("⚠ a door that is a button keeps its padding and border in the hangar, as
   assert.match(door, /\bpadding: 0 0\.5rem;/);
   assert.match(door, /\bborder: 1px solid /);
 });
+
+test("⚠ the strip scrolls inside itself at every width, so its doors cannot run the hangar past the screen", () => {
+  const strip = ruleBody(".hangar .global-launchers");
+  assert.match(strip, /\bflex: 0 1 auto;/);
+  assert.match(strip, /\bmin-width: 0;/);
+  assert.match(strip, /\boverflow-x: auto;/);
+  const media = css.indexOf("@media (max-width: 759px)");
+  assert.ok(css.indexOf(".hangar .global-launchers {") < media, "the rule is not only inside the mobile block");
+});
