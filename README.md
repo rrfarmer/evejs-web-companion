@@ -296,6 +296,7 @@ web/                 the Svelte front-end
   src/nav/             the in-browser bot loops (autopilot, mining, mission) + route solver
   src/bots/            the block bot model: script, macro catalog, validator, codec, examples
 scripts/cache-icons.js  the local icon scraper
+tools/gridcheck-plugin/  end-to-end tests in a real browser, through Gridcheck (docs/gridcheck.md)
 docs/                the scope/roadmap, wire contract, and session log
 ```
 

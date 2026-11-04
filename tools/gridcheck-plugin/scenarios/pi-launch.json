@@ -1,0 +1,34 @@
+{
+  "description": "PI Manager: a colony's command centre holds goods. The haul launches them and collects the container in space.",
+  "recipe": "pi-colonies",
+  "watch": { "pilot": "e2epi" },
+  "setup": [
+    { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
+    { "colonyStock": { "planetID": 40161463, "pin": "command", "type": "Base Metals", "quantity": 2000 }, "user": "e2epi" },
+    "webUp",
+    { "webLogin": "e2epi" },
+    { "webClick": { "role": "button", "name": "Planetary Industry" } },
+    { "webSelect": { "role": "combobox", "name": "Add" }, "option": "PI Hauler" },
+    { "webClick": { "role": "button", "name": "Add", "exact": true } },
+    { "webClick": { "role": "tab", "name": "Colonies" } },
+    { "webClick": { "role": "button", "name": "Refresh" } },
+    { "webClick": { "role": "checkbox", "name": "Haul from Amamake I", "exact": true } },
+    { "webClick": { "role": "button", "name": "Haul 1 colony" } },
+    { "botWait": "e2epi", "timeout": 600 },
+    { "wait": 3, "note": "the board keeps the run's own line until the bot has let go of the pilot" },
+    { "webClick": { "role": "button", "name": "Refresh" } },
+    { "webClick": { "role": "tab", "name": "Stock" } },
+    { "webExpect": { "role": "row", "name": "Base Metals" }, "text": "2,0" },
+    { "webShot": "stock after the launch" },
+    { "colonyRead": "e2epi", "note": "what the server holds now" }
+  ],
+  "until": { "any": ["COLONY commandUnits=0"], "from": "start", "timeout": 30, "grace": 3 },
+  "expect": [
+    { "match": "BOT what=result says~launch", "note": "the command centre launched" },
+    { "match": "BOT what=end status=stopped", "note": "the lap finished rather than pausing" },
+    "no BOT ok=false",
+    { "match": "COLONY commandUnits=0", "note": "the command centre was emptied" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" },
+    { "match": "no WEB_ERROR what=response", "note": "no API call answered 5xx" }
+  ]
+}

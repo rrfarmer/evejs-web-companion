@@ -1,0 +1,39 @@
+{
+  "description": "PI Manager: two colonies whose programmes have run out show as needing the pilot, and Restart starts them again through a hosted bot.",
+  "recipe": "pi-colonies",
+  "watch": { "pilot": "e2epi" },
+  "setup": [
+    { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
+    { "colonyAge": 8, "user": "e2epi", "note": "both programmes have run out" },
+    "webUp",
+    { "webLogin": "e2epi" },
+    { "webClick": { "role": "button", "name": "Planetary Industry" } },
+    { "webSelect": { "role": "combobox", "name": "Add" }, "option": "PI Hauler" },
+    { "webClick": { "role": "button", "name": "Add", "exact": true } },
+    { "webClick": { "role": "tab", "name": "Colonies" } },
+    { "webClick": { "role": "button", "name": "Refresh" } },
+    { "webExpect": { "role": "region", "name": "PI Hauler's colonies" }, "text": "1 extractor has finished its program" },
+    { "webExpect": { "text": "Need you now", "exact": true } },
+    { "webShot": "before the restart" },
+    { "webClick": { "role": "button", "name": "Restart 2 extractors" } },
+    { "botWait": "e2epi", "timeout": 120 },
+    { "wait": 3, "note": "the board keeps the run's own line until the bot has let go of the pilot" },
+    { "webClick": { "role": "button", "name": "Refresh" } },
+    { "webExpect": { "role": "region", "name": "PI Hauler's colonies" }, "text": "Ends in 6d", "timeout": 20, "note": "the programmes run again" },
+    { "webExpect": { "text": "has finished its program" }, "count": 0, "note": "none is shown as finished" },
+    { "webShot": "after the restart" },
+    { "colonyRead": "e2epi", "note": "what the server holds now" }
+  ],
+  "until": { "any": ["COLONY extracting=1"], "from": "start", "timeout": 30, "grace": 3 },
+  "expect": [
+    { "match": "WEB what=up", "note": "the web client ran against this tree's server" },
+    { "match": "PILOT online=true", "note": "the bot brought the pilot online" },
+    { "match": "BOT what=result says~restart", "note": "the bot restarted an extractor" },
+    { "match": "BOT what=end status=stopped", "note": "the bot finished rather than pausing" },
+    "no BOT ok=false",
+    { "match": "COLONY extracting=1 finished=0", "note": "the server holds running programmes" },
+    { "match": "no COLONY finished=1", "note": "none was left out" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" },
+    { "match": "no WEB_ERROR what=response", "note": "no API call answered 5xx" }
+  ]
+}

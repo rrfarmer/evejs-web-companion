@@ -1,0 +1,40 @@
+{
+  "description": "PI Manager: a real haul of two colonies. The pilot boards the Epithal, sends the launchpads up at each customs office, empties them, flies home, unloads and boards back; Stock then shows the goods in the hangar.",
+  "recipe": "pi-colonies",
+  "watch": { "pilot": "e2epi" },
+  "setup": [
+    { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
+    { "colonyAge": 8, "user": "e2epi", "note": "a week of production on the launchpads" },
+    "webUp",
+    { "webLogin": "e2epi" },
+    { "webClick": { "role": "button", "name": "Planetary Industry" } },
+    { "webSelect": { "role": "combobox", "name": "Add" }, "option": "PI Hauler" },
+    { "webClick": { "role": "button", "name": "Add", "exact": true } },
+    { "webClick": { "role": "tab", "name": "Colonies" } },
+    { "webClick": { "role": "button", "name": "Refresh" } },
+    { "webClick": { "role": "checkbox", "name": "Haul from Amamake I", "exact": true } },
+    { "webClick": { "role": "checkbox", "name": "Haul from Amamake IV", "exact": true } },
+    { "webClick": { "role": "button", "name": "Haul 2 colonies" } },
+    { "webExpect": { "text": "Haul running", "exact": true }, "timeout": 30 },
+    { "webShot": "haul running" },
+    { "botWait": "e2epi", "timeout": 600 },
+    { "wait": 3, "note": "the board keeps the run's own line until the bot has let go of the pilot" },
+    { "webClick": { "role": "button", "name": "Refresh" } },
+    { "webClick": { "role": "tab", "name": "Stock" } },
+    { "webExpect": { "role": "row", "name": "Base Metals" }, "text": "39," },
+    { "webShot": "stock after the haul" },
+    { "colonyRead": "e2epi", "note": "what the server holds now" }
+  ],
+  "until": { "any": ["COLONY launchpadUnits=0"], "from": "start", "timeout": 30, "grace": 3 },
+  "expect": [
+    { "match": "PILOT online=true", "note": "the bot brought the pilot online" },
+    { "match": "BOT what=result says~\"board ship\"", "note": "it changed ships, there and back" },
+    { "match": "BOT what=result says~launchpad.*customs", "note": "it sent a launchpad up at a customs office" },
+    { "match": "BOT what=result says~\"empty customs office\"", "note": "it emptied the office" },
+    { "match": "BOT what=end status=stopped", "note": "the lap finished rather than pausing" },
+    "no BOT ok=false",
+    { "match": "COLONY launchpadUnits=0", "note": "the server says a launchpad was emptied" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" },
+    { "match": "no WEB_ERROR what=response", "note": "no API call answered 5xx" }
+  ]
+}

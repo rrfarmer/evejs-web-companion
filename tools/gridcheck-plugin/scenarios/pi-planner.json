@@ -1,0 +1,37 @@
+{
+  "description": "PI Manager: a plan to make a commodity is created, marked done, reopened and deleted, and an expansion plan is proposed and kept. These live in the plugin's own backend.",
+  "recipe": "pi-colonies",
+  "setup": [
+    { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
+    "webUp",
+    { "webLogin": "e2epi" },
+    { "webClick": { "role": "button", "name": "Planetary Industry" } },
+    { "webSelect": { "role": "combobox", "name": "Add" }, "option": "PI Hauler" },
+    { "webClick": { "role": "button", "name": "Add", "exact": true } },
+    { "webClick": { "role": "button", "name": "Refresh" } },
+    { "webClick": { "role": "tab", "name": "Planner" } },
+    { "webFill": { "role": "textbox", "name": "Make" }, "value": "20" },
+    { "webSelect": { "role": "combobox", "name": "Commodity" }, "option": "Coolant" },
+    { "webFill": { "role": "textbox", "name": "Note" }, "value": "gridcheck" },
+    { "webClick": { "role": "button", "name": "Create plan" } },
+    { "webExpect": { "role": "complementary", "name": "Your plans" }, "text": "Coolant" },
+    { "webClick": { "role": "button", "name": "Mark done" } },
+    { "webExpect": { "role": "button", "name": "Reopen" }, "count": 1 },
+    { "webClick": { "role": "button", "name": "Reopen" } },
+    { "webClick": { "role": "button", "name": "Mark done" }, "note": "a plan is deleted once it is done" },
+    { "webClick": { "role": "button", "name": "Delete" } },
+    { "webExpect": { "role": "complementary", "name": "Your plans" }, "text": "No plans yet" },
+    { "webClick": { "role": "button", "name": "Expand colonies" } },
+    { "webClick": { "role": "button", "name": "Propose colonies" } },
+    { "webClick": { "role": "button", "name": "Keep this plan" }, "timeout": 60 },
+    { "webExpect": { "role": "complementary", "name": "Your plans" }, "text": "Amamake" },
+    { "webShot": "a kept expansion plan" },
+    { "colonyRead": "e2epi" }
+  ],
+  "until": { "any": ["COLONY user=e2epi"], "from": "start", "timeout": 30, "grace": 3 },
+  "expect": [
+    { "match": "WEB what=up" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" },
+    { "match": "no WEB_ERROR what=response", "note": "no API call answered 5xx" }
+  ]
+}

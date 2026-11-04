@@ -1,0 +1,40 @@
+{
+  "description": "Plugin isolation: the PI plugin's backend is killed. The Plugins window says it was restarted, and the plans it keeps are still there.",
+  "recipe": "pi-colonies",
+  "setup": [
+    { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
+    "webUp",
+    { "webLogin": "e2epi" },
+    { "webClick": { "role": "button", "name": "Planetary Industry" } },
+    { "webSelect": { "role": "combobox", "name": "Add" }, "option": "PI Hauler" },
+    { "webClick": { "role": "button", "name": "Add", "exact": true } },
+    { "webClick": { "role": "button", "name": "Refresh" }, "note": "reads the recipe table" },
+    { "webClick": { "role": "tab", "name": "Planner" } },
+    { "webFill": { "role": "textbox", "name": "Make" }, "value": "5" },
+    { "webSelect": { "role": "combobox", "name": "Commodity" }, "option": "Coolant" },
+    { "webClick": { "role": "button", "name": "Create plan" } },
+    { "webExpect": { "role": "complementary", "name": "Your plans" }, "text": "Coolant" },
+    { "webClick": { "role": "button", "name": "Close" } },
+    { "webClick": { "role": "button", "name": "Select PI Hauler PI Hauler" }, "note": "the Plugins window asks on an online pilot's session" },
+    { "webClick": { "role": "button", "name": "Go to first pilot" }, "timeout": 30 },
+    { "webClick": { "role": "button", "name": "Plugins, 1" } },
+    { "webClick": { "role": "menuitem", "name": "Manage plugins" } },
+    { "webExpect": { "role": "region", "name": "Plugins" }, "text": "Server part: Running", "timeout": 20 },
+    { "pluginSignal": "pi-manager", "signal": "SIGKILL" },
+    { "wait": 8, "note": "the plugin host restarts a backend after 1 s" },
+    { "webClick": { "role": "button", "name": "Close", "index": 0 }, "note": "the Plugins window reads when it opens" },
+    { "webClick": { "role": "button", "name": "Plugins, 1" } },
+    { "webClick": { "role": "menuitem", "name": "Manage plugins" } },
+    { "webExpect": { "role": "region", "name": "Plugins" }, "text": "restarted 1 time", "timeout": 20 },
+    { "webShot": "restarted once" },
+    { "webClick": { "role": "button", "name": "Planetary Industry" } },
+    { "webClick": { "role": "tab", "name": "Planner" } },
+    { "webExpect": { "role": "complementary", "name": "Your plans" }, "text": "Coolant", "note": "the plan survived the crash" },
+    { "colonyRead": "e2epi" }
+  ],
+  "until": { "any": ["COLONY user=e2epi"], "from": "start", "timeout": 30, "grace": 3 },
+  "expect": [
+    { "match": "WEB what=up" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" }
+  ]
+}
