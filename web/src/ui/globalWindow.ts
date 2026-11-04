@@ -111,6 +111,8 @@ export interface PluginOfWindow {
   readonly name: string;
   /** The word on the plugin's launcher when the whole plugin is pinned. */
   readonly label: string;
+  /** Its own icon; its first window's glyph stands in when absent. */
+  readonly glyph?: readonly string[];
 }
 
 /** A plugin's global window: its launcher, and the glyph the launcher and its chip draw. */

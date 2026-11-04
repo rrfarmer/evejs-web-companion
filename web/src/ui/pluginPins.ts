@@ -93,12 +93,30 @@ export interface PluginLauncher {
   readonly label: string;
   readonly title: string;
   readonly hint: string;
-  /** The tab whose glyph the launcher draws. */
+  /** The tab whose glyph the launcher draws, unless it has `glyph`. */
   readonly glyphOf: TabID;
+  /** The plugin's own icon, for a launcher that stands for the whole plugin. */
+  readonly glyph?: readonly string[];
   readonly windowID: TabID | null;
   readonly windows: PluginWindowGroup["windows"];
   /** One of its windows is open (put away counts as open). */
   readonly open: boolean;
+}
+
+/** The longest word a launcher shows: as long as "Planetary Industry". */
+export const LAUNCHER_LABEL_MAX = 18;
+
+/**
+ * A launcher's word, cut with "..." past LAUNCHER_LABEL_MAX so one long label
+ * cannot crowd the strip. Cut here rather than by CSS, because the strip draws
+ * capitals and spacing that make a width in characters inexact. The full name
+ * stays on the launcher's accessible label and its tooltip.
+ */
+export function launcherWord(label: string): string {
+  const characters = Array.from(label.trim());
+  return characters.length <= LAUNCHER_LABEL_MAX
+    ? characters.join("")
+    : `${characters.slice(0, LAUNCHER_LABEL_MAX).join("").trimEnd()}...`;
 }
 
 /** The plugin launchers the player pinned, in pin order. */
@@ -112,7 +130,7 @@ export function pluginLaunchers(
   const windowLauncher = (window: PluginWindowGroup["windows"][number]): PluginLauncher => ({
     key: `window:${window.id}`,
     kind: "window",
-    label: window.label,
+    label: launcherWord(window.label),
     title: window.title,
     hint: window.hint,
     glyphOf: window.id,
@@ -125,14 +143,17 @@ export function pluginLaunchers(
       const group = groups.find((entry) => entry.plugin.id === pin.pluginID);
       if (!group || group.windows.length === 0) continue;
       group.windows.forEach((window) => covered.add(window.id));
+      const glyph = group.plugin.glyph ? { glyph: group.plugin.glyph } : {};
       if (group.windows.length === 1) {
-        launchers.push(windowLauncher(group.windows[0]!));
+        // Its menu row's pin made this, so it wears what that row wears.
+        launchers.push({ ...windowLauncher(group.windows[0]!), ...glyph });
         continue;
       }
       launchers.push({
         key: `plugin:${group.plugin.id}`,
         kind: "plugin",
-        label: group.plugin.label,
+        ...glyph,
+        label: launcherWord(group.plugin.label),
         title: group.plugin.name,
         hint: `${group.plugin.name}: ${group.windows.map((window) => window.title).join(", ")}`,
         glyphOf: group.windows[0]!.id,

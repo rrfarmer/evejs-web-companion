@@ -110,7 +110,7 @@ export function activatePlugins(
       for (const window of manifest.windows ?? []) {
         registerGlobalWindow({
           ...window,
-          plugin: { id: manifest.id, name: manifest.name, label: manifest.label ?? manifest.windows![0]!.label },
+          plugin: { id: manifest.id, name: manifest.name, label: manifest.label ?? manifest.windows![0]!.label, ...(manifest.glyph ? { glyph: manifest.glyph } : {}) },
         });
         const view = pluginViews?.windows[window.id];
         if (view !== undefined) registerGlobalWindowView(window.id, view);

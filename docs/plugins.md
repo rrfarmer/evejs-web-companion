@@ -90,7 +90,7 @@ layer on the desktop and is a panel on a phone (`web/src/ui/globalWindow.ts`,
 Plugin windows open from the **Plugins menu** at the end of the brand strip, not
 from buttons of their own (`PluginMenu.svelte`, `pluginPins.ts`):
 
-- The menu lists each plugin. One with several windows opens them in place, on
+- The menu lists each plugin, in the order of `plugins/index.ts`. One with several windows opens them in place, on
   hover or on a click (a phone has no hover).
 - The pin at the end of a row puts a launcher (a toolbar button) in the strip. A
   plugin row's pin pins the whole plugin, and its launcher lists its windows. A
@@ -105,8 +105,48 @@ from buttons of their own (`PluginMenu.svelte`, `pluginPins.ts`):
 - Pins are kept per browser. "Manage plugins" at the foot of the menu opens the
   Plugins window.
 
-A plugin may register as many windows as it needs. Its manifest's `label` is the
-word on its launcher when it is pinned whole (its first window's label when absent).
+A plugin may register as many windows as it needs.
+
+#### What each name and icon is for
+
+A plugin gives core its words and icons as fields, and core decides where they go:
+
+```ts
+definePlugin({
+  name: "Trade Tools",        // its name in the Plugins menu and the Plugins window
+  label: "Trade",             // optional: its launcher's word when pinned whole and it has several windows
+  glyph: ["M4 4h16v16H4z"],   // optional: the plugin's own icon
+  windows: [{
+    id: "plugin:trade-tools",
+    label: "Prices",          // its launcher's word
+    title: "Trade prices",    // its full name: title bar, sublist row, accessible name
+    hint: "What it is for",   // the launcher's tooltip
+    glyph: ["M4 12h16"],      // its icon
+  }],
+});
+```
+
+| Where | Words | Icon |
+| --- | --- | --- |
+| Plugins menu, a plugin's row | manifest `name` | manifest `glyph`, else the first window's `glyph` |
+| Plugins menu, a window's row in the sublist | window `title` | none |
+| Launcher, plugin with one window, pinned | window `label` | manifest `glyph`, else the window's `glyph` |
+| Launcher, plugin with several windows, pinned whole | manifest `label`, else the first window's `label` | manifest `glyph`, else the first window's `glyph` |
+| Launcher, one window pinned alone | window `label` | the window's `glyph` |
+| The list a whole plugin's launcher opens | window `title` | the window's `glyph` |
+| Launcher's tooltip | window `hint`; for a plugin with several windows, its name and the windows' titles | |
+| Launcher's accessible name | window `title`, or the manifest `name` when it stands for several windows | |
+| Window's title bar | window `title` | |
+
+So a plugin with one window needs no manifest `label` or `glyph`: the PI Manager has
+neither, and its "PI" and "Planetary Industry" are its window's `label` and `title`.
+Give a plugin with several windows a manifest `glyph` when no one window stands for
+the whole: without one, the first window in the list does, so that order matters.
+
+Keep a `label` short: the strip is shared with every other launcher. A launcher shows
+at most 18 characters, the length of "Planetary Industry", then `...`. Nothing refuses
+a longer one, and the full name stays in the launcher's accessible name. The menu
+cuts a name that outruns its row in the same way, at the row's width.
 
 - Its id is `plugin:<plugin id>` or `plugin:<plugin id>.<name>`.
 - Its view is a Svelte component given `{ sessions, onOpen, onGoToPilot }`

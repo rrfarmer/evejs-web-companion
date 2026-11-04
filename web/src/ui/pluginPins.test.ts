@@ -9,6 +9,7 @@ import type { PluginWindowGroup } from "./globalWindow.ts";
 import {
   AUTO_PIN_LIMIT,
   NO_PINS,
+  launcherWord,
   loadPins,
   meetPlugins,
   pluginLaunchers,
@@ -25,6 +26,36 @@ function group(id: string, windows: readonly string[]): PluginWindowGroup {
     windows: windows.map((name) => ({ id: `plugin:${id}.${name}` as TabID, label: name, title: `${id} ${name}`, hint: `${id} ${name} hint` })),
   };
 }
+
+test("⚠ a launcher's word is cut past the length of \"Planetary Industry\", and the full name stays", () => {
+  assert.equal(launcherWord("PI"), "PI");
+  assert.equal(launcherWord("Planetary Industry"), "Planetary Industry", "the longest word shown whole");
+  assert.equal(launcherWord("Planetary Industries"), "Planetary Industri...");
+  assert.equal(launcherWord("Planetary Industry Manager"), "Planetary Industry...");
+  assert.equal(launcherWord("Planetary Industr  Manager"), "Planetary Industr...", "no space before the dots");
+  const long = "A very long plugin name indeed";
+  const plugin = { ...group("long", ["one", "two"]).plugin, label: long };
+  const windows = group("long", ["one", "two"]).windows;
+  const [whole] = pluginLaunchers({ pins: [{ kind: "plugin", pluginID: "long" }], seen: [] }, [{ plugin, windows }], new Set());
+  assert.equal(whole?.label, "A very long plugin...");
+  assert.equal(whole?.title, "Plugin long", "the accessible name is not cut");
+  const single = { plugin, windows: [{ ...windows[0]!, label: long }] };
+  const [one] = pluginLaunchers({ pins: [{ kind: "plugin", pluginID: "long" }], seen: [] }, [single], new Set());
+  assert.equal(one?.label, "A very long plugin...");
+});
+
+test("a plugin's own icon is on the launcher that stands for it, and a window pinned alone keeps its own", () => {
+  const glyph = ["M1 1h2"];
+  const base = group("own", ["one", "two"]);
+  const withIcon = { ...base, plugin: { ...base.plugin, glyph } };
+  const whole: PinState = { pins: [{ kind: "plugin", pluginID: "own" }], seen: [] };
+  assert.deepEqual(pluginLaunchers(whole, [withIcon], new Set())[0]?.glyph, glyph, "several windows, pinned whole");
+  assert.deepEqual(pluginLaunchers(whole, [{ ...withIcon, windows: [base.windows[0]!] }], new Set())[0]?.glyph, glyph, "one window, pinned whole");
+  const alone: PinState = { pins: [{ kind: "window", windowID: base.windows[0]!.id }], seen: [] };
+  assert.equal(pluginLaunchers(alone, [withIcon], new Set())[0]?.glyph, undefined);
+  assert.equal(pluginLaunchers(whole, [base], new Set())[0]?.glyph, undefined, "no icon of its own: its first window's stands in");
+  assert.equal(pluginLaunchers(whole, [base], new Set())[0]?.glyphOf, base.windows[0]!.id);
+});
 
 const PI = group("pi", ["board", "haul", "expand"]);
 const SOLO = group("solo", ["main"]);

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import { PLUGIN_API_VERSION, definePlugin, type PluginManifest } from "../plugin-api/index.ts";
 import { activatePlugins, pluginProblem } from "./pluginHost.ts";
-import { globalLaunchers, isGlobalTab } from "../ui/globalWindow.ts";
+import { globalLaunchers, isGlobalTab, pluginWindowGroups } from "../ui/globalWindow.ts";
 import { pluginMacro } from "../bots/pluginMacros.ts";
 import { tabLabel } from "../ui/tabs.ts";
 
@@ -62,6 +62,14 @@ test("⚠ an id listed twice in one plugin, or a block with no colon, is refused
   assert.equal(pluginMacro("lambda:wait"), null, "its first block did not load either");
   const colonless = activatePlugins([manifest("mu", { macros: [block("mux" as `${string}:${string}`)] })], null);
   assert.match(colonless[0]?.error ?? "", /block "mux" is not this plugin's/);
+});
+
+test("a manifest's own icon and launcher word reach the Plugins menu's group", () => {
+  const glyph = ["M2 2h4"];
+  activatePlugins([manifest("nu", { label: "Nu", glyph, windows: [window("plugin:nu"), window("plugin:nu.second")] })], null);
+  const group = pluginWindowGroups().find((entry) => entry.plugin.id === "nu");
+  assert.deepEqual(group?.plugin, { id: "nu", name: "Plugin nu", label: "Nu", glyph });
+  assert.equal(group?.windows.length, 2);
 });
 
 test("one plugin's failure leaves the next one loading", () => {

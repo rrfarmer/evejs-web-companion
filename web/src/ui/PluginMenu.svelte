@@ -114,7 +114,7 @@
           {:else}
             <span class="plugin-panel-chevron" aria-hidden="true"></span>
           {/if}
-          <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">{#each neocomGlyph(group.windows[0]!.id) as d (d)}<path {d} />{/each}</svg>
+          <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">{#each group.plugin.glyph ?? neocomGlyph(group.windows[0]!.id) as d (d)}<path {d} />{/each}</svg>
           <span>{group.plugin.name}</span>
         </button>
         <button

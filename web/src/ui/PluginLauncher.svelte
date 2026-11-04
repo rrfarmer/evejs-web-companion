@@ -52,7 +52,7 @@
   onclick={press}
 >
   <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">
-    {#each neocomGlyph(launcher.glyphOf) as d (d)}<path {d} />{/each}
+    {#each launcher.glyph ?? neocomGlyph(launcher.glyphOf) as d (d)}<path {d} />{/each}
   </svg>
   <span class="global-launch-text">{launcher.label}</span>
 </button>

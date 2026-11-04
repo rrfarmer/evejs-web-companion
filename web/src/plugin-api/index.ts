@@ -53,6 +53,12 @@ export interface PluginManifest {
    * brand; its first window's label when absent.
    */
   readonly label?: string;
+  /**
+   * The plugin's own icon: on its row in the Plugins menu and on its launcher
+   * when the whole plugin is pinned. Its first window's glyph when absent. SVG
+   * path data in a 24x24 box, stroked, as a window's glyph is.
+   */
+  readonly glyph?: readonly string[];
   readonly windows?: readonly PluginWindow[];
   /** Blocks for the bot builder; each id is "<plugin id>:<block>". */
   readonly macros?: readonly PluginMacro[];
