@@ -180,8 +180,8 @@
   // judged by what its routes bring rather than by its recipe.
   let recipes = $state<PiRecipeBook | null>(null);
   // Who a server bot is flying (a public read), and what this window's own
-  // starts did. Read when the window opens, on Refresh and after a start —
-  // never on a timer.
+  // starts did. Read when the window opens, on Refresh, after a start and after
+  // an Add — never on a timer.
   let activeBots = $state<Set<number>>(new Set());
   let dispatch = $state<Map<number, PiDispatchState>>(new Map());
   // The public roster's rows by pilot, and the runs this window started and is
@@ -189,8 +189,12 @@
   // the outcome stays said, until the next start or Refresh.
   let liveBots = $state<Map<number, ActiveServerBot>>(new Map());
   let runWatch = $state<Map<number, PiRunWatch>>(new Map());
-  // Pilots whose run ended while a read was in flight; read when it is done.
+  // Pilots to read once the read in flight is done: a run of theirs ended, or
+  // they were just added to the list.
   let rereadPending = new Set<number>();
+  // A closed window starts no more reads: nobody is looking, and each one would
+  // save this window's copy of the roster over whatever came after it.
+  let closed = false;
   /** How often the bot roster is polled while a bot flies a roster pilot (BotManager's cadence). */
   const RUN_POLL_MS = 3000;
 
@@ -442,7 +446,7 @@
   /** Read these pilots' colonies again, and the corp stock; queued behind a read in flight. */
   async function reread(characterIDs: readonly number[]): Promise<void> {
     for (const id of characterIDs) rereadPending.add(id);
-    if (reading) return;
+    if (reading || closed) return;
     const asked = roster.members.filter((id) => rereadPending.has(id));
     rereadPending = new Set();
     await readPilots(asked);
@@ -1262,11 +1266,13 @@
     } finally {
       reading = false;
       browserNowMs = Date.now();
+      // In here, so a read that failed still reads whoever was waiting behind it.
+      if (rereadPending.size > 0) void reread([]);
     }
-    if (rereadPending.size > 0) void reread([]);
   }
 
   function add(): void {
+    const before = new Set(roster.members);
     const [kind, id] = choice.split(":");
     if (kind === "pilot") {
       keep(addPiMember(roster, Number(id)));
@@ -1274,6 +1280,14 @@
       keep(addPiMembers(roster, hangar.members[id] ?? []));
     }
     choice = "";
+    // Only the newcomers: everyone else's reading stands, and a read already
+    // under way picks them up when it ends. Their rows say so from now, not from
+    // when that read ends. They have no colonies yet, so this holds no button back.
+    const newcomers = roster.members.filter((member) => !before.has(member));
+    const marked = new Map(attempts);
+    for (const member of newcomers) marked.set(member, "reading");
+    attempts = marked;
+    void reread(newcomers);
   }
 
   /** Off the PI list only: nothing is signed in, selected or undocked. */
@@ -1300,6 +1314,7 @@
     });
     const runs = setInterval(() => void poll(), RUN_POLL_MS);
     return () => {
+      closed = true;
       clearInterval(tick);
       clearInterval(runs);
     };

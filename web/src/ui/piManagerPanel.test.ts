@@ -217,6 +217,25 @@ test("taking a pilot off the list is called Remove, never 'Take off'", () => {
   assert.doesNotMatch(body, /take off/i);
 });
 
+test("adding to the list reads the newcomers' colonies, with no Refresh", () => {
+  // onMount and clicks do not run under the server generator, so the wiring is
+  // read off the source. gridcheck's pi-add-pilot clicks it in a real browser.
+  const body = /function add\(\): void \{[\s\S]*?\n  \}\n/.exec(SOURCE)?.[0] ?? "";
+  // In this order: a list taken after keep() has everybody on it, and reads nobody.
+  assert.match(
+    body,
+    /const before = new Set\(roster\.members\);[\s\S]*keep\([\s\S]*const newcomers = roster\.members\.filter\(\(member\) => !before\.has\(member\)\);[\s\S]*void reread\(newcomers\);/,
+  );
+  // A newcomer waiting behind a read in progress already says it is being looked at.
+  assert.match(body, /for \(const member of newcomers\) marked\.set\(member, "reading"\);/);
+});
+
+test("whoever waits behind a read is read after it fails, and not after the window closes", () => {
+  assert.match(SOURCE, /\} finally \{[^}]*if \(rereadPending\.size > 0\) void reread\(\[\]\);\s*\}/);
+  assert.match(SOURCE, /if \(reading \|\| closed\) return;/);
+  assert.match(SOURCE, /return \(\) => \{\s*closed = true;/);
+});
+
 test("the add list offers pilots not yet on it, and a squad with someone new", () => {
   const body = renderSeeded();
   assert.match(body, /<option value="pilot:90000004">Eve Spare<\/option>/);
