@@ -7394,9 +7394,13 @@
   .hangar .global-launchers { align-self: center; height: 28px; }
   /* Filled, with a border and a blue glyph, so the doors read as buttons: at
      line-3 on the header's own background they read as labels. */
+  /* ⚠ PADDING AND BORDER ARE SAID AGAIN HERE. The hangar's reset of `button`
+     has the same weight as `.global-launch` and comes later, so without them
+     a door that is a <button> loses both while a door that is an <a> keeps them. */
   .hangar .global-launch {
+    padding: 0 0.5rem;
     background: var(--hangar-row-hover);
-    border-color: var(--hangar-line-5);
+    border: 1px solid var(--hangar-line-5);
     color: var(--hangar-text-mid);
     font-family: var(--hangar-mono, inherit);
     font-size: 11px;
