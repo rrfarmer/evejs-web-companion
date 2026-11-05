@@ -921,6 +921,9 @@ export interface MissionBotRequest {
 
 export { DEFAULT_MAX_JUMPS };
 
+/** A pilot as this flow knows it now: who it is, and where it is. */
+export type HeldPilot = Pick<api.SelectResult, "character" | "station"> & { readonly characterID: number };
+
 /**
  * What the player asked the mining bot to do (goal R26).
  *
@@ -3843,6 +3846,13 @@ export interface AppFlow {
   /** Release the persistent session (character offline), back to the select list. */
   releaseSession(): Promise<void>;
   logout(): Promise<void>;
+  /** The pilot this flow holds, as it is now; null with none online. What another flow attaches to it with. */
+  heldPilot(): HeldPilot | null;
+  /**
+   * Fly a pilot another flow selected on this session, with no select of its own: a select takes the pilot
+   * out of its fleet, and this is for a flow that carries on, as a plugin's does after its process restarts.
+   */
+  attachToHeldPilot(held: HeldPilot): Promise<void>;
   /** What the game server closed this account's pilot with, where it said (another login of its account), or null. */
   readClosedByServer?(characterID: number): Promise<api.ClosedByServer | null>;
 }
@@ -5064,6 +5074,76 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const recoveryIDs = new Set<number>();
   const confirmedRecoveryIDs = new Set<number>();
   let recoveryCheckID: string | null = null;
+
+  /** Everything a flow does for a pilot it now holds, however it came to hold it. */
+  function pilotSelected(characterID: number, result: Pick<api.SelectResult, "character" | "station"> & { readonly droneRecoveryCheckID: string | null }): void {
+    // accountsvc.ProcessSessionChange: another character, and what the account service kept was the last one's.
+    walletReads.forget();
+    corporationWealthReads.forget();
+    corporationWealthSignal.set(null);
+    closeMoneyTransfer();
+    infoWindows.reset();
+    corporationRecords.reset();
+    corporationAggression.reset();
+    walletJournalGeneration += 1;
+    walletJournalSignal.set(NO_WALLET_JOURNAL);
+    corpWalletJournalGeneration += 1;
+    corpWalletJournalSignal.set(NO_CORP_WALLET_JOURNAL);
+    walletOverviewGeneration += 1;
+    walletOverviewSignal.set(NO_WALLET_OVERVIEW);
+    walletSharesSignal.set(NO_WALLET_SHARES);
+    corpWalletSharesSignal.set(NO_WALLET_SHARES);
+    walletSharesGeneration++;
+    corpWalletSharesGeneration++;
+    // scanSvc.OnSessionReset: the scan handlers, and their results, are the last character's; and so is the formation.
+    probeResultsBySystem.clear();
+    probeFormation = INITIAL_FORMATION;
+    probesInFormation = new Set();
+    // skillQueueSvc.ReInitialize: and what the queue service had reckoned of the training slots.
+    trainingSlots.forget();
+    conversations.reset();
+    directTrades.reset();
+    duelInvitationSignal.set(null);
+    requestGeneration++;
+    cancelCorporationCEOChoice();
+    cancelCorporationAward();
+    recoveryGeneration++;
+    recoveryTask = null;
+    recoveryIDs.clear();
+    confirmedRecoveryIDs.clear();
+    recoveryCheckID = null;
+    recoverySignal.set({ phase: pilotRecoveryEnabled ? "checking" : "ready", reason: null });
+    // A new session numbers its events from the start again.
+    pushesTaken.clear();
+    store.apply({ type: "character/selected", characterID });
+    recoveryCheckID = result.droneRecoveryCheckID;
+    store.apply({
+      type: "character/online",
+      character: result.character,
+      station: result.station,
+    });
+    if (hostedTransportSuspended && scriptRunner?.getStatus() === "paused") {
+      if (hostedRecoveryName) store.apply({ type: "custom-bot/started", name: hostedRecoveryName });
+      const snapshot = scriptRunner.snapshot();
+      store.apply({ type: "custom-bot/progress", status: snapshot.status, phase: snapshot.phase,
+        why: snapshot.why, stepPath: snapshot.stepPath, interruptID: snapshot.interruptID,
+        pauseReason: snapshot.pauseReason, note: snapshot.note, refusals: snapshot.refusals });
+    }
+    // Anchor the docked-station sync to where select landed so the first
+    // flight read at this station doesn't trigger a redundant relocate; a
+    // later dock elsewhere on this session will.
+    syncedStationID = result.character.structureID ?? result.character.stationID;
+    // R10: the session is live, so open the push channel before the docked
+    // reads — anything the reads trigger is then already being observed.
+    startLiveStream();
+    void retryDroneRecovery();
+    void loadCrimewatch().catch(() => {});
+    void loadCloneGrade().catch(() => {});
+    void loadLoginRewards().catch(() => {});
+    // The mission tracker's registration as the client's info panels start (RegisterMissionTracking).
+    void registerMissionTracking().catch(() => {});
+    void loadRedeemTokens().catch(() => {});
+  }
 
   function requireAutomationReady(): void {
     if (sessionClosing) throw new Error("This pilot session is being released.");
@@ -29933,72 +30013,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         try { return await api.selectCharacter(characterID, callOptions); }
         finally { inventoryPasswordSwitching = false; }
       })();
-      // accountsvc.ProcessSessionChange: another character, and what the account service kept was the last one's.
-      walletReads.forget();
-      corporationWealthReads.forget();
-      corporationWealthSignal.set(null);
-      closeMoneyTransfer();
-      infoWindows.reset();
-      corporationRecords.reset();
-      corporationAggression.reset();
-      walletJournalGeneration += 1;
-      walletJournalSignal.set(NO_WALLET_JOURNAL);
-      corpWalletJournalGeneration += 1;
-      corpWalletJournalSignal.set(NO_CORP_WALLET_JOURNAL);
-      walletOverviewGeneration += 1;
-      walletOverviewSignal.set(NO_WALLET_OVERVIEW);
-      walletSharesSignal.set(NO_WALLET_SHARES);
-      corpWalletSharesSignal.set(NO_WALLET_SHARES);
-      walletSharesGeneration++;
-      corpWalletSharesGeneration++;
-      // scanSvc.OnSessionReset: the scan handlers, and their results, are the last character's; and so is the formation.
-      probeResultsBySystem.clear();
-      probeFormation = INITIAL_FORMATION;
-      probesInFormation = new Set();
-      // skillQueueSvc.ReInitialize: and what the queue service had reckoned of the training slots.
-      trainingSlots.forget();
-      conversations.reset();
-      directTrades.reset();
-      duelInvitationSignal.set(null);
-      requestGeneration++;
-      cancelCorporationCEOChoice();
-      cancelCorporationAward();
-      recoveryGeneration++;
-      recoveryTask = null;
-      recoveryIDs.clear();
-      confirmedRecoveryIDs.clear();
-      recoveryCheckID = null;
-      recoverySignal.set({ phase: pilotRecoveryEnabled ? "checking" : "ready", reason: null });
-      // A new session numbers its events from the start again.
-      pushesTaken.clear();
-      store.apply({ type: "character/selected", characterID });
-      recoveryCheckID = result.droneRecoveryCheckID;
-      store.apply({
-        type: "character/online",
-        character: result.character,
-        station: result.station,
-      });
-      if (hostedTransportSuspended && scriptRunner?.getStatus() === "paused") {
-        if (hostedRecoveryName) store.apply({ type: "custom-bot/started", name: hostedRecoveryName });
-        const snapshot = scriptRunner.snapshot();
-        store.apply({ type: "custom-bot/progress", status: snapshot.status, phase: snapshot.phase,
-          why: snapshot.why, stepPath: snapshot.stepPath, interruptID: snapshot.interruptID,
-          pauseReason: snapshot.pauseReason, note: snapshot.note, refusals: snapshot.refusals });
-      }
-      // Anchor the docked-station sync to where select landed so the first
-      // flight read at this station doesn't trigger a redundant relocate; a
-      // later dock elsewhere on this session will.
-      syncedStationID = result.character.structureID ?? result.character.stationID;
-      // R10: the session is live, so open the push channel before the docked
-      // reads — anything the reads trigger is then already being observed.
-      startLiveStream();
-      void retryDroneRecovery();
-      void loadCrimewatch().catch(() => {});
-      void loadCloneGrade().catch(() => {});
-      void loadLoginRewards().catch(() => {});
-      // The mission tracker's registration as the client's info panels start (RegisterMissionTracking).
-      void registerMissionTracking().catch(() => {});
-      void loadRedeemTokens().catch(() => {});
+      pilotSelected(characterID, result);
+      await refreshStationPanel();
+    },
+
+    heldPilot() {
+      // From the store, not from select's answer: a flow attaching after a restart needs where the pilot is now.
+      const { online, station } = store.station.get();
+      return online === null ? null : { characterID: online.characterID, character: online, station };
+    },
+
+    async attachToHeldPilot(held) {
+      if (sessionClosing) throw new Error("This pilot session is being released.");
+      pilotSelected(held.characterID, { character: held.character, station: held.station, droneRecoveryCheckID: null });
       await refreshStationPanel();
     },
 

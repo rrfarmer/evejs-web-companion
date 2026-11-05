@@ -47,6 +47,7 @@ web/src/plugin-api/
   ui.ts                 core's Svelte pieces (pickers, type icon)
   backend.ts            the backend's side of the channel
   deciderProcess.ts     the process for a plugin with blocks and no backend
+  pilotSession.ts       a pilot's session in a plugin's process, for a run
 web/src/plugins/pluginHost.ts   loads plugins into the page (and the BFF's bot code)
 src/pluginHost.js               runs plugin backends, each in its own process
 ```
@@ -224,6 +225,69 @@ if (typeof process.send === "function") {
 - A plugin with blocks and no backend still gets a process: the plugin API's
   `deciderProcess.ts`, which loads `plugins/<id>/plugin.ts` and only decides.
 
+### A run
+
+A run is a loop a plugin writes itself, flying a pilot from its own process: for
+what a block's one tick at a time cannot say. To core it is a bot like any other,
+on the same launch approval, claim, roster, restart, run limit and Stop, and it
+shows in the Bot Manager with the rest.
+
+```ts
+// plugins/<id>/backend.ts
+import { startBackend } from "../../web/src/plugin-api/backend.ts";
+import { createPilotSession } from "../../web/src/plugin-api/pilotSession.ts";
+
+startBackend({
+  manifest,
+  routes: {},
+  cleanup: () => {},
+  runs: {
+    patrol: {
+      // The setup comes from outside, and this is its one gate.
+      check: (setup) => ({ ok: true, setup: readSetup(setup), name: "Patrol", policy: { riskClasses: ["combat"], restartSafe: true } }),
+      async start(run) {
+        const { store, flow } = await createPilotSession(run);
+        const loop = startPatrol(flow, store, run.setup, run.resumeData);
+        loop.onChange((state) => run.report({ status: "running", phase: state.phase, why: state.why, resumeData: state.lap }));
+        return { stop() { loop.stop(); flow.setLivePush(false); } };
+      },
+    },
+  },
+});
+```
+
+In the page, `checkPluginRun` asks the plugin what a setup means and what it risks,
+`createPluginRunGrant` makes the approval from that, and `startPluginRun` starts it.
+
+| Who | What they do |
+| --- | --- |
+| Core | Claims the pilot, so a tab cannot take it. Selects it, holds its token and logs it off. Keeps the run on the roster and brings it back after a restart of the BFF. Ends it at its run limit, and on Stop brings the drones home. |
+| The plugin | Says what a setup means and what it risks. Flies the pilot. Says what it is doing (`report`). |
+
+**The token and the claim stay with core.** A run's `fetch` sends each request over
+the plugin's channel, and core adds them on its side. A run may ask only the BFF's own
+API, only core selects a pilot or ends its session, and a run cannot start or stop a bot.
+
+**`createPilotSession` does not select.** It attaches to the session core already
+holds, because a select takes the pilot out of its fleet. It loads all of the flow,
+about 170 MB, which is why it is a module of its own. A backend that flies nothing
+never pays for it.
+
+**`report`** says what the run is doing. Sending `stopped`, `idle` or `error` ends the
+run, and core logs the pilot off where it is. `readout` is carried for the plugin's
+own windows, up to 16 KB. `resumeData` is kept on disk and handed back to `start`
+after a restart, up to 64 KB, so send it only when it changes.
+
+**When the process stops,** core keeps the session and the pilot stays in its fleet.
+
+- The process restarts, and `start` is called again with `resumed: true`. The pilot may
+  be anywhere and doing anything by then, so read before acting. On a test server,
+  mid-fight, a killed process was flying again in about 3 s and a hung one in about 11 s.
+- It has 20 s to come back. If it does not, or if it stops a third time in two minutes,
+  or if `restartSafe` is false, core stops waiting: every loop stopped, drones in, dock
+  at the nearest station, log off, and the Bot Manager says why. It does not wait for
+  the plugin host to give up, which takes over a minute.
+
 ## Isolation
 
 | Where | What contains a failure |
@@ -234,6 +298,7 @@ if (typeof process.send === "function") {
 | BFF | Each backend is its own process. A throw is that request's 500; a request in flight when it dies gets a 503; one it does not answer within 30 s gets a 504. The watchdog pings every 5 s and kills a backend that misses two pings. A backend that exits is restarted after 1 s, 5 s, then 30 s, and stays stopped after five failures in ten minutes. |
 | Files | Each backend runs under Node's permission model. It may read its plugin folder, the web sources and `node_modules`, and write only `data/plugins/<id>`. The core database is out of reach. Node calls this a seat belt for trusted code, not a sandbox against hostile code. Backends are also allowed native packages (`--allow-addons`, for SQLite), and Node warns that native code can step outside the model, so a plugin that ships native code is trusted code. |
 | Bots | A hosted bot's plugin blocks are decided in the plugin's process (2 s per answer); a plugin that cannot answer stops only its own bots, which fly home first if they are in space. |
+| Runs | A run's pilot is recalled and docked by core if its plugin's process stays down (see [A run](#a-run)). Only that plugin's runs are affected. Node's permission model does not stop sockets, so a backend can still open a connection to the BFF; it has no token to use on it. |
 
 The Plugins window ("Manage plugins" in the Plugins menu) shows each plugin: whether it loaded, why
 not, and its backend's state and restarts (`GET /api/plugins`).

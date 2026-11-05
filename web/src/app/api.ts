@@ -50,7 +50,7 @@ import type {
 } from "../store/types.ts";
 import type { NameRef } from "../store/names.ts";
 import { pyIntDictOrder } from "../bridge/pyDict.ts";
-import type { BotLaunchGrant, BotRiskClass } from "../bots/runPolicy.ts";
+import type { BotLaunchGrant, BotRiskClass, PluginRunPolicy } from "../bots/runPolicy.ts";
 import {
   type CompanionSetup,
   type CompanionOrderAuthority,
@@ -3065,7 +3065,9 @@ export interface ServerBot {
    * not tell a companion run from a script run except by the convention that
    * `scriptID` happens to be the literal "companion".
    */
-  readonly kind: "companion" | "script";
+  readonly kind: "companion" | "plugin" | "script";
+  /** The plugin flying a run of kind "plugin", which run it is, and what it last said of it; null for any other run. */
+  readonly plugin?: { readonly pluginID: string; readonly run: string; readonly readout: JsonValue } | null;
   /**
    * The companion badge's facts, or null.
    *
@@ -3105,7 +3107,10 @@ function asServerBot(value: JsonValue): ServerBot {
     lastAlert: asLastAlert(row.lastAlert),
     // Anything that is not the companion literal is a script, matching the
     // host's own default for a roster row written before `kind` existed.
-    kind: row.kind === "companion" ? "companion" : "script",
+    kind: row.kind === "companion" || row.kind === "plugin" ? row.kind : "script",
+    plugin: row.kind === "plugin" && row.plugin !== null && typeof row.plugin === "object" && !Array.isArray(row.plugin)
+      ? { pluginID: String((row.plugin as Record<string, JsonValue>).pluginID ?? ""), run: String((row.plugin as Record<string, JsonValue>).run ?? ""), readout: (row.plugin as Record<string, JsonValue>).readout ?? null }
+      : null,
     companion: asServerBotCompanion(row.companion),
   };
 }
@@ -3286,6 +3291,35 @@ export async function startServerBot(
   const data = await postJson(
     "/api/bots/start",
     { characterID, scriptID, grant: grant as unknown as JsonValue },
+    options,
+  ).finally(() => rosterReads.clear());
+  return asServerBot(data.bot ?? null);
+}
+
+/** What a plugin reads a run's setup as and what running it risks, for the player to approve. */
+export async function checkPluginRun(
+  pluginID: string,
+  run: string,
+  setup: JsonValue,
+  options: ApiOptions = {},
+): Promise<{ readonly setup: JsonValue; readonly name: string; readonly policy: PluginRunPolicy }> {
+  const data = await postJson(`/api/plugins/${encodeURIComponent(pluginID)}/runs/${encodeURIComponent(run)}/check`, { setup }, options);
+  return { setup: data.setup ?? null, name: String(data.name ?? run), policy: data.policy as unknown as PluginRunPolicy };
+}
+
+/** Start a run a plugin flies. Same route as any server bot, and the same approval and Stop. */
+export async function startPluginRun(
+  characterID: number,
+  pluginID: string,
+  run: string,
+  setup: JsonValue,
+  grant: BotLaunchGrant,
+  options: ApiOptions = {},
+): Promise<ServerBot> {
+  rosterReads.clear();
+  const data = await postJson(
+    "/api/bots/start",
+    { characterID, kind: "plugin", pluginID, run, setup, grant: grant as unknown as JsonValue },
     options,
   ).finally(() => rosterReads.clear());
   return asServerBot(data.bot ?? null);

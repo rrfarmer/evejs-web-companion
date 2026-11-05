@@ -116,6 +116,7 @@ export type { TabID } from "../ui/tabs.ts";
 // them into core's internals. Svelte components are in ./ui.ts.
 
 export {
+  checkPluginRun,
   createBotScript,
   findMapLocations,
   getBotScript,
@@ -131,6 +132,7 @@ export {
   logout,
   pluginGetJson,
   pluginPostJson,
+  startPluginRun,
   startServerBot,
   updateBotScript,
   ROSTER_PLANETS_MAX_IDS,
@@ -147,8 +149,8 @@ export { skipWhileBusy } from "../app/skipWhileBusy.ts";
 export { stopServerBotFor } from "../app/stopBotFor.ts";
 export { SCRIPT_FORMAT, SCRIPT_VERSION, startingStation } from "../bots/botScript.ts";
 export type { BotScript, WorldRef } from "../bots/botScript.ts";
-export { analyzeBotRunPolicy, createBotLaunchGrant } from "../bots/runPolicy.ts";
-export type { BotLaunchGrant } from "../bots/runPolicy.ts";
+export { analyzeBotRunPolicy, createBotLaunchGrant, createPluginRunGrant } from "../bots/runPolicy.ts";
+export type { BotLaunchGrant, PluginRunPolicy } from "../bots/runPolicy.ts";
 export { decodeScriptValue } from "../bots/scriptCodec.ts";
 export { decodePlanetResourceInfo } from "../bridge/boundPlanets.ts";
 export { BridgeCallError } from "../bridge/callMethod.ts";

@@ -19,7 +19,7 @@ const express = require("express");
 process.env.EVEJS_WEB_POC_DATA_DIR ??= fs.mkdtempSync(path.join(os.tmpdir(), "in-process-fetch-"));
 const { createInProcessFetch, hostedBotReach } = require("../src/inProcessFetch");
 const { dispatchInProcess } = require("../src/pilotSocket");
-const { createHostedEventSource } = require("../src/hostedEventSource");
+const { createHostedEventSource } = require("../web/src/app/hostedEventSource.ts");
 
 const TOKEN = "a-web-session-token";
 const AUTH = { authorization: `Bearer ${TOKEN}` };

@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createHostedEventSource } = require("./hostedEventSource");
+const { createHostedEventSource } = require("../web/src/app/hostedEventSource.ts");
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const encoder = new TextEncoder();
 function fixture() {
