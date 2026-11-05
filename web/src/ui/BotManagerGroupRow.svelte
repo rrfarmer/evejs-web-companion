@@ -386,7 +386,9 @@
     try {
       for (const characterID of stopPlan.here) {
         try {
+          // Whichever is flying it here. stopPluginLoop does nothing without a plugin's loop.
           sessionFor(characterID)?.flow.stopCustomBot();
+          sessionFor(characterID)?.flow.stopPluginLoop();
         } catch {
           failed += 1;
         }

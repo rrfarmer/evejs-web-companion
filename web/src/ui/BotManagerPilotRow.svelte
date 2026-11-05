@@ -161,6 +161,10 @@
     session !== undefined && runState.mode === "tab" && bots?.runningBotID === "custom",
   );
   const customStatus = $derived(customBot?.status ?? null);
+  // A plugin's loop in this tab has one control any plugin's can answer to: Stop.
+  const isPluginTabRun = $derived(
+    session !== undefined && runState.mode === "tab" && bots?.runningBotID?.startsWith("plugin:") === true,
+  );
 
   // ⚠ A LIVE SERVER BOT SAYS MORE THAN ITS STATUS WORD. These three lines are
   // what the standalone Server Bots panel showed and this row did not, and they
@@ -376,6 +380,8 @@
           <ActionButton action="pause" disabled={customStatus !== "running"} onclick={pause} />
         {/if}
         <ActionButton action="stop" danger onclick={stop} />
+      {:else if isPluginTabRun}
+        <ActionButton action="stop" danger onclick={() => session?.flow.stopPluginLoop()} />
       {:else if runState.isCompanion}
         <!-- ⚠ NO STOP HERE, DELIBERATELY. Stopping a companion is the Fleet
              companions window's job, and it is not the same act as stopping a

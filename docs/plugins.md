@@ -152,7 +152,8 @@ cuts a name that outruns its row in the same way, at the row's width.
 
 - Its id is `plugin:<plugin id>` or `plugin:<plugin id>.<name>`.
 - Its view is a Svelte component given `{ sessions, onOpen, onGoToPilot }`
-  (`GlobalWindowProps`); never a pilot's store or flow.
+  (`GlobalWindowProps`). Each session carries that pilot's `store` and `flow`, so a plugin
+  in the page acts as the pilots signed in there, with all a player's rights.
 - Its glyph is SVG path data in a 24x24 box, stroked, like the Neocom's.
 
 ### A bot builder block
@@ -336,18 +337,23 @@ runs: {
 - **`stop` on the handle is what ends a run.** Core stops a run through the handle `start`
   returns, and has 5 s to wait for it. The hold's `stop` covers what happens to the flow:
   in a run that is rarely anything, because only your loop flies that flow.
-- **Never let the loop's promise reject.** Nothing catches it, so it takes the process
-  down, and every run of your plugin with it. A read fails for ordinary reasons, and a
+- **Never let the loop's promise reject.** In a process nothing catches it, so it takes the
+  process down and every run of your plugin with it. In a page it puts up the client-wide
+  error overlay. A read fails for ordinary reasons, and a
   run being stopped gets `PLUGIN_RUN_ENDED` from every read: decide what each means, and
   report `stopped` or `error` when the run ends itself, or the row goes on saying it is
   running. The sketch above gives up on the first failure, which a real loop would not.
 - **`holdShip(owner, name, stop)`** takes `plugin:<plugin id>` as the owner. `name` is shown
   in the page while a loop running there holds the ship; for a run, the Bot Manager shows
-  the name `check` gave. Nothing else flies while a plugin holds the ship. It holds it until
-  `stop` is called or it calls `release`. `stop` is called when anything else takes the ship,
-  a panic recall pulls it home, or the session closes or is lost. `stop` may not take the
+  the name `check` gave. No other bot flies while a plugin holds the ship, though a player can still start a route by
+  hand. It holds it until
+  `stop` is called or it calls `release`. `stop` is called when anything else takes the ship, a
+  player stops it from the Bot Manager, a panic recall pulls it home, or the session closes or
+  is lost. However a hold ends, whatever route the autopilot is flying ends with it, and one
+  `startRoute` is still planning does not start. `stop` may not take the
   ship itself, and what it throws or rejects with is logged and goes no further. `holdShip` refuses with no
-  pilot online, while the last controller's Stop is settling, and while the session closes.
+  pilot online, while the last controller's Stop is settling, while drone recovery is still
+  checking a pilot in the page, and while the session closes.
 - **`readFit()` comes before the module lists** (`resolveDefenseModuleIDs`,
   `resolveRemoteRepModuleIDs`, `resolveSalvageModuleIDs`). Attaching reads no fit, and until
   `readFit` has run they are empty. It answers `false` if the fit's modules could not be
@@ -397,6 +403,68 @@ it, and can never stop the loop. Some things to know:
 - `stop()` is not called if your process has died, and lines not yet sent die with it, so a
   crashed or recalled run has no `end` line. A pilot that went offline has no session left
   to write with, so those lines are lost as well.
+
+### A loop in a tab
+
+A plugin can fly a pilot from the page as well, on a pilot signed in there. The server
+is not involved, so the loop ends when the tab closes.
+
+Nothing more is needed than a session from your window's `sessions`. A plugin's modules
+stay loaded for as long as the page does, so a loop outlives the window that started it.
+Keep what you start in a module of your own rather than in a component.
+
+Write the flying once, on a `store` and `flow`, and it can run both ways. Keep the hold and
+the end of the session outside it, because those are what differ:
+
+```ts
+// lib/fly.ts: only the `while`. Never rejects: it says what went wrong and returns.
+export async function fly(store: ClientStore, flow: AppFlow, flying: () => boolean, say: (why: string) => void) {
+  try {
+    if (!(await flow.flying.readFit())) throw new Error("The ship's fit could not be read.");
+    while (flying()) { /* look, decide, act, sleepUntilPush */ }
+  } catch (error) {
+    if (flying()) say(String(error));
+  }
+}
+
+// In a run, from `start`:
+const { store, flow } = await createPilotSession(run);
+let flying = true;
+const hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+const loop = fly(store, flow, () => flying, (why) => { flying = false; run.report({ status: "error", why }); })
+  // If `fly` finished its job by itself, say so, or the row goes on saying it is running.
+  .then(() => { if (flying) run.report({ status: "stopped" }); })
+  .finally(() => { hold.release(); flow.setLivePush(false); });
+return { async stop() { flying = false; await loop; } };
+
+// In a tab, from a window's button. `holdShip` can refuse: say so, and do not start.
+let flying = true;
+const hold = session.flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+void fly(session.store, session.flow, () => flying, showInMyWindow).finally(() => hold.release());
+```
+
+What differs in a tab:
+
+| | A run | A tab |
+|---|---|---|
+| Who starts it | `startPluginRun` and a launch approval | your own code, on a player's click |
+| A player's Stop | The Bot Manager calls the handle's `stop` | The Bot Manager calls the hold's `stop` |
+| The hold's `stop` | Rarely called | **How your loop is stopped**, so it must end the loop |
+| Its name in the page | From `check` | From `holdShip` |
+| What a window sees | `readout` | `store.pluginState`, directly |
+| A restart | Your process comes back, with `resumeData` | Closing or reloading the tab ends the run. Come back from your own saved state if you want to |
+| The live stream | Yours to close (`setLivePush(false)`) | The page's. **Do not close it** |
+| The session | Core's | The player's. **Do not release it** when your loop ends |
+
+`holdShip` refuses until drone recovery has checked a pilot that has just signed in, so a
+start can be told to wait. If that check failed it stays refused until someone retries,
+with `flow.retryDroneRecovery()` or the Retry on that pilot's notice, so say what it said
+rather than waiting for ever. Ask `store.bots.get().runningBotID` whether a pilot is already
+flying something before you offer a Start, and remember that taking the ship stops it.
+
+Be careful with sessions a player is looking at. A background pilot has no live stream
+(only the pilot on screen does), so it learns of pushes from the answers to your own
+reads, and `sleepUntilPush` wakes on those.
 
 ## Isolation
 

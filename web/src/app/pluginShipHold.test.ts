@@ -161,6 +161,156 @@ test("a panic recall stops a plugin's loop, or it would undock again", async () 
   assert.equal(stopped, 1);
 });
 
+test("a player's Stop ends a plugin's loop in this tab, and does nothing if there is none", async () => {
+  const { store, flow } = await makeFlow();
+  flow.stopPluginLoop();
+  let stopped = 0;
+  flow.flying.holdShip("plugin:trader", "The trader", () => { stopped += 1; });
+  flow.stopPluginLoop();
+  assert.equal(stopped, 1);
+  assert.deepEqual(holderOf(store), NOBODY);
+  flow.stopPluginLoop();
+  assert.equal(stopped, 1);
+});
+
+// A map of three systems in a line, and a pilot docked at the first, so a route can be planned.
+const ALPHA = 30000001, BRAVO = 30000002, CHARLIE = 30000003;
+const GRAPH = {
+  ok: true,
+  systems: { [ALPHA]: "Alpha", [BRAVO]: "Bravo", [CHARLIE]: "Charlie" },
+  security: { [ALPHA]: 1, [BRAVO]: 0.9, [CHARLIE]: 0.8 },
+  edges: [[ALPHA, BRAVO, 112, 211], [BRAVO, ALPHA, 211, 112], [BRAVO, CHARLIE, 223, 322], [CHARLIE, BRAVO, 322, 223]],
+};
+const FLIGHT = { inSpace: false, docked: true, solarSystemID: ALPHA, stationID: 60000001, structureID: null, shipID: 9001, shipMode: null, shipSpeedFraction: null };
+const DESTINATION = { ok: true, id: 60000003, kind: "station", stationID: 60000003, stationName: "Charlie Station", solarSystemID: CHARLIE, solarSystemName: "Charlie" };
+
+async function makeRouteFlow(graphWaits: Promise<void> = Promise.resolve()) {
+  const store = createClientStore();
+  const flow = createAppFlow(store, {
+    livePush: false,
+    browserPilotRecovery: false,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: async (input) => {
+      const path = String(input);
+      if (path === "/api/map/graph") {
+        await graphWaits;
+        return Response.json(GRAPH);
+      }
+      if (path.startsWith("/api/map/resolve/")) return Response.json(DESTINATION);
+      if (path.startsWith("/api/dockable-structures/find?")) return Response.json({ ok: true, matches: [] });
+      return Response.json({ ok: true, result: null, flight: FLIGHT, notifications: [] });
+    },
+  });
+  await flow.attachToHeldPilot(HELD);
+  return { store, flow };
+}
+
+test("a Stop while a loop's route is being planned means the route never starts", async () => {
+  let graphAnswers = (): void => {};
+  const { store, flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  const route = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.stopPluginLoop();
+  graphAnswers();
+  const outcome = await route;
+  assert.equal(outcome.started, false);
+  assert.notEqual(flow.flying.autopilotProgress()?.status, "running");
+  assert.notEqual(store.travel.get().status, "running");
+});
+
+for (const [how, end] of [
+  ["a player's Stop", (flow: AppFlow) => flow.stopPluginLoop()],
+  ["the loop letting go", (_flow: AppFlow, hold: { release(): void }) => hold.release()],
+] as const) {
+  test(`${how} ends a route the loop handed the autopilot`, async () => {
+    const { flow } = await makeRouteFlow();
+    const hold = flow.flying.holdShip("plugin:trader", "The trader", () => {});
+    const outcome = await flow.startRoute(60000003);
+    assert.equal(outcome.started, true);
+    assert.equal(flow.flying.autopilotProgress()?.status, "running");
+    end(flow, hold);
+    assert.notEqual(flow.flying.autopilotProgress()?.status, "running");
+    flow.abortRoute();
+  });
+}
+
+test("a route being planned as a loop takes the ship never starts under it", async () => {
+  let graphAnswers = (): void => {};
+  const { flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  const route = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  graphAnswers();
+  assert.equal((await route).started, false);
+});
+
+test("a second plugin's route starts, while the first one's being planned does not", async () => {
+  let graphAnswers = (): void => {};
+  const { flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  const first = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.flying.holdShip("plugin:hauler", "The hauler", () => {});
+  const second = flow.startRoute(60000003);
+  graphAnswers();
+  assert.equal((await first).started, false);
+  assert.equal((await second).started, true);
+  flow.abortRoute();
+});
+
+test("a route stopped while being planned says so where the Travel panel reads it", async () => {
+  let graphAnswers = (): void => {};
+  const { store, flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  const route = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.stopPluginLoop();
+  graphAnswers();
+  await route;
+  assert.match(String(store.travel.get().failureReason), /stopped/);
+});
+
+test("a route with no plugin's loop near it is left alone by a Stop that has nothing to stop", async () => {
+  const { flow } = await makeRouteFlow();
+  assert.equal((await flow.startRoute(60000003)).started, true);
+  flow.stopPluginLoop();
+  assert.equal(flow.flying.autopilotProgress()?.status, "running");
+  flow.abortRoute();
+});
+
+test("with no pilot online the refusal says so, whatever drone recovery is doing", () => {
+  const flow = createAppFlow(createClientStore(), {
+    livePush: false,
+    browserPilotRecovery: true,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: async () => Response.json({ ok: true }),
+  });
+  assert.throws(() => flow.flying.holdShip("plugin:trader", "The trader", () => {}), /No pilot/);
+});
+
+test("a hold waits for drone recovery, as every start does", async () => {
+  // Every request waits, so recovery is still checking when the hold is asked for.
+  const waiting: (() => void)[] = [];
+  const flow = createAppFlow(createClientStore(), {
+    livePush: false,
+    browserPilotRecovery: true,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: () => new Promise<Response>((resolve) => { waiting.push(() => resolve(Response.json({ ok: true }))); }),
+  });
+  const attaching = flow.attachToHeldPilot(HELD);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.throws(() => flow.flying.holdShip("plugin:trader", "The trader", () => {}), /recovery/i);
+  while (waiting.length > 0) {
+    waiting.shift()!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  await Promise.race([attaching.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 100))]);
+});
+
 test("a lost session stops a plugin's loop, in the flow as well as the store", async () => {
   const { store, flow } = await makeFlow();
   let stopped = 0;
