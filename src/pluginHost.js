@@ -33,6 +33,9 @@ const { pathToFileURL } = require("node:url");
 const PING_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DECIDE_TIMEOUT_MS = 2_000;
+// A run's setup is checked while a player waits, and a run's Stop while a ship does.
+const RUN_CHECK_TIMEOUT_MS = 5_000;
+const RUN_STOP_TIMEOUT_MS = 5_000;
 // How long a backend may take to say it is ready. A request waits this long for
 // one still starting, however short its own answer's timeout. A decide does not
 // wait: it says so, and the bot looks again next tick, for this long, so a bot
@@ -63,6 +66,8 @@ function createPluginHost(options = {}) {
   // backend first comes up: plugin id -> () => records. The marker file says
   // which handovers are done, so a restart never hands the same rows over twice.
   const handoffs = options.handoffs || {};
+  // The bot host's half of a plugin's runs (src/botHost.js, pluginRunEvents). Absent: a plugin's runs are refused.
+  const runEvents = options.runEvents || null;
   const handoffMarker = options.handoffMarkerPath || path.join(dataDir, "plugin-handoffs.json");
   /** id -> the backend's state */
   const backends = new Map();
@@ -101,6 +106,7 @@ function createPluginHost(options = {}) {
   function afterFailure(entry) {
     const now = Date.now();
     entry.downSince ??= now;
+    try { runEvents?.down(entry.id); } catch (error) { log(`${entry.id}: ${error && error.message}`); }
     entry.failures = entry.failures.filter((at) => now - at < FAILURE_WINDOW_MS).concat(now);
     if (entry.failures.length >= MAX_FAILURES) {
       entry.state = "failed";
@@ -162,6 +168,16 @@ function createPluginHost(options = {}) {
       serialization: "advanced",
     });
     entry.child = child;
+    // A run's requests in flight on this process; each dies with it.
+    const flights = new Map();
+    const sendToChild = (message) => {
+      if (entry.child !== child || !child.connected) return;
+      try { child.send(message); } catch { /* the exit handler deals with a channel that has gone */ }
+    };
+    const abortFlights = () => {
+      for (const controller of flights.values()) controller.abort();
+      flights.clear();
+    };
     entry.startedAt = Date.now();
     entry.lastPong = entry.startedAt;
     // ⚠ WITHOUT A LISTENER, AN ERROR HERE ENDS THE BFF. A send to a closed channel
@@ -193,6 +209,20 @@ function createPluginHost(options = {}) {
         entry.lastPong = Date.now();
         entry.readyWaiters.splice(0).forEach((resolve) => resolve(true));
         void handOver(entry.id);
+        try { runEvents?.up(entry.id); } catch (error) { log(`${entry.id}: ${error && error.message}`); }
+        return;
+      }
+      if (message.type === "runFetch") {
+        if (runEvents) runEvents.fetch(entry.id, sendToChild, flights, message);
+        else sendToChild({ type: "runFetchAnswer", part: "error", id: message.id, message: "This server cannot run plugins." });
+        return;
+      }
+      if (message.type === "runFetchAbort") {
+        flights.get(message.id)?.abort();
+        return;
+      }
+      if (message.type === "runReport") {
+        try { runEvents?.report(entry.id, message); } catch (error) { log(`${entry.id}: ${error && error.message}`); }
         return;
       }
       if (message.type === "pong") {
@@ -206,6 +236,7 @@ function createPluginHost(options = {}) {
       pending.resolve(message);
     });
     child.on("exit", (code, signal) => {
+      abortFlights();
       if (entry.child !== child) return;
       entry.child = null;
       failPending(entry, 503, "The plugin's server part stopped. Try again in a moment.");
@@ -438,6 +469,29 @@ function createPluginHost(options = {}) {
     return { tick: answer.tick };
   }
 
+  /**
+   * Ask a plugin what it reads a run's setup as and what running it risks.
+   * Resolves to { ok: true, setup, name, policy } or { ok: false, code, refusal }.
+   */
+  async function checkRun(id, run, setup) {
+    const answer = await ask(id, { type: "runCheck", run, setup }, RUN_CHECK_TIMEOUT_MS);
+    if (answer.type === "failed") return { ok: false, code: "PLUGIN_RUN_UNAVAILABLE", refusal: answer.message };
+    if (answer.ok !== true) return { ok: false, code: "PLUGIN_RUN_INVALID", refusal: answer.refusal || "The plugin refused this setup." };
+    return { ok: true, setup: answer.setup, name: answer.name, policy: answer.policy };
+  }
+
+  /** Hand a plugin a run to fly. Resolves to an error sentence or null. */
+  async function startRun(id, spec) {
+    const answer = await ask(id, { type: "runStart", spec }, requestTimeoutMs);
+    return answer.type === "failed" ? answer.message : answer.error || null;
+  }
+
+  /** Tell a plugin to stop flying a run. A process that is not up has already stopped. */
+  async function stopRun(id, botID) {
+    if (backends.get(id)?.state !== "running") return;
+    await ask(id, { type: "runStop", botID }, RUN_STOP_TIMEOUT_MS);
+  }
+
   /** Hand a plugin what core used to keep for it. Resolves to an error sentence or null. */
   async function adopt(id, records) {
     const answer = await ask(id, { type: "adopt", records }, requestTimeoutMs);
@@ -468,6 +522,9 @@ function createPluginHost(options = {}) {
     decide,
     adopt,
     uninstall,
+    checkRun,
+    startRun,
+    stopRun,
     statuses: () => [...backends.values()].map(status),
     webStatuses: () => webStatuses,
     has: (id) => backends.has(id),

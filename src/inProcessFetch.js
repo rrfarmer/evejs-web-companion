@@ -16,7 +16,7 @@
 // BFF's own address (`baseUrl`), with a body that is text or absent. The event
 // stream is run with `streamInProcess` and answered with a body that is read
 // as the route writes it, which is what the hosted event source reads
-// (src/hostedEventSource.js).
+// (web/src/app/hostedEventSource.ts).
 //
 // WHAT IS NOT. Anything else is handed to the fetch given, unchanged: another
 // address, a path that is not the API's, a request made of a `Request`, a body

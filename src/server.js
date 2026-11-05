@@ -505,6 +505,7 @@ const botHost =
   botHostModule.createBotHost({
     webAuth: auth,
     baseUrl: botHostBaseUrl,
+    pluginProcess: () => pluginHost,
     fetch: options.botHostFetch || (hostedBotReach(process.env) === "loopback" ? undefined : createInProcessFetch(app, { baseUrl: botHostBaseUrl })),
     // Durable roster: running bots are mirrored here and startServer calls
     // botHost.resume() once listening, so a BFF restart brings them back.
@@ -590,6 +591,7 @@ app.locals.botScripts = botScripts;
 // for a test forks nothing unless it hands in a host of its own.
 const pluginHost = options.pluginHost || createPluginHost({
   dataDir: config.dataDir,
+  runEvents: botHost.pluginRunEvents,
   activateWebStack: true,
   handoffs: {
     // ⚠ TRANSITIONAL, AND THE ONE PLACE CORE NAMES A PLUGIN. The PI Manager's
@@ -11660,6 +11662,24 @@ app.get("/api/plugins", requireAuth, (req, res) => {
  * the request was made as. A backend that is down or slow costs this request a
  * 503 or 504 and nothing else.
  */
+/**
+ * POST /api/plugins/<id>/runs/<run>/check - what a plugin reads a run's setup as,
+ * and what running it risks: what the player approves before /api/bots/start. The
+ * same check is made again there, so this one decides nothing.
+ */
+app.post("/api/plugins/:pluginID/runs/:run/check", requireAuth, async (req, res, next) => {
+  try {
+    const answer = await pluginHost.checkRun(String(req.params.pluginID), String(req.params.run), req.body?.setup ?? null);
+    if (!answer.ok) {
+      res.status(BOT_START_STATUS[answer.code] || 400).json({ ok: false, error: answer.code, message: answer.refusal });
+      return;
+    }
+    res.json(answer);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.all("/api/plugins/:pluginID/*rest", requireAuth, async (req, res, next) => {
   try {
     const rest = Array.isArray(req.params.rest) ? req.params.rest : [String(req.params.rest || "")];
@@ -16612,6 +16632,8 @@ const BOT_START_STATUS = {
   CONTROL_SETTLEMENT_UNCONFIRMED: 409,
   BOT_STACK_UNAVAILABLE: 500,
   BOT_START_FAILED: 502,
+  PLUGIN_RUN_INVALID: 400,
+  PLUGIN_RUN_UNAVAILABLE: 503,
 };
 
 app.get("/api/bots", requireAuth, (req, res, next) => {
@@ -16994,7 +17016,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
     // Absent = "script", matching botHost's own default for an unmarked
     // request — the same compatibility rule a persisted roster row with no
     // `kind` field gets on resume.
-    const kind = body.kind === "companion" ? "companion" : "script";
+    const kind = body.kind === "companion" || body.kind === "plugin" ? body.kind : "script";
     if (!Number.isSafeInteger(characterID) || characterID <= 0) {
       res.status(400).json({ ok: false, error: "INVALID_CHARACTER", message: "A positive characterID is required." });
       return;
@@ -17096,7 +17118,20 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
         transferReservation(owner);
       };
       const outcome =
-        kind === "companion"
+        kind === "plugin"
+          ? await botHost.start({
+            account: req.account,
+            characterID,
+            kind: "plugin",
+            pluginID: String(body.pluginID || ""),
+            pluginRun: String(body.run || ""),
+            request: body.setup ?? null,
+            grant: body.grant,
+            callerSessionID: req.webSessionID,
+            probeReservation: reservation,
+            beforeStart,
+          })
+          : kind === "companion"
           ? await botHost.start({
             account: req.account,
             characterID,

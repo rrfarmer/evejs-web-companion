@@ -154,7 +154,7 @@ function defaultLoadStack() {
       // the role labels that named a roster row. Roles are gone, the row is a
       // fixed label now (COMPANION_SCRIPT_NAME), and every other word in that
       // module is written for a browser panel this host does not render.
-      const [sessionToken, clientStore, flow, codec, runPolicy, companionRunPolicy, supportFleet, pluginBlocks] =
+      const [sessionToken, clientStore, flow, codec, runPolicy, companionRunPolicy, supportFleet, pluginBlocks, hostedEvents] =
         await Promise.all([
           import(webUrl("app/sessionToken.ts")),
           import(webUrl("store/clientStore.ts")),
@@ -164,6 +164,8 @@ function defaultLoadStack() {
           import(webUrl("bots/companionRunPolicy.ts")),
           import(webUrl("nav/miningSupportFleet.ts")),
           import(webUrl("bots/pluginMacros.ts")),
+          // Headless pilots need the same push-only fleet invitation authority as tabs.
+          import(webUrl("app/hostedEventSource.ts")),
         ]);
       // The server has no sessionStorage; force the in-memory fallback. Bots
       // never use the global token anyway (perSessionToken), but the module
@@ -172,6 +174,9 @@ function defaultLoadStack() {
       return {
         createClientStore: clientStore.createClientStore,
         createAppFlow: flow.createAppFlow,
+        createHostedEventSource: hostedEvents.createHostedEventSource,
+        PLUGIN_RUN_GRANT_REV: runPolicy.PLUGIN_RUN_GRANT_REV,
+        pluginRunBotPolicy: runPolicy.pluginRunBotPolicy,
         decodeScriptValue: codec.decodeScriptValue,
         scriptWithFormerMacroIDs: pluginBlocks.scriptWithFormerMacroIDs,
         analyzeBotRunPolicy: runPolicy.analyzeBotRunPolicy,
@@ -219,8 +224,34 @@ function sameSecret(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// Headless pilots need the same push-only fleet invitation authority as tabs.
-const { createHostedEventSource } = require("./hostedEventSource");
+// What a run's roster row and public row call its kind. "script" when absent: a row written before `kind` existed.
+const kindOf = (kind) => (kind === "companion" || kind === "plugin" ? kind : "script");
+
+// ── Runs a plugin flies ──────────────────────────────────────────────────────
+//
+// A plugin's run is a bot like any other to this host: the same launch grant,
+// claim, roster, resume, deadline and Stop, on a flow of the host's own that
+// selects the pilot and logs it off. What differs is who decides. The loop lives
+// in the plugin's process, on a flow of its own attached to the session the host
+// selected, and reaches the BFF only through `pluginRunEvents.fetch` below. The
+// host adds the token and the claim there, so neither ever reaches the plugin.
+//
+// ⚠ A PLUGIN THAT STOPS LEAVES A SHIP IN SPACE WITH NOBODY FLYING IT. The condition
+// checked is that the plugin's process is up; the protocol when it is not is:
+// wait for the restart, which takes seconds and carries on where it was, and
+// recall the pilot and dock it if that does not come. Measured on a test server,
+// mid-fight: a killed process flew again in about 3 s and a hung one in about 11 s,
+// and waiting for the plugin host to give up took 73 s and cost ships.
+const PLUGIN_DOWN_RECALL_MS = 20_000;
+// A process that keeps dying never stays down long enough for that clock to run.
+const PLUGIN_DOWN_LIMIT = 3;
+const PLUGIN_DOWN_WINDOW_MS = 2 * 60_000;
+// What a plugin may keep with a run. Each is read back on every restart, so these are bounds on a mistake, not budgets.
+const PLUGIN_RESUME_DATA_MAX_BYTES = 64 * 1024;
+const PLUGIN_READOUT_MAX_BYTES = 16 * 1024;
+const PLUGIN_RUN_STATUSES = new Set(["running", "paused", "idle", "stopped", "error"]);
+// What only the host does for a run's session: it chose the pilot, and it ends the session.
+const PLUGIN_REFUSED_PATHS = new Set(["/api/login", "/api/logout", "/api/bridge/select", "/api/bridge/release"]);
 
 /**
  * What a request by the generic call asks, read off its body: the call's service and its method, and the object
@@ -244,6 +275,9 @@ function createBotHost(options) {
   const isCharacterHeld = options.isCharacterHeld || (() => false);
   const logError = options.errorLogger || (() => {});
   const loadStack = options.loadStack || defaultLoadStack;
+  // The plugin host (src/pluginHost.js), for a run a plugin flies. A function: it is made after this host.
+  const pluginProcess = typeof options.pluginProcess === "function" ? options.pluginProcess : () => null;
+  const pluginDownRecallMs = options.pluginDownRecallMs || PLUGIN_DOWN_RECALL_MS;
   const createClaimSecret = options.createClaimSecret || (() => crypto.randomBytes(32).toString("base64url"));
   const now = typeof options.now === "function" ? options.now : () => Date.now();
   const setDeadlineTimeout = options.setDeadlineTimeout || ((callback, delayMs) => setTimeout(callback, delayMs));
@@ -284,7 +318,7 @@ function createBotHost(options) {
       for (const record of records.values()) {
         if (!record.finalized) {
           const row = {
-            kind: record.kind === "companion" ? "companion" : "script",
+            kind: kindOf(record.kind),
             accountID: record.accountID,
             username: record.username,
             characterID: record.characterID,
@@ -308,6 +342,14 @@ function createBotHost(options) {
               operationPreparation: record.operationPreparation, preparation: record.preparation,
               deferMain: record.deferMain } : {}),
           };
+          if (record.kind === "plugin") {
+            // As a companion's: there is no library, so the row is the authority
+            // for what was approved, and the plugin checks it again on a resume.
+            row.pluginID = record.pluginID;
+            row.pluginRun = record.pluginRun;
+            row.request = record.pluginSetup;
+            row.resumeData = record.pluginResumeData;
+          }
           if (record.kind === "companion") {
             // THE DIVERGENCE FROM A SCRIPT (docs/fleet-companion-handoff.md,
             // "3. Extend botHost"): a script doc is NOT persisted, because the
@@ -361,7 +403,8 @@ function createBotHost(options) {
       characterName: record.characterName,
       // "script" when absent, matching the same default the roster row and
       // resume() give an on-disk record with no `kind` field at all.
-      kind: record.kind === "companion" ? "companion" : "script",
+      kind: kindOf(record.kind),
+      plugin: record.kind === "plugin" ? { pluginID: record.pluginID, run: record.pluginRun, readout: record.pluginReadout ?? null } : null,
       resumedAt: record.resumedAt,
       vitals: record.vitals,
       scriptID: record.scriptID,
@@ -568,6 +611,8 @@ function createBotHost(options) {
       } catch {}
       record.unsubscribe = null;
     }
+    clearPluginDownTimer(record);
+    if (record.kind === "plugin") void stopPluginLoop(record);
     persistRoster();
     const flow = record.flow;
     record.flow = null;
@@ -656,7 +701,8 @@ function createBotHost(options) {
    */
   async function endRunDocked(record) {
     record.deadlineDockingStarted = true;
-    record.why = DEADLINE_WHY_DOCKING;
+    const words = record.recall ?? { docking: DEADLINE_WHY_DOCKING, docked: DEADLINE_WHY_DOCKED, undocked: DEADLINE_WHY_UNDOCKED };
+    record.why = words.docking;
     const giveUpAt = now() + DEADLINE_DOCK_GRACE_MS;
     const stillWaiting = () => !record.finalized && !record.manualStopRequested && now() < giveUpAt;
     let docked = false;
@@ -664,9 +710,9 @@ function createBotHost(options) {
       const flow = record.flow;
       if (
         flow &&
-        record.kind !== "companion" &&
+        record.kind === "script" &&
         typeof flow.headCustomBotHome === "function" &&
-        flow.headCustomBotHome(DEADLINE_WHY_DOCKING)
+        flow.headCustomBotHome(words.docking)
       ) {
         while (stillWaiting() && record.store && record.store.customBot.get().status === "running") {
           await sleep(DOCK_POLL_MS);
@@ -714,8 +760,8 @@ function createBotHost(options) {
     }
     // Set immediately before finalize, which unsubscribes before its first
     // await — no store push can overwrite these between here and there.
-    record.status = "stopped";
-    record.why = docked ? DEADLINE_WHY_DOCKED : DEADLINE_WHY_UNDOCKED;
+    record.status = record.recall ? "error" : "stopped";
+    record.why = docked ? words.docked : words.undocked;
     if (record.operationStopRequested) record.parking = { state: docked ? "PARKED" : "PARKING_FAILED",
       reason: docked ? null : DEADLINE_WHY_UNDOCKED };
     return finalize(record);
@@ -762,6 +808,8 @@ function createBotHost(options) {
       try {
         if (record.recoveryWriteUnresolved || record.jettisonWriteUnresolved || jettison.unresolved(record.jettisonCustody) ||
             await preparationCustodyUnresolved(record)) throw new Error("An issued write still needs reconciliation; Stop retains pilot control.");
+        // The plugin's loop first: it must not launch what the host is about to bring home.
+        if (record.kind === "plugin" && !record.recall) await stopPluginLoop(record);
         if (!record.droneSafetyConfirmed && (!record.flow || typeof record.flow.prepareHostedBotStop !== "function")) {
           if (record.flow) {
             if (record.kind === "companion") record.flow.stopFleetCompanion();
@@ -814,10 +862,181 @@ function createBotHost(options) {
     return record.stopPromise;
   }
 
+  // ─── Runs a plugin flies (see the comment at the top of this section's constants) ───
+
+  function clearPluginDownTimer(record) {
+    if (record.pluginDownTimer) clearTimeout(record.pluginDownTimer);
+    record.pluginDownTimer = null;
+  }
+
+  /** Tell the plugin to stop this run's loop. Bounded, and never throws: its process may be what stopped. */
+  async function stopPluginLoop(record) {
+    const host = pluginProcess();
+    if (!host || !record.pluginStarted) return;
+    record.pluginStarted = false;
+    try {
+      await host.stopRun(record.pluginID, record.botID);
+    } catch (error) {
+      logError(error);
+    }
+  }
+
+  /** Hand the run to its plugin's process, new or after a restart. Resolves to an error sentence or null. */
+  async function startPluginLoop(record, resumed) {
+    const host = pluginProcess();
+    if (!host) return "This server cannot run plugins.";
+    record.pluginStarted = true;
+    const failure = await host.startRun(record.pluginID, {
+      botID: record.botID,
+      run: record.pluginRun,
+      characterID: record.characterID,
+      setup: record.pluginSetup,
+      resumed,
+      resumeData: record.pluginResumeData ?? null,
+      held: record.flow.heldPilot(),
+      baseUrl,
+    });
+    if (failure) record.pluginStarted = false;
+    return failure;
+  }
+
+  /** The plugin cannot fly this pilot any more: every loop stopped, drones home, dock, log off, say why. */
+  function recallPluginRun(record, why) {
+    clearPluginDownTimer(record);
+    if (record.finalized || record.windingDown) return;
+    record.pluginStarted = false;
+    record.phase = "Recalled";
+    record.recall = {
+      docking: `${why} Recalling the drones and docking.`,
+      docked: `${why} The pilot was recalled, docked and logged off.`,
+      undocked: `${why} The pilot could not be docked, so it was logged off in space.`,
+    };
+    // The recall brings the drones in itself, and waiting for them first is time under fire.
+    record.droneSafetyConfirmed = true;
+    void requestGracefulStop(record, true).catch(logError);
+  }
+
+  function unfinishedPluginRuns(pluginID) {
+    return [...records.values()].filter((record) => record.kind === "plugin" && record.pluginID === pluginID && !record.finalized);
+  }
+
+  /** In the shape a Response body reaches a plugin's process. */
+  async function answerPluginFetch(send, id, response, startedAt) {
+    const headers = {};
+    response.headers.forEach((value, name) => { headers[name] = value; });
+    send({ type: "runFetchAnswer", part: "head", id, status: response.status, headers });
+    let size = 0;
+    if (response.body) {
+      for await (const chunk of response.body) {
+        size += chunk.length;
+        send({ type: "runFetchAnswer", part: "chunk", id, data: chunk });
+      }
+    }
+    send({ type: "runFetchAnswer", part: "end", id, tookMs: now() - startedAt, size });
+  }
+
+  const refusedPluginFetch = (status, error, message) =>
+    new Response(JSON.stringify({ ok: false, error, message }), { status, headers: { "content-type": "application/json" } });
+
+  /** What a plugin's process asks of its runs, as src/pluginHost.js hears it. */
+  const pluginRunEvents = {
+    /** One of a run's requests. It may only be for a run of this plugin that is still its to fly. */
+    fetch(pluginID, send, flights, message) {
+      const controller = new AbortController();
+      flights.set(message.id, controller);
+      const startedAt = now();
+      void (async () => {
+        try {
+          const record = records.get(String(message.botID));
+          let response;
+          if (!record || record.kind !== "plugin" || record.pluginID !== pluginID) {
+            response = refusedPluginFetch(404, "PLUGIN_RUN_NOT_FOUND", "This plugin has no such run.");
+          } else if (record.finalized || record.windingDown || !record.pluginFetch) {
+            response = refusedPluginFetch(409, "PLUGIN_RUN_ENDED", "This run has ended or is being stopped.");
+          } else {
+            const url = new URL(String(message.url), baseUrl);
+            if (url.origin !== new URL(baseUrl).origin || !url.pathname.startsWith("/api/")) {
+              response = refusedPluginFetch(403, "PLUGIN_RUN_OUTSIDE_API", "A run asks only the BFF's own API.");
+            } else if (PLUGIN_REFUSED_PATHS.has(url.pathname)) {
+              response = refusedPluginFetch(403, "PLUGIN_RUN_SESSION_IS_CORES", "Core chooses a run's pilot and ends its session.");
+            } else {
+              // The flow's stand-in for the token goes in the URL of its event stream.
+              url.searchParams.delete("token");
+              response = await record.pluginFetch(url.href, { method: message.method, headers: message.headers, body: message.body, redirect: message.redirect, signal: controller.signal });
+            }
+          }
+          await answerPluginFetch(send, message.id, response, startedAt);
+        } catch (error) {
+          send({ type: "runFetchAnswer", part: "error", id: message.id, message: String((error && error.message) || error) });
+        } finally {
+          flights.delete(message.id);
+        }
+      })();
+    },
+
+    /** What a run is doing, in the plugin's own words. */
+    report(pluginID, message) {
+      const record = records.get(String(message.botID));
+      if (!record || record.kind !== "plugin" || record.pluginID !== pluginID || record.finalized) return;
+      const report = message.report;
+      if (report === null || typeof report !== "object" || !PLUGIN_RUN_STATUSES.has(report.status)) return;
+      const fits = (value, most) => { try { return Buffer.byteLength(JSON.stringify(value) ?? "") <= most; } catch { return false; } };
+      if (!record.windingDown) {
+        record.status = report.status;
+        record.phase = typeof report.phase === "string" ? report.phase : null;
+        record.why = typeof report.why === "string" ? report.why : null;
+        record.startError = typeof report.startError === "string" ? report.startError : null;
+      }
+      if (report.readout !== undefined && fits(report.readout, PLUGIN_READOUT_MAX_BYTES)) record.pluginReadout = report.readout;
+      if (report.resumeData !== undefined && fits(report.resumeData, PLUGIN_RESUME_DATA_MAX_BYTES) &&
+          stableJson(report.resumeData) !== stableJson(record.pluginResumeData ?? null)) {
+        record.pluginResumeData = report.resumeData;
+        persistRoster();
+      }
+      // The run reached its end by itself. As with a bot: released as soon as the loop lets go of the ship.
+      if (ENDED_STATUSES.has(report.status) && !record.windingDown && record.pluginStarted) void finalize(record);
+    },
+
+    /** The plugin's process ended, or could not be started. */
+    down(pluginID) {
+      for (const record of unfinishedPluginRuns(pluginID)) {
+        if (!record.pluginStarted || record.windingDown) continue;
+        const at = now();
+        record.pluginDowns = (record.pluginDowns || []).filter((when) => at - when < PLUGIN_DOWN_WINDOW_MS).concat(at);
+        // A run that may repeat what it did is not started again, whatever the plugin would do.
+        if (!record.restartSafe) { recallPluginRun(record, "The plugin flying this pilot stopped, and this run cannot be restarted safely."); continue; }
+        if (record.pluginDowns.length >= PLUGIN_DOWN_LIMIT) { recallPluginRun(record, "The plugin flying this pilot keeps stopping."); continue; }
+        record.status = "paused";
+        record.phase = "Plugin stopped";
+        record.why = "The plugin flying this pilot stopped. Waiting for it to start again.";
+        clearPluginDownTimer(record);
+        record.pluginDownTimer = setTimeout(() => {
+          record.pluginDownTimer = null;
+          recallPluginRun(record, "The plugin flying this pilot stopped and did not come back.");
+        }, pluginDownRecallMs);
+        record.pluginDownTimer.unref?.();
+      }
+    },
+
+    /** The plugin's process is up again: its runs carry on where they are, on the session the host kept. */
+    up(pluginID) {
+      for (const record of unfinishedPluginRuns(pluginID)) {
+        if (!record.pluginDownTimer || record.windingDown) continue;
+        clearPluginDownTimer(record);
+        void startPluginLoop(record, true).then((failure) => {
+          if (failure) recallPluginRun(record, `The plugin flying this pilot could not carry on: ${failure}`);
+        }).catch(logError);
+      }
+    },
+  };
+
   async function start({
     account,
     characterID,
     kind = "script",
+    pluginID = null,
+    pluginRun = null,
+    resumeData = null,
     scriptID,
     scriptName,
     scriptRev,
@@ -843,6 +1062,7 @@ function createBotHost(options) {
     deferMain = false,
   }) {
     const isCompanion = kind === "companion";
+    const isPlugin = kind === "plugin";
     if (operationPreparation && (isCompanion || typeof operationPreparation !== "object" || Array.isArray(operationPreparation) ||
         typeof operationID !== "string" || !operationID ||
         typeof operationRunID !== "string" || !operationRunID || !credentialFree(operationPreparation) ||
@@ -862,6 +1082,7 @@ function createBotHost(options) {
     let runPolicy;
     let decodedDoc = null;
     let decodedRequest = null;
+    let pluginSetup = null;
     let recordScriptID;
     let recordScriptName;
 
@@ -913,6 +1134,21 @@ function createBotHost(options) {
       // from -- see COMPANION_SCRIPT_NAME.
       recordScriptID = "companion";
       recordScriptName = COMPANION_SCRIPT_NAME;
+    } else if (isPlugin) {
+      // The setup is untrusted bytes, and the plugin that will fly it is its one
+      // gate: it says what it reads the setup as, and what running it risks.
+      const host = pluginProcess();
+      const checked = host ? await host.checkRun(String(pluginID), String(pluginRun), request) : { ok: false, code: "PLUGIN_RUN_UNAVAILABLE", refusal: "This server cannot run plugins." };
+      if (!checked.ok) return { ok: false, code: checked.code || "PLUGIN_RUN_INVALID", message: checked.refusal };
+      pluginSetup = checked.setup;
+      normalizedRev = stack.PLUGIN_RUN_GRANT_REV;
+      normalizedHash = hashScript(pluginSetup);
+      if (expectedScriptRev !== null && (normalizedRev !== Number(expectedScriptRev) || normalizedHash !== String(expectedScriptHash || ""))) {
+        return { ok: false, code: "BOT_SCRIPT_CHANGED", message: "The plugin reads this run's setup differently now. Start it again to review it." };
+      }
+      runPolicy = stack.pluginRunBotPolicy(checked.policy);
+      recordScriptID = `plugin:${pluginID}:${pluginRun}`;
+      recordScriptName = String(checked.name || pluginRun);
     } else {
       // A stored bot doc is untrusted bytes like any other; the codec is the door.
       const decoded = stack.decodeScriptValue(doc);
@@ -1031,7 +1267,17 @@ function createBotHost(options) {
       username: String(account.username || ""),
       characterID,
       characterName: null,
-      kind: isCompanion ? "companion" : "script",
+      kind: kindOf(kind),
+      pluginID: isPlugin ? String(pluginID) : null,
+      pluginRun: isPlugin ? String(pluginRun) : null,
+      pluginSetup,
+      pluginResumeData: isPlugin ? resumeData : null,
+      pluginReadout: null,
+      pluginFetch: null,
+      pluginStarted: false,
+      pluginDownTimer: null,
+      pluginDowns: [],
+      recall: null,
       scriptID: recordScriptID,
       scriptName: recordScriptName,
       scriptRev: normalizedRev,
@@ -1203,7 +1449,7 @@ function createBotHost(options) {
         record.preparation = record.preparationCheckpoint.snapshot();
         persistRoster();
       }
-      if (!isCompanion && Array.isArray(decodedDoc.program)) {
+      if (!isCompanion && !isPlugin && Array.isArray(decodedDoc.program)) {
         const startup = await import(pathToFileURL(path.resolve(__dirname, "../web/src/bots/startup.ts")).href);
         if (startup.startupPrefix(decodedDoc).length) {
           if (resumed && !logicalRunID) throw new Error("Older startup run has no durable identity; start manually after review.");
@@ -1224,7 +1470,7 @@ function createBotHost(options) {
         fetch: botFetch,
         perSessionToken: true,
         initialSessionToken: token,
-        eventSource: url => createHostedEventSource(url, { fetch: botFetch }),
+        eventSource: url => stack.createHostedEventSource(url, { fetch: botFetch }),
         miningOperationID: record.operationID,
         hostedOreJettisonRecovery: record.hostedOreJettisonRecovery,
         // The pilot's own route settings, as its page keeps them (src/pilotRouteSettings.js): a run with none plans
@@ -1233,7 +1479,20 @@ function createBotHost(options) {
       });
       record.flow = flow;
       record.store = store;
+      // What the plugin's process asks is asked as this run: its token and claim are added here and stay here.
+      if (isPlugin) {
+        record.pluginFetch = (input, init = {}) => {
+          const headers = new Headers(init.headers);
+          headers.set("authorization", `Bearer ${token}`);
+          return botFetch(input, { ...init, headers });
+        };
+      }
       record.startProductive = async () => {
+        if (isPlugin) {
+          record.startError = await startPluginLoop(record, resumed);
+          if (record.startError === null && record.status === "starting") record.status = "running";
+          return;
+        }
         if (isCompanion) await flow.startFleetCompanion(decodedRequest, resumingAbandonment);
         else await flow.startCustomBot(decodedDoc);
         applySnapshot(record, isCompanion ? store.companion.get() : store.customBot.get());
@@ -1462,6 +1721,18 @@ function createBotHost(options) {
       record.unsubscribe = store.subscribe((state) => {
         if (record.recovering && !record.windingDown) return;
         if (record.operationPreparation && !record.mainStarted) return;
+        if (isPlugin) {
+          // This flow only holds the session: what the run is doing, the plugin reports.
+          if (record.pluginStarted && !record.windingDown && state.station.online === null) {
+            const closed = typeof options.closedByServer === "function" ? options.closedByServer(characterID) : null;
+            record.status = "error";
+            record.why = closed
+              ? `The game server closed this pilot's connection: ${closed.reason}.`
+              : "The pilot went offline, so the run stopped.";
+            void finalize(record);
+          }
+          return;
+        }
         const snapshot = isCompanion ? state.companion : state.customBot;
         // ⚠ A PILOT THAT WENT OFFLINE IS NOT A FINISHED RUN. Losing the session
         // (another login of the account closes this one) resets every slice to
@@ -1951,7 +2222,9 @@ function createBotHost(options) {
       username: String(row.username || ""),
       characterID: Number(row.characterID),
       characterName: null,
-      kind: row.kind === "companion" ? "companion" : "script",
+      kind: kindOf(row.kind),
+      pluginID: typeof row.pluginID === "string" ? row.pluginID : null,
+      pluginRun: typeof row.pluginRun === "string" ? row.pluginRun : null,
       scriptID: String(row.scriptID || ""),
       scriptName: String(row.scriptName || "Untitled bot"),
       scriptRev: Number(row.scriptRev || 0),
@@ -1999,7 +2272,7 @@ function createBotHost(options) {
     const restored = [];
     for (const row of rows) {
       const characterID = Number(row.characterID);
-      const kind = row.kind === "companion" ? "companion" : "script";
+      const kind = kindOf(row.kind);
       try {
         const account = await loadAccount(String(row.username || ""));
         if (!account || account.banned) {
@@ -2046,7 +2319,22 @@ function createBotHost(options) {
           maxRuntimeMinutes: row.maxRuntimeMinutes,
         };
         const outcome =
-          kind === "companion"
+          kind === "plugin"
+            ? await start({
+                account,
+                characterID,
+                kind: "plugin",
+                pluginID: row.pluginID,
+                pluginRun: row.pluginRun,
+                request: row.request,
+                resumeData: row.resumeData ?? null,
+                grant,
+                resumed: true,
+                expectedScriptRev: row.scriptRev,
+                expectedScriptHash: row.scriptHash,
+                expectedExpiresAt: row.expiresAt,
+              })
+            : kind === "companion"
             ? await start({
                 account,
                 characterID,
@@ -2194,6 +2482,7 @@ function createBotHost(options) {
     sampleAllVitals,
     resume,
     stopAll,
+    pluginRunEvents,
     BOT_HEADER,
   };
 }

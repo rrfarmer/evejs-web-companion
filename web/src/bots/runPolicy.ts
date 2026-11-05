@@ -217,6 +217,28 @@ export interface BotRunPolicy {
   readonly containsSubBots: boolean;
 }
 
+/**
+ * The value a plugin run's launch grant carries in its `scriptRev` slot. Like a
+ * companion's: a run's setup has no revision series, and its hash is its identity.
+ */
+export const PLUGIN_RUN_GRANT_REV = 1;
+
+/** What a plugin says of a run: what starting it risks, and whether a restart may simply carry on. */
+export interface PluginRunPolicy {
+  readonly riskClasses: readonly BotRiskClass[];
+  readonly restartSafe: boolean;
+}
+
+/** A plugin run's policy in the shape the one grant check reads. It has no blocks and no sub-bots to describe. */
+export function pluginRunBotPolicy(policy: PluginRunPolicy): BotRunPolicy {
+  return { macroIDs: [], restartBlockers: [], containsSubBots: false, riskClasses: policy.riskClasses, restartSafe: policy.restartSafe === true };
+}
+
+/** The grant the page shows the player for a plugin's run. */
+export function createPluginRunGrant(policy: PluginRunPolicy, maxRuntimeMinutes?: number): BotLaunchGrant {
+  return createBotLaunchGrant(PLUGIN_RUN_GRANT_REV, pluginRunBotPolicy(policy), maxRuntimeMinutes);
+}
+
 /** Build the narrow grant the UI presents to the player for confirmation. */
 export function createBotLaunchGrant(
   scriptRev: number,
