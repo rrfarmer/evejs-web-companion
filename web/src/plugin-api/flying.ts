@@ -22,6 +22,7 @@ export {
   loadFitting,
   loadInventory,
   readChat,
+  readBotLog,
   readEmptiedContainers,
   sendChat,
   type FlightStepResult,
@@ -94,6 +95,7 @@ export {
   type PluginShipOwner,
   type ShipControllerID,
 } from "../nav/botRegistry.ts";
+export { newRunID, type BotLogDraft, type BotLogEntry, type BotLogKind, type BotLogSink } from "../nav/botLog.ts";
 export { combatFit } from "../nav/combatFit.ts";
 export {
   MAX_CLOSE_TICKS,

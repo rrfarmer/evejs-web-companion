@@ -57,7 +57,7 @@ startBackend({
       },
       async start(run) {
         flying = run;
-        heard("started.json", { botID: run.botID, resumed: run.resumed, resumeData: run.resumeData, held: run.held, setup: run.setup });
+        heard("started.json", { botID: run.botID, resumed: run.resumed, resumeData: run.resumeData, held: run.held, setup: run.setup, routeSettings: run.routeSettings });
         if (run.setup.slowStart) await new Promise((resolve) => setTimeout(resolve, 500));
         if (run.resumed && run.setup.quietAfterRestart) return { stop() {} };
         const status = await run.fetch("/api/bridge/flight/status");
@@ -116,6 +116,7 @@ async function makeStack(log) {
       return {
         async selectCharacter(id) { log.push(["select", id]); state.station.online = { characterID: id, characterName: "Stand-in" }; state.flight.status = { docked: false }; },
         heldPilot: () => HELD,
+        autopilotSettings: () => ({ pfRouteType: "shortest" }),
         async loadFlightStatus() {},
         async loadSpaceSnapshot() {},
         async loadMiningHolds() {},
@@ -204,6 +205,7 @@ test("a run is a bot like any other: claimed, listed, and flown from the plugin'
   assert.equal(heard.resumed, false);
   assert.deepEqual(heard.setup, { n: 4, restartSafe: true, endItself: false });
   assert.deepEqual(heard.held, HELD);
+  assert.deepEqual(heard.routeSettings, { pfRouteType: "shortest" });
   await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
 });
 
@@ -255,6 +257,16 @@ test("⚠ a run may not choose another pilot, end its session, or leave the BFF'
   const { body } = await f.request("POST", "/ask", { url: "/api/bots/active", method: "GET" });
   assert.equal(body.status, 200);
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+test("a run writes and reads its pilot's flight recorder", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun();
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  for (const method of ["POST", "GET"]) {
+    const asked = await f.request("POST", "/ask", { url: "/api/bots/bot-log", method });
+    assert.equal(asked.body.status, 200, method);
+  }
 });
 
 test("a Request given to a run's fetch goes as what it says", async (t) => {

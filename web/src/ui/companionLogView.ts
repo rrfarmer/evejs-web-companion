@@ -206,7 +206,7 @@ export function matchesFilter(haystack: string, filter: string): boolean {
 }
 
 function rowFor(entry: BotLogEntry, index: number): LogRow {
-  const trace = entry.trace ?? null;
+  const trace = (entry.trace ?? null) as CompanionTrace | null;
   const summary = trace === null ? null : traceSummary(trace);
   const time = clockOf(entry.t);
   const phase = entry.phase ?? "";

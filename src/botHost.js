@@ -896,6 +896,7 @@ function createBotHost(options) {
       resumed,
       resumeData: record.pluginResumeData ?? null,
       held: record.flow.heldPilot(),
+      routeSettings: record.flow.autopilotSettings(),
       baseUrl,
     });
     // A start that only answered late is still coming, so the plugin is told it is not wanted.

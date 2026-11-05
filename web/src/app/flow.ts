@@ -1544,6 +1544,12 @@ export interface PilotFlying {
    * Returns how to stop listening.
    */
   onPush(listener: () => void): () => void;
+  /**
+   * This pilot's flight recorder, the same log core's bots write (nav/botLog.ts): lines
+   * are batched and sent for you, and writing one can never stop the loop. Start a run's
+   * lines with `newRunID`, and read them back with `readBotLog`.
+   */
+  readonly log: BotLogSink;
   /** Bumped as a session closes: a loop compares it across an await, as the flow's own starts do. */
   sessionGeneration(): number;
   isSessionClosing(): boolean;
@@ -29874,6 +29880,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     flying: {
       holdShip,
       onPush,
+      log: botLogSink,
       sessionGeneration: () => sessionCloseGeneration,
       isSessionClosing: () => sessionClosing,
       bridgeAsk,

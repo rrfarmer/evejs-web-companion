@@ -330,6 +330,20 @@ hold.release();
   it. The flow's panel methods, by contrast, catch a refusal and say it in a panel.
 - **Compare `sessionGeneration()` across an await** before acting on what came back,
   because the session may have closed in between.
+- **Routes are the pilot's.** `createPilotSession` gives the flow the route settings
+  the pilot's page set, as they stood when the run started or came back.
+
+**What a loop keeps about a pilot** goes in `store.pluginState("plugin:<plugin id>",
+initial)`, a signal your windows can subscribe to. The same key gives the same signal,
+a second name goes after a dot (`plugin:<plugin id>.<name>`), and it goes back to
+`initial` when the pilot goes offline. Core reads none of it. It lasts as long as the
+store does, so what must survive a restart of your process goes in `resumeData` too.
+
+**What a loop did** goes in the pilot's flight recorder, the same log core's bots write
+(`data/bot-logs/<characterID>.jsonl`). `flow.flying.log.write(line)` batches and sends
+it, and can never stop the loop. Give each run an id from `newRunID`, and read lines
+back with `readBotLog`. `action` is your own, as plain data with a `kind`, and `trace`
+is anything you want kept about a decision, which you read back yourself.
 
 ## Isolation
 
