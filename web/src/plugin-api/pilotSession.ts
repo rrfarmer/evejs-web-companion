@@ -11,6 +11,7 @@
 import { createAppFlow, type AppFlow } from "../app/flow.ts";
 import { createHostedEventSource } from "../app/hostedEventSource.ts";
 import { setSessionTokenStorage } from "../app/sessionToken.ts";
+import { autopilotSettingsKey } from "../nav/autopilotSettings.ts";
 import { createClientStore, type ClientStore } from "../store/clientStore.ts";
 import type { PluginRunContext } from "./backend.ts";
 
@@ -23,7 +24,7 @@ export interface PilotSession {
 }
 
 /** The session for a run, attached and with its live stream open. */
-export async function createPilotSession(run: Pick<PluginRunContext, "baseUrl" | "fetch" | "held">): Promise<PilotSession> {
+export async function createPilotSession(run: Pick<PluginRunContext, "baseUrl" | "fetch" | "held" | "routeSettings">): Promise<PilotSession> {
   // A process has no sessionStorage. Sessions here never use the global token, but its module reads one on load.
   setSessionTokenStorage(null);
   const store = createClientStore();
@@ -32,7 +33,12 @@ export async function createPilotSession(run: Pick<PluginRunContext, "baseUrl" |
     fetch: run.fetch,
     perSessionToken: true,
     initialSessionToken: TOKEN_HELD_BY_CORE,
-    eventSource: (url: string) => createHostedEventSource(url, { fetch: run.fetch }),
+    // A process has no browser storage, and with none every route is "Prefer safer", whatever the pilot chose.
+    storage: {
+      getItem: (key) => (key === autopilotSettingsKey(run.held.characterID) ? JSON.stringify(run.routeSettings) : null),
+      setItem: () => {},
+    },
+    eventSource:(url: string) => createHostedEventSource(url, { fetch: run.fetch }),
   });
   await flow.attachToHeldPilot(run.held);
   return { store, flow };

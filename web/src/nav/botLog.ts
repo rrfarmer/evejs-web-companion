@@ -36,7 +36,6 @@
 // operator's own BFF and is not for the game UI.
 
 import type { ScriptAction } from "./scriptDecide.ts";
-import type { FleetCompanionAction } from "./fleetCompanionLoop.ts";
 
 /** What a line is about. */
 export type BotLogKind =
@@ -69,10 +68,10 @@ export interface BotLogEntry {
   readonly why?: string | null;
   readonly status?: string | null;
   /**
-   * The action itself, verbatim — plain data by rule 1. A fleet companion's
-   * lines carry its own action union (nav/companionLog.ts).
+   * The action itself, verbatim — plain data by rule 1. A loop with an action
+   * union of its own (a fleet companion's, a plugin's) logs that.
    */
-  readonly action?: ScriptAction | FleetCompanionAction;
+  readonly action?: ScriptAction | { readonly kind: string };
   /** issue lines (companion): how long that tick's reads took, in ms. */
   readonly observeMs?: number;
   /** result lines (companion): how long the call took, in ms. */
@@ -86,14 +85,14 @@ export interface BotLogEntry {
   readonly script?: string;
   readonly reason?: string | null;
   /**
-   * Companion only. `seq` ties a `decide` line to the `issue` and `result` lines
-   * of the same tick; `trace` is the rungs' codes and numbers (companionTrace.ts);
-   * `verdict` is how the ladder classed a failed call; `heartbeat` marks a
-   * `decide` line written because nothing changed for a while, not because
-   * something did.
+   * For a loop with a recorder of its own. `seq` ties a `decide` line to the
+   * `issue` and `result` lines of the same tick; `trace` is whatever that loop
+   * wants kept about its decision, as plain data that it reads back itself;
+   * `verdict` is how it classed a failed call; `heartbeat` marks a `decide` line
+   * written because nothing changed for a while, not because something did.
    */
   readonly seq?: number;
-  readonly trace?: import("./companionTrace.ts").CompanionTrace;
+  readonly trace?: unknown;
   readonly verdict?: "refused" | "uncertain" | "deferred";
   readonly heartbeat?: boolean;
 }

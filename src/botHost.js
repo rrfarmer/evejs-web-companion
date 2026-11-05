@@ -252,7 +252,18 @@ const PLUGIN_READOUT_MAX_BYTES = 16 * 1024;
 const PLUGIN_RUN_STATUSES = new Set(["running", "paused", "idle", "stopped", "error"]);
 // What only the host does for a run: it chose the pilot, it ends the session, and only the player starts or stops
 // a bot. Read as the router reads a path, which ignores case and a trailing slash: an exact match lets "/api/LOGOUT" by.
-const PLUGIN_REFUSED_PATH = /^\/api\/(login|logout|bridge\/select|bridge\/release|bots\/start|bots\/[^/]+\/(stop|reconnect)|mining-operations\/[^/]+\/(start|stop))\/?$/i;
+// What a run may still do once it is being stopped: say how it ended. It flies nothing,
+// and the end of a run is what its log is most often read for.
+function isPluginLastWords(message) {
+  try {
+    return String(message.method).toUpperCase() === "POST"
+      && /^\/api\/bots\/bot-log\/?$/i.test(new URL(String(message.url), "http://bff.invalid").pathname);
+  } catch {
+    return false;
+  }
+}
+
+const PLUGIN_REFUSED_PATH =/^\/api\/(login|logout|bridge\/select|bridge\/release|bots\/start|bots\/[^/]+\/(stop|reconnect)|mining-operations\/[^/]+\/(start|stop))\/?$/i;
 const PLUGIN_STOPPED_PHASE = "Plugin stopped";
 
 /**
@@ -614,8 +625,9 @@ function createBotHost(options) {
       record.unsubscribe = null;
     }
     clearPluginDownTimer(record);
-    if (record.kind === "plugin") void stopPluginLoop(record);
     persistRoster();
+    // Before the logoff, so what the plugin writes in its `stop` reaches the pilot's log.
+    if (record.kind === "plugin") await stopPluginLoop(record);
     const flow = record.flow;
     record.flow = null;
     record.store = null;
@@ -896,6 +908,7 @@ function createBotHost(options) {
       resumed,
       resumeData: record.pluginResumeData ?? null,
       held: record.flow.heldPilot(),
+      routeSettings: record.flow.autopilotSettings(),
       baseUrl,
     });
     // A start that only answered late is still coming, so the plugin is told it is not wanted.
@@ -951,7 +964,7 @@ function createBotHost(options) {
           let response;
           if (!record || record.kind !== "plugin" || record.pluginID !== pluginID) {
             response = refusedPluginFetch(404, "PLUGIN_RUN_NOT_FOUND", "This plugin has no such run.");
-          } else if (record.finalized || record.windingDown || !record.pluginFetch) {
+          } else if (record.finalized || !record.pluginFetch || (record.windingDown && !isPluginLastWords(message))) {
             response = refusedPluginFetch(409, "PLUGIN_RUN_ENDED", "This run has ended or is being stopped.");
           } else {
             const url = new URL(String(message.url), baseUrl);

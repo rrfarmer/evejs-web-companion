@@ -17,6 +17,7 @@ import {
   readonlySignal,
   type ReadableSignal,
   type Unsubscribe,
+  type WritableSignal,
 } from "./signals.ts";
 import type { FeedAdapter, FeedEvent, FeedSink, FeedStatus, HealthStatus } from "./feed.ts";
 import { MAX_BROADCAST_HISTORY } from "../bridge/fleetBroadcasts.ts";
@@ -908,6 +909,12 @@ export interface ClientStore {
   readonly bot: ReadableSignal<MiningBotState>;
   readonly missionBot: ReadableSignal<MissionBotState>;
   readonly companion: ReadableSignal<FleetCompanionState>;
+  /**
+   * What a plugin keeps about this pilot, under a key of its own ("plugin:<plugin id>"
+   * or "plugin:<plugin id>.<name>"). The same key gives the same signal, and a pilot
+   * going offline puts it back to `initial`. Core reads none of it.
+   */
+  pluginState<T>(key: `plugin:${string}`, initial: T): WritableSignal<T>;
   readonly customBot: ReadableSignal<CustomBotState>;
   readonly bots: ReadableSignal<BotsState>;
   readonly chat: ReadableSignal<ChatState>;
@@ -975,6 +982,19 @@ export function createClientStore(): ClientStore {
   const customBot = createSignal<CustomBotState>(INITIAL_CUSTOM_BOT);
   // A plugin holding the ship has no slice of core's to read a status from, so it says so (flow.flying.holdShip).
   let pluginShipHolder: { readonly owner: PluginShipOwner; readonly name: string } | null = null;
+  // What plugins keep about this pilot (`pluginState`). Back to where each began as the pilot goes offline, as core's own slices are.
+  const pluginStates = new Map<string, { readonly signal: WritableSignal<unknown>; readonly initial: unknown }>();
+  const clearPluginState = (): void => {
+    for (const { signal, initial } of pluginStates.values()) signal.set(initial);
+  };
+  function pluginState<T>(key: `plugin:${string}`, initial: T): WritableSignal<T> {
+    let kept = pluginStates.get(key);
+    if (kept === undefined) {
+      kept = { signal: createSignal<unknown>(initial), initial };
+      pluginStates.set(key, kept);
+    }
+    return kept.signal as WritableSignal<T>;
+  }
   const bots = createSignal<BotsState>(INITIAL_BOTS);
   const chat = createSignal<ChatState>(INITIAL_CHAT);
   const live = createSignal<LiveState>(INITIAL_LIVE);
@@ -1085,6 +1105,7 @@ export function createClientStore(): ClientStore {
         customBot.set(INITIAL_CUSTOM_BOT);
         companion.set(INITIAL_FLEET_COMPANION);
         pluginShipHolder = null;
+        clearPluginState();
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -1150,6 +1171,7 @@ export function createClientStore(): ClientStore {
         customBot.set(INITIAL_CUSTOM_BOT);
         companion.set(INITIAL_FLEET_COMPANION);
         pluginShipHolder = null;
+        clearPluginState();
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -1196,6 +1218,7 @@ export function createClientStore(): ClientStore {
         customBot.set(INITIAL_CUSTOM_BOT);
         companion.set(INITIAL_FLEET_COMPANION);
         pluginShipHolder = null;
+        clearPluginState();
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -3014,6 +3037,7 @@ export function createClientStore(): ClientStore {
     bot: readonlySignal(bot),
     missionBot: readonlySignal(missionBot),
     companion: readonlySignal(companion),
+    pluginState,
     customBot: readonlySignal(customBot),
     bots: readonlySignal(bots),
     chat: readonlySignal(chat),

@@ -80,6 +80,8 @@ export interface PluginRunContext {
   readonly resumed: boolean;
   readonly resumeData: JsonValue;
   readonly held: HeldPilot;
+  /** How this pilot plans its routes, as its page set them. `createPilotSession` gives them to the flow. */
+  readonly routeSettings: JsonValue;
   readonly baseUrl: string;
   /** The BFF, as this pilot's session. Core refuses a select, the session's end, and starting or stopping a bot. */
   readonly fetch: typeof fetch;
@@ -169,6 +171,7 @@ interface RunSpec {
   readonly resumed: boolean;
   readonly resumeData: JsonValue;
   readonly held: HeldPilot;
+  readonly routeSettings: JsonValue;
   readonly baseUrl: string;
 }
 
@@ -374,6 +377,7 @@ export function startBackend(definition: BackendDefinition): void {
                 resumed: spec.resumed,
                 resumeData: spec.resumeData,
                 held: spec.held,
+                routeSettings: spec.routeSettings ?? {},
                 baseUrl: spec.baseUrl,
                 fetch: runFetch(spec.botID),
                 report: (report) => send({ type: "runReport", botID: spec.botID, report }),

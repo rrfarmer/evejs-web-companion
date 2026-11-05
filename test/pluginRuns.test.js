@@ -57,13 +57,21 @@ startBackend({
       },
       async start(run) {
         flying = run;
-        heard("started.json", { botID: run.botID, resumed: run.resumed, resumeData: run.resumeData, held: run.held, setup: run.setup });
+        heard("started.json", { botID: run.botID, resumed: run.resumed, resumeData: run.resumeData, held: run.held, setup: run.setup, routeSettings: run.routeSettings });
         if (run.setup.slowStart) await new Promise((resolve) => setTimeout(resolve, 500));
         if (run.resumed && run.setup.quietAfterRestart) return { stop() {} };
         const status = await run.fetch("/api/bridge/flight/status");
         run.report({ status: "running", phase: "Probing", why: "Asked " + status.status, readout: { asked: status.status }, resumeData: { lap: run.setup.n } });
         if (run.setup.endItself) run.report({ status: "stopped", why: "Done by itself." });
-        return { stop() { heard("stopped.json", { botID: run.botID }); } };
+        return { async stop() {
+          const logged = await run.fetch("/api/bots/bot-log", { method: "POST", body: "{}" });
+          const anySpelling = await run.fetch("/api/Bots/Bot-Log/", { method: "POST", body: "{}" });
+          const flown = await run.fetch("/api/bridge/flight/status");
+          const read = await run.fetch("/api/bots/bot-log");
+          const otherBotRoute = await run.fetch("/api/bots/squad-board", { method: "POST", body: "{}" });
+          heard("stopped.json", { botID: run.botID, logged: logged.status, anySpelling: anySpelling.status,
+            flown: flown.status, read: read.status, otherBotRoute: otherBotRoute.status });
+        } };
       },
     },
   },
@@ -116,6 +124,7 @@ async function makeStack(log) {
       return {
         async selectCharacter(id) { log.push(["select", id]); state.station.online = { characterID: id, characterName: "Stand-in" }; state.flight.status = { docked: false }; },
         heldPilot: () => HELD,
+        autopilotSettings: () => ({ pfRouteType: "shortest" }),
         async loadFlightStatus() {},
         async loadSpaceSnapshot() {},
         async loadMiningHolds() {},
@@ -204,6 +213,7 @@ test("a run is a bot like any other: claimed, listed, and flown from the plugin'
   assert.equal(heard.resumed, false);
   assert.deepEqual(heard.setup, { n: 4, restartSafe: true, endItself: false });
   assert.deepEqual(heard.held, HELD);
+  assert.deepEqual(heard.routeSettings, { pfRouteType: "shortest" });
   await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
 });
 
@@ -255,6 +265,16 @@ test("⚠ a run may not choose another pilot, end its session, or leave the BFF'
   const { body } = await f.request("POST", "/ask", { url: "/api/bots/active", method: "GET" });
   assert.equal(body.status, 200);
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+test("the flight recorder's route is a run's to use", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun();
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  for (const method of ["POST", "GET"]) {
+    const asked = await f.request("POST", "/ask", { url: "/api/bots/bot-log", method });
+    assert.equal(asked.body.status, 200, method);
+  }
 });
 
 test("a Request given to a run's fetch goes as what it says", async (t) => {
@@ -345,7 +365,11 @@ test("Stop ends the plugin's loop before core brings the drones home and logs of
   assert.ok(await until(() => f.row().phase === "Probing"));
   const stopped = await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
   assert.equal(stopped.ok, true);
-  assert.deepEqual((await f.heard("stopped")).botID, started.bot.botID);
+  const told = await f.heard("stopped");
+  assert.deepEqual(told.botID, started.bot.botID);
+  assert.equal(told.logged, 200, "a run being stopped can still write how it ended");
+  assert.equal(told.anySpelling, 200, "the router ignores case and a trailing slash");
+  assert.deepEqual([told.flown, told.read, told.otherBotRoute], [409, 409, 409], "and can do nothing else");
   assert.deepEqual(f.log.map(([name]) => name), ["select", "prepareHostedBotStop", "logout"]);
   assert.equal(f.bots.claimedBy(CHARACTER), null);
   const after = await f.request("POST", "/ask", { url: "/api/bridge/flight/status" });
@@ -355,9 +379,18 @@ test("Stop ends the plugin's loop before core brings the drones home and logs of
 test("a run that reaches its end by itself is released", async (t) => {
   const f = await makeFixture(t);
   await f.startRun({ endItself: true });
-  assert.ok(await until(() => f.log.some(([name]) => name === "logout")));
+  const askedAtLogout = await new Promise((resolve) => {
+    const look = setInterval(() => {
+      if (!f.log.some(([name]) => name === "logout")) return;
+      clearInterval(look);
+      resolve(f.asked.filter((request) => request.url.endsWith("/api/bots/bot-log")).length);
+    }, 1);
+  });
+  assert.ok(askedAtLogout > 0, "a run's last words come before its logoff");
   assert.ok(await until(() => f.bots.claimedBy(CHARACTER) === null));
   assert.equal(f.row().why, "Done by itself.");
+  assert.equal((await f.heard("stopped")).logged, 200);
+  assert.ok(f.asked.some((request) => request.url.endsWith("/api/bots/bot-log")), "its last words arrived before the logoff was asked for");
 });
 
 for (const [how, route] of [["killed", "/crash"], ["hung", "/hang"]]) {
@@ -371,6 +404,7 @@ for (const [how, route] of [["killed", "/crash"], ["hung", "/hang"]]) {
     const heard = await f.heard("started");
     assert.equal(heard.botID, started.bot.botID);
     assert.deepEqual(heard.resumeData, { lap: 9 });
+    assert.deepEqual(heard.routeSettings, { pfRouteType: "shortest" }, "a run that comes back still plans as its pilot does");
     assert.ok(await until(() => f.row().status === "running"));
     assert.equal(f.bots.claimedBy(CHARACTER), started.bot.botID);
     // No second select: it would drop the pilot from its fleet. And no recall.

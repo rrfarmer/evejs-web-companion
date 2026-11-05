@@ -62,6 +62,31 @@ function capped(values: readonly string[], keep = 3): string {
  * allowed = measured in reach + assumed (let through because reach or distance
  * was unknown), and all = allowed + out of reach.
  */
+/** Whether a line's trace is one `traceSummary` can read: each section it knows, with the fields it reads. */
+export function isCompanionTrace(trace: unknown): trace is CompanionTrace {
+  if (typeof trace !== "object" || trace === null || Array.isArray(trace)) return false;
+  const section = (value: unknown): Record<string, unknown> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  const arrayOrAbsent = (value: unknown): boolean => value === undefined || Array.isArray(value);
+  const readable: Readonly<Record<string, (part: Record<string, unknown>) => boolean>> = {
+    combat: (part) => typeof part.outcome === "string",
+    guns: (part) => arrayOrAbsent(part.inReach) && arrayOrAbsent(part.assumed) && arrayOrAbsent(part.outOfReach),
+    props: (part) => typeof part.because === "string",
+    ammo: (part) => arrayOrAbsent(part.units),
+    util: (part) => arrayOrAbsent(part.skipped) && arrayOrAbsent(part.gaveUp),
+    cleared: (part) => typeof part.by === "string",
+    health: (part) => typeof part.code === "string",
+    drones: (part) => typeof part.rotation === "string" && arrayOrAbsent(part.rows)
+      && ((part.rows as readonly unknown[] | undefined) ?? []).every((row) => Array.isArray(section(row)?.attackers) || section(row)?.state === "aboard"),
+  };
+  return Object.entries(trace).every(([key, value]) => {
+    const part = section(value);
+    return part !== null && Object.prototype.hasOwnProperty.call(readable, key) && readable[key]?.(part) === true;
+  });
+}
+
+const OTHER_TRACE_WORDS = "(another loop's trace)";
+
 export function traceSummary(trace: CompanionTrace | null | undefined): string {
   if (trace === null || trace === undefined) return "";
   const parts: string[] = [];
@@ -148,7 +173,8 @@ export interface LogRow {
   readonly text: string;
   /** A decide line's trace, in one line; null when it has none. */
   readonly summary: string | null;
-  readonly trace: CompanionTrace | null;
+  /** Shown as it was written, whichever loop wrote it. */
+  readonly trace: unknown;
   readonly seq: number | null;
   readonly heartbeat: boolean;
   readonly tone: LogTone;
@@ -205,9 +231,37 @@ export function matchesFilter(haystack: string, filter: string): boolean {
   return terms.every((term) => haystack.includes(term));
 }
 
+/**
+ * One line's row. A line is whatever was written to the pilot's log, kept in a file, so one
+ * that cannot be read becomes a row saying so: it must not take the window down each time it
+ * is opened until it rotates out.
+ */
 function rowFor(entry: BotLogEntry, index: number): LogRow {
+  try {
+    return readableRow(entry, index);
+  } catch {
+    return {
+      index,
+      time: "",
+      kind: "decide",
+      phase: "",
+      text: "(a line this window cannot read)",
+      summary: entry.trace === undefined || entry.trace === null ? null : OTHER_TRACE_WORDS,
+      trace: entry.trace ?? null,
+      seq: null,
+      heartbeat: false,
+      tone: "",
+      inGroup: false,
+      groupStart: true,
+      haystack: "",
+    };
+  }
+}
+
+function readableRow(entry: BotLogEntry, index: number): LogRow {
+  // The log is the pilot's, so another loop's lines are in it too, with a trace of its own.
   const trace = entry.trace ?? null;
-  const summary = trace === null ? null : traceSummary(trace);
+  const summary = trace === null ? null : isCompanionTrace(trace) ? traceSummary(trace) : OTHER_TRACE_WORDS;
   const time = clockOf(entry.t);
   const phase = entry.phase ?? "";
   const text = sentenceOf(entry);
