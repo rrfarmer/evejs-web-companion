@@ -1549,8 +1549,9 @@ export interface PilotFlying {
    * else takes it, when a player stops it from the Bot Manager, when a panic recall pulls the
    * ship home, and when the pilot's session closes or is lost; `release` when the loop ends by itself. `stop` must not take the
    * ship itself, and what it throws or rejects with is logged and goes no further. `name` is what a player
-   * reads in the page as flying the ship. However a hold ends, any trip the loop handed the
-   * autopilot ends with it, including one still being planned, since nothing would say it flew on. Throws with no pilot online, while the last
+   * reads in the page as flying the ship. However a hold ends, whatever route the autopilot is
+   * flying ends with it, since nothing would say it flew on, and one `startRoute` is still planning
+   * does not start. Throws with no pilot online, while the last
    * controller's Stop is settling, while drone recovery is still checking this pilot, and
    * while the session is closing.
    */
@@ -22328,7 +22329,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (generation !== sessionCloseGeneration || sessionClosing)
       return { started: false, reason: "This pilot session was released while planning the route." };
     if (holdsEndedAtStart !== pluginHoldsEnded) {
-      return { started: false, reason: "The loop flying this pilot was stopped while planning the route." };
+      return planFailed("The loop flying this pilot was stopped while planning the route.");
     }
     const plan: RoutePlan = {
       destinationSystemID: targetSystemID,
@@ -24501,7 +24502,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requireAutomationReady();
     requireCustomControllerSettled();
     // As every start does: the autopilot is not a controller, and would fly on underneath.
-    autopilot?.abort();
+    // That goes for a route still being planned too.
+    endPluginRoute();
     claimShip(owner);
     store.apply({ type: "ship/plugin-holder", holder: { owner, name } });
     // A session lost, another pilot chosen, or a start already on its way when this took the

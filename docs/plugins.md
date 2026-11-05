@@ -345,11 +345,12 @@ runs: {
   running. The sketch above gives up on the first failure, which a real loop would not.
 - **`holdShip(owner, name, stop)`** takes `plugin:<plugin id>` as the owner. `name` is shown
   in the page while a loop running there holds the ship; for a run, the Bot Manager shows
-  the name `check` gave. Nothing else flies while a plugin holds the ship. It holds it until
+  the name `check` gave. No other bot flies while a plugin holds the ship, though a player can still start a route by
+  hand. It holds it until
   `stop` is called or it calls `release`. `stop` is called when anything else takes the ship, a
   player stops it from the Bot Manager, a panic recall pulls it home, or the session closes or
-  is lost. However a hold ends, a trip the loop handed `startRoute` ends with it, and one still
-  being planned does not start. `stop` may not take the
+  is lost. However a hold ends, whatever route the autopilot is flying ends with it, and one
+  `startRoute` is still planning does not start. `stop` may not take the
   ship itself, and what it throws or rejects with is logged and goes no further. `holdShip` refuses with no
   pilot online, while the last controller's Stop is settling, while drone recovery is still
   checking a pilot in the page, and while the session closes.
@@ -430,7 +431,7 @@ export async function fly(store: ClientStore, flow: AppFlow, flying: () => boole
 const { store, flow } = await createPilotSession(run);
 let flying = true;
 const hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
-const loop = fly(store, flow, () => flying, (why) => run.report({ status: "error", why }))
+const loop = fly(store, flow, () => flying, (why) => { flying = false; run.report({ status: "error", why }); })
   // If `fly` finished its job by itself, say so, or the row goes on saying it is running.
   .then(() => { if (flying) run.report({ status: "stopped" }); })
   .finally(() => { hold.release(); flow.setLivePush(false); });

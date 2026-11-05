@@ -236,6 +236,42 @@ for (const [how, end] of [
   });
 }
 
+test("a route being planned as a loop takes the ship never starts under it", async () => {
+  let graphAnswers = (): void => {};
+  const { flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  const route = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  graphAnswers();
+  assert.equal((await route).started, false);
+});
+
+test("a second plugin's route starts, while the first one's being planned does not", async () => {
+  let graphAnswers = (): void => {};
+  const { flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  const first = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.flying.holdShip("plugin:hauler", "The hauler", () => {});
+  const second = flow.startRoute(60000003);
+  graphAnswers();
+  assert.equal((await first).started, false);
+  assert.equal((await second).started, true);
+  flow.abortRoute();
+});
+
+test("a route stopped while being planned says so where the Travel panel reads it", async () => {
+  let graphAnswers = (): void => {};
+  const { store, flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  const route = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.stopPluginLoop();
+  graphAnswers();
+  await route;
+  assert.match(String(store.travel.get().failureReason), /stopped/);
+});
+
 test("a route with no plugin's loop near it is left alone by a Stop that has nothing to stop", async () => {
   const { flow } = await makeRouteFlow();
   assert.equal((await flow.startRoute(60000003)).started, true);
