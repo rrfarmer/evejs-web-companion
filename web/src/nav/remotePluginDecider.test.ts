@@ -104,3 +104,27 @@ test("⚠ a plugin that cannot answer stops its own bot as any failed block does
   assert.match(bot.snapshot().pauseReason ?? "", /could not decide its block "test:first": The plugin's server part did not answer in time/);
   assert.equal(asks, 1, "the flight home asks no plugin");
 });
+
+test("⚠ a plugin still starting holds nothing: no action, and the next tick observes afresh", async (t) => {
+  let starting = true;
+  setRemotePluginDecider(async () => starting
+    ? { wait: "The plugin is starting." }
+    : { tick: mt({ kind: "warp", targetID: 7 }, { kind: "acting" }) });
+  t.after(() => setRemotePluginDecider(null));
+  const issued: ScriptAction[] = [];
+  let observed = 0;
+  const bot = createScriptRunner({
+    observe: async () => { observed += 1; return calm(); }, issue: async (action) => { issued.push(action); }, registry: { "test:first": stub },
+    travelHome: home, sleep: async () => {}, onProgress: () => {}, isSessionLost: () => false, refusalReason: String,
+  });
+  bot.start(doc([step("a", "test:first")]));
+  await bot.tick();
+  assert.deepEqual(issued, []);
+  assert.equal(bot.getStatus(), "running");
+  assert.equal(bot.snapshot().why, "The plugin is starting.");
+  starting = false;
+  await bot.tick();
+  assert.equal(observed, 2);
+  assert.deepEqual(issued, [{ kind: "warp", targetID: 7 }]);
+  bot.stop();
+});

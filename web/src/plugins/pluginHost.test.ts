@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { PLUGIN_API_VERSION, definePlugin, type PluginManifest } from "../plugin-api/index.ts";
 import { activatePlugins, pluginProblem } from "./pluginHost.ts";
 import { globalLaunchers, isGlobalTab, pluginWindowGroups } from "../ui/globalWindow.ts";
-import { pluginMacro } from "../bots/pluginMacros.ts";
+import { pluginMacro, scriptWithFormerMacroIDs } from "../bots/pluginMacros.ts";
 import { tabLabel } from "../ui/tabs.ts";
 
 function manifest(id: string, extra: Partial<PluginManifest> = {}): PluginManifest {
@@ -84,17 +84,32 @@ test("a plugin built for another API, a duplicate and a switched-off one load no
       manifest("zeta", { apiVersion: PLUGIN_API_VERSION + 1, macros: [block("zeta:wait")] }),
       manifest("eta", { macros: [block("eta:wait")] }),
       manifest("eta"),
-      manifest("theta", { macros: [block("theta:wait")] }),
     ],
     null,
-    new Set(["theta"]),
   );
-  assert.deepEqual(statuses.map((s) => s.state), ["incompatible", "active", "failed", "disabled"]);
+  assert.deepEqual(statuses.map((s) => s.state), ["incompatible", "active", "failed"]);
   assert.equal(pluginMacro("zeta:wait"), null);
-  assert.equal(pluginMacro("theta:wait"), null);
 });
 
 test("a window with nothing to draw is refused in the browser, and needs no view in the BFF", () => {
   assert.match(pluginProblem(manifest("iota", { windows: [window("plugin:iota")] }), { id: "iota", windows: {} }) ?? "", /nothing to draw/);
   assert.equal(pluginProblem(manifest("iota", { windows: [window("plugin:iota")] }), null), null);
+});
+
+test("⚠ a former id must be nobody's: not a core block, not a block that exists, not one claimed", () => {
+  const was = (id: `${string}:${string}`, formerly: string[]) => ({ ...block(id), formerly });
+  assert.match(pluginProblem(manifest("kappa", { macros: [was("kappa:a", ["undock"])] }), null) ?? "", /another block's/);
+  activatePlugins([manifest("lambda", { macros: [was("lambda:a", ["old-lambda"])] })], null);
+  assert.match(pluginProblem(manifest("kappa", { macros: [was("kappa:a", ["lambda:a"])] }), null) ?? "", /another block's/);
+  assert.match(pluginProblem(manifest("kappa", { macros: [was("kappa:a", ["old-lambda"])] }), null) ?? "", /another block's/);
+  assert.match(pluginProblem(manifest("kappa", { macros: [was("kappa:a", ["x"]), was("kappa:b", ["x"])] }), null) ?? "", /another block's/);
+  assert.equal(pluginProblem(manifest("kappa", { macros: [was("kappa:a", ["old-kappa"])] }), null), null);
+});
+
+test("a script reads back as it was before its blocks moved, however deep they sit", () => {
+  activatePlugins([manifest("mu", { macros: [{ ...block("mu:a"), formerly: ["old-mu", "older-mu"] }, block("mu:b")] })], null);
+  const script = { program: [{ kind: "macro", macro: "mu:a" }, { kind: "loop", body: [{ kind: "macro", macro: "mu:a" }, { kind: "macro", macro: "mu:b" }, { kind: "macro", macro: "undock" }] }] };
+  assert.deepEqual(scriptWithFormerMacroIDs(script), {
+    program: [{ kind: "macro", macro: "old-mu" }, { kind: "loop", body: [{ kind: "macro", macro: "old-mu" }, { kind: "macro", macro: "mu:b" }, { kind: "macro", macro: "undock" }] }],
+  });
 });

@@ -42,6 +42,12 @@ const MIGRATIONS = Object.freeze([
      created_at TEXT NOT NULL,
      updated_at TEXT NOT NULL
    )`,
+  // 3 -- that the companion's rows were taken over, in the same database as the
+  // rows themselves, so a second handover cannot bring back a plan deleted since.
+  `CREATE TABLE pi_handover (
+     id       INTEGER PRIMARY KEY CHECK (id = 1),
+     taken_at TEXT NOT NULL
+   )`,
 ]);
 
 /** Bring an open database up to the latest schema. Returns the version reached. */

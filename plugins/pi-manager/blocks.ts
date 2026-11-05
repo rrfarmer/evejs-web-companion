@@ -895,7 +895,9 @@ export const PI_BLOCKS: readonly PluginMacro[] = [
     does: "At each customs office in this system, sends your colony's launchpad goods up into it, then takes what it holds of yours, each into the right hold (an Epithal's planetary hold takes planetary goods). Finishes when every office here is empty, or when the ship is full.",
     needs: "Being in space in the system of your colonies",
     spec: { args: [], untilRequired: false },
-    runPolicy: { risks: ["inventory", "colony"], restartSafe: true },
+    // Sending a launchpad up charges the office's export tax. Restart-safe all the
+    // same: each tick re-reads the pads, and what already went up is not on them.
+    runPolicy: { risks: ["inventory", "colony", "financial"], restartSafe: true },
     reads: ["colonies", "customsOffices"],
     decide: collectCustoms,
     sentence: () => "Empty every customs office in this system that holds your goods",

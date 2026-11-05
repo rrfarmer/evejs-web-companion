@@ -15,7 +15,8 @@ import { loadPluginModules } from "./loadPlugins.ts";
 import { registerGlobalWindow, isGlobalTab } from "../ui/globalWindow.ts";
 import { registerGlobalWindowView } from "../ui/pluginWindowViews.ts";
 import { allTabs } from "../ui/tabs.ts";
-import { pluginMacro, registerPluginMacro } from "../bots/pluginMacros.ts";
+import { pluginMacro, pluginMacroFormerly, registerPluginMacro } from "../bots/pluginMacros.ts";
+import { macroSpec } from "../bots/macroSpecs.ts";
 
 /**
  * - `active`        loaded: its windows and blocks are in
@@ -55,22 +56,31 @@ export function pluginProblem(manifest: PluginManifest, views: PluginViews | nul
     if (views !== null && views.windows[window.id] === undefined) return `The window "${window.id}" has nothing to draw.`;
   }
   const blocksSeen = new Set<string>();
+  const formerSeen = new Set<string>();
   for (const macro of manifest.macros ?? []) {
     if (!macro.id.startsWith(`${manifest.id}:`) || macro.id.length === manifest.id.length + 1) return `The block "${macro.id}" is not this plugin's: its id must start with ${manifest.id}:.`;
     if (blocksSeen.has(macro.id) || pluginMacro(macro.id) !== null) return `There is already a block called "${macro.id}".`;
     blocksSeen.add(macro.id);
+    // A former id is read as this block in every saved script, ahead of any other
+    // lookup, so it must be nobody's: not a block that exists, not one already claimed.
+    for (const former of macro.formerly ?? []) {
+      if (formerSeen.has(former) || macroSpec(former) !== null || pluginMacroFormerly(former) !== null) {
+        return `The block "${macro.id}" says it was once "${former}", but that id is another block's.`;
+      }
+      formerSeen.add(former);
+    }
   }
   return null;
 }
 
 /**
- * Load every plugin of the build that is not switched off, and say how each
- * one went. `views` is null in the BFF, which draws nothing.
+ * Register these plugins, and say how each one went. `views` is null in the BFF,
+ * which draws nothing. One switched off never gets here: its module is not even
+ * run (loadPlugins.ts).
  */
 export function activatePlugins(
   manifests: readonly PluginManifest[],
   views: readonly PluginViews[] | null,
-  disabled: ReadonlySet<string> = new Set(),
 ): readonly PluginStatus[] {
   const statuses: PluginStatus[] = [];
   const seen = new Set<string>();
@@ -93,10 +103,6 @@ export function activatePlugins(
     seen.add(manifest.id);
     if (manifest.apiVersion !== PLUGIN_API_VERSION) {
       say("incompatible", `Built for plugin API ${manifest.apiVersion}; this client offers ${PLUGIN_API_VERSION}.`);
-      continue;
-    }
-    if (disabled.has(manifest.id)) {
-      say("disabled");
       continue;
     }
     const pluginViews = views === null ? null : views.find((entry) => entry.id === manifest.id) ?? { id: manifest.id, windows: {} };
@@ -162,7 +168,7 @@ let pageStatuses: readonly PluginStatus[] = [];
 export async function activatePagePlugins(entries: readonly PluginEntry[], viewEntries: readonly PluginViewsEntry[]): Promise<readonly PluginStatus[]> {
   const disabled = loadDisabledPlugins();
   const loaded = await loadPluginModules(entries, viewEntries, { disabled });
-  pageStatuses = [...activatePlugins(loaded.manifests, loaded.views, disabled), ...loaded.failures];
+  pageStatuses = [...activatePlugins(loaded.manifests, loaded.views), ...loaded.failures, ...loaded.switchedOff];
   for (const failure of loaded.failures) console.error(`Plugin ${failure.id}: ${failure.error}`);
   return pageStatuses;
 }

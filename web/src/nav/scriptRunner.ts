@@ -732,6 +732,13 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
       for (const question of remote.asked) {
         const answer = await remoteDecider(question.macro as never, question.step, question.facts, question.mem, question.board);
         if (token !== runToken || status !== "running") return;
+        if ("wait" in answer) {
+          // ⚠ NEVER HELD HERE. The plugin is coming up: this tick ends with nothing
+          // acted on, and the next one observes afresh, so the bot's watches keep
+          // running and no answer is ever applied to an old reading of the world.
+          emit({ ...last, status: "running", phase: "Waiting for the plugin", why: answer.wait });
+          return;
+        }
         if ("error" in answer) {
           // The plugin is down, slow or threw: its bot stops as for any block that
           // failed, and says why. Docked that is a pause; in space it flies home

@@ -52,6 +52,8 @@
   }
 
   function addsWords(status: PluginStatus): string {
+    // A plugin switched off was not run, so what it adds is not known here.
+    if (status.state === "disabled") return "";
     const parts: string[] = [];
     if (status.windows > 0) parts.push(status.windows === 1 ? "1 window" : `${status.windows} windows`);
     if (status.macros > 0) parts.push(status.macros === 1 ? "1 bot block" : `${status.macros} bot blocks`);

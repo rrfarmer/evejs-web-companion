@@ -82,6 +82,23 @@ export function pluginMacroFormerly(id: string): PluginMacroID | null {
   return null;
 }
 
+/**
+ * A script as it read before its blocks moved out of core: every plugin block
+ * with a `formerly` id back under the first of them. The bot host hashes this to
+ * recognise a run authorized before the move (src/botHost.js).
+ */
+export function scriptWithFormerMacroIDs(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(scriptWithFormerMacroIDs);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => {
+    if (key === "macro" && typeof entry === "string") {
+      const former = registered.get(entry as PluginMacroID)?.formerly?.[0];
+      return [key, former ?? entry];
+    }
+    return [key, scriptWithFormerMacroIDs(entry)];
+  }));
+}
+
 /** Every plugin block, in the order they registered. */
 export function pluginMacros(): readonly PluginMacro[] {
   return [...registered.values()];
@@ -106,7 +123,9 @@ export type RemotePluginDecider = (
   obs: ScriptObservation,
   mem: MacroMemory,
   board: ScriptBoard,
-) => Promise<{ readonly tick: MacroTick } | { readonly error: string }>;
+  // `wait`: the plugin's process is coming up, so there is no answer yet. The
+  // runner acts on nothing and looks at the world again next tick.
+) => Promise<{ readonly tick: MacroTick } | { readonly error: string } | { readonly wait: string }>;
 
 let remote: RemotePluginDecider | null = null;
 

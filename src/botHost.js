@@ -154,7 +154,7 @@ function defaultLoadStack() {
       // the role labels that named a roster row. Roles are gone, the row is a
       // fixed label now (COMPANION_SCRIPT_NAME), and every other word in that
       // module is written for a browser panel this host does not render.
-      const [sessionToken, clientStore, flow, codec, runPolicy, companionRunPolicy, supportFleet] =
+      const [sessionToken, clientStore, flow, codec, runPolicy, companionRunPolicy, supportFleet, pluginBlocks] =
         await Promise.all([
           import(webUrl("app/sessionToken.ts")),
           import(webUrl("store/clientStore.ts")),
@@ -163,6 +163,7 @@ function defaultLoadStack() {
           import(webUrl("bots/runPolicy.ts")),
           import(webUrl("bots/companionRunPolicy.ts")),
           import(webUrl("nav/miningSupportFleet.ts")),
+          import(webUrl("bots/pluginMacros.ts")),
         ]);
       // The server has no sessionStorage; force the in-memory fallback. Bots
       // never use the global token anyway (perSessionToken), but the module
@@ -172,6 +173,7 @@ function defaultLoadStack() {
         createClientStore: clientStore.createClientStore,
         createAppFlow: flow.createAppFlow,
         decodeScriptValue: codec.decodeScriptValue,
+        scriptWithFormerMacroIDs: pluginBlocks.scriptWithFormerMacroIDs,
         analyzeBotRunPolicy: runPolicy.analyzeBotRunPolicy,
         supportsHostedOreJettisonRecovery: runPolicy.supportsHostedOreJettisonRecovery,
         validateBotLaunchGrant: runPolicy.validateBotLaunchGrant,
@@ -923,9 +925,16 @@ function createBotHost(options) {
         return { ok: false, code: "BOTSCRIPT_REVISION_REQUIRED", message: "The saved bot revision is missing." };
       }
       normalizedHash = hashScript(decodedDoc);
+      // ⚠ A BLOCK THAT MOVED OUT OF CORE IS NOT A CHANGED SCRIPT. The codec reads a
+      // moved block under its plugin id (`formerly`), so a run authorized before the
+      // move holds the hash of the same script under the old id. The revision is
+      // the same either way, and from here on the run holds the new hash.
+      const expectedHash = String(expectedScriptHash || "");
+      const sameScript = normalizedHash === expectedHash ||
+        (typeof stack.scriptWithFormerMacroIDs === "function" && hashScript(stack.scriptWithFormerMacroIDs(decodedDoc)) === expectedHash);
       if (
         expectedScriptRev !== null &&
-        (normalizedRev !== Number(expectedScriptRev) || normalizedHash !== String(expectedScriptHash || ""))
+        (normalizedRev !== Number(expectedScriptRev) || !sameScript)
       ) {
         return {
           ok: false,

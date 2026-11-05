@@ -25,6 +25,8 @@ export interface LoadedPlugins {
   readonly views: readonly PluginViews[];
   /** One per plugin that did not load, saying why. */
   readonly failures: readonly PluginStatus[];
+  /** One per plugin switched off in this browser, whose module was not run. */
+  readonly switchedOff: readonly PluginStatus[];
 }
 
 function reasonOf(error: unknown): string {
@@ -58,10 +60,30 @@ function failedToLoad(id: string, error: unknown): PluginStatus {
   };
 }
 
+function switchedOff(id: string): PluginStatus {
+  return {
+    id,
+    // Its manifest is what names it, and switching it off means not running that.
+    name: id,
+    version: "",
+    description: "Switched off in this browser, so none of its code runs here.",
+    apiVersion: 0,
+    state: "disabled",
+    error: null,
+    windows: 0,
+    macros: 0,
+    hasBackend: false,
+  };
+}
+
 /**
  * Load every plugin in the list. Never rejects. A plugin is wholly in or wholly
  * out: one whose views fail is out, manifest and all. `viewEntries` is null in
- * the BFF, which draws nothing; views of a plugin switched off are not loaded.
+ * the BFF, which draws nothing.
+ *
+ * ⚠ A PLUGIN SWITCHED OFF IS NOT RUN AT ALL, MANIFEST INCLUDED. The switch is how
+ * a player gets out from under a plugin that stalls or misbehaves as it loads, so
+ * running its module anyway would leave the fault in place.
  */
 export async function loadPluginModules(
   entries: readonly PluginEntry[],
@@ -70,11 +92,12 @@ export async function loadPluginModules(
 ): Promise<LoadedPlugins> {
   const timeoutMs = options.timeoutMs ?? PAGE_LOAD_TIMEOUT_MS;
   const outcomes = await Promise.all(entries.map(async (entry) => {
+    if (options.disabled?.has(entry.id)) return { off: switchedOff(entry.id) };
     try {
       const manifest = (await loadInTime(entry.load, timeoutMs)).default;
       if (!manifest || typeof manifest !== "object") throw new Error("its module exports no manifest as its default");
       if (manifest.id !== entry.id) throw new Error(`the list calls it "${entry.id}" but its manifest says "${String(manifest.id)}"`);
-      const viewEntry = options.disabled?.has(entry.id) ? undefined : viewEntries?.find((candidate) => candidate.id === entry.id);
+      const viewEntry = viewEntries?.find((candidate) => candidate.id === entry.id);
       const views = viewEntry === undefined ? null : (await loadInTime(viewEntry.load, timeoutMs)).default;
       return { manifest, views };
     } catch (error) {
@@ -84,7 +107,12 @@ export async function loadPluginModules(
   const manifests: PluginManifest[] = [];
   const views: PluginViews[] = [];
   const failures: PluginStatus[] = [];
+  const off: PluginStatus[] = [];
   for (const outcome of outcomes) {
+    if ("off" in outcome) {
+      off.push(outcome.off!);
+      continue;
+    }
     if ("failure" in outcome) {
       failures.push(outcome.failure!);
       continue;
@@ -92,5 +120,5 @@ export async function loadPluginModules(
     manifests.push(outcome.manifest!);
     if (outcome.views) views.push(outcome.views);
   }
-  return { manifests, views, failures };
+  return { manifests, views, failures, switchedOff: off };
 }

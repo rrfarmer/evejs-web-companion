@@ -44,3 +44,12 @@ test("the companion's rows are taken over once, and a second handover changes no
   const plans = ((await call(piRoutes(db), "GET /plans")).body as { plans: { planID: string; quantity: number; rev: number }[] }).plans;
   assert.deepEqual(plans.map((plan) => [plan.planID, plan.quantity, plan.rev]), [["p1", 10, 3]]);
 });
+
+test("⚠ a plan deleted after the handover stays gone when the rows are handed over again", async () => {
+  const db = lazyPiDb({ filename: ":memory:" });
+  const row = { id: "p1", type_id: 2393, quantity: 10, note: "", status: "active", rev: 3, created_at: "2026-10-01T00:00:00.000Z", updated_at: "2026-10-01T00:00:00.000Z" };
+  adoptRows(db, { plans: [row], expansions: [] });
+  await call(piRoutes(db), "POST /plans/:planID/delete", { planID: "p1" });
+  adoptRows(db, { plans: [row], expansions: [] });
+  assert.deepEqual((await call(piRoutes(db), "GET /plans")).body, { ok: true, plans: [] });
+});

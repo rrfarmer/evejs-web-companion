@@ -139,6 +139,7 @@ test("a block's next step is decided in the plugin's process", async (t) => {
   const plugins = host(root);
   t.after(() => plugins.stop());
   await plugins.start();
+  assert.ok(await until(() => plugins.statuses()[0].state === "running"));
   const decided = await plugins.decide("echo", "echo:count", { id: "s" }, { n: 3 }, {}, {});
   assert.equal(decided.tick.why, "counted 3");
   assert.match((await plugins.decide("echo", "echo:nothing", {}, {}, {}, {})).error, /no block called/);
@@ -188,6 +189,7 @@ export default {
   const plugins = host(root, { manifests: [{ id: "counter", macros: [{ id: "counter:count" }] }] });
   t.after(() => plugins.stop());
   await plugins.start();
+  assert.ok(await until(() => plugins.statuses()[0].state === "running"));
   // A Set reaches the decider whole: the channel carries structured clones.
   const decided = await plugins.decide("counter", "counter:count", { id: "s" }, { seen: new Set([1, 2]) }, {}, {});
   assert.equal(decided.tick?.why, "seen 2", decided.error);
@@ -209,7 +211,7 @@ function fakeProcess({ pid = 1234 } = {}) {
   };
   child.send = (message) => {
     if (message.type === "ping") setImmediate(() => child.emit("message", { type: "pong", id: message.id }));
-    if (message.type === "decide") setImmediate(() => child.emit("message", { type: "decided", id: message.id, tick: "answered" }));
+    if (message.type === "decide") setImmediate(() => child.emit("message", { type: "decided", id: message.id, tick: { why: "answered" } }));
     if (message.type === "adopt") setImmediate(() => child.emit("message", { type: "done", id: message.id }));
     return true;
   };
@@ -294,14 +296,13 @@ test("⚠ a backend that hangs before it is ready is killed and started again", 
   assert.ok(await until(() => plugins.statuses()[0].restarts === 1), "it was started again");
 });
 
-test("⚠ a decide waits for a backend still starting, past its own short answer timeout", async (t) => {
+test("⚠ a decide never holds a bot while its backend starts: it says wait, then answers", async (t) => {
   const children = processes();
   const { plugins } = fakeHost(t, children, { decideTimeoutMs: 30 });
   await plugins.start();
-  const decided = plugins.decide("echo", "echo:count", {}, {}, {}, {});
-  await wait(100);
+  assert.ok("wait" in await plugins.decide("echo", "echo:count", {}, {}, {}, {}));
   children.made[0].ready();
-  assert.deepEqual(await decided, { tick: "answered" });
+  assert.deepEqual(await plugins.decide("echo", "echo:count", {}, {}, {}, {}), { tick: { why: "answered" } });
 });
 
 test("⚠ a handover whose note cannot be written is logged, never fatal", async (t) => {
@@ -317,4 +318,41 @@ test("⚠ a handover whose note cannot be written is logged, never fatal", async
   await plugins.start();
   children.made[0].ready();
   assert.ok(await until(() => lines.some((line) => /could not be noted/.test(line))), lines.join("\n"));
+});
+
+test("⚠ a decide stops saying wait once a start has taken too long", async (t) => {
+  const children = processes();
+  const { plugins } = fakeHost(t, children, { startTimeoutMs: 40 });
+  await plugins.start();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.ok("error" in await plugins.decide("echo", "echo:count", {}, {}, {}, {}));
+});
+
+test("⚠ a decider that gives no next step is an error, never an endless wait", async (t) => {
+  const children = processes();
+  const { plugins } = fakeHost(t, children);
+  await plugins.start();
+  children.made[0].ready();
+  children.made[0].send = (message) => {
+    if (message.type === "decide") setImmediate(() => children.made[0].emit("message", { type: "decided", id: message.id }));
+    return true;
+  };
+  assert.match((await plugins.decide("echo", "echo:count", {}, {}, {}, {})).error, /no next step/);
+});
+
+test("⚠ when the BFF itself stalls, an answer already sent counts and the backend is not killed", async (t) => {
+  const root = makeRoot();
+  const plugins = host(root, { decideTimeoutMs: 100 });
+  t.after(() => plugins.stop());
+  await plugins.start();
+  assert.ok(await until(() => plugins.statuses()[0].state === "running"));
+  const decided = plugins.decide("echo", "echo:count", { id: "s" }, { n: 3 }, {}, {});
+  // Let the message go out, then hold the event loop past the decide timeout and two watchdog pings (pingMs 150).
+  await new Promise((resolve) => setImmediate(resolve));
+  const end = Date.now() + 600;
+  while (Date.now() < end) { /* the BFF's event loop, held */ }
+  assert.equal((await decided).tick?.why, "counted 3");
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(plugins.statuses()[0].restarts, 0);
+  assert.equal(plugins.statuses()[0].state, "running");
 });

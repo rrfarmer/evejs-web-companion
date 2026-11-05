@@ -168,7 +168,7 @@ core's own blocks have spread over several tables:
 | `reads` | the costly reads it needs each tick while it runs (`colonies`, `piLaunches`, `customsOffices`, `shipNames`, `holds`, `planetaryHolds`) |
 | `decide` | the next step |
 | `newArgs`, `sentence` | a new step's arguments, and the step as a sentence |
-| `formerly` | ids it had before (a core block that moved out), so saved scripts keep working |
+| `formerly` | ids it had before (a core block that moved out), so saved scripts keep working. Each must be nobody else's: a plugin claiming a live block's id is refused |
 
 A block returns core's actions only. Every game call is core's; the choices are
 the plugin's. `plugin-api/blocks.ts` has the pieces core's own blocks are made of
@@ -185,7 +185,9 @@ places:
   again with the answer. Deciding is pure, so the second pass is exact. If the
   plugin cannot answer, nothing of that tick is acted on and its bot stops as for
   any block that failed: docked it pauses at once, and in space it flies home first,
-  asking no plugin on the way. Either way it says why.
+  asking no plugin on the way. Either way it says why. A plugin still starting is
+  not a failure, for up to 30 s: the bot acts on nothing and looks again next tick,
+  so its watches keep running and no answer is applied to an old reading.
 
 A script that uses a block of a plugin the build does not have (or a browser has
 switched off) is refused when it is read, naming the plugin. The stored script is

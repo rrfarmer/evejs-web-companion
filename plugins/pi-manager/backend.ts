@@ -80,8 +80,9 @@ const EXPANSION_COLUMNS = ["id", "settings", "rows", "note", "status", "rev", "c
 
 /**
  * Take over the plans the companion's database kept before PI was a plugin,
- * row for row. A plan already here is kept as it is, so a second handover
- * changes nothing.
+ * row for row, once. The database records that it did, in the same transaction,
+ * so a second handover changes nothing: a plan edited here stays as it is, and
+ * one deleted here stays gone, whatever became of the BFF's marker file.
  */
 export function adoptRows(db: DbHandle, records: unknown): void {
   const { plans = [], expansions = [] } = (records && typeof records === "object" ? records : {}) as {
@@ -94,6 +95,8 @@ export function adoptRows(db: DbHandle, records: unknown): void {
     for (const row of rows) statement.run(...columns.map((column) => row[column]));
   };
   conn.transaction(() => {
+    if (conn.prepare("SELECT id FROM pi_handover").all().length > 0) return;
+    conn.prepare("INSERT INTO pi_handover (id, taken_at) VALUES (1, ?)").run(new Date().toISOString());
     insert("pi_plans", PLAN_COLUMNS, plans);
     insert("pi_expansion_plans", EXPANSION_COLUMNS, expansions);
   })();

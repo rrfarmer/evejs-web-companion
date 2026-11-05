@@ -33,10 +33,11 @@ const { pathToFileURL } = require("node:url");
 const PING_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DECIDE_TIMEOUT_MS = 2_000;
-// How long a backend may take to say it is ready. A request or a decide waits
-// this long for one still starting, however short its own answer's timeout: a
-// bot resumed as the BFF starts must not pause over a plugin coming up. One
-// still not ready by then has hung, and is killed like any other.
+// How long a backend may take to say it is ready. A request waits this long for
+// one still starting, however short its own answer's timeout. A decide does not
+// wait: it says so, and the bot looks again next tick, for this long, so a bot
+// resumed as the BFF starts does not stop over a plugin coming up. One still not
+// ready by then has hung, and is killed like any other.
 const START_TIMEOUT_MS = 30_000;
 // How long a plugin's modules may take to load into the BFF. Bots resume only
 // after this, and one given up on loses its blocks until the BFF restarts, so
@@ -99,6 +100,7 @@ function createPluginHost(options = {}) {
    */
   function afterFailure(entry) {
     const now = Date.now();
+    entry.downSince ??= now;
     entry.failures = entry.failures.filter((at) => now - at < FAILURE_WINDOW_MS).concat(now);
     if (entry.failures.length >= MAX_FAILURES) {
       entry.state = "failed";
@@ -186,6 +188,7 @@ function createPluginHost(options = {}) {
       if (message.type === "ready") {
         entry.state = "running";
         entry.error = null;
+        entry.downSince = null;
         // The watchdog's clock starts now: the time it took to start is not silence.
         entry.lastPong = Date.now();
         entry.readyWaiters.splice(0).forEach((resolve) => resolve(true));
@@ -217,19 +220,26 @@ function createPluginHost(options = {}) {
   }
 
   function watch() {
+    // ⚠ A LATE BEAT MEANS THE BFF STALLED, NOT THE PLUGIN. Timers run before waiting
+    // messages are read, so after a stall this beat sees an old pong with the fresh
+    // one still unread. It passes no verdict: the next beat, on time, has read it.
+    let lastBeat = Date.now();
     const timer = setInterval(() => {
+      const now = Date.now();
+      const late = now - lastBeat > pingMs * 1.5;
+      lastBeat = now;
       for (const entry of backends.values()) {
         const child = entry.child;
         if (!child) continue;
         if (entry.state !== "running") {
           // Hung before it said it was ready: no ping would be answered either.
-          if (entry.state !== "stopped" && Date.now() - entry.startedAt > startTimeoutMs) {
+          if (!late && entry.state !== "stopped" && now - entry.startedAt > startTimeoutMs) {
             entry.error = "It did not finish starting, so it was stopped.";
             child.kill("SIGKILL");
           }
           continue;
         }
-        if (Date.now() - entry.lastPong > pingMs * 2) {
+        if (!late && now - entry.lastPong > pingMs * 2) {
           entry.error = "It stopped answering, so it was stopped.";
           child.kill("SIGKILL");
           continue;
@@ -272,9 +282,12 @@ function createPluginHost(options = {}) {
       return;
     }
     try {
-      fs.writeFileSync(handoffMarker, JSON.stringify({ ...handoffsDone(), [id]: new Date().toISOString() }, null, 2));
+      // Written whole and renamed over, so a crash mid-write leaves the last good copy.
+      const temporary = `${handoffMarker}.${process.pid}.tmp`;
+      fs.writeFileSync(temporary, JSON.stringify({ ...handoffsDone(), [id]: new Date().toISOString() }, null, 2));
+      fs.renameSync(temporary, handoffMarker);
     } catch (writeError) {
-      // Unmarked, it is handed over again on the next start, which keeps every plan it already has.
+      // Unmarked, it is handed over again on the next start, and the plugin refuses a second one.
       log(`${id}: took over what core kept for it, but that could not be noted: ${writeError && writeError.message}`);
       return;
     }
@@ -332,6 +345,8 @@ function createPluginHost(options = {}) {
         child: null,
         lastPong: 0,
         startedAt: 0,
+        // When it was last not ready to answer; null while it is.
+        downSince: Date.now(),
         pending: new Map(),
         readyWaiters: [],
         restartTimer: null,
@@ -373,9 +388,14 @@ function createPluginHost(options = {}) {
     }
     const messageID = nextMessageID++;
     return new Promise((resolve) => {
+      // ⚠ THE VERDICT WAITS FOR ONE LOOK AT THE CHANNEL. Timers run before waiting
+      // messages are read, so if the BFF itself stalled past the timeout, the answer
+      // may already be here. setImmediate runs after they are read.
       const timer = setTimeout(() => {
-        entry.pending.delete(messageID);
-        resolve({ type: "failed", status: 504, message: "The plugin's server part did not answer in time." });
+        setImmediate(() => {
+          if (!entry.pending.delete(messageID)) return;
+          resolve({ type: "failed", status: 504, message: "The plugin's server part did not answer in time." });
+        });
       }, timeoutMs);
       timer.unref?.();
       entry.pending.set(messageID, { resolve, timer });
@@ -396,11 +416,26 @@ function createPluginHost(options = {}) {
     return { status: answer.status || 200, body: answer.body };
   }
 
-  /** A plugin block's next step, decided in the plugin's process. Resolves to { tick } or { error }. */
+  /**
+   * A plugin block's next step, decided in the plugin's process. Resolves to
+   * { tick }, { error }, or { wait } while the process is coming up.
+   *
+   * ⚠ IT NEVER WAITS FOR A PROCESS TO START. A bot waiting here has no watches
+   * running and would act on what it saw before the wait, so it is told to look
+   * again next tick, for as long as a start may take.
+   */
   async function decide(id, macro, step, obs, mem, board) {
+    const entry = backends.get(id);
+    if (entry && (entry.state === "starting" || entry.state === "restarting")) {
+      if (Date.now() - entry.downSince < startTimeoutMs) return { wait: "The plugin is starting, so the bot is waiting for it." };
+      return { error: entry.error || "The plugin's server part did not come back in time." };
+    }
     const answer = await ask(id, { type: "decide", macro, step, obs, mem, board }, decideTimeoutMs);
     if (answer.type === "failed") return { error: answer.message };
-    return answer.error ? { error: answer.error } : { tick: answer.tick };
+    if (answer.error) return { error: answer.error };
+    // A decider with a path that returns nothing must say so, or the bot waits on it forever.
+    if (answer.tick === null || typeof answer.tick !== "object") return { error: "The plugin gave no next step." };
+    return { tick: answer.tick };
   }
 
   /** Hand a plugin what core used to keep for it. Resolves to an error sentence or null. */

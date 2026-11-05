@@ -27,13 +27,13 @@ const ROWS = [
   { characterID: 90000002, planetID: 40000002, resourceTypeID: 2268, productTypeID: 2389 },
 ];
 
-test("the plugin's database holds its two tables, plans first", () => {
+test("the plugin's database holds its tables, plans first", () => {
   const { handle } = memoryStore();
   const db = handle.get();
-  assert.equal(MIGRATIONS.length, 2);
-  assert.equal(db.pragma("user_version", { simple: true }), 2);
+  assert.equal(MIGRATIONS.length, 3);
+  assert.equal(db.pragma("user_version", { simple: true }), 3);
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY rowid").all().map((row) => row.name);
-  assert.deepEqual(tables, ["pi_plans", "pi_expansion_plans"]);
+  assert.deepEqual(tables, ["pi_plans", "pi_expansion_plans", "pi_handover"]);
 });
 
 test("a new plan round-trips: settings canonical, rows in order, active, revision 1", () => {

@@ -50,6 +50,14 @@ test("a module with no manifest, or another plugin's, is refused", async () => {
   assert.match(loaded.failures[1]?.error ?? "", /its manifest says "somebody-else"/);
 });
 
+test("⚠ a plugin switched off is not run at all", async () => {
+  let manifestsRun = 0;
+  const off = await loadPluginModules([{ id: "off", load: async () => { manifestsRun += 1; return { default: manifest("off") }; } }], null, { disabled: new Set(["off"]) });
+  assert.equal(manifestsRun, 0);
+  assert.deepEqual(off.manifests, []);
+  assert.deepEqual(off.switchedOff.map((status) => [status.id, status.state]), [["off", "disabled"]]);
+});
+
 test("the views of a plugin switched off are not loaded, and the BFF loads none", async () => {
   let viewsLoaded = 0;
   const views = [{ id: "off", load: async () => { viewsLoaded += 1; return { default: { id: "off", windows: {} } }; } }];

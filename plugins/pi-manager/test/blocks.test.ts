@@ -65,3 +65,11 @@ test("a script saved with the blocks' old core ids is read as the plugin's block
   assert.equal(decoded.ok, true);
   assert.deepEqual(decoded.ok ? decoded.doc.program.map((node) => node.kind === "macro" ? node.macro : null) : [], ["pi-manager:restart-extractors", "pi-manager:board-hauler"]);
 });
+
+// The office's export tax comes out of the wallet (the block stops on a refusal
+// to pay), so the grant must say so. A replay re-reads the pads and pays nothing twice.
+test("collecting from the customs offices is financial risk too, and restart-safe", () => {
+  const entry = macroRunPolicy("pi-manager:collect-customs");
+  assert.ok(entry.risks.includes("financial"));
+  assert.equal(entry.restartSafe, true);
+});
