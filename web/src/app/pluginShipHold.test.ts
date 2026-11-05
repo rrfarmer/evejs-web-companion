@@ -63,6 +63,37 @@ test("letting go leaves nothing holding the ship, and does not call the plugin's
   assert.equal(stopped, 0, "and nothing is left watching for the pilot to go");
 });
 
+test("a hold stands through what the store hears that has nothing to do with who holds the ship", async () => {
+  const { store, flow } = await makeFlow();
+  let stopped = 0;
+  flow.flying.holdShip("plugin:trader", "The trader", () => { stopped += 1; });
+  store.apply({ type: "custom-bot/cleared" });
+  store.apply({ type: "companion/start-error", message: null });
+  store.apply({ type: "live/status", status: "connected" } as never);
+  assert.equal(stopped, 0);
+  assert.equal(holderOf(store).runningBotID, "plugin:trader");
+});
+
+test("a hold let go leaves nothing behind to end the next one", async () => {
+  const { store, flow } = await makeFlow();
+  flow.flying.holdShip("plugin:trader", "The trader", () => {}).release();
+  let stopped = 0;
+  flow.flying.holdShip("plugin:hauler", "The hauler", () => { stopped += 1; });
+  store.apply({ type: "custom-bot/cleared" });
+  assert.equal(stopped, 0);
+  assert.equal(holderOf(store).runningBotID, "plugin:hauler");
+});
+
+test("a hold that was stopped leaves nothing behind to end the next one", async () => {
+  const { store, flow } = await makeFlow();
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  let stopped = 0;
+  flow.flying.holdShip("plugin:hauler", "The hauler", () => { stopped += 1; });
+  store.apply({ type: "custom-bot/cleared" });
+  assert.equal(stopped, 0);
+  assert.equal(holderOf(store).runningBotID, "plugin:hauler");
+});
+
 test("with no pilot online there is nothing to hold", () => {
   const flow = createAppFlow(createClientStore(), { livePush: false, perSessionToken: true, initialSessionToken: "pilot", fetch: async () => Response.json({ ok: true }) });
   assert.throws(() => flow.flying.holdShip("plugin:trader", "The trader", () => {}), /No pilot/);
@@ -144,6 +175,16 @@ test("a plugin's stop that throws is not the next claimant's problem", async () 
   assert.equal(holderOf(store).runningBotID, "plugin:hauler");
 });
 
+test("an async stop that rejects goes no further either", async () => {
+  const { flow } = await makeFlow();
+  flow.flying.holdShip("plugin:trader", "The trader", async () => { throw new Error("async boom"); });
+  const told = await quietly(async () => {
+    flow.flying.holdShip("plugin:hauler", "The hauler", () => {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.ok(told.some((line) => line.includes("async boom")));
+});
+
 test("a plugin's stop cannot take the ship back, so no second loop is left flying", async () => {
   const { store, flow } = await makeFlow();
   const refused: string[] = [];
@@ -223,6 +264,12 @@ test("a storm of pushes ends a sleep early, but not before the floor", async () 
   assert.ok(slept < 2_000, `slept ${slept} ms, so the push did not wake it`);
 });
 
+test("what a sleep watches throwing does not fail the sleep", async () => {
+  const { flow } = await makeFlow();
+  const told = await quietly(() => flow.flying.sleepUntilPush(5, () => { throw new Error("watch boom"); }));
+  assert.ok(told.some((line) => line.includes("watch boom")));
+});
+
 test("what a sleep is watching is told when it ends", async () => {
   const { flow } = await makeFlow();
   let asleep: (() => boolean) | null = null;
@@ -238,6 +285,18 @@ test("the resolve calls answer as if the ship were empty until the fit has been 
   });
   assert.equal(asked.includes("/api/bridge/fitting"), false, "attaching reads no fit");
   assert.deepEqual(flow.flying.resolveDefenseModuleIDs().propulsion, []);
-  await flow.flying.readFit();
+  const before = asked.length;
+  assert.equal(await flow.flying.readFit(), true);
   assert.equal(flow.flying.resolveDefenseModuleIDs().propulsion.length, 1, "the fixture's afterburner");
+  const read = asked.slice(before);
+  for (const part of ["/api/names", "dogma", "activation"]) {
+    assert.ok(read.some((path) => path.toLowerCase().includes(part)), `waited for ${part}: ${read.join(" ")}`);
+  }
+});
+
+test("a fit whose modules could not be read says so, and does not read as an empty ship", async () => {
+  const { flow } = await makeFlow(() => [], (path) => (
+    path === "/api/bridge/fitting" ? { ...(fittingBody() as Record<string, unknown>), errors: { slots: "refused" } } : {}
+  ));
+  assert.equal(await flow.flying.readFit(), false);
 });

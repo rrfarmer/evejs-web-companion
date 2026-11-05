@@ -1535,7 +1535,7 @@ export interface PilotFlying {
    * Take the ship, stopping whatever else holds it. `stop` is called when anything
    * else takes it, when a panic recall pulls the ship home, and when the pilot's session
    * closes or is lost; `release` when the loop ends by itself. `stop` must not take the
-   * ship itself, and what it throws is logged and goes no further. `name` is what a player
+   * ship itself, and what it throws or rejects with is logged and goes no further. `name` is what a player
    * reads in the page as flying the ship. Throws with no pilot online, while the last
    * controller's Stop is settling, and while the session is closing.
    */
@@ -1549,9 +1549,10 @@ export interface PilotFlying {
    */
   onPush(listener: () => void): () => void;
   /**
-   * Sleep for `ms`, or until a push wants acting on: never less than a third of a second
-   * after a push, so a storm of them settles at that rather than at the speed of the wire.
-   * `whileAsleep` is started as the sleep begins, and its argument says whether it still is.
+   * Sleep for `ms`, or until a push wants acting on. A push cannot end a sleep sooner than
+   * about a third of a second after it began, so a storm of them settles at that rather than
+   * at the speed of the wire. `whileAsleep` is started as the sleep begins, its argument says
+   * whether it still is, and what it throws is logged and goes no further.
    */
   sleepUntilPush(ms: number, whileAsleep?: (asleep: () => boolean) => void): Promise<void>;
   /**
@@ -1594,11 +1595,12 @@ export interface PilotFlying {
   switchModuleOff(itemID: number, opts?: Parameters<typeof deactivateModuleCall>[3], options?: api.ApiOptions): Promise<ModuleActionResult>;
   loadAmmoFrom(moduleIDs: readonly number[], chargeItemIDs: readonly number[], source: AmmoPlace): Promise<void>;
   /**
-   * Read this ship's fit into the store with everything the `resolve...` calls below, and
+   * Read this ship's fit into the store with everything the module lists below, and
    * `withPilotDroneCap`, read about it, and wait for all of it. Attaching reads none of it, and
-   * until this has run those calls answer as if the ship carried nothing.
+   * until this has run those lists are empty. Answers whether the fit's modules could be read:
+   * if not, the lists are empty because nobody knows, not because the ship carries nothing.
    */
-  readFit(): Promise<void>;
+  readFit(): Promise<boolean>;
   /** Learn whether these module types can be switched on: `fittedModuleActivation` reads the answer. */
   readTypeActivation(typeIDs: readonly number[]): Promise<void>;
   fittedModuleActivation(module: { readonly typeID: number; readonly itemID: number }): ModuleActivation;
@@ -22996,7 +22998,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         clearTimeout(timer);
         timer = setTimeout(finish, Math.min(COMPANION_WAKE_FLOOR_MS, ms) - waited);
       });
-      whileAsleep?.(() => asleep);
+      try {
+        whileAsleep?.(() => asleep);
+      } catch (error) {
+        console.error("What a sleep was watching threw:", error);
+      }
     });
   }
 
@@ -24454,12 +24460,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     hold.stopWatching();
     store.apply({ type: "ship/plugin-holder", holder: null });
     endingPluginShipHold = true;
+    // A plugin's bug must not stop the claim it is in the way of, or a pilot's session
+    // closing, which would then never finish. Its `stop` may be async, as a run's handle is.
+    const said = (error: unknown): void => console.error("A plugin's loop threw as it was stopped:", error);
     try {
-      hold.stop();
+      void Promise.resolve(hold.stop() as unknown).catch(said);
     } catch (error) {
-      // A plugin's bug must not stop the claim it is in the way of, or a pilot's session
-      // closing, which would then never finish.
-      console.error("A plugin's loop threw as it was stopped:", error);
+      said(error);
     } finally {
       endingPluginShipHold = false;
     }
@@ -25079,10 +25086,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await readTypeActivation(fit.slots.flatMap((slot) => slot.module === null ? [] : [slot.module.typeID]));
   }
 
-  async function readFit(): Promise<void> {
+  async function readFit(): Promise<boolean> {
     await loadFitting();
     const fit = store.fitting.get();
-    if (fit.slotsError === null) await warmFitFacts(fit);
+    if (fit.slotsError !== null) return false;
+    await warmFitFacts(fit);
+    return true;
   }
 
   async function readCompanionFitFacts(): Promise<CompanionFitFacts> {

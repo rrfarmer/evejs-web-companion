@@ -303,13 +303,14 @@ runs: {
     async start(run) {
       const { flow } = await createPilotSession(run);
       let flying = true;
-      // Take the ship first. `stop` is called if something else takes it.
-      const hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
-      await flow.flying.readFit();
 
       // Not awaited: `start` answers within 30 s, and the loop goes on after it.
       const loop = (async () => {
+        let hold = null;
         try {
+          // Take the ship first. `stop` is called if something else takes it.
+          hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+          if (!(await flow.flying.readFit())) throw new Error("The ship's fit could not be read.");
           while (flying) {
             const status = decodeFlightStatus((await getFlightStatus(flow.requestOptions())).flight);
             // Something may have stopped this during that read.
@@ -319,7 +320,9 @@ runs: {
         } catch (error) {
           if (flying) run.report({ status: "error", why: String(error) });
         } finally {
-          hold.release();
+          hold?.release();
+          // The session's live stream, or it goes on trying to reconnect for as long as this process lives.
+          flow.setLivePush(false);
         }
       })();
 
@@ -343,16 +346,18 @@ runs: {
   the name `check` gave. Nothing else flies while a plugin holds the ship. It holds it until
   `stop` is called or it calls `release`. `stop` is called when anything else takes the ship,
   a panic recall pulls it home, or the session closes or is lost. `stop` may not take the
-  ship itself, and what it throws is logged and goes no further. `holdShip` refuses with no
+  ship itself, and what it throws or rejects with is logged and goes no further. `holdShip` refuses with no
   pilot online, while the last controller's Stop is settling, and while the session closes.
-- **`readFit()` comes before the `resolve...` calls.** Attaching reads no fit, and until
-  `readFit` has run they answer as if the ship carried nothing. `loadFitting` in
-  `flying.ts` is the plain request and fills no store. Call `readFit` again after a refit.
-- **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on, but
-  never less than a third of a second after a push. `onPush(listener)` is what it is built
-  on, and is called for a fleet broadcast, a fleet target tag, this ship's lock landing and
-  a jam starting. It says only that something arrived; the store has what. A fleet fight
-  pushes many of these, so a loop that looks on each one floods the server.
+- **`readFit()` comes before the module lists** (`resolveDefenseModuleIDs`,
+  `resolveRemoteRepModuleIDs`, `resolveSalvageModuleIDs`). Attaching reads no fit, and until
+  `readFit` has run they are empty. It answers `false` if the fit's modules could not be
+  read, and then they are empty because nobody knows. `loadFitting` in `flying.ts` is the
+  plain request and fills no store. Call `readFit` again after a refit.
+- **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push
+  cannot end a sleep sooner than about a third of a second after it began. `onPush(listener)`
+  is what it is built on, and is called for a fleet broadcast, a fleet target tag, this
+  ship's lock landing and a jam starting. It says only that something arrived; the store has
+  what. A fleet fight pushes many of these, so a loop that looks on each one floods the server.
 - **A write throws the server's refusal,** because a loop has to see one to decide on
   it. The flow's panel methods, by contrast, catch a refusal and say it in a panel.
 - **Compare `sessionGeneration()` across an await** before acting on what came back,
