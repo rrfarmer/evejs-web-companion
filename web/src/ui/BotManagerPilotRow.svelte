@@ -67,7 +67,7 @@
   // A tab run with no server claim reads as "nothing running" here — the same
   // fallback tabRunState itself uses for a released ship — so a row never
   // shows stale data before its first store tick lands.
-  const FALLBACK_BOTS: BotsState = { runningBotID: null };
+  const FALLBACK_BOTS: BotsState = { runningBotID: null, runningPluginName: null };
   const FALLBACK_CUSTOM_BOT: CustomBotState = {
     status: "idle",
     name: null,

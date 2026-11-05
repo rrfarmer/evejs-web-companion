@@ -1091,6 +1091,8 @@ export type FeedEvent =
     }
   | { readonly type: "companion/start-error"; readonly message: string | null }
   | { readonly type: "companion/cleared" }
+  // A plugin took the ship, or let it go (flow.flying.holdShip).
+  | { readonly type: "ship/plugin-holder"; readonly holder: { readonly owner: `plugin:${string}`; readonly name: string } | null }
   // The player Bot Builder runner's readout (pushed each tick; survives the shell switch).
   | { readonly type: "custom-bot/started"; readonly name: string }
   | {

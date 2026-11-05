@@ -48,6 +48,7 @@ web/src/plugin-api/
   backend.ts            the backend's side of the channel
   deciderProcess.ts     the process for a plugin with blocks and no backend
   pilotSession.ts       a pilot's session in a plugin's process, for a run
+  flying.ts             what a plugin's own loop flies a pilot with
 web/src/plugins/pluginHost.ts   loads plugins into the page (and the BFF's bot code)
 src/pluginHost.js               runs plugin backends, each in its own process
 ```
@@ -287,6 +288,48 @@ after a restart, up to 64 KB, so send it only when it changes.
   or if `restartSafe` is false, core stops waiting: every loop stopped, drones in, dock
   at the nearest station, log off, and the Bot Manager says why. It does not wait for
   the plugin host to give up, which takes over a minute.
+
+### Flying a pilot
+
+A run's loop flies with what core's own bots fly with: `session.flow.flying` for what
+needs the pilot's session, and `web/src/plugin-api/flying.ts` for the pure reads,
+decoders and rules. `flying.ts` is a module of its own because a plugin that flies
+nothing has no use for it. A block needs none of this: see `blocks.ts`.
+
+```ts
+const { store, flow } = await createPilotSession(run);
+let flying = true;
+
+// Take the ship first. This stops anything else holding it, and `stop` is called
+// when something else takes it or the session closes.
+const hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+
+// Sleep until the next look, or until a push wants acting on sooner.
+const nextLook = (ms: number) => new Promise<void>((resolve) => {
+  const timer = setTimeout(done, ms);
+  const stopListening = flow.flying.onPush(done);
+  function done() { clearTimeout(timer); stopListening(); resolve(); }
+});
+
+while (flying) {
+  const status = decodeFlightStatus((await getFlightStatus(flow.requestOptions())).flight);
+  if (status.docked) await flow.flying.orderedStep((now) => undock(flow.flying.bridgeDo, now, true));
+  await nextLook(2_000);
+}
+hold.release();
+```
+
+- **`holdShip(owner, name, stop)`** takes `plugin:<plugin id>` as the owner, and shows
+  `name` wherever a player reads what is flying the ship. Nothing else flies while a
+  plugin holds the ship, and it holds it until `stop` is called or it calls `release`.
+  It refuses while the last controller's Stop is settling and while the session closes.
+- **`onPush(listener)`** is called for a fleet broadcast, a fleet target tag, this
+  ship's lock landing, and a jam starting. It says only that something arrived; the
+  store has what.
+- **A write throws the server's refusal,** because a loop has to see one to decide on
+  it. The flow's panel methods, by contrast, catch a refusal and say it in a panel.
+- **Compare `sessionGeneration()` across an await** before acting on what came back,
+  because the session may have closed in between.
 
 ## Isolation
 

@@ -97,9 +97,14 @@ export const BOT_IDS: readonly BotID[] = Object.freeze<BotID[]>(["mining", "miss
  * two tickers issuing movement and module calls against one hull, which is the
  * exact bug `createShipClaim` was written to make structurally impossible.
  */
-export type ShipControllerID = BotID | "companion" | "custom";
+export type BuiltInShipController = BotID | "companion" | "custom";
 
-export const SHIP_CONTROLLER_IDS: readonly ShipControllerID[] = Object.freeze<ShipControllerID[]>([
+/** A plugin holding the ship (`flow.flying.holdShip`): "plugin:<plugin id>". */
+export type PluginShipOwner = `plugin:${string}`;
+
+export type ShipControllerID = BuiltInShipController | PluginShipOwner;
+
+export const SHIP_CONTROLLER_IDS: readonly BuiltInShipController[] = Object.freeze<BuiltInShipController[]>([
   "mining",
   "mission",
   "companion",
@@ -120,13 +125,14 @@ export function holdsTheShip(status: string): boolean {
 /**
  * Claim the ship for one bot, stopping every other bot that holds it.
  *
- * The record is exhaustive over `ShipControllerID` by type, and the loop walks
- * `SHIP_CONTROLLER_IDS` rather than naming peers — so this function never
+ * The record is exhaustive over `BuiltInShipController` by type, and the loop
+ * walks `SHIP_CONTROLLER_IDS` rather than naming peers — so this function never
  * changes when a controller is added, and the new one is stopped by every
- * existing one on the day it lands.
+ * existing one on the day it lands. A plugin's owner is in no list here, so its
+ * claim stops all of them; the flow stops a plugin's hold when anything else claims.
  */
 export function createShipClaim(
-  stop: Readonly<Record<ShipControllerID, () => void>>,
+  stop: Readonly<Record<BuiltInShipController, () => void>>,
 ): (botID: ShipControllerID) => void {
   return (botID: ShipControllerID): void => {
     for (const other of SHIP_CONTROLLER_IDS) {

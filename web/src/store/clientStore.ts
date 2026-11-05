@@ -25,6 +25,8 @@ import { MAX_BROADCAST_HISTORY } from "../bridge/fleetBroadcasts.ts";
 import {
   SHIP_CONTROLLER_IDS,
   holdsTheShip,
+  type BuiltInShipController,
+  type PluginShipOwner,
   type ShipControllerID,
 } from "../nav/botRegistry.ts";
 import type {
@@ -744,6 +746,7 @@ const INITIAL_MISSION_BOT: MissionBotState = Object.freeze({
  */
 const INITIAL_BOTS: BotsState = Object.freeze({
   runningBotID: null as ShipControllerID | null,
+  runningPluginName: null,
 });
 
 // R28 skills. Every "unknown" is null and never an empty list: a failed read
@@ -970,6 +973,8 @@ export function createClientStore(): ClientStore {
   const missionBot = createSignal<MissionBotState>(INITIAL_MISSION_BOT);
   const companion = createSignal<FleetCompanionState>(INITIAL_FLEET_COMPANION);
   const customBot = createSignal<CustomBotState>(INITIAL_CUSTOM_BOT);
+  // A plugin holding the ship has no slice of core's to read a status from, so it says so (flow.flying.holdShip).
+  let pluginShipHolder: { readonly owner: PluginShipOwner; readonly name: string } | null = null;
   const bots = createSignal<BotsState>(INITIAL_BOTS);
   const chat = createSignal<ChatState>(INITIAL_CHAT);
   const live = createSignal<LiveState>(INITIAL_LIVE);
@@ -1079,6 +1084,7 @@ export function createClientStore(): ClientStore {
         bot.set(INITIAL_BOT);
         customBot.set(INITIAL_CUSTOM_BOT);
         companion.set(INITIAL_FLEET_COMPANION);
+        pluginShipHolder = null;
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -1143,6 +1149,7 @@ export function createClientStore(): ClientStore {
         bot.set(INITIAL_BOT);
         customBot.set(INITIAL_CUSTOM_BOT);
         companion.set(INITIAL_FLEET_COMPANION);
+        pluginShipHolder = null;
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -1188,6 +1195,7 @@ export function createClientStore(): ClientStore {
         bot.set(INITIAL_BOT);
         customBot.set(INITIAL_CUSTOM_BOT);
         companion.set(INITIAL_FLEET_COMPANION);
+        pluginShipHolder = null;
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -2753,6 +2761,9 @@ export function createClientStore(): ClientStore {
       case "companion/cleared":
         companion.set(INITIAL_FLEET_COMPANION);
         break;
+      case "ship/plugin-holder":
+        pluginShipHolder = event.holder;
+        break;
       case "chat/loaded": {
         const current = chat.get();
         chat.set({
@@ -2898,7 +2909,7 @@ export function createClientStore(): ClientStore {
    * the ship. `SHIP_CONTROLLER_IDS` gives the order, so a tie (which the ship
    * claim makes impossible) still resolves the same way every time.
    */
-  const botStatus: Readonly<Record<ShipControllerID, () => string>> = {
+  const botStatus: Readonly<Record<BuiltInShipController, () => string>> = {
     mining: () => bot.get().status,
     mission: () => missionBot.get().status,
     companion: () => companion.get().status,
@@ -2906,9 +2917,11 @@ export function createClientStore(): ClientStore {
   };
 
   const syncBotClaim = (): void => {
-    const holder = SHIP_CONTROLLER_IDS.find((id) => holdsTheShip(botStatus[id]())) ?? null;
-    if (bots.get().runningBotID !== holder) {
-      bots.set({ runningBotID: holder });
+    const builtIn = SHIP_CONTROLLER_IDS.find((id) => holdsTheShip(botStatus[id]())) ?? null;
+    const holder: ShipControllerID | null = builtIn ?? pluginShipHolder?.owner ?? null;
+    const name = builtIn === null ? (pluginShipHolder?.name ?? null) : null;
+    if (bots.get().runningBotID !== holder || bots.get().runningPluginName !== name) {
+      bots.set({ runningBotID: holder, runningPluginName: name });
     }
   };
 
