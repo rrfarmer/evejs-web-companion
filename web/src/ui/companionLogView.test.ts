@@ -247,11 +247,37 @@ test("another loop's trace in the pilot's log is shown as it was written, whatev
     { combat: "engaged" },
     { health: "low" },
     { reason: "cheap" },
+    { util: { skipped: [null] } },
+    { util: { gaveUp: [null] } },
+    { ammo: { units: [null] } },
+    JSON.parse('{"__proto__":{}}'),
     "cheap",
     7,
   ]) {
     const view = buildLogView([line({ kind: "decide", seq: 1, phase: "Trading", why: "Buying", trace })]);
     assert.equal(view.rows[0]?.summary, "(another loop's trace)", JSON.stringify(trace));
     assert.deepEqual(view.rows[0]?.trace, trace);
+  }
+});
+
+test("a line that cannot be made into words still leaves the window standing", () => {
+  const cannotBeWords = { toString: 1, valueOf: 1 };
+  const view = buildLogView([
+    line({ kind: "decide", phase: cannotBeWords as unknown as string, why: "Buying" }),
+    line({ kind: "decide", phase: "Fighting", why: "Engaging" }),
+  ]);
+  assert.equal(view.total, 2);
+  assert.ok(view.rows.some((row) => row.text === "(a line this window cannot read)"));
+  assert.ok(view.rows.some((row) => row.text === "Engaging"));
+});
+
+test("each section of the companion's own trace is read as the companion's", () => {
+  for (const trace of [
+    { health: { code: "rejoin-under-mark", tank: 0.42, layer: "armor", floor: 0.3, mark: 0.5, repairer: "fitted" } },
+    { drones: DRONES },
+    { cleared: { by: "orbit", follow: true, hold: true } },
+    {},
+  ]) {
+    assert.equal(isCompanionTrace(trace), true, JSON.stringify(trace));
   }
 });

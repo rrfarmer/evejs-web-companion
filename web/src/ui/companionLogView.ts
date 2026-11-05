@@ -81,7 +81,7 @@ export function isCompanionTrace(trace: unknown): trace is CompanionTrace {
   };
   return Object.entries(trace).every(([key, value]) => {
     const part = section(value);
-    return part !== null && readable[key]?.(part) === true;
+    return part !== null && Object.prototype.hasOwnProperty.call(readable, key) && readable[key]?.(part) === true;
   });
 }
 
@@ -231,7 +231,34 @@ export function matchesFilter(haystack: string, filter: string): boolean {
   return terms.every((term) => haystack.includes(term));
 }
 
+/**
+ * One line's row. A line is whatever was written to the pilot's log, kept in a file, so one
+ * that cannot be read becomes a row saying so: it must not take the window down each time it
+ * is opened until it rotates out.
+ */
 function rowFor(entry: BotLogEntry, index: number): LogRow {
+  try {
+    return readableRow(entry, index);
+  } catch {
+    return {
+      index,
+      time: "",
+      kind: "decide",
+      phase: "",
+      text: "(a line this window cannot read)",
+      summary: entry.trace === undefined || entry.trace === null ? null : OTHER_TRACE_WORDS,
+      trace: entry.trace ?? null,
+      seq: null,
+      heartbeat: false,
+      tone: "",
+      inGroup: false,
+      groupStart: true,
+      haystack: "",
+    };
+  }
+}
+
+function readableRow(entry: BotLogEntry, index: number): LogRow {
   // The log is the pilot's, so another loop's lines are in it too, with a trace of its own.
   const trace = entry.trace ?? null;
   const summary = trace === null ? null : isCompanionTrace(trace) ? traceSummary(trace) : OTHER_TRACE_WORDS;

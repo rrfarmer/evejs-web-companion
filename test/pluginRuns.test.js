@@ -65,8 +65,12 @@ startBackend({
         if (run.setup.endItself) run.report({ status: "stopped", why: "Done by itself." });
         return { async stop() {
           const logged = await run.fetch("/api/bots/bot-log", { method: "POST", body: "{}" });
+          const anySpelling = await run.fetch("/api/Bots/Bot-Log/", { method: "POST", body: "{}" });
           const flown = await run.fetch("/api/bridge/flight/status");
-          heard("stopped.json", { botID: run.botID, logged: logged.status, flown: flown.status });
+          const read = await run.fetch("/api/bots/bot-log");
+          const otherBotRoute = await run.fetch("/api/bots/squad-board", { method: "POST", body: "{}" });
+          heard("stopped.json", { botID: run.botID, logged: logged.status, anySpelling: anySpelling.status,
+            flown: flown.status, read: read.status, otherBotRoute: otherBotRoute.status });
         } };
       },
     },
@@ -364,7 +368,8 @@ test("Stop ends the plugin's loop before core brings the drones home and logs of
   const told = await f.heard("stopped");
   assert.deepEqual(told.botID, started.bot.botID);
   assert.equal(told.logged, 200, "a run being stopped can still write how it ended");
-  assert.equal(told.flown, 409, "and can do nothing else");
+  assert.equal(told.anySpelling, 200, "the router ignores case and a trailing slash");
+  assert.deepEqual([told.flown, told.read, told.otherBotRoute], [409, 409, 409], "and can do nothing else");
   assert.deepEqual(f.log.map(([name]) => name), ["select", "prepareHostedBotStop", "logout"]);
   assert.equal(f.bots.claimedBy(CHARACTER), null);
   const after = await f.request("POST", "/ask", { url: "/api/bridge/flight/status" });
@@ -374,9 +379,18 @@ test("Stop ends the plugin's loop before core brings the drones home and logs of
 test("a run that reaches its end by itself is released", async (t) => {
   const f = await makeFixture(t);
   await f.startRun({ endItself: true });
-  assert.ok(await until(() => f.log.some(([name]) => name === "logout")));
+  const askedAtLogout = await new Promise((resolve) => {
+    const look = setInterval(() => {
+      if (!f.log.some(([name]) => name === "logout")) return;
+      clearInterval(look);
+      resolve(f.asked.filter((request) => request.url.endsWith("/api/bots/bot-log")).length);
+    }, 1);
+  });
+  assert.ok(askedAtLogout > 0, "a run's last words come before its logoff");
   assert.ok(await until(() => f.bots.claimedBy(CHARACTER) === null));
   assert.equal(f.row().why, "Done by itself.");
+  assert.equal((await f.heard("stopped")).logged, 200);
+  assert.ok(f.asked.some((request) => request.url.endsWith("/api/bots/bot-log")), "its last words arrived before the logoff was asked for");
 });
 
 for (const [how, route] of [["killed", "/crash"], ["hung", "/hang"]]) {

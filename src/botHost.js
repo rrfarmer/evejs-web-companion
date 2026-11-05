@@ -625,8 +625,9 @@ function createBotHost(options) {
       record.unsubscribe = null;
     }
     clearPluginDownTimer(record);
-    if (record.kind === "plugin") void stopPluginLoop(record);
     persistRoster();
+    // Before the logoff, so what the plugin writes in its `stop` reaches the pilot's log.
+    if (record.kind === "plugin") await stopPluginLoop(record);
     const flow = record.flow;
     record.flow = null;
     record.store = null;

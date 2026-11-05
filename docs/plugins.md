@@ -337,7 +337,8 @@ hold.release();
 **What a loop keeps about a pilot** goes in `store.pluginState("plugin:<plugin id>",
 initial)`, a signal. The same key gives the same signal, a second name goes after a dot
 (`plugin:<plugin id>.<name>`), and it goes back to `initial` when the pilot goes offline
-or the account signs out, so never change `initial` in place. Core reads none of it. It
+the account signs out, or a pilot is chosen on that store, so never change `initial` in
+place. Core reads none of it. It
 belongs to one store, and a run's store is in your backend's process. So a window cannot
 see a run's state: send what a window shows as `readout`. What must survive a restart of
 your process goes in `resumeData`.
@@ -352,11 +353,16 @@ it, and can never stop the loop. Some things to know:
 - `action` is your own, as plain data with a `kind`, and `trace` is anything you want kept
   about a decision, which you read back yourself. Keep both plain and small: a line that
   cannot be sent as JSON, or a batch over 64 KB, loses the whole batch, up to 500 lines.
-- `readBotLog` gives back the pilot's whole log, whoever wrote it, along with `trimmed` and
-  `unreadable` markers. Tell your lines by their `run`.
-- `stop()` is your last chance to write. Write the `end` line there and `await
-  flow.flying.log.flush()`: while a run is being stopped, the recorder is the one thing it
-  can still reach. If you end the run yourself, flush before you report `stopped`.
+- `readBotLog` gives back one file of the pilot's log, the lines since the last `start`
+  from anyone unless you ask for an older one, along with `trimmed` and `unreadable`
+  markers. Tell your lines by their `run`.
+- `stop()` has 5 s and is your last chance to write. Write the `end` line there and `await
+  flow.flying.log.flush()`. It is called on a Stop, and also after you end the run yourself
+  with a report. While a run is being stopped, writing to the recorder is the one thing it
+  can still do.
+- `stop()` is not called if your process has died, and lines not yet sent die with it, so a
+  crashed or recalled run has no `end` line. A pilot that went offline has no session left
+  to write with, so those lines are lost as well.
 
 ## Isolation
 

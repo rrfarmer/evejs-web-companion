@@ -77,6 +77,33 @@ test("a line written to the flight recorder reaches this pilot's log, with an ac
   assert.deepEqual(sent.entries[0]?.trace, { reason: "cheap" });
 });
 
+test("flushing the flight recorder waits for lines written behind a delivery in flight", async () => {
+  const sent: string[] = [];
+  let letFirstThrough!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { letFirstThrough = resolve; });
+  const flow: AppFlow = createAppFlow(createClientStore(), {
+    livePush: false,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: async (input, init) => {
+      if (String(input) === "/api/bots/bot-log") {
+        const { entries } = JSON.parse(String(init?.body)) as { entries: { kind: string }[] };
+        if (sent.length === 0) await firstHeld;
+        sent.push(...entries.map((entry) => entry.kind));
+      }
+      return Response.json({ ok: true, written: 1 });
+    },
+  });
+  await flow.attachToHeldPilot(HELD);
+  flow.flying.log.write({ t: "2026-11-05T12:00:00.000Z", kind: "start", run: "r1" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  flow.flying.log.write({ t: "2026-11-05T12:00:01.000Z", kind: "end", run: "r1" });
+  const flushed = flow.flying.log.flush();
+  letFirstThrough();
+  await flushed;
+  assert.deepEqual(sent, ["start", "end"]);
+});
+
 test("a run's flow plans routes as its pilot set them, and has no browser storage to write them to", async () => {
   const { flow } = await createPilotSession({
     baseUrl: "",
