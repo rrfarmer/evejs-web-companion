@@ -1610,8 +1610,9 @@ export interface PilotFlying {
   /**
    * Read this ship's fit into the store with everything the module lists below, and
    * `withPilotDroneCap`, read about it, and wait for all of it. Attaching reads none of it, and
-   * until this has run those lists are empty. Answers whether the fit's modules could be read:
-   * if not, the lists are empty because nobody knows, not because the ship carries nothing.
+   * until this has run those lists are empty. Answers whether the fit's modules could be read
+   * and told apart: if not, the lists may be short because nobody knows, not because the ship
+   * carries nothing.
    * Rejects if the request itself failed.
    */
   readFit(): Promise<boolean>;
@@ -25092,7 +25093,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const fit = store.fitting.get();
     if (fit.slotsError !== null) return false;
     await warmFitFacts(fit);
-    return true;
+    // The lists are chosen by group name, and a names read that failed fails quietly: a module
+    // whose group is not known is left off them, which would read as a ship without it.
+    const resolved = store.names.get().resolved;
+    return fit.slots.every((slot) => slot.module === null || resolved[nameKey("typeGroup", slot.module.typeID)] !== undefined);
   }
 
   async function readCompanionFitFacts(): Promise<CompanionFitFacts> {

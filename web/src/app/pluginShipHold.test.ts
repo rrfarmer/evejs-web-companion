@@ -340,6 +340,21 @@ test("the resolve calls answer as if the ship were empty until the fit has been 
   }
 });
 
+test("a fit whose module groups could not be named says so, and does not read as a ship without them", async () => {
+  const store = createClientStore();
+  const flow = createAppFlow(store, {
+    livePush: false,
+    browserPilotRecovery: false,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: async (input) => (String(input) === "/api/names"
+      ? new Response("{}", { status: 502 })
+      : Response.json(String(input) === "/api/bridge/fitting" ? fittingBody() : { ok: true })),
+  });
+  await flow.attachToHeldPilot(HELD);
+  assert.equal(await flow.flying.readFit(), false);
+});
+
 test("a fit whose modules could not be read says so, and does not read as an empty ship", async () => {
   const { flow } = await makeFlow(() => [], (path) => (
     path === "/api/bridge/fitting" ? { ...(fittingBody() as Record<string, unknown>), errors: { slots: "refused" } } : {}
