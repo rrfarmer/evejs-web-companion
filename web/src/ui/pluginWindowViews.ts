@@ -7,9 +7,9 @@ import type { Session } from "../app/sessions.ts";
 import type { PluginTabID, TabID } from "./tabs.ts";
 
 /**
- * Everything a global window is given. None of it is a pilot's store or flow:
- * a global window is about every pilot, and reaches the ones it acts on through
- * their own sessions or their accounts.
+ * Everything a global window is given. A global window is about every pilot, and
+ * reaches the ones it acts on through their own sessions, each with that pilot's
+ * store and flow, or their accounts.
  */
 export interface GlobalWindowProps {
   /** Every pilot signed in here. */

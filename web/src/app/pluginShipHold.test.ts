@@ -173,6 +173,17 @@ test("a player's Stop ends a plugin's loop in this tab, and does nothing if ther
   assert.equal(stopped, 1);
 });
 
+test("with no pilot online the refusal says so, whatever drone recovery is doing", () => {
+  const flow = createAppFlow(createClientStore(), {
+    livePush: false,
+    browserPilotRecovery: true,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: async () => Response.json({ ok: true }),
+  });
+  assert.throws(() => flow.flying.holdShip("plugin:trader", "The trader", () => {}), /No pilot/);
+});
+
 test("a hold waits for drone recovery, as every start does", async () => {
   // Every request waits, so recovery is still checking when the hold is asked for.
   const waiting: (() => void)[] = [];

@@ -1546,8 +1546,8 @@ export interface ShipHold {
 export interface PilotFlying {
   /**
    * Take the ship, stopping whatever else holds it. `stop` is called when anything
-   * else takes it, when a panic recall pulls the ship home, and when the pilot's session
-   * closes or is lost; `release` when the loop ends by itself. `stop` must not take the
+   * else takes it, when a player stops it from the Bot Manager, when a panic recall pulls the
+   * ship home, and when the pilot's session closes or is lost; `release` when the loop ends by itself. `stop` must not take the
    * ship itself, and what it throws or rejects with is logged and goes no further. `name` is what a player
    * reads in the page as flying the ship. Throws with no pilot online, while the last
    * controller's Stop is settling, while drone recovery is still checking this pilot, and
@@ -1673,7 +1673,10 @@ export interface PilotFlying {
 export interface AppFlow {
   /** What a plugin's loop flies this pilot with. */
   readonly flying: PilotFlying;
-  /** A player's Stop for whatever plugin's loop holds this ship in this tab. Nothing happens if none does. */
+  /**
+   * A player's Stop for whatever plugin's loop holds this ship in this tab, and for any trip
+   * it handed the autopilot, which would fly on without it. Nothing happens if none holds it.
+   */
   stopPluginLoop(): void;
   readonly directTrades: DirectTrades;
   startDirectTrade(characterID: number): Promise<void>;
@@ -24481,10 +24484,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   function holdShip(owner: PluginShipOwner, name: string, stop: () => void): ShipHold {
     if (endingPluginShipHold) throw new Error("The ship cannot be taken while the loop holding it is being stopped.");
-    // As every start does: closing, or drone recovery still checking this pilot in a page.
-    requireAutomationReady();
     const characterID = store.station.get().online?.characterID ?? null;
     if (characterID === null) throw new Error("No pilot is online to fly.");
+    // As every start does: closing, or drone recovery still checking this pilot in a page.
+    requireAutomationReady();
     requireCustomControllerSettled();
     // As every start does: the autopilot is not a controller, and would fly on underneath.
     autopilot?.abort();
@@ -29961,7 +29964,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   return {
-    stopPluginLoop: endPluginShipHold,
+    stopPluginLoop() {
+      if (pluginShipHold === null) return;
+      autopilot?.abort();
+      endPluginShipHold();
+    },
     flying: {
       holdShip,
       onPush,
