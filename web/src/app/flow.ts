@@ -1533,17 +1533,27 @@ export interface ShipHold {
 export interface PilotFlying {
   /**
    * Take the ship, stopping whatever else holds it. `stop` is called when anything
-   * else takes it, and when the pilot's session closes; `release` when the loop ends
-   * by itself. `name` is what a player reads as flying the ship. Throws while the
-   * last controller's Stop is settling, and while the session is closing.
+   * else takes it, when a panic recall pulls the ship home, and when the pilot's session
+   * closes or is lost; `release` when the loop ends by itself. `stop` must not take the
+   * ship itself, and what it throws is logged and goes no further. `name` is what a player
+   * reads in the page as flying the ship. Throws with no pilot online, while the last
+   * controller's Stop is settling, and while the session is closing.
    */
   holdShip(owner: PluginShipOwner, name: string, stop: () => void): ShipHold;
   /**
    * Called as a push that may want acting on arrives, rather than at the next look:
    * a fleet broadcast, a fleet target tag, this ship's lock landing, a jam starting.
-   * Returns how to stop listening.
+   * Returns how to stop listening. A fleet fight pushes many of these, so a loop sleeps
+   * with `sleepUntilPush` rather than looking on each one. What a listener throws is
+   * logged and goes no further.
    */
   onPush(listener: () => void): () => void;
+  /**
+   * Sleep for `ms`, or until a push wants acting on: never less than a third of a second
+   * after a push, so a storm of them settles at that rather than at the speed of the wire.
+   * `whileAsleep` is started as the sleep begins, and its argument says whether it still is.
+   */
+  sleepUntilPush(ms: number, whileAsleep?: (asleep: () => boolean) => void): Promise<void>;
   /**
    * This pilot's flight recorder, the same log core's bots write (nav/botLog.ts): lines
    * are batched and sent for you, and writing one can never stop the loop. Start a run's
@@ -1583,6 +1593,12 @@ export interface PilotFlying {
   switchModuleOn(itemID: number, opts?: Parameters<typeof activateModuleCall>[3], options?: api.ApiOptions): Promise<ModuleActionResult>;
   switchModuleOff(itemID: number, opts?: Parameters<typeof deactivateModuleCall>[3], options?: api.ApiOptions): Promise<ModuleActionResult>;
   loadAmmoFrom(moduleIDs: readonly number[], chargeItemIDs: readonly number[], source: AmmoPlace): Promise<void>;
+  /**
+   * Read this ship's fit into the store with everything the `resolve...` calls below, and
+   * `withPilotDroneCap`, read about it, and wait for all of it. Attaching reads none of it, and
+   * until this has run those calls answer as if the ship carried nothing.
+   */
+  readFit(): Promise<void>;
   /** Learn whether these module types can be switched on: `fittedModuleActivation` reads the answer. */
   readTypeActivation(typeIDs: readonly number[]): Promise<void>;
   fittedModuleActivation(module: { readonly typeID: number; readonly itemID: number }): ModuleActivation;
@@ -22928,7 +22944,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   function announcePush(): void {
-    for (const listener of [...pushListeners]) listener();
+    for (const listener of [...pushListeners]) {
+      // A push arrives inside whatever answer brought it: a listener's bug must not fail that call.
+      try {
+        listener();
+      } catch (error) {
+        console.error("A push listener threw:", error);
+      }
+    }
   }
 
   /**
@@ -22940,6 +22963,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * — worse — resolve the NEXT sleep before it has begun.
    */
   function companionSleep(ms: number): Promise<void> {
+    return sleepUntilPush(ms, (asleep) => void watchDronesWhileAsleep(asleep));
+  }
+
+  function sleepUntilPush(ms: number, whileAsleep?: (asleep: () => boolean) => void): Promise<void> {
     return new Promise<void>((resolve) => {
       const startedAtMs = Date.now();
       let asleep = true;
@@ -22969,7 +22996,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         clearTimeout(timer);
         timer = setTimeout(finish, Math.min(COMPANION_WAKE_FLOOR_MS, ms) - waited);
       });
-      void watchDronesWhileAsleep(() => asleep);
+      whileAsleep?.(() => asleep);
     });
   }
 
@@ -24415,14 +24442,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   // What a plugin holds the ship with, and how to stop it (`holdShip`). Stopped by
   // any other claim, as the loops above are, and when the session closes.
-  let pluginShipHold: { readonly stop: () => void } | null = null;
+  let pluginShipHold: { readonly stop: () => void; readonly stopWatching: () => void } | null = null;
+  // Set while a plugin's `stop` runs. Taking the ship from inside it would leave a hold
+  // standing behind the claim that is stopping it, and two loops flying one hull.
+  let endingPluginShipHold = false;
 
   function endPluginShipHold(): void {
     const hold = pluginShipHold;
     if (hold === null) return;
     pluginShipHold = null;
+    hold.stopWatching();
     store.apply({ type: "ship/plugin-holder", holder: null });
-    hold.stop();
+    endingPluginShipHold = true;
+    try {
+      hold.stop();
+    } catch (error) {
+      // A plugin's bug must not stop the claim it is in the way of, or a pilot's session
+      // closing, which would then never finish.
+      console.error("A plugin's loop threw as it was stopped:", error);
+    } finally {
+      endingPluginShipHold = false;
+    }
   }
 
   function claimShip(owner: ShipControllerID): void {
@@ -24431,18 +24471,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   function holdShip(owner: PluginShipOwner, name: string, stop: () => void): ShipHold {
+    if (endingPluginShipHold) throw new Error("The ship cannot be taken while the loop holding it is being stopped.");
     if (sessionClosing) throw new Error("This pilot session is being released.");
+    const characterID = store.station.get().online?.characterID ?? null;
+    if (characterID === null) throw new Error("No pilot is online to fly.");
     requireCustomControllerSettled();
     // As every start does: the autopilot is not a controller, and would fly on underneath.
     autopilot?.abort();
     claimShip(owner);
-    const hold = { stop };
-    pluginShipHold = hold;
     store.apply({ type: "ship/plugin-holder", holder: { owner, name } });
+    // A session lost, another pilot chosen, or a start already on its way when this took the
+    // ship: nothing calls a claim for those, and the store has let go, so a loop flying on
+    // would be one that nothing says is flying.
+    const stopWatching = store.subscribe(() => {
+      if (store.station.get().online?.characterID !== characterID || store.bots.get().runningBotID !== owner) {
+        endPluginShipHold();
+      }
+    });
+    const hold = { stop, stopWatching };
+    pluginShipHold = hold;
     return {
       release() {
         if (pluginShipHold !== hold) return;
         pluginShipHold = null;
+        stopWatching();
         store.apply({ type: "ship/plugin-holder", holder: null });
       },
     };
@@ -24996,6 +25048,43 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  /** What the classifiers read out of the caches about this fit, read and waited for. They await nothing themselves. */
+  async function warmFitFacts(fit: ReturnType<ClientStore["fitting"]["get"]>): Promise<void> {
+    await resolveNamesNow(
+      fit.slots
+        .filter((slot) => slot.module !== null)
+        .flatMap((slot) => [
+          { kind: "typeGroup" as const, id: slot.module!.typeID },
+          // ⚠ WARMED HERE OR THE PROPULSION SPLIT SILENTLY COLLAPSES. Group 46
+          // says "this is a prop mod" and this says WHICH, and the classifier
+          // reads both out of the already-resolved cache rather than awaiting
+          // anything itself. A prop mod whose effect is unresolved is still
+          // classified (the group answered), but as neither kind -- see
+          // `resolveDefenseModuleIDs`, which records what that costs.
+          { kind: "propulsionEffect" as const, id: slot.module!.typeID },
+        ]),
+    );
+    // ⚠ AWAITED, UNLIKE loadFitting's OWN FIRE-AND-FORGET CALL. `loadFitting`
+    // kicks dogma off with `void loadDogma().catch(...)` so a stumbling dogma
+    // read cannot hold the fit up -- which means that after awaiting the fit
+    // alone the dogma slice may still be empty. The hardener branch needs it
+    // to tell a Damage Control from a real hardener; without this the
+    // classifier falls back to the name every time and inherits the very
+    // defect it now avoids.
+    await loadDogma().catch(() => {});
+    // ⚠ AWAITED FOR THE SAME REASON, and before every classifier below: each
+    // list is gated by whether its module can be switched on at all
+    // (`fittedModuleActivation`), and that is this read. Kept per type, so it
+    // is a call only the first time a type is fitted.
+    await readTypeActivation(fit.slots.flatMap((slot) => slot.module === null ? [] : [slot.module.typeID]));
+  }
+
+  async function readFit(): Promise<void> {
+    await loadFitting();
+    const fit = store.fitting.get();
+    if (fit.slotsError === null) await warmFitFacts(fit);
+  }
+
   async function readCompanionFitFacts(): Promise<CompanionFitFacts> {
     try {
       await loadFitting();
@@ -25015,33 +25104,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (fit.slotsError !== null) {
         return UNREADABLE_COMPANION_FIT;
       }
-      await resolveNamesNow(
-        fit.slots
-          .filter((slot) => slot.module !== null)
-          .flatMap((slot) => [
-            { kind: "typeGroup" as const, id: slot.module!.typeID },
-            // ⚠ WARMED HERE OR THE PROPULSION SPLIT SILENTLY COLLAPSES. Group 46
-            // says "this is a prop mod" and this says WHICH, and the classifier
-            // reads both out of the already-resolved cache rather than awaiting
-            // anything itself. A prop mod whose effect is unresolved is still
-            // classified (the group answered), but as neither kind -- see
-            // `resolveDefenseModuleIDs`, which records what that costs.
-            { kind: "propulsionEffect" as const, id: slot.module!.typeID },
-          ]),
-      );
-      // ⚠ AWAITED, UNLIKE loadFitting's OWN FIRE-AND-FORGET CALL. `loadFitting`
-      // kicks dogma off with `void loadDogma().catch(...)` so a stumbling dogma
-      // read cannot hold the fit up -- which means that after awaiting the fit
-      // alone the dogma slice may still be empty. The hardener branch needs it
-      // to tell a Damage Control from a real hardener; without this the
-      // classifier falls back to the name every time and inherits the very
-      // defect it now avoids.
-      await loadDogma().catch(() => {});
-      // ⚠ AWAITED FOR THE SAME REASON, and before every classifier below: each
-      // list is gated by whether its module can be switched on at all
-      // (`fittedModuleActivation`), and that is this read. Kept per type, so it
-      // is a call only the first time a type is fitted.
-      await readTypeActivation(fit.slots.flatMap((slot) => slot.module === null ? [] : [slot.module.typeID]));
+      await warmFitFacts(fit);
       const defense = resolveDefenseModuleIDs();
       const remote = resolveRemoteRepModuleIDs();
       // The buffer fit's own answer to "where is this ship's tank", voted off
@@ -29358,6 +29421,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     autopilot?.abort();
     miningBot?.stop();
     missionBot?.stop();
+    // Or it undocks again as soon as this has got the ship home.
+    endPluginShipHold();
     await loadSpaceSnapshot().catch(() => {});
     if (shouldAbort()) return;
     const snapshot = store.space.get().snapshot;
@@ -29882,6 +29947,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       holdShip,
       onPush,
       log: { write: botLogSink.write, flush: botLogSink.drain },
+      sleepUntilPush,
+      readFit,
       sessionGeneration: () => sessionCloseGeneration,
       isSessionClosing: () => sessionClosing,
       bridgeAsk,
