@@ -173,6 +173,77 @@ test("a player's Stop ends a plugin's loop in this tab, and does nothing if ther
   assert.equal(stopped, 1);
 });
 
+// A map of three systems in a line, and a pilot docked at the first, so a route can be planned.
+const ALPHA = 30000001, BRAVO = 30000002, CHARLIE = 30000003;
+const GRAPH = {
+  ok: true,
+  systems: { [ALPHA]: "Alpha", [BRAVO]: "Bravo", [CHARLIE]: "Charlie" },
+  security: { [ALPHA]: 1, [BRAVO]: 0.9, [CHARLIE]: 0.8 },
+  edges: [[ALPHA, BRAVO, 112, 211], [BRAVO, ALPHA, 211, 112], [BRAVO, CHARLIE, 223, 322], [CHARLIE, BRAVO, 322, 223]],
+};
+const FLIGHT = { inSpace: false, docked: true, solarSystemID: ALPHA, stationID: 60000001, structureID: null, shipID: 9001, shipMode: null, shipSpeedFraction: null };
+const DESTINATION = { ok: true, id: 60000003, kind: "station", stationID: 60000003, stationName: "Charlie Station", solarSystemID: CHARLIE, solarSystemName: "Charlie" };
+
+async function makeRouteFlow(graphWaits: Promise<void> = Promise.resolve()) {
+  const store = createClientStore();
+  const flow = createAppFlow(store, {
+    livePush: false,
+    browserPilotRecovery: false,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: async (input) => {
+      const path = String(input);
+      if (path === "/api/map/graph") {
+        await graphWaits;
+        return Response.json(GRAPH);
+      }
+      if (path.startsWith("/api/map/resolve/")) return Response.json(DESTINATION);
+      if (path.startsWith("/api/dockable-structures/find?")) return Response.json({ ok: true, matches: [] });
+      return Response.json({ ok: true, result: null, flight: FLIGHT, notifications: [] });
+    },
+  });
+  await flow.attachToHeldPilot(HELD);
+  return { store, flow };
+}
+
+test("a Stop while a loop's route is being planned means the route never starts", async () => {
+  let graphAnswers = (): void => {};
+  const { store, flow } = await makeRouteFlow(new Promise<void>((resolve) => { graphAnswers = resolve; }));
+  flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  const route = flow.startRoute(60000003);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  flow.stopPluginLoop();
+  graphAnswers();
+  const outcome = await route;
+  assert.equal(outcome.started, false);
+  assert.notEqual(flow.flying.autopilotProgress()?.status, "running");
+  assert.notEqual(store.travel.get().status, "running");
+});
+
+for (const [how, end] of [
+  ["a player's Stop", (flow: AppFlow) => flow.stopPluginLoop()],
+  ["the loop letting go", (_flow: AppFlow, hold: { release(): void }) => hold.release()],
+] as const) {
+  test(`${how} ends a route the loop handed the autopilot`, async () => {
+    const { flow } = await makeRouteFlow();
+    const hold = flow.flying.holdShip("plugin:trader", "The trader", () => {});
+    const outcome = await flow.startRoute(60000003);
+    assert.equal(outcome.started, true);
+    assert.equal(flow.flying.autopilotProgress()?.status, "running");
+    end(flow, hold);
+    assert.notEqual(flow.flying.autopilotProgress()?.status, "running");
+    flow.abortRoute();
+  });
+}
+
+test("a route with no plugin's loop near it is left alone by a Stop that has nothing to stop", async () => {
+  const { flow } = await makeRouteFlow();
+  assert.equal((await flow.startRoute(60000003)).started, true);
+  flow.stopPluginLoop();
+  assert.equal(flow.flying.autopilotProgress()?.status, "running");
+  flow.abortRoute();
+});
+
 test("with no pilot online the refusal says so, whatever drone recovery is doing", () => {
   const flow = createAppFlow(createClientStore(), {
     livePush: false,

@@ -348,7 +348,8 @@ runs: {
   the name `check` gave. Nothing else flies while a plugin holds the ship. It holds it until
   `stop` is called or it calls `release`. `stop` is called when anything else takes the ship, a
   player stops it from the Bot Manager, a panic recall pulls it home, or the session closes or
-  is lost. `stop` may not take the
+  is lost. However a hold ends, a trip the loop handed `startRoute` ends with it, and one still
+  being planned does not start. `stop` may not take the
   ship itself, and what it throws or rejects with is logged and goes no further. `holdShip` refuses with no
   pilot online, while the last controller's Stop is settling, while drone recovery is still
   checking a pilot in the page, and while the session closes.
@@ -430,6 +431,8 @@ const { store, flow } = await createPilotSession(run);
 let flying = true;
 const hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
 const loop = fly(store, flow, () => flying, (why) => run.report({ status: "error", why }))
+  // If `fly` finished its job by itself, say so, or the row goes on saying it is running.
+  .then(() => { if (flying) run.report({ status: "stopped" }); })
   .finally(() => { hold.release(); flow.setLivePush(false); });
 return { async stop() { flying = false; await loop; } };
 
@@ -444,7 +447,7 @@ What differs in a tab:
 | | A run | A tab |
 |---|---|---|
 | Who starts it | `startPluginRun` and a launch approval | your own code, on a player's click |
-| A player's Stop | The Bot Manager calls the handle's `stop` | The Bot Manager stops any route, then calls the hold's `stop` |
+| A player's Stop | The Bot Manager calls the handle's `stop` | The Bot Manager calls the hold's `stop` |
 | The hold's `stop` | Rarely called | **How your loop is stopped**, so it must end the loop |
 | Its name in the page | From `check` | From `holdShip` |
 | What a window sees | `readout` | `store.pluginState`, directly |

@@ -1532,7 +1532,7 @@ export interface FittedDefenseModules {
 
 /** A plugin's hold on the ship (`PilotFlying.holdShip`). */
 export interface ShipHold {
-  /** Let go of the ship. Does nothing once something else has taken it. */
+  /** Let go of the ship, and of any trip it handed the autopilot. Does nothing once something else has taken it. */
   release(): void;
 }
 
@@ -1549,7 +1549,8 @@ export interface PilotFlying {
    * else takes it, when a player stops it from the Bot Manager, when a panic recall pulls the
    * ship home, and when the pilot's session closes or is lost; `release` when the loop ends by itself. `stop` must not take the
    * ship itself, and what it throws or rejects with is logged and goes no further. `name` is what a player
-   * reads in the page as flying the ship. Throws with no pilot online, while the last
+   * reads in the page as flying the ship. However a hold ends, any trip the loop handed the
+   * autopilot ends with it, including one still being planned, since nothing would say it flew on. Throws with no pilot online, while the last
    * controller's Stop is settling, while drone recovery is still checking this pilot, and
    * while the session is closing.
    */
@@ -1673,10 +1674,7 @@ export interface PilotFlying {
 export interface AppFlow {
   /** What a plugin's loop flies this pilot with. */
   readonly flying: PilotFlying;
-  /**
-   * A player's Stop for whatever plugin's loop holds this ship in this tab, and for any trip
-   * it handed the autopilot, which would fly on without it. Nothing happens if none holds it.
-   */
+  /** A player's Stop for whatever plugin's loop holds this ship in this tab. Nothing happens if none does. */
   stopPluginLoop(): void;
   readonly directTrades: DirectTrades;
   startDirectTrade(characterID: number): Promise<void>;
@@ -22239,6 +22237,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function startRoute(destinationID: number): Promise<RouteStartOutcome> {
     const generation = sessionCloseGeneration;
+    const holdsEndedAtStart = pluginHoldsEnded;
     store.apply({ type: "travel/plan-error", message: null });
 
     // Every plan failure BOTH writes the travel slice (the Travel panel's
@@ -22328,6 +22327,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const destinationName = structure?.name ?? (destination.kind === "station" ? destination.stationName : destination.systemName);
     if (generation !== sessionCloseGeneration || sessionClosing)
       return { started: false, reason: "This pilot session was released while planning the route." };
+    if (holdsEndedAtStart !== pluginHoldsEnded) {
+      return { started: false, reason: "The loop flying this pilot was stopped while planning the route." };
+    }
     const plan: RoutePlan = {
       destinationSystemID: targetSystemID,
       destinationStationID,
@@ -24463,12 +24465,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // Set while a plugin's `stop` runs. Taking the ship from inside it would leave a hold
   // standing behind the claim that is stopping it, and two loops flying one hull.
   let endingPluginShipHold = false;
+  // Counted so a route still being planned as a hold ends does not start once it has.
+  let pluginHoldsEnded = 0;
+
+  // What a loop handed the autopilot would fly on with nothing saying it was.
+  function endPluginRoute(): void {
+    pluginHoldsEnded += 1;
+    autopilot?.abort();
+  }
 
   function endPluginShipHold(): void {
     const hold = pluginShipHold;
     if (hold === null) return;
     pluginShipHold = null;
     hold.stopWatching();
+    endPluginRoute();
     store.apply({ type: "ship/plugin-holder", holder: null });
     endingPluginShipHold = true;
     // A plugin's bug must not stop the claim it is in the way of, or a pilot's session
@@ -24511,6 +24522,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (pluginShipHold !== hold) return;
         pluginShipHold = null;
         stopWatching();
+        endPluginRoute();
         store.apply({ type: "ship/plugin-holder", holder: null });
       },
     };
@@ -29964,11 +29976,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   return {
-    stopPluginLoop() {
-      if (pluginShipHold === null) return;
-      autopilot?.abort();
-      endPluginShipHold();
-    },
+    stopPluginLoop: endPluginShipHold,
     flying: {
       holdShip,
       onPush,
