@@ -81,7 +81,7 @@ export interface PluginRunContext {
   readonly resumeData: JsonValue;
   readonly held: HeldPilot;
   readonly baseUrl: string;
-  /** The BFF, as this pilot's session. Core refuses a request for another pilot or for the session's end. */
+  /** The BFF, as this pilot's session. Core refuses a select, the session's end, and starting or stopping a bot. */
   readonly fetch: typeof fetch;
   report(report: PluginRunReport): void;
 }
@@ -219,13 +219,18 @@ function answerFetch(answer: RunFetchAnswer): void {
 
 /** `fetch`'s own shape, so a flow cannot tell: each request goes to core over the channel, as this run. */
 function runFetch(botID: string): typeof fetch {
-  return ((input: string | URL | Request, init: RequestInit = {}) => {
-    const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+  return (async (input: string | URL | Request, init: RequestInit = {}) => {
+    // A Request carries what `init` otherwise would, and `init` wins, as in fetch.
+    const given = input instanceof Request ? input : null;
+    const url = given?.url ?? String(input);
     const headers: Record<string, string> = {};
-    new Headers(init.headers ?? {}).forEach((value, name) => { headers[name] = value; });
+    new Headers(init.headers ?? given?.headers ?? {}).forEach((value, name) => { headers[name] = value; });
+    const method = init.method ?? given?.method ?? "GET";
+    const redirect = init.redirect ?? given?.redirect;
+    const body = init.body !== undefined ? init.body : given?.body ? await given.text() : undefined;
     const id = nextFetchID++;
     return new Promise<Response>((resolve, reject) => {
-      const signal = init.signal;
+      const signal = init.signal ?? given?.signal;
       if (signal?.aborted) { reject(signal.reason); return; }
       signal?.addEventListener("abort", () => {
         const call = fetchesInFlight.get(id);
@@ -235,7 +240,7 @@ function runFetch(botID: string): typeof fetch {
         fetchesInFlight.delete(id);
       }, { once: true });
       fetchesInFlight.set(id, { resolve, reject, body: null });
-      send({ type: "runFetch", id, botID, url, method: init.method ?? "GET", headers, body: init.body, redirect: init.redirect });
+      send({ type: "runFetch", id, botID, url, method, headers, body, redirect });
     });
   }) as typeof fetch;
 }

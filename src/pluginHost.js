@@ -477,6 +477,9 @@ function createPluginHost(options = {}) {
     const answer = await ask(id, { type: "runCheck", run, setup }, RUN_CHECK_TIMEOUT_MS);
     if (answer.type === "failed") return { ok: false, code: "PLUGIN_RUN_UNAVAILABLE", refusal: answer.message };
     if (answer.ok !== true) return { ok: false, code: "PLUGIN_RUN_INVALID", refusal: answer.refusal || "The plugin refused this setup." };
+    if (answer.setup === undefined || !Array.isArray(answer.policy?.riskClasses)) {
+      return { ok: false, code: "PLUGIN_RUN_INVALID", refusal: `The plugin ${id} did not say what this setup means and what it risks.` };
+    }
     return { ok: true, setup: answer.setup, name: answer.name, policy: answer.policy };
   }
 

@@ -11657,12 +11657,6 @@ app.get("/api/plugins", requireAuth, (req, res) => {
 });
 
 /**
- * /api/plugins/<id>/... - a plugin's own routes, answered by its backend in its
- * own process. The session is checked here; the plugin is told only the account
- * the request was made as. A backend that is down or slow costs this request a
- * 503 or 504 and nothing else.
- */
-/**
  * POST /api/plugins/<id>/runs/<run>/check - what a plugin reads a run's setup as,
  * and what running it risks: what the player approves before /api/bots/start. The
  * same check is made again there, so this one decides nothing.
@@ -11680,6 +11674,12 @@ app.post("/api/plugins/:pluginID/runs/:run/check", requireAuth, async (req, res,
   }
 });
 
+/**
+ * /api/plugins/<id>/... - a plugin's own routes, answered by its backend in its
+ * own process. The session is checked here; the plugin is told only the account
+ * the request was made as. A backend that is down or slow costs this request a
+ * 503 or 504 and nothing else.
+ */
 app.all("/api/plugins/:pluginID/*rest", requireAuth, async (req, res, next) => {
   try {
     const rest = Array.isArray(req.params.rest) ? req.params.rest : [String(req.params.rest || "")];

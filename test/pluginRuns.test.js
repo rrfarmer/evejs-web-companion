@@ -32,6 +32,14 @@ startBackend({
       const answer = await flying.fetch(request.body.url, { method: request.body.method ?? "GET" });
       return { body: { status: answer.status, answer: await answer.json() } };
     },
+    "POST /ask-request": async (request) => {
+      const answer = await flying.fetch(new Request(new URL(request.body.url, flying.baseUrl), { method: "POST", headers: { "x-from-request": "yes" }, body: "given" }));
+      return { body: { status: answer.status } };
+    },
+    "POST /report-too-much": () => {
+      for (let time = 0; time < 2; time += 1) flying.report({ status: "running", phase: "Probing", resumeData: "x".repeat(70 * 1024) });
+      return { body: {} };
+    },
     "POST /other-plugin-run": (request) => {
       process.send({ type: "runFetch", id: 999001, botID: request.body.botID, url: "/api/bridge/flight/status", method: "GET", headers: {} });
       return { body: {} };
@@ -42,12 +50,16 @@ startBackend({
     probe: {
       check(setup) {
         if (setup?.bad === true) return { ok: false, refusal: "That setup is bad." };
-        return { ok: true, name: "Probe run", setup: { n: Number(setup?.n ?? 1), restartSafe: setup?.restartSafe !== false, endItself: setup?.endItself === true },
+        if (setup?.noPolicy === true) return { ok: true, name: "Probe run", setup: {} };
+        return { ok: true, name: "Probe run", setup: { n: Number(setup?.n ?? 1), restartSafe: setup?.restartSafe !== false, endItself: setup?.endItself === true,
+          ...(setup?.quietAfterRestart === true ? { quietAfterRestart: true } : {}), ...(setup?.slowStart === true ? { slowStart: true } : {}) },
           policy: { riskClasses: ["combat"], restartSafe: setup?.restartSafe !== false } };
       },
       async start(run) {
         flying = run;
         heard("started.json", { botID: run.botID, resumed: run.resumed, resumeData: run.resumeData, held: run.held, setup: run.setup });
+        if (run.setup.slowStart) await new Promise((resolve) => setTimeout(resolve, 500));
+        if (run.resumed && run.setup.quietAfterRestart) return { stop() {} };
         const status = await run.fetch("/api/bridge/flight/status");
         run.report({ status: "running", phase: "Probing", why: "Asked " + status.status, readout: { asked: status.status }, resumeData: { lap: run.setup.n } });
         if (run.setup.endItself) run.report({ status: "stopped", why: "Done by itself." });
@@ -139,7 +151,7 @@ async function makeFixture(t, extra = {}) {
     persistPath: path.join(root, "data", "server-bots.json"),
     loadAccount: async () => ACCOUNT,
     fetch: async (input, init = {}) => {
-      asked.push({ url: String(input), headers: new Headers(init.headers), method: init.method ?? "GET" });
+      asked.push({ url: String(input), headers: new Headers(init.headers), method: init.method ?? "GET", body: init.body });
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
     },
     ...extra.bots,
@@ -220,6 +232,16 @@ test("⚠ a run may not choose another pilot, end its session, or leave the BFF'
     ["/api/bridge/select", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
     ["/api/logout", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
     ["/api/bridge/release", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    // The router ignores case and a trailing slash, so these reach the same routes.
+    ["/api/LOGOUT", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/logout/", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/Bridge/Select", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/bridge/select/", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/bots/start", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/bots/another-bot/stop", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/bots/another-bot/reconnect", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/mining-operations/an-operation/start", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
+    ["/api/mining-operations/an-operation/stop", "POST", "PLUGIN_RUN_SESSION_IS_CORES"],
     ["http://elsewhere.test/api/x", "GET", "PLUGIN_RUN_OUTSIDE_API"],
     ["/not-the-api", "GET", "PLUGIN_RUN_OUTSIDE_API"],
   ]) {
@@ -229,7 +251,62 @@ test("⚠ a run may not choose another pilot, end its session, or leave the BFF'
     assert.equal(body.answer.error, error);
     assert.equal(f.asked.length, before, `${url} reached the BFF`);
   }
+  // What a flow reads about the bots stays open.
+  const { body } = await f.request("POST", "/ask", { url: "/api/bots/active", method: "GET" });
+  assert.equal(body.status, 200);
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+test("a Request given to a run's fetch goes as what it says", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun();
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  await f.request("POST", "/ask-request", { url: "/api/bridge/flight/status" });
+  const asked = f.asked.at(-1);
+  assert.equal(asked.method, "POST");
+  assert.equal(asked.body, "given");
+  assert.equal(asked.headers.get("x-from-request"), "yes");
+  await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+test("what a run keeps is bounded, and going over the bound is said once", async (t) => {
+  const said = [];
+  const f = await makeFixture(t, { bots: { errorLogger: (error) => said.push(String(error.message)) } });
+  await f.startRun({ n: 2 });
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  await f.request("POST", "/report-too-much");
+  assert.ok(await until(() => said.length > 0));
+  assert.equal(said.filter((words) => words.includes("resumeData")).length, 1);
+  assert.equal(fs.readFileSync(path.join(f.root, "data", "server-bots.json"), "utf8").includes("xxxx"), false);
+  await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+test("a check that does not say what a setup risks is a refusal", async (t) => {
+  const f = await makeFixture(t);
+  const started = await f.startRun({ noPolicy: true });
+  assert.equal(started.ok, false);
+  assert.equal(started.code, "PLUGIN_RUN_INVALID");
+  assert.equal(f.bots.claimedBy(CHARACTER), null);
+});
+
+test("⚠ a start that answers late is told to stop when it does come", async (t) => {
+  const f = await makeFixture(t, { plugins: { requestTimeoutMs: 100 } });
+  const started = await f.startRun({ slowStart: true });
+  assert.equal(started.ok, false);
+  assert.ok(await until(async () => (await f.heard("stopped"))?.botID !== undefined), "the plugin was told");
+  assert.equal(f.bots.claimedBy(CHARACTER), null);
+});
+
+test("a run that says nothing after a restart does not go on saying its plugin stopped", async (t) => {
+  const f = await makeFixture(t);
+  const started = await f.startRun({ quietAfterRestart: true });
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  await f.request("GET", "/crash");
+  assert.ok(await until(() => f.row().phase === "Plugin stopped"));
+  assert.ok(await until(() => f.row().status === "running"), "flying again");
+  assert.equal(f.row().phase, null);
+  assert.equal(f.row().why, null);
+  await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
 });
 
 test("⚠ a request naming a run of another plugin is refused", async () => {

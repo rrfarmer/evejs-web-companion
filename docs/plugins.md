@@ -266,7 +266,7 @@ In the page, `checkPluginRun` asks the plugin what a setup means and what it ris
 
 **The token and the claim stay with core.** A run's `fetch` sends each request over
 the plugin's channel, and core adds them on its side. A run may ask only the BFF's own
-API, and only core selects a pilot or ends its session.
+API, only core selects a pilot or ends its session, and a run cannot start or stop a bot.
 
 **`createPilotSession` does not select.** It attaches to the session core already
 holds, because a select takes the pilot out of its fleet. It loads all of the flow,

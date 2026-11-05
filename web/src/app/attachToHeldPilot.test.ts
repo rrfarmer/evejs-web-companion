@@ -39,6 +39,16 @@ test("attaching brings the pilot online with no select", async () => {
   assert.equal(asked.some((request) => request.path === "/api/bridge/select"), false);
 });
 
+test("what another flow attaches with is where the pilot is now, not where it was selected", async () => {
+  const { store, flow } = makeFlow((path) => (path === "/api/bridge/select" ? { ok: true, character: CHARACTER, station: null, notifications: [] } : { ok: true }));
+  await flow.selectCharacter(CHARACTER.characterID);
+  store.apply({ type: "station/relocated", stationID: 60000001, solarSystemID: 30000144, station: null });
+  assert.equal(flow.heldPilot()?.character.stationID, 60000001);
+  assert.equal(flow.heldPilot()?.character.solarSystemID, 30000144);
+  store.apply({ type: "character/offline" });
+  assert.equal(flow.heldPilot(), null);
+});
+
 test("a select leaves what another flow attaches with", async () => {
   const { flow } = makeFlow((path) => (path === "/api/bridge/select" ? { ok: true, character: CHARACTER, station: null, notifications: [] } : { ok: true }));
   await flow.selectCharacter(CHARACTER.characterID);

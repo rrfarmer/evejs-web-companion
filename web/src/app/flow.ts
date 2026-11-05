@@ -921,7 +921,7 @@ export interface MissionBotRequest {
 
 export { DEFAULT_MAX_JUMPS };
 
-/** What select answered: who the pilot is, and where it was then. */
+/** A pilot as this flow knows it now: who it is, and where it is. */
 export type HeldPilot = Pick<api.SelectResult, "character" | "station"> & { readonly characterID: number };
 
 /**
@@ -3846,7 +3846,7 @@ export interface AppFlow {
   /** Release the persistent session (character offline), back to the select list. */
   releaseSession(): Promise<void>;
   logout(): Promise<void>;
-  /** What select answered for the pilot this flow holds; null before one. What another flow attaches to it with. */
+  /** The pilot this flow holds, as it is now; null with none online. What another flow attaches to it with. */
   heldPilot(): HeldPilot | null;
   /**
    * Fly a pilot another flow selected on this session, with no select of its own: a select takes the pilot
@@ -5075,11 +5075,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const confirmedRecoveryIDs = new Set<number>();
   let recoveryCheckID: string | null = null;
 
-  let heldSelection: HeldPilot | null = null;
-
   /** Everything a flow does for a pilot it now holds, however it came to hold it. */
   function pilotSelected(characterID: number, result: Pick<api.SelectResult, "character" | "station"> & { readonly droneRecoveryCheckID: string | null }): void {
-    heldSelection = { characterID, character: result.character, station: result.station };
     // accountsvc.ProcessSessionChange: another character, and what the account service kept was the last one's.
     walletReads.forget();
     corporationWealthReads.forget();
@@ -30020,7 +30017,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await refreshStationPanel();
     },
 
-    heldPilot: () => heldSelection,
+    heldPilot() {
+      // From the store, not from select's answer: a flow attaching after a restart needs where the pilot is now.
+      const { online, station } = store.station.get();
+      return online === null ? null : { characterID: online.characterID, character: online, station };
+    },
 
     async attachToHeldPilot(held) {
       if (sessionClosing) throw new Error("This pilot session is being released.");

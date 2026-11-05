@@ -250,8 +250,10 @@ const PLUGIN_DOWN_WINDOW_MS = 2 * 60_000;
 const PLUGIN_RESUME_DATA_MAX_BYTES = 64 * 1024;
 const PLUGIN_READOUT_MAX_BYTES = 16 * 1024;
 const PLUGIN_RUN_STATUSES = new Set(["running", "paused", "idle", "stopped", "error"]);
-// What only the host does for a run's session: it chose the pilot, and it ends the session.
-const PLUGIN_REFUSED_PATHS = new Set(["/api/login", "/api/logout", "/api/bridge/select", "/api/bridge/release"]);
+// What only the host does for a run: it chose the pilot, it ends the session, and only the player starts or stops
+// a bot. Read as the router reads a path, which ignores case and a trailing slash: an exact match lets "/api/LOGOUT" by.
+const PLUGIN_REFUSED_PATH = /^\/api\/(login|logout|bridge\/select|bridge\/release|bots\/start|bots\/[^/]+\/(stop|reconnect)|mining-operations\/[^/]+\/(start|stop))\/?$/i;
+const PLUGIN_STOPPED_PHASE = "Plugin stopped";
 
 /**
  * What a request by the generic call asks, read off its body: the call's service and its method, and the object
@@ -896,7 +898,8 @@ function createBotHost(options) {
       held: record.flow.heldPilot(),
       baseUrl,
     });
-    if (failure) record.pluginStarted = false;
+    // A start that only answered late is still coming, so the plugin is told it is not wanted.
+    if (failure) void stopPluginLoop(record);
     return failure;
   }
 
@@ -921,18 +924,16 @@ function createBotHost(options) {
   }
 
   /** In the shape a Response body reaches a plugin's process. */
-  async function answerPluginFetch(send, id, response, startedAt) {
+  async function answerPluginFetch(send, id, response) {
     const headers = {};
     response.headers.forEach((value, name) => { headers[name] = value; });
     send({ type: "runFetchAnswer", part: "head", id, status: response.status, headers });
-    let size = 0;
     if (response.body) {
       for await (const chunk of response.body) {
-        size += chunk.length;
         send({ type: "runFetchAnswer", part: "chunk", id, data: chunk });
       }
     }
-    send({ type: "runFetchAnswer", part: "end", id, tookMs: now() - startedAt, size });
+    send({ type: "runFetchAnswer", part: "end", id });
   }
 
   const refusedPluginFetch = (status, error, message) =>
@@ -944,7 +945,6 @@ function createBotHost(options) {
     fetch(pluginID, send, flights, message) {
       const controller = new AbortController();
       flights.set(message.id, controller);
-      const startedAt = now();
       void (async () => {
         try {
           const record = records.get(String(message.botID));
@@ -957,15 +957,15 @@ function createBotHost(options) {
             const url = new URL(String(message.url), baseUrl);
             if (url.origin !== new URL(baseUrl).origin || !url.pathname.startsWith("/api/")) {
               response = refusedPluginFetch(403, "PLUGIN_RUN_OUTSIDE_API", "A run asks only the BFF's own API.");
-            } else if (PLUGIN_REFUSED_PATHS.has(url.pathname)) {
-              response = refusedPluginFetch(403, "PLUGIN_RUN_SESSION_IS_CORES", "Core chooses a run's pilot and ends its session.");
+            } else if (PLUGIN_REFUSED_PATH.test(url.pathname)) {
+              response = refusedPluginFetch(403, "PLUGIN_RUN_SESSION_IS_CORES", "Core chooses a run's pilot and ends its session, and a run does not start or stop bots.");
             } else {
               // The flow's stand-in for the token goes in the URL of its event stream.
               url.searchParams.delete("token");
               response = await record.pluginFetch(url.href, { method: message.method, headers: message.headers, body: message.body, redirect: message.redirect, signal: controller.signal });
             }
           }
-          await answerPluginFetch(send, message.id, response, startedAt);
+          await answerPluginFetch(send, message.id, response);
         } catch (error) {
           send({ type: "runFetchAnswer", part: "error", id: message.id, message: String((error && error.message) || error) });
         } finally {
@@ -980,15 +980,23 @@ function createBotHost(options) {
       if (!record || record.kind !== "plugin" || record.pluginID !== pluginID || record.finalized) return;
       const report = message.report;
       if (report === null || typeof report !== "object" || !PLUGIN_RUN_STATUSES.has(report.status)) return;
-      const fits = (value, most) => { try { return Buffer.byteLength(JSON.stringify(value) ?? "") <= most; } catch { return false; } };
+      const fits = (value, most, name) => {
+        try { if (Buffer.byteLength(JSON.stringify(value) ?? "") <= most) return true; } catch { /* said below */ }
+        // Once a run: a plugin over its limit is over it on every report.
+        if (!record.pluginOversizeSaid) {
+          record.pluginOversizeSaid = true;
+          logError(new Error(`Plugin ${pluginID}: a run's ${name} cannot be stored or is over ${most} bytes, so it was not kept.`));
+        }
+        return false;
+      };
       if (!record.windingDown) {
         record.status = report.status;
         record.phase = typeof report.phase === "string" ? report.phase : null;
         record.why = typeof report.why === "string" ? report.why : null;
         record.startError = typeof report.startError === "string" ? report.startError : null;
       }
-      if (report.readout !== undefined && fits(report.readout, PLUGIN_READOUT_MAX_BYTES)) record.pluginReadout = report.readout;
-      if (report.resumeData !== undefined && fits(report.resumeData, PLUGIN_RESUME_DATA_MAX_BYTES) &&
+      if (report.readout !== undefined && fits(report.readout, PLUGIN_READOUT_MAX_BYTES, "readout")) record.pluginReadout = report.readout;
+      if (report.resumeData !== undefined && fits(report.resumeData, PLUGIN_RESUME_DATA_MAX_BYTES, "resumeData") &&
           stableJson(report.resumeData) !== stableJson(record.pluginResumeData ?? null)) {
         record.pluginResumeData = report.resumeData;
         persistRoster();
@@ -1007,9 +1015,10 @@ function createBotHost(options) {
         if (!record.restartSafe) { recallPluginRun(record, "The plugin flying this pilot stopped, and this run cannot be restarted safely."); continue; }
         if (record.pluginDowns.length >= PLUGIN_DOWN_LIMIT) { recallPluginRun(record, "The plugin flying this pilot keeps stopping."); continue; }
         record.status = "paused";
-        record.phase = "Plugin stopped";
+        record.phase = PLUGIN_STOPPED_PHASE;
         record.why = "The plugin flying this pilot stopped. Waiting for it to start again.";
-        clearPluginDownTimer(record);
+        // Its clock runs from the first stop: dying again while it comes back buys no more time.
+        if (record.pluginDownTimer) continue;
         record.pluginDownTimer = setTimeout(() => {
           record.pluginDownTimer = null;
           recallPluginRun(record, "The plugin flying this pilot stopped and did not come back.");
@@ -1024,7 +1033,13 @@ function createBotHost(options) {
         if (!record.pluginDownTimer || record.windingDown) continue;
         clearPluginDownTimer(record);
         void startPluginLoop(record, true).then((failure) => {
-          if (failure) recallPluginRun(record, `The plugin flying this pilot could not carry on: ${failure}`);
+          if (failure) { recallPluginRun(record, `The plugin flying this pilot could not carry on: ${failure}`); return; }
+          // Flying again, and a plugin need not report until something changes.
+          if (record.phase === PLUGIN_STOPPED_PHASE && !record.windingDown) {
+            record.status = "running";
+            record.phase = null;
+            record.why = null;
+          }
         }).catch(logError);
       }
     },
@@ -1277,6 +1292,7 @@ function createBotHost(options) {
       pluginStarted: false,
       pluginDownTimer: null,
       pluginDowns: [],
+      pluginOversizeSaid: false,
       recall: null,
       scriptID: recordScriptID,
       scriptName: recordScriptName,
