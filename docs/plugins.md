@@ -297,39 +297,73 @@ decoders and rules. `flying.ts` is a module of its own because a plugin that fli
 nothing has no use for it. A block needs none of this: see `blocks.ts`.
 
 ```ts
-const { store, flow } = await createPilotSession(run);
-let flying = true;
+runs: {
+  trade: {
+    check(setup) { /* ... */ },
+    async start(run) {
+      const { flow } = await createPilotSession(run);
+      let flying = true;
 
-// Take the ship first. This stops anything else holding it, and `stop` is called
-// when something else takes it or the session closes.
-const hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+      // Not awaited: `start` answers within 30 s, and the loop goes on after it.
+      const loop = (async () => {
+        let hold = null;
+        try {
+          // Take the ship first. `stop` is called if something else takes it.
+          hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+          if (!(await flow.flying.readFit())) throw new Error("The ship's fit could not be read.");
+          while (flying) {
+            const status = decodeFlightStatus((await getFlightStatus(flow.requestOptions())).flight);
+            // Something may have stopped this during that read.
+            if (flying && status.docked) await flow.flying.orderedStep((now) => undock(flow.flying.bridgeDo, now, true));
+            await flow.flying.sleepUntilPush(2_000);
+          }
+        } catch (error) {
+          if (flying) run.report({ status: "error", why: String(error) });
+        } finally {
+          hold?.release();
+          // The session's live stream, or it goes on trying to reconnect for as long as this process lives.
+          flow.setLivePush(false);
+        }
+      })();
 
-// Sleep until the next look, or until a push wants acting on sooner.
-const nextLook = (ms: number) => new Promise<void>((resolve) => {
-  const timer = setTimeout(done, ms);
-  const stopListening = flow.flying.onPush(done);
-  function done() { clearTimeout(timer); stopListening(); resolve(); }
-});
-
-while (flying) {
-  const status = decodeFlightStatus((await getFlightStatus(flow.requestOptions())).flight);
-  if (status.docked) await flow.flying.orderedStep((now) => undock(flow.flying.bridgeDo, now, true));
-  await nextLook(2_000);
-}
-hold.release();
+      // Core calls this for a player's Stop, and when the run ends.
+      return { async stop() { flying = false; await loop; } };
+    },
+  },
+},
 ```
 
-- **`holdShip(owner, name, stop)`** takes `plugin:<plugin id>` as the owner, and shows
-  `name` wherever a player reads what is flying the ship. Nothing else flies while a
-  plugin holds the ship, and it holds it until `stop` is called or it calls `release`.
-  It refuses while the last controller's Stop is settling and while the session closes.
-- **`onPush(listener)`** is called for a fleet broadcast, a fleet target tag, this
-  ship's lock landing, and a jam starting. It says only that something arrived; the
-  store has what.
+- **`stop` on the handle is what ends a run.** Core stops a run through the handle `start`
+  returns, and has 5 s to wait for it. The hold's `stop` covers what happens to the flow:
+  in a run that is rarely anything, because only your loop flies that flow.
+- **Never let the loop's promise reject.** Nothing catches it, so it takes the process
+  down, and every run of your plugin with it. A read fails for ordinary reasons, and a
+  run being stopped gets `PLUGIN_RUN_ENDED` from every read: decide what each means, and
+  report `stopped` or `error` when the run ends itself, or the row goes on saying it is
+  running. The sketch above gives up on the first failure, which a real loop would not.
+- **`holdShip(owner, name, stop)`** takes `plugin:<plugin id>` as the owner. `name` is shown
+  in the page while a loop running there holds the ship; for a run, the Bot Manager shows
+  the name `check` gave. Nothing else flies while a plugin holds the ship. It holds it until
+  `stop` is called or it calls `release`. `stop` is called when anything else takes the ship,
+  a panic recall pulls it home, or the session closes or is lost. `stop` may not take the
+  ship itself, and what it throws or rejects with is logged and goes no further. `holdShip` refuses with no
+  pilot online, while the last controller's Stop is settling, and while the session closes.
+- **`readFit()` comes before the module lists** (`resolveDefenseModuleIDs`,
+  `resolveRemoteRepModuleIDs`, `resolveSalvageModuleIDs`). Attaching reads no fit, and until
+  `readFit` has run they are empty. It answers `false` if the fit's modules could not be
+  read or told apart, and then the lists may be short because nobody knows. It rejects if the
+  request for the fit itself failed, so call it inside your `try`. `loadFitting` in `flying.ts` is the
+  plain request and fills no store. Call `readFit` again after a refit.
+- **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push
+  cannot end a sleep sooner than about a third of a second after it began. `onPush(listener)`
+  is what it is built on, and is called for a fleet broadcast, a fleet target tag, this
+  ship's lock landing and a jam starting. It says only that something arrived; the store has
+  what. A fleet fight pushes many of these, so a loop that looks on each one floods the server.
 - **A write throws the server's refusal,** because a loop has to see one to decide on
   it. The flow's panel methods, by contrast, catch a refusal and say it in a panel.
 - **Compare `sessionGeneration()` across an await** before acting on what came back,
-  because the session may have closed in between.
+  because the session may have closed in between. It does not change for a session that
+  was lost: the next read throws instead.
 - **Routes are the pilot's.** `createPilotSession` gives the flow the route settings
   core's session for the run had when it began. A change the pilot makes later reaches
   the run only after a restart of the BFF.
