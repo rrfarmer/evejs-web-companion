@@ -63,7 +63,11 @@ startBackend({
         const status = await run.fetch("/api/bridge/flight/status");
         run.report({ status: "running", phase: "Probing", why: "Asked " + status.status, readout: { asked: status.status }, resumeData: { lap: run.setup.n } });
         if (run.setup.endItself) run.report({ status: "stopped", why: "Done by itself." });
-        return { stop() { heard("stopped.json", { botID: run.botID }); } };
+        return { async stop() {
+          const logged = await run.fetch("/api/bots/bot-log", { method: "POST", body: "{}" });
+          const flown = await run.fetch("/api/bridge/flight/status");
+          heard("stopped.json", { botID: run.botID, logged: logged.status, flown: flown.status });
+        } };
       },
     },
   },
@@ -259,7 +263,7 @@ test("⚠ a run may not choose another pilot, end its session, or leave the BFF'
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
 });
 
-test("a run writes and reads its pilot's flight recorder", async (t) => {
+test("the flight recorder's route is a run's to use", async (t) => {
   const f = await makeFixture(t);
   await f.startRun();
   assert.ok(await until(() => f.row().phase === "Probing"));
@@ -357,7 +361,10 @@ test("Stop ends the plugin's loop before core brings the drones home and logs of
   assert.ok(await until(() => f.row().phase === "Probing"));
   const stopped = await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
   assert.equal(stopped.ok, true);
-  assert.deepEqual((await f.heard("stopped")).botID, started.bot.botID);
+  const told = await f.heard("stopped");
+  assert.deepEqual(told.botID, started.bot.botID);
+  assert.equal(told.logged, 200, "a run being stopped can still write how it ended");
+  assert.equal(told.flown, 409, "and can do nothing else");
   assert.deepEqual(f.log.map(([name]) => name), ["select", "prepareHostedBotStop", "logout"]);
   assert.equal(f.bots.claimedBy(CHARACTER), null);
   const after = await f.request("POST", "/ask", { url: "/api/bridge/flight/status" });
@@ -383,6 +390,7 @@ for (const [how, route] of [["killed", "/crash"], ["hung", "/hang"]]) {
     const heard = await f.heard("started");
     assert.equal(heard.botID, started.bot.botID);
     assert.deepEqual(heard.resumeData, { lap: 9 });
+    assert.deepEqual(heard.routeSettings, { pfRouteType: "shortest" }, "a run that comes back still plans as its pilot does");
     assert.ok(await until(() => f.row().status === "running"));
     assert.equal(f.bots.claimedBy(CHARACTER), started.bot.botID);
     // No second select: it would drop the pilot from its fleet. And no recall.

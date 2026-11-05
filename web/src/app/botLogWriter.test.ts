@@ -98,3 +98,23 @@ test("HTTP pages without crypto can send distinct batches through the API with t
   assert.equal(typeof bodies[0]?.batchID, "string");
   assert.notEqual(bodies[0]?.batchID, bodies[1]?.batchID);
 });
+
+test("draining waits for what was written behind the delivery in flight, where a flush leaves it for the timer", async (t) => {
+  const { read, store, schedule } = fixture(t);
+  let finishFirst!: () => void;
+  let calls = 0;
+  const writer = createBotLogWriter<Line>(async (lines, batchID) => {
+    calls += 1;
+    if (calls === 1) await new Promise<void>((resolve) => { finishFirst = resolve; });
+    store.append(7, lines, { batchID });
+  }, { schedule });
+  writer.write(line("start", "A"));
+  await turn();
+  writer.write(line("decide", "A"));
+  writer.write(line("result", "A"));
+  const drained = writer.drain();
+  await turn();
+  finishFirst();
+  await drained;
+  assert.deepEqual(read(), ["A:start", "A:decide", "A:result"]);
+});

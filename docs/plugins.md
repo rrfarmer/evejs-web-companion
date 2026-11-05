@@ -331,19 +331,32 @@ hold.release();
 - **Compare `sessionGeneration()` across an await** before acting on what came back,
   because the session may have closed in between.
 - **Routes are the pilot's.** `createPilotSession` gives the flow the route settings
-  the pilot's page set, as they stood when the run started or came back.
+  core's session for the run had when it began. A change the pilot makes later reaches
+  the run only after a restart of the BFF.
 
 **What a loop keeps about a pilot** goes in `store.pluginState("plugin:<plugin id>",
-initial)`, a signal your windows can subscribe to. The same key gives the same signal,
-a second name goes after a dot (`plugin:<plugin id>.<name>`), and it goes back to
-`initial` when the pilot goes offline. Core reads none of it. It lasts as long as the
-store does, so what must survive a restart of your process goes in `resumeData` too.
+initial)`, a signal. The same key gives the same signal, a second name goes after a dot
+(`plugin:<plugin id>.<name>`), and it goes back to `initial` when the pilot goes offline
+or the account signs out, so never change `initial` in place. Core reads none of it. It
+belongs to one store, and a run's store is in your backend's process. So a window cannot
+see a run's state: send what a window shows as `readout`. What must survive a restart of
+your process goes in `resumeData`.
 
 **What a loop did** goes in the pilot's flight recorder, the same log core's bots write
 (`data/bot-logs/<characterID>.jsonl`). `flow.flying.log.write(line)` batches and sends
-it, and can never stop the loop. Give each run an id from `newRunID`, and read lines
-back with `readBotLog`. `action` is your own, as plain data with a `kind`, and `trace`
-is anything you want kept about a decision, which you read back yourself.
+it, and can never stop the loop. Some things to know:
+
+- Give each run an id from `newRunID`, and write one line of kind `start` when it first
+  starts, not when it comes back (`run.resumed`). A `start` line rotates the log, and only
+  three runs are kept.
+- `action` is your own, as plain data with a `kind`, and `trace` is anything you want kept
+  about a decision, which you read back yourself. Keep both plain and small: a line that
+  cannot be sent as JSON, or a batch over 64 KB, loses the whole batch, up to 500 lines.
+- `readBotLog` gives back the pilot's whole log, whoever wrote it, along with `trimmed` and
+  `unreadable` markers. Tell your lines by their `run`.
+- `stop()` is your last chance to write. Write the `end` line there and `await
+  flow.flying.log.flush()`: while a run is being stopped, the recorder is the one thing it
+  can still reach. If you end the run yourself, flush before you report `stopped`.
 
 ## Isolation
 

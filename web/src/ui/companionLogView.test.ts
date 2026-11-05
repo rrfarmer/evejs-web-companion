@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildLogView, clockOf, matchesFilter, parseLogLines, traceSummary } from "./companionLogView.ts";
+import { buildLogView, clockOf, isCompanionTrace, matchesFilter, parseLogLines, traceSummary } from "./companionLogView.ts";
 import type { BotLogEntry } from "../nav/botLog.ts";
 import { coarseTraceKey, type CompanionTrace, type DronesTrace } from "../nav/companionTrace.ts";
 
@@ -150,6 +150,7 @@ test("rows are newest first, with a tick's lines kept in the order they happened
     line({ kind: "decide", seq: 2, phase: "Fighting", why: "Still engaging" }),
   ];
   const view = buildLogView(entries);
+  assert.ok(isCompanionTrace(FULL_TRACE), "the companion's own trace is read as one");
   assert.deepEqual(
     view.rows.map((row) => row.index),
     [4, 1, 2, 3, 0],
@@ -236,4 +237,21 @@ test("a line with nothing optional still renders", () => {
   assert.equal(view.rows.length, 3);
   assert.equal(view.rows[0]!.text, "end");
   assert.equal(view.rows[0]!.summary, null);
+});
+
+test("another loop's trace in the pilot's log is shown as it was written, whatever it calls its parts", () => {
+  for (const trace of [
+    { drones: { rows: [{ id: 1, state: "out" }] } },
+    { util: { skipped: 2 } },
+    { ammo: { units: 3 } },
+    { combat: "engaged" },
+    { health: "low" },
+    { reason: "cheap" },
+    "cheap",
+    7,
+  ]) {
+    const view = buildLogView([line({ kind: "decide", seq: 1, phase: "Trading", why: "Buying", trace })]);
+    assert.equal(view.rows[0]?.summary, "(another loop's trace)", JSON.stringify(trace));
+    assert.deepEqual(view.rows[0]?.trace, trace);
+  }
 });

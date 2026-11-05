@@ -47,11 +47,16 @@ function fetchRecording(asked: { readonly path: string; readonly body: unknown }
   };
 }
 
-async function untilAsked(asked: readonly { readonly path: string }[], path: string): Promise<void> {
-  for (let tries = 0; tries < 400 && !asked.some((request) => request.path === path); tries += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
+test("signing out and choosing a pilot put a plugin's state back as well", () => {
+  const store = createClientStore();
+  const state = store.pluginState("plugin:trader", 0);
+  state.set(5);
+  store.apply({ type: "session/logged-out" });
+  assert.equal(state.get(), 0);
+  state.set(5);
+  store.apply({ type: "character/online", character: CHARACTER, station: null } as never);
+  assert.equal(state.get(), 0);
+});
 
 test("a line written to the flight recorder reaches this pilot's log, with an action of the plugin's own", async () => {
   const asked: { readonly path: string; readonly body: unknown }[] = [];
@@ -66,7 +71,7 @@ test("a line written to the flight recorder reaches this pilot's log, with an ac
     t: "2026-11-05T12:00:00.000Z", kind: "issue", run: "r1",
     action: { kind: "buyOre" }, trace: { reason: "cheap" },
   });
-  await untilAsked(asked, "/api/bots/bot-log");
+  await flow.flying.log.flush();
   const sent = asked.find((request) => request.path === "/api/bots/bot-log")?.body as { entries: Record<string, unknown>[] };
   assert.deepEqual(sent.entries[0]?.action, { kind: "buyOre" });
   assert.deepEqual(sent.entries[0]?.trace, { reason: "cheap" });
