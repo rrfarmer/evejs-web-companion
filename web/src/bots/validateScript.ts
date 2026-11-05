@@ -20,7 +20,7 @@ import {
   type LoopBlock,
   type MacroStep,
 } from "./botScript.ts";
-import { MACRO_SPECS } from "./macroSpecs.ts";
+import { macroSpec } from "./macroSpecs.ts";
 import { haulingLeg } from "../nav/corporateHauling.ts";
 
 /**
@@ -173,13 +173,18 @@ function validateLoop(loop: LoopBlock, hasWatches: boolean, problems: ScriptProb
 }
 
 function validateStep(step: MacroStep, problems: ScriptProblem[]): void {
-  const spec = MACRO_SPECS[step.macro];
+  const spec = macroSpec(step.macro);
+  if (spec === null) {
+    // A plugin block whose plugin left the build after the draft was opened.
+    problems.push(blocking(step.id, "This step comes from a plugin this app no longer has."));
+    return;
+  }
 
   for (const argSpec of spec.args) {
     const arg = step.args[argSpec.key];
     if (arg === undefined) {
       if (argSpec.required) {
-        const label = ARG_LABEL[argSpec.key] ?? "something it needs";
+        const label = ARG_LABEL[argSpec.key] ?? argSpec.label?.toLowerCase() ?? "something it needs";
         problems.push(blocking(step.id, `This step needs ${label}.`));
       }
       continue;
@@ -277,6 +282,17 @@ function validateStep(step: MacroStep, problems: ScriptProblem[]): void {
     const bay = step.args["transportBay"];
     if (bay && (bay.kind !== "place" || !["cargo", "ore-hold"].includes(bay.place))) {
       problems.push(blocking(step.id, "A hauling hold restriction must be cargo or ore hold."));
+    }
+  }
+
+  if (step.macro === "board-ship") {
+    // Neither argument is required alone; a ship with neither is no ship at all.
+    const name = step.args["shipName"];
+    const type = step.args["shipType"];
+    const named = name?.kind === "text" && name.text.trim().length > 0;
+    const typed = type?.kind === "itemType" && type.typeID !== null;
+    if (!named && !typed) {
+      problems.push(blocking(step.id, "Say which ship to board: its name, its type, or both."));
     }
   }
 

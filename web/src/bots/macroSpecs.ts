@@ -4,7 +4,8 @@
 // about what a macro needs. The runtime behaviour of each macro is separate
 // (nav/macros, slice B).
 
-import type { Arg, MacroID } from "./botScript.ts";
+import { isPluginMacro, type Arg, type CoreMacroID } from "./botScript.ts";
+import { pluginMacro } from "./pluginMacros.ts";
 
 export interface MacroArgSpec {
   readonly key: string;
@@ -12,6 +13,11 @@ export interface MacroArgSpec {
   readonly required: boolean;
   /** Station-shaped argument which also accepts a dockable player structure. */
   readonly dockable?: boolean;
+  /**
+   * What the editor calls it. A plugin's block says it here; core's are named by
+   * key in editorOptions.ts and macroCatalogView.ts.
+   */
+  readonly label?: string;
 }
 
 export interface MacroSpec {
@@ -20,7 +26,7 @@ export interface MacroSpec {
   readonly untilRequired: boolean;
 }
 
-export const MACRO_SPECS: Readonly<Record<MacroID, MacroSpec>> = {
+export const MACRO_SPECS: Readonly<Record<CoreMacroID, MacroSpec>> = {
   undock: { args: [], untilRequired: false },
   "travel-to-station": {
     args: [{ key: "station", kind: "station", required: true, dockable: true }],
@@ -229,9 +235,15 @@ export const MACRO_SPECS: Readonly<Record<MacroID, MacroSpec>> = {
   // Docked: board the hull refit-ship swapped out earlier in this run. No
   // args: the hull is whatever this run was flying, read off the run's board.
   "board-previous-ship": { args: [], untilRequired: false },
-  // Docked: board a ship parked here that has a planetary hold, as fitted.
-  // No args: the hold is read off each hull, never picked by the player.
-  "board-planetary-hauler": { args: [], untilRequired: false },
+  // Docked: board a ship parked here by its name, its type, or both. Neither is
+  // required on its own; the validator asks for at least one.
+  "board-ship": {
+    args: [
+      { key: "shipName", kind: "text", required: false },
+      { key: "shipType", kind: "itemType", required: false },
+    ],
+    untilRequired: false,
+  },
   // Docked: move an item between the hangar and the ship's holds. `amount`
   // absent = move ALL of that item.
   "move-items": {
@@ -282,31 +294,6 @@ export const MACRO_SPECS: Readonly<Record<MacroID, MacroSpec>> = {
   },
   // Warp to the accepted mission's own site (the journal's marked spot, asked of the mission's agent).
   "fly-to-mission-site": { args: [], untilRequired: false },
-  // Restart every EXPIRED extractor program across all colonies, reusing each
-  // extractor's own last resource. Runs from anywhere (PI is remote).
-  "restart-extractors": { args: [], untilRequired: false },
-  // Goods leave a colony only through its command centre. `fullPercent` is
-  // OPTIONAL: left unset, the block waits for the centre to reach the shipped
-  // default (80) before it launches what it is holding.
-  "launch-commodities": {
-    args: [
-      { key: "fullPercent", kind: "count", required: false },
-      // Explicitly bypass the fill threshold for an immediate haul. Empty
-      // centres and launch cooldowns still keep their usual guards.
-      { key: "anyAmount", kind: "toggle", required: false },
-      // Optional: absent = every colony, the shipped behaviour. The Haul
-      // button sets it to the colonies the player ticked.
-      { key: "planets", kind: "planetList", required: false },
-    ],
-    untilRequired: false,
-  },
-  // In space: empty every launch container of yours in THIS system into the
-  // ship. No args: the server's own launch list says where each one is.
-  "collect-launches": { args: [], untilRequired: false },
-  // In space: empty every customs office in THIS system that holds goods of
-  // yours into the ship. No args: an office is found by its group, and what it
-  // lists is this pilot's own, so there is nothing to name.
-  "collect-customs": { args: [], untilRequired: false },
   // Docked: quote the active ship + its fitted modules at the repair shop and
   // fix whatever is damaged (the station charges the wallet).
   "repair-ship": { args: [], untilRequired: false },
@@ -412,24 +399,11 @@ export const MACRO_SPECS: Readonly<Record<MacroID, MacroSpec>> = {
   "recover-scan-probes": { args: [], untilRequired: false },
 };
 
-/** How full a command centre must get before `launch-commodities` fires. */
-export const LAUNCH_FULL_PERCENT_DEFAULT = 80;
-
 /**
- * The launch threshold this step will actually use, as a percentage.
- *
- * ⚠ ONE CLAMP, TWO READERS. The block's sentence in the editor and the decider
- * that fires the launch must agree, and nothing stops a player typing 0 or 500
- * into a `count` arg — validateScript bounds loop repeats and nothing else. Two
- * separate clamps would drift, and the way that shows up is a bot doing
- * something its own description said it would not.
+ * A block's spec, core's or a plugin's; null for an id no table and no plugin
+ * in this build knows.
  */
-export function launchFullPercent(arg: Arg | undefined, anyAmount: Arg | undefined = undefined): number {
-  if (anyAmount?.kind === "toggle" && anyAmount.enabled) {
-    return 0;
-  }
-  if (arg === undefined || arg.kind !== "count" || !Number.isFinite(arg.value)) {
-    return LAUNCH_FULL_PERCENT_DEFAULT;
-  }
-  return Math.min(100, Math.max(1, Math.round(arg.value)));
+export function macroSpec(id: string): MacroSpec | null {
+  if (isPluginMacro(id)) return pluginMacro(id)?.spec ?? null;
+  return Object.hasOwn(MACRO_SPECS, id) ? MACRO_SPECS[id as CoreMacroID] : null;
 }

@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // THE SAME HOLDINGS AS PLANETARY INDUSTRY.
 //
-// A unit held is a `Holding` (bridge/piStock.ts): so much of one type, in one
+// A unit held is a `Holding` (bridge/stockHoldings.ts): so much of one type, in one
 // place, belonging to one pilot or corporation, read at one instant. Holdings
 // are never merged across places; the resolver is handed the per-type sum, and
 // the screen keeps every place so a unit is always said with where it sits.
@@ -21,8 +21,7 @@
 
 import type { JsonValue } from "./wire.ts";
 import type { IndustryChain, IndustryLine } from "./industryChain.ts";
-import { compareHoldings, stationWords, type Holding } from "./piStock.ts";
-import { decodeStockStack, type PilotStockStack } from "./piRoster.ts";
+import { compareHoldings, decodeStockStack, stationWords, type Holding, type PilotStockStack } from "./stockHoldings.ts";
 
 /** One pilot's answer to a stock read. */
 export interface PilotStockAnswer {

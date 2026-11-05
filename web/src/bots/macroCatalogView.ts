@@ -7,9 +7,10 @@
 // The parameters are DERIVED from the shared `macroSpecs.ts`, so the palette can
 // never offer a control for an argument the codec/validator don't know about.
 
-import { MACRO_IDS, type Arg, type MacroID } from "./botScript.ts";
+import { MACRO_IDS, isPluginMacro, type Arg, type CoreMacroID, type MacroID } from "./botScript.ts";
 import { MACRO_SPECS, type MacroArgSpec } from "./macroSpecs.ts";
 import { macroName } from "./scriptText.ts";
+import { pluginMacro, pluginMacros, type PluginMacro } from "./pluginMacros.ts";
 
 /** Which inspector widget fills a parameter — one per Arg kind (kept in step). */
 export type ParamPicker = Arg["kind"];
@@ -127,18 +128,20 @@ const PARAM_LABEL: Readonly<Record<string, string>> = {
   fullPercent: "Launch once this full (%)",
   anyAmount: "Launch any amount",
   planets: "Only these colonies",
+  shipName: "Ship's name",
+  shipType: "Ship type",
 };
 
 function paramView(arg: MacroArgSpec): MacroParamView {
   return {
     key: arg.key,
-    label: PARAM_LABEL[arg.key] ?? arg.key,
+    label: arg.label ?? PARAM_LABEL[arg.key] ?? arg.key,
     picker: arg.kind,
     required: arg.required,
   };
 }
 
-function entry(id: MacroID, category: BlockCategory, does: string, needs: string | null): MacroCatalogEntry {
+function entry(id: CoreMacroID, category: BlockCategory, does: string, needs: string | null): MacroCatalogEntry {
   const spec = MACRO_SPECS[id];
   return {
     id,
@@ -152,7 +155,7 @@ function entry(id: MacroID, category: BlockCategory, does: string, needs: string
 }
 
 /** Exhaustive by the Record type — a new macro cannot compile without an entry. */
-const ENTRIES: Readonly<Record<MacroID, MacroCatalogEntry>> = {
+const ENTRIES: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = {
   undock: entry("undock", "movement", "Undocks your ship.", null),
   "travel-to-station": entry(
     "travel-to-station",
@@ -324,11 +327,11 @@ const ENTRIES: Readonly<Record<MacroID, MacroCatalogEntry>> = {
     "Boards the right hull from your hangar if you are flying something else, then applies the saved fitting you picked (yours or your corporation's) — modules pulled from this station's hangar.",
     "Being docked, the saved fitting, and its modules in the hangar",
   ),
-  "board-planetary-hauler": entry(
-    "board-planetary-hauler",
+  "board-ship": entry(
+    "board-ship",
     "ship",
-    "Gets into a ship parked here that has a planetary commodities hold, such as an Epithal, as it is fitted. Nothing to pick: it reads each hull's holds. Back into the earlier ship takes you back to the ship you left.",
-    "Being docked where a ship with a planetary hold is parked",
+    "Gets into a ship parked here, picked as you know it: by the name you gave it, by its type, or both. Of several that match, the same one every run.",
+    "Being docked where the ship is parked",
   ),
   "board-previous-ship": entry(
     "board-previous-ship",
@@ -371,30 +374,6 @@ const ENTRIES: Readonly<Record<MacroID, MacroCatalogEntry>> = {
     "missions",
     "Warps to the site of the mission you accepted — the spot the agent marked for you. Finishes when the warp lands. Put Fight the rats right after it.",
     "An accepted mission, in the mission's system",
-  ),
-  "restart-extractors": entry(
-    "restart-extractors",
-    "planets",
-    "Checks every planet colony you own and restarts each extractor whose program has run out, on the same resource it was already pulling. Works from anywhere.",
-    "A planet colony with extractors",
-  ),
-  "launch-commodities": entry(
-    "launch-commodities",
-    "planets",
-    "Watches the command centre of every colony you own and launches what it is holding once the centre is full enough, dropping a container in space beside the planet for a hauler to collect. The server charges planetary export tax for the launch.",
-    "A planet colony whose command centre is holding goods",
-  ),
-  "collect-launches": entry(
-    "collect-launches",
-    "planets",
-    "Flies to each container your command centres launched in this system and takes what is inside, each into the right hold (an Epithal's planetary hold takes planetary goods). It finds them from your launch list, so there is no scanning. Finishes when every launch here is collected, or when the ship is full.",
-    "Being in space in the system of your launches",
-  ),
-  "collect-customs": entry(
-    "collect-customs",
-    "planets",
-    "Flies to each customs office in this system that is holding planetary goods of yours and takes what is inside, each into the right hold (an Epithal's planetary hold takes planetary goods). The Planetary Industry window's Haul button puts the goods there; this block brings them home. Finishes when every office here is empty, or when the ship is full.",
-    "Being in space in the system of your colonies",
   ),
   "repair-ship": entry(
     "repair-ship",
@@ -533,13 +512,42 @@ const ENTRIES: Readonly<Record<MacroID, MacroCatalogEntry>> = {
   ),
 };
 
-export const MACRO_CATALOG: Readonly<Record<MacroID, MacroCatalogEntry>> = ENTRIES;
+export const MACRO_CATALOG: Readonly<Record<CoreMacroID, MacroCatalogEntry>> = ENTRIES;
 
-/** The palette list, in menu order. */
+/** Core's palette list, in menu order. */
 export const MACRO_CATALOG_LIST: readonly MacroCatalogEntry[] = MACRO_IDS.map((id) => ENTRIES[id]);
 
+function pluginEntry(macro: PluginMacro): MacroCatalogEntry {
+  return {
+    id: macro.id,
+    name: macro.name,
+    category: macro.category,
+    does: macro.does,
+    needs: macro.needs,
+    params: macro.spec.args.map(paramView),
+    untilRequired: macro.spec.untilRequired,
+  };
+}
+
+/**
+ * The palette list: core's blocks in menu order, then each plugin's in the
+ * order it registered them. The category chips sort them into their loops.
+ */
+export function macroCatalogList(): readonly MacroCatalogEntry[] {
+  const plugins = pluginMacros();
+  return plugins.length === 0 ? MACRO_CATALOG_LIST : [...MACRO_CATALOG_LIST, ...plugins.map(pluginEntry)];
+}
+
+/**
+ * A block's palette entry. A plugin block whose plugin has left the build is
+ * still named, by its id, so a draft opened before it left can be edited away.
+ */
 export function macroEntry(id: MacroID): MacroCatalogEntry {
-  return ENTRIES[id];
+  if (!isPluginMacro(id)) return ENTRIES[id];
+  const macro = pluginMacro(id);
+  return macro === null
+    ? { id, name: id, category: "flow", does: "A block from a plugin this app does not have.", needs: null, params: [], untilRequired: false }
+    : pluginEntry(macro);
 }
 
 /**
@@ -549,6 +557,6 @@ export function macroEntry(id: MacroID): MacroCatalogEntry {
  * an empty bucket.
  */
 export function categoriesInUse(): readonly BlockCategory[] {
-  const present = new Set(MACRO_CATALOG_LIST.map((e) => e.category));
+  const present = new Set(macroCatalogList().map((e) => e.category));
   return CATEGORY_ORDER.filter((c) => present.has(c));
 }

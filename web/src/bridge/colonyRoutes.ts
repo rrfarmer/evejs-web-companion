@@ -56,8 +56,8 @@ export function isRoutedInto(colony: Colony, pinID: number, typeID: number): boo
  * what lets a colony with no extractors keep its imports on the launchpad
  * beside what it makes from them.
  *
- * Mirrored by factoryInputTypeIDs in src/piCustomsExport.js, for the hop the
- * Haul button makes before the run starts.
+ * Read by the collect-customs block, which sends a launchpad's goods up at its
+ * office on the pilot's own session and leaves these behind.
  */
 export function factoryInputTypeIDs(
   colony: Pick<Colony, "routes"> & { readonly pins: readonly Pick<ColonyPin, "pinID" | "kind">[] },

@@ -4,7 +4,7 @@
   "watch": { "pilot": "e2epi" },
   "setup": [
     { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
-    { "colonyStock": { "planetID": 40161463, "pin": "command", "type": "Base Metals", "quantity": 2000 }, "user": "e2epi" },
+    { "colonyStock": { "planetID": 40161463, "pin": "command", "type": "Noble Metals", "quantity": 2000 }, "user": "e2epi", "note": "not what this colony extracts: its launchpad's Base Metals grow with the world's age, and this row reads the launch alone" },
     "webUp",
     { "webLogin": "e2epi" },
     { "webClick": { "role": "button", "name": "Planetary Industry" } },
@@ -18,7 +18,7 @@
     { "wait": 3, "note": "the board keeps the run's own line until the bot has let go of the pilot" },
     { "webClick": { "role": "button", "name": "Refresh" } },
     { "webClick": { "role": "tab", "name": "Stock" } },
-    { "webExpect": { "role": "row", "name": "Base Metals" }, "text": "2,0" },
+    { "webExpect": { "role": "row", "name": "Noble Metals" }, "text": "2,000", "note": "the 2,000 launched from the command centre" },
     { "webShot": "stock after the launch" },
     { "colonyRead": "e2epi", "note": "what the server holds now" }
   ],

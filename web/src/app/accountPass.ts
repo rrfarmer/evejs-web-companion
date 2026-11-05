@@ -17,7 +17,7 @@
 // and signs every one of them out when the window lets go.
 //
 // ⚠ A SIGN-IN, NEVER A SELECT. A token minted here selects no character, so it
-// undocks nothing and claims no hull (app/piRosterRead.ts has the full
+// undocks nothing and claims no hull (the PI Manager plugin's roster read, plugins/pi-manager/lib/piRosterRead.ts, has the full
 // argument). The bot host mints its own session for a start; this token only
 // names the account that asks.
 //
@@ -139,7 +139,7 @@ export interface AcrossAccounts<T> {
 /**
  * Read one list from every account in turn and merge the answers.
  *
- * ⚠ ONE ACCOUNT AT A TIME, for app/piRosterRead.ts's reason: a browser allows
+ * ⚠ ONE ACCOUNT AT A TIME, for the PI roster read's reason (plugins/pi-manager/lib/piRosterRead.ts): a browser allows
  * about six connections per origin, and a dozen reads at once queue the
  * player's own clicks behind them.
  *

@@ -91,7 +91,9 @@ import {
   type WorldEntity,
   type WorldRef,
 } from "./botScript.ts";
-import { MACRO_SPECS, type MacroSpec } from "./macroSpecs.ts";
+import { macroSpec, type MacroSpec } from "./macroSpecs.ts";
+import { isPluginMacro } from "./botScript.ts";
+import { pluginMacroFormerly, pluginOfMacro } from "./pluginMacros.ts";
 
 // ─── Result ──────────────────────────────────────────────────────────────────
 
@@ -105,9 +107,8 @@ export type DecodeResult =
 // the structural spec — which arguments a macro takes, and whether it must carry
 // an `until`. It lives with the codec because "what a valid file may hold" is the
 // codec's question, and a macro added to the runner without a spec entry here
-// simply cannot be imported until it gets one.
-
-const KNOWN_MACROS = new Set<string>(Object.keys(MACRO_SPECS));
+// simply cannot be imported until it gets one. A plugin's block is known while
+// that plugin is in the build (macroSpec reads pluginMacros.ts).
 // These were valid v1 script constructs while the browser owned chat. Preserve
 // their names only to refuse old saved/imported documents plainly; never add
 // them back to the authoring schema.
@@ -149,6 +150,10 @@ const SAY = {
     safe.length > 0
       ? `This script uses "${safe}", which is no longer available in the web companion.`
       : "This script uses a feature that is no longer available in the web companion.",
+  missingPlugin: (safe: string): string =>
+    safe.length > 0
+      ? `This script uses a block from the plugin "${safe}", which this app does not have. Add or switch on that plugin to use it.`
+      : "This script uses a block from a plugin this app does not have.",
   unknownCondition: "This script uses a check this app does not have.",
   conditionOffSite:
     "This script checks for something out in space at a point where the ship may not be there yet.",
@@ -480,15 +485,22 @@ function readBranchSide(raw: unknown, ctx: Ctx): readonly MacroStep[] {
 }
 
 function readMacroStep(obj: Readonly<Record<string, unknown>>, ctx: Ctx): MacroStep {
-  const macro = obj["macro"];
+  // A block that moved out of core into a plugin is read under its new id, so
+  // a script saved before the move runs on as it was written.
+  const named = obj["macro"];
+  const macro = typeof named === "string" ? pluginMacroFormerly(named) ?? named : named;
   if (typeof macro === "string" && RETIRED_WEB_COMPANION_MACROS.has(macro)) {
     refuse(SAY.retiredWebCompanionFeature(safeToken(macro)));
   }
-  if (typeof macro !== "string" || !KNOWN_MACROS.has(macro)) {
-    refuse(SAY.unknownMacro(safeToken(macro)));
+  const spec = typeof macro === "string" ? macroSpec(macro) : null;
+  if (spec === null) {
+    // A plugin's block names its plugin, so the player is told what to add
+    // rather than that the script is broken. The stored script is untouched.
+    refuse(typeof macro === "string" && isPluginMacro(macro)
+      ? SAY.missingPlugin(safeToken(pluginOfMacro(macro)))
+      : SAY.unknownMacro(safeToken(macro)));
   }
   const id = readRawId(obj["id"]);
-  const spec = MACRO_SPECS[macro as MacroID];
   // A count normally clamps into its broad document range. Mission level is a
   // policy choice: an explicit 0 or 5 must never decode as another level.
   if (macro === "find-distribution-agent" && obj["args"] !== undefined) {

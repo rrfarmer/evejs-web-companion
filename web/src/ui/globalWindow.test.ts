@@ -18,8 +18,8 @@ import { readFileSync } from "node:fs";
 import {
   BUILDER_TAB,
   DEFAULT_GLOBAL_POS,
-  GLOBAL_LAUNCHERS,
-  GLOBAL_TABS,
+  CORE_GLOBAL_LAUNCHERS,
+  globalLaunchers,
   isGlobalTab,
   isGlobalWindow,
   loadGlobalWindows,
@@ -77,12 +77,12 @@ test("every global tab has a door somewhere", () => {
   // brand (GlobalLaunchers.svelte), which the character bar AND the Pilot
   // Hangar carry — so each opens with nobody in the client as well as over a
   // cockpit. So every global tab must be a launcher and none a rail entry.
-  const launchers = new Set(GLOBAL_LAUNCHERS.map((launcher) => launcher.id));
-  assert.deepEqual([...launchers].sort(), [...GLOBAL_TABS].sort(), "every global tab needs exactly one launcher");
-  assert.equal(launchers.size, GLOBAL_LAUNCHERS.length, "a global tab is launched twice");
+  const launchers = new Set(globalLaunchers().map((launcher) => launcher.id));
+  assert.equal(launchers.size, globalLaunchers().length, "a global tab is launched twice");
+  for (const id of launchers) assert.equal(isGlobalTab(id), true, `${id} has a door but is not global`);
   for (const docked of [true, false]) {
     const offered = new Set(launchableTabsFor(docked).map((tab) => tab.id));
-    for (const id of GLOBAL_TABS) {
+    for (const id of launchers) {
       assert.equal(offered.has(id), false, `'${id}' opens from the brand strip, not the rail`);
     }
   }
@@ -90,17 +90,11 @@ test("every global tab has a door somewhere", () => {
   assert.match(HANGAR, /<GlobalLaunchers/, "the Pilot Hangar must carry the launchers");
 });
 
-test("the PI Manager is global", () => {
-  // R108 slice 3. A board of every assigned pilot's colonies is about all of
-  // them, so a pilot switch must not tear it down.
-  assert.equal(isGlobalTab("piManager"), true);
-});
-
 test("a global tab that is not launchable is still a named tab", () => {
   // The window's title comes from `tabLabel`, and NEOCOM_GLYPHS is exhaustive
   // over TabID — so a global tab missing from the table would be a window
   // called by its id, or a build failure in the icon map.
-  for (const id of GLOBAL_TABS) {
+  for (const { id } of CORE_GLOBAL_LAUNCHERS) {
     assert.equal(
       TABS.some((tab) => tab.id === id),
       true,
@@ -257,7 +251,7 @@ test("a window saved under the old single-window key is carried over, once", () 
 });
 
 test("a stored id that is no longer global is dropped rather than drawn", () => {
-  // The migration path if a tab ever leaves GLOBAL_TABS: a leftover record must
+  // The migration path if a tab ever stops being global: a leftover record must
   // not open a window on a layer that no longer claims that panel.
   installStorage();
   localStorage.setItem(
@@ -323,4 +317,24 @@ test("a floating Bot Builder is not reopened by a reload", () => {
   installStorage();
   saveGlobalWindows([win("botManager"), win(BUILDER_TAB)]);
   assert.deepEqual(loadGlobalWindows().map((w) => w.id), ["botManager"]);
+});
+
+// ─── a plugin's global window ───────────────────────────────────────────────
+
+test("a plugin's global window gets a launcher, a named tab, a glyph and a stored place, and core keeps its own", async () => {
+  const { registerGlobalWindow } = await import("./globalWindow.ts");
+  const { neocomGlyph } = await import("./neocomIcons.ts");
+  const { allTabs, tabLabel } = await import("./tabs.ts");
+  const glyph = ["M4 4h16v16H4z"];
+  registerGlobalWindow({ id: "plugin:test-board", label: "Board", title: "Test board", hint: "A plugin board", glyph, plugin: { id: "test-board", name: "Test", label: "Board" } });
+  assert.equal(isGlobalTab("plugin:test-board"), true);
+  assert.deepEqual(globalLaunchers().slice(0, CORE_GLOBAL_LAUNCHERS.length), [...CORE_GLOBAL_LAUNCHERS], "core's launchers come first, unchanged");
+  assert.equal(tabLabel("plugin:test-board"), "Test board");
+  assert.deepEqual(neocomGlyph("plugin:test-board"), glyph);
+  const tab = allTabs().find((entry) => entry.id === "plugin:test-board");
+  assert.equal(tab?.launchable, false, "a global window never sits in the rail");
+  assert.throws(() => registerGlobalWindow({ id: "plugin:test-board", label: "Again", title: "Again", hint: "", glyph, plugin: { id: "test-board", name: "Test", label: "Again" } }), /already a tab/);
+  installStorage();
+  saveGlobalWindows(openGlobal([], "plugin:test-board"));
+  assert.deepEqual(loadGlobalWindows().map((win) => win.id), ["plugin:test-board"]);
 });

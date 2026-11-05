@@ -1,7 +1,7 @@
 // Reading what the pilots and their corporations hold of one build tree
 // (goal R109 slice 4) — with NO character selected.
 //
-// ⚠ A SIGN-IN, NEVER A SELECT, exactly as the PI roster read (app/piRosterRead.ts).
+// ⚠ A SIGN-IN, NEVER A SELECT, exactly as the PI roster read (plugins/pi-manager/lib/piRosterRead.ts).
 // A pilot's stock is in the gateway snapshot, which answers for any pilot the
 // signed-in account owns. So each account is signed in on a throwaway token,
 // asked about its pilots, and signed out. A sign-in claims no hull; a bot
@@ -12,15 +12,14 @@
 // player's own clicks behind them.
 //
 // ⚠ CORP HANGARS NEED A PILOT OF THAT CORP ONLINE, here or flown by a server
-// bot (app/piCorpRead.ts), because corp goods are in no pilot's snapshot. A
+// bot (app/corpStockRead.ts), because corp goods are in no pilot's snapshot. A
 // corp nobody can read through says so; it is not reported as empty.
 
 import { loadRosterStock as apiLoadRosterStock, login as apiLogin, logout as apiLogout, ROSTER_PLANETS_MAX_IDS } from "./api.ts";
 import type { JsonValue } from "../bridge/wire.ts";
-import { readCorpStock, type BotPilot, type OnlinePilot } from "./piCorpRead.ts";
-import { holdingsFromCorpReads, type CorpStockRead, type Holding } from "../bridge/piStock.ts";
+import { readCorpStock, type BotPilot, type OnlinePilot } from "./corpStockRead.ts";
+import { holdingsFromCorpReads, type CorpStockRead, type Holding, type PilotStockStack } from "../bridge/stockHoldings.ts";
 import { decodeRosterStock } from "../bridge/industryStock.ts";
-import type { PilotStockStack } from "../bridge/piRoster.ts";
 
 /** A hangar pilot whose stock counts. */
 export interface StockPilot {
@@ -71,7 +70,7 @@ export const LIVE_INDUSTRY_STOCK_DEPS: IndustryStockDeps = {
   },
   loadRosterStock: (characterIDs, typeIDs, token) =>
     apiLoadRosterStock(characterIDs, typeIDs, { token, priority: "user" }) as Promise<JsonValue>,
-  readCorpStock: (corporationIDs, online, bots, keep) => readCorpStock(corporationIDs, online, bots, undefined, keep),
+  readCorpStock: (corporationIDs, online, bots, keep) => readCorpStock(corporationIDs, online, bots, keep),
   now: () => Date.now(),
 };
 

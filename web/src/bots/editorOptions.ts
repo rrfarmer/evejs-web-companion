@@ -35,10 +35,11 @@ import {
   type ConditionKind,
   type InterruptResponse,
   type ItemPlace,
+  type CoreMacroID,
   type MacroID,
 } from "./botScript.ts";
-import { MACRO_IDS } from "./botScript.ts";
-import { MACRO_SPECS, type MacroArgSpec } from "./macroSpecs.ts";
+import { MACRO_IDS, isPluginMacro } from "./botScript.ts";
+import { macroSpec, type MacroArgSpec } from "./macroSpecs.ts";
 
 // ─── Argument widgets ────────────────────────────────────────────────────────
 //
@@ -173,6 +174,8 @@ const ARG_KEY_LABEL: Readonly<Record<string, string>> = {
   fullPercent: "Launch once this full (%)",
   anyAmount: "Launch any amount",
   planets: "Only these colonies",
+  shipName: "Ship's name",
+  shipType: "Ship type",
   corporation: "Corporation",
   seconds: "Seconds",
   fitting: "Saved fitting",
@@ -250,7 +253,7 @@ export function itemListHint(key: string): string {
 }
 
 function argLabel(arg: MacroArgSpec): string {
-  return ARG_KEY_LABEL[arg.key] ?? ARG_KIND_LABEL[arg.kind];
+  return arg.label ?? ARG_KEY_LABEL[arg.key] ?? ARG_KIND_LABEL[arg.kind];
 }
 
 /** One argument, described for the inspector: what it is, whether it is
@@ -307,7 +310,7 @@ export interface MacroArgDescriptors {
 }
 
 function macroArgDescriptors(id: MacroID): MacroArgDescriptors {
-  const spec = MACRO_SPECS[id];
+  const spec = macroSpec(id) ?? { args: [], untilRequired: false };
   const all = spec.args.map(argDescriptor);
   return {
     macro: id,
@@ -325,9 +328,14 @@ function macroArgDescriptors(id: MacroID): MacroArgDescriptors {
  * to `MacroID` without a `MACRO_SPECS` entry fails to compile before it ever
  * reaches this table, so the inspector can never be missing a macro's args.
  */
-export const MACRO_ARG_DESCRIPTORS: Readonly<Record<MacroID, MacroArgDescriptors>> = Object.fromEntries(
+export const MACRO_ARG_DESCRIPTORS: Readonly<Record<CoreMacroID, MacroArgDescriptors>> = Object.fromEntries(
   MACRO_IDS.map((id) => [id, macroArgDescriptors(id)]),
-) as Readonly<Record<MacroID, MacroArgDescriptors>>;
+) as Readonly<Record<CoreMacroID, MacroArgDescriptors>>;
+
+/** A block's argument descriptors, core's from the table, a plugin's from its spec. */
+export function argDescriptorsFor(id: MacroID): MacroArgDescriptors {
+  return isPluginMacro(id) ? macroArgDescriptors(id) : MACRO_ARG_DESCRIPTORS[id];
+}
 
 // ─── Numeric bounds ──────────────────────────────────────────────────────────
 //

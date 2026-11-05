@@ -656,6 +656,8 @@ import { decideSupportCollection, freshSupportCollectionMemory, recordSupportCol
   type SupportCollectionResult, type SupportCollectionInput } from "../nav/miningSupportCollection.ts";
 import { SUPPORT_FLEET_READ_MAX_AGE_MS, decideMiningSupportFleet, freshMiningSupportFleetMemory, miningSupportFleetDiagnostic, type MiningSupportFleetCallDiagnostic, type MiningSupportFleetDiagnostic, type MiningSupportFleetFeedback, type MiningSupportFleetObservation, type MiningSupportFleetResult, type SupportFleetJoinAuthority } from "../nav/miningSupportFleet.ts";
 import { SCRIPT_MACROS, resolveStationRef, scriptTravelHome } from "../nav/scriptMacros.ts";
+import { pluginDeciders } from "../bots/pluginMacros.ts";
+import { macroReads } from "../bots/macroReads.ts";
 import {
   EMPTY_SURVEY_MEMORY,
   decideSurveyScan,
@@ -26037,7 +26039,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     "fly-to-mission-site",
   ]);
   const CONVO_MACROS = new Set(["request-mission", "accept-mission", "turn-in-mission"]);
-  const CARGO_MACROS = new Set(["accept-mission", "load-mission-cargo", "turn-in-mission", "unload-cargo", "refine-ore", "refit-ship", "board-previous-ship", "board-planetary-hauler", "move-items", "repair-ship", "sell-item", "jettison-cargo", "load-cargo", "haul-all", "route-hauler", "salvage-bookmarked-sites"]);
+  const CARGO_MACROS = new Set(["accept-mission", "load-mission-cargo", "turn-in-mission", "unload-cargo", "refine-ore", "refit-ship", "board-previous-ship", "board-ship", "move-items", "repair-ship", "sell-item", "jettison-cargo", "load-cargo", "haul-all", "route-hauler", "salvage-bookmarked-sites"]);
   // Blocks that need the ACTIVE HULL'S BAY LIST, contents included. Kept apart
   // from CARGO_MACROS because the two reads have very different prices: the
   // inventory panel is one call, `/bays` is one capacity call per candidate
@@ -27338,6 +27340,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         let piLaunches: ScriptObservation["piLaunches"] = null;
         let customsOffices: ScriptObservation["customsOffices"] = null;
         let planetaryHaulerShipIDs: ScriptObservation["planetaryHaulerShipIDs"] = null;
+        let shipNames: ScriptObservation["shipNames"] = null;
         let damagedItemIDs: ScriptObservation["damagedItemIDs"] = null;
         let scannerOperations: ScriptObservation["scannerOperations"] = null;
         const systemName = store.flight.get().solarSystemName;
@@ -27382,7 +27385,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             damagedItemIDs = null;
           }
         }
-        if (macro === "restart-extractors" || macro === "launch-commodities" || macro === "collect-customs") {
+        if (macroReads(macro, "colonies")) {
           try {
             const readAt = Date.now();
             const report = decodeColonyReport((await api.getPlanets(callOptions)).planets, readAt);
@@ -27435,7 +27438,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             colonies = null;
           }
         }
-        if (macro === "collect-launches") {
+        if (macroReads(macro, "piLaunches")) {
           try {
             // The page's own call (bridge/launchReads.ts), as the client's planet service makes it.
             piLaunches = (await readMyLaunches(bridgeAsk)).map((launch) => ({
@@ -27452,7 +27455,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             piLaunches = null;
           }
         }
-        if (macro === "collect-customs") {
+        if (macroReads(macro, "customsOffices")) {
           // ONE CONTAINER READ PER OFFICE IN THE SYSTEM, and only while this
           // block is active — the same bargain board-planetary-hauler strikes
           // when it pays one capacity read per parked ship. An office is a
@@ -27762,7 +27765,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         }
         // The salvager reads its hold only while emptying it at its station, not each tick it waits there for a site.
         const readsHolds = macro !== "salvage-bookmarked-sites" || hint.salvagerUnloading === true;
-        if (macro !== null && (MISSION_MACROS.has(macro) || (CARGO_MACROS.has(macro) && readsHolds))) {
+        // A plugin block asks for the holds by its definition (bots/macroReads.ts).
+        const cargoBlock = macro !== null && (CARGO_MACROS.has(macro) || macroReads(macro, "holds"));
+        if (macro !== null && (MISSION_MACROS.has(macro) || (cargoBlock && readsHolds))) {
           if (MISSION_MACROS.has(macro)) {
             try {
               journal = decodeJournal(await readJournal(bridgeAsk));
@@ -27790,7 +27795,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
               briefing = null;
             }
           }
-          if (CARGO_MACROS.has(macro) && readsHolds) {
+          if (cargoBlock && readsHolds) {
             try {
               const panel = await api.loadInventory(callOptions);
               // ⚠ THE VOLUMES ARE NOT DECORATION. Per-unit m³ is what lets the
@@ -27841,7 +27846,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           // reads; proving none is parked requires every hull's answer. In space
           // there is no hangar, and the one hull asked is the ship flown: a
           // hauler already out can haul from where it is.
-          if (macro === "board-planetary-hauler" && activeShipID !== null) {
+          if (macroReads(macro, "planetaryHolds") && activeShipID !== null) {
             const shipIDs = [...new Set([
               activeShipID,
               ...(stationHangar ?? []).filter((row) => row.categoryID === 6 && row.singleton).map((row) => row.itemID),
@@ -27861,6 +27866,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             planetaryHaulerShipIDs = haulers.length === 0 && reads.some((read) => read === null)
               ? null
               : haulers;
+          }
+          // The names the pilot gave its ships, for a block that boards one by
+          // name: the ship flown and every hull parked here, in one names read,
+          // as the client's hangar shows them (cfg.evelocations).
+          if (macroReads(macro, "shipNames") && activeShipID !== null) {
+            const shipIDs = [...new Set([
+              activeShipID,
+              ...(stationHangar ?? []).filter((row) => row.categoryID === 6 && row.singleton).map((row) => row.itemID),
+            ])];
+            try {
+              const answer = await api.resolveNames(shipIDs.map((id) => ({ kind: "evelocation" as const, id })), callOptions);
+              shipNames = Object.fromEntries(shipIDs.map((id) => [id, answer.names[`evelocation:${id}`] ?? null]));
+            } catch (error) {
+              if (isSessionLost(error)) throw error;
+              shipNames = null;
+            }
           }
           if (macro === "haul-all" || macro === "route-hauler") {
             try {
@@ -28043,6 +28064,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           piLaunches,
           customsOffices,
           planetaryHaulerShipIDs,
+          shipNames,
           damagedItemIDs,
           inSpace: status.inSpace,
           docked: status.docked,
@@ -28844,7 +28866,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // describeRefusal itself and classifies on the code, so it must not be
       // pre-translated here.
       refusalReason: readRefusalReason,
-      registry: SCRIPT_MACROS,
+      // Core's blocks, then every plugin block this build carries.
+      registry: { ...SCRIPT_MACROS, ...pluginDeciders() },
       travelHome: scriptTravelHome,
       log: botLogSink,
     };

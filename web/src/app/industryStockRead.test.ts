@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { readIndustryStock, type IndustryStockDeps } from "./industryStockRead.ts";
-import type { CorpStockRead } from "../bridge/piStock.ts";
+import type { CorpStockRead } from "../bridge/stockHoldings.ts";
 import type { JsonValue } from "../bridge/wire.ts";
 
 const PILOT_A = 90000001;

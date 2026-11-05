@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { BotScript, MacroID, MacroStep, ProgramNode } from "./botScript.ts";
+import type { BotScript, CoreMacroID, MacroID, MacroStep, ProgramNode } from "./botScript.ts";
 import { MACRO_SPECS } from "./macroSpecs.ts";
 import { validateScript, type ScriptProblem } from "./validateScript.ts";
 
@@ -265,7 +265,7 @@ test("a forever loop is fine when the bot has a watch elsewhere", () => {
 // came out — so the next macro added with a required arg and no label fails
 // here instead of reaching a player.
 test("every required arg on every macro gets a real label, never 'something it needs'", () => {
-  for (const macro of Object.keys(MACRO_SPECS) as MacroID[]) {
+  for (const macro of Object.keys(MACRO_SPECS) as CoreMacroID[]) {
     const spec = MACRO_SPECS[macro];
     const requiredKeys = spec.args.filter((a) => a.required).map((a) => a.key);
     if (requiredKeys.length === 0) continue;

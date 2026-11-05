@@ -796,7 +796,7 @@ export interface InterruptRow {
  * work, accept, load the package, fly the delivery, turn it in, fly back), cut
  * into blocks a player wires up — usually inside a Repeat loop.
  */
-export type MacroID =
+export type CoreMacroID =
   | "undock"
   | "travel-to-station"
   | "travel-to-system"
@@ -847,10 +847,9 @@ export type MacroID =
   // was flying before refit-ship swapped it out. Nothing to do when no
   // refit-ship in this run boarded anything.
   | "board-previous-ship"
-  // Docked: board whichever ship parked here has a planetary commodities hold
-  // (an Epithal), as it is fitted, noting the hull it leaves for
-  // board-previous-ship. Done at once when the active ship already has one.
-  | "board-planetary-hauler"
+  // Docked: board a ship parked here, by the name the pilot gave it, by its
+  // type, or both: the client's hangar pick and Board, as one block.
+  | "board-ship"
   | "move-items"
   | "warp-to-bookmark"
   // Take up and switch on the bookmark folders a bot works from (a shared folder is
@@ -863,23 +862,6 @@ export type MacroID =
   | "salvage-bookmarked-sites"
   | "find-combat-agent"
   | "fly-to-mission-site"
-  | "restart-extractors"
-  // Goods leave a colony ONLY from its command centre pin — the emulator
-  // refuses every other pin with CanOnlyLaunchFromCommandCenters. Watches
-  // each colony's command centre and launches what it holds once the centre
-  // is at least `fullPercent` full (default 80 when unset), dropping a
-  // container in space beside the planet for a hauler to collect. The server
-  // charges planetary export tax for the launch.
-  | "launch-commodities"
-  // The hauler's half of launch-commodities: in space, fly to each of your
-  // planetary launch containers in this system and take what is inside,
-  // using the server's own launch list (GetMyLaunchesDetails) to find them.
-  | "collect-launches"
-  // The hauler's half of the CUSTOMS-OFFICE export (src/piCustomsExport.js):
-  // in space, empty every customs office in this system that holds goods of
-  // yours into the ship. An office is a structure, not a listed launch, so the
-  // block reads each one to find out whether it holds anything.
-  | "collect-customs"
   | "repair-ship"
   // ── The market set. Place orders at the station's market (server confirm-gated).
   | "buy-item"
@@ -924,8 +906,22 @@ export type MacroID =
   | "analyze-signatures"
   | "recover-scan-probes";
 
-/** Every macro id — for exhaustive iteration in menus and tests. */
-export const MACRO_IDS: readonly MacroID[] = Object.freeze<MacroID[]>([
+/**
+ * A block a plugin adds: "<plugin>:<block>", as "pi-manager:restart-extractors".
+ * Namespaced so it can never take a core block's id, and open-ended because core
+ * does not know which plugins a build carries (bots/pluginMacros.ts).
+ */
+export type PluginMacroID = `${string}:${string}`;
+
+export type MacroID = CoreMacroID | PluginMacroID;
+
+/** True for a plugin's block, false for one of core's. Core ids never hold a colon. */
+export function isPluginMacro(id: string): id is PluginMacroID {
+  return id.includes(":");
+}
+
+/** Every core macro id — for exhaustive iteration in menus and tests. Plugins' are in pluginMacros.ts. */
+export const MACRO_IDS: readonly CoreMacroID[] = Object.freeze<CoreMacroID[]>([
   "undock",
   "travel-to-station",
   "travel-to-system",
@@ -958,17 +954,13 @@ export const MACRO_IDS: readonly MacroID[] = Object.freeze<MacroID[]>([
   "warp-to-ore-anomaly",
   "refit-ship",
   "board-previous-ship",
-  "board-planetary-hauler",
+  "board-ship",
   "move-items",
   "warp-to-bookmark",
   "use-bookmark-folders",
   "salvage-bookmarked-sites",
   "find-combat-agent",
   "fly-to-mission-site",
-  "restart-extractors",
-  "launch-commodities",
-  "collect-launches",
-  "collect-customs",
   "repair-ship",
   "buy-item",
   "sell-item",

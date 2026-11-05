@@ -62,21 +62,6 @@ test("every interrupt response has exactly one explicit run policy", () => {
   assert.deepEqual(Object.keys(INTERRUPT_RUN_POLICY).sort(), [...INTERRUPT_RESPONSES].sort());
 });
 
-// launch-commodities changes a colony's command centre AND spends money (the
-// server debits planetary export tax on every launch) — both risks are real,
-// and neither is a re-read-and-confirm the way unload-cargo's is, so a resumed
-// process must not replay it blind.
-test("launch-commodities is colony and financial risk, and not restart-safe", () => {
-  const entry = MACRO_RUN_POLICY["launch-commodities"];
-  assert.deepEqual([...entry.risks].sort(), ["colony", "financial"]);
-  assert.equal(entry.restartSafe, false);
-
-  const result = analyzeBotRunPolicy(script([step("launch-commodities")]));
-  assert.deepEqual(result.riskClasses, ["financial", "colony"]);
-  assert.equal(result.restartSafe, false);
-  assert.deepEqual(result.restartBlockers, ["launch-commodities"]);
-});
-
 test("interrupt actions are included in launch authority even when the program is harmless", () => {
   const base = step("wait");
   const launch = analyzeBotRunPolicy(script([base], [{

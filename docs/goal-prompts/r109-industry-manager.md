@@ -87,7 +87,7 @@ shared rounding function, and the other uses it.
 **no sign-in, no session** — and `stockFromSnapshot` (`server.js:19672`) walks every item
 with its hangar / ship / container and station. It throws away all but planetary
 categories (`PLANETARY_CATEGORY_IDS`). The same walk with a different filter is
-industry stock. Corp hangars come through `web/src/app/piCorpRead.ts`, and the
+industry stock. Corp hangars come through `web/src/app/corpStockRead.ts`, and the
 `Holding` type in `web/src/bridge/piStock.ts:35` (typeID, quantity, source, place, owner,
 read-at) is already generic. Only its display helpers are PI-specific.
 

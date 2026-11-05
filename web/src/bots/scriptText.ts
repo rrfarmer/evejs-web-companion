@@ -27,7 +27,8 @@ import type {
   SquadRoleArg,
   WorldRef,
 } from "./botScript.ts";
-import { launchFullPercent } from "./macroSpecs.ts";
+import { isPluginMacro } from "./botScript.ts";
+import { pluginMacro } from "./pluginMacros.ts";
 
 /** A percentage a player reads — always with its unit, never a bare number. */
 function pct(fraction: number): string {
@@ -91,6 +92,8 @@ function beltPhrase(belt: BeltArg): string {
 
 /** The palette/menu name of a macro. */
 export function macroName(macro: MacroID): string {
+  // A plugin's block names itself; one whose plugin left the build keeps its id.
+  if (isPluginMacro(macro)) return pluginMacro(macro)?.name ?? macro;
   switch (macro) {
     case "undock":
       return "Leave the station";
@@ -161,8 +164,8 @@ export function macroName(macro: MacroID): string {
       return "Refit from a saved fitting";
     case "board-previous-ship":
       return "Back into the earlier ship";
-    case "board-planetary-hauler":
-      return "Board a planetary hauler";
+    case "board-ship":
+      return "Board a ship";
     case "move-items":
       return "Move items";
     case "warp-to-bookmark":
@@ -175,14 +178,6 @@ export function macroName(macro: MacroID): string {
       return "Find a combat agent";
     case "fly-to-mission-site":
       return "Fly to the mission site";
-    case "restart-extractors":
-      return "Restart the planet extractors";
-    case "launch-commodities":
-      return "Launch from the command centre";
-    case "collect-launches":
-      return "Collect your planet launches";
-    case "collect-customs":
-      return "Collect from the customs offices";
     case "repair-ship":
       return "Repair the ship";
     case "buy-item":
@@ -263,22 +258,6 @@ const BAY_LABELS: Readonly<Record<string, string>> = {
   fleet: "fleet hangar",
   drone: "drone bay",
 };
-
-/**
- * " of Planet II and Planet IX", or "" when the step covers every colony. A
- * colony with no name is counted rather than printed by id (R7d).
- */
-function launchPlanetsPhrase(step: MacroStep): string {
-  const arg = step.args["planets"];
-  if (arg === undefined || arg.kind !== "planetList" || arg.planets.length === 0) {
-    return "";
-  }
-  const named = arg.planets.map((planet) => planet.name).filter((name): name is string => name !== null);
-  const unnamed = arg.planets.length - named.length;
-  const parts = unnamed > 0 ? [...named, unnamed === 1 ? "1 more colony" : `${unnamed} more colonies`] : named;
-  const list = parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-  return ` of ${list}`;
-}
 
 /** "the ore hold and the fuel bay", or "" when nothing is named. */
 function keptItemsPhrase(step: MacroStep): string {
@@ -564,6 +543,10 @@ function targetPhrase(step: MacroStep): string {
 }
 
 function macroPhrase(step: MacroStep): string {
+  if (isPluginMacro(step.macro)) {
+    const macro = pluginMacro(step.macro);
+    return macro?.sentence?.(step) ?? macroName(step.macro);
+  }
   switch (step.macro) {
     case "join-support-fleet": {
       const support = step.args["support"];
@@ -776,24 +759,18 @@ function macroPhrase(step: MacroStep): string {
     }
     case "fly-to-mission-site":
       return "Warp to the mission's own site";
-    case "restart-extractors":
-      return "Restart every expired extractor on your planets";
-    case "launch-commodities": {
-      // The SAME clamp the decider fires on, so the sentence cannot promise a
-      // threshold the block will not use.
-      const fullPercent = launchFullPercent(step.args["fullPercent"], step.args["anyAmount"]);
-      return fullPercent === 0
-        ? `Launch whatever the command centre${launchPlanetsPhrase(step)} holds`
-        : `Launch from the command centre${launchPlanetsPhrase(step)} once it is ${fullPercent}% full`;
-    }
-    case "collect-launches":
-      return "Collect every launch container of yours in this system";
-    case "collect-customs":
-      return "Empty every customs office in this system that holds your goods";
     case "board-previous-ship":
       return "Get back into the ship this run was flying before the refit";
-    case "board-planetary-hauler":
-      return "Get into a ship parked here that has a planetary hold";
+    case "board-ship": {
+      const name = step.args["shipName"];
+      const type = step.args["shipType"];
+      const named = name?.kind === "text" && name.text.trim().length > 0 ? name.text.trim() : null;
+      const typeName = type?.kind === "itemType" && type.typeID !== null ? type.name ?? "ship of the chosen type" : null;
+      if (named !== null && typeName !== null) return `Board the ${typeName} named "${named}"`;
+      if (named !== null) return `Board the ship named "${named}"`;
+      if (typeName !== null) return `Board a ${typeName} parked here`;
+      return "Board a ship parked here";
+    }
     case "repair-ship":
       return "Repair the ship at the station";
     case "salvage-wrecks":

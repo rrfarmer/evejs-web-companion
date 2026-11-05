@@ -9,8 +9,8 @@
 // opens the socket and adapts the shapes.
 //
 // It exists for actions the web gateway does not carry and the retail client
-// performs over this connection - today, moving planetary goods into a customs
-// office (src/piCustomsExport.js).
+// performs over this connection. It has no caller since the customs-office hop
+// was dropped (a launchpad goes up on the pilot's own session now), and is kept for the next.
 //
 // ⚠ ONE CHARACTER, ONE CONNECTION. The server lets a character be in game on
 // one session only (charService SelectCharacterID, loginTakeoverEnabled): a

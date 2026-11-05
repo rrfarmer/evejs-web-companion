@@ -22,9 +22,8 @@
 //     here than for the Manager: the very act of checking on another pilot is
 //     what would destroy the view you were checking with.
 //
-//   • PLANETARY INDUSTRY (R108). Every assigned pilot's colonies on one board,
-//     read with no character selected. It is about all of them, and the read it
-//     is part-way through would be lost to a switch like the Manager's poll.
+//   • A PLUGIN'S WINDOW (the PI Manager, for one), registered while plugins
+//     load (registerGlobalWindow): about every pilot, as these are.
 //
 // So they are hoisted ABOVE that key, into App, onto their own layer over
 // whichever workspace is showing. This module is that layer's model: which tabs
@@ -50,20 +49,12 @@
 // before desktop.ts had finished initialising whenever that module loads first.
 // Hence the sizes below are written out rather than derived from its defaults.
 import type { WinState } from "./desktop.ts";
-import type { TabID } from "./tabs.ts";
+import { registerTab, type PluginTabID, type TabID } from "./tabs.ts";
 
-/**
- * The tabs that open on the global layer rather than a pilot's desktop.
- *
- * ⚠ THE RULE "is this tab global?" IS ASKED IN FOUR PLACES (the rail's
- * open-state, both open paths in Workspace, and desktop.ts's guard), which is
- * exactly why it is a set here rather than a comparison spelled out four times
- * and kept in step by hand.
- */
-export const GLOBAL_TABS: ReadonlySet<TabID> = new Set<TabID>(["botManager", "companion", "piManager", "industryManager"]);
-
-/** One door onto a global window, as the brand strip draws it. */
+/** One launcher of a global window, as the brand strip draws it. */
 export interface GlobalLauncher {
+  /** The plugin it belongs to; absent for core's own windows. */
+  readonly plugin?: PluginOfWindow;
   readonly id: TabID;
   /** The word beside the glyph. Short: it shares a header with the brand. */
   readonly label: string;
@@ -74,25 +65,22 @@ export interface GlobalLauncher {
 }
 
 /**
- * The brand strip's doors (GlobalLaunchers.svelte), in the order drawn.
+ * Core's global windows, as the brand strip's launchers (GlobalLaunchers.svelte)
+ * draw them, in the order drawn. Plugins' follow (`registerGlobalWindow`).
  *
- * ⚠ EVERY GLOBAL TAB HAS EXACTLY ONE ENTRY HERE. These windows are out of the
- * rail (tabs.ts `launchable: false`), so this list is their only door: a
- * global tab missing from it is a window nobody can open. globalWindow.test.ts
- * holds the two lists together.
+ * ⚠ A WINDOW IS GLOBAL BECAUSE IT HAS A LAUNCHER HERE, AND FOR NO OTHER REASON.
+ * These windows are out of the rail (tabs.ts `launchable: false`), so this list
+ * is their only launcher; `isGlobalTab` reads it, so a global tab without one
+ * cannot exist. The rule "is this tab global?" is asked in four places (the
+ * rail's open-state, both open paths in Workspace, and desktop.ts's guard),
+ * which is why it is one list rather than a comparison spelled out four times.
  */
-export const GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
+export const CORE_GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
   {
     id: "botManager",
     label: "Bots",
     title: "Bot Manager",
     hint: "Bot Manager — start and watch bots on every pilot and squad",
-  },
-  {
-    id: "piManager",
-    label: "PI",
-    title: "Planetary Industry",
-    hint: "Planetary Industry — every pilot's colonies on one board",
   },
   {
     id: "industryManager",
@@ -106,11 +94,80 @@ export const GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
     title: "Fleet companions",
     hint: "Fleet companions — every pilot flying with a fleet",
   },
+  {
+    id: "pluginManager",
+    label: "Plugins",
+    title: "Plugins",
+    hint: "Plugins — what this client adds beyond the game's own windows",
+  },
 ];
+
+// The global windows plugins added, in the order they registered.
+const pluginLaunchers: GlobalLauncher[] = [];
+
+/** Which plugin a window is one of, as the Plugins menu groups them. */
+export interface PluginOfWindow {
+  readonly id: string;
+  readonly name: string;
+  /** The word on the plugin's launcher when the whole plugin is pinned. */
+  readonly label: string;
+  /** Its own icon; its first window's glyph stands in when absent. */
+  readonly glyph?: readonly string[];
+}
+
+/** A plugin's global window: its launcher, and the glyph the launcher and its chip draw. */
+export interface PluginGlobalWindow extends GlobalLauncher {
+  readonly id: PluginTabID;
+  readonly glyph: readonly string[];
+  readonly plugin: PluginOfWindow;
+}
+
+/**
+ * Add a plugin's global window: a tab of its own (tabs.ts `registerTab`), out of
+ * the rail like every global window, and a launcher beside the brand. Called while
+ * plugins load, before the first paint. Its body is registered apart
+ * (globalWindowViews.ts), because this module is read by desktop.ts and must
+ * not pull a Svelte component into it.
+ */
+export function registerGlobalWindow(window: PluginGlobalWindow): void {
+  registerTab({ id: window.id, label: window.title, where: "both", launchable: false, glyph: window.glyph });
+  pluginLaunchers.push({ id: window.id, label: window.label, title: window.title, hint: window.hint, plugin: window.plugin });
+}
+
+/** Every global window's launcher: core's, then the plugins'. */
+export function globalLaunchers(): readonly GlobalLauncher[] {
+  return pluginLaunchers.length === 0 ? CORE_GLOBAL_LAUNCHERS : [...CORE_GLOBAL_LAUNCHERS, ...pluginLaunchers];
+}
+
+/**
+ * Core's launchers as the strip draws them. The Plugins window is not one of them:
+ * it is reached from the Plugins menu (PluginMenu.svelte), as "Manage plugins".
+ */
+export function coreStripLaunchers(): readonly GlobalLauncher[] {
+  return CORE_GLOBAL_LAUNCHERS.filter((launcher) => launcher.id !== "pluginManager");
+}
+
+/** One plugin's windows, in the order it registered them. */
+export interface PluginWindowGroup {
+  readonly plugin: PluginOfWindow;
+  readonly windows: readonly GlobalLauncher[];
+}
+
+/** Every plugin window, grouped by its plugin, plugins in the order they loaded. */
+export function pluginWindowGroups(): readonly PluginWindowGroup[] {
+  const groups: { plugin: PluginOfWindow; windows: GlobalLauncher[] }[] = [];
+  for (const launcher of pluginLaunchers) {
+    if (!launcher.plugin) continue;
+    const known = groups.find((group) => group.plugin.id === launcher.plugin!.id);
+    if (known) known.windows.push(launcher);
+    else groups.push({ plugin: launcher.plugin, windows: [launcher] });
+  }
+  return groups;
+}
 
 /** True when this tab opens as a global window, not a workspace window. */
 export function isGlobalTab(id: TabID): boolean {
-  return GLOBAL_TABS.has(id);
+  return globalLaunchers().some((launcher) => launcher.id === id);
 }
 
 /**
@@ -123,7 +180,7 @@ export function isGlobalTab(id: TabID): boolean {
  * So it floats here too, on top of the Manager, bound to the pilot it was opened
  * for (or to nobody, from the Pilot Hangar: HangarBotBuilder.svelte).
  *
- * ⚠ NOT IN `GLOBAL_TABS`. That would demand a launcher in the brand strip it has
+ * ⚠ NOT A GLOBAL TAB. That would demand a launcher in the brand strip it has
  * never had. Nor is it restored from storage (`readWin` drops it): which pilot
  * it reads is decided by the button that opened it, and a reload is not that.
  */
@@ -216,7 +273,7 @@ function isFiniteNumber(v: unknown): v is number {
  * Rebuilt rather than spread, for desktop.ts's reason: a stale key that rides in
  * on a `{ ...parsed }` is written straight back out on the next save and lives
  * forever. An id that is no longer global is dropped — that is the migration
- * path if a tab ever leaves `GLOBAL_TABS`.
+ * path if a tab ever stops being global.
  */
 function readWin(v: unknown): WinState | null {
   if (!v || typeof v !== "object") return null;

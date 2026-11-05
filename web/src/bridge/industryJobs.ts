@@ -24,7 +24,7 @@ import type { IndustryChain, IndustryLine } from "./industryChain.ts";
 import type { PlanInvention } from "./industryInvention.ts";
 import type { IndustryRecipeBook } from "./industryRecipes.ts";
 import type { OwnedBlueprint } from "./industryOwned.ts";
-import type { PilotStockStack } from "./piRoster.ts";
+import type { PilotStockStack } from "./stockHoldings.ts";
 
 /** Units being made per product type, and how many of them are ready to deliver. */
 export interface JobSupply {

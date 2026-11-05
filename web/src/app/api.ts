@@ -258,6 +258,30 @@ async function getJson(
   return requestJson(path, { method: "GET" }, options);
 }
 
+/** One plugin backend as the BFF runs it (src/pluginHost.js). */
+export interface PluginBackendStatus {
+  readonly id: string;
+  /** running, starting, restarting, failed or stopped. */
+  readonly state: string;
+  readonly restarts: number;
+  readonly error: string | null;
+}
+
+/** GET /api/plugins: each plugin backend's process, as the BFF sees it. */
+export async function listPluginBackends(options: ApiOptions = {}): Promise<PluginBackendStatus[]> {
+  const data = await getJson("/api/plugins", options);
+  const rows = Array.isArray(data.plugins) ? data.plugins : [];
+  return rows.map((row) => {
+    const entry = row !== null && typeof row === "object" && !Array.isArray(row) ? (row as Record<string, JsonValue>) : {};
+    return {
+      id: typeof entry.id === "string" ? entry.id : "",
+      state: typeof entry.state === "string" ? entry.state : "stopped",
+      restarts: typeof entry.restarts === "number" ? entry.restarts : 0,
+      error: typeof entry.error === "string" ? entry.error : null,
+    };
+  });
+}
+
 /**
  * GET /api/roster/characters: an account's characters as its selection screen lists them, for the Pilot Hangar, read
  * with no game login (a launcher's listing: a login would close the account's other client). The answer is
@@ -2883,84 +2907,26 @@ export async function setBotScriptsCategory(
   await postJson("/api/botscripts/category", { scriptIDs, categoryID }, options);
 }
 
-// ─── Saved PI plans (src/piPlanStore.js) ─────────────────────────────────────
-// Rows from the companion's own database. The answers are handed back RAW:
-// app/piPlans.ts decodes them, so a stored row and a fresh one go through the
-// same door.
+// ─── A plugin's own routes (src/pluginHost.js) ─────────────────────────────────
+// /api/plugins/<id>/..., answered by the plugin's backend in its own process, on
+// the session `options` names. A plugin reaches its backend only through these.
 
-/** The fields a plan may carry on create or update. */
-export interface PiPlanFields {
-  readonly typeID?: number;
-  readonly quantity?: number;
-  readonly note?: string;
-  readonly status?: "active" | "done";
+/** GET one of a plugin's own routes: `path` is under its prefix, as "/plans". */
+export async function pluginGetJson(pluginID: string, path: string, options: ApiOptions = {}): Promise<Record<string, JsonValue>> {
+  return getJson(`/api/plugins/${encodeURIComponent(pluginID)}${path}`, options);
 }
 
-export async function listPiPlans(options: ApiOptions = {}): Promise<JsonValue> {
-  return (await getJson("/api/pi/plans", options)).plans ?? null;
-}
-
-export async function createPiPlan(fields: PiPlanFields, options: ApiOptions = {}): Promise<JsonValue> {
-  return (await postJson("/api/pi/plans", fields, options)).plan ?? null;
-}
-
-export async function updatePiPlan(
-  planID: string,
-  fields: PiPlanFields,
-  baseRev: number,
+/** POST to one of a plugin's own routes. */
+export async function pluginPostJson(
+  pluginID: string,
+  path: string,
+  body: unknown,
   options: ApiOptions = {},
-): Promise<JsonValue> {
-  const data = await postJson(`/api/pi/plans/${encodeURIComponent(planID)}`, { ...fields, baseRev }, options);
-  return data.plan ?? null;
+): Promise<Record<string, JsonValue>> {
+  return postJson(`/api/plugins/${encodeURIComponent(pluginID)}${path}`, body, options);
 }
 
-export async function deletePiPlan(planID: string, options: ApiOptions = {}): Promise<void> {
-  await postJson(`/api/pi/plans/${encodeURIComponent(planID)}/delete`, {}, options);
-}
-
-// ─── Saved PI expansion plans (src/piExpansionStore.js) ──────────────────────
-// Handed back RAW: app/piExpansions.ts decodes them.
-
-export interface PiExpansionFields {
-  readonly settings?: {
-    readonly homeSystemID: number;
-    readonly maxJumps: number;
-    readonly nullsecTolerance: number;
-    readonly characterIDs: readonly number[];
-  };
-  readonly rows?: readonly {
-    readonly characterID: number;
-    readonly planetID: number;
-    readonly resourceTypeID: number;
-    readonly productTypeID: number;
-  }[];
-  readonly note?: string;
-  readonly status?: "active" | "done";
-}
-
-export async function listPiExpansions(options: ApiOptions = {}): Promise<JsonValue> {
-  return (await getJson("/api/pi/expansions", options)).plans ?? null;
-}
-
-export async function createPiExpansion(fields: PiExpansionFields, options: ApiOptions = {}): Promise<JsonValue> {
-  return (await postJson("/api/pi/expansions", fields, options)).plan ?? null;
-}
-
-export async function updatePiExpansion(
-  planID: string,
-  fields: PiExpansionFields,
-  baseRev: number,
-  options: ApiOptions = {},
-): Promise<JsonValue> {
-  const data = await postJson(`/api/pi/expansions/${encodeURIComponent(planID)}`, { ...fields, baseRev }, options);
-  return data.plan ?? null;
-}
-
-export async function deletePiExpansion(planID: string, options: ApiOptions = {}): Promise<void> {
-  await postJson(`/api/pi/expansions/${encodeURIComponent(planID)}/delete`, {}, options);
-}
-
-/** Every planet within `jumps` of a system, from static data (raw; bridge/piExpansion.ts decodes). */
+/** Every planet within `jumps` of a system, from static data (raw; the PI Manager plugin decodes it). */
 export async function getPlanetsNear(systemID: number, jumps: number, options: ApiOptions = {}): Promise<JsonValue> {
   return await getJson(`/api/pi/planets-near?systemID=${encodeURIComponent(systemID)}&jumps=${encodeURIComponent(jumps)}`, options) as JsonValue;
 }
@@ -3544,7 +3510,7 @@ export async function loadMissionKeywords(
 // GET /api/roster/planets?characterIDs=a,b,c answers each of those pilots'
 // colonies through the gateway's ownership check alone. The body goes back RAW:
 // the PI roster stores each pilot's entry as it arrived and decodes it with
-// bridge/piRoster.ts on the way out, so a live answer and a stored one pass
+// the PI Manager plugin's piRoster.ts on the way out, so a live answer and a stored one pass
 // through one decoder.
 
 /** At most this many pilots per ask — the route refuses more. */
@@ -5088,78 +5054,10 @@ export class DroneEngageOutcomeError extends BridgeCallError {
 // own call (bridge/launchWrites.ts; the plan's Phase 6b): the sixth of its writes
 // to leave its route (POST /api/bridge/planet/launch/delete), on 2026-10-10.
 
-/** What one colony's launchpads did when the Haul button sent them up. */
-export interface CustomsExportPlanet {
-  readonly planetID: number;
-  readonly planetName: string | null;
-  readonly solarSystemID: number;
-  readonly solarSystemName: string | null;
-  /** The office the goods went into; null when none was reached. */
-  readonly officeID: number | null;
-  readonly exported: boolean;
-  readonly units: number;
-  /** Why not, in a word: "no-colony", "nothing-on-the-pads", "no-office", "refused". */
-  readonly reason: string | null;
-  /** The server's own sentence where it gave one. */
-  readonly message: string | null;
-}
-
-export interface CustomsExportResult {
-  /**
-   * True when nothing was sent up here because the haul's own run will send
-   * each colony's launchpads up at its customs office, as the retail client
-   * does (a pilot on the game port). Each planet then reads "at-the-office".
-   */
-  readonly atTheOffices?: boolean;
-  /** False when nothing needed sending, so nobody was logged out. */
-  readonly connected: boolean;
-  /** True/false when the caller's own pilot was re-selected; null when it was not ours. */
-  readonly handedBack: boolean | null;
-  readonly planets: readonly CustomsExportPlanet[];
-}
-
-/**
- * Send these colonies' launchpad goods up into their customs offices.
- *
- * ⚠ THIS BRIEFLY LOGS THE PILOT OUT. The call the retail client makes here
- * (invbroker.ImportExportWithPlanet) is not on the web gateway, so the BFF
- * makes it over the GAME PORT, which means selecting the character there — and
- * a character may be in game on one session. The BFF refuses a pilot a bot or
- * another tab is flying, and hands the caller's own pilot straight back.
- */
-export async function exportToCustomsOffices(
-  characterID: number,
-  planetIDs: readonly number[],
-  options: ApiOptions = {},
-): Promise<CustomsExportResult> {
-  const data = await postJson(
-    "/api/pi/customs-export",
-    { characterID, planetIDs: [...planetIDs], confirm: true },
-    options,
-  );
-  const planets = Array.isArray(data.planets) ? data.planets : [];
-  return {
-    atTheOffices: data.atTheOffices === true,
-    connected: data.connected === true,
-    handedBack: typeof data.handedBack === "boolean" ? data.handedBack : null,
-    planets: planets.map((row) => {
-      const entry = row !== null && typeof row === "object" && !Array.isArray(row)
-        ? (row as { readonly [key: string]: JsonValue })
-        : {};
-      return {
-        planetID: asNumberOrNull(entry.planetID) ?? 0,
-        planetName: typeof entry.planetName === "string" ? entry.planetName : null,
-        solarSystemID: asNumberOrNull(entry.solarSystemID) ?? 0,
-        solarSystemName: typeof entry.solarSystemName === "string" ? entry.solarSystemName : null,
-        officeID: asNumberOrNull(entry.officeID),
-        exported: entry.exported === true,
-        units: asNumberOrNull(entry.units) ?? 0,
-        reason: typeof entry.reason === "string" ? entry.reason : null,
-        message: typeof entry.message === "string" ? entry.message : null,
-      };
-    }),
-  };
-}
+// A launchpad's goods go up into the customs office on the pilot's own session,
+// as the client's customs window sends them (bridge/customsWrites.ts). The route
+// that logged the pilot in over the game port to do it (POST /api/pi/customs-export)
+// is gone.
 
 // The saved fittings, the pilot's own and its corporation's, are read by the
 // page itself, with the client's own call for each owner

@@ -21,7 +21,7 @@
   // lives.
   import { launchableTabsFor, type TabID } from "./tabs.ts";
   import { isWindowTab } from "./desktop.ts";
-  import { NEOCOM_GLYPHS, eveClock, portraitInitials, shortIsk } from "./neocomIcons.ts";
+  import { eveClock, neocomGlyph, portraitInitials, shortIsk } from "./neocomIcons.ts";
   import { formatWholeIsk } from "./isk.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -171,7 +171,7 @@
           onclick={() => onSelect(tab.id)}
         >
           <svg class="neocom-glyph" viewBox="0 0 24 24" aria-hidden="true">
-            {#each NEOCOM_GLYPHS[tab.id] as d (d)}
+            {#each neocomGlyph(tab.id) as d (d)}
               <path {d} />
             {/each}
           </svg>

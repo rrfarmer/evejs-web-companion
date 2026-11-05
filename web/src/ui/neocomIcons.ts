@@ -22,7 +22,7 @@
 // and joins), so a one-point "path" like `M12 12h.01` renders as a DOT. That
 // trick is used for eyes, studs and indicator lights throughout.
 
-import type { TabID } from "./tabs.ts";
+import { allTabs, isPluginTab, type CoreTabID, type TabID } from "./tabs.ts";
 
 /** One glyph: the primitives to stroke, in a 24x24 box. */
 export type NeocomGlyph = readonly string[];
@@ -30,13 +30,13 @@ export type NeocomGlyph = readonly string[];
 /**
  * The glyph for every tab.
  *
- * ⚠ KEYED BY TabID AND EXHAUSTIVE BY CONSTRUCTION. `Record<TabID, …>` makes a
+ * ⚠ KEYED BY CoreTabID AND EXHAUSTIVE BY CONSTRUCTION. `Record<CoreTabID, …>` makes a
  * new tab a TYPE ERROR here rather than a button that silently renders an empty
  * box in the rail — which is exactly the failure a hand-maintained icon map
  * invites, and it is caught at compile time rather than by someone noticing a
  * gap in the strip.
  */
-export const NEOCOM_GLYPHS: Readonly<Record<TabID, NeocomGlyph>> = {
+export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   provisioning: ["M12 3 4 18l8-3 8 3-8-15Z", "M8 21h8"],
   // --- in space ---
   flight: ["M12 3l7 17-7-4-7 4z"],
@@ -68,6 +68,8 @@ export const NEOCOM_GLYPHS: Readonly<Record<TabID, NeocomGlyph>> = {
   // somebody, which is the whole of what a companion does. It is drawn for the
   // character bar's button rather than the rail, which never offers this tab.
   companion: ["M13 3l5 10-5-2.5L8 13z", "M6 13l3 7-3-1.5L3 20z"],
+  // The plugins window: a plug, two pins into a socket.
+  pluginManager: ["M9 3v5M15 3v5", "M6 8h12v4a6 6 0 0 1-12 0z", "M12 18v3"],
 
   // --- goods and money ---
   inventory: ["M4 8l8-4 8 4v8l-8 4-8-4z", "M4 8l8 4 8-4M12 12v8"],
@@ -87,7 +89,6 @@ export const NEOCOM_GLYPHS: Readonly<Record<TabID, NeocomGlyph>> = {
   planets: ["M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12", "M3 14c6 3.5 12 3.5 18 0"],
   // Planetary Industry: a small world over a row of three, the whole roster's
   // colonies rather than one planet.
-  piManager: ["M12 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10", "M4 20h.01M12 20h.01M20 20h.01", "M4 17h16"],
   // Industry Manager: one box over three, a build tree.
   industryManager: ["M9 3h6v5H9z", "M12 8v4M5 12h14M5 12v3M12 12v3M19 12v3", "M3 15h4v5H3zM10 15h4v5h-4zM17 15h4v5h-4z"],
   // A building: the corporation.
@@ -119,9 +120,16 @@ export const NEOCOM_GLYPHS: Readonly<Record<TabID, NeocomGlyph>> = {
   compare: ["M4 6h6v13H4z", "M14 6h6v13h-6z", "M12 3v18"],
 };
 
-/** The glyph for a tab. */
+// A plugin tab that registered no glyph still gets a box, never an empty button.
+const PLUGIN_FALLBACK_GLYPH: NeocomGlyph = ["M5 5h14v14H5z", "M12 9v6M9 12h6"];
+
+/**
+ * The glyph for a tab: core's from the table, a plugin's from what it
+ * registered (tabs.ts `registerTab`).
+ */
 export function neocomGlyph(id: TabID): NeocomGlyph {
-  return NEOCOM_GLYPHS[id];
+  if (!isPluginTab(id)) return NEOCOM_GLYPHS[id];
+  return allTabs().find((tab) => tab.id === id)?.glyph ?? PLUGIN_FALLBACK_GLYPH;
 }
 
 /**

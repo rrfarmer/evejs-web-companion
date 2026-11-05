@@ -18,11 +18,15 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { TABS } from "./tabs.ts";
+import { CORE_GLOBAL_LAUNCHERS } from "./globalWindow.ts";
 
 const UI_DIR = path.dirname(fileURLToPath(import.meta.url));
 const HOST = readFileSync(path.join(UI_DIR, "PanelHost.svelte"), "utf8").replace(/\r\n/g, "\n");
 /** Just the render chain, so an id mentioned only in a comment cannot count. */
-const CHAIN = HOST.slice(HOST.indexOf("{#if tab ==="));
+const CHAIN = HOST.slice(HOST.indexOf("{#if GlobalView}"));
+const VIEWS = readFileSync(path.join(UI_DIR, "globalWindowViews.ts"), "utf8");
+/** Global windows draw what they registered (globalWindowViews.ts), not a branch of their own. */
+const GLOBAL = new Set<string>(CORE_GLOBAL_LAUNCHERS.map((launcher) => launcher.id));
 /**
  * Tabs that never open a window, so PanelHost must NOT route them. The Mining
  * Command Center is a standalone page linked from the brand strip; its own test
@@ -32,8 +36,13 @@ const NOT_A_WINDOW = new Set(["miningOperations"]);
 
 test("⚠ EVERY TAB HAS ITS OWN BRANCH — none falls through to another panel", () => {
   assert.ok(CHAIN.length > 0, "the render chain is not where this test looks");
-  const missing = TABS.filter((tab) => !NOT_A_WINDOW.has(tab.id) && !CHAIN.includes(`tab === "${tab.id}"`)).map((t) => t.id);
+  const missing = TABS.filter((tab) => !NOT_A_WINDOW.has(tab.id) && !GLOBAL.has(tab.id) && !CHAIN.includes(`tab === "${tab.id}"`)).map((t) => t.id);
   assert.deepEqual(missing, [], `these tabs open some other panel: ${missing.join(", ")}`);
+});
+
+test("every core global window has a view, and the host draws it before any branch", () => {
+  for (const id of GLOBAL) assert.match(VIEWS, new RegExp(`\["${id}", \w+ as GlobalWindowView\]`), `${id} draws nothing`);
+  assert.ok(CHAIN.startsWith("{#if GlobalView}\n  <GlobalView "), "a global window falls into some other branch");
 });
 
 test("the log tab opens the log, which is the half of the notice system you can go back to", () => {

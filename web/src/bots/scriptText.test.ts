@@ -123,27 +123,6 @@ test("a mining step reads with its belt and its until", () => {
 // mode exists because "nearest" toured the system's asteroid BELTS the moment
 // a mining bot's anomaly ran dry, contradicting a blurb that promised ore
 // sites — so the one thing these sentences must never do is say "belt".
-test("a launch step promises the threshold the block will actually use", () => {
-  const at = (args: MacroStep["args"]): string =>
-    stepSentence({ id: "s1", kind: "macro", macro: "launch-commodities", args });
-
-  // Unset is the shipped default, said out loud rather than left implied.
-  assert.match(at({}), /once it is 80% full/);
-  assert.match(at({ fullPercent: { kind: "count", value: 50 } }), /once it is 50% full/);
-
-  // ⚠ NOTHING BOUNDS A count ARG. validateScript bounds loop repeats and
-  // nothing else, so a player can type these — and the sentence must say what
-  // the decider will do with them, not repeat the number back. A block whose
-  // own description disagrees with its behaviour is the defect here.
-  assert.match(at({ fullPercent: { kind: "count", value: 500 } }), /once it is 100% full/);
-  assert.match(at({ fullPercent: { kind: "count", value: 0 } }), /once it is 1% full/);
-  assert.match(at({ fullPercent: { kind: "count", value: -20 } }), /once it is 1% full/);
-
-  assert.match(at({ anyAmount: { kind: "toggle", enabled: true } }), /Launch whatever the command centre holds/);
-  assert.match(at({ anyAmount: { kind: "toggle", enabled: false } }), /once it is 80% full/);
-  assert.match(at({ fullPercent: { kind: "count", value: 50 }, anyAmount: { kind: "toggle", enabled: false } }), /once it is 50% full/);
-  assert.match(at({ fullPercent: { kind: "count", value: 50 }, anyAmount: { kind: "toggle", enabled: true } }), /Launch whatever the command centre holds/);
-});
 
 test("a site-mode mining step never says the word belt", () => {
   const step: MacroStep = {
