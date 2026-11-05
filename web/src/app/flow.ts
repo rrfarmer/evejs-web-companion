@@ -571,6 +571,7 @@ import {
   measureSpace,
   type AutopilotController,
   type AutopilotDeps,
+  type AutopilotProgress,
   type RoutePlan,
 } from "../nav/autopilotLoop.ts";
 import {
@@ -591,6 +592,8 @@ import {
   MISSION_BOT_REQUIREMENTS,
   createShipClaim,
   evaluateRequirements,
+  type PluginShipOwner,
+  type ShipControllerID,
   type MiningBotReads,
   type MissionBotReads,
 } from "../nav/botRegistry.ts";
@@ -1493,7 +1496,142 @@ export interface SaidDialog {
   readonly suppressAnswer?: "yes";
 }
 
+/** A ship's remote repairers, by what they repair. */
+export interface RemoteRepModuleIDs {
+  readonly shield: readonly number[];
+  readonly armor: readonly number[];
+  readonly hull: readonly number[];
+  /** Remote CAPACITOR transmitters (SDE group 67) — the cap-chain block. */
+  readonly cap: readonly number[];
+}
+
+/** A ship's own modules, by what they do. */
+export interface FittedDefenseModules {
+  readonly shield: readonly number[];
+  readonly armor: readonly number[];
+  readonly hull: readonly number[];
+  /** The ancillary ones among shield/armor/hull: they eat a charge a cycle. */
+  readonly ancillary: readonly number[];
+  readonly hardeners: readonly number[];
+  readonly weapons: readonly number[];
+  readonly propulsion: readonly CompanionPropulsionModule[];
+}
+
+/** A plugin's hold on the ship (`PilotFlying.holdShip`). */
+export interface ShipHold {
+  /** Let go of the ship. Does nothing once something else has taken it. */
+  release(): void;
+}
+
+/**
+ * What a loop flying a pilot is made of: the calls core's own bots fly with, as
+ * they are, for a plugin's loop (`flow.flying`; docs/plugins.md, "Flying a pilot").
+ *
+ * A write throws the server's refusal, where the flow's own panel methods catch it
+ * and say it in a panel, because a loop has to see a refusal to decide on it.
+ */
+export interface PilotFlying {
+  /**
+   * Take the ship, stopping whatever else holds it. `stop` is called when anything
+   * else takes it, and when the pilot's session closes; `release` when the loop ends
+   * by itself. `name` is what a player reads as flying the ship. Throws while the
+   * last controller's Stop is settling, and while the session is closing.
+   */
+  holdShip(owner: PluginShipOwner, name: string, stop: () => void): ShipHold;
+  /**
+   * Called as a push that may want acting on arrives, rather than at the next look:
+   * a fleet broadcast, a fleet target tag, this ship's lock landing, a jam starting.
+   * Returns how to stop listening.
+   */
+  onPush(listener: () => void): () => void;
+  /** Bumped as a session closes: a loop compares it across an await, as the flow's own starts do. */
+  sessionGeneration(): number;
+  isSessionClosing(): boolean;
+
+  /** A bridge read and a bridge write, as this pilot. */
+  readonly bridgeAsk: Ask;
+  readonly bridgeDo: Ask;
+  readonly fleetBroadcasts: ReturnType<typeof createFleetBroadcasts>;
+
+  readFlightNow(): Promise<FlightNow>;
+  dockedIn(): Promise<DockedIn>;
+  /** Say what a flight read found, as the flow's own reads do, so its place changes are noticed. */
+  observeFlightStatus(status: FlightStatus): Promise<void>;
+  /** The travel autopilot, which a loop hands its trips to (`startRoute`). Null until it has flown. */
+  autopilotProgress(): AutopilotProgress | null;
+  abortAutopilot(): void;
+
+  alignShip(targetID: number): Promise<void>;
+  /** Stop `range` metres short of a thing. */
+  approachShip(targetID: number, range: number | null): Promise<void>;
+  keepShipAtRange(targetID: number, range: number | null): Promise<void>;
+  orbitShip(targetID: number, range: number | null): Promise<void>;
+  cutEngines(): Promise<void>;
+  warpAsTheAutopilot(targetID: number): Promise<void>;
+  /** An ordered move, and whether the ship then flew it. */
+  orderedStep(order: (flightNow: () => Promise<FlightNow>) => Promise<void>): Promise<FlightStepResult>;
+  dockStep(stationID: number): Promise<FlightStepResult>;
+  jumpStep(fromGateID: number, toGateID?: number): Promise<FlightStepResult>;
+
+  switchModuleOn(itemID: number, opts?: Parameters<typeof activateModuleCall>[3], options?: api.ApiOptions): Promise<ModuleActionResult>;
+  switchModuleOff(itemID: number, opts?: Parameters<typeof deactivateModuleCall>[3], options?: api.ApiOptions): Promise<ModuleActionResult>;
+  loadAmmoFrom(moduleIDs: readonly number[], chargeItemIDs: readonly number[], source: AmmoPlace): Promise<void>;
+  /** Learn whether these module types can be switched on: `fittedModuleActivation` reads the answer. */
+  readTypeActivation(typeIDs: readonly number[]): Promise<void>;
+  fittedModuleActivation(module: { readonly typeID: number; readonly itemID: number }): ModuleActivation;
+  resolveDefenseModuleIDs(): FittedDefenseModules;
+  resolveRemoteRepModuleIDs(): RemoteRepModuleIDs;
+  resolveSalvageModuleIDs(): readonly number[];
+  resolveDroneControlRange(fit: ReturnType<ClientStore["fitting"]["get"]>): Promise<number | null>;
+
+  launchedThenRead(stacks: readonly { readonly itemID: number; readonly quantity: number }[]): Promise<{
+    readonly inSpace: JsonValue;
+    readonly launched: JsonValue;
+    readonly result: JsonValue;
+  }>;
+  engageDronesConfirmed(droneIDs: readonly number[], targetID: number): Promise<void>;
+  withPilotDroneCap(limits: DroneLimits): DroneLimits;
+  /** Which drones in a bay and on the grid fight, salvage and repair. */
+  classifyDroneRoles(
+    bay: ReturnType<typeof decodeDroneBay>,
+    snapshot: ReturnType<typeof decodeSpaceSnapshot> | null,
+    shipID: number | null,
+  ): Promise<{ readonly bay: DroneRoleIDs | null; readonly out: DroneRoleIDs | null }>;
+  classifyRatThreats(
+    snapshot: ReturnType<typeof decodeSpaceSnapshot>,
+    origin: SpaceVector,
+  ): Promise<Readonly<Record<number, RatThreat>> | null>;
+  classifyTargetGroups(
+    snapshot: ReturnType<typeof decodeSpaceSnapshot>,
+    origin: SpaceVector,
+    includePlayerHulls: boolean,
+    shipID: number | null,
+  ): Promise<Readonly<Record<number, string | null>> | null>;
+  gateLinksForSnapshot(
+    snapshot: { readonly solarSystemID: number | null; readonly inSpace: boolean },
+  ): readonly GateLink[] | undefined;
+  /** What `classifyRatThreats` has learned of the rats on this grid. Null without a snapshot. */
+  ratSignaturesOnGrid(snapshot: ReturnType<typeof decodeSpaceSnapshot>, origin: SpaceVector): Readonly<Record<number, number>> | null;
+  ratHitPointsOnGrid(snapshot: ReturnType<typeof decodeSpaceSnapshot>, origin: SpaceVector): Readonly<Record<number, CompanionHitPoints>> | null;
+  ratCombatOnGrid(snapshot: ReturnType<typeof decodeSpaceSnapshot>, origin: SpaceVector): Readonly<Record<number, RatCombatFacts>> | null;
+  ratResonancesOnGrid(snapshot: ReturnType<typeof decodeSpaceSnapshot>, origin: SpaceVector): Readonly<Record<number, RatResonances>> | null;
+  /** Static facts of types: kept per type, so a repeat costs nothing. */
+  attributesOfTypes: ReturnType<typeof keptTypeAttributes>;
+  combatUtilityOfTypes(typeIDs: readonly number[]): ReturnType<typeof api.combatUtilityTypes>;
+  /** Resolve names and wait for them, where `requestNames` does not wait. */
+  resolveNamesNow(refs: readonly NameRef[]): Promise<void>;
+  lootIntoShip(
+    containerID: number,
+    bays: readonly ShipBay[],
+    shipID: number | null,
+    claim?: { readonly runID: string; readonly systemID: number },
+  ): Promise<LootOutcome>;
+  loadRefitLibrary(): Promise<readonly SourcedFitting[]>;
+}
+
 export interface AppFlow {
+  /** What a plugin's loop flies this pilot with. */
+  readonly flying: PilotFlying;
   readonly directTrades: DirectTrades;
   startDirectTrade(characterID: number): Promise<void>;
   readonly duelInvitation: ReadableSignal<DuelInvitation | null>;
@@ -3933,7 +4071,7 @@ function readRefusalReason(error: unknown): string {
  * recoverable for diagnosis without being in the player's face, and a refusal
  * this client has never seen still reads as a sentence instead of a code.
  */
-function errorWords(error: unknown): string {
+export function errorWords(error: unknown): string {
   return sayRefusal(readRefusalReason(error));
 }
 
@@ -5648,13 +5786,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const fleetBroadcast = decodeFleetBroadcastNotification(method, args, receivedAtMs);
     if (fleetBroadcast !== null) {
       store.apply({ type: "fleet/broadcast", broadcast: fleetBroadcast });
-      wakeFleetCompanion();
+      announcePush();
       return;
     }
     const fleetTargetTags = decodeFleetStateChangeNotification(method, args);
     if (fleetTargetTags !== null) {
       store.apply({ type: "fleet/target-tags", tags: fleetTargetTags });
-      wakeFleetCompanion();
+      announcePush();
       return;
     }
     // `OnTarget` — this ship's own lock landing, dropping, or being wiped.
@@ -5672,7 +5810,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // exact fact rung 6 and rung 7 are both blocked on. Waking on all three
       // would spend the burst floor on events that cannot produce an action.
       if (targetEvent.kind === "locked") {
-        wakeFleetCompanion();
+        announcePush();
       }
       return;
     }
@@ -5710,7 +5848,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // A jam STARTING is rung 4's whole trigger: something has this pilot held
       // down and the fleet has not been told. An END has nothing to issue.
       if (jam.active) {
-        wakeFleetCompanion();
+        announcePush();
       }
       return;
     }
@@ -22775,10 +22913,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * all — so a push that arrives then is simply dropped, as it should be: the
    * tick about to start will read the store anyway.
    */
-  let companionWake: (() => void) | null = null;
+  const pushListeners = new Set<() => void>();
 
-  function wakeFleetCompanion(): void {
-    companionWake?.();
+  function onPush(listener: () => void): () => void {
+    pushListeners.add(listener);
+    return () => { pushListeners.delete(listener); };
+  }
+
+  function announcePush(): void {
+    for (const listener of [...pushListeners]) listener();
   }
 
   /**
@@ -22797,10 +22940,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       function finish(): void {
         asleep = false;
         clearTimeout(timer);
-        companionWake = null;
+        stopListening();
         resolve();
       }
-      companionWake = (): void => {
+      const stopListening = onPush((): void => {
         const waited = Date.now() - startedAtMs;
         if (waited >= COMPANION_WAKE_FLOOR_MS) {
           finish();
@@ -22815,10 +22958,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // -- which `FLEET_COMPANION_BURST_MS` is one tuning away from being --
         // would have a push push its end LATER, which is the exact opposite of
         // what waking is for.
-        companionWake = null;
+        stopListening();
         clearTimeout(timer);
         timer = setTimeout(finish, Math.min(COMPANION_WAKE_FLOOR_MS, ms) - waited);
-      };
+      });
       void watchDronesWhileAsleep(() => asleep);
     });
   }
@@ -22873,7 +23016,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         return;
       }
       if (hit) {
-        wakeFleetCompanion();
+        announcePush();
         return;
       }
     }
@@ -24256,12 +24399,47 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     autopilot?.abort();
   }
 
-  const claimShip = createShipClaim({
+  const claimBuiltInShip = createShipClaim({
     mining: stopMiningController,
     mission: stopMissionController,
     companion: stopCompanionController,
     custom: stopCustomController,
   });
+
+  // What a plugin holds the ship with, and how to stop it (`holdShip`). Stopped by
+  // any other claim, as the loops above are, and when the session closes.
+  let pluginShipHold: { readonly stop: () => void } | null = null;
+
+  function endPluginShipHold(): void {
+    const hold = pluginShipHold;
+    if (hold === null) return;
+    pluginShipHold = null;
+    store.apply({ type: "ship/plugin-holder", holder: null });
+    hold.stop();
+  }
+
+  function claimShip(owner: ShipControllerID): void {
+    claimBuiltInShip(owner);
+    endPluginShipHold();
+  }
+
+  function holdShip(owner: PluginShipOwner, name: string, stop: () => void): ShipHold {
+    if (sessionClosing) throw new Error("This pilot session is being released.");
+    requireCustomControllerSettled();
+    // As every start does: the autopilot is not a controller, and would fly on underneath.
+    autopilot?.abort();
+    claimShip(owner);
+    const hold = { stop };
+    pluginShipHold = hold;
+    store.apply({ type: "ship/plugin-holder", holder: { owner, name } });
+    return {
+      release() {
+        if (pluginShipHold !== hold) return;
+        pluginShipHold = null;
+        store.apply({ type: "ship/plugin-holder", holder: null });
+      },
+    };
+  }
 
   function beginSessionClose(): void {
     if (sessionClosing) throw new Error("This pilot session is already being released.");
@@ -24275,6 +24453,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     stopMissionController();
     stopCompanionController();
     stopCustomController();
+    endPluginShipHold();
   }
 
   /**
@@ -25218,16 +25397,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     );
   }
 
-  function resolveDefenseModuleIDs(): {
-    readonly shield: readonly number[];
-    readonly armor: readonly number[];
-    readonly hull: readonly number[];
-    /** The ancillary ones among shield/armor/hull: they eat a charge a cycle. */
-    readonly ancillary: readonly number[];
-    readonly hardeners: readonly number[];
-    readonly weapons: readonly number[];
-    readonly propulsion: readonly CompanionPropulsionModule[];
-  } {
+  function resolveDefenseModuleIDs(): FittedDefenseModules {
     const fit = store.fitting.get();
     const shield: number[] = [];
     const armor: number[] = [];
@@ -26181,13 +26351,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
      * second resolution being grown beside it.
      */
     readonly propulsion: readonly CompanionPropulsionModule[];
-  }
-  interface RemoteRepModuleIDs {
-    readonly shield: readonly number[];
-    readonly armor: readonly number[];
-    readonly hull: readonly number[];
-    /** Remote CAPACITOR transmitters (SDE group 67) — the cap-chain block. */
-    readonly cap: readonly number[];
   }
   interface ScriptModuleCapabilities {
     readonly combatWeaponIDs: readonly number[];
@@ -29708,6 +29871,54 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   return {
+    flying: {
+      holdShip,
+      onPush,
+      sessionGeneration: () => sessionCloseGeneration,
+      isSessionClosing: () => sessionClosing,
+      bridgeAsk,
+      bridgeDo,
+      fleetBroadcasts,
+      readFlightNow,
+      dockedIn,
+      observeFlightStatus,
+      autopilotProgress: () => autopilot?.snapshot() ?? null,
+      abortAutopilot: () => autopilot?.abort(),
+      alignShip,
+      approachShip,
+      keepShipAtRange,
+      orbitShip,
+      cutEngines,
+      warpAsTheAutopilot,
+      orderedStep,
+      dockStep,
+      jumpStep,
+      switchModuleOn,
+      switchModuleOff,
+      loadAmmoFrom,
+      readTypeActivation,
+      fittedModuleActivation,
+      resolveDefenseModuleIDs,
+      resolveRemoteRepModuleIDs,
+      resolveSalvageModuleIDs,
+      resolveDroneControlRange,
+      launchedThenRead,
+      engageDronesConfirmed,
+      withPilotDroneCap,
+      classifyDroneRoles,
+      classifyRatThreats,
+      classifyTargetGroups,
+      gateLinksForSnapshot,
+      ratSignaturesOnGrid,
+      ratHitPointsOnGrid,
+      ratCombatOnGrid,
+      ratResonancesOnGrid,
+      attributesOfTypes,
+      combatUtilityOfTypes,
+      resolveNamesNow,
+      lootIntoShip,
+      loadRefitLibrary,
+    },
     droneRecovery: readonlySignal(recoverySignal),
     waypoints: waypointsView,
     autopilotOn: readonlySignal(autopilotSignal),

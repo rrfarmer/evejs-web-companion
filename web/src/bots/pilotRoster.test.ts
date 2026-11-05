@@ -28,7 +28,7 @@ const PILOT_ONE_ID = 90000001;
 const PILOT_TWO_ID = 90000002;
 
 function bots(over: Partial<BotsState> = {}): BotsState {
-  return { runningBotID: null, ...over };
+  return { runningBotID: null, runningPluginName: null, ...over };
 }
 
 function customBot(over: Partial<CustomBotState> = {}): CustomBotState {

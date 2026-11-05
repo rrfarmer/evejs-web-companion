@@ -175,7 +175,8 @@ export function tabRunState(bots: BotsState, customBot: CustomBotState): PilotRu
   const descriptor = BOTS.find((entry) => entry.id === running);
   return {
     mode: "tab",
-    botName: descriptor?.name ?? null,
+    // A plugin's loop is in no registry: it named itself when it took the ship.
+    botName: descriptor?.name ?? bots.runningPluginName,
     statusWords: "Running",
     detail: null,
     isCompanion: false,

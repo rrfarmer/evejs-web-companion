@@ -188,7 +188,7 @@
       ? ($customBot.name ?? "Your bot")
       : running === "companion"
         ? "The fleet companion"
-        : (BOTS.find((row) => row.id === running)?.name ?? null),
+        : (BOTS.find((row) => row.id === running)?.name ?? $bots.runningPluginName),
   );
 
   /**

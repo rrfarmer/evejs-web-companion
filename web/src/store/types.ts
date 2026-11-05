@@ -3001,6 +3001,8 @@ export interface MissionBotState {
  */
 export interface BotsState {
   readonly runningBotID: ShipControllerID | null;
+  /** The name a plugin holding the ship gave itself. Null while nothing of a plugin's holds it. */
+  readonly runningPluginName: string | null;
 }
 
 /**
