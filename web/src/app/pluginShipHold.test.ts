@@ -161,6 +161,38 @@ test("a panic recall stops a plugin's loop, or it would undock again", async () 
   assert.equal(stopped, 1);
 });
 
+test("a player's Stop ends a plugin's loop in this tab, and does nothing if there is none", async () => {
+  const { store, flow } = await makeFlow();
+  flow.stopPluginLoop();
+  let stopped = 0;
+  flow.flying.holdShip("plugin:trader", "The trader", () => { stopped += 1; });
+  flow.stopPluginLoop();
+  assert.equal(stopped, 1);
+  assert.deepEqual(holderOf(store), NOBODY);
+  flow.stopPluginLoop();
+  assert.equal(stopped, 1);
+});
+
+test("a hold waits for drone recovery, as every start does", async () => {
+  // Every request waits, so recovery is still checking when the hold is asked for.
+  const waiting: (() => void)[] = [];
+  const flow = createAppFlow(createClientStore(), {
+    livePush: false,
+    browserPilotRecovery: true,
+    perSessionToken: true,
+    initialSessionToken: "pilot",
+    fetch: () => new Promise<Response>((resolve) => { waiting.push(() => resolve(Response.json({ ok: true }))); }),
+  });
+  const attaching = flow.attachToHeldPilot(HELD);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.throws(() => flow.flying.holdShip("plugin:trader", "The trader", () => {}), /recovery/i);
+  while (waiting.length > 0) {
+    waiting.shift()!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  await Promise.race([attaching.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 100))]);
+});
+
 test("a lost session stops a plugin's loop, in the flow as well as the store", async () => {
   const { store, flow } = await makeFlow();
   let stopped = 0;

@@ -152,7 +152,8 @@ cuts a name that outruns its row in the same way, at the row's width.
 
 - Its id is `plugin:<plugin id>` or `plugin:<plugin id>.<name>`.
 - Its view is a Svelte component given `{ sessions, onOpen, onGoToPilot }`
-  (`GlobalWindowProps`); never a pilot's store or flow.
+  (`GlobalWindowProps`). Each session carries that pilot's `store` and `flow`, so a plugin
+  in the page acts as the pilots signed in there, with all a player's rights.
 - Its glyph is SVG path data in a 24x24 box, stroked, like the Neocom's.
 
 ### A bot builder block
@@ -397,6 +398,54 @@ it, and can never stop the loop. Some things to know:
 - `stop()` is not called if your process has died, and lines not yet sent die with it, so a
   crashed or recalled run has no `end` line. A pilot that went offline has no session left
   to write with, so those lines are lost as well.
+
+### A loop in a tab
+
+A plugin can fly a pilot from the page as well, on a pilot signed in there. The server
+is not involved, so the loop ends when the tab closes.
+
+Nothing more is needed than a session from your window's `sessions`. A plugin's modules
+stay loaded for as long as the page does, so a loop outlives the window that started it.
+Keep what you start in a module of your own rather than in a component.
+
+Write the flying once, on a `store` and `flow`, and it can run both ways:
+
+```ts
+// lib/fly.ts: the same either way.
+export async function fly(store: ClientStore, flow: AppFlow, stopped: () => boolean, say: (why: string) => void) {
+  /* the loop from "Flying a pilot" */
+}
+
+// In a run, from `start`:
+const { store, flow } = await createPilotSession(run);
+const loop = fly(store, flow, () => !flying, (why) => run.report({ status: "error", why }));
+
+// In a tab, from a window's button:
+let flying = true;
+const hold = session.flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+void fly(session.store, session.flow, () => !flying, showInMyWindow).finally(() => hold.release());
+```
+
+What differs in a tab:
+
+| | A run | A tab |
+|---|---|---|
+| Who starts it | `startPluginRun` and a launch approval | your own code, on a player's click |
+| A player's Stop | The Bot Manager calls the handle's `stop` | The Bot Manager calls the hold's `stop` |
+| The hold's `stop` | Rarely called | **How your loop is stopped**, so it must end the loop |
+| Its name in the page | From `check` | From `holdShip` |
+| What a window sees | `readout` | `store.pluginState`, directly |
+| A restart | Your process comes back, with `resumeData` | Closing or reloading the tab ends the run. Come back from your own saved state if you want to |
+| The live stream | Yours to close (`setLivePush(false)`) | The page's. **Do not close it** |
+| The session | Core's | The player's. **Do not release it** when your loop ends |
+
+`holdShip` refuses while drone recovery is still checking a pilot that has just signed in,
+so a start can be told to wait. Ask `store.bots.get().runningBotID` whether a pilot is
+already flying something before you offer a Start, and remember that taking the ship stops it.
+
+Be careful with sessions a player is looking at. A background pilot has no live stream
+(only the pilot on screen does), so it learns of pushes from the answers to your own
+reads, and `sleepUntilPush` wakes on those.
 
 ## Isolation
 
