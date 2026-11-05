@@ -94,6 +94,31 @@ test("a hold that was stopped leaves nothing behind to end the next one", async 
   assert.equal(holderOf(store).runningBotID, "plugin:hauler");
 });
 
+test("swapping holds from inside a store's listener does not let the old watcher end the new hold", async () => {
+  const { store, flow } = await makeFlow();
+  let first: ReturnType<typeof flow.flying.holdShip> | null = null;
+  let stopped = 0;
+  let swapped = false;
+  store.subscribe(() => {
+    if (first === null || swapped) return;
+    swapped = true;
+    first.release();
+    flow.flying.holdShip("plugin:hauler", "The hauler", () => { stopped += 1; });
+  });
+  first = flow.flying.holdShip("plugin:trader", "The trader", () => {});
+  store.apply({ type: "custom-bot/cleared" });
+  assert.equal(stopped, 0);
+  assert.equal(holderOf(store).runningBotID, "plugin:hauler");
+});
+
+test("another pilot chosen on this flow stops a loop flying the last one", async () => {
+  const { flow } = await makeFlow();
+  let stopped = 0;
+  flow.flying.holdShip("plugin:trader", "The trader", () => { stopped += 1; });
+  await flow.attachToHeldPilot({ ...HELD, characterID: 90000002, character: { ...CHARACTER, characterID: 90000002 } } as unknown as HeldPilot);
+  assert.equal(stopped, 1);
+});
+
 test("with no pilot online there is nothing to hold", () => {
   const flow = createAppFlow(createClientStore(), { livePush: false, perSessionToken: true, initialSessionToken: "pilot", fetch: async () => Response.json({ ok: true }) });
   assert.throws(() => flow.flying.holdShip("plugin:trader", "The trader", () => {}), /No pilot/);
@@ -262,6 +287,27 @@ test("a storm of pushes ends a sleep early, but not before the floor", async () 
   });
   assert.ok(slept >= 300, `slept ${slept} ms, under the floor`);
   assert.ok(slept < 2_000, `slept ${slept} ms, so the push did not wake it`);
+});
+
+test("what a sleep watches rejecting goes no further", async () => {
+  const { flow } = await makeFlow();
+  const told = await quietly(async () => {
+    await flow.flying.sleepUntilPush(5, async () => { throw new Error("async watch boom"); });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.ok(told.some((line) => line.includes("async watch boom")));
+});
+
+test("a listener that rejects goes no further", async () => {
+  let pending: readonly unknown[] = [];
+  const { flow } = await makeFlow(() => { const taken = pending; pending = []; return taken; });
+  flow.flying.onPush(async () => { throw new Error("async listener boom"); });
+  pending = [PUSHES[0]![1]];
+  const told = await quietly(async () => {
+    await flow.flying.readFlightNow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.ok(told.some((line) => line.includes("async listener boom")));
 });
 
 test("what a sleep watches throwing does not fail the sleep", async () => {

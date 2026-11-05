@@ -1496,6 +1496,19 @@ export interface SaidDialog {
   readonly suppressAnswer?: "yes";
 }
 
+/**
+ * Call what a plugin handed in. What it throws or rejects with is logged and goes no further:
+ * nothing else would catch a rejection, and in a plugin's process that ends every run in it.
+ */
+function callPluginCode(words: string, call: () => unknown): void {
+  const said = (error: unknown): void => console.error(words, error);
+  try {
+    void Promise.resolve(call()).catch(said);
+  } catch (error) {
+    said(error);
+  }
+}
+
 /** A ship's remote repairers, by what they repair. */
 export interface RemoteRepModuleIDs {
   readonly shield: readonly number[];
@@ -1544,15 +1557,15 @@ export interface PilotFlying {
    * Called as a push that may want acting on arrives, rather than at the next look:
    * a fleet broadcast, a fleet target tag, this ship's lock landing, a jam starting.
    * Returns how to stop listening. A fleet fight pushes many of these, so a loop sleeps
-   * with `sleepUntilPush` rather than looking on each one. What a listener throws is
-   * logged and goes no further.
+   * with `sleepUntilPush` rather than looking on each one. What a listener throws or rejects
+   * with is logged and goes no further.
    */
   onPush(listener: () => void): () => void;
   /**
    * Sleep for `ms`, or until a push wants acting on. A push cannot end a sleep sooner than
    * about a third of a second after it began, so a storm of them settles at that rather than
    * at the speed of the wire. `whileAsleep` is started as the sleep begins, its argument says
-   * whether it still is, and what it throws is logged and goes no further.
+   * whether it still is, and what it throws or rejects with is logged and goes no further.
    */
   sleepUntilPush(ms: number, whileAsleep?: (asleep: () => boolean) => void): Promise<void>;
   /**
@@ -1599,6 +1612,7 @@ export interface PilotFlying {
    * `withPilotDroneCap`, read about it, and wait for all of it. Attaching reads none of it, and
    * until this has run those lists are empty. Answers whether the fit's modules could be read:
    * if not, the lists are empty because nobody knows, not because the ship carries nothing.
+   * Rejects if the request itself failed.
    */
   readFit(): Promise<boolean>;
   /** Learn whether these module types can be switched on: `fittedModuleActivation` reads the answer. */
@@ -22946,14 +22960,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   function announcePush(): void {
-    for (const listener of [...pushListeners]) {
-      // A push arrives inside whatever answer brought it: a listener's bug must not fail that call.
-      try {
-        listener();
-      } catch (error) {
-        console.error("A push listener threw:", error);
-      }
-    }
+    // A push arrives inside whatever answer brought it: a listener's bug must not fail that call.
+    for (const listener of [...pushListeners]) callPluginCode("A push listener threw:", listener);
   }
 
   /**
@@ -22998,11 +23006,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         clearTimeout(timer);
         timer = setTimeout(finish, Math.min(COMPANION_WAKE_FLOOR_MS, ms) - waited);
       });
-      try {
-        whileAsleep?.(() => asleep);
-      } catch (error) {
-        console.error("What a sleep was watching threw:", error);
-      }
+      if (whileAsleep) callPluginCode("What a sleep was watching threw:", () => whileAsleep(() => asleep));
     });
   }
 
@@ -24448,7 +24452,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   // What a plugin holds the ship with, and how to stop it (`holdShip`). Stopped by
   // any other claim, as the loops above are, and when the session closes.
-  let pluginShipHold: { readonly stop: () => void; readonly stopWatching: () => void } | null = null;
+  let pluginShipHold: { readonly stop: () => void; stopWatching: () => void } | null = null;
   // Set while a plugin's `stop` runs. Taking the ship from inside it would leave a hold
   // standing behind the claim that is stopping it, and two loops flying one hull.
   let endingPluginShipHold = false;
@@ -24461,15 +24465,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     store.apply({ type: "ship/plugin-holder", holder: null });
     endingPluginShipHold = true;
     // A plugin's bug must not stop the claim it is in the way of, or a pilot's session
-    // closing, which would then never finish. Its `stop` may be async, as a run's handle is.
-    const said = (error: unknown): void => console.error("A plugin's loop threw as it was stopped:", error);
-    try {
-      void Promise.resolve(hold.stop() as unknown).catch(said);
-    } catch (error) {
-      said(error);
-    } finally {
-      endingPluginShipHold = false;
-    }
+    // closing, which would then never finish.
+    callPluginCode("A plugin's loop threw as it was stopped:", hold.stop);
+    endingPluginShipHold = false;
   }
 
   function claimShip(owner: ShipControllerID): void {
@@ -24490,12 +24488,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // A session lost, another pilot chosen, or a start already on its way when this took the
     // ship: nothing calls a claim for those, and the store has let go, so a loop flying on
     // would be one that nothing says is flying.
+    const hold = { stop, stopWatching: (): void => {} };
     const stopWatching = store.subscribe(() => {
+      // A store tells a listener already taken off once more if it was telling them all as it left.
+      if (pluginShipHold !== hold) return;
       if (store.station.get().online?.characterID !== characterID || store.bots.get().runningBotID !== owner) {
         endPluginShipHold();
       }
     });
-    const hold = { stop, stopWatching };
+    hold.stopWatching = stopWatching;
     pluginShipHold = hold;
     return {
       release() {

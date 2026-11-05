@@ -351,7 +351,8 @@ runs: {
 - **`readFit()` comes before the module lists** (`resolveDefenseModuleIDs`,
   `resolveRemoteRepModuleIDs`, `resolveSalvageModuleIDs`). Attaching reads no fit, and until
   `readFit` has run they are empty. It answers `false` if the fit's modules could not be
-  read, and then they are empty because nobody knows. `loadFitting` in `flying.ts` is the
+  read, and then they are empty because nobody knows, and it rejects if the request itself
+  failed, so call it inside your `try`. `loadFitting` in `flying.ts` is the
   plain request and fills no store. Call `readFit` again after a refit.
 - **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push
   cannot end a sleep sooner than about a third of a second after it began. `onPush(listener)`
