@@ -63,9 +63,12 @@ export const INITIAL_FLEET_COMPANION: FleetCompanionState = Object.freeze({
   selfPaused: false,
 });
 
+/** Who holds the ship while a companion flies it, as the page reads it. */
+export const COMPANION_OWNER = "plugin:fleet-companion";
+
 /** This pilot's companion state. */
 export function companionState(store: ClientStore): WritableSignal<FleetCompanionState> {
-  return store.pluginState<FleetCompanionState>("plugin:fleet-companion", INITIAL_FLEET_COMPANION);
+  return store.pluginState<FleetCompanionState>(COMPANION_OWNER, INITIAL_FLEET_COMPANION);
 }
 
 export type CompanionEvent =

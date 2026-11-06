@@ -182,6 +182,7 @@ function harness(
     readonly docked?: boolean;
     readonly inFleet?: boolean;
     readonly members?: readonly RosterMemberFixture[];
+    readonly shipUnreadable?: () => boolean;
   } = {},
 ) {
   const docked = options.docked ?? false;
@@ -202,7 +203,10 @@ function harness(
   }) as unknown as typeof fetch;
 
   function respond(path: string, body: Record<string, unknown>): unknown {
-    if (path === "/api/bridge/flight/status") return flightBody(docked);
+    if (path === "/api/bridge/flight/status") {
+      if (options.shipUnreadable?.()) throw new Error("not a ship");
+      return flightBody(docked);
+    }
     if (path === "/api/bridge/space/snapshot") return spaceBody();
     if (path === "/api/bridge/fitting") return fittingBody({});
     if (path === "/api/bridge/ship/ore-hold") return holdsBody(0, []);
@@ -384,6 +388,21 @@ test("a companion refuses to start outside a fleet, and says why in plain langua
   assert.ok(message !== null, "a refused start must say something");
   assert.match(message, /fleet/i);
   assert.doesNotMatch(message ?? "", /[0-9]{5,}/, "no raw ids in player-facing text");
+  assert.equal(store.bots.get().runningBotID, null, "it flies nothing, so nothing says it does");
+  companionOf(flow).stopFleetCompanion();
+});
+
+test("a companion that ends by itself lets go of the ship", async () => {
+  let unreadable = false;
+  const { store, flow } = harness({ inFleet: true, shipUnreadable: () => unreadable });
+  await companionOf(flow).startFleetCompanion(DEFAULT_FLEET_COMPANION_REQUEST);
+  assert.equal(store.bots.get().runningBotID, "plugin:fleet-companion");
+  unreadable = true;
+  for (let waited = 0; waited < 8_000 && companionState(store).get().status === "running"; waited += 20) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(companionState(store).get().status, "error");
+  assert.equal(store.bots.get().runningBotID, null, "it flies nothing, so nothing says it does");
   companionOf(flow).stopFleetCompanion();
 });
 

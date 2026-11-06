@@ -15,13 +15,12 @@ import { FLEET_COMPANION_REQUIREMENTS, type FleetCompanionReads } from "./fleetC
 import { voteTankLayer } from "./tankLayer.ts";
 import type { AppFlow } from "../../../web/src/plugin-api/index.ts";
 import type { ShipHold } from "../../../web/src/plugin-api/flying.ts";
-import { applyCompanionEvent } from "./companionState.ts";
+import { COMPANION_OWNER, applyCompanionEvent } from "./companionState.ts";
 import type { CompanionStandingOrders } from "./fleetCompanionLoop.ts";
 import * as api from "../../../web/src/plugin-api/flying.ts";
 import { errorWords, isSessionLost, type ClientStore } from "../../../web/src/plugin-api/flying.ts";
 
 const callOptionsOf = (flow: AppFlow) => flow.requestOptions();
-const COMPANION_OWNER = "plugin:fleet-companion";
 const droneFactsByTypeID = new Map<number, DroneFacts | null>();
 // Charges are this category of the static data.
 const CHARGE_CATEGORY_ID = 8;
@@ -1297,6 +1296,8 @@ export function createCompanionFlow(store: ClientStore, flow: AppFlow) {
           failureReason: progress.failureReason,
           selfPaused: progress.selfPaused,
         });
+        // The loop ended by itself: it flies nothing now, so the ship is free.
+        if (progress.status === "stopped" || progress.status === "error") letGoOfShip();
       },
     };
   }
@@ -1350,11 +1351,14 @@ export function createCompanionFlow(store: ClientStore, flow: AppFlow) {
     const invite = store.fleet.get().pendingInvite;
     return invite === null ? null : { fleetID: invite.fleetID, inviterID: invite.inviterID };
   }
+  function letGoOfShip(): void {
+    shipHold?.release();
+    shipHold = null;
+  }
   function stopCompanionController(): void {
     fleetCompanion?.stop();
     liveCompanionRequest = null;
-    shipHold?.release();
-    shipHold = null;
+    letGoOfShip();
     // The pilot has gone, and with it what this readout was about: stopping must not leave one behind.
     if (store.station.get().online === null) applyCompanionEvent(store, { type: "companion/cleared" });
     // The companion's movement rungs ride the same shared autopilot the mission
@@ -1770,6 +1774,8 @@ export function createCompanionFlow(store: ClientStore, flow: AppFlow) {
     const preflight = evaluateRequirements(FLEET_COMPANION_REQUIREMENTS, await fleetCompanionReads());
     if (generation !== flow.flying.sessionGeneration() || flow.flying.isSessionClosing()) return;
     if (!preflight.canStart) {
+      // It took the ship from whatever flew it, as the player asked, and flies nothing itself.
+      letGoOfShip();
       applyCompanionEvent(store, { type: "companion/start-error", message: preflight.blockedBy });
       return;
     }
@@ -1778,7 +1784,13 @@ export function createCompanionFlow(store: ClientStore, flow: AppFlow) {
     // lists at all -- they exist only once this has read the hull -- and the
     // first tick can fire immediately, so a loop started before this returned
     // would spend that tick believing the ship carries nothing.
-    const fitFacts = await readCompanionFitFacts();
+    let fitFacts: Awaited<ReturnType<typeof readCompanionFitFacts>>;
+    try {
+      fitFacts = await readCompanionFitFacts();
+    } catch (error) {
+      letGoOfShip();
+      throw error;
+    }
     if (generation !== flow.flying.sessionGeneration() || flow.flying.isSessionClosing()) return;
     const flownRequest = requestForFit(setup, fitFacts);
     // Advisory, never a refusal: a human loads the missing thing or flies

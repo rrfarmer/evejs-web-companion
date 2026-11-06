@@ -102,7 +102,7 @@ import { loadKnownCharacters } from "../../../web/src/plugin-api/index.ts";
   import { panelErrorWords } from "../../../web/src/plugin-api/flying.ts";
   import { CHAT_COMMAND_HELP } from "../lib/chatCommands.ts";
   import type { Session } from "../../../web/src/plugin-api/index.ts";
-  import { companionState, type FleetCompanionState } from "../lib/companionState.ts";
+  import { COMPANION_OWNER, companionState, type FleetCompanionState } from "../lib/companionState.ts";
   import { companionFor } from "../lib/companions.ts";
 
   let {
@@ -1026,7 +1026,7 @@ import { loadKnownCharacters } from "../../../web/src/plugin-api/index.ts";
                        takes the ship off that bot; a roster that showed only
                        companions would make that look like it came from
                        nowhere. -->
-                  {#if state !== null && !holdsTheShip(state.status) && row.holder !== null && row.holder !== "companion"}
+                  {#if state !== null && !holdsTheShip(state.status) && row.holder !== null && row.holder !== COMPANION_OWNER}
                     <span class="note"> — a bot is flying this ship</span>
                   {/if}
                   <!-- ⚠ ONLY ONE OF THESE IS A PROBLEM, AND IT IS NOT THE

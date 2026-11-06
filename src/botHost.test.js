@@ -1362,11 +1362,11 @@ test("a saved row of kind \"companion\" with no plugin to take it over is report
     loadScript: () => null,
   });
   await after.resume();
-  // kindOf reads anything but "plugin" as a script, so the row is looked up as one: and a script that does not exist is the refusal.
+  // A kind no plugin has taken over: not a script, so it is not looked up as one.
   const [row] = after.list(ACCOUNT.accountID);
   assert.equal(row.kind, "script");
   assert.equal(row.status, "error");
-  assert.match(row.why, /no longer exists/);
+  assert.match(row.why, /plugin that flew it is not running/);
   assert.equal(after.claimedBy(START.characterID), null);
   assert.equal(log.some(([event]) => event === "selectCharacter"), false);
 });

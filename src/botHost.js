@@ -841,7 +841,8 @@ function createBotHost(options) {
         }
         return false;
       };
-      if (!record.windingDown) {
+      // The first end stands: core's own reason for ending a run is not overwritten by what the plugin sees of the same thing.
+      if (!record.windingDown && !ENDED_STATUSES.has(record.status)) {
         record.status = report.status;
         record.phase = typeof report.phase === "string" ? report.phase : null;
         record.why = typeof report.why === "string" ? report.why : null;
@@ -2084,6 +2085,11 @@ function createBotHost(options) {
         const account = await loadAccount(String(row.username || ""));
         if (!account || account.banned) {
           recordResumeFailure(row, "the account is gone or banned.");
+          continue;
+        }
+        // A kind only a plugin flew, and that plugin is off or did not load. Not a script that went missing.
+        if (row.kind !== undefined && row.kind !== "script" && row.kind !== "plugin") {
+          recordResumeFailure(row, "the plugin that flew it is not running. Start it again when it is.");
           continue;
         }
         let script = null;
