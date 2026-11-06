@@ -40,6 +40,7 @@
     { "webExpect": { "role": "button", "name": "Fleet companions - 1 flying" }, "hidden": true, "timeout": 30, "note": "the window's Stop all stopped it" },
     { "webShot": "stopped in the tab" },
     { "webClick": { "css": ".char-bar-hangar" }, "note": "back to the squad's FLY, with the pilot still in its fleet" },
+    { "webClick": { "css": ".global-layer.over-hangar .win-bar button[aria-label='Close']" }, "note": "the window sits over the Hangar" },
     { "webClick": { "role": "button", "name": "FLY", "exact": true } },
     { "webExpect": { "text": "PI Hauler - started" }, "timeout": 30, "note": "the hand-over kept the pilot in its fleet" },
     { "webShot": "FLY in a fleet" },
