@@ -5,6 +5,7 @@
   // renders nothing when no player bot is running.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { refusalLines } from "../nav/refusalLedger.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
 
@@ -18,6 +19,15 @@
     error: "Stopped after a problem",
   };
   const active = $derived($customBot.status === "running" || $customBot.status === "paused");
+
+  // A clock of its own: a bot waiting out a backoff emits nothing, and its old
+  // lines must still go.
+  let now = $state(Date.now());
+  $effect(() => {
+    const clock = setInterval(() => { now = Date.now(); }, 5000);
+    return () => clearInterval(clock);
+  });
+  const lines = $derived(refusalLines($customBot.refusals, $customBot.status === "running" ? now : null));
 
   // The manual override: stop the bot, bring the drones home, dock at the nearest
   // station. Its own busy flag (never the bot's status) so a slow dock does not
@@ -57,17 +67,19 @@
     {#if $customBot.note}<p class="why">{$customBot.note}</p>{/if}
     {#if $customBot.why}<p class="why">Why: {$customBot.why}</p>{/if}
     {#if $customBot.pauseReason}<p class="pause">{$customBot.pauseReason}</p>{/if}
-    {#if $customBot.refusals.length > 0}
+    {#if lines.length > 0}
       <!-- What the server keeps turning down. THIS IS THE LINE THAT WAS
            MISSING: a bot answered 227 refusals over twelve hours while this
            panel showed nothing but "Taking what's inside." Worst first, and in
            the server's own words via describeRefusal — never a code. -->
-      {#each $customBot.refusals as refusal (refusal.key)}
-        <p class="refusal">
-          {refusal.words}
-          <span class="tally">({refusal.count} times)</span>
-        </p>
-      {/each}
+      <div class="refusals">
+        {#each lines as line (line.words)}
+          <p class="refusal">
+            {line.words}
+            <span class="tally">({line.count} {line.count === 1 ? "time" : "times"})</span>
+          </p>
+        {/each}
+      </div>
     {/if}
     {#if $customBot.lastAlert}
       <!-- The last "alert me" watch. Stays on screen after the notification has
@@ -91,6 +103,10 @@
   .custombot .pause {
     color: var(--color-warn);
     margin: 0.3rem 0 0;
+  }
+  .custombot .refusals {
+    max-height: 7rem;
+    overflow-y: auto;
   }
   .custombot .refusal {
     color: var(--color-warn);
