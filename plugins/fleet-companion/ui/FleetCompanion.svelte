@@ -19,9 +19,7 @@
   // What this panel owns is what is true of THIS pilot: the checklist, the
   // controls, and the readout.
   import { onMount } from "svelte";
-  import { isSessionLost } from "../../../web/src/plugin-api/flying.ts";
-  import { resolvedName, type NameRef } from "../../../web/src/plugin-api/flying.ts";
-  import { evaluateRequirements } from "../../../web/src/plugin-api/flying.ts";
+  import { evaluateRequirements, isFleetBroadcastFresh, isSessionLost, panelErrorWords, resolvedName, type ClientStore, type FleetBroadcastName, type NameRef } from "../../../web/src/plugin-api/flying.ts";
   import {
     FLEET_COMPANION_REQUIREMENTS,
     type FleetCompanionReads,
@@ -34,12 +32,9 @@
   // Manager's per-pilot row says the same things about the same run and the two
   // must not drift. See companionReadout.ts's header.
   import { canTagWords, inFleetWords, orderFromWords } from "../lib/companionReadout.ts";
-  import { isFleetBroadcastFresh, type FleetBroadcastName } from "../../../web/src/plugin-api/flying.ts";
   import { companionState, type FleetCompanionState } from "../lib/companionState.ts";
   import { companionFor } from "../lib/companions.ts";
-  import type { ClientStore } from "../../../web/src/plugin-api/flying.ts";
   import type { AppFlow } from "../../../web/src/plugin-api/index.ts";
-  import { panelErrorWords } from "../../../web/src/plugin-api/flying.ts";
 
   let {
     store,

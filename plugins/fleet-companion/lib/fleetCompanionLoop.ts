@@ -41,9 +41,7 @@ import { APPROACH_SETTLE_MS, AUTOPILOT_WARP_STOPS_SHORT_M, decideCloseIn, measur
 // re-derived for the same reason the get-safe helpers above are: one answer to
 // "where does this tag rank", shared with the combat priority list.
 import { fleetTagRank, pickPrimary } from "../../../web/src/plugin-api/flying.ts";
-import { isTransitionTimeout, isTransportTransient, panelErrorWords } from "../../../web/src/plugin-api/flying.ts";
-import { isNotActivatableRefusal } from "../../../web/src/plugin-api/flying.ts";
-import { FLEET_BROADCAST_TTL_MS } from "../../../web/src/plugin-api/flying.ts";
+import { FLEET_BROADCAST_TTL_MS, isHostile, isNotActivatableRefusal, isTransitionTimeout, isTransportTransient, panelErrorWords, type BotLogSink, type ChatMessage } from "../../../web/src/plugin-api/flying.ts";
 // Rung 6's hurt-drone rotation: the companion's own machine, which pulls every
 // shot drone at once and does not hand a rat back the drone it was shooting
 // (companionDroneRotation.ts). The trigger is the drone-boat block's: its own
@@ -64,10 +62,7 @@ import {
 // words it says about the answer.
 import { decidePropulsionModule, type PropulsionInputs, type PropulsionModule } from "../../../web/src/plugin-api/flying.ts";
 import type { SpaceEntity, SpaceSnapshot } from "../../../web/src/plugin-api/blocks.ts";
-import type { ChatMessage } from "../../../web/src/plugin-api/flying.ts";
-import type { BotLogSink } from "../../../web/src/plugin-api/flying.ts";
 import { createCompanionRecorder } from "./companionLog.ts";
-import { isHostile } from "../../../web/src/plugin-api/flying.ts";
 import {
   sizedLaunch,
   sizeSwitchVerdict,

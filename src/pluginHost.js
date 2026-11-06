@@ -491,7 +491,6 @@ function createPluginHost(options = {}) {
     return answer.type === "failed" ? answer.message : answer.error || null;
   }
 
-  /** Tell a plugin to stop flying a run. A process that is not up has already stopped. */
   /** The plugin and run that fly a saved bot of a kind core used to fly, or null. */
   function formerBotKind(kind) {
     for (const manifest of knownManifests) {
@@ -504,6 +503,7 @@ function createPluginHost(options = {}) {
     return null;
   }
 
+  /** Tell a plugin to stop flying a run. A process that is not up has already stopped. */
   async function stopRun(id, botID) {
     if (backends.get(id)?.state !== "running") return;
     await ask(id, { type: "runStop", botID }, RUN_STOP_TIMEOUT_MS);

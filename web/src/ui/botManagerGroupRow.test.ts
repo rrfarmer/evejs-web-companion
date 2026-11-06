@@ -41,7 +41,7 @@ const NAMES: Record<number, string> = {
 };
 
 function squadGroup(members: readonly number[] = [PILOT_A, PILOT_B]): unknown {
-  return { id: "squad-1", name: "Mining Op", color: "#52d9a3", kind: "squad", members };
+  return { id: "squad-1", name: "Mining Op", color: "#52d9a3", members };
 }
 
 function renderRow(props: Record<string, unknown>): string {

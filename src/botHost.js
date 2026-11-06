@@ -218,8 +218,6 @@ const PLUGIN_DOWN_WINDOW_MS = 2 * 60_000;
 const PLUGIN_RESUME_DATA_MAX_BYTES = 64 * 1024;
 const PLUGIN_READOUT_MAX_BYTES = 16 * 1024;
 const PLUGIN_RUN_STATUSES = new Set(["running", "paused", "idle", "stopped", "error"]);
-// What only the host does for a run: it chose the pilot, it ends the session, and only the player starts or stops
-// a bot. Read as the router reads a path, which ignores case and a trailing slash: an exact match lets "/api/LOGOUT" by.
 // What a run may still do once it is being stopped: say how it ended. It flies nothing,
 // and the end of a run is what its log is most often read for.
 function isPluginLastWords(message) {
@@ -231,7 +229,9 @@ function isPluginLastWords(message) {
   }
 }
 
-const PLUGIN_REFUSED_PATH =/^\/api\/(login|logout|bridge\/select|bridge\/release|bots\/start|bots\/[^/]+\/(stop|reconnect)|mining-operations\/[^/]+\/(start|stop))\/?$/i;
+// What only the host does for a run: it chose the pilot, it ends the session, and only the player starts or stops
+// a bot. Read as the router reads a path, which ignores case and a trailing slash: an exact match lets "/api/LOGOUT" by.
+const PLUGIN_REFUSED_PATH = /^\/api\/(login|logout|bridge\/select|bridge\/release|bots\/start|bots\/[^/]+\/(stop|reconnect)|mining-operations\/[^/]+\/(start|stop))\/?$/i;
 const PLUGIN_STOPPED_PHASE = "Plugin stopped";
 
 /**
@@ -1297,7 +1297,7 @@ function createBotHost(options) {
           if (record.startError === null && record.status === "starting") record.status = "running";
           return;
         }
-        else await flow.startCustomBot(decodedDoc);
+        await flow.startCustomBot(decodedDoc);
         applySnapshot(record, store.customBot.get());
       };
       record.recoverSession = (disconnect = false) => {

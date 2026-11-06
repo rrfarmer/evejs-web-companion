@@ -15,17 +15,6 @@ import type { ServerBot } from "../app/api.ts";
 import type { HangarPrefs } from "../app/hangarPrefs.ts";
 import { serverBotFor } from "./pilotRoster.ts";
 
-/**
- * The built-in group's id.
- *
- * ⚠ IT MUST NOT COLLIDE WITH A SQUAD ID. `nextSquadId()` mints `squad-<uuid>`,
- * so a bare word cannot be one; the prefix is kept anyway so a stored value
- * that somehow reaches this namespace is still obviously not a squad.
- */
-
-/** What kind of thing a group is, which is the same as what it can launch. */
-export type GroupKind = "squad";
-
 export interface PilotGroup {
   readonly id: string;
   readonly name: string;
@@ -34,7 +23,6 @@ export interface PilotGroup {
    * hangar.
    */
   readonly color: string | null;
-  readonly kind: GroupKind;
   /** characterIDs, in the order the player arranged them. */
   readonly members: readonly number[];
 }
@@ -47,7 +35,6 @@ export function pilotGroups(prefs: HangarPrefs): readonly PilotGroup[] {
     id: squad.id,
     name: squad.name,
     color: squad.color,
-    kind: "squad",
     members: prefs.members[squad.id] ?? [],
   }));
   return squads;
@@ -265,14 +252,8 @@ export function groupRunStatusWords(launch: GroupLaunchPlan, onServer: boolean):
   return "Idle";
 }
 
-/**
- * The sentence a start prints when it turns out there was nobody to start.
- *
- * ⚠ IT TAKES THE KIND, because different kinds of group can be empty for
- * different reasons and only some are fixable in the Bot Manager. An empty
- * squad wants pilots.
- */
-export function groupStartEmptyWords(_kind: GroupKind, memberCount: number): string {
+/** The sentence a start prints when it turns out there was nobody to start. */
+export function groupStartEmptyWords(memberCount: number): string {
   if (memberCount === 0) {
     return "This group has no pilots yet. Add some to the squad on the Pilot Hangar.";
   }

@@ -53,6 +53,7 @@ test("standing orders kept recently come back as they were", () => {
 test("standing orders kept too long ago do not: free fire nobody has said for a while is not a safe thing to find", () => {
   assert.equal(keptStandingOrders({ standingOrders: ORDERS, ordersKeptAtMs: NOW - STANDING_ORDERS_KEPT_MS - 1 }, NOW), null);
   assert.deepEqual(keptStandingOrders({ standingOrders: ORDERS, ordersKeptAtMs: NOW - STANDING_ORDERS_KEPT_MS }, NOW), ORDERS);
+  assert.equal(keptStandingOrders({ standingOrders: ORDERS, ordersKeptAtMs: NOW + 1 }, NOW), null, "a stamp from the future");
 });
 
 test("standing orders that cannot be read, or from before there were any, do not come back", () => {

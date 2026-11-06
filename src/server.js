@@ -1670,6 +1670,16 @@ function openHeldStream(webSessionID, held) {
   });
 }
 
+/**
+ * Why this web session has no pilot. A start handing its pilot over may yet give it back, and a page takes
+ * NO_LIVE_SESSION to mean the pilot has gone, and drops it.
+ */
+function whyNoHeldPilot(webSessionID) {
+  return sessionOperations.has(webSessionID)
+    ? { error: "CHARACTER_IN_USE", message: "This pilot is changing sessions. Try again shortly." }
+    : { error: "NO_LIVE_SESSION", message: "No character is online; select a character first." };
+}
+
 function closeHeldStream(held) {
   if (held.streamRetryTimer) {
     clearTimeout(held.streamRetryTimer);
@@ -1684,11 +1694,7 @@ function closeHeldStream(held) {
 app.get("/api/bridge/events", requireStreamAuth, (req, res) => {
   const held = bridgeSessions.get(req.webSessionID) || null;
   if (!held) {
-    res.status(409).json({
-      ok: false,
-      error: "NO_LIVE_SESSION",
-      message: "No character is online; select a character first.",
-    });
+    res.status(409).json({ ok: false, ...whyNoHeldPilot(req.webSessionID) });
     return;
   }
   res.writeHead(200, {
@@ -2105,11 +2111,7 @@ const SHIP_BIND_GROUP_STATION = 5;
 function requireHeldBridgeSession(req, res) {
   const held = bridgeSessions.get(req.webSessionID) || null;
   if (!held) {
-    res.status(409).json({
-      ok: false,
-      error: "NO_LIVE_SESSION",
-      message: "No character is online; select a character first.",
-    });
+    res.status(409).json({ ok: false, ...whyNoHeldPilot(req.webSessionID) });
     return null;
   }
   assertHeldRequestGeneration(req, held);
@@ -2135,7 +2137,7 @@ function assertHeldRequestGeneration(req, held) {
 function assertCurrentHeldSession(held, webSessionID) {
   if (bridgeSessions.get(webSessionID) !== held) {
     throw Object.assign(new Error("The pilot session changed before this call."),
-      { code: "NO_LIVE_SESSION", statusCode: 409 });
+      { code: bridgeSessions.has(webSessionID) ? "NO_LIVE_SESSION" : whyNoHeldPilot(webSessionID).error, statusCode: 409 });
   }
   if (held.selectionReleaseUnverified)
     throw Object.assign(new Error("The prior selection's session release is unconfirmed. Retry its logout first."),
@@ -17158,7 +17160,6 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
             throw Object.assign(new Error("Return controlled drones to the bay before server handoff."), { code: "DRONE_HANDOFF_UNSAFE" });
           }
         }
-        assertReservation();
         assertReservation();
         if (owner?.webSessionID) {
           transferReservation(owner);

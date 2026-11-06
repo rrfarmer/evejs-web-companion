@@ -17,7 +17,7 @@
 //
 // ⚠ FRESHNESS IS STILL THE CALLER'S JOB. These are pure functions over injected
 // reads: the window evaluates them against the store as a live advisory
-// checklist, and `flow.ts` evaluates THE SAME objects against reads taken
+// checklist, and `companionFlow.ts` evaluates THE SAME objects against reads taken
 // immediately before the first call. Only the second evaluation decides
 // anything.
 

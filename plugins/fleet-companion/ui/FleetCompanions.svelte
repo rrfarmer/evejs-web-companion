@@ -48,14 +48,9 @@
   // companion doing something else.
   import { onMount } from "svelte";
   import FleetCompanion from "./FleetCompanion.svelte";
-  import { readBotLog } from "../../../web/src/plugin-api/flying.ts";
-import { stopServerBot } from "../../../web/src/plugin-api/index.ts";
-import { type ServerBot } from "../../../web/src/plugin-api/index.ts";
+  import { EMPTY_JOIN_MEMORY, decideFleetJoin, holdsTheShip, panelErrorWords, readBotLog, type BotLogEntry, type FleetApplication, type FleetFinderRead, type FleetJoinMemory, type FleetJoinVerdict, type ShipControllerID } from "../../../web/src/plugin-api/flying.ts";
+  import { createPilotReach, loadKnownAccounts, loadKnownCharacters, skipWhileBusy, stopServerBot, type ServerBot, type Session } from "../../../web/src/plugin-api/index.ts";
   import { buildLogView, parseLogLines } from "./companionLogView.ts";
-  import type { BotLogEntry } from "../../../web/src/plugin-api/flying.ts";
-  import { createPilotReach } from "../../../web/src/plugin-api/index.ts";
-  import { skipWhileBusy } from "../../../web/src/plugin-api/index.ts";
-  import { holdsTheShip, type ShipControllerID } from "../../../web/src/plugin-api/flying.ts";
   // ⚠ NO `canTagWords` HERE ANY MORE. The roster dropped its Can tag column;
   // what it says now is a short qualifier in the Companion cell, and only when
   // the answer is not a plain yes. `canTagWords` is still the wording for the
@@ -74,8 +69,6 @@ import { type ServerBot } from "../../../web/src/plugin-api/index.ts";
     serverCompanions,
     tallyCompanions,
   } from "../lib/companionRoster.ts";
-  import { EMPTY_JOIN_MEMORY, decideFleetJoin, type FleetFinderRead, type FleetJoinMemory, type FleetJoinVerdict } from "../../../web/src/plugin-api/flying.ts";
-  import type { FleetApplication } from "../../../web/src/plugin-api/flying.ts";
   import {
     EMPTY_COMPANION_ROSTER,
     addRosterMember,
@@ -86,8 +79,6 @@ import { type ServerBot } from "../../../web/src/plugin-api/index.ts";
     setRosterSetup,
     type CompanionRosterPrefs,
   } from "../lib/companionRosterPrefs.ts";
-  import { loadKnownAccounts } from "../../../web/src/plugin-api/index.ts";
-import { loadKnownCharacters } from "../../../web/src/plugin-api/index.ts";
   import {
     MAX_CAPACITOR_FLOOR,
     MAX_FLEE_ATTEMPTS,
@@ -99,9 +90,7 @@ import { loadKnownCharacters } from "../../../web/src/plugin-api/index.ts";
     abandonDronesFloor,
     type CompanionSetup,
   } from "../lib/fleetCompanionLoop.ts";
-  import { panelErrorWords } from "../../../web/src/plugin-api/flying.ts";
   import { CHAT_COMMAND_HELP } from "../lib/chatCommands.ts";
-  import type { Session } from "../../../web/src/plugin-api/index.ts";
   import { COMPANION_OWNER, companionState, type FleetCompanionState } from "../lib/companionState.ts";
   import { companionFor } from "../lib/companions.ts";
 

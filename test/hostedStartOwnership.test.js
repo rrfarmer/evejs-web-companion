@@ -125,6 +125,7 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
       return {
         async selectCharacter(id) { const selected = await request("/api/bridge/select", { characterID: id }); store.set("station", { online: selected.character }); },
         async startCustomBot() {
+          await behavior.startHook?.();
           if (behavior.startFailure) throw new Error("Injected start failure.");
           calls.push(["run"]); store.set("customBot", { ...idle, status: "running" });
         },
@@ -510,6 +511,32 @@ test("a refused start gives the tab its pilot back as it was: never disconnected
   assert.equal(h.calls.some(([name]) => name === "release"), false);
   assert.equal(h.calls.filter(([name]) => name === "select").length, 1);
   assert.equal(h.app.locals.botHost.claimedBy(characterID), null); assert.equal(h.reservations.size, 0);
+  await h.post("/api/logout");
+});
+
+test("a tab asking during the hand-over is told to wait: its pilot may yet come back, and a page drops one it is told has gone", async t => {
+  const h = await harness(t, { factory: "absent" }); await h.browser(); h.behavior.startFailure = true;
+  let during = null;
+  h.behavior.startHook = async () => { during = await h.get("/api/bridge/flight/status"); };
+  const result = await h.start();
+  assert.notEqual(result.status, 200);
+  assert.equal(during?.status, 409);
+  assert.equal(during.body.error, "CHARACTER_IN_USE");
+  assert.equal((await h.get("/api/bridge/flight/status")).status, 200, "the tab has it again");
+  await h.post("/api/logout");
+});
+
+test("a pilot with unresolved custody stays with its tab: the start hands nothing over", async t => {
+  const h = await harness(t, { factory: "absent" }); await h.browser();
+  const caller = h.app.locals.bridgeSessions.get(h.caller);
+  const unresolved = h.app.locals.replenishment.unresolved;
+  h.app.locals.replenishment.unresolved = () => [{ key: "unresolved-write" }];
+  const result = await h.start();
+  h.app.locals.replenishment.unresolved = unresolved;
+  assert.equal(result.status, 409);
+  assert.equal(h.app.locals.bridgeSessions.get(h.caller), caller);
+  assert.equal(caller.botClaimSecret, undefined);
+  assert.equal(h.app.locals.botHost.claimedBy(characterID), null);
   await h.post("/api/logout");
 });
 

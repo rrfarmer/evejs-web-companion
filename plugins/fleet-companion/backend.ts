@@ -49,7 +49,9 @@ export function keptStandingOrders(resumeData: JsonValue, nowMs: number): Compan
   const kept = resumeData as Record<string, JsonValue>;
   const orders = kept.standingOrders as Record<string, JsonValue> | null | undefined;
   if (orders === null || orders === undefined || typeof kept.ordersKeptAtMs !== "number") return null;
-  if (nowMs - kept.ordersKeptAtMs > STANDING_ORDERS_KEPT_MS) return null;
+  // A stamp from the future is a row that cannot be trusted, as the abandonment's clock is refused for it.
+  const age = nowMs - kept.ordersKeptAtMs;
+  if (age < 0 || age > STANDING_ORDERS_KEPT_MS) return null;
   const { targetMode, flightMode, followRangeM, propsHeld } = orders;
   if ((targetMode !== "called" && targetMode !== "all") || (flightMode !== "follow" && flightMode !== "auto")) return null;
   if (typeof followRangeM !== "number" || !Number.isFinite(followRangeM) || followRangeM < 0) return null;

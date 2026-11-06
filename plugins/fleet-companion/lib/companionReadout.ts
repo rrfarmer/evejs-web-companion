@@ -1,8 +1,8 @@
 // Fleet companion — the WORDS a readout uses, in one place.
 //
 // Two surfaces now describe one running companion: the pilot's own panel
-// (`ui/FleetCompanion.svelte`) and the per-pilot row in the Bot Manager
-// (`ui/BotManagerPilotRow.svelte`, phase 9). They must not tell different
+// (`ui/FleetCompanion.svelte`) and the roster of the Companions window
+// (`ui/FleetCompanions.svelte`). They must not tell different
 // stories about the same run — `src/botHost.js` states the same principle
 // where it folds a bot's progress onto its roster row ("same words the in-tab
 // readout shows, so the phone and a tab never tell different stories").

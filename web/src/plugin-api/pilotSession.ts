@@ -38,7 +38,7 @@ export async function createPilotSession(run: Pick<PluginRunContext, "baseUrl" |
       getItem: (key) => (key === autopilotSettingsKey(run.held.characterID) ? JSON.stringify(run.routeSettings) : null),
       setItem: () => {},
     },
-    eventSource:(url: string) => createHostedEventSource(url, { fetch: run.fetch }),
+    eventSource: (url: string) => createHostedEventSource(url, { fetch: run.fetch }),
   });
   await flow.attachToHeldPilot(run.held);
   return { store, flow };

@@ -1,24 +1,21 @@
 // A pilot's fleet companion, on any pilot's session: the tick's reads and writes around the
 // loop (fleetCompanionLoop.ts). The same code flies in a browser tab and in this plugin's
-// backend (runs.ts).
+// backend (backend.ts).
 
 import { type SpaceSnapshot } from "../../../web/src/plugin-api/blocks.ts";
 import { AUTOMATIC_UTILITY_FAMILIES, FLEET_BROADCAST_SCOPE_ALL, FLEET_BROADCAST_TTL_MS, acceptFleetInvite as acceptFleetInviteCall, applyFitting, authoritativeFleetMemberCharacterIDs, buildSlots, canBroadcastInFleet, canMyShipOrderDrone, canTagInFleet, combatFit, combatUtilityFit, decodeChargeFits, decodeChatChannel, decodeContainer, decodeDroneBay, decodeDroneLimits, decodeFleetCenter, decodeFlightStatus, decodeInventoryRows, decodeShipBays, decodeSpaceSnapshot, decodeTargetIDs, defense, droneStackSizes, evaluateRequirements, fleetCommanderCharacterIDs, fleetCommanderWhereabouts, hostileRows, isFleetBroadcastFresh, isSceneBlind, isTargetedByPlayer, known, leaveFleet as leaveFleetCall, lockTarget as lockTargetCall, lowestHealth, moveItems as moveItemsCall, nameKey, officeAt, repairItemsAtShop, repairTargets, returnDronesToBay, salvageWithDrones, scrammedByWarpScrambler, slotFlagOf, splitDroneRoles, tacklersHolding, tagFleetTarget, type CombatUtilities, type CombatWeapons, type DroneRoleIDs, type FleetCenterSnapshot, undock as undockCall, warpToFleetMember as warpToFleetMemberCall, wholeStackLaunch } from "../../../web/src/plugin-api/flying.ts";
-import type { ShipBay } from "../../../web/src/plugin-api/flying.ts";
 import { CHARGE_ATTRIBUTE_IDS, chargeFactsFromAttributes, type ChargeFacts } from "./ammoReach.ts";
 import { WEAPON_CYCLE_ATTRIBUTE_IDS, type WeaponCycleFacts, weaponCycleFromAttributes } from "./companionAmmo.ts";
 import { companionFitWarnings, requestForFit, type CompanionFitFacts } from "./companionFitCheck.ts";
 import { pickRearmFitting, planCorpFetch, rearmFitParts, rearmNeeds, rearmReport, sumOfType, type RearmCorpMove } from "./companionRearm.ts";
 import { DRONE_SIZING_ATTRIBUTE_IDS, droneFactsFromAttributes, type DroneFacts } from "./droneSizing.ts";
-import { createFleetCompanion, type CompanionAbandonmentRecord, type CompanionCargoCharge, type CompanionLoadedCharge, type CompanionSetup, type CompanionTankLayer, type FleetCompanionController, type FleetCompanionDeps, type FleetCompanionObservation, type FleetCompanionRequest } from "./fleetCompanionLoop.ts";
+import { createFleetCompanion, type CompanionAbandonmentRecord, type CompanionCargoCharge, type CompanionLoadedCharge, type CompanionSetup, type CompanionStandingOrders, type CompanionTankLayer, type FleetCompanionController, type FleetCompanionDeps, type FleetCompanionObservation, type FleetCompanionRequest } from "./fleetCompanionLoop.ts";
 import { FLEET_COMPANION_REQUIREMENTS, type FleetCompanionReads } from "./fleetCompanionRequirements.ts";
 import { voteTankLayer } from "./tankLayer.ts";
 import type { AppFlow } from "../../../web/src/plugin-api/index.ts";
-import type { ShipHold } from "../../../web/src/plugin-api/flying.ts";
 import { COMPANION_OWNER, applyCompanionEvent } from "./companionState.ts";
-import type { CompanionStandingOrders } from "./fleetCompanionLoop.ts";
 import * as api from "../../../web/src/plugin-api/flying.ts";
-import { errorWords, isSessionLost, type ClientStore } from "../../../web/src/plugin-api/flying.ts";
+import { errorWords, isSessionLost, type ClientStore, type ShipBay, type ShipHold } from "../../../web/src/plugin-api/flying.ts";
 
 const callOptionsOf = (flow: AppFlow) => flow.requestOptions();
 const droneFactsByTypeID = new Map<number, DroneFacts | null>();

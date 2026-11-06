@@ -89,7 +89,6 @@ test("every squad becomes a group, in the order the player made them", () => {
     ["Mining Op", "Scout Net"],
   );
   assert.deepEqual(groups[0]?.members, [PILOT_A, PILOT_B]);
-  assert.equal(groups[0]?.kind, "squad");
 });
 
 test("a squad group carries the chip colour", () => {
@@ -268,18 +267,18 @@ test("the group names its bot once, and per pilot only when they differ", () => 
 
 test("the empty sentence names what the player has to go and do", () => {
   // ⚠ AN EMPTY GROUP IS NOT FIXABLE HERE; the sentence says where to go.
-  assert.match(groupStartEmptyWords("squad", 0), /no pilots/i);
-  assert.match(groupStartEmptyWords("squad", 0), /Pilot Hangar/);
+  assert.match(groupStartEmptyWords(0), /no pilots/i);
+  assert.match(groupStartEmptyWords(0), /Pilot Hangar/);
   // A group that HAS members but nobody startable is a third thing again.
-  assert.match(groupStartEmptyWords("squad", 3), /already flying/i);
+  assert.match(groupStartEmptyWords(3), /already flying/i);
 });
 
 test("every sentence this module prints is plain ASCII", () => {
   const words = [
     groupStatusWords([]),
     groupStatusWords(states([[PILOT_A, "running-server"], [PILOT_B, "free"]])),
-    groupStartEmptyWords("squad", 0),
-    groupStartEmptyWords("squad", 2),
+    groupStartEmptyWords(0),
+    groupStartEmptyWords(2),
     groupRunStatusWords(planGroupLaunch(states([[PILOT_A, "free"]])), false),
     groupRunStatusWords(planGroupLaunch(states([[PILOT_A, "held"], [PILOT_B, "free"]])), false),
     groupRunStatusWords(planGroupLaunch(states([[PILOT_A, "running-here"]])), true),

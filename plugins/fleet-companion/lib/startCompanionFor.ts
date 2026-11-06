@@ -9,20 +9,17 @@
 // ⚠ WHAT IS DIFFERENT HERE IS WHO MAY USE IT. A stop is safe for any row: it
 // never claims a hull. A START does claim one, so it must be used ONLY for a
 // pilot that has no session in this tab. For a pilot signed in HERE the caller
-// must be that pilot's OWN session instead, because /api/bots/start releases
-// the CALLER's held bridge session as part of the start — a throwaway token
-// holds nothing, so the hull would still be held by the tab and the host would
-// refuse with "A web session is flying this character". PilotHangar.svelte is
-// where that fork is made; this module is the arm that reaches another account.
+// must be that pilot's OWN session instead, because /api/bots/start hands the
+// CALLER's held bridge session to the run — a throwaway token holds nothing, so
+// the hull would still be held by the tab and the host would refuse with "A web
+// session is flying this character". ui/SquadFly.svelte is where that fork is
+// made; this module is the arm that reaches another account.
 //
 // No character is ever selected on the throwaway session, so nothing undocks
 // and no hull is claimed by it: the bot host mints its own session and selects
 // the character itself.
 
-import { login as apiLogin, logout as apiLogout, type ApiOptions } from "../../../web/src/plugin-api/index.ts";
-import { startPluginRun } from "../../../web/src/plugin-api/index.ts";
-import type { JsonValue } from "../../../web/src/plugin-api/index.ts";
-import type { BotLaunchGrant } from "../../../web/src/plugin-api/index.ts";
+import { login as apiLogin, logout as apiLogout, startPluginRun, type ApiOptions, type BotLaunchGrant, type JsonValue } from "../../../web/src/plugin-api/index.ts";
 import type { CompanionSetup } from "./fleetCompanionLoop.ts";
 
 /** Transport only — the token is this function's to mint, never the caller's. */

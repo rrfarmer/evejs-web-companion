@@ -167,7 +167,7 @@
     summary = null;
     rows = targets.map((characterID) => ({ characterID, state: "queued" as const }));
     if (targets.length === 0) {
-      summary = groupStartEmptyWords(group.kind, group.members.length);
+      summary = groupStartEmptyWords(group.members.length);
       return false;
     }
     busy = true;
@@ -175,7 +175,7 @@
   }
 
   function finish(entries: readonly GroupStartEntry[]): void {
-    summary = groupStartSummary(entries, groupStartEmptyWords(group.kind, group.members.length));
+    summary = groupStartSummary(entries, groupStartEmptyWords(group.members.length));
     // The server roster is what this row reads its states from; ask for it now
     // rather than waiting out the panel's poll.
     onChanged();
@@ -381,7 +381,7 @@
   </td>
   {#if group.members.length === 0}
     <td data-label="Bot" colspan="4">
-      <span class="note">{groupStartEmptyWords(group.kind, 0)}</span>
+      <span class="note">{groupStartEmptyWords(0)}</span>
     </td>
   {:else}
     <td data-label="Bot">
