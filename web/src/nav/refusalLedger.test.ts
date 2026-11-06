@@ -22,6 +22,7 @@ import {
   settleTicksForRefusals,
   shouldSetAside,
 } from "./refusalLedger.ts";
+import { SCRIPT_CADENCE_MS } from "./scriptRunner.ts";
 
 const NO_ROOM = "CALL_REFUSED: NotEnoughCargoSpace";
 
@@ -279,6 +280,6 @@ test("the readout's lines: one per sentence, most refused first, gone once old",
 });
 
 test("a line outlasts the longest backoff, so a live streak never blinks off", () => {
-  const longestBackoffMs = settleTicksForRefusals(1000) * 2000;
+  const longestBackoffMs = settleTicksForRefusals(1000) * SCRIPT_CADENCE_MS;
   assert.ok(REFUSAL_LINE_SHOWN_MS > longestBackoffMs);
 });

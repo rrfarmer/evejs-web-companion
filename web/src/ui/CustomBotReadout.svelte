@@ -24,6 +24,8 @@
   // lines must still go.
   let now = $state(Date.now());
   $effect(() => {
+    if ($customBot.status !== "running") return;
+    now = Date.now();
     const clock = setInterval(() => { now = Date.now(); }, 5000);
     return () => clearInterval(clock);
   });
