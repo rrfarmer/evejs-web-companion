@@ -9,6 +9,8 @@
   //
   // The row renders and reports; it owns no state but the open/closed squad
   // menu, which is passed in so only one menu is open across the whole screen.
+  import ErrorBoundary from "./ErrorBoundary.svelte";
+  import { pluginMemberSettings } from "./pluginHangarViews.ts";
   import type { HangarPilot } from "../app/hangar.ts";
   import type { Squad } from "../app/hangarPrefs.ts";
   import type { ActiveServerBot } from "../app/api.ts";
