@@ -47,6 +47,8 @@
     { "webClick": { "role": "button", "name": "Stop", "exact": true, "within": { "role": "region", "name": "Fleet companions" } } },
     { "webExpect": { "text": "1 running", "within": { "role": "region", "name": "Fleet companions" } }, "hidden": true, "timeout": 30, "note": "the window's Stop stopped it" },
     { "webShot": "stopped on the server" },
+    { "webClick": { "css": ".global-layer .win-bar button[aria-label='Close']", "index": 0 }, "note": "the windows sit over the Hangar, and a reload opens them again" },
+    { "webClick": { "css": ".global-layer .win-bar button[aria-label='Close']", "index": 0 }, "note": "the windows sit over the Hangar, and a reload opens them again" },
     { "wait": 15, "note": "a Stop logs the pilot off" },
     { "webOpen": "/" },
     { "webClick": { "role": "button", "name": "▶ ALL", "index": 0 } },
