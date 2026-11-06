@@ -484,12 +484,12 @@ export function decodeSpaceSnapshot(raw: JsonValue | undefined): SpaceSnapshot {
 }
 
 /**
- * ⚠ A BLIND SCENE IS UNKNOWN, NOT EMPTY (seen live 2026-10-14 12:00:11 UTC). A fleet
- * companion's ballpark on the BFF went invalid and the space read then answered
+ * ⚠ A BLIND SCENE IS UNKNOWN, NOT EMPTY (seen live 2026-10-14 12:00:11 UTC). A
+ * bot's ballpark on the BFF went invalid and the space read then answered
  * `{inSpace:true, entities:[], ship:null}` with a 200 for ten minutes. Decoded, that
  * is a snapshot like any other, so "no hostile on grid", "no drones out" and "the
- * grid is clear" were all read off a scene nobody could see: the clear-grid reload
- * fired mid-fight and the rejoin stood by for ever.
+ * grid is clear" were all read off a scene nobody could see, and a loop acting
+ * on them did the wrong thing mid-fight.
  *
  * A pilot that is in space always has a ship in its own scene, so no ship there
  * (or the BFF saying `stateValid: false`) means the read failed, whatever the

@@ -8,13 +8,13 @@
 // MAX_CARGO_CONTAINER_TRANSFER_DISTANCE_METERS), and the one field that DOES
 // say "there is nothing in this" — the slim item's `isEmpty`, which is why the
 // retail client can draw an empty wreck differently — rides `DoDestinyUpdate`,
-// the single notification the web gateway suppresses. So a companion learns a
+// the single notification the web gateway suppresses. So a bot learns a
 // wreck is empty by FLYING TO IT, and that is the whole cost this module
 // exists to stop paying more than once.
 //
 // Paying it once is unavoidable. Paying it once PER PILOT is not: every
-// companion keeps its own record of what it emptied (flow.ts's
-// `companionLootFinished`), so in a fleet of four the second, third and fourth
+// bot keeps its own record of what it emptied, so in a fleet of four the
+// second, third and fourth
 // pilot each fly the same wreck the first one already drained. Reported into
 // here, the first pilot's trip answers the question for all of them — and for
 // the hand-flown client too, because the overview's own loot verb goes through

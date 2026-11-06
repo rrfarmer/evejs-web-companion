@@ -37,9 +37,9 @@ test("a thing's warp, the autopilot's and a fleet member's are carried out by th
   assert.equal(times("await warpToThing(destinationID, MENU_WARP_RANGE_M);"), 2);
   // A script bot's.
   assert.equal([...flow.matchAll(/case "warp":\s+await warpToThing\(action\.targetID, MENU_WARP_RANGE_M\);\s+return;/g)].length, 1);
-  // The fleet companion's: the autopilot's own call, and a fleet member by the pilot's number.
-  assert.equal([...flow.matchAll(/case "warp":\s+await warpAsTheAutopilot\(action\.targetID\);\s+return;/g)].length, 1);
-  assert.equal([...flow.matchAll(/await warpToMember\(action\.characterID\);\s+return;/g)].length, 1);
+  // The fleet companion's warp left with it: core's dispatchers carry out no warp of the autopilot's own, and none to a fleet member.
+  assert.equal([...flow.matchAll(/case "warp":\s+await warpAsTheAutopilot\(action\.targetID\);\s+return;/g)].length, 0);
+  assert.equal([...flow.matchAll(/await warpToMember\(action\.characterID\);\s+return;/g)].length, 0);
   // The flight panel's and the overview's: the autopilot's with no range said, the menu's with one.
   assert.equal(times("minRange === null ? autopilotWarpCall(bridgeDo, flightNow, destinationID) : warpToItemCall(bridgeDo, flightNow, destinationID, minRange)"), 1);
   // Each of the three goes as a write, with the pilot's flight read first.
@@ -100,9 +100,9 @@ test("a scan result's warp is carried out by the page's own call, by what the lo
 
 test("an align is carried out by the page's own call wherever the page carries a bot's actions out, and before a recall's warp home", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
-  // The fleet companion's actions and a script bot's: two places, and the same call in each.
-  assert.equal(flow.split('case "align":').length - 1, 2);
-  assert.equal([...flow.matchAll(/case "align":\s+await alignShip\(action\.targetID\);\s+return;/g)].length, 2);
+  // A script bot's: one place where the page carries a bot's actions out.
+  assert.equal(flow.split('case "align":').length - 1, 1);
+  assert.equal([...flow.matchAll(/case "align":\s+await alignShip\(action\.targetID\);\s+return;/g)].length, 1);
   // Drones called home before a dock: the ship is aligned out while they come, and a refusal is let go.
   assert.equal(flow.split("await alignShip(best.itemID).catch(() => {});").length - 1, 1);
   // The route's asker is gone from the flow, and from the page's askers.
@@ -114,8 +114,8 @@ test("an align is carried out by the page's own call wherever the page carries a
 test("an approach and a keep at range are carried out by the page's own calls wherever the page carries a bot's actions out", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // The fleet companion's approach: where to stop, or the client's own fifty metres where none is said.
-  assert.equal(times("await approachShip(action.targetID, action.range ?? null);"), 1);
+  // The fleet companion's approach, with its range, left with it.
+  assert.equal(times("await approachShip(action.targetID, action.range ?? null);"), 0);
   // A script bot's and the mining bot's: the menu's approach, at the client's own fifty with no throttle.
   assert.equal(times("await approachShip(action.targetID, null);"), 1);
   assert.equal(times("await approachShip(destinationID, null);"), 1);
@@ -124,14 +124,14 @@ test("an approach and a keep at range are carried out by the page's own calls wh
   assert.equal(times("await approachShip(destinationID, 0);"), 0);
   // The travel loop's: the autopilot's, or the menu's at the client's own fifty where the loop says so.
   assert.equal(times("await approachShip(destinationID, byMenu ? null : 0);"), 1);
-  // Keep at range, the companion's and a script bot's.
-  assert.equal(times("await keepShipAtRange(action.targetID, action.range);"), 2);
+  // Keep at range, a script bot's.
+  assert.equal(times("await keepShipAtRange(action.targetID, action.range);"), 1);
   // Both are the page's own writes (bridgeDo), with the pilot's flight read before them.
   assert.equal(times("await approachCall(bridgeDo, readFlightNow, targetID, range);"), 1);
   assert.equal(times("await keepAtRangeCall(bridgeDo, readFlightNow, targetID, range);"), 1);
   assert.equal(times("const readFlightNow = async (): Promise<FlightNow> => decodeFlightStatus((await api.getFlightStatus(callOptions)).flight);"), 1);
   assert.equal([...flow.matchAll(/case "approach":/g)].length, 2);
-  assert.equal([...flow.matchAll(/case "keepAtRange":/g)].length, 2);
+  assert.equal([...flow.matchAll(/case "keepAtRange":/g)].length, 1);
   // The routes' askers are gone from the flow, and from the page's askers.
   assert.deepEqual([flow.includes("api.approach("), flow.includes("api.keepAtRange(")], [false, false]);
   const api = readFileSync(fileURLToPath(new URL("./api.ts", import.meta.url)), "utf8");
@@ -141,10 +141,9 @@ test("an approach and a keep at range are carried out by the page's own calls wh
 test("an orbit is carried out by the page's own call wherever the page carries a bot's actions out", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // Two dispatchers, as for keep-at-range: the script bot's, and the fleet
-  // companion's (`flight auto`, where a gun boat orbits what it is shooting).
-  assert.equal([...flow.matchAll(/case "orbit":/g)].length, 2);
-  assert.equal([...flow.matchAll(/case "orbit":\s+await orbitShip\(action\.targetID, action\.range\);\s+return;/g)].length, 2);
+  // One dispatcher: the script bot's.
+  assert.equal([...flow.matchAll(/case "orbit":/g)].length, 1);
+  assert.equal([...flow.matchAll(/case "orbit":\s+await orbitShip\(action\.targetID, action\.range\);\s+return;/g)].length, 1);
   // The page's own write (bridgeDo), with the pilot's flight read before it.
   assert.equal(times("await orbitCall(bridgeDo, readFlightNow, targetID, range);"), 1);
   // The route's asker is gone from the flow, and from the page's askers.
@@ -156,9 +155,9 @@ test("an orbit is carried out by the page's own call wherever the page carries a
 test("a stop is carried out by the page's own call wherever the page carries a bot's actions out, and the autopilot is given up first where a stop is the operator's", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  assert.equal([...flow.matchAll(/case "stopShip":/g)].length, 3);
-  // The fleet companion's stop is an operator's word: the page's autopilot is given up, and then the ship is stopped.
-  assert.equal([...flow.matchAll(/case "stopShip":\s+autopilot\?\.abort\(\);\s+await cutEngines\(\);\s+return;/g)].length, 1);
+  assert.equal([...flow.matchAll(/case "stopShip":/g)].length, 2);
+  // The fleet companion's stop, an operator's word that gave up the autopilot first, left with it.
+  assert.equal([...flow.matchAll(/case "stopShip":\s+autopilot\?\.abort\(\);\s+await cutEngines\(\);\s+return;/g)].length, 0);
   // A support ship's, and a script bot's: one step of a running program, which carries on after it.
   assert.equal(times('case "stopShip": await cutEngines(); break;'), 1);
   assert.equal([...flow.matchAll(/case "stopShip":\s+await cutEngines\(\);\s+return;/g)].length, 1);
@@ -190,9 +189,9 @@ test("a fleet is formed by the page's own call wherever the page carries a bot's
 test("an invitation is accepted by the page's own call wherever the page carries a bot's actions out", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // The fleet companion's, a support ship's, and a script bot's (with the invitation's fleet, or the one the
+  // A support ship's, and a script bot's (with the invitation's fleet, or the one the
   // Fleet window was told of): each on the bot's own reading that it is in no fleet.
-  assert.equal(times("await acceptFleetInviteCall(bridgeDo, action.fleetID, false);"), 2);
+  assert.equal(times("await acceptFleetInviteCall(bridgeDo, action.fleetID, false);"), 1);
   assert.equal(times("await acceptFleetInviteCall(bridgeDo, fleetID, false);"), 1);
   // The Fleet window's: none from a pilot the window knows to be in a fleet.
   assert.equal(times('await runFleetAction("accept", () => acceptFleetInviteCall(bridgeDo, wanted, store.fleet.get().availability === "ready"), "ready");'), 1);
@@ -235,9 +234,9 @@ test("a mining site's return point is bookmarked by the page's own call, where t
 test("a target is locked by the page's own call wherever the page carries a bot's actions out; and let go by the flow's own letting go", () => {
   const flow = readFileSync(fileURLToPath(new URL("./flow.ts", import.meta.url)), "utf8");
   const times = (text: string) => flow.split(text).length - 1;
-  // The fleet companion's, the mining bot's, a support ship's own mining and its tractor's, and a script bot's: each
+  // The mining bot's, a support ship's own mining and its tractor's, and a script bot's: each
   // on its own reading that the thing is not locked.
-  assert.equal(times("await lockTargetCall(bridgeDo, action.targetID, null);"), 2);
+  assert.equal(times("await lockTargetCall(bridgeDo, action.targetID, null);"), 1);
   assert.equal(times("await lockTargetCall(bridgeDo, targetID, null);"), 1);
   assert.equal(times('case "lock": await lockTargetCall(bridgeDo, self.action.targetID, null); break;'), 1);
   assert.equal(times('case "lock": await lockTargetCall(bridgeDo, tractor.action.targetID, null); break;'), 1);

@@ -218,8 +218,8 @@ export interface BotRunPolicy {
 }
 
 /**
- * The value a plugin run's launch grant carries in its `scriptRev` slot. Like a
- * companion's: a run's setup has no revision series, and its hash is its identity.
+ * The value a plugin run's launch grant carries in its `scriptRev` slot. A
+ * run's setup has no revision series, and its hash is its identity.
  */
 export const PLUGIN_RUN_GRANT_REV = 1;
 

@@ -6,13 +6,11 @@
   // built-in bot — mining and mission — with the same checklist and
   // running-status treatment either way.
   //
-  // ⚠ THE FLEET COMPANION IS NOT HERE ANY MORE, and it did not simply move: it
-  // stopped being a bot. It was built as the third instance of this pattern and
-  // so inherited this panel, but it picks no work of its own, needs no setup
-  // against a belt or an agent, and is watched across every pilot at once — so
-  // it lives in the global Fleet companions window, opened from the character
-  // bar. What this panel still says about it is the one thing that IS this
-  // panel's business: whether it is holding your ship (see `runningName`).
+  // ⚠ A PLUGIN'S LOOP IS NOT HERE, and that is deliberate: it is not a bot of
+  // this pattern, picks no work from this panel's checklist, and is set up and
+  // watched in its plugin's own window. What this panel still says about it is
+  // the one thing that IS this panel's business: whether it is holding your
+  // ship (see `runningName`).
   //
   // What USED to live here has moved to the Bot Manager: the saved-bot
   // library (any account's saved scripts, run here or handed to the server),
@@ -177,18 +175,16 @@
   /**
    * What is holding the ship, named.
    *
-   * ⚠ THE COMPANION IS NAMED HERE THOUGH IT IS NOT A BOT AND IS NOT ON THIS
-   * PAGE. It is not in `BOTS` any more, so a lookup alone would answer "nothing
-   * is running" about a ship a companion is actively flying — and this panel's
+   * ⚠ A PLUGIN'S LOOP IS NAMED HERE THOUGH IT IS NOT A BOT AND IS NOT ON THIS
+   * PAGE. It is not in `BOTS`, so a lookup alone would answer "nothing
+   * is running" about a ship a plugin is actively flying — and this panel's
    * next act would be to start a mining bot on top of it. Whoever holds the
    * hull gets said out loud; only the CONTROLS moved.
    */
   const runningName = $derived(
     running === "custom"
       ? ($customBot.name ?? "Your bot")
-      : running === "companion"
-        ? "The fleet companion"
-        : (BOTS.find((row) => row.id === running)?.name ?? $bots.runningPluginName),
+      : (BOTS.find((row) => row.id === running)?.name ?? $bots.runningPluginName),
   );
 
   /**

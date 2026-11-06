@@ -1,6 +1,6 @@
 // GETTING ONE PILOT INTO THE FLEET YOU NAMED, AND WAITING AS LONG AS IT TAKES.
 //
-// The Fleet companions window is a roster you build: you name the op's fleet
+// A fleet-following plugin's window is a roster you build: you name the op's fleet
 // once, add pilots to it, and each added pilot has to get itself into that
 // fleet before it can be flown by one. This module is the decider for that —
 // pure, one pilot, one tick — and the window is the driver that performs what
@@ -22,7 +22,7 @@
 // no bound. The player ends it by removing the pilot.
 //
 // ⚠ AND IT NEVER STOPS A RUN. Every verdict here is about whether this pilot
-// may JOIN; none of them reaches a companion that is already flying. A fleet
+// may JOIN; none of them reaches a pilot that is already flying. A fleet
 // whose advert is closed after the pilot is in it must not read as a problem —
 // see the `appliedTo` arm of the in-fleet rung, which is there for exactly that.
 
@@ -72,7 +72,7 @@ export interface FleetJoinReads {
    *
    * ⚠ THIS IS WHAT LETS A ROSTER TELL ONE FLEET FROM ANOTHER. `inFleet` is a
    * boolean: on its own it cannot say whether the pilot is in the op you named
-   * or in something else entirely, and starting a companion on the second is
+   * or in something else entirely, and starting a bot on the second is
    * handing an unattended ship to strangers. Verified against the runtime:
    * `getMyFleetFinderAdvert` resolves the fleet from the SESSION CHARACTER, not
    * from being its boss, so any member of an advertised fleet reads its advert.
@@ -89,17 +89,17 @@ export interface FleetJoinReads {
    */
   readonly application: FleetApplication | null;
   /**
-   * True while this pilot's companion is standing down for want of a
+   * True while this pilot's bot is standing down for want of a
    * supervisor — and true still, once it has, until a human puts it back.
    *
    * ⚠ IT IS A LATCH, NOT THE LIVE FLAG, and the driver owns the latching. The
    * abandonment ENDS by releasing the ship, which would leave a pilot that is
    * out of the fleet and not flying — exactly the state this watch exists to
    * fix — and it would rejoin, be alone again, and stand down again half an
-   * hour later, for ever. A companion that has stood down once waits for a
+   * hour later, for ever. A bot that has stood down once waits for a
    * person.
    *
-   * ⚠ WITHOUT THIS THE TWO SYSTEMS FIGHT. Decision 5 of the companion ladder
+   * ⚠ WITHOUT THIS THE TWO SYSTEMS FIGHT. A plugin's supervision rule
    * docks a pilot that finds itself in a fleet with no human in it, LEAVES the
    * fleet, and waits half an hour for an invite from somebody who was in it. A
    * watch that saw "not in the fleet" and rejoined would undo that on the next
@@ -131,7 +131,7 @@ export type FleetJoinAction =
 /**
  * Where this pilot stands.
  *
- * `in` is the only state a companion may be started from; `blocked` is a state
+ * `in` is the only state a bot may be started from; `blocked` is a state
  * only the player can clear (by renaming the fleet, taking the pilot out of the
  * one it is in, or removing the row).
  */
@@ -221,7 +221,7 @@ export function decideFleetJoin(reads: FleetJoinReads, memory: FleetJoinMemory):
     }
     // In a fleet that is not advertised, so nothing can name it. This watch put
     // it there and says so without claiming WHICH fleet: a boss who closes the
-    // advert once everyone is in must not turn a flying companion's row into a
+    // advert once everyone is in must not turn a flying pilot's row into a
     // problem, and must not get it a name it cannot prove either.
     if (memory.appliedTo !== null && reads.currentFleetID === memory.appliedTo) {
       return verdict("in", "In the fleet it joined, which is no longer advertised.", WAIT, memory);

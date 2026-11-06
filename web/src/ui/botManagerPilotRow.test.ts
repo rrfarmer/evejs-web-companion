@@ -240,59 +240,11 @@ test("the R7d sweep would actually catch a leaked id", () => {
 });
 
 
-test("a companion's row NAMES the run and sends the player elsewhere for it", () => {
-  // ⚠ THE FLEET READOUT USED TO BE HERE AND IS DELIBERATELY GONE. A companion
-  // is not a bot (nav/botRegistry.ts), so the in-fleet / following / can-tag
-  // badge and the fit warnings moved to the Fleet companions window, over every
-  // pilot at once. What must NOT go with them is the ownership fact: a hull a
-  // companion is flying must never read as free, or this panel's next act is to
-  // start a script on top of a pilot in a fleet fight.
-  const text = visibleText(
-    renderRow({
-      serverBot: fakeServerBot({
-        kind: "companion",
-        scriptID: "companion",
-        scriptName: "whatever the host called it",
-        companion: {
-          role: null,
-          inFleet: true,
-          followingOrderFrom: "broadcast",
-          lastOrderHeard: "the fleet's target call",
-          canTag: false,
-        },
-      }),
-    }),
-  );
-  assert.match(text, /Fleet companion/, "the hull is named as held");
-  assert.match(text, /Fleet companions window/, "and the door to it is named");
-  assert.doesNotMatch(text, /In fleet:/);
-  assert.doesNotMatch(text, /can tag:/);
-  // ⚠ "Last order", not "Last order heard" — the companion readout shortened
-  // its column heads. What this guards is unchanged: this row must not grow a
-  // copy of that readout. Pinned to the words that actually exist, because an
-  // absence test against a phrase nothing can print any more passes forever
-  // while guarding nothing.
-  assert.doesNotMatch(text, /Last order/);
-  assert.doesNotMatch(text, /whatever the host called it/, "not the run's own name");
-});
-
-test("a companion's row offers no Stop — stopping one is the companions window's act", () => {
-  // Not a styling choice: dropping a pilot out of whatever its fleet is in the
-  // middle of is a decision made while LOOKING at the fleet, and this panel
-  // cannot show one.
-  const markup = renderRow({ serverBot: fakeServerBot({ kind: "companion" }) });
-  assert.doesNotMatch(visibleText(markup), /Stop/);
-  assert.match(visibleText(markup), /In the Fleet companions window/);
-});
-
-test("a plain script row grows no companion badge", () => {
+test("a plain script row grows no fleet readout", () => {
   const text = visibleText(renderRow({ serverBot: fakeServerBot() }));
   assert.doesNotMatch(text, /In fleet:/);
   assert.doesNotMatch(text, /can tag:/);
-  // ⚠ "Last order", not "Last order heard" — the companion readout shortened
-  // its column heads. What this guards is unchanged: this row must not grow a
-  // copy of that readout. Pinned to the words that actually exist, because an
-  // absence test against a phrase nothing can print any more passes forever
-  // while guarding nothing.
+  // The fleet readout lives in a plugin's window now; this row must not grow
+  // a copy of it.
   assert.doesNotMatch(text, /Last order/);
 });

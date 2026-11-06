@@ -301,7 +301,7 @@ export function tacklersHolding(
  * `blocksMicrowarpdrive`) and `warpScrambler` is the DISRUPTOR, which stops a
  * warp and leaves the prop mod alone — see `TACKLE_JAMMING_TYPES`'s own header.
  * Reusing `tacklersHolding` here would read a disruptor as an MWD kill and
- * stand a companion's propulsion down for a jam that never touched it.
+ * stand a bot's propulsion down for a jam that never touched it.
  *
  * ⚠ AND IT SAYS NOTHING ABOUT AFTERBURNERS, which no jam in this vocabulary
  * stops. A caller must know which prop mod it is holding before it acts on

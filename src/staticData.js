@@ -721,7 +721,7 @@ function isActivatableEffect(effect) {
  *
  * ⚠ SEEN LIVE 2026-10-14: a Drone Navigation Computer I (group "Drone Navigation
  * Computer") has only medPower, online and a category-4 bonus effect, so the
- * server refuses it -- and companions picked by the group name tried it once a
+ * server refuses it -- and bots picked by the group name tried it once a
  * fight.
  */
 function getTypeActivatable(typeID) {

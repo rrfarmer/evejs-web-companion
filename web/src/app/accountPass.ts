@@ -1,6 +1,6 @@
 // Speaking as an ACCOUNT from a window that belongs to no pilot.
 //
-// The Bot Manager and the Fleet companions window are global: they open from
+// The Bot Manager and the plugins' windows are global: they open from
 // the brand strip on the Pilot Hangar as well as over a cockpit, and a player
 // with nobody in the client still has bots to watch and squads to start. Every
 // call they make is behind requireAuth and scoped to `req.account.accountID`
@@ -9,7 +9,7 @@
 // account nobody is flying here is its name — and on a server whose login
 // takes any password, the name is the credential.
 //
-// app/stopBotFor.ts and app/startCompanionFor.ts do this per call: sign in,
+// app/stopBotFor.ts does this per call: sign in,
 // act, sign out. That is right for a click. It is wrong for a window that polls
 // the roster every three seconds across every account the browser knows — a
 // sign-in and a sign-out per account per beat. So this holds ONE throwaway

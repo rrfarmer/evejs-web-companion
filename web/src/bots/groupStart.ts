@@ -1,8 +1,8 @@
 // Starting ONE thing on EVERY pilot of a group, one pilot at a time.
 //
 // ⚠ THIS IS `squadStart.ts`'S CORE, LIFTED OUT SO A SECOND CALLER CANNOT FORK
-// IT. The companion squad start on the Pilot Hangar had the only copy of two
-// rules that are not about companions at all -- start sequentially, and never
+// IT. A squad start on the Pilot Hangar had the only copy of two
+// rules that are not about any one kind of bot -- start sequentially, and never
 // let one refusal strand the rest -- and the Bot Manager's group launcher needs
 // exactly those rules for a SAVED BOT. Copying them would have left two
 // implementations of "what happens when pilot three is already flying", which
@@ -88,8 +88,8 @@ export function groupStartFinished(entries: readonly GroupStartEntry[]): boolean
  * How the run went, in one line, once it is over.
  *
  * ⚠ THE EMPTY CASE IS THE CALLER'S WORDS, NOT THIS MODULE'S. "Nobody was
- * started" means something different per caller -- for a companion squad it is
- * "no pilot here is set up to fly one", for a saved bot on a group it is "every
+ * started" means something different per caller -- for a start that needs a
+ * setup per pilot it is "no pilot here is set up to fly one", for a saved bot on a group it is "every
  * pilot is already flying something" -- and a generic sentence would be wrong
  * in both places. Everything after the empty case is the same arithmetic
  * whatever was started, which is why it lives here at all.

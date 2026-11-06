@@ -146,7 +146,7 @@ export function authoritativeFleetMemberCharacterIDs(
  * how the two would drift.
  *
  * ⚠ `null` IS "COULD NOT READ THE ROSTER" AND MUST NOT COLLAPSE TO EMPTY. A
- * companion takes chat orders from this list and from nobody else, so an
+ * bot that takes chat orders takes them from this list and nobody else, so an
  * unreadable roster has to mean "obey nobody" rather than "obey anybody" — and
  * an empty array is a real, different answer: a fleet with no commander in it.
  *
@@ -185,7 +185,7 @@ export interface FleetCommanderWhereabouts {
 
 /**
  * Where each COMMANDER is, by the same rows `fleetCommanderCharacterIDs` reads and the same word for a member's
- * place the panel uses (`memberWhereabouts`), so a companion that has lost its commander's grid can tell a
+ * place the panel uses (`memberWhereabouts`), so a bot that has lost its commander's grid can tell a
  * commander in space in its own system from one docked or elsewhere. `null` for an unreadable roster, as there.
  */
 export function fleetCommanderWhereabouts(

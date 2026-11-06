@@ -52,7 +52,7 @@ startBackend({
         if (setup?.bad === true) return { ok: false, refusal: "That setup is bad." };
         if (setup?.noPolicy === true) return { ok: true, name: "Probe run", setup: {} };
         return { ok: true, name: "Probe run", setup: { n: Number(setup?.n ?? 1), restartSafe: setup?.restartSafe !== false, endItself: setup?.endItself === true,
-          ...(setup?.quietAfterRestart === true ? { quietAfterRestart: true } : {}), ...(setup?.slowStart === true ? { slowStart: true } : {}) },
+          ...(setup?.quietAfterRestart === true ? { quietAfterRestart: true } : {}), ...(setup?.slowStart === true ? { slowStart: true } : {}), ...(setup?.endTwice === true ? { endTwice: true } : {}) },
           policy: { riskClasses: ["combat"], restartSafe: setup?.restartSafe !== false } };
       },
       async start(run) {
@@ -63,6 +63,10 @@ startBackend({
         const status = await run.fetch("/api/bridge/flight/status");
         run.report({ status: "running", phase: "Probing", why: "Asked " + status.status, readout: { asked: status.status }, resumeData: { lap: run.setup.n } });
         if (run.setup.endItself) run.report({ status: "stopped", why: "Done by itself." });
+        if (run.setup.endTwice) {
+          run.report({ status: "stopped", why: "The first reason." });
+          run.report({ status: "error", why: "A later word." });
+        }
         return { async stop() {
           const logged = await run.fetch("/api/bots/bot-log", { method: "POST", body: "{}" });
           const anySpelling = await run.fetch("/api/Bots/Bot-Log/", { method: "POST", body: "{}" });
@@ -479,6 +483,15 @@ test("a bot saved under a kind core used to fly comes back as the plugin's run, 
   await next.stop(back.botID, ACCOUNT.accountID);
 });
 
+test("the first end of a run stands: a later report does not change why it ended", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ endTwice: true });
+  assert.ok(await until(() => f.row().why === "The first reason."));
+  assert.ok(await until(() => f.bots.claimedBy(CHARACTER) === null));
+  assert.equal(f.row().status, "stopped");
+  assert.equal(f.row().why, "The first reason.");
+});
+
 test("a saved bot whose kind no plugin has taken over is reported, not flown", async (t) => {
   const f = await makeFixture(t);
   await f.startRun({ n: 2 });
@@ -493,7 +506,7 @@ test("a saved bot whose kind no plugin has taken over is reported, not flown", a
   await next.resume();
   const reported = next.list(ACCOUNT.accountID)[0];
   assert.equal(reported.status, "error");
-  assert.match(reported.why, /no longer exists/);
+  assert.match(reported.why, /plugin that flew it is not running/);
 });
 
 test("a saved bot taken over by a plugin stays taken over through a second restart", async (t) => {

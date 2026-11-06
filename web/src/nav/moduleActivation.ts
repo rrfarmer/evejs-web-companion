@@ -1,8 +1,8 @@
 // Whether a fitted module is something a pilot switches on: the one test every
-// list of modules the companion activates is gated by.
+// list of modules a bot activates is gated by.
 //
 // ⚠ THE GROUP SAYS WHAT A MODULE IS FOR, NEVER WHETHER IT CAN BE SWITCHED ON.
-// Seen live 2026-10-14: companions picked a "Drone Navigation Computer I" by its
+// Seen live 2026-10-14: bots picked a "Drone Navigation Computer I" by its
 // group name and tried it once a fight; the server refused every time ("Drone
 // Navigation Computer I cannot be activated.", NO_ACTIVATABLE_EFFECT). On this
 // server that type has medPower, online and a category-4 bonus effect, and
@@ -26,7 +26,7 @@
 // not blocked on an unread read: cycling a passive module wastes one call,
 // refusing to cycle a real one loses the tank or the guns. What the server
 // refuses anyway is caught by `isNotActivatableRefusal` and never asked again
-// for the rest of the run (nav/fleetCompanionLoop.ts).
+// for the rest of the run.
 
 export type ModuleActivation = "activatable" | "passive" | "unknown";
 

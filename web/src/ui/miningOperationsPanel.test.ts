@@ -33,11 +33,11 @@ test("Command Center has a dedicated page entry without mounting a pilot workspa
 
 test("the shared WC header opens the standalone MCC URL instead of a floating window", () => {
   const output = render(GlobalLaunchers as never, {
-    props: { openIds: new Set(), companionCount: 0, onOpen: () => {} },
+    props: { openIds: new Set(), onOpen: () => {} },
   } as never);
   assert.match(output.body, /<a\b[^>]*data-launch="miningOperations"[^>]*href="\/mining-command-center"/);
   assert.doesNotMatch(output.body, /<button\b[^>]*data-launch="miningOperations"/);
-  for (const id of ["botManager", "plugins", "industryManager", "companion"]) {
+  for (const id of ["botManager", "plugins", "industryManager"]) {
     assert.match(output.body, new RegExp(`<button\\b[^>]*data-launch="${id}"`));
   }
 });

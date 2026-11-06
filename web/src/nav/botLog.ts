@@ -69,12 +69,12 @@ export interface BotLogEntry {
   readonly status?: string | null;
   /**
    * The action itself, verbatim — plain data by rule 1. A loop with an action
-   * union of its own (a fleet companion's, a plugin's) logs that.
+   * union of its own (a plugin's) logs that.
    */
   readonly action?: ScriptAction | { readonly kind: string };
-  /** issue lines (companion): how long that tick's reads took, in ms. */
+  /** issue lines (a plugin's loop): how long that tick's reads took, in ms. */
   readonly observeMs?: number;
-  /** result lines (companion): how long the call took, in ms. */
+  /** result lines (a plugin's loop): how long the call took, in ms. */
   readonly callMs?: number;
   /** A one-line rendering of that action, by rule 2. */
   readonly says?: string;

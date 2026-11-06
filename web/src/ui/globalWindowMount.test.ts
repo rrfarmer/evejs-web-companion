@@ -138,9 +138,9 @@ test("the request is passed down as a prop, not pulled from a shared singleton",
 
 test("the layer draws every global window, not just the front one", () => {
   // ⚠ THE REGRESSION THIS GUARDS. The layer held exactly one window while the
-  // Bot Manager was alone on it. Fleet companions joined it, and a layer that
-  // still drew one would make the two evict each other — open the companions
-  // roster and the Manager you were reading vanishes, with nothing on screen
+  // Bot Manager was alone on it. A second window joined it, and a layer that
+  // still drew one would make the two evict each other — open the Industry
+  // Manager and the Manager you were reading vanishes, with nothing on screen
   // saying why. A `{#each}` over the list is what makes both fit.
   const layer = MARKUP.slice(MARKUP.indexOf("global-layer"));
   assert.match(layer, /\{#each shownGlobalWins as win \(win\.id\)\}/);
@@ -198,7 +198,7 @@ test("focus is a real question now that two windows can overlap", () => {
   assert.doesNotMatch(layer, /focused=\{true\}/);
 });
 
-// ─── the companions door ─────────────────────────────────────────────────────
+// ─── the global windows' door ─────────────────────────────────────────────────────
 
 test("the character bar opens the global windows, and sits outside the pilot-switch key", () => {
   // The bar is the only chrome that survives a switch, which is why the door to
@@ -216,14 +216,6 @@ test("the character bar opens the global windows, and sits outside the pilot-swi
   const bar = body.slice(barAt, body.indexOf("/>", barAt));
   assert.match(bar, /onOpenGlobal=\{openGlobalTab\}/);
   assert.match(bar, /\{globalOpenIds\}/);
-});
-
-test("the count on that door is read from every session, not from the active pilot", () => {
-  // No pilot's own store can answer "how many of my pilots are flying as
-  // companions"; reading the mounted one would make the badge count 1 or 0.
-  const counter = APP.slice(APP.indexOf("function recountCompanions"));
-  assert.match(counter, /for \(const session of sessions\)/);
-  assert.match(counter, /holdsTheShip/);
 });
 
 test("on a phone a global tab opens as a PANEL, because the layer is not mounted there", () => {

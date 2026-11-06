@@ -61,29 +61,8 @@ const { isBridgeWritePair } = require("./bridgeCallPolicy");
 // using one as authority would let an ordinary browser impersonate the host.
 const BOT_HEADER = "x-evejs-bot-claim";
 
-// Terminal statuses: the runner has let go of the ship. Shared verbatim by
-// the customBot slice and the companion slice (FleetCompanionRunState) — both
-// name the same five states, so one set serves either kind's subscription.
+// Terminal statuses: the runner has let go of the ship.
 const ENDED_STATUSES = new Set(["stopped", "error", "idle"]);
-
-// The companion grant's `scriptRev` sentinel is NOT defined here. It lives in
-// web/src/bots/companionRunPolicy.ts, the layer this host and the browser both
-// import, because the browser sends it and this host compares it — see that
-// constant's comment for why two copies of a bare 1 would be a bug waiting to
-// surface as a bogus "this bot changed after its run was approved".
-
-// The companion's roster-row `scriptName` -- the slot a player reads in the
-// Server Bots list. A companion setup has no name field of its own (unlike a
-// saved script), so this is a fixed label rather than a derived one.
-//
-// ⚠ IT USED TO NAME THE PILOT'S ROLE, and there are no roles any more. A role
-// set exactly one threshold and no decision rung ever read it
-// (docs/fleet-companion-simplification.md), so it was deleted along with the
-// rest of the settings surface -- and with it the `COMPANION_ROLE_LABELS` this
-// function used to take off the loaded stack. What a companion is FOR is now
-// visible where it is actually true: in the badge, which says what the pilot is
-// doing and who it is obeying right now.
-const COMPANION_SCRIPT_NAME = "Fleet companion";
 
 // How often each running bot's ship vitals are sampled for the landing-page
 // readout. Plain reads through the bot's own flow — the same polls an open
@@ -150,18 +129,13 @@ function defaultLoadStack() {
     const webSrc = path.resolve(__dirname, "..", "web", "src");
     const webUrl = (rel) => pathToFileURL(path.join(webSrc, rel)).href;
     stackPromise = (async () => {
-      // ⚠ `companionReadout` IS NO LONGER LOADED. It was imported for one thing:
-      // the role labels that named a roster row. Roles are gone, the row is a
-      // fixed label now (COMPANION_SCRIPT_NAME), and every other word in that
-      // module is written for a browser panel this host does not render.
-      const [sessionToken, clientStore, flow, codec, runPolicy, companionRunPolicy, supportFleet, pluginBlocks, hostedEvents] =
+      const [sessionToken, clientStore, flow, codec, runPolicy, supportFleet, pluginBlocks, hostedEvents] =
         await Promise.all([
           import(webUrl("app/sessionToken.ts")),
           import(webUrl("store/clientStore.ts")),
           import(webUrl("app/flow.ts")),
           import(webUrl("bots/scriptCodec.ts")),
           import(webUrl("bots/runPolicy.ts")),
-          import(webUrl("bots/companionRunPolicy.ts")),
           import(webUrl("nav/miningSupportFleet.ts")),
           import(webUrl("bots/pluginMacros.ts")),
           // Headless pilots need the same push-only fleet invitation authority as tabs.
@@ -183,12 +157,6 @@ function defaultLoadStack() {
         supportsHostedOreJettisonRecovery: runPolicy.supportsHostedOreJettisonRecovery,
         validateBotLaunchGrant: runPolicy.validateBotLaunchGrant,
         supportFleet,
-        // The companion's own risk-derivation and codec door — same BotRunPolicy
-        // shape, same validateBotLaunchGrant, per companionRunPolicy.ts's header.
-        analyzeCompanionRunPolicy: companionRunPolicy.analyzeCompanionRunPolicy,
-        decodeCompanionSetupValue: companionRunPolicy.decodeCompanionSetupValue,
-        decodeCompanionAbandonmentValue: companionRunPolicy.decodeCompanionAbandonmentValue,
-        COMPANION_GRANT_SCRIPT_REV: companionRunPolicy.COMPANION_GRANT_SCRIPT_REV,
       };
     })();
     stackPromise.catch(() => {
@@ -225,7 +193,7 @@ function sameSecret(left, right) {
 }
 
 // What a run's roster row and public row call its kind. "script" when absent: a row written before `kind` existed.
-const kindOf = (kind) => (kind === "companion" || kind === "plugin" ? kind : "script");
+const kindOf = (kind) => (kind === "plugin" ? kind : "script");
 
 // ── Runs a plugin flies ──────────────────────────────────────────────────────
 //
@@ -356,31 +324,14 @@ function createBotHost(options) {
               deferMain: record.deferMain } : {}),
           };
           if (record.kind === "plugin") {
-            // As a companion's: there is no library, so the row is the authority
+            // There is no library for a plugin's run, so the row is the authority
             // for what was approved, and the plugin checks it again on a resume.
             row.pluginID = record.pluginID;
             row.pluginRun = record.pluginRun;
             row.request = record.pluginSetup;
             row.resumeData = record.pluginResumeData;
           }
-          if (record.kind === "companion") {
-            // THE DIVERGENCE FROM A SCRIPT (docs/fleet-companion-handoff.md,
-            // "3. Extend botHost"): a script doc is NOT persisted, because the
-            // saved-script library is the authority and loadScript re-binds a
-            // restart to the exact stored revision (see the comment on the
-            // `doc` branch in start(), below). A companion request has no
-            // library — the roster row IS the authority, so the flat request
-            // is persisted right alongside its hash rather than a reference.
-            row.request = record.companionRequest;
-            // DECISION 5'S THIRTY-MINUTE CLOCK, and the whole reason it is a
-            // bound rather than a suggestion. An abandoned companion (nobody
-            // in its fleet this host is not flying) gets safe, drops fleet and
-            // waits exactly this long before releasing the hull. Held only in
-            // the loop's memory, that wait would restart every time this
-            // process did — an unbounded wait assembled out of bounded ones.
-            // Null whenever supervision is fine, which is almost always.
-            row.abandonment = record.companionAbandonment;
-          }
+
           bots.push(row);
         }
       }
@@ -447,13 +398,6 @@ function createBotHost(options) {
       startError: record.startError,
       startedAt: record.startedAt,
       endedAt: record.endedAt,
-      // The companion badge's five facts, or null for a script and for a
-      // companion that has not pushed progress yet. Nested rather than spread
-      // flat so a reader can tell "this is not a companion" from "this
-      // companion has not reported": `kind` above answers the first, this
-      // answers the second, and flattening would merge the two into one row of
-      // nulls that means either.
-      companion: record.companionReadout ?? null,
     };
   }
 
@@ -465,103 +409,11 @@ function createBotHost(options) {
   // only route to the player is the record → /api/bots → the Server Bots readout.
   // It is never cleared here — an alert a player has not seen yet must not be
   // erased by the next progress tick.
-  /**
-   * The persisted half of the companion slice's abandonment, or null.
-   *
-   * Deliberately narrow: the loop's own `safeSpotWarpIssued`/`safeSpotWarpSeen`
-   * describe a warp that is over the moment this process dies, and writing them
-   * down would let a resumed run believe it had already reached safety. The
-   * clock and the rejoin allowlist are the only two facts worth keeping — see
-   * CompanionAbandonmentRecord in web/src/nav/fleetCompanionLoop.ts.
-   */
-  function companionAbandonmentOf(snapshot) {
-    const running = snapshot && snapshot.abandonment;
-    if (!running || !Number.isSafeInteger(Number(running.abandonedAtMs))) {
-      return null;
-    }
-    return {
-      abandonedAtMs: Number(running.abandonedAtMs),
-      supervisorCharacterIDs: Array.isArray(running.supervisorCharacterIDs)
-        ? running.supervisorCharacterIDs.map(Number)
-        : [],
-    };
-  }
-
-  function sameAbandonment(left, right) {
-    if (left === null || right === null) {
-      return left === right;
-    }
-    return (
-      left.abandonedAtMs === right.abandonedAtMs &&
-      left.supervisorCharacterIDs.length === right.supervisorCharacterIDs.length &&
-      left.supervisorCharacterIDs.every((id, index) => id === right.supervisorCharacterIDs[index])
-    );
-  }
-
   function applySnapshot(record, snapshot) {
     record.status = snapshot.status;
     record.phase = snapshot.phase;
     record.why = snapshot.why;
     record.startError = snapshot.startError ?? null;
-    if (record.kind === "companion") {
-      // The companion slice (FleetCompanionState, web/src/store/clientStore.ts)
-      // has no stepPath, pauseReason, note, or lastAlert — those are
-      // script-runner-shaped fields FleetCompanionProgress simply does not
-      // carry (fleetCompanionLoop.ts). Leaving the record's own fields
-      // untouched keeps them at their initial `null` rather than inventing a
-      // value for a column the companion has no honest answer to.
-      //
-      // The companion's OWN distinguishing fields NOW HAVE A SLOT, which they
-      // did not when this comment first said they had none: phase 9 carried
-      // five of them through to `publicBot()` and on to the Bot Manager badge,
-      // because a HEADLESS companion had no other way to say what it was doing
-      // (a server-only row has no session and so no store to read).
-      //
-      // ⚠ FOUR, NOT SIX. `action` and `failureReason` are still left out.
-      // `why` already carries the sentence a player reads, and `failureReason`
-      // duplicates what `startError` and the ended-run outcome already say --
-      // adding either would put a second, drifting answer on the wire for a
-      // question the row can already answer.
-      //
-      // ⚠ THIS RUNS ON EVERY STORE PUSH, roughly every two seconds per bot, and
-      // it must stay a plain assignment. It deliberately does NOT persistRoster:
-      // see the record's own `companionReadout` comment for why a readout has no
-      // business on disk.
-      // ⚠ `role` USED TO BE THE FIFTH AND IS GONE. A companion has no role any
-      // more (docs/fleet-companion-simplification.md): it set one threshold and
-      // no rung read it. What the pilot is FOR is visible in the four facts
-      // below, which say what it is doing and who it is obeying right now.
-      record.companionReadout = {
-        inFleet: typeof snapshot.inFleet === "boolean" ? snapshot.inFleet : null,
-        followingOrderFrom:
-          typeof snapshot.followingOrderFrom === "string" ? snapshot.followingOrderFrom : null,
-        lastOrderHeard:
-          typeof snapshot.lastOrderHeard === "string" ? snapshot.lastOrderHeard : null,
-        targetMode:
-          snapshot.targetMode === "called" || snapshot.targetMode === "all" ? snapshot.targetMode : null,
-        canTag: typeof snapshot.canTag === "boolean" ? snapshot.canTag : null,
-        // ⚠ THE ONLY ROUTE THESE HAVE TO A PLAYER ON A HEADLESS RUN. The fit
-        // warnings are measured once, in the browser stack this host is
-        // driving, and there is no panel open anywhere to show them -- a squad
-        // start is the case they exist for. Advisory, so they ride the readout
-        // rather than blocking anything.
-        fitWarnings: Array.isArray(snapshot.fitWarnings)
-          ? snapshot.fitWarnings.filter((line) => typeof line === "string")
-          : [],
-      };
-      //
-      // `abandonment` is the ONE exception, and it is not a readout: it is
-      // durable state this host owns (see persistRoster). Written through to
-      // disk ONLY when it actually changes — this runs on every store push,
-      // roughly once every two seconds per bot, and an abandonment changes at
-      // most twice in a run.
-      const next = companionAbandonmentOf(snapshot);
-      if (!sameAbandonment(record.companionAbandonment, next)) {
-        record.companionAbandonment = next;
-        persistRoster();
-      }
-      return;
-    }
     record.stepPath = snapshot.stepPath;
     record.pauseReason = snapshot.pauseReason;
     record.note = snapshot.note;
@@ -634,15 +486,7 @@ function createBotHost(options) {
     let released = true;
     if (flow) {
       try {
-        // Two different stop switches on the SAME flow object — stopCustomBot
-        // only reaches the scriptRunner, stopFleetCompanion only the companion
-        // controller. Calling the wrong one for this record's kind is a no-op
-        // that leaves the actual loop running, unstoppable, past this point.
-        if (record.kind === "companion") {
-          flow.stopFleetCompanion();
-        } else {
-          flow.stopCustomBot();
-        }
+        flow.stopCustomBot();
       } catch {}
       try {
         // A deadline wind-down may have left a dock flight running (see
@@ -703,7 +547,7 @@ function createBotHost(options) {
    * 1. A script flies itself in: the runner latches the deadline the way it
    *    latches its own faults, flies to the script's home (or, if home cannot
    *    be flown to, the nearest station) and pauses on arrival.
-   * 2. Anything still in space after that — a companion, which has no home,
+   * 2. Anything still in space after that — a plugin's run, which has no home,
    *    or a script whose flight in failed — gets the readout's own "Recall
    *    drones & dock": every loop stopped, drones home, dock at the nearest
    *    station.
@@ -734,9 +578,6 @@ function createBotHost(options) {
       }
       if (!record.manualStopRequested) docked = await isDocked(record);
       if (!docked && stillWaiting() && record.flow && typeof record.flow.panicRecallAndDock === "function") {
-        if (record.kind === "companion") {
-          record.flow.stopFleetCompanion();
-        }
         await record.flow.panicRecallAndDock(() => record.manualStopRequested);
         while (stillWaiting()) {
           docked = await isDocked(record);
@@ -803,8 +644,7 @@ function createBotHost(options) {
             .then(() => ({ ok: true }), (error) => ({ ok: false, error }));
         } else {
           try {
-            if (record.kind === "companion") record.flow.stopFleetCompanion();
-            else record.flow.stopCustomBot();
+            record.flow.stopCustomBot();
           } catch (error) { logError(error); }
         }
         try {
@@ -826,8 +666,7 @@ function createBotHost(options) {
         if (record.kind === "plugin" && !record.recall) await stopPluginLoop(record);
         if (!record.droneSafetyConfirmed && (!record.flow || typeof record.flow.prepareHostedBotStop !== "function")) {
           if (record.flow) {
-            if (record.kind === "companion") record.flow.stopFleetCompanion();
-            else record.flow.stopCustomBot();
+            record.flow.stopCustomBot();
           }
           throw new Error("The controlled-drone safety read is unavailable.");
         }
@@ -1002,7 +841,8 @@ function createBotHost(options) {
         }
         return false;
       };
-      if (!record.windingDown) {
+      // The first end stands: core's own reason for ending a run is not overwritten by what the plugin sees of the same thing.
+      if (!record.windingDown && !ENDED_STATUSES.has(record.status)) {
         record.status = report.status;
         record.phase = typeof report.phase === "string" ? report.phase : null;
         record.why = typeof report.why === "string" ? report.why : null;
@@ -1070,7 +910,6 @@ function createBotHost(options) {
     scriptRev,
     doc,
     request,
-    abandonment = null,
     grant,
     resumed = false,
     expectedScriptRev = null,
@@ -1089,14 +928,12 @@ function createBotHost(options) {
     preparation = null,
     deferMain = false,
   }) {
-    const isCompanion = kind === "companion";
     const isPlugin = kind === "plugin";
-    if (operationPreparation && (isCompanion || typeof operationPreparation !== "object" || Array.isArray(operationPreparation) ||
+    if (operationPreparation && (typeof operationPreparation !== "object" || Array.isArray(operationPreparation) ||
         typeof operationID !== "string" || !operationID ||
         typeof operationRunID !== "string" || !operationRunID || !credentialFree(operationPreparation) ||
         typeof options.prepareOperation !== "function"))
       return { ok: false, code: "OPERATION_PREPARATION_INVALID", message: "Operation preparation requires its accepted run identity and shared preparation adapter." };
-    let resumingAbandonment = null;
     let stack;
     try {
       stack = await loadStack();
@@ -1109,60 +946,11 @@ function createBotHost(options) {
     let normalizedHash;
     let runPolicy;
     let decodedDoc = null;
-    let decodedRequest = null;
     let pluginSetup = null;
     let recordScriptID;
     let recordScriptName;
 
-    if (isCompanion) {
-      // The persisted (or freshly submitted) request is untrusted bytes like
-      // any other — decodeCompanionSetupValue is its ONE gate, mirroring
-      // decodeScriptValue below. Not a single field of it is trusted before
-      // this call returns ok.
-      const decoded = stack.decodeCompanionSetupValue(request, { preserveLegacyIdentity: true });
-      if (!decoded.ok) {
-        return { ok: false, code: "BOTCOMPANION_INVALID", message: decoded.refusal };
-      }
-      decodedRequest = decoded.setup;
-      // A persisted abandonment is untrusted bytes exactly like the request
-      // beside it, and gets the same one gate. A row that fails to decode is
-      // DROPPED rather than refused: the companion simply starts a fresh
-      // thirty minutes, which is still bounded and still safe — whereas
-      // refusing the whole start would leave a pilot flying with no host.
-      if (abandonment !== null && abandonment !== undefined) {
-        const decodedAbandonment = stack.decodeCompanionAbandonmentValue(abandonment, now());
-        resumingAbandonment = decodedAbandonment.ok ? decodedAbandonment.abandonment : null;
-      }
-      // See COMPANION_GRANT_SCRIPT_REV in companionRunPolicy.ts: a request has no
-      // revision series, so this sentinel — never a real version — fills the
-      // slot validateBotLaunchGrant already compares. The canonical hash is
-      // the request's actual identity.
-      normalizedRev = stack.COMPANION_GRANT_SCRIPT_REV;
-      normalizedHash = hashScript(decodedRequest);
-      if (
-        expectedScriptRev !== null &&
-        (normalizedRev !== Number(expectedScriptRev) || normalizedHash !== String(expectedScriptHash || ""))
-      ) {
-        return {
-          ok: false,
-          code: "BOT_SCRIPT_CHANGED",
-          message:
-            "The saved companion setup changed after this run was authorized. Start it again to review the new version.",
-        };
-      }
-      // Re-derived from the decoded request every time — on a fresh start AND
-      // on resume — never trusted off the persisted row. This is the check
-      // decision 4 says must still earn its place: the persisted request must
-      // re-derive to EXACTLY the risk classes the grant carries.
-      runPolicy = stack.analyzeCompanionRunPolicy(decodedRequest);
-      // Reuse the script's roster slots (docs/fleet-companion-handoff.md,
-      // "3. Extend botHost") rather than inventing companion-shaped fields:
-      // scriptID is a fixed literal (there is no library entry to look up),
-      // and so is scriptName now that a setup carries nothing to derive one
-      // from -- see COMPANION_SCRIPT_NAME.
-      recordScriptID = "companion";
-      recordScriptName = COMPANION_SCRIPT_NAME;
-    } else if (isPlugin) {
+    if (isPlugin) {
       // The setup is untrusted bytes, and the plugin that will fly it is its one
       // gate: it says what it reads the setup as, and what running it risks.
       const host = pluginProcess();
@@ -1373,23 +1161,6 @@ function createBotHost(options) {
       recovery: null,
       recoveryPromise: null,
       recoverSession: null,
-      // The roster row's authority for a companion (see persistRoster's
-      // comment) — null for a script, which is authored by the library instead.
-      companionRequest: isCompanion ? decodedRequest : null,
-      // Seeded from the persisted row on a resume, then owned by
-      // applySnapshot. Null for a script and for a fresh companion start.
-      companionAbandonment: isCompanion ? resumingAbandonment : null,
-      // The companion's live READOUT -- the five facts the Bot Manager badge
-      // shows. Null until the loop's first progress push, which is honest: a
-      // run that has not decided anything yet has not heard an order either.
-      //
-      // ⚠ NOT DURABLE, AND DELIBERATELY ABSENT FROM persistRoster's ROW.
-      // These describe what a pilot is doing this second; a resumed run
-      // re-derives all five on its first tick from a fresh fleet read. Writing
-      // them to disk would let a restart hand the player a confident readout
-      // of a fleet the pilot may no longer be in. `companionAbandonment` above
-      // is the ONE companion field that is durable, and its comment says why.
-      companionReadout: null,
     };
     // Claim BEFORE the first await — two concurrent starts must not both win,
     // and the select guard must already know this bot when its select arrives.
@@ -1478,7 +1249,7 @@ function createBotHost(options) {
         record.preparation = record.preparationCheckpoint.snapshot();
         persistRoster();
       }
-      if (!isCompanion && !isPlugin && Array.isArray(decodedDoc.program)) {
+      if (!isPlugin && Array.isArray(decodedDoc.program)) {
         const startup = await import(pathToFileURL(path.resolve(__dirname, "../web/src/bots/startup.ts")).href);
         if (startup.startupPrefix(decodedDoc).length) {
           if (resumed && !logicalRunID) throw new Error("Older startup run has no durable identity; start manually after review.");
@@ -1522,9 +1293,8 @@ function createBotHost(options) {
           if (record.startError === null && record.status === "starting") record.status = "running";
           return;
         }
-        if (isCompanion) await flow.startFleetCompanion(decodedRequest, resumingAbandonment);
         else await flow.startCustomBot(decodedDoc);
-        applySnapshot(record, isCompanion ? store.companion.get() : store.customBot.get());
+        applySnapshot(record, store.customBot.get());
       };
       record.recoverSession = (disconnect = false) => {
         if (record.recoveryPromise) return record.recoveryPromise;
@@ -1744,7 +1514,7 @@ function createBotHost(options) {
         return { ok: true, bot: publicBot(record) };
 
       // The readout is store-driven exactly like the in-tab panel: project the
-      // customBot (or companion) slice onto the record, and treat the loop
+      // customBot slice onto the record, and treat the loop
       // letting go of the ship as the end of the bot.
       let sawRunning = false;
       record.unsubscribe = store.subscribe((state) => {
@@ -1762,7 +1532,7 @@ function createBotHost(options) {
           }
           return;
         }
-        const snapshot = isCompanion ? state.companion : state.customBot;
+        const snapshot = state.customBot;
         // ⚠ A PILOT THAT WENT OFFLINE IS NOT A FINISHED RUN. Losing the session
         // (another login of the account closes this one) resets every slice to
         // its start, and a reset slice reads "idle", which is how a run that
@@ -1796,7 +1566,7 @@ function createBotHost(options) {
         await finalize(record);
         return { ok: false, code: "BOT_START_FAILED", message: record.startError };
       }
-      record.recoveryEnabled = !!record.operationID && !isCompanion && (record.restartSafe || record.hostedOreJettisonRecovery) && typeof flow.suspendHostedSession === "function";
+      record.recoveryEnabled = !!record.operationID && (record.restartSafe || record.hostedOreJettisonRecovery) && typeof flow.suspendHostedSession === "function";
       const remainingMs = Math.max(1, Date.parse(record.expiresAt) - now());
       record.deadlineTimer = setDeadlineTimeout(() => {
         record.deadlineTimer = null;
@@ -2317,6 +2087,11 @@ function createBotHost(options) {
           recordResumeFailure(row, "the account is gone or banned.");
           continue;
         }
+        // A kind only a plugin flew, and that plugin is off or did not load. Not a script that went missing.
+        if (row.kind !== undefined && row.kind !== "script" && row.kind !== "plugin") {
+          recordResumeFailure(row, "the plugin that flew it is not running. Start it again when it is.");
+          continue;
+        }
         let script = null;
         if (kind === "script") {
           script = loadScript(String(row.scriptID || ""), row);
@@ -2326,14 +2101,12 @@ function createBotHost(options) {
           }
         }
         // scriptHash is the canonical identity either way — a real script
-        // hash for a script row, hashScript(request) for a companion row
+        // hash for a script row, hashScript(request) for a plugin row
         // (see persistRoster's comment) — so this check is unchanged by kind.
         if (!Number.isSafeInteger(Number(row.scriptRev)) || !/^[a-f0-9]{64}$/.test(String(row.scriptHash || ""))) {
           recordResumeFailure(
             row,
-            kind === "companion"
-              ? "its older restart record has no pinned request hash. Start it again manually."
-              : "its older restart record has no pinned script revision. Start it again manually.",
+            "its older restart record has no pinned script revision. Start it again manually.",
           );
           continue;
         }
@@ -2372,26 +2145,6 @@ function createBotHost(options) {
                 resumed: true,
                 expectedScriptRev: former === null ? row.scriptRev : null,
                 expectedScriptHash: former === null ? row.scriptHash : null,
-                expectedExpiresAt: row.expiresAt,
-              })
-            : kind === "companion"
-            ? await start({
-                account,
-                characterID,
-                kind: "companion",
-                // No library entry to re-bind to — the persisted row's own
-                // `request` field IS the authority (persistRoster's comment).
-                // It goes through decodeCompanionSetupValue again
-                // inside start(), exactly like a fresh start's request.
-                request: row.request,
-                // The clock this companion was already waiting on. Keeping it
-                // is what makes decision 5's thirty minutes a bound rather
-                // than a fresh thirty minutes per restart.
-                abandonment: row.abandonment ?? null,
-                grant,
-                resumed: true,
-                expectedScriptRev: row.scriptRev,
-                expectedScriptHash: row.scriptHash,
                 expectedExpiresAt: row.expiresAt,
               })
             : await start({

@@ -207,8 +207,6 @@ export async function startOnServer(
 // its risk classes are the same for every pilot; re-fetching per pilot would
 // also let the library change underneath a run that the player approved once,
 // so what flies on pilot six would not be what was agreed to for pilot one.
-// (The companion squad start is the opposite case -- no script, and a setup per
-// pilot -- which is why it builds a grant each time; see bots/squadStart.ts.)
 
 /** What became of a group start. Never throws — every failure is a value. */
 export type GroupStartOutcome =

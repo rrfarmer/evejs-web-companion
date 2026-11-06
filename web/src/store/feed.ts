@@ -113,11 +113,6 @@ import type { RedeemToken } from "../bridge/redeem.ts";
 import type { LoginCampaign } from "../bridge/loginRewards.ts";
 import type { ActiveSeasonalCampaign, SeasonalCampaignDefinition, SeasonalClaim } from "../bridge/seasonalCampaigns.ts";
 import type { MiningRungID, MiningStepID } from "../nav/miningLadder.ts";
-import type {
-  CompanionAbandonmentRecord,
-  CompanionOrderAuthority,
-  FleetCompanionRunState,
-} from "../nav/fleetCompanionLoop.ts";
 
 export type FeedStatus = "idle" | "connecting" | "connected" | "disconnected";
 
@@ -774,7 +769,7 @@ export type FeedEvent =
       readonly gateLinks?: readonly GateLink[];
     }
   | { readonly type: "space/gate-map-error"; readonly message: string }
-  // Fleet-companion phase 7 — one `OnJamStart` / `OnJamEnd` push, already
+  // One `OnJamStart` / `OnJamEnd` push, already
   // decoded. Carries the event rather than the folded set on purpose: the fold
   // is identity-sensitive (a jam IS the source/module pair) and belongs in one
   // place, beside the decoder that knows the wire, not in each producer.
@@ -1060,37 +1055,6 @@ export type FeedEvent =
     }
   | { readonly type: "mission-bot/start-error"; readonly message: string | null }
   | { readonly type: "mission-bot/cleared" }
-  // The fleet companion's readout (fleet-companion phase 0). Same construction
-  // as the two bots above: the loop pushes, this slice records.
-  | {
-      readonly type: "companion/started";
-      readonly startedAt: number;
-      /** What is missing or unusable about this pilot's fit. Advisory, never fatal. */
-      readonly fitWarnings: readonly string[];
-    }
-  | {
-      readonly type: "companion/progress";
-      readonly status: FleetCompanionRunState;
-      readonly phase: string | null;
-      readonly action: string | null;
-      readonly why: string | null;
-      readonly inFleet: boolean | null;
-      readonly followingOrderFrom: CompanionOrderAuthority | null;
-      readonly lastOrderHeard: string | null;
-      readonly targetMode: "called" | "all";
-      readonly canTag: boolean | null;
-      /**
-       * Decision 5's abandonment, or null. Carried through the slice rather
-       * than kept in the loop because the BFF's bot host reads it off the
-       * store to persist the thirty-minute clock — see
-       * FLEET_COMPANION_ABANDONMENT_WAIT_MS.
-       */
-      readonly abandonment: CompanionAbandonmentRecord | null;
-      readonly failureReason: string | null;
-      readonly selfPaused: boolean;
-    }
-  | { readonly type: "companion/start-error"; readonly message: string | null }
-  | { readonly type: "companion/cleared" }
   // A plugin took the ship, or let it go (flow.flying.holdShip).
   | { readonly type: "ship/plugin-holder"; readonly holder: { readonly owner: `plugin:${string}`; readonly name: string } | null }
   // The player Bot Builder runner's readout (pushed each tick; survives the shell switch).

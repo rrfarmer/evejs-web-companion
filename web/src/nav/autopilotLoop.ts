@@ -139,7 +139,7 @@ export const MIN_WARP_DISTANCE_M = 150_000;
 // The page warps to a thing by two calls, and each has its range:
 //
 //   the client's autopilot's (`CmdWarpToStuffAutopilot`), which the travel
-//   autopilot and the fleet companion make. It says no range; this server's
+//   autopilot and other loops make. It says no range; this server's
 //   handler stops it 10 km short (`minimumRange: 10000`). Measured 2026-10-11
 //   from a capsule: refused 160.0 km off a gate and taken at 160.5 km; refused
 //   159.9 km off a station and taken at 160.1 km; the ship came out 10,022 to
@@ -582,8 +582,8 @@ type DecisionMemory = Pick<
  * alone re-sent the same approach on that tick and the server refused it
  * (observed live: "ThrottleGeneric"). Inside the window the order is trusted;
  * after it, the mode decides again, so an approach that genuinely did not take
- * is still re-sent. Shared by `decideCloseIn` and the companion's loot and
- * salvage rungs.
+ * is still re-sent. Shared by `decideCloseIn` and any loop that issues its
+ * own approaches.
  */
 export const APPROACH_SETTLE_MS = 4000;
 

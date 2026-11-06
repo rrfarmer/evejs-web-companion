@@ -1,7 +1,7 @@
 // Client-side gates: "may THIS pilot set a fleet target tag?" and, when the
 // answer is no, "may it call the ship out the other way?" (`canBroadcastInFleet`
 // at the foot of this file — every member may, and that asymmetry is the reason
-// a companion is never actually mute about what has it tackled).
+// a bot is never actually mute about what has it tackled).
 //
 // WHY THIS HAS TO LIVE HERE: the server's own gate
 // (fleetRuntime.js:setFleetTargetTag, read at fleetRuntime.js:1310-1326) DOES
@@ -159,10 +159,9 @@ function charIDMatches(charID: number | string | null, characterID: number): boo
  * members can all broadcast; not one of them can write a letter.
  *
  * That is not a quirk of this server, it is EVE: lettering targets is a
- * commander's job and calling one out is everybody's. It is why a companion
- * that will never be made a commander is not mute — see `decideTackleTag` in
- * `nav/fleetCompanionLoop.ts`, which lands on this function every time
- * `canTagInFleet` says `false`.
+ * commander's job and calling one out is everybody's. It is why a bot
+ * that will never be made a commander is not mute: a caller falls back to
+ * this function every time `canTagInFleet` says `false`.
  *
  * ⚠ TWO THINGS THIS DELIBERATELY DOES NOT ANSWER, because a roster cannot:
  *

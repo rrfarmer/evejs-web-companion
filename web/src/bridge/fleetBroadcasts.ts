@@ -68,7 +68,7 @@ export type FleetBroadcastName = (typeof FLEET_BROADCAST_NAMES)[number];
  *
  * The retail client's own setting (`fleetBroadcastScopeSetting`,
  * fleetbroadcastexports.py:332) offers all three and defaults to `ALL`. We do
- * not expose the choice: a companion's only reason to broadcast is to be heard
+ * not expose the choice: a bot's only reason to broadcast is to be heard
  * by whoever can shoot the thing.
  *
  * ⚠ NOT RE-EXPORTED FROM THE DECODER SIDE OF THIS MODULE BY ACCIDENT. Received
@@ -294,7 +294,7 @@ export function decodeFleetStateChangeNotification(
   // `readDictPairs` answers `[]` for a dict with no entries AND for a value
   // that is not a dict at all, which is right for its own callers and wrong
   // here: returning an empty map for an unreadable payload would claim
-  // "received, and the fleet has tagged nothing". A companion that may write
+  // "received, and the fleet has tagged nothing". A bot that may write
   // tags reads exactly that claim as permission to assign a letter — so an
   // unparseable payload would let it stamp "A" on a ship while the fleet
   // already had an A this code merely failed to parse, which is the tag

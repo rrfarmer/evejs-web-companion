@@ -24,7 +24,6 @@
   // component fetches, wires the flows, and renders.
   import {
     startServerBot as apiStartServerBot,
-    startServerCompanion,
     stopServerBot,
     getBotScript,
     type ApiOptions,
@@ -45,13 +44,7 @@
   } from "../bots/pilotGroups.ts";
   import { groupStartSummary, type GroupStartEntry } from "../bots/groupStart.ts";
   import { startGroupHere, startGroupOnServer, type GroupStartOutcome } from "../bots/startRun.ts";
-  import { startCompanionSquad } from "../bots/squadStart.ts";
-  import {
-    analyzeCompanionRunPolicy,
-    COMPANION_GRANT_SCRIPT_REV,
-  } from "../bots/companionRunPolicy.ts";
   import { createBotLaunchGrant, DEFAULT_SERVER_BOT_RUNTIME_MINUTES } from "../bots/runPolicy.ts";
-  import type { CompanionSetup } from "../nav/fleetCompanionLoop.ts";
   import ActionButton from "./ActionButton.svelte";
 
   let {
@@ -61,7 +54,6 @@
     serverBots,
     ownerOptions,
     libraryOptions,
-    companionSetups,
     nameOf,
     runtimeMinutes,
     onChanged,
@@ -80,8 +72,6 @@
     ownerOptions: (characterID: number) => Promise<ApiOptions>;
     /** Options any signed-in account can read the shared bot library with. */
     libraryOptions: () => Promise<ApiOptions>;
-    /** Each companion's saved setup, by characterID. Empty for a squad group. */
-    companionSetups: ReadonlyMap<number, CompanionSetup>;
     nameOf: (characterID: number) => string | null;
     /**
      * How long a server start may fly. ONE setting for the whole list, owned by
@@ -160,14 +150,11 @@
    *
    * ⚠ ONE BUTTON, AND THIS IS WHAT USED TO BE THE SECOND ONE. The two starts
    * differ only in what happens when the tab closes, so it is a setting on the
-   * start rather than a second start. Companions always fly on the server and
-   * have no box to untick.
+   * start rather than a second start.
    */
   let onServer = $state(false);
 
-  const isCompanions = $derived(group.kind === "companions");
-  /** Companions flies itself; a squad needs a bot chosen first. */
-  const canStart = $derived(isCompanions || selectedScriptID !== null);
+  const canStart = $derived(selectedScriptID !== null);
 
   // --- running it -----------------------------------------------------------
   let busy = $state(false);
@@ -225,19 +212,10 @@
 
   async function runOnServer(): Promise<void> {
     if (busy || !canStart) return;
-    // ⚠ THE COMPANIONS LIST IS NARROWED HERE, NOT INSIDE THE START. A member
-    // whose setup went missing between the read and the press has nothing to
-    // fly, and queueing it would put a row on screen that can never resolve.
-    const targets = isCompanions
-      ? plan.onServer.filter((characterID) => companionSetups.has(characterID))
-      : plan.onServer;
+    const targets = plan.onServer;
     if (!begin(targets)) return;
     try {
-      if (isCompanions) {
-        await runCompanionsOnServer(targets);
-      } else {
-        await runScriptOnServer(targets);
-      }
+      await runScriptOnServer(targets);
     } finally {
       busy = false;
     }
@@ -262,53 +240,6 @@
       },
     );
     applyGroupOutcome(outcome);
-  }
-
-  /**
-   * The Companions group's start.
-   *
-   * ⚠ NO CONFIRM, DELIBERATELY, AND IT IS NOT AN OVERSIGHT ABOUT SIX HULLS. The
-   * confirm on a saved bot exists because a saved script is executable
-   * authority of unknown content — it is fetched, decoded and its permissions
-   * read out before a player agrees to it. A companion is fixed code in this
-   * client with a setup the player themselves ticked; the Pilot Hangar's own
-   * squad FLY button starts one the same way, and a second gate here would make
-   * the same act mean different things in two windows.
-   *
-   * ⚠ AND THE GRANT IS BUILT PER PILOT, from that pilot's own setup — see
-   * bots/squadStart.ts. One grant reused across the group would not describe
-   * whichever member pays for repairs when the others do not, and the host
-   * re-derives and compares.
-   */
-  async function runCompanionsOnServer(targets: readonly number[]): Promise<void> {
-    const entries = await startCompanionSquad(
-      {
-        startCompanion: async (characterID, setup) => {
-          const grant = createBotLaunchGrant(
-            COMPANION_GRANT_SCRIPT_REV,
-            analyzeCompanionRunPolicy(setup),
-            DEFAULT_SERVER_BOT_RUNTIME_MINUTES,
-          );
-          await startServerCompanion(characterID, setup, grant, await optionsFor(characterID));
-          try {
-            // Same sync, same order, same reason as the saved-bot path: the
-            // host has the hull, so a member whose tab was holding it must
-            // stop showing a ship it no longer flies.
-            await releaseHeld(characterID);
-          } catch {
-            // The companion has the hull either way; the tab's next read notices.
-          }
-        },
-      },
-      targets.flatMap((characterID) => {
-        const setup = companionSetups.get(characterID);
-        return setup === undefined ? [] : [{ characterID, setup }];
-      }),
-      (entries) => {
-        rows = entries;
-      },
-    );
-    finish(entries);
   }
 
   async function runHere(): Promise<void> {
@@ -359,13 +290,13 @@
     }
   }
 
-  const startTargets = $derived(isCompanions || onServer ? plan.onServer : plan.here);
+  const startTargets = $derived(onServer ? plan.onServer : plan.here);
   const startLabel = $derived(
-    busy ? "Starting" : isCompanions || onServer ? "Start on the server" : "Start in this tab",
+    busy ? "Starting" : onServer ? "Start on the server" : "Start in this tab",
   );
 
   function start(): void {
-    void (isCompanions || onServer ? runOnServer() : runHere());
+    void (onServer ? runOnServer() : runHere());
   }
 
   // --- stopping it ----------------------------------------------------------
@@ -418,7 +349,7 @@
       return `${started} of ${rows.length} started`;
     }
     if (stopping) return "Stopping";
-    const words = groupRunStatusWords(plan, isCompanions || onServer);
+    const words = groupRunStatusWords(plan, onServer);
     // The bot the whole group flies, said once here rather than per name.
     return plan.busy.length > 0 && roster.commonBot !== null ? `${words} - ${roster.commonBot}` : words;
   });
@@ -444,11 +375,6 @@
       {group.name}
     </span>
     <span class="bot-group-count">{statusWords}</span>
-    {#if isCompanions}
-      <!-- What makes this group the special one, in the place a player is
-           deciding whether to press its button. -->
-      <p class="note why">Always flies the fleet companion.</p>
-    {/if}
     {#if states.length > 0}
       <p class="note why">{roster.names}</p>
     {/if}
@@ -459,9 +385,6 @@
     </td>
   {:else}
     <td data-label="Bot">
-      {#if isCompanions}
-        <span class="note">Fleet companion</span>
-      {:else}
         <select
           class="bot-group-pick"
           aria-label={`Bot for ${group.name}`}
@@ -476,20 +399,15 @@
         {#if scripts.length === 0}
           <span class="note">No saved bots yet.</span>
         {/if}
-      {/if}
     </td>
     <td data-label="Server">
-      {#if isCompanions}
-        <span class="note">Always</span>
-      {:else}
         <label class="bot-group-server">
           <input type="checkbox" bind:checked={onServer} disabled={busy || stopping} />
           Server
         </label>
-      {/if}
     </td>
     <td data-label="Run" class="bot-group-run">
-      {#if canStop && !isCompanions}
+      {#if canStop}
         <ActionButton
           action="stop"
           danger
@@ -509,12 +427,6 @@
     </td>
     <td data-label="Status">
       <span class="bot-group-status" class:is-flying={plan.busy.length > 0}>{statusLine}</span>
-      {#if isCompanions}
-        <!-- A companion in THIS TAB, and stopping any companion, is the Fleet
-             companions window's whole job. Offering a second, weaker door onto
-             it here would split one operation across two windows. -->
-        <p class="note why">To fly companions in this tab, or stop them, use the Companions window.</p>
-      {/if}
       {#if summary !== null && !busy && plan.busy.length === 0}
         <p class="note">{summary}</p>
       {/if}
@@ -578,7 +490,7 @@
   .bot-group-status.is-flying {
     color: var(--color-good);
   }
-  /* Companions has no squad colour to show. A ring rather than a filled dot,
+  /* A group with no squad colour has none to show. A ring rather than a filled dot,
      so it reads as "not one of your squads" instead of borrowing a palette
      entry that would make it look like one. */
   .bot-group-swatch.is-special {

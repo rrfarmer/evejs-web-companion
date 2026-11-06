@@ -1,6 +1,6 @@
 // Which token a global window's call rides — one answer, shared by every window
 // that is about ALL the pilots rather than the one on screen (the Bot Manager,
-// Fleet companions).
+// the plugins' windows).
 //
 // ⚠ NEVER THE ACTIVE PILOT'S. These windows open from the Pilot Hangar with
 // nobody in the client, and over a cockpit they are about every pilot. Every

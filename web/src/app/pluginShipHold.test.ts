@@ -68,7 +68,7 @@ test("a hold stands through what the store hears that has nothing to do with who
   let stopped = 0;
   flow.flying.holdShip("plugin:trader", "The trader", () => { stopped += 1; });
   store.apply({ type: "custom-bot/cleared" });
-  store.apply({ type: "companion/start-error", message: null });
+  store.apply({ type: "activity/cleared" });
   store.apply({ type: "live/status", status: "connected" } as never);
   assert.equal(stopped, 0);
   assert.equal(holderOf(store).runningBotID, "plugin:trader");
@@ -139,7 +139,7 @@ test("one of core's loops taking the ship stops a plugin's", async () => {
   let stopped = 0;
   flow.flying.holdShip("plugin:trader", "The trader", () => { stopped += 1; });
   // A start takes the ship before anything it awaits, so this much has happened as it returns.
-  void flow.startFleetCompanion({} as Parameters<typeof flow.startFleetCompanion>[0]).catch(() => {});
+  void flow.startMiningBot({ miningModuleIDs: [] } as unknown as Parameters<typeof flow.startMiningBot>[0]).catch(() => {});
   assert.equal(stopped, 1);
   assert.notEqual(holderOf(store).runningBotID, "plugin:trader");
 });

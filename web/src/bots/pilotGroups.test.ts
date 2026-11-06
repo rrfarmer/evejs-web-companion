@@ -1,11 +1,8 @@
-// PILOT GROUPS — the Bot Manager's view over the hangar's squads, and the one
-// group that is not a squad.
+// PILOT GROUPS — the Bot Manager's view over the hangar's squads.
 //
-// The three things worth pinning here are the three a reader would otherwise
-// have to trust: that the Companions group is assembled from the companion
-// ticks and never lists a pilot twice, that a member already flying is SKIPPED
-// rather than queued to refuse, and that "Run here" and "Run on server" reach
-// different sets of pilots.
+// The things worth pinning here are the ones a reader would otherwise have to
+// trust: that a member already flying is SKIPPED rather than queued to refuse,
+// and that "Run here" and "Run on server" reach different sets of pilots.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -13,13 +10,9 @@ import type { ServerBot } from "../app/api.ts";
 import {
   addSquad,
   EMPTY_PREFS,
-  setCompanionConfig,
   type HangarPrefs,
 } from "../app/hangarPrefs.ts";
-import { DEFAULT_COMPANION_SETUP } from "../nav/fleetCompanionLoop.ts";
 import {
-  COMPANIONS_GROUP_ID,
-  companionGroupRoster,
   groupMemberStates,
   groupStartEmptyWords,
   groupStatusWords,
@@ -61,7 +54,6 @@ function serverBot(over: Partial<ServerBot> = {}): ServerBot {
     resumedAt: null,
     lastAlert: null,
     kind: "script",
-    companion: null,
     ...over,
   };
 }
@@ -84,14 +76,8 @@ const NO_ONE_HERE = {
 
 // --- the group list ---------------------------------------------------------
 
-test("Companions leads the list and is present even with nobody in it", () => {
-  // ⚠ THE ROW A PLAYER CANNOT MAKE FOR THEMSELVES MUST NOT VANISH WHEN EMPTY.
-  // It is the only place that can say where the companion tick lives.
-  const groups = pilotGroups(EMPTY_PREFS);
-  assert.equal(groups.length, 1);
-  assert.equal(groups[0]?.id, COMPANIONS_GROUP_ID);
-  assert.equal(groups[0]?.kind, "companions");
-  assert.deepEqual(groups[0]?.members, []);
+test("with no squads there are no groups", () => {
+  assert.deepEqual(pilotGroups(EMPTY_PREFS), []);
 });
 
 test("every squad becomes a group, in the order the player made them", () => {
@@ -100,50 +86,16 @@ test("every squad becomes a group, in the order the player made them", () => {
   const groups = pilotGroups(prefs);
   assert.deepEqual(
     groups.map((group) => group.name),
-    ["Companions", "Mining Op", "Scout Net"],
+    ["Mining Op", "Scout Net"],
   );
-  assert.deepEqual(groups[1]?.members, [PILOT_A, PILOT_B]);
-  assert.equal(groups[1]?.kind, "squad");
+  assert.deepEqual(groups[0]?.members, [PILOT_A, PILOT_B]);
+  assert.equal(groups[0]?.kind, "squad");
 });
 
-test("a squad group carries the chip colour; Companions carries none", () => {
+test("a squad group carries the chip colour", () => {
   const prefs = withSquad(EMPTY_PREFS, "squad-1", "Mining Op", [PILOT_A]);
   const groups = pilotGroups(prefs);
-  assert.equal(groups[0]?.color, null, "Companions borrowed a squad colour");
-  assert.equal(groups[1]?.color, "#52d9a3");
-});
-
-test("the built-in group's id cannot collide with a minted squad id", () => {
-  // `nextSquadId()` mints `squad-<uuid>`; this must not be able to be one.
-  assert.doesNotMatch(COMPANIONS_GROUP_ID, /^squad-/);
-});
-
-// --- the Companions group's membership --------------------------------------
-
-test("a pilot is in Companions exactly when a squad ticked it as one", () => {
-  let prefs = withSquad(EMPTY_PREFS, "squad-1", "Mining Op", [PILOT_A, PILOT_B]);
-  prefs = setCompanionConfig(prefs, "squad-1", PILOT_B, DEFAULT_COMPANION_SETUP);
-  assert.deepEqual(
-    companionGroupRoster(prefs).map((member) => member.characterID),
-    [PILOT_B],
-  );
-  assert.deepEqual(pilotGroups(prefs)[0]?.members, [PILOT_B]);
-});
-
-test("A PILOT IN TWO SQUADS APPEARS ONCE — it has one hull", () => {
-  // Listed twice, the same character would be queued twice and the second
-  // start would refuse against the first with CHARACTER_IN_USE.
-  let prefs = withSquad(EMPTY_PREFS, "squad-1", "Mining Op", [PILOT_A]);
-  prefs = withSquad(prefs, "squad-2", "Scout Net", [PILOT_A]);
-  prefs = setCompanionConfig(prefs, "squad-1", PILOT_A, DEFAULT_COMPANION_SETUP);
-  prefs = setCompanionConfig(prefs, "squad-2", PILOT_A, {
-    ...DEFAULT_COMPANION_SETUP,
-    fleeHealthFloor: 0.5,
-  });
-  const roster = companionGroupRoster(prefs);
-  assert.equal(roster.length, 1);
-  // First found is squad order, which is the order the player made them in.
-  assert.equal(roster[0]?.setup.fleeHealthFloor, DEFAULT_COMPANION_SETUP.fleeHealthFloor);
+  assert.equal(groups[0]?.color, "#52d9a3");
 });
 
 // --- what each member is doing ----------------------------------------------
@@ -156,14 +108,6 @@ test("the server's claim wins over a tab that merely holds the login", () => {
   });
   assert.equal(states[0]?.where, "running-server");
   assert.equal(states[0]?.botName, "Belt loop");
-});
-
-test("a headless companion is named by what it IS, not by the host's run name", () => {
-  const states = groupMemberStates([PILOT_A], {
-    ...NO_ONE_HERE,
-    serverBots: [serverBot({ characterID: PILOT_A, kind: "companion", scriptName: "whatever" })],
-  });
-  assert.equal(states[0]?.botName, "Fleet companion");
 });
 
 test("an ENDED server run is not a claim on the pilot", () => {
@@ -278,12 +222,10 @@ test("the status counts who is flying before anything else", () => {
   assert.equal(groupRunStatusWords(plan, false), "2 flying");
 });
 
-test("a group Stop reaches only what is flying, and never a companion", () => {
-  // ⚠ STOPPING A COMPANION IS THE FLEET COMPANIONS WINDOW'S ACT. A group row
-  // that stopped one would split one operation across two windows.
+test("a group Stop reaches only what is flying, whatever kind of server bot it is", () => {
   const bots = [
     serverBot({ botID: "bot-a", characterID: PILOT_A }),
-    serverBot({ botID: "bot-b", characterID: PILOT_B, kind: "companion" }),
+    serverBot({ botID: "bot-b", characterID: PILOT_B, kind: "plugin" }),
   ];
   const rows = states([
     [PILOT_A, "running-server"],
@@ -291,14 +233,16 @@ test("a group Stop reaches only what is flying, and never a companion", () => {
     [PILOT_C, "running-here"],
   ]);
   const stop = planGroupStop(rows, bots);
-  assert.deepEqual(stop.onServer, [{ characterID: PILOT_A, botID: "bot-a" }]);
+  assert.deepEqual(stop.onServer, [
+    { characterID: PILOT_A, botID: "bot-a" },
+    { characterID: PILOT_B, botID: "bot-b" },
+  ]);
   assert.deepEqual(stop.here, [PILOT_C]);
-  assert.deepEqual(stop.companions, [PILOT_B]);
   assert.equal(groupCanStop(stop), true);
 
-  // Only companions flying: nothing this row may stop, so its button stays Start.
-  const onlyCompanion = planGroupStop(states([[PILOT_B, "running-server"]]), bots);
-  assert.equal(groupCanStop(onlyCompanion), false);
+  // A plugin's server run is stopped from a group row like any other.
+  const onlyPlugin = planGroupStop(states([[PILOT_B, "running-server"]]), bots);
+  assert.equal(groupCanStop(onlyPlugin), true);
 
   // Idle members are not in the plan at all.
   assert.equal(groupCanStop(planGroupStop(states([[PILOT_A, "free"]]), bots)), false);
@@ -315,17 +259,15 @@ test("the group names its bot once, and per pilot only when they differ", () => 
   assert.equal(same.names, "One, Two, Three");
   assert.equal(same.commonBot, "Belt loop");
 
-  const mixed = groupRosterWords([row("One", "Belt loop"), row("Two", "Fleet companion")]);
-  assert.equal(mixed.names, "One (Belt loop), Two (Fleet companion)");
+  const mixed = groupRosterWords([row("One", "Belt loop"), row("Two", "Ore haul")]);
+  assert.equal(mixed.names, "One (Belt loop), Two (Ore haul)");
   assert.equal(mixed.commonBot, null);
 
   assert.equal(groupRosterWords([row("One", null)]).commonBot, null);
 });
 
 test("the empty sentence names what the player has to go and do", () => {
-  // ⚠ THE TWO EMPTY GROUPS MEAN DIFFERENT THINGS and neither is fixable here.
-  assert.match(groupStartEmptyWords("companions", 0), /companion/i);
-  assert.match(groupStartEmptyWords("companions", 0), /Pilot Hangar/);
+  // ⚠ AN EMPTY GROUP IS NOT FIXABLE HERE; the sentence says where to go.
   assert.match(groupStartEmptyWords("squad", 0), /no pilots/i);
   assert.match(groupStartEmptyWords("squad", 0), /Pilot Hangar/);
   // A group that HAS members but nobody startable is a third thing again.
@@ -336,7 +278,6 @@ test("every sentence this module prints is plain ASCII", () => {
   const words = [
     groupStatusWords([]),
     groupStatusWords(states([[PILOT_A, "running-server"], [PILOT_B, "free"]])),
-    groupStartEmptyWords("companions", 0),
     groupStartEmptyWords("squad", 0),
     groupStartEmptyWords("squad", 2),
     groupRunStatusWords(planGroupLaunch(states([[PILOT_A, "free"]])), false),

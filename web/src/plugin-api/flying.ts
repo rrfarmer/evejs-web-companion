@@ -17,6 +17,7 @@ export {
   getShipBays,
   getSpaceSnapshot,
   getTargets,
+  listActiveServerBots,
   loadBoundFleet,
   loadCorpHangar,
   loadFitting,
@@ -32,6 +33,7 @@ export {
   errorWords,
   type FittedDefenseModules,
   type PilotFlying,
+  type RatHitPoints,
   type RemoteRepModuleIDs,
   type ShipHold,
 } from "../app/flow.ts";
@@ -131,6 +133,7 @@ export {
 } from "../nav/fleetJoinWatch.ts";
 export { RANGE_HYSTERESIS_M, type BandThreat } from "../nav/kiteBand.ts";
 export { lowestHealth } from "../nav/miningBotLoop.ts";
+export { RAT_RESONANCE_ATTRIBUTE_IDS, ratResonancesFromAttributes, type RatResonances, type Resonances } from "../nav/ratResonances.ts";
 export { isNotActivatableRefusal, type ModuleActivation } from "../nav/moduleActivation.ts";
 export {
   decidePropulsionModule,
@@ -143,7 +146,7 @@ export { fleetTagRank, pickPrimary } from "../nav/targetPriority.ts";
 export { canMyShipOrderDrone, hostileRows, isHostile, isTargetedByPlayer } from "../space/overview.ts";
 export type { ClientStore } from "../store/clientStore.ts";
 export { nameKey, resolvedName, type NameRef } from "../store/names.ts";
-export type { ChatMessage, SpaceVector } from "../store/types.ts";
+export type { ChatMessage, ShipBay, SpaceVector } from "../store/types.ts";
 
 // --- Saying what a run risks --------------------------------------------------
 export type { MacroID } from "../bots/botScript.ts";

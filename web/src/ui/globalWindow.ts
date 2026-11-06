@@ -3,7 +3,7 @@
 // Every other panel is a view of ONE character's store, so it is right that
 // switching pilots tears it down: App mounts a Workspace per active pilot under
 // a `{#key active.id}`, and the desktop, its windows and their saved layout all
-// live inside that. Three windows are the exception, and none by preference:
+// live inside that. Two kinds of window are the exception, and none by preference:
 //
 //   • THE BOT MANAGER. Its pilots region is a table of EVERY held session plus
 //     every character with a server bot and no session here — it is a view of
@@ -14,14 +14,6 @@
 //     an open export box closes, and — because the poll restarts — a server
 //     bot's alert can go unseen through the gap.
 //
-//   • FLEET COMPANIONS. A companion is not a bot and is not set up against one
-//     ship: the window is a roster of every pilot signed in here (plus every
-//     companion the server is flying for this account), because the question it
-//     answers — "who is following whom, and who has stopped" — is a question
-//     about the whole squad. Tearing it down on a pilot switch would be worse
-//     here than for the Manager: the very act of checking on another pilot is
-//     what would destroy the view you were checking with.
-//
 //   • A PLUGIN'S WINDOW (the PI Manager, for one), registered while plugins
 //     load (registerGlobalWindow): about every pilot, as these are.
 //
@@ -29,9 +21,9 @@
 // whichever workspace is showing. This module is that layer's model: which tabs
 // get the treatment, where a new one lands, and how the layer is persisted.
 //
-// ⚠ A LIST, NOT ONE WINDOW. It held exactly one until the companion arrived,
-// and a second member would have made the two windows evict each other — open
-// the companions roster and the Bot Manager you were reading vanishes. So the
+// ⚠ A LIST, NOT ONE WINDOW. It held exactly one at first, and
+// a second member would have made the two windows evict each other — open
+// the other window and the Bot Manager you were reading vanishes. So the
 // reducers below take and return a list, the same `WinState[]` shape the
 // desktop model uses, and App drives moves, closes, focus and put-away through
 // desktop.ts's own generic reducers. Only OPENING is here, because only opening
@@ -87,12 +79,6 @@ export const CORE_GLOBAL_LAUNCHERS: readonly GlobalLauncher[] = [
     label: "Build",
     title: "Industry Manager",
     hint: "Industry Manager — a blueprint's whole build tree, down to raw materials",
-  },
-  {
-    id: "companion",
-    label: "Companions",
-    title: "Fleet companions",
-    hint: "Fleet companions — every pilot flying with a fleet",
   },
   {
     id: "pluginManager",

@@ -10,7 +10,7 @@
 
   let { launcher, openIds, onOpen }: { launcher: PluginLauncher; openIds: ReadonlySet<TabID>; onOpen: (id: TabID) => void } = $props();
 
-  // How many pilots this plugin is flying in this tab. Absent at nought, as the Companions button's is.
+  // How many pilots this plugin is flying in this tab. Absent at nought.
   const counts = pluginPilotCounts;
   const count = $derived($counts.get(pluginIDOf(String(launcher.windows[0]?.id ?? "")) ?? "") ?? 0);
 

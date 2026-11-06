@@ -38,11 +38,11 @@ test("the bar shows Connecting… while the first health ping is in flight", () 
 // ─── the global-window doors ─────────────────────────────────────────────────
 //
 // ⚠ THESE BUTTONS ARE THE ONLY WAY INTO WHOLE WINDOWS. The Bot Manager, PI and
-// Fleet companions are global and deliberately NOT in the Neocom rail (they are
+// other global windows are global and deliberately NOT in the Neocom rail (they are
 // about every pilot, and the rail belongs to one), so if the strip ever stops
 // rendering the panels become unreachable rather than merely harder to find.
 
-function renderCompanionBar(props: Record<string, unknown>): string {
+function renderLauncherBar(props: Record<string, unknown>): string {
   return render(CharacterBar as never, {
     props: {
       sessions: [],
@@ -57,31 +57,20 @@ function renderCompanionBar(props: Record<string, unknown>): string {
 }
 
 test("the bar carries a door onto each global window", () => {
-  const body = renderCompanionBar({});
+  const body = renderLauncherBar({});
   assert.match(body, /data-launch="botManager"/);
   assert.match(body, /data-launch="plugins"/);
-  assert.match(body, /data-launch="companion"/);
-  assert.match(body, /Fleet companions/);
-});
-
-test("the count is shown only when somebody is actually flying", () => {
-  // A badge reading "0" is a badge that has to be read before it can be
-  // dismissed; the absence of one says the same thing faster.
-  const idle = renderCompanionBar({ companionCount: 0 });
-  assert.doesNotMatch(idle, /global-launch-count/);
-
-  const flying = renderCompanionBar({ companionCount: 2 });
-  assert.match(flying, /global-launch-count/);
-  assert.match(flying, /2 flying/, "and it is in the accessible name too, in words");
+  assert.match(body, /data-launch="industryManager"/);
+  assert.doesNotMatch(body, /data-launch="companion"/, "the fleet companions window is a plugin's, with its own door");
 });
 
 test("the button says whether its window is already open", () => {
   // The bar doubles as the answer to "is that thing on screen somewhere?" — a
   // window that is merely put away still counts as open.
-  const open = renderCompanionBar({ globalOpenIds: new Set(["companion"]) });
-  assert.match(open, /aria-pressed="true"[^>]*data-launch="companion"|data-launch="companion"[^>]*aria-pressed="true"/);
+  const open = renderLauncherBar({ globalOpenIds: new Set(["industryManager"]) });
+  assert.match(open, /aria-pressed="true"[^>]*data-launch="industryManager"|data-launch="industryManager"[^>]*aria-pressed="true"/);
   assert.match(open, /data-launch="botManager"[^>]*aria-pressed="false"|aria-pressed="false"[^>]*data-launch="botManager"/);
-  assert.doesNotMatch(renderCompanionBar({}), /aria-pressed="true"/);
+  assert.doesNotMatch(renderLauncherBar({}), /aria-pressed="true"/);
 });
 
 test("a bar mounted without the door renders without one, rather than throwing", () => {

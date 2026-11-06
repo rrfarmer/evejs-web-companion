@@ -38,25 +38,8 @@ export interface PilotRunState {
   readonly statusWords: string;
   /** One line: why it is paused, what phase it is in, or why it last acted. Null if there is nothing to add. */
   readonly detail: string | null;
-  /**
-   * This ship is held by a FLEET COMPANION, which is not a bot.
-   *
-   * ⚠ THE BOT MANAGER STILL HAS TO KNOW, THOUGH IT NO LONGER MANAGES THEM. A
-   * companion is a different system with its own window (ui/FleetCompanions.svelte)
-   * and it is not in `BOTS` any more — so without this flag a hull a companion
-   * is actively flying would read as "Nothing is running", and the Manager's
-   * next act would be to start a script on top of it. Whoever holds the hull
-   * gets named; only the readout and the controls moved.
-   */
-  readonly isCompanion: boolean;
 }
 
-/**
- * What a companion's row says instead of a bot name, and where to go for it.
- * One sentence, in one place, because both readings below print it.
- */
-const COMPANION_NAME = "Fleet companion";
-const COMPANION_ELSEWHERE = "Managed in the Fleet companions window.";
 
 // --- status wording ----------------------------------------------------------
 //
@@ -138,7 +121,6 @@ export function tabRunState(bots: BotsState, customBot: CustomBotState): PilotRu
       botName: null,
       statusWords: "Nothing is running",
       detail: null,
-      isCompanion: false,
     };
   }
   if (running === "custom") {
@@ -147,20 +129,6 @@ export function tabRunState(bots: BotsState, customBot: CustomBotState): PilotRu
       botName: customBot.name ?? "Your bot",
       statusWords: customStatusWords(customBot.status),
       detail: oneLineDetail(customBot),
-      isCompanion: false,
-    };
-  }
-  if (running === "companion") {
-    // Named, and no more than named. The companion's own slice carries the
-    // phase, the fleet it is following and its fit warnings; this row
-    // deliberately reads none of them, because a bot library is not where a
-    // fleet readout belongs and a second copy of one only ever drifts.
-    return {
-      mode: "tab",
-      botName: COMPANION_NAME,
-      statusWords: "Running",
-      detail: COMPANION_ELSEWHERE,
-      isCompanion: true,
     };
   }
   // A built-in bot (mining/mission). Its player-facing name comes from the
@@ -179,7 +147,6 @@ export function tabRunState(bots: BotsState, customBot: CustomBotState): PilotRu
     botName: descriptor?.name ?? bots.runningPluginName,
     statusWords: "Running",
     detail: null,
-    isCompanion: false,
   };
 }
 
@@ -187,16 +154,11 @@ export function tabRunState(bots: BotsState, customBot: CustomBotState): PilotRu
 
 /** The ON-THE-SERVER reading for one pilot, from its `ServerBot` row. */
 export function serverRunState(bot: ServerBot): PilotRunState {
-  const isCompanion = bot.kind === "companion";
   return {
     mode: "server",
-    // ⚠ `kind`, NOT `scriptName`. A headless companion is not a saved script
-    // and its name on the wire is whatever the host called the run; calling it
-    // by the thing it IS is the only reading that survives the host renaming it.
-    botName: isCompanion ? COMPANION_NAME : bot.scriptName,
+    botName: bot.scriptName,
     statusWords: serverStatusWords(bot.status),
-    detail: isCompanion ? COMPANION_ELSEWHERE : oneLineDetail(bot),
-    isCompanion,
+    detail: oneLineDetail(bot),
   };
 }
 

@@ -27,12 +27,9 @@ import {
   togglePinnedSquad,
   toggleSquadMember,
   updateSquad,
-  companionConfigFor,
-  companionSquadRoster,
-  setCompanionConfig,
+  onHangarPrefsSaved,
   type HangarPrefsStorage,
 } from "./hangarPrefs.ts";
-import { DEFAULT_COMPANION_SETUP, type CompanionSetup } from "../nav/fleetCompanionLoop.ts";
 
 function memoryStorage(seed: Record<string, string> = {}): HangarPrefsStorage & {
   readonly data: Record<string, string>;
@@ -190,118 +187,15 @@ test("adding pilots to a squad that is not there changes nothing", () => {
 });
 
 
-// --- per-pilot companion setups on a squad ----------------------------------
+// --- what the arrangement keeps for plugins ---------------------------------
 
 const PILOT_A = 90000001;
 const PILOT_B = 90000002;
 
-function squadConfig(over: Partial<CompanionSetup> = {}): CompanionSetup {
-  // What a squad member actually stores now: no role, no module lists -- just
-  // the thresholds, budget and money-spend fields nothing can read off a
-  // ship. See docs/fleet-companion-simplification.md, "The request, after".
-  return { ...DEFAULT_COMPANION_SETUP, ...over };
-}
-
-function squadWith(...pilots: readonly number[]) {
-  let prefs = addSquad(EMPTY_PREFS, MINING);
-  for (const pilot of pilots) {
-    prefs = toggleSquadMember(prefs, MINING.id, pilot);
-  }
-  return prefs;
-}
-
-test("a pilot's companion setup is stored against the squad, and read back", () => {
-  let prefs = squadWith(PILOT_A);
-  assert.equal(companionConfigFor(prefs, MINING.id, PILOT_A), null, "nothing until it is set");
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_A, squadConfig({ capacitorFloor: 0.4 }));
-  assert.equal(companionConfigFor(prefs, MINING.id, PILOT_A)?.capacitorFloor, 0.4);
-});
-
-test("removing a pilot's setup clears it back to null", () => {
-  // ⚠ THIS IS ALSO HOW A PILOT IS "UNSET" AS A COMPANION NOW. With no role,
-  // presence of an entry is the only marker that a pilot is configured to fly
-  // in this squad -- see `companionConfigFor`'s own comment.
-  let prefs = squadWith(PILOT_A);
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_A, squadConfig());
-  assert.ok(companionConfigFor(prefs, MINING.id, PILOT_A));
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_A, null);
-  assert.equal(companionConfigFor(prefs, MINING.id, PILOT_A), null, "cleared with null");
-});
-
-test("a setup cannot be written against a pilot that is not in the squad", () => {
-  // ⚠ IT WOULD SURVIVE EVERY PRUNE. Membership is what deleteSquad and
-  // forgetPilots walk, so a config against a non-member is read by nothing and
-  // cleaned up by nothing.
-  const prefs = squadWith(PILOT_A);
-  const after = setCompanionConfig(prefs, MINING.id, PILOT_B, squadConfig());
-  assert.equal(after, prefs, "untouched");
-  assert.equal(companionConfigFor(after, MINING.id, PILOT_B), null);
-});
-
-test("taking a pilot out of a squad takes its setup with it", () => {
-  // ⚠ AND THE PUT-BACK IS THE REASON. A kept config would be unreachable while
-  // the pilot is out, and would then silently reappear as its setup if it were
-  // ever added again -- a configuration nobody chose this time.
-  let prefs = squadWith(PILOT_A);
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_A, squadConfig());
-  prefs = toggleSquadMember(prefs, MINING.id, PILOT_A);
-  assert.equal(companionConfigFor(prefs, MINING.id, PILOT_A), null);
-  prefs = toggleSquadMember(prefs, MINING.id, PILOT_A);
-  assert.equal(companionConfigFor(prefs, MINING.id, PILOT_A), null, "put back with no setup");
-});
-
-test("deleting a squad prunes its setups, and forgetting a pilot prunes just its own", () => {
-  let prefs = squadWith(PILOT_A, PILOT_B);
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_A, squadConfig());
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_B, squadConfig());
-
-  const forgotten = forgetPilots(prefs, [PILOT_A]);
-  assert.equal(companionConfigFor(forgotten, MINING.id, PILOT_A), null);
-  assert.ok(companionConfigFor(forgotten, MINING.id, PILOT_B), "the other one stays");
-
-  const deleted = deleteSquad(prefs, MINING.id);
-  assert.deepEqual(deleted.companionConfigs, {}, "no squad, no setups");
-});
-
-test("the squad roster is the members that are actually set up to fly", () => {
-  let prefs = squadWith(PILOT_A, PILOT_B);
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_B, squadConfig({ fleeHealthFloor: 0.6 }));
-  const roster = companionSquadRoster(prefs, MINING.id);
-  assert.deepEqual(
-    roster.map((row) => row.characterID),
-    [PILOT_B],
-    "a member with no setup has nothing to start it with",
-  );
-  assert.equal(roster[0]!.setup.fleeHealthFloor, 0.6);
-});
-
-test("a stored setup that cannot be decoded is dropped, not defaulted", () => {
-  // ⚠ localStorage IS UNTRUSTED BYTES -- another tab, an older build, a hand
-  // edit -- so the same codec botHost.start() trusts is the door here too. A
-  // fabricated default would be a setup nobody chose, flying a real ship.
-  const store = memoryStorage();
-  setHangarPrefsStorage(store);
-  let prefs = squadWith(PILOT_A, PILOT_B);
-  prefs = setCompanionConfig(prefs, MINING.id, PILOT_A, squadConfig());
-  saveHangarPrefs(prefs);
-
-  const raw = JSON.parse(store.getItem("evejs-web-hangar-prefs:v1")!);
-  raw.companionConfigs[MINING.id][String(PILOT_B)] = { fleeHealthFloor: "not-a-number" };
-  store.setItem("evejs-web-hangar-prefs:v1", JSON.stringify(raw));
-
-  const back = loadHangarPrefs();
-  assert.ok(companionConfigFor(back, MINING.id, PILOT_A), "the good one survives");
-  assert.equal(companionConfigFor(back, MINING.id, PILOT_B), null, "the junk one is gone");
-  setHangarPrefsStorage(null);
-});
-
-test("an old-shape stored config, with its role and tagging still on it, still loads", () => {
-  // ⚠ THIS IS THE MIGRATION THE SIMPLIFICATION DOC WARNS ABOUT. Every config
-  // saved before 2026-09-11 carries `role`, `attemptsTagging`, `obeys` and the
-  // eight module-id lists -- keys `CompanionSetup` no longer has. The codec
-  // (`decodeCompanionSetupValue`) is the one place that forgives exactly those
-  // retired keys; this file runs no migration of its own; it only drops
-  // whatever the codec refuses (see the test above).
+test("a field this build does not know survives a save, so a plugin switched off keeps its settings", () => {
+  // ⚠ A plugin may keep per-squad-member settings in the same blob; if core
+  // rewrote the record with only the fields it knows, switching the plugin off
+  // for a session would erase what it stored.
   const store = memoryStorage();
   setHangarPrefsStorage(store);
   store.setItem(
@@ -312,47 +206,56 @@ test("an old-shape stored config, with its role and tagging still on it, still l
       pinnedSquads: [],
       pinnedPilots: [],
       collapsedAccounts: [],
-      companionConfigs: {
-        [MINING.id]: {
-          [String(PILOT_A)]: {
-            role: "logi",
-            defenseModuleIDs: [],
-            shieldBoosterModuleIDs: [],
-            armorRepairerModuleIDs: [],
-            hullRepairerModuleIDs: [],
-            remoteShieldModuleIDs: [],
-            remoteArmorModuleIDs: [],
-            remoteCapacitorModuleIDs: [],
-            weaponModuleIDs: [],
-            deriveModulesFromFit: true,
-            fleeHealthFloor: 0.3,
-            droneHealthFloor: 0.5,
-            capacitorFloor: 0.2,
-            maxFleeAttempts: 3,
-            repairsAtStation: false,
-            useDrones: true,
-            droneRedeployHoldOffSeconds: 10,
-            attemptsTagging: true,
-            obeys: ["broadcast", "tag", "chat", "squad-board"],
-            chatCommandSenders: [],
-            safeSpotBookmarkID: null,
-          },
-        },
-      },
+      somePluginField: { [MINING.id]: { [String(PILOT_A)]: { keep: true } } },
     }),
   );
-  const back = loadHangarPrefs();
-  const setup = companionConfigFor(back, MINING.id, PILOT_A);
-  assert.ok(setup, "an old-shape config still decodes rather than being dropped");
-  assert.equal(setup?.fleeHealthFloor, 0.3);
-  assert.equal(setup?.capacitorFloor, 0.2);
+  const prefs = toggleSquadMember(loadHangarPrefs(), MINING.id, PILOT_B);
+  saveHangarPrefs(prefs);
+  const raw = JSON.parse(store.getItem("evejs-web-hangar-prefs:v1")!);
+  assert.deepEqual(raw.somePluginField, { [MINING.id]: { [String(PILOT_A)]: { keep: true } } });
+  assert.deepEqual(raw.members[MINING.id], [PILOT_A, PILOT_B], "core's own fields are still written");
   setHangarPrefsStorage(null);
 });
 
-test("an arrangement with no companionConfigs at all still loads", () => {
-  // ⚠ EVERY EXISTING INSTALL IS THIS CASE. The whole reason this is a parallel
-  // key rather than a richer `members` is that an older blob simply lacks it,
-  // and must come back with its squads and pins intact.
+test("a listener hears each save, and stops hearing once it unsubscribes", () => {
+  // ⚠ This is how a plugin learns that a pilot left a squad or a squad was
+  // deleted, so it can drop what it kept for them.
+  setHangarPrefsStorage(memoryStorage());
+  const heard: number[] = [];
+  const stop = onHangarPrefsSaved((prefs) => heard.push(prefs.squads.length));
+  saveHangarPrefs(addSquad(EMPTY_PREFS, MINING));
+  saveHangarPrefs(deleteSquad(addSquad(EMPTY_PREFS, MINING), MINING.id));
+  stop();
+  saveHangarPrefs(addSquad(EMPTY_PREFS, MINING));
+  assert.deepEqual(heard, [1, 0]);
+  setHangarPrefsStorage(null);
+});
+
+test("a listener that throws does not stop the save or the other listeners", () => {
+  const store = memoryStorage();
+  setHangarPrefsStorage(store);
+  const heard: number[] = [];
+  const originalError = console.error;
+  console.error = () => {};
+  const stopBad = onHangarPrefsSaved(() => {
+    throw new Error("boom");
+  });
+  const stopGood = onHangarPrefsSaved((prefs) => heard.push(prefs.squads.length));
+  try {
+    saveHangarPrefs(addSquad(EMPTY_PREFS, MINING));
+  } finally {
+    console.error = originalError;
+    stopBad();
+    stopGood();
+  }
+  assert.deepEqual(heard, [1]);
+  assert.equal(loadHangarPrefs().squads.length, 1);
+  setHangarPrefsStorage(null);
+});
+
+test("an arrangement saved by an older build, lacking newer keys, still loads", () => {
+  // ⚠ EVERY EXISTING INSTALL IS THIS CASE: an older blob must come back with
+  // its squads and pins intact.
   const store = memoryStorage();
   setHangarPrefsStorage(store);
   store.setItem(
@@ -363,6 +266,5 @@ test("an arrangement with no companionConfigs at all still loads", () => {
   assert.deepEqual(back.squads, [MINING]);
   assert.deepEqual(back.members[MINING.id], [PILOT_A]);
   assert.deepEqual(back.pinnedSquads, [MINING.id]);
-  assert.deepEqual(back.companionConfigs, {});
   setHangarPrefsStorage(null);
 });
