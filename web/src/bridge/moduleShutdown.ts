@@ -8,7 +8,10 @@ interface ObservationDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** Extend only authoritative pending OFF; never dispatch another mutation. */
+/**
+ * Extend only authoritative pending OFF; never dispatch another mutation.
+ * The last read is made at the deadline itself, so the verdict is never an older reading than the wait allows.
+ */
 export async function observeDeferredShutdown(initial: Evidence, itemID: number, deps: ObservationDeps): Promise<Evidence> {
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
@@ -17,17 +20,13 @@ export async function observeDeferredShutdown(initial: Evidence, itemID: number,
       typeof remaining !== "number" || !Number.isFinite(remaining) || remaining <= 0 || remaining > 305_000 ||
       typeof shipID !== "number" || !Number.isSafeInteger(shipID) || shipID <= 0) return initial;
   const deadline = now() + remaining;
-  let result = initial;
-  while (now() < deadline) {
+  for (;;) {
     deps.current();
-    await sleep(Math.min(1000, deadline - now()));
+    await sleep(Math.max(0, Math.min(1000, deadline - now())));
     deps.current();
-    if (now() >= deadline) break;
     const fresh = await deps.read(shipID);
     deps.current();
     if (fresh.itemID !== itemID || fresh.shipID !== shipID) return { ...fresh, stopped: null };
-    result = fresh;
-    if (fresh.stopped !== false) return fresh;
+    if (fresh.stopped !== false || now() >= deadline) return fresh;
   }
-  return result;
 }

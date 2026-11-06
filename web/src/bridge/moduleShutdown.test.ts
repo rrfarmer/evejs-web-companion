@@ -66,3 +66,55 @@ test("the page's deactivate makes exactly one Deactivate, its effect named, then
   assert.deepEqual(acts, [["dogmaIM", "Deactivate", [7, "moduleBonusAfterburner"]]]);
   assert.deepEqual(reads, ["7@9 cycle", "7@9"]);
 });
+
+test("the last read is made at the deadline, so a stop that lands in the wait's last moment is seen", async () => {
+  let now = 0;
+  const result = await observeDeferredShutdown({ ...initial, remainingMs: 2500 }, 7, { current() {}, now: () => now,
+    sleep: async ms => { now += ms; }, read: async shipID => ({ itemID: 7, shipID, stopped: now < 2500 ? false : true }) });
+  assert.equal(now, 2500);
+  requireModuleOutcome(outcome(result), 7, "deactivate");
+});
+
+/** A module of a 4 s cycle whose stop comes `stopsAt` ms after the Deactivate. */
+async function stopOfFourSecondCycle(stopsAt: number) {
+  const acts: unknown[] = [];
+  let now = 0;
+  const result = await deactivateModule(
+    async (service, method, args) => { acts.push([service, method, args]); return null; },
+    {
+      flightNow: async () => ({ inSpace: true, shipID: 9, solarSystemID: 30000142 }),
+      state: async (itemID, shipID): Promise<Record<string, JsonValue>> => ({ ok: true, itemID, shipID, stopped: now >= stopsAt, cycleMs: 4000 }),
+      effects: { of: async () => "tractorBeamCan" },
+    },
+    7, { typeID: 24348 }, { now: () => now, sleep: async (ms) => { now += ms; } });
+  return { result, acts, waited: now };
+}
+
+test("a stop held up by a frozen server is still confirmed: the wait outlasts the freeze", async () => {
+  const { result, acts, waited } = await stopOfFourSecondCycle(15_000);
+  requireModuleOutcome(result, 7, "deactivate");
+  assert.equal(waited, 15_000);
+  assert.equal(acts.length, 1);
+});
+
+test("a module that never stops is still reported unconfirmed, once the wait is over, and the stop is never asked again", async () => {
+  const { result, acts, waited } = await stopOfFourSecondCycle(Number.POSITIVE_INFINITY);
+  assert.throws(() => requireModuleOutcome(result, 7, "deactivate"), { code: "MODULE_ACTION_UNCERTAIN" });
+  assert.equal(waited, 34_000);
+  assert.equal(acts.length, 1);
+});
+
+test("the wait for a very long cycle stays within what the watch will take on", async () => {
+  const acts: unknown[] = [];
+  let now = 0, reads = 0;
+  const result = await deactivateModule(
+    async (service, method, args) => { acts.push([service, method, args]); return null; },
+    {
+      flightNow: async () => ({ inSpace: true, shipID: 9, solarSystemID: 30000142 }),
+      state: async (itemID, shipID): Promise<Record<string, JsonValue>> => { reads++; return { ok: true, itemID, shipID, stopped: now >= 290_000, cycleMs: 290_000 }; },
+      effects: { of: async () => "someEffect" },
+    },
+    7, { typeID: 1 }, { now: () => now, sleep: async (ms) => { now += ms; } });
+  requireModuleOutcome(result, 7, "deactivate");
+  assert.ok(reads > 1);
+});

@@ -470,6 +470,17 @@ export async function activateModule(
 }
 
 /**
+ * How long past its cycle's end a module's stop is waited for. The server can freeze for seconds as it cleans up a
+ * site, and no cycle ends meanwhile (seen live 2026-11-06: a stop due in 4 s came about 11 s later, and a wait of the
+ * cycle and 5 s paused the bot for a module that had stopped).
+ */
+const SERVER_FREEZE_MS = 30_000;
+/** The cycle assumed where it could not be read. */
+const CYCLE_IF_UNREAD_MS = 10_000;
+/** The longest wait observeDeferredShutdown will take on. */
+const LONGEST_STOP_WAIT_MS = 305_000;
+
+/**
  * Switches a module off, its effect named, and watches it to its cycle's end where the stop is to come there.
  * Fails as the call fails, and before it for a ship not in space.
  */
@@ -487,8 +498,8 @@ export async function deactivateModule(
   const startedAt = now();
   const first = await deps.state(itemID, shipID, true);
   const cycleMs = typeof first.cycleMs === "number" && Number.isFinite(first.cycleMs) && first.cycleMs > 0 ? first.cycleMs : null;
-  // As the route waited: the cycle and five seconds where the cycle was read, fifteen seconds where it was not.
-  const budgetMs = cycleMs === null ? 15_000 : Math.ceil(cycleMs) + 5_000;
+  // A stop comes at the cycle's end, and a frozen server ends no cycles: the wait outlasts a freeze.
+  const budgetMs = Math.min(LONGEST_STOP_WAIT_MS, (cycleMs === null ? CYCLE_IF_UNREAD_MS : Math.ceil(cycleMs)) + SERVER_FREEZE_MS);
   const remainingMs = first.stopped === false ? Math.max(0, startedAt + budgetMs - now()) : 0;
   const watched = await observeDeferredShutdown({ ...first, remainingMs }, itemID, {
     current: deps.current ?? (() => {}),
