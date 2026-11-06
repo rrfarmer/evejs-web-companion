@@ -97,6 +97,31 @@ test("the client's own doing: a lock made already is a target, and a ball that g
   assert.deepEqual([read(targets), read(targets, TARGETERS)], [[9002], [9001]]);
 });
 
+test("an OnMultiEvent's OnTarget events are worked in a moment at a time, and its other events are left alone", () => {
+  const targets = answered([9001], [7001]);
+  const event = (time, ...args) => [[Buffer.from("OnTarget"), ...args], time];
+  const told = targets.feed(notice("OnMultiEvent", [[
+    // Later moment first: what is taken is the order of the moments, whatever order they came in.
+    event(20n, Buffer.from("lost"), 9002, Buffer.from("TargetingAttemptCancelled")),
+    [[Buffer.from("OnGodmaShipEffect"), 9001, 2255], 10n],
+    event(10n, Buffer.from("add"), 9002),
+    event(10n, Buffer.from("add"), 9003),
+    event(10n, Buffer.from("otheradd"), 7002),
+    event(20n, Buffer.from("lost"), 9001, null),
+  ]]));
+  assert.equal(told, true);
+  assert.deepEqual(read(targets), [9003]);
+  assert.deepEqual(read(targets, TARGETERS), [7001, 7002]);
+
+  // The same list as a destiny update's dogma messages, and a moment held on the wire as a number.
+  targets.multiEvent([event(30, Buffer.from("add"), 9004)]);
+  assert.deepEqual(read(targets), [9003, 9004]);
+  // What is no event is passed over.
+  targets.multiEvent([null, 5, [], [["OnTarget"]], event(40n, Buffer.from("add"))]);
+  targets.multiEvent(null);
+  assert.deepEqual(read(targets), [9003, 9004]);
+});
+
 test("a list that is not known is not made known by the server's word, a lock, or a ball going", () => {
   const targets = createPilotTargets();
   targets.feed(notice("OnTarget", ["add", 9001]));

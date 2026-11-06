@@ -6302,6 +6302,30 @@ test("what the ship has locked, and what has it locked, are asked for once on ar
   assert.deepEqual([tally["dogmaIM.GetTargets"], tally["dogmaIM.GetTargeters"]], [[1, { same: 1 }], [1, { same: 1 }]]);
 });
 
+test("a lock the server tells of inside an OnMultiEvent is kept and told to the page, alone or riding a destiny update", async () => {
+  const { pilots, session, handle, read, hand } = await flying({ "bound:GetTargets": idsOf() });
+  assert.deepEqual(await read(), []);
+  // The ship's ballpark has its state: a target needs its ball.
+  for (const update of recordedUpdates.slice(0, 5)) session.notify("DoDestinyUpdate", update.args);
+  hand.parks[0].tick();
+  const { space } = await pilots.readSpaceSnapshot(handle);
+  const wreck = space.entities.find((row) => !row.isSelf).itemID;
+  const lockNotices = async () => (await pilots.readSpaceSnapshot(handle)).notifications.filter((each) => each.method === "OnTarget");
+
+  session.notify("OnMultiEvent", [[[[Buffer.from("OnTarget"), Buffer.from("add"), wreck], 133000000000000000n]]]);
+  // (What is read first: a call hands on what is waiting.)
+  const alone = await lockNotices();
+  assert.deepEqual(await read(), [wreck]);
+  assert.equal(alone.length, 1);
+  assert.equal(alone[0].args[1], wreck);
+
+  session.notify("DoDestinyUpdate", [[], false, [[[Buffer.from("OnTarget"), Buffer.from("lost"), wreck, Buffer.from("Exploding")], 133000000000000001n]]]);
+  const riding = await lockNotices();
+  assert.deepEqual(await read(), []);
+  assert.equal(riding.length, 1);
+  assert.equal(riding[0].args[1], wreck);
+});
+
 test("a lock the server says is made already is a target at once; one still being made is none until the server says so", async () => {
   // AddTarget answers (flag, targets): the flag set while the lock is still being made.
   let refused = false;

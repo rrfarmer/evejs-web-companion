@@ -942,8 +942,8 @@ function defaultClientCallAnswer({ service, method, args, kwargs }, characterID,
 const itemsOf = (value) => (Array.isArray(value) ? value : value && Array.isArray(value.items) ? value.items : []);
 /** buffBarConst.FX_GUIDS_BY_SLOT's effects: the buff bar's slots an effect on the ship brings up. */
 const BUFF_BAR_FX_GUIDS = new Set(["effects.Tethering", "effects.TetheringRepair", "effects.ReserveBankHackingBeam", "effects.MainBankHackingBeam", "effects.DataLink", "effects.LinkedToTraceGate"]);
-/** The events in a destiny update's OnMultiEvent the page is told of as godma scatters them (godma.OnMultiEvent_). */
-const SCATTERED_FROM_MULTI_EVENT = new Set(["OnEwarStart", "OnEwarEnd", "OnJamStart", "OnJamEnd"]);
+/** The events in an OnMultiEvent the page is told of as godma scatters them (godma.OnMultiEvent_). */
+const SCATTERED_FROM_MULTI_EVENT = new Set(["OnEwarStart", "OnEwarEnd", "OnJamStart", "OnJamEnd", "OnTarget"]);
 
 /** A keyword by name from a decoded dict, or undefined. */
 function dictValue(dict, name) {
@@ -1377,6 +1377,15 @@ function createGamePortPilots({
     const frame = publish(entry, { kind: "notification", notification });
     entry.backlog.push(Object.freeze({ ...notification, cursor: frame.cursor }));
     if (entry.backlog.length > BACKLOG_LIMIT) entry.backlog.splice(0, entry.backlog.length - BACKLOG_LIMIT);
+  }
+
+  /** godma.OnMultiEvent_: the events it does not fold itself go on as if each had come alone, and the page is told of those it reads. */
+  function scatterFromMultiEvent(entry, messages) {
+    for (const pair of itemsOf(messages)) {
+      const event = itemsOf(Array.isArray(pair) ? pair[0] : null);
+      const method = textOf(event[0]);
+      if (method !== null && SCATTERED_FROM_MULTI_EVENT.has(method)) record(entry, notificationToBridgeJson({ method, args: event.slice(1) }));
+    }
   }
 
   /**
@@ -2057,6 +2066,8 @@ function createGamePortPilots({
       afterSkillNotice(entry, entry.skills.feed(notification));
       afterCorporationNotice(entry, notification);
       entry.targets.feed(notification);
+      // The same events with no destiny update to ride: the server sends them alone when the tick has none for the pilot.
+      if (notification.method === "OnMultiEvent" && sessions.has(entry.handle)) scatterFromMultiEvent(entry, notification.args?.[0]);
       // station/base.py: a pilot arrived in the station, or left it.
       entry.station.feed(notification);
       // structureGuests (36, 40): a pilot entered the structure, or left it.
@@ -4848,12 +4859,8 @@ function createGamePortPilots({
       // which Tranquility sends this way) are handed on to the page so.
       entry.space.park.onMultiEvent = (messages) => {
         keepDogmaWork(entry, entry.dogma.multiEvent(messages));
-        if (!sessions.has(entry.handle)) return;
-        for (const pair of itemsOf(messages)) {
-          const event = itemsOf(Array.isArray(pair) ? pair[0] : null);
-          const method = textOf(event[0]);
-          if (method !== null && SCATTERED_FROM_MULTI_EVENT.has(method)) record(entry, notificationToBridgeJson({ method, args: event.slice(1) }));
-        }
+        entry.targets.multiEvent(messages);
+        if (sessions.has(entry.handle)) scatterFromMultiEvent(entry, messages);
       };
       // targetMgr.DoBallsRemove: a ball that goes is no target any more; invCache.DoBallRemove: nor a container held.
       entry.space.park.onBallsRemoved = (gone) => {
