@@ -99,7 +99,7 @@ export const flyRun: BackendRun = {
     });
     let refusal: string | null = null;
     try {
-      await companion.startFleetCompanion(run.setup as unknown as CompanionSetup, abandonmentToResume(run.resumeData), keptStandingOrders(run.resumeData, Date.now()));
+      await companion.startFleetCompanion(run.setup as unknown as CompanionSetup, abandonmentToResume(run.resumeData), keptStandingOrders(run.resumeData, Date.now()), run.resumed);
     } catch (error) {
       refusal = error instanceof Error ? error.message : String(error);
     }

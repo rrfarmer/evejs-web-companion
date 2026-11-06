@@ -1803,8 +1803,52 @@ async function restoreHeldCaller(webSessionID, account, characterID, reservation
   } });
   return true;
 }
+/**
+ * A tab's pilot goes to a hosted run as it stands. Nothing tells the game server, because a disconnect would take the
+ * pilot out of its fleet (and end a fleet of one): the run's select finds the session already here.
+ * The tab's streams stay until the start is settled, so a refused start hands everything back unnoticed.
+ */
+function handHeldSessionToHost(fromWebSessionID, toWebSessionID, claimSecret, docked) {
+  const held = bridgeSessions.get(fromWebSessionID);
+  const tabStreams = new Set(held.streamSubscribers);
+  // The game's stream retries under the web session that opened it. The run's own subscription opens it again here.
+  closeHeldStream(held);
+  bridgeSessions.delete(fromWebSessionID);
+  bridgeSessions.set(toWebSessionID, held);
+  held.botClaimSecret = claimSecret;
+  held.handedOverTo = { claimSecret, docked };
+  held.droneRecoveryReady = true;
+  return {
+    giveBack() {
+      if (bridgeSessions.get(toWebSessionID) !== held || bridgeSessions.has(fromWebSessionID)) return;
+      bridgeSessions.delete(toWebSessionID);
+      for (const stream of [...held.streamSubscribers]) {
+        if (tabStreams.has(stream)) continue;
+        held.streamSubscribers.delete(stream);
+        try { stream.end(); } catch { /* The response is already gone. */ }
+      }
+      delete held.botClaimSecret;
+      delete held.handedOverTo;
+      closeHeldStream(held);
+      bridgeSessions.set(fromWebSessionID, held);
+      openHeldStream(fromWebSessionID, held);
+    },
+    settled() {
+      // Given back by a stop during the start: the tab has it, and its streams are its own.
+      if (bridgeSessions.get(toWebSessionID) !== held) return;
+      lootMemory.releaseClaims(fromWebSessionID);
+      for (const stream of tabStreams) {
+        if (!held.streamSubscribers.delete(stream)) continue;
+        writeSseFrame(stream, { source: "evejs-web-bff", type: "stream-status", state: "ended", detail: "session_released" });
+        try { stream.end(); } catch { /* The response is already gone. */ }
+      }
+    },
+  };
+}
+
 function makeHeldCharacter(account, characterID, outcome) {
   return {
+    selectedAs: outcome.session,
     bridgeSessionID: outcome.bridgeSessionID,
     characterID: Number(outcome.session.characterID) || characterID,
     accountID: Number(account.accountID),
@@ -1829,6 +1873,26 @@ function makeHeldCharacter(account, characterID, outcome) {
     droneRecoveryReady: false,
     droneRecoveryCheckID: randomUUID(),
     recoveryDroneIDs: new Set(),
+  };
+}
+
+function selectedCharacterAnswer(characterID, session) {
+  return {
+    characterID: Number(session.characterID) || characterID,
+    characterName: String(session.characterName || ""),
+    stationID: session.stationID === undefined ? null : session.stationID,
+    structureID: session.structureID === undefined ? null : session.structureID,
+    solarSystemID: session.solarSystemID === undefined ? null : session.solarSystemID,
+    corporationID: session.corporationID === undefined ? null : session.corporationID,
+    // The alliance and the corporation roles, as the client's session holds them, where the transport says
+    // them (the game port does; the gateway does not, and the page holds none).
+    allianceID: session.allianceID === undefined ? null : session.allianceID,
+    corpRole: typeof session.corpRole === "string" && /^\d+$/.test(session.corpRole) ? session.corpRole : null,
+    // session.role, the session's own roles (a GM's among them), where the transport says them: the game port
+    // does.
+    role: typeof session.role === "string" && /^\d+$/.test(session.role) ? session.role : null,
+    corpAccountKey: Number.isSafeInteger(session.corpAccountKey) ? session.corpAccountKey : null,
+    raceID: Number.isSafeInteger(session.raceID) ? session.raceID : null,
   };
 }
 
@@ -1894,6 +1958,22 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
     if (sessionOperations.has(req.webSessionID) ||
         (existingReservation && !ownOperationHandoff)) {
       res.status(409).json({ ok: false, error: "CHARACTER_IN_USE", message: "This pilot is changing sessions. Try again shortly." });
+      return;
+    }
+    // The run's own select of a pilot its tab handed over: the session is here, and selecting again would disconnect it.
+    if (hostedSelection && previousHeld?.handedOverTo && previousHeld.handedOverTo.claimSecret === hostedSecret && Number(previousHeld.characterID) === characterID) {
+      // (The session keeps the last station while in space, and a select in space names none.)
+      const stationID = previousHeld.handedOverTo.docked ? previousHeld.stationID : null;
+      const structureID = previousHeld.handedOverTo.docked ? previousHeld.structureID : null;
+      delete previousHeld.handedOverTo;
+      res.json({
+        ok: true,
+        character: selectedCharacterAnswer(characterID, { ...previousHeld.selectedAs, stationID, structureID,
+          solarSystemID: previousHeld.solarSystemID, corporationID: previousHeld.corporationID }),
+        station: buildStationStatic(stationID),
+        notifications: [],
+        droneRecoveryCheckID: previousHeld.droneRecoveryCheckID,
+      });
       return;
     }
     // A tab can reload after select but before its recovery check is ACKed.
@@ -1967,37 +2047,7 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
     }
     res.json({
       ok: true,
-      character: {
-        characterID: Number(outcome.session.characterID) || characterID,
-        characterName: String(outcome.session.characterName || ""),
-        stationID: outcome.session.stationID === undefined
-          ? null
-          : outcome.session.stationID,
-        structureID: outcome.session.structureID === undefined
-          ? null
-          : outcome.session.structureID,
-        solarSystemID: outcome.session.solarSystemID === undefined
-          ? null
-          : outcome.session.solarSystemID,
-        corporationID: outcome.session.corporationID === undefined
-          ? null
-          : outcome.session.corporationID,
-        // The alliance and the corporation roles, as the client's session holds them, where the transport says
-        // them (the game port does; the gateway does not, and the page holds none).
-        allianceID: outcome.session.allianceID === undefined
-          ? null
-          : outcome.session.allianceID,
-        corpRole: typeof outcome.session.corpRole === "string" && /^\d+$/.test(outcome.session.corpRole)
-          ? outcome.session.corpRole
-          : null,
-        // session.role, the session's own roles (a GM's among them), where the transport says them: the game port
-        // does.
-        role: typeof outcome.session.role === "string" && /^\d+$/.test(outcome.session.role)
-          ? outcome.session.role
-          : null,
-        corpAccountKey: Number.isSafeInteger(outcome.session.corpAccountKey) ? outcome.session.corpAccountKey : null,
-        raceID: Number.isSafeInteger(outcome.session.raceID) ? outcome.session.raceID : null,
-      },
+      character: selectedCharacterAnswer(characterID, outcome.session),
       station: buildStationStatic(outcome.session.stationID),
       notifications: outcome.notifications,
       droneRecoveryCheckID: bridgeSessions.get(req.webSessionID)?.droneRecoveryCheckID ?? null,
@@ -17066,6 +17116,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
     sessionOperations.set(req.webSessionID, reservation);
     let releasedCaller = false;
     let transferred = false;
+    let handedOver = null;
     try {
       const assertReservation = () => {
         if (characterOperations.get(characterID) !== reservation || sessionOperations.get(req.webSessionID) !== reservation)
@@ -17108,6 +17159,12 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
           }
         }
         assertReservation();
+        assertReservation();
+        if (owner?.webSessionID) {
+          transferReservation(owner);
+          handedOver = handHeldSessionToHost(req.webSessionID, owner.webSessionID, owner.claimSecret, status?.flight?.docked === true);
+          return { giveBack: () => handedOver.giveBack() };
+        }
         await releaseHeldBridgeSession(req.webSessionID, { confirmed: true });
         releasedCaller = true;
         assertReservation();
@@ -17171,6 +17228,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
         res.status(BOT_START_STATUS[outcome.code] || 500).json({ ok: false, error: outcome.code, message });
         return;
       }
+      handedOver?.settled();
       res.json({ ok: true, bot: outcome.bot });
     } finally {
       if (characterOperations.get(characterID) === reservation) characterOperations.delete(characterID);
