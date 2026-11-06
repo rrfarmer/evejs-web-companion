@@ -463,6 +463,10 @@ function createBotHost(options) {
       record.why = "The issued write needs reconciliation before pilot control can be released.";
       record.stopBlocked = true; persistRoster(); return false;
     }
+    // A start that did not get going, of a pilot a tab held: the tab has it again, so the logoff below has nothing to
+    // log off and the pilot stays in its fleet.
+    record.giveBackSession?.();
+    record.giveBackSession = null;
     // Keep the stopped row durable through logout. If the process dies in
     // teardown, resume sees stopRequested and will not restart bot work.
     record.windingDown = true;
@@ -1505,7 +1509,10 @@ function createBotHost(options) {
         return record.recoveryPromise;
       };
 
-      if (beforeStart) await beforeStart({ claimSecret: record.claimSecret });
+      if (beforeStart) {
+        const handedOver = await beforeStart({ claimSecret: record.claimSecret, webSessionID: record.webSessionID });
+        record.giveBackSession = handedOver?.giveBack ?? null;
+      }
       await flow.selectCharacter(characterID);
       const online = store.station.get().online;
       record.characterName = online ? online.characterName : null;
@@ -1566,6 +1573,7 @@ function createBotHost(options) {
         await finalize(record);
         return { ok: false, code: "BOT_START_FAILED", message: record.startError };
       }
+      record.giveBackSession = null;
       record.recoveryEnabled = !!record.operationID && (record.restartSafe || record.hostedOreJettisonRecovery) && typeof flow.suspendHostedSession === "function";
       const remainingMs = Math.max(1, Date.parse(record.expiresAt) - now());
       record.deadlineTimer = setDeadlineTimeout(() => {
