@@ -466,6 +466,71 @@ Be careful with sessions a player is looking at. A background pilot has no live 
 (only the pilot on screen does), so it learns of pushes from the answers to your own
 reads, and `sleepUntilPush` wakes on those.
 
+### In the Pilot Hangar
+
+A plugin's views can add two things to the Hangar, and each is drawn inside an error
+boundary:
+
+```ts
+export default definePluginViews({
+  id: "my-plugin",
+  windows: { /* ... */ },
+  squadControl: MySquadButton,    // on each squad, beside its launch button
+  squadMemberSetting: MyTick,     // under a pilot, in the squad menu, for each squad it is in
+});
+```
+
+A squad control (`SquadControlProps`) is given the squad, its `memberIDs`, and what it needs
+to act on pilots whether or not they are signed in here: `optionsFor`, `accountNameFor`,
+`pilotNameFor` and `onHandedOver`. `say(lines)` shows lines under the squads, and
+`say(null)` clears them. Those lines are one place per plugin, not per squad: what one squad's
+control says replaces what another's said, and they stay when Manage hides the controls. Call
+`onChanged()` after starting something on the server. A member setting
+(`SquadMemberSettingProps`) is given the squad and the `characterID`.
+
+`onHangarPrefsSaved(listener)` is called as the arrangement changes, with the new one. If you
+keep settings per squad member, drop those of a pilot no longer in the squad there, or a pilot
+put back into a squad silently gets what it had. It only hears the Hangar in this tab, so check
+them against `loadHangarPrefs()` when your plugin loads as well.
+
+**The count on your launcher** needs nothing from you. It shows how many pilots your plugin
+holds the ship of in this tab (`holdShip`), and nothing at nought. A pilot a run is flying
+on the server is not counted, as it is held in your backend's process and not in this tab.
+
+### Settings
+
+What a player sets in this browser goes in `pluginSetting`, from the plugin API. It is a
+signal, and what is set on it is saved:
+
+```ts
+export const flies = pluginSetting("plugin:my-plugin.flies", {
+  initial: {} as Record<string, number[]>,
+  // Saved bytes are untrusted: undefined means they mean nothing, and `initial` is used.
+  decode: (raw) => (isFliesMap(raw) ? raw : undefined),
+});
+```
+
+The same key gives the same signal. It lasts in this browser only, and a window, a squad
+control and a member setting in the same tab all see it change; another tab reads it when
+it next loads, and the last write wins. To make it survive across browsers, or reach a run on
+the server, keep it in your backend or pass it in a run's setup.
+
+### Moving a feature out of core
+
+- **A setting the Hangar kept.** `formerly: () => formerHangarSetting("field")` on a
+  `pluginSetting` reads it once, while you have nothing saved, and saves it as yours. Call
+  `pluginSetting` at the top of a module, so it runs before the Hangar is drawn. The Hangar
+  keeps fields it no longer knows, so a browser with your plugin switched off loses nothing.
+- **Saved bots of a kind core flew.** `formerBotKinds: { "old-kind": "my-run" }` in the
+  manifest brings them back after a restart as that run, which needs your plugin to have a
+  backend. `run.resumeData` is then `{ formerRow }`, the saved row as it was, until you report
+  a `resumeData` of your own. `check` reads the row's `request` as usual. What it says the setup
+  risks must match what was approved, or the run is not resumed and the row ends with an error
+  saying so, as any bot's does. `script` and `plugin` cannot be taken over, and if two plugins
+  name one kind, the first in `plugins/index.ts` gets it.
+- **Blocks.** `formerly` on a block; see [A bot builder block](#a-bot-builder-block).
+- **What core kept in the database.** `adopt`; see [State and cleanup](#state-and-cleanup).
+
 ## Isolation
 
 | Where | What contains a failure |

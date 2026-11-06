@@ -14,6 +14,7 @@ import { PLUGIN_API_VERSION, type PluginEntry, type PluginManifest, type PluginV
 import { loadPluginModules } from "./loadPlugins.ts";
 import { registerGlobalWindow, isGlobalTab } from "../ui/globalWindow.ts";
 import { registerGlobalWindowView } from "../ui/pluginWindowViews.ts";
+import { registerHangarViews } from "../ui/pluginHangarViews.ts";
 import { allTabs } from "../ui/tabs.ts";
 import { pluginMacro, pluginMacroFormerly, registerPluginMacro } from "../bots/pluginMacros.ts";
 import { macroSpec } from "../bots/macroSpecs.ts";
@@ -54,6 +55,10 @@ export function pluginProblem(manifest: PluginManifest, views: PluginViews | nul
     if (windowsSeen.has(window.id) || isGlobalTab(window.id) || allTabs().some((tab) => tab.id === window.id)) return `There is already a window called "${window.id}".`;
     windowsSeen.add(window.id);
     if (views !== null && views.windows[window.id] === undefined) return `The window "${window.id}" has nothing to draw.`;
+  }
+  // These two are how core tells its own saved bots apart: a plugin taking one would take every one.
+  for (const kind of Object.keys(manifest.formerBotKinds ?? {})) {
+    if (kind === "script" || kind === "plugin") return `A plugin cannot take over saved bots of the kind "${kind}".`;
   }
   const blocksSeen = new Set<string>();
   const formerSeen = new Set<string>();
@@ -121,6 +126,7 @@ export function activatePlugins(
         const view = pluginViews?.windows[window.id];
         if (view !== undefined) registerGlobalWindowView(window.id, view);
       }
+      if (pluginViews !== null) registerHangarViews(manifest.id, pluginViews);
       for (const macro of manifest.macros ?? []) registerPluginMacro(macro);
       say("active");
     } catch (error) {

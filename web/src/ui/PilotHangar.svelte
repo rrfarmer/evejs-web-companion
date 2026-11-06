@@ -29,6 +29,9 @@
   // pilots are live in the one tab at once; the switcher between them is the
   // character bar, and is not this screen's business.
   import HangarPilotRow from "./HangarPilotRow.svelte";
+  import ErrorBoundary from "./ErrorBoundary.svelte";
+  import { pluginSquadControls } from "./pluginHangarViews.ts";
+  import { untrack } from "svelte";
   import HangarLoginDialog from "./HangarLoginDialog.svelte";
   import HangarAddCharacter from "./HangarAddCharacter.svelte";
   import HangarSquadEditor from "./HangarSquadEditor.svelte";
@@ -497,6 +500,16 @@
     }
   }
 
+  // What a plugin's squad control has to say, under the squads (pluginHangarViews.ts).
+  let pluginSquadLines = $state.raw<ReadonlyMap<string, readonly string[]>>(new Map());
+  function sayForPlugin(pluginID: string, lines: readonly string[] | null): void {
+    // Untracked: a control may say this from an effect, which must not then depend on what it writes.
+    const next = new Map(untrack(() => pluginSquadLines));
+    if (lines === null) next.delete(pluginID);
+    else next.set(pluginID, lines);
+    pluginSquadLines = next;
+  }
+
   function pilotNameFor(characterID: number): string {
     return pilots.find((pilot) => pilot.characterID === characterID)?.name ?? "Unknown pilot";
   }
@@ -811,7 +824,30 @@
               onclick={() => startSquadCompanions(squad.id)}
             >FLY</button>
           {/if}
+          {#each pluginSquadControls() as control (control.pluginID)}
+            <ErrorBoundary name={`${control.pluginID} on ${squad.name}`}>
+              <control.view
+                {squad}
+                memberIDs={prefs.members[squad.id] ?? []}
+                {pilotNameFor}
+                {optionsFor}
+                {accountNameFor}
+                {onHandedOver}
+                onChanged={() => void refreshBotFlown()}
+                say={(lines) => sayForPlugin(control.pluginID, lines)}
+              />
+            </ErrorBoundary>
+          {/each}
         {/if}
+      </div>
+    {/each}
+
+    {#each [...pluginSquadLines] as [pluginID, lines] (pluginID)}
+      <div class="hangar-squadstart">
+        <!-- No key: a plugin may well say the same line twice, and a repeated key throws. -->
+        {#each lines as line}
+          <p class="note">{line}</p>
+        {/each}
       </div>
     {/each}
 

@@ -224,13 +224,49 @@ export function loadHangarPrefs(): HangarPrefs {
   }
 }
 
+/**
+ * Fields on disk this build does not know. They are kept, because one may be a setting a
+ * plugin has yet to take over (`formerHangarSetting`), and that plugin may be switched
+ * off in this browser for now.
+ */
+function unknownFields(): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(storage?.getItem(STORAGE_KEY) ?? "null") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const known = new Set(Object.keys(EMPTY_PREFS));
+    return Object.fromEntries(Object.entries(parsed).filter(([field]) => !known.has(field)));
+  } catch {
+    return {};
+  }
+}
+
+const savedListeners = new Set<(prefs: HangarPrefs) => void>();
+
+/**
+ * Hear each arrangement as it is saved: a pilot leaving a squad, a squad deleted. For a
+ * plugin keeping its own settings per squad member, so that a pilot put back into a
+ * squad does not silently get what it had. Returns how to stop listening.
+ */
+export function onHangarPrefsSaved(listener: (prefs: HangarPrefs) => void): () => void {
+  savedListeners.add(listener);
+  return () => { savedListeners.delete(listener); };
+}
+
 /** Write the arrangement. Best-effort: a full or blocked store is never fatal. */
 export function saveHangarPrefs(prefs: HangarPrefs): void {
-  if (!storage) return;
-  try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-  } catch {
-    // The arrangement is a convenience; losing a write costs a re-pin, not data.
+  if (storage) {
+    try {
+      storage.setItem(STORAGE_KEY, JSON.stringify({ ...unknownFields(), ...prefs }));
+    } catch {
+      // The arrangement is a convenience; losing a write costs a re-pin, not data.
+    }
+  }
+  for (const listener of [...savedListeners]) {
+    try {
+      listener(prefs);
+    } catch (error) {
+      console.error("A listener for the Hangar's arrangement threw:", error);
+    }
   }
 }
 

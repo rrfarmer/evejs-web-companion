@@ -27,6 +27,7 @@
   import PilotHangar from "./PilotHangar.svelte";
   import Workspace from "./Workspace.svelte";
   import ErrorBoundary from "./ErrorBoundary.svelte";
+  import { countPluginPilots, setPluginPilotCounts } from "./pluginPilotCounts.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import type { LaunchEntry, LaunchTarget } from "../app/hangarLaunch.ts";
   import { BridgeCallError } from "../bridge/callMethod.ts";
@@ -196,6 +197,15 @@
    * not let go of the hull and is one press from flying it again.
    */
   let companionCount = $state(0);
+  // The same, for each plugin's launcher: who holds each pilot's ship says it.
+  $effect(() => {
+    const recount = (): void => setPluginPilotCounts(countPluginPilots(sessions.map((session) => session.store.bots.get().runningBotID)));
+    const unsubs = sessions.map((session) => session.store.bots.subscribe(recount));
+    recount();
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
+  });
   function recountCompanions(): void {
     let flying = 0;
     for (const session of sessions) {
