@@ -1961,7 +1961,7 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
       return;
     }
     // The run's own select of a pilot its tab handed over: the session is here, and selecting again would disconnect it.
-    if (hostedSelection && previousHeld?.handedOverTo?.claimSecret === hostedSecret && Number(previousHeld.characterID) === characterID) {
+    if (hostedSelection && previousHeld?.handedOverTo && previousHeld.handedOverTo.claimSecret === hostedSecret && Number(previousHeld.characterID) === characterID) {
       // (The session keeps the last station while in space, and a select in space names none.)
       const stationID = previousHeld.handedOverTo.docked ? previousHeld.stationID : null;
       const structureID = previousHeld.handedOverTo.docked ? previousHeld.structureID : null;
