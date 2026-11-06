@@ -170,7 +170,7 @@ async function makeFixture(t, extra = {}) {
     plugins = createPluginHost({
       rootDir: root,
       dataDir: path.join(root, "data"),
-      manifests: [{ id: "probe", backend: "backend.ts" }],
+      manifests: [{ id: "probe", backend: "backend.ts", formerBotKinds: { "old-probe": "probe" } }],
       pingMs: 150,
       requestTimeoutMs: 2_000,
       backoffMs: [50],
@@ -449,6 +449,49 @@ test("⚠ a run the plugin says may not be restarted is recalled at once, not st
   assert.ok(await until(() => f.log.some(([name]) => name === "logout")));
   assert.match(f.row().why, /cannot be restarted safely/);
   assert.equal((await f.heard("started")).resumed, false);
+});
+
+test("a bot saved under a kind core used to fly comes back as the plugin's run, with its saved row", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const oldRow = { ...saved.bots[0], kind: "old-probe", scriptRev: 7, scriptHash: "a".repeat(64), abandonment: { since: 5 } };
+  delete oldRow.pluginID;
+  delete oldRow.pluginRun;
+  delete oldRow.resumeData;
+
+  const next = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(next.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [oldRow] }));
+  await next.resume();
+  const back = next.list(ACCOUNT.accountID)[0];
+  assert.equal(back?.kind, "plugin", JSON.stringify(back));
+  assert.equal(back.plugin.pluginID, "probe");
+  assert.ok(await until(async () => (await f.heard("started")).resumed === true));
+  const heard = await f.heard("started");
+  assert.equal(heard.resumeData.formerRow.kind, "old-probe");
+  assert.deepEqual(heard.resumeData.formerRow.abandonment, { since: 5 });
+  assert.deepEqual(heard.setup, { n: 2, restartSafe: true, endItself: false });
+  await next.stop(back.botID, ACCOUNT.accountID);
+});
+
+test("a saved bot whose kind no plugin has taken over is reported, not flown", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const next = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(next.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [{ ...saved.bots[0], kind: "nobody-flies-this" }] }));
+  await next.resume();
+  assert.equal(next.list(ACCOUNT.accountID).some((row) => row.status === "running"), false);
 });
 
 test("a restart of the BFF brings the run back, checked again, with what the plugin asked to keep", async (t) => {

@@ -118,12 +118,14 @@
   );
 
   /** Held pilots whose own tab is already flying something. */
-  const busyHereCharacterIDs = $derived(
-    sessions
+  const busyHereCharacterIDs = $derived.by(() => {
+    // Read for its identity: the poll replacing it is what looks at these stores again.
+    void serverBots;
+    return sessions
       .filter((session) => session.store.bots.get().runningBotID !== null)
       .map((session) => session.store.station.get().online?.characterID ?? null)
-      .filter((id): id is number => id !== null),
-  );
+      .filter((id): id is number => id !== null);
+  });
 
   const states = $derived(
     groupMemberStates(group.members, {

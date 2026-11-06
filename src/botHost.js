@@ -2299,7 +2299,16 @@ function createBotHost(options) {
   async function resume() {
     const rows = readRoster();
     const restored = [];
-    for (const row of rows) {
+    for (const savedRow of rows) {
+      // A bot saved under a kind core no longer flies, that a plugin has taken over.
+      const former = pluginProcess()?.formerBotKind?.(savedRow.kind) ?? null;
+      const row = former === null ? savedRow : {
+        ...savedRow,
+        kind: "plugin",
+        pluginID: former.pluginID,
+        pluginRun: former.run,
+        resumeData: { formerRow: savedRow },
+      };
       const characterID = Number(row.characterID);
       const kind = kindOf(row.kind);
       try {
@@ -2343,7 +2352,9 @@ function createBotHost(options) {
           continue;
         }
         const grant = {
-          scriptRev: row.scriptRev,
+          // What was approved under the old kind has that kind's revision and hash. The plugin
+          // reads the setup again in `start`, and what it risks must still be what was approved.
+          scriptRev: former === null ? row.scriptRev : (await loadStack()).PLUGIN_RUN_GRANT_REV,
           riskClasses: Array.isArray(row.riskClasses) ? row.riskClasses : [],
           maxRuntimeMinutes: row.maxRuntimeMinutes,
         };
@@ -2359,8 +2370,8 @@ function createBotHost(options) {
                 resumeData: row.resumeData ?? null,
                 grant,
                 resumed: true,
-                expectedScriptRev: row.scriptRev,
-                expectedScriptHash: row.scriptHash,
+                expectedScriptRev: former === null ? row.scriptRev : null,
+                expectedScriptHash: former === null ? row.scriptHash : null,
                 expectedExpiresAt: row.expiresAt,
               })
             : kind === "companion"

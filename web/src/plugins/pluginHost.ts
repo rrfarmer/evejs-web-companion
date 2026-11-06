@@ -14,6 +14,7 @@ import { PLUGIN_API_VERSION, type PluginEntry, type PluginManifest, type PluginV
 import { loadPluginModules } from "./loadPlugins.ts";
 import { registerGlobalWindow, isGlobalTab } from "../ui/globalWindow.ts";
 import { registerGlobalWindowView } from "../ui/pluginWindowViews.ts";
+import { registerHangarViews } from "../ui/pluginHangarViews.ts";
 import { allTabs } from "../ui/tabs.ts";
 import { pluginMacro, pluginMacroFormerly, registerPluginMacro } from "../bots/pluginMacros.ts";
 import { macroSpec } from "../bots/macroSpecs.ts";
@@ -121,6 +122,7 @@ export function activatePlugins(
         const view = pluginViews?.windows[window.id];
         if (view !== undefined) registerGlobalWindowView(window.id, view);
       }
+      if (pluginViews !== null) registerHangarViews(manifest.id, pluginViews);
       for (const macro of manifest.macros ?? []) registerPluginMacro(macro);
       say("active");
     } catch (error) {

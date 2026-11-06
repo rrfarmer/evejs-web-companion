@@ -72,6 +72,7 @@ function createPluginHost(options = {}) {
   /** id -> the backend's state */
   const backends = new Map();
   let nextMessageID = 1;
+  let knownManifests = [];
   let stopping = false;
 
   async function loadManifests() {
@@ -340,6 +341,7 @@ function createPluginHost(options = {}) {
     let manifests;
     try {
       manifests = await loadManifests();
+      knownManifests = manifests;
     } catch (error) {
       log(`The build's plugin list could not be read: ${error && error.message}`);
       return;
@@ -490,6 +492,15 @@ function createPluginHost(options = {}) {
   }
 
   /** Tell a plugin to stop flying a run. A process that is not up has already stopped. */
+  /** The plugin and run that fly a saved bot of a kind core used to fly, or null. */
+  function formerBotKind(kind) {
+    for (const manifest of knownManifests) {
+      const run = manifest.formerBotKinds?.[kind];
+      if (typeof run === "string") return { pluginID: manifest.id, run };
+    }
+    return null;
+  }
+
   async function stopRun(id, botID) {
     if (backends.get(id)?.state !== "running") return;
     await ask(id, { type: "runStop", botID }, RUN_STOP_TIMEOUT_MS);
@@ -528,6 +539,7 @@ function createPluginHost(options = {}) {
     checkRun,
     startRun,
     stopRun,
+    formerBotKind,
     statuses: () => [...backends.values()].map(status),
     webStatuses: () => webStatuses,
     has: (id) => backends.has(id),

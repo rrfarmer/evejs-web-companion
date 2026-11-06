@@ -6,8 +6,13 @@
   import type { PluginLauncher } from "./pluginPins.ts";
   import type { TabID } from "./tabs.ts";
   import { portal } from "./portal.ts";
+  import { pluginIDOf, pluginPilotCounts } from "./pluginPilotCounts.ts";
 
   let { launcher, openIds, onOpen }: { launcher: PluginLauncher; openIds: ReadonlySet<TabID>; onOpen: (id: TabID) => void } = $props();
+
+  // How many pilots this plugin is flying in this tab. Absent at nought, as the Companions button's is.
+  const counts = pluginPilotCounts;
+  const count = $derived($counts.get(pluginIDOf(String(launcher.windows[0]?.id ?? "")) ?? "") ?? 0);
 
   let shown = $state(false);
   let place = $state({ top: 0, left: 0 });
@@ -46,7 +51,7 @@
   aria-pressed={launcher.kind === "window" ? launcher.open : undefined}
   aria-haspopup={launcher.kind === "plugin" ? "true" : undefined}
   aria-expanded={launcher.kind === "plugin" ? shown : undefined}
-  aria-label={launcher.title}
+  aria-label={count > 0 ? `${launcher.title} - ${count} flying` : launcher.title}
   title={launcher.hint}
   bind:this={button}
   onclick={press}
@@ -55,6 +60,9 @@
     {#each launcher.glyph ?? neocomGlyph(launcher.glyphOf) as d (d)}<path {d} />{/each}
   </svg>
   <span class="global-launch-text">{launcher.label}</span>
+  {#if count > 0}
+    <span class="global-launch-count" aria-hidden="true">{count}</span>
+  {/if}
 </button>
 
 {#if shown}

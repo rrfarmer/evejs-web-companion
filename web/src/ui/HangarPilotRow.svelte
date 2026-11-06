@@ -305,6 +305,11 @@
                       />
                       <span>Flies as companion</span>
                     </label>
+                    {#each pluginMemberSettings() as setting (setting.pluginID)}
+                      <ErrorBoundary name={`${setting.pluginID} on ${squad.name}`}>
+                        <setting.view {squad} characterID={pilot.characterID} />
+                      </ErrorBoundary>
+                    {/each}
                   </div>
                 {/if}
               {/each}
