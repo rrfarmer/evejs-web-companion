@@ -267,6 +267,11 @@ In the page, `checkPluginRun` asks the plugin what a setup means and what it ris
 | Core | Claims the pilot, so a tab cannot take it. Selects it, holds its token and logs it off. Keeps the run on the roster and brings it back after a restart of the BFF. Ends it at its run limit, and on Stop brings the drones home. |
 | The plugin | Says what a setup means and what it risks. Flies the pilot. Says what it is doing (`report`). |
 
+**A pilot a tab holds is handed over, not signed in again.** Its session moves to the run and
+nothing tells the game server, which would otherwise take the pilot out of its fleet. If the
+start is refused, the session goes back and the tab carries on. A pilot no tab holds is signed
+in for the run, so it starts in no fleet.
+
 **The token and the claim stay with core.** A run's `fetch` sends each request over
 the plugin's channel, and core adds them on its side. A run may ask only the BFF's own
 API, only core selects a pilot or ends its session, and a run cannot start or stop a bot.
