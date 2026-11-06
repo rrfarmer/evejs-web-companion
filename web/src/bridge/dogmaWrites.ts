@@ -449,25 +449,45 @@ const numberOr = (value: JsonValue | undefined): number => (typeof value === "nu
 const flagOf = (value: JsonValue | undefined): boolean | null => (typeof value === "boolean" ? value : null);
 const noticesOf = (data: Record<string, JsonValue>): readonly JsonValue[] => (Array.isArray(data.notifications) ? data.notifications : []);
 
+/** How long an accepted Activate gets to show as running, and how often it is looked for. */
+const ACTIVATION_SHOWS_WITHIN_MS = 2_000;
+const ACTIVATION_LOOK_MS = 250;
+
 /**
  * Switches a module on: its default effect named, at the target where one is said, until it is stopped (-1) or
  * for one cycle (0). Fails as the call fails, and before it for a ship not in space.
+ *
+ * The module's state is read until it shows as running, for a moment: the server answers the call before the ship's
+ * state says so. Read once, a module that had started was reported as refused (seen live 2026-11-06: four salvagers
+ * reported refused, and all four running in the server's own samples).
  */
 export async function activateModule(
   act: Ask,
   deps: ModuleDeps,
   itemID: number,
   opts: { effect?: string; typeID?: number; targetID?: number | null; repeat?: -1 | 0 } = {},
+  clock: { now?: () => number; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<ModuleActionResult> {
+  const now = clock.now ?? Date.now;
+  const sleep = clock.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const shipID = await shipInSpace(deps);
   const effect = await effectFor(deps, opts.effect, opts.typeID);
   const targetID = opts.targetID && opts.targetID > 0 ? opts.targetID : null;
   // -1 is "as the effect allows": the game port sends the client's 1000 for an effect that can repeat and 0 for one
   // that cannot (shipmodulebutton.py 112 to 122, GetRepeatCount, and 1338), which it knows as godma knows the module.
   await act("dogmaIM", "Activate", [itemID, effect, targetID, opts.repeat === 0 ? 0 : -1]);
-  const after = await deps.state(itemID, shipID, false);
+  const startedAt = now();
+  let after = await deps.state(itemID, shipID, false);
+  // Each read hands over what the server has said since the last, so none of it is dropped.
+  const notifications = [...noticesOf(after)];
+  while (flagOf(after.stopped) === true && now() - startedAt < ACTIVATION_SHOWS_WITHIN_MS) {
+    await sleep(ACTIVATION_LOOK_MS);
+    deps.current?.();
+    after = await deps.state(itemID, shipID, false);
+    notifications.push(...noticesOf(after));
+  }
   const stopped = flagOf(after.stopped);
-  return { itemID: numberOr(after.itemID), active: stopped === null ? null : !stopped, stopped: null, activeModuleIDs: after.activeModuleIDs ?? null, notifications: noticesOf(after) };
+  return { itemID: numberOr(after.itemID), active: stopped === null ? null : !stopped, stopped: null, activeModuleIDs: after.activeModuleIDs ?? null, notifications };
 }
 
 /**

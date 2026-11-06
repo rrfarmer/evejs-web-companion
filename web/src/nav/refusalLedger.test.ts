@@ -11,6 +11,8 @@ import {
   classifyRefusal,
   NO_ROOM_CODE,
   pilotCannotPay,
+  REFUSAL_LINE_SHOWN_MS,
+  refusalLines,
   shipHasNoRoom,
   createRefusalLedger,
   isUnreachable,
@@ -20,6 +22,7 @@ import {
   settleTicksForRefusals,
   shouldSetAside,
 } from "./refusalLedger.ts";
+import { SCRIPT_CADENCE_MS } from "./scriptRunner.ts";
 
 const NO_ROOM = "CALL_REFUSED: NotEnoughCargoSpace";
 
@@ -258,4 +261,25 @@ test("an UNREACHABLE target is eventually set aside, rather than approached for 
   assert.equal(shouldSetAside(ledger.records(), "s1", "lootContainer", 1, 5), false, "still closing in");
   ledger.note(key, "CALL_REFUSED: FakeItemNotFound", 20, true);
   assert.equal(shouldSetAside(ledger.records(), "s1", "lootContainer", 1, 5), true, "and eventually gives up");
+});
+
+test("the readout's lines: one per sentence, most refused first, gone once old", () => {
+  const ledger = createRefusalLedger();
+  ledger.note("s1:lock:1", "CALL_REFUSED: TargetingSystemsAlreadyFullyUtilized", 1000, true);
+  ledger.note("s1:lock:2", "CALL_REFUSED: TargetingSystemsAlreadyFullyUtilized", 1000, true);
+  ledger.note("s1:loot:3", "CALL_REFUSED: FakeItemNotFound", 5000, false);
+  const [locks, gone] = refusalLines(ledger.records(), 5000);
+  assert.equal(locks?.count, 2);
+  assert.match(locks?.words ?? "", /locking as many targets/);
+  assert.equal(gone?.count, 1);
+
+  const later = 1000 + REFUSAL_LINE_SHOWN_MS + 1;
+  assert.deepEqual(refusalLines(ledger.records(), later).map((line) => line.count), [1], "only the newer sentence is left");
+  assert.equal(refusalLines(ledger.records(), null).length, 2, "a run no longer asking keeps its lines");
+  assert.equal(ledger.records().length, 3, "age hides a line, it never drops a record the bot still reads");
+});
+
+test("a line outlasts the longest backoff, so a live streak never blinks off", () => {
+  const longestBackoffMs = settleTicksForRefusals(1000) * SCRIPT_CADENCE_MS;
+  assert.ok(REFUSAL_LINE_SHOWN_MS > longestBackoffMs);
 });

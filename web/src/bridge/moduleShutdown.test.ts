@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { observeDeferredShutdown } from "./moduleShutdown.ts";
 import { requireModuleOutcome } from "../nav/moduleOutcome.ts";
-import { deactivateModule } from "./dogmaWrites.ts";
+import { activateModule, deactivateModule } from "./dogmaWrites.ts";
 import type { JsonValue } from "./wire.ts";
 
 const initial = { itemID: 7, shipID: 9, stopped: false, remainingMs: 75680 };
@@ -168,4 +168,46 @@ test("a first read as slow as the whole wait still gets a last read", async () =
     7, { typeID: 24348 }, { now: () => now, sleep: async (ms) => { now += ms; } });
   requireModuleOutcome(result, 7, "deactivate");
   assert.equal(reads, 2);
+});
+
+const fakeModule = (states: readonly (boolean | null)[], seen = { reads: 0, slept: 0 }) => ({
+  counts: seen,
+  deps: {
+    flightNow: async () => ({ inSpace: true, shipID: 9 }) as never,
+    effects: {} as never,
+    state: async (): Promise<Record<string, JsonValue>> => {
+      const stopped = states[Math.min(seen.reads, states.length - 1)] ?? null;
+      seen.reads++;
+      return { itemID: 7, stopped, notifications: [seen.reads] };
+    },
+  },
+});
+const clockOf = (counts: { slept: number }) => {
+  let now = 0;
+  return { now: () => now, sleep: async (ms: number) => { now += ms; counts.slept += ms; } };
+};
+const accepted = async () => null as never;
+test("ON: a module that shows as running only after the call's answer is active, and nothing heard meanwhile is lost", async () => {
+  const { deps, counts } = fakeModule([true, true, false]);
+  const result = await activateModule(accepted, deps, 7, { effect: "salvaging" }, clockOf(counts));
+  assert.equal(result.active, true);
+  assert.deepEqual(result.notifications, [1, 2, 3]);
+  requireModuleOutcome(result as never, 7, "activate");
+});
+test("ON: a module running at the first read is not waited for", async () => {
+  const { deps, counts } = fakeModule([false]);
+  assert.equal((await activateModule(accepted, deps, 7, { effect: "salvaging" }, clockOf(counts))).active, true);
+  assert.equal(counts.slept, 0);
+});
+test("ON: a module that never shows as running is still refused, after the short wait and no longer", async () => {
+  const { deps, counts } = fakeModule([true]);
+  const result = await activateModule(accepted, deps, 7, { effect: "salvaging" }, clockOf(counts));
+  assert.equal(result.active, false);
+  assert.equal(counts.slept, 2000);
+  assert.throws(() => requireModuleOutcome(result as never, 7, "activate"), { code: "CALL_REFUSED" });
+});
+test("ON: an unreadable state is not waited on: it is for the caller to call uncertain", async () => {
+  const { deps, counts } = fakeModule([null]);
+  assert.equal((await activateModule(accepted, deps, 7, { effect: "salvaging" }, clockOf(counts))).active, null);
+  assert.equal(counts.slept, 0);
 });
