@@ -234,3 +234,8 @@ test("a tractor whose pull has stalled is switched off, to be taken again", () =
   const plan = planSalvageTick(input({ wrecks: w, tractors: [mod(1, true, 100)], salvagers: [], stalledTractorIDs: [1] }));
   assert.deepEqual(act(plan), { kind: "deactivate", moduleID: 1 });
 });
+
+test("a lock asked for on something gone from the grid holds no slot: the next wreck is locked at once", () => {
+  const plan = planSalvageTick(input({ wrecks: [wreck(100, 3000)], tractors: [], maxLockedTargets: 1, pendingLockIDs: [999] }));
+  assert.deepEqual("action" in plan ? plan.action : null, { kind: "lock", targetID: 100 });
+});

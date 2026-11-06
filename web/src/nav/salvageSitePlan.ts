@@ -301,7 +301,9 @@ export function planSalvageTick(input: SalvagePlanInput): SalvagePlan {
   const anyActive = input.tractors.some((m) => m.active) || input.salvagers.some((m) => m.active);
 
   const locked = new Set(input.lockedTargetIDs);
-  const pending = new Set((input.pendingLockIDs ?? []).filter((id) => !locked.has(id)));
+  // A lock asked for on something since gone from the grid has ended: it holds no slot.
+  const onGrid = new Set([...input.wrecks, ...input.containers].map((thing) => thing.itemID));
+  const pending = new Set((input.pendingLockIDs ?? []).filter((id) => !locked.has(id) && onGrid.has(id)));
   const order = (a: Item, b: Item): number => {
     const la = locked.has(a.id) ? 0 : 1;
     const lb = locked.has(b.id) ? 0 : 1;

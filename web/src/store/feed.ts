@@ -791,6 +791,8 @@ export type FeedEvent =
   // about server state — the entry disappears as soon as the target shows up in
   // targeting/targets, or when the lock is abandoned.
   | { readonly type: "targeting/acquiring"; readonly targetID: number }
+  // A lock still being made has ended without being made. Locks already made are untouched.
+  | { readonly type: "targeting/lock-failed"; readonly targetID: number }
   // The last targeting/activation action issued, for the status readout. A
   // successful action clears any stale refusal and silent-decline note.
   | { readonly type: "targeting/action"; readonly action: string }

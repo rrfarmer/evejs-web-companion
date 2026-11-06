@@ -778,7 +778,7 @@ import {
   scrammedByWarpScrambler,
   tacklersHolding,
 } from "../bridge/jamNotifications.ts";
-import { decodeTargetNotification, decodeTargeterNotification } from "../bridge/targetNotifications.ts";
+import { decodeLockFailure, decodeTargetNotification, decodeTargeterNotification } from "../bridge/targetNotifications.ts";
 import {
   decodeChargeLoadNotification,
   decodeChargeQuantityChanges,
@@ -5785,6 +5785,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // whose lock changed, and the fold is what makes a completed lock usable in
     // the same instant instead of on the next tick's `GetTargets`. The poll is
     // untouched and still overwrites this; see `targetNotifications.ts`.
+    const failedLock = decodeLockFailure(method, args);
+    if (failedLock !== null) {
+      store.apply({ type: "targeting/lock-failed", targetID: failedLock });
+      return;
+    }
     const targetEvent = decodeTargetNotification(method, args);
     if (targetEvent !== null) {
       store.apply({ type: "targeting/lock-event", event: targetEvent });
@@ -19689,6 +19694,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       snapshot,
       gateLinks: gateLinksForSnapshot(snapshot),
     });
+    // A thing that has left the grid is no longer being locked (targetMgr.DoBallRemove, 565), whether or not this page
+    // heard the server's FailLockTarget: a push can be missed while the stream reconnects.
+    for (const targetID of store.targeting.get().acquiringTargetIDs) {
+      if (!snapshot.entities.some((entity) => entity.itemID === targetID)) {
+        store.apply({ type: "targeting/lock-failed", targetID });
+      }
+    }
     // Keep the flight readout honest too: a snapshot that says the ship is no
     // longer in space means the poll is about to stop, and the panel should not
     // keep showing the last grid it saw.

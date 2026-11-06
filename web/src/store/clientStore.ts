@@ -2279,6 +2279,13 @@ export function createClientStore(): ClientStore {
         });
         break;
       }
+      case "targeting/lock-failed": {
+        const prev = targeting.get();
+        if (prev.acquiringTargetIDs.includes(event.targetID)) {
+          targeting.set({ ...prev, acquiringTargetIDs: prev.acquiringTargetIDs.filter((id) => id !== event.targetID) });
+        }
+        break;
+      }
       case "targeting/action":
         // A successful action clears BOTH the stale refusal and the stale
         // silent-decline note — they describe the previous action, not this one.

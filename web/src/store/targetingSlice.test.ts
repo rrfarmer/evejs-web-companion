@@ -226,3 +226,15 @@ test("the next poll overrides whatever a push folded", () => {
   store.apply({ type: "targeting/targets", targetIDs: [OTHER_ID] });
   assert.deepEqual(store.targeting.get().lockedTargetIDs, [OTHER_ID]);
 });
+
+// The server's FailLockTarget: the only word a page gets of a lock that ended without being made.
+test("a failed lock ends its note alone, and leaves locks already made", () => {
+  const store = createClientStore();
+  store.apply({ type: "targeting/targets", targetIDs: [ROCK_ID] });
+  store.apply({ type: "targeting/acquiring", targetID: OTHER_ID });
+  store.apply({ type: "targeting/lock-failed", targetID: OTHER_ID });
+  store.apply({ type: "targeting/lock-failed", targetID: ROCK_ID });
+  const state = store.targeting.get();
+  assert.deepEqual(state.acquiringTargetIDs, []);
+  assert.deepEqual(state.lockedTargetIDs, [ROCK_ID]);
+});

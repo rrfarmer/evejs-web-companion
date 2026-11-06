@@ -121,6 +121,15 @@ export function decodeTargetNotification(
   };
 }
 
+/**
+ * The thing a lock was being made on, from the target service's `FailLockTarget(id)`, or null for anything else. The
+ * server sends it, and no `OnTarget`, when a lock still being made ends: its target has left the grid, gone out of
+ * range, or the ship has no slot left for it (targetMgr.FailLockTarget, 1287). It says nothing of locks already made.
+ */
+export function decodeLockFailure(method: string | null, args: readonly unknown[]): number | null {
+  return method === "FailLockTarget" ? positiveSafeID(args[0]) : null;
+}
+
 /** One `OnTarget` push about a ship that has this one locked: it has (`otheradd`), or no longer has (`otherlost`). */
 export interface TargeterEvent {
   readonly locking: boolean;

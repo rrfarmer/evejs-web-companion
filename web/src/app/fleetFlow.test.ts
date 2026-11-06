@@ -1048,3 +1048,12 @@ test("the inviter is told of a pilot whose name cannot be had as the pilot it in
 // does: fleetSvc.OnFleetInvite, 1176 to 1201, asks its pilot (AskJoinFleet) unless the invitation's dict says autoAccept,
 // whoever the inviter is. Its tests went with it; the invitation kept for its pilot is the test "an invitation that
 // reaches a pilot in no fleet, or one whose fleet the page has not read, is kept for the pilot".)
+
+// The server ends a lock still being made with this alone, as the target service's own notification, and no OnTarget.
+test("a pushed FailLockTarget ends the page's Locking... note", async () => {
+  const { store, source } = await onlineFleetFlow();
+  store.apply({ type: "targeting/acquiring", targetID: 9001 });
+  const frame = notificationFrame("FailLockTarget", 1, [9001]);
+  source.emit({ ...frame, event: { kind: "notification", notification: { kind: "service", service: "target", method: "FailLockTarget", args: [9001], kwargs: null } } });
+  await waitFor(() => store.get().targeting.acquiringTargetIDs.length === 0, "the note was never ended");
+});
