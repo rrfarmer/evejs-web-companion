@@ -778,7 +778,7 @@ import {
   scrammedByWarpScrambler,
   tacklersHolding,
 } from "../bridge/jamNotifications.ts";
-import { decodeTargetNotification, decodeTargeterNotification } from "../bridge/targetNotifications.ts";
+import { decodeLockFailure, decodeTargetNotification, decodeTargeterNotification } from "../bridge/targetNotifications.ts";
 import {
   decodeChargeLoadNotification,
   decodeChargeQuantityChanges,
@@ -5800,6 +5800,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // whose lock changed, and the fold is what makes a completed lock usable in
     // the same instant instead of on the next tick's `GetTargets`. The poll is
     // untouched and still overwrites this; see `targetNotifications.ts`.
+    const failedLock = decodeLockFailure(method, args);
+    if (failedLock !== null) {
+      store.apply({ type: "targeting/lock-failed", targetID: failedLock });
+      return;
+    }
     const targetEvent = decodeTargetNotification(method, args);
     if (targetEvent !== null) {
       store.apply({ type: "targeting/lock-event", event: targetEvent });
@@ -19683,6 +19688,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // overview, and the slice is cleared so the panel shows the docked message
   // instead of a stale grid.
   async function loadSpaceSnapshot(): Promise<void> {
+    const acquiringBeforeRead = store.targeting.get().acquiringTargetIDs;
     let result;
     try {
       result = await api.getSpaceSnapshot({ ...callOptions, priority: "poll" });
@@ -19704,6 +19710,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       snapshot,
       gateLinks: gateLinksForSnapshot(snapshot),
     });
+    // A thing that has left the grid is no longer being locked (targetMgr.DoBallRemove, 565), whether or not this page
+    // heard the server's FailLockTarget: a push can be missed while the stream reconnects.
+    // Only a lock already being made when this read was asked for can be judged by it (a newer one may be on a thing
+    // the read predates), and a blind scene is unknown, not empty (isSceneBlind).
+    if (!isSceneBlind(snapshot.inSpace, snapshot)) {
+      const onGrid = new Set(snapshot.entities.map((entity) => entity.itemID));
+      const stillAcquiring = store.targeting.get().acquiringTargetIDs;
+      for (const targetID of acquiringBeforeRead) {
+        if (stillAcquiring.includes(targetID) && !onGrid.has(targetID)) {
+          store.apply({ type: "targeting/lock-failed", targetID });
+        }
+      }
+    }
     // Keep the flight readout honest too: a snapshot that says the ship is no
     // longer in space means the poll is about to stop, and the panel should not
     // keep showing the last grid it saw.

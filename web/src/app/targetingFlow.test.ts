@@ -495,3 +495,21 @@ test("a later success clears both the stale refusal AND the stale silent decline
   assert.equal(state.actionError, null, "the refusal described the PREVIOUS action");
   assert.equal(state.silentDecline, null);
 });
+
+test("a thing that has left the grid is no longer being locked", async () => {
+  const store = createClientStore();
+  const { fetch } = makeFakeFetch(() => ({ status: 200, body: snapshotBody(null) }));
+  const flow = createAppFlow(store, { fetch });
+  store.apply({ type: "targeting/acquiring", targetID: ROCK_ID });
+  await flow.loadSpaceSnapshot();
+  assert.deepEqual(store.targeting.get().acquiringTargetIDs, []);
+});
+
+test("a blind scene (in space, no ship) does not end a lock note: it is unknown, not empty", async () => {
+  const store = createClientStore();
+  const { fetch } = makeFakeFetch(() => ({ status: 200, body: { ok: true, space: { inSpace: true, entities: [], ship: null }, notifications: [] } }));
+  const flow = createAppFlow(store, { fetch });
+  store.apply({ type: "targeting/acquiring", targetID: ROCK_ID });
+  await flow.loadSpaceSnapshot();
+  assert.deepEqual(store.targeting.get().acquiringTargetIDs, [ROCK_ID]);
+});

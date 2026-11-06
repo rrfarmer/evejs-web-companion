@@ -5,6 +5,7 @@ import {
   applyTargetEvent,
   decodeTargetNotification,
   type TargetEvent,
+  decodeLockFailure,
 } from "./targetNotifications.ts";
 
 // Synthetic ids. `90000001` is the id the upstream spec publishes as its own
@@ -112,4 +113,11 @@ test("this ship's own id is not special to the fold — it is never a target of 
   // Nothing here filters self-locks, because the server never sends one: a
   // lock is always source-to-target and the source is this ship.
   assert.deepEqual(applyTargetEvent([], locked(MY_SHIP)), [MY_SHIP]);
+});
+
+test("FailLockTarget names the thing whose lock ended, and nothing else is read as one", () => {
+  assert.equal(decodeLockFailure("FailLockTarget", [50001248]), 50001248);
+  assert.equal(decodeLockFailure("FailLockTarget", []), null);
+  assert.equal(decodeLockFailure("FailLockTarget", ["not an id"]), null);
+  assert.equal(decodeLockFailure("OnTarget", [50001248]), null);
 });
