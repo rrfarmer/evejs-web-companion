@@ -385,6 +385,17 @@ const NEEDS_MODULE_READ =
 const NO_CAP_SOLVER = "working out how long a capacitor lasts is not supported yet";
 
 /**
+ * How many targets this pilot can hold in this ship: the lower of the hull's limit and the pilot's own, from their
+ * targeting skills (targetMgr.py 1181; the server refuses a lock past the same figure). The fitting window goes on
+ * showing the hull's alone, as the client's does (ghostControllerMixin.GetMaxTargets). A pilot's limit not read, or not
+ * positive, says nothing and the hull's stands. Null when the hull's was not read either.
+ */
+export function lockLimitOf(hull: Stat, pilot: number | null): number | null {
+  if (!hull.known) return null;
+  return pilot !== null && pilot > 0 ? Math.min(hull.value, Math.trunc(pilot)) : hull.value;
+}
+
+/**
  * Derive everything the fitting window shows from the ship's attribute map. The drone control range is the pilot's
  * (ghostControllerMixin.GetDroneControlRange: the character's droneControlDistance), read from `pilotAttributes`
  * where they are given, else from the ship's map.

@@ -33,7 +33,7 @@ import { readRecoveryDrones, recoverLostDroneFlight, type DroneRecoveryState } f
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { buildSlots, decodeChargeFits, decodeResources, decodeShipAttributes, planFittingApply, resourcesOf, slotFlagOf } from "../bridge/fitting.ts";
 import { decodeItemAttributeChanges, locationAttributeChanges } from "../bridge/shipAttributeNotifications.ts";
-import { deriveShipStats, known, unavailable, type ShipStats } from "../bridge/shipStats.ts";
+import { deriveShipStats, known, lockLimitOf, unavailable, type ShipStats } from "../bridge/shipStats.ts";
 import { capacitorSimulator, capSimulatorValues, isOnlineModule } from "../bridge/dogma/capacitor.ts";
 import { offense } from "../bridge/dogma/offense.ts";
 import { defense } from "../bridge/dogma/defense.ts";
@@ -1587,6 +1587,8 @@ export interface PilotFlying {
   resolveRemoteRepModuleIDs(): RemoteRepModuleIDs;
   resolveSalvageModuleIDs(): readonly number[];
   resolveDroneControlRange(fit: ReturnType<ClientStore["fitting"]["get"]>): Promise<number | null>;
+  /** The targets this pilot can hold in this ship: the lower of the hull's limit and the pilot's. Null when not read. */
+  lockLimit(fit: ReturnType<ClientStore["fitting"]["get"]>): number | null;
 
   launchedThenRead(stacks: readonly { readonly itemID: number; readonly quantity: number }[]): Promise<{
     readonly inSpace: JsonValue;
@@ -4845,6 +4847,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const pilot = dogmaNumber(allInfo?.shipModifiedCharAttributes ?? null, ATTRIBUTE_MAX_ACTIVE_DRONES)
       ?? dogmaNumber(allInfo?.character ?? null, ATTRIBUTE_MAX_ACTIVE_DRONES);
     return pilot === null ? limits : { ...limits, maxActiveDrones: Math.max(0, Math.trunc(pilot)) };
+  }
+  /** dogma/const.py attributeMaxLockedTargets. */
+  const ATTRIBUTE_MAX_LOCKED_TARGETS = 192;
+  /**
+   * The targets this pilot can hold in this ship, with the pilot's part read as the client reads it:
+   * `godma.GetItem(session.charid).maxLockedTargets` (targetMgr.py 1181). Off the hull alone a pilot with few targeting
+   * skills asks for locks the server refuses (seen live 2026-11-06: a Noctis's 10 for a pilot held to 5).
+   */
+  function lockLimit(fit: ReturnType<typeof store.fitting.get>): number | null {
+    const allInfo = store.dogma.get().allInfo;
+    const pilot = dogmaNumber(allInfo?.shipModifiedCharAttributes ?? null, ATTRIBUTE_MAX_LOCKED_TARGETS)
+      ?? dogmaNumber(allInfo?.character ?? null, ATTRIBUTE_MAX_LOCKED_TARGETS);
+    return lockLimitOf(fit.stats.targeting.maxLockedTargets, pilot);
   }
   /** dogma/const.py attributeDamage and attributeShipBrokenModuleRepairCostMultiplier; inventorycommon typeNaniteRepairPaste. */
   const ATTRIBUTE_DAMAGE = 3;
@@ -25107,9 +25122,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // 0 and never a plausible guess. The pre-lock rung this feeds does nothing
       // at all while this is null, which is exactly right for a count nobody
       // read — see the field's own comment for what a guess costs.
-      maxLockedTargets: fit.stats.targeting.maxLockedTargets.known
-        ? fit.stats.targeting.maxLockedTargets.value
-        : null,
+      maxLockedTargets: lockLimit(fit),
       unloadedWeaponIDs: resolveUnloadedWeaponIDs(fit, defense.weapons),
     };
   }
@@ -28029,6 +28042,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       resolveRemoteRepModuleIDs,
       resolveSalvageModuleIDs,
       resolveDroneControlRange,
+      lockLimit,
       launchedThenRead,
       engageDronesConfirmed,
       withPilotDroneCap,

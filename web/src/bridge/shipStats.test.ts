@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import {
   UNIFORM_DAMAGE_PROFILE,
   deriveShipStats,
+  lockLimitOf,
   type Stat,
 } from "./shipStats.ts";
 
@@ -455,4 +456,13 @@ test("a partial read yields partial answers, never a wrong total", () => {
     false,
     "a total that omits a layer would understate the ship and must not be shown",
   );
+});
+
+test("the lock limit is the lower of the hull's and the pilot's", () => {
+  const hull = deriveShipStats(attributes({ 192: 10 })).targeting.maxLockedTargets;
+  assert.equal(lockLimitOf(hull, 5), 5, "a pilot short of the hull's limit is what the server holds them to");
+  assert.equal(lockLimitOf(deriveShipStats(attributes({ 192: 3 })).targeting.maxLockedTargets, 12), 3, "and a small hull the other way");
+  assert.equal(lockLimitOf(hull, null), 10, "a pilot not read says nothing");
+  assert.equal(lockLimitOf(hull, 0), 10);
+  assert.equal(lockLimitOf(deriveShipStats(attributes({})).targeting.maxLockedTargets, 5), null, "a hull not read is not a guess");
 });

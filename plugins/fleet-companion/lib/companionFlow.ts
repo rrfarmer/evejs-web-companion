@@ -1642,9 +1642,7 @@ export function createCompanionFlow(store: ClientStore, flow: AppFlow) {
       const fit = store.fitting.get();
       // Read before the slots gate: the stats come off the hull, not the slots.
       companionTargeting = {
-        maxLockedTargets: fit.stats.targeting.maxLockedTargets.known
-          ? fit.stats.targeting.maxLockedTargets.value
-          : null,
+        maxLockedTargets: flow.flying.lockLimit(fit),
         maxTargetRangeM: fit.stats.targeting.maxTargetRange.known
           ? fit.stats.targeting.maxTargetRange.value
           : null,
