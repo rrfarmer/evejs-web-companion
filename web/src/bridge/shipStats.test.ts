@@ -464,5 +464,6 @@ test("the lock limit is the lower of the hull's and the pilot's", () => {
   assert.equal(lockLimitOf(deriveShipStats(attributes({ 192: 3 })).targeting.maxLockedTargets, 12), 3, "and a small hull the other way");
   assert.equal(lockLimitOf(hull, null), 10, "a pilot not read says nothing");
   assert.equal(lockLimitOf(hull, 0), 10);
+  assert.equal(lockLimitOf(hull, 0.5), 10, "a fraction under one is no limit, not a limit of zero");
   assert.equal(lockLimitOf(deriveShipStats(attributes({})).targeting.maxLockedTargets, 5), null, "a hull not read is not a guess");
 });

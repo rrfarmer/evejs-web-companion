@@ -392,7 +392,7 @@ const NO_CAP_SOLVER = "working out how long a capacitor lasts is not supported y
  */
 export function lockLimitOf(hull: Stat, pilot: number | null): number | null {
   if (!hull.known) return null;
-  return pilot !== null && pilot > 0 ? Math.min(hull.value, Math.trunc(pilot)) : hull.value;
+  return pilot !== null && Math.trunc(pilot) >= 1 ? Math.min(hull.value, Math.trunc(pilot)) : hull.value;
 }
 
 /**
