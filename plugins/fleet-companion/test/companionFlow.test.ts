@@ -406,6 +406,14 @@ test("a companion that ends by itself lets go of the ship", async () => {
   companionOf(flow).stopFleetCompanion();
 });
 
+test("a run coming back out of a fleet is not refused: it has a pilot to look after", async () => {
+  const { store, flow } = harness({ inFleet: false });
+  await companionOf(flow).startFleetCompanion(DEFAULT_FLEET_COMPANION_REQUEST, null, null, true);
+  assert.equal(companionState(store).get().status, "running");
+  assert.equal(companionState(store).get().startError, null);
+  companionOf(flow).stopFleetCompanion();
+});
+
 test("a companion in a fleet starts", async () => {
   const { store, flow } = harness({ inFleet: true });
   await companionOf(flow).startFleetCompanion(DEFAULT_FLEET_COMPANION_REQUEST);

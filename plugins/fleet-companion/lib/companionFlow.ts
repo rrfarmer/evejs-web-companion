@@ -1743,6 +1743,7 @@ export function createCompanionFlow(store: ClientStore, flow: AppFlow) {
     setup: CompanionSetup,
     resuming: CompanionAbandonmentRecord | null = null,
     orders: CompanionStandingOrders | null = null,
+    restarted = false,
   ): Promise<void> {
     flow.requireAutomationReady();
     const generation = flow.flying.sessionGeneration();
@@ -1773,7 +1774,9 @@ export function createCompanionFlow(store: ClientStore, flow: AppFlow) {
 
     const preflight = evaluateRequirements(FLEET_COMPANION_REQUIREMENTS, await fleetCompanionReads());
     if (generation !== flow.flying.sessionGeneration() || flow.flying.isSessionClosing()) return;
-    if (!preflight.canStart) {
+    // A run coming back out of a fleet is not refused: it has a pilot in space to look after, and its ladder knows what
+    // to do with nobody to fly with. Refusing would log the pilot off where it is.
+    if (!preflight.canStart && !restarted) {
       // It took the ship from whatever flew it, as the player asked, and flies nothing itself.
       letGoOfShip();
       applyCompanionEvent(store, { type: "companion/start-error", message: preflight.blockedBy });
