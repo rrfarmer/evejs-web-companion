@@ -37,11 +37,32 @@ function runningBot(refusals: readonly unknown[]) {
 const NO_ROOM = {
   key: "loot:lootContainer:80001",
   count: 7,
-  firstAt: 1,
-  lastAt: 2,
+  firstAt: Date.now(),
+  lastAt: Date.now(),
   words: "There isn't enough room in that hold.",
   kind: "refused" as const,
 };
+
+test("many targets refused in the same words are one line, in a box of its own that scrolls", async () => {
+  const store = runningBot([NO_ROOM, { ...NO_ROOM, key: "loot:lootContainer:80002", count: 2 }]);
+  const Readout = (await import("./CustomBotReadout.svelte")).default;
+  const body = render(Readout as never, { props: { store, flow: fakeFlow() } } as never).body;
+  assert.equal(body.match(/enough room in that hold/g)?.length, 1);
+  assert.match(body, /\(9 times\)/);
+  assert.match(body, /class="refusals/);
+});
+
+test("a refusal long past has gone from a running bot's readout, and one refused once says so", async () => {
+  const store = runningBot([
+    { ...NO_ROOM, lastAt: Date.now() - 10 * 60_000 },
+    { ...NO_ROOM, key: "loot:lootContainer:80002", count: 1, words: "That container is no longer there." },
+  ]);
+  const Readout = (await import("./CustomBotReadout.svelte")).default;
+  const body = render(Readout as never, { props: { store, flow: fakeFlow() } } as never).body;
+  assert.equal(/enough room in that hold/.test(body), false);
+  assert.match(body, /no longer there/);
+  assert.match(body, /\(1 time\)/);
+});
 
 test("a refused run SHOWS what is being refused, and how often", async () => {
   const store = runningBot([NO_ROOM]);

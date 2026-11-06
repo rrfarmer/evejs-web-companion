@@ -47,6 +47,7 @@ const FALLBACK_TYPES: Readonly<Record<string, RemoteDialogFallbackType>> = Objec
   CustomWarning: "warning",
   FleetWarp: "notify",
   ShipInWarp: "notify",
+  SalvagingFailure: "notify",
 });
 
 /** This client's words for the client's own dialogs this server sends. */
@@ -54,6 +55,7 @@ const OWN_WORDS: Readonly<Record<string, string>> = Object.freeze({
   MiningDronesDeactivatedAsteroidEmpty: "A mining drone stops: the resource it was harvesting is gone.",
   FleetWarp: "Following your fleet in warp.",
   ShipInWarp: "You cannot do that while warping.",
+  SalvagingFailure: "Salvaging failed: nothing was recovered this cycle.",
   SelfDestructInitiatedOther: "A ship nearby has begun to self-destruct.",
   SelfDestructImmediateOther: "A ship nearby has self-destructed.",
   SelfDestructAbortedOther2: "A ship nearby has stopped its self-destruct.",

@@ -27,6 +27,13 @@ test("the client's own dialogs go up by name with their dict; the page has words
   assert.equal(remoteDialogOf(["SomeOtherDialog", dict([])])?.fallback, "The server says something this page has no words for (SomeOtherDialog).");
 });
 
+test("a failed salvage cycle passes in the strip: it comes every cycle, so it must not stop the player with a box", () => {
+  const values = dict([["itemID", 90000001]]);
+  assert.deepEqual(remoteDialogOf(["SalvagingFailure", values]), {
+    dialog: "SalvagingFailure", values, fallback: "Salvaging failed: nothing was recovered this cycle.", fallbackType: "notify",
+  });
+});
+
 for (const [dialog, key, fallbackType] of [
   ["CustomInfo", "info", "info"], ["CustomError", "error", "error"], ["CustomWarning", "warning", "warning"],
 ] as const) {

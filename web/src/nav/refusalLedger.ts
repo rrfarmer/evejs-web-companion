@@ -240,6 +240,46 @@ export function createRefusalLedger(): RefusalLedger {
   };
 }
 
+// ── The read side: what a PLAYER is shown ───────────────────────────────────
+
+/**
+ * How long after its last refusal a line stays on a running bot's readout.
+ *
+ * Longer than the longest backoff (MAX_SETTLE_TICKS, about a minute), so
+ * something still being refused never blinks off between two attempts.
+ */
+export const REFUSAL_LINE_SHOWN_MS = 2 * 60_000;
+
+export interface RefusalLine {
+  readonly words: string;
+  /** Refusals in these words, across every target that drew them. */
+  readonly count: number;
+}
+
+/**
+ * The ledger as lines to read: one per sentence, most refused first.
+ *
+ * ⚠ A RECORD OUTLIVES ITS LINE ON PURPOSE. A target that was set aside is never
+ * asked again, so nothing ever clears its record, and the ledger has to keep it
+ * for `shouldSetAside` to go on working. So age is applied here, to what is
+ * shown, and never to the ledger itself.
+ *
+ * `now` is null when nothing is being asked any more (a paused or stopped run):
+ * the lines then stay, because they are why it stopped.
+ */
+export function refusalLines(records: readonly RefusalRecord[], now: number | null): readonly RefusalLine[] {
+  const countByWords = new Map<string, number>();
+  for (const record of records) {
+    if (now !== null && now - record.lastAt > REFUSAL_LINE_SHOWN_MS) {
+      continue;
+    }
+    countByWords.set(record.words, (countByWords.get(record.words) ?? 0) + record.count);
+  }
+  return [...countByWords]
+    .map(([words, count]) => ({ words, count }))
+    .sort((left, right) => right.count - left.count);
+}
+
 // ── The read side: what a DECIDER asks ──────────────────────────────────────
 
 /** The record for one target, or null when it is not currently failing. */
