@@ -27,6 +27,7 @@
 
 import { failureCode, type Ask } from "./ask.ts";
 import { observeDeferredShutdown } from "./moduleShutdown.ts";
+import { isTransportTransient } from "./refusals.ts";
 import type { FlightNow } from "./movementWrites.ts";
 import type { JsonValue } from "./wire.ts";
 
@@ -496,11 +497,16 @@ export async function deactivateModule(
   const effect = await effectFor(deps, opts.effect, opts.typeID);
   await act("dogmaIM", "Deactivate", [itemID, effect]);
   const startedAt = now();
-  const first = await deps.state(itemID, shipID, true);
+  // The stop was accepted: a gateway timing out on this read ends nothing, and the watch goes on with the cycle unread.
+  const first = await deps.state(itemID, shipID, true).catch((reason: unknown): Record<string, JsonValue> => {
+    if (!isTransportTransient(reason)) throw reason;
+    return { itemID, shipID, stopped: false };
+  });
   const cycleMs = typeof first.cycleMs === "number" && Number.isFinite(first.cycleMs) && first.cycleMs > 0 ? first.cycleMs : null;
   // A stop comes at the cycle's end, and a frozen server ends no cycles: the wait outlasts a freeze.
   const budgetMs = Math.min(LONGEST_STOP_WAIT_MS, (cycleMs === null ? CYCLE_IF_UNREAD_MS : Math.ceil(cycleMs)) + SERVER_FREEZE_MS);
-  const remainingMs = first.stopped === false ? Math.max(0, startedAt + budgetMs - now()) : 0;
+  // At least a moment, so that a first read as slow as the whole wait still gets a last read after it.
+  const remainingMs = first.stopped === false ? Math.max(1, startedAt + budgetMs - now()) : 0;
   const watched = await observeDeferredShutdown({ ...first, remainingMs }, itemID, {
     current: deps.current ?? (() => {}),
     read: (ship) => deps.state(itemID, ship, false),

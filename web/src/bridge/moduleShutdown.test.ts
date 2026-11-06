@@ -118,3 +118,54 @@ test("the wait for a very long cycle stays within what the watch will take on", 
   requireModuleOutcome(result, 7, "deactivate");
   assert.ok(reads > 1);
 });
+
+const gatewayTimeout = () => Object.assign(new Error("The gateway timed out."), { code: "EVE_GATEWAY_TIMEOUT" });
+
+/** A stop whose state reads answer as `answer` says, at the clock's time, counting from zero. */
+async function stopWith(answer: (now: number, read: number) => Record<string, JsonValue> | Error) {
+  let now = 0, reads = 0;
+  const result = await deactivateModule(
+    async () => null,
+    {
+      flightNow: async () => ({ inSpace: true, shipID: 9, solarSystemID: 30000142 }),
+      state: async () => { const said = answer(now, reads++); if (said instanceof Error) throw said; return said; },
+      effects: { of: async () => "tractorBeamCan" },
+    },
+    7, { typeID: 24348 }, { now: () => now, sleep: async (ms) => { now += ms; } });
+  return { result, waited: now };
+}
+const reading = (stopped: boolean): Record<string, JsonValue> => ({ itemID: 7, shipID: 9, stopped, cycleMs: 4000 });
+
+test("a gateway timing out on a read in the wait is no verdict: the module's stop is still seen after it", async () => {
+  const { result, waited } = await stopWith((now, read) => (read === 0 ? reading(false) : now < 12_000 ? gatewayTimeout() : reading(true)));
+  requireModuleOutcome(result, 7, "deactivate");
+  assert.equal(waited, 12_000);
+});
+
+test("a gateway timing out on the first read does not end the watch either, and the wait is for a cycle unread", async () => {
+  const seen = await stopWith((now) => (now < 3000 ? gatewayTimeout() : reading(true)));
+  requireModuleOutcome(seen.result, 7, "deactivate");
+  const never = await stopWith(() => gatewayTimeout());
+  assert.throws(() => requireModuleOutcome(never.result, 7, "deactivate"), { code: "MODULE_ACTION_UNCERTAIN" });
+  assert.equal(never.waited, 40_000);
+});
+
+test("a read refused for any other reason still ends the wait as it fails", async () => {
+  const lost = Object.assign(new Error("The session is gone."), { code: "SESSION_NOT_FOUND" });
+  await assert.rejects(stopWith((_now, read) => (read === 0 ? reading(false) : lost)), { code: "SESSION_NOT_FOUND" });
+  await assert.rejects(stopWith(() => lost), { code: "SESSION_NOT_FOUND" });
+});
+
+test("a first read as slow as the whole wait still gets a last read", async () => {
+  let now = 0, reads = 0;
+  const result = await deactivateModule(
+    async () => null,
+    {
+      flightNow: async () => ({ inSpace: true, shipID: 9, solarSystemID: 30000142 }),
+      state: async () => { reads++; if (reads === 1) { now += 60_000; return reading(false); } return reading(true); },
+      effects: { of: async () => "tractorBeamCan" },
+    },
+    7, { typeID: 24348 }, { now: () => now, sleep: async (ms) => { now += ms; } });
+  requireModuleOutcome(result, 7, "deactivate");
+  assert.equal(reads, 2);
+});
