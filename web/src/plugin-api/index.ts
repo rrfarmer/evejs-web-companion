@@ -15,6 +15,7 @@
 // it was built for, and the host refuses one built for another.
 
 import type { GlobalWindowView } from "../ui/pluginWindowViews.ts";
+import type { SquadControlView, SquadMemberSettingView } from "../ui/pluginHangarViews.ts";
 import type { PluginMacro } from "../bots/pluginMacros.ts";
 
 export const PLUGIN_API_VERSION = 1;
@@ -67,12 +68,22 @@ export interface PluginManifest {
    * BFF in a process of its own (src/pluginHost.js). Absent: none.
    */
   readonly backend?: string;
+  /**
+   * Kinds of saved server bot that core flew before this plugin did: the old kind ->
+   * the name of the run that flies it now. A bot still saved under the old kind comes
+   * back after a restart as that run.
+   */
+  readonly formerBotKinds?: Readonly<Record<string, string>>;
 }
 
 /** What a plugin's windows draw, keyed by window id. Kept apart from the manifest so the BFF never loads Svelte. */
 export interface PluginViews {
   readonly id: PluginID;
   readonly windows: Readonly<Record<`plugin:${string}`, GlobalWindowView>>;
+  /** A control on each squad in the Pilot Hangar, beside its launch button. */
+  readonly squadControl?: SquadControlView;
+  /** A setting under a pilot in each squad it is in, in the Pilot Hangar's squad menu. */
+  readonly squadMemberSetting?: SquadMemberSettingView;
 }
 
 /** A plugin in the build's list (plugins/index.ts): its module runs only when loaded. */
@@ -98,6 +109,14 @@ export function definePluginViews(views: PluginViews): PluginViews {
 // ─── What a plugin's additions are made of ───────────────────────────────────
 
 export type { GlobalWindowProps, GlobalWindowView } from "../ui/pluginWindowViews.ts";
+export type {
+  SquadControlProps,
+  SquadControlView,
+  SquadMemberSettingProps,
+  SquadMemberSettingView,
+} from "../ui/pluginHangarViews.ts";
+export { formerHangarSetting, pluginSetting, type PluginSettingsOptions } from "../plugins/pluginSettings.ts";
+export type { Squad } from "../app/hangarPrefs.ts";
 export type { PluginMacro } from "../bots/pluginMacros.ts";
 export type { MacroSpec, MacroArgSpec } from "../bots/macroSpecs.ts";
 export type { MacroRunPolicy, BotRiskClass } from "../bots/runPolicy.ts";
@@ -134,6 +153,7 @@ export {
   pluginPostJson,
   startPluginRun,
   startServerBot,
+  stopServerBot,
   updateBotScript,
   ROSTER_PLANETS_MAX_IDS,
 } from "../app/api.ts";
@@ -141,12 +161,16 @@ export type { ActiveServerBot, ApiOptions, ServerBot } from "../app/api.ts";
 export { readCorpStock } from "../app/corpStockRead.ts";
 export type { BotPilot, CorpItemFilter, OnlinePilot } from "../app/corpStockRead.ts";
 export type { AppFlow } from "../app/flow.ts";
-export { loadHangarPrefs } from "../app/hangarPrefs.ts";
-export { loadKnownCharacters } from "../app/knownCharacters.ts";
+export { loadHangarPrefs, onHangarPrefsSaved } from "../app/hangarPrefs.ts";
+export { loadKnownAccounts, loadKnownCharacters } from "../app/knownCharacters.ts";
 export type { KnownCharacter } from "../app/knownCharacters.ts";
 export type { Session } from "../app/sessions.ts";
+export { createPilotReach } from "../app/pilotReach.ts";
+export type { PilotReach } from "../app/pilotReach.ts";
 export { skipWhileBusy } from "../app/skipWhileBusy.ts";
 export { stopServerBotFor } from "../app/stopBotFor.ts";
+export { groupStartFinished, groupStartSummary, startForGroup } from "../bots/groupStart.ts";
+export type { GroupStartEntry, GroupStartState } from "../bots/groupStart.ts";
 export { SCRIPT_FORMAT, SCRIPT_VERSION, startingStation } from "../bots/botScript.ts";
 export type { BotScript, WorldRef } from "../bots/botScript.ts";
 export { analyzeBotRunPolicy, createBotLaunchGrant, createPluginRunGrant } from "../bots/runPolicy.ts";
@@ -176,5 +200,6 @@ export {
 } from "../bridge/stockHoldings.ts";
 export type { CorpStockRead, Holding, HoldingSource, PilotStockStack } from "../bridge/stockHoldings.ts";
 export type { JsonValue } from "../bridge/wire.ts";
+export type { WritableSignal } from "../store/signals.ts";
 export { PROGRAM_DONE_PHASE } from "../nav/scriptDecide.ts";
 export type { Colony, ColonyPin, ColonyPinKind, ColonyReport } from "../store/types.ts";

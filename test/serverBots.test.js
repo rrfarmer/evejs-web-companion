@@ -91,7 +91,7 @@ function fakeBotHost(log) {
   return {
     async start(input) {
       if (input.beforeStart) await input.beforeStart();
-      // The full input, not just the characterID — the companion tests below
+      // The full input, not just the characterID — the plugin tests below
       // need to see which branch of /api/bots/start actually built it.
       log.push(["start", input]);
       return {
@@ -347,19 +347,17 @@ test("a public bot ID cannot bypass the claimed-character select guard", async (
   assert.equal(authorized.response.status, 200);
 });
 
-// ── kind: "companion" — the SAME route, branched by the body ────────────────
-// docs/fleet-companion-handoff.md, "3. Extend botHost": no second route, so
-// these pin that /api/bots/start's companion branch reaches botHost.start
-// with the request instead of a script lookup, while the ownership check and
-// the same-session hull handover stay identical either way.
+// ── kind: "plugin" — the SAME route, branched by the body ───────────────────
+// No second route: these pin that /api/bots/start's plugin branch reaches
+// botHost.start with the plugin's run and setup instead of a script lookup,
+// while the ownership check and the same-session hull handover stay identical
+// either way.
 
-const COMPANION_REQUEST = { role: "dps", useDrones: false };
-const COMPANION_GRANT = { scriptRev: 1, riskClasses: ["fleet", "social"], maxRuntimeMinutes: 720 };
+const PLUGIN_SETUP = { role: "dps", useDrones: false };
+const PLUGIN_GRANT = { scriptRev: 1, riskClasses: ["fleet", "social"], maxRuntimeMinutes: 720 };
 
-test("kind: \"companion\" reaches botHost.start with the request, never a script lookup", async () => {
+async function startWithScriptLookups(body) {
   const log = [];
-  // A botScriptStore whose get() throws proves the companion branch never
-  // touches the script library at all.
   const scriptLookups = [];
   const app = createApp({
     eveStore: fakeStore(),
@@ -379,25 +377,39 @@ test("kind: \"companion\" reaches botHost.start with the request, never a script
   activeServers.add(server);
   await once(server, "listening");
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-
   const token = await signInAndSelect(baseUrl, 7001);
-  const { response, payload } = await request(baseUrl, "/api/bots/start", {
-    method: "POST",
-    token,
-    body: { characterID: 7001, kind: "companion", request: COMPANION_REQUEST, grant: COMPANION_GRANT },
+  const { response, payload } = await request(baseUrl, "/api/bots/start", { method: "POST", token, body });
+  return { app, log, scriptLookups, response, payload };
+}
+
+test("kind: \"plugin\" reaches botHost.start with the plugin, run and setup, never a script lookup", async () => {
+  const { app, log, scriptLookups, response, payload } = await startWithScriptLookups({
+    characterID: 7001, kind: "plugin", pluginID: "fleet-companion", run: "companion", setup: PLUGIN_SETUP, grant: PLUGIN_GRANT,
   });
   assert.equal(response.status, 200);
   assert.equal(payload.bot.characterID, 7001);
-  assert.equal(scriptLookups.length, 0, "the companion branch must never look up a saved script");
+  assert.equal(scriptLookups.length, 0, "the plugin branch must never look up a saved script");
 
   const startCall = log.find((row) => row[0] === "start");
   assert.ok(startCall, "botHost.start must have been called");
-  assert.equal(startCall[1].kind, "companion");
-  assert.deepEqual(startCall[1].request, COMPANION_REQUEST);
-  assert.deepEqual(startCall[1].grant, COMPANION_GRANT);
+  assert.equal(startCall[1].kind, "plugin");
+  assert.equal(startCall[1].pluginID, "fleet-companion");
+  assert.equal(startCall[1].pluginRun, "companion");
+  assert.deepEqual(startCall[1].request, PLUGIN_SETUP);
+  assert.deepEqual(startCall[1].grant, PLUGIN_GRANT);
   // The same handover this route already proves for a script: the caller's
   // own held hull is released before the bot starts.
   assert.equal(app.locals.bridgeSessions.size, 0);
+});
+
+test("kind: \"companion\" is no longer a kind: it is read as a script and refused for want of one", async () => {
+  const { log, scriptLookups, response, payload } = await startWithScriptLookups({
+    characterID: 7001, kind: "companion", request: PLUGIN_SETUP, grant: PLUGIN_GRANT,
+  });
+  assert.equal(response.status, 404);
+  assert.equal(payload.error, "BOTSCRIPT_NOT_FOUND");
+  assert.deepEqual(scriptLookups, [""]);
+  assert.equal(log.some((row) => row[0] === "start"), false, "nothing may start");
 });
 
 test("kind absent defaults to \"script\" — an old caller's request body still starts a script", async () => {

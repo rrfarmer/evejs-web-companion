@@ -149,10 +149,10 @@ export function fittingBody(
      * Extra fitted rows appended to the Procurer's own.
      *
      * ⚠ ADDED RATHER THAN PUT IN `PROCURER_MODULES` DELIBERATELY. That list is
-     * shared by every bot suite, and the fleet companion now DERIVES its module
-     * lists from whatever the fit holds -- so a hardener added there would
-     * silently arm the tank rung in tests that are about something else
-     * entirely. A caller that wants a module says so.
+     * shared by every bot suite, and a loop that DERIVES its module lists from
+     * whatever the fit holds would find a hardener added there and silently
+     * arm it in tests that are about something else entirely. A caller that
+     * wants a module says so.
      */
     readonly extraModules?: readonly FittedRow[];
   } = {},

@@ -6,106 +6,38 @@
 // (app/hangarPrefs.ts, docs/pilot-hangar.md), and a Bot Manager that invented
 // its own "bot groups" beside them would ask the same player to arrange the
 // same pilots twice and then keep the two arrangements in step by hand. This
-// module is a VIEW over those prefs, plus the one group that is not a squad.
-//
-// ⚠ COMPANIONS IS THAT ONE, AND IT IS SPECIAL IN EXACTLY ONE WAY: it has no bot
-// picker. Every other group launches whatever saved bot the player chooses;
-// this one always launches the fleet companion, because that is what its
-// membership MEANS -- a pilot is in it precisely because somebody ticked
-// "companion" for it in a squad, and the setup that tick wrote is what it
-// flies. Giving it a picker would offer to run a mining script on a list of
-// pilots that was assembled to answer a fleet's orders.
+// module is a VIEW over those prefs.
 //
 // Everything here is PURE over a prefs snapshot and a few readings the panel
 // already has. No storage, no fetch, no clock, no component.
 
 import type { ServerBot } from "../app/api.ts";
-import { companionSquadRoster, type HangarPrefs } from "../app/hangarPrefs.ts";
+import type { HangarPrefs } from "../app/hangarPrefs.ts";
 import { serverBotFor } from "./pilotRoster.ts";
-import type { CompanionSetup } from "../nav/fleetCompanionLoop.ts";
-
-/**
- * The built-in group's id.
- *
- * ⚠ IT MUST NOT COLLIDE WITH A SQUAD ID. `nextSquadId()` mints `squad-<uuid>`,
- * so a bare word cannot be one; the prefix is kept anyway so a stored value
- * that somehow reaches this namespace is still obviously not a squad.
- */
-export const COMPANIONS_GROUP_ID = "group-companions";
-
-/** What kind of thing a group is, which is the same as what it can launch. */
-export type GroupKind = "companions" | "squad";
 
 export interface PilotGroup {
   readonly id: string;
   readonly name: string;
   /**
    * The squad's chip colour, so a group reads as the same thing here as on the
-   * hangar. Null for Companions, which is not a squad and has no colour of the
-   * player's choosing -- the row draws its own accent rather than borrowing a
-   * palette entry that would make it look like one more squad.
+   * hangar.
    */
   readonly color: string | null;
-  readonly kind: GroupKind;
   /** characterIDs, in the order the player arranged them. */
   readonly members: readonly number[];
 }
 
-/** One pilot in the Companions group, with the setup its tick wrote. */
-export interface CompanionMember {
-  readonly characterID: number;
-  readonly setup: CompanionSetup;
-}
-
 /**
- * Every pilot set up to fly a companion, across every squad, deduplicated.
- *
- * ⚠ A PILOT IN TWO SQUADS APPEARS ONCE, FLYING THE FIRST SETUP FOUND. It is one
- * hull: it cannot fly two companions, so listing it twice would put the same
- * character in a start queue twice and the second start would refuse with
- * CHARACTER_IN_USE against the first. First-found is squad order, which is the
- * order the player made the squads in -- stable across renders, which is what
- * matters, since the two setups can only differ in limits and both were chosen
- * by the same person.
- */
-export function companionGroupRoster(prefs: HangarPrefs): readonly CompanionMember[] {
-  const seen = new Set<number>();
-  const out: CompanionMember[] = [];
-  for (const squad of prefs.squads) {
-    for (const member of companionSquadRoster(prefs, squad.id)) {
-      if (seen.has(member.characterID)) continue;
-      seen.add(member.characterID);
-      out.push(member);
-    }
-  }
-  return out;
-}
-
-/**
- * Every group the Bot Manager offers, Companions first.
- *
- * ⚠ COMPANIONS IS ALWAYS PRESENT, EVEN EMPTY, and that is deliberate. It is the
- * group a player cannot make for themselves, so a row that vanishes when it has
- * no members is a feature that disappears exactly when somebody is looking for
- * where to switch it on. Its empty state can say where the tick is; an absent
- * row cannot say anything.
+ * Every group the Bot Manager offers.
  */
 export function pilotGroups(prefs: HangarPrefs): readonly PilotGroup[] {
-  const companions: PilotGroup = {
-    id: COMPANIONS_GROUP_ID,
-    name: "Companions",
-    color: null,
-    kind: "companions",
-    members: companionGroupRoster(prefs).map((member) => member.characterID),
-  };
   const squads = prefs.squads.map<PilotGroup>((squad) => ({
     id: squad.id,
     name: squad.name,
     color: squad.color,
-    kind: "squad",
     members: prefs.members[squad.id] ?? [],
   }));
-  return [companions, ...squads];
+  return squads;
 }
 
 // --- what each member is doing right now ------------------------------------
@@ -163,10 +95,7 @@ export function groupMemberStates(
         characterID,
         name,
         where: "running-server" as const,
-        // `kind`, not `scriptName`, for a companion -- same reason
-        // `serverRunState` gives: the host's own name for the run is not what
-        // the run IS.
-        botName: serverBot.kind === "companion" ? "Fleet companion" : serverBot.scriptName,
+        botName: serverBot.scriptName,
       };
     }
     if (busyHere.has(characterID)) {
@@ -243,14 +172,6 @@ export interface GroupStopPlan {
   readonly onServer: readonly { readonly characterID: number; readonly botID: string }[];
   /** Members whose tab here is flying a bot of its own. */
   readonly here: readonly number[];
-  /**
-   * Members flying a fleet companion on the server.
-   *
-   * ⚠ NEVER STOPPED FROM A GROUP ROW. Stopping a companion is the Fleet
-   * companions window's act -- the same rule the pilot row keeps by offering no
-   * Stop on a companion's row -- so these are only counted, to say where to go.
-   */
-  readonly companions: readonly number[];
 }
 
 /**
@@ -265,21 +186,15 @@ export function planGroupStop(
   serverBots: readonly ServerBot[],
 ): GroupStopPlan {
   const onServer: { characterID: number; botID: string }[] = [];
-  const companions: number[] = [];
   for (const state of states) {
     if (state.where !== "running-server") continue;
     const bot = serverBotFor(serverBots, state.characterID);
     if (bot === null) continue;
-    if (bot.kind === "companion") {
-      companions.push(state.characterID);
-    } else {
-      onServer.push({ characterID: state.characterID, botID: bot.botID });
-    }
+    onServer.push({ characterID: state.characterID, botID: bot.botID });
   }
   return {
     onServer,
     here: states.filter((s) => s.where === "running-here").map((s) => s.characterID),
-    companions,
   };
 }
 
@@ -337,18 +252,10 @@ export function groupRunStatusWords(launch: GroupLaunchPlan, onServer: boolean):
   return "Idle";
 }
 
-/**
- * The sentence a start prints when it turns out there was nobody to start.
- *
- * ⚠ IT NAMES THE KIND, because the two empty groups mean different things and
- * only one of them is fixable in the Bot Manager. An empty squad wants pilots;
- * an empty Companions group wants a tick on the landing screen.
- */
-export function groupStartEmptyWords(kind: GroupKind, memberCount: number): string {
+/** The sentence a start prints when it turns out there was nobody to start. */
+export function groupStartEmptyWords(memberCount: number): string {
   if (memberCount === 0) {
-    return kind === "companions"
-      ? "No pilot is set up as a companion yet. Tick one in a squad on the Pilot Hangar."
-      : "This group has no pilots yet. Add some to the squad on the Pilot Hangar.";
+    return "This group has no pilots yet. Add some to the squad on the Pilot Hangar.";
   }
   return "Every pilot in this group is already flying something.";
 }

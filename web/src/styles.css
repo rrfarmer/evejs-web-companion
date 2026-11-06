@@ -3920,7 +3920,7 @@
    * styled theirs (`.stn-content`, `.spc-content`) and nothing else did, so any
    * window whose panel overflowed drew a bright native bar with its stepper
    * buttons down the middle of a near-black frame — the one piece of chrome in
-   * the app that was not the app's. It showed up first on Fleet companions
+   * the app that was not the app's. It showed up first on a plugin's window
    * because a roster plus a setup form is the tallest thing the desktop holds.
    *
    * ⚠ AND IT IS `.win-body`, NOT ONE PANEL. Every window shares this frame, so
@@ -6526,7 +6526,7 @@
    * exactly what it looked like.
    *
    * ⚠ SCOPED TO THE FLATTENED ROOT, not to every head in the window. A panel
-   * nested deeper (the Bot Builder's sections, the companion window's per-pilot
+   * nested deeper (the Bot Builder's sections, a plugin window's per-pilot
    * detail) keeps its padding, so its head still has something to cancel and
    * must keep the bleed. `section` is listed beside `.panel` because that is
    * what the flattening rule above matches — Settings' root is
@@ -8156,7 +8156,7 @@
     white-space: nowrap;
     text-align: left;
   }
-  /* The per-pilot companion setup, under the squad it belongs to. Indented to
+  /* A plugin's per-pilot setting, under the squad it belongs to. Indented to
      the swatch so it reads as belonging to that row rather than the next one.
      Only ticked squads render this, so the popover grows by the one or two
      squads a pilot is actually in -- never by all of them. */

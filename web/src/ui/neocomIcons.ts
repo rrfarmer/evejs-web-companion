@@ -63,11 +63,6 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   // launchers; this panel is the catalogue and the roster.
   botManager: ["M4 5h16v14H4z", "M8 10h8M8 14h5"],
   miningOperations: ["M4 19l5-9 4 5 3-7 4 11z", "M5 5h4M12 5h7"],
-  // Two ships in formation: a leader and a wingman holding station behind it.
-  // Not a bot head and not the library shelf — this one is about flying WITH
-  // somebody, which is the whole of what a companion does. It is drawn for the
-  // character bar's button rather than the rail, which never offers this tab.
-  companion: ["M13 3l5 10-5-2.5L8 13z", "M6 13l3 7-3-1.5L3 20z"],
   // The plugins window: a plug, two pins into a socket.
   pluginManager: ["M9 3v5M15 3v5", "M6 8h12v4a6 6 0 0 1-12 0z", "M12 18v3"],
 

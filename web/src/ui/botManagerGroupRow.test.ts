@@ -17,7 +17,6 @@ register("./svelteSsrHook.ts", import.meta.url);
 
 const { render } = await import("svelte/server");
 const { createClientStore } = await import("../store/clientStore.ts");
-const { COMPANIONS_GROUP_ID } = await import("../bots/pilotGroups.ts");
 const GroupRow = (await import("./BotManagerGroupRow.svelte")).default;
 
 // ESI's own published example CharacterID — documented, obviously synthetic.
@@ -42,11 +41,7 @@ const NAMES: Record<number, string> = {
 };
 
 function squadGroup(members: readonly number[] = [PILOT_A, PILOT_B]): unknown {
-  return { id: "squad-1", name: "Mining Op", color: "#52d9a3", kind: "squad", members };
-}
-
-function companionsGroup(members: readonly number[] = [PILOT_A]): unknown {
-  return { id: COMPANIONS_GROUP_ID, name: "Companions", color: null, kind: "companions", members };
+  return { id: "squad-1", name: "Mining Op", color: "#52d9a3", members };
 }
 
 function renderRow(props: Record<string, unknown>): string {
@@ -56,7 +51,6 @@ function renderRow(props: Record<string, unknown>): string {
       sessions: [],
       serverBots: [],
       flow: new Proxy({}, { get: () => async () => ({}) }),
-      companionSetups: new Map(),
       nameOf: (characterID: number) => NAMES[characterID] ?? null,
       runtimeMinutes: 720,
       onChanged: () => {},
@@ -94,30 +88,10 @@ test("a squad row offers the saved library", () => {
   assert.match(text, /Sample belt loop/);
 });
 
-test("THE COMPANIONS ROW HAS NO BOT PICKER — its bot is what it is", () => {
-  const text = visibleText(renderRow({ group: companionsGroup() }));
-  assert.match(text, /Companions/);
-  assert.match(text, /Always flies the fleet companion/i);
-  assert.doesNotMatch(text, /Choose a bot/);
-  assert.doesNotMatch(text, /Sample belt loop/);
-});
-
-test("the Companions row sends in-tab companions to the window that owns them", () => {
-  // An op is watched and stopped in the Fleet companions window; a second,
-  // weaker door onto it here would split one operation across two windows.
-  const text = visibleText(renderRow({ group: companionsGroup() }));
-  assert.match(text, /Companions window/);
-  assert.doesNotMatch(text, /Run here/);
-});
-
 test("an empty group says where to go and fill it, rather than showing dead controls", () => {
   const squad = visibleText(renderRow({ group: squadGroup([]) }));
   assert.match(squad, /Pilot Hangar/);
   assert.doesNotMatch(squad, /Choose a bot/);
-
-  const companions = visibleText(renderRow({ group: companionsGroup([]) }));
-  assert.match(companions, /Pilot Hangar/);
-  assert.match(companions, /companion/i);
 });
 
 test("a squad row has ONE start, and a Server box that decides where it flies", () => {
@@ -160,7 +134,6 @@ test("a member the server is already flying is counted as flying, not as free", 
       resumedAt: null,
       lastAlert: null,
       kind: "script",
-      companion: null,
     },
   ];
   const text = visibleText(renderRow({ group: squadGroup(), serverBots }));
@@ -176,15 +149,14 @@ test("a member the server is already flying is counted as flying, not as free", 
   assert.match(text, /1 flying/);
 });
 
-test("a companion flying is NOT stopped from the group row", () => {
-  // Stopping a companion is the Fleet companions window's act.
+test("a plugin's server run is stopped from the group row like any other", () => {
   const serverBots = [
     {
-      botID: "bot-c",
+      botID: "bot-p",
       characterID: PILOT_A,
       characterName: "Test Pilot One",
       scriptID: "",
-      scriptName: "companion",
+      scriptName: "Sample loop",
       scriptRev: 0,
       scriptHash: "",
       restartSafe: true,
@@ -201,13 +173,12 @@ test("a companion flying is NOT stopped from the group row", () => {
       endedAt: null,
       resumedAt: null,
       lastAlert: null,
-      kind: "companion",
-      companion: null,
+      kind: "plugin",
     },
   ];
-  const text = visibleText(renderRow({ group: companionsGroup(), serverBots }));
-  assert.doesNotMatch(text, /Stop/);
-  assert.match(text, /Companions window/);
+  const text = visibleText(renderRow({ group: squadGroup(), serverBots }));
+  assert.match(text, /Stop Mining Op/);
+  assert.match(text, /1 flying - Sample loop/);
 });
 
 test("a row with a held session still renders — the store reads are plain gets", () => {

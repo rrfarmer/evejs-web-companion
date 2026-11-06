@@ -262,36 +262,30 @@ test("R43 — a PAUSED bot still reads as holding the ship", () => {
   assert.match(text, /Paused/);
 });
 
-// --- the fleet companion is NOT here, and that is load-bearing --------------
+// --- a plugin's loop is not a card here, but it is named when it holds the ship ---
 
 test("the launcher offers the two bots and nothing that is not a bot", () => {
-  // ⚠ THE COMPANION LEFT THIS PANEL BECAUSE IT LEFT THE BOT CATALOGUE. It was
-  // built as the third instance of this pattern and inherited the furniture: a
-  // card, a checklist, an embedded setup form. It picks no work, needs no belt
-  // or agent, and is watched across every pilot at once — so it lives in the
-  // global Fleet companions window now. A card for it here would be a second
-  // door onto a window, on a page about something else.
+  // ⚠ A PLUGIN'S LOOP IS NOT IN THE BOT CATALOGUE. This page launches the two
+  // built-in bots; anything a plugin adds has its own window, and a card for it
+  // here would be a second door onto it on a page about something else.
   const text = visibleText(renderPanel(procurerStore()));
   assert.match(text, /Mining bot/);
   assert.match(text, /Mission bot/);
-  assert.doesNotMatch(text, /Fleet companion/);
-  assert.doesNotMatch(SOURCE, /import FleetCompanion from/);
 });
 
-test("⚠ but a companion HOLDING the ship is still named at the top", () => {
-  // The one thing this panel cannot stop saying about a companion. With it
-  // gone from `BOTS`, a name looked up in the catalogue would come back null
-  // and the panel would print "Nothing is running" about a hull a companion is
-  // actively flying — and the player's next act here is to start a bot on it.
+test("⚠ but a plugin's loop HOLDING the ship is still named at the top", () => {
+  // The one thing this panel cannot stop saying about a plugin's loop. With it
+  // outside `BOTS`, a name looked up in the catalogue would come back null and
+  // the panel would print "Nothing is running" about a hull a plugin is
+  // actively flying -- and the player's next act here is to start a bot on it.
   const store = procurerStore();
   store.apply({
-    type: "companion/started",
-    startedAt: Date.now(),
-    fitWarnings: [],
+    type: "ship/plugin-holder",
+    holder: { owner: "plugin:sample-loop", name: "Sample loop" },
   });
-  assert.equal(store.get().bots.runningBotID, "companion");
+  assert.equal(store.get().bots.runningBotID, "plugin:sample-loop");
   const text = visibleText(renderPanel(store));
-  assert.match(text, /fleet companion[\s\S]*is flying your ship right now/i);
+  assert.match(text, /Sample loop[\s\S]*is flying your ship right now/i);
   assert.doesNotMatch(text, /Nothing is running/);
 });
 

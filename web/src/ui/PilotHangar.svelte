@@ -29,6 +29,9 @@
   // pilots are live in the one tab at once; the switcher between them is the
   // character bar, and is not this screen's business.
   import HangarPilotRow from "./HangarPilotRow.svelte";
+  import ErrorBoundary from "./ErrorBoundary.svelte";
+  import { pluginSquadControls } from "./pluginHangarViews.ts";
+  import { untrack } from "svelte";
   import HangarLoginDialog from "./HangarLoginDialog.svelte";
   import HangarAddCharacter from "./HangarAddCharacter.svelte";
   import HangarSquadEditor from "./HangarSquadEditor.svelte";
@@ -55,9 +58,6 @@
     toggleCollapsedAccount,
     togglePinnedPilot,
     togglePinnedSquad,
-    companionSquadRoster,
-    companionConfigFor,
-    setCompanionConfig,
     toggleSquadMember,
     updateSquad,
     type HangarPrefs,
@@ -86,24 +86,10 @@
   import { refreshRoster } from "../app/rosterRefresh.ts";
   import {
     listActiveServerBots,
-    startServerCompanion,
     type ActiveServerBot,
     type ApiOptions,
   } from "../app/api.ts";
-  import {
-    squadStartSummary,
-    squadStartWarnings,
-    startCompanionSquad,
-    type SquadStartEntry,
-  } from "../bots/squadStart.ts";
-  import { createBotLaunchGrant, DEFAULT_SERVER_BOT_RUNTIME_MINUTES } from "../bots/runPolicy.ts";
-  import { DEFAULT_COMPANION_SETUP } from "../nav/fleetCompanionLoop.ts";
-  import {
-    analyzeCompanionRunPolicy,
-    COMPANION_GRANT_SCRIPT_REV,
-  } from "../bots/companionRunPolicy.ts";
   import { stopServerBotFor } from "../app/stopBotFor.ts";
-  import { startCompanionFor } from "../app/startCompanionFor.ts";
   import { skipWhileBusy } from "../app/skipWhileBusy.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import GlobalLaunchers from "./GlobalLaunchers.svelte";
@@ -119,15 +105,12 @@
     optionsFor = () => null,
     onHandedOver = async () => {},
     globalOpenIds = new Set<TabID>(),
-    companionCount = 0,
     onOpenGlobal,
   }: {
     /** The global windows open right now, so their doors light up. */
     globalOpenIds?: ReadonlySet<TabID>;
-    /** Pilots flying as companions, for the Companions door's count. */
-    companionCount?: number;
     /**
-     * Open a global window — Bot Manager, Planetary Industry, Fleet companions —
+     * Open a global window — Bot Manager, Planetary Industry, a plugin's —
      * over this screen. They are about every pilot, so they open here with
      * nobody in the client just as they do over a cockpit. Absent in tests and
      * harnesses, which then draw no doors.
@@ -153,7 +136,7 @@
      * ⚠ NULL IS A DIFFERENT ANSWER FROM AN EMPTY OPTIONS OBJECT, which is why
      * this returns one. A pilot with no session here has no hull to hand over
      * and no token to borrow, so the start signs in as that pilot's own account
-     * for the length of the call (app/startCompanionFor.ts) instead of riding
+     * for the length of the call instead of riding
      * whatever the tab happens to be.
      */
     optionsFor?: (characterID: number) => ApiOptions | null;
@@ -414,87 +397,14 @@
     return known.find((row) => row.characterID === characterID)?.accountName ?? "";
   }
 
-  // --- bringing a squad's companions online, on the SERVER -----------------
-  //
-  // ⚠ THIS IS NOT `launch`, AND THE DIFFERENCE MATTERS TO A PLAYER. `launch`
-  // signs pilots into THIS TAB: close it and they stop. This starts companions
-  // on the BOT HOST, which mints its own session per pilot and keeps flying
-  // with the tab shut -- and, unlike every other start control in the app, it
-  // does not need the pilot signed in here at all.
-  let squadStartFor = $state<string | null>(null);
-  let squadStartRows = $state<readonly SquadStartEntry[]>([]);
-  let squadStartNotes = $state<readonly string[]>([]);
-  let squadStartDone = $state<string | null>(null);
-  let squadStarting = $state(false);
-
-  async function startSquadCompanions(squadID: string): Promise<void> {
-    if (squadStarting) {
-      return;
-    }
-    const targets = companionSquadRoster(prefs, squadID);
-    squadStartFor = squadID;
-    squadStartDone = null;
-    // Said BEFORE anything flies, because after the start it is too late to be
-    // useful. Advisory throughout: none of these refuses the squad. There is
-    // no tagging count to pass in any more -- see squadStart.ts's own comment
-    // on `squadStartWarnings` for why both of its old warnings are gone.
-    squadStartNotes = squadStartWarnings(targets);
-    squadStartRows = targets.map((target) => ({
-      characterID: target.characterID,
-      state: "queued" as const,
-    }));
-    if (targets.length === 0) {
-      squadStartDone = squadStartSummary([]);
-      return;
-    }
-    squadStarting = true;
-    try {
-      const entries = await startCompanionSquad(
-        {
-          // ⚠ THE GRANT IS BUILT PER PILOT, FROM THAT PILOT'S OWN SETUP. Every
-          // companion now reads its own fit unconditionally, so "combat" is an
-          // unconditional risk class for all of them -- but a setup that pays
-          // for repairs still earns "financial" and one that does not, does
-          // not. The host re-derives this from the setup it decodes and
-          // refuses a start whose grant does not match, so one grant reused
-          // across a squad would fail for whichever pilot it did not describe.
-          startCompanion: async (characterID, setup) => {
-            const grant = createBotLaunchGrant(
-              COMPANION_GRANT_SCRIPT_REV,
-              analyzeCompanionRunPolicy(setup),
-              DEFAULT_SERVER_BOT_RUNTIME_MINUTES,
-            );
-            // ⚠ THAT PILOT'S OWN IDENTITY, NOT THE TAB'S — see `optionsFor`.
-            // Signed in here: its own session must be the caller, because the
-            // start hands that session's hull over. Not signed in here: sign in
-            // as its account for the length of the call.
-            const held = optionsFor(characterID);
-            if (held === null) {
-              await startCompanionFor(accountNameFor(characterID), characterID, setup, grant);
-              return;
-            }
-            // START FIRST, then sync: a refused start must change nothing, so
-            // the tab only lets go of a hull the host has actually taken.
-            await startServerCompanion(characterID, setup, grant, held);
-            try {
-              await onHandedOver(characterID);
-            } catch {
-              // The bot has the hull either way; the tab's next read notices.
-            }
-          },
-        },
-        targets,
-        (rows) => {
-          squadStartRows = rows;
-        },
-      );
-      squadStartDone = squadStartSummary(entries);
-      // The server roster is what the readout below reads; ask it again now
-      // rather than waiting out the poll.
-      void refreshBotFlown();
-    } finally {
-      squadStarting = false;
-    }
+  // What a plugin's squad control has to say, under the squads (pluginHangarViews.ts).
+  let pluginSquadLines = $state.raw<ReadonlyMap<string, readonly string[]>>(new Map());
+  function sayForPlugin(pluginID: string, lines: readonly string[] | null): void {
+    // Untracked: a control may say this from an effect, which must not then depend on what it writes.
+    const next = new Map(untrack(() => pluginSquadLines));
+    if (lines === null) next.delete(pluginID);
+    else next.set(pluginID, lines);
+    pluginSquadLines = next;
   }
 
   function pilotNameFor(characterID: number): string {
@@ -684,7 +594,7 @@
     <div class="hangar-brand">
       <span class="hangar-wordmark">EveJS Web</span>
       {#if onOpenGlobal}
-        <GlobalLaunchers openIds={globalOpenIds} {companionCount} onOpen={onOpenGlobal} />
+        <GlobalLaunchers openIds={globalOpenIds} onOpen={onOpenGlobal} />
       {/if}
     </div>
 
@@ -796,46 +706,32 @@
             title={`Bring all of ${squad.name} online`}
             onclick={() => launch(squadPilots(squad.id))}
           >▶ ALL</button>
-          {#if companionSquadRoster(prefs, squad.id).length > 0}
-            <!--
-              ⚠ A DIFFERENT THING FROM "ALL", AND THE TITLE SAYS SO. "ALL" signs
-              these pilots into THIS TAB and they stop when it closes; this
-              starts their companions on the server, which keeps flying with the
-              tab shut and does not need them signed in here at all.
-            -->
-            <button
-              type="button"
-              class="hangar-launch"
-              disabled={squadStarting}
-              title={`Start the fleet companions of ${squad.name} on the server - they keep flying when this tab closes`}
-              onclick={() => startSquadCompanions(squad.id)}
-            >FLY</button>
-          {/if}
+          {#each pluginSquadControls() as control (control.pluginID)}
+            <ErrorBoundary name={`${control.pluginID} on ${squad.name}`}>
+              <control.view
+                {squad}
+                memberIDs={prefs.members[squad.id] ?? []}
+                {pilotNameFor}
+                {optionsFor}
+                {accountNameFor}
+                {onHandedOver}
+                onChanged={() => void refreshBotFlown()}
+                say={(lines) => sayForPlugin(control.pluginID, lines)}
+              />
+            </ErrorBoundary>
+          {/each}
         {/if}
       </div>
     {/each}
 
-    {#if squadStartFor !== null}
+    {#each [...pluginSquadLines] as [pluginID, lines] (pluginID)}
       <div class="hangar-squadstart">
-        {#each squadStartNotes as note (note)}
-          <p class="note"><strong>Before they go:</strong> {note}</p>
+        <!-- No key: a plugin may well say the same line twice, and a repeated key throws. -->
+        {#each lines as line}
+          <p class="note">{line}</p>
         {/each}
-        {#if squadStartRows.length > 0}
-          <ul>
-            {#each squadStartRows as row (row.characterID)}
-              <li class="note">
-                {pilotNameFor(row.characterID)} -
-                {#if row.state === "queued"}waiting{:else if row.state === "starting"}starting{:else if row.state === "started"}flying{:else}{row.sentence ??
-                    "could not start"}{/if}
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        {#if squadStartDone !== null}
-          <p class="note"><strong>{squadStartDone}</strong></p>
-        {/if}
       </div>
-    {/if}
+    {/each}
 
     <!-- The picker is no longer the only way to a squad — every squad is a chip
          above. It is what the row needs once there are a dozen: search, the pin
@@ -941,25 +837,6 @@
                   (squadMenuFor = squadMenuFor === pilot.characterID ? null : pilot.characterID)}
                 onToggleSquad={(squadID) =>
                   commit(toggleSquadMember(prefs, squadID, pilot.characterID))}
-                companionEnabledFor={(squadID) =>
-                  companionConfigFor(prefs, squadID, pilot.characterID) !== null}
-                onToggleCompanion={(squadID) =>
-                  commit(
-                    setCompanionConfig(
-                      prefs,
-                      squadID,
-                      pilot.characterID,
-                      // ⚠ PRESENCE IS THE WHOLE SETTING NOW. There is no role
-                      // to pick and nothing here to tune -- see
-                      // `companionConfigFor`'s own comment in hangarPrefs.ts.
-                      // Ticking it writes the shipped defaults; unticking it
-                      // removes the entry outright, exactly what "unset" means
-                      // for a map keyed by presence.
-                      companionConfigFor(prefs, squadID, pilot.characterID) === null
-                        ? DEFAULT_COMPANION_SETUP
-                        : null,
-                    ),
-                  )}
               />
             {/each}
             {#each { length: account.emptySlots } as _, index (index)}

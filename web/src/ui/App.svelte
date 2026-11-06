@@ -27,6 +27,7 @@
   import PilotHangar from "./PilotHangar.svelte";
   import Workspace from "./Workspace.svelte";
   import ErrorBoundary from "./ErrorBoundary.svelte";
+  import { countPluginPilots, setPluginPilotCounts } from "./pluginPilotCounts.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import type { LaunchEntry, LaunchTarget } from "../app/hangarLaunch.ts";
   import { BridgeCallError } from "../bridge/callMethod.ts";
@@ -156,12 +157,11 @@
   });
 
   /**
-   * The pilots THIS TAB is flying with a bot, for the fleet companion's
-   * supervision gate (docs/fleet-companion-plan.md, decision 5). The companion
-   * subtracts these from its fleet roster; whatever is left is a human, and a
-   * companion with no human left in its fleet gets safe and drops fleet.
+   * The pilots THIS TAB is flying with a bot, for a caller that needs to tell
+   * humans from bots in a fleet. It subtracts these from the fleet roster;
+   * whatever is left is a human.
    *
-   * ⚠ ONLY THIS COMPONENT CAN ANSWER IT. A human's pilot and a companion's
+   * ⚠ ONLY THIS COMPONENT CAN ANSWER IT. A human's pilot and a bot's
    * pilot both reach the BFF as an ordinary held bridge session, so nothing on
    * the server can tell them apart — only the roster owner knows which of its
    * sessions has a loop driving it. The flow unions this with the BFF's own
@@ -182,37 +182,15 @@
     return driven;
   }
 
-  /**
-   * How many pilots are flying as companions right now — the number on the
-   * character bar's Companions button.
-   *
-   * ⚠ IT COUNTS ACROSS SESSIONS, WHICH IS WHY IT IS HERE. No pilot's own store
-   * can answer it: each one knows only itself, and the button is on the one
-   * piece of chrome that outlives a pilot switch. Subscribing to every session's
-   * companion slice is the same thing BotManagerPilotRow does for a background
-   * pilot — a store read, not a poll, so an idle squad costs nothing.
-   *
-   * PAUSED COUNTS, because `holdsTheShip` says it does: a paused companion has
-   * not let go of the hull and is one press from flying it again.
-   */
-  let companionCount = $state(0);
-  function recountCompanions(): void {
-    let flying = 0;
-    for (const session of sessions) {
-      if (holdsTheShip(session.store.get().companion.status)) flying += 1;
-    }
-    companionCount = flying;
-  }
+  // The same, for each plugin's launcher: who holds each pilot's ship says it.
   $effect(() => {
-    const unsubs = sessions.map((session) =>
-      session.store.companion.subscribe(() => recountCompanions()),
-    );
-    recountCompanions();
+    const recount = (): void => setPluginPilotCounts(countPluginPilots(sessions.map((session) => session.store.bots.get().runningBotID)));
+    const unsubs = sessions.map((session) => session.store.bots.subscribe(recount));
+    recount();
     return () => {
       for (const unsub of unsubs) unsub();
     };
   });
-
   // A pilot finished login+select: promote it from onboarding into the online
   // roster and make it the active cockpit (matches "Add character makes it
   // active", and is the natural landing for the first pilot too).
@@ -721,7 +699,6 @@
       {sessions}
       {activeId}
       {serverStatus}
-      {companionCount}
       {globalOpenIds}
       onSwitch={switchTo}
       onAdd={addCharacter}
@@ -822,7 +799,6 @@
       optionsFor={requestOptionsFor}
       onHandedOver={releaseHandedOver}
       {globalOpenIds}
-      {companionCount}
       onOpenGlobal={openGlobalTab}
     />
   </ErrorBoundary>

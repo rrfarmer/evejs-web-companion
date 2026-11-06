@@ -17,6 +17,7 @@ import {
   readonlySignal,
   type ReadableSignal,
   type Unsubscribe,
+  type WritableSignal,
 } from "./signals.ts";
 import type { FeedAdapter, FeedEvent, FeedSink, FeedStatus, HealthStatus } from "./feed.ts";
 import { MAX_BROADCAST_HISTORY } from "../bridge/fleetBroadcasts.ts";
@@ -25,6 +26,8 @@ import { MAX_BROADCAST_HISTORY } from "../bridge/fleetBroadcasts.ts";
 import {
   SHIP_CONTROLLER_IDS,
   holdsTheShip,
+  type BuiltInShipController,
+  type PluginShipOwner,
   type ShipControllerID,
 } from "../nav/botRegistry.ts";
 import type {
@@ -92,7 +95,6 @@ import type {
   StationStatic,
   CustomBotState,
   MiningBotState,
-  FleetCompanionState,
   MissionBotState,
   SkillsState,
   PlanetsState,
@@ -199,7 +201,6 @@ export interface ClientState {
   readonly travel: TravelState;
   readonly bot: MiningBotState;
   readonly missionBot: MissionBotState;
-  readonly companion: FleetCompanionState;
   readonly customBot: CustomBotState;
   readonly bots: BotsState;
   readonly chat: ChatState;
@@ -700,23 +701,6 @@ const INITIAL_CUSTOM_BOT: CustomBotState = Object.freeze({
 // R36 — the mission bot's readout. Every "unknown" is null, never 0 or "": an
 // unmeasured payout must not render as "earned nothing", and a job whose name
 // has not been read must not render as a job with no name.
-const INITIAL_FLEET_COMPANION: FleetCompanionState = Object.freeze({
-  status: "idle" as FleetCompanionState["status"],
-  phase: null,
-  action: null,
-  why: null,
-  inFleet: null,
-  followingOrderFrom: null,
-  lastOrderHeard: null,
-  targetMode: null,
-  canTag: null,
-  fitWarnings: Object.freeze([]),
-  abandonment: null,
-  startedAt: null,
-  startError: null,
-  failureReason: null,
-  selfPaused: false,
-});
 
 const INITIAL_MISSION_BOT: MissionBotState = Object.freeze({
   status: "idle" as MissionBotState["status"],
@@ -744,6 +728,7 @@ const INITIAL_MISSION_BOT: MissionBotState = Object.freeze({
  */
 const INITIAL_BOTS: BotsState = Object.freeze({
   runningBotID: null as ShipControllerID | null,
+  runningPluginName: null,
 });
 
 // R28 skills. Every "unknown" is null and never an empty list: a failed read
@@ -904,7 +889,12 @@ export interface ClientStore {
   readonly travel: ReadableSignal<TravelState>;
   readonly bot: ReadableSignal<MiningBotState>;
   readonly missionBot: ReadableSignal<MissionBotState>;
-  readonly companion: ReadableSignal<FleetCompanionState>;
+  /**
+   * What a plugin keeps about this pilot, under a key of its own ("plugin:<plugin id>"
+   * or "plugin:<plugin id>.<name>"). The same key gives the same signal, and a pilot
+   * going offline puts it back to `initial`. Core reads none of it.
+   */
+  pluginState<T>(key: `plugin:${string}`, initial: T): WritableSignal<T>;
   readonly customBot: ReadableSignal<CustomBotState>;
   readonly bots: ReadableSignal<BotsState>;
   readonly chat: ReadableSignal<ChatState>;
@@ -968,8 +958,22 @@ export function createClientStore(): ClientStore {
   const travel = createSignal<TravelState>(INITIAL_TRAVEL);
   const bot = createSignal<MiningBotState>(INITIAL_BOT);
   const missionBot = createSignal<MissionBotState>(INITIAL_MISSION_BOT);
-  const companion = createSignal<FleetCompanionState>(INITIAL_FLEET_COMPANION);
   const customBot = createSignal<CustomBotState>(INITIAL_CUSTOM_BOT);
+  // A plugin holding the ship has no slice of core's to read a status from, so it says so (flow.flying.holdShip).
+  let pluginShipHolder: { readonly owner: PluginShipOwner; readonly name: string } | null = null;
+  // What plugins keep about this pilot (`pluginState`). Back to where each began as the pilot goes offline, as core's own slices are.
+  const pluginStates = new Map<string, { readonly signal: WritableSignal<unknown>; readonly initial: unknown }>();
+  const clearPluginState = (): void => {
+    for (const { signal, initial } of pluginStates.values()) signal.set(initial);
+  };
+  function pluginState<T>(key: `plugin:${string}`, initial: T): WritableSignal<T> {
+    let kept = pluginStates.get(key);
+    if (kept === undefined) {
+      kept = { signal: createSignal<unknown>(initial), initial };
+      pluginStates.set(key, kept);
+    }
+    return kept.signal as WritableSignal<T>;
+  }
   const bots = createSignal<BotsState>(INITIAL_BOTS);
   const chat = createSignal<ChatState>(INITIAL_CHAT);
   const live = createSignal<LiveState>(INITIAL_LIVE);
@@ -1019,7 +1023,6 @@ export function createClientStore(): ClientStore {
     travel: travel.get(),
     bot: bot.get(),
     missionBot: missionBot.get(),
-    companion: companion.get(),
     customBot: customBot.get(),
     bots: bots.get(),
     chat: chat.get(),
@@ -1078,7 +1081,8 @@ export function createClientStore(): ClientStore {
         travel.set(INITIAL_TRAVEL);
         bot.set(INITIAL_BOT);
         customBot.set(INITIAL_CUSTOM_BOT);
-        companion.set(INITIAL_FLEET_COMPANION);
+        pluginShipHolder = null;
+        clearPluginState();
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -1142,7 +1146,8 @@ export function createClientStore(): ClientStore {
         travel.set(INITIAL_TRAVEL);
         bot.set(INITIAL_BOT);
         customBot.set(INITIAL_CUSTOM_BOT);
-        companion.set(INITIAL_FLEET_COMPANION);
+        pluginShipHolder = null;
+        clearPluginState();
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -1187,7 +1192,8 @@ export function createClientStore(): ClientStore {
         travel.set(INITIAL_TRAVEL);
         bot.set(INITIAL_BOT);
         customBot.set(INITIAL_CUSTOM_BOT);
-        companion.set(INITIAL_FLEET_COMPANION);
+        pluginShipHolder = null;
+        clearPluginState();
         chat.set(INITIAL_CHAT);
         live.set(INITIAL_LIVE);
         break;
@@ -1661,8 +1667,7 @@ export function createClientStore(): ClientStore {
         // readout showing nothing wrong.
         //
         // Could-not-look is never evidence of a change, which is the same rule
-        // `authoritativeFleetMemberCharacterIDs` applies one layer down and the
-        // same one the companion's supervision gate fails open on. Only an
+        // `authoritativeFleetMemberCharacterIDs` applies one layer down. Only an
         // AUTHORITATIVE read ("ready" or "not-in-fleet") gets to say the fleet
         // changed.
         // ⚠ COMPARED AGAINST `authoritativeFleetID`, NEVER `current.fleet.fleetID`.
@@ -2720,38 +2725,10 @@ export function createClientStore(): ClientStore {
       case "mission-bot/cleared":
         missionBot.set(INITIAL_MISSION_BOT);
         break;
-      // The fleet companion. Same construction as the two bots above: the loop
+      // A plugin holding the ship. Same construction as the two bots above: the loop
       // decides, this slice records.
-      case "companion/started":
-        companion.set({
-          ...INITIAL_FLEET_COMPANION,
-          status: "running",
-            startedAt: event.startedAt,
-          fitWarnings: event.fitWarnings,
-        });
-        break;
-      case "companion/progress":
-        companion.set({
-          ...companion.get(),
-          status: event.status,
-          phase: event.phase,
-          action: event.action,
-          why: event.why,
-            inFleet: event.inFleet,
-          followingOrderFrom: event.followingOrderFrom,
-          lastOrderHeard: event.lastOrderHeard,
-          targetMode: event.targetMode,
-          canTag: event.canTag,
-          abandonment: event.abandonment,
-          failureReason: event.failureReason,
-          selfPaused: event.selfPaused,
-        });
-        break;
-      case "companion/start-error":
-        companion.set({ ...companion.get(), status: "idle", startError: event.message });
-        break;
-      case "companion/cleared":
-        companion.set(INITIAL_FLEET_COMPANION);
+      case "ship/plugin-holder":
+        pluginShipHolder = event.holder;
         break;
       case "chat/loaded": {
         const current = chat.get();
@@ -2898,17 +2875,18 @@ export function createClientStore(): ClientStore {
    * the ship. `SHIP_CONTROLLER_IDS` gives the order, so a tie (which the ship
    * claim makes impossible) still resolves the same way every time.
    */
-  const botStatus: Readonly<Record<ShipControllerID, () => string>> = {
+  const botStatus: Readonly<Record<BuiltInShipController, () => string>> = {
     mining: () => bot.get().status,
     mission: () => missionBot.get().status,
-    companion: () => companion.get().status,
     custom: () => customBot.get().status,
   };
 
   const syncBotClaim = (): void => {
-    const holder = SHIP_CONTROLLER_IDS.find((id) => holdsTheShip(botStatus[id]())) ?? null;
-    if (bots.get().runningBotID !== holder) {
-      bots.set({ runningBotID: holder });
+    const builtIn = SHIP_CONTROLLER_IDS.find((id) => holdsTheShip(botStatus[id]())) ?? null;
+    const holder: ShipControllerID | null = builtIn ?? pluginShipHolder?.owner ?? null;
+    const name = builtIn === null ? (pluginShipHolder?.name ?? null) : null;
+    if (bots.get().runningBotID !== holder || bots.get().runningPluginName !== name) {
+      bots.set({ runningBotID: holder, runningPluginName: name });
     }
   };
 
@@ -3000,7 +2978,7 @@ export function createClientStore(): ClientStore {
     travel: readonlySignal(travel),
     bot: readonlySignal(bot),
     missionBot: readonlySignal(missionBot),
-    companion: readonlySignal(companion),
+    pluginState,
     customBot: readonlySignal(customBot),
     bots: readonlySignal(bots),
     chat: readonlySignal(chat),

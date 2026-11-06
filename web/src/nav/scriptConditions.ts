@@ -176,7 +176,7 @@ export interface FleetApplication {
  *
  * ⚠ IT LIVES IN THIS LEAF MODULE, NOT IN scriptMacros.ts WHERE IT WAS WRITTEN,
  * because there are now two callers: the `join-advertised-fleet` block and the
- * Fleet companions window's own join watch (nav/fleetJoinWatch.ts). A second
+ * roster window's own join watch (nav/fleetJoinWatch.ts). A second
  * copy of a tie-break is a second copy that drifts, and the window must not
  * import the whole macro catalogue to ask one question.
  */
@@ -311,9 +311,9 @@ export interface ScriptObservation {
   /**
    * Logistic (remote-repair) drones, same two shapes as the pairs above.
    *
-   * ⚠ FILLED FOR THE FLEET COMPANION, WHICH IS SO FAR THE ONLY THING THAT USES
+   * ⚠ FILLED BY A FLEET-FOLLOWING LOOP, WHICH IS SO FAR THE ONLY THING THAT USES
    * THEM. The scripted blocks have no repair job to do, so nothing in
-   * `scriptMacros.ts` reads these -- they are here rather than on the companion's
+   * `scriptMacros.ts` reads these -- they are here rather than on a loop's
    * own observation because every other drone role already lives on this type
    * and splitting one role out would mean two places to look.
    *
@@ -395,9 +395,8 @@ export interface ScriptObservation {
    * ⚠ `null` = never received or unreadable; an EMPTY MAP = received and
    * nothing is tagged. Those are different answers and both are real — the
    * decoder (`decodeFleetStateChangeNotification`) is careful about this and
-   * an observation that collapsed them would undo that care. Moved up from
-   * `FleetCompanionObservation`, which declared this field first; kept here
-   * because any script (not only the fleet companion) may want to read it.
+   * an observation that collapsed them would undo that care. Any script, and
+   * any other loop, may want to read it.
    */
   readonly fleetTargetTags?: ReadonlyMap<number, string> | null;
   /**
@@ -648,7 +647,7 @@ export interface ScriptObservation {
   }[] | null;
   // ── The drone-boat block's reads (docs/drone-boat-block-spec.md §8). Every
   //    one of them is OPTIONAL, because this type is built in two places (the
-  //    script runner's `observe` and the fleet companion's) and the pure tests
+  //    script runner's `observe` and a plugin loop's) and the pure tests
   //    construct partial observations by hand — an absent field is "nobody
   //    looked", which is the same answer as `null` to every decider and must
   //    never be read as a fact. Nothing in `scriptMacros.ts` reads these yet;
@@ -769,7 +768,7 @@ export interface ScriptObservation {
    * The fitted afterburners and microwarpdrives, each carrying the `typeID` a
    * deactivate has to name and the `kind` only the SDE's own dogma effects
    * (6730/6731) can supply — the input to `decidePropulsionModule`
-   * (nav/propulsion.ts), which is the fleet companion's own policy shared
+   * (nav/propulsion.ts), which is a fleet-following loop's own policy shared
    * rather than re-derived.
    *
    * `kind: null` is a third state, not a default: "the group said prop mod and

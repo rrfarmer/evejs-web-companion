@@ -90,14 +90,13 @@ test("the Groups region renders on first mount, ahead of Pilots", () => {
   assert.doesNotMatch(text, /Loading groups/i);
 });
 
-test("THE COMPANIONS GROUP IS THERE WITH NOTHING IN IT", () => {
-  // It is the group a player cannot make for themselves, so a row that
-  // vanishes when empty disappears exactly when somebody is looking for where
-  // to switch it on. With no storage under SSR the prefs are empty, which is
-  // the case this pins.
+test("with no squads the Groups region still says where to make one", () => {
+  // A row that is simply absent cannot say anything, so the empty region has
+  // to name the Pilot Hangar. With no storage under SSR the prefs are empty,
+  // which is the case this pins. No group is made up for the player.
   const text = visibleText(renderPanel());
-  assert.match(text, /Companions/);
   assert.match(text, /Pilot Hangar/);
+  assert.doesNotMatch(text, /Companions/);
 });
 
 test("the group list says once what is true of every row", () => {

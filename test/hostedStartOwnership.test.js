@@ -25,6 +25,13 @@ const doc = { format: "evejs-bot-script", version: 1, program: [] };
 const script = { scriptID: "test-patrol", name: "Test patrol", rev: 1, doc };
 const grant = { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 10 };
 const idle = { status: "idle", phase: null, why: null, startError: null };
+// A plugin that takes any run, accepts any setup as risk-free, and flies nothing: enough to prove the host's Start path.
+const stubPlugins = {
+  async checkRun(_pluginID, _run, setup) { return { ok: true, name: "Stub run", setup: setup ?? {}, policy: { riskClasses: [], restartSafe: true } }; },
+  async startRun() { return null; },
+  async stopRun() {},
+  formerBotKind: () => null,
+};
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
 async function harness(t, { factory = "forbidden", mcc = false, reach = null } = {}) {
@@ -96,13 +103,12 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
   const loadStack = async () => ({
     decodeScriptValue: value => ({ ok: true, doc: value }),
     analyzeBotRunPolicy: () => ({ riskClasses: [], restartSafe: true }),
-    decodeCompanionSetupValue: value => ({ ok: true, setup: value }),
-    analyzeCompanionRunPolicy: () => ({ riskClasses: [], restartSafe: true }),
-    COMPANION_GRANT_SCRIPT_REV: 1,
+    PLUGIN_RUN_GRANT_REV: 1,
+    pluginRunBotPolicy: policy => ({ macroIDs: [], restartBlockers: [], containsSubBots: false, riskClasses: policy.riskClasses, restartSafe: policy.restartSafe === true }),
     validateBotLaunchGrant: value => ({ ok: true, grant: value }),
     createClientStore() {
       const listeners = new Set(), state = { station: { online: null }, flight: { status: null }, space: { snapshot: null },
-        mining: { holds: [] }, customBot: { ...idle }, companion: { ...idle } };
+        mining: { holds: [] }, customBot: { ...idle } };
       return { ...Object.fromEntries(Object.keys(state).map(key => [key, { get: () => state[key] }])),
         set(key, value) { state[key] = value; for (const listener of listeners) listener(state); },
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); } };
@@ -119,12 +125,13 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
       return {
         async selectCharacter(id) { const selected = await request("/api/bridge/select", { characterID: id }); store.set("station", { online: selected.character }); },
         async startCustomBot() {
+          await behavior.startHook?.();
           if (behavior.startFailure) throw new Error("Injected start failure.");
           calls.push(["run"]); store.set("customBot", { ...idle, status: "running" });
         },
         stopCustomBot() { calls.push(["cancel"]); },
-        async startFleetCompanion() { store.set("companion", { ...idle, status: "running" }); },
-        stopFleetCompanion() {},
+        heldPilot: () => ({ characterID, character: { name: "Test Pilot" }, station: null }),
+        autopilotSettings: () => ({}),
         async prepareHostedBotStop() {},
         async logout() { await request("/api/logout"); store.set("station", { online: null }); },
         async loadFlightStatus() { store.set("flight", { status: { docked: true } }); },
@@ -136,7 +143,7 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
   const makeHost = hostModule.createBotHost;
   hostModule.createBotHost = options => {
     ownershipProbe = options.isCharacterHeld;
-    return makeHost({ ...options, persistPath: null, loadStack, startupRuns,
+    return makeHost({ ...options, persistPath: null, loadStack, startupRuns, pluginProcess: () => stubPlugins,
       prepareOperation: record => behavior.prepareOperation ? behavior.prepareOperation(record) : options.prepareOperation(record),
       isCharacterHeld: async (...args) => { probes.push(args); if (probeHook) await probeHook(args); return ownershipProbe(...args); } });
   };
@@ -172,7 +179,8 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
   const reservationMap = operations;
   const originalStart = app.locals.botHost.start;
   app.locals.botHost.start = input => { starts.push(input); return originalStart({ ...input, beforeStart: owner => {
-    hosted.secret = owner.claimSecret; return input.beforeStart?.(owner);
+    hosted.secret = owner.claimSecret;
+    return input.beforeStart?.(behavior.releaseAtHandover ? { claimSecret: owner.claimSecret } : owner);
   } }); };
   const token = webAuth.createSessionToken(account), caller = webAuth.verifySessionToken(token).sessionID;
   async function post(route, body, credential = token, headers = {}) {
@@ -289,7 +297,7 @@ for (const cleanup of ["released", "uncertain", "gone"]) test(`publication fence
 });
 
 for (const kind of ["reservation", "held"]) test(`publication fence: restoration acquired outcome preserves newer ${kind}`, async t => {
-  const h = await harness(t, { factory: "absent" }); await h.browser(); h.behavior.startFailure = true;
+  const h = await harness(t, { factory: "absent" }); await h.browser(); h.behavior.startFailure = true; h.behavior.releaseAtHandover = true;
   const foreign = kind === "reservation" ? Symbol("newer-restoration-owner") :
     { characterID, accountID: account.accountID, bridgeSessionID: "foreign-restore-held" };
   let acquired;
@@ -482,10 +490,64 @@ test("caller-held stock pilot hands off to exactly one productive hosted owner a
   assert.equal(h.app.locals.bridgeSessions.has(h.caller), false);
   assert.equal(h.sessions.size, 1); assert.equal(h.app.locals.bridgeSessions.size, 1);
   assert.equal(h.calls.filter(([name]) => name === "run").length, 1);
-  assert.ok(h.calls.find(([name, id]) => name === "release" && id === caller.bridgeSessionID));
+  // The same session, never disconnected: a disconnect would take the pilot out of its fleet.
+  assert.equal(h.calls.some(([name]) => name === "release"), false);
+  assert.equal(h.calls.filter(([name]) => name === "select").length, 1, "only the tab's own select");
+  assert.equal(h.app.locals.bridgeSessions.get(webAuth.verifySessionToken(h.hosted.token).sessionID), caller);
+  assert.equal(caller.botClaimSecret, h.hosted.secret);
   assert.equal((await h.stop(result.body.bot.botID)).status, 200);
+  assert.ok(h.calls.find(([name, id]) => name === "release" && id === caller.bridgeSessionID), "a Stop does log it off");
   assert.equal(h.sessions.size, 0); assert.equal(h.app.locals.bridgeSessions.size, 0);
   assert.equal(h.app.locals.botHost.claimedBy(characterID), null); assert.equal(h.reservations.size, 0);
+});
+
+test("a refused start gives the tab its pilot back as it was: never disconnected, so still in its fleet", async t => {
+  const h = await harness(t, { factory: "absent" }); await h.browser(); h.behavior.startFailure = true;
+  const caller = h.app.locals.bridgeSessions.get(h.caller), result = await h.start();
+  assert.notEqual(result.status, 200);
+  assert.equal(h.app.locals.bridgeSessions.get(h.caller), caller);
+  assert.equal(h.app.locals.bridgeSessions.size, 1);
+  assert.equal(caller.botClaimSecret, undefined, "the tab may fly it again");
+  assert.equal(h.calls.some(([name]) => name === "release"), false);
+  assert.equal(h.calls.filter(([name]) => name === "select").length, 1);
+  assert.equal(h.app.locals.botHost.claimedBy(characterID), null); assert.equal(h.reservations.size, 0);
+  await h.post("/api/logout");
+});
+
+test("a tab asking during the hand-over is told to wait: its pilot may yet come back, and a page drops one it is told has gone", async t => {
+  const h = await harness(t, { factory: "absent" }); await h.browser(); h.behavior.startFailure = true;
+  let during = null;
+  h.behavior.startHook = async () => { during = await h.get("/api/bridge/flight/status"); };
+  const result = await h.start();
+  assert.notEqual(result.status, 200);
+  assert.equal(during?.status, 409);
+  assert.equal(during.body.error, "CHARACTER_IN_USE");
+  assert.equal((await h.get("/api/bridge/flight/status")).status, 200, "the tab has it again");
+  await h.post("/api/logout");
+});
+
+test("a pilot with unresolved custody stays with its tab: the start hands nothing over", async t => {
+  const h = await harness(t, { factory: "absent" }); await h.browser();
+  const caller = h.app.locals.bridgeSessions.get(h.caller);
+  const unresolved = h.app.locals.replenishment.unresolved;
+  h.app.locals.replenishment.unresolved = () => [{ key: "unresolved-write" }];
+  const result = await h.start();
+  h.app.locals.replenishment.unresolved = unresolved;
+  assert.equal(result.status, 409);
+  assert.equal(h.app.locals.bridgeSessions.get(h.caller), caller);
+  assert.equal(caller.botClaimSecret, undefined);
+  assert.equal(h.app.locals.botHost.claimedBy(characterID), null);
+  await h.post("/api/logout");
+});
+
+test("a run's later select is a real one: only the first answers from the handed-over session", async t => {
+  const h = await harness(t, { factory: "absent" }); await h.browser();
+  const result = await h.start();
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  const again = await h.post("/api/bridge/select", { characterID }, h.hosted.token, { [hostModule.BOT_HEADER]: h.hosted.secret });
+  assert.equal(again.status, 200);
+  assert.equal(h.calls.filter(([name]) => name === "select").length, 2);
+  assert.equal((await h.stop(result.body.bot.botID)).status, 200);
 });
 
 test("a Start for the pilot the caller's own session holds does not ask again whose it is; for any other it asks", async t => {
@@ -580,7 +642,7 @@ for (const failure of ["selectFailure", "startFailure"])
   });
 
 test("a failure after caller handoff restores only the released caller", async t => {
-  const h = await harness(t); await h.browser(); h.behavior.startFailure = true;
+  const h = await harness(t); await h.browser(); h.behavior.startFailure = true; h.behavior.releaseAtHandover = true;
   const old = h.app.locals.bridgeSessions.get(h.caller), result = await h.start();
   assert.notEqual(result.status, 200);
   const restored = h.app.locals.bridgeSessions.get(h.caller);
@@ -591,7 +653,7 @@ test("a failure after caller handoff restores only the released caller", async t
 });
 
 for (const kind of ["browser", "reservation", "custody"]) test(`failed handoff cannot restore over newer WC ${kind}`, async t => {
-  const h = await harness(t); await h.browser(); h.behavior.startFailure = true;
+  const h = await harness(t); await h.browser(); h.behavior.startFailure = true; h.behavior.releaseAtHandover = true;
   const foreign = kind === "browser" ? { characterID, accountID: account.accountID, bridgeSessionID: "new-browser" } : Symbol("new-reservation");
   h.behavior.afterStatusHook = async () => {
     if (h.calls.filter(([name]) => name === "select").length < 2 || h.sessions.size) return;
@@ -614,7 +676,7 @@ for (const kind of ["browser", "reservation", "custody"]) test(`failed handoff c
 });
 
 for (const takeover of [true, false]) test(`failed handoff restoration inherits stock loginTakeoverEnabled=${takeover}`, async t => {
-  const h = await harness(t); await h.browser(); h.behavior.startFailure = true;
+  const h = await harness(t); await h.browser(); h.behavior.startFailure = true; h.behavior.releaseAtHandover = true;
   h.behavior.loginTakeoverEnabled = takeover;
   h.behavior.afterStatusHook = async () => {
     if (h.calls.filter(([name]) => name === "select").length >= 2 && !h.sessions.size) h.behavior.retailBusy = true;
@@ -641,7 +703,7 @@ test("a caller identity mismatch cannot release or hand off its held row", async
 });
 
 test("unconfirmed browser release preserves the original owner and does not run the bot", async t => {
-  const h = await harness(t); await h.browser(); h.behavior.releaseUncertain = true;
+  const h = await harness(t); await h.browser(); h.behavior.releaseUncertain = true; h.behavior.releaseAtHandover = true;
   const owner = h.app.locals.bridgeSessions.get(h.caller), result = await h.start();
   assert.equal(result.status, 409); assert.equal(result.body.error, "PILOT_RELEASE_UNVERIFIED");
   assert.equal(h.app.locals.bridgeSessions.get(h.caller), owner); assert.equal(h.sessions.size, 1);
@@ -681,9 +743,9 @@ test("a stale late probe cannot claim or remove a replacement reservation", asyn
   } finally { h.reservations.delete(characterID); }
 });
 
-test("public companion Start passes the same exact reservation contract", async t => {
-  const h = await harness(t), result = await h.post("/api/bots/start", { characterID, kind: "companion", request: {}, grant });
-  assert.equal(result.status, 200); assert.equal(result.body.bot.kind, "companion");
+test("public plugin-run Start passes the same exact reservation contract", async t => {
+  const h = await harness(t), result = await h.post("/api/bots/start", { characterID, kind: "plugin", pluginID: "stub", run: "stub", setup: {}, grant });
+  assert.equal(result.status, 200, JSON.stringify(result.body)); assert.equal(result.body.bot.kind, "plugin");
   assert.equal(typeof h.starts[0].probeReservation, "symbol");
   assert.equal(h.reservations.size, 0); assert.equal((await h.stop(result.body.bot.botID)).status, 200);
 });

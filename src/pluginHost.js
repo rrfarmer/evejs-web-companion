@@ -72,6 +72,7 @@ function createPluginHost(options = {}) {
   /** id -> the backend's state */
   const backends = new Map();
   let nextMessageID = 1;
+  let knownManifests = [];
   let stopping = false;
 
   async function loadManifests() {
@@ -340,6 +341,7 @@ function createPluginHost(options = {}) {
     let manifests;
     try {
       manifests = await loadManifests();
+      knownManifests = manifests;
     } catch (error) {
       log(`The build's plugin list could not be read: ${error && error.message}`);
       return;
@@ -489,6 +491,18 @@ function createPluginHost(options = {}) {
     return answer.type === "failed" ? answer.message : answer.error || null;
   }
 
+  /** The plugin and run that fly a saved bot of a kind core used to fly, or null. */
+  function formerBotKind(kind) {
+    for (const manifest of knownManifests) {
+      const run = manifest.formerBotKinds?.[kind];
+      // Only one that can fly it: a plugin refused while loading has no entry, and runs need a backend of its own.
+      if (typeof run === "string" && typeof manifest.backend === "string" && backends.has(manifest.id)) {
+        return { pluginID: manifest.id, run };
+      }
+    }
+    return null;
+  }
+
   /** Tell a plugin to stop flying a run. A process that is not up has already stopped. */
   async function stopRun(id, botID) {
     if (backends.get(id)?.state !== "running") return;
@@ -528,6 +542,7 @@ function createPluginHost(options = {}) {
     checkRun,
     startRun,
     stopRun,
+    formerBotKind,
     statuses: () => [...backends.values()].map(status),
     webStatuses: () => webStatuses,
     has: (id) => backends.has(id),

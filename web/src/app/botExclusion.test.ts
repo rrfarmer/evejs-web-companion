@@ -251,11 +251,11 @@ test("R43 — every registered bot is reachable by the exclusion machinery", () 
   assert.equal(new Set(BOT_IDS).size, BOT_IDS.length, "no bot is registered twice");
   assert.deepEqual(
     [...SHIP_CONTROLLER_IDS].sort(),
-    ["companion", "custom", "mining", "mission"],
-    "the ownership registry includes the player-authored controller and the fleet companion",
+    ["custom", "mining", "mission"],
+    "the ownership registry includes the player-authored controller",
   );
   assert.ok(
-    SHIP_CONTROLLER_IDS.includes("companion"),
-    "the fleet companion holds the ship the same way every other loop does",
+    !SHIP_CONTROLLER_IDS.includes("companion" as never),
+    "the fleet companion is a plugin now, so core's registry does not name it",
   );
 });

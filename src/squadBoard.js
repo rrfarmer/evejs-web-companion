@@ -38,7 +38,7 @@
 // that fails if one of them changes.
 //
 // That is the shape of a bug this project has already been bitten by once --
-// see COMPANION_GRANT_SCRIPT_REV in web/src/bots/companionRunPolicy.ts, which
+// see PLUGIN_RUN_GRANT_REV in web/src/bots/runPolicy.ts, which
 // was a bare 1 copied into src/botHost.js until the copies were collapsed into
 // one home. The consequence here is milder than that one was: a drift would
 // mean a follower treats a board call and a fleet broadcast as lapsing at

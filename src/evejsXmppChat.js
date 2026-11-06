@@ -15,7 +15,7 @@
 //     session._localChatDeparted = true;      // evejsWebGatewayRuntime.js
 //
 // So the BFF's chat reads began 404ing every two seconds, `chatMessages` was
-// permanently empty, and every chat-ordered companion behaviour (`follow`,
+// permanently empty, and every chat-ordered bot behaviour (`follow`,
 // `stop`, `target`, `salvage`, `loot`, `destination`) went silently dead.
 //
 // The chat itself did not go anywhere. `chatHub.js` says where it lives:
@@ -51,7 +51,7 @@
 //
 //   3. A MUC nick IS the sender's character id, filled in server-side from the
 //      session (`handleGroupMessage`, `:2876`). That is the unspoofable key the
-//      companion's chat-order gate needs — the same property the old backlog
+//      bot's chat-order gate needs — the same property the old backlog
 //      read had, over a different transport.
 //
 //   4. Joining un-does the v0.12.8 departure by itself: the join path calls
@@ -130,9 +130,9 @@ const HANDSHAKE_TIMEOUT_MS = 4000;
 const JOIN_TIMEOUT_MS = 2500;
 const PING_INTERVAL_MS = 30_000;
 // Per room. Local is chatty and the readers only ever want the tail: the Chat
-// panel renders the last page and the companion filters by freshness.
+// panel renders the last page and a bot filters by freshness.
 const MAX_BUFFERED_MESSAGES = 200;
-// A failed connect is not retried on the very next tick. The companion reads
+// A failed connect is not retried on the very next tick. A bot reads
 // chat every two seconds, and a chat server that is down should cost one
 // connect attempt every few seconds, not thirty.
 const RECONNECT_COOLDOWN_MS = 5000;
@@ -579,7 +579,7 @@ class XmppChatSession {
   /**
    * Connect, authenticate, bind, and come up ready — or reject.
    *
-   * Concurrent callers share one attempt: the companion's tick and the Chat
+   * Concurrent callers share one attempt: a bot's tick and the Chat
    * panel's poll can land in the same millisecond, and two half-open
    * handshakes as the same character would leave a ghost in the room list.
    */
@@ -1007,14 +1007,14 @@ class XmppChatSession {
    * ⚠ THE ARRIVAL TIME IS THE TIMESTAMP, AND IT IS HONEST. The stub sends no
    * `<delay>`, so there is no server clock on the wire to read. Live delivery is
    * immediate, which makes arrival time accurate to the millisecond for every
-   * line said while this session was listening — and the companion's freshness
+   * line said while this session was listening — and a bot's freshness
    * window is the only consumer that cares.
    *
    * Local has no join history at all (`handleJoinPresence` delivers backlog only
    * for non-local rooms, matching retail), so for the channel the chat orders
    * live on there is no older-than-we-know case to mis-stamp. A corp room does
    * replay its backlog on join, and those lines land stamped with the join
-   * instant — which is why the companion reads Local and not Corp.
+   * instant — which is why a bot reads Local and not Corp.
    */
   onMessage(xml) {
     const from = attr(xml, "from");
@@ -1174,7 +1174,7 @@ class XmppChatSession {
    * wormhole/Triglavian/no-local systems correct without this file knowing the
    * first thing about them. But retail's own auto-move
    * (`chatHub.moveLocalSession`) rides on `sendSessionChange`, which is a
-   * capture stub for a browser-backed session and never fires — so a companion
+   * capture stub for a browser-backed session and never fires — so a bot
    * that jumps would sit in its old system's Local for ever unless something
    * noticed. The held session's tracked system id is that something: when it
    * changes, leave and re-join, and the server picks the new room.

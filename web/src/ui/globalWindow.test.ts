@@ -5,7 +5,7 @@
 // bug being fixed is the same window jumping around as you switch pilots), that
 // a tab which is global can never also be a per-pilot desktop window (which
 // would put a second, character-scoped copy of the roster on screen), and —
-// since the fleet companion arrived beside the Bot Manager — that two global
+// since a second window arrived beside the Bot Manager — that two global
 // windows can be open AT ONCE rather than evicting each other.
 //
 // The desktop rule is enforced in desktop.ts and asserted from here, because it
@@ -62,9 +62,9 @@ const HANGAR = readFileSync(new URL("./PilotHangar.svelte", import.meta.url), "u
 
 // ─── which tabs are global ───────────────────────────────────────────────────
 
-test("the Bot Manager and Fleet companions are global; an ordinary panel is not", () => {
+test("the Bot Manager and Industry Manager are global; an ordinary panel is not", () => {
   assert.equal(isGlobalTab("botManager"), true);
-  assert.equal(isGlobalTab("companion"), true);
+  assert.equal(isGlobalTab("industryManager"), true);
   assert.equal(isGlobalTab("market"), false);
 });
 
@@ -108,13 +108,13 @@ test("a global tab that is not launchable is still a named tab", () => {
 test("a workspace desktop refuses to open a global tab as its own window", () => {
   // Two copies of the roster, one per pilot, is exactly what the hoist removes.
   assert.deepEqual(openWindow([], "botManager"), []);
-  assert.deepEqual(openWindow([], "companion"), []);
+  assert.deepEqual(openWindow([], "industryManager"), []);
 });
 
 test("a layout saved before the hoist does not resurrect a per-pilot copy", () => {
   installStorage();
   saveLayout(140000005, {
-    wins: [win("botManager"), win("companion"), win("market")],
+    wins: [win("botManager"), win("industryManager"), win("market")],
     dockCollapsed: false,
     dockWidth: 340,
     targetsX: 20,
@@ -130,7 +130,7 @@ test("a global tab is still a WINDOW — the rail filters on that and must keep 
   // isWindowTab: excluding it there would delete the launcher entry instead of
   // just the desktop window. This pins that distinction.
   assert.equal(isWindowTab("botManager"), true);
-  assert.equal(isWindowTab("companion"), true);
+  assert.equal(isWindowTab("industryManager"), true);
 });
 
 // ─── opening ────────────────────────────────────────────────────────────────
@@ -146,11 +146,11 @@ test("opening the first one places it at the default spot", () => {
 
 test("a second global window opens BESIDE the first, never in place of it", () => {
   // ⚠ THE REGRESSION THIS LAYER WAS RESHAPED FOR. It held exactly one window
-  // while the Bot Manager was alone on it; adding Fleet companions to that
-  // model would have made the two evict each other — open the companions roster
-  // and the Manager you were reading vanishes.
-  const wins = openGlobal(openGlobal([], "botManager"), "companion");
-  assert.deepEqual(wins.map((w) => w.id), ["botManager", "companion"]);
+  // while the Bot Manager was alone on it; adding a second window to that
+  // model would have made the two evict each other — open the Industry
+  // Manager and the Bot Manager you were reading vanishes.
+  const wins = openGlobal(openGlobal([], "botManager"), "industryManager");
+  assert.deepEqual(wins.map((w) => w.id), ["botManager", "industryManager"]);
   assert.notEqual(at(wins, 1).x, at(wins, 0).x, "the second must not land on the first");
   assert.equal(at(wins, 1).z > at(wins, 0).z, true, "the one just opened is on top");
 });
@@ -168,14 +168,14 @@ test("re-opening a window already open keeps where the player put it", () => {
 });
 
 test("re-opening a put-away window brings it back rather than doing nothing", () => {
-  const away = [{ ...at(openGlobal([], "companion"), 0), minimized: true }];
-  assert.equal(at(openGlobal(away, "companion"), 0).minimized, false);
+  const away = [{ ...at(openGlobal([], "industryManager"), 0), minimized: true }];
+  assert.equal(at(openGlobal(away, "industryManager"), 0).minimized, false);
 });
 
 test("re-opening the one underneath raises it above the other", () => {
-  const both = openGlobal(openGlobal([], "botManager"), "companion");
+  const both = openGlobal(openGlobal([], "botManager"), "industryManager");
   const raised = openGlobal(both, "botManager");
-  assert.equal(byId(raised, "botManager").z > byId(raised, "companion").z, true);
+  assert.equal(byId(raised, "botManager").z > byId(raised, "industryManager").z, true);
 });
 
 test("a tab that is not global is refused rather than placed here", () => {
@@ -203,10 +203,10 @@ test("the saved positions round-trip", () => {
   installStorage();
   saveGlobalWindows([
     win("botManager", { x: 120, y: 90, w: 800, h: 560 }),
-    win("companion", { x: 200, y: 150, w: 760, h: 500 }),
+    win("industryManager", { x: 200, y: 150, w: 760, h: 500 }),
   ]);
   const loaded = loadGlobalWindows();
-  assert.deepEqual(loaded.map((w) => w.id), ["botManager", "companion"]);
+  assert.deepEqual(loaded.map((w) => w.id), ["botManager", "industryManager"]);
   assert.equal(at(loaded, 0).x, 120);
   assert.equal(at(loaded, 1).h, 500);
 });
@@ -279,8 +279,8 @@ test("one window per tab, enforced on the way IN as well as by the reducers", ()
   localStorage.setItem(
     "evejs-web-global-windows:v2",
     JSON.stringify([
-      { id: "companion", x: 10, y: 10, w: 400, h: 300, z: 1, minimized: false },
-      { id: "companion", x: 90, y: 90, w: 400, h: 300, z: 2, minimized: false },
+      { id: "industryManager", x: 10, y: 10, w: 400, h: 300, z: 1, minimized: false },
+      { id: "industryManager", x: 90, y: 90, w: 400, h: 300, z: 2, minimized: false },
     ]),
   );
   const loaded = loadGlobalWindows();
@@ -308,7 +308,7 @@ test("saving an empty list clears the record", () => {
 
 test("a put-away window comes back put away, not on screen", () => {
   installStorage();
-  saveGlobalWindows([win("companion", { minimized: true })]);
+  saveGlobalWindows([win("industryManager", { minimized: true })]);
   assert.equal(at(loadGlobalWindows(), 0).minimized, true);
 });
 

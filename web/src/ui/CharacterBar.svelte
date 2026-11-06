@@ -13,7 +13,6 @@
     sessions,
     activeId,
     serverStatus,
-    companionCount = 0,
     globalOpenIds = new Set<TabID>(),
     onSwitch,
     onAdd,
@@ -23,12 +22,6 @@
     sessions: Session[];
     activeId: string | null;
     serverStatus: "checking" | "online" | "offline";
-    /**
-     * How many pilots are flying as companions right now. Shown as a count on
-     * the Companions button, and absent when nothing is flying — a badge
-     * reading "0" is a badge that has to be read before it can be dismissed.
-     */
-    companionCount?: number;
     /** The global windows open right now (possibly put away). */
     globalOpenIds?: ReadonlySet<TabID>;
     onSwitch: (id: string) => void;
@@ -41,8 +34,8 @@
      */
     onHangar: () => void;
     /**
-     * Open one of the global windows — Bot Manager, Planetary Industry, Fleet
-     * companions.
+     * Open one of the global windows — Bot Manager, Planetary Industry, the
+     * plugins' windows.
      *
      * ⚠ THEY HANG HERE RATHER THAN IN THE NEOCOM, and the reason is the same
      * one that makes them global: none is a view of the pilot whose cockpit
@@ -114,7 +107,7 @@
     carries the same strip (GlobalLaunchers.svelte).
   -->
   {#if onOpenGlobal}
-    <GlobalLaunchers openIds={globalOpenIds} {companionCount} onOpen={onOpenGlobal} />
+    <GlobalLaunchers openIds={globalOpenIds} onOpen={onOpenGlobal} />
   {/if}
   {#if narrow}
     <!--

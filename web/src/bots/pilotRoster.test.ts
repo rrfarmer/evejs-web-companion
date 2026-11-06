@@ -28,7 +28,7 @@ const PILOT_ONE_ID = 90000001;
 const PILOT_TWO_ID = 90000002;
 
 function bots(over: Partial<BotsState> = {}): BotsState {
-  return { runningBotID: null, ...over };
+  return { runningBotID: null, runningPluginName: null, ...over };
 }
 
 function customBot(over: Partial<CustomBotState> = {}): CustomBotState {
@@ -71,11 +71,9 @@ function serverBot(over: Partial<ServerBot> = {}): ServerBot {
     endedAt: null,
     resumedAt: null,
     lastAlert: null,
-    // A plain script run by default: the companion badge is absent, which is
-    // what `kind` and a null readout together mean. Tests that want a
-    // companion pass both through `over`.
+    // A plain script run by default; a test that wants a plugin's run passes
+    // `kind: "plugin"` through `over`.
     kind: "script",
-    companion: null,
     ...over,
   };
 }
@@ -89,7 +87,6 @@ test("no runningBotID and an idle customBot is honestly 'none', not a stopped bo
     botName: null,
     statusWords: "Nothing is running",
     detail: null,
-    isCompanion: false,
   });
 });
 
@@ -505,37 +502,22 @@ test("activeBotVitalsWords joins health and holds, and is empty when there is no
 });
 
 
-// --- a companion holds the hull, and that is ALL this module says about it ---
-//
-// The fleet readout that used to live on these rows is gone: a companion is not
-// a bot, it is not in `BOTS`, and the Bot Manager is not where a player looks
-// for what their fleet is doing (ui/FleetCompanions.svelte owns all of it now).
-// What CANNOT go is the ownership fact — a hull a companion is flying must
-// never read as free, or the Manager's next act is to start a script on top of
-// a pilot in a fleet fight.
+// --- a plugin's loop holds the hull, and the row names it -------------------
 
-test("a tab companion is named and flagged, though it is not in the bot catalogue", () => {
-  const state = tabRunState(bots({ runningBotID: "companion" }), customBot());
-  assert.equal(state.mode, "tab");
-  assert.equal(state.isCompanion, true);
-  assert.equal(state.botName, "Fleet companion");
-  assert.notEqual(state.statusWords, "Nothing is running");
-  assert.match(state.detail ?? "", /Fleet companions/);
-});
-
-test("a server companion is named by WHAT IT IS, not by the run's script name", () => {
-  const state = serverRunState(
-    serverBot({ kind: "companion", scriptName: "whatever the host called it" }),
+test("a plugin's tab run is named by the plugin, though it is not in the bot catalogue", () => {
+  const state = tabRunState(
+    bots({ runningBotID: "plugin:sample-loop", runningPluginName: "Sample loop" }),
+    customBot(),
   );
-  assert.equal(state.isCompanion, true);
-  assert.equal(state.botName, "Fleet companion");
-  assert.match(state.detail ?? "", /Fleet companions/);
+  assert.equal(state.mode, "tab");
+  assert.equal(state.botName, "Sample loop");
+  assert.notEqual(state.statusWords, "Nothing is running");
 });
 
-test("a script run is never flagged as a companion, on either side", () => {
-  assert.equal(serverRunState(serverBot()).isCompanion, false);
-  assert.equal(tabRunState(bots({ runningBotID: "mining" }), customBot()).isCompanion, false);
-  assert.equal(tabRunState(bots(), customBot()).isCompanion, false);
+test("a server plugin run is named by its script name", () => {
+  const state = serverRunState(serverBot({ kind: "plugin", scriptName: "Sample loop" }));
+  assert.equal(state.mode, "server");
+  assert.equal(state.botName, "Sample loop");
 });
 
 test("⚠ a row holding BOTH reads the SERVER, never the tab's stale reading", () => {
@@ -543,11 +525,10 @@ test("⚠ a row holding BOTH reads the SERVER, never the tab's stale reading", (
   // pilot can have a tab open here while the host holds the hull. The two
   // sources below disagree on purpose.
   const state = pilotRunState(
-    bots({ runningBotID: "companion" }),
+    bots({ runningBotID: "mining" }),
     customBot(),
     serverBot({ kind: "script", scriptName: "Hauling run" }),
   );
   assert.equal(state.mode, "server");
   assert.equal(state.botName, "Hauling run");
-  assert.equal(state.isCompanion, false, "the server bot is the truth for this row");
 });

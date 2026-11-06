@@ -5,11 +5,10 @@
 // `OnTarget`. The only authority on "what is locked" was `dogmaIM.GetTargets`,
 // polled once per loop tick — so a lock that completed a millisecond after a
 // tick's read was invisible until the NEXT tick, a whole cadence later. That is
-// dead time in the one place a fleet companion can least afford it: rung 6 will
-// not send drones onto a ship this hull has not locked (`decideDrones`), and
-// rung 7 will not open fire until the lock is OBSERVED (`lockThenEngage`), so
-// every fight paid a full tick between "the lock landed" and "anything used
-// it".
+// dead time in the one place a fighting loop can least afford it: it will
+// not send drones onto a ship this hull has not locked, nor open fire until
+// the lock is OBSERVED, so every fight paid a full tick between "the lock
+// landed" and "anything used it".
 //
 // The poll is NOT replaced. `GetTargets` stays the authority and still runs
 // every tick; this decoder only lets the client learn the same fact sooner. A

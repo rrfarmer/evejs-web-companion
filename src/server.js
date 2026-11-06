@@ -1670,6 +1670,16 @@ function openHeldStream(webSessionID, held) {
   });
 }
 
+/**
+ * Why this web session has no pilot. A start handing its pilot over may yet give it back, and a page takes
+ * NO_LIVE_SESSION to mean the pilot has gone, and drops it.
+ */
+function whyNoHeldPilot(webSessionID) {
+  return sessionOperations.has(webSessionID)
+    ? { error: "CHARACTER_IN_USE", message: "This pilot is changing sessions. Try again shortly." }
+    : { error: "NO_LIVE_SESSION", message: "No character is online; select a character first." };
+}
+
 function closeHeldStream(held) {
   if (held.streamRetryTimer) {
     clearTimeout(held.streamRetryTimer);
@@ -1684,11 +1694,7 @@ function closeHeldStream(held) {
 app.get("/api/bridge/events", requireStreamAuth, (req, res) => {
   const held = bridgeSessions.get(req.webSessionID) || null;
   if (!held) {
-    res.status(409).json({
-      ok: false,
-      error: "NO_LIVE_SESSION",
-      message: "No character is online; select a character first.",
-    });
+    res.status(409).json({ ok: false, ...whyNoHeldPilot(req.webSessionID) });
     return;
   }
   res.writeHead(200, {
@@ -1803,8 +1809,52 @@ async function restoreHeldCaller(webSessionID, account, characterID, reservation
   } });
   return true;
 }
+/**
+ * A tab's pilot goes to a hosted run as it stands. Nothing tells the game server, because a disconnect would take the
+ * pilot out of its fleet (and end a fleet of one): the run's select finds the session already here.
+ * The tab's streams stay until the start is settled, so a refused start hands everything back unnoticed.
+ */
+function handHeldSessionToHost(fromWebSessionID, toWebSessionID, claimSecret, docked) {
+  const held = bridgeSessions.get(fromWebSessionID);
+  const tabStreams = new Set(held.streamSubscribers);
+  // The game's stream retries under the web session that opened it. The run's own subscription opens it again here.
+  closeHeldStream(held);
+  bridgeSessions.delete(fromWebSessionID);
+  bridgeSessions.set(toWebSessionID, held);
+  held.botClaimSecret = claimSecret;
+  held.handedOverTo = { claimSecret, docked };
+  held.droneRecoveryReady = true;
+  return {
+    giveBack() {
+      if (bridgeSessions.get(toWebSessionID) !== held || bridgeSessions.has(fromWebSessionID)) return;
+      bridgeSessions.delete(toWebSessionID);
+      for (const stream of [...held.streamSubscribers]) {
+        if (tabStreams.has(stream)) continue;
+        held.streamSubscribers.delete(stream);
+        try { stream.end(); } catch { /* The response is already gone. */ }
+      }
+      delete held.botClaimSecret;
+      delete held.handedOverTo;
+      closeHeldStream(held);
+      bridgeSessions.set(fromWebSessionID, held);
+      openHeldStream(fromWebSessionID, held);
+    },
+    settled() {
+      // Given back by a stop during the start: the tab has it, and its streams are its own.
+      if (bridgeSessions.get(toWebSessionID) !== held) return;
+      lootMemory.releaseClaims(fromWebSessionID);
+      for (const stream of tabStreams) {
+        if (!held.streamSubscribers.delete(stream)) continue;
+        writeSseFrame(stream, { source: "evejs-web-bff", type: "stream-status", state: "ended", detail: "session_released" });
+        try { stream.end(); } catch { /* The response is already gone. */ }
+      }
+    },
+  };
+}
+
 function makeHeldCharacter(account, characterID, outcome) {
   return {
+    selectedAs: outcome.session,
     bridgeSessionID: outcome.bridgeSessionID,
     characterID: Number(outcome.session.characterID) || characterID,
     accountID: Number(account.accountID),
@@ -1829,6 +1879,26 @@ function makeHeldCharacter(account, characterID, outcome) {
     droneRecoveryReady: false,
     droneRecoveryCheckID: randomUUID(),
     recoveryDroneIDs: new Set(),
+  };
+}
+
+function selectedCharacterAnswer(characterID, session) {
+  return {
+    characterID: Number(session.characterID) || characterID,
+    characterName: String(session.characterName || ""),
+    stationID: session.stationID === undefined ? null : session.stationID,
+    structureID: session.structureID === undefined ? null : session.structureID,
+    solarSystemID: session.solarSystemID === undefined ? null : session.solarSystemID,
+    corporationID: session.corporationID === undefined ? null : session.corporationID,
+    // The alliance and the corporation roles, as the client's session holds them, where the transport says
+    // them (the game port does; the gateway does not, and the page holds none).
+    allianceID: session.allianceID === undefined ? null : session.allianceID,
+    corpRole: typeof session.corpRole === "string" && /^\d+$/.test(session.corpRole) ? session.corpRole : null,
+    // session.role, the session's own roles (a GM's among them), where the transport says them: the game port
+    // does.
+    role: typeof session.role === "string" && /^\d+$/.test(session.role) ? session.role : null,
+    corpAccountKey: Number.isSafeInteger(session.corpAccountKey) ? session.corpAccountKey : null,
+    raceID: Number.isSafeInteger(session.raceID) ? session.raceID : null,
   };
 }
 
@@ -1894,6 +1964,22 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
     if (sessionOperations.has(req.webSessionID) ||
         (existingReservation && !ownOperationHandoff)) {
       res.status(409).json({ ok: false, error: "CHARACTER_IN_USE", message: "This pilot is changing sessions. Try again shortly." });
+      return;
+    }
+    // The run's own select of a pilot its tab handed over: the session is here, and selecting again would disconnect it.
+    if (hostedSelection && previousHeld?.handedOverTo && previousHeld.handedOverTo.claimSecret === hostedSecret && Number(previousHeld.characterID) === characterID) {
+      // (The session keeps the last station while in space, and a select in space names none.)
+      const stationID = previousHeld.handedOverTo.docked ? previousHeld.stationID : null;
+      const structureID = previousHeld.handedOverTo.docked ? previousHeld.structureID : null;
+      delete previousHeld.handedOverTo;
+      res.json({
+        ok: true,
+        character: selectedCharacterAnswer(characterID, { ...previousHeld.selectedAs, stationID, structureID,
+          solarSystemID: previousHeld.solarSystemID, corporationID: previousHeld.corporationID }),
+        station: buildStationStatic(stationID),
+        notifications: [],
+        droneRecoveryCheckID: previousHeld.droneRecoveryCheckID,
+      });
       return;
     }
     // A tab can reload after select but before its recovery check is ACKed.
@@ -1967,37 +2053,7 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
     }
     res.json({
       ok: true,
-      character: {
-        characterID: Number(outcome.session.characterID) || characterID,
-        characterName: String(outcome.session.characterName || ""),
-        stationID: outcome.session.stationID === undefined
-          ? null
-          : outcome.session.stationID,
-        structureID: outcome.session.structureID === undefined
-          ? null
-          : outcome.session.structureID,
-        solarSystemID: outcome.session.solarSystemID === undefined
-          ? null
-          : outcome.session.solarSystemID,
-        corporationID: outcome.session.corporationID === undefined
-          ? null
-          : outcome.session.corporationID,
-        // The alliance and the corporation roles, as the client's session holds them, where the transport says
-        // them (the game port does; the gateway does not, and the page holds none).
-        allianceID: outcome.session.allianceID === undefined
-          ? null
-          : outcome.session.allianceID,
-        corpRole: typeof outcome.session.corpRole === "string" && /^\d+$/.test(outcome.session.corpRole)
-          ? outcome.session.corpRole
-          : null,
-        // session.role, the session's own roles (a GM's among them), where the transport says them: the game port
-        // does.
-        role: typeof outcome.session.role === "string" && /^\d+$/.test(outcome.session.role)
-          ? outcome.session.role
-          : null,
-        corpAccountKey: Number.isSafeInteger(outcome.session.corpAccountKey) ? outcome.session.corpAccountKey : null,
-        raceID: Number.isSafeInteger(outcome.session.raceID) ? outcome.session.raceID : null,
-      },
+      character: selectedCharacterAnswer(characterID, outcome.session),
       station: buildStationStatic(outcome.session.stationID),
       notifications: outcome.notifications,
       droneRecoveryCheckID: bridgeSessions.get(req.webSessionID)?.droneRecoveryCheckID ?? null,
@@ -2055,11 +2111,7 @@ const SHIP_BIND_GROUP_STATION = 5;
 function requireHeldBridgeSession(req, res) {
   const held = bridgeSessions.get(req.webSessionID) || null;
   if (!held) {
-    res.status(409).json({
-      ok: false,
-      error: "NO_LIVE_SESSION",
-      message: "No character is online; select a character first.",
-    });
+    res.status(409).json({ ok: false, ...whyNoHeldPilot(req.webSessionID) });
     return null;
   }
   assertHeldRequestGeneration(req, held);
@@ -2085,7 +2137,7 @@ function assertHeldRequestGeneration(req, held) {
 function assertCurrentHeldSession(held, webSessionID) {
   if (bridgeSessions.get(webSessionID) !== held) {
     throw Object.assign(new Error("The pilot session changed before this call."),
-      { code: "NO_LIVE_SESSION", statusCode: 409 });
+      { code: bridgeSessions.has(webSessionID) ? "NO_LIVE_SESSION" : whyNoHeldPilot(webSessionID).error, statusCode: 409 });
   }
   if (held.selectionReleaseUnverified)
     throw Object.assign(new Error("The prior selection's session release is unconfirmed. Retry its logout first."),
@@ -8865,12 +8917,12 @@ app.get("/api/dockable-structures/:id/services", requireAuth, async (req, res, n
 // `runtime.readChat`/`sendChat` and `gatewayServices/webChatGatewayService.js`,
 // and marked every browser-backed session as having left Local
 // (`session._localChatDeparted = true`). The reads began answering 404 on every
-// companion tick and every chat-ordered behaviour went silently dead.
+// bot tick and every chat-ordered behaviour went silently dead.
 //
 // They are now served by an XMPP client (`src/evejsXmppChat.js`) speaking to the
 // same stub server the retail client speaks to, joined as the held character.
 // The response envelope is unchanged, so `web/src/bridge/chat.ts`, the Chat
-// panel and the fleet companion's order rung all read exactly what they read
+// panel and any bot that takes chat orders all read exactly what they read
 // before.
 //
 // Two honest differences from the backlog-store era:
@@ -8969,7 +9021,7 @@ function chatUnavailable(res) {
  * `to='corp_…'` stanzas about a hundred milliseconds after the bind), and a
  * character who is online but in no room is a pilot nobody in the system can
  * see or talk to. Worse for this project's own purpose: nothing read chat until
- * a companion was actually RUNNING, so an idle-but-online companion could not
+ * a bot was actually RUNNING, so an idle-but-online pilot could not
  * even be addressed.
  *
  * ⚠ NEVER FAILS THE CALLER. A chat server that is down must not stop a
@@ -16606,14 +16658,13 @@ app.post("/api/mining-operations/member/drain-complete", requireAuth, (req, res,
 
 // ── Server-side bots (src/botHost.js) ───────────────────────────────────────
 // A bot the SERVER flies: it keeps running when the tab that started it goes
-// away. Start names a saved Bot Builder script, OR (kind: "companion") carries
-// a fleet companion's own typed request — the host runs either on a session of
+// away. Start names a saved Bot Builder script, OR (kind: "plugin") a plugin's run
+// with its setup — the host runs either on a session of
 // its own. Everything is account-scoped through requireAuth, same as the
 // script library above.
 const BOT_START_STATUS = {
   BOTSCRIPT_INVALID: 400,
   BOTSCRIPT_REVISION_REQUIRED: 400,
-  BOTCOMPANION_INVALID: 400,
   BOT_GRANT_REQUIRED: 400,
   BOT_GRANT_INVALID: 400,
   BOT_GRANT_STALE: 409,
@@ -17016,7 +17067,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
     // Absent = "script", matching botHost's own default for an unmarked
     // request — the same compatibility rule a persisted roster row with no
     // `kind` field gets on resume.
-    const kind = body.kind === "companion" || body.kind === "plugin" ? body.kind : "script";
+    const kind = body.kind === "plugin" ? "plugin" : "script";
     if (!Number.isSafeInteger(characterID) || characterID <= 0) {
       res.status(400).json({ ok: false, error: "INVALID_CHARACTER", message: "A positive characterID is required." });
       return;
@@ -17047,9 +17098,6 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
         return;
       }
     }
-    // A companion has no library entry to look up here — its "record" is the
-    // request in the body, and botHost.start() is the one place that decodes
-    // and trusts it (decodeFleetCompanionRequestValue).
 
     if (hasPendingRecovery(bridgeSessions.get(req.webSessionID), characterID)) {
       res.status(409).json({ ok: false, error: "DRONE_RECOVERY_PENDING",
@@ -17070,6 +17118,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
     sessionOperations.set(req.webSessionID, reservation);
     let releasedCaller = false;
     let transferred = false;
+    let handedOver = null;
     try {
       const assertReservation = () => {
         if (characterOperations.get(characterID) !== reservation || sessionOperations.get(req.webSessionID) !== reservation)
@@ -17112,6 +17161,11 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
           }
         }
         assertReservation();
+        if (owner?.webSessionID) {
+          transferReservation(owner);
+          handedOver = handHeldSessionToHost(req.webSessionID, owner.webSessionID, owner.claimSecret, status?.flight?.docked === true);
+          return { giveBack: () => handedOver.giveBack() };
+        }
         await releaseHeldBridgeSession(req.webSessionID, { confirmed: true });
         releasedCaller = true;
         assertReservation();
@@ -17126,17 +17180,6 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
             pluginID: String(body.pluginID || ""),
             pluginRun: String(body.run || ""),
             request: body.setup ?? null,
-            grant: body.grant,
-            callerSessionID: req.webSessionID,
-            probeReservation: reservation,
-            beforeStart,
-          })
-          : kind === "companion"
-          ? await botHost.start({
-            account: req.account,
-            characterID,
-            kind: "companion",
-            request: body.request,
             grant: body.grant,
             callerSessionID: req.webSessionID,
             probeReservation: reservation,
@@ -17186,6 +17229,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
         res.status(BOT_START_STATUS[outcome.code] || 500).json({ ok: false, error: outcome.code, message });
         return;
       }
+      handedOver?.settled();
       res.json({ ok: true, bot: outcome.bot });
     } finally {
       if (characterOperations.get(characterID) === reservation) characterOperations.delete(characterID);

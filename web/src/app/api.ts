@@ -51,11 +51,6 @@ import type {
 import type { NameRef } from "../store/names.ts";
 import { pyIntDictOrder } from "../bridge/pyDict.ts";
 import type { BotLaunchGrant, BotRiskClass, PluginRunPolicy } from "../bots/runPolicy.ts";
-import {
-  type CompanionSetup,
-  type CompanionOrderAuthority,
-  type FleetCompanionRequest,
-} from "../nav/fleetCompanionLoop.ts";
 import type {
   ScannerOperationsSnapshot,
   ScannerProbeOperation,
@@ -2989,46 +2984,6 @@ export async function deleteIndustryPlan(planID: string, options: ApiOptions = {
 // script on a character, watch its readout, stop it. Account-scoped like the
 // script library above.
 
-/**
- * What a running fleet companion is DOING, as the Bot Manager badge shows it.
- *
- * ⚠ THIS EXISTS BECAUSE A HEADLESS COMPANION HAS NO STORE TO READ. A companion
- * running in a tab reports through that tab's `companion` slice; one running on
- * the bot host has no session here at all, so without these five fields its row
- * can say only "running" and the player cannot tell a pilot obeying its fleet
- * from one sitting in an empty one.
- *
- * Null on this type means "not reported", NEVER "no" -- see `canTag`.
- */
-export interface ServerBotCompanion {
-  /** Whether the pilot is in a fleet at all. Null while the roster is unread. */
-  readonly inFleet: boolean | null;
-  /** Which authority its last decision came from. Null before it decided one. */
-  readonly followingOrderFrom: CompanionOrderAuthority | null;
-  readonly lastOrderHeard: string | null;
-  /** `targets called|all`. Null when not reported. */
-  readonly targetMode: "called" | "all" | null;
-  /**
-   * Whether this pilot's tag write would land.
-   *
-   * ⚠ THREE STATES, AND FLATTENING THEM IS THE BUG. The server drops a
-   * non-commander's tag write while answering ok, so `false` (the write would
-   * be dropped) and `null` (the roster has not been read) are different facts,
-   * and a row that showed both as "no" would state a confident falsehood on
-   * every tick before the first roster read.
-   */
-  readonly canTag: boolean | null;
-  /**
-   * What was missing or unusable about this pilot's fit when it started.
-   *
-   * ⚠ ADVISORY, AND THIS IS THEIR ONLY ROUTE TO A PLAYER ON A HEADLESS RUN.
-   * Nothing here refused the start: a human loads the missing thing or ignores
-   * it and flies. Empty means nothing worth saying, which is also what an
-   * unreadable fit produces.
-   */
-  readonly fitWarnings: readonly string[];
-}
-
 export interface ServerBot {
   readonly botID: string;
   readonly characterID: number;
@@ -3059,24 +3014,14 @@ export interface ServerBot {
   /**
    * What this run IS, as against what it is doing.
    *
-   * ⚠ THE HOST HAS ALWAYS SENT THIS AND THIS TYPE ALWAYS DROPPED IT.
-   * `publicBot()` in src/botHost.js has carried `kind` since the companion
-   * first ran headless; `asServerBot` never decoded it, so the browser could
-   * not tell a companion run from a script run except by the convention that
-   * `scriptID` happens to be the literal "companion".
+   * ⚠ THE HOST SENDS THIS AND THIS TYPE ONCE DROPPED IT.
+   * `publicBot()` in src/botHost.js carries `kind`; `asServerBot` did not
+   * decode it, so the browser could not tell a plugin's run from a script run
+   * except by a convention on `scriptID`.
    */
-  readonly kind: "companion" | "plugin" | "script";
+  readonly kind: "plugin" | "script";
   /** The plugin flying a run of kind "plugin", which run it is, and what it last said of it; null for any other run. */
   readonly plugin?: { readonly pluginID: string; readonly run: string; readonly readout: JsonValue } | null;
-  /**
-   * The companion badge's facts, or null.
-   *
-   * ⚠ NULL MEANS TWO DIFFERENT THINGS AND `kind` SEPARATES THEM: on a script
-   * run it means "not a companion at all"; on a companion run it means "this
-   * companion has not pushed progress yet". Reading this alone would merge the
-   * two.
-   */
-  readonly companion: ServerBotCompanion | null;
 }
 
 function asServerBot(value: JsonValue): ServerBot {
@@ -3105,60 +3050,13 @@ function asServerBot(value: JsonValue): ServerBot {
     endedAt: typeof row.endedAt === "string" ? row.endedAt : null,
     resumedAt: typeof row.resumedAt === "string" ? row.resumedAt : null,
     lastAlert: asLastAlert(row.lastAlert),
-    // Anything that is not the companion literal is a script, matching the
+    // Anything that is not a plugin run is a script, matching the
     // host's own default for a roster row written before `kind` existed.
-    kind: row.kind === "companion" || row.kind === "plugin" ? row.kind : "script",
+    kind: row.kind === "plugin" ? row.kind : "script",
     plugin: row.kind === "plugin" && row.plugin !== null && typeof row.plugin === "object" && !Array.isArray(row.plugin)
       ? { pluginID: String((row.plugin as Record<string, JsonValue>).pluginID ?? ""), run: String((row.plugin as Record<string, JsonValue>).run ?? ""), readout: (row.plugin as Record<string, JsonValue>).readout ?? null }
       : null,
-    companion: asServerBotCompanion(row.companion),
   };
-}
-
-/**
- * One companion's badge facts off the wire.
- *
- * ⚠ EVERY FIELD FAILS TO NULL, NEVER TO A CONFIDENT VALUE. A field this decoder
- * cannot read is one the badge must report as "not known" -- the alternative is
- * a row that says "not in a fleet" because a key was missing.
- */
-function asServerBotCompanion(value: JsonValue | undefined): ServerBotCompanion | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const row = value as Record<string, JsonValue>;
-  return {
-    inFleet: typeof row.inFleet === "boolean" ? row.inFleet : null,
-    followingOrderFrom: asCompanionOrderAuthority(row.followingOrderFrom),
-    lastOrderHeard: typeof row.lastOrderHeard === "string" ? row.lastOrderHeard : null,
-    targetMode: row.targetMode === "called" || row.targetMode === "all" ? row.targetMode : null,
-    canTag: typeof row.canTag === "boolean" ? row.canTag : null,
-    fitWarnings: Array.isArray(row.fitWarnings)
-      ? row.fitWarnings.filter((line): line is string => typeof line === "string")
-      : [],
-  };
-}
-
-/**
- * An authority we actually know, or null.
- *
- * ⚠ CHECKED AGAINST A LIST, NOT `typeof === "string"`. The readout turns this
- * into a phrase with a `switch`, and an unrecognised value would fall through
- * that switch to "nothing yet" -- reporting a pilot as taking no orders at the
- * precise moment it started taking them from something this build cannot name.
- * Null says the same thing honestly and does it here, once.
- */
-function asCompanionOrderAuthority(value: JsonValue | undefined): CompanionOrderAuthority | null {
-  return value === "broadcast" ||
-    value === "tag" ||
-    value === "chat" ||
-    // ⚠ `squad-board` USED TO BE ACCEPTED HERE AND IS NOT ANY MORE. Nothing in
-    // the companion ever emitted it -- it was a settings checkbox no decision
-    // rung read -- so a row carrying it is a row from an older build, and null
-    // ("not reported") is the honest reading of it.
-    value === "own-ladder"
-    ? value
-    : null;
 }
 
 /** Decode a bot's last alert; a malformed or absent one reads as no alert. */
@@ -3176,7 +3074,7 @@ function asLastAlert(value: JsonValue | undefined): { message: string; atMs: num
 
 /**
  * The bot rosters several of the page's windows poll at once: the hangar's and the landing's markers every five
- * seconds (GET /api/bots/active), the Bot Manager's, the Companions' and the server list's rosters every three
+ * seconds (GET /api/bots/active), the Bot Manager's, the plugins' windows' and the server list's rosters every three
  * (GET /api/bots, each account's own). Measured with the four windows open on the hangar page: 38 rosters and 6
  * marker reads in 30 seconds, of the same few answers. Here one asking per roster, account and BFF is shared:
  * whoever asks while it is on its way, or within ROSTER_SHARE_MS of its asking, is given the same answer. A start or
@@ -3320,39 +3218,6 @@ export async function startPluginRun(
   const data = await postJson(
     "/api/bots/start",
     { characterID, kind: "plugin", pluginID, run, setup, grant: grant as unknown as JsonValue },
-    options,
-  ).finally(() => rosterReads.clear());
-  return asServerBot(data.bot ?? null);
-}
-
-/**
- * The companion sibling of `startServerBot` — same route, same shape, same
- * grant handling; only what is being launched differs. A companion request
- * has no script library entry to name by id, so this carries the flat
- * request itself in place of a `scriptID`, and `kind: "companion"` tells
- * `/api/bots/start` (src/server.js) which branch to take. `botHost.start()`
- * (src/botHost.js) is the one place that decodes and trusts it.
- */
-export async function startServerCompanion(
-  characterID: number,
-  // ⚠ A SETUP, NOT A REQUEST. What is sent over the wire and persisted in the
-  // BFF's roster is only what an operator saved; the eight module lists are
-  // filled in by the HOST, from the hull the pilot turns out to be sitting in,
-  // because a squad start has nobody to ask and a list saved earlier would be
-  // stale the moment that pilot refits.
-  request: CompanionSetup,
-  grant: BotLaunchGrant,
-  options: ApiOptions = {},
-): Promise<ServerBot> {
-  rosterReads.clear();
-  const data = await postJson(
-    "/api/bots/start",
-    {
-      characterID,
-      kind: "companion",
-      request: request as unknown as JsonValue,
-      grant: grant as unknown as JsonValue,
-    },
     options,
   ).finally(() => rosterReads.clear());
   return asServerBot(data.bot ?? null);

@@ -8,7 +8,7 @@
 // be running — not "what did script X do", which could be three pilots at once.
 //
 // WHY THREE. The question is nearly always "what happened in the run that just
-// ended", and occasionally "the one before, which was fine". The companion's
+// ended", and occasionally "the one before, which was fine". An
 // auto-restart begins a NEW run, so with only two files one restart erased the
 // run that preceded it; a third keeps the run before the restart readable. More
 // than that earns nothing and a directory that grows forever earns less than

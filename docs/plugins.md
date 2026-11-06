@@ -1,12 +1,13 @@
 # Plugins
 
 The web client is the game's own windows plus the bot builder. Everything else
-(PI Manager, Industry Manager, Companions, MCC, Provisioning Center, and
+(PI Manager, Fleet companions, Industry Manager, MCC, Provisioning Center, and
 whatever comes next) is meant to be a **plugin**: a folder under `plugins/`
 that adds to the client and never edits core.
 
 The PI Manager (`plugins/pi-manager`) is the first plugin and the worked
-example for everything below.
+example for most of what is below. Fleet companions (`plugins/fleet-companion`)
+are the worked example for a run that flies, a loop in a tab, and the Pilot Hangar.
 
 ## Rules
 
@@ -48,6 +49,7 @@ web/src/plugin-api/
   backend.ts            the backend's side of the channel
   deciderProcess.ts     the process for a plugin with blocks and no backend
   pilotSession.ts       a pilot's session in a plugin's process, for a run
+  flying.ts             what a plugin's own loop flies a pilot with
 web/src/plugins/pluginHost.ts   loads plugins into the page (and the BFF's bot code)
 src/pluginHost.js               runs plugin backends, each in its own process
 ```
@@ -151,7 +153,8 @@ cuts a name that outruns its row in the same way, at the row's width.
 
 - Its id is `plugin:<plugin id>` or `plugin:<plugin id>.<name>`.
 - Its view is a Svelte component given `{ sessions, onOpen, onGoToPilot }`
-  (`GlobalWindowProps`); never a pilot's store or flow.
+  (`GlobalWindowProps`). Each session carries that pilot's `store` and `flow`, so a plugin
+  in the page acts as the pilots signed in there, with all a player's rights.
 - Its glyph is SVG path data in a 24x24 box, stroked, like the Neocom's.
 
 ### A bot builder block
@@ -264,6 +267,11 @@ In the page, `checkPluginRun` asks the plugin what a setup means and what it ris
 | Core | Claims the pilot, so a tab cannot take it. Selects it, holds its token and logs it off. Keeps the run on the roster and brings it back after a restart of the BFF. Ends it at its run limit, and on Stop brings the drones home. |
 | The plugin | Says what a setup means and what it risks. Flies the pilot. Says what it is doing (`report`). |
 
+**A pilot a tab holds is handed over, not signed in again.** Its session moves to the run and
+nothing tells the game server, which would otherwise take the pilot out of its fleet. If the
+start is refused, the session goes back and the tab carries on. A pilot no tab holds is signed
+in for the run, so it starts in no fleet.
+
 **The token and the claim stay with core.** A run's `fetch` sends each request over
 the plugin's channel, and core adds them on its side. A run may ask only the BFF's own
 API, only core selects a pilot or ends its session, and a run cannot start or stop a bot.
@@ -272,6 +280,10 @@ API, only core selects a pilot or ends its session, and a run cannot start or st
 holds, because a select takes the pilot out of its fleet. It loads all of the flow,
 about 170 MB, which is why it is a module of its own. A backend that flies nothing
 never pays for it.
+
+**A run that cannot begin rejects from `start`,** with words for a player: whoever pressed the
+button is told them. A `report` is for a run that has begun, so an `error` sent during `start`
+ends the row, while the button still says it started.
 
 **`report`** says what the run is doing. Sending `stopped`, `idle` or `error` ends the
 run, and core logs the pilot off where it is. `readout` is carried for the plugin's
@@ -287,6 +299,252 @@ after a restart, up to 64 KB, so send it only when it changes.
   or if `restartSafe` is false, core stops waiting: every loop stopped, drones in, dock
   at the nearest station, log off, and the Bot Manager says why. It does not wait for
   the plugin host to give up, which takes over a minute.
+
+### Flying a pilot
+
+A run's loop flies with what core's own bots fly with: `session.flow.flying` for what
+needs the pilot's session, and `web/src/plugin-api/flying.ts` for the pure reads,
+decoders and rules. `flying.ts` is a module of its own because a plugin that flies
+nothing has no use for it. A block needs none of this: see `blocks.ts`.
+
+```ts
+runs: {
+  trade: {
+    check(setup) { /* ... */ },
+    async start(run) {
+      const { flow } = await createPilotSession(run);
+      let flying = true;
+
+      // Not awaited: `start` answers within 30 s, and the loop goes on after it.
+      const loop = (async () => {
+        let hold = null;
+        try {
+          // Take the ship first. `stop` is called if something else takes it.
+          hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+          if (!(await flow.flying.readFit())) throw new Error("The ship's fit could not be read.");
+          while (flying) {
+            const status = decodeFlightStatus((await getFlightStatus(flow.requestOptions())).flight);
+            // Something may have stopped this during that read.
+            if (flying && status.docked) await flow.flying.orderedStep((now) => undock(flow.flying.bridgeDo, now, true));
+            await flow.flying.sleepUntilPush(2_000);
+          }
+        } catch (error) {
+          if (flying) run.report({ status: "error", why: String(error) });
+        } finally {
+          hold?.release();
+          // The session's live stream, or it goes on trying to reconnect for as long as this process lives.
+          flow.setLivePush(false);
+        }
+      })();
+
+      // Core calls this for a player's Stop, and when the run ends.
+      return { async stop() { flying = false; await loop; } };
+    },
+  },
+},
+```
+
+- **`stop` on the handle is what ends a run.** Core stops a run through the handle `start`
+  returns, and has 5 s to wait for it. The hold's `stop` covers what happens to the flow:
+  in a run that is rarely anything, because only your loop flies that flow.
+- **Never let the loop's promise reject.** In a process nothing catches it, so it takes the
+  process down and every run of your plugin with it. In a page it puts up the client-wide
+  error overlay. A read fails for ordinary reasons, and a
+  run being stopped gets `PLUGIN_RUN_ENDED` from every read: decide what each means, and
+  report `stopped` or `error` when the run ends itself, or the row goes on saying it is
+  running. The sketch above gives up on the first failure, which a real loop would not.
+- **`holdShip(owner, name, stop)`** takes `plugin:<plugin id>` as the owner. `name` is shown
+  in the page while a loop running there holds the ship; for a run, the Bot Manager shows
+  the name `check` gave. No other bot flies while a plugin holds the ship, though a player can still start a route by
+  hand. It holds it until
+  `stop` is called or it calls `release`. `stop` is called when anything else takes the ship, a
+  player stops it from the Bot Manager, a panic recall pulls it home, or the session closes or
+  is lost. However a hold ends, whatever route the autopilot is flying ends with it, and one
+  `startRoute` is still planning does not start. `stop` may not take the
+  ship itself, and what it throws or rejects with is logged and goes no further. `holdShip` refuses with no
+  pilot online, while the last controller's Stop is settling, while drone recovery is still
+  checking a pilot in the page, and while the session closes.
+- **`readFit()` comes before the module lists** (`resolveDefenseModuleIDs`,
+  `resolveRemoteRepModuleIDs`, `resolveSalvageModuleIDs`). Attaching reads no fit, and until
+  `readFit` has run they are empty. It answers `false` if the fit's modules could not be
+  read or told apart, and then the lists may be short because nobody knows. It rejects if the
+  request for the fit itself failed, so call it inside your `try`. `loadFitting` in `flying.ts` is the
+  plain request and fills no store. Call `readFit` again after a refit.
+- **`warmFitFacts(fit)`** reads, and waits for, everything the `resolve...` calls read about a
+  fit, for a loop that read the fit itself instead of calling `readFit`.
+- **`hostDrivenCharacterIDs()`** says who the host flies with a bot, or null if it says nothing,
+  for a loop telling the account's bots from a person flying beside them.
+- **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push
+  cannot end a sleep sooner than about a third of a second after it began. `onPush(listener)`
+  is what it is built on, and is called for a fleet broadcast, a fleet target tag, this
+  ship's lock landing and a jam starting. It says only that something arrived; the store has
+  what. A fleet fight pushes many of these, so a loop that looks on each one floods the server.
+  `announcePush()` wakes the same listeners, for a loop that has noticed something of its own.
+- **A write throws the server's refusal,** because a loop has to see one to decide on
+  it. The flow's panel methods, by contrast, catch a refusal and say it in a panel.
+- **Compare `sessionGeneration()` across an await** before acting on what came back,
+  because the session may have closed in between. It does not change for a session that
+  was lost: the next read throws instead.
+- **Routes are the pilot's.** `createPilotSession` gives the flow the route settings
+  core's session for the run had when it began. A change the pilot makes later reaches
+  the run only after a restart of the BFF.
+
+**What a loop keeps about a pilot** goes in `store.pluginState("plugin:<plugin id>",
+initial)`, a signal. The same key gives the same signal, a second name goes after a dot
+(`plugin:<plugin id>.<name>`), and it goes back to `initial` when the pilot goes offline
+the account signs out, or a pilot is chosen on that store, so never change `initial` in
+place. Core reads none of it. It
+belongs to one store, and a run's store is in your backend's process. So a window cannot
+see a run's state: send what a window shows as `readout`. What must survive a restart of
+your process goes in `resumeData`.
+
+**What a loop did** goes in the pilot's flight recorder, the same log core's bots write
+(`data/bot-logs/<characterID>.jsonl`). `flow.flying.log.write(line)` batches and sends
+it, and can never stop the loop. Some things to know:
+
+- Give each run an id from `newRunID`, and write one line of kind `start` when it first
+  starts, not when it comes back (`run.resumed`). A `start` line rotates the log, and only
+  three runs are kept.
+- `action` is your own, as plain data with a `kind`, and `trace` is anything you want kept
+  about a decision, which you read back yourself. Keep both plain and small: a line that
+  cannot be sent as JSON, or a batch over 64 KB, loses the whole batch, up to 500 lines.
+- `readBotLog` gives back one file of the pilot's log, the lines since the last `start`
+  from anyone unless you ask for an older one, along with `trimmed` and `unreadable`
+  markers. Tell your lines by their `run`.
+- `stop()` has 5 s and is your last chance to write. Write the `end` line there and `await
+  flow.flying.log.flush()`. It is called on a Stop, and also after you end the run yourself
+  with a report. While a run is being stopped, writing to the recorder is the one thing it
+  can still do.
+- `stop()` is not called if your process has died, and lines not yet sent die with it, so a
+  crashed or recalled run has no `end` line. A pilot that went offline has no session left
+  to write with, so those lines are lost as well.
+
+### A loop in a tab
+
+A plugin can fly a pilot from the page as well, on a pilot signed in there. The server
+is not involved, so the loop ends when the tab closes.
+
+Nothing more is needed than a session from your window's `sessions`. A plugin's modules
+stay loaded for as long as the page does, so a loop outlives the window that started it.
+Keep what you start in a module of your own rather than in a component.
+
+Write the flying once, on a `store` and `flow`, and it can run both ways. Keep the hold and
+the end of the session outside it, because those are what differ:
+
+```ts
+// lib/fly.ts: only the `while`. Never rejects: it says what went wrong and returns.
+export async function fly(store: ClientStore, flow: AppFlow, flying: () => boolean, say: (why: string) => void) {
+  try {
+    if (!(await flow.flying.readFit())) throw new Error("The ship's fit could not be read.");
+    while (flying()) { /* look, decide, act, sleepUntilPush */ }
+  } catch (error) {
+    if (flying()) say(String(error));
+  }
+}
+
+// In a run, from `start`:
+const { store, flow } = await createPilotSession(run);
+let flying = true;
+const hold = flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+const loop = fly(store, flow, () => flying, (why) => { flying = false; run.report({ status: "error", why }); })
+  // If `fly` finished its job by itself, say so, or the row goes on saying it is running.
+  .then(() => { if (flying) run.report({ status: "stopped" }); })
+  .finally(() => { hold.release(); flow.setLivePush(false); });
+return { async stop() { flying = false; await loop; } };
+
+// In a tab, from a window's button. `holdShip` can refuse: say so, and do not start.
+let flying = true;
+const hold = session.flow.flying.holdShip("plugin:my-plugin", "My plugin", () => { flying = false; });
+void fly(session.store, session.flow, () => flying, showInMyWindow).finally(() => hold.release());
+```
+
+What differs in a tab:
+
+| | A run | A tab |
+|---|---|---|
+| Who starts it | `startPluginRun` and a launch approval | your own code, on a player's click |
+| A player's Stop | The Bot Manager calls the handle's `stop` | The Bot Manager calls the hold's `stop` |
+| The hold's `stop` | Rarely called | **How your loop is stopped**, so it must end the loop |
+| Its name in the page | From `check` | From `holdShip` |
+| What a window sees | `readout` | `store.pluginState`, directly |
+| A restart | Your process comes back, with `resumeData` | Closing or reloading the tab ends the run. Come back from your own saved state if you want to |
+| The live stream | Yours to close (`setLivePush(false)`) | The page's. **Do not close it** |
+| The session | Core's | The player's. **Do not release it** when your loop ends |
+
+`holdShip` refuses until drone recovery has checked a pilot that has just signed in, so a
+start can be told to wait. If that check failed it stays refused until someone retries,
+with `flow.retryDroneRecovery()` or the Retry on that pilot's notice, so say what it said
+rather than waiting for ever. Ask `store.bots.get().runningBotID` whether a pilot is already
+flying something before you offer a Start, and remember that taking the ship stops it.
+
+Be careful with sessions a player is looking at. A background pilot has no live stream
+(only the pilot on screen does), so it learns of pushes from the answers to your own
+reads, and `sleepUntilPush` wakes on those.
+
+### In the Pilot Hangar
+
+A plugin's views can add two things to the Hangar, and each is drawn inside an error
+boundary:
+
+```ts
+export default definePluginViews({
+  id: "my-plugin",
+  windows: { /* ... */ },
+  squadControl: MySquadButton,    // on each squad, beside its launch button
+  squadMemberSetting: MyTick,     // under a pilot, in the squad menu, for each squad it is in
+});
+```
+
+A squad control (`SquadControlProps`) is given the squad, its `memberIDs`, and what it needs
+to act on pilots whether or not they are signed in here: `optionsFor`, `accountNameFor`,
+`pilotNameFor` and `onHandedOver`. `say(lines)` shows lines under the squads, and
+`say(null)` clears them. Those lines are one place per plugin, not per squad: what one squad's
+control says replaces what another's said, and they stay when Manage hides the controls. Call
+`onChanged()` after starting something on the server. A member setting
+(`SquadMemberSettingProps`) is given the squad and the `characterID`.
+
+`onHangarPrefsSaved(listener)` is called as the arrangement changes, with the new one. If you
+keep settings per squad member, drop those of a pilot no longer in the squad there, or a pilot
+put back into a squad silently gets what it had. It only hears the Hangar in this tab, so check
+them against `loadHangarPrefs()` when your plugin loads as well.
+
+**The count on your launcher** needs nothing from you. It shows how many pilots your plugin
+holds the ship of in this tab (`holdShip`), and nothing at nought. A pilot a run is flying
+on the server is not counted, as it is held in your backend's process and not in this tab.
+
+### Settings
+
+What a player sets in this browser goes in `pluginSetting`, from the plugin API. It is a
+signal, and what is set on it is saved:
+
+```ts
+export const flies = pluginSetting("plugin:my-plugin.flies", {
+  initial: {} as Record<string, number[]>,
+  // Saved bytes are untrusted: undefined means they mean nothing, and `initial` is used.
+  decode: (raw) => (isFliesMap(raw) ? raw : undefined),
+});
+```
+
+The same key gives the same signal. It lasts in this browser only, and a window, a squad
+control and a member setting in the same tab all see it change; another tab reads it when
+it next loads, and the last write wins. To make it survive across browsers, or reach a run on
+the server, keep it in your backend or pass it in a run's setup.
+
+### Moving a feature out of core
+
+- **A setting the Hangar kept.** `formerly: () => formerHangarSetting("field")` on a
+  `pluginSetting` reads it once, while you have nothing saved, and saves it as yours. Call
+  `pluginSetting` at the top of a module, so it runs before the Hangar is drawn. The Hangar
+  keeps fields it no longer knows, so a browser with your plugin switched off loses nothing.
+- **Saved bots of a kind core flew.** `formerBotKinds: { "old-kind": "my-run" }` in the
+  manifest brings them back after a restart as that run, which needs your plugin to have a
+  backend. `run.resumeData` is then `{ formerRow }`, the saved row as it was, until you report
+  a `resumeData` of your own. `check` reads the row's `request` as usual. What it says the setup
+  risks must match what was approved, or the run is not resumed and the row ends with an error
+  saying so, as any bot's does. `script` and `plugin` cannot be taken over, and if two plugins
+  name one kind, the first in `plugins/index.ts` gets it.
+- **Blocks.** `formerly` on a block; see [A bot builder block](#a-bot-builder-block).
+- **What core kept in the database.** `adopt`; see [State and cleanup](#state-and-cleanup).
 
 ## Isolation
 

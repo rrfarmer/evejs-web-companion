@@ -4,7 +4,7 @@ import { createBotLogBuffer } from "./botLogBuffer.ts";
 export function createBotLogWriter<T extends { readonly kind: string }>(
   send: (lines: readonly T[], batchID: string) => Promise<void>,
   options: { readonly schedule?: (callback: () => void) => () => void } = {},
-): { write(line: T): void; flush(): Promise<void> } {
+): { write(line: T): void; flush(): Promise<void>; drain(): Promise<void> } {
   const buffer = createBotLogBuffer<T>();
   const schedule = options.schedule ?? ((callback: () => void) => {
     const timer = setTimeout(callback, 3000);
@@ -58,5 +58,10 @@ export function createBotLogWriter<T extends { readonly kind: string }>(
       else scheduleFlush();
     },
     flush,
+    // `flush` waits only for the delivery in flight, leaving what was written since for the timer. A run that is
+    // ending has no later: every batch is either delivered or dropped after its retry, so this always finishes.
+    async drain() {
+      while (delivery !== null || buffer.size > 0) await flush();
+    },
   };
 }

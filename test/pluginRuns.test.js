@@ -52,18 +52,30 @@ startBackend({
         if (setup?.bad === true) return { ok: false, refusal: "That setup is bad." };
         if (setup?.noPolicy === true) return { ok: true, name: "Probe run", setup: {} };
         return { ok: true, name: "Probe run", setup: { n: Number(setup?.n ?? 1), restartSafe: setup?.restartSafe !== false, endItself: setup?.endItself === true,
-          ...(setup?.quietAfterRestart === true ? { quietAfterRestart: true } : {}), ...(setup?.slowStart === true ? { slowStart: true } : {}) },
+          ...(setup?.quietAfterRestart === true ? { quietAfterRestart: true } : {}), ...(setup?.slowStart === true ? { slowStart: true } : {}), ...(setup?.endTwice === true ? { endTwice: true } : {}) },
           policy: { riskClasses: ["combat"], restartSafe: setup?.restartSafe !== false } };
       },
       async start(run) {
         flying = run;
-        heard("started.json", { botID: run.botID, resumed: run.resumed, resumeData: run.resumeData, held: run.held, setup: run.setup });
+        heard("started.json", { botID: run.botID, resumed: run.resumed, resumeData: run.resumeData, held: run.held, setup: run.setup, routeSettings: run.routeSettings });
         if (run.setup.slowStart) await new Promise((resolve) => setTimeout(resolve, 500));
         if (run.resumed && run.setup.quietAfterRestart) return { stop() {} };
         const status = await run.fetch("/api/bridge/flight/status");
         run.report({ status: "running", phase: "Probing", why: "Asked " + status.status, readout: { asked: status.status }, resumeData: { lap: run.setup.n } });
         if (run.setup.endItself) run.report({ status: "stopped", why: "Done by itself." });
-        return { stop() { heard("stopped.json", { botID: run.botID }); } };
+        if (run.setup.endTwice) {
+          run.report({ status: "stopped", why: "The first reason." });
+          run.report({ status: "error", why: "A later word." });
+        }
+        return { async stop() {
+          const logged = await run.fetch("/api/bots/bot-log", { method: "POST", body: "{}" });
+          const anySpelling = await run.fetch("/api/Bots/Bot-Log/", { method: "POST", body: "{}" });
+          const flown = await run.fetch("/api/bridge/flight/status");
+          const read = await run.fetch("/api/bots/bot-log");
+          const otherBotRoute = await run.fetch("/api/bots/squad-board", { method: "POST", body: "{}" });
+          heard("stopped.json", { botID: run.botID, logged: logged.status, anySpelling: anySpelling.status,
+            flown: flown.status, read: read.status, otherBotRoute: otherBotRoute.status });
+        } };
       },
     },
   },
@@ -116,6 +128,7 @@ async function makeStack(log) {
       return {
         async selectCharacter(id) { log.push(["select", id]); state.station.online = { characterID: id, characterName: "Stand-in" }; state.flight.status = { docked: false }; },
         heldPilot: () => HELD,
+        autopilotSettings: () => ({ pfRouteType: "shortest" }),
         async loadFlightStatus() {},
         async loadSpaceSnapshot() {},
         async loadMiningHolds() {},
@@ -161,7 +174,7 @@ async function makeFixture(t, extra = {}) {
     plugins = createPluginHost({
       rootDir: root,
       dataDir: path.join(root, "data"),
-      manifests: [{ id: "probe", backend: "backend.ts" }],
+      manifests: [{ id: "probe", backend: "backend.ts", formerBotKinds: { "old-probe": "probe" } }],
       pingMs: 150,
       requestTimeoutMs: 2_000,
       backoffMs: [50],
@@ -204,6 +217,7 @@ test("a run is a bot like any other: claimed, listed, and flown from the plugin'
   assert.equal(heard.resumed, false);
   assert.deepEqual(heard.setup, { n: 4, restartSafe: true, endItself: false });
   assert.deepEqual(heard.held, HELD);
+  assert.deepEqual(heard.routeSettings, { pfRouteType: "shortest" });
   await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
 });
 
@@ -255,6 +269,16 @@ test("⚠ a run may not choose another pilot, end its session, or leave the BFF'
   const { body } = await f.request("POST", "/ask", { url: "/api/bots/active", method: "GET" });
   assert.equal(body.status, 200);
   await f.bots.stop(f.row().botID, ACCOUNT.accountID);
+});
+
+test("the flight recorder's route is a run's to use", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun();
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  for (const method of ["POST", "GET"]) {
+    const asked = await f.request("POST", "/ask", { url: "/api/bots/bot-log", method });
+    assert.equal(asked.body.status, 200, method);
+  }
 });
 
 test("a Request given to a run's fetch goes as what it says", async (t) => {
@@ -345,7 +369,11 @@ test("Stop ends the plugin's loop before core brings the drones home and logs of
   assert.ok(await until(() => f.row().phase === "Probing"));
   const stopped = await f.bots.stop(started.bot.botID, ACCOUNT.accountID);
   assert.equal(stopped.ok, true);
-  assert.deepEqual((await f.heard("stopped")).botID, started.bot.botID);
+  const told = await f.heard("stopped");
+  assert.deepEqual(told.botID, started.bot.botID);
+  assert.equal(told.logged, 200, "a run being stopped can still write how it ended");
+  assert.equal(told.anySpelling, 200, "the router ignores case and a trailing slash");
+  assert.deepEqual([told.flown, told.read, told.otherBotRoute], [409, 409, 409], "and can do nothing else");
   assert.deepEqual(f.log.map(([name]) => name), ["select", "prepareHostedBotStop", "logout"]);
   assert.equal(f.bots.claimedBy(CHARACTER), null);
   const after = await f.request("POST", "/ask", { url: "/api/bridge/flight/status" });
@@ -355,9 +383,18 @@ test("Stop ends the plugin's loop before core brings the drones home and logs of
 test("a run that reaches its end by itself is released", async (t) => {
   const f = await makeFixture(t);
   await f.startRun({ endItself: true });
-  assert.ok(await until(() => f.log.some(([name]) => name === "logout")));
+  const askedAtLogout = await new Promise((resolve) => {
+    const look = setInterval(() => {
+      if (!f.log.some(([name]) => name === "logout")) return;
+      clearInterval(look);
+      resolve(f.asked.filter((request) => request.url.endsWith("/api/bots/bot-log")).length);
+    }, 1);
+  });
+  assert.ok(askedAtLogout > 0, "a run's last words come before its logoff");
   assert.ok(await until(() => f.bots.claimedBy(CHARACTER) === null));
   assert.equal(f.row().why, "Done by itself.");
+  assert.equal((await f.heard("stopped")).logged, 200);
+  assert.ok(f.asked.some((request) => request.url.endsWith("/api/bots/bot-log")), "its last words arrived before the logoff was asked for");
 });
 
 for (const [how, route] of [["killed", "/crash"], ["hung", "/hang"]]) {
@@ -371,6 +408,7 @@ for (const [how, route] of [["killed", "/crash"], ["hung", "/hang"]]) {
     const heard = await f.heard("started");
     assert.equal(heard.botID, started.bot.botID);
     assert.deepEqual(heard.resumeData, { lap: 9 });
+    assert.deepEqual(heard.routeSettings, { pfRouteType: "shortest" }, "a run that comes back still plans as its pilot does");
     assert.ok(await until(() => f.row().status === "running"));
     assert.equal(f.bots.claimedBy(CHARACTER), started.bot.botID);
     // No second select: it would drop the pilot from its fleet. And no recall.
@@ -415,6 +453,103 @@ test("⚠ a run the plugin says may not be restarted is recalled at once, not st
   assert.ok(await until(() => f.log.some(([name]) => name === "logout")));
   assert.match(f.row().why, /cannot be restarted safely/);
   assert.equal((await f.heard("started")).resumed, false);
+});
+
+test("a bot saved under a kind core used to fly comes back as the plugin's run, with its saved row", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const oldRow = { ...saved.bots[0], kind: "old-probe", scriptRev: 7, scriptHash: "a".repeat(64), abandonment: { since: 5 } };
+  delete oldRow.pluginID;
+  delete oldRow.pluginRun;
+  delete oldRow.resumeData;
+
+  const next = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(next.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [oldRow] }));
+  await next.resume();
+  const back = next.list(ACCOUNT.accountID)[0];
+  assert.equal(back?.kind, "plugin", JSON.stringify(back));
+  assert.equal(back.plugin.pluginID, "probe");
+  assert.ok(await until(async () => (await f.heard("started")).resumed === true));
+  const heard = await f.heard("started");
+  assert.equal(heard.resumeData.formerRow.kind, "old-probe");
+  assert.deepEqual(heard.resumeData.formerRow.abandonment, { since: 5 });
+  assert.deepEqual(heard.setup, { n: 2, restartSafe: true, endItself: false });
+  await next.stop(back.botID, ACCOUNT.accountID);
+});
+
+test("the first end of a run stands: a later report does not change why it ended", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ endTwice: true });
+  assert.ok(await until(() => f.row().why === "The first reason."));
+  assert.ok(await until(() => f.bots.claimedBy(CHARACTER) === null));
+  assert.equal(f.row().status, "stopped");
+  assert.equal(f.row().why, "The first reason.");
+});
+
+test("a saved bot whose kind no plugin has taken over is reported, not flown", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => f.row().phase === "Probing"));
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const next = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(next.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [{ ...saved.bots[0], kind: "nobody-flies-this" }] }));
+  await next.resume();
+  const reported = next.list(ACCOUNT.accountID)[0];
+  assert.equal(reported.status, "error");
+  assert.match(reported.why, /plugin that flew it is not running/);
+});
+
+test("a saved bot taken over by a plugin stays taken over through a second restart", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const oldRow = { ...saved.bots[0], kind: "old-probe", scriptRev: 7, scriptHash: "a".repeat(64) };
+  delete oldRow.pluginID;
+  delete oldRow.pluginRun;
+  delete oldRow.resumeData;
+  const second = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(second.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [oldRow] }));
+  await second.resume();
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.kind === "plugin"), "it is saved as the plugin's now");
+  const third = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(third.pluginRunEvents);
+  await third.resume();
+  const back = third.list(ACCOUNT.accountID)[0];
+  assert.equal(back.kind, "plugin");
+  assert.ok(await until(() => third.list(ACCOUNT.accountID)[0]?.status === "running"));
+  await third.stop(back.botID, ACCOUNT.accountID);
+});
+
+test("a saved bot whose approved risks no longer match what the plugin says is ended, and says why", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const oldRow = { ...saved.bots[0], kind: "old-probe", scriptRev: 7, scriptHash: "a".repeat(64), riskClasses: [] };
+  const next = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(next.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [oldRow] }));
+  await next.resume();
+  const row = next.list(ACCOUNT.accountID)[0];
+  assert.equal(row.status, "error");
+  assert.match(row.why, /permissions changed/);
 });
 
 test("a restart of the BFF brings the run back, checked again, with what the plugin asked to keep", async (t) => {

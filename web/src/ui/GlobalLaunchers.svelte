@@ -1,7 +1,7 @@
 <script lang="ts">
   // THE DOORS ONTO THE GLOBAL WINDOWS, beside the brand.
   //
-  // The Bot Manager, Fleet companions and the plugins' windows are each about
+  // The Bot Manager and the plugins' windows are each about
   // EVERY pilot, not the one on screen (globalWindow.ts). So their doors sit in
   // the one piece of chrome that is not about a pilot either: the brand strip,
   // which the Pilot Hangar and the character bar both carry. The same three
@@ -16,7 +16,7 @@
   //
   // ⚠ THE GLYPH IS NEVER THE ONLY LABEL (neocomIcons.ts states the rule). The
   // word rides with it wherever there is room, and `aria-label` carries it —
-  // and the companions count in words — when a narrow bar drops the text.
+  // and a plugin's pilot count in words — when a narrow bar drops the text.
   import { NEOCOM_GLYPHS, neocomGlyph } from "./neocomIcons.ts";
   import { coreStripLaunchers, pluginWindowGroups } from "./globalWindow.ts";
   import { pluginLaunchers } from "./pluginPins.ts";
@@ -27,17 +27,10 @@
 
   let {
     openIds,
-    companionCount = 0,
     onOpen,
   }: {
     /** The global windows open right now (put away counts as open). */
     openIds: ReadonlySet<TabID>;
-    /**
-     * How many pilots are flying as companions. Shown as a count on the
-     * Companions button, and absent at zero — a badge reading "0" is a badge
-     * that has to be read before it can be dismissed.
-     */
-    companionCount?: number;
     onOpen: (id: TabID) => void;
   } = $props();
 
@@ -61,14 +54,13 @@
   </a>
   {#each coreStripLaunchers() as launcher (launcher.id)}
     {@const open = openIds.has(launcher.id)}
-    {@const count = launcher.id === "companion" ? companionCount : 0}
     <button
       type="button"
       class="global-launch"
       class:open
       data-launch={launcher.id}
       aria-pressed={open}
-      aria-label={count > 0 ? `${launcher.title} — ${count} flying` : launcher.title}
+      aria-label={launcher.title}
       title={launcher.hint}
       onclick={() => onOpen(launcher.id)}
     >
@@ -78,9 +70,6 @@
         {/each}
       </svg>
       <span class="global-launch-text">{launcher.label}</span>
-      {#if count > 0}
-        <span class="global-launch-count" aria-hidden="true">{count}</span>
-      {/if}
     </button>
   {/each}
   <a
