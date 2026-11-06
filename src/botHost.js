@@ -1517,8 +1517,10 @@ function createBotHost(options) {
       const online = store.station.get().online;
       record.characterName = online ? online.characterName : null;
       if (record.operationPreparation) await prepareOperationRecord(record);
-      if (record.operationPreparation && (record.finalized || record.manualStopRequested || record.operationStopRequested))
+      if (record.operationPreparation && (record.finalized || record.manualStopRequested || record.operationStopRequested)) {
+        record.giveBackSession = null;
         return { ok: true, bot: publicBot(record) };
+      }
 
       // The readout is store-driven exactly like the in-tab panel: project the
       // customBot slice onto the record, and treat the loop

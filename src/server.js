@@ -1808,13 +1808,15 @@ async function restoreHeldCaller(webSessionID, account, characterID, reservation
  * pilot out of its fleet (and end a fleet of one): the run's select finds the session already here.
  * The tab's streams stay until the start is settled, so a refused start hands everything back unnoticed.
  */
-function handHeldSessionToHost(fromWebSessionID, toWebSessionID, claimSecret) {
+function handHeldSessionToHost(fromWebSessionID, toWebSessionID, claimSecret, docked) {
   const held = bridgeSessions.get(fromWebSessionID);
   const tabStreams = new Set(held.streamSubscribers);
+  // The game's stream retries under the web session that opened it. The run's own subscription opens it again here.
+  closeHeldStream(held);
   bridgeSessions.delete(fromWebSessionID);
   bridgeSessions.set(toWebSessionID, held);
   held.botClaimSecret = claimSecret;
-  held.handedOverTo = claimSecret;
+  held.handedOverTo = { claimSecret, docked };
   held.droneRecoveryReady = true;
   return {
     giveBack() {
@@ -1827,9 +1829,13 @@ function handHeldSessionToHost(fromWebSessionID, toWebSessionID, claimSecret) {
       }
       delete held.botClaimSecret;
       delete held.handedOverTo;
+      closeHeldStream(held);
       bridgeSessions.set(fromWebSessionID, held);
+      openHeldStream(fromWebSessionID, held);
     },
     settled() {
+      // Given back by a stop during the start: the tab has it, and its streams are its own.
+      if (bridgeSessions.get(toWebSessionID) !== held) return;
       lootMemory.releaseClaims(fromWebSessionID);
       for (const stream of tabStreams) {
         if (!held.streamSubscribers.delete(stream)) continue;
@@ -1955,13 +1961,16 @@ app.post("/api/bridge/select", requireAuth, async (req, res, next) => {
       return;
     }
     // The run's own select of a pilot its tab handed over: the session is here, and selecting again would disconnect it.
-    if (hostedSelection && previousHeld?.handedOverTo === hostedSecret && Number(previousHeld.characterID) === characterID) {
+    if (hostedSelection && previousHeld?.handedOverTo?.claimSecret === hostedSecret && Number(previousHeld.characterID) === characterID) {
+      // (The session keeps the last station while in space, and a select in space names none.)
+      const stationID = previousHeld.handedOverTo.docked ? previousHeld.stationID : null;
+      const structureID = previousHeld.handedOverTo.docked ? previousHeld.structureID : null;
       delete previousHeld.handedOverTo;
       res.json({
         ok: true,
-        character: selectedCharacterAnswer(characterID, { ...previousHeld.selectedAs, stationID: previousHeld.stationID,
-          structureID: previousHeld.structureID, solarSystemID: previousHeld.solarSystemID, corporationID: previousHeld.corporationID }),
-        station: buildStationStatic(previousHeld.stationID),
+        character: selectedCharacterAnswer(characterID, { ...previousHeld.selectedAs, stationID, structureID,
+          solarSystemID: previousHeld.solarSystemID, corporationID: previousHeld.corporationID }),
+        station: buildStationStatic(stationID),
         notifications: [],
         droneRecoveryCheckID: previousHeld.droneRecoveryCheckID,
       });
@@ -17153,7 +17162,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
         assertReservation();
         if (owner?.webSessionID) {
           transferReservation(owner);
-          handedOver = handHeldSessionToHost(req.webSessionID, owner.webSessionID, owner.claimSecret);
+          handedOver = handHeldSessionToHost(req.webSessionID, owner.webSessionID, owner.claimSecret, status?.flight?.docked === true);
           return { giveBack: () => handedOver.giveBack() };
         }
         await releaseHeldBridgeSession(req.webSessionID, { confirmed: true });
