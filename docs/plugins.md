@@ -490,7 +490,8 @@ control says replaces what another's said, and they stay when Manage hides the c
 
 `onHangarPrefsSaved(listener)` is called as the arrangement changes, with the new one. If you
 keep settings per squad member, drop those of a pilot no longer in the squad there, or a pilot
-put back into a squad silently gets what it had.
+put back into a squad silently gets what it had. It only hears the Hangar in this tab, so check
+them against `loadHangarPrefs()` when your plugin loads as well.
 
 **The count on your launcher** needs nothing from you. It shows how many pilots your plugin
 holds the ship of in this tab (`holdShip`), and nothing at nought. A pilot a run is flying

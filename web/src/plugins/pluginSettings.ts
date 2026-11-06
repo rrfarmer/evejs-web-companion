@@ -70,7 +70,7 @@ export function pluginSetting<T>(key: `plugin:${string}`, options: PluginSetting
       former = undefined;
     }
     value = former === undefined || former === null ? undefined : decoded(options, former);
-    // Written now, so that it is read once: core may drop its own copy on its next save.
+    // Written now, so that it is read once, and what is set from here on is what holds.
     if (value !== undefined) save(storageKey, value);
   }
   const signal = createSignal<T>(value === undefined ? options.initial : value);
