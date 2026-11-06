@@ -606,3 +606,28 @@ test("App hands the hangar the roster's tokens, not the tab's", async () => {
   assert.match(mount[0], /optionsFor=/, "the hangar is mounted without per-pilot tokens");
   assert.match(mount[0], /onHandedOver=/, "the tab would not let go of a handed-over hull");
 });
+
+// A slot that is not drawn, or a name its row forgot to import, only shows when it is drawn.
+const WING = { id: "squad-1", name: "Wing", color: "#52d9a3" };
+
+test("a plugin's member setting is drawn under a pilot in a squad it is in, and only there", async () => {
+  const { registerHangarViews } = await import("./pluginHangarViews.ts");
+  const fixture = (await import("./pluginSlotFixture.test-util.svelte")).default;
+  registerHangarViews("trader", { squadMemberSetting: fixture as never });
+  const open = { manage: true, squadMenuOpen: true, squads: [WING] };
+  const pilot = { characterID: 90000001, name: "Ore Farmer", accountName: "Test Account", shipName: "Venture", locationName: "Jita",
+    skillPoints: 1, balance: 1, training: "", online: false, pinned: false };
+  const inSquad = renderRow({ ...open, pilot: { ...pilot, squads: [WING] } });
+  assert.match(inSquad, /plugin-slot-fixture[^>]*>90000001</);
+  assert.doesNotMatch(renderRow({ ...open, pilot: { ...pilot, squads: [] } }), /plugin-slot-fixture/);
+});
+
+test("a plugin's squad control is drawn on each squad, given its members", async () => {
+  const { registerHangarViews } = await import("./pluginHangarViews.ts");
+  const fixture = (await import("./pluginSlotFixture.test-util.svelte")).default;
+  registerHangarViews("trader", { squadControl: fixture as never });
+  setHangarPrefsStorage(storage({
+    [PREFS_KEY]: JSON.stringify({ squads: [WING], members: { [WING.id]: [90000001] }, pinnedSquads: [WING.id] }),
+  }));
+  assert.match(renderHangar(), /plugin-slot-fixture[^>]*>\[90000001\]</);
+});

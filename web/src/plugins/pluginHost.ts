@@ -56,6 +56,10 @@ export function pluginProblem(manifest: PluginManifest, views: PluginViews | nul
     windowsSeen.add(window.id);
     if (views !== null && views.windows[window.id] === undefined) return `The window "${window.id}" has nothing to draw.`;
   }
+  // These two are how core tells its own saved bots apart: a plugin taking one would take every one.
+  for (const kind of Object.keys(manifest.formerBotKinds ?? {})) {
+    if (kind === "script" || kind === "plugin") return `A plugin cannot take over saved bots of the kind "${kind}".`;
+  }
   const blocksSeen = new Set<string>();
   const formerSeen = new Set<string>();
   for (const macro of manifest.macros ?? []) {

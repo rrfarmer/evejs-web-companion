@@ -160,7 +160,7 @@ export type { ActiveServerBot, ApiOptions, ServerBot } from "../app/api.ts";
 export { readCorpStock } from "../app/corpStockRead.ts";
 export type { BotPilot, CorpItemFilter, OnlinePilot } from "../app/corpStockRead.ts";
 export type { AppFlow } from "../app/flow.ts";
-export { loadHangarPrefs } from "../app/hangarPrefs.ts";
+export { loadHangarPrefs, onHangarPrefsSaved } from "../app/hangarPrefs.ts";
 export { loadKnownCharacters } from "../app/knownCharacters.ts";
 export type { KnownCharacter } from "../app/knownCharacters.ts";
 export type { Session } from "../app/sessions.ts";

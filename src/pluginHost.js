@@ -496,7 +496,8 @@ function createPluginHost(options = {}) {
   function formerBotKind(kind) {
     for (const manifest of knownManifests) {
       const run = manifest.formerBotKinds?.[kind];
-      if (typeof run === "string") return { pluginID: manifest.id, run };
+      // Only one that is here to fly it: a plugin that failed to load has no backend.
+      if (typeof run === "string" && backends.has(manifest.id)) return { pluginID: manifest.id, run };
     }
     return null;
   }

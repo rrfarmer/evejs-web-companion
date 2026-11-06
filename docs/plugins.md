@@ -483,8 +483,14 @@ export default definePluginViews({
 A squad control (`SquadControlProps`) is given the squad, its `memberIDs`, and what it needs
 to act on pilots whether or not they are signed in here: `optionsFor`, `accountNameFor`,
 `pilotNameFor` and `onHandedOver`. `say(lines)` shows lines under the squads, and
-`say(null)` clears them. Call `onChanged()` after starting something on the server. A member
-setting (`SquadMemberSettingProps`) is given the squad and the `characterID`.
+`say(null)` clears them. Those lines are one place per plugin, not per squad: what one squad's
+control says replaces what another's said, and they stay when Manage hides the controls. Call
+`onChanged()` after starting something on the server. A member setting
+(`SquadMemberSettingProps`) is given the squad and the `characterID`.
+
+`onHangarPrefsSaved(listener)` is called as the arrangement changes, with the new one. If you
+keep settings per squad member, drop those of a pilot no longer in the squad there, or a pilot
+put back into a squad silently gets what it had.
 
 **The count on your launcher** needs nothing from you. It shows how many pilots your plugin
 holds the ship of in this tab (`holdShip`), and nothing at nought. A pilot a run is flying
@@ -504,17 +510,23 @@ export const flies = pluginSetting("plugin:my-plugin.flies", {
 ```
 
 The same key gives the same signal. It lasts in this browser only, and a window, a squad
-control and a member setting all see it change. To make it survive across browsers, or
-reach a run on the server, keep it in your backend or pass it in a run's setup.
+control and a member setting in the same tab all see it change; another tab reads it when
+it next loads, and the last write wins. To make it survive across browsers, or reach a run on
+the server, keep it in your backend or pass it in a run's setup.
 
 ### Moving a feature out of core
 
 - **A setting the Hangar kept.** `formerly: () => formerHangarSetting("field")` on a
-  `pluginSetting` reads it once, while you have nothing saved, and saves it as yours.
+  `pluginSetting` reads it once, while you have nothing saved, and saves it as yours. Call
+  `pluginSetting` at the top of a module, so it runs before the Hangar is drawn. The Hangar
+  keeps fields it no longer knows, so a browser with your plugin switched off loses nothing.
 - **Saved bots of a kind core flew.** `formerBotKinds: { "old-kind": "my-run" }` in the
-  manifest brings them back after a restart as that run, and `run.resumeData` is then
-  `{ formerRow }`, the saved row as it was. `check` reads the row's `request` as usual. What
-  it says the setup risks must match what was approved, or the run is not resumed.
+  manifest brings them back after a restart as that run, which needs your plugin to have a
+  backend. `run.resumeData` is then `{ formerRow }`, the saved row as it was, until you report
+  a `resumeData` of your own. `check` reads the row's `request` as usual. What it says the setup
+  risks must match what was approved, or the run is not resumed and the row ends with an error
+  saying so, as any bot's does. `script` and `plugin` cannot be taken over, and if two plugins
+  name one kind, the first in `plugins/index.ts` gets it.
 - **Blocks.** `formerly` on a block; see [A bot builder block](#a-bot-builder-block).
 - **What core kept in the database.** `adopt`; see [State and cleanup](#state-and-cleanup).
 

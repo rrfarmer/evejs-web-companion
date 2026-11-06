@@ -9,7 +9,7 @@ const HANGAR_PREFS_KEY = "evejs-web-hangar-prefs:v1";
 export interface PluginSettingsOptions<T> {
   /** What the setting is before anything was saved, and if what was saved cannot be read. */
   readonly initial: T;
-  /** Saved bytes are untrusted: answer what they mean, or undefined if they mean nothing. */
+  /** Saved bytes are untrusted: answer what they mean, or undefined if they mean nothing. A throw counts as nothing. */
   readonly decode: (raw: unknown) => T | undefined;
   /** What this setting was called before it was yours: read once, while nothing of yours is saved. */
   readonly formerly?: () => unknown;
@@ -41,6 +41,14 @@ function save(key: string, value: unknown): void {
   }
 }
 
+function decoded<T>(options: PluginSettingsOptions<T>, raw: unknown): T | undefined {
+  try {
+    return options.decode(raw);
+  } catch {
+    return undefined;
+  }
+}
+
 const settings = new Map<string, WritableSignal<unknown>>();
 
 /**
@@ -53,7 +61,7 @@ export function pluginSetting<T>(key: `plugin:${string}`, options: PluginSetting
   if (held !== undefined) return held as WritableSignal<T>;
   const storageKey = `${PREFIX}${key}`;
   const stored = saved(storageKey);
-  let value = stored === null ? undefined : options.decode(stored.raw);
+  let value = stored === null ? undefined : decoded(options, stored.raw);
   if (stored === null && options.formerly !== undefined) {
     let former: unknown;
     try {
@@ -61,11 +69,11 @@ export function pluginSetting<T>(key: `plugin:${string}`, options: PluginSetting
     } catch {
       former = undefined;
     }
-    value = former === undefined || former === null ? undefined : options.decode(former);
+    value = former === undefined || former === null ? undefined : decoded(options, former);
     // Written now, so that it is read once: core may drop its own copy on its next save.
     if (value !== undefined) save(storageKey, value);
   }
-  const signal = createSignal<T>(value ?? options.initial);
+  const signal = createSignal<T>(value === undefined ? options.initial : value);
   const kept: WritableSignal<T> = {
     ...signal,
     set(next) {

@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { formerHangarSetting, pluginSetting, resetPluginSettingsForTests } from "./pluginSettings.ts";
+import { loadHangarPrefs, onHangarPrefsSaved, saveHangarPrefs, setHangarPrefsStorage } from "../app/hangarPrefs.ts";
 import { countPluginPilots, pluginIDOf } from "../ui/pluginPilotCounts.ts";
 import { pluginMemberSettings, pluginSquadControls, registerHangarViews, type SquadControlView, type SquadMemberSettingView } from "../ui/pluginHangarViews.ts";
 
@@ -81,6 +82,53 @@ test("a former setting that is absent, unreadable or throws gives the initial an
     assert.equal(pluginSetting("plugin:trader", { initial: 1, decode: numberOrNothing, formerly }).get(), 1);
     assert.equal(held.has(KEY), false);
   }
+});
+
+test("a null that was saved stays null, where nothing saved gives the initial", () => {
+  memoryStorage();
+  const nullable = () => pluginSetting<string | null>("plugin:trader", {
+    initial: "a",
+    decode: (raw) => (raw === null || typeof raw === "string" ? raw : undefined),
+  });
+  assert.equal(nullable().get(), "a");
+  nullable().set(null);
+  resetPluginSettingsForTests();
+  assert.equal(nullable().get(), null);
+});
+
+test("a decode that throws counts as bytes that mean nothing, saved or former", () => {
+  const throwing = { initial: 1, decode: (raw: unknown) => (raw as number[]).map(Number)[0] };
+  memoryStorage({ [KEY]: "5" });
+  assert.equal(pluginSetting("plugin:trader", throwing).get(), 1);
+  memoryStorage();
+  assert.equal(pluginSetting("plugin:trader", { ...throwing, formerly: () => 5 }).get(), 1);
+});
+
+test("the Hangar keeps a field it does not know when it saves, for a plugin yet to take it over", () => {
+  const held = memoryStorage();
+  setHangarPrefsStorage(globalThis.localStorage as never);
+  held.set("evejs-web-hangar-prefs:v1", JSON.stringify({ squads: [], members: {}, oldField: { kept: true } }));
+  saveHangarPrefs({ ...loadHangarPrefs(), pinnedPilots: [90000001] });
+  const after = JSON.parse(held.get("evejs-web-hangar-prefs:v1")!);
+  assert.deepEqual(after.oldField, { kept: true });
+  assert.deepEqual(after.pinnedPilots, [90000001]);
+  assert.deepEqual(formerHangarSetting("oldField"), { kept: true });
+});
+
+test("a listener hears each arrangement saved, and a throwing one goes no further", () => {
+  memoryStorage();
+  setHangarPrefsStorage(globalThis.localStorage as never);
+  const heard: (readonly number[])[] = [];
+  const realError = console.error;
+  console.error = () => {};
+  const stopThrowing = onHangarPrefsSaved(() => { throw new Error("boom"); });
+  const stop = onHangarPrefsSaved((prefs) => heard.push(prefs.pinnedPilots));
+  saveHangarPrefs({ ...loadHangarPrefs(), pinnedPilots: [7] });
+  console.error = realError;
+  stop();
+  stopThrowing();
+  saveHangarPrefs({ ...loadHangarPrefs(), pinnedPilots: [8] });
+  assert.deepEqual(heard, [[7]]);
 });
 
 test("the launcher's count is pilots per plugin, from what holds each ship", () => {

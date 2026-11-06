@@ -31,6 +31,7 @@
   import HangarPilotRow from "./HangarPilotRow.svelte";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { pluginSquadControls } from "./pluginHangarViews.ts";
+  import { untrack } from "svelte";
   import HangarLoginDialog from "./HangarLoginDialog.svelte";
   import HangarAddCharacter from "./HangarAddCharacter.svelte";
   import HangarSquadEditor from "./HangarSquadEditor.svelte";
@@ -502,7 +503,8 @@
   // What a plugin's squad control has to say, under the squads (pluginHangarViews.ts).
   let pluginSquadLines = $state.raw<ReadonlyMap<string, readonly string[]>>(new Map());
   function sayForPlugin(pluginID: string, lines: readonly string[] | null): void {
-    const next = new Map(pluginSquadLines);
+    // Untracked: a control may say this from an effect, which must not then depend on what it writes.
+    const next = new Map(untrack(() => pluginSquadLines));
     if (lines === null) next.delete(pluginID);
     else next.set(pluginID, lines);
     pluginSquadLines = next;
@@ -842,7 +844,8 @@
 
     {#each [...pluginSquadLines] as [pluginID, lines] (pluginID)}
       <div class="hangar-squadstart">
-        {#each lines as line (line)}
+        <!-- No key: a plugin may well say the same line twice, and a repeated key throws. -->
+        {#each lines as line}
           <p class="note">{line}</p>
         {/each}
       </div>

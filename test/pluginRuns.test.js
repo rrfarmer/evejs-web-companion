@@ -491,7 +491,52 @@ test("a saved bot whose kind no plugin has taken over is reported, not flown", a
   await f.startPlugins(next.pluginRunEvents);
   fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [{ ...saved.bots[0], kind: "nobody-flies-this" }] }));
   await next.resume();
-  assert.equal(next.list(ACCOUNT.accountID).some((row) => row.status === "running"), false);
+  const reported = next.list(ACCOUNT.accountID)[0];
+  assert.equal(reported.status, "error");
+  assert.match(reported.why, /no longer exists/);
+});
+
+test("a saved bot taken over by a plugin stays taken over through a second restart", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const oldRow = { ...saved.bots[0], kind: "old-probe", scriptRev: 7, scriptHash: "a".repeat(64) };
+  delete oldRow.pluginID;
+  delete oldRow.pluginRun;
+  delete oldRow.resumeData;
+  const second = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(second.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [oldRow] }));
+  await second.resume();
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.kind === "plugin"), "it is saved as the plugin's now");
+  const third = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(third.pluginRunEvents);
+  await third.resume();
+  const back = third.list(ACCOUNT.accountID)[0];
+  assert.equal(back.kind, "plugin");
+  assert.ok(await until(() => third.list(ACCOUNT.accountID)[0]?.status === "running"));
+  await third.stop(back.botID, ACCOUNT.accountID);
+});
+
+test("a saved bot whose approved risks no longer match what the plugin says is ended, and says why", async (t) => {
+  const f = await makeFixture(t);
+  await f.startRun({ n: 2 });
+  const file = path.join(f.root, "data", "server-bots.json");
+  assert.ok(await until(() => JSON.parse(fs.readFileSync(file, "utf8")).bots[0]?.resumeData?.lap === 2));
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const oldRow = { ...saved.bots[0], kind: "old-probe", scriptRev: 7, scriptHash: "a".repeat(64), riskClasses: [] };
+  const next = createBotHost(f.hostOptions);
+  f.plugins().stop();
+  await f.startPlugins(next.pluginRunEvents);
+  fs.writeFileSync(file, JSON.stringify({ ...saved, bots: [oldRow] }));
+  await next.resume();
+  const row = next.list(ACCOUNT.accountID)[0];
+  assert.equal(row.status, "error");
+  assert.match(row.why, /permissions changed/);
 });
 
 test("a restart of the BFF brings the run back, checked again, with what the plugin asked to keep", async (t) => {
