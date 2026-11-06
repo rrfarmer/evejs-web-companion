@@ -41,18 +41,13 @@ test("no subject, no typeID", () => {
  *
  * Anything NOT on this list must stay launchable.
  */
-// ⚠ `companion` IS IN HERE BECAUSE IT HAS A DOOR OF ITS OWN, not because it is
-// contextual. Fleet companions is a GLOBAL window about every pilot at once,
-// opened from the button beside the brand in the character bar rather than from
-// a per-pilot rail; globalWindow.test.ts pins that door so this exemption can
-// never quietly become an unreachable panel.
-// The Bot Manager, Planetary Industry and the Industry Manager are out for the
-// same reason: global windows open from the brand strip (GlobalLaunchers.svelte).
+// The Bot Manager, Planetary Industry and the Industry Manager are out because
+// they are global windows that open from the brand strip (GlobalLaunchers.svelte).
 // The Mining Command Center is out too, and is not a window at all: its door is a
 // link from that strip to the standalone '/mining-command-center' page,
 // pinned by miningOperationsPanel.test.ts.
 // CorpDecorations.CreateDecorationForm50 opens the contextual picker window.
-const NOT_IN_THE_RAIL = new Set(["botBuilder", "bots", "companion", "botManager", "pluginManager", "industryManager", "miningOperations", "medalDesigner"]);
+const NOT_IN_THE_RAIL = new Set(["botBuilder", "bots", "botManager", "pluginManager", "industryManager", "miningOperations", "medalDesigner"]);
 
 test("every OTHER tab is still launchable", () => {
   // ⚠ `launchable` is absent on every pre-existing tab and absent means yes. A

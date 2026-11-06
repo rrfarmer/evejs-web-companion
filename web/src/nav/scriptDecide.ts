@@ -515,7 +515,7 @@ const SETTLE_TICKS_BY_KIND: Partial<Record<ScriptAction["kind"], number>> = {
 
   // STANDING SERVER-SIDE ORDERS, NOT ONE-SHOT COMMANDS. `approach` is
   // CmdSetSpeedFraction + CmdFollowBall (see scriptMacros ~3859), `keepAtRange`
-  // is CmdFollowBall with a non-zero range (see fleetCompanionLoop ~1051),
+  // is CmdFollowBall with a non-zero range,
   // `orbit` is CmdOrbit and `align` is CmdAlignTo. The ship goes on obeying with
   // nothing further sent, so re-issuing at an UNCHANGED target and range is
   // wasteful-but-safe: the worst case is one bridge call spent on an order
@@ -644,8 +644,8 @@ const SETTLE_TICKS_BY_KIND: Partial<Record<ScriptAction["kind"], number>> = {
 //
 // ⚠ `warp` IS THE ONE WHERE THE OBVIOUS SYMMETRY IS WRONG. Every other movement
 // action in the 0 bucket is a standing order the server keeps re-reading; a warp
-// is not. It is not idempotent — fleetCompanionLoop around 1500, on that loop's
-// own `lastWarpedToID`, puts it plainly: re-sending it while the ship is already
+// is not. It is not idempotent — one loop that tracks its own last warp target
+// puts it plainly: re-sending it while the ship is already
 // on its way is "at worst a second warp the moment the first lands". And unlike
 // every other movement action, SEVERAL OF THE DECIDERS THAT EMIT IT CARRY NO
 // MEMORY GUARD WHATSOEVER: `travelToBelt` (scriptMacros ~577) and the pinned

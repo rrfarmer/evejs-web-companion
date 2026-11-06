@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { createAppFlow } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
 import type { BotScript } from "../bots/botScript.ts";
-import { DEFAULT_COMPANION_SETUP } from "../nav/fleetCompanionLoop.ts";
 import { SHIP_ID, SOLAR_SYSTEM_ID, fittingBody, flightBody, holdsBody, namesBody, spaceBody } from "./botFixtures.ts";
 
 const combat: BotScript = {
@@ -12,7 +11,7 @@ const combat: BotScript = {
   program: [{ id: "fight", kind: "macro", macro: "fight-with-drones", args: {} }],
 };
 
-for (const replacement of ["mining", "mission", "companion"] as const) {
+for (const replacement of ["mining", "mission"] as const) {
   test(`starting ${replacement} retains the combat controller until its owned work settles`, { timeout: 5000 }, async context => {
     context.mock.timers.enable({ apis: ["setTimeout"] });
     const store = createClientStore();
@@ -62,9 +61,8 @@ for (const replacement of ["mining", "mission", "companion"] as const) {
       assert.ok(mutations.some(path => /targets\/lock|^beyonce\.CmdFollowBall$/.test(path)), "combat acquired a lock or movement order");
       const replace = replacement === "mining" ? () => flow.startMiningBot({ beltID: 40000123, beltName: "Belt",
         stationID: 60003760, stationName: "Home", miningModuleIDs: [7001], healthFloor: 0.5, useDrones: false }) :
-        replacement === "mission" ? () => flow.startMissionBot({ agentID: 3018920, agentName: "Agent",
-          agentStationID: 60003760, agentStationName: "Home", maxJumps: 10, maxMissions: 0 }) :
-          () => flow.startFleetCompanion(DEFAULT_COMPANION_SETUP);
+        () => flow.startMissionBot({ agentID: 3018920, agentName: "Agent",
+          agentStationID: 60003760, agentStationName: "Home", maxJumps: 10, maxMissions: 0 });
       await assert.rejects(replace(), /previous controller|unresolved work|Stop.*sett|Combat Stop/i);
       assert.equal(store.customBot.get().status, "running", "the new start cannot silently abandon combat custody");
       docked = true;
@@ -74,7 +72,7 @@ for (const replacement of ["mining", "mission", "companion"] as const) {
       await assert.doesNotReject(replace(), "the settled controller no longer blocks replacement");
     } finally {
       docked = true;
-      flow.stopMiningBot(); flow.stopMissionBot(); flow.stopFleetCompanion(); flow.stopCustomBot();
+      flow.stopMiningBot(); flow.stopMissionBot(); flow.stopCustomBot();
       await new Promise<void>(resolve => setImmediate(resolve));
     }
   });

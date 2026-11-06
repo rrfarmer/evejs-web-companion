@@ -50,7 +50,7 @@
 //
 // ⚠ AND IT NEVER STOPS ASKING while the drone stays so, only asks less often.
 // Seen 2026-10-12 14:31: three asks in 36 s after a landing, all answered
-// without the five drones, and then nothing more; the pilot's companion could
+// without the five drones, and then nothing more; a bot flying the pilot could
 // not see its own drones for eleven minutes and sent a launch it could not make
 // on every tick. After the first DRONE_STATE_ASKS the asking goes on every
 // DRONE_STATE_SLOW_RETRY_MS for as long as the drone is in space with no state.

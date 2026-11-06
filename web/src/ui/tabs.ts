@@ -23,7 +23,6 @@ export type CoreTabID =
   | "bots"
   | "botBuilder"
   | "botManager"
-  | "companion"
   | "pluginManager"
   | "inventory"
   | "market"
@@ -158,18 +157,6 @@ export const TABS: readonly CoreTabDef[] = [
   // opens with nobody in the client — which a rail inside a pilot's workspace
   // can never offer.
   { id: "botManager", label: "Bot Manager", where: "both", launchable: false },
-  // ⚠ NOT A BOT, AND NOT IN THE RAIL. The fleet companion is a GLOBAL window
-  // (globalWindow.ts) over every pilot at once, and the one door onto it is the
-  // button beside the brand in the character bar — which is the only chrome
-  // that is on screen whichever pilot is active, and so the only honest place
-  // to hang a window that is about all of them. A rail entry would be a second
-  // door onto one window in a rail this file has already twice trimmed, and a
-  // per-pilot door onto a panel that is not per-pilot.
-  //
-  // It is still a TabID because every window is: the id keys the window, the
-  // title comes from `tabLabel`, and `NEOCOM_GLYPHS` is exhaustive over the
-  // union whether or not a glyph is ever rendered in the strip.
-  { id: "companion", label: "Fleet companions", where: "both", launchable: false },
   // A GLOBAL window too: what this client adds beyond the game's own windows,
   // which is about the client, not a pilot. It opens from the Plugins menu beside the brand.
   { id: "pluginManager", label: "Plugins", where: "both", launchable: false },

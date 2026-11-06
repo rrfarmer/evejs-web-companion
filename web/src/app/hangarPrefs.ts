@@ -14,16 +14,6 @@
 // component reaches into storage itself, and every rule is testable without a
 // DOM.
 
-// ⚠ THIS NAME DOES NOT EXIST YET AT THE TIME OF WRITING. The codec module is
-// being renamed from `decodeFleetCompanionRequestValue` to
-// `decodeCompanionSetupValue` (verdict: `{ ok: true; setup: CompanionSetup }`
-// or `{ ok: false; refusal: string }`) by the agent that owns
-// `bots/companionRunPolicy.ts`, alongside the retired-keys allowance that lets
-// an old role/tagging/module-list config still decode. This file calls the new
-// name regardless, on the assumption that rename lands alongside this one.
-import { decodeCompanionSetupValue } from "../bots/companionRunPolicy.ts";
-import type { CompanionSetup } from "../nav/fleetCompanionLoop.ts";
-
 /** One player-made group of pilots, spanning accounts. */
 export interface Squad {
   readonly id: string;
@@ -42,42 +32,6 @@ export interface HangarPrefs {
   readonly pinnedPilots: readonly number[];
   /** Accounts whose section is collapsed to its header. */
   readonly collapsedAccounts: readonly string[];
-  /**
-   * What each pilot DOES in a squad: squad id -> character id -> the companion
-   * setup that pilot starts with. A squad says WHICH pilots; this says what
-   * each one is for.
-   *
-   * ⚠ A PARALLEL MAP, NOT A RICHER `members`, AND THAT IS THE WHOLE MIGRATION
-   * STORY. Making the membership value richer would mean either bumping
-   * STORAGE_VERSION -- which strands every existing arrangement under the old
-   * key -- or teaching `numberList` two shapes, which leaves an older build
-   * silently coercing the new value to `[]` and wiping every squad it touches.
-   * A key an older build has never heard of is simply ignored by it: nothing to
-   * migrate, nothing to lose, and membership keeps working exactly as before.
-   *
-   * ⚠ THE VALUE IS A `CompanionSetup`, NOT A WHOLE REQUEST WITH EMPTY MODULE
-   * LISTS ANY MORE. There is no role to pick and nothing here derives modules
-   * from a fit -- see docs/fleet-companion-simplification.md. What is stored is
-   * exactly `fleeHealthFloor`, `capacitorFloor`, `maxFleeAttempts` and
-   * `repairsAtStation`, plus `abandonDronesHealthFloor` when it was ever set;
-   * `decodeCompanionSetupValue` is the door on the way out of localStorage, the
-   * same door `botHost.start()` trusts, so this file invents no second codec.
-   * A companion's eight module lists are never saved anywhere: they are read
-   * off the hull it is actually flying when it starts, because an itemID saved
-   * here would be stale the moment that pilot refits or changes ship.
-   *
-   * ⚠ THE PRESENCE OF AN ENTRY IS NOW THE ONLY MARKER THAT A PILOT IS SET UP
-   * HERE. A role used to double as "this pilot is a companion in this squad";
-   * with no role, that fact is exactly whether `companionConfigFor` returns
-   * non-null, and unsetting one means removing the entry (`setCompanionConfig`
-   * with `null`), not writing some sentinel into it.
-   *
-   * ⚠ AND IT IS localStorage, SO IT IS NOT THE AUTHORITY FOR A RUNNING BOT.
-   * A headless run outlives the tab; `botHost` persists the request it was
-   * STARTED with in its own durable roster row. This map is the template a
-   * start is built from, never a live handle on a run.
-   */
-  readonly companionConfigs: Readonly<Record<string, Readonly<Record<string, CompanionSetup>>>>;
 }
 
 /** The five squad colours. A squad's colour is picked from these and no others. */
@@ -95,7 +49,6 @@ export const EMPTY_PREFS: HangarPrefs = {
   pinnedSquads: [],
   pinnedPilots: [],
   collapsedAccounts: [],
-  companionConfigs: {},
 };
 
 const STORAGE_VERSION = 1;
@@ -140,50 +93,6 @@ function numberList(value: unknown): number[] {
     : [];
 }
 
-/**
- * Stored companion configs, judged one at a time.
- *
- * ⚠ THE CODEC IS THE DOOR, AND IT IS THE ONE THE BOT HOST ALREADY USES.
- * `localStorage` is untrusted bytes like any other input -- another tab, an
- * older build, a hand-edited value -- so every entry goes through
- * `decodeCompanionSetupValue`, the same function `botHost.start()` trusts. A
- * refused entry is DROPPED rather than defaulted: an arrangement that cannot
- * be read back is a pilot with no config, which the UI already knows how to
- * show, whereas a fabricated default would be a setup nobody chose.
- *
- * ⚠ AN OLD-SHAPE STORED VALUE MUST STILL DECODE. Every config saved before
- * 2026-09-11 carries `role`, `attemptsTagging` and the eight module-id lists —
- * keys `CompanionSetup` no longer has. That is the codec's job, not this
- * file's: `decodeCompanionSetupValue` forgives exactly those retired keys and
- * hands back a `CompanionSetup` with the current ones. This function does not
- * (and must not) run a second migration of its own — it only decides, per
- * entry, whether the codec accepted it.
- */
-function companionConfigMap(
-  value: unknown,
-): Record<string, Readonly<Record<string, CompanionSetup>>> {
-  const out: Record<string, Record<string, CompanionSetup>> = {};
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return out;
-  }
-  for (const [squadID, perPilot] of Object.entries(value as Record<string, unknown>)) {
-    if (!perPilot || typeof perPilot !== "object" || Array.isArray(perPilot)) {
-      continue;
-    }
-    const pilots: Record<string, CompanionSetup> = {};
-    for (const [characterID, stored] of Object.entries(perPilot as Record<string, unknown>)) {
-      const decoded = decodeCompanionSetupValue(stored);
-      if (decoded.ok) {
-        pilots[characterID] = decoded.setup;
-      }
-    }
-    if (Object.keys(pilots).length > 0) {
-      out[squadID] = pilots;
-    }
-  }
-  return out;
-}
-
 function isSquad(value: unknown): value is Squad {
   if (!value || typeof value !== "object") return false;
   const o = value as Record<string, unknown>;
@@ -217,7 +126,6 @@ export function loadHangarPrefs(): HangarPrefs {
       pinnedSquads: stringList(o.pinnedSquads),
       pinnedPilots: numberList(o.pinnedPilots),
       collapsedAccounts: stringList(o.collapsedAccounts),
-      companionConfigs: companionConfigMap(o.companionConfigs),
     };
   } catch {
     return EMPTY_PREFS;
@@ -314,17 +222,11 @@ export function updateSquad(
 export function deleteSquad(prefs: HangarPrefs, id: string): HangarPrefs {
   const members = { ...prefs.members };
   delete members[id];
-  // The configs go with it, for the same "no dangling ids" reason the members
-  // and the pin do: a squad id nobody can see again must not keep a set of
-  // companion setups alive in storage for ever.
-  const companionConfigs = { ...prefs.companionConfigs };
-  delete companionConfigs[id];
   return {
     ...prefs,
     squads: prefs.squads.filter((s) => s.id !== id),
     members,
     pinnedSquads: prefs.pinnedSquads.filter((s) => s !== id),
-    companionConfigs,
   };
 }
 
@@ -339,23 +241,7 @@ export function toggleSquadMember(
   const next = leaving
     ? current.filter((id) => id !== characterID)
     : [...current, characterID];
-  const withMembers = { ...prefs, members: { ...prefs.members, [squadID]: next } };
-  if (!leaving) {
-    return withMembers;
-  }
-  // ⚠ A PILOT TAKEN OUT LOSES ITS SETUP HERE. Keeping it would leave a config
-  // that `setCompanionConfig` itself would now refuse to write, readable by
-  // nothing and pruned by nothing -- and if the pilot were ever put back it
-  // would silently inherit a setup from whenever it last left.
-  const perPilot = { ...(withMembers.companionConfigs[squadID] ?? {}) };
-  delete perPilot[String(characterID)];
-  const companionConfigs = { ...withMembers.companionConfigs };
-  if (Object.keys(perPilot).length === 0) {
-    delete companionConfigs[squadID];
-  } else {
-    companionConfigs[squadID] = perPilot;
-  }
-  return { ...withMembers, companionConfigs };
+  return { ...prefs, members: { ...prefs.members, [squadID]: next } };
 }
 
 /**
@@ -408,97 +294,12 @@ export function forgetPilots(prefs: HangarPrefs, characterIDs: readonly number[]
   for (const [squadID, ids] of Object.entries(prefs.members)) {
     members[squadID] = ids.filter((id) => !gone.has(id));
   }
-  const companionConfigs: Record<string, Readonly<Record<string, CompanionSetup>>> = {};
-  for (const [squadID, perPilot] of Object.entries(prefs.companionConfigs)) {
-    const kept = Object.fromEntries(
-      Object.entries(perPilot).filter(([characterID]) => !gone.has(Number(characterID))),
-    );
-    if (Object.keys(kept).length > 0) {
-      companionConfigs[squadID] = kept;
-    }
-  }
   return {
     ...prefs,
     members,
     pinnedPilots: prefs.pinnedPilots.filter((id) => !gone.has(id)),
-    companionConfigs,
   };
 }
-
-/**
- * Give one pilot its companion setup inside one squad, or clear it with null.
- *
- * ⚠ IT REFUSES A PILOT THAT IS NOT IN THE SQUAD, the same way `addSquadMembers`
- * refuses an unknown squad id: a config against a non-member is a setting
- * nothing would ever read, and it would survive every prune that walks
- * membership.
- */
-export function setCompanionConfig(
-  prefs: HangarPrefs,
-  squadID: string,
-  characterID: number,
-  setup: CompanionSetup | null,
-): HangarPrefs {
-  if (!(prefs.members[squadID] ?? []).includes(characterID)) {
-    return prefs;
-  }
-  const perPilot = { ...(prefs.companionConfigs[squadID] ?? {}) };
-  if (setup === null) {
-    delete perPilot[String(characterID)];
-  } else {
-    perPilot[String(characterID)] = setup;
-  }
-  const companionConfigs = { ...prefs.companionConfigs };
-  if (Object.keys(perPilot).length === 0) {
-    delete companionConfigs[squadID];
-  } else {
-    companionConfigs[squadID] = perPilot;
-  }
-  return { ...prefs, companionConfigs };
-}
-
-/**
- * One pilot's companion setup in one squad, or null when it has none.
- *
- * ⚠ THIS NULL IS NOW THE WHOLE OF "IS THIS PILOT A COMPANION HERE". A role
- * used to answer that question and set the pilot's job in the same field; with
- * no role, existence is the only signal left, so the hangar UI reads this
- * directly rather than reaching for a field on the result.
- */
-export function companionConfigFor(
-  prefs: HangarPrefs,
-  squadID: string,
-  characterID: number,
-): CompanionSetup | null {
-  return prefs.companionConfigs[squadID]?.[String(characterID)] ?? null;
-}
-
-/**
- * Every pilot in this squad that is set up to fly, in membership order.
- *
- * This is what a squad start works through: a member with no config is not
- * included, because there is nothing to start it with.
- */
-export function companionSquadRoster(
-  prefs: HangarPrefs,
-  squadID: string,
-): readonly { readonly characterID: number; readonly setup: CompanionSetup }[] {
-  const perPilot = prefs.companionConfigs[squadID] ?? {};
-  return (prefs.members[squadID] ?? []).flatMap((characterID) => {
-    const setup = perPilot[String(characterID)];
-    return setup === undefined ? [] : [{ characterID, setup }];
-  });
-}
-
-// ⚠ `competingTaggers` USED TO LIVE HERE AND IS GONE. It counted pilots with
-// `attemptsTagging` set, because a tag is unique fleet-wide and two taggers in
-// one squad would fight over letters. That setting no longer exists: tagging
-// is gated server-side on `obs.canTag` (only a fleet/wing/squad commander may
-// write a tag) and the rung only ever tags a ship that is tackling THIS pilot,
-// with an already-lettered ship skipped -- so two companions can collide only
-// if the same ship tackled both of them in the same tick, before either letter
-// was visible. See docs/fleet-companion-simplification.md, "Tagging", and the
-// matching note in bots/squadStart.ts.
 
 /** The squads one pilot belongs to, in the order the player made them. */
 export function squadsForPilot(prefs: HangarPrefs, characterID: number): Squad[] {

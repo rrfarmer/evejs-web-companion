@@ -6722,7 +6722,7 @@ const followFleetMate: MacroDecider = (step, obs, mem) => {
 //
 // ⚠ WHAT THIS HONESTLY IS: a SINGLE-LETTER, SINGLE-PILOT capability, not smart
 // fleet-wide tagging. Nothing in a snapshot or a roster read says whether the
-// FC, or another companion running this SAME block on another hull, already
+// FC, or another bot running this SAME block on another hull, already
 // lettered a ship — there is no such list to read. The only thing stopping a
 // re-tag is THIS block's own memory of what IT last wrote (`taggedTargetID`
 // below). Two pilots running this block in the same fleet would fight each
@@ -6953,7 +6953,7 @@ function typedFleetName(step: MacroStep): string {
 }
 
 // ⚠ `pickAdvertisedFleet` MOVED to ./scriptConditions.ts and is imported above.
-// The Fleet companions window joins by name too (nav/fleetJoinWatch.ts), and a
+// A fleet-following plugin's window joins by name too (nav/fleetJoinWatch.ts), and a
 // second copy of the tie-break is a second copy that drifts.
 
 const joinAdvertisedFleet: MacroDecider = (step, obs, mem) => {

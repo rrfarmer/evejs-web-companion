@@ -33,11 +33,6 @@ import type { GateLink } from "../space/gateLinks.ts";
 import type { CrimewatchReading } from "../space/crimewatch.ts";
 import type { BotID, ShipControllerID } from "../nav/botRegistry.ts";
 import type { MiningRungID, MiningStepID } from "../nav/miningLadder.ts";
-import type {
-  CompanionAbandonmentRecord,
-  CompanionOrderAuthority,
-  FleetCompanionRunState,
-} from "../nav/fleetCompanionLoop.ts";
 
 export type { GateLink };
 export type { BotID };
@@ -2338,7 +2333,7 @@ export interface SpaceState {
    */
   readonly gateLinksError: string | null;
   /**
-   * Fleet-companion phase 7 — every hostile module cycle currently landing on
+   * Every hostile module cycle currently landing on
    * THIS ship, folded from the `OnJamStart` / `OnJamEnd` pushes
    * (`bridge/jamNotifications.ts`). The aggressor names itself in each one,
    * which is the only read anywhere that says who is holding this ship down.
@@ -2899,63 +2894,6 @@ export interface MiningBotState {
  * which no client can tell apart). Reporting that as success would be a lie;
  * reporting it as a failure would be wrong too.
  */
-/**
- * The fleet companion's panel state (fleet-companion phase 0).
- *
- * The companion is a sibling decide-loop, not a bot script, so this slice is
- * shaped like `MiningBotState`/`MissionBotState` and for the same reason: the
- * loop lives in the browser and pushes its readout here, and this slice records
- * it without deciding anything.
- *
- * The last four fields are the Bot Manager badge the plan doc asks for — in
- * fleet, following whom, last order heard, and whether this pilot can tag.
- *
- * ⚠ `canTag` IS THREE-STATE, and the third state matters. `null` means the fleet
- * roster could not be read; `false` means this pilot genuinely holds no
- * commander role. A pilot silently unable to tag looks identical to one with
- * nothing to tag, which is exactly why the readout carries it.
- */
-export interface FleetCompanionState {
-  readonly status: FleetCompanionRunState;
-  /** Where in the ladder it is ("In warp", "Standing by"). */
-  readonly phase: string | null;
-  /** What it last did. */
-  readonly action: string | null;
-  /** WHY it did that — always present while running. */
-  readonly why: string | null;
-  readonly inFleet: boolean | null;
-  /** Which authority the last decision came from, for the readout. */
-  readonly followingOrderFrom: CompanionOrderAuthority | null;
-  readonly lastOrderHeard: string | null;
-  /** `targets called|all`. Null until the loop has reported. */
-  readonly targetMode: "called" | "all" | null;
-  readonly canTag: boolean | null;
-  /**
-   * What was missing or unusable about this pilot's fit when it started: no
-   * ammunition loaded, an empty drone bay, nothing that defends the ship.
-   *
-   * ⚠ ADVISORY, AND MEASURED ONCE AT START. Nothing here ever refused a start
-   * -- the operator's rule is that a human loads the missing thing or ignores
-   * it and flies. Empty means nothing worth saying, which is ALSO what an
-   * unreadable fit produces: this list only speaks when it is confident.
-   */
-  readonly fitWarnings: readonly string[];
-  /**
-   * Non-null while decision 5's abandonment protocol is running: nobody in the
-   * fleet this host is not flying, so the pilot got safe, dropped fleet, and is
-   * waiting out a bounded thirty minutes for a human to invite it back.
-   *
-   * ⚠ IT IS HERE SO IT CAN BE PERSISTED. The BFF's bot host projects this slice
-   * onto its durable roster row; without the clock on the row, a restart hands
-   * the companion a fresh thirty minutes and the bound stops being one.
-   */
-  readonly abandonment: CompanionAbandonmentRecord | null;
-  readonly startedAt: number | null;
-  readonly startError: string | null;
-  readonly failureReason: string | null;
-  /** The run paused itself rather than being paused by the operator. See FleetCompanionProgress. */
-  readonly selfPaused: boolean;
-}
 
 export interface MissionBotState {
   readonly status: MiningBotRunState;

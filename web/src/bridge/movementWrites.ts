@@ -99,7 +99,7 @@
 //
 // ⚠ WHAT THE CLIENT DOES OF ITS AUTOPILOT AROUND A STOP IS THE CALLER'S HERE. The command forgets the autopilot's
 // navigation in the system before the call and switches the autopilot off after it. The page's panel gives its
-// autopilot up before it asks (flow.stopShip), and so does the fleet companion's stop; a script bot's and a
+// autopilot up before it asks (flow.stopShip); a script bot's and a
 // support ship's stop is one step of a program that carries on, and gives nothing up.
 //
 // TURNED TOWARD A PLACE. scanSvc.AlignToPosition (459 to 465), a probe result's Align To (GetAlignToMenu, 704 to
@@ -205,7 +205,7 @@
 //
 // ⚠ THE PAGE'S OWN AUTOPILOTS DO NOT MAKE THE AUTOPILOT'S CALL. Its travel autopilot, its mining bot and its script
 // bots warp by the menu's call at a range of nought (nav/autopilotLoop.ts says why: the ten kilometres). The flight
-// panel's warp with no range said, and the fleet companion's, make the autopilot's.
+// panel's warp, when it says no range, makes the autopilot's.
 //
 // SENT INTO WARP, TO A FLEET MEMBER. menusvc.WarpToMember (2748), from the fleet's menu:
 //

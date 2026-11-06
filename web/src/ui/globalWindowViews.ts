@@ -6,7 +6,6 @@
 // global layer, PanelHost on a phone, where a global tab is an ordinary panel.
 
 import BotManager from "./BotManager.svelte";
-import FleetCompanions from "./FleetCompanions.svelte";
 import IndustryManager from "./IndustryManager.svelte";
 import PluginManager from "./PluginManager.svelte";
 import { pluginWindowView, type GlobalWindowView } from "./pluginWindowViews.ts";
@@ -16,7 +15,6 @@ export { registerGlobalWindowView, type GlobalWindowProps, type GlobalWindowView
 
 const CORE_VIEWS: ReadonlyMap<TabID, GlobalWindowView> = new Map<TabID, GlobalWindowView>([
   ["botManager", BotManager as GlobalWindowView],
-  ["companion", FleetCompanions as GlobalWindowView],
   ["industryManager", IndustryManager as GlobalWindowView],
   ["pluginManager", PluginManager as GlobalWindowView],
 ]);

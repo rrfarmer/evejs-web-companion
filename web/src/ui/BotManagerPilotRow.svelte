@@ -337,12 +337,12 @@
           <span class="badge" class:accent={runState.mode === "server"}>{modeLabel}</span>
         {/if}
         <!--
-          ⚠ A COMPANION'S READOUT USED TO BE HERE, AND ITS ABSENCE IS THE POINT.
-          This row carried the whole fleet badge — in fleet, whose orders, can it
-          tag, its fit warnings — because a companion was once listed as a bot.
-          It is not one (nav/botRegistry.ts), and a bot library is not where a
-          player looks for what their fleet is doing. All of it lives in the
-          Fleet companions window now, over every pilot at once, and
+          ⚠ A PLUGIN'S READOUT IS NOT HERE, AND ITS ABSENCE IS THE POINT.
+          This row does not carry a fleet badge — in fleet, whose orders, can it
+          tag, its fit warnings — because a plugin's loop is not listed as a bot
+          (nav/botRegistry.ts), and a bot library is not where a
+          player looks for what their fleet is doing. That lives in the
+          plugin's own window, over every pilot at once, and
           `runState.detail` below says so. What stays here is the ONE fact this
           panel cannot do without: that something is holding this hull.
         -->
@@ -382,14 +382,6 @@
         <ActionButton action="stop" danger onclick={stop} />
       {:else if isPluginTabRun}
         <ActionButton action="stop" danger onclick={() => session?.flow.stopPluginLoop()} />
-      {:else if runState.isCompanion}
-        <!-- ⚠ NO STOP HERE, DELIBERATELY. Stopping a companion is the Fleet
-             companions window's job, and it is not the same act as stopping a
-             bot: it drops a pilot out of whatever its fleet is in the middle
-             of, which is a decision made while LOOKING at the fleet. This panel
-             names the run so nothing here lies about a free hull, and sends the
-             player to the one place that can act on it. -->
-        <span class="note">In the Fleet companions window</span>
       {:else if runState.mode === "server"}
         <ActionButton
           action="stop"

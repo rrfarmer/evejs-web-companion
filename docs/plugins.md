@@ -1,12 +1,13 @@
 # Plugins
 
 The web client is the game's own windows plus the bot builder. Everything else
-(PI Manager, Industry Manager, Companions, MCC, Provisioning Center, and
+(PI Manager, Fleet companions, Industry Manager, MCC, Provisioning Center, and
 whatever comes next) is meant to be a **plugin**: a folder under `plugins/`
 that adds to the client and never edits core.
 
 The PI Manager (`plugins/pi-manager`) is the first plugin and the worked
-example for everything below.
+example for most of what is below. Fleet companions (`plugins/fleet-companion`)
+are the worked example for a run that flies, a loop in a tab, and the Pilot Hangar.
 
 ## Rules
 
@@ -275,6 +276,10 @@ holds, because a select takes the pilot out of its fleet. It loads all of the fl
 about 170 MB, which is why it is a module of its own. A backend that flies nothing
 never pays for it.
 
+**A run that cannot begin rejects from `start`,** with words for a player: whoever pressed the
+button is told them. A `report` is for a run that has begun, so an `error` sent during `start`
+ends the row, while the button still says it started.
+
 **`report`** says what the run is doing. Sending `stopped`, `idle` or `error` ends the
 run, and core logs the pilot off where it is. `readout` is carried for the plugin's
 own windows, up to 16 KB. `resumeData` is kept on disk and handed back to `start`
@@ -360,11 +365,16 @@ runs: {
   read or told apart, and then the lists may be short because nobody knows. It rejects if the
   request for the fit itself failed, so call it inside your `try`. `loadFitting` in `flying.ts` is the
   plain request and fills no store. Call `readFit` again after a refit.
+- **`warmFitFacts(fit)`** reads, and waits for, everything the `resolve...` calls read about a
+  fit, for a loop that read the fit itself instead of calling `readFit`.
+- **`hostDrivenCharacterIDs()`** says who the host flies with a bot, or null if it says nothing,
+  for a loop telling the account's bots from a person flying beside them.
 - **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push
   cannot end a sleep sooner than about a third of a second after it began. `onPush(listener)`
   is what it is built on, and is called for a fleet broadcast, a fleet target tag, this
   ship's lock landing and a jam starting. It says only that something arrived; the store has
   what. A fleet fight pushes many of these, so a loop that looks on each one floods the server.
+  `announcePush()` wakes the same listeners, for a loop that has noticed something of its own.
 - **A write throws the server's refusal,** because a loop has to see one to decide on
   it. The flow's panel methods, by contrast, catch a refusal and say it in a panel.
 - **Compare `sessionGeneration()` across an await** before acting on what came back,

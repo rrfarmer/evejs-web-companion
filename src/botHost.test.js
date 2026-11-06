@@ -23,24 +23,6 @@ const IDLE_SLICE = Object.freeze({
   startError: null,
 });
 
-// FleetCompanionState's shape (web/src/store/clientStore.ts) — deliberately
-// missing stepPath/pauseReason/note/lastAlert, which IDLE_SLICE above has and
-// the companion slice never will. See applySnapshot()'s comment in botHost.js.
-const IDLE_COMPANION_SLICE = Object.freeze({
-  status: "idle",
-  phase: null,
-  action: null,
-  why: null,
-  inFleet: null,
-  followingOrderFrom: null,
-  lastOrderHeard: null,
-  canTag: null,
-  abandonment: null,
-  startedAt: null,
-  startError: null,
-  failureReason: null,
-});
-
 function makeFakeStack(log, extendFlow = null) {
   return async () => ({
     decodeScriptValue: (doc) =>
@@ -71,55 +53,21 @@ function makeFakeStack(log, extendFlow = null) {
         },
       };
     },
-    // The companion's own risk-derivation and codec door — a plain fake of
-    // companionRunPolicy.ts, not the real module (that module is proven live
-    // on its own; these tests pin the HOST's obligations around it).
-    //
-    // The sentinel is part of that module's contract too, so the fake carries
-    // it the way the real stack does: the host reads the revision off the stack
-    // rather than holding a second copy of a bare 1 of its own.
-    COMPANION_GRANT_SCRIPT_REV: 1,
-    // ⚠ COMBAT IS UNCONDITIONAL NOW, matching the real derivation. A grant is
-    // built before the fit has been read, and a hull nobody has looked at may
-    // hold anything -- so there is no longer a setting that could withhold it.
-    analyzeCompanionRunPolicy: (setup) => ({
-      riskClasses:
-        setup && setup.repairsAtStation === true
-          ? ["fleet", "social", "combat", "financial", "inventory"]
-          : ["fleet", "social", "combat"],
-      restartSafe: true,
+    // What a plugin's run is granted against: the real module's shape, so the
+    // host's one grant check reads it as it does in production.
+    PLUGIN_RUN_GRANT_REV: 1,
+    pluginRunBotPolicy: (policy) => ({
+      macroIDs: [],
+      restartBlockers: [],
+      containsSubBots: false,
+      riskClasses: policy.riskClasses,
+      restartSafe: policy.restartSafe === true,
     }),
-    // A plain fake of the real codec door. The real one refuses any key outside
-    // the stored set and forgives the fifteen RETIRED ones; all this fake needs
-    // to reproduce is "a setup with the required numbers is ok, anything else
-    // is refused", which is what the host's own branches turn on.
-    decodeCompanionSetupValue: (value) => {
-      if (!value || typeof value !== "object" || typeof value.fleeHealthFloor !== "number") {
-        return { ok: false, refusal: "That companion setup could not be read." };
-      }
-      return { ok: true, setup: value };
-    },
-    // Decision 5's persisted clock gets the same treatment as the request: a
-    // plain fake of the real codec door, refusing anything without a usable
-    // timestamp so the host's own DROP-don't-refuse behaviour can be pinned.
-    decodeCompanionAbandonmentValue: (value) =>
-      value && typeof value === "object" && Number.isSafeInteger(value.abandonedAtMs)
-        ? {
-            ok: true,
-            abandonment: {
-              abandonedAtMs: value.abandonedAtMs,
-              supervisorCharacterIDs: Array.isArray(value.supervisorCharacterIDs)
-                ? value.supervisorCharacterIDs
-                : [],
-            },
-          }
-        : { ok: false, refusal: "That saved supervision state could not be read." },
     createClientStore: () => {
       const listeners = new Set();
       const state = {
         station: { online: null },
         customBot: { ...IDLE_SLICE },
-        companion: { ...IDLE_COMPANION_SLICE },
         flight: { status: null },
         space: { snapshot: null },
         mining: { holds: [] },
@@ -133,7 +81,6 @@ function makeFakeStack(log, extendFlow = null) {
         },
         station: { get: () => state.station },
         customBot: { get: () => state.customBot },
-        companion: { get: () => state.companion },
         flight: { get: () => state.flight },
         space: { get: () => state.space },
         mining: { get: () => state.mining },
@@ -159,19 +106,11 @@ function makeFakeStack(log, extendFlow = null) {
         stopCustomBot() {
           log.push(["stopCustomBot"]);
         },
-        async startFleetCompanion(request, resuming = null) {
-          log.push(["startFleetCompanion", request, resuming]);
-          store._set({
-            companion: { ...IDLE_COMPANION_SLICE, status: "running", phase: "Flying", role: request.role },
-          });
-        },
-        stopFleetCompanion() {
-          log.push(["stopFleetCompanion"]);
-        },
+        heldPilot: () => ({ characterID: 140000002, character: { name: "Test Pilot" }, station: null }),
+        autopilotSettings: () => ({}),
         async prepareHostedBotStop(kind) {
           log.push(["prepareHostedBotStop", kind]);
-          if (kind === "companion") this.stopFleetCompanion();
-          else this.stopCustomBot();
+          this.stopCustomBot();
           // The fake has no drones; the real flow separately proves its
           // authoritative read/recall/return gate.
         },
@@ -203,13 +142,34 @@ function makeFakeStack(log, extendFlow = null) {
   });
 }
 
+// A plugin that accepts any run and flies nothing, recording what the host asks of it. The host's own
+// obligations around a plugin's run are tested here; the plugin's process itself is test/pluginRuns.test.js.
+function makeStubPlugins(log) {
+  return {
+    async checkRun(pluginID, run, setup) {
+      log.push(["checkRun", pluginID, run]);
+      return { ok: true, name: "Stub run", setup: setup ?? {}, policy: { riskClasses: ["combat"], restartSafe: true } };
+    },
+    async startRun(pluginID, run) {
+      log.push(["startRun", pluginID, run.resumed]);
+      return null;
+    },
+    async stopRun(pluginID, botID) {
+      log.push(["stopRun", pluginID, botID]);
+    },
+    formerBotKind: () => null,
+  };
+}
+
 function makeHost({ log = [], isCharacterHeld = () => false, ...extras } = {}) {
+  const stubPlugins = makeStubPlugins(log);
   return createBotHost({
     webAuth: { createSessionToken: () => "bot-token" },
     baseUrl: "http://127.0.0.1:0",
     isCharacterHeld,
     errorLogger: () => {},
     loadStack: makeFakeStack(log),
+    pluginProcess: () => stubPlugins,
     createClaimSecret: () => "private-claim-capability",
     ...extras,
   });
@@ -226,28 +186,15 @@ const START = {
   grant: { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 720 },
 };
 
-// A companion request has no revision series (see COMPANION_GRANT_SCRIPT_REV's
-// comment in botHost.js) — its grant's `scriptRev` is always the sentinel `1`.
-// ⚠ A SETUP, NOT A REQUEST, SINCE 2026-09-11. The eight module lists, the role
-// and every channel toggle are gone: a companion reads its own fit at start and
-// listens to everything. What is persisted is only what cannot be read off a
-// ship. See docs/fleet-companion-simplification.md.
-const COMPANION_REQUEST = Object.freeze({
-  fleeHealthFloor: 0.3,
-  capacitorFloor: 0.2,
-  maxFleeAttempts: 3,
-  repairsAtStation: false,
-  droneHealthFloor: 0.5,
-  droneRedeployHoldOffSeconds: 10,
-});
-const COMPANION_START = {
+// A plugin's run has no revision series: its grant's `scriptRev` is always PLUGIN_RUN_GRANT_REV.
+const PLUGIN_START = {
   account: ACCOUNT,
   characterID: 140000002,
-  kind: "companion",
-  request: COMPANION_REQUEST,
-  // ⚠ `combat` IS UNCONDITIONAL NOW: a grant is built before the fit is read,
-  // and a hull nobody has looked at may hold anything.
-  grant: { scriptRev: 1, riskClasses: ["fleet", "social", "combat"], maxRuntimeMinutes: 720 },
+  kind: "plugin",
+  pluginID: "stub",
+  pluginRun: "stub",
+  request: Object.freeze({ n: 1 }),
+  grant: { scriptRev: 1, riskClasses: ["combat"], maxRuntimeMinutes: 720 },
 };
 
 function settle() {
@@ -456,16 +403,11 @@ test("a script whose run time ends flies home, and logs off only once docked", a
   assert.equal(log.some(([name]) => name === "panicRecallAndDock"), false);
 });
 
-test("a companion whose run time ends recalls drones and docks before logging off", async () => {
+test("a plugin's run whose run time ends stops its loop, recalls drones and docks before logging off", async () => {
   const log = [];
   let docked = false;
   const { host, fire } = deadlineHost(log, (flow, store) => ({
     ...flow,
-    stopFleetCompanion() {
-      log.push(["stopFleetCompanion"]);
-      // The real stop pushes a stopped slice; mid-wind-down it must NOT end the run.
-      store._set({ companion: { ...store.companion.get(), status: "stopped" } });
-    },
     async panicRecallAndDock() {
       log.push(["panicRecallAndDock"]);
     },
@@ -474,13 +416,14 @@ test("a companion whose run time ends recalls drones and docks before logging of
       store._set({ flight: { status: { docked, stationID: docked ? 60000001 : null } } });
     },
   }));
-  const started = await host.start(COMPANION_START);
+  const started = await host.start(PLUGIN_START);
   assert.equal(started.ok, true);
 
   fire();
   await settle();
+  assert.ok(log.some(([name]) => name === "stopRun"), "the plugin's loop is told to stop first");
   assert.ok(log.some(([name]) => name === "panicRecallAndDock"));
-  assert.equal(host.claimedBy(COMPANION_START.characterID), started.bot.botID);
+  assert.equal(host.claimedBy(PLUGIN_START.characterID), started.bot.botID);
   assert.equal(log.some(([name]) => name === "logout"), false);
 
   docked = true;
@@ -490,7 +433,7 @@ test("a companion whose run time ends recalls drones and docks before logging of
   const [row] = host.list(ACCOUNT.accountID);
   assert.equal(row.status, "stopped");
   assert.match(row.why, /docked and logged off/i);
-  assert.equal(host.claimedBy(COMPANION_START.characterID), null);
+  assert.equal(host.claimedBy(PLUGIN_START.characterID), null);
   assert.ok(log.some(([name]) => name === "logout"));
 });
 
@@ -1399,395 +1342,33 @@ test("list(accountID) stays account-filtered, ended runs included", async () => 
   assert.equal(otherRows[0].botID, ownedByOther.bot.botID);
 });
 
-// ── Fleet companion (kind: "companion") ──────────────────────────────────────
-// A companion has no saved-script library entry: its request travels with the
-// start call, or (on resume) IS the persisted roster row itself — see
-// persistRoster's comment in botHost.js. These pin the kind branch through
-// start(), persistRoster(), resume(), applySnapshot(), and the two-switch stop
-// distinction (stopFleetCompanion vs stopCustomBot) in stop()/finalize().
+// ── A saved row of a kind core no longer flies ──────────────────────────────
+// Fleet companions used to be a kind of their own. A roster written then, read
+// where no plugin has taken the kind over, is reported and not flown.
 
-test("a companion flies on its own session, through startFleetCompanion, never startCustomBot", async () => {
-  const log = [];
-  const host = makeHost({ log });
-  const outcome = await host.start(COMPANION_START);
-  assert.equal(outcome.ok, true);
-  assert.equal(outcome.bot.kind, "companion");
-  assert.equal(outcome.bot.status, "running");
-  // Reused roster slots (docs/fleet-companion-handoff.md, "3. Extend
-  // botHost"): a fixed scriptID literal (no library entry exists to name),
-  // and a scriptName derived from the request's role.
-  assert.equal(outcome.bot.scriptID, "companion");
-  assert.equal(outcome.bot.scriptName, "Fleet companion");
-  assert.ok(log.some((row) => row[0] === "startFleetCompanion"));
-  assert.equal(log.some((row) => row[0] === "startCustomBot"), false);
-});
+test("a saved row of kind \"companion\" with no plugin to take it over is reported, not flown", async () => {
+  const rosterPath = tempRosterPath();
+  const before = makeHost({ persistPath: rosterPath });
+  await before.start(START);
+  const raw = JSON.parse(fs.readFileSync(rosterPath, "utf8"));
+  raw.bots[0].kind = "companion";
+  fs.writeFileSync(rosterPath, JSON.stringify(raw), "utf8");
 
-test("stopping a companion calls stopFleetCompanion, never stopCustomBot", async () => {
   const log = [];
-  const host = makeHost({ log });
-  const started = await host.start(COMPANION_START);
-  const stopped = await host.stop(started.bot.botID, 7);
-  assert.equal(stopped.ok, true);
-  assert.ok(log.some((row) => row[0] === "stopFleetCompanion"), "the companion's own stop switch must fire");
-  assert.equal(log.some((row) => row[0] === "stopCustomBot"), false, "the wrong switch is a silent no-op");
-  assert.equal(host.claimedBy(140000002), null);
-});
-
-test("a companion that ends on its own (the companion slice, not customBot) releases the character", async () => {
-  const log = [];
-  const host = makeHost({ log });
-  await host.start(COMPANION_START);
-  const store = lastStore(log);
-  store._set({ companion: { ...IDLE_COMPANION_SLICE, status: "stopped", why: "Fleet gone." } });
-  await settle();
-  assert.equal(host.claimedBy(140000002), null);
-  assert.ok(log.some((row) => row[0] === "logout"));
-  const after = host.list(7)[0];
-  assert.equal(after.status, "stopped");
-  assert.equal(after.why, "Fleet gone.");
-});
-
-test("a companion's progress maps status/phase/why honestly, and leaves script-shaped fields null", async () => {
-  const log = [];
-  const host = makeHost({ log });
-  await host.start(COMPANION_START);
-  const store = lastStore(log);
-  store._set({
-    companion: {
-      ...IDLE_COMPANION_SLICE,
-      status: "running",
-      phase: "Escorting",
-      action: "wait",
-      why: "Waiting on the fleet.",
-    },
+  const after = makeHost({
+    log,
+    persistPath: rosterPath,
+    loadAccount: async () => ({ ...ACCOUNT }),
+    loadScript: () => null,
   });
-  await settle();
-  const row = host.list(7)[0];
-  assert.equal(row.status, "running");
-  assert.equal(row.phase, "Escorting");
-  assert.equal(row.why, "Waiting on the fleet.");
-  // FleetCompanionState (web/src/store/clientStore.ts) has no stepPath,
-  // pauseReason, or note — applySnapshot() must leave these at their initial
-  // null rather than inventing a value for a column the companion has no
-  // honest answer to.
-  assert.equal(row.stepPath, null);
-  assert.equal(row.pauseReason, null);
-  assert.equal(row.note, null);
-});
-
-test("a companion's badge facts reach the wire, and a script's stay null", async () => {
-  const log = [];
-  const host = makeHost({ log });
-  await host.start(COMPANION_START);
-  const store = lastStore(log);
-  store._set({
-    companion: {
-      ...IDLE_COMPANION_SLICE,
-      status: "running",
-      phase: "Obeying fleet",
-      why: "The fleet broadcast a target on this grid.",
-      inFleet: true,
-      followingOrderFrom: "broadcast",
-      lastOrderHeard: "the fleet's target call",
-      targetMode: "all",
-      canTag: false,
-      fitWarnings: ["One weapon has nothing loaded. It will not fire until you load it."],
-    },
-  });
-  await settle();
-  const row = host.list(7)[0];
-  assert.equal(row.kind, "companion");
-  assert.deepEqual(row.companion, {
-    inFleet: true,
-    followingOrderFrom: "broadcast",
-    lastOrderHeard: "the fleet's target call",
-    targetMode: "all",
-    canTag: false,
-    // ⚠ THE ONLY ROUTE THESE HAVE TO A PLAYER ON A HEADLESS RUN. No panel is
-    // open for a bot on the host, and a squad start is the case they exist for.
-    fitWarnings: ["One weapon has nothing loaded. It will not fire until you load it."],
-  });
-
-  // ⚠ FALSE AND NULL ARE DIFFERENT ANSWERS HERE. `canTag: false` means the
-  // server would drop this pilot's tag write; null means the roster has not
-  // been read yet. A headless companion is the ONLY place a player can see
-  // that distinction, so the wire must not flatten it.
-  assert.equal(row.companion.canTag, false);
-  assert.notEqual(row.companion.canTag, null);
-});
-
-test("a script run carries no companion readout at all", async () => {
-  const host = makeHost();
-  const started = await host.start(START);
-  const row = host.list(7).find((entry) => entry.botID === started.bot.botID);
+  await after.resume();
+  // kindOf reads anything but "plugin" as a script, so the row is looked up as one: and a script that does not exist is the refusal.
+  const [row] = after.list(ACCOUNT.accountID);
   assert.equal(row.kind, "script");
-  assert.equal(row.companion, null, "a script must not grow a companion badge");
-});
-
-test("the companion readout is a READOUT and never reaches the disk", async () => {
-  // ⚠ THE DURABILITY BOUNDARY, AND IT IS LOAD-BEARING. `abandonment` is
-  // persisted because it is a thirty-minute clock that must survive a restart.
-  // These five are what a pilot is doing this second: a resumed run re-derives
-  // them on its first tick, and writing them down would let a restart hand the
-  // player a confident readout of a fleet the pilot may since have left.
-  const rosterPath = tempRosterPath();
-  const host = makeHost({ persistPath: rosterPath, log: [] });
-  await host.start({ ...COMPANION_START, persistPath: rosterPath });
-  const persisted = readRosterFile(rosterPath);
-  assert.equal(persisted.length, 1);
-  for (const key of ["companion", "role", "inFleet", "followingOrderFrom", "lastOrderHeard", "canTag", "companionReadout"]) {
-    assert.ok(!(key in persisted[0]), `the roster row must not carry ${key}`);
-  }
-  // The one companion field that IS durable is still there to prove the test
-  // is looking at a companion row at all.
-  assert.ok("request" in persisted[0]);
-});
-
-test("the persisted roster row for a companion carries kind, the flat request, and its hash — not a script doc", async () => {
-  const rosterPath = tempRosterPath();
-  const host = makeHost({ persistPath: rosterPath });
-  const started = await host.start(COMPANION_START);
-  const persisted = readRosterFile(rosterPath);
-  assert.equal(persisted.length, 1);
-  assert.equal(persisted[0].kind, "companion");
-  assert.equal(persisted[0].scriptID, "companion");
-  assert.equal(persisted[0].scriptName, "Fleet companion");
-  // A companion request has no revision series — this is the sentinel
-  // COMPANION_GRANT_SCRIPT_REV, never a real revision (see its comment).
-  assert.equal(persisted[0].scriptRev, 1);
-  assert.deepEqual(persisted[0].request, COMPANION_REQUEST);
-  assert.match(persisted[0].scriptHash, /^[a-f0-9]{64}$/);
-  assert.equal(persisted[0].scriptHash, started.bot.scriptHash);
-  assert.deepEqual(persisted[0].riskClasses, ["fleet", "social", "combat"]);
-});
-
-test("resume rebuilds a companion from its persisted request alone — no library lookup", async () => {
-  const rosterPath = tempRosterPath();
-  const before = makeHost({ persistPath: rosterPath });
-  await before.start(COMPANION_START);
-  const after = makeHost({
-    persistPath: rosterPath,
-    loadAccount: async (username) => (username === "test" ? { ...ACCOUNT } : null),
-    // A companion resume must never consult the saved-script library — there
-    // is nothing there for it to find.
-    loadScript: () => {
-      throw new Error("a companion resume must not look up a saved script");
-    },
-  });
-  await after.resume();
-  const listed = after.list(7);
-  assert.equal(listed.length, 1);
-  assert.equal(listed[0].kind, "companion");
-  assert.equal(listed[0].status, "running");
-  assert.notEqual(listed[0].resumedAt, null);
-  assert.equal(after.claimedBy(140000002), listed[0].botID);
-});
-
-test("resume preserves an approved pre-upgrade companion with the real setup decoder", async () => {
-  const { decodeCompanionSetupValue } = await import("../web/src/bots/companionRunPolicy.ts");
-  const rosterPath = tempRosterPath();
-  const before = makeHost({ persistPath: rosterPath });
-  const started = await before.start(COMPANION_START);
-  assert.equal(started.ok, true);
-  const approved = readRosterFile(rosterPath)[0];
-  const log = [];
-  const after = makeHost({
-    log, persistPath: rosterPath, loadAccount: async () => ({ ...ACCOUNT }),
-    loadStack: async () => ({ ...await makeFakeStack(log)(), decodeCompanionSetupValue }),
-  });
-  await after.resume();
-  const [resumed] = after.list(ACCOUNT.accountID);
-  assert.equal(resumed.status, "running", resumed.why);
-  assert.equal(resumed.scriptHash, approved.scriptHash);
-  assert.equal(resumed.expiresAt, approved.expiresAt);
-  assert.deepEqual(readRosterFile(rosterPath)[0].request, COMPANION_REQUEST);
-  await after.stop(resumed.botID, ACCOUNT.accountID);
-});
-
-test("legacy identity compatibility still refuses an edited approved companion", async () => {
-  const { decodeCompanionSetupValue } = await import("../web/src/bots/companionRunPolicy.ts");
-  const rosterPath = tempRosterPath();
-  const before = makeHost({ persistPath: rosterPath });
-  await before.start(COMPANION_START);
-  const raw = JSON.parse(fs.readFileSync(rosterPath, "utf8"));
-  raw.bots[0].request.droneHealthFloor = 0.6;
-  fs.writeFileSync(rosterPath, JSON.stringify(raw), "utf8");
-  const log = [];
-  const after = makeHost({
-    log, persistPath: rosterPath, loadAccount: async () => ({ ...ACCOUNT }),
-    loadStack: async () => ({ ...await makeFakeStack(log)(), decodeCompanionSetupValue }),
-  });
-  await after.resume();
-  assert.equal(after.list(ACCOUNT.accountID)[0].status, "error");
-  assert.equal(after.claimedBy(COMPANION_START.characterID), null);
+  assert.equal(row.status, "error");
+  assert.match(row.why, /no longer exists/);
+  assert.equal(after.claimedBy(START.characterID), null);
   assert.equal(log.some(([event]) => event === "selectCharacter"), false);
-});
-
-test("resume refuses a persisted companion request that no longer decodes", async () => {
-  const rosterPath = tempRosterPath();
-  const before = makeHost({ persistPath: rosterPath });
-  await before.start(COMPANION_START);
-  const raw = JSON.parse(fs.readFileSync(rosterPath, "utf8"));
-  raw.bots[0].request = { role: "not-a-real-role" };
-  fs.writeFileSync(rosterPath, JSON.stringify(raw), "utf8");
-
-  const after = makeHost({
-    persistPath: rosterPath,
-    loadAccount: async () => ({ ...ACCOUNT }),
-  });
-  await after.resume();
-  const [row] = after.list(7);
-  assert.equal(row.status, "error");
-  assert.match(String(row.why), /restarted/);
-  assert.equal(after.claimedBy(140000002), null);
-  // The failure is dropped from the roster file — it must not retry forever.
-  assert.equal(readRosterFile(rosterPath).length, 0);
-});
-
-test("an undecodable companion request is refused before any session exists", async () => {
-  const log = [];
-  const host = makeHost({ log });
-  const outcome = await host.start({ ...COMPANION_START, request: { role: "not-a-real-role" } });
-  assert.equal(outcome.ok, false);
-  assert.equal(outcome.code, "BOTCOMPANION_INVALID");
-  assert.equal(log.some((row) => row[0] === "selectCharacter"), false);
-});
-
-test("a companion whose persisted request re-derives DIFFERENT risk classes than its grant is refused on resume", async () => {
-  // The check decision 4 says must still earn its place: re-derive risk
-  // classes from the persisted request (never trust the stored riskClasses
-  // column) and compare against what the grant carries via
-  // validateBotLaunchGrant — unchanged.
-  const rosterPath = tempRosterPath();
-  const before = makeHost({ persistPath: rosterPath });
-  await before.start(COMPANION_START);
-  const raw = JSON.parse(fs.readFileSync(rosterPath, "utf8"));
-  // The request on disk now asks for drones — analyzeCompanionRunPolicy would
-  // add "combat" — but the persisted grant's riskClasses were pinned to the
-  // ORIGINAL (drone-less) request and were never updated to match.
-  raw.bots[0].request = { ...COMPANION_REQUEST, useDrones: true };
-  fs.writeFileSync(rosterPath, JSON.stringify(raw), "utf8");
-
-  const after = makeHost({
-    persistPath: rosterPath,
-    loadAccount: async () => ({ ...ACCOUNT }),
-  });
-  await after.resume();
-  const [row] = after.list(7);
-  assert.equal(row.status, "error");
-  assert.match(String(row.why), /restarted/);
-  assert.equal(after.claimedBy(140000002), null);
-});
-
-// ── Decision 5: the abandonment clock is durable ────────────────────────────
-//
-// A companion with nobody in its fleet this host is not flying gets safe, drops
-// fleet and waits a bounded thirty minutes before releasing the hull. The bound
-// is only a bound if its start time outlives a restart — otherwise every
-// restart hands it a fresh thirty minutes, which is an unbounded wait assembled
-// out of bounded ones.
-
-const ABANDONED = Object.freeze({ abandonedAtMs: 1_700_000_000_000, supervisorCharacterIDs: [90000001] });
-
-test("an abandonment pushed by the companion loop is written into the roster row", async () => {
-  const log = [];
-  const rosterPath = tempRosterPath();
-  const host = makeHost({ log, persistPath: rosterPath });
-  await host.start(COMPANION_START);
-  assert.equal(readRosterFile(rosterPath)[0].abandonment, null);
-  lastStore(log)._set({
-    companion: {
-      ...IDLE_COMPANION_SLICE,
-      status: "running",
-      phase: "Abandoned",
-      abandonment: ABANDONED,
-    },
-  });
-  assert.deepEqual(readRosterFile(rosterPath)[0].abandonment, ABANDONED);
-});
-
-test("the roster is NOT rewritten on every tick — only when the abandonment changes", async () => {
-  // applySnapshot runs on every store push, roughly once every two seconds per
-  // bot. An abandonment changes at most twice in a run, so the write is gated
-  // on a real change rather than on the push.
-  const log = [];
-  const rosterPath = tempRosterPath();
-  const host = makeHost({ log, persistPath: rosterPath });
-  await host.start(COMPANION_START);
-  const store = lastStore(log);
-  const running = { ...IDLE_COMPANION_SLICE, status: "running", phase: "Abandoned", abandonment: ABANDONED };
-  store._set({ companion: running });
-  const afterFirst = fs.statSync(rosterPath).mtimeMs;
-  for (let tick = 0; tick < 5; tick += 1) {
-    store._set({ companion: { ...running, why: `tick ${tick}` } });
-  }
-  assert.equal(fs.statSync(rosterPath).mtimeMs, afterFirst);
-});
-
-test("supervision returning clears the persisted clock too", async () => {
-  const log = [];
-  const rosterPath = tempRosterPath();
-  const host = makeHost({ log, persistPath: rosterPath });
-  await host.start(COMPANION_START);
-  const store = lastStore(log);
-  store._set({
-    companion: { ...IDLE_COMPANION_SLICE, status: "running", abandonment: ABANDONED },
-  });
-  assert.notEqual(readRosterFile(rosterPath)[0].abandonment, null);
-  store._set({ companion: { ...IDLE_COMPANION_SLICE, status: "running", abandonment: null } });
-  assert.equal(readRosterFile(rosterPath)[0].abandonment, null);
-});
-
-test("resume hands the ORIGINAL clock back to the loop, not a fresh one", async () => {
-  const log = [];
-  const rosterPath = tempRosterPath();
-  const before = makeHost({ log, persistPath: rosterPath });
-  await before.start(COMPANION_START);
-  lastStore(log)._set({
-    companion: { ...IDLE_COMPANION_SLICE, status: "running", abandonment: ABANDONED },
-  });
-
-  const resumeLog = [];
-  const after = makeHost({
-    log: resumeLog,
-    persistPath: rosterPath,
-    loadAccount: async (username) => (username === "test" ? { ...ACCOUNT } : null),
-  });
-  await after.resume();
-  const call = resumeLog.find((row) => row[0] === "startFleetCompanion");
-  assert.notEqual(call, undefined);
-  assert.deepEqual(call[2], ABANDONED, "the resumed run must continue the same thirty minutes");
-});
-
-test("an undecodable persisted clock is DROPPED, never fatal to the start", async () => {
-  // A row that cannot be trusted starts a fresh thirty minutes, which is still
-  // bounded and still safe. Refusing the whole start would instead leave a
-  // pilot flying with no host to stop it.
-  const rosterPath = tempRosterPath();
-  const before = makeHost({ persistPath: rosterPath });
-  await before.start(COMPANION_START);
-  const raw = JSON.parse(fs.readFileSync(rosterPath, "utf8"));
-  raw.bots[0].abandonment = { abandonedAtMs: "the other day" };
-  fs.writeFileSync(rosterPath, JSON.stringify(raw), "utf8");
-
-  const resumeLog = [];
-  const after = makeHost({
-    log: resumeLog,
-    persistPath: rosterPath,
-    loadAccount: async (username) => (username === "test" ? { ...ACCOUNT } : null),
-  });
-  await after.resume();
-  assert.equal(after.list(7).length, 1, "the companion must still come back");
-  const call = resumeLog.find((row) => row[0] === "startFleetCompanion");
-  assert.equal(call[2], null);
-});
-
-test("a script row never grows an abandonment field", async () => {
-  // It is companion-shaped state; a script has no supervision gate at all.
-  const rosterPath = tempRosterPath();
-  const host = makeHost({ persistPath: rosterPath });
-  await host.start(START);
-  assert.equal("abandonment" in readRosterFile(rosterPath)[0], false);
 });
 
 // THE PI BOARD'S CORP READ: a read-only route may look up the session a running

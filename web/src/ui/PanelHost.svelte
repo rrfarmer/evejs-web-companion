@@ -79,9 +79,9 @@
     // one that needs to see pilots beyond its own store/flow.
     sessions?: readonly Session[];
     /**
-     * Make another pilot the active cockpit. Forwarded only to Fleet
-     * companions, which is a roster of pilots and so the one panel with rows
-     * that are ABOUT a pilot you are not currently flying.
+     * Make another pilot the active cockpit. Forwarded to the global windows,
+     * a roster of pilots among them, whose rows
+     * are ABOUT a pilot you are not currently flying.
      */
     onGoToPilot?: (sessionID: string) => void;
   } = $props();
@@ -112,7 +112,7 @@
    * floating layer, so here a global tab is a panel like any other.
    *
    * ⚠ NOT THE MOUNTED PILOT'S. Each is about every pilot and is given neither
-   * this pilot's store nor its flow: the Bot Manager and Fleet companions read
+   * this pilot's store nor its flow: the Bot Manager and plugin windows read
    * each session's own store, the PI board reads through throwaway sign-ins,
    * and an industry plan spans every signed-in pilot's blueprints.
    */

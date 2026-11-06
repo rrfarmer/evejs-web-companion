@@ -123,8 +123,8 @@ export function closeInStall(mode: string | null, mem: MacroMemory): CloseInStal
   }
   const ticks = (num(mem, "stallTicks") ?? 0) + 1;
   if (ticks <= STALL_TICKS) {
-    // The bridge answers before the mode flips (see fleetCompanionLoop's own
-    // note on this), so a mode that has not caught up yet is not a stall.
+    // The bridge answers before the mode flips, so a mode that has not caught
+    // up yet is not a stall.
     return { step: "flying", mem: { ...mem, stallTicks: ticks } };
   }
   const stage = num(mem, "stallStage") ?? 0;

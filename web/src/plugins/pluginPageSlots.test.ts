@@ -134,13 +134,13 @@ test("a listener hears each arrangement saved, and a throwing one goes no furthe
 test("the launcher's count is pilots per plugin, from what holds each ship", () => {
   const counts = countPluginPilots(["plugin:trader", "custom", null, "plugin:trader", "plugin:hauler", "mining"]);
   assert.deepEqual([...counts], [["trader", 2], ["hauler", 1]]);
-  assert.equal(countPluginPilots([null, "companion"]).size, 0);
+  assert.equal(countPluginPilots([null, "mission"]).size, 0);
 });
 
 test("a window's id and a holder's name both give the plugin", () => {
   assert.equal(pluginIDOf("plugin:trader"), "trader");
   assert.equal(pluginIDOf("plugin:trader.prices"), "trader");
-  assert.equal(pluginIDOf("companion"), null);
+  assert.equal(pluginIDOf("mission"), null);
   assert.equal(pluginIDOf("plugin:"), null);
 });
 

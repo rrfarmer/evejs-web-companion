@@ -8865,12 +8865,12 @@ app.get("/api/dockable-structures/:id/services", requireAuth, async (req, res, n
 // `runtime.readChat`/`sendChat` and `gatewayServices/webChatGatewayService.js`,
 // and marked every browser-backed session as having left Local
 // (`session._localChatDeparted = true`). The reads began answering 404 on every
-// companion tick and every chat-ordered behaviour went silently dead.
+// bot tick and every chat-ordered behaviour went silently dead.
 //
 // They are now served by an XMPP client (`src/evejsXmppChat.js`) speaking to the
 // same stub server the retail client speaks to, joined as the held character.
 // The response envelope is unchanged, so `web/src/bridge/chat.ts`, the Chat
-// panel and the fleet companion's order rung all read exactly what they read
+// panel and any bot that takes chat orders all read exactly what they read
 // before.
 //
 // Two honest differences from the backlog-store era:
@@ -8969,7 +8969,7 @@ function chatUnavailable(res) {
  * `to='corp_…'` stanzas about a hundred milliseconds after the bind), and a
  * character who is online but in no room is a pilot nobody in the system can
  * see or talk to. Worse for this project's own purpose: nothing read chat until
- * a companion was actually RUNNING, so an idle-but-online companion could not
+ * a bot was actually RUNNING, so an idle-but-online pilot could not
  * even be addressed.
  *
  * ⚠ NEVER FAILS THE CALLER. A chat server that is down must not stop a
@@ -16606,14 +16606,13 @@ app.post("/api/mining-operations/member/drain-complete", requireAuth, (req, res,
 
 // ── Server-side bots (src/botHost.js) ───────────────────────────────────────
 // A bot the SERVER flies: it keeps running when the tab that started it goes
-// away. Start names a saved Bot Builder script, OR (kind: "companion") carries
-// a fleet companion's own typed request — the host runs either on a session of
+// away. Start names a saved Bot Builder script, OR (kind: "plugin") a plugin's run
+// with its setup — the host runs either on a session of
 // its own. Everything is account-scoped through requireAuth, same as the
 // script library above.
 const BOT_START_STATUS = {
   BOTSCRIPT_INVALID: 400,
   BOTSCRIPT_REVISION_REQUIRED: 400,
-  BOTCOMPANION_INVALID: 400,
   BOT_GRANT_REQUIRED: 400,
   BOT_GRANT_INVALID: 400,
   BOT_GRANT_STALE: 409,
@@ -17016,7 +17015,7 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
     // Absent = "script", matching botHost's own default for an unmarked
     // request — the same compatibility rule a persisted roster row with no
     // `kind` field gets on resume.
-    const kind = body.kind === "companion" || body.kind === "plugin" ? body.kind : "script";
+    const kind = body.kind === "plugin" ? "plugin" : "script";
     if (!Number.isSafeInteger(characterID) || characterID <= 0) {
       res.status(400).json({ ok: false, error: "INVALID_CHARACTER", message: "A positive characterID is required." });
       return;
@@ -17047,9 +17046,6 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
         return;
       }
     }
-    // A companion has no library entry to look up here — its "record" is the
-    // request in the body, and botHost.start() is the one place that decodes
-    // and trusts it (decodeFleetCompanionRequestValue).
 
     if (hasPendingRecovery(bridgeSessions.get(req.webSessionID), characterID)) {
       res.status(409).json({ ok: false, error: "DRONE_RECOVERY_PENDING",
@@ -17126,17 +17122,6 @@ app.post("/api/bots/start", requireAuth, async (req, res, next) => {
             pluginID: String(body.pluginID || ""),
             pluginRun: String(body.run || ""),
             request: body.setup ?? null,
-            grant: body.grant,
-            callerSessionID: req.webSessionID,
-            probeReservation: reservation,
-            beforeStart,
-          })
-          : kind === "companion"
-          ? await botHost.start({
-            account: req.account,
-            characterID,
-            kind: "companion",
-            request: body.request,
             grant: body.grant,
             callerSessionID: req.webSessionID,
             probeReservation: reservation,

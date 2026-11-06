@@ -153,6 +153,7 @@ export {
   pluginPostJson,
   startPluginRun,
   startServerBot,
+  stopServerBot,
   updateBotScript,
   ROSTER_PLANETS_MAX_IDS,
 } from "../app/api.ts";
@@ -161,11 +162,15 @@ export { readCorpStock } from "../app/corpStockRead.ts";
 export type { BotPilot, CorpItemFilter, OnlinePilot } from "../app/corpStockRead.ts";
 export type { AppFlow } from "../app/flow.ts";
 export { loadHangarPrefs, onHangarPrefsSaved } from "../app/hangarPrefs.ts";
-export { loadKnownCharacters } from "../app/knownCharacters.ts";
+export { loadKnownAccounts, loadKnownCharacters } from "../app/knownCharacters.ts";
 export type { KnownCharacter } from "../app/knownCharacters.ts";
 export type { Session } from "../app/sessions.ts";
+export { createPilotReach } from "../app/pilotReach.ts";
+export type { PilotReach } from "../app/pilotReach.ts";
 export { skipWhileBusy } from "../app/skipWhileBusy.ts";
 export { stopServerBotFor } from "../app/stopBotFor.ts";
+export { groupStartFinished, groupStartSummary, startForGroup } from "../bots/groupStart.ts";
+export type { GroupStartEntry, GroupStartState } from "../bots/groupStart.ts";
 export { SCRIPT_FORMAT, SCRIPT_VERSION, startingStation } from "../bots/botScript.ts";
 export type { BotScript, WorldRef } from "../bots/botScript.ts";
 export { analyzeBotRunPolicy, createBotLaunchGrant, createPluginRunGrant } from "../bots/runPolicy.ts";
@@ -195,5 +200,6 @@ export {
 } from "../bridge/stockHoldings.ts";
 export type { CorpStockRead, Holding, HoldingSource, PilotStockStack } from "../bridge/stockHoldings.ts";
 export type { JsonValue } from "../bridge/wire.ts";
+export type { WritableSignal } from "../store/signals.ts";
 export { PROGRAM_DONE_PHASE } from "../nav/scriptDecide.ts";
 export type { Colony, ColonyPin, ColonyPinKind, ColonyReport } from "../store/types.ts";

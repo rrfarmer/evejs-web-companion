@@ -25,6 +25,13 @@ const doc = { format: "evejs-bot-script", version: 1, program: [] };
 const script = { scriptID: "test-patrol", name: "Test patrol", rev: 1, doc };
 const grant = { scriptRev: 1, riskClasses: [], maxRuntimeMinutes: 10 };
 const idle = { status: "idle", phase: null, why: null, startError: null };
+// A plugin that takes any run, accepts any setup as risk-free, and flies nothing: enough to prove the host's Start path.
+const stubPlugins = {
+  async checkRun(_pluginID, _run, setup) { return { ok: true, name: "Stub run", setup: setup ?? {}, policy: { riskClasses: [], restartSafe: true } }; },
+  async startRun() { return null; },
+  async stopRun() {},
+  formerBotKind: () => null,
+};
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
 async function harness(t, { factory = "forbidden", mcc = false, reach = null } = {}) {
@@ -96,13 +103,12 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
   const loadStack = async () => ({
     decodeScriptValue: value => ({ ok: true, doc: value }),
     analyzeBotRunPolicy: () => ({ riskClasses: [], restartSafe: true }),
-    decodeCompanionSetupValue: value => ({ ok: true, setup: value }),
-    analyzeCompanionRunPolicy: () => ({ riskClasses: [], restartSafe: true }),
-    COMPANION_GRANT_SCRIPT_REV: 1,
+    PLUGIN_RUN_GRANT_REV: 1,
+    pluginRunBotPolicy: policy => ({ macroIDs: [], restartBlockers: [], containsSubBots: false, riskClasses: policy.riskClasses, restartSafe: policy.restartSafe === true }),
     validateBotLaunchGrant: value => ({ ok: true, grant: value }),
     createClientStore() {
       const listeners = new Set(), state = { station: { online: null }, flight: { status: null }, space: { snapshot: null },
-        mining: { holds: [] }, customBot: { ...idle }, companion: { ...idle } };
+        mining: { holds: [] }, customBot: { ...idle } };
       return { ...Object.fromEntries(Object.keys(state).map(key => [key, { get: () => state[key] }])),
         set(key, value) { state[key] = value; for (const listener of listeners) listener(state); },
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); } };
@@ -123,8 +129,8 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
           calls.push(["run"]); store.set("customBot", { ...idle, status: "running" });
         },
         stopCustomBot() { calls.push(["cancel"]); },
-        async startFleetCompanion() { store.set("companion", { ...idle, status: "running" }); },
-        stopFleetCompanion() {},
+        heldPilot: () => ({ characterID, character: { name: "Test Pilot" }, station: null }),
+        autopilotSettings: () => ({}),
         async prepareHostedBotStop() {},
         async logout() { await request("/api/logout"); store.set("station", { online: null }); },
         async loadFlightStatus() { store.set("flight", { status: { docked: true } }); },
@@ -136,7 +142,7 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
   const makeHost = hostModule.createBotHost;
   hostModule.createBotHost = options => {
     ownershipProbe = options.isCharacterHeld;
-    return makeHost({ ...options, persistPath: null, loadStack, startupRuns,
+    return makeHost({ ...options, persistPath: null, loadStack, startupRuns, pluginProcess: () => stubPlugins,
       prepareOperation: record => behavior.prepareOperation ? behavior.prepareOperation(record) : options.prepareOperation(record),
       isCharacterHeld: async (...args) => { probes.push(args); if (probeHook) await probeHook(args); return ownershipProbe(...args); } });
   };
@@ -681,9 +687,9 @@ test("a stale late probe cannot claim or remove a replacement reservation", asyn
   } finally { h.reservations.delete(characterID); }
 });
 
-test("public companion Start passes the same exact reservation contract", async t => {
-  const h = await harness(t), result = await h.post("/api/bots/start", { characterID, kind: "companion", request: {}, grant });
-  assert.equal(result.status, 200); assert.equal(result.body.bot.kind, "companion");
+test("public plugin-run Start passes the same exact reservation contract", async t => {
+  const h = await harness(t), result = await h.post("/api/bots/start", { characterID, kind: "plugin", pluginID: "stub", run: "stub", setup: {}, grant });
+  assert.equal(result.status, 200, JSON.stringify(result.body)); assert.equal(result.body.bot.kind, "plugin");
   assert.equal(typeof h.starts[0].probeReservation, "symbol");
   assert.equal(h.reservations.size, 0); assert.equal((await h.stop(result.body.bot.botID)).status, 200);
 });

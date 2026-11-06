@@ -66,16 +66,13 @@ import {
  * Every BOT the client can run — the catalogue the launcher and the Bot Manager
  * list, pick from and set up.
  *
- * ⚠ THE FLEET COMPANION IS NOT ONE OF THESE ANY MORE, and its absence is the
- * point rather than an omission. A bot is a script you set up against your own
- * ship and leave running: it picks its own work (a belt, an agent), it is
- * offered in the Manager's picker beside the saved scripts, and it can be
- * handed to the server as a saved run. A companion does none of that — it has
- * no work of its own at all, it does what a fleet tells it, and it is set up
- * and watched across EVERY pilot at once in the Fleet companions window. It
- * kept being listed here because it was built as the third instance of the bot
- * pattern, and that inheritance is what put a fleet readout inside a bot
- * library. It still HOLDS A SHIP, which is `ShipControllerID` below.
+ * ⚠ A PLUGIN'S LOOP IS NOT ONE OF THESE, and its absence is the point rather
+ * than an omission. A bot is a script you set up against your own ship and
+ * leave running: it picks its own work (a belt, an agent), it is offered in
+ * the Manager's picker beside the saved scripts, and it can be handed to the
+ * server as a saved run. A plugin's loop is its own system, set up and watched
+ * in the plugin's own window. It still HOLDS A SHIP, which is
+ * `ShipControllerID` below.
  */
 export type BotID = "mining" | "mission";
 
@@ -84,20 +81,20 @@ export const BOT_IDS: readonly BotID[] = Object.freeze<BotID[]>(["mining", "miss
 /**
  * Every browser-side decide loop that can issue orders to one ship.
  *
- * `BotID` is the catalogue of the built-in bot launchers. The two members
- * beyond it are not catalogue rows and must never be treated as ones:
- * player-authored scripts have no single row (there can be many saved ones),
- * and the fleet companion is its own system entirely. All three kinds
- * nevertheless issue orders to ONE hull, so all three participate in the same
- * ownership claim — which is why exclusion is keyed by this union and not by
- * `BotID`.
+ * `BotID` is the catalogue of the built-in bot launchers. The one member
+ * beyond it is not a catalogue row and must never be treated as one:
+ * player-authored scripts have no single row (there can be many saved ones).
+ * Both kinds nevertheless issue orders to ONE hull, so both participate in the
+ * same ownership claim — which is why exclusion is keyed by this union and not
+ * by `BotID`.
  *
- * ⚠ THE COMPANION MUST STAY IN HERE. Take it out and a mining bot can be
- * started on a ship a companion is flying with neither loop aware of the other:
+ * ⚠ A PLUGIN'S LOOP MUST STAY IN THE CLAIM TOO (see `PluginShipOwner`). Take it
+ * out and a mining bot can be started on a ship a plugin is flying with neither
+ * loop aware of the other:
  * two tickers issuing movement and module calls against one hull, which is the
  * exact bug `createShipClaim` was written to make structurally impossible.
  */
-export type BuiltInShipController = BotID | "companion" | "custom";
+export type BuiltInShipController = BotID | "custom";
 
 /** A plugin holding the ship (`flow.flying.holdShip`): "plugin:<plugin id>". */
 export type PluginShipOwner = `plugin:${string}`;
@@ -107,7 +104,6 @@ export type ShipControllerID = BuiltInShipController | PluginShipOwner;
 export const SHIP_CONTROLLER_IDS: readonly BuiltInShipController[] = Object.freeze<BuiltInShipController[]>([
   "mining",
   "mission",
-  "companion",
   "custom",
 ]);
 
@@ -260,10 +256,9 @@ export function evaluateRequirements<Reads>(
  * A boolean read that may not have been readable. Null is never "no".
  *
  * Exported because a requirement declaration does not have to live in this
- * file: the fleet companion's moved out with the companion itself (see
- * nav/fleetCompanionRequirements.ts), and it needs the same three-answer
- * reading of a nullable read that every requirement here uses. The MACHINERY is
- * shared; the catalogue is not.
+ * file: a plugin's requirements live in the plugin, and they need the same
+ * three-answer reading of a nullable read that every requirement here uses.
+ * The MACHINERY is shared; the catalogue is not.
  */
 export function fromNullableBoolean(value: boolean | null): RequirementVerdict {
   if (value === null) {

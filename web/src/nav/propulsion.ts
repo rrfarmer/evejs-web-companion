@@ -2,14 +2,14 @@
 // microwarpdrive once somebody has decided whether this ship needs to cover
 // distance right now.
 //
-// This is `decidePropulsion` out of `nav/fleetCompanionLoop.ts`, lifted whole
-// rather than re-derived. The companion asks "am I travelling, or did a
+// This is a fleet-following plugin's `decidePropulsion`, lifted whole
+// rather than re-derived. That loop asks "am I travelling, or did a
 // commander type `props on`?"; the drone-boat block asks "is the gap between
 // where I am and where I want to be bigger than five km?" -- and from that
 // answer onwards the two want exactly the same thing, down to which module to
 // name and when to leave the rack alone. Two copies of a scram rule with
-// nothing to fail if one drifted is the same shape of bug the companion's own
-// header warns about elsewhere, so there is one copy and it is here.
+// nothing to fail if one drifted is a bug waiting to happen, so there is one
+// copy and it is here.
 //
 // ⚠ PURE, AND THAT IS LOAD-BEARING. No store, no bridge, no loop import: the
 // caller reads the grid, this decides, the caller words it. `wantBurn` is the
@@ -88,7 +88,7 @@ const NONE: PropulsionDecision = Object.freeze({ kind: "none" as const });
  * goes out rather than circling on full power for ever. That judgement belongs
  * to the caller -- it is the whole content of `wantBurn` -- but it is written
  * here because it is the rule most easily lost when a second caller answers the
- * question for itself. The companion reads it off the ship's movement mode; the
+ * question for itself. A loop reads it off the ship's movement mode; the
  * drone boat reads it off the gap to the range it wants to hold. Neither may
  * read "I am moving" as "I am closing".
  *
@@ -128,7 +128,7 @@ const NONE: PropulsionDecision = Object.freeze({ kind: "none" as const });
  *
  * ⚠ WHICH MODULE, WHEN SEVERAL ARE FITTED, IS THE CALLER'S FIT ORDER AND
  * NOTHING CLEVERER -- first one that qualifies wins, both halves. That is what
- * the companion has always done and it is not a considered ranking: hulls carry
+ * the first caller has always done and it is not a considered ranking: hulls carry
  * one prop mod in practice, and the one place the choice is ever forced (a
  * scram, with both kinds aboard) the skip decides it rather than the order. If
  * a caller ever needs "the biggest" or "the cheapest", that is a new rule and it

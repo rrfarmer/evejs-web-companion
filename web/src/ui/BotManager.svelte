@@ -2,8 +2,8 @@
   // BOT MANAGER — regions A, B and C (docs/bot-manager-brainstorm.md §4), plus
   // a GROUPS region above them.
   //
-  // Groups (top): one row per pilot group — the built-in Companions group and
-  // every squad the player made on the Pilot Hangar — each able to start one
+  // Groups (top): one row per pilot group — every squad the player made on
+  // the Pilot Hangar — each able to start one
   // bot on all of its free members at once. It sits ABOVE Pilots on purpose:
   // launching for a group is the coarse action and launching for one pilot is
   // the exception to it, and a player with six pilots arranged into two ops
@@ -80,7 +80,7 @@
   } from "../bots/pilotRoster.ts";
   import { loadHangarPrefs } from "../app/hangarPrefs.ts";
   import { loadKnownAccounts, loadKnownCharacters } from "../app/knownCharacters.ts";
-  import { companionGroupRoster, pilotGroups } from "../bots/pilotGroups.ts";
+  import { pilotGroups } from "../bots/pilotGroups.ts";
   import BotManagerGroupRow from "./BotManagerGroupRow.svelte";
   import BotManagerPilotRow from "./BotManagerPilotRow.svelte";
   import ActionButton from "./ActionButton.svelte";
@@ -162,7 +162,7 @@
   // --- groups ---------------------------------------------------------------
   //
   // ⚠ RE-READ ON THE ROSTER'S OWN BEAT, NOT ONCE AT MOUNT. Squads are edited on
-  // the Pilot Hangar and companion ticks are set there too; this panel can be
+  // the Pilot Hangar and plugins' squad settings are made there too; this panel can be
   // left open across both. localStorage gives no change event to this tab (the
   // `storage` event fires only in OTHER tabs), so the only honest options are
   // to re-read or to show an arrangement the player has already changed. A
@@ -184,10 +184,6 @@
    * a picker on every row: nobody set the five differently.
    */
   let runtimeMinutes = $state(DEFAULT_SERVER_BOT_RUNTIME_MINUTES);
-  /** Each companion's saved setup, so the Companions row can start them. */
-  const companionSetups = $derived(
-    new Map(companionGroupRoster(prefs).map((member) => [member.characterID, member.setup])),
-  );
 
   /**
    * A pilot's name from whichever source knows it.
@@ -482,8 +478,8 @@
   // exactly like a window strip and, sitting first, READ as one — a band that
   // looked like it was answering for the whole window while it was really
   // just region A's own band, the same idiom Recent runs and Saved bots use
-  // below it. This gives the window a strip of its own, in FleetCompanions.svelte's
-  // shape, so the band directly under the title bar is honestly the window's.
+  // below it. This gives the window a strip of its own, so the band directly
+  // under the title bar is honestly the window's.
   //
   // ⚠ TWO INDEPENDENT READS, ONE LINE, GATED ON BOTH. Region A/C's roster
   // (`serverBots`, fetched by `refreshPilots`) and region B's library
@@ -847,8 +843,7 @@
              be a state that never happens. -->
         <p class="note">
           Start one bot on a whole group at once. Groups are the squads you make on
-          the Pilot Hangar; Companions is built in and always flies the fleet
-          companion.
+          the Pilot Hangar.
         </p>
 
         <div class="table-wrap overflow-x-auto">
@@ -870,7 +865,6 @@
                   {serverBots}
                   {ownerOptions}
                   {libraryOptions}
-                  {companionSetups}
                   {nameOf}
                   {runtimeMinutes}
                   sessions={heldSessions}

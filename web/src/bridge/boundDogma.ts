@@ -285,13 +285,13 @@ export const DOGMA_ATTR_DURATION = 73;
  * effects (`targetAttack`, `projectileFired`, `useMissiles`, the
  * disintegrator's, the vorton projector's and the rest) name 51. Every turret
  * and launcher carries a speed and no duration at all: a 250mm railgun's is
- * 5825. Asked for its duration alone, each was "passive", and a companion,
- * whose lists are read off the hull, flew with no guns: it neither fired nor
- * reloaded them. Seen live that day, a companion in space with three empty
+ * 5825. Asked for its duration alone, each was "passive", and a bot whose
+ * lists are read off the hull flew with no guns: it neither fired nor
+ * reloaded them. Seen live that day, a bot in space with three empty
  * guns and charges for them in its hold, standing by.
  *
  * The other attributes an effect may name are an NPC's, a fighter's, a
- * structure's or a capital's own, none of them a module a companion cycles.
+ * structure's or a capital's own, none of them a module a bot cycles.
  */
 export const DOGMA_ATTR_SPEED = 51;
 
