@@ -2102,6 +2102,12 @@ export interface CompanionLadderMemory {
    */
   readonly fleeRecoverySinceMs: number | null;
   /**
+   * The tank readings of the last `TANK_SAMPLE_WINDOW_MS`, oldest first, in
+   * space only. How fast the tank is falling comes from these: see
+   * `tankRunsOutInMs`.
+   */
+  readonly tankSamples: readonly TankSample[];
+  /**
    * The stand-off the newest `follow` order named, in metres.
    *
    * ⚠ A LATCH LIKE `areaJob`, FOR THE SAME REASON: a heard order changes it and
@@ -2478,6 +2484,7 @@ export function freshLadderMemory(): CompanionLadderMemory {
     shipLost: null,
     fleeTripsSpent: 0,
     fleeRecoverySinceMs: null,
+    tankSamples: [],
     // ⚠ THE DEFAULT RANGE, NOT NULL. Following is the standing behaviour, so a
     // companion nobody has typed `follow` at still has a distance to hold -- see
     // `followRangeM`. `followHeld` false for the same reason: it starts
@@ -3147,6 +3154,7 @@ function decideCompanionStep(
     shipLost: memory.shipLost,
     fleeTripsSpent: memory.fleeTripsSpent,
     fleeRecoverySinceMs: memory.fleeRecoverySinceMs,
+    tankSamples: memory.tankSamples,
     // Carried, every one of them. A human turning up says nothing about where
     // this pilot was told to fly or how close to hold: an order given while the
     // fleet was unsupervised was still given, and a `stop` typed a moment before
@@ -3897,6 +3905,7 @@ function recallBeforeLeaving(
   obs: FleetCompanionObservation,
   mem: CompanionLadderMemory,
   leg: SafetyLeg,
+  nowMs: number,
 ): CompanionDecision | null {
   const out = obs.myDroneIDs ?? [];
   if (out.length === 0) {
@@ -3912,6 +3921,15 @@ function recallBeforeLeaving(
   // keeps the bounded wait, as it did before this existed.
   const health = tankHealth(request, obs);
   if (health !== null && health < abandonDronesFloor(request)) {
+    return null;
+  }
+  // ⚠ NOR IS THERE TIME TO WAIT WHEN THE TANK WILL NOT LAST THE ALIGN. Seen live
+  // 2026-11-06: a cruiser waited 6.5 s for its drones, sent the warp, and died
+  // 11 s later still aligning. A second floor of zero is the operator saying
+  // never leave the drones early, so it turns this off too.
+  const runsOutInMs = tankRunsOutInMs(mem, nowMs);
+  if (abandonDronesFloor(request) > 0 && runsOutInMs !== null && runsOutInMs < TIME_NEEDED_TO_LEAVE_MS) {
+    noteNotice("The tank is falling too fast to wait for the drones.");
     return null;
   }
   const waited = leg.run.droneRecallWaited;
@@ -3966,7 +3984,7 @@ function runToSafety(
   // `droneRecallWaited`. Docking and approaching are not departures and are
   // left alone -- a dock is the destination, and the recall happens before the
   // warp that reaches it.
-  const recall = recallBeforeLeaving(request, obs, mem, leg);
+  const recall = recallBeforeLeaving(request, obs, mem, leg, nowMs);
   if (recall !== null) {
     return recall;
   }
@@ -6514,6 +6532,65 @@ function countTowardsRecovery(
   return { ...memory, fleeRecoverySinceMs: null, fleeTripsSpent: 0 };
 }
 
+/** One reading of the tank (`tankHealth`) and when it was taken. */
+export interface TankSample {
+  readonly atMs: number;
+  readonly health: number;
+}
+
+/** How far back the tank readings go. Long enough to span a few volleys. */
+const TANK_SAMPLE_WINDOW_MS = 10_000;
+/** Readings closer together than this say nothing about a rate: damage lands in volleys. */
+const TANK_RATE_MIN_SPAN_MS = 1500;
+/**
+ * The time a hurt ship has to allow for getting into warp. Nothing the companion
+ * reads says how fast this hull aligns, so this is a fixed allowance. A cruiser
+ * orbiting at speed was still not in warp 11 s after the order (seen live
+ * 2026-11-06), because it has to swing its velocity round first.
+ */
+const TIME_NEEDED_TO_LEAVE_MS = 20_000;
+
+/** The readings with this tick's added and the old ones dropped. A ship not in space has none. */
+function withTankSample(
+  request: FleetCompanionRequest,
+  obs: FleetCompanionObservation,
+  memory: CompanionLadderMemory,
+  nowMs: number,
+): CompanionLadderMemory {
+  if (obs.inSpace !== true) {
+    return memory.tankSamples.length === 0 ? memory : { ...memory, tankSamples: [] };
+  }
+  const health = tankHealth(request, obs);
+  const kept = memory.tankSamples.filter((sample) => nowMs - sample.atMs <= TANK_SAMPLE_WINDOW_MS);
+  return { ...memory, tankSamples: health === null ? kept : [...kept, { atMs: nowMs, health }] };
+}
+
+/**
+ * How long the tank lasts at the rate it has been falling, in ms; null when it
+ * is not falling or the readings cannot say.
+ *
+ * Measured from the highest recent reading rather than the oldest, so a repair
+ * cycle landing early in the window does not hide the damage after it.
+ */
+function tankRunsOutInMs(memory: CompanionLadderMemory, nowMs: number): number | null {
+  const samples = memory.tankSamples.filter((sample) => nowMs - sample.atMs <= TANK_SAMPLE_WINDOW_MS);
+  const latest = samples[samples.length - 1];
+  if (latest === undefined) {
+    return null;
+  }
+  let peak = latest;
+  for (const sample of samples) {
+    if (sample.health > peak.health) {
+      peak = sample;
+    }
+  }
+  const spanMs = latest.atMs - peak.atMs;
+  if (spanMs < TANK_RATE_MIN_SPAN_MS) {
+    return null;
+  }
+  return latest.health / ((peak.health - latest.health) / spanMs);
+}
+
 /** What rung 5 hands back: a decision when it has one, and always its memory. */
 interface FleeStep {
   readonly decision: CompanionDecision | null;
@@ -6535,7 +6612,7 @@ function decideFlee(
   memory: CompanionLadderMemory,
   nowMs: number,
 ): FleeStep {
-  memory = withRepairOrder(request, obs, memory, nowMs);
+  memory = withRepairOrder(request, obs, withTankSample(request, obs, memory, nowMs), nowMs);
   const running = memory.flee;
   if (running !== null) {
     return flyTheFlee(request, obs, memory, running, nowMs);
@@ -7265,6 +7342,13 @@ function flyTheFlee(
     ...(running.ordered === true ? { stationOnly: true as const } : {}),
   }, nowMs);
   if (safe !== null) {
+    // The numbers this leg flew on, for the flight recorder. Only when it flies:
+    // a flee with nowhere to go falls through, and the rung below explains that.
+    const runsOutInMs = tankRunsOutInMs(mem, nowMs);
+    noteHealth({
+      ...healthTrace(request, obs, "flee-leaving"),
+      ...(runsOutInMs === null ? {} : { runsOutInMs: Math.round(runsOutInMs) }),
+    });
     return { decision: safe, memory: safe.memory };
   }
   if (running.ordered === true) {
@@ -8030,6 +8114,14 @@ function decidePropulsion(
   const call = decidePropulsionModule(inputs);
 
   if (call.kind === "stop") {
+    // ⚠ A FLEE KEEPS A LIT AFTERBURNER UNTIL IT HAS ARRIVED. Sending the warp ends
+    // whatever was closing, so this rung read "not travelling" and stood it down
+    // mid-align (seen live 2026-11-06). The deactivate waits out the cycle, 8 s
+    // there, with the loop held the whole time. Speed also helps the align and
+    // against missiles. A microwarpdrive still stops; so does `props off`.
+    if (memory.flee !== null && !memory.flee.arrivedSafe && call.module.kind === "afterburner" && because !== "held-off") {
+      return done(null, memory, "leaving");
+    }
     // One module per tick, and once per module until the snapshot proves it
     // stopped -- the latch is this loop's, because it is about calls already
     // spent and not about what the rack should look like.
@@ -11843,6 +11935,7 @@ export function createFleetCompanion(deps: FleetCompanionDeps): FleetCompanionCo
       shipLost: null,
       fleeTripsSpent: 0,
       fleeRecoverySinceMs: null,
+      tankSamples: [],
           // ⚠ A RESUMED RUN IS NOT FOLLOWING ANYBODY AND IS NOT ON A TRIP, and
           // that is the honest answer rather than a lossy one. Nothing about a
           // `keepAtRange` survives the process that sent it: the server may well

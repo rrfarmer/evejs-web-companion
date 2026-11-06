@@ -5236,6 +5236,103 @@ test("a second floor of zero never leaves the drones before the wait runs out", 
   assert.equal(decision.action.kind, "recallDrones");
 });
 
+// Seen live 2026-11-06: a cruiser crossed its floor at about 1.8% a second, waited
+// 6.5 s for its drones, and died 11 s after the warp order, still aligning.
+
+const FALLING_REQUEST: FleetCompanionRequest = { ...REQUEST, fleeHealthFloor: 0.3, abandonDronesHealthFloor: 0.15 };
+
+/** Decides one tick per [ms, health], each building on the last. */
+function ticks(request: FleetCompanionRequest, readings: readonly (readonly [number, number])[]): CompanionDecision {
+  let memory: CompanionLadderMemory = freshLadderMemory();
+  let decision: CompanionDecision | null = null;
+  for (const [atMs, health] of readings) {
+    decision = decideCompanionAction(request, fleeObs({ health, myDroneIDs: [DRONE_A] }), memory, atMs);
+    memory = decision.memory;
+  }
+  return decision as CompanionDecision;
+}
+
+test("a tank falling too fast to last the align leaves the drones and warps at once", () => {
+  const decision = ticks(FALLING_REQUEST, [[1000, 0.4], [3000, 0.36], [5000, 0.29]]);
+  assert.deepEqual(decision.action, { kind: "warp", targetID: 60000001 });
+  assert.match(decision.why, /falling too fast/);
+});
+
+test("a tank falling slowly still waits for the drones", () => {
+  const decision = ticks(FALLING_REQUEST, [[1000, 0.31], [3000, 0.305], [5000, 0.29]]);
+  assert.equal(decision.action.kind, "recallDrones");
+});
+
+test("a fast fall that starts during the wait stops the wait", () => {
+  const recall = ticks(FALLING_REQUEST, [[1000, 0.29], [3000, 0.29]]);
+  assert.equal(recall.action.kind, "wait");
+  const dropping = decideCompanionAction(FALLING_REQUEST, fleeObs({ health: 0.2, myDroneIDs: [DRONE_A] }), recall.memory, 5000);
+  assert.deepEqual(dropping.action, { kind: "warp", targetID: 60000001 });
+});
+
+test("readings too close together say nothing about a rate", () => {
+  const decision = ticks(FALLING_REQUEST, [[1000, 0.4], [1400, 0.29]]);
+  assert.equal(decision.action.kind, "recallDrones");
+});
+
+test("a reading older than the window does not count towards the fall", () => {
+  const decision = ticks(FALLING_REQUEST, [[1000, 0.9], [20_000, 0.29], [22_000, 0.29]]);
+  assert.equal(decision.action.kind, "wait");
+});
+
+test("a second floor of zero keeps the drones however fast the tank falls", () => {
+  const request: FleetCompanionRequest = { ...FALLING_REQUEST, abandonDronesHealthFloor: 0 };
+  const decision = ticks(request, [[1000, 0.4], [3000, 0.36], [5000, 0.29]]);
+  assert.equal(decision.action.kind, "recallDrones");
+});
+
+test("the tank readings are dropped when the ship docks", () => {
+  const inSpace = ticks(FALLING_REQUEST, [[1000, 0.29]]);
+  assert.equal(inSpace.memory.tankSamples.length, 1);
+  const docked = decideCompanionAction(FALLING_REQUEST, fleeObs({ docked: true, inSpace: false, health: 1 }), inSpace.memory, 3000);
+  assert.deepEqual(docked.memory.tankSamples, []);
+});
+
+test("the flee leg writes its health and how long the tank lasts to the trace", () => {
+  const decision = ticks(FALLING_REQUEST, [[1000, 0.4], [3000, 0.36], [5000, 0.29]]);
+  const health = decision.trace?.health;
+  assert.equal(health?.code, "flee-leaving");
+  assert.equal(health?.tank, 0.29);
+  assert.equal(health?.floor, 0.3);
+  assert.equal(health?.runsOutInMs, Math.round(0.29 / ((0.4 - 0.29) / 4000)));
+});
+
+// Seen live 2026-11-06: the warp order ended the closing, so the prop rung stood
+// the afterburner down mid-align and held the loop 8 s for the cycle to end.
+
+const FLEE_BURNER: CompanionPropulsionModule = { itemID: 11300019, typeID: 90000911, kind: "afterburner" };
+
+function fleeingWithLit(lit: CompanionPropulsionModule, extra: Partial<FleetCompanionObservation> = {}) {
+  const grid = gridWithStation(200_000);
+  const snapshot = { ...grid, ship: { ...grid.ship, activeModuleIDs: [lit.itemID] } } as FleetCompanionObservation["snapshot"];
+  return decideCompanionAction(
+    { ...REQUEST, propulsionModules: [lit] },
+    fleeObs({ snapshot, ...extra }),
+    fleeing({ safeSpotWarpIssued: true }),
+  );
+}
+
+test("a flee keeps its afterburner lit on the way out", () => {
+  const decision = fleeingWithLit(FLEE_BURNER);
+  assert.notEqual(decision.action.kind, "deactivate");
+  assert.equal(decision.trace?.props?.withheld, "leaving");
+});
+
+test("a flee still stands down a microwarpdrive", () => {
+  const decision = fleeingWithLit({ ...FLEE_BURNER, kind: "microwarpdrive" });
+  assert.equal(decision.action.kind, "deactivate");
+});
+
+test("a commander's props off beats the flee's afterburner", () => {
+  const decision = fleeingWithLit(FLEE_BURNER, { chatMessages: [chatLine("props off", HUMAN)] });
+  assert.equal(decision.action.kind, "deactivate");
+});
+
 // "Flee outranks drone redeploy", enforced at RUNTIME as the spec asked and not
 // merely by where the rung happens to be written. A rotation left standing
 // would have rung 6 putting a drone back out of a ship that is leaving.
