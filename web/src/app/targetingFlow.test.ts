@@ -504,3 +504,12 @@ test("a thing that has left the grid is no longer being locked", async () => {
   await flow.loadSpaceSnapshot();
   assert.deepEqual(store.targeting.get().acquiringTargetIDs, []);
 });
+
+test("a blind scene (in space, no ship) does not end a lock note: it is unknown, not empty", async () => {
+  const store = createClientStore();
+  const { fetch } = makeFakeFetch(() => ({ status: 200, body: { ok: true, space: { inSpace: true, entities: [], ship: null }, notifications: [] } }));
+  const flow = createAppFlow(store, { fetch });
+  store.apply({ type: "targeting/acquiring", targetID: ROCK_ID });
+  await flow.loadSpaceSnapshot();
+  assert.deepEqual(store.targeting.get().acquiringTargetIDs, [ROCK_ID]);
+});

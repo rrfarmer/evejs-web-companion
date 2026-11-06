@@ -19673,6 +19673,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // overview, and the slice is cleared so the panel shows the docked message
   // instead of a stale grid.
   async function loadSpaceSnapshot(): Promise<void> {
+    const acquiringBeforeRead = store.targeting.get().acquiringTargetIDs;
     let result;
     try {
       result = await api.getSpaceSnapshot({ ...callOptions, priority: "poll" });
@@ -19696,9 +19697,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     });
     // A thing that has left the grid is no longer being locked (targetMgr.DoBallRemove, 565), whether or not this page
     // heard the server's FailLockTarget: a push can be missed while the stream reconnects.
-    for (const targetID of store.targeting.get().acquiringTargetIDs) {
-      if (!snapshot.entities.some((entity) => entity.itemID === targetID)) {
-        store.apply({ type: "targeting/lock-failed", targetID });
+    // Only a lock already being made when this read was asked for can be judged by it (a newer one may be on a thing
+    // the read predates), and a blind scene is unknown, not empty (isSceneBlind).
+    if (!isSceneBlind(snapshot.inSpace, snapshot)) {
+      const onGrid = new Set(snapshot.entities.map((entity) => entity.itemID));
+      const stillAcquiring = store.targeting.get().acquiringTargetIDs;
+      for (const targetID of acquiringBeforeRead) {
+        if (stillAcquiring.includes(targetID) && !onGrid.has(targetID)) {
+          store.apply({ type: "targeting/lock-failed", targetID });
+        }
       }
     }
     // Keep the flight readout honest too: a snapshot that says the ship is no
