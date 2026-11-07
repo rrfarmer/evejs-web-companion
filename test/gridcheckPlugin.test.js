@@ -170,6 +170,9 @@ test("a step's mistakes are found when it is read", () => {
   assert.strictEqual(problems("fleetForm", { fleetForm: ["e2eflee"] }), "");
   assert.match(problems("fleetForm", { fleetForm: "e2eflee" }), /member accounts/);
   assert.match(problems("fleetForm", { fleetForm: ["e2eflee"], boss: 5 }), /boss/);
+  assert.match(problems("fleetForm", { fleetForm: ["e2eflee", "e2eflee"] }), /each member account once/);
+  assert.match(problems("fleetForm", { fleetForm: ["e2eflee"], boss: "e2eflee" }), /boss: not one of the members/);
+  assert.match(problems("shipHealth", { shipHealth: {} }), /at least one/);
   assert.strictEqual(problems("shipHealth", { shipHealth: { shield: 0, armor: 0.4 }, user: "e2eflee" }), "");
   assert.match(problems("shipHealth", { shipHealth: { armour: 0.4 } }), /armour: unknown key/);
   assert.match(problems("shipHealth", { shipHealth: { armor: 40 } }), /armor: a fraction/);

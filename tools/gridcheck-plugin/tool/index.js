@@ -310,8 +310,9 @@ const STEPS = {
       const members = raw.fleetForm;
       if (!Array.isArray(members) || members.length === 0 || members.some((user) => typeof user !== "string" || !user)) {
         ctx.problem("fleetForm", "the member accounts, as a list");
-      }
+      } else if (new Set(members).size !== members.length) ctx.problem("fleetForm", "each member account once");
       if (raw.boss !== undefined && (typeof raw.boss !== "string" || !raw.boss)) ctx.problem("boss", "the boss's account; default the held character");
+      else if (raw.boss && Array.isArray(members) && members.includes(raw.boss)) ctx.problem("boss", "not one of the members: the boss is in the fleet already");
       return { members, boss: raw.boss };
     },
     describe: (step) => `a fleet: ${step.boss || "the held character"} as boss, ${(step.members || []).join(", ")} invited`,
@@ -333,6 +334,7 @@ const STEPS = {
           if (!["shield", "armor", "hull"].includes(key)) ctx.problem(`shipHealth.${key}`, "unknown key; shipHealth takes shield, armor and hull");
           else if (!(typeof value[key] === "number" && value[key] >= 0 && value[key] <= 1)) ctx.problem(`shipHealth.${key}`, "a fraction from 0 to 1");
         }
+        if (Object.keys(value).length === 0) ctx.problem("shipHealth", "at least one of shield, armor and hull");
         if (value.hull === 0) ctx.problem("shipHealth.hull", "above 0: this sets health, it does not destroy ships");
       }
       return { layers: value, user: raw.user };

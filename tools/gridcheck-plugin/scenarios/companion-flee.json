@@ -1,5 +1,5 @@
 {
-  "description": "A companion in a fight whose armour falls fast leaves at once: it warps out without waiting for its drones, and does not stand its afterburner down on the way. The boss undocks and the companion follows it out; rats are spawned on the companion; then its armour is set lower every two seconds, faster than any wait for drones could survive.",
+  "description": "A companion in a fight whose armour falls fast leaves at once: it warps out without waiting for its drones. The boss undocks and the companion follows it out; rats are spawned on the companion; then its armour is set lower every two seconds, faster than any wait for drones could survive.",
   "recipe": "companion-fight",
   "watch": { "pilot": "e2eflee" },
   "setup": [

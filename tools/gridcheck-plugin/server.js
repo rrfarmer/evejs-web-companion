@@ -13,7 +13,7 @@
 //   POST /companion/ship/health { characterID, shield?, armor?, hull? }   a ship in space left at these fractions
 //
 // The last two go through the server's own calls and notices, so the pilots' sessions hear of them as
-// they would hear of a fleet invite accepted, or of damage taken.
+// they would hear of a fleet invitation, or of damage taken.
 
 const { pinTypesFor, planPins, rewindColony, summarize } = require("./colonyPlan");
 
@@ -139,8 +139,10 @@ function createCompanionServer({ require: serverRequire, log, seams }) {
 
   function formFleet({ body }) {
     const bossID = positive(body && body.bossCharacterID);
-    const memberIDs = Array.isArray(body && body.memberCharacterIDs) ? body.memberCharacterIDs.map(positive) : [];
+    const memberIDs = Array.isArray(body && body.memberCharacterIDs) ? [...new Set(body.memberCharacterIDs.map(positive))] : [];
     if (!bossID || memberIDs.length === 0 || memberIDs.includes(0)) return refused("bossCharacterID and memberCharacterIDs are required.");
+    // The server sends no invitation to the inviter, and says so only by returning false.
+    if (memberIDs.includes(bossID)) return refused(`the boss ${bossID} cannot be invited to its own fleet`);
     const fleets = serverRequire("services/fleets/fleetRuntime");
     const sessions = new Map([bossID, ...memberIDs].map((id) => [id, sessionOf(id)]));
     const offline = [...sessions].filter(([, session]) => !session).map(([id]) => id);
@@ -154,16 +156,29 @@ function createCompanionServer({ require: serverRequire, log, seams }) {
       fleets.initFleet(boss, fleet.fleetID, {});
       // Invited, not joined: the web client holds a fleet only through the call it made itself to
       // join it, so the page answers the invitation as a player does.
-      for (const memberID of memberIDs) fleets.inviteCharacter(boss, fleet.fleetID, memberID, null, null, null);
+      for (const memberID of memberIDs) {
+        if (!fleets.inviteCharacter(boss, fleet.fleetID, memberID, null, null, null)) throw new Error(`no invitation sent to ${memberID}`);
+      }
     } catch (error) {
+      // A fleet half made is taken down again, or the boss stays in it and the next try is refused.
+      if (fleet) {
+        try {
+          if (fleets.getFleetForCharacter(bossID)) fleets.disbandFleet(boss, fleet.fleetID);
+          else fleets.runtimeState.fleets.delete(fleet.fleetID);
+        } catch (cleanupError) {
+          if (log && log.warn) log.warn(`[AgentBridge] companion fleet ${fleet.fleetID} left standing: ${reasonOf(cleanupError)}`);
+        }
+      }
       return refused(`the fleet refused: ${reasonOf(error)}`);
     }
     if (log && log.debug) log.debug(`[AgentBridge] companion formed fleet ${fleet.fleetID}: boss ${bossID}, invited ${memberIDs.join(", ")}`);
     return { statusCode: 200, body: { ok: true, fleetID: fleet.fleetID } };
   }
 
-  // Each layer given is left at that fraction of its whole, the others as they are. Only ever
-  // lowered here: a repair is the ship's own business, or /heal's.
+  // Each layer given is left at that fraction of its whole, the others as they are. It is set, so a
+  // fraction above the layer's own raises it; it is meant for damage, and /heal is the way back up.
+  // Committed as the server commits a repair cycle (localCycleRuntime): stored, told to the
+  // pilot at the scene's own time, and shown to the grid.
   function shipHealth({ body }) {
     const characterID = positive(body && body.characterID);
     if (!characterID) return refused("A positive characterID is required.");
@@ -184,15 +199,17 @@ function createCompanionServer({ require: serverRequire, log, seams }) {
     const entity = scene ? scene.getEntityByID(shipID) : null;
     if (!entity || entity.kind !== "ship") return refused("That pilot is not in a ship in space.");
     const health = serverRequire("space/runtime/shipHealthState");
-    const before = { ...(entity.conditionState || {}) };
-    entity.conditionState = {
+    const { normalizeShipConditionState } = serverRequire("services/inventory/itemStore");
+    const before = normalizeShipConditionState(entity.conditionState);
+    entity.conditionState = normalizeShipConditionState({
       ...before,
       ...(wanted.shield === undefined ? {} : { shieldCharge: wanted.shield }),
       ...(wanted.armor === undefined ? {} : { armorDamage: 1 - wanted.armor }),
       ...(wanted.hull === undefined ? {} : { damage: 1 - wanted.hull }),
-    };
+    });
     const transition = health.buildShipHealthTransitionResult(entity, before);
-    health.notifyShipHealthAttributesToSession(session, entity, transition, Date.now());
+    serverRequire("space/runtime/entitySpacePersistence").persistDynamicEntity(entity);
+    health.notifyShipHealthAttributesToSession(session, entity, transition, scene.getCurrentSimTimeMs());
     health.broadcastDamageStateChange(scene, entity);
     return { statusCode: 200, body: { ok: true, shipID, layers: transition.data.afterLayers } };
   }
