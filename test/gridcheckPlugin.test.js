@@ -167,6 +167,13 @@ test("a step's mistakes are found when it is read", () => {
   assert.strictEqual(problems("webUp", { webUp: { build: false, image: "x" } }), "");
   assert.match(problems("webUp", { webUp: { biuld: false } }), /biuld: unknown key/);
   assert.match(problems("colonyAge", { colonyAge: 8, planetID: "x" }), /planetID/);
+  assert.strictEqual(problems("fleetForm", { fleetForm: ["e2eflee"] }), "");
+  assert.match(problems("fleetForm", { fleetForm: "e2eflee" }), /member accounts/);
+  assert.match(problems("fleetForm", { fleetForm: ["e2eflee"], boss: 5 }), /boss/);
+  assert.strictEqual(problems("shipHealth", { shipHealth: { shield: 0, armor: 0.4 }, user: "e2eflee" }), "");
+  assert.match(problems("shipHealth", { shipHealth: { armour: 0.4 } }), /armour: unknown key/);
+  assert.match(problems("shipHealth", { shipHealth: { armor: 40 } }), /armor: a fraction/);
+  assert.match(problems("shipHealth", { shipHealth: { hull: 0 } }), /does not destroy/);
 });
 
 test("goods the colony refuses are a refusal, and a pin must be one it knows", () => {

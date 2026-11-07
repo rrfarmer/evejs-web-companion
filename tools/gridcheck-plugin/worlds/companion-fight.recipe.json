@@ -1,0 +1,14 @@
+{
+  "description": "Two pilots with every skill in Amamake, docked at the Brutor Tribe Bureau, each in a Vexor. e2efc is the fleet's boss, a Vexor with nothing fitted: the scenario makes it invulnerable to rats. e2eflee is the companion: a 10MN afterburner, a medium armour repairer and five Hobgoblin IIs, so it tanks on armour, burns and has drones to leave behind.",
+  "steps": [
+    "fresh",
+    { "login": { "user": "e2efc", "name": "Fleet Boss" } },
+    { "slash": "/allskills" },
+    { "slash": "/tr me 60004603" },
+    { "loadout": { "ship": "Vexor" } },
+    { "login": { "user": "e2eflee", "name": "Flee Pilot" } },
+    { "slash": "/allskills" },
+    { "slash": "/tr me 60004603" },
+    { "loadout": { "ship": "Vexor", "modules": ["10MN Afterburner II", "Medium Armor Repairer II"], "drones": ["Hobgoblin II x5"] } }
+  ]
+}

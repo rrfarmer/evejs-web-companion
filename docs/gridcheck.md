@@ -127,6 +127,8 @@ Name the first step's account yourself: a world recipe leaves its last pilot as 
 | `{ "colonyAge": 8, "user": "<account>", "planetID": 40161463 }` | As if that many days had passed. See below. |
 | `{ "colonyStock": { "planetID": 40161463, "pin": "launchpad", "type": "Base Metals", "quantity": 1000 }, "user": "<account>" }` | Goods in a launchpad or a command centre. |
 | `{ "colonyRead": "<account>" }` | `COLONY` lines for each of that pilot's colonies, as the server settles them now. |
+| `{ "fleetForm": ["<account>"], "boss": "<account>" }` | A fleet with that boss (the held character when `boss` is left out) and an invitation to each member. A web client pilot answers it in the page: `webClick` Yes `within` the `alertdialog`. The page holds a fleet only through the call it made to join it, so the server does not join anyone itself. Everyone must be online. |
+| `{ "shipHealth": { "shield": 0, "armor": 0.4 }, "user": "<account>" }` | That pilot's ship in space left at those fractions of each layer named, with the notices real damage sends, so its client and the page see it as damage taken. A hull of 0 is refused: it sets health, it never destroys a ship. A few steps two seconds apart make health fall at a known rate. |
 
 **A node** is `{ "role": "button", "name": "Refresh" }` first, since that's what a player or a screen
 reader sees. Otherwise `text`, `label`, `placeholder` or `css`, with `exact`, `index`, and `within` for
@@ -179,6 +181,13 @@ The recipe `pi-colonies` has two pilots with every skill in Amamake, docked at t
 | `e2epi` | PI Hauler, with an Epithal | Amamake I, Base Metals to a launchpad. Amamake IV, Aqueous Liquids through a factory making Water, to a launchpad. |
 | `e2epi2` | PI Launcher, with no hauler | Amamake II, Aqueous Liquids to its command centre. |
 
+The recipe `companion-fight` has two pilots with every skill in a Vexor, docked at the same station:
+
+| Account | Pilot | Ship |
+| --- | --- | --- |
+| `e2efc` | Fleet Boss | Nothing fitted. The scenario makes it invulnerable to rats with `/invu on`. |
+| `e2eflee` | Flee Pilot | A 10MN afterburner, a medium armour repairer and five Hobgoblin IIs: it tanks on armour, burns, and has drones to leave behind. |
+
 ## The PI scenarios
 
 | Scenario | What it checks |
@@ -196,6 +205,12 @@ Beside them, on the same world:
 | Scenario | What it checks |
 | --- | --- |
 | `lock-target` | A pilot undocks and locks the station from the overview, and the page shows it locked. The server tells of a made lock inside an `OnMultiEvent`, so this fails if the BFF takes `OnTarget` only on its own. |
+
+On `companion-fight`:
+
+| Scenario | What it checks |
+| --- | --- |
+| `companion-flee` | A companion in a fight, its drones out, whose armour falls about 9% a second through its flee floor, warps out at once without recalling its drones. The boss undocks, the companion follows, both are moved off the station's grid so leaving is a warp, rats are spawned, and `shipHealth` lowers the armour. Needs `fix/companion-flee-drone-wait`, and fails without it: the companion recalls its drones and waits first. |
 
 They live in `tools/gridcheck-plugin/scenarios/`. To check a feature of your own, add a scenario there
 with the feature, or write one in the tree's `tools/gridcheck-scenarios/`, or pass a path.
