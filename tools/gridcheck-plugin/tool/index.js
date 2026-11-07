@@ -304,6 +304,49 @@ const STEPS = {
       return pilotSlash(io, step.user, step.command);
     },
   },
+  fleetForm: {
+    keys: () => ["boss"],
+    parse: (raw, ctx) => {
+      const members = raw.fleetForm;
+      if (!Array.isArray(members) || members.length === 0 || members.some((user) => typeof user !== "string" || !user)) {
+        ctx.problem("fleetForm", "the member accounts, as a list");
+      } else if (new Set(members).size !== members.length) ctx.problem("fleetForm", "each member account once");
+      if (raw.boss !== undefined && (typeof raw.boss !== "string" || !raw.boss)) ctx.problem("boss", "the boss's account; default the held character");
+      else if (raw.boss && Array.isArray(members) && members.includes(raw.boss)) ctx.problem("boss", "not one of the members: the boss is in the fleet already");
+      return { members, boss: raw.boss };
+    },
+    describe: (step) => `a fleet: ${step.boss || "the held character"} as boss, ${(step.members || []).join(", ")} invited`,
+    async run(step, io) {
+      const bossCharacterID = await colony.characterOf(io, step.boss);
+      const memberCharacterIDs = [];
+      for (const user of step.members) memberCharacterIDs.push(await colony.characterOf(io, user));
+      const reply = await io.bridge("POST", "/companion/fleet/form", { bossCharacterID, memberCharacterIDs });
+      return done(io, `fleet ${reply.fleetID}, invitations sent`);
+    },
+  },
+  shipHealth: {
+    keys: () => ["user"],
+    parse: (raw, ctx) => {
+      const value = raw.shipHealth;
+      if (value === null || typeof value !== "object" || Array.isArray(value)) ctx.problem("shipHealth", '{ "shield"?, "armor"?, "hull"? }, each a fraction from 0 to 1');
+      else {
+        for (const key of Object.keys(value)) {
+          if (!["shield", "armor", "hull"].includes(key)) ctx.problem(`shipHealth.${key}`, "unknown key; shipHealth takes shield, armor and hull");
+          else if (!(typeof value[key] === "number" && value[key] >= 0 && value[key] <= 1)) ctx.problem(`shipHealth.${key}`, "a fraction from 0 to 1");
+        }
+        if (Object.keys(value).length === 0) ctx.problem("shipHealth", "at least one of shield, armor and hull");
+        if (value.hull === 0) ctx.problem("shipHealth.hull", "above 0: this sets health, it does not destroy ships");
+      }
+      return { layers: value, user: raw.user };
+    },
+    describe: (step) => `${step.user || "the character"}'s ship at ${Object.entries(step.layers || {}).map(([layer, fraction]) => `${layer} ${Math.round(fraction * 100)}%`).join(", ")}`,
+    async run(step, io) {
+      const characterID = await colony.characterOf(io, step.user);
+      const reply = await io.bridge("POST", "/companion/ship/health", { characterID, ...step.layers });
+      const { shield, armor, structure } = reply.layers;
+      return done(io, `ship ${reply.shipID}: shield ${Math.round(shield)}, armor ${Math.round(armor)}, hull ${Math.round(structure)} HP`);
+    },
+  },
   pluginSignal: {
     keys: () => ["signal"],
     parse: (raw, ctx) => ({ backend: textField(raw, "pluginSignal", ctx, "the plugin's id"), signal: raw.signal === undefined ? "SIGKILL" : String(raw.signal) }),
@@ -580,6 +623,7 @@ const PRIMER = `Web client (plugin companion). Tests the EVE.js web companion ag
 - Steps: webUp (builds the image; docker layer cache makes a rebuild quick), { "webLogin": "<account>" }, { "webOpen": "/path" }, { "webClick": <node> }, { "webFill": <node>, "value": ... }, { "webSelect": <node>, "option": ... }, { "webPress": "Enter" }, { "webExpect": <node>, "text"|"count"|"hidden", "timeout": 15 }, { "webShot": "label" }, { "botWait": "<account>", "timeout": 600 }, { "pluginSignal": "<plugin>", "signal": "SIGKILL" }.
 - A node: { "role": "button", "name": "Refresh" } first; or text, label, placeholder, css; with exact and index; { "within": <node> } narrows it. Two matches are an error that lists them. Find names with web snapshot.
 - Colonies: { "colony": { "planetID": 40161463, "extract": [{ "resource": "Base Metals" }] } } (held character, in a recipe), { "colonyAge": 8, "user": "<account>" }, { "colonyStock": { "planetID", "pin": "launchpad|command", "type": "Base Metals", "quantity": 1000 }, "user" }, { "colonyRead": "<account>" }, { "pilotSlash": "/setisk 5000000", "user": "<account>" }. Age moves stored times back, so production and expiry have happened at the next read, against the same wall clock the page uses.
+- Fights: { "fleetForm": ["<account>"], "boss": "<account>" } (a fleet with that boss, the held character by default, and an invitation to each member, who answers it: a web client pilot with webClick Yes in the page's invitation; every one online), { "shipHealth": { "armor": 0.4 }, "user": "<account>" } (a ship in space left at those fractions of each layer, through the damage notices; never destroys).
 - Kinds: WEB, WEB_ERROR (what: exception, console, response, dialog), COLONY (extracting, finished, launchpadUnits, commandUnits), BOT (what: issue, result, phase, end; says, phase, status, reason, ok), from the steps above. "until": { "any": ["COLONY finished=0"], "from": "start", "timeout": 60 } is the usual stop, since the checks happen in setup; put colonyRead last in setup.
 - The web client stops with the run unless --keep-up; then web snapshot and web shot look at where it stopped. The run's web/ folder keeps the BFF log and bot logs.`;
 
