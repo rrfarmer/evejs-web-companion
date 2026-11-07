@@ -5286,6 +5286,25 @@ test("a second floor of zero keeps the drones however fast the tank falls", () =
   assert.equal(decision.action.kind, "recallDrones");
 });
 
+test("drones left for a falling tank are not called in when a later reading falls slower", () => {
+  const left = ticks(FALLING_REQUEST, [[1000, 0.4], [3000, 0.36], [5000, 0.29]]);
+  assert.deepEqual(left.action, { kind: "warp", targetID: 60000001 });
+  // At 12 s the 0.4 reading has left the window: 0.36 to 0.29 over 9 s lasts about 37 s.
+  const later = decideCompanionAction(FALLING_REQUEST, fleeObs({ health: 0.29, myDroneIDs: [DRONE_A] }), left.memory, 12_000);
+  assert.notEqual(later.action.kind, "recallDrones");
+  assert.notEqual(later.why, "Waiting for the drones to come home before leaving.");
+});
+
+test("a different layer becoming the lowest is not read as a fall", () => {
+  // No repairer and no vote, so every layer counts: armour is lowest, then the shield dips under it.
+  const layers = (shieldRatio: number, armorRatio: number) =>
+    fleeObs({ health: Math.min(shieldRatio, armorRatio), shieldRatio, armorRatio, hullRatio: 1, myDroneIDs: [DRONE_A] });
+  let memory = freshLadderMemory();
+  memory = decideCompanionAction(FALLING_REQUEST, layers(0.9, 0.29), memory, 1000).memory;
+  const decision = decideCompanionAction(FALLING_REQUEST, layers(0.25, 0.29), memory, 3000);
+  assert.equal(decision.action.kind, "wait");
+});
+
 test("the tank readings are dropped when the ship docks", () => {
   const inSpace = ticks(FALLING_REQUEST, [[1000, 0.29]]);
   assert.equal(inSpace.memory.tankSamples.length, 1);
