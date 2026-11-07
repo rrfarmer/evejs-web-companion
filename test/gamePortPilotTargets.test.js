@@ -120,6 +120,8 @@ test("an OnMultiEvent's OnTarget events are worked in a moment at a time, and it
   targets.multiEvent([null, 5, [], [["OnTarget"]], event(40n, Buffer.from("add"))]);
   targets.multiEvent(null);
   assert.deepEqual(read(targets), [9003, 9004]);
+  // A batch with no OnTarget in it is not the target service's.
+  assert.equal(targets.feed(notice("OnMultiEvent", [[[[Buffer.from("OnGodmaShipEffect"), 9001, 2255], 50n]]])), false);
 });
 
 test("a list that is not known is not made known by the server's word, a lock, or a ball going", () => {

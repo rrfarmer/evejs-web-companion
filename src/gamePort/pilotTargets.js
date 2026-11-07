@@ -116,18 +116,21 @@ function createPilotTargets({ hasBall = () => true } = {}) {
   /**
    * godma.OnMultiEvent (206): events of every kind, each paired with its moment and taken a moment at a time. The
    * target service hears those that are OnTarget (OnMultiEvent_ hands them on as OnTargets). The server sends a lock's
-   * every notice this way: alone, as a plain notification, or riding a destiny update (its dogma messages).
+   * every notice this way: alone, as a plain notification, or riding a destiny update (its dogma messages). True when
+   * one of them was the target service's.
    */
   function multiEvent(events) {
     const moment = (pair) => (typeof pair[1] === "bigint" ? pair[1] : typeof pair[1] === "number" ? BigInt(Math.trunc(pair[1])) : 0n);
-    const inOrder = items(events).map(items).filter((pair) => pair.length >= 2).sort((a, b) => {
+    const told = items(events).map(items).filter((pair) => pair.length >= 2 && text(items(pair[0])[0]) === "OnTarget");
+    told.sort((a, b) => {
       const [x, y] = [moment(a), moment(b)];
       return x < y ? -1 : x > y ? 1 : 0;
     });
-    for (const [event] of inOrder) {
+    for (const [event] of told) {
       const each = items(event);
-      if (text(each[0]) === "OnTarget") onTarget(text(each[1]), each[2]);
+      onTarget(text(each[1]), each[2]);
     }
+    return told.length > 0;
   }
 
   return {
@@ -142,10 +145,7 @@ function createPilotTargets({ hasBall = () => true } = {}) {
         for (const each of items(notification.args[0]).map(items)) onTarget(text(each[1]), each[2]);
         return true;
       }
-      if (notification.method === "OnMultiEvent") {
-        multiEvent(notification.args[0]);
-        return true;
-      }
+      if (notification.method === "OnMultiEvent") return multiEvent(notification.args[0]);
       return false;
     },
     multiEvent,

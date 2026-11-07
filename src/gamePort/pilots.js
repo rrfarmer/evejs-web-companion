@@ -4856,7 +4856,8 @@ function createGamePortPilots({
       // michelle.DoDestinyUpdate: the dogma messages riding with a ballpark update are scattered as OnMultiEvent, which is godma's.
       // godma.OnMultiEvent_ scatters the events it does not fold itself, each as if it had come alone: the electronic
       // warfare's and the jams' (OnEwarStart and OnEwarEnd for tactical, OnJamStart and OnJamEnd for godma and shipUI,
-      // which Tranquility sends this way) are handed on to the page so.
+      // which Tranquility sends this way) are handed on to the page so. The target service hears the OnTarget ones (as
+      // OnTargets), which is how the server tells of a lock made or lost; the page is told of them too.
       entry.space.park.onMultiEvent = (messages) => {
         keepDogmaWork(entry, entry.dogma.multiEvent(messages));
         entry.targets.multiEvent(messages);
