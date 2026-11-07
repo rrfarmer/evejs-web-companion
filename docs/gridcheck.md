@@ -191,6 +191,12 @@ The recipe `pi-colonies` has two pilots with every skill in Amamake, docked at t
 | `pi-plugin-crash` | The plugin's backend killed: the Plugins window says it restarted, and the plans it keeps are still there. Needs the web client's plugin system, which isn't on `master` yet, and fails without it. |
 | `pi-add-pilot` | Adding a pilot shows its colonies with no Refresh. Needs `fix/companion-pi-added-pilot-colonies`, and fails without it, as the panel stays blank until Refresh. |
 
+Beside them, on the same world:
+
+| Scenario | What it checks |
+| --- | --- |
+| `lock-target` | A pilot undocks and locks the station from the overview, and the page shows it locked. The server tells of a made lock inside an `OnMultiEvent`, so this fails if the BFF takes `OnTarget` only on its own. |
+
 They live in `tools/gridcheck-plugin/scenarios/`. To check a feature of your own, add a scenario there
 with the feature, or write one in the tree's `tools/gridcheck-scenarios/`, or pass a path.
 
