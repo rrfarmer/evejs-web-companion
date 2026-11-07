@@ -1,0 +1,27 @@
+{
+  "description": "Targets: a pilot undocks and locks the station from the overview, and the page shows it locked, in the overview and among the locked targets. The server tells of a made lock inside an OnMultiEvent.",
+  "recipe": "pi-colonies",
+  "watch": { "pilot": "e2epi" },
+  "setup": [
+    { "login": { "user": "e2eagent", "name": "Agent Observer" }, "note": "the held session: never a pilot the web client flies" },
+    "webUp",
+    { "webLogin": "e2epi" },
+    { "webClick": { "role": "button", "name": "▶ ALL", "index": 0 } },
+    { "webClick": { "role": "button", "name": "Go to first pilot" } },
+    { "wait": 8, "note": "drone recovery checks a pilot that has just signed in" },
+    { "webClick": { "role": "button", "name": "Undock", "exact": true } },
+    { "webExpect": { "role": "button", "name": "Undock", "exact": true }, "hidden": true, "timeout": 60, "note": "in space" },
+    { "webExpect": { "role": "button", "name": "Amamake II - Brutor Tribe Bureau", "index": 0 }, "timeout": 60, "note": "the overview has the station it left" },
+    { "webClick": { "role": "button", "name": "Amamake II - Brutor Tribe Bureau", "index": 0 } },
+    { "webClick": { "role": "button", "name": "Lock", "exact": true } },
+    { "webExpect": { "css": ".spc-locked-badge" }, "text": "Locked", "timeout": 30, "note": "the made lock reached the page" },
+    { "webExpect": { "role": "region", "name": "Locked targets" }, "text": "Brutor Tribe Bureau", "timeout": 15, "note": "and its list of locked targets" },
+    { "webShot": "the station locked" }
+  ],
+  "until": { "any": ["WEB what=up"], "from": "start", "timeout": 30, "grace": 1 },
+  "expect": [
+    { "match": "WEB what=up", "note": "the web client ran against this tree's server" },
+    { "match": "PILOT online=true", "note": "the pilot came online" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" }
+  ]
+}
