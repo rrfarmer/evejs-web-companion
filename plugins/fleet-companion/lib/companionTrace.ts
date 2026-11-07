@@ -108,6 +108,7 @@ export type PropsWithheld =
   | "mwd-banned" // hostiles on grid and only a microwarpdrive (or unread kind) is fitted
   | "unreadable-rack" // activeModuleIDs could not be read
   | "stop-latched" // a deactivate is already outstanding
+  | "leaving" // a flee under way keeps its afterburner until it has arrived
   | "scrammed"; // a microwarpdrive under a scram
 
 export interface PropsTrace {
@@ -201,6 +202,7 @@ export type HealthCode =
   | "rejoin-unread" // rejoin held: no tank layer could be read
   | "rejoin-below-floor" // rejoin held: the tank is below the flee floor
   | "rejoin-under-mark" // rejoining while still under the return mark (an idle rejoin never waits for it)
+  | "flee-leaving" // flee: on the way out, not yet safe
   | "flee-unread" // flee's safe-spot hold: no tank layer could be read
   | "flee-recovering" // flee's safe-spot hold: under the mark, and the tank rose inside the stall window
   | "flee-stalled-floor" // stalled, and still below the floor: staying out
@@ -228,6 +230,8 @@ export interface HealthTrace {
   readonly repairer: "none" | "fitted" | "running" | "unread";
   /** Flee hold only: how long since the tank last rose, ms. */
   readonly stalledMs?: number;
+  /** Flee leg only: how long the tank lasts at its recent rate of fall, ms; absent when it is not falling. */
+  readonly runsOutInMs?: number;
 }
 
 /**

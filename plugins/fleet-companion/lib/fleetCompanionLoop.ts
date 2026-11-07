@@ -2102,6 +2102,12 @@ export interface CompanionLadderMemory {
    */
   readonly fleeRecoverySinceMs: number | null;
   /**
+   * The tank readings of the last `TANK_SAMPLE_WINDOW_MS`, oldest first, in
+   * space only. How fast the tank is falling comes from these: see
+   * `tankRunsOutInMs`.
+   */
+  readonly tankSamples: readonly TankSample[];
+  /**
    * The stand-off the newest `follow` order named, in metres.
    *
    * ⚠ A LATCH LIKE `areaJob`, FOR THE SAME REASON: a heard order changes it and
@@ -2478,6 +2484,7 @@ export function freshLadderMemory(): CompanionLadderMemory {
     shipLost: null,
     fleeTripsSpent: 0,
     fleeRecoverySinceMs: null,
+    tankSamples: [],
     // ⚠ THE DEFAULT RANGE, NOT NULL. Following is the standing behaviour, so a
     // companion nobody has typed `follow` at still has a distance to hold -- see
     // `followRangeM`. `followHeld` false for the same reason: it starts
@@ -3147,6 +3154,7 @@ function decideCompanionStep(
     shipLost: memory.shipLost,
     fleeTripsSpent: memory.fleeTripsSpent,
     fleeRecoverySinceMs: memory.fleeRecoverySinceMs,
+    tankSamples: memory.tankSamples,
     // Carried, every one of them. A human turning up says nothing about where
     // this pilot was told to fly or how close to hold: an order given while the
     // fleet was unsupervised was still given, and a `stop` typed a moment before
@@ -3203,11 +3211,11 @@ function decideCompanionStep(
   // A commander who types it while the fleet is holding a primary means it now;
   // below rung 7 it would land whenever the call happened to lapse.
   //
-  // ⚠ BELOW THE FLEE, WHICH IS WHY THE FLEE TURNS IT OFF. Rung 5 does not fly
+  // ⚠ ABOVE THE FLEE, WHICH READS AS "NOT TRAVELLING". Rung 5 does not fly
   // through the shared autopilot, so `obs.travel` reads as "not travelling" for
-  // the whole flee and this rung stands the burner down. That is the asked-for
-  // behaviour ("when they travel") and `decidePropulsion`'s header records the
-  // cost and the escape hatch.
+  // the whole flee. A lit afterburner is kept until the flee arrives anyway
+  // (withheld "leaving"); a microwarpdrive is still stood down. See
+  // `decidePropulsion`.
   //
   // Threaded like rung 3: the tick that merely CLEARS a spent stopping latch
   // issues no action, and a call site taking only the decision would drop it and
@@ -3718,6 +3726,8 @@ interface SafetyLeg {
  * worth the ship.
  */
 const MAX_GET_SAFE_RECALL_WAIT_TICKS = 8;
+/** `recallBeforeLeaving`'s answer when the tank is falling too fast to wait: go, and do not wait later either. */
+const LEAVE_THE_DRONES = "leave-the-drones";
 const MAX_GET_SAFE_WARP_ATTEMPTS = 3;
 // At the idle cadence this allows two minutes for a slow-aligning hull.
 // Expiry sends the warp again; elapsed time is never evidence that the ship got
@@ -3891,13 +3901,15 @@ function recallBeforeLeavingOnOrder(
  * nothing is out, the recall has finished, or the wait has been given up on.
  * All three mean the same thing to the caller -- go -- and none of them is an
  * error. A fourth joins them: the tank is done (`abandonDronesHealthFloor`).
+ * `LEAVE_THE_DRONES` is go as well, and asks the caller to latch it.
  */
 function recallBeforeLeaving(
   request: FleetCompanionRequest,
   obs: FleetCompanionObservation,
   mem: CompanionLadderMemory,
   leg: SafetyLeg,
-): CompanionDecision | null {
+  nowMs: number,
+): CompanionDecision | typeof LEAVE_THE_DRONES | null {
   const out = obs.myDroneIDs ?? [];
   if (out.length === 0) {
     // Nothing of this ship's is in space. ⚠ This is also the only honest answer
@@ -3915,6 +3927,25 @@ function recallBeforeLeaving(
     return null;
   }
   const waited = leg.run.droneRecallWaited;
+  if (waited !== null && waited >= MAX_GET_SAFE_RECALL_WAIT_TICKS) {
+    // ⚠ GIVE UP AND GO. A recall that has not completed by now is most likely
+    // one the server refused in silence for a full bay, and no amount of
+    // further waiting fixes that. Leaving costs the drones; staying risks the
+    // ship, and the ship is what the protocol is for. Also where a leg that
+    // has already left its drones for a falling tank lands on later ticks.
+    return null;
+  }
+  // ⚠ NOR IS THERE TIME TO WAIT WHEN THE TANK WILL NOT LAST THE ALIGN. Seen live
+  // 2026-11-06: a cruiser waited 6.5 s for its drones, sent the warp, and died
+  // 11 s later still aligning. A second floor of zero is the operator saying
+  // never leave the drones early, so it turns this off too. The caller latches
+  // the answer, so a later tick that reads a slower fall does not call the
+  // drones in halfway through the align.
+  const runsOutInMs = tankRunsOutInMs(mem, nowMs);
+  if (abandonDronesFloor(request) > 0 && runsOutInMs !== null && runsOutInMs < TIME_NEEDED_TO_LEAVE_MS) {
+    noteNotice("The tank is falling too fast to wait for the drones.");
+    return LEAVE_THE_DRONES;
+  }
   if (waited === null) {
     return {
       action: { kind: "recallDrones", droneIDs: out },
@@ -3922,13 +3953,6 @@ function recallBeforeLeaving(
       why: "Calling the drones in before leaving, so they are not left behind.",
       memory: leg.write(mem, { ...leg.run, droneRecallWaited: 0 }),
     };
-  }
-  if (waited >= MAX_GET_SAFE_RECALL_WAIT_TICKS) {
-    // ⚠ GIVE UP AND GO. A recall that has not completed by now is most likely
-    // one the server refused in silence for a full bay, and no amount of
-    // further waiting fixes that. Leaving costs the drones; staying risks the
-    // ship, and the ship is what the protocol is for.
-    return null;
   }
   return waiting(
     leg.phase,
@@ -3966,8 +3990,12 @@ function runToSafety(
   // `droneRecallWaited`. Docking and approaching are not departures and are
   // left alone -- a dock is the destination, and the recall happens before the
   // warp that reaches it.
-  const recall = recallBeforeLeaving(request, obs, mem, leg);
-  if (recall !== null) {
+  const recall = recallBeforeLeaving(request, obs, mem, leg, nowMs);
+  if (recall === LEAVE_THE_DRONES) {
+    // Spent, as a wait that ran out is: every later tick of this leg goes.
+    leg = { ...leg, run: { ...leg.run, droneRecallWaited: MAX_GET_SAFE_RECALL_WAIT_TICKS } };
+    mem = leg.write(mem, leg.run);
+  } else if (recall !== null) {
     return recall;
   }
   const measurement = measureSpace(snapshot);
@@ -6514,6 +6542,73 @@ function countTowardsRecovery(
   return { ...memory, fleeRecoverySinceMs: null, fleeTripsSpent: 0 };
 }
 
+/** One reading of the tank (`tankRead`), the layer it came from, and when it was taken. */
+export interface TankSample {
+  readonly atMs: number;
+  readonly health: number;
+  readonly layer: HealthLayer | null;
+}
+
+/** How far back the tank readings go. Long enough to span a few volleys. */
+const TANK_SAMPLE_WINDOW_MS = 10_000;
+/** Readings closer together than this say nothing about a rate: damage lands in volleys. */
+const TANK_RATE_MIN_SPAN_MS = 1500;
+/**
+ * The time a hurt ship has to allow for getting into warp. Nothing the companion
+ * reads says how fast this hull aligns, so this is a fixed allowance. A cruiser
+ * orbiting at speed was still not in warp 11 s after the order (seen live
+ * 2026-11-06), because it has to swing its velocity round first.
+ */
+const TIME_NEEDED_TO_LEAVE_MS = 20_000;
+
+/** The readings with this tick's added and the old ones dropped. A ship not in space has none. */
+function withTankSample(
+  request: FleetCompanionRequest,
+  obs: FleetCompanionObservation,
+  memory: CompanionLadderMemory,
+  nowMs: number,
+): CompanionLadderMemory {
+  if (obs.inSpace !== true) {
+    return memory.tankSamples.length === 0 ? memory : { ...memory, tankSamples: [] };
+  }
+  const { health, layer } = tankRead(request, obs);
+  const kept = memory.tankSamples.filter((sample) => nowMs - sample.atMs <= TANK_SAMPLE_WINDOW_MS);
+  return { ...memory, tankSamples: health === null ? kept : [...kept, { atMs: nowMs, health, layer }] };
+}
+
+/**
+ * How long the tank lasts at the rate it has been falling, in ms; null when it
+ * is not falling or the readings cannot say.
+ *
+ * Measured from the highest recent reading rather than the oldest, so a repair
+ * cycle landing early in the window does not hide the damage after it.
+ *
+ * ⚠ ONLY ON A TICK THAT TOOK A READING. The readings are taken by rung 5 alone,
+ * so a leg flown by another rung (nobody left to fly with, a lost ship) would
+ * otherwise judge by readings that stopped when it took over, and so would a
+ * tick whose health did not read. ⚠ AND ONLY ACROSS ONE LAYER: `tankRead` gives
+ * the lowest counted layer, so a different layer becoming the lowest is a jump
+ * in the reading and not damage.
+ */
+function tankRunsOutInMs(memory: CompanionLadderMemory, nowMs: number): number | null {
+  const samples = memory.tankSamples;
+  const latest = samples[samples.length - 1];
+  if (latest === undefined || latest.atMs !== nowMs) {
+    return null;
+  }
+  let peak = latest;
+  for (const sample of samples) {
+    if (sample.layer === latest.layer && sample.health > peak.health) {
+      peak = sample;
+    }
+  }
+  const spanMs = latest.atMs - peak.atMs;
+  if (spanMs < TANK_RATE_MIN_SPAN_MS) {
+    return null;
+  }
+  return latest.health / ((peak.health - latest.health) / spanMs);
+}
+
 /** What rung 5 hands back: a decision when it has one, and always its memory. */
 interface FleeStep {
   readonly decision: CompanionDecision | null;
@@ -6535,7 +6630,7 @@ function decideFlee(
   memory: CompanionLadderMemory,
   nowMs: number,
 ): FleeStep {
-  memory = withRepairOrder(request, obs, memory, nowMs);
+  memory = withRepairOrder(request, obs, withTankSample(request, obs, memory, nowMs), nowMs);
   const running = memory.flee;
   if (running !== null) {
     return flyTheFlee(request, obs, memory, running, nowMs);
@@ -7265,6 +7360,13 @@ function flyTheFlee(
     ...(running.ordered === true ? { stationOnly: true as const } : {}),
   }, nowMs);
   if (safe !== null) {
+    // The numbers this leg flew on, for the flight recorder. Only when it flies:
+    // a flee with nowhere to go falls through, and the rung below explains that.
+    const runsOutInMs = tankRunsOutInMs(mem, nowMs);
+    noteHealth({
+      ...healthTrace(request, obs, "flee-leaving"),
+      ...(runsOutInMs === null ? {} : { runsOutInMs: Math.round(runsOutInMs) }),
+    });
     return { decision: safe, memory: safe.memory };
   }
   if (running.ordered === true) {
@@ -7905,10 +8007,12 @@ function holdsFormation(memory: CompanionLadderMemory): boolean {
  * FOLLOW, so the burner lights for that leg -- even with hostiles on the grid,
  * because only the formation station (`holdsFormation`: the ladder's own
  * keep-at-range record, cleared by the approach it sends) loses the burner in a
- * fight, never an approach. The WARP leg of a flee gets nothing,
- * because the ladder never reaches this rung mid-warp (rung 1 yields first) and
- * a prop mod is no use in warp anyway. `props on` remains the way to say "keep
- * it lit regardless".
+ * fight, never an approach. The WARP leg of a flee lights nothing, because the
+ * ladder never reaches this rung mid-warp (rung 1 yields first) and a prop mod
+ * is no use in warp anyway; but an afterburner already lit is KEPT through the
+ * align until the flee arrives (withheld "leaving"), since standing it down
+ * holds the loop for its cycle and slows the align. `props on` remains the way
+ * to say "keep it lit regardless".
  *
  * ⚠ AN ORBIT IS NOT CLOSING. A ship holding station in ORBIT has arrived, so the
  * burner goes out rather than circling on full power for ever -- see
@@ -8030,6 +8134,14 @@ function decidePropulsion(
   const call = decidePropulsionModule(inputs);
 
   if (call.kind === "stop") {
+    // ⚠ A FLEE KEEPS A LIT AFTERBURNER UNTIL IT HAS ARRIVED. Sending the warp ends
+    // whatever was closing, so this rung read "not travelling" and stood it down
+    // mid-align (seen live 2026-11-06). The deactivate waits out the cycle, 8 s
+    // there, with the loop held the whole time. Speed also helps the align and
+    // against missiles. A microwarpdrive still stops; so does `props off`.
+    if (memory.flee !== null && !memory.flee.arrivedSafe && call.module.kind === "afterburner" && because !== "held-off") {
+      return done(null, memory, "leaving");
+    }
     // One module per tick, and once per module until the snapshot proves it
     // stopped -- the latch is this loop's, because it is about calls already
     // spent and not about what the rack should look like.
@@ -11843,6 +11955,7 @@ export function createFleetCompanion(deps: FleetCompanionDeps): FleetCompanionCo
       shipLost: null,
       fleeTripsSpent: 0,
       fleeRecoverySinceMs: null,
+      tankSamples: [],
           // ⚠ A RESUMED RUN IS NOT FOLLOWING ANYBODY AND IS NOT ON A TRIP, and
           // that is the honest answer rather than a lossy one. Nothing about a
           // `keepAtRange` survives the process that sent it: the server may well
