@@ -119,6 +119,7 @@
     ping = 0,
     isDocked = true,
     onCollapse = null,
+    onClose = null,
     expanded = false,
     onToggleExpand = null,
   }: {
@@ -156,6 +157,8 @@
      * here. Null when there is nothing to collapse into — the mobile home.
      */
     onCollapse?: (() => void) | null;
+    /** Close the window this panel is in (a desktop window's close); null where it is not in one. */
+    onClose?: (() => void) | null;
     /** The panel currently has the whole work area. */
     expanded?: boolean;
     /**
@@ -335,6 +338,28 @@
   const LOOT_GROUPS = new Set([186, 12, 649, 306, 1207, 496, 952, 1250, 1246]);
   const lootable = $derived(!isDocked && container !== null && container !== undefined
     && LOOT_GROUPS.has($space.snapshot?.entities.find((e) => e.itemID === container.itemID)?.groupID ?? -1));
+  // invWindow.RemoveItem / OnWreckLootAll -> RemoveWreckEntryOrClose: in space, a loot-group container left empty (its
+  // last item taken, or Loot All) closes the window (CloseByUser; LOOT_GROUPS_NOCLOSE, the auto looter and the mobile
+  // home, stay open); and _DoBallRemove: a container whose ball leaves the park is no longer shown. Only for one seen
+  // as lootable in the park first, so that a snapshot not yet holding it closes nothing.
+  const LOOT_GROUPS_NOCLOSE = new Set([1250, 1246]);
+  let lootSeen: { itemID: number; groupID: number; hadRows: boolean } | null = null;
+  function leaveContainer(): void {
+    lootSeen = null;
+    view = "ship";
+    void flow.openContainer(null).catch(() => {});
+    onClose?.();
+  }
+  $effect(() => {
+    const c = container;
+    if (isDocked || !c) { lootSeen = null; return; }
+    const ball = $space.snapshot?.entities.find((e) => e.itemID === c.itemID) ?? null;
+    if (lootable && lootSeen?.itemID !== c.itemID) lootSeen = { itemID: c.itemID, groupID: ball?.groupID ?? -1, hadRows: false };
+    if (!lootSeen || lootSeen.itemID !== c.itemID) return;
+    if (!ball && $space.snapshot) { untrack(leaveContainer); return; }
+    if (c.rows.length > 0) { lootSeen.hadRows = true; return; }
+    if (lootSeen.hadRows && !LOOT_GROUPS_NOCLOSE.has(lootSeen.groupID)) untrack(leaveContainer);
+  });
   /** LootAll: every item in it to the ship's cargo hold at once (ShipCargo().AddItems, the one MultiAdd). */
   function lootAll(): void {
     const c = container;

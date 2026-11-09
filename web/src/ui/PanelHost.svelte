@@ -126,7 +126,7 @@
 {#if GlobalView}
   <GlobalView {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} {onGoToPilot} />
 {:else if tab === "inventory"}
-  <StationPanel {store} {flow} {isDocked} />
+  <StationPanel {store} {flow} {isDocked} {onClose} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
 {:else if tab === "provisioning"}
