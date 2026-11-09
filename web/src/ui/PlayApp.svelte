@@ -19,6 +19,8 @@
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
+  import type { HudModule } from "../play/shipHud.ts";
+  import { typeIconUrl } from "./typeIcons.ts";
   import "../play/play.css";
 
   // The Neocom's buttons (play/neocom.ts) and the app panel each opens.
@@ -55,6 +57,7 @@
   }
 
   let live: LivePark | null = null;
+  let spaceClaimed: Session | null = null;
   async function enter(characterID: number) {
     if (!session) return;
     stage = "entering";
@@ -64,6 +67,11 @@
       await session.flow.selectCharacter(characterID);
       session.flow.setLivePush(true);
       session.flow.setForeground(true);
+      // The rack's data: the fitting (flow.loadFitting) and which modules run (the space read's activeModuleIDs,
+      // 1 Hz, the agreed rate: a claim held while the pilot plays, released on leaving).
+      void session.flow.loadFitting().catch(() => {});
+      session.flow.startSpacePolling();
+      spaceClaimed = session;
       // A few older calls read the tab's token (App.svelte does the same for its pilot in front).
       const token = session.flow.sessionToken();
       if (token) setSessionToken(token);
@@ -103,7 +111,27 @@
         const t = s.store.targeting.get();
         return { targetIDs: [...(t.lockedTargetIDs ?? [])], targeterIDs: [...((t as { lockedByIDs?: number[] }).lockedByIDs ?? [])] };
       },
-    }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, { onNeocom: (id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); } });
+    }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
+      onNeocom: (id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); },
+      rack: {
+        modules: () => {
+          const active = new Set(s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []);
+          const out: HudModule[] = [];
+          for (const slot of s.store.fitting.get().slots ?? []) {
+            const m = slot.module;
+            if (!m || (slot.family !== "high" && slot.family !== "mid" && slot.family !== "low")) continue;
+            out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "" });
+          }
+          return out;
+        },
+        // A click switches the module as the app's rack does (ModuleRack.svelte): on, at the first locked target; off.
+        use: async (m) => {
+          const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);
+          if (running) await s.flow.deactivateModule(m.itemID, { typeID: m.typeID });
+          else await s.flow.activateModule(m.itemID, { typeID: m.typeID, targetID: s.store.targeting.get().lockedTargetIDs?.[0] });
+        },
+      },
+    });
     spaceHost.appendChild(v.root);
     view = v;
     (window as unknown as { __play: unknown }).__play = { live, view: v, session: s };
@@ -116,7 +144,7 @@
     try { await session.flow.undock(); } catch (err) { error = (err as Error).message; }
   }
 
-  onDestroy(() => { view?.dispose(); live?.close(); });
+  onDestroy(() => { view?.dispose(); live?.close(); spaceClaimed?.flow.stopSpacePolling(); });
 </script>
 
 {#if stage === "login"}

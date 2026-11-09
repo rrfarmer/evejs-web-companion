@@ -48,7 +48,21 @@ const TEX = {
   overloadBtn: (key: string) => res(`${SHIP_UI}overloadBtn${key}Off.png`),
   // CheckButtonVisibility: 'ui_8_64_11', 'ui_8_64_10', 'ui_8_64_9' for empty high, medium, low slots
   emptySlotIcon: [11, 10, 9].map((n) => res(`res:/UI/Texture/Icons/8_64_${n}.png`)),
+  slotGlow: res(`${SHIP_UI}slotGlow.png`),
 };
+
+/** A fitted module for the rack (setModules): its slot (family and index), what it is, and its state. */
+export interface HudModule {
+  family: "high" | "mid" | "low";
+  index: number;
+  itemID: number;
+  typeID: number;
+  name?: string;
+  online: boolean;
+  active: boolean;
+  /** The type's icon (64 px). */
+  icon: string;
+}
 
 type RGBA = readonly [number, number, number, number];
 const hex = (h: string, a = 1): RGBA => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255, a];
@@ -241,6 +255,10 @@ const CSS = `
   text-shadow: 1px 1px 0 rgba(0,0,0,0.5); }
 @keyframes ship-hud-blink { from { opacity: 1; } to { opacity: 0.15; } }
 .ship-hud-root .cap-blink { animation: ship-hud-blink 0.75s ease-in-out infinite alternate; }
+.ship-hud-root .slot-glow { position: absolute; background-color: rgb(61, 171, 41); pointer-events: none;
+  -webkit-mask: var(--glow) center / 100% 100% no-repeat; mask: var(--glow) center / 100% 100% no-repeat;
+  animation: ship-hud-slot-blink 1s ease-in-out infinite alternate; }
+@keyframes ship-hud-slot-blink { from { opacity: 0.75; } to { opacity: 0.15; } }
 `;
 
 interface Morph { shown: number; from: number; to: number; start: number; }
@@ -572,9 +590,35 @@ export class ShipHud {
 
   // ── slots ──
 
-  private buildSlots(counts: { hi: number; med: number; low: number }): void {
+  private slotsBox: HTMLElement | null = null;
+  private modulesSig = "";
+  private glows = new Map<number, HTMLElement>();
+
+  /**
+   * The ship's fitted modules into the rack (slotsContainer.FitSlot): each in its slot, a 48 px ModuleButton at
+   * (64 - 48) / 2, the type's icon filling it, and while the module is active the slot glow (InitGlow: slotGlow.png,
+   * padding 2, GLOWCOLOR (0.24, 0.67, 0.16, 0.75), blinking at 0.75 over a second). Empty slots are not drawn, as with
+   * the client's default. A click is the module's (onModule).
+   */
+  setModules(modules: readonly HudModule[], onModule: (m: HudModule) => void): void {
+    const sig = modules.map((m) => `${m.family}${m.index}:${m.itemID}:${m.online}`).join("|");
+    if (sig !== this.modulesSig) {
+      this.modulesSig = sig;
+      this.slotsBox?.remove();
+      this.glows.clear();
+      this.buildSlots({ hi: 0, med: 0, low: 0 }, modules, onModule);
+    }
+    for (const m of modules) {
+      const g = this.glows.get(m.itemID);
+      if (g) g.style.display = m.active ? "" : "none";
+    }
+  }
+
+  private buildSlots(counts: { hi: number; med: number; low: number }, modules: readonly HudModule[] = [], onModule?: (m: HudModule) => void): void {
     const box = div(this.root, SLOTS_CONTAINER_LEFT - 8, mid(SHIP_UI_HEIGHT, SLOTS_CONTAINER_HEIGHT) + SLOTS_CONTAINER_TOP,
       SLOTS_CONTAINER_WIDTH, SLOTS_CONTAINER_HEIGHT, "slotsContainer");
+    this.slotsBox = box;
+    const fitted = new Map(modules.map((m) => [`${["high", "mid", "low"].indexOf(m.family)}:${m.index}`, m]));
     // InitSlots: xstep = int(ICONSIZE * 1.6), ystep = int(ICONSIZE * 1.4), grid [[1, 0], [1.5, 1], [1, 2]]
     const ICONSIZE = 32;
     const xstep = Math.trunc(ICONSIZE * 1.6), ystep = Math.trunc(ICONSIZE * 1.4);
@@ -592,7 +636,8 @@ export class ShipHud {
     for (let r = 0; r < 3; r++) {
       const [x, y] = grid[r]!;
       for (let i = 0; i < 8; i++) {
-        if (i >= shown[r]!) continue;
+        const module = fitted.get(`${r}:${i}`) ?? null;
+        if (i >= shown[r]! && !module) continue;
         const slot = div(box, Math.trunc((x + i) * xstep - 40), Math.trunc(ystep * y), 64, 64, `inFlight${["High", "Medium", "Low"][r]}Slot${i + 1}`);
         slot.className = "btn";
         slot.title = hints[r]!;
@@ -605,6 +650,25 @@ export class ShipHud {
         hint.style.textShadow = "none"; // shadowOffset (0, 0)
         place(hint, 0, 30, 64);
         slot.appendChild(hint);
+        if (module) {
+          slot.title = module.name ?? "";
+          const button = document.createElement("img");
+          button.src = module.icon;
+          button.alt = "";
+          place(button, 8, 8, 48, 48);
+          button.style.opacity = module.online ? "1" : "0.4";
+          slot.appendChild(button);
+          // slotGlow.png tinted GLOWCOLOR, as a mask over the colour
+          const glow = document.createElement("div");
+          place(glow, 10, 10, 44, 44);
+          glow.className = "slot-glow";
+          glow.style.setProperty("--glow", `url("${TEX.slotGlow}")`);
+          slot.appendChild(glow);
+          glow.style.display = module.active ? "" : "none";
+          this.glows.set(module.itemID, glow);
+          slot.addEventListener("click", () => onModule?.(module));
+          continue;
+        }
         const icon = sprite(slot, TEX.emptySlotIcon[r]!, mid(64, 24), 13, 24, 24, "emptySlotIcon");
         icon.style.opacity = "0.25";
       }

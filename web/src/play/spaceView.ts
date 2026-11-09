@@ -16,7 +16,7 @@ import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust } from "../three/hullModel.ts";
 import { celestialModel } from "../three/celestialModel.ts";
-import { ShipHud } from "./shipHud.ts";
+import { ShipHud, type HudModule } from "./shipHud.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview } from "./overview.ts";
@@ -118,7 +118,7 @@ export class SpaceView {
   private stopped = false;
 
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
-  constructor(private readonly live: LivePark, private readonly actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: { onNeocom?: (id: string) => void } = {}) {
+  constructor(private readonly live: LivePark, private readonly actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: { onNeocom?: (id: string) => void; rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void> } } = {}) {
     this.root.className = "space";
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -451,6 +451,9 @@ export class SpaceView {
       this.modeEl.textContent = ego.mode === "STOP" && speed < 1 ? "Stopped" : ego.mode === "WARP" ? "Warping" : ego.mode === "ORBIT" ? "Orbiting" : ego.mode === "FOLLOW" ? "Approaching" : speed > 0.5 ? "Moving" : "";
     }
     if (this.frameCount % 15 === 0) {
+      // The rack: the ship's fitted modules and which are running, as the app's session keeps them.
+      const rack = this.options.rack;
+      if (rack) this.shipHud.setModules(rack.modules(), (m) => void this.act(m.name ?? "Module", () => rack.use(m)));
       this.renderSelected();
       this.feedEl.textContent = `${this.live.status} · tick ${park.currentTime % 100000} · ${snap?.entities.length ?? 0} on grid · ${this.live.items} updates${this.live.failures.length ? ` · ${this.live.failures.length} failed` : ""}`;
     }
