@@ -432,6 +432,7 @@ export class SpaceView {
   }
 
   private lookAt: number | null = null;
+  private framedLook: number | null = null;
   private framedFor: number | null = null;
 
   /**
@@ -471,12 +472,14 @@ export class SpaceView {
   }
 
   private frameShip(radius: number): void {
+    // the farthest the camera goes: 800 km, or ten times what it looks at where that is larger (a planet looked at)
+    const farthest = Math.max(800000, radius * 10);
     const nearest = (radius + this.camera.near) * 1.5 + 2;
-    const a = 1 / 800000 ** 0.95, b = 0.55 / 2, c = -Math.max(radius, nearest);
+    const a = 1 / farthest ** 0.95, b = 0.55 / 2, c = -Math.max(radius, nearest);
     const d = Math.sqrt(b * b - 4 * a * c);
     const initial = Math.max(-2 * c / (b + d), -2 * c / (b - d));
     this.controls.minDistance = nearest;
-    this.controls.maxDistance = 800000;
+    this.controls.maxDistance = farthest;
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     if (dir.lengthSq() === 0) dir.set(-0.5, 0.25, 0.83).normalize();
     this.camera.position.copy(this.controls.target).addScaledVector(dir, initial);
@@ -723,6 +726,13 @@ export class SpaceView {
     const want = looked ? looked.position : new THREE.Vector3();
     const shift = want.clone().sub(this.controls.target);
     if (shift.lengthSq() > 0) { this.camera.position.add(shift); this.controls.target.copy(want); }
+    // a new thing looked at is framed for its size as the ship is (a planet from outside it, not from the ship's
+    // offset at its centre); looking back at the ship frames the ship again
+    if (this.lookAt !== this.framedLook) {
+      this.framedLook = this.lookAt;
+      const size = this.lookAt !== null ? snap?.entities.find((e) => e.itemID === this.lookAt)?.radius ?? null : ego?.radius ?? null;
+      if (size !== null) this.frameShip(size);
+    }
     for (const [id, m] of this.marks) if (!seen.has(id)) {
       // where it went from, for a moment, in the system's own frame (an explosion is drawn where a ball was)
       this.gone.set(id, { x: m.position.x + origin.x, y: m.position.y + origin.y, z: m.position.z - origin.z, radius: m.userData.radius ?? null, at: performance.now() });
