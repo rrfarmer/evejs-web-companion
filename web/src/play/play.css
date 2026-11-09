@@ -70,8 +70,18 @@ button { font: inherit; color: inherit; }
 .hud-top-left .system .sec { color: #2fd27e; margin-left: 8px; font-size: 15px; }
 .hud-top-left .sub { color: var(--text-dim); }
 
-.neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; background: rgba(6,7,8,0.92); border-right: 1px solid var(--line); }
-.neocom .eve { height: 44px; display: grid; place-items: center; color: #d7dad6; font-size: 11px; letter-spacing: .2em; border-bottom: 1px solid var(--line); }
+/* the Neocom (neocom.ts): the client's left bar, its button art from res:/UI/Texture/classes/Neocom */
+.neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; display: flex; flex-direction: column; z-index: 6;
+  background: rgba(6, 7, 8, 0.92); border-right: 1px solid rgba(255, 255, 255, 0.08); }
+.neocom .eve { height: 44px; flex: none; background: url(/client-res/ui/texture/classes/neocom/evebuttonbg.png) center / 44px 44px no-repeat;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; }
+.nc-buttons { display: flex; flex-direction: column; }
+.nc-btn { width: 44px; height: 40px; padding: 0; display: grid; place-items: center; background: transparent; border: none; cursor: pointer; }
+.nc-btn img { width: 32px; height: 32px; opacity: .78; }
+.nc-btn:hover { background: url(/client-res/ui/texture/classes/neocom/buttonhover.png) center / 100% 100% no-repeat; }
+.nc-btn:hover img { opacity: 1; }
+.nc-fill { flex: 1; }
+.nc-clock { height: 28px; flex: none; display: grid; place-items: center; font-size: 12px; color: #c8ccc8; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 
 .ship-hud { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
 .ship-hud .gauge { width: 168px; height: 168px; pointer-events: auto; }
@@ -137,3 +147,7 @@ button { font: inherit; color: inherit; }
 .bracket.locked::after { content: ""; position: absolute; inset: -5px; border: 2px solid #d23b2f;
   clip-path: polygon(0 0, 35% 0, 35% 2px, 2px 2px, 2px 35%, 0 35%, 0 100%, 35% 100%, 35% calc(100% - 2px), 2px calc(100% - 2px), 2px 65%, 0 65%, 0 0, 100% 0, 100% 35%, calc(100% - 2px) 35%, calc(100% - 2px) 2px, 65% 2px, 65% 0, 100% 0, 100% 100%, 65% 100%, 65% calc(100% - 2px), calc(100% - 2px) calc(100% - 2px), calc(100% - 2px) 65%, 100% 65%); }
 .bracket.targeting-me .glyph { filter: drop-shadow(0 0 2px #e3b542) drop-shadow(0 0 2px #e3b542); }
+
+/* a bracket with the client's own icon (brackets.ts): white art, tinted by what the thing is to the pilot */
+.glyph.bi { display: block; background-color: var(--tint); -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+.ov-table .ov-icon .glyph.bi { width: 14px; height: 14px; }

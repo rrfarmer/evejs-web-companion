@@ -17,6 +17,8 @@ import { LivePark } from "../three/livePark.ts";
 import { typeModel } from "../three/hullModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview } from "./overview.ts";
+import { Neocom } from "./neocom.ts";
+import { bracketIcon, loadBrackets } from "./brackets.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 
@@ -51,6 +53,8 @@ const KIND_COLOUR: Record<string, string> = {
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
 export function glyph(e: Entity): string {
   const c = e.isNpc ? "var(--hostile)" : KIND_COLOUR[e.kind] ?? "#c9c9c9";
+  const icon = bracketIcon(e);
+  if (icon) return `<span class="glyph bi" style="--icon:url('${icon}');--tint:${c}"></span>`;
   switch (e.kind) {
     case "ship": case "drone": case "fighter":
       return `<svg class="glyph" viewBox="0 0 16 16"><path d="M8 3 L13 12 L3 12 Z" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`;
@@ -107,7 +111,6 @@ export class SpaceView {
     this.brackets.className = "brackets";
     this.root.appendChild(this.brackets);
     this.root.insertAdjacentHTML("beforeend", `
-      <div class="neocom"><div class="eve">EVE</div></div>
       <div class="hud-top-left"><div class="system">${where.system}<span class="sec">${where.security === null ? "" : where.security.toFixed(1)}</span></div><div class="sub"></div></div>
       <div class="ship-hud">
         <svg class="gauge" viewBox="0 0 168 168">
@@ -150,6 +153,9 @@ export class SpaceView {
     this.controls.zoomSpeed = 1.2;
     this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
     this.root.appendChild(this.overview.window.root);
+    // Brackets drawn before the client's tables are here are drawn again with the client's icons.
+    void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
+    this.root.appendChild(new Neocom((id) => this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`)).root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
     this.renderer.domElement.addEventListener("click", () => this.select(null));
     addEventListener("resize", () => this.resize());

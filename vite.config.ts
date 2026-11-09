@@ -17,7 +17,7 @@
 import { defineConfig, type Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { execFile } from "node:child_process";
 // View library (locked by the R2 spike): Svelte 5. Components stay thin pure
 // readers of the framework-agnostic signal store (web/src/store), which
 // implements the Svelte store contract so `$slice` auto-subscription works.
@@ -34,20 +34,26 @@ const bffTarget = process.env.EVEJS_WEB_BFF_URL || "http://127.0.0.1:26500";
 // Client assets for the three.js play page (FarmerThreeJSFun). tools/client-extract writes them to
 // _local/client-assets/<build>/ from the local EVE install; they are never committed. Served at
 // /client-assets from the build named by EVE_CLIENT_BUILD, else the newest build folder there.
-/** Import a module as it is on disk now: a new version of the extractor is picked up without restarting the server. */
-async function importFresh(file: string) {
-  return import(`${pathToFileURL(file).href}?v=${fs.statSync(file).mtimeMs}`);
-}
-
 function clientAssets(): Plugin {
   const root = path.resolve(__dirname, "_local", "client-assets");
   const types: Record<string, string> = { ".glb": "model/gltf-binary", ".json": "application/json", ".dds": "application/octet-stream" };
   return {
     name: "client-assets",
     configureServer(server) {
-      // One extraction per model at a time, shared by every request that wants it.
-      const extracting = new Map<string, Promise<unknown>>();
-      let resFiles: { client: string; rf: unknown } | null = null;
+      // The extractor runs as its own process (always the code on disk), one run per thing at a time, shared by
+      // every request that wants it.
+      const extracting = new Map<string, Promise<void>>();
+      const extractOnce = (key: string, buildDir: string, args: string[]): Promise<void> => {
+        if (!extracting.has(key)) {
+          const config = JSON.parse(fs.readFileSync(path.join(buildDir, "config.json"), "utf8")) as { client: string };
+          const run = new Promise<void>((resolve, reject) => {
+            execFile(process.execPath, [path.resolve(__dirname, "tools", "client-extract", "extract.mjs"), "--client", config.client, "--out", buildDir, ...args],
+              { maxBuffer: 1 << 24 }, (error, _out, err) => (error ? reject(new Error(String(err || error.message).trim())) : resolve()));
+          }).finally(() => extracting.delete(key));
+          extracting.set(key, run);
+        }
+        return extracting.get(key)!;
+      };
       server.middlewares.use("/client-assets", async (req, res, next) => {
         let builds: string[] = [];
         try { builds = fs.readdirSync(root).filter((d) => /^\d+$/.test(d)).sort((a, b) => Number(b) - Number(a)); } catch { /* none yet */ }
@@ -64,11 +70,13 @@ function clientAssets(): Plugin {
             const sys = JSON.parse(fs.readFileSync(path.join(buildDir, "systemScenes.json"), "utf8"))[sceneAsk[1]!] ?? null;
             res.setHeader("content-type", "application/json");
             if (!sys?.nebula) return res.end(JSON.stringify({ solarSystemID: Number(sceneAsk[1]), ...(sys ?? {}), maps: null }));
-            const tool = await importFresh(path.resolve(__dirname, "tools", "client-extract", "extract.mjs"));
-            const resLib = await importFresh(path.resolve(__dirname, "tools", "client-extract", "lib", "resfiles.mjs"));
-            const config = JSON.parse(fs.readFileSync(path.join(buildDir, "config.json"), "utf8"));
-            if (!resFiles || resFiles.client !== config.client) resFiles = { client: config.client, rf: resLib.openResFiles(config.client) };
-            const maps = tool.extractScene(resFiles.rf, sys.nebula, buildDir);
+            const stem = String(sys.nebula).toLowerCase().replace(/.(red|black)$/, "").slice("res:/".length);
+            const have = () => fs.existsSync(path.join(buildDir, stem + ".dds"));
+            if (!have()) await extractOnce(`scene:${stem}`, buildDir, ["--scene", sys.nebula]);
+            const maps: Record<string, string> = {};
+            for (const [role, suffix] of [["nebula", ""], ["reflection", "_refl"], ["blur", "_blur"]] as const) {
+              if (fs.existsSync(path.join(buildDir, stem + suffix + ".dds"))) maps[role] = `/client-assets/${stem}${suffix}.dds`;
+            }
             return res.end(JSON.stringify({ solarSystemID: Number(sceneAsk[1]), ...sys, maps }));
           } catch (e) {
             res.statusCode = 500;
@@ -83,14 +91,7 @@ function clientAssets(): Plugin {
             res.setHeader("content-type", "application/json");
             if (!tg?.gr2) return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: null, ...(tg ?? {}) }));
             const stem = String(tg.gr2).slice("res:/".length, -".gr2".length);
-            if (!fs.existsSync(path.join(buildDir, stem + ".glb"))) {
-              const tool = await importFresh(path.resolve(__dirname, "tools", "client-extract", "extract.mjs"));
-              const resLib = await importFresh(path.resolve(__dirname, "tools", "client-extract", "lib", "resfiles.mjs"));
-              const config = JSON.parse(fs.readFileSync(path.join(buildDir, "config.json"), "utf8"));
-              if (!resFiles || resFiles.client !== config.client) resFiles = { client: config.client, rf: resLib.openResFiles(config.client) };
-              if (!extracting.has(tg.gr2)) extracting.set(tg.gr2, tool.extractHull(resFiles.rf, tg.gr2, buildDir).finally(() => extracting.delete(tg.gr2)));
-              await extracting.get(tg.gr2);
-            }
+            if (!fs.existsSync(path.join(buildDir, stem + ".glb"))) await extractOnce(`hull:${tg.gr2}`, buildDir, ["--hull", tg.gr2]);
             const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
             return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: `/client-assets/${stem}.glb`, textures: info.textures, lods: info.lods.length, ...tg }));
           } catch (e) {

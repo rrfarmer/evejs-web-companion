@@ -3,6 +3,7 @@
 //
 //   node tools/client-extract/extract.mjs [--client "<EVE folder>"] [--out <dir>]
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
+//        [--scene <res path of an EveSpaceScene> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -12,6 +13,7 @@
 //   typeGraphics.json   (--type-graphics, needs --sde) typeID -> hull, faction, race, model
 //   systemScenes.json   (--type-graphics too) solarSystemID -> region nebula, star
 //   typeNames.json      (--type-graphics too) typeID -> [name, groupID]; groupID -> [name, categoryID]
+//   brackets.json       (--type-graphics too) the client's bracket tables, from its own .static files
 //   config.json         the client and SDE folders used, so the dev server can extract on demand
 // and manifest.json at the build root.
 
@@ -22,6 +24,7 @@ import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames } from "./lib/typeGraphics.mjs";
+import { readFsdStatic } from "./lib/fsdStatic.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 export const REPO = path.resolve(HERE, "..", "..");
@@ -61,6 +64,23 @@ export function extractScene(rf, scenePath, outRoot) {
     if (!fs.existsSync(file)) fs.writeFileSync(file, rf.read(res));
     out[role] = "/client-assets/" + res.slice("res:/".length);
   }
+  return out;
+}
+
+/**
+ * The client's bracket tables (bracketMgr.CreateBracketIndexes): bracket by type, else by group, else by category
+ * (GetBracketDataByTypeID), and each bracket's icon. Read from the client's own res:/staticdata/*.static.
+ */
+export function extractBrackets(rf, outRoot) {
+  const read = (name) => readFsdStatic(rf.read(`res:/staticdata/${name}.static`), `res:/staticdata/${name}.static`);
+  const brackets = read("brackets");
+  const out = {
+    byType: read("bracketsbytype"),
+    byGroup: read("bracketsbygroup"),
+    byCategory: read("bracketsbycategory"),
+    brackets: Object.fromEntries(Object.entries(brackets).map(([id, b]) => [id, { name: b.name ?? null, texturePath: b.texturePath ?? null, texturePathEmpty: b.texturePathEmpty ?? null }])),
+  };
+  fs.writeFileSync(path.join(outRoot, "brackets.json"), JSON.stringify(out));
   return out;
 }
 
@@ -104,7 +124,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], typeGraphics: false };
+  const out = { hulls: [], types: [], scenes: [], typeGraphics: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -113,6 +133,7 @@ function parseArgs(argv) {
     else if (a === "--type-graphics") out.typeGraphics = true;
     else if (a === "--hull") out.hulls.push(argv[++i]);
     else if (a === "--type") out.types.push(Number(argv[++i]));
+    else if (a === "--scene") out.scenes.push(argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
   return out;
@@ -142,6 +163,8 @@ async function main() {
     const scenes = await buildSystemScenes(args.sde);
     fs.writeFileSync(path.join(outRoot, "systemScenes.json"), JSON.stringify(scenes));
     console.log(`systemScenes.json: ${Object.keys(scenes).length} systems`);
+    const br = extractBrackets(rf, outRoot);
+    console.log(`brackets.json: ${Object.keys(br.brackets).length} brackets, ${Object.keys(br.byType).length} by type, ${Object.keys(br.byGroup).length} by group`);
     const names = await buildTypeNames(args.sde);
     fs.writeFileSync(path.join(outRoot, "typeNames.json"), JSON.stringify(names));
     console.log(`typeNames.json: ${Object.keys(names.types).length} types, ${Object.keys(names.groups).length} groups`);
@@ -161,7 +184,8 @@ async function main() {
     done.push(r.res);
   }
   if (done.length) addToManifest(outRoot, build, client, done);
-  if (!done.length && !args.typeGraphics) throw new Error("nothing to do: give --hull, --type or --type-graphics");
+  for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
+  if (!done.length && !args.typeGraphics && !args.scenes.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
