@@ -63,7 +63,6 @@
 
   let live: LivePark | null = null;
   let spaceClaimed: Session | null = null;
-  const seenRunning = new Map<number, number>();
   async function enter(characterID: number) {
     if (!session) return;
     stage = "entering";
@@ -128,13 +127,8 @@
           for (const slot of s.store.fitting.get().slots ?? []) {
             const m = slot.module;
             if (!m || (slot.family !== "high" && slot.family !== "mid" && slot.family !== "low")) continue;
-            // The cycle's start is the server's effect notice's (applyCycleNotification); where none has been heard, the
-            // moment this page first saw the module running stands in for it.
-            const isActive = active.has(m.itemID);
-            if (!isActive) seenRunning.delete(m.itemID);
-            else if (!seenRunning.has(m.itemID)) seenRunning.set(m.itemID, now);
-            const c = cycles[m.itemID] ?? null;
-            const cycle = c && c.startedAtMs === null && isActive ? { ...c, startedAtMs: seenRunning.get(m.itemID)!, repeating: true } : c;
+            // The cycle's start and length are the server's effect notice's (OnGodmaShipEffect, riding an OnMultiEvent).
+            const cycle = cycles[m.itemID] ?? null;
             const pct = cycleProgressPercent(cycle, now);
             out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "", cycle: pct === null ? null : pct / 100 });
           }

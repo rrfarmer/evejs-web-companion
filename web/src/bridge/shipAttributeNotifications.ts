@@ -123,3 +123,31 @@ export function locationAttributeChanges(method: string | null, args: readonly u
   }
   return heard;
 }
+
+/**
+ * The effects' starts and stops riding an OnMultiEvent, as godma hands them on: a moment at a time (OnMultiEvent:
+ * grouped by when they were made, oldest first), and of each moment only the last told for each item's effect,
+ * sorted by the effect's own time (BroadcastFilteredGSF), each scattered as an OnGodmaShipEffect of its own. Each is
+ * that notice's arguments: [itemID, effectID, when, isStart, ...].
+ */
+export function multiEventShipEffects(args: readonly unknown[]): readonly (readonly unknown[])[] {
+  const moments = new Map<bigint, (readonly unknown[])[]>();
+  for (const entry of itemsOf(args[0]) ?? []) {
+    const pair = itemsOf(entry);
+    const event = itemsOf(pair?.[0]);
+    if (!pair || pair.length < 2 || !event || event[0] !== "OnGodmaShipEffect") continue;
+    const when = unwrapLong(pair[pair.length - 1]) ?? 0n;
+    if (!moments.has(when)) moments.set(when, []);
+    moments.get(when)!.push(event);
+  }
+  const time = (event: readonly unknown[]): bigint => unwrapLong(event[3]) ?? 0n;
+  const out: (readonly unknown[])[] = [];
+  for (const when of [...moments.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const last = new Map<string, readonly unknown[]>();
+    for (const event of moments.get(when)!.sort((a, b) => (time(a) < time(b) ? -1 : time(a) > time(b) ? 1 : 0))) {
+      last.set(`${String(unwrapLong(event[1]))}:${String(unwrapLong(event[2]))}`, event);
+    }
+    for (const event of last.values()) out.push(event.slice(1));
+  }
+  return out;
+}

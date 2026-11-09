@@ -32,7 +32,7 @@ import { ensureSiteLogisticsBookmark } from "../nav/siteLogisticsBookmark.ts";
 import { readRecoveryDrones, recoverLostDroneFlight, type DroneRecoveryState } from "../nav/lostDroneRecovery.ts";
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { buildSlots, decodeChargeFits, decodeResources, decodeShipAttributes, planFittingApply, resourcesOf, slotFlagOf } from "../bridge/fitting.ts";
-import { decodeItemAttributeChanges, locationAttributeChanges } from "../bridge/shipAttributeNotifications.ts";
+import { decodeItemAttributeChanges, locationAttributeChanges, multiEventShipEffects } from "../bridge/shipAttributeNotifications.ts";
 import { deriveShipStats, known, lockLimitOf, unavailable, type ShipStats } from "../bridge/shipStats.ts";
 import { capacitorSimulator, capSimulatorValues, isOnlineModule } from "../bridge/dogma/capacitor.ts";
 import { offense } from "../bridge/dogma/offense.ts";
@@ -6250,6 +6250,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       void loadDogma().catch(() => {});
       void loadSpaceSnapshot().catch(() => {});
       return;
+    }
+    // godma.OnMultiEvent_ (212 to 239): the effects' starts and stops riding a multi-event go on as an
+    // OnGodmaShipEffect each, the last of each item's effect in a moment (BroadcastFilteredGSF). The server sends a
+    // module's start and stop this way, so a rack's cycle is heard only through it. The rest of the multi-event goes on
+    // below (the attribute changes).
+    if (method === "OnMultiEvent" && !insideMultiEvent) {
+      for (const effect of multiEventShipEffects(args)) applyPushedNotification("OnGodmaShipEffect", effect, receivedAtMs, true);
     }
     if (method === "OnGodmaShipEffect") {
       applyCycleNotification(args);
