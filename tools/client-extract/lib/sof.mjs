@@ -73,6 +73,10 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
       });
     }
   }
+  // A set in a visibility group is built only where the faction's visibility group set names that group (the police
+  // lights of a hull, say, for a police faction); a set in none always is.
+  const groups = new Set((faction?.visibilityGroupSet?.visibilityGroups ?? []).map((g) => String(g.str ?? "").toLowerCase()));
+  const visible = (set) => !set.visibilityGroup || groups.has(String(set.visibilityGroup).toLowerCase());
   const colorSet = faction?.colorSet ? Object.fromEntries(Object.entries(faction.colorSet).filter(([k]) => k !== "type")) : null;
   // The race's engines (EveSOFDataRace.booster): the flame's colours and shapes, the glow and the halo, as the
   // client's EveBoosterSet2 is set up from them.
@@ -97,6 +101,29 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     anchor: (hull.locatorSets ?? []).find((s) => String(s.name).trim() === "anchorpoint")?.locators?.[0]?.position ?? null,
     // Its "maxCameraDistance" locator (a hangar's: hangarView.LoadCamera takes the farthest zoom from its length).
     maxCameraDistance: (hull.locatorSets ?? []).find((s) => String(s.name).trim() === "maxCameraDistance")?.locators?.[0]?.position ?? null,
+    // Its sprite sets (EveSOFDataHullSpriteSet: the blinking lights), each light's colour from the faction's colour set
+    // by its colorType (Primary where it names none).
+    spriteSets: (hull.spriteSets ?? []).filter(visible).map((set) => ({
+      name: set.name ?? null,
+      items: (set.items ?? []).map((it) => ({
+        position: it.position ?? [0, 0, 0], blinkRate: it.blinkRate ?? 0, blinkPhase: it.blinkPhase ?? 0,
+        minScale: it.minScale ?? 1, maxScale: it.maxScale ?? it.minScale ?? 1, intensity: it.intensity ?? 1, falloff: it.falloff ?? 0,
+        color: (colorSet && colorSet[COLOR_TYPES[it.colorType ?? 0]]) ?? null,
+      })),
+    })),
+    // Its plane sets (EveSOFDataHullPlaneSet: force fields, holograms, haze cards): each plane placed, its two scrolling
+    // layers and mask, its own colour and its group's colour from the faction (EveSOFDataFactionPlaneSet by groupIndex).
+    planeSets: (hull.planeSets ?? []).filter(visible).map((set) => ({
+      name: set.name ?? null, layer1: set.layer1MapResPath ?? null, layer2: set.layer2MapResPath ?? null, mask: set.maskMapResPath ?? null,
+      items: (set.items ?? []).map((it) => ({
+        position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
+        color: it.color ?? null, intensity: it.intensity ?? 1,
+        groupColor: (faction?.planeSets ?? []).find((g) => g.groupIndex === (it.groupIndex ?? 0))?.color ?? null,
+        layer1Transform: it.layer1Transform ?? [1, 1, 0, 0], layer1Scroll: it.layer1Scroll ?? [0, 0, 0, 0],
+        layer2Transform: it.layer2Transform ?? [1, 1, 0, 0], layer2Scroll: it.layer2Scroll ?? [0, 0, 0, 0],
+        blinkMode: it.blinkMode ?? 0, blinkRate: it.blinkRate ?? 0, blinkPhase: it.blinkPhase ?? 0,
+      })),
+    })),
     // Its point lights (EveSOFDataHullLightSet items), each its colour from the faction's colour set.
     lights: (hull.lightSets ?? []).flatMap((set) => (set.items ?? []).map((it) => ({
       position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,

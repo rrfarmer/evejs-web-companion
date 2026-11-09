@@ -118,6 +118,12 @@ export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = n
       area.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     }
   }
+  for (const set of built.planeSets ?? []) {
+    for (const key of ["layer1", "layer2", "mask"]) {
+      const res = set[key] ? String(set[key]).toLowerCase() : null;
+      set[key] = res && rf.has(res) ? copyRes(rf, res, outRoot) : null;
+    }
+  }
   const stem = gr2.toLowerCase().slice("res:/".length, -".gr2".length);
   const file = path.join(outRoot, ...`${stem}.${(factionName ?? "none").toLowerCase()}.sof.json`.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });

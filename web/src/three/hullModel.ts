@@ -4,6 +4,7 @@
 // SOF reader.
 
 import * as THREE from "three";
+import { hullFx, type SofSpriteSet, type SofPlaneSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
 
@@ -286,10 +287,14 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   lodNodes.slice().forEach((node, i) => lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1)));
   lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, maxCameraDistance: sof?.maxCameraDistance ?? null, lights: sof?.lights ?? [], boundingSphere: (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere ?? null };
   const boosters = sof ? buildBoosters(sof) : null;
-  if (!boosters) return lod;
-  // The engines belong to the hull, not to one LOD: a holder carries both.
+  // the hull's sprite lights and plane cards (hullFx.ts)
+  const fx = sof ? await hullFx(sof as { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[] }).catch(() => null) : null;
+  if (!boosters && !fx) return lod;
+  // The engines and lights belong to the hull, not to one LOD: a holder carries them all.
   const holder = new THREE.Group();
-  holder.add(lod, boosters);
+  holder.add(lod);
+  if (boosters) holder.add(boosters);
+  if (fx) holder.add(fx);
   holder.userData = lod.userData;
   return holder;
 }
