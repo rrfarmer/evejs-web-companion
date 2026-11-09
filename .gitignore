@@ -16,3 +16,8 @@ docs/goal-prompts/release-bug-pass.md
 _local/client-assets/
 # Destiny feeds made from the test recordings by scripts/destiny-feed.js
 _local/play-feed/
+# The three.js loop brief and log are the loop's own working files
+docs/goal-prompts/threejs-play-loop.md
+docs/threejs-play-loop-log.md
+# Copy of the eve.js game store the Docker EveJS runs on (never the live store)
+_local/evejs-store/

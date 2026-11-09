@@ -61,6 +61,7 @@ const { noticeTargetMatches } = require("./publicGateway");
 const { GAME_PORT_HANDLE_PREFIX } = require("../pilotTransport");
 const { GAME_PORT_ONLY_CALLS, ON_AN_ANSWERED_OBJECT, ON_THE_PARK, couldBeAPilot, createCallLedger, madeAfresh, retailForm, retailNeeds } = require("./retailCalls");
 const { createPilotSpace } = require("./pilotSpace");
+const { feedItem } = require("./destiny/feed");
 const { bannedInChat } = require("./chatSpam");
 const { createPilotClock } = require("./pilotClock");
 const { EFFECT_CATEGORY, EFFECT_ONLINE, createPilotDogma, inASlot, rowFields } = require("./pilotDogma");
@@ -1416,6 +1417,45 @@ function createGamePortPilots({
     }
   }
 
+  // ── the Destiny feed, for a browser that runs its own park ────────────────
+  //
+  // The three.js play page runs the BFF's own Park (destiny/park.js) in the browser and draws from it every frame,
+  // as the retail client draws from its own. What it needs is what michelle hands the park: the ballpark's
+  // notifications, as the server's own marshal bytes (destiny/feed.js), stamped with the pilot's sim clock so the
+  // browser's park steps by the same clock as this one. They do not go on the pilot's stream: the stream keeps a
+  // history for resuming, and a second's worth of ballpark every second would push the rest of it out.
+
+  function tellDestiny(entry, notification) {
+    const item = feedItem(notification, entry.clock.simTime());
+    if (!item) return;
+    for (const listener of [...entry.destinyListeners]) {
+      try {
+        listener(item);
+      } catch {
+        // A listener's failure is its own; the session and the other listeners carry on.
+      }
+    }
+  }
+
+  /**
+   * Listen to a held pilot's Destiny feed. A park that joins in flight needs the whole state, so the server is asked
+   * for it as the client asks after a reset (UpdateStateRequest); the SetState it answers with goes to this park too,
+   * which merges it as it would any other. Docked, there is no park, and the feed starts with the undock.
+   */
+  function openDestinyFeed(sessionFields = {}, bridgeSessionID = undefined, onItem = () => {}) {
+    const entry = held(bridgeSessionID, sessionFields);
+    entry.destinyListeners.add(onItem);
+    if (entry.space && !entry.space.released) entry.space.park.requestState();
+    return {
+      close: () => entry.destinyListeners.delete(onItem),
+      /** The pilot's sim clock now, in milliseconds: what the browser's park is to be stepped by. */
+      simTime: () => entry.clock.simTime(),
+      solarSystemID: entry.space ? entry.space.solarSystemID : null,
+      shipID: positive(entry.session.attributes?.shipid) ?? null,
+      characterID: entry.characterID,
+    };
+  }
+
   /** One event on the pilot's stream, for whoever is listening now and whoever resumes from before it. */
   function publish(entry, event) {
     entry.sequence += 1;
@@ -1776,6 +1816,8 @@ function createGamePortPilots({
       sequence: 0,
       history: [],
       subscribers: new Set(),
+      /** Who is told the pilot's Destiny feed (openDestinyFeed): a browser running a park of its own. */
+      destinyListeners: new Set(),
       ship: null,
       /** boundHandle -> { objectID, service }: what the BFF holds, and what it names here. */
       bound: new Map(),
@@ -2059,6 +2101,7 @@ function createGamePortPilots({
       }
       entry.clock.feed(notification);
       if (entry.space) entry.space.feed(notification);
+      if (entry.destinyListeners.size > 0) tellDestiny(entry, notification);
       if (!ITEM_NOTICES.has(notification.method)) keepDogmaWork(entry, entry.dogma.feed(notification));
       entry.scanner.feed(notification);
       afterFleetNotice(entry, entry.fleetKept.feed(notification));
@@ -6656,6 +6699,7 @@ function createGamePortPilots({
     readScannerState,
     readSpaceSnapshot,
     openSessionEventStream,
+    openDestinyFeed,
     accountCall,
     /** The Abyssal pocket's timer as the pilot was last told it (keepPocketTimer): its end_time, as the notice had it, or null. */
     pocketTimer: (sessionFields = {}, bridgeSessionID = undefined) => held(bridgeSessionID, sessionFields).pocketTimer ?? null,

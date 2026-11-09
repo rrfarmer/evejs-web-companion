@@ -18,6 +18,8 @@ declare module "virtual:destiny" {
     fatalDesyncs: number;
     failed: Set<string>;
     tick(): void;
+    /** Step for every whole tick of the sim clock since the last; returns how many steps were taken. */
+    onTick(simTime: number): number;
     fraction(simTime: number): number;
   }
   export const MODE: Record<string, number>;

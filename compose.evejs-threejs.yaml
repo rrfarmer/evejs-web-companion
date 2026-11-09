@@ -1,0 +1,30 @@
+# Overlay ON eve.js/compose.yaml for the three.js play page (FarmerThreeJSFun): the EveJS
+# server container only, from a freshly built image, on a COPY of the game store.
+#
+#   docker compose -p evejs -f ../eve.js/compose.yaml -f compose.evejs-threejs.yaml \
+#     up -d --no-deps server
+#
+# --no-deps keeps compose away from `init` and `market`: the market daemon already running in
+# project `evejs` (evejs-market-1) is used as it is and never recreated.
+#
+# The store copy lives in its own volume, `evejs-threejs-store`, mounted over the evejs-data
+# volume's gameStore, so that volume's database is never written. A volume rather than a bind
+# mount of a Windows folder: SQLite in WAL mode needs locks and shared memory the Docker Desktop
+# file share does not give reliably. Fill it from a host copy with scripts/threejs-evejs-docker.sh.
+#
+# EVEJS_THREEJS_IMAGE      the image to run (built with `git archive HEAD | docker build -`)
+# EVEJS_WEB_GATEWAY_TOKEN  shared with the host BFF: the gateway lets a token-less caller in only
+#                          from loopback, and a host process reaching a container is not loopback
+
+services:
+  server:
+    image: ${EVEJS_THREEJS_IMAGE:?set EVEJS_THREEJS_IMAGE}
+    environment:
+      EVEJS_WEB_GATEWAY_TOKEN: ${EVEJS_WEB_GATEWAY_TOKEN:?set EVEJS_WEB_GATEWAY_TOKEN}
+    volumes:
+      - evejs-threejs-store:/var/lib/evejs/gameStore
+
+volumes:
+  evejs-threejs-store:
+    name: evejs-threejs-store
+    external: true

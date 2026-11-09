@@ -1731,6 +1731,52 @@ app.get("/api/bridge/events", requireStreamAuth, (req, res) => {
   });
 });
 
+// The held pilot's Destiny feed, for the three.js play page that runs a Park of its own (FarmerThreeJSFun,
+// docs/threejs-play-plan.md). Server-Sent Events, one frame per ballpark notification, each carrying the
+// server's own marshal bytes (src/gamePort/destiny/feed.js); the page decodes and applies them with the same
+// code the BFF's own park runs. The first frame says which clock to step by; a `clock` frame every few
+// seconds keeps the page's reading of the pilot's sim clock true. Game-port pilots only: the gateway
+// transport has no park.
+app.get("/api/play/destiny", requireStreamAuth, (req, res) => {
+  const held = bridgeSessions.get(req.webSessionID) || null;
+  if (!held) {
+    res.status(409).json({ ok: false, ...whyNoHeldPilot(req.webSessionID) });
+    return;
+  }
+  if (!gamePortPilots || !isGamePortHandle(held.bridgeSessionID)) {
+    res.status(409).json({ ok: false, code: "NOT_GAME_PORT", message: "The play page needs a pilot on the game port." });
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  });
+  const send = (event, data) => {
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {
+      // The close handler below owns teardown.
+    }
+  };
+  let feed;
+  try {
+    feed = gamePortPilots.openDestinyFeed({ userid: held.accountID }, held.bridgeSessionID, (item) => send("destiny", item));
+  } catch (error) {
+    send("ended", { code: error.code || "SESSION_NOT_FOUND", message: error.message });
+    res.end();
+    return;
+  }
+  send("hello", { simTime: feed.simTime(), solarSystemID: feed.solarSystemID, shipID: feed.shipID, characterID: feed.characterID });
+  const clock = setInterval(() => send("clock", { simTime: feed.simTime() }), 5000);
+  if (typeof clock.unref === "function") clock.unref();
+  req.on("close", () => {
+    clearInterval(clock);
+    feed.close();
+  });
+});
+
 // Read-only station identity from the local static reference data (allowed by
 // the roadmap: names/SDE stay client-local, exactly as the retail client
 // resolves station names from its static DB).
