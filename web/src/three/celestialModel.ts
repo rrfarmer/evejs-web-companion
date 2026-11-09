@@ -263,26 +263,26 @@ async function gasGiantModel(c: Celestial, bandMap: string, radius: number, item
   ]);
   if (bands && bands.wrapS !== THREE.RepeatWrapping) { bands.wrapS = bands.wrapT = THREE.RepeatWrapping; bands.needsUpdate = true; }
   const v3 = (v: number[] | undefined) => new THREE.Vector3(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
-  const mat = new THREE.MeshStandardMaterial({ map: bands, color: 0xffffff, roughness: 0.95, metalness: 0, envMapIntensity: PLANET_AMBIENT });
-  const uniforms = {
+  // gasgiant.fx's lighting (its pixel shader's end): the colour x (its wrapped diffuse (1 - (1 - saturate(N.L))^2) x
+  // (N.L + 1) / 2 x the rings' shadow + the ambient); no ground scattering. The rings' shadow is not ported.
+  const mat = scatterMaterial(null, null, {
+    bands: { value: bands },
     ring1: { value: v3(c.params.ringColor1) }, ring2: { value: v3(c.params.ringColor2) }, ring3: { value: v3(c.params.ringColor3) },
     capColour: { value: v3(c.params.CapColor) },
     saturation: { value: c.params.Saturation?.[0] ?? 1 },
     shift: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(itemID === null ? 0 : itemID % 100) },
     polesMap: { value: poles }, hasPoles: { value: poles ? 1 : 0 },
-  };
-  withRim(mat, col(c.params.AtmosphereColor ?? c.params.CapColor, [0.55, 0.6, 0.7]), (fs) => `uniform vec3 ring1; uniform vec3 ring2; uniform vec3 ring3; uniform vec3 capColour; uniform float saturation; uniform vec2 shift; uniform sampler2D polesMap; uniform float hasPoles;
-${fs}`.replace("#include <map_fragment>", `
-        vec4 band = texture2D( map, vMapUv + shift );
+  }, `uniform sampler2D bands; uniform vec3 ring1; uniform vec3 ring2; uniform vec3 ring3; uniform vec3 capColour; uniform float saturation; uniform vec2 shift;
+      uniform sampler2D polesMap; uniform float hasPoles;`, `
+        vec4 band = texture2D(bands, vUv + shift);
         vec3 colour = band.g * ring2 + band.r * ring3 + band.b * ring1;
-        vec3 lit = colour * band.a;
-        float lum = dot( lit, vec3( 0.299, 0.587, 0.184 ) );
-        vec3 g = lum + band.r * saturation * ( lit - lum );
-        float cap = hasPoles > 0.5 ? 1.0 - texture2D( polesMap, vMapUv ).r : 0.0;
-        g = mix( g, capColour, cap );
-        g = max( g, vec3( 0.0 ) );
-        // gamma to linear, as the shader takes it before lighting
-        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
+        vec3 banded = colour * band.a;
+        float lum = dot(banded, vec3(0.299, 0.587, 0.184));
+        vec3 albedo = lum + band.r * saturation * (banded - lum);
+        float cap = hasPoles > 0.5 ? 1.0 - texture2D(polesMap, vUv).r : 0.0;
+        albedo = max(mix(albedo, capColour, cap), vec3(0.0));
+        float wrapped = (1.0 - pow(1.0 - clamp(NL, 0.0, 1.0), 2.0)) * (NL + 1.0) * 0.5;
+        g = albedo * (wrapped + ambient);`);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;
@@ -622,19 +622,21 @@ async function iceModel(c: Celestial, heightMap1: string, heightMap2: string | n
  * - the rock is a gamma-space colour, taken to linear; the glow goes on as light of its own.
  */
 async function lavaModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
-  const [h1, h2, detail] = await Promise.all([
+  const [h1, h2, detail, s1, s2] = await Promise.all([
     texture(heightMap1),
     heightMap2 ? texture(heightMap2) : Promise.resolve(null),
     texture(c.textures.FillTexture!),
+    c.textures.GroundScattering1 ? texture(c.textures.GroundScattering1) : Promise.resolve(null),
+    c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
   ]);
   for (const t of [h1, h2, detail]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
   const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
   const random = itemID === null ? 0 : itemID % 100;
-  const mat = new THREE.MeshStandardMaterial({ map: h1, color: 0xffffff, roughness: 0.9, metalness: 0, envMapIntensity: PLANET_AMBIENT, emissive: 0x000000 });
   const anim = v4(c.params.AnimationFactors, [0.6, 4, 0.8, 25]);
   const uniforms = {
-    heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail },
+    h1: { value: h1 }, heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail }, hasScatter: { value: s1 ? 1 : 0 },
+    lavaSpec: { value: v4(c.params.LavaSpecular, [0.6, 12, 0.3, 0.1]) },
     detailF: { value: v4(c.params.DetailFactors, [4, 0.3, 0, 0]) },
     p1: { value: v4(c.params.Parameters1, [0.1, 10, 1.4, 0.04]) }, p2: { value: v4(c.params.Parameters2, [2.5, 0, 0, 0]) },
     lava1: { value: v3(c.params.LavaColor1, [50, 20, 3.5]) }, lava2: { value: v3(c.params.LavaColor2, [24, 2.4, 0]) },
@@ -642,22 +644,25 @@ async function lavaModel(c: Celestial, heightMap1: string, heightMap2: string | 
     noise: { value: Math.pow(0.5, anim.z) * anim.w / 25 },
     shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
   };
-  withRim(mat, col(c.params.AtmosphereColor, [0.6, 0.3, 0.15]), (fs) => `uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform vec4 detailF; uniform vec4 p1; uniform vec4 p2;
-uniform vec3 lava1; uniform vec3 lava2; uniform vec3 low; uniform vec3 mid; uniform vec3 high; uniform float noise; uniform vec2 shiftA; uniform vec2 shiftB;
-vec3 lavaGlow;
-${fs}`.replace("#include <map_fragment>", `
-        float h = texture2D( map, vMapUv * vec2( 2.0, 1.0 ) + shiftA ).r * texture2D( heightMap2, vMapUv * vec2( 3.0, 1.5 ) + shiftB + 1.0 ).r;
-        vec4 d = ${detail ? "texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * detailF.x )" : "vec4( 0.5 )"};
+  const mat = scatterMaterial(s1, s2, uniforms, `uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform float hasScatter; uniform vec4 lavaSpec;
+      uniform vec4 detailF; uniform vec4 p1; uniform vec4 p2;
+      uniform vec3 lava1; uniform vec3 lava2; uniform vec3 low; uniform vec3 mid; uniform vec3 high; uniform float noise; uniform vec2 shiftA; uniform vec2 shiftB;`, `
+        float h = texture2D(h1, vUv * vec2(2.0, 1.0) + shiftA).r * texture2D(heightMap2, vUv * vec2(3.0, 1.5) + shiftB + 1.0).r;
+        vec4 d = ${detail ? "texture2D(detailMap, vUv * vec2(2.0, 1.0) * detailF.x)" : "vec4(0.5)"};
         float hp = h + p1.x;
-        float t = ( hp * p1.y - p1.z ) / p1.w;
-        vec3 g = mix( mix( low, mid, clamp( t, 0.0, 1.0 ) ), high, clamp( t - 1.0, 0.0, 1.0 ) ) + d.y;
-        float lava = clamp( ( 1.0 - clamp( ( hp * p1.y + 0.65 ) * 0.5, 0.0, 1.0 ) ) * p2.x + clamp( 1.0 - hp * p1.y, 0.0, 1.0 ), 0.0, 1.0 );
+        float t = (hp * p1.y - p1.z) / p1.w;
+        vec3 rock = max(mix(mix(low, mid, clamp(t, 0.0, 1.0)), high, clamp(t - 1.0, 0.0, 1.0)) + d.y, vec3(0.0));
+        float lava = clamp((1.0 - clamp((hp * p1.y + 0.65) * 0.5, 0.0, 1.0)) * p2.x + clamp(1.0 - hp * p1.y, 0.0, 1.0), 0.0, 1.0);
         float w = d.w * detailF.y;
-        lavaGlow = ( 2.0 * w * lava2 + ( 6.0 * w ) * ( 6.0 * w ) * lava1 * noise ) * lava;
-        g = max( g * clamp( 1.0 - 5.0 * lava, 0.0, 1.0 ), vec3( 0.0 ) );
-        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`)
-    .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-        totalEmissiveRadiance += lavaGlow * 0.05;`), uniforms);
+        vec3 glow = (2.0 * w * lava2 + (6.0 * w) * (6.0 * w) * lava1 * noise) * lava;
+        // the rock in the ambient only away from the lava, lit by GroundScattering1 as saturate((N.L - 5 lava) x rock);
+        // the glow, GroundScattering2 and the shine (LavaSpecular: strength, power, a height band) added
+        float nl = clamp(NL, 0.0, 1.0);
+        vec3 S1c = hasScatter > 0.5 ? S1 : vec3(1.0);
+        vec3 rockLit = rock * ambient * max(1.0 - 5.0 * lava, 0.0) + S1c * clamp((nl - 5.0 * lava) * rock, 0.0, 1.0);
+        float band = clamp(h / max(0.1 * (lavaSpec.z - lavaSpec.w), 1e-4), 0.0, 1.0);
+        float shine = lavaSpec.x * (1.0 - band * band * (3.0 - 2.0 * band)) * pow(clamp(dot(N, normalize(L + V)), 0.0, 1.0), max(lavaSpec.y, 1.0));
+        g = glow + rockLit + S2 + shine * S1c;`);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;
