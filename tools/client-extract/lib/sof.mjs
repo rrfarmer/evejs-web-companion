@@ -124,6 +124,19 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
         blinkMode: it.blinkMode ?? 0, blinkRate: it.blinkRate ?? 0, blinkPhase: it.blinkPhase ?? 0,
       })),
     })),
+    // Its spotlight sets (EveSOFDataHullSpotlightSet: light cones, their glows and flares): each item's transform (a
+    // column-major 4x4 in EVE's space) and intensities, its colours from the faction's spotlight set of its groupIndex.
+    spotlightSets: (hull.spotlightSets ?? []).filter(visible).map((set) => ({
+      name: set.name ?? null, cone: set.coneTextureResPath ?? null, glow: set.glowTextureResPath ?? null, zOffset: set.zOffset ?? 0,
+      items: (set.items ?? []).map((it) => {
+        const g = (faction?.spotlightSets ?? []).find((f) => f.groupIndex === (it.groupIndex ?? -1)) ?? null;
+        return {
+          transform: it.transform ?? null, coneIntensity: it.coneIntensity ?? 0, spriteIntensity: it.spriteIntensity ?? 0,
+          flareIntensity: it.flareIntensity ?? 0, spriteScale: it.spriteScale ?? [1, 1, 1],
+          coneColor: g?.coneColor ?? null, spriteColor: g?.spriteColor ?? null, flareColor: g?.flareColor ?? null,
+        };
+      }),
+    })),
     // Its point lights (EveSOFDataHullLightSet items), each its colour from the faction's colour set.
     lights: (hull.lightSets ?? []).flatMap((set) => (set.items ?? []).map((it) => ({
       position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,
