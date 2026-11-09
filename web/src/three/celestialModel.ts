@@ -65,6 +65,7 @@ export async function celestialModel(typeID: number, kind: string, radius: numbe
   if (item?.NormalHeight1 && c.params.FillTint && c.textures.FillTexture) return rockyModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   if (item?.NormalHeight1 && c.params.LavaColor1 && c.textures.FillTexture) return lavaModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   if (item?.NormalHeight1 && c.params.IceFactors && c.textures.FillTexture) return iceModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
+  if (item?.NormalHeight1 && c.params.Ramp1 && c.params.RampBias && c.textures.DetailTexture) return moonModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   const surfaceName = SURFACE.find((n) => c.textures[n] && !/black\.dds$/.test(c.textures[n]!));
   const shared = surfaceName ? await texture(c.textures[surfaceName]!, true) : null;
   const tiling = c.params.DetailsTiling?.[0] ?? 1;
@@ -200,6 +201,54 @@ ${fs}`.replace("#include <map_fragment>", `
         vec3 w = mix( water, shallow, clamp( ( h + sharpF.w - miscF.x ) * 50.0, 0.0, 1.0 ) * 0.8 );
         g = mix( g, w, sea );` : ""}
         g = max( g, vec3( 0.0 ) );
+        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
+  m.name = "celestial";
+  return m;
+}
+
+/**
+ * A moon as SimpleMoon.fx colours it (its sm_hi pixel shader; constants by the effect file's table: FresnelFactors c0,
+ * MiscFactors c2, Random c3, DetailsFactors c4, DetailsTiling c5.x, RampBias c5.y, Ramp1-3 c6-c8, DetailMaskColor c9,
+ * MoonFresnelColor c10):
+ * - the height is the lower of NormalHeight1 and NormalHeight2 (moved by Random as the planets' are);
+ * - the detail texture (tiled by DetailsTiling) shades it: a = x x DF.x, b = y x DF.y, the shade mix(a, z x DF.z, h);
+ * - t = h / RampBias ramps Ramp3 to Ramp2 by saturate(t), on to Ramp1 by saturate(t - 1); the colour is the ramp times
+ *   the shade, mixed toward DetailMaskColor by b, in gamma space taken to linear;
+ * - the rim is MoonFresnelColor; the shader's pole blend, its wrap lighting and its reflection-cube fresnel are not
+ *   ported.
+ */
+async function moonModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
+  const [h1, h2, detail] = await Promise.all([
+    texture(heightMap1),
+    heightMap2 ? texture(heightMap2) : Promise.resolve(null),
+    texture(c.textures.DetailTexture!),
+  ]);
+  for (const t of [h1, h2, detail]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
+  const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
+  const random = itemID === null ? 0 : itemID % 100;
+  const mat = new THREE.MeshStandardMaterial({ map: h1, color: 0xffffff, roughness: 0.95, metalness: 0, envMapIntensity: PLANET_AMBIENT });
+  const uniforms = {
+    heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail },
+    detailF: { value: v4(c.params.DetailsFactors, [2, 1.8, 1, 0]) }, tiling: { value: c.params.DetailsTiling?.[0] ?? 2 },
+    rampBias: { value: c.params.RampBias?.[0] ?? 0.32 },
+    ramp1: { value: v3(c.params.Ramp1, [0.82, 0.85, 0.86]) }, ramp2: { value: v3(c.params.Ramp2, [0.7, 0.7, 0.74]) },
+    ramp3: { value: v3(c.params.Ramp3, [0.18, 0.18, 0.18]) }, maskColour: { value: v3(c.params.DetailMaskColor, [1, 1, 1]) },
+    shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
+  };
+  withRim(mat, col(c.params.MoonFresnelColor, [0.58, 0.62, 0.79]), (fs) => `uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform vec4 detailF; uniform float tiling; uniform float rampBias;
+uniform vec3 ramp1; uniform vec3 ramp2; uniform vec3 ramp3; uniform vec3 maskColour; uniform vec2 shiftA; uniform vec2 shiftB;
+${fs}`.replace("#include <map_fragment>", `
+        float a = texture2D( map, vMapUv * vec2( 2.0, 1.0 ) + shiftA ).r;
+        float b = texture2D( heightMap2, vMapUv * vec2( 3.0, 1.5 ) + shiftB + 1.0 ).r;
+        float h = min( a, b );
+        vec3 det = texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * tiling ).xyz;
+        float da = det.x * detailF.x, db = det.y * detailF.y;
+        float shade = mix( da, det.z * detailF.z, h );
+        float t = h / rampBias;
+        vec3 ramp = mix( mix( ramp3, ramp2, clamp( t, 0.0, 1.0 ) ), ramp1, clamp( t - 1.0, 0.0, 1.0 ) );
+        vec3 g = max( mix( ramp * shade, maskColour, clamp( db, 0.0, 1.0 ) ), vec3( 0.0 ) );
         diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
