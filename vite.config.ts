@@ -83,6 +83,23 @@ function clientAssets(): Plugin {
             return res.end(JSON.stringify({ error: (e as Error).message }));
           }
         }
+        // /client-assets/celestial/<typeID>: a planet, moon or sun type's object file read for its textures and shader
+        // parameters (tools/client-extract lib/celestial.mjs), on first ask.
+        const celestialAsk = /^\/celestial\/(\d+)$/.exec(rel);
+        if (celestialAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const tg = JSON.parse(fs.readFileSync(path.join(buildDir, "typeGraphics.json"), "utf8"))[celestialAsk[1]!] ?? null;
+            res.setHeader("content-type", "application/json");
+            if (!tg?.graphicFile) return res.end(JSON.stringify({ typeID: Number(celestialAsk[1]), celestial: null }));
+            const rel2 = String(tg.graphicFile).toLowerCase().slice("res:/".length).replace(/\.(red|black)$/, "") + ".celestial.json";
+            if (!fs.existsSync(path.join(buildDir, rel2))) await extractOnce(`celestial:${rel2}`, buildDir, ["--celestial", tg.graphicFile]);
+            return res.end(fs.readFileSync(path.join(buildDir, rel2)));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const typeAsk = /^\/type\/(\d+)$/.exec(rel);
         if (typeAsk) {
           try {

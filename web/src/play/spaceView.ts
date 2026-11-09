@@ -15,6 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust } from "../three/hullModel.ts";
+import { celestialModel } from "../three/celestialModel.ts";
 import { ShipHud } from "./shipHud.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -511,6 +512,13 @@ export class SpaceView {
       e.kind === "sun" ? new THREE.MeshBasicMaterial({ color: colour }) : new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, transparent: !e.isSelf && !["planet", "moon", "sun"].includes(e.kind), opacity: 0.35 }));
     holder.add(standIn);
     holder.userData = { kind: e.kind };
+    if (["planet", "moon", "sun"].includes(e.kind) && e.typeID) {
+      void celestialModel(e.typeID, e.kind, e.radius).then((model) => {
+        if (!model || !this.marks.has(e.itemID)) return;
+        holder.remove(standIn);
+        holder.add(model);
+      }).catch(() => { /* the stand-in stays */ });
+    }
     const modelled = !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
     if (modelled && e.typeID) {
       void typeModel(e.typeID).then((model) => {

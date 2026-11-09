@@ -3,7 +3,7 @@
 //
 //   node tools/client-extract/extract.mjs [--client "<EVE folder>"] [--out <dir>]
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
-//        [--scene <res path of an EveSpaceScene> ...]
+//        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -28,6 +28,7 @@ import { writeGlb } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
+import { readCelestial } from "./lib/celestial.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 export const REPO = path.resolve(HERE, "..", "..");
@@ -117,6 +118,20 @@ export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = n
   return file;
 }
 
+/**
+ * A planet, moon or sun's object file read for its textures and shader parameters (lib/celestial.mjs), the
+ * textures copied, written as <graphic file>.celestial.json.
+ */
+export function extractCelestial(rf, graphicFile, outRoot) {
+  const c = readCelestial(rf, graphicFile);
+  for (const [name, res] of Object.entries(c.textures)) c.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+  const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".celestial.json";
+  const file = path.join(outRoot, ...rel.split("/"));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(c, null, 1));
+  return file;
+}
+
 /** One model: every LOD to .glb, its own texture set copied beside it, and what was done in .json. */
 export async function extractHull(rf, res, outRoot) {
   const g = await readGranny(rf.read(res), res);
@@ -157,7 +172,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], scenes: [], typeGraphics: false };
+  const out = { hulls: [], types: [], scenes: [], celestials: [], typeGraphics: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -167,6 +182,7 @@ function parseArgs(argv) {
     else if (a === "--hull") out.hulls.push(argv[++i]);
     else if (a === "--type") out.types.push(Number(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
+    else if (a === "--celestial") out.celestials.push(argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
   return out;
@@ -220,8 +236,9 @@ async function main() {
     done.push(r.res);
   }
   if (done.length) addToManifest(outRoot, build, client, done);
+  for (const c of args.celestials) console.log(`${c} -> ${path.relative(outRoot, extractCelestial(rf, c, outRoot))}`);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
-  if (!done.length && !args.typeGraphics && !args.scenes.length && !args.types.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.scenes.length && !args.types.length && !args.celestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
