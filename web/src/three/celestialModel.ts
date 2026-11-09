@@ -300,46 +300,82 @@ ${fs}`.replace("#include <map_fragment>", `
  *   1 - (CoverageFactors.z + .x) (SharpnessFactors.y); mountainTint above 1 - CoverageFactors.z (SharpnessFactors.z);
  * - where the height is under MiscFactors.x it is sea (where the preset has WaterColor): WaterColor, towards
  *   shallowWaterColor near the shore (within SharpnessFactors.w);
- * - a gamma-space colour, taken to linear before it is lit.
- * Not drawn: the slope's share (the shader takes it from the heights' gradient; flat here), clouds, city lights.
+ * - lit as each shader ends (scatterMaterial; S1' = GroundScattering1 + ambient): earthlikeplanet.fx gives the land
+ *   albedo x (S1' / 2 + N.L) x S1' plus a rim N.L x (1 - N.V)^8, its seas (WaterColor towards shallowWaterColor, plus
+ *   saturate(2 N.L) x (1 - N.V)^3) x S1' with a glint pow(N.R, 10) x 0.3, and the clouds' tint towards
+ *   CloudsFactors.x x GroundScattering2 (the white clouds are the cloud shell); sandstormplanet.fx gives the land
+ *   albedo x (S1' / 2 + N.L) plus the rim, both cloud layers (the tint, then CloudsColor x CloudsFactors.y x S1'),
+ *   and GroundScattering2 added; the colour in gamma space, taken to linear.
+ * Not drawn: the slope's share (the shader takes it from the heights' gradient; flat here), the bumped normal, the
+ * polar cloud cap, the earthlike planets' city lights on the night side.
  */
 async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
-  const [h1, h2, detail] = await Promise.all([
+  const [h1, h2, detail, s1, s2, clouds, cap] = await Promise.all([
     texture(heightMap1),
     heightMap2 ? texture(heightMap2) : Promise.resolve(null),
     texture(c.textures.FillTexture!),
+    c.textures.GroundScattering1 ? texture(c.textures.GroundScattering1) : Promise.resolve(null),
+    c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
+    c.textures.CloudsTexture ? texture(c.textures.CloudsTexture) : Promise.resolve(null),
+    c.textures.CloudCapTexture ? texture(c.textures.CloudCapTexture) : Promise.resolve(null),
   ]);
-  for (const t of [h1, h2, detail]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  for (const t of [h1, h2, detail, clouds]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
   const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
   const random = itemID === null ? 0 : itemID % 100;
   const hasWater = !!c.params.WaterColor;
-  const mat = new THREE.MeshStandardMaterial({ map: h1, color: 0xffffff, roughness: 0.92, metalness: 0, envMapIntensity: PLANET_AMBIENT });
-  const uniforms = {
-    heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail },
+  // sandstormplanet.fx ends its lighting otherwise than earthlikeplanet.fx (both disassembled; see the doc above)
+  const sandstorm = c.effects.some((e) => /\/sandstormplanet\.fx$/i.test(e));
+  const mat = scatterMaterial(s1, s2, {
+    h1: { value: h1 }, heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail },
+    clouds: { value: clouds }, hasClouds: { value: clouds && c.params.CloudsFactors ? 1 : 0 }, hasScatter: { value: s1 ? 1 : 0 },
     detailF: { value: v4(c.params.DetailFactors, [4, 0, 0, 0]) }, miscF: { value: v4(c.params.MiscFactors, [0, 0, 0, 0]) },
     sharpF: { value: v4(c.params.SharpnessFactors, [4, 4, 4, 0]) }, coverF: { value: v4(c.params.CoverageFactors, [0.5, 0.2, 0.05, 0]) },
     fillTint: { value: v3(c.params.FillTint, [0.5, 0.45, 0.4]) }, vegTint: { value: v3(c.params.VegetationTint, [0.4, 0.35, 0.25]) },
     eqTint: { value: v3(c.params.EquatorTint, [0.5, 0.45, 0.35]) }, mountTint: { value: v3(c.params.mountainTint, [0.6, 0.58, 0.55]) },
     water: { value: v3(c.params.WaterColor, [0.05, 0.07, 0.08]) }, shallow: { value: v3(c.params.shallowWaterColor, [0.07, 0.15, 0.15]) },
+    cloudColour: { value: v3(c.params.CloudsColor, [1, 1, 1]) }, cloudF: { value: v4(c.params.CloudsFactors, [0, 0, 1, 1]) },
     shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
-  };
-  withRim(mat, col(c.params.AtmosphereColor, [0.45, 0.6, 0.85]), (fs) => `uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform vec4 detailF; uniform vec4 miscF; uniform vec4 sharpF; uniform vec4 coverF;
-uniform vec3 fillTint; uniform vec3 vegTint; uniform vec3 eqTint; uniform vec3 mountTint; uniform vec3 water; uniform vec3 shallow; uniform vec2 shiftA; uniform vec2 shiftB;
-${fs}`.replace("#include <map_fragment>", `
-        float a = texture2D( map, vMapUv * vec2( 2.0, 1.0 ) + shiftA ).r;
-        float b = texture2D( heightMap2, vMapUv * vec2( 3.0, 1.5 ) + shiftB + 1.0 ).r;
-        vec4 d = ${detail ? "texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * detailF.x )" : "vec4( 0.5 )"};
-        float h = clamp( ( a * b - miscF.x ) * 4.0, 0.0, 1.0 ) + d.z * detailF.y * 0.01;
-        vec3 g = d.x * fillTint;
-        g = mix( g, d.y * vegTint, clamp( sharpF.x * ( coverF.y - ( h - miscF.x ) ), 0.0, 1.0 ) );
-        g = mix( g, d.z * eqTint, clamp( ( h - ( 1.0 - ( coverF.z + coverF.x ) ) ) * sharpF.y, 0.0, 1.0 ) );
-        g = mix( g, d.w * mountTint, clamp( sharpF.z * ( h - ( 1.0 - coverF.z ) ), 0.0, 1.0 ) );
-        ${hasWater ? `float sea = clamp( ( h - miscF.x ) * -1000.0, 0.0, 1.0 );
-        vec3 w = mix( water, shallow, clamp( ( h + sharpF.w - miscF.x ) * 50.0, 0.0, 1.0 ) * 0.8 );
-        g = mix( g, w, sea );` : ""}
-        g = max( g, vec3( 0.0 ) );
-        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
+  }, `uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform sampler2D clouds; uniform float hasClouds; uniform float hasScatter;
+      uniform vec4 detailF; uniform vec4 miscF; uniform vec4 sharpF; uniform vec4 coverF;
+      uniform vec3 fillTint; uniform vec3 vegTint; uniform vec3 eqTint; uniform vec3 mountTint; uniform vec3 water; uniform vec3 shallow;
+      uniform vec3 cloudColour; uniform vec4 cloudF; uniform vec2 shiftA; uniform vec2 shiftB;`, `
+        float a = texture2D(h1, vUv * vec2(2.0, 1.0) + shiftA).r;
+        float b = texture2D(heightMap2, vUv * vec2(3.0, 1.5) + shiftB + 1.0).r;
+        vec4 d = ${detail ? "texture2D(detailMap, vUv * vec2(2.0, 1.0) * detailF.x)" : "vec4(0.5)"};
+        float h = clamp((a * b - miscF.x) * 4.0, 0.0, 1.0) + d.z * detailF.y * 0.01;
+        vec3 land = d.x * fillTint;
+        land = mix(land, d.y * vegTint, clamp(sharpF.x * (coverF.y - (h - miscF.x)), 0.0, 1.0));
+        land = mix(land, d.z * eqTint, clamp((h - (1.0 - (coverF.z + coverF.x))) * sharpF.y, 0.0, 1.0));
+        land = mix(land, d.w * mountTint, clamp(sharpF.z * (h - (1.0 - coverF.z)), 0.0, 1.0));
+        land = max(land, vec3(0.0));
+        vec3 S1a = hasScatter > 0.5 ? lit : vec3(1.0) + ambient;
+        float nl = clamp(NL, 0.0, 1.0);
+        float edge = 1.0 - clamp(NV, 0.0, 1.0);
+        float rim = nl * pow(edge, 8.0);
+        ${sandstorm
+          // sandstorm: albedo x (S1' / 2 + N.L) + the rim; two cloud layers; GroundScattering2 added
+          ? `g = land * (S1a * 0.5 + nl) + rim;
+        if (hasClouds > 0.5) {
+          vec2 cuv = vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0);
+          float c1 = pow(abs(texture2D(clouds, cuv - L.xy * 0.0035).r), cloudF.z);
+          g = mix(g, cloudF.x * S2, c1);
+          float c2 = pow(abs(texture2D(clouds, cuv).r), cloudF.z);
+          g = mix(g, cloudColour * cloudF.y * S1a, c2);
+        }
+        g += S2;`
+          // earthlike: albedo x (S1' / 2 + N.L) x S1' + the rim; its seas lit apart with their own rim and glint; the
+          // clouds' scattering tint (its white clouds are the cloud shell)
+          : `g = land * (S1a * 0.5 + nl) * S1a + rim;
+        ${hasWater ? `float sea = clamp((h - miscF.x) * -1000.0, 0.0, 1.0);
+        vec3 w = mix(water, shallow, clamp((h + sharpF.w - miscF.x) * 50.0, 0.0, 1.0) * 0.8) + clamp(2.0 * NL, 0.0, 1.0) * pow(edge, 3.0);
+        vec3 wl = w * S1a + pow(clamp(dot(L, reflect(-V, N)), 0.0, 1.0), 10.0) * 0.3;
+        g = mix(g, wl, sea);` : ""}
+        if (hasClouds > 0.5) {
+          vec2 cuv = vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0) - L.xy * 0.0035;
+          g = mix(g, cloudF.x * S2, pow(abs(texture2D(clouds, cuv).r), cloudF.z));
+        }`}`);
+  void cap;
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;
