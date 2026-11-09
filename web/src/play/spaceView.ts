@@ -140,7 +140,7 @@ export class SpaceView {
   private readonly warpTunnel = new WarpTunnel();
   /** Weapons fire, from the park's special effects. */
   private readonly turretFx = new TurretFx();
-  private readonly hearFx = (args: readonly unknown[]) => this.turretFx.hear(args);
+  private readonly hearFx = (name: string, args: readonly unknown[]) => this.turretFx.hear(name, args);
   /**
    * The gate jump, drawn in our own way where the client plays its gate effect (SpaceToSpaceTransition: no fade, the
    * destination's scene swapped in during the effect): the tunnel builds from the jump order, flashes as the new
@@ -489,6 +489,45 @@ export class SpaceView {
     tick();
   }
 
+  /**
+   * Damage numbers floating up as the client's damage notifications come (the damage log's entries): over the target
+   * for a shot of ours, over our own ship for one at us, rising and fading in a second and a half.
+   */
+  private readonly damageNumbers: { el: HTMLDivElement; itemID: number; bornAt: number }[] = [];
+  showDamage(entry: { direction: "dealt" | "taken"; otherPartyID: number | null; amount: number }): void {
+    const itemID = entry.direction === "dealt" ? entry.otherPartyID : this.snapshot?.ship?.itemID ?? null;
+    if (itemID === null) return;
+    const el = document.createElement("div");
+    el.className = `dmg-num ${entry.direction}`;
+    el.textContent = entry.amount > 0 ? String(Math.round(entry.amount)) : "miss";
+    this.brackets.appendChild(el);
+    this.damageNumbers.push({ el, itemID, bornAt: performance.now() });
+    if (this.damageNumbers.length > 40) this.damageNumbers.shift()!.el.remove();
+  }
+  /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */
+  private placeOf(id: number, origin: { x: number; y: number; z: number }): THREE.Vector3 | null {
+    const mark = this.marks.get(id);
+    if (mark) return mark.position;
+    const g = this.gone.get(id);
+    return g ? new THREE.Vector3(g.x - origin.x, g.y - origin.y, g.z + origin.z) : null;
+  }
+  private lastOrigin = { x: 0, y: 0, z: 0 };
+  private readonly gone = new Map<number, { x: number; y: number; z: number; radius: number | null; at: number }>();
+  private stepDamageNumbers(now: number): void {
+    const w = innerWidth, h = innerHeight;
+    for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
+      const d = this.damageNumbers[i]!;
+      const t = (now - d.bornAt) / 1500;
+      const mark = this.marks.get(d.itemID);
+      if (t > 1 || !mark) { d.el.remove(); this.damageNumbers.splice(i, 1); continue; }
+      const p = mark.position.clone().project(this.camera);
+      if (p.z >= 1) { d.el.style.display = "none"; continue; }
+      d.el.style.display = "";
+      d.el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h - 24 - t * 40}px)`;
+      d.el.style.opacity = String(1 - t * t);
+    }
+  }
+
   /** The client's keys for the scanner (eveCommands: OpenDirectionalScanner Alt+D, CmdRefreshDirectionalScan V). */
   private key(e: KeyboardEvent): void {
     const t = e.target as HTMLElement | null;
@@ -616,7 +655,9 @@ export class SpaceView {
     }
     this.snapshot = snap;
     const ego = snap?.ship ?? null;
-    const origin = ego ? ego.position : { x: 0, y: 0, z: 0 };
+    // the ship's place is the scene's origin; with no ship (blown up, the capsule not yet in the park) the last one stays
+    const origin = ego ? ego.position : this.lastOrigin;
+    this.lastOrigin = { x: origin.x, y: origin.y, z: origin.z };
     const seen = new Set<number>();
     const tmp = new THREE.Vector3();
     const w = innerWidth, h = innerHeight;
@@ -670,7 +711,12 @@ export class SpaceView {
     const want = looked ? looked.position : new THREE.Vector3();
     const shift = want.clone().sub(this.controls.target);
     if (shift.lengthSq() > 0) { this.camera.position.add(shift); this.controls.target.copy(want); }
-    for (const [id, m] of this.marks) if (!seen.has(id)) { this.scene.remove(m); this.marks.delete(id); }
+    for (const [id, m] of this.marks) if (!seen.has(id)) {
+      // where it went from, for a moment, in the system's own frame (an explosion is drawn where a ball was)
+      this.gone.set(id, { x: m.position.x + origin.x, y: m.position.y + origin.y, z: m.position.z - origin.z, radius: m.userData.radius ?? null, at: performance.now() });
+      this.scene.remove(m); this.marks.delete(id);
+    }
+    for (const [id, g] of this.gone) if (performance.now() - g.at > 5000) this.gone.delete(id);
 
     if (ego) {
       const speed = Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z);
@@ -715,7 +761,9 @@ export class SpaceView {
     if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
     this.flashEl.style.opacity = flash.toFixed(3);
     this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, dt);
-    this.turretFx.update((id) => this.marks.get(id)?.position ?? null, now);
+    this.turretFx.setResolution(innerWidth, innerHeight);
+    this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null);
+    this.stepDamageNumbers(now);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
     // keeps them; often enough for the cycle sweep to move smoothly.
     const rack = this.options.rack;
@@ -782,7 +830,7 @@ export class SpaceView {
     const standIn = new THREE.Mesh(new THREE.SphereGeometry(Math.max(Math.min(e.radius, big ? e.radius : 60), 5), big ? 48 : 12, big ? 32 : 8),
       e.kind === "sun" ? new THREE.MeshBasicMaterial({ color: colour }) : new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, transparent: !e.isSelf && !["planet", "moon", "sun"].includes(e.kind), opacity: 0.35 }));
     holder.add(standIn);
-    holder.userData = { kind: e.kind };
+    holder.userData = { kind: e.kind, radius: e.radius };
     if (["planet", "moon", "sun"].includes(e.kind) && e.typeID) {
       // Each planet and moon from its own preset and height maps (the system's celestials), as the client draws it.
       const systemID = this.live.hello?.solarSystemID ?? null;

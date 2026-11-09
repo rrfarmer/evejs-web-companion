@@ -1428,10 +1428,14 @@ function createGamePortPilots({
   /**
    * michelle.UpdateBallpark let the pilot's ballpark go (docked, or leaving the system) or made a new one (undocked, or
    * in a new system): each feed is told, before the new park's first update, so that its own park starts anew as the
-   * client's does. { solarSystemID, shipID, timeAdjusted, simTime }; solarSystemID null when there is no park.
+   * client's does. { solarSystemID, shipID, timeAdjusted, simTime, reset }; solarSystemID null when there is no park.
+   * `reset` false: the same park, another ship of the pilot's in it (a ship blown up and the pilot in its capsule, the
+   * session's shipid changed in space), whose ball the park has already been given; the client's own ship is
+   * session.shipid's ball wherever it looks (michelle.GetBall(session.shipid)).
    */
-  function tellSpace(entry) {
+  function tellSpace(entry, reset = true) {
     const place = {
+      reset,
       solarSystemID: entry.space ? entry.space.solarSystemID : null,
       shipID: positive(entry.session.attributes?.shipid) ?? null,
       timeAdjusted: entry.space ? entry.space.park.timeAdjusted : 0,
@@ -2378,6 +2382,8 @@ function createGamePortPilots({
         else entry.targets.emptied();
         forgetLocationObjects(entry);
         if (sessions.has(entry.handle)) syncSpace(entry);
+      } else if ("shipid" in changes && entry.space && entry.spaceListeners.size > 0 && sessions.has(entry.handle)) {
+        tellSpace(entry, false);
       }
       record(entry, sessionChangeToBridgeJson(changes));
     });

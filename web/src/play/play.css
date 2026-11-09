@@ -240,3 +240,9 @@ button { font: inherit; color: inherit; }
 .ov-table th.sorted { color: #e8ebe6; }
 .ov-table th.sorted::after { content: " \25B4"; font-size: 9px; }
 .ov-table th.sorted.down::after { content: " \25BE"; }
+
+/* damage numbers over a target (spaceView.showDamage): ours pale gold, theirs at us red */
+.brackets .dmg-num { position: absolute; left: 0; top: 0; margin-left: -20px; width: 40px; text-align: center; pointer-events: none;
+  font: 600 13px/1 var(--font); text-shadow: 0 1px 2px #000, 0 0 4px #000; }
+.brackets .dmg-num.dealt { color: #ffe3a0; }
+.brackets .dmg-num.taken { color: #ff6a5a; }

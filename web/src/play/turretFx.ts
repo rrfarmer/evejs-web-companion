@@ -5,9 +5,13 @@
 // guns, a flickering beam for lasers, and a flash where the shots land.
 
 import * as THREE from "three";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 
 interface Firing { shooter: number; target: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number }
-interface Pulse { firing: Firing; bornAt: number; mesh: THREE.Line; flash: THREE.Sprite }
+interface Pulse { firing: Firing; bornAt: number; mesh: Line2; flash: THREE.Sprite }
+interface Blast { itemID: number; at: THREE.Vector3 | null; bornAt: number; sprite: THREE.Sprite; size: number }
 
 const KIND: Record<string, Firing["kind"]> = {
   "effects.ProjectileFired": "projectile",
@@ -31,13 +35,32 @@ export class TurretFx {
   readonly group = new THREE.Group();
   private readonly firings = new Map<string, Firing>();
   private readonly pulses: Pulse[] = [];
-  private readonly beams = new Map<Firing, THREE.Line>();
+  private readonly beams = new Map<Firing, Line2>();
+  private readonly blasts: Blast[] = [];
+  /** The screen's size in pixels: fat lines are drawn so many pixels wide. */
+  private readonly resolution = new THREE.Vector2(1, 1);
+  setResolution(w: number, h: number): void { this.resolution.set(w, h); }
+  private line(colour: number, width: number): Line2 {
+    const line = new Line2(new LineGeometry(), new LineMaterial({ color: colour, linewidth: width, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    line.material.resolution = this.resolution;
+    line.frustumCulled = false;
+    return line;
+  }
   private flashTexture: THREE.Texture | null = null;
 
   constructor() { this.group.name = "turretFx"; }
 
-  /** One OnSpecialFX: a firing begun or stopped. Others (warping, repairs) are not this one's. */
-  hear(args: readonly unknown[]): void {
+  /** A park entry: OnSpecialFX (a firing begun or stopped) or TerminalPlayDestructionEffect (a ball blown up). */
+  hear(name: string, args: readonly unknown[]): void {
+    if (name === "TerminalPlayDestructionEffect") {
+      // the ball goes with an explosion where it was last drawn
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flash(), color: 0xffb060, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      sprite.visible = false;
+      this.group.add(sprite);
+      this.blasts.push({ itemID: Number(args[0]), at: null, bornAt: performance.now(), sprite, size: 0 });
+      return;
+    }
+    if (name !== "OnSpecialFX") return;
     const kind = KIND[fxGuid(args[5])];
     if (!kind) return;
     const shooter = Number(args[0]), moduleID = Number(args[1]), target = Number(args[3]);
@@ -51,7 +74,7 @@ export class TurretFx {
   }
 
   /** One frame: where things are drawn now (by itemID), and the time. */
-  update(positionOf: (itemID: number) => THREE.Vector3 | null, now = performance.now()): void {
+  update(positionOf: (itemID: number) => THREE.Vector3 | null, now = performance.now(), radiusOf?: (itemID: number) => number | null): void {
     for (const [key, f] of this.firings) {
       const from = positionOf(f.shooter), to = positionOf(f.target);
       if (now > f.until || !from || !to) { this.firings.delete(key); continue; }
@@ -65,13 +88,26 @@ export class TurretFx {
       const from = positionOf(f.shooter)!, to = positionOf(f.target)!;
       let beam = this.beams.get(f);
       if (!beam) {
-        beam = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLOUR.laser, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-        beam.frustumCulled = false;
+        beam = this.line(COLOUR.laser, 2.5);
         this.beams.set(f, beam);
         this.group.add(beam);
       }
-      beam.geometry.setFromPoints([from, to]);
-      (beam.material as THREE.LineBasicMaterial).opacity = 0.65 + 0.35 * Math.sin(now / 37);
+      beam.geometry.setPositions([from.x, from.y, from.z, to.x, to.y, to.z]);
+      beam.material.opacity = 0.65 + 0.35 * Math.sin(now / 37);
+    }
+    // explosions: a bloom of light where the ball was, swelling and fading over two seconds
+    for (let i = this.blasts.length - 1; i >= 0; i--) {
+      const b = this.blasts[i]!;
+      const here = positionOf(b.itemID);
+      if (here) b.at = here.clone();
+      const t = (now - b.bornAt) / 2000;
+      if (t > 1 || (!b.at && t > 0.5)) { this.group.remove(b.sprite); (b.sprite.material as THREE.Material).dispose(); this.blasts.splice(i, 1); continue; }
+      if (!b.at) continue;
+      if (!b.size) b.size = Math.max(60, (radiusOf?.(b.itemID) ?? 40) * 6);
+      b.sprite.visible = true;
+      b.sprite.position.copy(b.at);
+      b.sprite.scale.setScalar(b.size * (0.4 + 1.2 * Math.sqrt(t)));
+      (b.sprite.material as THREE.SpriteMaterial).opacity = 1 - t;
     }
     // gun pulses: a short bright streak travelling to the target, a flash as it lands
     for (let i = this.pulses.length - 1; i >= 0; i--) {
@@ -82,7 +118,7 @@ export class TurretFx {
       const way = to.clone().sub(from);
       const head = from.clone().addScaledVector(way, Math.min(1, t));
       const tail = from.clone().addScaledVector(way, Math.max(0, Math.min(1, t) - 0.12));
-      p.mesh.geometry.setFromPoints([tail, head]);
+      p.mesh.geometry.setPositions([tail.x, tail.y, tail.z, head.x, head.y, head.z]);
       p.mesh.visible = t <= 1;
       p.flash.visible = t >= 1;
       if (t >= 1) {
@@ -95,8 +131,7 @@ export class TurretFx {
   }
 
   private pulse(f: Firing, now: number): void {
-    const mesh = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: COLOUR[f.kind], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    mesh.frustumCulled = false;
+    const mesh = this.line(COLOUR[f.kind], 3);
     const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flash(), color: COLOUR[f.kind], blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
     flash.visible = false;
     this.group.add(mesh, flash);
@@ -107,7 +142,7 @@ export class TurretFx {
     const p = this.pulses[i]!;
     this.group.remove(p.mesh, p.flash);
     p.mesh.geometry.dispose();
-    (p.mesh.material as THREE.Material).dispose();
+    p.mesh.material.dispose();
     (p.flash.material as THREE.Material).dispose();
     this.pulses.splice(i, 1);
   }
@@ -130,7 +165,8 @@ export class TurretFx {
 
   dispose(): void {
     for (let i = this.pulses.length - 1; i >= 0; i--) this.drop(i);
-    for (const beam of this.beams.values()) beam.geometry.dispose();
+    for (const beam of this.beams.values()) { beam.geometry.dispose(); beam.material.dispose(); }
+    for (const b of this.blasts) (b.sprite.material as THREE.Material).dispose();
     this.flashTexture?.dispose();
   }
 }

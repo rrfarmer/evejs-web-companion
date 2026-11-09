@@ -1763,9 +1763,10 @@ app.get("/api/play/destiny", requireStreamAuth, (req, res) => {
   let feed;
   try {
     // A ballpark let go or made anew (docking, undocking, a new system) is a new hello, before the new park's first
-    // update: the page's park starts anew with it (`reset`).
+    // update: the page's park starts anew with it (`reset`). Another ship in the same park (the capsule, as a ship is
+    // blown up) is a hello without a reset: the page's own ship is the new one.
     feed = gamePortPilots.openDestinyFeed({ userid: held.accountID }, held.bridgeSessionID, (item) => send("destiny", item),
-      (place) => send("hello", { ...place, characterID: feed ? feed.characterID : null, reset: true }));
+      (place) => send("hello", { ...place, characterID: feed ? feed.characterID : null, reset: place.reset !== false }));
   } catch (error) {
     send("ended", { code: error.code || "SESSION_NOT_FOUND", message: error.message });
     res.end();

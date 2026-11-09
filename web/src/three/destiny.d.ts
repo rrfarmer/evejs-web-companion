@@ -23,6 +23,8 @@ declare module "virtual:destiny" {
     adjustTimes(delta: number): void;
     timeAdjusted: number;
     fraction(simTime: number): number;
+    /** The pilot's ship in this same park now (a boarding, or the capsule): the ego at once or as its ball comes. */
+    egoIs(shipID: number): void;
   }
   export const MODE: Record<string, number>;
   export const MODE_NAME: Record<number, string>;

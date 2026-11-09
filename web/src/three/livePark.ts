@@ -10,7 +10,7 @@ export interface FeedHello { simTime: number; solarSystemID: number | null; ship
 export class LivePark {
   park = this.wire(new Park({ ballpark: new Ballpark() }));
   /** Who hears the park's special effects (michelle.OnSpecialFX: weapons fire, warping, repairs...), each its arguments. */
-  readonly fxListeners = new Set<(args: readonly unknown[]) => void>();
+  readonly fxListeners = new Set<(name: string, args: readonly unknown[]) => void>();
   readonly failures: string[] = [];
   hello: FeedHello | null = null;
   items = 0;
@@ -36,6 +36,10 @@ export class LivePark {
         this.park = this.wire(new Park({ ballpark: new Ballpark() }));
         this.items = 0;
         this.resets++;
+      } else if (this.hello.shipID) {
+        // The same park, the pilot in another ship in it (its capsule, its ship blown up): gameui's
+        // _HandleSessionChangeInSpace makes that ship the park's ego, at once or as its ball comes (Park.egoIs).
+        this.park.egoIs(this.hello.shipID);
       }
       this.setClock(this.hello.simTime);
       // Joining in flight: the BFF's park has been moved by every sim-clock rebase so far, and this one, which
@@ -57,8 +61,7 @@ export class LivePark {
   /** A park whose special effects go to the listeners (Park.onEvent, as the BFF's own park hands them on). */
   private wire(park: Park): Park {
     (park as unknown as { onEvent: (name: string, args: readonly unknown[]) => void }).onEvent = (name, args) => {
-      if (name !== "OnSpecialFX") return;
-      for (const fn of this.fxListeners) { try { fn(args); } catch { /* a listener's failure is its own */ } }
+      for (const fn of this.fxListeners) { try { fn(name, args); } catch { /* a listener's failure is its own */ } }
     };
     return park;
   }
