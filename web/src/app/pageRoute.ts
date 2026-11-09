@@ -8,3 +8,6 @@ export function isShipProvisioningPath(pathname: string): boolean { return /^\/s
 export function isMiningCommandCenterPath(pathname: string): boolean {
   return /^\/mining-command-center\/?$/.test(pathname);
 }
+
+/** The three.js play mode (ui/PlayApp.svelte, branch FarmerThreeJSFun). Not /play: Vite serves web/play.html there. */
+export function isFlyPath(pathname: string): boolean { return /^\/fly\/?$/.test(pathname); }

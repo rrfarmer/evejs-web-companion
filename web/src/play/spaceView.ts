@@ -117,7 +117,8 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
 
-  constructor(private readonly live: LivePark, private readonly actions: SpaceActions, private readonly where: { system: string; security: number | null }) {
+  /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
+  constructor(private readonly live: LivePark, private readonly actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: { onNeocom?: (id: string) => void } = {}) {
     this.root.className = "space";
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -163,7 +164,7 @@ export class SpaceView {
     this.root.appendChild(this.overview.window.root);
     // Brackets drawn before the client's tables are here are drawn again with the client's icons.
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
-    this.root.appendChild(new Neocom((id) => this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`)).root);
+    this.root.appendChild(new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`))).root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
     this.renderer.domElement.addEventListener("click", () => this.select(null));
     addEventListener("resize", () => this.resize());

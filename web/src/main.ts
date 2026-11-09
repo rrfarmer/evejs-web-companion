@@ -9,7 +9,7 @@
 // into public/dist/, and the built index.html links it automatically.
 import "./styles.css";
 import { mount } from "svelte";
-import { isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
+import { isFlyPath, isGoblinFactoryPath, isMiningCommandCenterPath, isPilotTrainingPath, isShipProvisioningPath } from "./app/pageRoute.ts";
 import { installErrorOverlay } from "./app/errorOverlay.ts";
 import { activatePagePlugins } from "./plugins/pluginHost.ts";
 import { PLUGINS } from "../../plugins/index.ts";
@@ -36,6 +36,9 @@ void activatePagePlugins(PLUGINS, PLUGIN_VIEWS).catch((error) => console.error(e
     } else if (isPilotTrainingPath(window.location.pathname)) {
       // Standalone: no cockpit restore, active bot or space polling is mounted.
       void import("./ui/GoblinFactory.svelte").then(({ default: Training }) => mount(Training, { target }));
+    } else if (isFlyPath(window.location.pathname)) {
+      // The three.js play mode: one pilot flown by hand in 3D, the app's windows over it.
+      void import("./ui/PlayApp.svelte").then(({ default: Play }) => mount(Play, { target }));
     } else if (isMiningCommandCenterPath(window.location.pathname)) {
       void import("./ui/MiningCommandCenter.svelte").then(({ default: CommandCenter }) => mount(CommandCenter, { target }));
     } else {
