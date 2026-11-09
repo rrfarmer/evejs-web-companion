@@ -72,7 +72,8 @@ async function main() {
   const [model] = await Promise.all([planetID ? planetModel() : typeModel(typeID), loadSystem().catch((e) => console.warn("scene", e))]);
   if (!model) throw new Error(`type ${typeID} has no model`);
   scene.add(model);
-  if (thrust) setThrust(model, thrust);
+  // the engines at the given share of top speed, at rest by default, as the play view sets them from the ship's speed
+  setThrust(model, thrust);
   // One LOD held, as the view draws it close up.
   let shown: THREE.Object3D = model;
   model.traverse((o) => {

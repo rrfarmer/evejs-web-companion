@@ -51,7 +51,7 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
       void main() {
         float across = 1.0 - abs(vUv.x * 2.0 - 1.0);
         float along = 1.0 - vUv.y;
-        float a = pow(across, 1.6) * pow(along, 1.4);
+        float a = pow(across, 0.9) * pow(along, 1.4);
         vec3 c = mix(colour, core, pow(across, 6.0) * along);
         gl_FragColor = vec4(c * a * 1.4, a);
       }`,
@@ -68,7 +68,8 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
     nozzle.position.set(t[12]!, t[13]!, -t[14]!);
     const flame = new THREE.Group();
     flame.name = "flame";
-    for (const [sx, sy, rot] of [[w, len, 0], [h, len, Math.PI / 2]] as const) {
+    // the flame spans -1..1 across the locator's width and height rows, and 0..1 along its length row
+    for (const [sx, sy, rot] of [[2 * w, len, 0], [2 * h, len, Math.PI / 2]] as const) {
       const m = new THREE.Mesh(plane, flameMat);
       m.scale.set(sx, 1, sy);
       m.rotation.z = rot;
@@ -120,6 +121,10 @@ export interface TypeModelInfo {
 export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea): THREE.MeshStandardMaterial {
   const m = eveHullMaterial(maps, area.name);
   m.metalness = 0;
+  // quadsailsv5's sails weave; quadglassv5 draws both faces (its normal turned for the back one).
+  const sails = /sails/i.test(area.shader ?? "") && !!maps.sailsDetail;
+  if (/glass/i.test(area.shader ?? "")) m.side = THREE.DoubleSide;
+  if (maps.sailsDetail) { maps.sailsDetail.wrapS = maps.sailsDetail.wrapT = THREE.RepeatWrapping; maps.sailsDetail.needsUpdate = true; }
   const mats = [0, 1, 2, 3].map((i) => area.materials[i] ?? null);
   const v3 = (a: number[] | null | undefined, d: number) => new THREE.Vector3(a?.[0] ?? d, a?.[1] ?? d, a?.[2] ?? d);
   const uniforms = {
@@ -127,15 +132,24 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     mtlFresnel: { value: mats.map((x) => v3(x?.fresnel, 0.04)) },
     mtlGloss: { value: mats.map((x) => x?.gloss ?? 0.4) },
     materialMap: { value: maps.materialMap ?? null },
+    sailsDetailMap: { value: maps.sailsDetail ?? null },
+    sailsDetailData: { value: v3(area.params.SailsDetailData, 0) },
   };
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms);
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap;
+    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData;
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
         float mtlSel = texture2D( materialMap, vMapUv ).r;
+        ${sails ? `// quadsailsv5: where the map picks the first material, the sail's weave (SailsDetailMap, tiled by
+        // SailsDetailData.x and turned by .y radians) picks among the four instead.
+        float sailW = clamp( 1.031915 - abs( mtlSel * 3.191489 ), 0.0, 1.0 );
+        vec2 sailUv = vMapUv * sailsDetailData.x;
+        float sc = cos( sailsDetailData.y ), ss = sin( sailsDetailData.y );
+        sailUv = vec2( sc * sailUv.x - ss * sailUv.y, ss * sailUv.x + sc * sailUv.y );
+        mtlSel = mix( mtlSel, texture2D( sailsDetailMap, sailUv ).r, sailW );` : ""}
         vec4 mtlW = clamp( 1.031915 - abs( vec4( mtlSel ) - vec4( 0.0, 0.333333, 0.666667, 1.0 ) ) * 3.191489, 0.0, 1.0 );
         vec3 mtlTint = mtlDiffuse[0] * mtlW.x + mtlDiffuse[1] * mtlW.y + mtlDiffuse[2] * mtlW.z + mtlDiffuse[3] * mtlW.w;
         float mtlGl = mtlGloss[0] * mtlW.x + mtlGloss[1] * mtlW.y + mtlGloss[2] * mtlW.z + mtlGloss[3] * mtlW.w;
@@ -148,7 +162,7 @@ ${shader.fragmentShader}`
         material.specularColorBlended = mtlFr;`);
     base.call(m, shader, renderer);
   };
-  m.customProgramCacheKey = () => "sofHull5";
+  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}`;
   return m;
 }
 
@@ -221,7 +235,7 @@ async function loadType(typeID: number): Promise<THREE.Object3D | null> {
   // The Space Object Factory's build of this hull for the type's faction, where there is one: each mesh area takes the
   // SOF area of its index (EveSOFDataHullArea.index), with that area's own textures and the faction's materials.
   const sof = info.sof ? ((await (await fetch(info.sof)).json()) as SofHull) : null;
-  const ROLE: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask" };
+  const ROLE: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail" };
   const areaMaps = new Map<SofArea, Record<string, THREE.Texture | undefined>>();
   const texCache = new Map<string, Promise<THREE.Texture | undefined>>();
   const tex = (url: string) => {
