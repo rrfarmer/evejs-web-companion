@@ -57,6 +57,26 @@
   const characters = $derived(session?.store.character);
   const flight = $derived(session?.store.flight);
   const station = $derived(session?.store.station);
+  const targeting = $derived(session?.store.targeting);
+  const fitting = $derived(session?.store.fitting);
+  const inventory = $derived(session?.store.inventory);
+
+  // A refusal the server gave an order (a lock, a module, a move, a fit, an item's move), as the client puts it up:
+  // the flow says some in the client's own dialogs (actionErrorSaid); the rest are said here, once each, in space on
+  // the view's notice line and docked under the lobby's Undock button.
+  const seenRefusals = new Map<string, string | null>();
+  $effect(() => {
+    const slices: [string, { actionError: string | null; actionErrorSaid?: boolean } | undefined][] = [
+      ["targeting", $targeting], ["flight", $flight], ["fitting", $fitting], ["inventory", $inventory],
+    ];
+    for (const [key, slice] of slices) {
+      const message = slice?.actionError ?? null;
+      if (message === (seenRefusals.get(key) ?? null)) continue;
+      seenRefusals.set(key, message);
+      if (!message || slice?.actionErrorSaid === true) continue;
+      if (view) view.toast(message); else error = message;
+    }
+  });
   const docked = $derived(stage === "game" && session ? deriveDocked($flight?.status ?? null, $station?.online ?? null) : true);
 
   async function signIn(e: Event) {

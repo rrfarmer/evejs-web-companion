@@ -8,7 +8,9 @@ import { Park, Ballpark, marshalDecode, readFeedItem, applyToPark, type Ball, ty
 export interface FeedHello { simTime: number; solarSystemID: number | null; shipID: number | null; characterID: number; timeAdjusted?: number; reset?: boolean }
 
 export class LivePark {
-  park = new Park({ ballpark: new Ballpark() });
+  park = this.wire(new Park({ ballpark: new Ballpark() }));
+  /** Who hears the park's special effects (michelle.OnSpecialFX: weapons fire, warping, repairs...), each its arguments. */
+  readonly fxListeners = new Set<(args: readonly unknown[]) => void>();
   readonly failures: string[] = [];
   hello: FeedHello | null = null;
   items = 0;
@@ -31,7 +33,7 @@ export class LivePark {
       // The pilot's ballpark let go or made anew (docked, undocked, a new system): michelle.UpdateBallpark releases the
       // old park and makes a new one, which the new system's SetState fills.
       if (this.hello.reset) {
-        this.park = new Park({ ballpark: new Ballpark() });
+        this.park = this.wire(new Park({ ballpark: new Ballpark() }));
         this.items = 0;
         this.resets++;
       }
@@ -50,6 +52,15 @@ export class LivePark {
     });
     source.addEventListener("ended", () => { this.status = "ended"; this.changed(); source.close(); });
     source.onerror = () => { if (this.status !== "ended") { this.status = "error"; this.changed(); } };
+  }
+
+  /** A park whose special effects go to the listeners (Park.onEvent, as the BFF's own park hands them on). */
+  private wire(park: Park): Park {
+    (park as unknown as { onEvent: (name: string, args: readonly unknown[]) => void }).onEvent = (name, args) => {
+      if (name !== "OnSpecialFX") return;
+      for (const fn of this.fxListeners) { try { fn(args); } catch { /* a listener's failure is its own */ } }
+    };
+    return park;
   }
 
   close(): void {

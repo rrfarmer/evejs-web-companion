@@ -18,6 +18,7 @@ import { typeModel, setThrust } from "../three/hullModel.ts";
 import { celestialModel, systemCelestials, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
+import { TurretFx } from "./turretFx.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
@@ -137,6 +138,9 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
   private readonly warpTunnel = new WarpTunnel();
+  /** Weapons fire, from the park's special effects. */
+  private readonly turretFx = new TurretFx();
+  private readonly hearFx = (args: readonly unknown[]) => this.turretFx.hear(args);
   /**
    * The gate jump, drawn in our own way where the client plays its gate effect (SpaceToSpaceTransition: no fade, the
    * destination's scene swapped in during the effect): the tunnel builds from the jump order, flashes as the new
@@ -212,7 +216,8 @@ export class SpaceView {
     // The system's star lights the grid from where it is (aimed each frame at the sun ball, frame()).
     this.sunLight.position.set(-1, 0.4, 0.6);
     this.scene.add(this.sunLight);
-    this.scene.add(this.warpTunnel.object);
+    this.scene.add(this.warpTunnel.object, this.turretFx.group);
+    live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enablePan = false;
@@ -274,6 +279,8 @@ export class SpaceView {
     this.shipHud.dispose();
     this.targetBar.dispose();
     this.warpTunnel.dispose();
+    this.live.fxListeners.delete(this.hearFx);
+    this.turretFx.dispose();
     for (const off of this.unhold) off();
     // the windows in the shared layer are the view's to take away
     for (const el of [this.selectedEl, this.overview.window.root, this.dscan?.window.root, this.radial.root]) el?.remove();
@@ -708,6 +715,7 @@ export class SpaceView {
     if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
     this.flashEl.style.opacity = flash.toFixed(3);
     this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, dt);
+    this.turretFx.update((id) => this.marks.get(id)?.position ?? null, now);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
     // keeps them; often enough for the cycle sweep to move smoothly.
     const rack = this.options.rack;
