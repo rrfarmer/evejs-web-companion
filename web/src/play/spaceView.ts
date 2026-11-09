@@ -41,6 +41,19 @@ interface Snapshot {
   }) | null;
 }
 
+/**
+ * `onNeocom`: what a Neocom button opens. `rack`: the module rack's data and use. `windowLayer`: where the view's own
+ * windows (overview, selected item, the scanner) and its radial menu go, beside the app's windows so that they stack
+ * together, the one last clicked on top; the view's own root when there is none. `showInfo`: the info window for a
+ * thing in space (the radial menu's Show Info).
+ */
+export interface SpaceViewOptions {
+  onNeocom?: (id: string) => void;
+  rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } };
+  windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
+  showInfo?: (itemID: number, typeID: number | null) => void;
+}
+
 export interface SpaceActions {
   gotoDirection(dx: number, dy: number, dz: number): Promise<void>;
   alignTo(itemID: number): Promise<void>;
@@ -133,6 +146,12 @@ export class SpaceView {
   private seenSystem: number | null = null;
   private readonly flashEl = document.createElement("div");
   private readonly radial = new RadialMenu();
+  /** Where the view's windows go (SpaceViewOptions.windowLayer). */
+  private get layer(): HTMLElement { return this.options.windowLayer?.element ?? this.root; }
+  private raiseOnClick(el: HTMLElement): void {
+    const raise = this.options.windowLayer?.raise;
+    if (raise) el.addEventListener("pointerdown", () => raise(el), true);
+  }
   private dscan: DScanWindow | null = null;
   private names: { types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null = null;
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
@@ -140,7 +159,7 @@ export class SpaceView {
   private lastFrameAt = performance.now();
 
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
-  constructor(private readonly live: LivePark, private actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: { onNeocom?: (id: string) => void; rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } } } = {}) {
+  constructor(private readonly live: LivePark, private actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: SpaceViewOptions = {}) {
     this.root.className = "space";
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -179,7 +198,7 @@ export class SpaceView {
     this.root.insertBefore(this.targetBar.root, this.modeEl);
     this.targetBar.onSelect = (id) => { this.activeTarget = id; this.select(id); };
     this.targetBar.onUnlock = (id) => void this.act("Unlock Target", () => this.actions.unlock(id)).then(() => this.refreshTargets());
-    this.root.appendChild(this.selectedEl);
+    this.layer.appendChild(this.selectedEl);
     this.pollTargets();
     this.feedEl = this.root.querySelector(".feed-status")!;
     this.toastEl = this.root.querySelector(".toast")!;
@@ -200,7 +219,7 @@ export class SpaceView {
     this.controls.maxDistance = 1e6;
     this.controls.zoomSpeed = 1.2;
     this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
-    this.root.appendChild(this.overview.window.root);
+    this.layer.appendChild(this.overview.window.root);
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
     if (!document.getElementById("radial-css")) {
       const style = document.createElement("style");
@@ -208,7 +227,9 @@ export class SpaceView {
       style.textContent = RADIAL_CSS;
       document.head.appendChild(style);
     }
-    this.root.appendChild(this.radial.root);
+    this.layer.appendChild(this.radial.root);
+    this.radial.root.style.zIndex = "100000";
+    for (const el of [this.selectedEl, this.overview.window.root]) this.raiseOnClick(el);
     const openRadial = (id: number, x: number, y: number, button: number) => this.openRadial(id, x, y, button);
     const rowID = (_x: number, _y: number, e: Event) => Number((e.target as HTMLElement).closest?.("[data-id]")?.getAttribute("data-id")) || null;
     // The directional scanner (Alt+D, V), where the page can make the call.
@@ -224,8 +245,9 @@ export class SpaceView {
         },
         typeName: (typeID) => this.names?.types[String(typeID)]?.[0] ?? null,
         groupName: (groupID) => this.names?.groups[String(groupID)]?.[0] ?? null,
-      }, this.root);
-      this.root.appendChild(this.dscan.window.root);
+      }, this.layer);
+      this.layer.appendChild(this.dscan.window.root);
+      this.raiseOnClick(this.dscan.window.root);
     }
     addEventListener("keydown", this.onKey);
     this.unhold.push(
@@ -251,6 +273,8 @@ export class SpaceView {
     this.targetBar.dispose();
     this.warpTunnel.dispose();
     for (const off of this.unhold) off();
+    // the windows in the shared layer are the view's to take away
+    for (const el of [this.selectedEl, this.overview.window.root, this.dscan?.window.root, this.radial.root]) el?.remove();
     removeEventListener("keydown", this.onKey);
     this.radial.close();
     this.root.remove();
@@ -447,7 +471,9 @@ export class SpaceView {
     this.select(e.isSelf ? this.selected : id);
     const icon = (n: number) => RADIAL_ICON(`res:/UI/Texture/Icons/44_32_${n}.png`);
     const run = (title: string, fn: () => Promise<void>) => () => void this.act(title, fn).then(() => this.refreshTargets());
-    const showInfo: RadialOption = { label: "Show Info", icon: icon(24), disabled: true };
+    const showInfo: RadialOption = this.options.showInfo
+      ? { label: "Show Info", icon: icon(24), run: () => this.options.showInfo!(id, e.typeID ?? null) }
+      : { label: "Show Info", icon: icon(24), disabled: true };
     const lookAt: RadialOption = { label: "Look At", icon: icon(20), run: () => { this.lookAt = id; } };
     let options: (RadialOption | null)[];
     if (e.isSelf) {

@@ -14,6 +14,10 @@
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
+  import InfoWindows from "./InfoWindows.svelte";
+  import type { InfoWindowHost } from "./infoWindowHost.ts";
+  import { showInfoRequests } from "./showInfo.ts";
+  import { notify } from "./notices.ts";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
@@ -95,7 +99,45 @@
     }
   }
 
-  function open(tab: TabID) { wins = openWindow(wins, tab); }
+  // One window layer for every window of the play mode: the app's (DesktopWindow), its info windows, and the space
+  // view's own (overview, selected item, the scanner). The one last clicked or opened goes on top of all of them.
+  let windowsEl = $state<HTMLDivElement | null>(null);
+  function topZ(except?: Element): number {
+    let top = 0;
+    for (const el of windowsEl?.querySelectorAll(".win, .pw") ?? []) {
+      if (el === except) continue;
+      const z = Number(getComputedStyle(el).zIndex);
+      if (Number.isFinite(z)) top = Math.max(top, z);
+    }
+    return top;
+  }
+  /** An app window brought above everything else in the layer. */
+  function raiseApp(id: TabID) {
+    const top = topZ();
+    wins = wins.map((w) => (w.id === id && w.z <= top ? { ...w, z: top + 1 } : w));
+  }
+  const windowLayer = {
+    get element() { return windowsEl!; },
+    raise(el: HTMLElement) { el.style.zIndex = String(topZ(el) + 1); },
+  };
+  const infoHost: InfoWindowHost = {
+    get element() { return windowsEl ?? document.body; },
+    mobile: false,
+    topZ: () => topZ(),
+    reveal: () => {},
+  };
+  // Show Info asked anywhere on the page (a link in a panel, the radial menu) opens in the pilot's info windows, as the
+  // app's own does (App.svelte).
+  let servedInfoRequest = showInfoRequests.get()?.n ?? 0;
+  $effect(() => showInfoRequests.subscribe((request) => {
+    if (!request || request.n <= servedInfoRequest || !session) return;
+    servedInfoRequest = request.n;
+    void session.flow.infoWindows.show(request.subject, request.options).catch((error) => {
+      if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
+    });
+  }));
+
+  function open(tab: TabID) { wins = openWindow(wins, tab); raiseApp(tab); }
 
   // The client's keys for its windows (eveCommands.py): Alt and a letter. Alt+D and V (the directional scanner) are
   // the space view's own.
@@ -145,6 +187,12 @@
       },
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
       onNeocom: (id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); },
+      windowLayer: windowsEl ? windowLayer : undefined,
+      showInfo: (itemID, typeID) => {
+        void s.flow.infoWindows.show({ kind: "spaceObject", itemID, typeID }, {}).catch((error) => {
+          if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
+        });
+      },
       rack: {
         modules: () => {
           const active = new Set(s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []);
@@ -265,14 +313,14 @@
   <!-- The app's windows over space or the station, in front of the 3D view and under nothing else. -->
   <div class="fly-fade" bind:this={fadeEl}></div>
 
-  <div class="fly-windows">
+  <div class="fly-windows" bind:this={windowsEl}>
     {#each wins as win (win.id)}
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
           title={tabLabel(win.id)}
           focused={win.id === focusedId}
-          onFocus={() => (wins = focusWindow(wins, win.id))}
+          onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
           onToggleMinimize={() => (wins = toggleMinimize(wins, win.id))}
           onMove={(x, y) => (wins = moveWindow(wins, win.id, x, y))}
@@ -287,6 +335,7 @@
   <NoticeBridge store={session.store} />
   <ErrorBoundary name="Server question"><ServerQuestion store={session.store} flow={session.flow} /></ErrorBoundary>
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
+  <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <Toasts />
 {/if}
 
@@ -294,7 +343,8 @@
   .fly-space { position: fixed; inset: 0; }
   .fly-windows { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
   .fly-fade { position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 15; opacity: 0; }
-  .fly-windows :global(> *) { pointer-events: auto; }
+  /* the layer's windows take the pointer; the info windows' own full-size layer does not (its windows do) */
+  .fly-windows :global(> :not(.info-window-layer)) { pointer-events: auto; }
   .fly-station-neocom { position: absolute; left: 24px; bottom: 24px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 60vw; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }
 </style>
