@@ -1,7 +1,8 @@
 // The hangar while docked: the pilot's ship in its station's hangar, as the client shows the active ship docked (the
 // hangar's model is the SOF hull hangarRegistry names, drawn by the play view's own hull pipeline, with the nearest of
 // its point lights); where no hangar is drawn, the ship turns in a dark bay under a few lights. The pilot can turn and
-// zoom the camera.
+// zoom the camera, which moves as the client's hangar camera does (hangarCamera.ts): it swings in as the pilot docks,
+// keeps within its pitch and zoom limits, and after 100 s untouched turns slowly round the ship, which bobs.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -9,6 +10,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { typeModel, graphicModel, setThrust } from "../three/hullModel.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { loadDds } from "../three/ddsTexture.ts";
+import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, zoomLimits, entryAt, idleAt, bobAt } from "./hangarCamera.ts";
 
 interface HangarScene { reflection: string | null; sunDiffuseColor: number[] | null; sunDirection: number[] | null; ambientColor: number[] | null }
 
@@ -19,7 +21,7 @@ export class HangarView {
   readonly root = document.createElement("div");
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true });
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(35, 1, 1, 1e6);
+  private readonly camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(FOV), 1, 1, 1e6);
   private readonly controls: OrbitControls;
   private readonly turntable = new THREE.Group();
   private shownType: number | null = null;
@@ -30,6 +32,15 @@ export class HangarView {
   private readonly hangarLights = new THREE.Group();
   private readonly studio: THREE.Light[] = [];
   private stopped = false;
+  /** The camera's zoom limits for the ship shown, and the ship's own measures for its bobbing. */
+  private zoom = { near: 10, far: 2050 };
+  private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
+  /** The docking swing (seconds since it began) and the idle turn (from where the camera was), while they run. */
+  private entryFrom: number | null = null;
+  private idle: { since: number; from: { yaw: number; pitch: number; distance: number } } | null = null;
+  private lastInput = performance.now();
+  private lastBob = 0;
+  private readonly onInput = () => { this.lastInput = performance.now(); this.entryFrom = null; this.idle = null; this.setFov(FOV); };
   private readonly onResize = () => this.resize();
 
   constructor() {
@@ -54,8 +65,11 @@ export class HangarView {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enablePan = false;
     this.controls.enableDamping = true;
-    this.controls.autoRotate = true;
-    this.controls.autoRotateSpeed = 0.35;
+    this.controls.minPolarAngle = MIN_PITCH;
+    this.controls.maxPolarAngle = MAX_PITCH;
+    // any touch of the camera stops its animations and starts the idle wait again (Orbit, Zoom: StopHangarEntryAnimation)
+    this.controls.addEventListener("start", this.onInput);
+    this.renderer.domElement.addEventListener("wheel", this.onInput, { passive: true });
     addEventListener("resize", this.onResize);
     this.resize();
     this.renderer.setAnimationLoop(() => this.frame());
@@ -92,13 +106,71 @@ export class HangarView {
     const radius = (model.userData as { radius?: number }).radius ?? 50;
     const look = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
     this.controls.target.copy(look);
-    this.camera.position.copy(look).add(new THREE.Vector3(-0.9, 0.35, 1.1).normalize().multiplyScalar(radius * 3.2));
-    this.camera.near = radius / 50;
+    // HangarCamera.UpdateMinMaxZoom: nearest 1.5 x (bounding radius + its centre off the origin), farthest 2050 m; the
+    // hull's own bounding sphere (its SOF hull's, as model.boundingSphereRadius is), else one measured round the meshes
+    const bs = (model.userData as { boundingSphere?: number[] | null }).boundingSphere ?? null;
+    const measured = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere());
+    const sphere = bs && bs.length >= 4
+      ? { radius: bs[3]!, centre: Math.hypot(bs[0]!, bs[1]!, bs[2]!) }
+      : { radius: measured.radius, centre: measured.center.distanceTo(model.position) };
+    this.zoom = zoomLimits(sphere.radius, sphere.centre);
+    this.controls.minDistance = this.zoom.near;
+    this.controls.maxDistance = this.zoom.far;
+    this.camera.near = Math.max(0.5, radius / 50);
     this.camera.far = hangar ? 1e5 : radius * 400;
-    this.camera.updateProjectionMatrix();
-    this.controls.minDistance = radius * 1.4;
-    this.controls.maxDistance = radius * 12;
+    this.ship = { model, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
+    this.lastBob = 0;
+    // the first ship shown is the docking: the camera swings in (AnimEnterHangar); a ship boarded after is placed
+    // where that swing ends
+    const first = this.entryFrom === null && !this.shownBefore;
+    this.shownBefore = true;
+    this.entryFrom = first ? performance.now() : null;
+    this.idle = null;
+    this.lastInput = performance.now();
+    this.place(entryAt(first ? 0 : 1, this.zoom.near, this.zoom.far));
     this.lightHangar(look);
+  }
+  private shownBefore = false;
+
+  /** The camera put at a yaw, pitch and distance about its target (and a fov, where given). */
+  private place(at: { yaw: number; pitch: number; distance: number; fov?: number }): void {
+    const t = this.controls.target, sinP = Math.sin(at.pitch), theta = -at.yaw;
+    this.camera.position.set(t.x + at.distance * Math.sin(theta) * sinP, t.y + at.distance * Math.cos(at.pitch), t.z + at.distance * Math.cos(theta) * sinP);
+    this.camera.lookAt(t);
+    if (at.fov !== undefined) this.setFov(at.fov);
+  }
+  private setFov(fov: number): void {
+    const deg = THREE.MathUtils.radToDeg(fov);
+    if (Math.abs(this.camera.fov - deg) < 1e-3) return;
+    this.camera.fov = deg;
+    this.camera.updateProjectionMatrix();
+  }
+  /** Where the camera is now, as yaw, pitch and distance about its target. */
+  private where(): { yaw: number; pitch: number; distance: number } {
+    const o = this.camera.position.clone().sub(this.controls.target);
+    const s = new THREE.Spherical().setFromVector3(o);
+    return { yaw: -s.theta, pitch: s.phi, distance: s.radius };
+  }
+
+  /** One frame of the camera's own motion and the ship's bobbing. */
+  private animate(now: number): void {
+    if (this.ship) {
+      // the ship bobs; the camera, looking at it, moves with it (HangarCamera.Update)
+      const bob = bobAt((now - this.ship.since) / 1000, this.ship.radius);
+      const d = bob - this.lastBob;
+      this.lastBob = bob;
+      this.ship.model.position.y = this.ship.restY + bob;
+      this.controls.target.y = this.ship.lookY + bob;
+      this.camera.position.y += d;
+    }
+    if (this.entryFrom !== null) {
+      const t = Math.min(1, (now - this.entryFrom) / (ENTRY_SECONDS * 1000));
+      this.place(entryAt(t, this.zoom.near, this.zoom.far));
+      if (t >= 1) { this.entryFrom = null; this.lastInput = now; }
+      return;
+    }
+    if (!this.idle && now - this.lastInput > IDLE_AFTER_SECONDS * 1000) this.idle = { since: now, from: this.where() };
+    if (this.idle) this.place(idleAt((now - this.idle.since) / 1000, this.idle.from, this.zoom.near, this.zoom.far));
   }
 
   /** The hangar's model in place of the last, and the studio lights dimmed where there is one. */
@@ -162,6 +234,7 @@ export class HangarView {
   frame(): void {
     if (this.stopped) return;
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
+    this.animate(performance.now());
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
@@ -170,6 +243,8 @@ export class HangarView {
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
     removeEventListener("resize", this.onResize);
+    this.controls.removeEventListener("start", this.onInput);
+    this.renderer.domElement.removeEventListener("wheel", this.onInput);
     this.controls.dispose();
     this.renderer.dispose();
     this.root.remove();

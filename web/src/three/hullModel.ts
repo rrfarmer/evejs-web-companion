@@ -282,7 +282,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   const size = new THREE.Box3().setFromObject(lodNodes[0] ?? gltf.scene).getBoundingSphere(new THREE.Sphere()).radius || 50;
   const lod = new THREE.LOD();
   lodNodes.slice().forEach((node, i) => lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1)));
-  lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, lights: sof?.lights ?? [] };
+  lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, lights: sof?.lights ?? [], boundingSphere: (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere ?? null };
   const boosters = sof ? buildBoosters(sof) : null;
   if (!boosters) return lod;
   // The engines belong to the hull, not to one LOD: a holder carries both.
