@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Target bar harness</title>
+    <!--
+      DEV-ONLY: the play page's target bar (web/src/play/targetBar.ts) alone on a dark
+      background, with made-up targets and sliders for the first one's health. No login:
+      textures come from the BFF's /client-res and type icons from /icon-cache, which the
+      Vite dev server proxies. The outlined box stands where the Selected Item window would.
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+      #controls { position: fixed; left: 12px; bottom: 10px; width: 300px; color: #9fb3c8; font: 12px/1.4 ui-monospace, monospace; }
+      #controls label { display: grid; grid-template-columns: 92px 1fr 48px; align-items: center; gap: 6px; margin: 3px 0; }
+      #controls input[type=range] { width: 100%; }
+      #controls .out { text-align: right; color: #d7dad6; }
+      #controls button { margin: 4px 4px 0 0; font: inherit; }
+      #log { margin-top: 8px; color: #d7dad6; min-height: 1.4em; }
+      #selected { position: fixed; border: 1px dashed rgba(255,255,255,0.2); color: rgba(255,255,255,0.3); font: 11px ui-monospace, monospace; padding: 4px; box-sizing: border-box; }
+      #bracket { position: fixed; left: 50%; top: 60%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 1px solid rgba(255,255,255,0.5); box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <div id="selected">Selected Item</div>
+    <div id="bracket"></div>
+    <div id="controls"></div>
+    <script type="module" src="./src/play/targetHarness.ts"></script>
+  </body>
+</html>

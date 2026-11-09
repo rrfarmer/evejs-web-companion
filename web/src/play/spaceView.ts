@@ -16,6 +16,7 @@ import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust } from "../three/hullModel.ts";
 import { ShipHud } from "./shipHud.ts";
+import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview } from "./overview.ts";
 import { Neocom } from "./neocom.ts";
@@ -95,6 +96,11 @@ export class SpaceView {
   private readonly marks = new Map<number, THREE.Object3D>();
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
+  private readonly targetBar = new TargetBar();
+  /** Targets being locked: itemID to when the lock began (performance.now()). */
+  private readonly lockingIDs = new Map<number, number>();
+  /** The active target (the client's state.activeTarget): the first locked, or the one last clicked in the bar. */
+  private activeTarget: number | null = null;
   private readonly modeEl: HTMLDivElement;
   private readonly selectedEl: HTMLElement;
   private readonly selectedWin: PlayWindow;
@@ -130,6 +136,9 @@ export class SpaceView {
     this.selectedWin.body.classList.add("si");
     this.selectedEl = this.selectedWin.root;
     this.selectedEl.style.display = "none";
+    this.root.insertBefore(this.targetBar.root, this.modeEl);
+    this.targetBar.onSelect = (id) => { this.activeTarget = id; this.select(id); };
+    this.targetBar.onUnlock = (id) => void this.act("Unlock Target", () => this.actions.unlock(id)).then(() => this.refreshTargets());
     this.root.appendChild(this.selectedEl);
     this.pollTargets();
     this.feedEl = this.root.querySelector(".feed-status")!;
@@ -166,6 +175,7 @@ export class SpaceView {
     this.renderer.setAnimationLoop(null);
     this.renderer.dispose();
     this.shipHud.dispose();
+    this.targetBar.dispose();
     this.root.remove();
   }
 
@@ -259,7 +269,7 @@ export class SpaceView {
     if (lockable) {
       out.push(this.locked.has(id)
         ? { key: "unlock", title: "Unlock Target", icon: icon("target"), run: () => this.actions.unlock(id) }
-        : { key: "lock", title: "Lock Target", icon: icon("target"), run: () => this.actions.lock(id) });
+        : { key: "lock", title: "Lock Target", icon: icon("target"), run: () => this.lockTracked(id) });
     }
     out.push({ key: "look", title: "Look At", icon: icon("look_at"), run: async () => { this.lookAt = id; } });
     return out;
@@ -442,8 +452,50 @@ export class SpaceView {
       this.renderSelected();
       this.feedEl.textContent = `${this.live.status} · tick ${park.currentTime % 100000} · ${snap?.entities.length ?? 0} on grid · ${this.live.items} updates${this.live.failures.length ? ` · ${this.live.failures.length} failed` : ""}`;
     }
+    this.updateTargetBar();
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** A lock, shown as locking (on its bracket) until the call returns: the server answers AddTarget once locked. */
+  private async lockTracked(id: number): Promise<void> {
+    this.lockingIDs.set(id, performance.now());
+    try { await this.actions.lock(id); } finally { this.lockingIDs.delete(id); }
+  }
+
+  /** The target bar from the locked set, in lock order; a target being locked gets its indicator on its bracket. */
+  private updateTargetBar(): void {
+    const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
+    if (this.activeTarget !== null && !this.locked.has(this.activeTarget)) this.activeTarget = null;
+    const entries: TargetBarEntry[] = [];
+    for (const id of this.locked) {
+      const e = byID.get(id) as (Entity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }) | undefined;
+      if (!e) continue;
+      // targetMgr.OnTargetAdded: with no active target, the new one becomes it
+      if (this.activeTarget === null) this.activeTarget = id;
+      entries.push({
+        itemID: id, typeID: e.typeID, name: e.name, distance: this.distanceTo(e),
+        shieldRatio: e.shieldRatio ?? null, armorRatio: e.armorRatio ?? null, hullRatio: e.hullRatio ?? null,
+        locking: false, active: id === this.activeTarget,
+      });
+    }
+    for (const [id, startedAt] of this.lockingIDs) {
+      if (this.locked.has(id)) continue;
+      const e = byID.get(id);
+      entries.push({
+        itemID: id, typeID: e?.typeID ?? null, name: e?.name ?? null, distance: e ? this.distanceTo(e) : 0,
+        shieldRatio: null, armorRatio: null, hullRatio: null, locking: true, active: false,
+        lockTimeMs: null, // TODO: the lock time (bracket.GetScanSpeed) for the countdown
+        lockStartedAt: startedAt,
+      });
+    }
+    const win = this.selectedWin.root.style;
+    this.targetBar.setAnchor({ left: parseFloat(win.left) || innerWidth - 300, top: parseFloat(win.top) || 14, width: parseFloat(win.width) || 280 });
+    this.targetBar.update(entries);
+    for (const id of this.lockingIDs.keys()) {
+      const el = this.bracketEls.get(id), ind = this.targetBar.lockingIndicator(id);
+      if (el && ind && ind.parentElement !== el) el.appendChild(ind);
+    }
   }
 
   /**
