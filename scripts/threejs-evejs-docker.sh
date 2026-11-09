@@ -8,7 +8,8 @@
 #                                                  copy (default _local/evejs-store/gameStore)
 #   scripts/threejs-evejs-docker.sh up             start/recreate the server container
 #   scripts/threejs-evejs-docker.sh down           stop and remove the server container only
-#   scripts/threejs-evejs-docker.sh bff            start the host BFF, detached (logs in _local/evejs-store)
+#   scripts/threejs-evejs-docker.sh bff            start the host BFF, detached (logs in _local/evejs-store); it
+#                                                  serves the client's pictures (EVEJS_CLIENT_ROOT, native layer off)
 #   scripts/threejs-evejs-docker.sh bff-stop       stop it
 #
 # Env: EVEJS_ROOT (default ../eve.js), EVEJS_WEB_GATEWAY_TOKEN (default: read from
@@ -72,6 +73,8 @@ case "${1:-}" in
       \$env:EVEJS_WEB_GATEWAY_TOKEN = '$EVEJS_WEB_GATEWAY_TOKEN';
       \$env:EVEJS_GAMESTORE_DATA_DIR = '$(win "$STORE_DIR/gameStore/data")';
       \$env:EVEJS_GAMESTORE_DB = '$(win "$STORE_DIR/gameStore/gamestore.sqlite")';
+      \$env:EVEJS_CLIENT_ROOT = '$(win "${EVE_CLIENT_DIR:-$HOME/Documents/EVE Online - 3396210}")';
+      \$env:EVEJS_NATIVE_CLIENT = 'off';
       \$p = Start-Process node -ArgumentList '--env-file-if-exists=.env','src/server.js' -WorkingDirectory '$(win "$HERE")' -WindowStyle Hidden -RedirectStandardOutput '$(win "$STORE_DIR/bff.out.log")' -RedirectStandardError '$(win "$STORE_DIR/bff.err.log")' -PassThru;
       Set-Content -Path '$(win "$pidfile")' -Value \$p.Id -NoNewline" < /dev/null > /dev/null 2>&1
     echo "BFF started (pid $(cat "$pidfile")), logs in $STORE_DIR/bff.*.log"
