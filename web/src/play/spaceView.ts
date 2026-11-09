@@ -15,6 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel } from "../three/hullModel.ts";
+import { ShipHud } from "./shipHud.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview } from "./overview.ts";
 import { Neocom } from "./neocom.ts";
@@ -27,7 +28,13 @@ export interface Entity {
   radius: number; position: { x: number; y: number; z: number }; velocity: { x: number; y: number; z: number };
   isSelf: boolean; mode?: string | null; maxVelocity?: number | null; isNpc?: boolean; targetEntityID?: number | null;
 }
-interface Snapshot { entities: Entity[]; ship: (Entity & { maxVelocity: number | null; speedFraction: number | null }) | null }
+interface Snapshot {
+  entities: Entity[];
+  ship: (Entity & {
+    maxVelocity: number | null; speedFraction: number | null;
+    shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null; capacitorRatio?: number | null;
+  }) | null;
+}
 
 export interface SpaceActions {
   gotoDirection(dx: number, dy: number, dz: number): Promise<void>;
@@ -86,9 +93,9 @@ export class SpaceView {
   private readonly brackets = document.createElement("div");
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   private readonly marks = new Map<number, THREE.Object3D>();
-  private readonly speedEl: HTMLDivElement;
+  // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
+  private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly modeEl: HTMLDivElement;
-  private readonly gaugeArc: SVGPathElement;
   private readonly selectedEl: HTMLElement;
   private readonly selectedWin: PlayWindow;
   private locked = new Set<number>();
@@ -112,21 +119,13 @@ export class SpaceView {
     this.root.appendChild(this.brackets);
     this.root.insertAdjacentHTML("beforeend", `
       <div class="hud-top-left"><div class="system">${where.system}<span class="sec">${where.security === null ? "" : where.security.toFixed(1)}</span></div><div class="sub"></div></div>
-      <div class="ship-hud">
-        <svg class="gauge" viewBox="0 0 168 168">
-          <circle cx="84" cy="84" r="70" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
-          <path class="speed-track" d="M 34.5 133.5 A 70 70 0 1 1 133.5 133.5" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="6"/>
-          <path class="speed-arc" d="" fill="none" stroke="#e3b542" stroke-width="6"/>
-          <g class="stop" style="cursor:pointer"><circle cx="84" cy="84" r="26" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.3)"/>
-          <rect x="76" y="76" width="16" height="16" fill="#d7dad6"/></g>
-        </svg>
-        <div class="speed">0 m/s</div><div class="mode"></div>
-      </div>
+      <div class="ship-mode"></div>
       <div class="toast"></div>
       <div class="feed-status"></div>`);
-    this.speedEl = this.root.querySelector(".ship-hud .speed")!;
-    this.modeEl = this.root.querySelector(".ship-hud .mode")!;
-    this.gaugeArc = this.root.querySelector(".speed-arc")!;
+    this.modeEl = this.root.querySelector(".ship-mode")!;
+    this.root.insertBefore(this.shipHud.root, this.modeEl);
+    this.shipHud.onStop = () => void this.act("Stop", () => this.actions.stop());
+    this.shipHud.onFullSpeed = () => void this.fullSpeed();
     this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 300, top: 14, width: 280, height: 116, closable: false });
     this.selectedWin.body.classList.add("si");
     this.selectedEl = this.selectedWin.root;
@@ -135,7 +134,6 @@ export class SpaceView {
     this.pollTargets();
     this.feedEl = this.root.querySelector(".feed-status")!;
     this.toastEl = this.root.querySelector(".toast")!;
-    this.root.querySelector(".stop")!.addEventListener("click", () => this.act("Stop", () => this.actions.stop()));
 
     this.scene.background = new THREE.Color(0x020305);
     this.starfieldObj = this.starfield();
@@ -167,7 +165,26 @@ export class SpaceView {
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
     this.renderer.dispose();
+    this.shipHud.dispose();
     this.root.remove();
+  }
+
+  /**
+   * The HUD's full-speed button. The client's SetMaxSpeed keeps the ship's heading; there is no set-speed action
+   * here yet, so this flies on along the way the ship is going (its velocity, else where its model points).
+   * TODO: a real SetSpeed(1.0) once SpaceActions has one.
+   */
+  private async fullSpeed(): Promise<void> {
+    const ego = this.snapshot?.ship;
+    if (!ego) return;
+    let { x, y, z } = ego.velocity;
+    if (Math.hypot(x, y, z) < 0.5) {
+      const holder = this.marks.get(ego.itemID);
+      if (!holder) return;
+      const f = new THREE.Vector3(0, 0, 1).applyQuaternion(holder.quaternion);
+      [x, y, z] = [f.x, f.y, -f.z]; // three.js back to EVE's handedness
+    }
+    await this.act("Full speed", () => this.actions.gotoDirection(x, y, z));
   }
 
   private resize(): void {
@@ -412,10 +429,12 @@ export class SpaceView {
 
     if (ego) {
       const speed = Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z);
-      const max = ego.maxVelocity ?? 0;
-      this.speedEl.textContent = `${speed < 10 ? speed.toFixed(1) : Math.round(speed).toLocaleString()} m/s`;
-      const frac = max > 0 ? Math.min(1, speed / max) : 0;
-      this.gaugeArc.setAttribute("d", arc(84, 84, 70, -135, -135 + 270 * frac));
+      this.shipHud.update({
+        shieldRatio: ego.shieldRatio ?? null, armorRatio: ego.armorRatio ?? null, hullRatio: ego.hullRatio ?? null,
+        capacitorRatio: ego.capacitorRatio ?? null,
+        capacitorMax: null, // TODO: the ship's capacitorCapacity, once the page has the pilot's dogma
+        speed, maxSpeed: ego.maxVelocity ?? null,
+      });
       this.modeEl.textContent = ego.mode === "STOP" && speed < 1 ? "Stopped" : ego.mode === "WARP" ? "Warping" : ego.mode === "ORBIT" ? "Orbiting" : ego.mode === "FOLLOW" ? "Approaching" : speed > 0.5 ? "Moving" : "";
     }
     if (this.frameCount % 15 === 0) {
@@ -459,11 +478,4 @@ export class SpaceView {
     const want = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), v.normalize());
     holder.quaternion.slerp(want, 0.12);
   }
-}
-
-function arc(cx: number, cy: number, r: number, from: number, to: number): string {
-  if (to - from < 0.5) return "";
-  const p = (deg: number) => { const a = ((deg - 90) * Math.PI) / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
-  const [x1, y1] = p(from), [x2, y2] = p(to);
-  return `M ${x1} ${y1} A ${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${x2} ${y2}`;
 }

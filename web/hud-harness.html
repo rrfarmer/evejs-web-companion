@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ship HUD harness</title>
+    <!--
+      DEV-ONLY: the play page's ship HUD (web/src/play/shipHud.ts) alone on a dark
+      background, with sliders for what it shows. No login: textures come from the
+      BFF's /client-res, which the Vite dev server proxies.
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+      #controls { position: fixed; left: 12px; top: 10px; width: 260px; color: #9fb3c8; font: 12px/1.4 ui-monospace, monospace; }
+      #controls label { display: grid; grid-template-columns: 92px 1fr 48px; align-items: center; gap: 6px; margin: 3px 0; }
+      #controls input[type=range] { width: 100%; }
+      #controls .out { text-align: right; color: #d7dad6; }
+      #log { margin-top: 8px; color: #d7dad6; min-height: 1.4em; }
+    </style>
+  </head>
+  <body>
+    <div id="controls"></div>
+    <script type="module" src="./src/play/hudHarness.ts"></script>
+  </body>
+</html>
