@@ -159,6 +159,13 @@ export class SpaceView {
     if (raise) el.addEventListener("pointerdown", () => raise(el), true);
   }
   private dscan: DScanWindow | null = null;
+  /**
+   * A thing's name as the client gives it (uix.GetSlimItemName): its own name where it has one (a pilot's, a
+   * station's, a celestial's), else its type's (an NPC hull, a wreck, a container, an asteroid).
+   */
+  private nameOf(e: Entity): string {
+    return e.name ?? (e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] : null) ?? e.kind;
+  }
   private names: { types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null = null;
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
   private readonly unhold: (() => void)[] = [];
@@ -408,7 +415,7 @@ export class SpaceView {
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       body.innerHTML = `<div class="si-name"></div><div class="si-dist"></div><div class="si-actions"></div>`;
-      body.querySelector(".si-name")!.textContent = e.name ?? `${e.kind} ${e.itemID}`;
+      body.querySelector(".si-name")!.textContent = this.nameOf(e);
       const row = body.querySelector(".si-actions")!;
       for (const a of this.actionsFor(e)) {
         const b = document.createElement("button");
@@ -600,7 +607,7 @@ export class SpaceView {
         { label: "Warp To Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
       ];
     }
-    this.radial.open(x, y, e.name ?? e.kind, options, button);
+    this.radial.open(x, y, this.nameOf(e), options, button);
   }
 
   private distanceTo(e: Entity): number {
@@ -692,7 +699,7 @@ export class SpaceView {
       if (onScreen) {
         el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px)`;
         if (this.frameCount % 10 === 0 || el.classList.contains("selected")) {
-          (el.querySelector(".label") as HTMLElement).textContent = `${e.name ?? e.kind} - ${distanceWords(this.distanceTo(e))}`;
+          (el.querySelector(".label") as HTMLElement).textContent = `${this.nameOf(e)} - ${distanceWords(this.distanceTo(e))}`;
         }
       }
     }
