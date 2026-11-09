@@ -14,6 +14,25 @@ async function* jsonl(file) {
   for await (const line of rl) if (line.trim()) yield JSON.parse(line);
 }
 
+/**
+ * { solarSystemID: { regionID, nebula, starID, sunTypeID } }: the space scene each system is drawn in. The client takes
+ * the region's nebula (eveCfg.GetNebula: mapRegionCache[regionID].nebulaPath), a graphic whose file is an EveSpaceScene
+ * (res:/dx9/scene/universe/<name>_cube.red) beside its cube maps <name>_cube.dds, _refl and _blur.
+ */
+export async function buildSystemScenes(sdeDir) {
+  const graphics = new Map();
+  for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) if (g.graphicFile) graphics.set(g._key, g.graphicFile);
+  const regionNebula = new Map();
+  for await (const r of jsonl(path.join(sdeDir, "mapRegions.jsonl"))) regionNebula.set(r._key, r.nebulaID ? graphics.get(r.nebulaID) ?? null : null);
+  const stars = new Map();
+  for await (const s of jsonl(path.join(sdeDir, "mapStars.jsonl"))) stars.set(s._key, s.typeID ?? null);
+  const out = {};
+  for await (const s of jsonl(path.join(sdeDir, "mapSolarSystems.jsonl"))) {
+    out[s._key] = { name: s.name?.en ?? null, security: s.securityStatus ?? null, regionID: s.regionID, nebula: regionNebula.get(s.regionID) ?? null, starID: s.starID ?? null, sunTypeID: s.starID ? stars.get(s.starID) ?? null : null };
+  }
+  return out;
+}
+
 /** { typeID: { graphicID, hull, faction, race, gr2, graphicFile, groupID } } for every type with a graphic. */
 export async function buildTypeGraphics(sdeDir, rf) {
   const graphics = new Map();

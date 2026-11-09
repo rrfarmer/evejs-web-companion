@@ -34,6 +34,11 @@ const bffTarget = process.env.EVEJS_WEB_BFF_URL || "http://127.0.0.1:26500";
 // Client assets for the three.js play page (FarmerThreeJSFun). tools/client-extract writes them to
 // _local/client-assets/<build>/ from the local EVE install; they are never committed. Served at
 // /client-assets from the build named by EVE_CLIENT_BUILD, else the newest build folder there.
+/** Import a module as it is on disk now: a new version of the extractor is picked up without restarting the server. */
+async function importFresh(file: string) {
+  return import(`${pathToFileURL(file).href}?v=${fs.statSync(file).mtimeMs}`);
+}
+
 function clientAssets(): Plugin {
   const root = path.resolve(__dirname, "_local", "client-assets");
   const types: Record<string, string> = { ".glb": "model/gltf-binary", ".json": "application/json", ".dds": "application/octet-stream" };
@@ -51,6 +56,25 @@ function clientAssets(): Plugin {
         const rel = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
         // /client-assets/type/<typeID>: how a type is drawn, its model extracted from the client on first ask
         // (tools/client-extract; needs typeGraphics.json and config.json from `extract.mjs --type-graphics --sde`).
+        // /client-assets/scene/<solarSystemID>: the system's space scene (its region's nebula cube maps), copied on first ask.
+        const sceneAsk = /^\/scene\/(\d+)$/.exec(rel);
+        if (sceneAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const sys = JSON.parse(fs.readFileSync(path.join(buildDir, "systemScenes.json"), "utf8"))[sceneAsk[1]!] ?? null;
+            res.setHeader("content-type", "application/json");
+            if (!sys?.nebula) return res.end(JSON.stringify({ solarSystemID: Number(sceneAsk[1]), ...(sys ?? {}), maps: null }));
+            const tool = await importFresh(path.resolve(__dirname, "tools", "client-extract", "extract.mjs"));
+            const resLib = await importFresh(path.resolve(__dirname, "tools", "client-extract", "lib", "resfiles.mjs"));
+            const config = JSON.parse(fs.readFileSync(path.join(buildDir, "config.json"), "utf8"));
+            if (!resFiles || resFiles.client !== config.client) resFiles = { client: config.client, rf: resLib.openResFiles(config.client) };
+            const maps = tool.extractScene(resFiles.rf, sys.nebula, buildDir);
+            return res.end(JSON.stringify({ solarSystemID: Number(sceneAsk[1]), ...sys, maps }));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const typeAsk = /^\/type\/(\d+)$/.exec(rel);
         if (typeAsk) {
           try {
@@ -60,8 +84,8 @@ function clientAssets(): Plugin {
             if (!tg?.gr2) return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: null, ...(tg ?? {}) }));
             const stem = String(tg.gr2).slice("res:/".length, -".gr2".length);
             if (!fs.existsSync(path.join(buildDir, stem + ".glb"))) {
-              const tool = await import(pathToFileURL(path.resolve(__dirname, "tools", "client-extract", "extract.mjs")).href);
-              const resLib = await import(pathToFileURL(path.resolve(__dirname, "tools", "client-extract", "lib", "resfiles.mjs")).href);
+              const tool = await importFresh(path.resolve(__dirname, "tools", "client-extract", "extract.mjs"));
+              const resLib = await importFresh(path.resolve(__dirname, "tools", "client-extract", "lib", "resfiles.mjs"));
               const config = JSON.parse(fs.readFileSync(path.join(buildDir, "config.json"), "utf8"));
               if (!resFiles || resFiles.client !== config.client) resFiles = { client: config.client, rf: resLib.openResFiles(config.client) };
               if (!extracting.has(tg.gr2)) extracting.set(tg.gr2, tool.extractHull(resFiles.rf, tg.gr2, buildDir).finally(() => extracting.delete(tg.gr2)));

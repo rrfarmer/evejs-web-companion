@@ -10,6 +10,7 @@
 //   <hull>_<x>.dds      the hull's textures, copied unchanged (block-compressed, uploaded as is)
 //   <hull>.json         what was extracted from where: LODs, areas, textures, vertex components
 //   typeGraphics.json   (--type-graphics, needs --sde) typeID -> hull, faction, race, model
+//   systemScenes.json   (--type-graphics too) solarSystemID -> region nebula, star
 //   config.json         the client and SDE folders used, so the dev server can extract on demand
 // and manifest.json at the build root.
 
@@ -19,7 +20,7 @@ import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb } from "./lib/glb.mjs";
-import { buildTypeGraphics } from "./lib/typeGraphics.mjs";
+import { buildTypeGraphics, buildSystemScenes } from "./lib/typeGraphics.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 export const REPO = path.resolve(HERE, "..", "..");
@@ -42,6 +43,24 @@ export function hullPath(rf, spec) {
   const hits = rf.list("res:/dx9/model/", new RegExp(`/${spec.toLowerCase()}\\.gr2$`));
   if (hits.length !== 1) throw new Error(`--hull ${spec}: ${hits.length} matches (${hits.slice(0, 5).join(", ")})`);
   return hits[0].toLowerCase();
+}
+
+/**
+ * A space scene's cube maps (the nebula, its reflection and blurred versions) copied beside where the scene lives,
+ * from its EveSpaceScene path (res:/dx9/scene/universe/c02_cube.red -> c02_cube.dds, _refl.dds, _blur.dds).
+ */
+export function extractScene(rf, scenePath, outRoot) {
+  const stem = scenePath.toLowerCase().replace(/.(red|black)$/, "");
+  const out = {};
+  for (const [role, suffix] of [["nebula", ""], ["reflection", "_refl"], ["blur", "_blur"]]) {
+    const res = `${stem}${suffix}.dds`;
+    if (!rf.has(res)) continue;
+    const file = path.join(outRoot, ...res.slice("res:/".length).split("/"));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (!fs.existsSync(file)) fs.writeFileSync(file, rf.read(res));
+    out[role] = "/client-assets/" + res.slice("res:/".length);
+  }
+  return out;
 }
 
 /** One model: every LOD to .glb, its own texture set copied beside it, and what was done in .json. */
@@ -119,6 +138,9 @@ async function main() {
     fs.writeFileSync(tgFile, JSON.stringify(typeGraphics));
     const all = Object.values(typeGraphics);
     console.log(`typeGraphics.json: ${all.length} types, ${all.filter((t) => t.gr2).length} with a SOF hull model, ${all.filter((t) => t.hull && !t.gr2).length} hulls without one found`);
+    const scenes = await buildSystemScenes(args.sde);
+    fs.writeFileSync(path.join(outRoot, "systemScenes.json"), JSON.stringify(scenes));
+    console.log(`systemScenes.json: ${Object.keys(scenes).length} systems`);
   } else if (fs.existsSync(tgFile)) typeGraphics = JSON.parse(fs.readFileSync(tgFile, "utf8"));
 
   const specs = [...args.hulls];

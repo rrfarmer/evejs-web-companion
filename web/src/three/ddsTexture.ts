@@ -15,18 +15,23 @@ const DXGI: Record<number, { format: THREE.CompressedPixelFormat; block: number 
   72: { format: THREE.RGBA_S3TC_DXT1_Format, block: 8 }, // BC1_UNORM_SRGB
   77: { format: THREE.RGBA_S3TC_DXT5_Format, block: 16 }, // BC3_UNORM
   80: { format: THREE.RED_RGTC1_Format, block: 8 }, // BC4_UNORM
+  95: { format: THREE.RGB_BPTC_UNSIGNED_Format, block: 16 }, // BC6H_UF16 (HDR)
+  96: { format: THREE.RGB_BPTC_SIGNED_Format, block: 16 }, // BC6H_SF16 (HDR: the nebula cube maps)
   83: { format: THREE.RED_GREEN_RGTC2_Format, block: 16 }, // BC5_UNORM
   98: { format: THREE.RGBA_BPTC_Format, block: 16 }, // BC7_UNORM
   99: { format: THREE.RGBA_BPTC_Format, block: 16 }, // BC7_UNORM_SRGB
 };
 const FOURCC: Record<string, { format: THREE.CompressedPixelFormat; block: number }> = {
   DXT1: { format: THREE.RGBA_S3TC_DXT1_Format, block: 8 },
+  DXT3: { format: THREE.RGBA_S3TC_DXT3_Format, block: 16 },
   DXT5: { format: THREE.RGBA_S3TC_DXT5_Format, block: 16 },
   ATI1: { format: THREE.RED_RGTC1_Format, block: 8 },
   BC4U: { format: THREE.RED_RGTC1_Format, block: 8 },
   ATI2: { format: THREE.RED_GREEN_RGTC2_Format, block: 16 },
   BC5U: { format: THREE.RED_GREEN_RGTC2_Format, block: 16 },
 };
+
+const DDSCAPS2_CUBEMAP = 0x200;
 
 export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTexture {
   const dv = new DataView(buf);
@@ -45,16 +50,30 @@ export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTextur
   }
   if (!kind) throw new Error(`${name}: DDS format ${JSON.stringify(fourCC)} not handled`);
 
-  const mipmaps: { data: Uint8Array; width: number; height: number }[] = [];
-  let w = width, h = height;
-  for (let i = 0; i < mipCount; i++) {
-    const size = Math.max(1, Math.ceil(w / 4)) * Math.max(1, Math.ceil(h / 4)) * kind.block;
-    if (offset + size > buf.byteLength) break;
-    mipmaps.push({ data: new Uint8Array(buf, offset, size), width: w, height: h });
-    offset += size;
-    w = Math.max(1, w >> 1);
-    h = Math.max(1, h >> 1);
+  const chain = (): { data: Uint8Array; width: number; height: number }[] => {
+    const mipmaps: { data: Uint8Array; width: number; height: number }[] = [];
+    let w = width, h = height;
+    for (let i = 0; i < mipCount; i++) {
+      const size = Math.max(1, Math.ceil(w / 4)) * Math.max(1, Math.ceil(h / 4)) * kind!.block;
+      if (offset + size > buf.byteLength) break;
+      mipmaps.push({ data: new Uint8Array(buf, offset, size), width: w, height: h });
+      offset += size;
+      w = Math.max(1, w >> 1);
+      h = Math.max(1, h >> 1);
+    }
+    return mipmaps;
+  };
+  // A cube map is six faces, each with its whole mip chain, in the order +x -x +y -y +z -z.
+  if (dv.getUint32(112, true) & DDSCAPS2_CUBEMAP) {
+    const faces = Array.from({ length: 6 }, () => ({ mipmaps: chain(), width, height }));
+    const cube = new THREE.CompressedCubeTexture(faces as unknown as THREE.CompressedTexture[], kind.format);
+    cube.minFilter = faces[0]!.mipmaps.length > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+    cube.magFilter = THREE.LinearFilter;
+    cube.name = name;
+    cube.needsUpdate = true;
+    return cube as unknown as THREE.CompressedTexture;
   }
+  const mipmaps = chain();
   const tex = new THREE.CompressedTexture(mipmaps as unknown as ImageData[], width, height, kind.format);
   tex.minFilter = mipmaps.length > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;

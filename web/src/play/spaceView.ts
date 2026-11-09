@@ -15,6 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel } from "../three/hullModel.ts";
+import { loadDds } from "../three/ddsTexture.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -78,6 +79,8 @@ export class SpaceView {
   private readonly feedEl: HTMLDivElement;
   private readonly toastEl: HTMLDivElement;
   private selected: number | null = null;
+  private starfieldObj!: THREE.Points;
+  private readonly sunLight = new THREE.DirectionalLight(0xfff6e8, 3);
   private snapshot: Snapshot | null = null;
   private frameCount = 0;
   private stopped = false;
@@ -114,11 +117,12 @@ export class SpaceView {
     this.root.querySelector(".stop")!.addEventListener("click", () => this.act("Stop", () => this.actions.stop()));
 
     this.scene.background = new THREE.Color(0x020305);
-    this.scene.add(this.starfield());
+    this.starfieldObj = this.starfield();
+    this.scene.add(this.starfieldObj);
     this.scene.add(new THREE.AmbientLight(0x334455, 0.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.5);
-    sun.position.set(-1, 0.4, 0.6);
-    this.scene.add(sun);
+    // The system's star lights the grid from where it is (aimed each frame at the sun ball, frame()).
+    this.sunLight.position.set(-1, 0.4, 0.6);
+    this.scene.add(this.sunLight);
     this.camera.position.set(-600, 250, 900);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enablePan = false;
@@ -221,9 +225,44 @@ export class SpaceView {
     return Math.max(0, Math.hypot(e.position.x - s.position.x, e.position.y - s.position.y, e.position.z - s.position.z) - e.radius - s.radius);
   }
 
+  private sceneFor: number | null = null;
+
+  /**
+   * The system's space scene, as the client draws it: its region's nebula cube map as the background, and the
+   * nebula's reflection map for what the hulls reflect (sceneManager.GetResPathForLocation, EveSpaceScene's
+   * NebulaMap and envMap1ResPath). The cube maps are EVE's, looked up in a world mirrored in z, and three
+   * flips x when it samples a cube texture: together a half turn about y.
+   */
+  private async loadScene(solarSystemID: number): Promise<void> {
+    this.sceneFor = solarSystemID;
+    const info = await (await fetch(`/client-assets/scene/${solarSystemID}`)).json() as { name?: string; security?: number; maps?: Record<string, string> | null };
+    if (this.sceneFor !== solarSystemID) return;
+    if (info.name) {
+      this.root.querySelector(".hud-top-left .system")!.innerHTML = `${info.name}<span class="sec">${typeof info.security === "number" ? info.security.toFixed(1) : ""}</span>`;
+    }
+    const halfTurn = new THREE.Euler(0, Math.PI, 0);
+    if (info.maps?.nebula) {
+      const nebula = await loadDds(info.maps.nebula);
+      if (this.sceneFor !== solarSystemID) return;
+      this.scene.background = nebula;
+      this.scene.backgroundRotation.copy(halfTurn);
+      this.scene.backgroundIntensity = 1.25; // EveSpaceScene.nebulaIntensity
+      this.starfieldObj.visible = false;
+    }
+    if (info.maps?.reflection) {
+      const refl = await loadDds(info.maps.reflection);
+      if (this.sceneFor !== solarSystemID) return;
+      this.scene.environment = refl;
+      this.scene.environmentRotation.copy(halfTurn);
+      this.scene.environmentIntensity = 1.55; // EveSpaceScene.reflectionIntensity
+    }
+  }
+
   private frame(): void {
     if (this.stopped) return;
     this.frameCount++;
+    const systemID = this.live.hello?.solarSystemID ?? null;
+    if (systemID && systemID !== this.sceneFor) void this.loadScene(systemID);
     this.live.frame();
     const park = this.live.park;
     let snap: Snapshot | null = null;
@@ -244,6 +283,7 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
+      if (e.kind === "sun") this.sunLight.position.copy(rel).normalize();
       if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);
       if (!el) {
