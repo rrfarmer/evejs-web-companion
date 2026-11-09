@@ -106,15 +106,20 @@ export interface TypeModelInfo {
 }
 
 /**
- * A hull area as the client's quadv5 ship shader colours it, approximated on three's standard material: the area's
- * MaterialMap (one channel, at 0, 1/3, 2/3 and 1) chooses among the faction's four materials for that area (EveSOF,
- * areaTypes material1..4), each an EveSOFDataMaterial's DiffuseColor (multiplying the albedo), Gloss (roughness) and
- * FresnelColor (here, how metallic). The blend between the four levels is the shader's own and is not known; a
- * linear blend between neighbouring levels is used. TINT_SCALE brings DiffuseColor's linear values to a base colour.
+ * A hull area as the client's quadv5 ship shader colours it (graphics/effect.dx11/.../v5/quad/quadv5.sm_hi, its
+ * forward pass disassembled, client 3396210), on three's standard material:
+ * - the MaterialMap (one channel) weighs the faction's four materials for the area (EveSOF areaTypes material1..4):
+ *   w_i = saturate(1.031915 - |m - i/3| * 3.191489);
+ * - the base colour is the albedo times the weighed DiffuseColor (linear, no other factor);
+ * - the specular colour at normal incidence is the weighed FresnelColor itself: a specular workflow, not a metal one;
+ * - the roughness is 1 - RoughnessMap.r * the weighed Gloss (the map is read as a gloss), squared for the lobe as
+ *   three squares it.
+ * The dirt layer (DirtMap at the area's dirt level, lerping the colour to white and the specular to 0.0384) and the
+ * pattern layers are not drawn yet.
  */
-const TINT_SCALE = 6.0;
 export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea): THREE.MeshStandardMaterial {
   const m = eveHullMaterial(maps, area.name);
+  m.metalness = 0;
   const mats = [0, 1, 2, 3].map((i) => area.materials[i] ?? null);
   const v3 = (a: number[] | null | undefined, d: number) => new THREE.Vector3(a?.[0] ?? d, a?.[1] ?? d, a?.[2] ?? d);
   const uniforms = {
@@ -122,28 +127,28 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     mtlFresnel: { value: mats.map((x) => v3(x?.fresnel, 0.04)) },
     mtlGloss: { value: mats.map((x) => x?.gloss ?? 0.4) },
     materialMap: { value: maps.materialMap ?? null },
-    tintScale: { value: TINT_SCALE },
   };
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms);
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform float tintScale;
+    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap;
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
-        float mtlSel = texture2D( materialMap, vMapUv ).r * 3.0;
-        vec4 mtlW = clamp( 1.0 - abs( vec4( mtlSel ) - vec4( 0.0, 1.0, 2.0, 3.0 ) ), 0.0, 1.0 );
+        float mtlSel = texture2D( materialMap, vMapUv ).r;
+        vec4 mtlW = clamp( 1.031915 - abs( vec4( mtlSel ) - vec4( 0.0, 0.333333, 0.666667, 1.0 ) ) * 3.191489, 0.0, 1.0 );
         vec3 mtlTint = mtlDiffuse[0] * mtlW.x + mtlDiffuse[1] * mtlW.y + mtlDiffuse[2] * mtlW.z + mtlDiffuse[3] * mtlW.w;
         float mtlGl = mtlGloss[0] * mtlW.x + mtlGloss[1] * mtlW.y + mtlGloss[2] * mtlW.z + mtlGloss[3] * mtlW.w;
         vec3 mtlFr = mtlFresnel[0] * mtlW.x + mtlFresnel[1] * mtlW.y + mtlFresnel[2] * mtlW.z + mtlFresnel[3] * mtlW.w;
-        diffuseColor.rgb *= mtlTint * tintScale;`)
+        diffuseColor.rgb *= mtlTint;`)
       .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
-        roughnessFactor = clamp( ( 1.0 - mtlGl ) * ( 0.5 + roughnessFactor ), 0.04, 1.0 );`)
-      .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
-        metalnessFactor = clamp( dot( mtlFr, vec3( 0.333 ) ) * 1.6, 0.0, 1.0 );`);
+        roughnessFactor = clamp( 1.0 - roughnessFactor * mtlGl, 0.0, 1.0 );`)
+      .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
+        material.specularColor = mtlFr;
+        material.specularColorBlended = mtlFr;`);
     base.call(m, shader, renderer);
   };
-  m.customProgramCacheKey = () => "sofHull";
+  m.customProgramCacheKey = () => "sofHull5";
   return m;
 }
 

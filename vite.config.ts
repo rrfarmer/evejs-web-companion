@@ -85,6 +85,21 @@ function clientAssets(): Plugin {
         }
         // /client-assets/celestial/<typeID>: a planet, moon or sun type's object file read for its textures and shader
         // parameters (tools/client-extract lib/celestial.mjs), on first ask.
+        // /client-assets/celestials/<solarSystemID>.json: the system's planets and moons, each with its own shader preset
+        // and height maps (extract.mjs --system-celestials, from the SDE), made on first ask.
+        const systemCelestialsAsk = /^\/celestials\/(\d+)\.json$/.exec(rel);
+        if (systemCelestialsAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const file = path.join(buildDir, "celestials", `${systemCelestialsAsk[1]}.json`);
+            if (!fs.existsSync(file)) await extractOnce(`celestials:${systemCelestialsAsk[1]}`, buildDir, ["--system-celestials", systemCelestialsAsk[1]!]);
+            res.setHeader("content-type", "application/json");
+            return res.end(fs.readFileSync(file));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const celestialAsk = /^\/celestial\/(\d+)$/.exec(rel);
         if (celestialAsk) {
           try {

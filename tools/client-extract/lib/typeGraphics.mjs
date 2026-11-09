@@ -69,3 +69,28 @@ export async function buildTypeGraphics(sdeDir, rf) {
   }
   return out;
 }
+
+/**
+ * A system's planets and moons as the client draws them (planet.py LoadPlanet / SetEffectParameters): each from its
+ * shader preset's object file (planetAttributes.shaderPreset, a graphic), with the planet's own height maps
+ * (heightMap1 and heightMap2, graphics too) given to its effects as NormalHeight1 and NormalHeight2. The client reads
+ * the attributes from cfg.mapSolarSystemContentCache; the SDE's mapPlanets and mapMoons carry the same.
+ * [{ itemID, typeID, kind, preset, heightMap1, heightMap2 }], the graphics as their files (null where none).
+ */
+export async function findSystemCelestials(sdeDir, solarSystemID) {
+  const graphics = new Map();
+  for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) if (g.graphicFile) graphics.set(g._key, g.graphicFile);
+  const inSystem = new RegExp(`"solarSystemID": ?${Number(solarSystemID)}[,}]`);
+  const out = [];
+  for (const [file, kind] of [["mapPlanets.jsonl", "planet"], ["mapMoons.jsonl", "moon"]]) {
+    const rl = readline.createInterface({ input: fs.createReadStream(path.join(sdeDir, file)), crlfDelay: Infinity });
+    for await (const line of rl) {
+      if (!inSystem.test(line)) continue;
+      const row = JSON.parse(line);
+      const a = row.attributes ?? {};
+      const g = (id) => (id ? graphics.get(id) ?? null : null);
+      out.push({ itemID: row._key, typeID: row.typeID ?? null, kind, preset: g(a.shaderPreset), heightMap1: g(a.heightMap1), heightMap2: g(a.heightMap2) });
+    }
+  }
+  return out;
+}

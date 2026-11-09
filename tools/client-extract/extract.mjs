@@ -4,6 +4,7 @@
 //   node tools/client-extract/extract.mjs [--client "<EVE folder>"] [--out <dir>]
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
+//        [--system-celestials <solarSystemID> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -25,7 +26,7 @@ import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb } from "./lib/glb.mjs";
-import { buildTypeGraphics, buildSystemScenes, buildTypeNames } from "./lib/typeGraphics.mjs";
+import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
@@ -132,6 +133,29 @@ export function extractCelestial(rf, graphicFile, outRoot) {
   return file;
 }
 
+/**
+ * A system's planets and moons, each as the client builds it (lib/typeGraphics.mjs findSystemCelestials): its preset's
+ * object file extracted (extractCelestial) and its height maps copied, written as celestials/<solarSystemID>.json:
+ * { solarSystemID, items: { itemID: { typeID, kind, celestial, NormalHeight1, NormalHeight2 } } }, each a URL or null.
+ */
+export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot) {
+  const items = {};
+  const done = new Map();
+  for (const c of await findSystemCelestials(sdeDir, solarSystemID)) {
+    let celestial = null;
+    if (c.preset && rf.has(c.preset.replace(/\.red$/i, ".black").toLowerCase())) {
+      if (!done.has(c.preset)) done.set(c.preset, extractCelestial(rf, c.preset, outRoot));
+      celestial = `/client-assets/${path.relative(outRoot, done.get(c.preset)).split(path.sep).join("/")}`;
+    }
+    const tex = (res) => (res && rf.has(res.toLowerCase()) ? copyRes(rf, res, outRoot) : null);
+    items[c.itemID] = { typeID: c.typeID, kind: c.kind, celestial, NormalHeight1: tex(c.heightMap1), NormalHeight2: tex(c.heightMap2) };
+  }
+  const file = path.join(outRoot, "celestials", `${solarSystemID}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ solarSystemID, items }));
+  return file;
+}
+
 /** One model: every LOD to .glb, its own texture set copied beside it, and what was done in .json. */
 export async function extractHull(rf, res, outRoot) {
   const g = await readGranny(rf.read(res), res);
@@ -172,7 +196,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], scenes: [], celestials: [], typeGraphics: false };
+  const out = { hulls: [], types: [], scenes: [], celestials: [], systemCelestials: [], typeGraphics: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -183,6 +207,7 @@ function parseArgs(argv) {
     else if (a === "--type") out.types.push(Number(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
     else if (a === "--celestial") out.celestials.push(argv[++i]);
+    else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
     else throw new Error(`unknown argument ${a}`);
   }
   return out;
@@ -238,7 +263,13 @@ async function main() {
   if (done.length) addToManifest(outRoot, build, client, done);
   for (const c of args.celestials) console.log(`${c} -> ${path.relative(outRoot, extractCelestial(rf, c, outRoot))}`);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
-  if (!done.length && !args.typeGraphics && !args.scenes.length && !args.types.length && !args.celestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  const sde = args.sde ?? old.sde ?? null;
+  for (const systemID of args.systemCelestials) {
+    if (!sde) throw new Error("--system-celestials needs the SDE (--sde, or a config.json that names it)");
+    const file = await extractSystemCelestials(rf, sde, systemID, outRoot);
+    console.log(`system ${systemID} -> ${path.relative(outRoot, file)}`);
+  }
+  if (!done.length && !args.typeGraphics && !args.scenes.length && !args.types.length && !args.celestials.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

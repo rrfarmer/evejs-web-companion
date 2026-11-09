@@ -15,7 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust } from "../three/hullModel.ts";
-import { celestialModel } from "../three/celestialModel.ts";
+import { celestialModel, systemCelestials, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -520,7 +520,11 @@ export class SpaceView {
     holder.add(standIn);
     holder.userData = { kind: e.kind };
     if (["planet", "moon", "sun"].includes(e.kind) && e.typeID) {
-      void celestialModel(e.typeID, e.kind, e.radius).then((model) => {
+      // Each planet and moon from its own preset and height maps (the system's celestials), as the client draws it.
+      const systemID = this.live.hello?.solarSystemID ?? null;
+      const typeID = e.typeID;
+      void (systemID ? systemCelestials(systemID) : Promise.resolve({} as Record<string, CelestialItem>))
+        .then((items) => celestialModel(typeID, e.kind, e.radius, items[String(e.itemID)] ?? null)).then((model) => {
         if (!model || !this.marks.has(e.itemID)) return;
         holder.remove(standIn);
         holder.add(model);

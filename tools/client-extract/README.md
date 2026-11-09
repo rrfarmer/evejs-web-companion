@@ -23,9 +23,15 @@ node tools/client-extract/extract.mjs --client "C:\path\to\EVE Online" --hull cb
   - `<hull>.json`: what came from where (LODs, material areas, vertex layout, textures).
   - `manifest.json`: the build and the hulls extracted so far.
 
+- `--system-celestials <solarSystemID>` writes `celestials/<solarSystemID>.json`: the system's
+  planets and moons, each as the client loads it (planet.py): its own shader preset's object file
+  and its own height maps (`NormalHeight1`, `NormalHeight2`), from the SDE's `mapPlanets` and
+  `mapMoons` (the SDE folder from `--sde` or from `config.json`).
+
 The Vite dev server serves the newest build's folder at `/client-assets`, or the one
-`EVE_CLIENT_BUILD` names. `web/hull-viewer.html?hull=dx9/model/ship/caldari/battleship/cb1/cb1_t1`
-draws one.
+`EVE_CLIENT_BUILD` names, and extracts what a page asks for on first ask (a type's model, a
+system's scene and celestials). `web/hull-viewer.html?type=588` draws a type as the play view does,
+`?planet=40009082&system=30000142` a planet.
 
 ## What is in `lib/`
 
