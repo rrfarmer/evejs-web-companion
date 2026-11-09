@@ -387,45 +387,50 @@ ${fs}`.replace("#include <map_fragment>", `
  *   2 x IceDetail.x x (sqrt(fill(uv x IceDetail.y) x fill(uv x IceDetail.z)) - 0.5), the fill's first channel;
  * - t = saturate((h - (F.x - D.x)) / ((F.y + D.x) - (F.x - D.x))) / F.z ramps Low to Middle by saturate(t) and on to
  *   High by saturate(t - 1), times the ColorizeMap, a colour in gamma space taken to linear;
- * - the shine (IceSpecular: strength, power, fading out as the height rises from .w to .z) is the material's own
- *   roughness here; the shader's pole blend of a second projection and its ground scattering maps are not ported.
+ * - lit as the shader lights it (scatterMaterial): its own wrapped diffuse (1 - (1 - saturate(N.L))^2) x (N.L + 1) / 2
+ *   plus the ambient, a Blinn shine (IceSpecular: strength, power, fading out as the height rises from .w to .z)
+ *   tinted by GroundScattering1, and GroundScattering2 added; the shader's pole blend of a second projection and its
+ *   bump of the normal by the height maps are not ported.
  */
 async function iceModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
-  const [h1, h2, detail, colorize] = await Promise.all([
+  const [h1, h2, detail, colorize, s1, s2] = await Promise.all([
     texture(heightMap1),
     heightMap2 ? texture(heightMap2) : Promise.resolve(null),
     texture(c.textures.FillTexture!),
     c.textures.ColorizeMap ? texture(c.textures.ColorizeMap) : Promise.resolve(null),
+    c.textures.GroundScattering1 ? texture(c.textures.GroundScattering1) : Promise.resolve(null),
+    c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
   ]);
   for (const t of [h1, h2, detail]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
   const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
   const random = itemID === null ? 0 : itemID % 100;
-  const spec = v4(c.params.IceSpecular, [0.6, 12, 0.3, 0.1]);
-  // a Blinn power p shines about as a roughness of sqrt(2 / (p + 2))
-  const roughness = Math.min(0.95, Math.max(0.3, Math.sqrt(2 / (spec.y + 2))));
-  const mat = new THREE.MeshStandardMaterial({ map: h1, color: 0xffffff, roughness, metalness: 0, envMapIntensity: PLANET_AMBIENT });
-  const uniforms = {
-    heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail }, colorizeMap: { value: colorize }, hasColorize: { value: colorize ? 1 : 0 },
+  const mat = scatterMaterial(s1, s2, {
+    h1: { value: h1 }, h2: { value: h2 ?? h1 }, detailMap: { value: detail }, colorizeMap: { value: colorize }, hasColorize: { value: colorize ? 1 : 0 },
+    hasScatter: { value: s1 ? 1 : 0 },
     iceF: { value: v4(c.params.IceFactors, [-0.27, 1.53, 0.43, 1]) }, iceD: { value: v4(c.params.IceDetail, [0.8, 4, 2, 1]) },
+    iceS: { value: v4(c.params.IceSpecular, [0.6, 12, 0.3, 0.1]) },
     low: { value: v3(c.params.IceRampColorLow, [0.1, 0.16, 0.2]) }, middle: { value: v3(c.params.IceRampColorMiddle, [0.94, 0.94, 0.94]) },
     high: { value: v3(c.params.IceRampColorHigh, [1, 1, 1]) },
     shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
-  };
-  withRim(mat, col(c.params.AtmosphereColor, [0.55, 0.7, 0.9]), (fs) => `uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform sampler2D colorizeMap; uniform float hasColorize;
-uniform vec4 iceF; uniform vec4 iceD; uniform vec3 low; uniform vec3 middle; uniform vec3 high; uniform vec2 shiftA; uniform vec2 shiftB;
-${fs}`.replace("#include <map_fragment>", `
-        float a = texture2D( map, vMapUv * vec2( 2.0, 1.0 ) + shiftA ).r;
-        float b = texture2D( heightMap2, vMapUv * vec2( 3.0, 1.5 ) + shiftB + 1.0 ).r;
-        float d1 = texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * iceD.y ).r;
-        float d2 = texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * iceD.z ).r;
-        float h = a * b + 2.0 * iceD.x * ( sqrt( max( d1 * d2, 0.0 ) ) - 0.5 );
+  }, `uniform sampler2D h1; uniform sampler2D h2; uniform sampler2D detailMap; uniform sampler2D colorizeMap; uniform float hasColorize; uniform float hasScatter;
+      uniform vec4 iceF; uniform vec4 iceD; uniform vec4 iceS; uniform vec3 low; uniform vec3 middle; uniform vec3 high; uniform vec2 shiftA; uniform vec2 shiftB;`, `
+        float a = texture2D(h1, vUv * vec2(2.0, 1.0) + shiftA).r;
+        float b = texture2D(h2, vUv * vec2(3.0, 1.5) + shiftB + 1.0).r;
+        float d1 = texture2D(detailMap, vUv * vec2(2.0, 1.0) * iceD.y).r;
+        float d2 = texture2D(detailMap, vUv * vec2(2.0, 1.0) * iceD.z).r;
+        float h = a * b + 2.0 * iceD.x * (sqrt(max(d1 * d2, 0.0)) - 0.5);
         float lo = iceF.x - iceD.x, hi = iceF.y + iceD.x;
-        float t = clamp( ( h - lo ) / ( hi - lo ), 0.0, 1.0 ) / iceF.z;
-        vec3 g = mix( mix( low, middle, clamp( t, 0.0, 1.0 ) ), high, clamp( t - 1.0, 0.0, 1.0 ) );
-        if ( hasColorize > 0.5 ) g *= texture2D( colorizeMap, vMapUv ).rgb;
-        g = max( g, vec3( 0.0 ) );
-        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
+        float t = clamp((h - lo) / (hi - lo), 0.0, 1.0) / iceF.z;
+        vec3 albedo = mix(mix(low, middle, clamp(t, 0.0, 1.0)), high, clamp(t - 1.0, 0.0, 1.0));
+        if (hasColorize > 0.5) albedo *= texture2D(colorizeMap, vUv).rgb;
+        // its own wrapped diffuse, not the scattering: (1 - (1 - saturate(N.L))^2) x (N.L + 1) / 2, plus the ambient
+        float wrapped = (1.0 - pow(1.0 - clamp(NL, 0.0, 1.0), 2.0)) * (NL + 1.0) * 0.5;
+        // the shine: Blinn to the power IceSpecular.y, x IceSpecular.x, fading out as the height rises from .w to .z,
+        // tinted by GroundScattering1
+        float m = clamp((h - iceS.w) / (iceS.z - iceS.w), 0.0, 1.0);
+        float shine = iceS.x * (1.0 - m * m * (3.0 - 2.0 * m)) * pow(clamp(dot(N, normalize(L + V)), 0.0, 1.0), iceS.y);
+        g = albedo * (wrapped + ambient) + (hasScatter > 0.5 ? S1 : vec3(1.0)) * shine + S2;`);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;
