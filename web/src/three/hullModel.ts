@@ -14,6 +14,8 @@ export interface SofHull {
   hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[];
   /** The hull's "anchorpoint" locator, in EVE's model space (a hangar's: where its ship floats). */
   anchor?: number[] | null;
+  /** Its "maxCameraDistance" locator, in EVE's model space (a hangar's farthest camera, by its length). */
+  maxCameraDistance?: number[] | null;
   /** Its point lights (EveSOFDataHullLightSet items), in EVE's model space. */
   lights?: { position: number[]; radius: number | null; innerRadius: number | null; brightness: number; color: number[] | null }[];
 }
@@ -282,7 +284,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   const size = new THREE.Box3().setFromObject(lodNodes[0] ?? gltf.scene).getBoundingSphere(new THREE.Sphere()).radius || 50;
   const lod = new THREE.LOD();
   lodNodes.slice().forEach((node, i) => lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1)));
-  lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, lights: sof?.lights ?? [], boundingSphere: (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere ?? null };
+  lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, maxCameraDistance: sof?.maxCameraDistance ?? null, lights: sof?.lights ?? [], boundingSphere: (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere ?? null };
   const boosters = sof ? buildBoosters(sof) : null;
   if (!boosters) return lod;
   // The engines belong to the hull, not to one LOD: a holder carries both.

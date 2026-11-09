@@ -95,6 +95,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     boundingSphere: hull.boundingSphere ?? null,
     // The hull's "anchorpoint" locator (a hangar's: where its ship floats, DefaultHangarShipBehaviour.SetAnchorPoint).
     anchor: (hull.locatorSets ?? []).find((s) => String(s.name).trim() === "anchorpoint")?.locators?.[0]?.position ?? null,
+    // Its "maxCameraDistance" locator (a hangar's: hangarView.LoadCamera takes the farthest zoom from its length).
+    maxCameraDistance: (hull.locatorSets ?? []).find((s) => String(s.name).trim() === "maxCameraDistance")?.locators?.[0]?.position ?? null,
     // Its point lights (EveSOFDataHullLightSet items), each its colour from the faction's colour set.
     lights: (hull.lightSets ?? []).flatMap((set) => (set.items ?? []).map((it) => ({
       position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,

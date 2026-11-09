@@ -10,7 +10,8 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { typeModel, graphicModel, setThrust } from "../three/hullModel.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { loadDds } from "../three/ddsTexture.ts";
-import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, zoomLimits, entryAt, idleAt, bobAt } from "./hangarCamera.ts";
+import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
+import { pickDockSwing, type DockSwing } from "./hangarRegistry.ts";
 
 interface HangarScene { reflection: string | null; sunDiffuseColor: number[] | null; sunDirection: number[] | null; ambientColor: number[] | null }
 
@@ -34,6 +35,7 @@ export class HangarView {
   private stopped = false;
   /** The camera's zoom limits for the ship shown, and the ship's own measures for its bobbing. */
   private zoom = { near: 10, far: 2050 };
+  private swing: Swing = DEFAULT_SWING;
   private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
   /** The docking swing (seconds since it began) and the idle turn (from where the camera was), while they run. */
   private entryFrom: number | null = null;
@@ -76,7 +78,7 @@ export class HangarView {
   }
 
   /** Show a ship type in a hangar (its model and scene graphics, hangarRegistry; null for the dark bay), again only on a change. */
-  async show(typeID: number | null, hangarGraphics: { model: number; scene: number } | null = null): Promise<void> {
+  async show(typeID: number | null, hangarGraphics: { model: number; scene: number; swings?: readonly DockSwing[] } | null = null): Promise<void> {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
     if (typeID === this.shownType && hangarKey === this.shownHangar) return;
     this.shownType = typeID;
@@ -113,7 +115,9 @@ export class HangarView {
     const sphere = bs && bs.length >= 4
       ? { radius: bs[3]!, centre: Math.hypot(bs[0]!, bs[1]!, bs[2]!) }
       : { radius: measured.radius, centre: measured.center.distanceTo(model.position) };
-    this.zoom = zoomLimits(sphere.radius, sphere.centre);
+    const maxCam = (hangar?.userData as { maxCameraDistance?: number[] | null } | undefined)?.maxCameraDistance ?? null;
+    this.zoom = zoomLimits(sphere.radius, sphere.centre, maxCam ? Math.hypot(maxCam[0] ?? 0, maxCam[1] ?? 0, maxCam[2] ?? 0) : undefined);
+    this.swing = hangarGraphics?.swings?.length ? swingOf(pickDockSwing(hangarGraphics.swings)) : DEFAULT_SWING;
     this.controls.minDistance = this.zoom.near;
     this.controls.maxDistance = this.zoom.far;
     this.camera.near = Math.max(0.5, radius / 50);
@@ -127,7 +131,7 @@ export class HangarView {
     this.entryFrom = first ? performance.now() : null;
     this.idle = null;
     this.lastInput = performance.now();
-    this.place(entryAt(first ? 0 : 1, this.zoom.near, this.zoom.far));
+    this.place(entryAt(first ? 0 : 1, this.zoom.near, this.zoom.far, this.swing));
     this.lightHangar(look);
   }
   private shownBefore = false;
@@ -165,7 +169,7 @@ export class HangarView {
     }
     if (this.entryFrom !== null) {
       const t = Math.min(1, (now - this.entryFrom) / (ENTRY_SECONDS * 1000));
-      this.place(entryAt(t, this.zoom.near, this.zoom.far));
+      this.place(entryAt(t, this.zoom.near, this.zoom.far, this.swing));
       if (t >= 1) { this.entryFrom = null; this.lastInput = now; }
       return;
     }

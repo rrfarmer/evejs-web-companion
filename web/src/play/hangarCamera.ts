@@ -16,10 +16,14 @@ const FOV_MIN = 0.55;
 /** BaseCamera.default_fov and HangarCamera.HaAnimFov[0], in radians (vertical). */
 export const FOV = 1.0;
 const ENTRY_FOV = 0.7;
-/** HangarCamera.__init__: the entry animation's yaw, pitch and zoom (times GetInitialLookAtDistance). */
-const ENTRY_YAW: [number, number] = [14 * Math.PI / 8, 9 * Math.PI / 8];
-const ENTRY_PITCH: [number, number] = [7 * Math.PI / 16, MAX_PITCH];
-const ENTRY_ZOOM: [number, number] = [1.2, 2.0];
+/** HangarCamera.__init__ and the hangars' default dockCameraSettings: the swing's yaw, pitch, zoom (times
+ * GetInitialLookAtDistance) and starting fov. A hangar may give its own (hangarRegistry.pickDockSwing). */
+export interface Swing { yaw: readonly [number, number]; pitch: readonly [number, number]; zoom: readonly [number, number]; fov: number }
+export const DEFAULT_SWING: Swing = { yaw: [14 * Math.PI / 8, 9 * Math.PI / 8], pitch: [7 * Math.PI / 16, MAX_PITCH], zoom: [1.2, 2.0], fov: ENTRY_FOV };
+/** A dockCameraSettings row [weight, yaw0, yaw1, pitch0, pitch1, zoom0, zoom1, fov] as a swing. */
+export function swingOf(row: readonly number[]): Swing {
+  return { yaw: [row[1]!, row[2]!], pitch: [row[3]!, row[4]!], zoom: [row[5]!, row[6]!], fov: row[7]! };
+}
 /** hangarView's docking animation: five seconds (AnimEnterHangar's default duration). */
 export const ENTRY_SECONDS = 5;
 /** navigation._IdleThread: idleTimer 1e9 blue ticks (100 s) without input starts StartIdleAnimation. */
@@ -30,11 +34,14 @@ const IDLE_SETTLE_SECONDS = 16;
 const IDLE_PITCH = MAX_PITCH - Math.PI / 12;
 const IDLE_ZOOM = 0.65;
 
-/** UpdateMinMaxZoom: the nearest the camera comes (maxZoom) and the farthest (minZoom), in metres. */
-export function zoomLimits(radius: number, centreDistance: number): { near: number; far: number } {
+/**
+ * UpdateMinMaxZoom: the nearest the camera comes (maxZoom) and the farthest (minZoom), in metres; the farthest is the
+ * hangar's maxCameraDistance locator's length where it has one (hangarView.LoadCamera), else 2050.
+ */
+export function zoomLimits(radius: number, centreDistance: number, farthest = FARTHEST): { near: number; far: number } {
   let near = Math.max(NEAREST_FLOOR, 1.5 * (radius + centreDistance));
-  if (near >= FARTHEST) near = 0.999 * FARTHEST;
-  return { near, far: FARTHEST };
+  if (near >= farthest) near = 0.999 * farthest;
+  return { near, far: farthest };
 }
 
 /** GetZoomDistanceByZoomProportion. */
@@ -58,18 +65,19 @@ const smooth = (t: number) => t * t * (3 - 2 * t);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /** The camera at a moment of the entry animation (t in 0..1): yaw, pitch, distance and fov. */
-export function entryAt(t: number, near: number, far: number): { yaw: number; pitch: number; distance: number; fov: number } {
+export function entryAt(t: number, near: number, far: number, swing: Swing = DEFAULT_SWING): { yaw: number; pitch: number; distance: number; fov: number } {
   const dist = initialLookAt(near, far);
-  const p0 = proportionAt(ENTRY_ZOOM[0] * dist, near, far), p1 = Math.min(proportionAt(ENTRY_ZOOM[1] * dist, near, far), 1);
+  const p0 = proportionAt(swing.zoom[0] * dist, near, far), p1 = Math.min(proportionAt(swing.zoom[1] * dist, near, far), 1);
   // _AnimZoom: linear keys with the first key's tangent set to 0 (a Hermite from rest)
   const p = p0 + (p1 - p0) * (2 * t * t - t * t * t);
   // _AnimEnterHangarFOV: held at 0.7, then to the default over the last 45%
   const fovT = Math.max(0, (t - 0.55) / 0.45);
   return {
-    yaw: lerp(ENTRY_YAW[0], ENTRY_YAW[1], smooth(t)),
-    pitch: lerp(ENTRY_PITCH[0], ENTRY_PITCH[1], smooth(t)),
+    yaw: lerp(swing.yaw[0], swing.yaw[1], smooth(t)),
+    // SetPitch clamps to the camera's limits
+    pitch: Math.min(MAX_PITCH, Math.max(MIN_PITCH, lerp(swing.pitch[0], swing.pitch[1], smooth(t)))),
     distance: distanceAt(p, near, far),
-    fov: lerp(ENTRY_FOV, FOV, smooth(fovT)),
+    fov: lerp(swing.fov, FOV, smooth(fovT)),
   };
 }
 
