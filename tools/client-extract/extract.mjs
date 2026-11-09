@@ -4,7 +4,7 @@
 //   node tools/client-extract/extract.mjs [--client "<EVE folder>"] [--out <dir>]
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
-//        [--system-celestials <solarSystemID> ...] [--overview]
+//        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -15,7 +15,10 @@
 //                       textures (copied), faction materials, colour set, boosters
 //   typeGraphics.json   (--type-graphics, needs --sde) typeID -> hull, faction, race, model
 //   systemScenes.json   (--type-graphics too) solarSystemID -> region nebula, star
-//   typeNames.json      (--type-graphics too) typeID -> [name, groupID]; groupID -> [name, categoryID]
+//   typeNames.json      (--type-graphics too) typeID -> [name, groupID, raceID]; groupID -> [name, categoryID]
+//   graphics/<id>.json  (--graphic) a graphic that is no type's: a SOF hull (a station hangar's model, extracted as
+//                       --type extracts one, its .sof.json with its anchor point and point lights) or a hangar's
+//                       EveSpaceScene (its environment cube maps copied, its sun and ambient)
 //   brackets.json       (--type-graphics too) the client's bracket tables, from its own .static files
 //   config.json         the client and SDE folders used, so the dev server can extract on demand
 // and manifest.json at the build root.
@@ -30,6 +33,7 @@ import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelesti
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
+import { readBlack } from "./lib/black.mjs";
 import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.mjs";
 import { createRequire } from "node:module";
 
@@ -215,7 +219,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], scenes: [], celestials: [], systemCelestials: [], typeGraphics: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], systemCelestials: [], typeGraphics: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -225,6 +229,7 @@ function parseArgs(argv) {
     else if (a === "--overview") out.overview = true;
     else if (a === "--hull") out.hulls.push(argv[++i]);
     else if (a === "--type") out.types.push(Number(argv[++i]));
+    else if (a === "--graphic") out.graphics.push(Number(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
     else if (a === "--celestial") out.celestials.push(argv[++i]);
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
@@ -273,6 +278,55 @@ async function main() {
     const sofFile = extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot, tg.race);
     console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
   }
+  // --graphic: a SOF graphic that is no type's (a station hangar: hangarRegistry's hangarModelGraphicID), its hull and
+  // faction from the SDE's graphics, its model found by the hull's name in the client's index; graphics/<id>.json.
+  if (args.graphics.length) {
+    const sdeDir = args.sde ?? old.sde ?? null;
+    if (!sdeDir) throw new Error("--graphic needs the SDE (--sde, or a config.json that names it)");
+    const wanted = new Set(args.graphics);
+    const found = new Map();
+    for (const line of fs.readFileSync(path.join(sdeDir, "graphics.jsonl"), "utf8").split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const g = JSON.parse(line);
+      if (wanted.has(g._key)) found.set(g._key, g);
+    }
+    for (const graphicID of args.graphics) {
+      const g = found.get(graphicID);
+      const file = path.join(outRoot, "graphics", `${graphicID}.json`);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      // A scene graphic (a hangar's: hangarRegistry's sceneGraphicID): its EveSpaceScene's environment cube maps, sun
+      // and ambient, as the hangar is lit by them.
+      if (g?.graphicFile && /_scene\.(red|black)$/i.test(g.graphicFile)) {
+        const black = g.graphicFile.toLowerCase().replace(/\.red$/, ".black");
+        const s = readBlack(rf.read(black), black);
+        const copy = (res) => {
+          if (!res) return null;
+          const key = res.toLowerCase();
+          if (!rf.has(key)) return null;
+          const out = path.join(outRoot, ...key.slice("res:/".length).split("/"));
+          fs.mkdirSync(path.dirname(out), { recursive: true });
+          if (!fs.existsSync(out)) fs.writeFileSync(out, rf.read(key));
+          return "/client-assets/" + key.slice("res:/".length);
+        };
+        fs.writeFileSync(file, JSON.stringify({ graphicID, scene: {
+          reflection: copy(s.envMapResPath), envMap1: copy(s.envMap1ResPath), blur: copy(s.envMap2ResPath),
+          sunDiffuseColor: s.sunDiffuseColor ?? null, sunDirection: s.sunDirection ?? null, ambientColor: s.ambientColor ?? null,
+        } }));
+        console.log(`graphic ${graphicID}: scene ${g.graphicFile}`);
+        continue;
+      }
+      if (!g?.sofHullName) throw new Error(`--graphic ${graphicID}: not a SOF hull or scene graphic`);
+      const hull = g.sofHullName.toLowerCase();
+      let gr2 = null;
+      for (const [key] of rf.entries) if (key.endsWith(`/${hull}.gr2`) && key.startsWith("res:/dx9/model/")) { gr2 = key; break; }
+      if (!gr2) throw new Error(`--graphic ${graphicID}: no model ${hull}.gr2 in the client`);
+      const stem = gr2.slice("res:/".length, -".gr2".length);
+      if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(gr2);
+      extractSof(rf, gr2, g.sofHullName, g.sofFactionName ?? null, outRoot, g.sofRaceName ?? null);
+      fs.writeFileSync(file, JSON.stringify({ graphicID, hull: g.sofHullName, faction: g.sofFactionName ?? null, race: g.sofRaceName ?? null, gr2 }));
+      console.log(`graphic ${graphicID}: ${g.sofHullName} as ${g.sofFactionName ?? "none"}`);
+    }
+  }
   const done = [];
   for (const spec of specs) {
     const res = hullPath(rf, spec);
@@ -293,7 +347,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.celestials.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

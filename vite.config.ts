@@ -129,6 +129,27 @@ function clientAssets(): Plugin {
             return res.end(JSON.stringify({ error: (e as Error).message }));
           }
         }
+        // /client-assets/graphic/<graphicID>: a SOF graphic that is no type's (a station hangar), as /type/ answers.
+        const graphicAsk = /^\/graphic\/(\d+)$/.exec(rel);
+        if (graphicAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const infoFile = path.join(buildDir, "graphics", `${graphicAsk[1]}.json`);
+            if (!fs.existsSync(infoFile)) await extractOnce(`graphic:${graphicAsk[1]}`, buildDir, ["--graphic", graphicAsk[1]!]);
+            const g = JSON.parse(fs.readFileSync(infoFile, "utf8"));
+            res.setHeader("content-type", "application/json");
+            if (g.scene) return res.end(JSON.stringify(g));
+            const stem = String(g.gr2).slice("res:/".length, -".gr2".length);
+            const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
+            const sofName = `${stem}.${String(g.faction ?? "none").toLowerCase()}.sof.json`;
+            const sof = fs.existsSync(path.join(buildDir, sofName)) ? `/client-assets/${sofName}` : null;
+            res.setHeader("content-type", "application/json");
+            return res.end(JSON.stringify({ graphicID: g.graphicID, model: `/client-assets/${stem}.glb`, sof, textures: info.textures, lods: info.lods.length, hull: g.hull, faction: g.faction, race: g.race }));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const typeAsk = /^\/type\/(\d+)$/.exec(rel);
         if (typeAsk) {
           try {

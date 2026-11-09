@@ -33,10 +33,13 @@ export async function buildSystemScenes(sdeDir) {
   return out;
 }
 
-/** { types: { typeID: [name, groupID] }, groups: { groupID: [name, categoryID] } }: English names, for the overview. */
+/**
+ * { types: { typeID: [name, groupID, raceID] }, groups: { groupID: [name, categoryID] } }: English names, for the
+ * overview; the race for what the client picks by it (hangarRegistry.GetHangarType: evetypes.GetRaceID).
+ */
 export async function buildTypeNames(sdeDir) {
   const types = {}, groups = {};
-  for await (const t of jsonl(path.join(sdeDir, "types.jsonl"))) types[t._key] = [t.name?.en ?? null, t.groupID ?? null];
+  for await (const t of jsonl(path.join(sdeDir, "types.jsonl"))) types[t._key] = [t.name?.en ?? null, t.groupID ?? null, t.raceID ?? null];
   for await (const g of jsonl(path.join(sdeDir, "groups.jsonl"))) groups[g._key] = [g.name?.en ?? null, g.categoryID ?? null];
   return { types, groups };
 }

@@ -24,6 +24,8 @@
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
+  import { typeNames as typeData } from "../play/overview.ts";
+  import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
   import { Neocom } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
@@ -185,9 +187,17 @@
     (window as unknown as { __hangar: unknown }).__hangar = hangar;
     const stop = $effect.root(() => {
       // the ship flown: the flight's word of it, else the character's row (the flight is not read while docked)
+      // in the station's hangar (hangarRegistry: by the station's race, its type's from the client's type data)
       $effect(() => {
         const row = ($characters?.characters ?? []).find((c) => c.characterID === chosenCharacterID);
-        void hangar.show($flight?.status?.shipTypeID ?? row?.shipTypeID ?? null);
+        const shipTypeID = $flight?.status?.shipTypeID ?? row?.shipTypeID ?? null;
+        const st = $station?.station ?? null;
+        void typeData().then((names) => {
+          const t = st?.stationTypeID != null ? names?.types[String(st.stationTypeID)] : undefined;
+          const raceID = (t as unknown as (number | null)[] | undefined)?.[2] ?? null;
+          const categoryID = t?.[1] != null ? names?.groups[String(t[1])]?.[1] ?? null : null;
+          return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null);
+        });
       });
     });
     return () => { stop(); hangar.dispose(); };

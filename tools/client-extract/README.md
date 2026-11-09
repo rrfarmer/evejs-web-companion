@@ -28,6 +28,10 @@ node tools/client-extract/extract.mjs --client "C:\path\to\EVE Online" --hull cb
   and its own height maps (`NormalHeight1`, `NormalHeight2`), from the SDE's `mapPlanets` and
   `mapMoons` (the SDE folder from `--sde` or from `config.json`).
 
+- `--graphic <graphicID>` writes `graphics/<graphicID>.json` for a graphic that is no type's: a SOF hull
+  (a station hangar's model, `hangarRegistry.py` hangarModelGraphicID: the model, its SOF build with the
+  hull's `anchorpoint` locator and its point lights) or a hangar's scene (sceneGraphicID: its EveSpaceScene's
+  environment cube maps, sun and ambient). The dev server makes them on demand at `/client-assets/graphic/<id>`.
 - `--overview` writes `overviewPresets.json`: the client's default overview presets (each preset's
   groups, from `res:/staticdata/defaultoverviews.fsdbinary`, decoded by `lib/defaultOverviews.mjs`) and
   its first tabs (General, Mining, WarpTo), named in the client's English from its localization file.

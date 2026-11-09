@@ -8,6 +8,14 @@
 
 import { readBlack } from "./black.mjs";
 
+/**
+ * EveSOFDataFactionColorSet's colour types by index, as a light set item names its colour (lightColor). Inferred from
+ * use, not read from trinity: the hangars' light sets name 18 to 21 (the four Light colours, with Black at 3), and the
+ * rest they name (4, 6, 7) are White, Orange and Red.
+ */
+export const COLOR_TYPES = ["Primary", "Secondary", "Tertiary", "Black", "White", "Yellow", "Orange", "Red", "Blue", "Green", "Cyan", "Fire",
+  "Hull", "Glass", "Reactor", "Darkhull", "Booster", "Killmark", "PrimaryLight", "SecondaryLight", "TertiaryLight", "WhiteLight"];
+
 export const AREA_TYPES = ["Primary", "Glass", "Sails", "Reactor", "Darkhull", "Wreck", "Rock", "Monument", "Ornament", "SimplePrimary"];
 
 const cache = new WeakMap();
@@ -85,5 +93,12 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     colorSet,
     boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null })),
     boundingSphere: hull.boundingSphere ?? null,
+    // The hull's "anchorpoint" locator (a hangar's: where its ship floats, DefaultHangarShipBehaviour.SetAnchorPoint).
+    anchor: (hull.locatorSets ?? []).find((s) => String(s.name).trim() === "anchorpoint")?.locators?.[0]?.position ?? null,
+    // Its point lights (EveSOFDataHullLightSet items), each its colour from the faction's colour set.
+    lights: (hull.lightSets ?? []).flatMap((set) => (set.items ?? []).map((it) => ({
+      position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,
+      color: (colorSet && colorSet[COLOR_TYPES[it.lightColor ?? 0]]) ?? null,
+    }))),
   };
 }

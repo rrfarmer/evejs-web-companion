@@ -1,11 +1,19 @@
-// The hangar while docked: the pilot's ship, turning slowly in the dark under a few lights, as the client shows the
-// active ship in its hangar (our own drawing: the client's hangar interiors are not drawn). The model is the play
-// view's own (hullModel.typeModel); the pilot can turn and zoom the camera.
+// The hangar while docked: the pilot's ship in its station's hangar, as the client shows the active ship docked (the
+// hangar's model is the SOF hull hangarRegistry names, drawn by the play view's own hull pipeline, with the nearest of
+// its point lights); where no hangar is drawn, the ship turns in a dark bay under a few lights. The pilot can turn and
+// zoom the camera.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { typeModel, setThrust } from "../three/hullModel.ts";
+import { typeModel, graphicModel, setThrust } from "../three/hullModel.ts";
+import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
+import { loadDds } from "../three/ddsTexture.ts";
+
+interface HangarScene { reflection: string | null; sunDiffuseColor: number[] | null; sunDirection: number[] | null; ambientColor: number[] | null }
+
+/** How many of a hangar's point lights are lit (the nearest to the ship): three's forward renderer pays for each. */
+const HANGAR_LIGHTS = 24;
 
 export class HangarView {
   readonly root = document.createElement("div");
@@ -15,6 +23,12 @@ export class HangarView {
   private readonly controls: OrbitControls;
   private readonly turntable = new THREE.Group();
   private shownType: number | null = null;
+  private shownHangar: string | null = null;
+  private readonly studioEnvironment: THREE.Texture | null;
+  private readonly sun = new THREE.DirectionalLight(0xffffff, 0);
+  private hangar: THREE.Object3D | null = null;
+  private readonly hangarLights = new THREE.Group();
+  private readonly studio: THREE.Light[] = [];
   private stopped = false;
   private readonly onResize = () => this.resize();
 
@@ -26,7 +40,7 @@ export class HangarView {
     this.root.appendChild(this.renderer.domElement);
     // a dark bay: a faint studio reflection, a warm key, a cool rim, and a dim fill from below
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environment = this.studioEnvironment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.25;
     this.scene.background = new THREE.Color(0x07090b);
     const key = new THREE.DirectionalLight(0xfff1dc, 2.6);
@@ -35,7 +49,8 @@ export class HangarView {
     rim.position.set(1, 0.4, -1);
     const fill = new THREE.DirectionalLight(0x445566, 0.5);
     fill.position.set(0, -1, 0.3);
-    this.scene.add(key, rim, fill, this.turntable);
+    this.studio.push(key, rim, fill);
+    this.scene.add(key, rim, fill, this.sun, this.turntable, this.hangarLights);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enablePan = false;
     this.controls.enableDamping = true;
@@ -46,25 +61,93 @@ export class HangarView {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
-  /** Show a ship type (again only when it changes). */
-  async show(typeID: number | null): Promise<void> {
-    if (typeID === this.shownType) return;
+  /** Show a ship type in a hangar (its model and scene graphics, hangarRegistry; null for the dark bay), again only on a change. */
+  async show(typeID: number | null, hangarGraphics: { model: number; scene: number } | null = null): Promise<void> {
+    const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
+    if (typeID === this.shownType && hangarKey === this.shownHangar) return;
     this.shownType = typeID;
+    this.shownHangar = hangarKey;
     this.turntable.clear();
     if (!typeID) return;
-    const model = await typeModel(typeID).catch(() => null);
-    if (!model || this.stopped || this.shownType !== typeID) return;
+    const [model, hangar, scene] = await Promise.all([
+      typeModel(typeID).catch(() => null),
+      hangarGraphics ? graphicModel(hangarGraphics.model).catch(() => null) : Promise.resolve(null),
+      hangarGraphics ? fetch(`/client-assets/graphic/${hangarGraphics.scene}`).then((r) => r.json()).then((g: { scene?: HangarScene }) => g.scene ?? null).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (!model || this.stopped || this.shownType !== typeID || this.shownHangar !== hangarKey) return;
     // in the hangar the engines are at rest
     setThrust(model, 0);
+    this.setHangar(hangar);
+    await this.setScene(hangar ? scene : null);
+    // DefaultHangarShipBehaviour.PlaceShip: turned half round about y, its bounding box's bottom on the hangar's anchor
+    // point (SHIP_FLOATING_HEIGHT up where the hangar has none), moved by half its bounding sphere's centre.
+    model.rotation.y = Math.PI;
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    const centre = box.getCenter(new THREE.Vector3());
+    const a = (hangar?.userData as { anchor?: number[] | null } | undefined)?.anchor ?? null;
+    const anchor = hangar ? new THREE.Vector3(a?.[0] ?? 0, a?.[1] ?? SHIP_FLOATING_HEIGHT, -(a?.[2] ?? 0)) : new THREE.Vector3();
+    model.position.copy(anchor).add(new THREE.Vector3(0, hangar ? -box.min.y : 0, 0)).addScaledVector(centre, 0.5);
     this.turntable.add(model);
     const radius = (model.userData as { radius?: number }).radius ?? 50;
-    this.controls.target.set(0, 0, 0);
-    this.camera.position.set(-0.9, 0.35, 1.1).normalize().multiplyScalar(radius * 3.2);
+    const look = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
+    this.controls.target.copy(look);
+    this.camera.position.copy(look).add(new THREE.Vector3(-0.9, 0.35, 1.1).normalize().multiplyScalar(radius * 3.2));
     this.camera.near = radius / 50;
-    this.camera.far = radius * 400;
+    this.camera.far = hangar ? 1e5 : radius * 400;
     this.camera.updateProjectionMatrix();
     this.controls.minDistance = radius * 1.4;
     this.controls.maxDistance = radius * 12;
+    this.lightHangar(look);
+  }
+
+  /** The hangar's model in place of the last, and the studio lights dimmed where there is one. */
+  private setHangar(hangar: THREE.Object3D | null): void {
+    if (this.hangar) this.scene.remove(this.hangar);
+    this.hangar = hangar;
+    if (hangar) this.scene.add(hangar);
+    for (const l of this.studio) l.intensity = (l.userData.full ??= l.intensity) * (hangar ? 0.35 : 1);
+    this.scene.background = new THREE.Color(hangar ? 0x000000 : 0x07090b);
+  }
+
+  /**
+   * The hangar's EveSpaceScene: its reflection cube for what the hulls reflect (as the space view takes a nebula's,
+   * a half turn about y), its sun as the key light (sunDiffuseColor along sunDirection), no ambient (ambientColor is
+   * black in the race hangars). Without one, the dark bay's studio light.
+   */
+  private async setScene(scene: HangarScene | null): Promise<void> {
+    this.sun.intensity = 0;
+    if (!scene) { this.scene.environment = this.studioEnvironment; this.scene.environmentIntensity = 0.25; return; }
+    if (scene.reflection) {
+      try {
+        this.scene.environment = await loadDds(scene.reflection);
+        this.scene.environmentRotation.set(0, Math.PI, 0);
+        this.scene.environmentIntensity = 1;
+      } catch { /* a cube this GPU cannot take: the studio one stays */ }
+    }
+    for (const l of this.studio) l.intensity = 0;
+    const c = scene.sunDiffuseColor ?? [1, 1, 1, 1];
+    const d = scene.sunDirection ?? [1, -1, 1];
+    this.sun.color.setRGB(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1);
+    this.sun.intensity = 3;
+    // light comes along sunDirection: the light sits against it (EVE z mirrored)
+    this.sun.position.set(-(d[0] ?? 0), -(d[1] ?? -1), d[2] ?? 0).normalize();
+  }
+
+  /** The hangar's point lights nearest the ship lit (EveSOFDataHullLightSet: colour, brightness, radius). */
+  private lightHangar(near: THREE.Vector3): void {
+    this.hangarLights.clear();
+    const lights = ((this.hangar?.userData as { lights?: { position: number[]; radius: number | null; brightness: number; color: number[] | null }[] } | undefined)?.lights ?? [])
+      .map((l) => ({ l, at: new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, -(l.position[2] ?? 0)) }))
+      .sort((x, y) => x.at.distanceTo(near) - y.at.distanceTo(near))
+      .slice(0, HANGAR_LIGHTS);
+    for (const { l, at } of lights) {
+      const c = l.color ?? [1, 1, 1, 1];
+      // a light of the radius it is given, falling off to nothing at its edge (not by the inverse square)
+      const light = new THREE.PointLight(new THREE.Color(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1), l.brightness * 2, l.radius ?? 300, 0);
+      light.position.copy(at);
+      this.hangarLights.add(light);
+    }
   }
 
   private resize(): void {

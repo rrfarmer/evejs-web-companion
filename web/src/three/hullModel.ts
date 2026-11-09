@@ -10,7 +10,13 @@ import { loadDds } from "./ddsTexture.ts";
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
 export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[] }
 export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null }
-export interface SofHull { hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[] }
+export interface SofHull {
+  hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[];
+  /** The hull's "anchorpoint" locator, in EVE's model space (a hangar's: where its ship floats). */
+  anchor?: number[] | null;
+  /** Its point lights (EveSOFDataHullLightSet items), in EVE's model space. */
+  lights?: { position: number[]; radius: number | null; innerRadius: number | null; brightness: number; color: number[] | null }[];
+}
 
 /** A soft round spot, for engine glows. */
 let glowTexture: THREE.Texture | null = null;
@@ -220,8 +226,20 @@ export async function typeModel(typeID: number): Promise<THREE.Object3D | null> 
   return proto ? proto.clone(true) : null;
 }
 
+/** A fresh instance of a SOF graphic's model that is no type's (a station hangar), or null when it has none. */
+export async function graphicModel(graphicID: number): Promise<THREE.Object3D | null> {
+  if (!byGraphic.has(graphicID)) byGraphic.set(graphicID, fetch(`/client-assets/graphic/${graphicID}`).then((r) => r.json()).then((info: TypeModelInfo) => loadModel(info, null)));
+  const proto = await byGraphic.get(graphicID)!;
+  return proto ? proto.clone(true) : null;
+}
+const byGraphic = new Map<number, Promise<THREE.Object3D | null>>();
+
 async function loadType(typeID: number): Promise<THREE.Object3D | null> {
   const info = (await (await fetch(`/client-assets/type/${typeID}`)).json()) as TypeModelInfo;
+  return loadModel(info, typeID);
+}
+
+async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<THREE.Object3D | null> {
   if (!info.model) return null;
   const gltf = await loader.loadAsync(info.model);
   const dir = info.model.slice(0, info.model.lastIndexOf("/") + 1);
@@ -264,7 +282,7 @@ async function loadType(typeID: number): Promise<THREE.Object3D | null> {
   const size = new THREE.Box3().setFromObject(lodNodes[0] ?? gltf.scene).getBoundingSphere(new THREE.Sphere()).radius || 50;
   const lod = new THREE.LOD();
   lodNodes.slice().forEach((node, i) => lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1)));
-  lod.userData = { typeID, radius: size, hull: info.hull ?? null };
+  lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, lights: sof?.lights ?? [] };
   const boosters = sof ? buildBoosters(sof) : null;
   if (!boosters) return lod;
   // The engines belong to the hull, not to one LOD: a holder carries both.
