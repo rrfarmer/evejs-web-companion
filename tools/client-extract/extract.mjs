@@ -4,7 +4,7 @@
 //   node tools/client-extract/extract.mjs [--client "<EVE folder>"] [--out <dir>]
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
-//        [--system-celestials <solarSystemID> ...]
+//        [--system-celestials <solarSystemID> ...] [--overview]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -30,6 +30,8 @@ import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelesti
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
+import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.mjs";
+import { createRequire } from "node:module";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 export const REPO = path.resolve(HERE, "..", "..");
@@ -156,6 +158,23 @@ export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot
   return file;
 }
 
+/**
+ * The overview's default presets and its first tabs (lib/defaultOverviews.mjs), each preset's name in the client's
+ * English (its overviewNameID through the client's localization file, read by src/clientData/clientWords.js), written
+ * as overviewPresets.json: { tabs: [{ name, preset }], presets: { shortName: { name, groups } } }.
+ */
+export function extractOverviewPresets(rf, clientDir, outRoot) {
+  const presets = readDefaultOverviews(rf.read("res:/staticdata/defaultoverviews.fsdbinary"));
+  const { createClientWords } = createRequire(import.meta.url)("../../src/clientData/clientWords.js");
+  const words = createClientWords({ clientRoot: clientDir });
+  const byShort = {};
+  for (const p of presets) byShort[p.shortName] = { name: words.message(p.nameID) ?? p.shortName, nameID: p.nameID, groups: p.groups };
+  const tabs = DEFAULT_TAB_NAMES.filter((n) => byShort[n]).map((n) => ({ name: byShort[n].name, preset: n }));
+  const file = path.join(outRoot, "overviewPresets.json");
+  fs.writeFileSync(file, JSON.stringify({ tabs, presets: byShort }));
+  return file;
+}
+
 /** One model: every LOD to .glb, its own texture set copied beside it, and what was done in .json. */
 export async function extractHull(rf, res, outRoot) {
   const g = await readGranny(rf.read(res), res);
@@ -203,6 +222,7 @@ function parseArgs(argv) {
     else if (a === "--out") out.out = argv[++i];
     else if (a === "--sde") out.sde = argv[++i];
     else if (a === "--type-graphics") out.typeGraphics = true;
+    else if (a === "--overview") out.overview = true;
     else if (a === "--hull") out.hulls.push(argv[++i]);
     else if (a === "--type") out.types.push(Number(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
@@ -269,7 +289,11 @@ async function main() {
     const file = await extractSystemCelestials(rf, sde, systemID, outRoot);
     console.log(`system ${systemID} -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.scenes.length && !args.types.length && !args.celestials.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (args.overview) {
+    const file = extractOverviewPresets(rf, client, outRoot);
+    console.log(`overview presets -> ${path.relative(outRoot, file)}`);
+  }
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.celestials.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

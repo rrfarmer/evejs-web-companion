@@ -28,6 +28,10 @@ node tools/client-extract/extract.mjs --client "C:\path\to\EVE Online" --hull cb
   and its own height maps (`NormalHeight1`, `NormalHeight2`), from the SDE's `mapPlanets` and
   `mapMoons` (the SDE folder from `--sde` or from `config.json`).
 
+- `--overview` writes `overviewPresets.json`: the client's default overview presets (each preset's
+  groups, from `res:/staticdata/defaultoverviews.fsdbinary`, decoded by `lib/defaultOverviews.mjs`) and
+  its first tabs (General, Mining, WarpTo), named in the client's English from its localization file.
+
 The Vite dev server serves the newest build's folder at `/client-assets`, or the one
 `EVE_CLIENT_BUILD` names, and extracts what a page asks for on first ask (a type's model, a
 system's scene and celestials). `web/hull-viewer.html?type=588` draws a type as the play view does,

@@ -356,19 +356,29 @@ export class SpaceView {
     this.renderSelected();
   }
 
-/** The Selected Item window's actions, as the client offers them for a thing of each kind, with its own icons. */
+/**
+   * The Selected Item window's actions in the client's order (inflight/selectedItemWnd.py GetActions,
+   * selectedItemConst.ACTIONS_ALWAYS_VISIBLE read from the compiled module: the decompiled source prints its places):
+   * Approach, or Align To for a thing far enough to warp to; Warp To Within; the thing's own (Dock for a station,
+   * Jump for a stargate); then always Orbit, Keep at Range, Lock or Unlock, Look At and Show Info. Set as Camera
+   * Interest is not drawn yet.
+   */
   private actionsFor(e: Entity): { key: string; title: string; icon: string; run: () => Promise<void> }[] {
     const id = e.itemID;
     const icon = (name: string) => clientTexture(`res:/UI/Texture/eveicon/control_icons/${name}_32px.png`);
+    const far = this.distanceTo(e) >= 150_000;
     const out = [
-      { key: "approach", title: "Approach", icon: icon("approach"), run: () => this.actions.approach(id) },
-      { key: "align", title: "Align To", icon: icon("align_to"), run: () => this.actions.alignTo(id) },
+      far
+        ? { key: "align", title: "Align To", icon: icon("align_to"), run: () => this.actions.alignTo(id) }
+        : { key: "approach", title: "Approach", icon: icon("approach"), run: () => this.actions.approach(id) },
       { key: "warp", title: "Warp To Within 0 m", icon: icon("warp_to"), run: () => this.actions.warpTo(id) },
-      { key: "orbit", title: "Orbit", icon: icon("orbit"), run: () => this.actions.orbit(id) },
-      { key: "keep", title: "Keep at Range", icon: icon("keep_at_distance"), run: () => this.actions.keepAtRange(id) },
     ];
     if (e.kind === "station" || e.kind === "structure") out.push({ key: "dock", title: "Dock", icon: icon("dock"), run: () => this.actions.dock(id) });
     if (e.kind === "stargate") out.push({ key: "jump", title: "Jump", icon: icon("jump_to"), run: () => this.actions.jump(id) });
+    out.push(
+      { key: "orbit", title: "Orbit", icon: icon("orbit"), run: () => this.actions.orbit(id) },
+      { key: "keep", title: "Keep at Range", icon: icon("keep_at_distance"), run: () => this.actions.keepAtRange(id) },
+    );
     const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
     if (lockable) {
       out.push(this.locked.has(id)
@@ -376,6 +386,8 @@ export class SpaceView {
         : { key: "lock", title: "Lock Target", icon: icon("target"), run: () => this.lockTracked(id) });
     }
     out.push({ key: "look", title: "Look At", icon: icon("look_at"), run: async () => { this.lookAt = id; } });
+    const showInfo = this.options.showInfo;
+    if (showInfo) out.push({ key: "info", title: "Show Info", icon: icon("show_info"), run: async () => showInfo(id, e.typeID ?? null) });
     return out;
   }
 
@@ -385,7 +397,7 @@ export class SpaceView {
     this.selectedEl.style.display = "";
     const body = this.selectedWin.body;
     const dist = this.distanceTo(e);
-    const sig = `${e.itemID}:${this.locked.has(e.itemID)}`;
+    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       body.innerHTML = `<div class="si-name"></div><div class="si-dist"></div><div class="si-actions"></div>`;
