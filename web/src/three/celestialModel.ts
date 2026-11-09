@@ -65,14 +65,101 @@ export async function celestialModel(typeID: number, kind: string, radius: numbe
   const surface = await celestialSurface(typeID, kind, radius, item, itemID);
   if (!surface || kind === "sun") return surface;
   const c = (item?.celestial ? await celestialAt(item.celestial) : null) ?? await celestialOf(typeID);
-  if (!c || !c.effects.some((e) => /\/earthlikeclouds\.fx$/i.test(e)) || !c.textures.CloudsTexture) return surface;
-  const shell = await cloudShell(c, radius).catch(() => null);
-  if (!shell) return surface;
+  if (!c) return surface;
+  const shells: THREE.Object3D[] = [];
+  if (c.effects.some((e) => /\/earthlikeclouds\.fx$/i.test(e)) && c.textures.CloudsTexture) {
+    const clouds = await cloudShell(c, radius).catch(() => null);
+    if (clouds) shells.push(clouds);
+  }
+  if (c.effects.some((e) => /\/atmosphere\.fx$/i.test(e)) && c.params.AtmosphereFactors && c.params.ScatteringFactors) shells.push(atmosphereShell(c, radius));
+  if (!shells.length) return surface;
   const group = new THREE.Group();
   group.name = "celestial";
   surface.name = "surface";
-  group.add(surface, shell);
+  group.add(surface, ...shells);
   return group;
+}
+
+/**
+ * The atmosphere (atmosphere.fx, its sm_hi shaders): O'Neil's sky seen from space (GPU Gems 2, "Accurate Atmospheric
+ * Scattering"), as the client's vertex shader does it: an outer sphere of AtmosphereFactors.x times the planet's
+ * radius, scale depth 0.25, two samples along the eye's ray through it, the scale function
+ * 0.25 exp(-0.00287 + x(0.459 + x(3.83 + x(-6.80 + x 5.25)))); Rayleigh 1/wavelength^4 (wavelengthsMicroMeters, read in
+ * reverse, z y x) x Kr x ESun and Mie Km x ESun (ScatteringFactors x, y, z), both times AtmosphereFactors.y x
+ * AtmosphereColor; its pixel shader's Mie phase with g = -0.995; the sum clamped to 1, a gamma colour taken to linear,
+ * added over what is behind. The client draws it on a disc turned to the eye; here per pixel on the outer sphere, in
+ * units of the planet's radius.
+ */
+function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
+  const af = c.params.AtmosphereFactors ?? [1.015, 0.05, 0, 0];
+  const sf = c.params.ScatteringFactors ?? [0.005, 0.002, 20, 0];
+  const wl = c.params.wavelengthsMicroMeters ?? [0.475, 0.57, 0.65, 1];
+  const ac = c.params.AtmosphereColor ?? [1, 1, 1, 1];
+  const outer = Math.max(1.0001, af[0] ?? 1.015);
+  const kr = sf[0] ?? 0.005, km = sf[1] ?? 0.002, eSun = sf[2] ?? 20;
+  const scale = 1 / (outer - 1);
+  const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
+  const uniforms = {
+    camL: { value: new THREE.Vector3(0, 0, 10) }, centre: { value: new THREE.Vector3() }, unit: { value: radius },
+    sunDir: { value: sunDir },
+    invW: { value: new THREE.Vector3(1 / (wl[2] ?? 0.65) ** 4, 1 / (wl[1] ?? 0.57) ** 4, 1 / (wl[0] ?? 0.475) ** 4) },
+    outerR: { value: outer }, krESun: { value: kr * eSun }, kmESun: { value: km * eSun }, kr4PI: { value: kr * 4 * Math.PI }, km4PI: { value: km * 4 * Math.PI },
+    scaleF: { value: scale }, scaleOverDepth: { value: scale / 0.25 },
+    tint: { value: new THREE.Vector3(ac[0] ?? 1, ac[1] ?? 1, ac[2] ?? 1).multiplyScalar(af[1] ?? 0.05) },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `uniform vec3 centre; uniform float unit; varying vec3 vL;
+      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vL = (w.xyz - centre) / unit; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform vec3 camL; uniform vec3 sunDir; uniform vec3 invW; uniform float outerR; uniform float krESun; uniform float kmESun;
+      uniform float kr4PI; uniform float km4PI; uniform float scaleF; uniform float scaleOverDepth; uniform vec3 tint; varying vec3 vL;
+      float sc(float c) { float x = 1.0 - c; return 0.25 * exp(-0.00287 + x * (0.459 + x * (3.83 + x * (-6.80 + x * 5.25)))); }
+      void main() {
+        vec3 ray = vL - camL; float far = length(ray); ray /= far;
+        float camH = length(camL);
+        float B = 2.0 * dot(camL, ray), C = camH * camH - outerR * outerR;
+        float near = 0.5 * (-B - sqrt(max(0.0, B * B - 4.0 * C)));
+        vec3 start = camL + ray * near; far -= near;
+        float startOffset = exp(-4.0) * sc(dot(ray, start) / outerR);
+        float sampleLength = far * 0.5; float scaled = sampleLength * scaleF;
+        vec3 step = ray * sampleLength; vec3 q = start + step * 0.5; vec3 front = vec3(0.0);
+        for (int i = 0; i < 2; i++) {
+          float h = length(q); float depth = exp(scaleOverDepth * (1.0 - h));
+          float scatter = startOffset + depth * (sc(dot(sunDir, q) / h) - sc(dot(ray, q) / h));
+          front += exp(-scatter * (invW * kr4PI + km4PI)) * depth * scaled;
+          q += step;
+        }
+        vec3 rayleigh = front * invW * krESun * tint, mie = front * kmESun * tint;
+        float cosA = dot(sunDir, -ray);
+        float phase = 0.005004 * (1.0 + cosA * cosA) / pow(1.990025 + 1.99 * cosA, 1.5);
+        vec3 c = min(rayleigh + phase * mie, vec3(1.0));
+        c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const centre = new THREE.Vector3(), camW = new THREE.Vector3();
+  let lightOf: THREE.DirectionalLight | null = null;
+  mat.onBeforeRender = (_r, scene, camera, _g, object) => {
+    object.matrixWorld.decompose(centre, new THREE.Quaternion(), camW);
+    const unit = radius * Math.max(camW.x, camW.y, camW.z);
+    centre.setFromMatrixPosition(object.matrixWorld);
+    uniforms.centre.value.copy(centre);
+    uniforms.unit.value = unit;
+    camW.setFromMatrixPosition(camera.matrixWorld);
+    uniforms.camL.value.copy(camW).sub(centre).divideScalar(unit);
+    if (!lightOf || !lightOf.parent) {
+      lightOf = null;
+      scene.traverse((o) => { if (!lightOf && (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).intensity > 0) lightOf = o as THREE.DirectionalLight; });
+    }
+    if (lightOf) sunDir.copy(lightOf.position).sub(lightOf.target.position).normalize();
+  };
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius * outer, 96, 64), mat);
+  m.name = "atmosphere";
+  m.renderOrder = 2;
+  return m;
 }
 
 /**
