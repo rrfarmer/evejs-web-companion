@@ -52,8 +52,6 @@ function texture(url: string, colour = false): Promise<THREE.Texture | null> {
   return textures.get(url)!;
 }
 
-/** How much of the nebula's light a planet takes: the sun lights planets; the nebula's ambient is faint on them. */
-const PLANET_AMBIENT = 0.25;
 
 const isGasGiant = (c: Celestial) => c.effects.some((e) => /\/gasgiant\.fx$/i.test(e));
 
@@ -230,17 +228,6 @@ async function celestialSurface(typeID: number, kind: string, radius: number, it
   return m;
 }
 
-/** The rim of light at a planet's edge, in its atmosphere's colour. */
-function withRim(mat: THREE.MeshStandardMaterial, rim: THREE.Color, more: (fs: string) => string = (fs) => fs, uniforms: Record<string, { value: unknown }> = {}): void {
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms, { rimColour: { value: rim } });
-    shader.fragmentShader = more(`uniform vec3 rimColour;
-${shader.fragmentShader}`)
-      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-        float rimF = pow( 1.0 - clamp( dot( normalize( vNormal ), normalize( vViewPosition ) ), 0.0, 1.0 ), 4.0 );
-        totalEmissiveRadiance += rimColour * rimF * 0.6;`);
-  };
-}
 
 /**
  * A gas giant as gasgiant.fx draws it (graphics/effect.dx11/managed/space/planet/gasgiant.sm_hi, its pixel shader
@@ -527,28 +514,38 @@ async function moonModel(c: Celestial, heightMap1: string, heightMap2: string | 
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
   const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
   const random = itemID === null ? 0 : itemID % 100;
-  const mat = new THREE.MeshStandardMaterial({ map: h1, color: 0xffffff, roughness: 0.95, metalness: 0, envMapIntensity: PLANET_AMBIENT });
-  const uniforms = {
-    heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail },
+  const mat = scatterMaterial(null, null, {
+    h1: { value: h1 }, heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail },
     detailF: { value: v4(c.params.DetailsFactors, [2, 1.8, 1, 0]) }, tiling: { value: c.params.DetailsTiling?.[0] ?? 2 },
     rampBias: { value: c.params.RampBias?.[0] ?? 0.32 },
     ramp1: { value: v3(c.params.Ramp1, [0.82, 0.85, 0.86]) }, ramp2: { value: v3(c.params.Ramp2, [0.7, 0.7, 0.74]) },
     ramp3: { value: v3(c.params.Ramp3, [0.18, 0.18, 0.18]) }, maskColour: { value: v3(c.params.DetailMaskColor, [1, 1, 1]) },
+    fresnelF: { value: v4(c.params.FresnelFactors, [6, 1.8, 0, 0]) }, fresnelColour: { value: v3(c.params.MoonFresnelColor, [0.58, 0.62, 0.79]) },
     shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
-  };
-  withRim(mat, col(c.params.MoonFresnelColor, [0.58, 0.62, 0.79]), (fs) => `uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform vec4 detailF; uniform float tiling; uniform float rampBias;
-uniform vec3 ramp1; uniform vec3 ramp2; uniform vec3 ramp3; uniform vec3 maskColour; uniform vec2 shiftA; uniform vec2 shiftB;
-${fs}`.replace("#include <map_fragment>", `
-        float a = texture2D( map, vMapUv * vec2( 2.0, 1.0 ) + shiftA ).r;
-        float b = texture2D( heightMap2, vMapUv * vec2( 3.0, 1.5 ) + shiftB + 1.0 ).r;
-        float h = min( a, b );
-        vec3 det = texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * tiling ).xyz;
+  }, `uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform vec4 detailF; uniform float tiling; uniform float rampBias;
+      uniform vec3 ramp1; uniform vec3 ramp2; uniform vec3 ramp3; uniform vec3 maskColour; uniform vec4 fresnelF; uniform vec3 fresnelColour;
+      uniform vec2 shiftA; uniform vec2 shiftB;`, `
+        float a = texture2D(h1, vUv * vec2(2.0, 1.0) + shiftA).r;
+        float b = texture2D(heightMap2, vUv * vec2(3.0, 1.5) + shiftB + 1.0).r;
+        float h = min(a, b);
+        vec3 det = texture2D(detailMap, vUv * vec2(2.0, 1.0) * tiling).xyz;
         float da = det.x * detailF.x, db = det.y * detailF.y;
-        float shade = mix( da, det.z * detailF.z, h );
+        float shade = mix(da, det.z * detailF.z, h);
         float t = h / rampBias;
-        vec3 ramp = mix( mix( ramp3, ramp2, clamp( t, 0.0, 1.0 ) ), ramp1, clamp( t - 1.0, 0.0, 1.0 ) );
-        vec3 g = max( mix( ramp * shade, maskColour, clamp( db, 0.0, 1.0 ) ), vec3( 0.0 ) );
-        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
+        vec3 ramp = mix(mix(ramp3, ramp2, clamp(t, 0.0, 1.0)), ramp1, clamp(t - 1.0, 0.0, 1.0));
+        vec3 albedo = max(mix(ramp * shade, maskColour, clamp(db, 0.0, 1.0)), vec3(0.0));
+        // SimpleMoon's light (its pixel shader's end; a global it reads, cb4[27].x, taken so that its k is 0): half the
+        // wrapped N.L, y = 1 - (1 - saturate(half))^2, z = min(half, 1); the sun's share max((half - 0.1)^3, z y) x 0.9
+        // + y x 0.1, brightened by the fresnel colour (1 - N.V)^FresnelFactors.x x FresnelFactors.y x MoonFresnelColor;
+        // the ambient by z, and a little more in the shade (x (1 - y)(1 - z) x 0.35). Its reflection-cube fresnel is not
+        // ported.
+        float hw = (NL + 1.0) * 0.5;
+        float y = 1.0 - pow(1.0 - clamp(hw, 0.0, 1.0), 2.0);
+        float z = min(hw, 1.0);
+        float hm = hw - 0.1;
+        float sun = max(hm * hm * hm, z * y) * 0.9 + y * 0.1;
+        vec3 fc = pow(1.0 - clamp(NV, 0.0, 1.0), fresnelF.x) * fresnelF.y * fresnelColour;
+        g = albedo * (sun * (fc + 1.0) + z * ambient) + albedo * (1.0 - y) * (1.0 - z) * ambient * 0.35;`);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;
