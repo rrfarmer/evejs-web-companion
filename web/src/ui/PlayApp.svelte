@@ -27,6 +27,10 @@
   let typeNames: Record<string, [string | null, number | null]> = {};
   void fetch("/client-assets/typeNames.json").then((r) => (r.ok ? r.json() : null)).then((n) => { if (n) typeNames = n.types; }).catch(() => {});
   import "../play/play.css";
+  import { applyClientTint } from "../play/clientTint.ts";
+
+  // The app's navy panels in the client's greys, for as long as the play mode is up (play/clientTint.ts).
+  $effect(() => applyClientTint(".fly-windows"));
 
   // The Neocom's buttons (play/neocom.ts) and the app panel each opens.
   const NEOCOM_TABS: Record<string, TabID> = {
