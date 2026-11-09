@@ -15,6 +15,8 @@ function overviewPresets() {
   return presetsRead;
 }
 const TAB_KEY = "evejs-play-overview-tab";
+const SORT_KEY = "evejs-play-overview-sort";
+type SortColumn = "distance" | "name" | "type" | "velocity";
 
 let names: Promise<{ types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null> | null = null;
 export function typeNames() {
@@ -39,6 +41,9 @@ export class Overview {
   private tabs: { name: string; groups: Set<number> }[] = [];
   private tab = 0;
   private readonly tabsEl: HTMLDivElement;
+  /** The column the rows are sorted by and which way: the client's overview sorts by distance, nearest first, until a
+   *  column head is clicked (a second click turns the order round). */
+  private sort: { column: SortColumn; down: boolean } = { column: "distance", down: false };
 
   constructor(private readonly hooks: OverviewHooks) {
     this.window = new PlayWindow({ id: "overview", caption: "Overview", icon: clientTexture("res:/UI/Texture/WindowIcons/overview.png"), left: innerWidth - 470, top: 260, width: 450, height: 380, closable: false });
@@ -50,7 +55,17 @@ export class Overview {
       if (Number.isInteger(i)) this.choose(i);
     });
     this.table.className = "ov-table";
-    this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist">Distance</th><th>Name</th><th>Type</th><th class="ov-dist">Velocity</th></tr></thead>`;
+    this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance">Distance</th><th data-sort="name">Name</th><th data-sort="type">Type</th><th class="ov-dist" data-sort="velocity">Velocity</th></tr></thead>`;
+    try { const saved = JSON.parse(localStorage.getItem(SORT_KEY) ?? "null"); if (saved?.column) this.sort = saved; } catch { /* the default sort */ }
+    this.markSort();
+    this.table.tHead!.addEventListener("click", (e) => {
+      const column = (e.target as HTMLElement).closest<HTMLElement>("th[data-sort]")?.dataset.sort as SortColumn | undefined;
+      if (!column) return;
+      this.sort = { column, down: this.sort.column === column ? !this.sort.down : false };
+      try { localStorage.setItem(SORT_KEY, JSON.stringify(this.sort)); } catch { /* not kept */ }
+      this.markSort();
+      this.lastDraw = 0;
+    });
     this.table.appendChild(this.tbody);
     const scroller = document.createElement("div");
     scroller.className = "ov-scroll";
@@ -78,6 +93,14 @@ export class Overview {
     });
   }
 
+  /** The sorted column's head marked, with the way it runs. */
+  private markSort(): void {
+    for (const th of this.table.querySelectorAll<HTMLElement>("th[data-sort]")) {
+      th.classList.toggle("sorted", th.dataset.sort === this.sort.column);
+      th.classList.toggle("down", th.dataset.sort === this.sort.column && this.sort.down);
+    }
+  }
+
   /** A tab chosen: its name lit, the rows its preset shows, kept for the next visit. */
   private choose(i: number): void {
     this.tab = i;
@@ -100,7 +123,17 @@ export class Overview {
       const group = this.groupsOfType[String(e.typeID)];
       return group == null || groups.has(group);
     };
-    const rows = entities.filter((e) => !e.isSelf && shown(e)).map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => a.d - b.d);
+    const speed = (e: Entity) => Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z);
+    const typeName = (e: Entity) => (e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "");
+    const key = this.sort.column;
+    const rows = entities.filter((e) => !e.isSelf && shown(e)).map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
+      const by = key === "distance" ? a.d - b.d
+        : key === "velocity" ? speed(a.e) - speed(b.e)
+        : key === "type" ? typeName(a.e).localeCompare(typeName(b.e))
+        : (a.e.name ?? typeName(a.e)).localeCompare(b.e.name ?? typeName(b.e));
+      // ties go nearest first, as the client's do
+      return (this.sort.down ? -by : by) || a.d - b.d;
+    });
     const html: string[] = [];
     for (const { e, d } of rows) {
       const typeName = e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "";

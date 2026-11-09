@@ -233,3 +233,10 @@ button { font: inherit; color: inherit; }
 
 /* The market's group tree: the client's names are plain light text, not the accent (MarketPanel's pick rows). */
 .fly-windows .pick-group .pick-name { color: var(--color-text); }
+
+/* the overview's column heads: clickable, the sorted one marked with the way it runs */
+.ov-table th[data-sort] { cursor: pointer; user-select: none; }
+.ov-table th[data-sort]:hover { color: #c8ccc8; }
+.ov-table th.sorted { color: #e8ebe6; }
+.ov-table th.sorted::after { content: " \25B4"; font-size: 9px; }
+.ov-table th.sorted.down::after { content: " \25BE"; }
