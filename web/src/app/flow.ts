@@ -32,7 +32,7 @@ import { ensureSiteLogisticsBookmark } from "../nav/siteLogisticsBookmark.ts";
 import { readRecoveryDrones, recoverLostDroneFlight, type DroneRecoveryState } from "../nav/lostDroneRecovery.ts";
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { buildSlots, decodeChargeFits, decodeResources, decodeShipAttributes, planFittingApply, resourcesOf, slotFlagOf } from "../bridge/fitting.ts";
-import { decodeItemAttributeChanges, locationAttributeChanges, multiEventShipEffects } from "../bridge/shipAttributeNotifications.ts";
+import { decodeItemAttributeChanges, locationAttributeChanges, multiEventShipEffects, multiEventDamageMessages } from "../bridge/shipAttributeNotifications.ts";
 import { deriveShipStats, known, lockLimitOf, unavailable, type ShipStats } from "../bridge/shipStats.ts";
 import { capacitorSimulator, capSimulatorValues, isOnlineModule } from "../bridge/dogma/capacitor.ts";
 import { offense } from "../bridge/dogma/offense.ts";
@@ -6257,6 +6257,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // below (the attribute changes).
     if (method === "OnMultiEvent" && !insideMultiEvent) {
       for (const effect of multiEventShipEffects(args)) applyPushedNotification("OnGodmaShipEffect", effect, receivedAtMs, true);
+      // godma.OnMultiEvent_ gathers the damage messages too and hands each on (OnDamageMessages): the server sends a
+      // shot's this way, so the damage log hears it only through here.
+      for (const damage of multiEventDamageMessages(args)) applyPushedNotification("OnDamageMessage", damage, receivedAtMs, true);
     }
     if (method === "OnGodmaShipEffect") {
       applyCycleNotification(args);

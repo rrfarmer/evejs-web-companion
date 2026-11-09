@@ -151,3 +151,21 @@ export function multiEventShipEffects(args: readonly unknown[]): readonly (reado
   }
   return out;
 }
+
+/**
+ * The damage messages riding an OnMultiEvent, as godma hands them on: a moment at a time (oldest first), every one in
+ * the order told (OnMultiEvent_ gathers them, OnDamageMessages takes each as an OnDamageMessage of its own). Each is
+ * that notice's arguments.
+ */
+export function multiEventDamageMessages(args: readonly unknown[]): readonly (readonly unknown[])[] {
+  const moments = new Map<bigint, (readonly unknown[])[]>();
+  for (const entry of itemsOf(args[0]) ?? []) {
+    const pair = itemsOf(entry);
+    const event = itemsOf(pair?.[0]);
+    if (!pair || pair.length < 2 || !event || event[0] !== "OnDamageMessage") continue;
+    const when = unwrapLong(pair[pair.length - 1]) ?? 0n;
+    if (!moments.has(when)) moments.set(when, []);
+    moments.get(when)!.push(event.slice(1));
+  }
+  return [...moments.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).flatMap((when) => moments.get(when)!);
+}
