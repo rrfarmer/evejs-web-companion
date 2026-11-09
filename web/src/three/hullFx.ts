@@ -22,7 +22,10 @@ export interface SofPlaneSet {
 
 export interface SofSpotlightSet {
   name: string | null; cone: string | null; glow: string | null; zOffset: number;
-  items: { transform: number[] | null; coneIntensity: number; coneColor: number[] | null }[];
+  items: {
+    transform: number[] | null; coneIntensity: number; coneColor: number[] | null;
+    spriteIntensity: number; flareIntensity: number; spriteScale: number[]; spriteColor: number[] | null; flareColor: number[] | null;
+  }[];
 }
 
 /** The time the effects run by, in seconds; one clock for every hull. */
@@ -215,16 +218,93 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
   return group;
 }
 
+/**
+ * The light's glow and flare (spotlightglowpool.fx, disassembled): two billboards at the item's place, the glow
+ * spriteScale.x square in the sprite colour and the flare spriteScale.y by .z in the flare colour, each times its
+ * intensity, both the glow texture; each grows with how squarely the light's own z axis faces the eye (the glow never
+ * below 0.15 of its size, the flare from nothing). The corner table is the engine's again: the unit square's, less a
+ * half.
+ */
+async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.Group | null> {
+  const lit = sets.filter((s) => s.items.some((it) => it.transform && (it.spriteIntensity > 0 || it.flareIntensity > 0)));
+  if (!lit.length) return null;
+  const group = new THREE.Group();
+  group.name = "spotlightGlows";
+  const mirror = new THREE.Matrix4().makeScale(1, 1, -1);
+  const CORNERS: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  for (const set of lit) {
+    const map = await tex(set.glow);
+    const centre: number[] = [], axis: number[] = [], corner: number[] = [], size: number[] = [], col: number[] = [], least: number[] = [], index: number[] = [];
+    for (const it of set.items) {
+      if (!it.transform) continue;
+      const m = new THREE.Matrix4().fromArray(it.transform).premultiply(mirror);
+      const at = new THREE.Vector3().setFromMatrixPosition(m);
+      const z = new THREE.Vector3(0, 0, 1).transformDirection(m);
+      const sc = it.spriteScale ?? [1, 1, 1];
+      const quads: [number[] | null, number, number, number, number][] = [
+        [it.spriteColor, it.spriteIntensity, sc[0] ?? 1, sc[0] ?? 1, 0.15],
+        [it.flareColor, it.flareIntensity, sc[1] ?? 1, sc[2] ?? 1, 0],
+      ];
+      for (const [c0, k, w, h, low] of quads) {
+        if (!(k > 0) || !(w > 0) || !(h > 0)) continue;
+        const c = c0 ?? [1, 1, 1, 1];
+        const base = centre.length / 3;
+        for (const [cx, cy] of CORNERS) {
+          centre.push(at.x, at.y, at.z);
+          axis.push(z.x, z.y, z.z);
+          corner.push(cx, cy);
+          size.push(w, h);
+          col.push((c[0] ?? 1) * k * (c[3] ?? 1), (c[1] ?? 1) * k * (c[3] ?? 1), (c[2] ?? 1) * k * (c[3] ?? 1));
+          least.push(low);
+        }
+        index.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+    }
+    if (!index.length) continue;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(centre, 3));
+    geo.setAttribute("axis", new THREE.Float32BufferAttribute(axis, 3));
+    geo.setAttribute("corner", new THREE.Float32BufferAttribute(corner, 2));
+    geo.setAttribute("size", new THREE.Float32BufferAttribute(size, 2));
+    geo.setAttribute("colour", new THREE.Float32BufferAttribute(col, 3));
+    geo.setAttribute("least", new THREE.Float32BufferAttribute(least, 1));
+    geo.setIndex(index);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { map: { value: map }, hasMap: { value: map ? 1 : 0 } },
+      vertexShader: `attribute vec3 axis; attribute vec2 corner; attribute vec2 size; attribute vec3 colour; attribute float least;
+        varying vec3 vColour; varying vec2 vUv;
+        void main() {
+          vec4 world = modelMatrix * vec4(position, 1.0);
+          vec3 z = normalize(mat3(modelMatrix) * axis);
+          float f = clamp(max(least, dot(normalize(cameraPosition - world.xyz), z)), 0.0, 1.0);
+          vec4 mv = viewMatrix * world;
+          mv.xy += f * (corner - 0.5) * size;
+          vColour = colour; vUv = vec2(corner.x, 1.0 - corner.y);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `uniform sampler2D map; uniform float hasMap; varying vec3 vColour; varying vec2 vUv;
+        void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour, 1.0); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    group.add(mesh);
+  }
+  return group.children.length ? group : null;
+}
+
 /** A hull's sprite lights, plane cards and light cones as one group, or null where it has none. */
 export async function hullFx(sof: { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[] }): Promise<THREE.Group | null> {
   const points = spritePoints(sof.spriteSets ?? []);
   const planes = await planeMeshes(sof.planeSets ?? []);
   const cones = await spotlightCones(sof.spotlightSets ?? []);
-  if (!points && !planes && !cones) return null;
+  const glows = await spotlightGlows(sof.spotlightSets ?? []);
+  if (!points && !planes && !cones && !glows) return null;
   const group = new THREE.Group();
   group.name = "hullFx";
   if (points) group.add(points);
   if (planes) group.add(planes);
   if (cones) group.add(cones);
+  if (glows) group.add(glows);
   return group;
 }
