@@ -34,7 +34,7 @@ const FOURCC: Record<string, { format: THREE.CompressedPixelFormat; block: numbe
 const DDSCAPS2_CUBEMAP = 0x200;
 
 /**
- * An uncompressed 2D DDS (DDPF_RGB with 32 or 8 bits a pixel, by its channel masks): the top mip as RGBA8 or R8,
+ * An uncompressed 2D DDS (DDPF_RGB with 32, 24 or 8 bits a pixel, by its channel masks): the top mip as RGBA8 or R8,
  * the GPU making the rest. The client's planet textures are some of these.
  */
 function parseUncompressed(dv: DataView, buf: ArrayBuffer, width: number, height: number, name: string): THREE.DataTexture {
@@ -50,6 +50,17 @@ function parseUncompressed(dv: DataView, buf: ArrayBuffer, width: number, height
     for (let i = 0; i < n; i++) {
       const p = src[i * 4]! | (src[i * 4 + 1]! << 8) | (src[i * 4 + 2]! << 16) | (src[i * 4 + 3]! << 24);
       for (let c = 0; c < 4; c++) out[i * 4 + c] = sh[c]! < 0 ? 255 : (p >>> sh[c]!) & 0xff;
+    }
+    tex = new THREE.DataTexture(out, width, height, THREE.RGBAFormat);
+  } else if (bits === 24) {
+    // three bytes a pixel (the planets' ground scattering light maps): read by their masks, opaque
+    const src = new Uint8Array(buf, 128, n * 3);
+    const out = new Uint8Array(n * 4);
+    const sh = masks.map(shift);
+    for (let i = 0; i < n; i++) {
+      const p = src[i * 3]! | (src[i * 3 + 1]! << 8) | (src[i * 3 + 2]! << 16);
+      for (let c = 0; c < 3; c++) out[i * 4 + c] = sh[c]! < 0 ? 0 : (p >>> sh[c]!) & 0xff;
+      out[i * 4 + 3] = 255;
     }
     tex = new THREE.DataTexture(out, width, height, THREE.RGBAFormat);
   } else if (bits === 8) {
