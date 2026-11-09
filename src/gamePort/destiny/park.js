@@ -181,6 +181,12 @@ class Park {
     this.resets = 0;
     /** Updates that held more than one tick: the client reports each to its statistics and carries on. */
     this.fatalDesyncs = 0;
+    /**
+     * Not the client's: every rebase of the sim clock this park has been moved by (adjustTimes), summed, in
+     * milliseconds. A second park joining this one in flight (the play page's own, fed by the BFF) missed the
+     * rebases before it, and is moved by this much to stand where this one stands.
+     */
+    this.timeAdjusted = 0;
     /** Ballpark::mFirstTime: nothing has stepped the park by the clock yet. */
     this.firstTime = true;
   }
@@ -314,6 +320,7 @@ class Park {
    */
   adjustTimes(delta) {
     this.ballpark.adjustTimes(delta);
+    this.timeAdjusted += delta;
   }
 
   /**

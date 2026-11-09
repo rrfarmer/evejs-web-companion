@@ -1451,6 +1451,8 @@ function createGamePortPilots({
       /** The pilot's sim clock now, in milliseconds: what the browser's park is to be stepped by. */
       simTime: () => entry.clock.simTime(),
       solarSystemID: entry.space ? entry.space.solarSystemID : null,
+      /** The sim-clock rebases the pilot's park has been moved by (Park.timeAdjusted): a park joining now is moved as much. */
+      timeAdjusted: entry.space ? entry.space.park.timeAdjusted : 0,
       shipID: positive(entry.session.attributes?.shipid) ?? null,
       characterID: entry.characterID,
     };

@@ -20,6 +20,8 @@ declare module "virtual:destiny" {
     tick(): void;
     /** Step for every whole tick of the sim clock since the last; returns how many steps were taken. */
     onTick(simTime: number): number;
+    adjustTimes(delta: number): void;
+    timeAdjusted: number;
     fraction(simTime: number): number;
   }
   export const MODE: Record<string, number>;
@@ -29,5 +31,10 @@ declare module "virtual:destiny" {
   export function readFeedItem(item: FeedItem, decode: (bytes: Uint8Array) => unknown): { method: string; args: unknown[] };
   export function applyToPark(park: Park, method: string, args: unknown[], guard?: (name: string, fn: () => void) => void): boolean;
   export function rebaseDelta(times: unknown): number | null;
+  /** The BFF's overview projection of a park (src/gamePort/spaceProjection.js); rows as /api/bridge/space/snapshot gives them. */
+  export function projectSpace(park: Park, options: { solarSystemID: number | null; shipID: number | null; simTime?: number | null; [k: string]: unknown }): unknown;
+  export function kindOf(categoryID: number | null, groupID: number | null): string;
+  export const CATEGORY: Record<string, number>;
+  export const GROUP: Record<string, number>;
   export interface FeedItem { atMs: number; method: string; inner: string }
 }

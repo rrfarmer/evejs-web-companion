@@ -75,6 +75,7 @@ function destinyForTheBrowser(): Plugin {
     `export { MODE, MODE_NAME, readState } from ${src("gamePort/destiny/state.js")};`,
     `export { readFeedItem, applyToPark, rebaseDelta } from ${src("gamePort/destiny/feed.js")};`,
     `export { marshalDecode } from ${src("gameProtocol/marshal.js")};`,
+    `export { projectSpace, kindOf, CATEGORY, GROUP } from ${src("gamePort/spaceProjection.js")};`,
   ].join("\n");
   return {
     name: "destiny-for-the-browser",
@@ -91,7 +92,7 @@ function destinyForTheBrowser(): Plugin {
       });
       const { output } = await bundle.generate({ format: "esm" });
       await bundle.close();
-      for (const file of ["gamePort/destiny/park.js", "gamePort/destiny/ballpark.js", "gamePort/destiny/state.js", "gamePort/destiny/feed.js", "gameProtocol/marshal.js", "gameProtocol/marshalStringTable.js"]) {
+      for (const file of ["gamePort/destiny/park.js", "gamePort/destiny/ballpark.js", "gamePort/destiny/state.js", "gamePort/destiny/feed.js", "gamePort/spaceProjection.js", "gameProtocol/marshal.js", "gameProtocol/marshalStringTable.js"]) {
         this.addWatchFile(path.resolve(__dirname, "src", file));
       }
       return output[0]?.code ?? "";
@@ -121,8 +122,12 @@ export default defineConfig({
     // without either having to be stopped. Unset, it is the usual 5173.
     port: Number(process.env.PORT) || 5173,
     proxy: {
-      "/api": bffTarget,
+      // ws: the page's requests go on its socket (/api/socket, app/pageFetch.ts) unless told otherwise; a proxy
+      // that does not carry the upgrade leaves every socket request waiting.
+      "/api": { target: bffTarget, ws: true },
       "/icon-cache": bffTarget,
+      // The installed client's own pictures, as the BFF serves them (src/clientData/clientTextures.js).
+      "/client-res": bffTarget,
     },
   },
 });

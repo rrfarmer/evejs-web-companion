@@ -5,7 +5,7 @@
 
 import { Park, Ballpark, marshalDecode, readFeedItem, applyToPark, type Ball, type FeedItem } from "virtual:destiny";
 
-export interface FeedHello { simTime: number; solarSystemID: number | null; shipID: number | null; characterID: number }
+export interface FeedHello { simTime: number; solarSystemID: number | null; shipID: number | null; characterID: number; timeAdjusted?: number }
 
 export class LivePark {
   readonly park = new Park({ ballpark: new Ballpark() });
@@ -27,6 +27,9 @@ export class LivePark {
     source.addEventListener("hello", (e) => {
       this.hello = JSON.parse((e as MessageEvent).data) as FeedHello;
       this.setClock(this.hello.simTime);
+      // Joining in flight: the BFF's park has been moved by every sim-clock rebase so far, and this one, which
+      // heard none of them, is moved as much before its first update (Park.timeAdjusted).
+      if (this.items === 0 && this.hello.timeAdjusted) this.park.adjustTimes(this.hello.timeAdjusted);
       this.status = "live";
       this.changed();
     });

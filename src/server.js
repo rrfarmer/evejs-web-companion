@@ -1768,7 +1768,7 @@ app.get("/api/play/destiny", requireStreamAuth, (req, res) => {
     res.end();
     return;
   }
-  send("hello", { simTime: feed.simTime(), solarSystemID: feed.solarSystemID, shipID: feed.shipID, characterID: feed.characterID });
+  send("hello", { simTime: feed.simTime(), solarSystemID: feed.solarSystemID, shipID: feed.shipID, characterID: feed.characterID, timeAdjusted: feed.timeAdjusted });
   const clock = setInterval(() => send("clock", { simTime: feed.simTime() }), 5000);
   if (typeof clock.unref === "function") clock.unref();
   req.on("close", () => {

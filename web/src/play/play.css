@@ -1,0 +1,92 @@
+/* The play page's chrome: the retail client's dark, thin-lined look. Colours and sizes are ours,
+   aimed at the client's (and eve-cs.com's) feel; the client's own UI textures come later. */
+:root {
+  --bg: #050608;
+  --panel: rgba(12, 14, 16, 0.86);
+  --panel-solid: #0c0e10;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --text: #d7dad6;
+  --text-dim: #8d918c;
+  --accent: #58a7bf;
+  --hostile: #d23b2f;
+  --neutral: #c9c9c9;
+  --friendly: #4fa3e3;
+  --gold: #e3b542;
+  --font: "Barlow Semi Condensed", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.35 var(--font); overflow: hidden; }
+#play { position: fixed; inset: 0; }
+button { font: inherit; color: inherit; }
+
+/* ── login and character select ─────────────────────────────────────────── */
+.screen { position: absolute; inset: 0; display: grid; place-items: center;
+  background: radial-gradient(ellipse at 50% 30%, #1a2430 0%, #07090c 60%, #030405 100%); }
+.login-box { width: 320px; padding: 28px; background: var(--panel); border: 1px solid var(--line); }
+.login-box h1 { margin: 0 0 18px; font-size: 26px; font-weight: 500; letter-spacing: 0.32em; text-transform: uppercase; color: #f0f1ee; }
+.login-box label { display: block; margin: 10px 0 4px; color: var(--text-dim); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.login-box input { width: 100%; box-sizing: border-box; padding: 8px 10px; background: #000; color: var(--text); border: 1px solid var(--line-strong); font: inherit; }
+.login-box input:focus { outline: none; border-color: var(--accent); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px; background: rgba(255,255,255,0.06);
+  border: 1px solid var(--line-strong); cursor: pointer; letter-spacing: 0.12em; text-transform: uppercase; font-size: 12px; }
+.btn:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.4); }
+.btn.primary { background: rgba(88,167,191,0.22); border-color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.login-box .btn { width: 100%; margin-top: 18px; }
+.error { margin-top: 12px; color: #ff8a7a; font-size: 12px; min-height: 1em; }
+
+.select { display: flex; gap: 18px; }
+.char-card { width: 220px; background: var(--panel); border: 1px solid var(--line); cursor: pointer; transition: border-color .15s, transform .15s; }
+.char-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.char-card img { width: 220px; height: 220px; display: block; object-fit: cover; background: #111; }
+.char-card .who { padding: 10px 12px; }
+.char-card .name { font-size: 16px; color: #f0f1ee; }
+.char-card .where { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+.select-title { position: absolute; top: 40px; width: 100%; text-align: center; letter-spacing: 0.4em; text-transform: uppercase; color: var(--text-dim); }
+
+/* ── station ────────────────────────────────────────────────────────────── */
+.station { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 40%, #202a33 0%, #0a0d10 70%); }
+.station .station-name { position: absolute; top: 18px; left: 64px; font-size: 18px; color: #f0f1ee; }
+.station .station-sub { position: absolute; top: 42px; left: 64px; color: var(--text-dim); }
+.undock { position: absolute; right: 24px; top: 18px; width: 210px; height: 52px; font-size: 15px; letter-spacing: 0.3em;
+  background: linear-gradient(#2a3c46, #18232a); border: 1px solid #5d8798; }
+.undock:hover { background: linear-gradient(#35505d, #1e2d35); }
+
+/* ── space ──────────────────────────────────────────────────────────────── */
+.space { position: absolute; inset: 0; }
+.space canvas { display: block; }
+.brackets { position: absolute; inset: 0; pointer-events: none; }
+.bracket { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; pointer-events: auto; cursor: pointer; }
+.bracket .glyph { width: 100%; height: 100%; }
+.bracket .label { position: absolute; left: 20px; top: -1px; white-space: nowrap; font-size: 12px; color: var(--text);
+  text-shadow: 0 0 3px #000, 0 0 2px #000; display: none; }
+.bracket:hover .label, .bracket.selected .label { display: block; }
+.bracket.selected .glyph { filter: drop-shadow(0 0 3px #fff); }
+
+.hud-top-left { position: absolute; top: 12px; left: 64px; }
+.hud-top-left .system { font-size: 20px; color: #f0f1ee; }
+.hud-top-left .system .sec { color: #2fd27e; margin-left: 8px; font-size: 15px; }
+.hud-top-left .sub { color: var(--text-dim); }
+
+.neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; background: rgba(6,7,8,0.92); border-right: 1px solid var(--line); }
+.neocom .eve { height: 44px; display: grid; place-items: center; color: #d7dad6; font-size: 11px; letter-spacing: .2em; border-bottom: 1px solid var(--line); }
+
+.ship-hud { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.ship-hud .gauge { width: 168px; height: 168px; pointer-events: auto; }
+.ship-hud .speed { font-family: var(--mono); font-size: 14px; color: #f0f1ee; text-shadow: 0 0 4px #000; }
+.ship-hud .mode { color: var(--text-dim); font-size: 12px; text-shadow: 0 0 4px #000; min-height: 1em; }
+
+.selected-item { position: absolute; right: 14px; top: 14px; width: 260px; background: var(--panel); border: 1px solid var(--line); }
+.window-head { display: flex; align-items: center; height: 24px; padding: 0 8px; border-bottom: 1px solid var(--line); color: var(--text-dim); font-size: 12px; }
+.selected-item .body { padding: 8px 10px; }
+.selected-item .name { color: #f0f1ee; font-size: 14px; }
+.selected-item .dist { color: var(--text-dim); font-family: var(--mono); font-size: 12px; margin: 2px 0 8px; }
+.selected-item .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.selected-item .actions .btn { padding: 5px 8px; font-size: 11px; }
+
+.toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: 8px 16px; background: var(--panel); border: 1px solid var(--line-strong);
+  color: var(--text); opacity: 0; transition: opacity .3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.feed-status { position: absolute; right: 12px; bottom: 8px; color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
