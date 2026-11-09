@@ -2,23 +2,37 @@
 // planeSets, in EVE's model space, mirrored in z here as the model is): the blinking sprite lights a ship or a hangar
 // carries (EveSOFDataHullSpriteSet: each light's place, size between minScale and maxScale, blink rate and phase,
 // colour), and the plane cards of force fields, holograms and haze (EveSOFDataHullPlaneSet: each plane placed, rotated
-// and scaled, two scrolling texture layers under a mask, in its own colour times its faction group's). Our own drawing
-// of them: additive glows and planes; the client's own shaders for these are not ported.
+// and scaled, two scrolling texture layers under a mask, in its faction group's colour where the faction gives one,
+// else its own). The maths is the client's, from its disassembled blinkinglightspool and planeglow shaders.
 
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
 
 export interface SofSpriteSet {
   name: string | null;
-  items: { position: number[]; blinkRate: number; blinkPhase: number; minScale: number; maxScale: number; intensity: number; color: number[] | null }[];
+  items: { position: number[]; blinkRate: number; blinkPhase: number; minScale: number; maxScale: number; intensity: number; falloff?: number; color: number[] | null }[];
 }
 export interface SofPlaneSet {
   name: string | null; layer1: string | null; layer2: string | null; mask: string | null;
   items: {
     position: number[]; rotation: number[]; scaling: number[]; color: number[] | null; groupColor: number[] | null; intensity: number;
     layer1Transform: number[]; layer1Scroll: number[]; layer2Transform: number[]; layer2Scroll: number[];
+    blinkMode?: number; blinkRate?: number; blinkPhase?: number;
   }[];
 }
+
+/**
+ * The client's blink (blinkinglightspool and planeglow vertex shaders): over a cycle of 1/rate seconds, at the item's
+ * phase, it rises from 0 to 1 over the first rate x 0.05 of the cycle and falls back to 0 by rate x 0.2, then stays
+ * out; a rate under 0.002 rises over the whole cycle. GLSL, of the cycle's fraction p and the rate.
+ */
+const FLASH_GLSL = `float flash(float p, float rate) {
+  float rise = rate < 0.002 ? 1.0 : rate * 0.05;
+  float end = rate * 0.2;
+  if (p < rise) return p / rise;
+  if (p < end) return 1.0 - (p - rise) / (end - rise);
+  return 0.0;
+}`;
 
 export interface SofSpotlightSet {
   name: string | null; cone: string | null; glow: string | null; zOffset: number;
@@ -32,32 +46,19 @@ export interface SofSpotlightSet {
 const clock = { value: 0 };
 function tick(): void { clock.value = performance.now() / 1000; }
 
-let glow: THREE.Texture | null = null;
-function glowTexture(): THREE.Texture {
-  if (glow) return glow;
-  const c = document.createElement("canvas");
-  c.width = c.height = 64;
-  const g = c.getContext("2d")!;
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, "rgba(255,255,255,1)");
-  grad.addColorStop(0.2, "rgba(255,255,255,0.6)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
-  glow = new THREE.CanvasTexture(c);
-  return glow;
-}
-
 /**
- * The sprite lights as points, each growing from its minScale to its maxScale and back as it blinks
- * (blinkRate cycles a second, at its blinkPhase), sized in metres.
+ * The sprite lights as points (blinkinglightspool.fx): each blinks (flash), its size from minScale to maxScale with the
+ * blink, in metres, times its distance from the eye to the power of its falloff; its colour times its intensity times
+ * one plus the blink; its spot the shader's own profile (4.5 (1.1 / (1 + 10 d) - 0.1)^1.5 of the distance d from its
+ * middle, nothing past its edge).
  */
 function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
   const items = sets.flatMap((s) => s.items);
   if (!items.length) return null;
   const n = items.length;
-  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), blink = new Float32Array(n * 4);
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), blink = new Float32Array(n * 4), falloff = new Float32Array(n);
   items.forEach((it, i) => {
+    falloff[i] = it.falloff ?? 0;
     pos.set([it.position[0] ?? 0, it.position[1] ?? 0, -(it.position[2] ?? 0)], i * 3);
     const c = it.color ?? [1, 1, 1, 1];
     const k = it.intensity ?? 1;
@@ -68,19 +69,26 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   geo.setAttribute("colour", new THREE.BufferAttribute(col, 3));
   geo.setAttribute("blink", new THREE.BufferAttribute(blink, 4));
+  geo.setAttribute("falloff", new THREE.BufferAttribute(falloff, 1));
   const mat = new THREE.ShaderMaterial({
-    uniforms: { time: clock, map: { value: glowTexture() }, scale: { value: 1 } },
-    vertexShader: `attribute vec3 colour; attribute vec4 blink; uniform float time; uniform float scale; varying vec3 vColour; varying float vLit;
+    uniforms: { time: clock, scale: { value: 1 } },
+    vertexShader: `attribute vec3 colour; attribute vec4 blink; attribute float falloff; uniform float time; uniform float scale; varying vec3 vColour;
+      ${FLASH_GLSL}
       void main() {
-        float b = blink.x > 0.0 ? 0.5 + 0.5 * sin(6.2831853 * (time * blink.x + blink.y)) : 1.0;
-        float size = mix(blink.z, blink.w, b);
-        vColour = colour; vLit = 0.35 + 0.65 * b;
+        float b = flash(fract(time * blink.x + blink.y), blink.x);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * scale / max(-mv.z, 1.0);
+        float z = max(abs(mv.z), 1.0);
+        float size = mix(blink.z, blink.w, b) * pow(z, falloff);
+        vColour = colour * (b + 1.0);
+        gl_PointSize = size * scale / z;
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `uniform sampler2D map; varying vec3 vColour; varying float vLit;
-      void main() { float a = texture2D(map, gl_PointCoord).r; gl_FragColor = vec4(vColour * a * vLit * 2.0, 1.0); }`,
+    fragmentShader: `varying vec3 vColour;
+      void main() {
+        float d = length((gl_PointCoord - 0.5) * 2.0);
+        float a = d < 1.0 ? 4.5 * pow(max(1.1 / (1.0 + 10.0 * d) - 0.1, 0.0), 1.5) : 0.0;
+        gl_FragColor = vec4(vColour * a, 1.0);
+      }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   const points = new THREE.Points(geo, mat);
@@ -106,20 +114,28 @@ function tex(url: string | null): Promise<THREE.Texture | null> {
   return textures.get(url)!;
 }
 
-/** The plane cards: a unit quad each, placed, its layers scrolled by their own speeds, added over what is behind. */
+/**
+ * The plane cards (planeglow.fx): a quad each, placed, rotated and scaled; each layer's coordinates its transform's
+ * scale and offset plus its scroll's speed times the time plus its scroll's offset; layer 1 times layer 2 times the
+ * mask, in its colour times its blink (mode 0 steady, 1 the flash, 2 a rising and 3 a falling saw, 4 a sine), added
+ * over what is behind. The corner table (PlaneCornerOffset) is the engine's, not the effect file's: taken as the unit
+ * square about the middle, the scaling its whole size.
+ */
 async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | null> {
   if (!sets.some((s) => s.items.length)) return null;
   const group = new THREE.Group();
   group.name = "planeSets";
-  const quad = new THREE.PlaneGeometry(2, 2);
+  const quad = new THREE.PlaneGeometry(1, 1);
   for (const set of sets) {
     const [l1, l2, mask] = await Promise.all([tex(set.layer1), tex(set.layer2), tex(set.mask)]);
     for (const it of set.items) {
-      const c = it.color ?? [1, 1, 1, 1], g = it.groupColor ?? [1, 1, 1, 1];
+      // EveSOF.SetupPlaneSets: the faction group's colour, where it has one, in place of the plane's own
+      const c = it.groupColor ?? it.color ?? [1, 1, 1, 1];
       const mat = new THREE.ShaderMaterial({
         uniforms: {
           time: clock,
-          colour: { value: new THREE.Vector3((c[0] ?? 1) * (g[0] ?? 1), (c[1] ?? 1) * (g[1] ?? 1), (c[2] ?? 1) * (g[2] ?? 1)).multiplyScalar(it.intensity ?? 1) },
+          colour: { value: new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1).multiplyScalar((c[3] ?? 1) * (it.intensity ?? 1)) },
+          blinking: { value: new THREE.Vector3(it.blinkMode ?? 0, it.blinkRate ?? 0, it.blinkPhase ?? 0) },
           layer1: { value: l1 }, layer2: { value: l2 }, mask: { value: mask },
           has: { value: new THREE.Vector3(l1 ? 1 : 0, l2 ? 1 : 0, mask ? 1 : 0) },
           t1: { value: new THREE.Vector4(...(it.layer1Transform as [number, number, number, number])) },
@@ -128,15 +144,25 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
           s2: { value: new THREE.Vector4(...(it.layer2Scroll as [number, number, number, number])) },
         },
         vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-        fragmentShader: `uniform float time; uniform vec3 colour; uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask;
+        fragmentShader: `uniform float time; uniform vec3 colour; uniform vec3 blinking; uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask;
           uniform vec3 has; uniform vec4 t1; uniform vec4 s1; uniform vec4 t2; uniform vec4 s2; varying vec2 vUv;
+          ${FLASH_GLSL}
+          float blink() {
+            float mode = abs(blinking.x), rate = blinking.y, phase = blinking.z;
+            if (mode < 0.5) return 1.0;
+            if (mode < 1.5) return flash(fract(time * rate + phase), rate);
+            if (mode < 2.5) return fract((phase + time) * rate);
+            if (mode < 3.5) return 1.0 - fract((phase + time) * rate);
+            if (mode < 4.5) return (sin(fract(rate * time) * 6.2831853 + phase * 6.2831853) + 1.0) * 0.5;
+            return 1.0;
+          }
           void main() {
-            vec2 uv1 = vUv * t1.xy + t1.zw + s1.xy * time;
-            vec2 uv2 = vUv * t2.xy + t2.zw + s2.xy * time;
-            float a = has.x > 0.5 ? texture2D(layer1, uv1).r : 1.0;
-            float b = has.y > 0.5 ? texture2D(layer2, uv2).r : 1.0;
-            float m = has.z > 0.5 ? texture2D(mask, vUv).r : 1.0;
-            gl_FragColor = vec4(colour * a * b * m, 1.0);
+            vec2 uv1 = vUv * t1.xy + t1.zw + s1.xy * time + s1.zw;
+            vec2 uv2 = vUv * t2.xy + t2.zw + s2.xy * time + s2.zw;
+            vec3 a = has.x > 0.5 ? texture2D(layer1, uv1).rgb : vec3(1.0);
+            vec3 b = has.y > 0.5 ? texture2D(layer2, uv2).rgb : vec3(1.0);
+            vec3 m = has.z > 0.5 ? texture2D(mask, vUv).rgb : vec3(1.0);
+            gl_FragColor = vec4(colour * blink() * a * b * m, 1.0);
           }`,
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       });
