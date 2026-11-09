@@ -151,3 +151,35 @@ button { font: inherit; color: inherit; }
 /* a bracket with the client's own icon (brackets.ts): white art, tinted by what the thing is to the pilot */
 .glyph.bi { display: block; background-color: var(--tint); -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
 .ov-table .ov-icon .glyph.bi { width: 14px; height: 14px; }
+
+/* ── the app's windows in the play mode (/fly, PlayApp.svelte): its design system re-tinted to the client's look ──
+   Only under .fly-windows: the multibox app keeps its own. The variables are the app's (styles.css :root); the
+   window chrome is DesktopWindow's (.win, .win-bar, .win-btn), given the client's system icons. */
+.fly-windows {
+  --color-bg: #050608;
+  --color-panel: rgba(14, 16, 18, 0.9);
+  --color-panel-2: rgba(255, 255, 255, 0.06);
+  --color-panel-3: rgba(8, 9, 10, 0.92);
+  --color-field: rgba(0, 0, 0, 0.55);
+  --color-line: rgba(255, 255, 255, 0.10);
+  --color-line-strong: rgba(255, 255, 255, 0.22);
+  --color-row-line: rgba(255, 255, 255, 0.04);
+  --color-text: #d7dad6;
+  --color-text-bright: #f0f1ee;
+  --color-cell: #c8ccc8;
+  --color-muted: #8d918c;
+  --color-accent: #58a7bf;
+  --color-accent-bright: #8fd0e6;
+  --color-accent-dim: #2e5f6e;
+  font-family: var(--font);
+}
+.fly-windows .win { background: rgba(14, 16, 18, 0.9); border: 1px solid rgba(255, 255, 255, 0.10); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px); border-radius: 0; }
+.fly-windows .win.focused { border-color: rgba(255, 255, 255, 0.18); }
+.fly-windows .win-bar { height: 26px; min-height: 26px; padding: 0 4px 0 10px; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.fly-windows .win-title { font-family: var(--font); font-size: 13px; font-weight: 400; letter-spacing: .02em; text-transform: none; color: #c8ccc8; }
+.fly-windows .win-btn { width: 20px; height: 20px; padding: 0; border: none; background: center / 16px 16px no-repeat; color: transparent; opacity: .55; overflow: hidden; }
+.fly-windows .win-btn:hover { opacity: 1; background-color: rgba(255, 255, 255, 0.08); }
+.fly-windows .win-btn:not(.win-close) { background-image: url(/client-res/ui/texture/eveicon/system_icons/minimize_16px.png); }
+.fly-windows .win-close { background-image: url(/client-res/ui/texture/eveicon/system_icons/close_16px.png); }
+.fly-windows .win-body { background: transparent; }

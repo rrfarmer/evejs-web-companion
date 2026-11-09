@@ -21,6 +21,11 @@
   import { SpaceView } from "../play/spaceView.ts";
   import type { HudModule } from "../play/shipHud.ts";
   import { typeIconUrl } from "./typeIcons.ts";
+  import { cycleProgressPercent } from "./moduleRack.ts";
+
+  // Type names for the rack's tooltips (the extractor's typeNames.json, from the SDE).
+  let typeNames: Record<string, [string | null, number | null]> = {};
+  void fetch("/client-assets/typeNames.json").then((r) => (r.ok ? r.json() : null)).then((n) => { if (n) typeNames = n.types; }).catch(() => {});
   import "../play/play.css";
 
   // The Neocom's buttons (play/neocom.ts) and the app panel each opens.
@@ -58,6 +63,7 @@
 
   let live: LivePark | null = null;
   let spaceClaimed: Session | null = null;
+  const seenRunning = new Map<number, number>();
   async function enter(characterID: number) {
     if (!session) return;
     stage = "entering";
@@ -116,14 +122,28 @@
       rack: {
         modules: () => {
           const active = new Set(s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []);
+          const cycles = s.store.targeting.get().moduleCycles ?? {};
+          const now = Date.now();
           const out: HudModule[] = [];
           for (const slot of s.store.fitting.get().slots ?? []) {
             const m = slot.module;
             if (!m || (slot.family !== "high" && slot.family !== "mid" && slot.family !== "low")) continue;
-            out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "" });
+            // The cycle's start is the server's effect notice's (applyCycleNotification); where none has been heard, the
+            // moment this page first saw the module running stands in for it.
+            const isActive = active.has(m.itemID);
+            if (!isActive) seenRunning.delete(m.itemID);
+            else if (!seenRunning.has(m.itemID)) seenRunning.set(m.itemID, now);
+            const c = cycles[m.itemID] ?? null;
+            const cycle = c && c.startedAtMs === null && isActive ? { ...c, startedAtMs: seenRunning.get(m.itemID)!, repeating: true } : c;
+            const pct = cycleProgressPercent(cycle, now);
+            out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "", cycle: pct === null ? null : pct / 100 });
           }
           return out;
         },
+        capacitor: () => ({
+          max: s.store.fitting.get().resources?.capacitor?.total ?? null,
+          ratio: s.store.space.get().snapshot?.ship?.capacitorRatio ?? null,
+        }),
         // A click switches the module as the app's rack does (ModuleRack.svelte): on, at the first locked target; off.
         use: async (m) => {
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);

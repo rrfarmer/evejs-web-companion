@@ -62,6 +62,8 @@ export interface HudModule {
   active: boolean;
   /** The type's icon (64 px). */
   icon: string;
+  /** How far through its cycle a running module is, 0..1; null when not cycling or not known. */
+  cycle?: number | null;
 }
 
 type RGBA = readonly [number, number, number, number];
@@ -259,6 +261,10 @@ const CSS = `
   -webkit-mask: var(--glow) center / 100% 100% no-repeat; mask: var(--glow) center / 100% 100% no-repeat;
   animation: ship-hud-slot-blink 1s ease-in-out infinite alternate; }
 @keyframes ship-hud-slot-blink { from { opacity: 0.75; } to { opacity: 0.15; } }
+.ship-hud-root .slot-sweep { position: absolute; pointer-events: none; border-radius: 50%;
+  background: conic-gradient(rgba(255, 255, 255, 0.22) var(--p, 0deg), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%, #000 70%, transparent 72%);
+  mask: radial-gradient(circle, transparent 58%, #000 60%, #000 70%, transparent 72%); }
 `;
 
 interface Morph { shown: number; from: number; to: number; start: number; }
@@ -593,6 +599,7 @@ export class ShipHud {
   private slotsBox: HTMLElement | null = null;
   private modulesSig = "";
   private glows = new Map<number, HTMLElement>();
+  private sweeps = new Map<number, HTMLElement>();
 
   /**
    * The ship's fitted modules into the rack (slotsContainer.FitSlot): each in its slot, a 48 px ModuleButton at
@@ -606,11 +613,19 @@ export class ShipHud {
       this.modulesSig = sig;
       this.slotsBox?.remove();
       this.glows.clear();
+      this.sweeps.clear();
       this.buildSlots({ hi: 0, med: 0, low: 0 }, modules, onModule);
     }
     for (const m of modules) {
       const g = this.glows.get(m.itemID);
       if (g) g.style.display = m.active ? "" : "none";
+      // The cycle, as the client's ramps sweep round a running module (ShipModuleButtonRamps): a share of the ring.
+      const sw = this.sweeps.get(m.itemID);
+      if (sw) {
+        const p = m.active && typeof m.cycle === "number" ? Math.max(0, Math.min(1, m.cycle)) : null;
+        sw.style.display = p === null ? "none" : "";
+        if (p !== null) sw.style.setProperty("--p", `${(p * 360).toFixed(1)}deg`);
+      }
     }
   }
 
@@ -666,6 +681,12 @@ export class ShipHud {
           slot.appendChild(glow);
           glow.style.display = module.active ? "" : "none";
           this.glows.set(module.itemID, glow);
+          const sweep = document.createElement("div");
+          place(sweep, 8, 8, 48, 48);
+          sweep.className = "slot-sweep";
+          sweep.style.display = "none";
+          slot.appendChild(sweep);
+          this.sweeps.set(module.itemID, sweep);
           slot.addEventListener("click", () => onModule?.(module));
           continue;
         }
