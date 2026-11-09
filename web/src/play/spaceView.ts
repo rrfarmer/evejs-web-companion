@@ -267,6 +267,25 @@ export class SpaceView {
   }
 
   private lookAt: number | null = null;
+  private framedFor: number | null = null;
+
+  /**
+   * The client's ship orbit camera limits (shipOrbitCamera.py, cameraUtil.py): no nearer than GetBallMaxZoom, (radius
+   * + near clip) * 1.5 (* an aspect-ratio factor, taken as 1) + 2; no further than its minZoom, 800 km; and on first
+   * looking at the ship, GetInitialLookAtDistance: the root of a * x^2 + b * x + c, a = 1 / 800000^0.95,
+   * b = FOV_MIN / 2 (0.55 / 2), c = -max(radius, nearest).
+   */
+  private frameShip(radius: number): void {
+    const nearest = (radius + this.camera.near) * 1.5 + 2;
+    const a = 1 / 800000 ** 0.95, b = 0.55 / 2, c = -Math.max(radius, nearest);
+    const d = Math.sqrt(b * b - 4 * a * c);
+    const initial = Math.max(-2 * c / (b + d), -2 * c / (b - d));
+    this.controls.minDistance = nearest;
+    this.controls.maxDistance = 800000;
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    if (dir.lengthSq() === 0) dir.set(-0.5, 0.25, 0.83).normalize();
+    this.camera.position.copy(this.controls.target).addScaledVector(dir, initial);
+  }
 
   private async refreshTargets(): Promise<void> {
     try {
@@ -375,6 +394,7 @@ export class SpaceView {
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
     if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x));
+    if (ego && this.framedFor !== ego.itemID) { this.framedFor = ego.itemID; this.frameShip(ego.radius); }
     // Look At (the client's camera lookAt): the camera turns about the thing looked at, and follows it, until it
     // is gone or the pilot's own ship is looked at again; the camera keeps its offset as the point moves.
     const looked = this.lookAt === null ? null : this.marks.get(this.lookAt) ?? null;
