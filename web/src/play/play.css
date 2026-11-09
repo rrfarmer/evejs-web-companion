@@ -90,3 +90,35 @@ button { font: inherit; color: inherit; }
   color: var(--text); opacity: 0; transition: opacity .3s; pointer-events: none; }
 .toast.show { opacity: 1; }
 .feed-status { position: absolute; right: 12px; bottom: 8px; color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+
+/* ── windows (window.ts): the client's dark panel, thin edge, header with icon, caption and system icons ── */
+.pw { position: absolute; display: flex; flex-direction: column; background: rgba(14, 16, 18, 0.88); border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px); color: var(--text); z-index: 5; }
+.pw-head { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px; flex: none; cursor: move; user-select: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.pw-icon { width: 16px; height: 16px; opacity: .9; }
+.pw-caption { flex: 1; font-size: 13px; color: #c8ccc8; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pw-buttons { display: flex; gap: 2px; }
+.pw-btn { width: 16px; height: 16px; padding: 2px; opacity: .55; cursor: pointer; }
+.pw-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
+.pw-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.pw-grip { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.pw.minimized { height: auto !important; }
+.pw.minimized .pw-body, .pw.minimized .pw-grip { display: none; }
+
+/* ── overview (overview.ts) ── */
+.ov-tabs { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.07); flex: none; }
+.ov-tab { padding: 3px 10px; font-size: 12px; color: var(--text-dim); border: 1px solid transparent; border-bottom: none; cursor: default; }
+.ov-tab.active { color: #e8ebe6; background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.10); }
+.ov-scroll { flex: 1; overflow: auto; }
+.ov-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ov-table th { position: sticky; top: 0; background: rgba(20, 22, 24, 0.97); text-align: left; font-weight: 400; color: var(--text-dim);
+  padding: 3px 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.ov-table td { padding: 1px 6px; white-space: nowrap; height: 19px; border-bottom: 1px solid rgba(255, 255, 255, 0.025); }
+.ov-table tbody tr { cursor: pointer; }
+.ov-table tbody tr:hover { background: rgba(255, 255, 255, 0.05); }
+.ov-table tbody tr.sel { background: rgba(255, 255, 255, 0.12); }
+.ov-table tbody tr.npc td { color: #e06a5c; }
+.ov-table .ov-icon { width: 16px; padding-right: 0; }
+.ov-table .ov-icon svg { width: 14px; height: 14px; display: block; }
+.ov-table .ov-dist { text-align: right; font-variant-numeric: tabular-nums; color: #cfd3cf; }

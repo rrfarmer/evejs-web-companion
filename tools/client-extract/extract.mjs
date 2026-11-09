@@ -11,6 +11,7 @@
 //   <hull>.json         what was extracted from where: LODs, areas, textures, vertex components
 //   typeGraphics.json   (--type-graphics, needs --sde) typeID -> hull, faction, race, model
 //   systemScenes.json   (--type-graphics too) solarSystemID -> region nebula, star
+//   typeNames.json      (--type-graphics too) typeID -> [name, groupID]; groupID -> [name, categoryID]
 //   config.json         the client and SDE folders used, so the dev server can extract on demand
 // and manifest.json at the build root.
 
@@ -20,7 +21,7 @@ import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb } from "./lib/glb.mjs";
-import { buildTypeGraphics, buildSystemScenes } from "./lib/typeGraphics.mjs";
+import { buildTypeGraphics, buildSystemScenes, buildTypeNames } from "./lib/typeGraphics.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 export const REPO = path.resolve(HERE, "..", "..");
@@ -141,6 +142,9 @@ async function main() {
     const scenes = await buildSystemScenes(args.sde);
     fs.writeFileSync(path.join(outRoot, "systemScenes.json"), JSON.stringify(scenes));
     console.log(`systemScenes.json: ${Object.keys(scenes).length} systems`);
+    const names = await buildTypeNames(args.sde);
+    fs.writeFileSync(path.join(outRoot, "typeNames.json"), JSON.stringify(names));
+    console.log(`typeNames.json: ${Object.keys(names.types).length} types, ${Object.keys(names.groups).length} groups`);
   } else if (fs.existsSync(tgFile)) typeGraphics = JSON.parse(fs.readFileSync(tgFile, "utf8"));
 
   const specs = [...args.hulls];

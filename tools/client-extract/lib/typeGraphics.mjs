@@ -33,6 +33,14 @@ export async function buildSystemScenes(sdeDir) {
   return out;
 }
 
+/** { types: { typeID: [name, groupID] }, groups: { groupID: [name, categoryID] } }: English names, for the overview. */
+export async function buildTypeNames(sdeDir) {
+  const types = {}, groups = {};
+  for await (const t of jsonl(path.join(sdeDir, "types.jsonl"))) types[t._key] = [t.name?.en ?? null, t.groupID ?? null];
+  for await (const g of jsonl(path.join(sdeDir, "groups.jsonl"))) groups[g._key] = [g.name?.en ?? null, g.categoryID ?? null];
+  return { types, groups };
+}
+
 /** { typeID: { graphicID, hull, faction, race, gr2, graphicFile, groupID } } for every type with a graphic. */
 export async function buildTypeGraphics(sdeDir, rf) {
   const graphics = new Map();

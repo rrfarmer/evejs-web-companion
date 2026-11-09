@@ -16,6 +16,7 @@ import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel } from "../three/hullModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
+import { Overview } from "./overview.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -39,7 +40,7 @@ const KIND_COLOUR: Record<string, string> = {
 };
 
 /** A bracket glyph by kind, in the client's spirit: the shape says what it is, the colour whose. */
-function glyph(e: Entity): string {
+export function glyph(e: Entity): string {
   const c = e.isNpc ? "var(--hostile)" : KIND_COLOUR[e.kind] ?? "#c9c9c9";
   switch (e.kind) {
     case "ship": case "drone": case "fighter":
@@ -79,6 +80,7 @@ export class SpaceView {
   private readonly feedEl: HTMLDivElement;
   private readonly toastEl: HTMLDivElement;
   private selected: number | null = null;
+  private readonly overview: Overview;
   private starfieldObj!: THREE.Points;
   private readonly sunLight = new THREE.DirectionalLight(0xfff6e8, 3);
   private snapshot: Snapshot | null = null;
@@ -130,6 +132,8 @@ export class SpaceView {
     this.controls.minDistance = 30;
     this.controls.maxDistance = 1e6;
     this.controls.zoomSpeed = 1.2;
+    this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
+    this.root.appendChild(this.overview.window.root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
     this.renderer.domElement.addEventListener("click", () => this.select(null));
     addEventListener("resize", () => this.resize());
@@ -194,6 +198,7 @@ export class SpaceView {
   private select(itemID: number | null): void {
     this.selected = itemID;
     for (const [id, el] of this.bracketEls) el.classList.toggle("selected", id === itemID);
+    this.overview.setSelected(itemID);
     this.renderSelected();
   }
 
@@ -307,6 +312,7 @@ export class SpaceView {
       }
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
+    if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x));
     for (const [id, m] of this.marks) if (!seen.has(id)) { this.scene.remove(m); this.marks.delete(id); }
 
     if (ego) {
