@@ -239,6 +239,7 @@
       dock: (id) => s.flow.dock(id),
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
+      openCargo: (id) => s.flow.openCargo(id),
       // The flow says a refused order as the client does (its dialog: "You are not within maximum jumping distance")
       // and does not throw; a jump it refused is one the view's gate effect must not wait on.
       jump: async (id) => {
@@ -298,13 +299,20 @@
       if ((d.limits.droneBandwidth ?? 0) > 0 || (d.bay?.length ?? 0) > 0) open("drones");
     }).catch(() => {});
     (window as unknown as { __play: unknown }).__play = { live, view: v, session: s };
+    // A wreck or a can opened by Open Cargo: the inventory window opened or raised on it (Inventory.OpenOrShow).
+    let servedCargo = s.flow.cargoShown.get()?.n ?? 0;
+    const stopCargo = s.flow.cargoShown.subscribe((shown) => {
+      if (shown === null || shown.n === servedCargo) return;
+      servedCargo = shown.n;
+      open("inventory");
+    });
     // Damage numbers: each new entry of the damage log (the client's damage notifications) floats up in space.
     let lastDamageID = s.store.targeting.get().damageLog.at(-1)?.id ?? 0;
     const stopDamage = s.store.targeting.subscribe((t) => {
       for (const d of t.damageLog) if (d.id > lastDamageID) v.showDamage(d);
       lastDamageID = t.damageLog.at(-1)?.id ?? lastDamageID;
     });
-    return () => { stopDamage(); v.dispose(); view = null; };
+    return () => { stopCargo(); stopDamage(); v.dispose(); view = null; };
   });
 
   // The client's view transitions (ui/view/transitions.py, viewStateConfig.py): docking (ToHangarTransition) fades to

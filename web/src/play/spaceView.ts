@@ -73,6 +73,8 @@ export interface SpaceActions {
   dock(itemID: number): Promise<void>;
   /** scanMgr.ConeScan(angle, range, x, y, z): the directional scanner's call, where the page can make it. */
   coneScan?(angle: number, range: number, x: number, y: number, z: number): Promise<unknown>;
+  /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
+  openCargo?(itemID: number): Promise<void>;
 }
 
 const KIND_COLOUR: Record<string, string> = {
@@ -590,6 +592,9 @@ export class SpaceView {
       const primary: RadialOption | null =
         e.kind === "station" || e.kind === "structure" ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
         : e.kind === "stargate" ? { label: "Jump", icon: icon(39), run: run("Jump", () => this.actions.jump(id)) }
+        // spaceRadialMenuFunctions: a wreck's and a can's first action is Open Cargo (44_32_35)
+        : (e.kind === "wreck" || e.kind === "container") && this.actions.openCargo
+          ? { label: "Open Cargo", icon: icon(35), run: run("Open Cargo", () => this.actions.openCargo!(id)) }
         : null;
       const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
       const lock: RadialOption = this.locked.has(id)

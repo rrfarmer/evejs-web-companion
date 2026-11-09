@@ -329,6 +329,18 @@
   };
   const openShip = $derived($inventory.openShip);
   const container = $derived($inventory.container);
+  // invControllers.ItemWreck / ItemFloatingCargo: a wreck or a can in space is lootable where its ball's group is one of
+  // LOOT_GROUPS (wreck, cargo, freight, spawn and spew containers, overseer's belongings, mission container, auto
+  // looter, mobile home), and the window offers Loot All (GetSpecialActions).
+  const LOOT_GROUPS = new Set([186, 12, 649, 306, 1207, 496, 952, 1250, 1246]);
+  const lootable = $derived(!isDocked && container !== null && container !== undefined
+    && LOOT_GROUPS.has($space.snapshot?.entities.find((e) => e.itemID === container.itemID)?.groupID ?? -1));
+  /** LootAll: every item in it to the ship's cargo hold at once (ShipCargo().AddItems, the one MultiAdd). */
+  function lootAll(): void {
+    const c = container;
+    if (!c || c.rows.length === 0) return;
+    void run(() => flow.transferItems(c.rows.map((r) => r.itemID), { kind: "container", itemID: c.itemID }, { kind: "cargo" }));
+  }
 
   $effect(() => {
     if (ping > 0) {
@@ -1975,6 +1987,9 @@
           >
             ← Back to {container?.typeID === 60 && localSafety?.wraps.length ? "Asset Deliveries" : "the item hangar"}
           </button>
+          {#if lootable}
+            <button type="button" class="stn-btn" disabled={busy || !container?.rows.length} onclick={lootAll}>Loot All</button>
+          {/if}
         </p>
         {#if container?.safety}
           <div class="stn-divisions" aria-label="Asset Safety divisions">
