@@ -64,6 +64,7 @@ export async function celestialModel(typeID: number, kind: string, radius: numbe
   if (item?.NormalHeight1 && isGasGiant(c)) return gasGiantModel(c, item.NormalHeight1, radius, itemID);
   if (item?.NormalHeight1 && c.params.FillTint && c.textures.FillTexture) return rockyModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   if (item?.NormalHeight1 && c.params.LavaColor1 && c.textures.FillTexture) return lavaModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
+  if (item?.NormalHeight1 && c.params.IceFactors && c.textures.FillTexture) return iceModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   const surfaceName = SURFACE.find((n) => c.textures[n] && !/black\.dds$/.test(c.textures[n]!));
   const shared = surfaceName ? await texture(c.textures[surfaceName]!, true) : null;
   const tiling = c.params.DetailsTiling?.[0] ?? 1;
@@ -198,6 +199,57 @@ ${fs}`.replace("#include <map_fragment>", `
         ${hasWater ? `float sea = clamp( ( h - miscF.x ) * -1000.0, 0.0, 1.0 );
         vec3 w = mix( water, shallow, clamp( ( h + sharpF.w - miscF.x ) * 50.0, 0.0, 1.0 ) * 0.8 );
         g = mix( g, w, sea );` : ""}
+        g = max( g, vec3( 0.0 ) );
+        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
+  m.name = "celestial";
+  return m;
+}
+
+/**
+ * An ice planet as iceplanet.fx colours it (its sm_hi pixel shader; constants by the effect file's table: MiscFactors
+ * c1, Random c2, IceFactors c3, IceDetail c4, IceSpecular c5, IceRampColorLow c6, Middle c7, High c8):
+ * - the height is NormalHeight1 x NormalHeight2 (moved by Random, as the rocky planets'), plus the ice detail:
+ *   2 x IceDetail.x x (sqrt(fill(uv x IceDetail.y) x fill(uv x IceDetail.z)) - 0.5), the fill's first channel;
+ * - t = saturate((h - (F.x - D.x)) / ((F.y + D.x) - (F.x - D.x))) / F.z ramps Low to Middle by saturate(t) and on to
+ *   High by saturate(t - 1), times the ColorizeMap, a colour in gamma space taken to linear;
+ * - the shine (IceSpecular: strength, power, fading out as the height rises from .w to .z) is the material's own
+ *   roughness here; the shader's pole blend of a second projection and its ground scattering maps are not ported.
+ */
+async function iceModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
+  const [h1, h2, detail, colorize] = await Promise.all([
+    texture(heightMap1),
+    heightMap2 ? texture(heightMap2) : Promise.resolve(null),
+    texture(c.textures.FillTexture!),
+    c.textures.ColorizeMap ? texture(c.textures.ColorizeMap) : Promise.resolve(null),
+  ]);
+  for (const t of [h1, h2, detail]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
+  const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
+  const random = itemID === null ? 0 : itemID % 100;
+  const spec = v4(c.params.IceSpecular, [0.6, 12, 0.3, 0.1]);
+  // a Blinn power p shines about as a roughness of sqrt(2 / (p + 2))
+  const roughness = Math.min(0.95, Math.max(0.3, Math.sqrt(2 / (spec.y + 2))));
+  const mat = new THREE.MeshStandardMaterial({ map: h1, color: 0xffffff, roughness, metalness: 0, envMapIntensity: PLANET_AMBIENT });
+  const uniforms = {
+    heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail }, colorizeMap: { value: colorize }, hasColorize: { value: colorize ? 1 : 0 },
+    iceF: { value: v4(c.params.IceFactors, [-0.27, 1.53, 0.43, 1]) }, iceD: { value: v4(c.params.IceDetail, [0.8, 4, 2, 1]) },
+    low: { value: v3(c.params.IceRampColorLow, [0.1, 0.16, 0.2]) }, middle: { value: v3(c.params.IceRampColorMiddle, [0.94, 0.94, 0.94]) },
+    high: { value: v3(c.params.IceRampColorHigh, [1, 1, 1]) },
+    shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
+  };
+  withRim(mat, col(c.params.AtmosphereColor, [0.55, 0.7, 0.9]), (fs) => `uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform sampler2D colorizeMap; uniform float hasColorize;
+uniform vec4 iceF; uniform vec4 iceD; uniform vec3 low; uniform vec3 middle; uniform vec3 high; uniform vec2 shiftA; uniform vec2 shiftB;
+${fs}`.replace("#include <map_fragment>", `
+        float a = texture2D( map, vMapUv * vec2( 2.0, 1.0 ) + shiftA ).r;
+        float b = texture2D( heightMap2, vMapUv * vec2( 3.0, 1.5 ) + shiftB + 1.0 ).r;
+        float d1 = texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * iceD.y ).r;
+        float d2 = texture2D( detailMap, vMapUv * vec2( 2.0, 1.0 ) * iceD.z ).r;
+        float h = a * b + 2.0 * iceD.x * ( sqrt( max( d1 * d2, 0.0 ) ) - 0.5 );
+        float lo = iceF.x - iceD.x, hi = iceF.y + iceD.x;
+        float t = clamp( ( h - lo ) / ( hi - lo ), 0.0, 1.0 ) / iceF.z;
+        vec3 g = mix( mix( low, middle, clamp( t, 0.0, 1.0 ) ), high, clamp( t - 1.0, 0.0, 1.0 ) );
+        if ( hasColorize > 0.5 ) g *= texture2D( colorizeMap, vMapUv ).rgb;
         g = max( g, vec3( 0.0 ) );
         diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
