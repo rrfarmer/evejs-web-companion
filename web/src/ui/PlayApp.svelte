@@ -15,6 +15,7 @@
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
   import InfoWindows from "./InfoWindows.svelte";
+  import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { notify } from "./notices.ts";
@@ -384,6 +385,7 @@
               <button class="lobby-svc" title={svc.label} onclick={() => open(svc.tab)}><img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} /><span>{svc.label}</span></button>
             {/each}
           </div>
+          <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} />
         </div>
       </div>
     </div>
