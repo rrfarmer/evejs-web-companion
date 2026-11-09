@@ -14,7 +14,9 @@
 // (default http://127.0.0.1:26500), so the TS app can iterate with hot reload
 // while the BFF keeps owning auth, the bridge proxy, and static vanilla pages.
 // Override the proxy target with EVEJS_WEB_BFF_URL if the BFF runs elsewhere.
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+import fs from "node:fs";
+import path from "node:path";
 // View library (locked by the R2 spike): Svelte 5. Components stay thin pure
 // readers of the framework-agnostic signal store (web/src/store), which
 // implements the Svelte store contract so `$slice` auto-subscription works.
@@ -28,9 +30,78 @@ import tailwindcss from "@tailwindcss/vite";
 
 const bffTarget = process.env.EVEJS_WEB_BFF_URL || "http://127.0.0.1:26500";
 
+// Client assets for the three.js play page (FarmerThreeJSFun). tools/client-extract writes them to
+// _local/client-assets/<build>/ from the local EVE install; they are never committed. Served at
+// /client-assets from the build named by EVE_CLIENT_BUILD, else the newest build folder there.
+function clientAssets(): Plugin {
+  const root = path.resolve(__dirname, "_local", "client-assets");
+  const types: Record<string, string> = { ".glb": "model/gltf-binary", ".json": "application/json", ".dds": "application/octet-stream" };
+  return {
+    name: "client-assets",
+    configureServer(server) {
+      server.middlewares.use("/client-assets", (req, res, next) => {
+        let builds: string[] = [];
+        try { builds = fs.readdirSync(root).filter((d) => /^\d+$/.test(d)).sort((a, b) => Number(b) - Number(a)); } catch { /* none yet */ }
+        const build = process.env.EVE_CLIENT_BUILD || builds[0];
+        if (!build) { res.statusCode = 404; return res.end("no client assets: run tools/client-extract/extract.mjs"); }
+        const rel = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
+        const file = path.resolve(root, build, "." + rel);
+        if (!file.startsWith(path.resolve(root, build) + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return next();
+        res.setHeader("content-type", types[path.extname(file)] ?? "application/octet-stream");
+        fs.createReadStream(file).pipe(res);
+      });
+      // Recorded Destiny feeds for the park harness (scripts/destiny-feed.js); dev only.
+      const feeds = path.resolve(__dirname, "_local", "play-feed");
+      server.middlewares.use("/play-feed", (req, res, next) => {
+        const name = path.basename(decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/"));
+        const file = path.join(feeds, name);
+        if (!/\.json$/.test(name) || !fs.existsSync(file)) return next();
+        res.setHeader("content-type", "application/json");
+        fs.createReadStream(file).pipe(res);
+      });
+    },
+  };
+}
+
+// The BFF's Destiny code (src/gamePort/destiny, CommonJS) bundled for the browser on demand, so the
+// play page's park is the very code the BFF runs. `import { Park } from "virtual:destiny"`.
+function destinyForTheBrowser(): Plugin {
+  const id = "virtual:destiny";
+  const resolved = "\0" + id;
+  const src = (p: string) => JSON.stringify(path.resolve(__dirname, "src", p).replace(/\\/g, "/"));
+  const entry = [
+    `export { Park } from ${src("gamePort/destiny/park.js")};`,
+    `export { Ballpark } from ${src("gamePort/destiny/ballpark.js")};`,
+    `export { MODE, MODE_NAME, readState } from ${src("gamePort/destiny/state.js")};`,
+    `export { readFeedItem, applyToPark, rebaseDelta } from ${src("gamePort/destiny/feed.js")};`,
+    `export { marshalDecode } from ${src("gameProtocol/marshal.js")};`,
+  ].join("\n");
+  return {
+    name: "destiny-for-the-browser",
+    resolveId: (source) => (source === id ? resolved : null),
+    async load(loading) {
+      if (loading !== resolved) return null;
+      const { rolldown } = await import("rolldown");
+      const bundle = await rolldown({
+        input: "destiny-entry",
+        platform: "browser",
+        cwd: __dirname,
+        transform: { inject: { Buffer: ["buffer", "Buffer"] } },
+        plugins: [{ name: "entry", resolveId: (s) => (s === "destiny-entry" ? s : null), load: (s) => (s === "destiny-entry" ? entry : null) }],
+      });
+      const { output } = await bundle.generate({ format: "esm" });
+      await bundle.close();
+      for (const file of ["gamePort/destiny/park.js", "gamePort/destiny/ballpark.js", "gamePort/destiny/state.js", "gamePort/destiny/feed.js", "gameProtocol/marshal.js", "gameProtocol/marshalStringTable.js"]) {
+        this.addWatchFile(path.resolve(__dirname, "src", file));
+      }
+      return output[0]?.code ?? "";
+    },
+  };
+}
+
 export default defineConfig({
   root: "web",
-  plugins: [svelte(), tailwindcss()],
+  plugins: [svelte(), tailwindcss(), clientAssets(), destinyForTheBrowser()],
   // Built asset URLs are absolute under "/" because the Express static
   // middleware serves public/dist/ AT THE ROOT (R45). This must stay in step
   // with where src/server.js mounts the build: emit /dist/assets/* while the

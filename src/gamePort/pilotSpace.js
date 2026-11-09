@@ -92,20 +92,9 @@ const BIND_TRIES = 10;
 const BIND_RETRY_MS = 1000;
 /** How often the park is shown the clock. The client does it every frame it draws; a park needs it only often enough to step on time. */
 const FRAME_MS = 50;
-/** blue counts in 100 ns; the park's clock in milliseconds. */
-const BLUE_TICKS_PER_MS = 10_000n;
-
-/** The two readings of a DoSimClockRebase, as a difference in milliseconds; null if they are not two whole numbers. */
-function rebaseDelta(times) {
-  const pair = Array.isArray(times) ? times : times && Array.isArray(times.items) ? times.items : null;
-  if (!pair || pair.length !== 2) return null;
-  try {
-    const [from, to] = pair.map((value) => BigInt(value));
-    return Number(to - from) / Number(BLUE_TICKS_PER_MS);
-  } catch {
-    return null;
-  }
-}
+// How a notification reaches the park, and the sim-clock rebase, are shared with the browser's own
+// park (the three.js play page), so both are fed by the same code.
+const { rebaseDelta, applyToPark } = require("./destiny/feed");
 
 /**
  * `session` is the pilot's game-port session. `simTime()` reads the pilot's
@@ -261,28 +250,7 @@ function createPilotSpace({
   /** A notification from the session. True when it was the ballpark's. */
   function feed(notification) {
     if (released) return false;
-    if (notification.method === "DoDestinyUpdate") {
-      guard("DoDestinyUpdate", () => park.doDestinyUpdate(notification.args[0], notification.args[1], notification.args[2]));
-      return true;
-    }
-    if (notification.method === "DoDestinyUpdates") {
-      guard("DoDestinyUpdates", () => park.doDestinyUpdates(notification.args[0]));
-      return true;
-    }
-    if (notification.method === "DoSimClockRebase") {
-      const delta = rebaseDelta(Array.isArray(notification.args) ? notification.args[0] : null);
-      if (delta !== null) park.adjustTimes(delta);
-      return true;
-    }
-    // michelle.OnDroneStateChange and OnDroneActivityChange (265, 270): a drone's notice of its own goes to the
-    // park, as the entry of a ballpark update does. The notice is the page's to hear as well.
-    if (notification.method === "OnDroneStateChange" && Array.isArray(notification.args)) {
-      guard("OnDroneStateChange", () => park.OnDroneStateChange(...notification.args));
-    }
-    if (notification.method === "OnDroneActivityChange" && Array.isArray(notification.args)) {
-      guard("OnDroneActivityChange", () => park.OnDroneActivityChange(...notification.args));
-    }
-    return false;
+    return applyToPark(park, notification.method, notification.args, guard);
   }
 
   /** Michelle.RemoveBallpark: the park stops, and its remote ballpark is let go. */

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Park harness</title>
+    <!--
+      DEV-ONLY: spike S2 of docs/threejs-play-plan.md. The browser runs the BFF's own
+      Destiny Park (bundled by the virtual:destiny Vite plugin) on a recorded real
+      server feed, and checks every ball at every tick against the BFF Park's positions.
+      Make the feed first: `node scripts/destiny-feed.js destinyWarp`.
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #020306; overflow: hidden; }
+      .hud { position: fixed; left: 12px; color: #9fb3c8; font: 12px/1.4 ui-monospace, monospace; }
+      #status { bottom: 28px; }
+      #tick { bottom: 10px; color: #c8a060; }
+    </style>
+  </head>
+  <body>
+    <div id="status" class="hud">playing the feed…</div>
+    <div id="tick" class="hud"></div>
+    <script type="module" src="./src/three/parkHarness.ts"></script>
+  </body>
+</html>

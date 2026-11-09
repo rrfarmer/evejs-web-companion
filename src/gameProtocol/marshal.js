@@ -17,10 +17,8 @@
  *   (The encoder shares a rowset's row descriptor alone: see "A rowset's descriptor, written once", below.)
  */
 
-const path = require("path");
-const { lookupIndex, lookupString, STRING_TABLE_ERROR } = require(
-  path.join(__dirname, "marshalStringTable"),
-);
+// A plain relative require, so a bundler can follow it (the three.js play page runs this decoder in the browser).
+const { lookupIndex, lookupString, STRING_TABLE_ERROR } = require("./marshalStringTable");
 
 // ─── Opcodes ────────────────────────────────────────────────────────────────
 const Op = {

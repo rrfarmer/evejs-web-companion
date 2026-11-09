@@ -11,3 +11,8 @@ logs-bff-*.log
 docs/game-port-loop-log.md
 docs/game-port-loop-log-until-2026-10-15.md
 docs/goal-prompts/release-bug-pass.md
+
+# Client assets extracted by tools/client-extract (never distributed)
+_local/client-assets/
+# Destiny feeds made from the test recordings by scripts/destiny-feed.js
+_local/play-feed/

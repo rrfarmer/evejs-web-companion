@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hull viewer</title>
+    <!--
+      DEV-ONLY: spike S1 of docs/threejs-play-plan.md. Draws one hull that
+      tools/client-extract pulled out of the local EVE client, with its own
+      textures. Needs `node tools/client-extract/extract.mjs --hull <stem>` first;
+      the Vite dev server serves _local/client-assets/<build>/ at /client-assets.
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+      #status { position: fixed; left: 12px; bottom: 10px; color: #9fb3c8; font: 12px/1.4 ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <div id="status">loading…</div>
+    <script type="module" src="./src/three/hullViewer.ts"></script>
+  </body>
+</html>
