@@ -57,7 +57,56 @@ const PLANET_AMBIENT = 0.25;
 
 const isGasGiant = (c: Celestial) => c.effects.some((e) => /\/gasgiant\.fx$/i.test(e));
 
+/**
+ * A planet, moon or sun as the client draws it: its surface (celestialSurface), and over a planet whose preset has
+ * the earthlikeclouds effect, the cloud shell (cloudShell).
+ */
 export async function celestialModel(typeID: number, kind: string, radius: number, item: CelestialItem | null = null, itemID: number | null = null): Promise<THREE.Object3D | null> {
+  const surface = await celestialSurface(typeID, kind, radius, item, itemID);
+  if (!surface || kind === "sun") return surface;
+  const c = (item?.celestial ? await celestialAt(item.celestial) : null) ?? await celestialOf(typeID);
+  if (!c || !c.effects.some((e) => /\/earthlikeclouds\.fx$/i.test(e)) || !c.textures.CloudsTexture) return surface;
+  const shell = await cloudShell(c, radius).catch(() => null);
+  if (!shell) return surface;
+  const group = new THREE.Group();
+  group.name = "celestial";
+  surface.name = "surface";
+  group.add(surface, shell);
+  return group;
+}
+
+/**
+ * The cloud shell (earthlikeclouds.fx, its sm_hi pixel shader; Time c2.x, CloudsColor c3, CloudsFactors c4): a sphere
+ * just over the surface, its cover pow(cloud, CloudsFactors.z) (CloudsTexture tiled by CloudsFactors.w, turning once
+ * an hour), its colour cover x (GroundScattering1 + ambient) x CloudsColor x CloudsFactors.y plus GroundScattering2,
+ * laid over the surface with the cover as its alpha. The polar cloud cap's projection is not ported.
+ */
+async function cloudShell(c: Celestial, radius: number): Promise<THREE.Object3D | null> {
+  const [clouds, s1, s2] = await Promise.all([
+    texture(c.textures.CloudsTexture!),
+    c.textures.GroundScattering1 ? texture(c.textures.GroundScattering1) : Promise.resolve(null),
+    c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
+  ]);
+  if (!clouds) return null;
+  if (clouds.wrapS !== THREE.RepeatWrapping) { clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping; clouds.needsUpdate = true; }
+  const f = c.params.CloudsFactors ?? [0.5, 1, 1, 1];
+  const k = c.params.CloudsColor ?? [1, 1, 1, 1];
+  const mat = scatterMaterial(s1, s2, {
+    clouds: { value: clouds }, hasScatter: { value: s1 ? 1 : 0 },
+    cloudColour: { value: new THREE.Vector3(k[0] ?? 1, k[1] ?? 1, k[2] ?? 1) },
+    cloudF: { value: new THREE.Vector4(f[0] ?? 0.5, f[1] ?? 1, f[2] ?? 1, f[3] ?? 1) },
+  }, `uniform sampler2D clouds; uniform float hasScatter; uniform vec3 cloudColour; uniform vec4 cloudF;`, `
+        float cover = pow(abs(texture2D(clouds, vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0)).r), cloudF.z);
+        vec3 light = hasScatter > 0.5 ? lit : vec3(max(NL, 0.0)) + ambient;
+        g = cover * light * cloudColour * cloudF.y + (hasScatter > 0.5 ? S2 : vec3(0.0));
+        alpha = cover;`, true);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.004, 96, 64), mat);
+  m.name = "clouds";
+  m.renderOrder = 1;
+  return m;
+}
+
+async function celestialSurface(typeID: number, kind: string, radius: number, item: CelestialItem | null = null, itemID: number | null = null): Promise<THREE.Object3D | null> {
   const c = (item?.celestial ? await celestialAt(item.celestial) : null) ?? await celestialOf(typeID);
   if (!c) return null;
   if (kind === "sun") return sunModel(c, radius);
@@ -217,7 +266,7 @@ ${fs}`.replace("#include <map_fragment>", `
  * set `vec3 extra` (added after the scattering), with N, L, V, NL, NV, S1, S2, lit, vUv and time in scope.
  */
 const SCATTER_AMBIENT = new THREE.Vector3(0.02, 0.02, 0.025);
-function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uniforms: Record<string, { value: unknown }>, head: string, surface: string): THREE.ShaderMaterial {
+function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uniforms: Record<string, { value: unknown }>, head: string, surface: string, alpha = false): THREE.ShaderMaterial {
   for (const t of [s1, s2]) if (t) { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; }
   const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
   const mat = new THREE.ShaderMaterial({
@@ -233,14 +282,16 @@ function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uni
         vec2 su = vec2(NL * 0.5 + 0.5, clamp(NV, 0.0, 1.0));
         vec3 S1 = texture2D(scatter1, su).rgb, S2 = texture2D(scatter2, su).rgb;
         vec3 lit = S1 + ambient;
-        vec3 g = vec3(0.5); vec3 extra = vec3(0.0);
+        vec3 g = vec3(0.5); vec3 extra = vec3(0.0); float alpha = 1.0;
         ${surface}
         vec3 c = max(g, vec3(0.0));
         c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
-        gl_FragColor = vec4(c, 1.0);
+        gl_FragColor = vec4(c, alpha);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
+    // a shell (the clouds) goes over what is under it as the client blends it: its colour already carries its cover
+    ...(alpha ? { transparent: true, depthWrite: false, premultipliedAlpha: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor } : {}),
   });
   let lightOf: THREE.DirectionalLight | null = null;
   mat.onBeforeRender = (_r, scene) => {
