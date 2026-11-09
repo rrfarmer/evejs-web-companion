@@ -17,6 +17,8 @@ import { LivePark } from "../three/livePark.ts";
 import { typeModel } from "../three/hullModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview } from "./overview.ts";
+import { panelErrorWords } from "../bridge/refusals.ts";
+import { PlayWindow, clientTexture } from "./window.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -27,6 +29,13 @@ interface Snapshot { entities: Entity[]; ship: (Entity & { maxVelocity: number |
 
 export interface SpaceActions {
   gotoDirection(dx: number, dy: number, dz: number): Promise<void>;
+  alignTo(itemID: number): Promise<void>;
+  keepAtRange(itemID: number): Promise<void>;
+  jump(itemID: number): Promise<void>;
+  lock(itemID: number): Promise<void>;
+  unlock(itemID: number): Promise<void>;
+  /** What is locked, and what has the pilot locked: the BFF's read (GET /api/bridge/targets). */
+  targets(): Promise<{ targetIDs: number[]; targeterIDs: number[] }>;
   stop(): Promise<void>;
   approach(itemID: number): Promise<void>;
   orbit(itemID: number): Promise<void>;
@@ -76,7 +85,10 @@ export class SpaceView {
   private readonly speedEl: HTMLDivElement;
   private readonly modeEl: HTMLDivElement;
   private readonly gaugeArc: SVGPathElement;
-  private readonly selectedEl: HTMLDivElement;
+  private readonly selectedEl: HTMLElement;
+  private readonly selectedWin: PlayWindow;
+  private locked = new Set<number>();
+  private targeters = new Set<number>();
   private readonly feedEl: HTMLDivElement;
   private readonly toastEl: HTMLDivElement;
   private selected: number | null = null;
@@ -107,13 +119,17 @@ export class SpaceView {
         </svg>
         <div class="speed">0 m/s</div><div class="mode"></div>
       </div>
-      <div class="selected-item" style="display:none"><div class="window-head">Selected Item</div><div class="body"></div></div>
       <div class="toast"></div>
       <div class="feed-status"></div>`);
     this.speedEl = this.root.querySelector(".ship-hud .speed")!;
     this.modeEl = this.root.querySelector(".ship-hud .mode")!;
     this.gaugeArc = this.root.querySelector(".speed-arc")!;
-    this.selectedEl = this.root.querySelector(".selected-item")!;
+    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 300, top: 14, width: 280, height: 116, closable: false });
+    this.selectedWin.body.classList.add("si");
+    this.selectedEl = this.selectedWin.root;
+    this.selectedEl.style.display = "none";
+    this.root.appendChild(this.selectedEl);
+    this.pollTargets();
     this.feedEl = this.root.querySelector(".feed-status")!;
     this.toastEl = this.root.querySelector(".toast")!;
     this.root.querySelector(".stop")!.addEventListener("click", () => this.act("Stop", () => this.actions.stop()));
@@ -182,7 +198,8 @@ export class SpaceView {
   }
 
   private async act(what: string, fn: () => Promise<void>): Promise<void> {
-    try { await fn(); } catch (e) { this.toast(`${what}: ${(e as Error).message}`); }
+    // A refusal in the words the app gives it (bridge/refusals.ts), as the client puts its own up.
+    try { await fn(); } catch (e) { this.toast(panelErrorWords(e)); }
   }
 
   /** The client's double click in space: fly the way the camera looks through the cursor. */
@@ -202,26 +219,69 @@ export class SpaceView {
     this.renderSelected();
   }
 
+/** The Selected Item window's actions, as the client offers them for a thing of each kind, with its own icons. */
+  private actionsFor(e: Entity): { key: string; title: string; icon: string; run: () => Promise<void> }[] {
+    const id = e.itemID;
+    const icon = (name: string) => clientTexture(`res:/UI/Texture/eveicon/control_icons/${name}_32px.png`);
+    const out = [
+      { key: "approach", title: "Approach", icon: icon("approach"), run: () => this.actions.approach(id) },
+      { key: "align", title: "Align To", icon: icon("align_to"), run: () => this.actions.alignTo(id) },
+      { key: "warp", title: "Warp To Within 0 m", icon: icon("warp_to"), run: () => this.actions.warpTo(id) },
+      { key: "orbit", title: "Orbit", icon: icon("orbit"), run: () => this.actions.orbit(id) },
+      { key: "keep", title: "Keep at Range", icon: icon("keep_at_distance"), run: () => this.actions.keepAtRange(id) },
+    ];
+    if (e.kind === "station" || e.kind === "structure") out.push({ key: "dock", title: "Dock", icon: icon("dock"), run: () => this.actions.dock(id) });
+    if (e.kind === "stargate") out.push({ key: "jump", title: "Jump", icon: icon("jump_to"), run: () => this.actions.jump(id) });
+    const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
+    if (lockable) {
+      out.push(this.locked.has(id)
+        ? { key: "unlock", title: "Unlock Target", icon: icon("target"), run: () => this.actions.unlock(id) }
+        : { key: "lock", title: "Lock Target", icon: icon("target"), run: () => this.actions.lock(id) });
+    }
+    out.push({ key: "look", title: "Look At", icon: icon("look_at"), run: async () => { this.lookAt = id; } });
+    return out;
+  }
+
   private renderSelected(): void {
     const e = this.snapshot?.entities.find((x) => x.itemID === this.selected) ?? null;
     if (!e || e.isSelf) { this.selectedEl.style.display = "none"; return; }
     this.selectedEl.style.display = "";
-    const body = this.selectedEl.querySelector(".body")!;
+    const body = this.selectedWin.body;
     const dist = this.distanceTo(e);
-    if (body.getAttribute("data-id") !== String(e.itemID)) {
-      body.setAttribute("data-id", String(e.itemID));
-      const canDock = e.kind === "station";
-      body.innerHTML = `<div class="name"></div><div class="dist"></div><div class="actions">
-        <button class="btn" data-a="approach">Approach</button><button class="btn" data-a="orbit">Orbit</button>
-        <button class="btn" data-a="warp">Warp To</button>${canDock ? `<button class="btn" data-a="dock">Dock</button>` : ""}</div>`;
-      body.querySelector(".name")!.textContent = e.name ?? `${e.kind} ${e.itemID}`;
-      body.querySelectorAll<HTMLButtonElement>("button[data-a]").forEach((b) => b.addEventListener("click", () => {
-        const id = e.itemID;
-        const a = b.dataset.a!;
-        void this.act(b.textContent ?? a, () => a === "approach" ? this.actions.approach(id) : a === "orbit" ? this.actions.orbit(id) : a === "warp" ? this.actions.warpTo(id) : this.actions.dock(id));
-      }));
+    const sig = `${e.itemID}:${this.locked.has(e.itemID)}`;
+    if (body.getAttribute("data-sig") !== sig) {
+      body.setAttribute("data-sig", sig);
+      body.innerHTML = `<div class="si-name"></div><div class="si-dist"></div><div class="si-actions"></div>`;
+      body.querySelector(".si-name")!.textContent = e.name ?? `${e.kind} ${e.itemID}`;
+      const row = body.querySelector(".si-actions")!;
+      for (const a of this.actionsFor(e)) {
+        const b = document.createElement("button");
+        b.className = `si-act${a.key === "unlock" ? " on" : ""}`;
+        b.title = a.title;
+        b.innerHTML = `<img src="${a.icon}" alt="">`;
+        b.addEventListener("click", () => void this.act(a.title, a.run).then(() => this.refreshTargets()));
+        row.appendChild(b);
+      }
     }
-    body.querySelector(".dist")!.textContent = distanceWords(dist);
+    body.querySelector(".si-dist")!.textContent = distanceWords(dist);
+  }
+
+  private lookAt: number | null = null;
+
+  private async refreshTargets(): Promise<void> {
+    try {
+      const t = await this.actions.targets();
+      this.locked = new Set(t.targetIDs);
+      this.targeters = new Set(t.targeterIDs);
+      for (const [id, el] of this.bracketEls) { el.classList.toggle("locked", this.locked.has(id)); el.classList.toggle("targeting-me", this.targeters.has(id)); }
+      this.renderSelected();
+    } catch { /* the next poll tries again */ }
+  }
+
+  /** The client is told of locks as they happen; the BFF keeps them and the page reads them once a second. */
+  private pollTargets(): void {
+    const tick = () => { if (this.stopped) return; void this.refreshTargets().finally(() => setTimeout(tick, 1000)); };
+    tick();
   }
 
   private distanceTo(e: Entity): number {
@@ -298,6 +358,8 @@ export class SpaceView {
         const id = e.itemID;
         el.addEventListener("click", (ev) => { ev.stopPropagation(); this.select(id); });
         el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.act("Approach", () => this.actions.approach(id)); });
+        el.classList.toggle("locked", this.locked.has(id));
+        el.classList.toggle("targeting-me", this.targeters.has(id));
         this.brackets.appendChild(el);
         this.bracketEls.set(e.itemID, el);
       }
@@ -313,6 +375,13 @@ export class SpaceView {
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
     if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x));
+    // Look At (the client's camera lookAt): the camera turns about the thing looked at, and follows it, until it
+    // is gone or the pilot's own ship is looked at again; the camera keeps its offset as the point moves.
+    const looked = this.lookAt === null ? null : this.marks.get(this.lookAt) ?? null;
+    if (this.lookAt !== null && !looked) this.lookAt = null;
+    const want = looked ? looked.position : new THREE.Vector3();
+    const shift = want.clone().sub(this.controls.target);
+    if (shift.lengthSq() > 0) { this.camera.position.add(shift); this.controls.target.copy(want); }
     for (const [id, m] of this.marks) if (!seen.has(id)) { this.scene.remove(m); this.marks.delete(id); }
 
     if (ego) {

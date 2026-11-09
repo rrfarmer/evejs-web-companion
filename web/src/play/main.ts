@@ -8,10 +8,12 @@ import "./play.css";
 import {
   login, readRosterCharacters, selectCharacter, markDroneRecoveryReady, getFlightStatus, bridgeDo,
 } from "../app/api.ts";
+import { getSessionToken as token } from "../app/sessionToken.ts";
 import { getSessionToken, withSessionTokenQuery } from "../app/sessionToken.ts";
 import { decodeCharacterSelectionData } from "../bridge/characterSelection.ts";
-import { approach, orbit, stopShip, warpToItem, type FlightNow } from "../bridge/movementWrites.ts";
-import { undock, dock } from "../bridge/placeChanges.ts";
+import { approach, orbit, stopShip, warpToItem, alignTo, keepAtRange, type FlightNow } from "../bridge/movementWrites.ts";
+import { lockTarget, unlockTarget } from "../bridge/targetWrites.ts";
+import { undock, dock, jump } from "../bridge/placeChanges.ts";
 import { LivePark } from "../three/livePark.ts";
 import { SpaceView } from "./spaceView.ts";
 import type { CharacterSummary } from "../store/types.ts";
@@ -137,6 +139,15 @@ function showSpace(): void {
   view?.dispose();
   view = new SpaceView(live!, {
     gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
+    alignTo: (id) => alignTo(act, flightNow, id),
+    keepAtRange: (id) => keepAtRange(act, flightNow, id, 5000),
+    jump: (id) => jump(act, flightNow, id),
+    lock: async (id) => { await lockTarget(act, id, null); },
+    unlock: (id) => unlockTarget(act, id, "locked"),
+    targets: async () => {
+      const r = await (await fetch("/api/bridge/targets", { headers: { authorization: `Bearer ${token() ?? ""}` } })).json() as { targetIDs?: number[] | null; targeterIDs?: number[] | null };
+      return { targetIDs: r.targetIDs ?? [], targeterIDs: r.targeterIDs ?? [] };
+    },
     stop: () => stopShip(act, flightNow),
     approach: (id) => approach(act, flightNow, id),
     orbit: (id) => orbit(act, flightNow, id, 5000),

@@ -122,3 +122,18 @@ button { font: inherit; color: inherit; }
 .ov-table .ov-icon { width: 16px; padding-right: 0; }
 .ov-table .ov-icon svg { width: 14px; height: 14px; display: block; }
 .ov-table .ov-dist { text-align: right; font-variant-numeric: tabular-nums; color: #cfd3cf; }
+
+/* ── Selected Item (spaceView.ts) ── */
+.si { padding: 6px 10px 8px; }
+.si-name { color: #eef0ec; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.si-dist { color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; margin: 1px 0 6px; }
+.si-actions { display: flex; gap: 2px; }
+.si-act { width: 30px; height: 30px; padding: 3px; background: transparent; border: 1px solid transparent; cursor: pointer; opacity: .8; }
+.si-act img { width: 22px; height: 22px; display: block; }
+.si-act:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.12); }
+.si-act.on { background: rgba(210, 59, 47, 0.25); border-color: rgba(210, 59, 47, 0.6); }
+
+/* a locked thing's bracket: the client's red lock corners; one that has the pilot locked: a yellow ring */
+.bracket.locked::after { content: ""; position: absolute; inset: -5px; border: 2px solid #d23b2f;
+  clip-path: polygon(0 0, 35% 0, 35% 2px, 2px 2px, 2px 35%, 0 35%, 0 100%, 35% 100%, 35% calc(100% - 2px), 2px calc(100% - 2px), 2px 65%, 0 65%, 0 0, 100% 0, 100% 35%, calc(100% - 2px) 35%, calc(100% - 2px) 2px, 65% 2px, 65% 0, 100% 0, 100% 100%, 65% 100%, 65% calc(100% - 2px), calc(100% - 2px) calc(100% - 2px), calc(100% - 2px) 65%, 100% 65%); }
+.bracket.targeting-me .glyph { filter: drop-shadow(0 0 2px #e3b542) drop-shadow(0 0 2px #e3b542); }
