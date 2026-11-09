@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev:web"],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "eve-cs-mirror",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/eve-cs-mirror/serve.mjs", "--fill"],
+      "port": 8765,
+      "url": "http://evecs.localhost:8765"
     }
   ]
 }

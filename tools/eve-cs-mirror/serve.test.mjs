@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import { test, before, after } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { offlineText } from './offline.mjs';
+let dir, child, base;
+before(async()=>{
+ dir=fs.mkdtempSync(path.join(os.tmpdir(),'evecs-server-'));
+ fs.mkdirSync(path.join(dir,'__routes'),{recursive:true});fs.writeFileSync(path.join(dir,'__routes','__page'),'<head></head><h1>Landing</h1>');
+ fs.writeFileSync(path.join(dir,'index.html'),'<head></head><h1>Simulator</h1>');
+ fs.writeFileSync(path.join(dir,'clip.mp4'),'0123456789');
+ fs.mkdirSync(path.join(dir,'data','sde'),{recursive:true});fs.writeFileSync(path.join(dir,'data','sde','meta.json'),'{"icons":{"2":"assets/local.png"}}');
+ fs.mkdirSync(path.join(dir,'assets'),{recursive:true});fs.writeFileSync(path.join(dir,'assets','local.png'),'local-type-art');
+ fs.mkdirSync(path.join(dir,'data','scenarios','active','basics'),{recursive:true});fs.writeFileSync(path.join(dir,'data','scenarios','active','basics','ecm.json'),'{}');
+ fs.mkdirSync(path.join(dir,'__ext','images.evetech.net','types','1'),{recursive:true});fs.writeFileSync(path.join(dir,'__ext','images.evetech.net','types','1','icon__size=64'),Buffer.from([137,80,78,71]));
+ // A server fetch would fail immediately, including accidental --fill behavior.
+ const deny=path.join(dir,'deny.mjs');fs.writeFileSync(deny,'globalThis.fetch=()=>{throw new Error("UPSTREAM NETWORK FORBIDDEN")};');
+ child=spawn(process.execPath,['--import',pathToFileURL(deny).href,'serve.mjs','--port','0','--site',dir],{cwd:path.dirname(fileURLToPath(import.meta.url)),stdio:['ignore','pipe','pipe']});
+ base=await new Promise((resolve,reject)=>{let output='';child.stdout.on('data',s=>{output+=s;const m=/http:\/\/localhost:(\d+)/.exec(output);if(m)resolve('http://127.0.0.1:'+m[1])});child.on('error',reject);child.on('exit',c=>reject(new Error('Server exited: '+c)));});
+});
+after(async()=>{if(child&&!child.killed){child.kill();await once(child,'exit')}assert.ok(path.resolve(dir).startsWith(path.join(os.tmpdir(),'evecs-server-')));fs.rmSync(dir,{recursive:true,force:true})});
+test('default server is offline and always a guest',async()=>{const status=await(await fetch(base+'/__offline/status')).json();assert.equal(status.offline,true);assert.deepEqual(await(await fetch(base+'/auth/me')).json(),{level:'guest'})});
+test('simulator and landing aliases use the correct shells',async()=>{assert.match(await(await fetch(base+'/play/ecm')).text(),/Simulator/);assert.match(await(await fetch(base+'/landing.html')).text(),/Landing/);assert.match(await(await fetch(base+'/settings/graphics')).text(),/Landing/)});
+test('missing data and external files never return HTML or fetch upstream',async()=>{for(const p of ['/data/not-here','/data/missing.json','/__ext/esi.evetech.net/latest/missing/']){const r=await fetch(base+p);assert.equal(r.status,404);assert.match(await r.text(),/not in mirror/)}});
+test('scenario directory discovery and image size reuse stay local',async()=>{assert.match(await(await fetch(base+'/data/scenarios/active/')).text(),/href="basics\/"/);const r=await fetch(base+'/__ext/images.evetech.net/types/1/icon?size=32');assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'image/png');assert.equal((await r.arrayBuffer()).byteLength,4)});
+test('type images reuse the supplied SDE artwork',async()=>{const r=await fetch(base+'/__ext/images.evetech.net/types/2/icon?size=64');assert.equal(r.status,200);assert.equal(await r.text(),'local-type-art')});
+test('auth/editor limits are explicit',async()=>{assert.match(await(await fetch(base+'/auth/sso')).text(),/Offline mode/);assert.equal((await fetch(base+'/scenario-editor.html')).status,503)});
+test('HEAD and CSP enforce local resources',async()=>{const r=await fetch(base+'/index.html',{method:'HEAD'});assert.equal(await r.text(),'');assert.match(r.headers.get('content-security-policy'),/connect-src 'self'/);assert.equal((await fetch(base+'/__ext/example.com/foo')).status,400);assert.equal((await fetch(base+'/%E0%A4%A')).status,400)});
+test('offline media supports seeking and rejects invalid ranges',async()=>{const r=await fetch(base+'/clip.mp4',{headers:{range:'bytes=2-5'}});assert.equal(r.status,206);assert.equal(await r.text(),'2345');assert.equal(r.headers.get('content-range'),'bytes 2-5/10');const suffix=await fetch(base+'/clip.mp4',{headers:{range:'bytes=-3'}});assert.equal(await suffix.text(),'789');assert.equal((await fetch(base+'/clip.mp4',{headers:{range:'bytes=99-'}})).status,416)});
+test('HTML selects guest startup on localhost and removes preconnects',()=>{const s=offlineText('<head><link rel="preconnect" href="https://fonts.gstatic.com"><script>const e=["localhost","127.0.0.1","[::1]"].includes(location.hostname)</script>','html');assert.match(s,/const e=false/);assert.doesNotMatch(s,/rel="preconnect"/)});
+test('bundle adapter recognizes the captured guard and fails closed on other versions',()=>{assert.match(offlineText('});BVe();var n2=[["https:","example.com"]];function YF(){}','main'),/var n2=null/);assert.throws(()=>offlineText('other bundle','main'),/needs review/)});
