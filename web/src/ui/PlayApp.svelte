@@ -177,7 +177,13 @@
       dock: (id) => s.flow.dock(id),
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
-      jump: (id) => s.flow.jump(id, 0),
+      // The flow says a refused order as the client does (its dialog: "You are not within maximum jumping distance")
+      // and does not throw; a jump it refused is one the view's gate effect must not wait on.
+      jump: async (id) => {
+        await s.flow.jump(id, 0);
+        const refused = s.store.flight.get().actionError;
+        if (refused) throw Object.assign(new Error(refused), { said: s.store.flight.get().actionErrorSaid === true });
+      },
       lock: (id) => s.flow.lockTarget(id),
       unlock: (id) => s.flow.unlockTarget(id),
       // What is locked comes from the session's targeting slice, kept by the flow's lock events and reads.
@@ -188,6 +194,7 @@
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
       onNeocom: (id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); },
       windowLayer: windowsEl ? windowLayer : undefined,
+      undocking: () => performance.now() - undockedAt < 20000,
       showInfo: (itemID, typeID) => {
         void s.flow.infoWindows.show({ kind: "spaceObject", itemID, typeID }, {}).catch((error) => {
           if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
@@ -262,9 +269,11 @@
     setTimeout(wait, 100);
   });
 
+  let undockedAt = -Infinity;
   async function undock() {
     if (!session) return;
     error = "";
+    undockedAt = performance.now();
     fadeTo(1, 500);
     try { await session.flow.undock(); } catch (err) { error = (err as Error).message; fadeTo(0, 300); }
   }

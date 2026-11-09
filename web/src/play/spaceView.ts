@@ -52,6 +52,8 @@ export interface SpaceViewOptions {
   rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } };
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
+  /** True while the pilot is coming out of a station: the view's first sight of the ship is the undock camera's. */
+  undocking?: () => boolean;
 }
 
 export interface SpaceActions {
@@ -333,7 +335,8 @@ export class SpaceView {
 
   private async act(what: string, fn: () => Promise<void>): Promise<void> {
     // A refusal in the words the app gives it (bridge/refusals.ts), as the client puts its own up.
-    try { await fn(); } catch (e) { this.toast(panelErrorWords(e)); }
+    // One the client has already said in its own way (a dialog) is not said again.
+    try { await fn(); } catch (e) { if (!(e as { said?: boolean }).said) this.toast(panelErrorWords(e)); }
   }
 
   /** The client's double click in space: fly the way the camera looks through the cursor. */
@@ -409,6 +412,36 @@ export class SpaceView {
    * looking at the ship, GetInitialLookAtDistance: the root of a * x^2 + b * x + c, a = 1 / 800000^0.95,
    * b = FOV_MIN / 2 (0.55 / 2), c = -max(radius, nearest).
    */
+  /**
+   * The client's undock camera (ui/camera/undockCamera.py, with its dynamic camera movement on): the eye on the ship's
+   * way out, twice its radius ahead, looking back at it as it comes out of the station; then over 30 s it swings a
+   * sixth of a turn round and a tenth of a half turn further down, and draws back (zoom 0.48 to 0.65 over the first
+   * 24 s), until the pilot takes the camera or it is done.
+   */
+  private undockCam: { start: number; spherical: THREE.Spherical } | null = null;
+  private startUndockCamera(ego: { velocity: { x: number; y: number; z: number }; radius: number }): void {
+    const v = new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z);
+    if (v.lengthSq() < 1e-6) return;
+    const eye = v.normalize().multiplyScalar(2 * Math.max(ego.radius, 10));
+    const spherical = new THREE.Spherical().setFromVector3(eye);
+    spherical.phi = Math.min(Math.PI - 0.01, spherical.phi + Math.PI / 40);
+    this.undockCam = { start: performance.now(), spherical };
+    this.controls.addEventListener("start", () => { this.undockCam = null; });
+  }
+  private stepUndockCamera(): void {
+    const cam = this.undockCam;
+    if (!cam) return;
+    const t = (performance.now() - cam.start) / 30000;
+    if (t >= 1) { this.undockCam = null; return; }
+    const s = cam.spherical;
+    const now = new THREE.Spherical(
+      s.radius * (1 + (0.65 / 0.48 - 1) * Math.min(1, t / 0.8)),
+      Math.min(Math.PI - 0.01, s.phi + (Math.PI / 10) * t),
+      s.theta + (Math.PI / 3) * t,
+    );
+    this.camera.position.copy(this.controls.target).add(new THREE.Vector3().setFromSpherical(now));
+  }
+
   private frameShip(radius: number): void {
     const nearest = (radius + this.camera.near) * 1.5 + 2;
     const a = 1 / 800000 ** 0.95, b = 0.55 / 2, c = -Math.max(radius, nearest);
@@ -605,7 +638,12 @@ export class SpaceView {
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
     if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x));
-    if (ego && this.framedFor !== ego.itemID) { this.framedFor = ego.itemID; this.frameShip(ego.radius); }
+    if (ego && this.framedFor !== ego.itemID) {
+      this.framedFor = ego.itemID;
+      this.frameShip(ego.radius);
+      if (this.options.undocking?.()) this.startUndockCamera(ego);
+    }
+    this.stepUndockCamera();
     // Look At (the client's camera lookAt): the camera turns about the thing looked at, and follows it, until it
     // is gone or the pilot's own ship is looked at again; the camera keeps its offset as the point moves.
     const looked = this.lookAt === null ? null : this.marks.get(this.lookAt) ?? null;
