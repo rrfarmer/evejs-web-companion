@@ -23,6 +23,9 @@
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
+  import { HangarView } from "../play/hangarView.ts";
+  import { Neocom } from "../play/neocom.ts";
+  import { clientTexture } from "../play/window.ts";
   import type { HudModule } from "../play/shipHud.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
@@ -71,8 +74,10 @@
 
   let live: LivePark | null = null;
   let spaceClaimed: Session | null = null;
+  let chosenCharacterID = $state<number | null>(null);
   async function enter(characterID: number) {
     if (!session) return;
+    chosenCharacterID = characterID;
     stage = "entering";
     error = "";
     try {
@@ -90,6 +95,7 @@
       if (token) setSessionToken(token);
       live = new LivePark();
       live.connect(withTokenQuery("/api/play/destiny", token));
+      (window as unknown as { __session: unknown }).__session = session;
       stage = "game";
       // The client's chat window, with Local, is up from the start.
       open("chat");
@@ -136,6 +142,41 @@
       if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
     });
   }));
+
+  // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with
+  // its window icons): those the play mode has a window for.
+  const LOBBY_SERVICES: { label: string; icon: string; tab: TabID }[] = [
+    { label: "Fitting", icon: "fitting", tab: "fitting" },
+    { label: "Market", icon: "market", tab: "market" },
+    { label: "Item Hangar", icon: "itemhangar", tab: "inventory" },
+    { label: "Industry", icon: "industry", tab: "industry" },
+    { label: "Contracts", icon: "contracts", tab: "contracts" },
+    { label: "Agents", icon: "agent", tab: "finder" },
+  ];
+
+  // The hangar's ship and the Neocom while docked.
+  let hangarHost = $state<HTMLDivElement | null>(null);
+  let neocomHost = $state<HTMLDivElement | null>(null);
+  $effect(() => {
+    if (!hangarHost) return;
+    const hangar = new HangarView();
+    hangarHost.appendChild(hangar.root);
+    (window as unknown as { __hangar: unknown }).__hangar = hangar;
+    const stop = $effect.root(() => {
+      // the ship flown: the flight's word of it, else the character's row (the flight is not read while docked)
+      $effect(() => {
+        const row = ($characters?.characters ?? []).find((c) => c.characterID === chosenCharacterID);
+        void hangar.show($flight?.status?.shipTypeID ?? row?.shipTypeID ?? null);
+      });
+    });
+    return () => { stop(); hangar.dispose(); };
+  });
+  $effect(() => {
+    if (!neocomHost) return;
+    const neocom = new Neocom((id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); });
+    neocomHost.appendChild(neocom.root);
+    return () => neocom.root.remove();
+  });
 
   function open(tab: TabID) { wins = openWindow(wins, tab); raiseApp(tab); }
 
@@ -306,13 +347,24 @@
   </div>
 {:else if session}
   {#if docked}
+    <!-- Docked: the ship in its hangar, the Neocom, and the client's Station Services window (dockedUI/lobbyWnd.py:
+         280 px at the right edge, the station's name over its owner, the Undock button, the station's services). -->
     <div class="station">
-      <div class="station-name">{$station?.station?.stationName ?? "Station"}</div>
-      <div class="station-sub">{$station?.station?.solarSystemName ?? ""}</div>
-      <button class="btn undock" onclick={undock}>Undock</button>
-      {#if error}<div class="error" style="position:absolute;right:24px;top:80px">{error}</div>{/if}
-      <div class="fly-station-neocom">
-        {#each Object.entries(NEOCOM_TABS) as [key, tab] (key)}<button class="btn" onclick={() => open(tab)}>{tabLabel(tab)}</button>{/each}
+      <div class="fly-hangar" bind:this={hangarHost}></div>
+      <div class="fly-neocom" bind:this={neocomHost}></div>
+      <div class="pw fly-lobby">
+        <div class="pw-head"><img class="pw-icon" alt="" src={clientTexture("res:/UI/Texture/WindowIcons/docking.png")} /><span class="pw-caption">Station Services</span></div>
+        <div class="pw-body lobby-body">
+          <div class="station-name">{$station?.station?.stationName ?? "Station"}</div>
+          <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
+          <button class="undock" onclick={undock}>Undock</button>
+          {#if error}<div class="error lobby-error">{error}</div>{/if}
+          <div class="lobby-services">
+            {#each LOBBY_SERVICES as svc (svc.label)}
+              <button class="lobby-svc" title={svc.label} onclick={() => open(svc.tab)}><img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} /><span>{svc.label}</span></button>
+            {/each}
+          </div>
+        </div>
       </div>
     </div>
   {:else}
@@ -354,6 +406,20 @@
   .fly-fade { position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 15; opacity: 0; }
   /* the layer's windows take the pointer; the info windows' own full-size layer does not (its windows do) */
   .fly-windows :global(> :not(.info-window-layer)) { pointer-events: auto; }
-  .fly-station-neocom { position: absolute; left: 24px; bottom: 24px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 60vw; }
+  .fly-hangar { position: absolute; inset: 0; }
+  .fly-hangar :global(.hangar-view) { position: absolute; inset: 0; }
+  .fly-neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; }
+  .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
+  .lobby-body { padding: 10px 12px 14px; }
+  .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }
+  .lobby-body .station-sub { position: static; margin-top: 2px; color: var(--text-dim); font-size: 12px; }
+  .lobby-sec { color: #5fd38c; }
+  .lobby-body .undock { position: static; display: block; width: 100%; margin: 12px 0 10px; }
+  .lobby-error { position: static; margin: 0 0 8px; }
+  .lobby-services { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .lobby-svc { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08); color: #c8ccc8; font: 11px/1.2 var(--font); cursor: pointer; }
+  .lobby-svc:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); }
+  .lobby-svc img { width: 32px; height: 32px; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }
 </style>
