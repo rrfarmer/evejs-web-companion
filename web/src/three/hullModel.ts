@@ -9,7 +9,90 @@ import { loadDds } from "./ddsTexture.ts";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
 export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[] }
-export interface SofHull { hull: string; faction: string | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[] }
+export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null }
+export interface SofHull { hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[] }
+
+/** A soft round spot, for engine glows. */
+let glowTexture: THREE.Texture | null = null;
+function glowSpot(): THREE.Texture {
+  if (glowTexture) return glowTexture;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.25, "rgba(255,255,255,0.45)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  glowTexture = new THREE.CanvasTexture(c);
+  return glowTexture;
+}
+
+/**
+ * The hull's engines, at the SOF booster locators (EveSOFDataHullBooster items; a row-major transform whose rows 0 and
+ * 1 are the flame's width and height and row 2 its length, pointing aft, and whose last row is the nozzle), coloured
+ * from the race's booster data (shape colours for the flame, glowColor * glowScale for the glow). The client's flame
+ * is a noise-animated shape from an atlas (EveBoosterSet2); this is a first likeness: two crossed additive planes
+ * fading along the flame, and a glow at the nozzle. Each flame's length is set by the ship's speed (setThrust).
+ */
+function buildBoosters(sof: SofHull): THREE.Group | null {
+  const b = sof.booster;
+  if (!b || !sof.boosters.length) return null;
+  const hdr = (c: number[] | null | undefined, d: number[]) => { const v = c ?? d; const m = Math.max(v[0]!, v[1]!, v[2]!, 1e-6); return new THREE.Color(v[0]! / m, v[1]! / m, v[2]! / m); };
+  const flameColour = hdr(b.shape0Color, [1, 0.6, 0.3]);
+  const coreColour = hdr(b.shape1Color, [1, 0.8, 0.5]);
+  const group = new THREE.Group();
+  group.name = "boosters";
+  const flameMat = new THREE.ShaderMaterial({
+    uniforms: { colour: { value: flameColour }, core: { value: coreColour } },
+    vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: `uniform vec3 colour; uniform vec3 core; varying vec2 vUv;
+      void main() {
+        float across = 1.0 - abs(vUv.x * 2.0 - 1.0);
+        float along = 1.0 - vUv.y;
+        float a = pow(across, 1.6) * pow(along, 1.4);
+        vec3 c = mix(colour, core, pow(across, 6.0) * along);
+        gl_FragColor = vec4(c * a * 1.4, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const plane = new THREE.PlaneGeometry(1, 1);
+  plane.translate(0, 0.5, 0); // from the nozzle (v = 0) out along the flame
+  plane.rotateX(Math.PI / 2); // along +z: aft, once mirrored
+  for (const item of sof.boosters) {
+    const t = item.transform;
+    if (!t || t.length < 16) continue;
+    const w = Math.hypot(t[0]!, t[1]!, t[2]!), h = Math.hypot(t[4]!, t[5]!, t[6]!), len = Math.hypot(t[8]!, t[9]!, t[10]!);
+    const nozzle = new THREE.Group();
+    nozzle.position.set(t[12]!, t[13]!, -t[14]!);
+    const flame = new THREE.Group();
+    flame.name = "flame";
+    for (const [sx, sy, rot] of [[w, len, 0], [h, len, Math.PI / 2]] as const) {
+      const m = new THREE.Mesh(plane, flameMat);
+      m.scale.set(sx, 1, sy);
+      m.rotation.z = rot;
+      flame.add(m);
+    }
+    nozzle.add(flame);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSpot(), color: flameColour, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    glow.scale.setScalar(Math.max(w, h) * 2.4);
+    nozzle.add(glow);
+    group.add(nozzle);
+  }
+  return group;
+}
+
+/** Engines burn as the ship goes: the flames' length follows speed, as a share of the ship's top speed. */
+export function setThrust(model: THREE.Object3D, share: number): void {
+  const boosters = model.getObjectByName("boosters");
+  if (!boosters) return;
+  const k = 0.15 + 0.85 * Math.max(0, Math.min(1, share));
+  for (const nozzle of boosters.children) {
+    const flame = nozzle.getObjectByName("flame");
+    if (flame) flame.scale.set(1, 1, k);
+  }
+}
 
 export interface TypeModelInfo {
   typeID: number;
@@ -163,5 +246,11 @@ async function loadType(typeID: number): Promise<THREE.Object3D | null> {
   const lod = new THREE.LOD();
   lodNodes.slice().forEach((node, i) => lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1)));
   lod.userData = { typeID, radius: size, hull: info.hull ?? null };
-  return lod;
+  const boosters = sof ? buildBoosters(sof) : null;
+  if (!boosters) return lod;
+  // The engines belong to the hull, not to one LOD: a holder carries both.
+  const holder = new THREE.Group();
+  holder.add(lod, boosters);
+  holder.userData = lod.userData;
+  return holder;
 }

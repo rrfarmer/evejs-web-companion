@@ -21,6 +21,7 @@ export function loadSof(rf) {
     hulls: new Map(data.hull.map((h) => [h.name.toLowerCase(), h])),
     factions: new Map(data.faction.map((f) => [f.name.toLowerCase(), f])),
     materials: new Map(data.material.map((m) => [m.name.toLowerCase(), m])),
+    races: new Map(data.race.map((r) => [r.name.toLowerCase(), r])),
   };
   cache.set(rf, sof);
   return sof;
@@ -40,7 +41,7 @@ function material(sof, name) {
  * A hull as built for a faction: { areas: [{ name, index, areaType, shader, textures: { name: res }, params,
  * materials: [m1..m4] }], colorSet, boosters: [{ transform }], boundingSphere }. Textures are res: paths.
  */
-export function buildHull(sof, hullName, factionName) {
+export function buildHull(sof, hullName, factionName, raceName = null) {
   const hull = sof.hulls.get(String(hullName).toLowerCase());
   if (!hull) return null;
   const faction = factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null;
@@ -65,9 +66,21 @@ export function buildHull(sof, hullName, factionName) {
     }
   }
   const colorSet = faction?.colorSet ? Object.fromEntries(Object.entries(faction.colorSet).filter(([k]) => k !== "type")) : null;
+  // The race's engines (EveSOFDataRace.booster): the flame's colours and shapes, the glow and the halo, as the
+  // client's EveBoosterSet2 is set up from them.
+  const rb = raceName ? sof.races.get(String(raceName).toLowerCase())?.booster ?? null : null;
+  const booster = rb ? {
+    glowColor: rb.glowColor ?? null, glowScale: rb.glowScale ?? null, haloColor: rb.haloColor ?? null,
+    haloScaleX: rb.haloScaleX ?? null, haloScaleY: rb.haloScaleY ?? null, symHaloScale: rb.symHaloScale ?? null,
+    trailColor: rb.trailColor ?? null, trailSize: rb.trailSize ?? null,
+    shape0Color: rb.shape0?.color ?? null, shape1Color: rb.shape1?.color ?? null,
+    warpShape0Color: rb.warpShape0?.color ?? null, warpGlowColor: rb.warpGlowColor ?? null,
+  } : null;
   return {
     hull: hull.name,
     faction: faction?.name ?? null,
+    race: raceName ?? null,
+    booster,
     areas,
     colorSet,
     boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null })),

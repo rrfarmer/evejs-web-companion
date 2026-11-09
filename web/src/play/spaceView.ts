@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
-import { typeModel } from "../three/hullModel.ts";
+import { typeModel, setThrust } from "../three/hullModel.ts";
 import { ShipHud } from "./shipHud.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview } from "./overview.ts";
@@ -390,6 +390,7 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
+      if (e.maxVelocity) setThrust(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity);
       if (e.kind === "sun") this.sunLight.position.copy(rel).normalize();
       if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);

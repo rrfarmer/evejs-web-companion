@@ -102,8 +102,8 @@ function copyRes(rf, res, outRoot) {
  * A hull as the Space Object Factory builds it for a faction (lib/sof.mjs), written beside the model as
  * <hull stem>.<faction>.sof.json, every texture it names copied (a station's come from shared texture sets).
  */
-export function extractSof(rf, gr2, hullName, factionName, outRoot) {
-  const built = buildHull(loadSof(rf), hullName, factionName);
+export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = null) {
+  const built = buildHull(loadSof(rf), hullName, factionName, raceName);
   if (!built) return null;
   for (const area of built.areas) {
     for (const [name, res] of Object.entries(area.textures)) {
@@ -209,7 +209,7 @@ async function main() {
     if (!tg?.gr2) throw new Error(`--type ${typeID}: no SOF hull model known (run --type-graphics with --sde first)`);
     const stem = tg.gr2.slice("res:/".length, -".gr2".length);
     if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(tg.gr2);
-    const sofFile = extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot);
+    const sofFile = extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot, tg.race);
     console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
   }
   const done = [];
