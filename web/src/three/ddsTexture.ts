@@ -8,6 +8,7 @@
 import * as THREE from "three";
 
 const DDS_MAGIC = 0x20534444;
+const DDSCAPS2_CUBEMAP = 0x200;
 
 // DXGI_FORMAT values found in the client's DX10-header files
 const DXGI: Record<number, { format: THREE.CompressedPixelFormat; block: number }> = {
@@ -31,43 +32,38 @@ const FOURCC: Record<string, { format: THREE.CompressedPixelFormat; block: numbe
   BC5U: { format: THREE.RED_GREEN_RGTC2_Format, block: 16 },
 };
 
-const DDSCAPS2_CUBEMAP = 0x200;
 
 /**
- * An uncompressed 2D DDS (DDPF_RGB with 32, 24 or 8 bits a pixel, by its channel masks): the top mip as RGBA8 or R8,
- * the GPU making the rest. The client's planet textures are some of these.
+ * Pixels of an uncompressed DDS surface (DDPF_RGB with 32, 24 or 8 bits a pixel, read by its channel masks) from a
+ * byte offset: RGBA8 for 32 and 24 bits (24 opaque), R8 for 8.
  */
-function parseUncompressed(dv: DataView, buf: ArrayBuffer, width: number, height: number, name: string): THREE.DataTexture {
+function unpack(dv: DataView, buf: ArrayBuffer, offset: number, width: number, height: number, name: string): { data: Uint8Array; format: THREE.PixelFormat; bytes: number } {
   const bits = dv.getUint32(88, true);
   const masks = [92, 96, 100, 104].map((o) => dv.getUint32(o, true));
-  const shift = (m: number) => (m === 0 ? -1 : Math.log2(m & -m));
+  const sh = masks.map((m) => (m === 0 ? -1 : Math.log2(m & -m)));
   const n = width * height;
-  let tex: THREE.DataTexture;
-  if (bits === 32) {
-    const src = new Uint8Array(buf, 128, n * 4);
+  if (bits === 32 || bits === 24) {
+    const step = bits / 8;
+    const src = new Uint8Array(buf, offset, n * step);
     const out = new Uint8Array(n * 4);
-    const sh = masks.map(shift);
     for (let i = 0; i < n; i++) {
-      const p = src[i * 4]! | (src[i * 4 + 1]! << 8) | (src[i * 4 + 2]! << 16) | (src[i * 4 + 3]! << 24);
-      for (let c = 0; c < 4; c++) out[i * 4 + c] = sh[c]! < 0 ? 255 : (p >>> sh[c]!) & 0xff;
-    }
-    tex = new THREE.DataTexture(out, width, height, THREE.RGBAFormat);
-  } else if (bits === 24) {
-    // three bytes a pixel (the planets' ground scattering light maps): read by their masks, opaque
-    const src = new Uint8Array(buf, 128, n * 3);
-    const out = new Uint8Array(n * 4);
-    const sh = masks.map(shift);
-    for (let i = 0; i < n; i++) {
-      const p = src[i * 3]! | (src[i * 3 + 1]! << 8) | (src[i * 3 + 2]! << 16);
+      const p = src[i * step]! | (src[i * step + 1]! << 8) | (src[i * step + 2]! << 16) | (step === 4 ? src[i * 4 + 3]! << 24 : 0);
       for (let c = 0; c < 3; c++) out[i * 4 + c] = sh[c]! < 0 ? 0 : (p >>> sh[c]!) & 0xff;
-      out[i * 4 + 3] = 255;
+      out[i * 4 + 3] = step === 4 && sh[3]! >= 0 ? (p >>> sh[3]!) & 0xff : 255;
     }
-    tex = new THREE.DataTexture(out, width, height, THREE.RGBAFormat);
-  } else if (bits === 8) {
-    tex = new THREE.DataTexture(new Uint8Array(buf, 128, n).slice(), width, height, THREE.RedFormat);
-  } else {
-    throw new Error(`${name}: uncompressed DDS with ${bits} bits a pixel not handled`);
+    return { data: out, format: THREE.RGBAFormat, bytes: n * step };
   }
+  if (bits === 8) return { data: new Uint8Array(buf, offset, n).slice(), format: THREE.RedFormat, bytes: n };
+  throw new Error(`${name}: uncompressed DDS with ${bits} bits a pixel not handled`);
+}
+
+/**
+ * An uncompressed 2D DDS: the top mip, the GPU making the rest. The client's planet textures are some of these (the
+ * ground scattering light maps are 24-bit).
+ */
+function parseUncompressed(dv: DataView, buf: ArrayBuffer, width: number, height: number, name: string): THREE.DataTexture {
+  const { data, format } = unpack(dv, buf, 128, width, height, name);
+  const tex = new THREE.DataTexture(data, width, height, format);
   tex.generateMipmaps = true;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
@@ -78,6 +74,34 @@ function parseUncompressed(dv: DataView, buf: ArrayBuffer, width: number, height
   return tex;
 }
 
+/**
+ * An uncompressed cube map DDS (the hangars' reflection cubes, some nebula blur cubes): six faces, +x -x +y -y +z -z,
+ * each with its whole mip chain; each face's top mip, the GPU making the rest.
+ */
+function parseUncompressedCube(dv: DataView, buf: ArrayBuffer, width: number, height: number, mipCount: number, name: string): THREE.CubeTexture {
+  const bits = dv.getUint32(88, true);
+  let faceBytes = 0;
+  for (let i = 0, w = width, h = height; i < mipCount; i++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) faceBytes += w * h * (bits / 8);
+  const faces: THREE.DataTexture[] = [];
+  for (let f = 0; f < 6; f++) {
+    const { data, format } = unpack(dv, buf, 128 + f * faceBytes, width, height, name);
+    const face = new THREE.DataTexture(data, width, height, format);
+    face.flipY = false;
+    face.needsUpdate = true;
+    faces.push(face);
+  }
+  const cube = new THREE.CubeTexture(faces as unknown as HTMLImageElement[]);
+  cube.format = faces[0]!.format;
+  cube.type = THREE.UnsignedByteType;
+  cube.generateMipmaps = true;
+  cube.minFilter = THREE.LinearMipmapLinearFilter;
+  cube.magFilter = THREE.LinearFilter;
+  cube.flipY = false;
+  cube.name = name;
+  cube.needsUpdate = true;
+  return cube;
+}
+
 export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTexture {
   const dv = new DataView(buf);
   if (dv.getUint32(0, true) !== DDS_MAGIC) throw new Error(`${name}: not a DDS file`);
@@ -86,7 +110,8 @@ export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTextur
   const mipCount = Math.max(1, dv.getUint32(28, true));
   const fourCC = String.fromCharCode(dv.getUint8(84), dv.getUint8(85), dv.getUint8(86), dv.getUint8(87));
   const DDPF_FOURCC = 0x4;
-  if (!(dv.getUint32(80, true) & DDPF_FOURCC) && !(dv.getUint32(112, true) & 0x200)) {
+  if (!(dv.getUint32(80, true) & DDPF_FOURCC)) {
+    if (dv.getUint32(112, true) & DDSCAPS2_CUBEMAP) return parseUncompressedCube(dv, buf, width, height, mipCount, name) as unknown as THREE.CompressedTexture;
     return parseUncompressed(dv, buf, width, height, name) as unknown as THREE.CompressedTexture;
   }
   let offset = 128;
@@ -133,11 +158,22 @@ export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTextur
   return tex;
 }
 
+/**
+ * A DDS file fetched and parsed. A file that will not load is said once in the console before the error goes on:
+ * most callers draw without the texture, which would otherwise hide the loss (the planets' 24-bit scattering maps
+ * were lost so).
+ */
 export async function loadDds(url: string): Promise<THREE.CompressedTexture> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  return parseDds(await res.arrayBuffer(), url.split("/").pop());
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+    return parseDds(await res.arrayBuffer(), url.split("/").pop());
+  } catch (e) {
+    if (!failed.has(url)) { failed.add(url); console.warn(`texture not loaded: ${(e as Error).message}`); }
+    throw e;
+  }
 }
+const failed = new Set<string>();
 
 /** What this GPU can take; a ship needs RGTC (BC4/BC5) and BPTC (BC7). */
 export function compressedSupport(renderer: THREE.WebGLRenderer) {
