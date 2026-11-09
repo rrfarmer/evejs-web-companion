@@ -61,7 +61,7 @@ async function loadSystem(): Promise<void> {
 async function planetModel(): Promise<THREE.Object3D | null> {
   const item = (await systemCelestials(systemID))[String(planetID)];
   if (!item?.typeID) throw new Error(`planet ${planetID} is not in system ${systemID}`);
-  const m = await celestialModel(item.typeID, item.kind ?? "planet", 1000, item);
+  const m = await celestialModel(item.typeID, item.kind ?? "planet", 1000, item, planetID);
   if (m) m.userData = { hull: item.celestial?.split("/").pop() ?? null };
   return m;
 }

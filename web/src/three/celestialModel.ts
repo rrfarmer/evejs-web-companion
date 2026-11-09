@@ -57,11 +57,11 @@ const PLANET_AMBIENT = 0.25;
 
 const isGasGiant = (c: Celestial) => c.effects.some((e) => /\/gasgiant\.fx$/i.test(e));
 
-export async function celestialModel(typeID: number, kind: string, radius: number, item: CelestialItem | null = null): Promise<THREE.Object3D | null> {
+export async function celestialModel(typeID: number, kind: string, radius: number, item: CelestialItem | null = null, itemID: number | null = null): Promise<THREE.Object3D | null> {
   const c = (item?.celestial ? await celestialAt(item.celestial) : null) ?? await celestialOf(typeID);
   if (!c) return null;
   if (kind === "sun") return sunModel(c, radius);
-  if (item?.NormalHeight1 && isGasGiant(c)) return gasGiantModel(c, item.NormalHeight1, radius);
+  if (item?.NormalHeight1 && isGasGiant(c)) return gasGiantModel(c, item.NormalHeight1, radius, itemID);
   if (item?.NormalHeight1 && c.params.FillTint && c.textures.FillTexture) return rockyModel(c, item.NormalHeight1, radius);
   const surfaceName = SURFACE.find((n) => c.textures[n] && !/black\.dds$/.test(c.textures[n]!));
   const shared = surfaceName ? await texture(c.textures[surfaceName]!, true) : null;
@@ -101,13 +101,47 @@ ${shader.fragmentShader}`)
   };
 }
 
-/** A gas giant: its own colour map (NormalHeight1, an equirectangular gasgiantNN_d.dds) as its surface. */
-async function gasGiantModel(c: Celestial, colourMap: string, radius: number): Promise<THREE.Object3D> {
-  const surface = await texture(colourMap, true);
-  const mat = new THREE.MeshStandardMaterial({ map: surface, color: surface ? 0xffffff : 0x9a8f7a, roughness: 0.95, metalness: 0, envMapIntensity: PLANET_AMBIENT });
-  // The preset's Saturation (gasgiant.fx, 4.7 for Jita IV) is not used: a lerp from the luminance by it is far too
-  // strong, so the shader means something else by it; its compiled effect is to be read before it is.
-  withRim(mat, col(c.params.AtmosphereColor ?? c.params.CapColor, [0.55, 0.6, 0.7]));
+/**
+ * A gas giant as gasgiant.fx draws it (graphics/effect.dx11/managed/space/planet/gasgiant.sm_hi, its pixel shader
+ * disassembled and its constants named from the effect file's own table: Random c0.x, Time c0.y, WindFactors c1,
+ * DistoFactors c2, FuzzyEdges c3.x, BandingSpeed c3.y, Saturation c3.z, ringColor1..3 c4..c6, CapColor c7):
+ * - NormalHeight1 (the planet's own gasgiantNN_d.dds) is not a picture: its G, R and B weigh ringColor2, ringColor3
+ *   and ringColor1, and its alpha scales the sum;
+ * - that colour is saturated about its luminance (0.299, 0.587, 0.184) by NormalHeight1.R x Saturation;
+ * - towards the poles it becomes CapColor, by 1 - PolesMaskMap;
+ * - both samples are moved by Random x (0.01, 0.1), Random being the planet's itemID % 100 (planet.py
+ *   SetEffectParameters);
+ * - the result is a gamma-space colour, taken to linear before it is lit.
+ * The wind's distortion and the bands' drift over time (WindFactors, DistoFactors, BandingSpeed, the noise map) are
+ * not drawn: a still planet.
+ */
+async function gasGiantModel(c: Celestial, bandMap: string, radius: number, itemID: number | null): Promise<THREE.Object3D> {
+  const [bands, poles] = await Promise.all([
+    texture(bandMap),
+    c.textures.PolesMaskMap ? texture(c.textures.PolesMaskMap) : Promise.resolve(null),
+  ]);
+  if (bands && bands.wrapS !== THREE.RepeatWrapping) { bands.wrapS = bands.wrapT = THREE.RepeatWrapping; bands.needsUpdate = true; }
+  const v3 = (v: number[] | undefined) => new THREE.Vector3(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
+  const mat = new THREE.MeshStandardMaterial({ map: bands, color: 0xffffff, roughness: 0.95, metalness: 0, envMapIntensity: PLANET_AMBIENT });
+  const uniforms = {
+    ring1: { value: v3(c.params.ringColor1) }, ring2: { value: v3(c.params.ringColor2) }, ring3: { value: v3(c.params.ringColor3) },
+    capColour: { value: v3(c.params.CapColor) },
+    saturation: { value: c.params.Saturation?.[0] ?? 1 },
+    shift: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(itemID === null ? 0 : itemID % 100) },
+    polesMap: { value: poles }, hasPoles: { value: poles ? 1 : 0 },
+  };
+  withRim(mat, col(c.params.AtmosphereColor ?? c.params.CapColor, [0.55, 0.6, 0.7]), (fs) => `uniform vec3 ring1; uniform vec3 ring2; uniform vec3 ring3; uniform vec3 capColour; uniform float saturation; uniform vec2 shift; uniform sampler2D polesMap; uniform float hasPoles;
+${fs}`.replace("#include <map_fragment>", `
+        vec4 band = texture2D( map, vMapUv + shift );
+        vec3 colour = band.g * ring2 + band.r * ring3 + band.b * ring1;
+        vec3 lit = colour * band.a;
+        float lum = dot( lit, vec3( 0.299, 0.587, 0.184 ) );
+        vec3 g = lum + band.r * saturation * ( lit - lum );
+        float cap = hasPoles > 0.5 ? 1.0 - texture2D( polesMap, vMapUv ).r : 0.0;
+        g = mix( g, capColour, cap );
+        g = max( g, vec3( 0.0 ) );
+        // gamma to linear, as the shader takes it before lighting
+        diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;

@@ -730,7 +730,7 @@ export class SpaceView {
       const systemID = this.live.hello?.solarSystemID ?? null;
       const typeID = e.typeID;
       void (systemID ? systemCelestials(systemID) : Promise.resolve({} as Record<string, CelestialItem>))
-        .then((items) => celestialModel(typeID, e.kind, e.radius, items[String(e.itemID)] ?? null)).then((model) => {
+        .then((items) => celestialModel(typeID, e.kind, e.radius, items[String(e.itemID)] ?? null, e.itemID)).then((model) => {
         if (!model || !this.marks.has(e.itemID)) return;
         holder.remove(standIn);
         holder.add(model);
