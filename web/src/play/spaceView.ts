@@ -122,6 +122,16 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
   private readonly warpTunnel = new WarpTunnel();
+  /**
+   * The gate jump, drawn in our own way where the client plays its gate effect (SpaceToSpaceTransition: no fade, the
+   * destination's scene swapped in during the effect): the tunnel builds from the jump order, flashes as the new
+   * system's park comes (the feed's reset), and eases out.
+   */
+  private jumpOrderedAt: number | null = null;
+  private jumpArrivedAt: number | null = null;
+  private seenResets = 0;
+  private seenSystem: number | null = null;
+  private readonly flashEl = document.createElement("div");
   private readonly radial = new RadialMenu();
   private dscan: DScanWindow | null = null;
   private names: { types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null = null;
@@ -130,7 +140,7 @@ export class SpaceView {
   private lastFrameAt = performance.now();
 
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
-  constructor(private readonly live: LivePark, private readonly actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: { onNeocom?: (id: string) => void; rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } } } = {}) {
+  constructor(private readonly live: LivePark, private actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: { onNeocom?: (id: string) => void; rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } } } = {}) {
     this.root.className = "space";
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -142,6 +152,22 @@ export class SpaceView {
       <div class="ship-mode"></div>
       <div class="toast"></div>
       <div class="feed-status"></div>`);
+    this.flashEl.className = "jump-flash";
+    this.root.appendChild(this.flashEl);
+    this.seenResets = live.resets;
+    this.seenSystem = live.hello?.solarSystemID ?? null;
+    // The jump order starts the gate effect.
+    const jump = actions.jump.bind(actions);
+    // The call returns once the session has changed, after the new system's park has come: the effect starts as the
+    // order is given, and is let go if the order is refused.
+    this.actions = {
+      ...actions,
+      jump: async (id) => {
+        this.jumpOrderedAt = performance.now();
+        this.jumpArrivedAt = null;
+        try { await jump(id); } catch (e) { this.jumpOrderedAt = null; throw e; }
+      },
+    };
     this.modeEl = this.root.querySelector(".ship-mode")!;
     this.root.insertBefore(this.shipHud.root, this.modeEl);
     this.shipHud.onStop = () => void this.act("Stop", () => this.actions.stop());
@@ -581,7 +607,31 @@ export class SpaceView {
     this.lastFrameAt = now;
     const egoSpeed = ego ? Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z) : 0;
     const way = ego && egoSpeed > 0 ? new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z).divideScalar(egoSpeed) : new THREE.Vector3();
-    this.warpTunnel.update(this.camera, this.controls.target, way, WarpTunnel.share(ego?.mode === "WARP", egoSpeed), dt);
+    // The jump: a new park in another system is the arrival.
+    // the system the view is in, once the feed has said (the view can be made before its first hello)
+    if (this.seenSystem === null && this.live.resets === this.seenResets) this.seenSystem = this.live.hello?.solarSystemID ?? null;
+    if (this.live.resets !== this.seenResets) {
+      this.seenResets = this.live.resets;
+      const system = this.live.hello?.solarSystemID ?? null;
+      if (system !== null && this.seenSystem !== null && system !== this.seenSystem) this.jumpArrivedAt = now;
+      if (system !== null) this.seenSystem = system;
+    }
+    let share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed);
+    let tunnelWay = way;
+    let flash = 0;
+    if (this.jumpOrderedAt !== null) {
+      const since = now - this.jumpOrderedAt;
+      const after = this.jumpArrivedAt === null ? null : now - this.jumpArrivedAt;
+      // building over 1.5 s until the arrival; easing out over 2 s after it; given up after 20 s without one
+      const strength = after === null ? Math.min(1, since / 1500) : Math.max(0, 1 - after / 2000);
+      flash = after === null ? 0 : Math.max(0, 0.85 - after / 700);
+      if ((after !== null && after > 2000) || (after === null && since > 20_000)) { this.jumpOrderedAt = null; this.jumpArrivedAt = null; }
+      share = Math.max(share, strength);
+    }
+    // a ship that is not moving (at a gate, or come out of one) has no way of its own: the camera's, so the tunnel eases out
+    if (way.lengthSq() < 0.5) tunnelWay = this.camera.getWorldDirection(new THREE.Vector3());
+    this.flashEl.style.opacity = flash.toFixed(3);
+    this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, dt);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
     // keeps them; often enough for the cycle sweep to move smoothly.
     const rack = this.options.rack;

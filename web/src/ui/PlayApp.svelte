@@ -184,10 +184,41 @@
     return () => { v.dispose(); view = null; };
   });
 
+  // The client's view transitions (ui/view/transitions.py, viewStateConfig.py): docking (ToHangarTransition) fades to
+  // black in 0.5 s and the station in over 2 s; undocking (StationToSpaceTransition, fadeTimeMS 500, fadeOutTimeMS
+  // 1000) fades to black in 0.5 s and space in over 1 s once the ship is there (GetBallWaitForModel).
+  let fadeEl = $state<HTMLDivElement | null>(null);
+  /** From where the black is now to `opacity` over `ms` (an animation of its own: no frame needs to come between). */
+  function fadeTo(opacity: number, ms: number, start?: number) {
+    if (!fadeEl) return;
+    const from = start ?? (Number(getComputedStyle(fadeEl).opacity) || 0);
+    for (const a of fadeEl.getAnimations()) a.cancel();
+    fadeEl.animate([{ opacity: from }, { opacity }], { duration: Math.max(1, ms), fill: "forwards", easing: "linear" });
+  }
+  let wasDocked: boolean | null = null;
+  $effect(() => {
+    if (stage !== "game") return;
+    const now = docked;
+    if (wasDocked === null) { wasDocked = now; return; }
+    if (now === wasDocked) return;
+    wasDocked = now;
+    if (now) { fadeTo(0, 2000, 1); return; }
+    fadeTo(1, 0, 1);
+    // in space: the black holds until the pilot's ship is in the park (or 4 s at most), then lifts
+    const started = performance.now();
+    const wait = () => {
+      const ship = live?.hello?.shipID ?? null;
+      const there = !!live?.park.validState && ship !== null && live.park.ballpark.balls.has(ship);
+      if (there || performance.now() - started > 4000) fadeTo(0, 1000); else setTimeout(wait, 100);
+    };
+    setTimeout(wait, 100);
+  });
+
   async function undock() {
     if (!session) return;
     error = "";
-    try { await session.flow.undock(); } catch (err) { error = (err as Error).message; }
+    fadeTo(1, 500);
+    try { await session.flow.undock(); } catch (err) { error = (err as Error).message; fadeTo(0, 300); }
   }
 
   onDestroy(() => { view?.dispose(); live?.close(); spaceClaimed?.flow.stopSpacePolling(); });
@@ -232,6 +263,8 @@
   {/if}
 
   <!-- The app's windows over space or the station, in front of the 3D view and under nothing else. -->
+  <div class="fly-fade" bind:this={fadeEl}></div>
+
   <div class="fly-windows">
     {#each wins as win (win.id)}
       <ErrorBoundary name={tabLabel(win.id)}>
@@ -260,6 +293,7 @@
 <style>
   .fly-space { position: fixed; inset: 0; }
   .fly-windows { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+  .fly-fade { position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 15; opacity: 0; }
   .fly-windows :global(> *) { pointer-events: auto; }
   .fly-station-neocom { position: absolute; left: 24px; bottom: 24px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 60vw; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }

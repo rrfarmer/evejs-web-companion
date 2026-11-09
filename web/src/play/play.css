@@ -226,3 +226,6 @@ button { font: inherit; color: inherit; }
 :where(.fly-windows) button.active:not(:has(img, svg)) { color: #0b0c0d; }
 :where(.fly-windows) button.primary:not(:has(img, svg)) { color: #fff; }
 :where(.fly-windows) nav.tabs button.active { color: #fff; }
+
+/* the gate jump's flash as the destination comes (spaceView.ts) */
+.space .jump-flash { position: absolute; inset: 0; background: radial-gradient(ellipse at center, #eaf4ff 0%, #9cc4ff 45%, rgba(40, 70, 120, 0.6) 100%); opacity: 0; pointer-events: none; z-index: 4; }
