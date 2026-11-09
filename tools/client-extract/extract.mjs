@@ -10,6 +10,8 @@
 //   <hull>.glb          every LOD of the model, mirrored into glTF's right-handed space
 //   <hull>_<x>.dds      the hull's textures, copied unchanged (block-compressed, uploaded as is)
 //   <hull>.json         what was extracted from where: LODs, areas, textures, vertex components
+//   <hull>.<faction>.sof.json  (--type) the hull as the SOF builds it for the type's faction: areas, shaders,
+//                       textures (copied), faction materials, colour set, boosters
 //   typeGraphics.json   (--type-graphics, needs --sde) typeID -> hull, faction, race, model
 //   systemScenes.json   (--type-graphics too) solarSystemID -> region nebula, star
 //   typeNames.json      (--type-graphics too) typeID -> [name, groupID]; groupID -> [name, categoryID]
@@ -25,6 +27,7 @@ import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
+import { loadSof, buildHull } from "./lib/sof.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 export const REPO = path.resolve(HERE, "..", "..");
@@ -82,6 +85,36 @@ export function extractBrackets(rf, outRoot) {
   };
   fs.writeFileSync(path.join(outRoot, "brackets.json"), JSON.stringify(out));
   return out;
+}
+
+/** Where a res: file is copied to, and the URL the dev server serves it at. */
+function copyRes(rf, res, outRoot) {
+  const rel = res.toLowerCase().slice("res:/".length);
+  const file = path.join(outRoot, ...rel.split("/"));
+  if (!fs.existsSync(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, rf.read(res));
+  }
+  return `/client-assets/${rel}`;
+}
+
+/**
+ * A hull as the Space Object Factory builds it for a faction (lib/sof.mjs), written beside the model as
+ * <hull stem>.<faction>.sof.json, every texture it names copied (a station's come from shared texture sets).
+ */
+export function extractSof(rf, gr2, hullName, factionName, outRoot) {
+  const built = buildHull(loadSof(rf), hullName, factionName);
+  if (!built) return null;
+  for (const area of built.areas) {
+    for (const [name, res] of Object.entries(area.textures)) {
+      area.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+    }
+  }
+  const stem = gr2.toLowerCase().slice("res:/".length, -".gr2".length);
+  const file = path.join(outRoot, ...`${stem}.${(factionName ?? "none").toLowerCase()}.sof.json`.split("/"));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(built, null, 1));
+  return file;
 }
 
 /** One model: every LOD to .glb, its own texture set copied beside it, and what was done in .json. */
@@ -174,7 +207,10 @@ async function main() {
   for (const typeID of args.types) {
     const tg = typeGraphics?.[typeID];
     if (!tg?.gr2) throw new Error(`--type ${typeID}: no SOF hull model known (run --type-graphics with --sde first)`);
-    specs.push(tg.gr2);
+    const stem = tg.gr2.slice("res:/".length, -".gr2".length);
+    if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(tg.gr2);
+    const sofFile = extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot);
+    console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
   }
   const done = [];
   for (const spec of specs) {
@@ -185,7 +221,7 @@ async function main() {
   }
   if (done.length) addToManifest(outRoot, build, client, done);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
-  if (!done.length && !args.typeGraphics && !args.scenes.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.scenes.length && !args.types.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

@@ -37,13 +37,15 @@ export function writeGlb({ name, lods, extras = {} }) {
     return accessors.length - 1;
   }
 
+  // One material per mesh area: its name, and its index, which is the SOF hull area's (EveSOFDataHullArea.index).
   const materials = [], materialIndex = new Map();
-  const materialFor = (areaName) => {
-    if (!materialIndex.has(areaName)) {
-      materials.push({ name: areaName, extras: { area: areaName } });
-      materialIndex.set(areaName, materials.length - 1);
+  const materialFor = (areaName, index) => {
+    const key = `${index}|${areaName}`;
+    if (!materialIndex.has(key)) {
+      materials.push({ name: areaName, extras: { area: areaName, index } });
+      materialIndex.set(key, materials.length - 1);
     }
-    return materialIndex.get(areaName);
+    return materialIndex.get(key);
   };
 
   const meshes = [], nodes = [];
@@ -71,7 +73,7 @@ export function writeGlb({ name, lods, extras = {} }) {
       const idx = big ? new Uint32Array(tri.length) : new Uint16Array(tri.length);
       for (let t = 0; t < tri.length; t += 3) { idx[t] = tri[t]; idx[t + 1] = tri[t + 2]; idx[t + 2] = tri[t + 1]; }
       const area = m.materials[g.material] ?? `area${g.material}`;
-      return { attributes, indices: addAccessor(idx, big ? UINT32 : UINT16, "SCALAR", idx.length, ELEMENT_ARRAY_BUFFER), material: materialFor(area) };
+      return { attributes, indices: addAccessor(idx, big ? UINT32 : UINT16, "SCALAR", idx.length, ELEMENT_ARRAY_BUFFER), material: materialFor(area, g.material) };
     });
     meshes.push({ name: m.name, primitives, extras: { lod: lodIndex, maxScreenSize: m.extended?.maxScreenSize ?? null } });
     nodes.push({ name: m.name, mesh: meshes.length - 1, extras: { lod: lodIndex } });

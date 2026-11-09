@@ -91,9 +91,13 @@ function clientAssets(): Plugin {
             res.setHeader("content-type", "application/json");
             if (!tg?.gr2) return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: null, ...(tg ?? {}) }));
             const stem = String(tg.gr2).slice("res:/".length, -".gr2".length);
-            if (!fs.existsSync(path.join(buildDir, stem + ".glb"))) await extractOnce(`hull:${tg.gr2}`, buildDir, ["--hull", tg.gr2]);
+            const sofName = `${stem}.${String(tg.faction ?? "none").toLowerCase()}.sof.json`;
+            if (!fs.existsSync(path.join(buildDir, stem + ".glb")) || !fs.existsSync(path.join(buildDir, sofName))) {
+              await extractOnce(`type:${typeAsk[1]}`, buildDir, ["--type", typeAsk[1]!]);
+            }
             const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
-            return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: `/client-assets/${stem}.glb`, textures: info.textures, lods: info.lods.length, ...tg }));
+            const sof = fs.existsSync(path.join(buildDir, sofName)) ? `/client-assets/${sofName}` : null;
+            return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: `/client-assets/${stem}.glb`, sof, textures: info.textures, lods: info.lods.length, ...tg }));
           } catch (e) {
             res.statusCode = 500;
             return res.end(JSON.stringify({ error: (e as Error).message }));
