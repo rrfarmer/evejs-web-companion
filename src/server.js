@@ -1762,7 +1762,10 @@ app.get("/api/play/destiny", requireStreamAuth, (req, res) => {
   };
   let feed;
   try {
-    feed = gamePortPilots.openDestinyFeed({ userid: held.accountID }, held.bridgeSessionID, (item) => send("destiny", item));
+    // A ballpark let go or made anew (docking, undocking, a new system) is a new hello, before the new park's first
+    // update: the page's park starts anew with it (`reset`).
+    feed = gamePortPilots.openDestinyFeed({ userid: held.accountID }, held.bridgeSessionID, (item) => send("destiny", item),
+      (place) => send("hello", { ...place, characterID: feed ? feed.characterID : null, reset: true }));
   } catch (error) {
     send("ended", { code: error.code || "SESSION_NOT_FOUND", message: error.message });
     res.end();

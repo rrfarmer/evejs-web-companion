@@ -17,6 +17,7 @@ import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust } from "../three/hullModel.ts";
 import { celestialModel, systemCelestials, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
+import { WarpTunnel } from "./warpTunnel.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview } from "./overview.ts";
@@ -116,6 +117,8 @@ export class SpaceView {
   private snapshot: Snapshot | null = null;
   private frameCount = 0;
   private stopped = false;
+  private readonly warpTunnel = new WarpTunnel();
+  private lastFrameAt = performance.now();
 
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
   constructor(private readonly live: LivePark, private readonly actions: SpaceActions, private readonly where: { system: string; security: number | null }, private readonly options: { onNeocom?: (id: string) => void; rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } } } = {}) {
@@ -153,6 +156,7 @@ export class SpaceView {
     // The system's star lights the grid from where it is (aimed each frame at the sun ball, frame()).
     this.sunLight.position.set(-1, 0.4, 0.6);
     this.scene.add(this.sunLight);
+    this.scene.add(this.warpTunnel.object);
     this.camera.position.set(-600, 250, 900);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enablePan = false;
@@ -178,6 +182,7 @@ export class SpaceView {
     this.renderer.dispose();
     this.shipHud.dispose();
     this.targetBar.dispose();
+    this.warpTunnel.dispose();
     this.root.remove();
   }
 
@@ -452,6 +457,13 @@ export class SpaceView {
       });
       this.modeEl.textContent = ego.mode === "STOP" && speed < 1 ? "Stopped" : ego.mode === "WARP" ? "Warping" : ego.mode === "ORBIT" ? "Orbiting" : ego.mode === "FOLLOW" ? "Approaching" : speed > 0.5 ? "Moving" : "";
     }
+    // The warp tunnel, along the ship's way (mirrored into three's handedness as positions are), as strong as the
+    // client's binding of the ship's speed makes it.
+    const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);
+    this.lastFrameAt = now;
+    const egoSpeed = ego ? Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z) : 0;
+    const way = ego && egoSpeed > 0 ? new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z).divideScalar(egoSpeed) : new THREE.Vector3();
+    this.warpTunnel.update(this.camera, this.controls.target, way, WarpTunnel.share(ego?.mode === "WARP", egoSpeed), dt);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
     // keeps them; often enough for the cycle sweep to move smoothly.
     const rack = this.options.rack;

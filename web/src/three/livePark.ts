@@ -5,13 +5,15 @@
 
 import { Park, Ballpark, marshalDecode, readFeedItem, applyToPark, type Ball, type FeedItem } from "virtual:destiny";
 
-export interface FeedHello { simTime: number; solarSystemID: number | null; shipID: number | null; characterID: number; timeAdjusted?: number }
+export interface FeedHello { simTime: number; solarSystemID: number | null; shipID: number | null; characterID: number; timeAdjusted?: number; reset?: boolean }
 
 export class LivePark {
-  readonly park = new Park({ ballpark: new Ballpark() });
+  park = new Park({ ballpark: new Ballpark() });
   readonly failures: string[] = [];
   hello: FeedHello | null = null;
   items = 0;
+  /** How many times the park has been made anew (a new system, docking, undocking). */
+  resets = 0;
   status: "connecting" | "live" | "ended" | "error" = "connecting";
   private source: EventSource | null = null;
   /** The pilot's sim clock less performance.now(), from the BFF's latest reading. */
@@ -26,6 +28,13 @@ export class LivePark {
     this.source = source;
     source.addEventListener("hello", (e) => {
       this.hello = JSON.parse((e as MessageEvent).data) as FeedHello;
+      // The pilot's ballpark let go or made anew (docked, undocked, a new system): michelle.UpdateBallpark releases the
+      // old park and makes a new one, which the new system's SetState fills.
+      if (this.hello.reset) {
+        this.park = new Park({ ballpark: new Ballpark() });
+        this.items = 0;
+        this.resets++;
+      }
       this.setClock(this.hello.simTime);
       // Joining in flight: the BFF's park has been moved by every sim-clock rebase so far, and this one, which
       // heard none of them, is moved as much before its first update (Park.timeAdjusted).

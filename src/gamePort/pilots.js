@@ -1425,6 +1425,27 @@ function createGamePortPilots({
   // browser's park steps by the same clock as this one. They do not go on the pilot's stream: the stream keeps a
   // history for resuming, and a second's worth of ballpark every second would push the rest of it out.
 
+  /**
+   * michelle.UpdateBallpark let the pilot's ballpark go (docked, or leaving the system) or made a new one (undocked, or
+   * in a new system): each feed is told, before the new park's first update, so that its own park starts anew as the
+   * client's does. { solarSystemID, shipID, timeAdjusted, simTime }; solarSystemID null when there is no park.
+   */
+  function tellSpace(entry) {
+    const place = {
+      solarSystemID: entry.space ? entry.space.solarSystemID : null,
+      shipID: positive(entry.session.attributes?.shipid) ?? null,
+      timeAdjusted: entry.space ? entry.space.park.timeAdjusted : 0,
+      simTime: entry.clock.simTime(),
+    };
+    for (const listener of [...entry.spaceListeners]) {
+      try {
+        listener(place);
+      } catch {
+        // A listener's failure is its own.
+      }
+    }
+  }
+
   function tellDestiny(entry, notification) {
     const item = feedItem(notification, entry.clock.simTime());
     if (!item) return;
@@ -1442,12 +1463,13 @@ function createGamePortPilots({
    * for it as the client asks after a reset (UpdateStateRequest); the SetState it answers with goes to this park too,
    * which merges it as it would any other. Docked, there is no park, and the feed starts with the undock.
    */
-  function openDestinyFeed(sessionFields = {}, bridgeSessionID = undefined, onItem = () => {}) {
+  function openDestinyFeed(sessionFields = {}, bridgeSessionID = undefined, onItem = () => {}, onSpace = () => {}) {
     const entry = held(bridgeSessionID, sessionFields);
     entry.destinyListeners.add(onItem);
+    entry.spaceListeners.add(onSpace);
     if (entry.space && !entry.space.released) entry.space.park.requestState();
     return {
-      close: () => entry.destinyListeners.delete(onItem),
+      close: () => { entry.destinyListeners.delete(onItem); entry.spaceListeners.delete(onSpace); },
       /** The pilot's sim clock now, in milliseconds: what the browser's park is to be stepped by. */
       simTime: () => entry.clock.simTime(),
       solarSystemID: entry.space ? entry.space.solarSystemID : null,
@@ -1820,6 +1842,8 @@ function createGamePortPilots({
       subscribers: new Set(),
       /** Who is told the pilot's Destiny feed (openDestinyFeed): a browser running a park of its own. */
       destinyListeners: new Set(),
+      /** The same feeds' word of the pilot's ballpark let go or made anew (openDestinyFeed's onSpace). */
+      spaceListeners: new Set(),
       ship: null,
       /** boundHandle -> { objectID, service }: what the BFF holds, and what it names here. */
       bound: new Map(),
@@ -4876,6 +4900,15 @@ function createGamePortPilots({
   function syncSpace(entry) {
     const place = whereabouts(entry);
     const wanted = place.inSpace ? attribute(entry, "solarsystemid") : null;
+    const before = entry.space;
+    try {
+      syncSpaceTo(entry, wanted);
+    } finally {
+      if (entry.space !== before && entry.spaceListeners.size > 0) tellSpace(entry);
+    }
+  }
+
+  function syncSpaceTo(entry, wanted) {
     if (entry.space && entry.space.solarSystemID !== wanted) {
       entry.space.release();
       entry.space = null;
