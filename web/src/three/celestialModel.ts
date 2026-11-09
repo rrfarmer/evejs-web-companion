@@ -66,6 +66,8 @@ export async function celestialModel(typeID: number, kind: string, radius: numbe
   if (item?.NormalHeight1 && c.params.LavaColor1 && c.textures.FillTexture) return lavaModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   if (item?.NormalHeight1 && c.params.IceFactors && c.textures.FillTexture) return iceModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   if (item?.NormalHeight1 && c.params.Ramp1 && c.params.RampBias && c.textures.DetailTexture) return moonModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
+  if (item?.NormalHeight1 && c.params.WaterColor && !c.params.FillTint && c.textures.GroundScattering1) return oceanModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
+  if (c.params.PlanetColor && c.params.MagmaFactors && c.textures.GroundScattering1) return thunderModel(c, radius);
   const surfaceName = SURFACE.find((n) => c.textures[n] && !/black\.dds$/.test(c.textures[n]!));
   const shared = surfaceName ? await texture(c.textures[surfaceName]!, true) : null;
   const tiling = c.params.DetailsTiling?.[0] ?? 1;
@@ -202,6 +204,129 @@ ${fs}`.replace("#include <map_fragment>", `
         g = mix( g, w, sea );` : ""}
         g = max( g, vec3( 0.0 ) );
         diffuseColor.rgb = mix( g / 12.92, pow( ( g + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, g ) );`), uniforms);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
+  m.name = "celestial";
+  return m;
+}
+
+/**
+ * A planet lit as the client's planet shaders light it (ocean, thunderstorm, ice: their pixel shaders' common end),
+ * not by three's lights: a colour in gamma space times GroundScattering1 plus the ambient, plus GroundScattering2,
+ * the two looked up at (N.L x 0.5 + 0.5, N.V), then taken to linear. The sun's direction is the scene's first
+ * directional light's, read as the planet is drawn. `surface` is GLSL that sets `vec3 g` (the colour, gamma) and may
+ * set `vec3 extra` (added after the scattering), with N, L, V, NL, NV, S1, S2, lit, vUv and time in scope.
+ */
+const SCATTER_AMBIENT = new THREE.Vector3(0.02, 0.02, 0.025);
+function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uniforms: Record<string, { value: unknown }>, head: string, surface: string): THREE.ShaderMaterial {
+  for (const t of [s1, s2]) if (t) { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; }
+  const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { ...uniforms, scatter1: { value: s1 }, scatter2: { value: s2 }, sunDir: { value: sunDir }, ambient: { value: SCATTER_AMBIENT }, time: { value: 0 } },
+    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vW;
+      void main() { vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform sampler2D scatter1; uniform sampler2D scatter2; uniform vec3 sunDir; uniform vec3 ambient; uniform float time;
+      varying vec2 vUv; varying vec3 vN; varying vec3 vW;
+      ${head}
+      void main() {
+        vec3 N = normalize(vN), L = normalize(sunDir), V = normalize(cameraPosition - vW);
+        float NL = dot(N, L), NV = dot(N, V);
+        vec2 su = vec2(NL * 0.5 + 0.5, clamp(NV, 0.0, 1.0));
+        vec3 S1 = texture2D(scatter1, su).rgb, S2 = texture2D(scatter2, su).rgb;
+        vec3 lit = S1 + ambient;
+        vec3 g = vec3(0.5); vec3 extra = vec3(0.0);
+        ${surface}
+        vec3 c = max(g, vec3(0.0));
+        c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+  let lightOf: THREE.DirectionalLight | null = null;
+  mat.onBeforeRender = (_r, scene) => {
+    (mat.uniforms.time as { value: number }).value = performance.now() / 1000;
+    if (!lightOf || !lightOf.parent) {
+      lightOf = null;
+      scene.traverse((o) => { if (!lightOf && (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).intensity > 0) lightOf = o as THREE.DirectionalLight; });
+    }
+    if (lightOf) sunDir.copy(lightOf.position).sub(lightOf.target.position).normalize();
+  };
+  return mat;
+}
+
+/**
+ * An ocean planet as oceanplanet.fx colours it (its sm_hi pixel shader; Random c2.x, Time c2.y, WaterColor c3,
+ * shallowWaterColor c4, CloudsColor c5, CloudsFactors c6): the sea WaterColor + shallowWaterColor x NormalHeight1 x
+ * NormalHeight2 (moved by Random) away from the poles (PolesGradient), lit by the ground scattering with a rim at
+ * the edge (1 - N.V)^3 x saturate(2 N.L); clouds (CloudsTexture, tiled by CloudsFactors.w, turning once an hour) at
+ * pow(cloud, CloudsFactors.z), the first toward CloudsFactors.x x GroundScattering2, the second toward CloudsColor x
+ * CloudsFactors.y lit; the sun's glint pow(N.R, 10) x 0.3. The cloud cap's polar projection is not ported.
+ */
+async function oceanModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
+  const [h1, h2, poles, clouds, s1, s2] = await Promise.all([
+    texture(heightMap1), heightMap2 ? texture(heightMap2) : Promise.resolve(null),
+    c.textures.PolesGradient ? texture(c.textures.PolesGradient) : Promise.resolve(null),
+    c.textures.CloudsTexture ? texture(c.textures.CloudsTexture) : Promise.resolve(null),
+    texture(c.textures.GroundScattering1!), c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
+  ]);
+  for (const t of [h1, h2, clouds]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
+  const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
+  const random = itemID === null ? 0 : itemID % 100;
+  const mat = scatterMaterial(s1, s2, {
+    h1: { value: h1 }, h2: { value: h2 ?? h1 }, poles: { value: poles }, clouds: { value: clouds },
+    hasPoles: { value: poles ? 1 : 0 }, hasClouds: { value: clouds ? 1 : 0 },
+    water: { value: v3(c.params.WaterColor, [0.02, 0.05, 0.1]) }, shallow: { value: v3(c.params.shallowWaterColor, [0.05, 0.15, 0.2]) },
+    cloudColour: { value: v3(c.params.CloudsColor, [0.8, 0.8, 0.8]) }, cloudF: { value: v4(c.params.CloudsFactors, [0.5, 1, 1, 1]) },
+    shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
+  }, `uniform sampler2D h1; uniform sampler2D h2; uniform sampler2D poles; uniform sampler2D clouds; uniform float hasPoles; uniform float hasClouds;
+      uniform vec3 water; uniform vec3 shallow; uniform vec3 cloudColour; uniform vec4 cloudF; uniform vec2 shiftA; uniform vec2 shiftB;`, `
+        float p = hasPoles > 0.5 ? texture2D(poles, vUv).r : 1.0;
+        float q = 1.0 - clamp(2.0 * pow(1.0 - p, 3.0), 0.0, 1.0);
+        float h = texture2D(h1, vUv * vec2(2.0, 1.0) + shiftA).r * texture2D(h2, vUv * vec2(3.0, 1.5) + shiftB + 1.0).r;
+        vec3 base = water + shallow * h * q;
+        float rim = pow(1.0 - clamp(NV, 0.0, 1.0), 3.0) * clamp(2.0 * NL, 0.0, 1.0);
+        g = base * lit + rim;
+        if (hasClouds > 0.5) {
+          vec2 scroll = vec2(fract(time * 0.000278), 0.0);
+          vec2 cuv = vUv * cloudF.w * vec2(2.0, 1.0) + scroll;
+          float c1 = pow(abs(texture2D(clouds, cuv - L.xy * 0.0035).r), cloudF.z);
+          g = mix(g, cloudF.x * S2, c1);
+          float c2 = pow(abs(texture2D(clouds, cuv).r), cloudF.z);
+          g = mix(g, cloudColour * cloudF.y * lit, c2);
+        }
+        g += pow(clamp(dot(L, reflect(-V, N)), 0.0, 1.0), 10.0) * 0.3 + S2;`);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
+  m.name = "celestial";
+  return m;
+}
+
+/**
+ * A storm planet as thunderstormplanet.fx colours it (its sm_hi pixel shader; Time c2.x, PlanetColor c3, MagmaFactors
+ * c4, MagmaFactors2 c5, CloudsColor c6, CloudsFactors c7, LightningColor c8, Lightningfactors c9): PlanetColor lit by
+ * the ground scattering, under clouds (CloudsTexture tiled by CloudsFactors.w, turning once an hour) at
+ * pow(cloud, CloudsFactors.z) + 0.01 toward CloudsColor x CloudsFactors.y lit with a faint rim, plus
+ * GroundScattering2. The shader's swirl (its coordinates moved by a 3D noise volume, MagmaFactors) and its lightning
+ * flashes are not ported.
+ */
+async function thunderModel(c: Celestial, radius: number): Promise<THREE.Object3D> {
+  const [clouds, s1, s2] = await Promise.all([
+    c.textures.CloudsTexture ? texture(c.textures.CloudsTexture) : Promise.resolve(null),
+    texture(c.textures.GroundScattering1!), c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
+  ]);
+  if (clouds && clouds.wrapS !== THREE.RepeatWrapping) { clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping; clouds.needsUpdate = true; }
+  const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
+  const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
+  const mat = scatterMaterial(s1, s2, {
+    clouds: { value: clouds }, hasClouds: { value: clouds ? 1 : 0 },
+    planet: { value: v3(c.params.PlanetColor, [0.2, 0.23, 0.23]) },
+    cloudColour: { value: v3(c.params.CloudsColor, [0.01, 0.01, 0.01]) }, cloudF: { value: v4(c.params.CloudsFactors, [0.1, 1, 0.11, 1]) },
+  }, `uniform sampler2D clouds; uniform float hasClouds; uniform vec3 planet; uniform vec3 cloudColour; uniform vec4 cloudF;`, `
+        vec3 ground = planet * lit;
+        float rim = pow(1.0 - clamp(NV, 0.0, 1.0), 3.0);
+        float cl = hasClouds > 0.5 ? texture2D(clouds, vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0)).r : 0.0;
+        float k = pow(abs(cl), cloudF.z) + 0.01;
+        g = mix(ground, cloudColour * cloudF.y * lit + rim * 0.04, clamp(k, 0.0, 1.0)) + S2;`);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;
