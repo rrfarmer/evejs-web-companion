@@ -7,7 +7,7 @@ import type { Entity } from "./spaceView.ts";
 import { distanceWords } from "./spaceView.ts";
 
 let names: Promise<{ types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null> | null = null;
-function typeNames() {
+export function typeNames() {
   names ??= fetch("/client-assets/typeNames.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
   return names;
 }

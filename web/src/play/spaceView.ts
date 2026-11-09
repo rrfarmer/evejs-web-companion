@@ -20,11 +20,13 @@ import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
-import { Overview } from "./overview.ts";
+import { Overview, typeNames } from "./overview.ts";
+import { DScanWindow } from "./dscan.ts";
 import { Neocom } from "./neocom.ts";
 import { bracketIcon, loadBrackets } from "./brackets.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
+import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -42,7 +44,7 @@ interface Snapshot {
 export interface SpaceActions {
   gotoDirection(dx: number, dy: number, dz: number): Promise<void>;
   alignTo(itemID: number): Promise<void>;
-  keepAtRange(itemID: number): Promise<void>;
+  keepAtRange(itemID: number, range?: number): Promise<void>;
   jump(itemID: number): Promise<void>;
   lock(itemID: number): Promise<void>;
   unlock(itemID: number): Promise<void>;
@@ -50,9 +52,11 @@ export interface SpaceActions {
   targets(): Promise<{ targetIDs: number[]; targeterIDs: number[] }>;
   stop(): Promise<void>;
   approach(itemID: number): Promise<void>;
-  orbit(itemID: number): Promise<void>;
-  warpTo(itemID: number): Promise<void>;
+  orbit(itemID: number, range?: number): Promise<void>;
+  warpTo(itemID: number, range?: number): Promise<void>;
   dock(itemID: number): Promise<void>;
+  /** scanMgr.ConeScan(angle, range, x, y, z): the directional scanner's call, where the page can make it. */
+  coneScan?(angle: number, range: number, x: number, y: number, z: number): Promise<unknown>;
 }
 
 const KIND_COLOUR: Record<string, string> = {
@@ -118,6 +122,11 @@ export class SpaceView {
   private frameCount = 0;
   private stopped = false;
   private readonly warpTunnel = new WarpTunnel();
+  private readonly radial = new RadialMenu();
+  private dscan: DScanWindow | null = null;
+  private names: { types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null = null;
+  private readonly onKey = (e: KeyboardEvent) => this.key(e);
+  private readonly unhold: (() => void)[] = [];
   private lastFrameAt = performance.now();
 
   /** `onNeocom`: what a Neocom button opens; the app's play mode opens its own windows (PlayApp.svelte). */
@@ -166,6 +175,38 @@ export class SpaceView {
     this.controls.zoomSpeed = 1.2;
     this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
     this.root.appendChild(this.overview.window.root);
+    // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
+    if (!document.getElementById("radial-css")) {
+      const style = document.createElement("style");
+      style.id = "radial-css";
+      style.textContent = RADIAL_CSS;
+      document.head.appendChild(style);
+    }
+    this.root.appendChild(this.radial.root);
+    const openRadial = (id: number, x: number, y: number, button: number) => this.openRadial(id, x, y, button);
+    const rowID = (_x: number, _y: number, e: Event) => Number((e.target as HTMLElement).closest?.("[data-id]")?.getAttribute("data-id")) || null;
+    // The directional scanner (Alt+D, V), where the page can make the call.
+    void typeNames().then((n) => { this.names = n; });
+    if (this.actions.coneScan) {
+      const coneScan = this.actions.coneScan.bind(this.actions);
+      this.dscan = new DScanWindow({
+        scan: (angle, range, [x, y, z]) => coneScan(angle, range, x, y, z),
+        direction: () => { const d = this.camera.getWorldDirection(new THREE.Vector3()); return [d.x, d.y, -d.z]; },
+        known: (id) => {
+          const e = this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
+          return { name: e?.name ?? null, distance: e ? this.distanceTo(e) : null };
+        },
+        typeName: (typeID) => this.names?.types[String(typeID)]?.[0] ?? null,
+        groupName: (groupID) => this.names?.groups[String(groupID)]?.[0] ?? null,
+      }, this.root);
+      this.root.appendChild(this.dscan.window.root);
+    }
+    addEventListener("keydown", this.onKey);
+    this.unhold.push(
+      holdToOpen(this.brackets, rowID, openRadial),
+      holdToOpen(this.overview.window.body, rowID, openRadial),
+      holdToOpen(this.renderer.domElement, (x, y) => this.pickAt(x, y), openRadial),
+    );
     // Brackets drawn before the client's tables are here are drawn again with the client's icons.
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
     this.root.appendChild(new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`))).root);
@@ -183,6 +224,9 @@ export class SpaceView {
     this.shipHud.dispose();
     this.targetBar.dispose();
     this.warpTunnel.dispose();
+    for (const off of this.unhold) off();
+    removeEventListener("keydown", this.onKey);
+    this.radial.close();
     this.root.remove();
   }
 
@@ -343,6 +387,79 @@ export class SpaceView {
     tick();
   }
 
+  /** The client's keys for the scanner (eveCommands: OpenDirectionalScanner Alt+D, CmdRefreshDirectionalScan V). */
+  private key(e: KeyboardEvent): void {
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (!this.dscan) return;
+    if (e.altKey && !e.ctrlKey && e.code === "KeyD") { e.preventDefault(); this.dscan.toggle(); }
+    else if (!e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyV") { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); }
+  }
+
+  /** The object in space under a point of the screen: the nearest mark the ray from the camera meets. */
+  private pickAt(x: number, y: number): number | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1), this.camera);
+    const owner = new Map<THREE.Object3D, number>();
+    for (const [id, m] of this.marks) owner.set(m, id);
+    for (const hit of ray.intersectObjects([...this.marks.values()], true)) {
+      if ((hit.object as THREE.Mesh).isMesh !== true || hit.object.name === "warpTunnel") continue;
+      for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) { const id = owner.get(o); if (id !== undefined) return id; }
+    }
+    return null;
+  }
+
+  /**
+   * An object's radial menu, laid out as spaceRadialMenuFunctions.GetObjectsActions lays it: the type's primary action
+   * at the top, then orbit, more, keep at range, lock, approach, show info and warp to, clockwise; for the pilot's own
+   * ship, stop, the default orbit, more, the default keep at range, its cargo hold, show info and the default warp.
+   */
+  private openRadial(id: number, x: number, y: number, button: number): void {
+    const e = this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
+    if (!e) return;
+    this.select(e.isSelf ? this.selected : id);
+    const icon = (n: number) => RADIAL_ICON(`res:/UI/Texture/Icons/44_32_${n}.png`);
+    const run = (title: string, fn: () => Promise<void>) => () => void this.act(title, fn).then(() => this.refreshTargets());
+    const showInfo: RadialOption = { label: "Show Info", icon: icon(24), disabled: true };
+    const lookAt: RadialOption = { label: "Look At", icon: icon(20), run: () => { this.lookAt = id; } };
+    let options: (RadialOption | null)[];
+    if (e.isSelf) {
+      options = [
+        { label: "Stop Ship", icon: clientTexture("res:/UI/Texture/Icons/44_32_38.png"), run: run("Stop", () => this.actions.stop()) },
+        { label: "Set Default Orbit Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setOrbitDefault.png"), disabled: true },
+        { label: "More", icon: "", more: [lookAt] },
+        { label: "Set Default Keep at Range Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setKeepRangeDefault.png"), disabled: true },
+        { label: "Open Cargo Hold", icon: icon(35), run: () => this.options.onNeocom?.("inventory") },
+        null,
+        showInfo,
+        { label: "Set Default Warp To Distance", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/setWarpDefault.png"), disabled: true },
+      ];
+    } else {
+      const dist = this.distanceTo(e);
+      const primary: RadialOption | null =
+        e.kind === "station" || e.kind === "structure" ? { label: "Dock", icon: icon(9), run: run("Dock", () => this.actions.dock(id)) }
+        : e.kind === "stargate" ? { label: "Jump", icon: icon(39), run: run("Jump", () => this.actions.jump(id)) }
+        : null;
+      const lockable = ["ship", "drone", "fighter", "wreck", "container", "asteroid", "structure", "station", "stargate"].includes(e.kind);
+      const lock: RadialOption = this.locked.has(id)
+        ? { label: "Unlock Target", icon: clientTexture("res:/UI/Texture/classes/RadialMenuActions/untarget.png"), run: run("Unlock Target", () => this.actions.unlock(id)) }
+        : { label: "Lock Target", icon: icon(17), disabled: !lockable, run: run("Lock Target", () => this.lockTracked(id)) };
+      options = [
+        primary,
+        { label: "Orbit", icon: icon(21), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Orbit", () => this.actions.orbit(id, r))() },
+        { label: "More", icon: "", more: [lookAt] },
+        { label: "Keep at Range", icon: icon(22), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Keep at Range", () => this.actions.keepAtRange(id, r))() },
+        lock,
+        { label: "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },
+        showInfo,
+        // A warp needs the object 150 km away or more (the server refuses a nearer one).
+        { label: "Warp To Within", icon: icon(18), ranges: WARP_RANGES, defaultRange: 0, disabled: dist < 150_000, run: (r) => run("Warp To", () => this.actions.warpTo(id, r))() },
+      ];
+    }
+    this.radial.open(x, y, e.name ?? e.kind, options, button);
+  }
+
   private distanceTo(e: Entity): number {
     const s = this.snapshot?.ship;
     if (!s) return 0;
@@ -416,6 +533,7 @@ export class SpaceView {
         el.className = "bracket";
         el.innerHTML = `${glyph(e)}<div class="label"></div>`;
         const id = e.itemID;
+        el.dataset.id = String(id);
         el.addEventListener("click", (ev) => { ev.stopPropagation(); this.select(id); });
         el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.act("Approach", () => this.actions.approach(id)); });
         el.classList.toggle("locked", this.locked.has(id));

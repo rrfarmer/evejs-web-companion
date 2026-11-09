@@ -83,6 +83,8 @@
       live = new LivePark();
       live.connect(withTokenQuery("/api/play/destiny", token));
       stage = "game";
+      // The client's chat window, with Local, is up from the start.
+      open("chat");
     } catch (err) {
       error = (err as Error).message;
       stage = "select";
@@ -90,6 +92,23 @@
   }
 
   function open(tab: TabID) { wins = openWindow(wins, tab); }
+
+  // The client's keys for its windows (eveCommands.py): Alt and a letter. Alt+D and V (the directional scanner) are
+  // the space view's own.
+  const ALT_KEYS: Record<string, TabID> = {
+    KeyP: "scanner", KeyC: "inventory", KeyF: "fitting", KeyI: "mail", KeyR: "market", KeyW: "wallet",
+    KeyA: "characterSheet", KeyX: "skills", KeyE: "locations", KeyM: "finder",
+  };
+  function onKey(e: KeyboardEvent) {
+    if (stage !== "game" || !e.altKey || e.ctrlKey || e.metaKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    const tab = ALT_KEYS[e.code];
+    if (!tab) return;
+    e.preventDefault();
+    const shown = wins.find((w) => w.id === tab);
+    wins = shown ? closeWindow(wins, tab) : openWindow(wins, tab);
+  }
 
   // Space: the SpaceView, made when the pilot is in space and let go when docked.
   let spaceHost = $state<HTMLDivElement | null>(null);
@@ -103,11 +122,15 @@
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
       stop: () => s.flow.stopShip(),
       approach: (id) => s.flow.approach(id),
-      orbit: (id) => s.flow.orbit(id, 5000),
-      keepAtRange: (id) => s.flow.keepAtRange(id, 5000),
+      // The client's default ranges where none is chosen (defaultRangeUtils.DEFAULT_RANGES: orbit and keep at range
+      // 1,000 m, warp to 0 m); the radial menu chooses one by how far out it is let go.
+      orbit: (id, range) => s.flow.orbit(id, range ?? 1000),
+      keepAtRange: (id, range) => s.flow.keepAtRange(id, range ?? 1000),
       alignTo: (id) => s.flow.alignTo(id),
-      warpTo: (id) => s.flow.warpTo(id, 0),
+      warpTo: (id, range) => s.flow.warpTo(id, range ?? 0),
       dock: (id) => s.flow.dock(id),
+      // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
+      coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
       jump: (id) => s.flow.jump(id, 0),
       lock: (id) => s.flow.lockTarget(id),
       unlock: (id) => s.flow.unlockTarget(id),
@@ -148,6 +171,11 @@
     });
     spaceHost.appendChild(v.root);
     view = v;
+    // The client's drones window comes up in space for a ship with a drone bay.
+    void s.flow.loadDrones().then(() => {
+      const d = s.store.drones.get();
+      if ((d.limits.droneBandwidth ?? 0) > 0 || (d.bay?.length ?? 0) > 0) open("drones");
+    }).catch(() => {});
     (window as unknown as { __play: unknown }).__play = { live, view: v, session: s };
     return () => { v.dispose(); view = null; };
   });
@@ -160,6 +188,8 @@
 
   onDestroy(() => { view?.dispose(); live?.close(); spaceClaimed?.flow.stopSpacePolling(); });
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 {#if stage === "login"}
   <div class="screen"><form class="login-box" onsubmit={signIn}>

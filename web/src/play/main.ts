@@ -140,7 +140,7 @@ function showSpace(): void {
   view = new SpaceView(live!, {
     gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
     alignTo: (id) => alignTo(act, flightNow, id),
-    keepAtRange: (id) => keepAtRange(act, flightNow, id, 5000),
+    keepAtRange: (id, range) => keepAtRange(act, flightNow, id, range ?? 1000),
     jump: (id) => jump(act, flightNow, id),
     lock: async (id) => { await lockTarget(act, id, null); },
     unlock: (id) => unlockTarget(act, id, "locked"),
@@ -150,8 +150,8 @@ function showSpace(): void {
     },
     stop: () => stopShip(act, flightNow),
     approach: (id) => approach(act, flightNow, id),
-    orbit: (id) => orbit(act, flightNow, id, 5000),
-    warpTo: (id) => warpToItem(act, flightNow, id, 0),
+    orbit: (id, range) => orbit(act, flightNow, id, range ?? 1000),
+    warpTo: (id, range) => warpToItem(act, flightNow, id, range ?? 0),
     dock: async (id) => { await dock(act, flightNow, id); if ((await flight()).docked) showStation("Station"); },
   }, { system: systemName, security: systemSecurity });
   app.appendChild(view.root);
