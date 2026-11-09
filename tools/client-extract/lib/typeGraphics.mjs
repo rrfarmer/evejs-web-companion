@@ -1,0 +1,44 @@
+// typeID -> how the client draws it, from CCP's Static Data Export (types.jsonl's graphicID,
+// graphics.jsonl's sofHullName / sofFactionName / sofRaceName / graphicFile), with the hull's model found
+// in the client's own index: a SOF hull's geometry file is named for the hull (<hull>.gr2).
+//
+// The SDE is CCP's public download (developers.eveonline.com); eve.js keeps the build it runs on in
+// _local/sde/eve-online-static-data-<build>-jsonl. Its build should match the client's.
+
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
+
+async function* jsonl(file) {
+  const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+  for await (const line of rl) if (line.trim()) yield JSON.parse(line);
+}
+
+/** { typeID: { graphicID, hull, faction, race, gr2, graphicFile, groupID } } for every type with a graphic. */
+export async function buildTypeGraphics(sdeDir, rf) {
+  const graphics = new Map();
+  for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) graphics.set(g._key, g);
+  // hull name -> its geometry, from the client's index (a hull's .gr2 is named for it)
+  const gr2ByName = new Map();
+  for (const [key] of rf.entries) {
+    const m = /^res:\/dx9\/model\/(?:.*\/)?([^/]+)\.gr2$/.exec(key);
+    if (m && !gr2ByName.has(m[1])) gr2ByName.set(m[1], key);
+  }
+  const out = {};
+  for await (const t of jsonl(path.join(sdeDir, "types.jsonl"))) {
+    if (!t.graphicID) continue;
+    const g = graphics.get(t.graphicID);
+    if (!g) continue;
+    const hull = g.sofHullName ?? null;
+    out[t._key] = {
+      graphicID: t.graphicID,
+      groupID: t.groupID ?? null,
+      hull,
+      faction: g.sofFactionName ?? null,
+      race: g.sofRaceName ?? null,
+      gr2: hull ? gr2ByName.get(hull.toLowerCase()) ?? null : null,
+      graphicFile: g.graphicFile ?? null,
+    };
+  }
+  return out;
+}

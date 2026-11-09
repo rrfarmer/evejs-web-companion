@@ -17,6 +17,7 @@
 import { defineConfig, type Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 // View library (locked by the R2 spike): Svelte 5. Components stay thin pure
 // readers of the framework-agnostic signal store (web/src/store), which
 // implements the Svelte store contract so `$slice` auto-subscription works.
@@ -39,12 +40,40 @@ function clientAssets(): Plugin {
   return {
     name: "client-assets",
     configureServer(server) {
-      server.middlewares.use("/client-assets", (req, res, next) => {
+      // One extraction per model at a time, shared by every request that wants it.
+      const extracting = new Map<string, Promise<unknown>>();
+      let resFiles: { client: string; rf: unknown } | null = null;
+      server.middlewares.use("/client-assets", async (req, res, next) => {
         let builds: string[] = [];
         try { builds = fs.readdirSync(root).filter((d) => /^\d+$/.test(d)).sort((a, b) => Number(b) - Number(a)); } catch { /* none yet */ }
         const build = process.env.EVE_CLIENT_BUILD || builds[0];
         if (!build) { res.statusCode = 404; return res.end("no client assets: run tools/client-extract/extract.mjs"); }
         const rel = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
+        // /client-assets/type/<typeID>: how a type is drawn, its model extracted from the client on first ask
+        // (tools/client-extract; needs typeGraphics.json and config.json from `extract.mjs --type-graphics --sde`).
+        const typeAsk = /^\/type\/(\d+)$/.exec(rel);
+        if (typeAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const tg = JSON.parse(fs.readFileSync(path.join(buildDir, "typeGraphics.json"), "utf8"))[typeAsk[1]!] ?? null;
+            res.setHeader("content-type", "application/json");
+            if (!tg?.gr2) return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: null, ...(tg ?? {}) }));
+            const stem = String(tg.gr2).slice("res:/".length, -".gr2".length);
+            if (!fs.existsSync(path.join(buildDir, stem + ".glb"))) {
+              const tool = await import(pathToFileURL(path.resolve(__dirname, "tools", "client-extract", "extract.mjs")).href);
+              const resLib = await import(pathToFileURL(path.resolve(__dirname, "tools", "client-extract", "lib", "resfiles.mjs")).href);
+              const config = JSON.parse(fs.readFileSync(path.join(buildDir, "config.json"), "utf8"));
+              if (!resFiles || resFiles.client !== config.client) resFiles = { client: config.client, rf: resLib.openResFiles(config.client) };
+              if (!extracting.has(tg.gr2)) extracting.set(tg.gr2, tool.extractHull(resFiles.rf, tg.gr2, buildDir).finally(() => extracting.delete(tg.gr2)));
+              await extracting.get(tg.gr2);
+            }
+            const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
+            return res.end(JSON.stringify({ typeID: Number(typeAsk[1]), model: `/client-assets/${stem}.glb`, textures: info.textures, lods: info.lods.length, ...tg }));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const file = path.resolve(root, build, "." + rel);
         if (!file.startsWith(path.resolve(root, build) + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return next();
         res.setHeader("content-type", types[path.extname(file)] ?? "application/octet-stream");

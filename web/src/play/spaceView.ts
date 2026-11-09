@@ -14,6 +14,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
+import { typeModel } from "../three/hullModel.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -242,6 +243,7 @@ export class SpaceView {
       let mark = this.marks.get(e.itemID);
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
+      this.orient(mark, e);
       if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);
       if (!el) {
@@ -283,18 +285,38 @@ export class SpaceView {
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** What stands for a ball until its model is there: a sphere of its radius, the own ship a small hull-ish wedge. */
+  /**
+   * A ball's holder in the scene: a stand-in at once, the type's own model from the client when it has come
+   * (hullModel.ts). An EVE hull's nose is +z in its own space, so -z once mirrored: the model is turned half
+   * round inside the holder, and the holder's +z is pointed where the ship is going (orient).
+   */
   private markFor(e: Entity): THREE.Object3D {
-    if (e.isSelf) {
-      const g = new THREE.ConeGeometry(Math.max(e.radius * 0.35, 8), Math.max(e.radius * 1.4, 30), 4);
-      g.rotateX(Math.PI / 2);
-      return new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x8a949c, metalness: 0.6, roughness: 0.5 }));
-    }
+    const holder = new THREE.Group();
     const big = ["station", "planet", "moon", "sun", "stargate", "structure"].includes(e.kind);
     const colour = e.kind === "sun" ? 0xffd27a : e.kind === "planet" || e.kind === "moon" ? 0x5d6f80 : big ? 0x7d8a94 : 0x6f7a82;
-    const m = new THREE.Mesh(new THREE.SphereGeometry(Math.max(e.radius, 5), big ? 48 : 12, big ? 32 : 8),
-      e.kind === "sun" ? new THREE.MeshBasicMaterial({ color: colour }) : new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9 }));
-    return m;
+    const standIn = new THREE.Mesh(new THREE.SphereGeometry(Math.max(Math.min(e.radius, big ? e.radius : 60), 5), big ? 48 : 12, big ? 32 : 8),
+      e.kind === "sun" ? new THREE.MeshBasicMaterial({ color: colour }) : new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, transparent: !e.isSelf && !["planet", "moon", "sun"].includes(e.kind), opacity: 0.35 }));
+    holder.add(standIn);
+    holder.userData = { kind: e.kind };
+    const modelled = !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
+    if (modelled && e.typeID) {
+      void typeModel(e.typeID).then((model) => {
+        if (!model || !this.marks.has(e.itemID)) return;
+        model.rotation.y = Math.PI;
+        holder.remove(standIn);
+        holder.add(model);
+      }).catch(() => { /* no model: the stand-in stays */ });
+    }
+    return holder;
+  }
+
+  /** Point a moving ship's holder along its velocity, easing the turn as the client's ball does not jump. */
+  private orient(holder: THREE.Object3D, e: Entity): void {
+    if (!["ship", "drone", "fighter"].includes(e.kind)) return;
+    const v = new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z);
+    if (v.lengthSq() < 1) return;
+    const want = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), v.normalize());
+    holder.quaternion.slerp(want, 0.12);
   }
 }
 
