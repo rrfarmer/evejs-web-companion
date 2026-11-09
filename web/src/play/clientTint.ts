@@ -29,17 +29,32 @@ function parseColour(value: string): Rgba | null {
 }
 
 /**
- * The app's chrome blue: bluer than it is red, with little colour in it (chroma, max - min, under 70 of 255). Its
- * panels, lines and text are 20 to 55; what means something (an accent, a bar's fill, the shield's blue) is 90 and up.
+ * The app's chrome blue: bluer than it is red, with little colour in it (chroma, max - min, under 70 of 255), or only a
+ * faint wash of it. Its panels, lines and text are 20 to 55; what means something (an accent, a bar's fill, the
+ * shield's blue) is 90 and up and seen at full strength.
  */
-export function isNavy([r, g, b]: Rgba): boolean {
-  return b > r + 8 && Math.max(r, g, b) - Math.min(r, g, b) < 70;
+export function isNavy([r, g, b, a]: Rgba): boolean {
+  if (b <= r + 8) return false;
+  // a faint blue wash (a hover, a header's glow) is chrome whatever its hue: under a quarter opaque
+  return Math.max(r, g, b) - Math.min(r, g, b) < 70 || a < 0.25;
 }
 
 /** The grey of the same luminance (Rec. 709), with the colour's alpha. */
 export function neutral([r, g, b, a]: Rgba): string {
   const v = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
   return a >= 1 ? `rgb(${v}, ${v}, ${v})` : `rgba(${v}, ${v}, ${v}, ${+a.toFixed(3)})`;
+}
+
+/** A value with each navy colour in it (hex or rgb/rgba) turned grey; null where it has none. */
+export function neutralInValue(value: string): string | null {
+  let changed = false;
+  const out = value.replace(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/gi, (token) => {
+    const colour = parseColour(token);
+    if (!colour || !isNavy(colour)) return token;
+    changed = true;
+    return neutral(colour);
+  });
+  return changed ? out : null;
 }
 
 /** Each selector of a list under the scope; none for the document's own (:root, html, body) or a nested one. */
@@ -66,10 +81,12 @@ export function clientTintCss(sheets: Iterable<CSSStyleSheet>, scope = ".fly-win
         const decls: string[] = [];
         for (let i = 0; i < rule.style.length; i++) {
           const prop = rule.style[i]!;
-          if (!prop.startsWith("--") && !/color$/.test(prop)) continue;
-          const colour = parseColour(rule.style.getPropertyValue(prop));
-          if (!colour || !isNavy(colour)) continue;
-          decls.push(`${prop}: ${neutral(colour)}${rule.style.getPropertyPriority(prop) ? " !important" : ""};`);
+          if (!prop.startsWith("--") && !/color$|^background-image$|shadow$/.test(prop)) continue;
+          // a whole colour, or the colours inside a gradient or a shadow, each turned grey where it is navy
+          const value = rule.style.getPropertyValue(prop);
+          const turned = neutralInValue(value);
+          if (turned === null) continue;
+          decls.push(`${prop}: ${turned}${rule.style.getPropertyPriority(prop) ? " !important" : ""};`);
         }
         const selector = decls.length ? scoped(rule.selectorText, scope) : null;
         if (selector) out.push(wrap(`${selector} { ${decls.join(" ")} }`));

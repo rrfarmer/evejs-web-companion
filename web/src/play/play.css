@@ -229,3 +229,6 @@ button { font: inherit; color: inherit; }
 
 /* the gate jump's flash as the destination comes (spaceView.ts) */
 .space .jump-flash { position: absolute; inset: 0; background: radial-gradient(ellipse at center, #eaf4ff 0%, #9cc4ff 45%, rgba(40, 70, 120, 0.6) 100%); opacity: 0; pointer-events: none; z-index: 4; }
+
+/* The market's group tree: the client's names are plain light text, not the accent (MarketPanel's pick rows). */
+.fly-windows .pick-group .pick-name { color: var(--color-text); }
