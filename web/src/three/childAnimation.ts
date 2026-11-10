@@ -62,12 +62,20 @@ function copied(src: Value, srcComponent: number | null, scale: number, offset: 
   return (Array.isArray(s) ? (s[0] ?? 0) : s) * scale + (offset[0] ?? 0);
 }
 
+/** A float to a bool (display): TriValueBinding's Copy<float, bool>, neither scaled nor offset - on where not nought. */
+function onOf(src: Value, srcComponent: number | null): boolean {
+  const v = Array.isArray(src) ? (src[srcComponent ?? 0] ?? 0) : src;
+  return v !== 0;
+}
+
 interface QuadTarget { kind: "quad"; index: number; color: number[]; brightness: number; display: boolean; ancestors: number[] }
 interface UniformTarget { kind: "uniform"; uniform: THREE.IUniform }
 interface LinesTarget { kind: "lines"; colour: THREE.IUniform; anim: THREE.IUniform; base: number[]; anim0: number[]; brightness: number; display: boolean; ancestors: number[] }
 interface ObjectTarget { kind: "object"; display: boolean; ancestors: number[] }
 interface ContainerTarget { kind: "container"; display: boolean }
-type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget;
+/** An EveChildModifierSRT: its own transform, laid on its owner (a mesh or container: owner its id) each frame. */
+interface SrtTarget { kind: "srt"; owner: number; translation: number[]; rotation: number[]; scaling: number[]; dirty: number }
+type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 
 /** One hull's curve sets and what their bindings reach; shared by the model's clones (found by their key). */
@@ -83,18 +91,23 @@ export class ChildAnimator {
   private readonly start = performance.now();
   private visibility = 1;
 
-  quad(id: number, index: number, color: number[], brightness: number, ancestors: number[]): void {
-    this.targets.set(id, { kind: "quad", index, color: color.slice(0, 4), brightness, display: true, ancestors });
+  quad(id: number, index: number, color: number[], brightness: number, ancestors: number[], display = true): void {
+    this.targets.set(id, { kind: "quad", index, color: color.slice(0, 4), brightness, display, ancestors });
   }
   quadAttribute(a: THREE.InstancedBufferAttribute): void { this.quadColour = a; }
   uniform(id: number, uniform: THREE.IUniform | undefined): void { if (uniform) this.targets.set(id, { kind: "uniform", uniform }); }
-  lines(id: number, colour: THREE.IUniform, anim: THREE.IUniform, base: number[], animColor: number[], brightness: number, ancestors: number[]): void {
-    this.targets.set(id, { kind: "lines", colour, anim, base: base.slice(0, 4), anim0: animColor.slice(0, 4), brightness, display: true, ancestors });
+  lines(id: number, colour: THREE.IUniform, anim: THREE.IUniform, base: number[], animColor: number[], brightness: number, ancestors: number[], display = true): void {
+    this.targets.set(id, { kind: "lines", colour, anim, base: base.slice(0, 4), anim0: animColor.slice(0, 4), brightness, display, ancestors });
   }
-  object(id: number, ancestors: number[]): void { this.targets.set(id, { kind: "object", display: true, ancestors }); }
+  object(id: number, ancestors: number[], display = true): void { this.targets.set(id, { kind: "object", display, ancestors }); }
   /** A container or mesh whose translation, rotation or scaling a binding drives (its own, in its parent's space). */
   xform(id: number, t: number[], r: number[], s: number[]): void { this.xforms.set(id, { t: t.slice(0, 3), r: r.slice(0, 4), s: s.slice(0, 3), dirty: 1 }); }
-  container(id: number): void { if (!this.targets.has(id)) this.targets.set(id, { kind: "container", display: true }); }
+  /** An SRT modifier a binding may drive: its owner's objects carry its transform in userData.srt. */
+  srt(id: number, owner: number, srt: { translation: number[]; rotation: number[]; scaling: number[] }): void {
+    this.targets.set(id, { kind: "srt", owner, translation: srt.translation.slice(0, 3), rotation: srt.rotation.slice(0, 4), scaling: srt.scaling.slice(0, 3), dirty: 0 });
+  }
+  /** A container (hidden where its file has it so: a set shows it). */
+  container(id: number, display = true): void { if (!this.targets.has(id)) this.targets.set(id, { kind: "container", display }); }
   curveSets(sets: SofCurveSet[] | undefined): void {
     const index = (c: unknown): void => {
       if (!c || typeof c !== "object") return;
@@ -113,7 +126,7 @@ export class ChildAnimator {
   get playing(): boolean { return this.sets.length > 0; }
 
   /** One frame: every set's curves at its time, every binding copied; visibility to the given objects (a clone's). */
-  step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number> }): void {
+  step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number>; srts?: Map<number, number> }): void {
     const t = (performance.now() - this.start) / 1000;
     for (const set of this.sets) {
       const time = t * set.scale;
@@ -148,6 +161,13 @@ export class ChildAnimator {
       }
     }
     if (seen.visibility !== this.visibility) { seen.visibility = this.visibility; this.applyVisibility(objects); }
+    // the driven SRT modifiers, onto their owners in this clone (the modifier pass reads userData.srt each frame)
+    seen.srts ??= new Map();
+    for (const [id, t] of this.targets) {
+      if (t.kind !== "srt" || seen.srts.get(id) === t.dirty) continue;
+      seen.srts.set(id, t.dirty);
+      for (const o of objects.get(t.owner) ?? []) if (o.userData.srt) o.userData.srt = { id, translation: t.translation, rotation: t.rotation, scaling: t.scaling };
+    }
     // the driven transforms, recomposed under their parents' (a modified object's base, which its modifier turns)
     seen.xforms ??= new Map();
     for (const [id, xf] of this.xforms) {
@@ -169,7 +189,7 @@ export class ChildAnimator {
       case "quad":
         if (attr === "brightness") target.brightness = copied(src, srcComp, scale, offset, target.brightness, null) as number;
         else if (attr === "color") target.color = copied(src, srcComp, scale, offset, target.color, comp) as number[];
-        else if (attr === "display") { const d = (copied(src, srcComp, scale, offset, 0, null) as number) !== 0; if (d !== target.display) { target.display = d; this.visibility++; } return; }
+        else if (attr === "display") { const d = onOf(src, srcComp); if (d !== target.display) { target.display = d; this.visibility++; } return; }
         else return;
         this.writeQuad(target);
         return;
@@ -183,10 +203,13 @@ export class ChildAnimator {
         // both colours reach the line set times the brightness, all four components (EveChildLineSet.cpp)
         if (attr === "baseColor") { target.base = copied(src, srcComp, scale, offset, target.base, comp) as number[]; (target.colour.value as THREE.Vector4).fromArray(target.base.map((c) => c * target.brightness)); }
         else if (attr === "animColor") { target.anim0 = copied(src, srcComp, scale, offset, target.anim0, comp) as number[]; (target.anim.value as THREE.Vector4).fromArray(target.anim0.map((c) => c * target.brightness)); }
-        else if (attr === "display") { const d = (copied(src, srcComp, scale, offset, 0, null) as number) !== 0; if (d !== target.display) { target.display = d; this.visibility++; } }
+        else if (attr === "display") { const d = onOf(src, srcComp); if (d !== target.display) { target.display = d; this.visibility++; } }
+        return;
+      case "srt":
+        if (attr === "rotation" || attr === "translation" || attr === "scaling") { target[attr] = copied(src, srcComp, scale, offset, target[attr], comp) as number[]; target.dirty++; }
         return;
       case "object": case "container":
-        if (attr === "display") { const d = (copied(src, srcComp, scale, offset, 0, null) as number) !== 0; if (d !== target.display) { target.display = d; this.visibility++; } }
+        if (attr === "display") { const d = onOf(src, srcComp); if (d !== target.display) { target.display = d; this.visibility++; } }
         return;
     }
   }

@@ -28,6 +28,8 @@
 // - another hull's are its children (SetupChildrenAndAnimations): one only where its buildFilter has STANDALONE, and
 //   not where the faction's child data for its groupIndex (EveSOFDataFactionChild, the last of that index; -1 none)
 //   says it is not visible (isVisible, false where unsaid); a groupIndex the faction does not name is built;
+// - an object hidden in its file (display false) is read where a curve set that plays on load drives its display,
+//   marked display false (Jita 4-4's hologram adverts: shown by its play_start set's scale curves);
 // - each child's root takes the entry's translation, rotation and scaling (the defaults 0, identity, 1 where unsaid)
 //   in place of its own (EveChildTransform::Setup, where useSRT; EveTransform's SetTranslation and the rest).
 
@@ -61,7 +63,7 @@ const effectTextures = (fx) => Object.fromEntries((fx?.resources ?? []).filter((
 /** An EveChildModifierSRT's own transform (its translation, rotation and scaling; the defaults where unsaid), or null. */
 const srtOf = (mods) => {
   const m = (mods ?? []).find((t) => t?.type === "EveChildModifierSRT");
-  return m ? { translation: m.translation ?? [0, 0, 0], rotation: m.rotation ?? [0, 0, 0, 1], scaling: m.scaling ?? [1, 1, 1] } : null;
+  return m ? { id: idOf(m), translation: m.translation ?? [0, 0, 0], rotation: m.rotation ?? [0, 0, 0, 1], scaling: m.scaling ?? [1, 1, 1] } : null;
 };
 /** An object's own translation, rotation and scaling (what a curve set's binding may drive). */
 const parts = (o) => ({ t: o.translation ?? [0, 0, 0], r: o.rotation ?? [0, 0, 0, 1], s: o.scaling ?? [1, 1, 1] });
@@ -109,10 +111,34 @@ function readCurveSet(cs) {
   return { name: cs.name ?? null, scale: cs.scale ?? 1, curves: curves.map(curveData), bindings };
 }
 
+// The objects whose display a curve set that plays on load drives (in the file being read): one hidden in the file
+// (display false) is read all the same, marked display false, for the set to show.
+let shownBySet = new Set();
+function findShownBySet(root) {
+  const out = new Set(), seen = new Set();
+  const walk = (o) => {
+    if (!o || typeof o !== "object" || seen.has(o)) return;
+    seen.add(o);
+    if (o.type === "TriCurveSet" && o.playOnLoad !== false) {
+      for (const b of o.bindings ?? []) if (b?.destinationObject && String(b.destinationAttribute ?? "").split(".")[0] === "display") out.add(b.destinationObject);
+    }
+    for (const v of Object.values(o)) walk(v);
+  };
+  walk(root);
+  return out;
+}
+
 /** One EveChild* object as the page draws it, or null where nothing of it is drawn; `skipped` counts the rest by type. */
 function readNode(o, skipped) {
   if (!o || typeof o !== "object") return null;
-  if (o.display === false) return null;
+  const hidden = o.display === false;
+  if (hidden && !shownBySet.has(o)) return null;
+  const node = readShown(o, skipped);
+  if (node && hidden) node.display = false;
+  return node;
+}
+
+function readShown(o, skipped) {
   if (o.type === "EveChildQuad") {
     return {
       k: "quad", id: idOf(o), name: o.name ?? null, m: srt(o), color: o.color ?? [1, 1, 1, 1], brightness: o.brightness ?? 1,
@@ -224,6 +250,7 @@ export function readHullChildren(rf, sofHull, faction = null) {
         o.rotation = child.rotation ?? [0, 0, 0, 1];
         o.scaling = child.scaling ?? [1, 1, 1];
       }
+      shownBySet = findShownBySet(o);
       root = readNode(o, skipped);
     } catch (e) {
       skipped.unread = String(e.message ?? e);

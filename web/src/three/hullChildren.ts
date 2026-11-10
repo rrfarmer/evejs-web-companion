@@ -14,6 +14,8 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 export interface SofChildQuad {
   k: "quad";
   id?: number;
+  /** false: hidden in its file, shown by a curve set (as display below, for each kind) */
+  display?: boolean;
   name: string | null;
   m: number[];
   color: number[];
@@ -24,6 +26,7 @@ export interface SofChildQuad {
 export interface SofChildContainer {
   k: "container";
   id?: number;
+  display?: boolean;
   t?: number[];
   r?: number[];
   s?: number[];
@@ -60,6 +63,7 @@ export interface SofChildMeshArea {
 export interface SofChildMesh {
   k: "mesh";
   id?: number;
+  display?: boolean;
   t?: number[];
   r?: number[];
   s?: number[];
@@ -73,10 +77,11 @@ export interface SofChildMesh {
   areas: SofChildMeshArea[];
 }
 /** An EveChildModifierSRT's own transform. */
-export interface SofChildSrt { translation: number[]; rotation: number[]; scaling: number[] }
+export interface SofChildSrt { id?: number; translation: number[]; rotation: number[]; scaling: number[] }
 export interface SofChildLines {
   k: "lines";
   id?: number;
+  display?: boolean;
   name: string | null;
   m: number[];
   baseColor: number[];
@@ -492,7 +497,7 @@ function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: numbe
   };
   void childTexture(node.textures.TexMap).then((t) => { uniforms.tex.value = t; });
   void childTexture(node.textures.OverlayTexMap).then((t) => { uniforms.overlay.value = t; });
-  if (animator && node.id !== undefined) animator.lines(node.id, uniforms.colour, uniforms.anim, node.baseColor, node.animColor, node.brightness, ancestors);
+  if (animator && node.id !== undefined) animator.lines(node.id, uniforms.colour, uniforms.anim, node.baseColor, node.animColor, node.brightness, ancestors, node.display !== false);
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: `attribute vec3 aOther; attribute float aSide; attribute float aEnd; attribute float aWidth;
@@ -728,7 +733,7 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   type Halo = { z: THREE.Vector3; at: THREE.Vector3 } | null;
   const walk = (node: SofChildNode, flat: THREE.Matrix4, local: THREE.Matrix4, sink: (o: THREE.Object3D) => void, halo: Halo = null, ancestors: number[] = []) => {
     if (node.k === "container") {
-      if (node.id !== undefined) { animator.container(node.id); ancestors = [...ancestors, node.id]; }
+      if (node.id !== undefined) { animator.container(node.id, node.display !== false); ancestors = [...ancestors, node.id]; }
       animator.curveSets(node.curveSets);
       const m = node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4();
       const flatHere = flat.clone().multiply(m);
@@ -746,6 +751,8 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
+        // a curve set may drive its SRT modifier (found in a clone by the container's id)
+        if (node.srt?.id !== undefined && node.id !== undefined) { g.userData.childId = node.id; animator.srt(node.srt.id, node.id, node.srt); }
         if (driven) {
           g.userData.childId = node.id;
           g.userData.parentMatrix = local.toArray();
@@ -763,12 +770,13 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
       const at = local.clone().multiply(new THREE.Matrix4().fromArray(node.m));
       pending.push(childMesh(node, animator).then((o) => {
         if (!o) return;
-        if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors); }
+        if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
         if (node.id !== undefined && moved.has(node.id)) {
           o.userData.parentMatrix = local.toArray();
           animator.xform(node.id, node.t ?? [0, 0, 0], node.r ?? [0, 0, 0, 1], node.s ?? [1, 1, 1]);
         }
         place(o, at, node.modifiers, node.srt ?? null);
+        if (node.srt?.id !== undefined && node.id !== undefined) animator.srt(node.srt.id, node.id, node.srt);
         sink(o);
       }));
       return;
@@ -796,7 +804,7 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
     const s = meanScale(parent);
     const e = local4.elements;
     const b = node.brightness;
-    if (node.id !== undefined) animator.quad(node.id, quads.length, node.color, b, ancestors);
+    if (node.id !== undefined) animator.quad(node.id, quads.length, node.color, b, ancestors, node.display !== false);
     quads.push({
       centre: new THREE.Vector3(e[12], e[13], e[14]).applyMatrix4(parent),
       ax: new THREE.Vector3(e[0], e[1], e[2]).multiplyScalar(s),
