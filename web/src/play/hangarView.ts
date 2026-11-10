@@ -22,7 +22,6 @@ interface HangarScene {
 }
 
 /** How many of a hangar's point lights are lit (the nearest to the ship): three's forward renderer pays for each. */
-const HANGAR_LIGHTS = 24;
 
 export class HangarView {
   readonly root = document.createElement("div");
@@ -36,7 +35,6 @@ export class HangarView {
   private readonly studioEnvironment: THREE.Texture | null;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 0);
   private hangar: THREE.Object3D | null = null;
-  private readonly hangarLights = new THREE.Group();
   private readonly studio: THREE.Light[] = [];
   private stopped = false;
   /** The hangar scenes' bloom (their Tr2PPBloomEffect, luminanceThreshold 0): glow maps, panels and lights bleed. */
@@ -74,7 +72,7 @@ export class HangarView {
     const fill = new THREE.DirectionalLight(0x445566, 0.5);
     fill.position.set(0, -1, 0.3);
     this.studio.push(key, rim, fill);
-    this.scene.add(key, rim, fill, this.sun, this.turntable, this.hangarLights);
+    this.scene.add(key, rim, fill, this.sun, this.turntable);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enablePan = false;
     this.controls.enableDamping = true;
@@ -143,7 +141,6 @@ export class HangarView {
     this.idle = null;
     this.lastInput = performance.now();
     this.place(entryAt(first ? 0 : 1, this.zoom.near, this.zoom.far, this.swing));
-    this.lightHangar(look);
     if (hangar) this.probe(look);
   }
   private shownBefore = false;
@@ -253,22 +250,6 @@ export class HangarView {
     this.sun.intensity = 3;
     // light comes along sunDirection: the light sits against it (EVE z mirrored)
     this.sun.position.set(-(d[0] ?? 0), -(d[1] ?? -1), d[2] ?? 0).normalize();
-  }
-
-  /** The hangar's point lights nearest the ship lit (EveSOFDataHullLightSet: colour, brightness, radius). */
-  private lightHangar(near: THREE.Vector3): void {
-    this.hangarLights.clear();
-    const lights = ((this.hangar?.userData as { lights?: { position: number[]; radius: number | null; brightness: number; color: number[] | null }[] } | undefined)?.lights ?? [])
-      .map((l) => ({ l, at: new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, -(l.position[2] ?? 0)) }))
-      .sort((x, y) => x.at.distanceTo(near) - y.at.distanceTo(near))
-      .slice(0, HANGAR_LIGHTS);
-    for (const { l, at } of lights) {
-      const c = l.color ?? [1, 1, 1, 1];
-      // a light of the radius it is given, falling off to nothing at its edge (not by the inverse square)
-      const light = new THREE.PointLight(new THREE.Color(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1), l.brightness * 2, l.radius ?? 300, 0);
-      light.position.copy(at);
-      this.hangarLights.add(light);
-    }
   }
 
   private resize(): void {
