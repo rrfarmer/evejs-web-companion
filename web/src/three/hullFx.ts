@@ -49,6 +49,8 @@ export interface SofHazeSet {
   items: {
     position: number[]; rotation: number[]; scaling: number[]; color: number[] | null;
     hazeBrightness: number; hazeFalloff: number; sourceBrightness: number; sourceSize: number; saturation: number;
+    /** Whether its colour follows the ship's booster gain (EveSOFDataHullHazeSetItem.boosterGainInfluence). */
+    boosterGainInfluence?: boolean;
   }[];
 }
 
@@ -82,14 +84,14 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
   geo.setAttribute("falloff", new THREE.BufferAttribute(falloff, 1));
   const mat = new THREE.ShaderMaterial({
     uniforms: { time: clock, scale: { value: 1 } },
-    vertexShader: `attribute vec3 colour; attribute vec4 blink; attribute float falloff; uniform float time; uniform float scale; varying vec3 vColour;
+    vertexShader: `attribute vec3 colour; attribute vec4 blink; attribute float falloff; uniform float time; uniform float scale; uniform float activation; varying vec3 vColour;
       ${FLASH_GLSL}
       void main() {
         float b = flash(fract(time * blink.x + blink.y), blink.x);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float z = max(abs(mv.z), 1.0);
         float size = mix(blink.z, blink.w, b) * pow(z, falloff);
-        vColour = colour * (b + 1.0);
+        vColour = colour * (b + 1.0) * activation;
         gl_PointSize = size * scale / z;
         gl_Position = projectionMatrix * mv;
       }`,
@@ -113,6 +115,9 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
     const h = renderer.getDrawingBufferSize(new THREE.Vector2()).y;
     mat.uniforms.scale!.value = cam.isPerspectiveCamera ? h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) : 1;
   };
+  // x the ship's activation strength (EveSpriteSet::AddToQuadRenderer puts activation x the set's intensity in each
+  // vertex; blinkinglightspool's vertex stage multiplies the colour by it)
+  followActivation(mat);
   return points;
 }
 
@@ -175,7 +180,7 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
           vUv = uv; vColour = iColour; vBlinking = iBlinking; vT1 = iT1; vS1 = iS1; vT2 = iT2; vS2 = iS2;
           gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         }`,
-      fragmentShader: `uniform float time; uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask; uniform vec3 has;
+      fragmentShader: `uniform float time; uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask; uniform vec3 has; uniform float activation;
         varying vec2 vUv; varying vec3 vColour, vBlinking; varying vec4 vT1, vS1, vT2, vS2;
         ${FLASH_GLSL}
         float blink() {
@@ -193,7 +198,7 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
           vec3 a = has.x > 0.5 ? texture2D(layer1, uv1).rgb : vec3(1.0);
           vec3 b = has.y > 0.5 ? texture2D(layer2, uv2).rgb : vec3(1.0);
           vec3 m = has.z > 0.5 ? texture2D(mask, vUv).rgb : vec3(1.0);
-          gl_FragColor = vec4(vColour * blink() * a * b * m, 1.0);
+          gl_FragColor = vec4(vColour * blink() * a * b * m * activation, 1.0);
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
@@ -211,6 +216,8 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
     mesh.instanceMatrix.needsUpdate = true;
     mesh.frustumCulled = false;
     mat.onBeforeRender = tick;
+    // x the ship's activation strength (EvePlaneSet::AddToQuadRenderer: each item's colour x activation)
+    followActivation(mat);
     group.add(mesh);
   }
   return group;
@@ -269,11 +276,14 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
           vColour = colour; vUv = uv;
           gl_Position = projectionMatrix * mv;
         }`,
-      fragmentShader: `uniform sampler2D map; uniform float hasMap; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
-        void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour * vFacing, 1.0); }`,
+      fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
+        void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour * vFacing * activation, 1.0); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
     logDepth(mat);
+    // x the ship's activation strength (EveSpotlightSet::AddToQuadRenderer: activation x the set's intensity per cone,
+    // multiplied in spotlightconepool's pixel stage)
+    followActivation(mat);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     group.add(mesh);
@@ -344,11 +354,13 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
           vColour = colour; vUv = vec2(corner.x, 1.0 - corner.y);
           gl_Position = projectionMatrix * mv;
         }`,
-      fragmentShader: `uniform sampler2D map; uniform float hasMap; varying vec3 vColour; varying vec2 vUv;
-        void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour, 1.0); }`,
+      fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv;
+        void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour * activation, 1.0); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
     logDepth(mat);
+    // x the ship's activation strength (the glow's per-light activation, multiplied in spotlightglowpool's pixel stage)
+    followActivation(mat);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     group.add(mesh);
@@ -366,8 +378,8 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
  * colorType desaturated by its saturation, times its hazeBrightness (the runtime item's colour; how the factory
  * makes it is not in the shaders). Drawn from the inside faces so the eye can be within one (a hangar's are
  * kilometres wide). The colour is times the ship's activation strength (Shipdata.y) and 1 + w (Shipdata.x - 1) for
- * the item's w (the latter not here). The client also dims the haze by a cascaded map of the scene (its third
- * texture); not here.
+ * w the item's boosterGainInfluence (0 or 1) and Shipdata.x its booster gain. The client also dims the haze by a
+ * cascaded map of the scene (its third texture); not here.
  */
 function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
   const items = sets.flatMap((s) => s.items);
@@ -380,14 +392,14 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
     const grey = 0.299 * (c[0] ?? 1) + 0.587 * (c[1] ?? 1) + 0.114 * (c[2] ?? 1);
     const colour = new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1).lerp(new THREE.Vector3(grey, grey, grey), 1 - it.saturation).multiplyScalar(it.hazeBrightness);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { colour: { value: colour }, data: { value: new THREE.Vector3(it.hazeFalloff, it.sourceSize, it.sourceBrightness) } },
+      uniforms: { colour: { value: colour }, data: { value: new THREE.Vector3(it.hazeFalloff, it.sourceSize, it.sourceBrightness) }, gainInfluence: { value: it.boosterGainInfluence ? 1 : 0 } },
       vertexShader: `varying vec3 vObj; varying vec3 vEye;
         void main() {
           vObj = position;
           vEye = ( inverse( modelViewMatrix ) * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
           gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         }`,
-      fragmentShader: `uniform vec3 colour; uniform vec3 data; uniform float activation; varying vec3 vObj; varying vec3 vEye;
+      fragmentShader: `uniform vec3 colour; uniform vec3 data; uniform float activation; uniform float boosterGain; uniform float gainInfluence; varying vec3 vObj; varying vec3 vEye;
         void main() {
           vec3 o = vEye;
           vec3 d = normalize( vObj - o );
@@ -398,13 +410,14 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
           float near = length( o - b * d );
           float source = pow( clamp( 1.0 - near / ( 0.5 * data.y ), 0.0, 1.0 ), data.x / 3.0 );
           float haze = min( data.z * source + pow( chord, data.x ), 1.0 );
-          gl_FragColor = vec4( clamp( haze * colour * activation, 0.0, 1.0 ), 1.0 );
+          gl_FragColor = vec4( clamp( haze * colour * activation * ( 1.0 + gainInfluence * ( boosterGain - 1.0 ) ), 0.0, 1.0 ), 1.0 );
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
     });
     logDepth(mat);
-    // x the ship's activation strength (the vertex stage's Shipdata.y: activation.ts)
-    followActivation(mat);
+    // x the ship's activation strength (the vertex stage's Shipdata.y: activation.ts) and, for an item with
+    // boosterGainInfluence, 1 + (the booster gain - 1) (its Shipdata.x)
+    followActivation(mat, true);
     const mesh = new THREE.Mesh(sphere, mat);
     mesh.position.set(it.position[0] ?? 0, it.position[1] ?? 0, -(it.position[2] ?? 0));
     // a rotation in EVE's space, mirrored in z (as the plane sets')

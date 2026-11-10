@@ -13,15 +13,29 @@ export function activationOf(o: THREE.Object3D): number {
   return 1;
 }
 
-/** The material given an `activation` uniform, set for each draw from the drawn object's ship (its own hook kept). */
-export function followActivation<M extends THREE.ShaderMaterial>(material: M): M {
-  const uniform = { value: 1 };
+/**
+ * A ship's booster gain (Shipdata.x: EveShip2's booster glow intensity, its engines' share of thrust here, hullModel.ts
+ * setThrust; an object that is no ship keeps EveSpaceObject2's 1).
+ */
+export function boosterGainOf(o: THREE.Object3D): number {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (typeof p.userData.thrust === "number") return p.userData.thrust as number;
+  return 1;
+}
+
+/**
+ * The material given an `activation` uniform (and, with withBoosterGain, a `boosterGain` one), set for each draw from
+ * the drawn object's ship (its own hook kept).
+ */
+export function followActivation<M extends THREE.ShaderMaterial>(material: M, withBoosterGain = false): M {
+  const uniform = { value: 1 }, gain = { value: 1 };
   material.uniforms.activation = uniform;
+  if (withBoosterGain) material.uniforms.boosterGain = gain;
   const before = material.onBeforeRender;
   material.onBeforeRender = function (renderer, scene, camera, geometry, object, group) {
     before.call(this, renderer, scene, camera, geometry, object, group);
     const a = activationOf(object);
     if (a !== uniform.value) { uniform.value = a; material.uniformsNeedUpdate = true; }
+    if (withBoosterGain) { const g = boosterGainOf(object); if (g !== gain.value) { gain.value = g; material.uniformsNeedUpdate = true; } }
   };
   return material;
 }
