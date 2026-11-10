@@ -167,6 +167,30 @@ function setValueObject(owner, a) {
  */
 function readController(c, skipped, owner) {
   const varNames = new Set((c.variables ?? []).filter((v) => v?.name).map((v) => v.name));
+  const readActions = (list) => (list ?? []).filter(Boolean).map((a) => {
+    // Tr2ActionSetValue: into a variable (its path a variable's name, or its destination the variable), or into an
+    // object's display (its path from Owner, or its destination object): the object's id
+    if (a.type === "Tr2ActionSetValue") {
+      const value = String(a.value ?? "");
+      if (a.attribute === "value" && a.path && varNames.has(a.path)) return { k: "setVar", variable: a.path, value };
+      if (a.attribute === "value" && !a.path && a.destination?.type === "Tr2ControllerFloatVariable") return { k: "setVar", variable: a.destination.name, value };
+      const target = a.attribute === "display" ? setValueObject(owner, a) : null;
+      if (target) return { k: "setDisplay", target: idOf(target), value };
+      skipped[a.type] = (skipped[a.type] ?? 0) + 1;
+      return { k: a.type };
+    }
+    if (a.type === "Tr2ActionAnimateCurveSet") {
+      if (!a.curveSet) { skipped[a.type] = (skipped[a.type] ?? 0) + 1; return { k: a.type }; }
+      // its set is its own (held by the action, no container's): read with it, never played, only applied
+      return { k: "animateCurveSet", curveSet: idOf(a.curveSet), ownSet: { ...readCurveSet(a.curveSet), playOnLoad: false }, value: String(a.value ?? "StateTime()") };
+    }
+    if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
+    if (a.type === "Tr2ActionChildEffect") {
+      return { k: "childEffect", effect: a.path ? readChildEffect(a.path, skipped) : null, name: a.childName ?? null, add: a.addOnStart !== false, remove: a.removeOnStop !== false, other: a.targetAnotherOwner || null };
+    }
+    skipped[a.type ?? "?"] = (skipped[a.type ?? "?"] ?? 0) + 1;
+    return { k: a.type ?? "?" };
+  });
   const machines = (c.stateMachines ?? []).filter(Boolean).map((sm) => {
     const states = (sm.states ?? []).filter(Boolean);
     const indexOf = (name) => states.findIndex((s) => s.name === name);
@@ -175,35 +199,14 @@ function readController(c, skipped, owner) {
       start: sm.startState ? states.indexOf(sm.startState) : -1,
       states: states.map((st) => ({
         name: st.name ?? null,
-        actions: (st.actions ?? []).filter(Boolean).map((a) => {
-          // Tr2ActionSetValue: into a variable (its path a variable's name, or its destination the variable), or into an
-          // object's display (its path from Owner, or its destination object): the object's id
-          if (a.type === "Tr2ActionSetValue") {
-            const value = String(a.value ?? "");
-            if (a.attribute === "value" && a.path && varNames.has(a.path)) return { k: "setVar", variable: a.path, value };
-            if (a.attribute === "value" && !a.path && a.destination?.type === "Tr2ControllerFloatVariable") return { k: "setVar", variable: a.destination.name, value };
-            const target = a.attribute === "display" ? setValueObject(owner, a) : null;
-            if (target) return { k: "setDisplay", target: idOf(target), value };
-            skipped[a.type] = (skipped[a.type] ?? 0) + 1;
-            return { k: a.type };
-          }
-          if (a.type === "Tr2ActionAnimateCurveSet") {
-            if (!a.curveSet) { skipped[a.type] = (skipped[a.type] ?? 0) + 1; return { k: a.type }; }
-            // its set is its own (held by the action, no container's): read with it, never played, only applied
-            return { k: "animateCurveSet", curveSet: idOf(a.curveSet), ownSet: { ...readCurveSet(a.curveSet), playOnLoad: false }, value: String(a.value ?? "StateTime()") };
-          }
-          if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
-          if (a.type === "Tr2ActionChildEffect") {
-            return { k: "childEffect", effect: a.path ? readChildEffect(a.path, skipped) : null, name: a.childName ?? null, add: a.addOnStart !== false, remove: a.removeOnStop !== false, other: a.targetAnotherOwner || null };
-          }
-          skipped[a.type ?? "?"] = (skipped[a.type ?? "?"] ?? 0) + 1;
-          return { k: a.type ?? "?" };
-        }),
+        actions: readActions(st.actions),
         transitions: (st.transitions ?? []).filter(Boolean).map((t) => ({ condition: String(t.condition ?? ""), to: indexOf(t.name) })),
       })),
     };
   });
-  return { name: c.name ?? null, variables: (c.variables ?? []).filter((v) => v?.name).map((v) => ({ name: v.name, value: v.defaultValue ?? 0 })), machines };
+  // its event handlers (Tr2ControllerEventHandler: a name, actions started then stopped when the event comes)
+  const eventHandlers = (c.eventHandlers ?? []).filter((e) => e?.name).map((e) => ({ name: e.name, actions: readActions(e.actions) }));
+  return { name: c.name ?? null, variables: (c.variables ?? []).filter((v) => v?.name).map((v) => ({ name: v.name, value: v.defaultValue ?? 0 })), machines, ...(eventHandlers.length ? { eventHandlers } : {}) };
 }
 let readRf = null;
 

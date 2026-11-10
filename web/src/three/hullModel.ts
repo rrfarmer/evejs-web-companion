@@ -116,6 +116,19 @@ export function setControllerVariable(model: THREE.Object3D, name: string, value
   model.userData.controllerVarsVersion = ((model.userData.controllerVarsVersion as number | undefined) ?? 0) + 1;
 }
 
+/**
+ * A controller event sent to a space object (EveSpaceObject2::HandleControllerEvent: to every controller of it and its
+ * children; the server's OnClientControllerEvent, as spaceObject.SetControllerVariableFromEvent hands it on). The
+ * running controllers take each once; one started later takes none sent before it.
+ */
+export function sendControllerEvent(model: THREE.Object3D, name: string): void {
+  const seq = ((model.userData.controllerEventSeq as number | undefined) ?? 0) + 1;
+  const events = ((model.userData.controllerEvents ??= []) as { seq: number; name: string }[]);
+  events.push({ seq, name });
+  if (events.length > 32) events.splice(0, events.length - 32);
+  model.userData.controllerEventSeq = seq;
+}
+
 /** The ship's speed and top speed (m/s), for its children's controllers (ShipSpeed(), ShipMaxSpeed()). */
 export function setShipSpeed(model: THREE.Object3D, speed: number, maxSpeed: number): void {
   model.userData.shipSpeed = speed;

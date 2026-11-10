@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
-import { typeModel, setThrust, setShipSpeed, setControllerVariable } from "../three/hullModel.ts";
+import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent } from "../three/hullModel.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
@@ -152,7 +152,18 @@ export class SpaceView {
   private readonly warpTunnel = new WarpTunnel();
   /** Weapons fire, from the park's special effects. */
   private readonly turretFx = new TurretFx();
-  private readonly hearFx = (name: string, args: readonly unknown[]) => this.turretFx.hear(name, args);
+  private readonly hearFx = (name: string, args: readonly unknown[]) => {
+    this.turretFx.hear(name, args);
+    // OnClientControllerEvent(ballID, targetID, eventName, value): to the ball's model (spaceMgr.OnClientControllerEvent
+    // -> spaceObject.SetControllerVariableFromEvent: Activated sets IsTriggered to the value; any other is an event)
+    if (name === "OnClientControllerEvent") {
+      const [ballID, , eventName, value] = args as [unknown, unknown, unknown, unknown];
+      const mark = this.marks.get(Number(ballID));
+      if (!mark || typeof eventName !== "string") return;
+      if (eventName === "Activated") setControllerVariable(mark, "IsTriggered", Number(value ?? 0));
+      else sendControllerEvent(mark, eventName);
+    }
+  };
   /**
    * The gate jump, drawn in our own way where the client plays its gate effect (SpaceToSpaceTransition: no fade, the
    * destination's scene swapped in during the effect): the tunnel builds from the jump order, flashes as the new

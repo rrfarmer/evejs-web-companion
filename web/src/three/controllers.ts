@@ -47,6 +47,8 @@ export interface SofController {
   name: string | null;
   variables: { name: string; value: number }[];
   machines: { name: string | null; start: number; states: SofControllerState[] }[];
+  /** Tr2ControllerEventHandler: on the event of its name, its actions started, then stopped. */
+  eventHandlers?: { name: string; actions: SofControllerAction[] }[];
 }
 
 type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number; ship?: () => { speed: number; max: number } };
@@ -176,6 +178,8 @@ export class ControllerRun {
   private dirty = false;
   /** The version of the object's kept variables last taken (setControllerVariable). */
   private varsVersion = -1;
+  /** The last of the object's controller events taken (sendControllerEvent); those before the run began are not. */
+  private eventSeq: number | null = null;
   private readonly machines: { current: number; stateStart: number; live: Live[]; vetoed: boolean }[] = [];
 
   constructor(private readonly data: SofController, private readonly owner: THREE.Object3D, private readonly host: ChildEffectHost, private readonly ownerId: number | null = null) {
@@ -195,6 +199,7 @@ export class ControllerRun {
 
   update(): void {
     this.takeObjectVariables();
+    this.takeObjectEvents();
     const now = performance.now() / 1000;
     const dirty = this.dirty;
     this.dirty = false;
@@ -230,6 +235,31 @@ export class ControllerRun {
       run.stateStart = now;
       this.enter(m.states[t.to]!, run, now);
       allDirty = true;
+    }
+  }
+
+  /** The space object's controller events since the last update, each handled (Tr2Controller::HandleEvent). */
+  private takeObjectEvents(): void {
+    for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) {
+      const events = o.userData.controllerEvents as { seq: number; name: string }[] | undefined;
+      if (!events) continue;
+      const seq = (o.userData.controllerEventSeq as number | undefined) ?? 0;
+      if (this.eventSeq === null) { this.eventSeq = seq; return; }
+      for (const e of events) if (e.seq > this.eventSeq) this.handleEvent(e.name);
+      this.eventSeq = seq;
+      return;
+    }
+    this.eventSeq ??= 0;
+  }
+
+  /** An event: each handler of its name has its actions started, then stopped (Tr2ControllerEventHandler::Execute). */
+  handleEvent(name: string): void {
+    const now = performance.now() / 1000;
+    for (const h of this.data.eventHandlers ?? []) {
+      if (h.name !== name) continue;
+      const run = { live: [] as Live[] };
+      this.enter({ name, actions: h.actions, transitions: [] }, run, now);
+      for (const a of run.live) a.stop();
     }
   }
 
