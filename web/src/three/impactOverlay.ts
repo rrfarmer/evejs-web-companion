@@ -10,15 +10,20 @@
 // radius over its life from TemporalFadeoutMap, its fall-off from RadialIntensityMap, the race's colours, a fresnel),
 // drawn added on a sphere stretched to the ellipsoid while a ripple lives.
 //
-// Drawn so far: the debris, the smoke and the ripples. Kept but not drawn: the holes (fxarmorimpactv5, a re-draw of
-// the hull). Left out: the shield's booster and hardener layers (their kick-ins nought without SetImpactAnimation), its
-// froxel fog (1), the ripple's way to the shooter followed each frame (the turret's UpdateImpact: here the one at the
-// hit), the hull flicker (the activation strength), the holes made at assembly from the model's seed, part overlays,
-// the occluded-locator filter.
+// The holes are drawn as the client draws them, a re-draw of the hull's meshes with fxarmorimpactv5 (its compiled record
+// read): about each hole a ragged edge (CutOffsetMap, a 3D noise in the hull's space over its armor size), a scorch
+// (ArmorImpactColor) out to the edge and inside it the hole - InsideMap's metal, lit by the sun, with its glow - put
+// over the hull premultiplied.
+//
+// Left out: the shield's booster and hardener layers and the armor's repair and hardener ones (their faders nought
+// without SetImpactAnimation), the froxel fog (1), the holes' inside lit by the environment and shadowed (the sun only),
+// gammaBrightness (1), the ripple's way to the shooter followed each frame (the turret's UpdateImpact: here the one at
+// the hit), the hull flicker (the activation strength), the holes made at assembly from the model's seed, part
+// overlays, the occluded-locator filter, skinned hulls' variant.
 
 import * as THREE from "three";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
-import { loadDds } from "./ddsTexture.ts";
+import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth.ts";
 
 /** The hull's impact setup as the extractor writes it (extract.mjs: built.impact). */
@@ -32,6 +37,8 @@ export interface SofImpact {
   flicker: { speed: number; alpha: number; beta: number; n: number } | null;
   /** The race's shield effect (type 1): its parameters and textures (served URLs). */
   shield?: { params: Record<string, number[] | null>; textures: Record<string, string | null> } | null;
+  /** The race's armor holes' effect: its parameters and textures (served URLs). */
+  armor?: { params: Record<string, number[] | null>; textures: Record<string, string | null> } | null;
 }
 
 export type ImpactConfiguration = "invalid" | "shield" | "armor" | "hull";
@@ -72,6 +79,134 @@ function shieldTexture(url: string | null | undefined): Promise<THREE.Texture | 
     return t as THREE.Texture;
   }).catch(() => null));
   return shieldTextures.get(url)!;
+}
+
+/** EveDamageOverlay's most holes a ship shows (the goal count's ceiling). */
+const MAX_ARMOR_IMPACTS = 16;
+
+const suns = new WeakMap<THREE.Object3D, THREE.DirectionalLight | null>();
+/** The scene's sun: its first directional light. */
+function sunOf(scene: THREE.Object3D): THREE.DirectionalLight | null {
+  if (!suns.has(scene)) {
+    let sun: THREE.DirectionalLight | null = null;
+    scene.traverse((o) => { if (!sun && (o as THREE.DirectionalLight).isDirectionalLight) sun = o as THREE.DirectionalLight; });
+    suns.set(scene, sun);
+  }
+  return suns.get(scene) ?? null;
+}
+
+/**
+ * fxarmorimpactv5 (its compiled record 0), drawn over the hull: pA = the hull-space position / the armor size;
+ * n = CutOffsetMap(pA x ArmorImpactData.z).y x CutOffsetMap(pA x ArmorImpactData.w).y + 0.25; per hole d = distance /
+ * its radius, the scorch A += 1 - sat((d - ArmorImpactData.x) / (n ArmorImpactData.y)), the hole B += 1 - sat(d -
+ * (n ArmorImpactHole.y + ArmorImpactHole.x)); the inside InsideMap at uv (2, 1) x ArmorImpactInside.x - albedo .x x
+ * ArmorInsideAlbedoColor, roughness 1 - .z, its normal InsideNormalMap - lit by the sun (GGX, Schlick's Fresnel from
+ * ArmorInsideFresnelColor, the record's visibility term and horizon fade); the glow ((ArmorImpactInside.w x InsideMap(uv
+ * (2, 1) x ArmorImpactInside.z + time x ArmorImpactInside.y).w + 1) x .w)^2 x ArmorInsideGlowColor; out mix((
+ * ArmorImpactColor, A x its alpha), (inside, A), B) plus the glow, premultiplied, encoded to sRGB; blended ONE /
+ * INVSRCALPHA, depth tested equal, not written.
+ */
+function armorMaterial(params: Record<string, number[] | null>): THREE.ShaderMaterial {
+  const p = (name: string, d: number[]) => new THREE.Vector4(...([0, 1, 2, 3].map((i) => params[name]?.[i] ?? d[i]!) as [number, number, number, number]));
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      holes: { value: Array.from({ length: MAX_ARMOR_IMPACTS }, () => new THREE.Vector4()) },
+      count: { value: 0 }, parentSize: { value: 1 }, time: { value: 0 },
+      worldToEve: { value: new THREE.Matrix4() },
+      sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColour: { value: new THREE.Color(1, 1, 1) },
+      ArmorImpactData: { value: p("ArmorImpactData", [3, 32, 3.1427, 1.2278]) },
+      ArmorImpactHole: { value: p("ArmorImpactHole", [1.3, 11.75, 0, 0]) },
+      ArmorImpactInside: { value: p("ArmorImpactInside", [10.5, 0, 1, 0]) },
+      ArmorInsideFresnelColor: { value: p("ArmorInsideFresnelColor", [0.04, 0.04, 0.04, 1]) },
+      ArmorInsideAlbedoColor: { value: p("ArmorInsideAlbedoColor", [0.05, 0.05, 0.05, 1]) },
+      ArmorInsideGlowColor: { value: p("ArmorInsideGlowColor", [1, 0.1, 0, 1]) },
+      ArmorImpactColor: { value: p("ArmorImpactColor", [0, 0, 0, 1]) },
+      CutOffsetMap: { value: null }, InsideMap: { value: null }, InsideNormalMap: { value: null },
+    },
+    vertexShader: `uniform mat4 worldToEve;
+      varying vec3 vOS; varying vec2 vUv; varying vec3 vWorld; varying vec3 vNormalW;
+      void main() {
+        vec4 world = modelMatrix * vec4( position, 1.0 );
+        vWorld = world.xyz;
+        vOS = ( worldToEve * world ).xyz;
+        vUv = uv;
+        vNormalW = normalize( mat3( modelMatrix ) * normal );
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }`,
+    fragmentShader: `precision highp sampler3D;
+      uniform vec4 holes[${MAX_ARMOR_IMPACTS}]; uniform int count; uniform float parentSize; uniform float time;
+      uniform vec3 sunDir; uniform vec3 sunColour;
+      uniform vec4 ArmorImpactData; uniform vec4 ArmorImpactHole; uniform vec4 ArmorImpactInside; uniform vec4 ArmorInsideFresnelColor;
+      uniform vec4 ArmorInsideAlbedoColor; uniform vec4 ArmorInsideGlowColor; uniform vec4 ArmorImpactColor;
+      uniform sampler3D CutOffsetMap; uniform sampler2D InsideMap; uniform sampler2D InsideNormalMap;
+      varying vec3 vOS; varying vec2 vUv; varying vec3 vWorld; varying vec3 vNormalW;
+      vec3 encode( vec3 c ) { return mix( c * 12.92, 1.055 * pow( c, vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), c ) ); }
+      void main() {
+        vec3 pA = vOS / parentSize;
+        float n = texture( CutOffsetMap, pA * ArmorImpactData.z ).y * texture( CutOffsetMap, pA * ArmorImpactData.w ).y + 0.25;
+        float edgeW = n * ArmorImpactData.y;
+        float holeR = n * ArmorImpactHole.y + ArmorImpactHole.x;
+        float A = 0.0, B = 0.0;
+        for ( int i = 0; i < ${MAX_ARMOR_IMPACTS}; i++ ) {
+          if ( i >= count ) break;
+          float d = length( holes[ i ].xyz - vOS ) / holes[ i ].w;
+          A += 1.0 - clamp( ( d - ArmorImpactData.x ) / edgeW, 0.0, 1.0 );
+          B += 1.0 - clamp( d - holeR, 0.0, 1.0 );
+        }
+        A = clamp( A, 0.0, 1.0 ); B = clamp( B, 0.0, 1.0 );
+        if ( A <= 0.0 ) discard;
+        vec2 uvI = vUv * vec2( 2.0, 1.0 ) * ArmorImpactInside.x;
+        vec4 I = texture( InsideMap, uvI );
+        vec3 NI = texture( InsideNormalMap, uvI ).xyz * 2.0 - 1.0;
+        float anim = texture( InsideMap, vUv * vec2( 2.0, 1.0 ) * ArmorImpactInside.z + time * ArmorImpactInside.y ).w;
+        float g = ( ArmorImpactInside.w * anim + 1.0 ) * I.w;
+        float glow = g * g;
+        // the inside's normal: the map in the surface's frame (from the screen derivatives: the hull's own tangents)
+        vec3 Ng = normalize( vNormalW ) * ( gl_FrontFacing ? 1.0 : -1.0 );
+        vec3 dp1 = dFdx( vWorld ), dp2 = dFdy( vWorld ); vec2 du1 = dFdx( vUv ), du2 = dFdy( vUv );
+        vec3 dp2perp = cross( dp2, Ng ), dp1perp = cross( Ng, dp1 );
+        vec3 T = dp2perp * du1.x + dp1perp * du2.x, Bt = dp2perp * du1.y + dp1perp * du2.y;
+        float invmax = inversesqrt( max( dot( T, T ), dot( Bt, Bt ) ) + 1e-20 );
+        vec3 N = normalize( T * invmax * NI.x + Bt * invmax * NI.y + Ng * NI.z );
+        // the sun on it (the record's GGX)
+        vec3 V = normalize( cameraPosition - vWorld ), L = normalize( sunDir ), H = normalize( V + L );
+        float rough = clamp( 1.0 - I.z, 0.0, 1.0 ), a = rough * rough, a2 = a * a, k = 1.0 - a;
+        vec3 albedo = I.x * ArmorInsideAlbedoColor.rgb, F0 = ArmorInsideFresnelColor.rgb;
+        vec3 F = F0 + ( 1.0 - F0 ) * pow( 1.0 - clamp( dot( L, H ), 0.0, 1.0 ), 5.0 );
+        float nh = clamp( dot( N, H ), 0.0, 1.0 ), dd = nh * nh * ( a2 - 1.0 ) + 1.0;
+        float D = a2 / max( 3.14159265 * dd * dd, 1e-8 );
+        float nv = abs( dot( N, V ) ) + 1e-5, nl = clamp( dot( N, L ), 0.0, 1.0 );
+        float vis = 0.5 / max( nl * ( nv * k + a ) + nv * ( nl * k + a ), 1e-8 );
+        float horizon = clamp( ( 1.0 - a ) * 10.0 * dot( Ng, L ) + 1.0, 0.0, 1.0 );
+        vec3 inside = max( ( vis * D * F * 3.14159265 + albedo * ( 1.0 - F ) ) * nl * sunColour * horizon, 0.0 );
+        vec4 col = mix( vec4( ArmorImpactColor.rgb, A * ArmorImpactColor.w ), vec4( inside, A ), B );
+        col.rgb += ArmorInsideGlowColor.rgb * glow;
+        gl_FragColor = vec4( encode( max( col.rgb * col.a, 0.0 ) ), col.a );
+      }`,
+    transparent: true, depthWrite: false, depthTest: true, depthFunc: THREE.LessEqualDepth,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
+    blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+  });
+  material.onBeforeRender = (_r, scene) => {
+    const sun = sunOf(scene);
+    if (!sun) return;
+    (material.uniforms.sunDir!.value as THREE.Vector3).copy(sun.position).sub(sun.target.position).normalize();
+    (material.uniforms.sunColour!.value as THREE.Color).copy(sun.color).multiplyScalar(sun.intensity);
+  };
+  return logDepth(material);
+}
+
+const armorTextures = new Map<string, Promise<THREE.Texture | null>>();
+function armorTexture(url: string | null | undefined, volume: boolean): Promise<THREE.Texture | null> {
+  if (!url) return Promise.resolve(null);
+  if (!armorTextures.has(url)) armorTextures.set(url, (volume ? loadDds3D(url) : loadDds(url)).then((t) => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    if ((t as THREE.Data3DTexture).isData3DTexture) (t as THREE.Data3DTexture).wrapR = THREE.RepeatWrapping;
+    t.needsUpdate = true;
+    return t as THREE.Texture;
+  }).catch(() => null));
+  return armorTextures.get(url)!;
 }
 
 /**
@@ -163,6 +298,14 @@ export class ImpactOverlay {
     const r = sof.ellipsoid?.radius, c = sof.ellipsoid?.center;
     if (r && (r[0] ?? 0) > 0) { this.radii.set(r[0]!, r[1] ?? 0, r[2] ?? 0); this.center.set(c?.[0] ?? 0, c?.[1] ?? 0, c?.[2] ?? 0); }
     else if (box && !box.isEmpty()) { box.getSize(this.radii).multiplyScalar(0.5 * Math.sqrt(3)); box.getCenter(this.center); }
+    if (sof.armor) {
+      const material = armorMaterial(sof.armor.params);
+      void armorTexture(sof.armor.textures.CutOffsetMap, true).then((t) => { material.uniforms.CutOffsetMap!.value = t; });
+      void armorTexture(sof.armor.textures.InsideMap, false).then((t) => { material.uniforms.InsideMap!.value = t; });
+      void armorTexture(sof.armor.textures.InsideNormalMap, false).then((t) => { material.uniforms.InsideNormalMap!.value = t; });
+      material.uniforms.parentSize!.value = Math.max(1e-3, Math.min(boundingRadius, ARMOR_PARENT_MAX));
+      (this as { armorMaterial: THREE.ShaderMaterial | null }).armorMaterial = material;
+    }
     if (sof.type === 1 && sof.shield && this.radii.x > 0) {
       const material = shieldMaterial(sof.shield.params, this.center, this.radii);
       void shieldTexture(sof.shield.textures.RadialIntensityMap).then((t) => { material.uniforms.RadialIntensityMap!.value = t; });
@@ -177,6 +320,32 @@ export class ImpactOverlay {
     }
   }
   get rippleCount(): number { return this.ripples.size; }
+  /** The holes' draw, over each of the hull's meshes (attachArmor); null for a race with no armor effect. */
+  readonly armorMaterial: THREE.ShaderMaterial | null = null;
+  private readonly armorMeshes: THREE.Mesh[] = [];
+
+  /**
+   * The holes' draw put over the hull: a copy of each of its meshes (each geometry once in each LOD; not its decals nor
+   * those drawn in the distortion layer) drawn with the armor effect, hidden while no hole shows (EveDamageOverlay::GetBatches).
+   */
+  attachArmor(levels: THREE.Object3D[]): void {
+    const material = this.armorMaterial;
+    if (!material) return;
+    for (const level of levels) {
+      const seen = new Set<THREE.BufferGeometry>();
+      const meshes: THREE.Mesh[] = [];
+      level.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.visible && m.layers.mask === 1 && !m.name.startsWith("decal:") && m.geometry.getAttribute("uv") && !seen.has(m.geometry)) { seen.add(m.geometry); meshes.push(m); } });
+      for (const m of meshes) {
+        const over = new THREE.Mesh(m.geometry, material);
+        over.name = "armor-impacts";
+        over.visible = false;
+        over.frustumCulled = m.frustumCulled;
+        over.renderOrder = 1;
+        m.add(over);
+        this.armorMeshes.push(over);
+      }
+    }
+  }
 
   /** min(bounding radius, 775.19): the holes' and the debris' size (armorImpactParentSize). */
   get armorParentSize(): number { return Math.min(this.boundingRadius, ARMOR_PARENT_MAX); }
@@ -274,6 +443,28 @@ export class ImpactOverlay {
     r.at.copy(intersectEllipsoidRay(this.center, this.radii, origin, dir) ?? new THREE.Vector3());
   }
 
+  /**
+   * The holes given to their draw (EveDamageOverlay.cpp:311-316): each its locator's place in the hull's space and
+   * size x 0.0129 x the armor size; the hull's space from the world now; the draw shown while one is.
+   */
+  private stepHoles(): void {
+    const m = this.armorMaterial;
+    if (!m) return;
+    const u = m.uniforms;
+    const holes = u.holes!.value as THREE.Vector4[];
+    let i = 0;
+    for (const h of this.holes.values()) {
+      if (i >= MAX_ARMOR_IMPACTS) break;
+      const l = this.sof.damageLocators[h.locator]!;
+      holes[i++]!.set(l[0]!, l[1]!, l[2]!, Math.max(1e-6, h.size * IMPACT_ARMOR_SIZE_FACTOR * this.armorParentSize));
+    }
+    u.count!.value = i;
+    u.time!.value = performance.now() / 1000;
+    this.anchor.updateWorldMatrix(true, false);
+    (u.worldToEve!.value as THREE.Matrix4).copy(this.anchor.matrixWorld).invert();
+    for (const o of this.armorMeshes) o.visible = i > 0;
+  }
+
   /** The ripples aged (erased at no life left: :189-200), placed again, and given to the shield's draw. */
   private stepRipples(dt: number): void {
     const mesh = this.shieldMesh;
@@ -304,6 +495,7 @@ export class ImpactOverlay {
   update(dt: number, scene: THREE.Object3D, velocity: THREE.Vector3, pixelDiameter: number): void {
     this.lastSpawned = 0;
     this.stepRipples(dt);
+    this.stepHoles();
     let rank = 0;
     const goal = this.goalCount;
     for (const [index, h] of this.holes) {
@@ -364,6 +556,9 @@ export function impactOverlayOf(model: THREE.Object3D): ImpactOverlay | null {
       box = new THREE.Box3().setFromObject(finest).applyMatrix4(a.matrixWorld.clone().invert());
     }
     overlay = new ImpactOverlay(a, sof, boundingRadius, box);
+    // the holes' draw over each LOD's meshes
+    const levels = (lod as THREE.LOD | null)?.levels.map((l) => l.object) ?? [];
+    overlay.attachArmor(levels);
     overlays.set(a, overlay);
   }
   return overlay;

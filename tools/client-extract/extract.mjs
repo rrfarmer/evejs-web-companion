@@ -164,6 +164,15 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
       shield: null,
     };
     const raceDamage = raceName ? sof.races.get(String(raceName).toLowerCase())?.damage ?? null : null;
+    // the holes' effect (fxarmorimpactv5, a re-draw of the hull: EveSOF::CreateArmorDamageEffect, :2601-2625): the race's
+    // armorImpactParameters and armorImpactTextures, the textures copied
+    if (raceDamage) {
+      built.impact.armor = {
+        params: Object.fromEntries((raceDamage.armorImpactParameters ?? []).filter((p) => p?.name).map((p) => [p.name, p.value ?? null])),
+        textures: Object.fromEntries((raceDamage.armorImpactTextures ?? []).filter((t) => t?.name && t.resFilePath)
+          .map((t) => [t.name, rf.has(String(t.resFilePath).toLowerCase()) ? copyRes(rf, String(t.resFilePath).toLowerCase(), outRoot) : null])),
+      };
+    }
     if (impactType === 1 && raceDamage) {
       built.impact.shield = {
         params: Object.fromEntries((raceDamage.shieldImpactParameters ?? []).filter((p) => p?.name).map((p) => [p.name, p.value ?? null])),
