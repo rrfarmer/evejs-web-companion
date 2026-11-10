@@ -13,7 +13,9 @@
 // - standard decals (usage 0; decalv5.fx): the hull's own material with the decal's albedo and roughness maps,
 //   through the transparency map's red. The client lights a decal in its own pass (its normal and fresnel maps, the
 //   tangent frame from the box's axes); here neither map is used yet.
-// Kill counters, holes, (non-glow) cylindrical and logo decals are not drawn yet.
+// - cylindrical decals (usage 3; decalcylindricv5.fx): as the standard ones, their UV wrapped round the box's z axis
+//   as the glow cylindrical decals' is.
+// Kill counters, holes and logo decals are not drawn yet.
 
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
@@ -29,6 +31,7 @@ export interface SofDecalSet { name: string | null; items: SofDecal[] }
 const USAGE_STANDARD = 0;
 const USAGE_GLOW = 5;
 const USAGE_GLOW_CYLINDRICAL = 4;
+const USAGE_CYLINDRICAL = 3;
 
 const clock = { value: 0 };
 
@@ -134,33 +137,44 @@ async function glowMaterial(d: SofDecal, cylindrical: boolean): Promise<THREE.Ma
   return material;
 }
 
-async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null): Promise<THREE.Material | null> {
+async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null, cylindrical: boolean): Promise<THREE.Material | null> {
   const [albedo, roughness, transparency] = await Promise.all([
     texture(d.textures["DecalAlbedoMap"], true), texture(d.textures["DecalRoughnessMap"]), texture(d.textures["DecalTransparencyMap"]),
   ]);
   if (!albedo || !transparency) return null;
+  if (cylindrical) for (const t of [albedo, roughness, transparency]) if (t) { t.wrapS = THREE.RepeatWrapping; t.needsUpdate = true; }
   const base = hullMaterial as THREE.MeshStandardMaterial | null;
   const m = new THREE.MeshStandardMaterial({
     map: albedo, roughnessMap: roughness, roughness: roughness ? 1 : 0.6, metalness: 0,
     alphaMap: transparency, transparent: true, depthWrite: false,
     envMapIntensity: base?.envMapIntensity ?? 1,
   });
+  const repeat = d.parameters["DecalTextureScaling"]?.[3] ?? 1;
   m.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <alphamap_fragment>", `if ( any( lessThan( vAlphaMapUv, vec2( 0.0 ) ) ) || any( greaterThan( vAlphaMapUv, vec2( 1.0 ) ) ) ) discard;
-        diffuseColor.a *= texture2D( alphaMap, vAlphaMapUv ).r;`)
+    shader.uniforms["decalRepeat"] = { value: repeat };
+    shader.vertexShader = "attribute vec3 decal;\nvarying vec3 vDecal;\n" + shader.vertexShader
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vDecal = decal;");
+    // the decal's UV from the vertex's place in the box, per pixel: planar (x, y), or cylindrical about z
+    // (decalcylindricv5: u the angle times DecalTextureScaling.w / 2 pi, v along z)
+    const uv = cylindrical
+      ? "vec2 decalUv = vec2( ( atan( vDecal.y, vDecal.x ) + 3.141593 ) * decalRepeat * 0.159155, vDecal.z * 0.5 + 0.5 );"
+      : "vec2 decalUv = vDecal.xy * 0.5 + 0.5;\n  if ( any( lessThan( decalUv, vec2( 0.0 ) ) ) || any( greaterThan( decalUv, vec2( 1.0 ) ) ) ) discard;";
+    shader.fragmentShader = "varying vec3 vDecal;\nuniform float decalRepeat;\n" + shader.fragmentShader
+      .replace("void main() {", `void main() {\n  ${uv}`)
+      .replace("#include <map_fragment>", "diffuseColor *= texture2D( map, decalUv );")
+      .replace("#include <alphamap_fragment>", "diffuseColor.a *= texture2D( alphaMap, decalUv ).r;")
       .replace("#include <roughnessmap_fragment>", roughness
-        ? "float roughnessFactor = roughness; roughnessFactor *= 1.0 - texture2D( roughnessMap, vRoughnessMapUv ).r;"
+        ? "float roughnessFactor = roughness; roughnessFactor *= 1.0 - texture2D( roughnessMap, decalUv ).r;"
         : "float roughnessFactor = roughness;");
   };
-  m.customProgramCacheKey = () => `decal${roughness ? "r" : ""}`;
+  m.customProgramCacheKey = () => `decal${roughness ? "r" : ""}${cylindrical ? "c" : ""}`;
   return m;
 }
 
 /** The decals added to each LOD node of a hull (each node's own index list), the glow ones animated. */
 export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: readonly SofDecalSet[]): Promise<number> {
   let added = 0;
-  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && (d.usage === USAGE_GLOW || d.usage === USAGE_GLOW_CYLINDRICAL || d.usage === USAGE_STANDARD));
+  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && [USAGE_STANDARD, USAGE_CYLINDRICAL, USAGE_GLOW, USAGE_GLOW_CYLINDRICAL].includes(d.usage));
   for (const d of items) {
     const box = new THREE.Matrix4().compose(
       new THREE.Vector3(d.position[0] ?? 0, d.position[1] ?? 0, d.position[2] ?? 0),
@@ -177,7 +191,9 @@ export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: reado
       const hull = source as THREE.Mesh;
       const geometry = decalGeometry(hull.geometry, indices, inverse);
       if (!geometry) continue;
-      const material = d.usage === USAGE_STANDARD ? await standardMaterial(d, hull.material as THREE.Material) : await glowMaterial(d, d.usage === USAGE_GLOW_CYLINDRICAL);
+      const material = d.usage === USAGE_STANDARD || d.usage === USAGE_CYLINDRICAL
+        ? await standardMaterial(d, hull.material as THREE.Material, d.usage === USAGE_CYLINDRICAL)
+        : await glowMaterial(d, d.usage === USAGE_GLOW_CYLINDRICAL);
       if (!material) continue;
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `decal:${d.name ?? ""}`;
