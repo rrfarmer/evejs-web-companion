@@ -77,7 +77,8 @@ const idOf = (o) => { if (!ids.has(o)) ids.set(o, nextId++); return ids.get(o); 
 function curveData(c) {
   if (Array.isArray(c)) return c.map(curveData);
   if (!c || typeof c !== "object") return c;
-  const out = {};
+  // a curve may be a binding's destination (its timeOffset, say), so it carries its id
+  const out = typeof c.type === "string" && c.type.startsWith("Tr2Curve") ? { id: idOf(c) } : {};
   for (const [k, v] of Object.entries(c)) {
     if (k === "keys" && v && Array.isArray(v.items)) out.keys = v.items;
     else if (v && typeof v === "object") out[k] = curveData(v);
@@ -99,7 +100,8 @@ function readCurveSet(cs) {
     const src = b?.sourceObject, dst = b?.destinationObject;
     if (!src || !dst || typeof src.type !== "string" || !src.type.startsWith("Tr2Curve")) continue;
     bindings.push({
-      source: index.has(src) ? index.get(src) : null, sourceCurve: index.has(src) ? null : curveData(src),
+      // a binding may be another's destination (its scale)
+      id: idOf(b), source: index.has(src) ? index.get(src) : null, sourceCurve: index.has(src) ? null : curveData(src),
       sourceAttribute: b.sourceAttribute ?? "currentValue", destination: idOf(dst), destinationType: dst.type ?? null,
       destinationAttribute: b.destinationAttribute ?? "", scale: b.scale ?? 1, offset: b.offset ?? [0, 0, 0, 0],
     });

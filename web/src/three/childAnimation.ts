@@ -8,8 +8,10 @@
 // What the bindings drive so far: a quad's brightness and colour (its instance in the quads' mesh), an effect's
 // parameter (Tr2Vector4Parameter: the material's uniform of that name), a line set's baseColor and animColor, the
 // display of quads, meshes, line sets and containers (a container's hides what it holds), and the translation,
-// rotation and scaling of a container or a mesh (its object's transform recomposed under its parents'). Not yet:
-// quads under a moving container, lights, a binding's own scale, modifiers' values.
+// rotation and scaling of a container or a mesh (its object's transform recomposed under its parents'), a curve's
+// timeOffset (a scalar's or a colour's: the time it reads at is the less by it) and another binding's scale. A
+// randconst behind a timeOffset is one per hull model here, its clones sharing the animator (the client's copies each
+// have their own). Not yet: quads under a moving container, lights, modifiers' values.
 
 import * as THREE from "three";
 import { colorValue, curveValue, rotationValue, vector3Value, type Curve } from "./curves.ts";
@@ -19,6 +21,7 @@ export interface SofCurveSet {
   scale: number;
   curves: Curve[];
   bindings: {
+    id?: number;
     source: number | null;
     sourceCurve: Curve | null;
     sourceAttribute: string;
@@ -73,6 +76,9 @@ export class ChildAnimator {
   private readonly targets = new Map<number, Target>();
   private readonly sets: SofCurveSet[] = [];
   private readonly xforms = new Map<number, Xform>();
+  /** The curves and bindings by id, for the bindings that drive a curve's timeOffset or a binding's scale. */
+  private readonly curvesById = new Map<number, { timeOffset?: number }>();
+  private readonly bindingsById = new Map<number, SofCurveSet["bindings"][number]>();
   private quadColour: THREE.InstancedBufferAttribute | null = null;
   private readonly start = performance.now();
   private visibility = 1;
@@ -89,7 +95,21 @@ export class ChildAnimator {
   /** A container or mesh whose translation, rotation or scaling a binding drives (its own, in its parent's space). */
   xform(id: number, t: number[], r: number[], s: number[]): void { this.xforms.set(id, { t: t.slice(0, 3), r: r.slice(0, 4), s: s.slice(0, 3), dirty: 1 }); }
   container(id: number): void { if (!this.targets.has(id)) this.targets.set(id, { kind: "container", display: true }); }
-  curveSets(sets: SofCurveSet[] | undefined): void { for (const s of sets ?? []) if (s.bindings.length) this.sets.push(s); }
+  curveSets(sets: SofCurveSet[] | undefined): void {
+    const index = (c: unknown): void => {
+      if (!c || typeof c !== "object") return;
+      if (Array.isArray(c)) { c.forEach(index); return; }
+      const o = c as Record<string, unknown>;
+      if (typeof o.id === "number" && typeof o.type === "string") this.curvesById.set(o.id, o as { timeOffset?: number });
+      for (const [k, v] of Object.entries(o)) if (k !== "keys" && v && typeof v === "object") index(v);
+    };
+    for (const s of sets ?? []) {
+      if (!s.bindings.length) continue;
+      this.sets.push(s);
+      index(s.curves);
+      for (const b of s.bindings) { if (b.id !== undefined) this.bindingsById.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
+    }
+  }
   get playing(): boolean { return this.sets.length > 0; }
 
   /** One frame: every set's curves at its time, every binding copied; visibility to the given objects (a clone's). */
@@ -102,7 +122,9 @@ export class ChildAnimator {
         const [attr0] = b.destinationAttribute.split(".");
         const xf = attr0 === "translation" || attr0 === "rotation" || attr0 === "scaling" ? this.xforms.get(b.destination) : undefined;
         const target = this.targets.get(b.destination);
-        if (!target && !xf) continue;
+        const curve = attr0 === "timeOffset" ? this.curvesById.get(b.destination) : undefined;
+        const binding = attr0 === "scale" && b.destinationType === "TriValueBinding" ? this.bindingsById.get(b.destination) : undefined;
+        if (!target && !xf && !curve && !binding) continue;
         let src: Value;
         if (b.source !== null) {
           if (!values.has(b.source)) values.set(b.source, valueOf(set.curves[b.source]!, time));
@@ -112,6 +134,9 @@ export class ChildAnimator {
         const [srcAttr, srcComp] = b.sourceAttribute.split(".");
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");
+        const srcC = srcComp !== undefined ? COMPONENT[srcComp] ?? null : null;
+        if (curve) { curve.timeOffset = copied(src, srcC, b.scale, b.offset, curve.timeOffset ?? 0, null) as number; continue; }
+        if (binding) { binding.scale = copied(src, srcC, b.scale, b.offset, binding.scale, null) as number; continue; }
         if (xf) {
           const key = attr === "translation" ? "t" : attr === "rotation" ? "r" : "s";
           xf[key] = copied(src, srcComp !== undefined ? COMPONENT[srcComp] ?? null : null, b.scale, b.offset, xf[key], comp !== undefined ? COMPONENT[comp] ?? null : null) as number[];

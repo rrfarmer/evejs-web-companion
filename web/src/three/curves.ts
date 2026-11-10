@@ -41,11 +41,11 @@ function segment(a: Key, b: Key, t: number): number {
   return (2 * s3 - 3 * s2 + 1) * a.v + (s3 - 2 * s2 + s) * d * a.right + (-2 * s3 + 3 * s2) * b.v + (s3 - s2) * d * b.left;
 }
 
-/** The curve's value at a time (its timeOffset and timeScale applied first). */
+/** The curve's value at a time: time / timeScale - timeOffset first (Tr2CurveScalar.cpp's GetValue). */
 export function scalarAt(curve: ScalarCurve, keys: Key[], time: number): number {
   if (!keys.length) return 0;
   // a 32-bit float, as the client's (a time a hair short of a key in double is on it in float)
-  const t = Math.fround((Math.fround(time) - (curve.timeOffset ?? 0)) * (curve.timeScale ?? 1));
+  const t = Math.fround(Math.fround(time) / (curve.timeScale ?? 1) - (curve.timeOffset ?? 0));
   const first = keys[0]!, last = keys[keys.length - 1]!;
   if (keys.length === 1) return first.v;
   const span = last.t - first.t;
@@ -304,6 +304,8 @@ function partExpression(curve: Composite, key: string, time: number): number {
 
 /** A colour curve's value (r, g, b, a). */
 export function colorValue(curve: Composite, time: number): [number, number, number, number] {
+  // its components at the time less its own timeOffset (Tr2CurveColor.cpp's UpdateValue)
+  time -= Number(curve.timeOffset ?? 0);
   const c = [curveValue(curve.r as Curve, time), curveValue(curve.g as Curve, time), curveValue(curve.b as Curve, time), curveValue(curve.a as Curve, time)] as [number, number, number, number];
   if (curve.srgbOutput === true) for (let i = 0; i < 3; i++) c[i] = Math.fround(Math.pow(Math.max(c[i]!, 0), 1 / 2.2));
   return c;
