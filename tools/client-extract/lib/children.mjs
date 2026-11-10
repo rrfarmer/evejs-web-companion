@@ -262,6 +262,10 @@ function readShown(o, skipped) {
       };
     }
   }
+  if (o.type === "EveChildParticleSystem" && o.mesh?.type === "Tr2InstancedMesh" && o.mesh.geometryResPath) {
+    const node = readParticleSystemChild(o, skipped);
+    if (node) return node;
+  }
   if (o.type === "EveChildMesh" && o.mesh?.type === "Tr2Mesh" && o.mesh.geometryResPath) {
     const areas = [];
     for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"], ["distortionAreas", "distortion"]]) {
@@ -325,6 +329,73 @@ function readShown(o, skipped) {
   }
   skipped[o.type ?? "?"] = (skipped[o.type ?? "?"] ?? 0) + 1;
   return null;
+}
+
+/**
+ * An EveChildParticleSystem drawn on the CPU path (Trinity's Particle/): its instanced mesh (the quad and the area that
+ * draws the particles; its instance data the particle system the mesh names), its particle systems (Tr2ParticleSystem:
+ * their element declarations, forces, constraints, flags) and its emitters (Tr2DynamicEmitter, Tr2StaticEmitter: rate,
+ * limit, the system they emit to, their generators), each as the file has it (plainOf), a system named by its index.
+ * The GPU emitters (Tr2GpuUniqueEmitter and the like) are counted as skipped.
+ */
+function readParticleSystemChild(o, skipped) {
+  const systems = [];
+  const sysIndex = new Map();
+  const systemOf = (s) => {
+    if (!s || s.type !== "Tr2ParticleSystem") return -1;
+    if (!sysIndex.has(s)) {
+      sysIndex.set(s, systems.length);
+      systems.push(null);
+      systems[sysIndex.get(s)] = plainOf(s, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null));
+    }
+    return sysIndex.get(s);
+  };
+  const emitters = [];
+  for (const e of o.particleEmitters ?? []) {
+    if (e?.type !== "Tr2DynamicEmitter" && e?.type !== "Tr2StaticEmitter") {
+      skipped[`particleEmitter:${e?.type ?? "?"}`] = (skipped[`particleEmitter:${e?.type ?? "?"}`] ?? 0) + 1;
+      continue;
+    }
+    // its id: a curve set's binding may drive its rate
+    emitters.push({ id: idOf(e), ...plainOf(e, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null)) });
+  }
+  const meshSystem = systemOf(o.mesh.instanceGeometryResource);
+  const updated = (o.particleSystems ?? []).map(systemOf).filter((i) => i >= 0);
+  if (meshSystem < 0 || !emitters.length) return null;
+  const lists = [["additiveAreas", "additive"], ["transparentAreas", "transparent"], ["opaqueAreas", "opaque"]];
+  const areas = [];
+  for (const [list, kind] of lists) for (const a of o.mesh[list] ?? []) {
+    if (!a?.effect) continue;
+    areas.push({
+      id: idOf(a), kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: effectName(a.effect),
+      options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
+      params: effectParams(a.effect), textures: effectTextures(a.effect),
+    });
+  }
+  if (!areas.length) return null;
+  return {
+    k: "particles", id: idOf(o), name: o.name ?? null, m: srt(o), ...parts(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
+    meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas, meshSystem, systems, emitters,
+    updated: updated.length ? updated : [meshSystem],
+    modifiers: (o.transformModifiers ?? []).map((t) => t.type),
+  };
+}
+
+/** A file's object as plain data (primitives and arrays; nested objects alike), `ref` replacing the objects it names. */
+function plainOf(o, ref, depth = 0) {
+  if (o === null || typeof o !== "object") return o;
+  if (Array.isArray(o)) return o.map((x) => plainOf(x, ref, depth + 1));
+  if (depth > 0) {
+    const r = ref(o);
+    if (r) return r;
+  }
+  if (depth > 8) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (k === "keys" && v && Array.isArray(v.items)) out.keys = v.items;
+    else out[k] = plainOf(v, ref, depth + 1);
+  }
+  return out;
 }
 
 const STANDALONE = 1;

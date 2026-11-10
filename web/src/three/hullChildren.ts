@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
+import { particleObject, type SofChildParticles } from "./particles.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
@@ -99,7 +100,7 @@ export interface SofChildLines {
   textures: Record<string, string | null>;
   curves: { m: number[]; p1: number[]; c: number[]; p2: number[]; segments: number; width: number }[];
 }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines;
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -1156,6 +1157,25 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         place(l, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
         sink(l);
       }
+      return;
+    }
+    if (node.k === "particles") {
+      // a CPU particle system (particles.ts): its quad from the mesh's geometry, placed as a mesh is
+      const at = local.clone().multiply(new THREE.Matrix4().fromArray(node.m));
+      const url = node.geometry;
+      if (!url) return;
+      if (!glbCache.has(url)) glbCache.set(url, gltfLoader.loadAsync(url).then((g) => g.scene).catch(() => null));
+      pending.push(glbCache.get(url)!.then((scene) => {
+        const lod = scene?.children[0]?.children[node.meshIndex] ?? null;
+        let quad: THREE.BufferGeometry | null = null;
+        lod?.traverse((o) => { if (!quad && (o as THREE.Mesh).isMesh) quad = (o as THREE.Mesh).geometry; });
+        if (!quad) return;
+        const o = particleObject(node, quad, childTexture, (id, get, set) => animator.values(id, get, set));
+        if (!o) return;
+        if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
+        place(o, at, node.modifiers);
+        sink(o);
+      }));
       return;
     }
     if (node.k === "traffic") {
