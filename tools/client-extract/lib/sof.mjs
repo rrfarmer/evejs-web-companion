@@ -9,12 +9,16 @@
 import { readBlack } from "./black.mjs";
 
 /**
- * EveSOFDataFactionColorSet's colour types by index, as a light set item names its colour (lightColor). Inferred from
- * use, not read from trinity: the hangars' light sets name 18 to 21 (the four Light colours, with Black at 3), and the
- * rest they name (4, 6, 7) are White, Orange and Red.
+ * EveSOFDataFactionColorSet's colour types by index, as an item names its colour (colorType, lightColor,
+ * glowColorType): the client's own enum, trinity.EveSOFDataFactionColorSetType (read in the client's Python, build
+ * 3396210).
  */
 export const COLOR_TYPES = ["Primary", "Secondary", "Tertiary", "Black", "White", "Yellow", "Orange", "Red", "Blue", "Green", "Cyan", "Fire",
-  "Hull", "Glass", "Reactor", "Darkhull", "Booster", "Killmark", "PrimaryLight", "SecondaryLight", "TertiaryLight", "WhiteLight"];
+  "Hull", "Glass", "Reactor", "Darkhull", "Booster", "Killmark", "PrimaryLight", "SecondaryLight", "TertiaryLight", "WhiteLight",
+  "PrimaryHologram", "SecondaryHologram", "TertiaryHologram", "State0", "State1", "State2", "State3", "StateVulnerable",
+  "StateInvulnerable", "PrimaryForcefield", "SecondaryForcefield", "PrimaryBanner", "PrimaryFx", "SecondaryFx",
+  "PrimarySpotlight", "SecondarySpotlight", "TertiarySpotlight", "PrimaryBillboard", "PrimaryWarpFx", "PrimaryAttackFX",
+  "PrimarySiegeFX", "PrimaryDockedFX"];
 
 export const AREA_TYPES = ["Primary", "Glass", "Sails", "Reactor", "Darkhull", "Wreck", "Rock", "Monument", "Ornament", "SimplePrimary"];
 
@@ -92,8 +96,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":3)
-    sofBuild: 3,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":4)
+    sofBuild: 4,
     booster,
     areas,
     colorSet,
