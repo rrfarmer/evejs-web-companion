@@ -302,7 +302,8 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const count = ({ ONE: 1, TWO: 2, THREE: 3 } as Record<string, number>)[area.options.DIFFUSE_MAP_COUNT ?? ""] ?? Math.max(1, maps);
   const uniforms: Record<string, THREE.IUniform> = {
     time: effectClock,
-    colour: { value: v4(p.DiffuseColor, [1, 1, 1, 1]) }, fresnel: { value: v4(p.FresnelFactors, [0, 1, 0, 0]) },
+    // the file's defaults (its header's constant values): DiffuseColor 0.8, FresnelFactors (1, 1, 0, 0)
+    colour: { value: v4(p.DiffuseColor, [0.8, 0.8, 0.8, 1]) }, fresnel: { value: v4(p.FresnelFactors, [1, 1, 0, 0]) },
     maskT: { value: v4(p.MaskTransform, [0, 0, 1, 1]) }, maskS: { value: v4(p.MaskScroll, [0, 0, 0, 0]) },
     mask: { value: null },
     sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColour: { value: new THREE.Color(1, 1, 1) }, ambient: { value: new THREE.Color(0, 0, 0) },
@@ -544,10 +545,92 @@ function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: numbe
  * holds it (Tr2MeshArea index, count); groups no area names are not drawn.
  */
 /** An effect parameter's name to its material's uniform (ubershader.fx's and fx3dv5.fx's). */
+/**
+ * An area drawn with motionvectorramp.fx in its default permutation (INTERPOLATION_ENABLED, no diffuse maps,
+ * COLORMAP_RAMP, no mask, no texture transform; its sm_hi record 0 disassembled, client 3396210; the defaults and
+ * the textures' sRGB reads from the file's header, as carbonengine/trinity Tr2EffectRes and Tr2EffectDescription
+ * read it). A flipbook: TextureMap an atlas of AtlasInfo.x by .y frames played over AtlasInfo.z seconds of
+ * CurrentTime (frac(time / .z) x frames; past the end the last frame where .w, cycling, is not above nought); the
+ * frame and the next blended by the fraction between them, each first pushed along GradientMap's motion vectors
+ * (the frame's .xy x the fraction, the next's .zw x 1 - it, x 2 - 1, times Colors.w); the blend's red read through
+ * ColorRampMap at sat((v - Colors.x) / (Colors.y - Colors.x)), times Colors.z; alpha its alpha x the ramp's alpha
+ * times the fresnel (as ubershader.fx's), saturated; the colour written sRGB-encoded (the per-frame gamma 1).
+ * TextureMap and ColorRampMap are read as sRGB (decoded here after filtering), GradientMap as it is. The fog volume
+ * map's factor is 1.
+ */
+function motionVectorRampMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    fresnel: { value: v4(p.FresnelFactors, [1, 1, 0, 0]) }, atlas: { value: v4(p.AtlasInfo, [6, 6, 10, 1]) },
+    colors: { value: v4(p.Colors, [0, 1, 1, 0.01]) }, currentTime: { value: typeof p.CurrentTime === "number" ? p.CurrentTime : 0 },
+    textureMap: { value: null }, rampMap: { value: null }, gradientMap: { value: null },
+  };
+  void childTexture(area.textures.TextureMap).then((t) => { uniforms.textureMap!.value = t; });
+  void childTexture(area.textures.GradientMap).then((t) => { uniforms.gradientMap!.value = t; });
+  void childTexture(area.textures.ColorRampMap).then((t) => {
+    // ColorRampMapSampler clamps
+    if (t) { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; }
+    uniforms.rampMap!.value = t;
+  });
+  const additive = area.kind === "additive";
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      void main() {
+        vUv = uv;
+        vN = mat3(modelMatrix) * normal;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform sampler2D textureMap; uniform sampler2D rampMap; uniform sampler2D gradientMap;
+      uniform vec4 fresnel; uniform vec4 atlas; uniform vec4 colors; uniform float currentTime;
+      varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+      vec3 encode(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+      vec2 cell(float f) {
+        float row = min(atlas.y - 1.0, floor(f / atlas.x));
+        return vec2(min(atlas.x - 1.0, floor(f - row * atlas.x)), row);
+      }
+      void main() {
+        float frames = atlas.x * atlas.y;
+        float at = frames * fract(currentTime / atlas.z);
+        float f0 = floor(at);
+        float last = frames - 1.0;
+        float f1 = atlas.w > 0.0 ? (f0 + 1.0 >= frames ? 0.0 : f0 + 1.0) : min(f0 + 1.0, last);
+        float k = fract(at);
+        if (currentTime >= atlas.z && atlas.w <= 0.0) { f0 = last; f1 = last; }
+        vec2 c0 = cell(f0), c1 = cell(f1);
+        vec2 uv = clamp(vUv, 0.0, 1.0);
+        vec4 mv = vec4(0.0);
+        if (colors.w > 0.0) {
+          mv.xy = (texture2D(gradientMap, (uv + c0) / atlas.xy).xy * 2.0 - 1.0) * k;
+          mv.zw = (texture2D(gradientMap, (uv + c1) / atlas.xy).zw * 2.0 - 1.0) * (1.0 - k);
+          mv *= colors.w;
+        }
+        vec4 a = texture2D(textureMap, (clamp(vUv - mv.xy, 0.0, 1.0) + c0) / atlas.xy);
+        vec4 b = texture2D(textureMap, (clamp(vUv + mv.zw, 0.0, 1.0) + c1) / atlas.xy);
+        vec2 v = mix(vec2(decode(a.rgb).r, a.a), vec2(decode(b.rgb).r, b.a), k);
+        vec4 ramp = texture2D(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), 0.0));
+        vec3 rgb = decode(ramp.rgb) * colors.z;
+        float alpha = v.y * ramp.a;
+        float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
+        f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
+        gl_FragColor = vec4(encode(max(rgb, 0.0)), clamp(alpha * f, 0.0, 1.0));
+      }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    ...(additive
+      ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+      : { blending: THREE.NormalBlending }),
+  });
+  logDepth(mat);
+  return mat;
+}
+
 const PARAM_UNIFORM: Record<string, string> = {
   DiffuseColor: "colour", FresnelFactors: "fresnel", MaskTransform: "maskT", MaskScroll: "maskS",
   TextureTransform1: "t1", TextureTransform2: "t2", TextureTransform3: "t3", TextureScroll1: "s1", TextureScroll2: "s2", TextureScroll3: "s3",
-  BaseColor: "base", FxColor: "fx", Layer3Center: "centre",
+  BaseColor: "base", FxColor: "fx", Layer3Center: "centre", CurrentTime: "currentTime", AtlasInfo: "atlas", Colors: "colors",
   Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
 };
 
@@ -572,7 +655,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
       const area = node.areas.find((a) => at >= a.index && at < a.index + a.count);
       if (!area) return;
       if (!materials.has(area)) {
-        const mat = area.effect === "fx3dv5" ? fx3dMaterial(area) : uberMaterial(area);
+        const mat = area.effect === "fx3dv5" ? fx3dMaterial(area) : area.effect === "motionvectorramp" ? motionVectorRampMaterial(area) : uberMaterial(area);
         materials.set(area, mat);
         for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);
       }

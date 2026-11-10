@@ -11,7 +11,7 @@
 //   geometry's file, the effect's constants and its textures (PositionMap, TexMap); the instances themselves are
 //   read by the caller (readTrafficInstances), the reader being asynchronous;
 // - EveChildMesh on a Tr2Mesh: its transform, geometry file (the caller extracts it), mesh index and the areas drawn
-//   with ubershader.fx or fx3dv5.fx (kind, index, count, the effect's options, constants and textures); its other
+//   with ubershader.fx, fx3dv5.fx or motionvectorramp.fx in its default options (kind, index, count, the effect's options, constants and textures); its other
 //   areas counted;
 // - EveChildLineSet: its transform, colours, brightness, the line set's additive flag, width factor and textures, and
 //   each EveBezierCurve (its own transform, point1, bezierPoint, point2, segments, lineWidth), defaults as the
@@ -36,6 +36,8 @@
 import { readBlack } from "./black.mjs";
 
 const HIGH_QUALITY = new Set([3, 4, 5]);
+// motionvectorramp.fx is drawn in its default permutation only (its file's permutations: Tr2EffectRes.cpp's reader)
+const MOTION_VECTOR_RAMP_DEFAULTS = [["INTERPOLATION", "INTERPOLATION_ENABLED"], ["DIFFUSE_MAP_COUNT", "ZERO"], ["COLORMAP", "COLORMAP_RAMP"], ["MASK", "MASK_DISABLED"], ["TEXTURE_TRANSFORM", "TRANSFORM_DISABLED"]];
 
 const srt = (o) => {
   const t = o.translation ?? [0, 0, 0], r = o.rotation ?? [0, 0, 0, 1], s = o.scaling ?? [1, 1, 1];
@@ -159,7 +161,9 @@ function readShown(o, skipped) {
     for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"]]) {
       for (const a of o.mesh[list] ?? []) {
         const fx = effectName(a.effect);
-        if (fx !== "ubershader" && fx !== "fx3dv5") { skipped[`area:${fx}`] = (skipped[`area:${fx}`] ?? 0) + 1; continue; }
+        const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
+        const drawn = fx === "ubershader" || fx === "fx3dv5" || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === v));
+        if (!drawn) { const k = fx === "motionvectorramp" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
         areas.push({
           id: idOf(a), paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
           kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
