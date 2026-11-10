@@ -53,6 +53,8 @@ const srtOf = (mods) => {
   const m = (mods ?? []).find((t) => t?.type === "EveChildModifierSRT");
   return m ? { translation: m.translation ?? [0, 0, 0], rotation: m.rotation ?? [0, 0, 0, 1], scaling: m.scaling ?? [1, 1, 1] } : null;
 };
+/** An object's own translation, rotation and scaling (what a curve set's binding may drive). */
+const parts = (o) => ({ t: o.translation ?? [0, 0, 0], r: o.rotation ?? [0, 0, 0, 1], s: o.scaling ?? [1, 1, 1] });
 const effectName = (fx) => (fx?.effectFilePath ? String(fx.effectFilePath).split("/").pop().replace(/\.fx$/i, "").toLowerCase() : null);
 
 // Every object a curve set's binding may name gets an id (the binding's destinationObject is the object itself in the
@@ -130,7 +132,7 @@ function readNode(o, skipped) {
     }
     if (!areas.length) return null;
     return {
-      k: "mesh", id: idOf(o), name: o.name ?? null, m: srt(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
+      k: "mesh", id: idOf(o), name: o.name ?? null, m: srt(o), ...parts(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
       meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
     };
@@ -165,7 +167,7 @@ function readNode(o, skipped) {
     if (!objects.length && !lights.length && !curveSets.length) return null;
     const m = srt(o);
     return {
-      k: "container", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, curveSets,
+      k: "container", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, ...parts(o), curveSets,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
       objects,
       lights,

@@ -23,6 +23,9 @@ export interface SofChildQuad {
 export interface SofChildContainer {
   k: "container";
   id?: number;
+  t?: number[];
+  r?: number[];
+  s?: number[];
   curveSets?: SofCurveSet[];
   name: string | null;
   m: number[] | null;
@@ -56,6 +59,9 @@ export interface SofChildMeshArea {
 export interface SofChildMesh {
   k: "mesh";
   id?: number;
+  t?: number[];
+  r?: number[];
+  s?: number[];
   name: string | null;
   m: number[];
   geometry: string | null;
@@ -665,6 +671,14 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
   const animator = new ChildAnimator();
+  // the containers and meshes whose transform a played curve set drives (each its own object, recomposed each frame)
+  const moved = new Set<number>();
+  const scan = (n: SofChildNode) => {
+    if (n.k !== "container") return;
+    for (const cs of n.curveSets ?? []) for (const b of cs.bindings) if (/^(translation|rotation|scaling)/.test(b.destinationAttribute)) moved.add(b.destination);
+    n.objects.forEach(scan);
+  };
+  for (const child of children ?? []) if (child.root) scan(child.root);
   const pending: Promise<void>[] = [];
   let modified = 0;
   // the containers' point lights, in the hull's EVE space (the group's userData.lights, read by the space view)
@@ -698,10 +712,16 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
         flatHere.extractBasis(new THREE.Vector3(), new THREE.Vector3(), z);
         halo = { z: z.normalize(), at: new THREE.Vector3().setFromMatrixPosition(flatHere) };
       }
-      if (node.modifiers.some((x) => MODIFIERS.has(x))) {
+      const driven = node.id !== undefined && moved.has(node.id);
+      if (node.modifiers.some((x) => MODIFIERS.has(x)) || driven) {
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
+        if (driven) {
+          g.userData.childId = node.id;
+          g.userData.parentMatrix = local.toArray();
+          animator.xform(node.id!, node.t ?? [0, 0, 0], node.r ?? [0, 0, 0, 1], node.s ?? [1, 1, 1]);
+        }
         sink(g);
         for (const o of node.objects) walk(o, flatHere, new THREE.Matrix4(), (c) => g.add(c), halo, ancestors);
         return;
@@ -715,6 +735,10 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
       pending.push(childMesh(node, animator).then((o) => {
         if (!o) return;
         if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors); }
+        if (node.id !== undefined && moved.has(node.id)) {
+          o.userData.parentMatrix = local.toArray();
+          animator.xform(node.id, node.t ?? [0, 0, 0], node.r ?? [0, 0, 0, 1], node.s ?? [1, 1, 1]);
+        }
         place(o, at, node.modifiers, node.srt ?? null);
         sink(o);
       }));

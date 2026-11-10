@@ -6,9 +6,10 @@
 // attribute names one component (on either side).
 //
 // What the bindings drive so far: a quad's brightness and colour (its instance in the quads' mesh), an effect's
-// parameter (Tr2Vector4Parameter: the material's uniform of that name), a line set's baseColor and animColor, and the
-// display of quads, meshes, line sets and containers (a container's hides what it holds). Not yet: containers' and
-// meshes' transforms, lights, a binding's own scale, modifiers' values.
+// parameter (Tr2Vector4Parameter: the material's uniform of that name), a line set's baseColor and animColor, the
+// display of quads, meshes, line sets and containers (a container's hides what it holds), and the translation,
+// rotation and scaling of a container or a mesh (its object's transform recomposed under its parents'). Not yet:
+// quads under a moving container, lights, a binding's own scale, modifiers' values.
 
 import * as THREE from "three";
 import { colorValue, curveValue, rotationValue, vector3Value, type Curve } from "./curves.ts";
@@ -64,12 +65,14 @@ interface LinesTarget { kind: "lines"; colour: THREE.IUniform; anim: THREE.IUnif
 interface ObjectTarget { kind: "object"; display: boolean; ancestors: number[] }
 interface ContainerTarget { kind: "container"; display: boolean }
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget;
+interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 
 /** One hull's curve sets and what their bindings reach; shared by the model's clones (found by their key). */
 export class ChildAnimator {
   readonly key = THREE.MathUtils.generateUUID();
   private readonly targets = new Map<number, Target>();
   private readonly sets: SofCurveSet[] = [];
+  private readonly xforms = new Map<number, Xform>();
   private quadColour: THREE.InstancedBufferAttribute | null = null;
   private readonly start = performance.now();
   private visibility = 1;
@@ -83,19 +86,23 @@ export class ChildAnimator {
     this.targets.set(id, { kind: "lines", colour, anim, base: base.slice(0, 4), brightness, display: true, ancestors });
   }
   object(id: number, ancestors: number[]): void { this.targets.set(id, { kind: "object", display: true, ancestors }); }
+  /** A container or mesh whose translation, rotation or scaling a binding drives (its own, in its parent's space). */
+  xform(id: number, t: number[], r: number[], s: number[]): void { this.xforms.set(id, { t: t.slice(0, 3), r: r.slice(0, 4), s: s.slice(0, 3), dirty: 1 }); }
   container(id: number): void { if (!this.targets.has(id)) this.targets.set(id, { kind: "container", display: true }); }
   curveSets(sets: SofCurveSet[] | undefined): void { for (const s of sets ?? []) if (s.bindings.length) this.sets.push(s); }
   get playing(): boolean { return this.sets.length > 0; }
 
   /** One frame: every set's curves at its time, every binding copied; visibility to the given objects (a clone's). */
-  step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number }): void {
+  step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number> }): void {
     const t = (performance.now() - this.start) / 1000;
     for (const set of this.sets) {
       const time = t * set.scale;
       const values = new Map<number, Value>();
       for (const b of set.bindings) {
+        const [attr0] = b.destinationAttribute.split(".");
+        const xf = attr0 === "translation" || attr0 === "rotation" || attr0 === "scaling" ? this.xforms.get(b.destination) : undefined;
         const target = this.targets.get(b.destination);
-        if (!target) continue;
+        if (!target && !xf) continue;
         let src: Value;
         if (b.source !== null) {
           if (!values.has(b.source)) values.set(b.source, valueOf(set.curves[b.source]!, time));
@@ -105,10 +112,31 @@ export class ChildAnimator {
         const [srcAttr, srcComp] = b.sourceAttribute.split(".");
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");
+        if (xf) {
+          const key = attr === "translation" ? "t" : attr === "rotation" ? "r" : "s";
+          xf[key] = copied(src, srcComp !== undefined ? COMPONENT[srcComp] ?? null : null, b.scale, b.offset, xf[key], comp !== undefined ? COMPONENT[comp] ?? null : null) as number[];
+          xf.dirty++;
+          continue;
+        }
+        if (!target) continue;
         this.apply(target, attr ?? "", src, srcComp !== undefined ? COMPONENT[srcComp] ?? null : null, comp !== undefined ? COMPONENT[comp] ?? null : null, b.scale, b.offset);
       }
     }
     if (seen.visibility !== this.visibility) { seen.visibility = this.visibility; this.applyVisibility(objects); }
+    // the driven transforms, recomposed under their parents' (a modified object's base, which its modifier turns)
+    seen.xforms ??= new Map();
+    for (const [id, xf] of this.xforms) {
+      if (seen.xforms.get(id) === xf.dirty) continue;
+      seen.xforms.set(id, xf.dirty);
+      const own = new THREE.Matrix4().compose(new THREE.Vector3(...(xf.t as [number, number, number])), new THREE.Quaternion(...(xf.r as [number, number, number, number])), new THREE.Vector3(...(xf.s as [number, number, number])));
+      for (const o of objects.get(id) ?? []) {
+        const at = new THREE.Matrix4().fromArray(o.userData.parentMatrix as number[]).multiply(own);
+        if (o.userData.modifierBase) o.userData.modifierBase = at.toArray();
+        o.matrix.copy(at);
+        o.matrixWorldNeedsUpdate = true;
+        o.updateMatrixWorld(true);
+      }
+    }
   }
 
   private apply(target: Target, attr: string, src: Value, srcComp: number | null, comp: number | null, scale: number, offset: number[]): void {
