@@ -204,7 +204,20 @@ const exprStates = new WeakMap<object, ExprState>();
 const scalarKeys = new WeakMap<object, ReturnType<typeof prepareScalar>>();
 type ExpressionCurve = { type: "Tr2CurveScalarExpression"; expression?: string; inputs?: Curve[]; input1?: number; input2?: number; input3?: number; input4?: number };
 
-/** Any curve's value at a time: a Tr2CurveScalar or a Tr2CurveScalarExpression; any other kind nought (not ported yet). */
+/**
+ * TriPerlinCurve: ((PerlinNoise1D((time - start) x speed, alpha, beta, N) + 1) / 2) x scale + offset, start a random
+ * time of the curve's own in [0, 100) (CCP's ccpwgl Tw2PerlinCurve reads the same; its defaults speed 1, alpha 1.1,
+ * beta 2, N 3, scale 1, offset 0). Its value attribute is its output, not an input.
+ */
+type PerlinCurve = { type: "TriPerlinCurve"; speed?: number; alpha?: number; beta?: number; N?: number; scale?: number; offset?: number };
+const perlinStarts = new WeakMap<object, number>();
+function perlinCurveValue(c: PerlinCurve, time: number): number {
+  let start = perlinStarts.get(c);
+  if (start === undefined) { start = Math.random() * 100; perlinStarts.set(c, start); }
+  return ((perlin((time - start) * (c.speed ?? 1), c.alpha ?? 1.1, c.beta ?? 2, Math.round(c.N ?? 3)) + 1) / 2) * (c.scale ?? 1) + (c.offset ?? 0);
+}
+
+/** Any curve's value at a time: a Tr2CurveScalar, a Tr2CurveScalarExpression or a TriPerlinCurve; any other nought. */
 export function curveValue(curve: Curve | undefined | null, time: number): number {
   if (!curve) return 0;
   if (curve.type === "Tr2CurveScalar") {
@@ -213,6 +226,7 @@ export function curveValue(curve: Curve | undefined | null, time: number): numbe
     return scalarAt(curve as unknown as ScalarCurve, k, time);
   }
   if (curve.type === "Tr2CurveScalarExpression") return expressionValue(curve as ExpressionCurve, time);
+  if (curve.type === "TriPerlinCurve") return perlinCurveValue(curve as unknown as PerlinCurve, time);
   return 0;
 }
 

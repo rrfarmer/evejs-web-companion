@@ -85,7 +85,7 @@ function curveData(c) {
   if (Array.isArray(c)) return c.map(curveData);
   if (!c || typeof c !== "object") return c;
   // a curve may be a binding's destination (its timeOffset, say), so it carries its id
-  const out = typeof c.type === "string" && c.type.startsWith("Tr2Curve") ? { id: idOf(c) } : {};
+  const out = typeof c.type === "string" && (c.type.startsWith("Tr2Curve") || c.type === "TriPerlinCurve") ? { id: idOf(c) } : {};
   for (const [k, v] of Object.entries(c)) {
     if (k === "keys" && v && Array.isArray(v.items)) out.keys = v.items;
     else if (v && typeof v === "object") out[k] = curveData(v);
@@ -99,13 +99,15 @@ function curveData(c) {
  * state machine to play them), its scale, its time ranges (Tr2CurveSetRange: start 0, end 1, not looped unless said),
  * its curves, and the bindings whose source is one of its curves (or any curve), each naming its destination by id.
  */
+// a curve a set evaluates: Trinity's Tr2Curve* and its TriPerlinCurve
+const isCurve = (o) => typeof o?.type === "string" && (o.type.startsWith("Tr2Curve") || o.type === "TriPerlinCurve");
 function readCurveSet(cs) {
-  const curves = (cs.curves ?? []).filter((c) => typeof c?.type === "string" && c.type.startsWith("Tr2Curve"));
+  const curves = (cs.curves ?? []).filter(isCurve);
   const index = new Map(curves.map((c, i) => [c, i]));
   const bindings = [];
   for (const b of cs.bindings ?? []) {
     const src = b?.sourceObject, dst = b?.destinationObject;
-    if (!src || !dst || typeof src.type !== "string" || !src.type.startsWith("Tr2Curve")) continue;
+    if (!src || !dst || !isCurve(src)) continue;
     bindings.push({
       // a binding may be another's destination (its scale)
       id: idOf(b), source: index.has(src) ? index.get(src) : null, sourceCurve: index.has(src) ? null : curveData(src),
@@ -384,7 +386,10 @@ function readParticleSystemChild(o, skipped) {
       continue;
     }
     // its id: a curve set's binding may drive its rate
-    emitters.push({ id: idOf(e), ...plainOf(e, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null)) });
+    const plain = { id: idOf(e), ...plainOf(e, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null)) };
+    // its generators' ids: a curve set's binding may drive their ranges (a wreck fire's lifetimes, sizes, speeds)
+    if (Array.isArray(plain.generators)) plain.generators = plain.generators.map((g, i) => (g && typeof g === "object" ? { id: idOf(e.generators[i]), ...g } : g));
+    emitters.push(plain);
   }
   const meshSystem = systemOf(o.mesh.instanceGeometryResource);
   const updated = (o.particleSystems ?? []).map(systemOf).filter((i) => i >= 0);
@@ -397,6 +402,8 @@ function readParticleSystemChild(o, skipped) {
       id: idOf(a), kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: effectName(a.effect),
       // the whole path: particles/motionvector.fx and particles/dynamic/motionvector.fx are different effects
       path: String(a.effect.effectFilePath ?? "").toLowerCase(),
+      // its parameters' ids: a curve set's binding may drive one (a wreck fire's Color2)
+      paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
       options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
       params: effectParams(a.effect), textures: effectTextures(a.effect),
     });

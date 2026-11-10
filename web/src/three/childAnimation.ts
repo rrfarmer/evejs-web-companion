@@ -84,8 +84,8 @@ interface ObjectTarget { kind: "object"; display: boolean; ancestors: number[] }
 interface ContainerTarget { kind: "container"; display: boolean }
 /** An EveChildModifierSRT: its own transform, laid on its owner (a mesh or container: owner its id) each frame. */
 interface SrtTarget { kind: "srt"; owner: number; translation: number[]; rotation: number[]; scaling: number[]; dirty: number }
-/** An object's numeric attributes a binding may set (a particle emitter's rate, say), read and written by name. */
-interface ValueTarget { kind: "value"; get(attr: string): number | undefined; set(attr: string, v: number): void }
+/** An object's attributes a binding may set (an emitter's rate, a generator's ranges), read and written by name. */
+interface ValueTarget { kind: "value"; get(attr: string): Value | undefined; set(attr: string, v: Value): void }
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget | ValueTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 /** A set's play state: its owners (the containers it is under, its own first-to-last), time and range. */
@@ -111,7 +111,7 @@ export class ChildAnimator {
   private readonly sets: SetRun[] = [];
   private readonly xforms = new Map<number, Xform>();
   /** The curves and bindings by id, for the bindings that drive a curve's timeOffset or a binding's scale. */
-  private readonly curvesById = new Map<number, { timeOffset?: number }>();
+  private readonly curvesById = new Map<number, Record<string, unknown>>();
   private readonly bindingsById = new Map<number, SofCurveSet["bindings"][number]>();
   private quadColour: THREE.InstancedBufferAttribute | null = null;
   private readonly start = performance.now();
@@ -125,8 +125,8 @@ export class ChildAnimator {
   lines(id: number, colour: THREE.IUniform, anim: THREE.IUniform, base: number[], animColor: number[], brightness: number, ancestors: number[], display = true): void {
     this.targets.set(id, { kind: "lines", colour, anim, base: base.slice(0, 4), anim0: animColor.slice(0, 4), brightness, display, ancestors });
   }
-  /** An object whose numeric attributes bindings set (a particle emitter: its rate). */
-  values(id: number, get: (attr: string) => number | undefined, set: (attr: string, v: number) => void): void { this.targets.set(id, { kind: "value", get, set }); }
+  /** An object whose attributes bindings set (a particle emitter: its rate; a generator: its ranges, its speeds). */
+  values(id: number, get: (attr: string) => Value | undefined, set: (attr: string, v: Value) => void): void { this.targets.set(id, { kind: "value", get, set }); }
   object(id: number, ancestors: number[], display = true): void { this.targets.set(id, { kind: "object", display, ancestors }); }
   /** A container or mesh whose translation, rotation or scaling a binding drives (its own, in its parent's space). */
   xform(id: number, t: number[], r: number[], s: number[]): void { this.xforms.set(id, { t: t.slice(0, 3), r: r.slice(0, 4), s: s.slice(0, 3), dirty: 1 }); }
@@ -142,7 +142,7 @@ export class ChildAnimator {
       if (!c || typeof c !== "object") return;
       if (Array.isArray(c)) { c.forEach(index); return; }
       const o = c as Record<string, unknown>;
-      if (typeof o.id === "number" && typeof o.type === "string") this.curvesById.set(o.id, o as { timeOffset?: number });
+      if (typeof o.id === "number" && typeof o.type === "string") this.curvesById.set(o.id, o);
       for (const [k, v] of Object.entries(o)) if (k !== "keys" && v && typeof v === "object") index(v);
     };
     for (const s of sets ?? []) {
@@ -218,7 +218,9 @@ export class ChildAnimator {
         const [attr0] = b.destinationAttribute.split(".");
         const xf = attr0 === "translation" || attr0 === "rotation" || attr0 === "scaling" ? this.xforms.get(b.destination) : undefined;
         const target = this.targets.get(b.destination);
-        const curve = attr0 === "timeOffset" ? this.curvesById.get(b.destination) : undefined;
+        // a curve's own number: a scalar's timeOffset, a TriPerlinCurve's speed, scale, offset and the like (its value is
+        // its output: set, then read over)
+        const curve = this.curvesById.get(b.destination) && (attr0 === "timeOffset" || b.destinationType === "TriPerlinCurve") ? this.curvesById.get(b.destination) : undefined;
         const binding = attr0 === "scale" && b.destinationType === "TriValueBinding" ? this.bindingsById.get(b.destination) : undefined;
         if (!target && !xf && !curve && !binding) continue;
         let src: Value;
@@ -231,7 +233,7 @@ export class ChildAnimator {
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");
         const srcC = srcComp !== undefined ? COMPONENT[srcComp] ?? null : null;
-        if (curve) { curve.timeOffset = copied(src, srcC, b.scale, b.offset, curve.timeOffset ?? 0, null) as number; continue; }
+        if (curve) { curve[attr ?? "timeOffset"] = copied(src, srcC, b.scale, b.offset, typeof curve[attr ?? ""] === "number" ? (curve[attr ?? ""] as number) : 0, null) as number; continue; }
         if (binding) { binding.scale = copied(src, srcC, b.scale, b.offset, binding.scale, null) as number; continue; }
         if (xf) {
           const key = attr === "translation" ? "t" : attr === "rotation" ? "r" : "s";
@@ -278,7 +280,7 @@ export class ChildAnimator {
         return;
       case "value": {
         const now = target.get(attr);
-        if (now !== undefined) target.set(attr, copied(src, srcComp, scale, offset, now, null) as number);
+        if (now !== undefined) target.set(attr, copied(src, srcComp, scale, offset, now, comp));
         return;
       }
       case "uniform": {

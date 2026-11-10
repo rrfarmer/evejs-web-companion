@@ -331,13 +331,22 @@ export interface SofChildParticles {
   geometry: string | null;
   meshIndex: number;
   minScreenSize: number;
-  areas: { kind: string; effect: string; path?: string; options?: Record<string, string>; params: Record<string, unknown>; textures: Record<string, string | null> }[];
+  areas: { kind: string; effect: string; path?: string; paramIds?: Record<string, number>; options?: Record<string, string>; params: Record<string, unknown>; textures: Record<string, string | null> }[];
   meshSystem: number;
   systems: ParticleSystemData[];
   emitters: ParticleEmitterData[];
   updated: number[];
   modifiers?: string[];
 }
+
+/** The particle materials' uniforms by the effect parameter they hold (a binding into the parameter drives them). */
+const PARAM_UNIFORM: Record<string, string> = {
+  SpriteFactors: "spriteFactors", SpriteFactors2: "spriteFactors2", VelocityStretch: "velocityStretch", UseWorldScale: "useWorldScale",
+  Layer1TexCoordModifier: "layer1Mod", Layer2TexCoordModifier: "layer2Mod", Layer1TexCoordSpeed: "layer1Speed", Layer2TexCoordSpeed: "layer2Speed",
+  Color1: "color1", Color2: "color2", Color3: "color3", ColorMidpoint: "colorMidpoint", SpriteColor: "spriteColor",
+  DistanceScalingParams: "distanceScaling", ParticleParams: "particleParams", Brightness: "brightness",
+  AtlasInfo: "atlas", Colors: "colors", Colors2: "colors2", SelfIllumination: "selfIllum",
+};
 
 /** The instance attributes the particle shaders read, by the element that fills them, and their sizes. */
 const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>) => string | undefined }[] = [
@@ -358,10 +367,13 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
  * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, 2layermask, 2layerdynmaskv2); null where none is.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
-  registerEmitter?: (id: number, get: (attr: string) => number | undefined, set: (attr: string, v: number) => void) => void): THREE.Object3D | null {
+  registerEmitter?: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void) => void,
+  registerUniform?: (id: number, uniform: THREE.IUniform | undefined) => void): THREE.Object3D | null {
   let material: THREE.ShaderMaterial | null = null;
-  for (const a of node.areas) if (!material) material = particleMaterial(a, textureOf);
-  if (!material) return null;
+  let drawn: Area | null = null;
+  for (const a of node.areas) if (!material) { material = particleMaterial(a, textureOf); drawn = a; }
+  if (!material || !drawn) return null;
+  for (const [name, id] of Object.entries(drawn.paramIds ?? {})) if (PARAM_UNIFORM[name] && material.uniforms[PARAM_UNIFORM[name]!]) registerUniform?.(id, material.uniforms[PARAM_UNIFORM[name]!]);
   const sims = node.systems.map((s) => new ParticleSim(s));
   const sim = sims[node.meshSystem];
   if (!sim || sim.max === 0) return null;
@@ -372,7 +384,17 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     const id = (e.data as { id?: number }).id;
     if (id === undefined || !registerEmitter) continue;
     registerEmitter(id, (attr) => (attr === "rate" ? Number(e.data.rate ?? 0) : attr === "maxParticles" ? Number(e.data.maxParticles ?? -1) : undefined),
-      (attr, v) => { if (attr === "rate") e.data.rate = v; else if (attr === "maxParticles") e.data.maxParticles = v; });
+      (attr, v) => { const n = Array.isArray(v) ? v[0] ?? 0 : v; if (attr === "rate") e.data.rate = n; else if (attr === "maxParticles") e.data.maxParticles = n; });
+    // its generators' ranges and speeds (read at each spawn): a vector range nought where the file has none
+    for (const g of (e.data.generators ?? []) as Record<string, unknown>[]) {
+      if (!g || typeof g.id !== "number") continue;
+      registerEmitter(g.id, (attr) => {
+        const v = g[attr];
+        if (typeof v === "number" || Array.isArray(v)) return v as number | number[];
+        if (attr === "minRange" || attr === "maxRange") return [0, 0, 0, 0];
+        return /^(min|max)(Speed|Radius|Phi|Theta)$/.test(attr) ? 0 : undefined;
+      }, (attr, v) => { g[attr] = v; });
+    }
   }
   const updated = node.updated.map((i) => sims[i]).filter((s): s is ParticleSim => !!s);
   const usage = new Map<number, string>();

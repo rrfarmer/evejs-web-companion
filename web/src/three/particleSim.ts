@@ -227,14 +227,11 @@ export function makeGenerator(g: Record<string, unknown>): Generator | null {
     for (let d = 0; d < s; d++) a[i * s + d] = values(d);
   };
   switch (g.type) {
-    case "Tr2RandomUniformAttributeGenerator": {
-      const lo = arr(g.minRange, 4), hi = arr(g.maxRange, 4);
-      return (sim, i) => write(sim, i, key, (d) => lo[d]! + (hi[d]! - lo[d]!) * rand());
-    }
-    case "Tr2RandomIntegerAttributeGenerator": {
-      const lo = arr(g.minRange, 4), hi = arr(g.maxRange, 4);
-      return (sim, i) => write(sim, i, key, (d) => Math.floor(lo[d]! + (hi[d]! - lo[d]!) * rand() + 0.5));
-    }
+    // the ranges, speeds and the like read at each spawn: a curve set's binding may move them (particles.ts)
+    case "Tr2RandomUniformAttributeGenerator":
+      return (sim, i) => { const lo = arr(g.minRange, 4), hi = arr(g.maxRange, 4); write(sim, i, key, (d) => lo[d]! + (hi[d]! - lo[d]!) * rand()); };
+    case "Tr2RandomIntegerAttributeGenerator":
+      return (sim, i) => { const lo = arr(g.minRange, 4), hi = arr(g.maxRange, 4); write(sim, i, key, (d) => Math.floor(lo[d]! + (hi[d]! - lo[d]!) * rand() + 0.5)); };
     case "Tr2ConsecutiveIntegerAttributeGenerator": {
       const lo = arr(g.minRange, 4), hi = arr(g.maxRange, 4), cur = [0, 0, 0, 0];
       return (sim, i) => write(sim, i, key, (d) => { cur[d] = cur[d]! + 1; const r = Math.trunc(hi[d]! - lo[d]!) >>> 0; return r ? lo[d]! + (cur[d]! % r) : lo[d]!; });
@@ -249,8 +246,6 @@ export function makeGenerator(g: Record<string, unknown>): Generator | null {
       };
     case "Tr2SphereShapeAttributeGenerator": case "Tr2CapsuleShapeAttributeGenerator": {
       const capsule = g.type === "Tr2CapsuleShapeAttributeGenerator";
-      const phi = [num(g.minPhi, 0), num(g.maxPhi, 360)], theta = [num(g.minTheta, 0), num(g.maxTheta, 360)];
-      const radius = [num(g.minRadius, 0), num(g.maxRadius, 0)], speed = [num(g.minSpeed, 0), num(g.maxSpeed, 0)];
       const exp = num(g.distributionExponent, 1);
       const controlPos = capsule || g.controlPosition !== false, controlVel = g.controlVelocity !== false;
       const at = arr(g.position, 3), rot = Array.isArray(g.rotation) ? arr(g.rotation, 4) : [0, 0, 0, 1];
@@ -258,6 +253,8 @@ export function makeGenerator(g: Record<string, unknown>): Generator | null {
       const r0 = Array.isArray(g.rotationStart) ? arr(g.rotationStart, 4) : [0, 0, 0, 1], r1 = Array.isArray(g.rotationEnd) ? arr(g.rotationEnd, 4) : [0, 0, 0, 1];
       const posKey = `type:${ELEMENT.POSITION}`, velKey = `type:${ELEMENT.VELOCITY}`;
       return (sim, i) => {
+        const phi = [num(g.minPhi, 0), num(g.maxPhi, 360)], theta = [num(g.minTheta, 0), num(g.maxTheta, 360)];
+        const radius = [num(g.minRadius, 0), num(g.maxRadius, 0)], speed = [num(g.minSpeed, 0), num(g.maxSpeed, 0)];
         const ph = frand(phi[0]!, phi[1]!) * Math.PI / 180, th = frand(theta[0]!, theta[1]!) * Math.PI / 180;
         const t = capsule ? rand() : 0;
         const dir = rotate([Math.sin(ph) * Math.cos(th), -Math.cos(ph), Math.sin(ph) * Math.sin(th)], capsule ? slerp(r0, r1, t) : rot);

@@ -1201,7 +1201,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         const k = node.randScale[0]! + Math.random() * (node.randScale[1]! - node.randScale[0]!);
         const at = new THREE.Matrix4().compose(new THREE.Vector3(l[0], l[1], l[2]), new THREE.Quaternion(l[3], l[4], l[5], l[6]),
           new THREE.Vector3((node.scaling[0] ?? 1) * k, (node.scaling[1] ?? 1) * k, (node.scaling[2] ?? 1) * k));
-        pending.push(hullChildren([{ res: "", root: node.source, skipped: {} }], effects).then((copy) => {
+        // its own copy of the source's data: its curves (a randconst, a Perlin curve's start), generators and emitters
+        pending.push(hullChildren([{ res: "", root: structuredClone(node.source), skipped: {} }], effects).then((copy) => {
           if (!copy) return;
           // in EVE's space already (the holder's parents are): the copy's own mirror replaced by the locator's transform
           copy.matrixAutoUpdate = false;
@@ -1222,7 +1223,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         let quad: THREE.BufferGeometry | null = null;
         lod?.traverse((o) => { if (!quad && (o as THREE.Mesh).isMesh) quad = (o as THREE.Mesh).geometry; });
         if (!quad) return;
-        const o = particleObject(node, quad, childTexture, (id, get, set) => animator.values(id, get, set));
+        const o = particleObject(node, quad, childTexture, (id, get, set) => animator.values(id, get, set), (id, u) => animator.uniform(id, u));
         if (!o) return;
         if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
         place(o, at, node.modifiers);
