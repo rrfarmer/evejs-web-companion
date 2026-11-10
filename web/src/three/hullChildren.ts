@@ -988,8 +988,9 @@ const playedOf = new WeakMap<THREE.Object3D, { objects: Map<number, THREE.Object
  * - EveCameraFxAttributes: distanceToCamera, the container's world position's distance from the eye;
  *   lookAngleToObject, -(lookAt . (position - eye)) / distance - here the cosine of the angle between the eye's forward
  *   and the container, positive facing it (the files' own expressions want it near 1 when it is in view: a ViewAngle
- *   curve of 0 at 0 and 1 at 0.9, its stored input 0.975); cameraRotation, the view's third column - the eye's
- *   forward in EVE's (left-handed) space, our z mirrored; objectRotation and rotationWithChildTransform, the
+ *   curve of 0 at 0 and 1 at 0.9, its stored input 0.975); cameraRotation, the view's third column - taken as toward
+ *   the eye (backward), as lookAt is (and as the six-point lit particles' view z, particles.ts, where the other reading
+ *   lit a front-lit sprite darkest), in EVE's space, our z mirrored; objectRotation and rotationWithChildTransform, the
  *   container's z axis in EVE's space;
  * - EveSpaceObjectFxAttributes: activationStrength 1 (no space object here sets another), activeTurretCount 0 and
  *   killCount 0 (not followed), boundingSphereRadius 0 (not given).
@@ -1006,7 +1007,7 @@ function gatherFx(list: { owner: THREE.Object3D; holder: THREE.Object3D; type: s
       const to = at.clone().sub(eye);
       const d = to.length();
       const z = new THREE.Vector3().setFromMatrixColumn(f.owner.matrixWorld, 2).normalize();
-      f.holder.userData.fx = { distanceToCamera: d, lookAngleToObject: d > 0 ? forward.dot(to) / d : 0, cameraRotation: eve(forward), objectRotation: eve(z), rotationWithChildTransform: eve(z) };
+      f.holder.userData.fx = { distanceToCamera: d, lookAngleToObject: d > 0 ? forward.dot(to) / d : 0, cameraRotation: eve(forward.clone().negate()), objectRotation: eve(z), rotationWithChildTransform: eve(z) };
     } else {
       f.holder.userData.fx = { activationStrength: 1, activeTurretCount: 0, killCount: 0, boundingSphereRadius: 0 };
     }
