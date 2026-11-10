@@ -156,13 +156,16 @@ export class SpaceView {
   private readonly turretFx = new TurretFx();
   /**
    * A shot landing on a ball with an impact overlay: at the damage locator facing the shooter best (the turret's
-   * choice, EveTurretSet.cpp:3252-3330, roughly), of the medium guns' impactSize (0.75) until the turrets' own are read.
+   * choice, EveTurretSet.cpp:3252-3330, roughly), its way the shooter's place less the locator's, of the medium guns'
+   * impactSize (0.75) and a second's life until the turrets' own are read.
    */
   private readonly onShot = (shooter: number, target: number): void => {
     const impact = this.marks.get(target)?.userData.impact as ImpactOverlay | undefined;
     const from = this.placeOf(shooter, this.lastOrigin);
     if (!impact || !from) return;
-    impact.createImpact(impact.locatorFacing(from), 0.75);
+    const locator = impact.locatorFacing(from);
+    const at = impact.locatorPosition(locator);
+    impact.createImpact(locator, 0.75, at ? from.clone().sub(at) : undefined, 1);
   };
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);

@@ -157,7 +157,18 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
       armorEmitter: emitter(dmg ? { ...dmg, armorParticleColorMidpoint: dmg.armorParticleColorMidPoint } : null, "armorParticle", zero),
       hullEmitter: emitter(hd, "hullParticle", zero),
       flicker: dmg ? { speed: dmg.flickerPerlinSpeed ?? 1, alpha: dmg.flickerPerlinAlpha ?? 1.1, beta: dmg.flickerPerlinBeta ?? 2, n: dmg.flickerPerlinN ?? 3 } : null,
+      // the shield's effect (fxshieldimpactv5 on the ellipsoid; type 1 only): the hull's race's shieldImpactParameters and
+      // shieldImpactTextures (EveSOF.cpp:2673-2716), the textures copied
+      shield: null,
     };
+    const raceDamage = raceName ? sof.races.get(String(raceName).toLowerCase())?.damage ?? null : null;
+    if (impactType === 1 && raceDamage) {
+      built.impact.shield = {
+        params: Object.fromEntries((raceDamage.shieldImpactParameters ?? []).filter((p) => p?.name).map((p) => [p.name, p.value ?? null])),
+        textures: Object.fromEntries((raceDamage.shieldImpactTextures ?? []).filter((t) => t?.name && t.resFilePath)
+          .map((t) => [t.name, rf.has(String(t.resFilePath).toLowerCase()) ? copyRes(rf, String(t.resFilePath).toLowerCase(), outRoot) : null])),
+      };
+    }
   }
   // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
   // textures copied
