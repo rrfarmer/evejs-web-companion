@@ -127,63 +127,87 @@ function tex(url: string | null): Promise<THREE.Texture | null> {
  * scale and offset plus its scroll's speed times the time plus its scroll's offset; layer 1 times layer 2 times the
  * mask, in its colour times its blink (mode 0 steady, 1 the flash, 2 a rising and 3 a falling saw, 4 a sine), added
  * over what is behind. The corner table (PlaneCornerOffset) is the engine's, not the effect file's: taken as the unit
- * square about the middle, the scaling its whole size.
+ * square about the middle, the scaling its whole size. Each set is one instanced draw (as the client's plane pool
+ * is), the item's colour, blink and layer transforms per instance: a hangar has thousands of planes (Jita 4-4's 3007).
  */
 async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | null> {
   if (!sets.some((s) => s.items.length)) return null;
   const group = new THREE.Group();
   group.name = "planeSets";
   const quad = new THREE.PlaneGeometry(1, 1);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), scale = new THREE.Vector3();
   for (const set of sets) {
+    if (!set.items.length) continue;
     const [l1, l2, mask] = await Promise.all([tex(set.layer1), tex(set.layer2), tex(set.mask)]);
-    for (const it of set.items) {
+    const n = set.items.length;
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.index = quad.index;
+    geometry.setAttribute("position", quad.getAttribute("position"));
+    geometry.setAttribute("uv", quad.getAttribute("uv"));
+    const colour = new Float32Array(n * 3), blinking = new Float32Array(n * 3);
+    const t1 = new Float32Array(n * 4), s1 = new Float32Array(n * 4), t2 = new Float32Array(n * 4), s2 = new Float32Array(n * 4);
+    set.items.forEach((it, i) => {
       // EveSOF.SetupPlaneSets: the faction group's colour, where it has one, in place of the plane's own
       const c = it.groupColor ?? it.color ?? [1, 1, 1, 1];
-      const mat = new THREE.ShaderMaterial({
-        uniforms: {
-          time: clock,
-          colour: { value: new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1).multiplyScalar((c[3] ?? 1) * (it.intensity ?? 1)) },
-          blinking: { value: new THREE.Vector3(it.blinkMode ?? 0, it.blinkRate ?? 0, it.blinkPhase ?? 0) },
-          layer1: { value: l1 }, layer2: { value: l2 }, mask: { value: mask },
-          has: { value: new THREE.Vector3(l1 ? 1 : 0, l2 ? 1 : 0, mask ? 1 : 0) },
-          t1: { value: new THREE.Vector4(...(it.layer1Transform as [number, number, number, number])) },
-          s1: { value: new THREE.Vector4(...(it.layer1Scroll as [number, number, number, number])) },
-          t2: { value: new THREE.Vector4(...(it.layer2Transform as [number, number, number, number])) },
-          s2: { value: new THREE.Vector4(...(it.layer2Scroll as [number, number, number, number])) },
-        },
-        vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-        fragmentShader: `uniform float time; uniform vec3 colour; uniform vec3 blinking; uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask;
-          uniform vec3 has; uniform vec4 t1; uniform vec4 s1; uniform vec4 t2; uniform vec4 s2; varying vec2 vUv;
-          ${FLASH_GLSL}
-          float blink() {
-            float mode = abs(blinking.x), rate = blinking.y, phase = blinking.z;
-            if (mode < 0.5) return 1.0;
-            if (mode < 1.5) return flash(fract(time * rate + phase), rate);
-            if (mode < 2.5) return fract((phase + time) * rate);
-            if (mode < 3.5) return 1.0 - fract((phase + time) * rate);
-            if (mode < 4.5) return (sin(fract(rate * time) * 6.2831853 + phase * 6.2831853) + 1.0) * 0.5;
-            return 1.0;
-          }
-          void main() {
-            vec2 uv1 = vUv * t1.xy + t1.zw + s1.xy * time + s1.zw;
-            vec2 uv2 = vUv * t2.xy + t2.zw + s2.xy * time + s2.zw;
-            vec3 a = has.x > 0.5 ? texture2D(layer1, uv1).rgb : vec3(1.0);
-            vec3 b = has.y > 0.5 ? texture2D(layer2, uv2).rgb : vec3(1.0);
-            vec3 m = has.z > 0.5 ? texture2D(mask, vUv).rgb : vec3(1.0);
-            gl_FragColor = vec4(colour * blink() * a * b * m, 1.0);
-          }`,
-        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(quad, mat);
-      mesh.position.set(it.position[0] ?? 0, it.position[1] ?? 0, -(it.position[2] ?? 0));
+      const k = (c[3] ?? 1) * (it.intensity ?? 1);
+      colour.set([(c[0] ?? 1) * k, (c[1] ?? 1) * k, (c[2] ?? 1) * k], i * 3);
+      blinking.set([it.blinkMode ?? 0, it.blinkRate ?? 0, it.blinkPhase ?? 0], i * 3);
+      t1.set(it.layer1Transform.slice(0, 4), i * 4); s1.set(it.layer1Scroll.slice(0, 4), i * 4);
+      t2.set(it.layer2Transform.slice(0, 4), i * 4); s2.set(it.layer2Scroll.slice(0, 4), i * 4);
+    });
+    geometry.setAttribute("iColour", new THREE.InstancedBufferAttribute(colour, 3));
+    geometry.setAttribute("iBlinking", new THREE.InstancedBufferAttribute(blinking, 3));
+    geometry.setAttribute("iT1", new THREE.InstancedBufferAttribute(t1, 4));
+    geometry.setAttribute("iS1", new THREE.InstancedBufferAttribute(s1, 4));
+    geometry.setAttribute("iT2", new THREE.InstancedBufferAttribute(t2, 4));
+    geometry.setAttribute("iS2", new THREE.InstancedBufferAttribute(s2, 4));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        time: clock, layer1: { value: l1 }, layer2: { value: l2 }, mask: { value: mask },
+        has: { value: new THREE.Vector3(l1 ? 1 : 0, l2 ? 1 : 0, mask ? 1 : 0) },
+      },
+      vertexShader: `attribute vec3 iColour, iBlinking; attribute vec4 iT1, iS1, iT2, iS2;
+        varying vec2 vUv; varying vec3 vColour, vBlinking; varying vec4 vT1, vS1, vT2, vS2;
+        void main() {
+          vUv = uv; vColour = iColour; vBlinking = iBlinking; vT1 = iT1; vS1 = iS1; vT2 = iT2; vS2 = iS2;
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `uniform float time; uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask; uniform vec3 has;
+        varying vec2 vUv; varying vec3 vColour, vBlinking; varying vec4 vT1, vS1, vT2, vS2;
+        ${FLASH_GLSL}
+        float blink() {
+          float mode = abs(vBlinking.x), rate = vBlinking.y, phase = vBlinking.z;
+          if (mode < 0.5) return 1.0;
+          if (mode < 1.5) return flash(fract(time * rate + phase), rate);
+          if (mode < 2.5) return fract((phase + time) * rate);
+          if (mode < 3.5) return 1.0 - fract((phase + time) * rate);
+          if (mode < 4.5) return (sin(fract(rate * time) * 6.2831853 + phase * 6.2831853) + 1.0) * 0.5;
+          return 1.0;
+        }
+        void main() {
+          vec2 uv1 = vUv * vT1.xy + vT1.zw + vS1.xy * time + vS1.zw;
+          vec2 uv2 = vUv * vT2.xy + vT2.zw + vS2.xy * time + vS2.zw;
+          vec3 a = has.x > 0.5 ? texture2D(layer1, uv1).rgb : vec3(1.0);
+          vec3 b = has.y > 0.5 ? texture2D(layer2, uv2).rgb : vec3(1.0);
+          vec3 m = has.z > 0.5 ? texture2D(mask, vUv).rgb : vec3(1.0);
+          gl_FragColor = vec4(vColour * blink() * a * b * m, 1.0);
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.InstancedMesh(geometry, mat, n);
+    mesh.name = `planeSet:${set.name ?? ""}`;
+    set.items.forEach((it, i) => {
+      pos.set(it.position[0] ?? 0, it.position[1] ?? 0, -(it.position[2] ?? 0));
       // a rotation in EVE's space, mirrored in z
       const r = it.rotation;
-      mesh.quaternion.set(-(r[0] ?? 0), -(r[1] ?? 0), r[2] ?? 0, r[3] ?? 1);
-      mesh.scale.set(it.scaling[0] ?? 1, it.scaling[1] ?? 1, it.scaling[2] ?? 1);
-      mesh.frustumCulled = false;
-      mat.onBeforeRender = tick;
-      group.add(mesh);
-    }
+      q.set(-(r[0] ?? 0), -(r[1] ?? 0), r[2] ?? 0, r[3] ?? 1);
+      scale.set(it.scaling[0] ?? 1, it.scaling[1] ?? 1, it.scaling[2] ?? 1);
+      mesh.setMatrixAt(i, m.compose(pos, q, scale));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    mat.onBeforeRender = tick;
+    group.add(mesh);
   }
   return group;
 }
