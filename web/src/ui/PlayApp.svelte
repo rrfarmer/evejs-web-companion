@@ -255,8 +255,9 @@
       openCargo: (id) => s.flow.openCargo(id),
       // The flow says a refused order as the client does (its dialog: "You are not within maximum jumping distance")
       // and does not throw; a jump it refused is one the view's gate effect must not wait on.
-      jump: async (id) => {
-        await s.flow.jump(id, 0);
+      // menusvc.StargateJump: flown to within 2,500 m of the gate first (GetCloseAndTryCommand), then the jump.
+      jump: async (id, onJumping) => {
+        await s.flow.stargateJump(id, onJumping);
         const refused = s.store.flight.get().actionError;
         if (refused) throw Object.assign(new Error(refused), { said: s.store.flight.get().actionErrorSaid === true });
       },

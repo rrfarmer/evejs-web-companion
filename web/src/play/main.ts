@@ -141,7 +141,7 @@ function showSpace(): void {
     gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
     alignTo: (id) => alignTo(act, flightNow, id),
     keepAtRange: (id, range) => keepAtRange(act, flightNow, id, range ?? 1000),
-    jump: (id) => jump(act, flightNow, id),
+    jump: async (id, onJumping) => { onJumping?.(); await jump(act, flightNow, id); },
     lock: async (id) => { await lockTarget(act, id, null); },
     unlock: (id) => unlockTarget(act, id, "locked"),
     targets: async () => {

@@ -63,7 +63,8 @@ export interface SpaceActions {
   gotoDirection(dx: number, dy: number, dz: number): Promise<void>;
   alignTo(itemID: number): Promise<void>;
   keepAtRange(itemID: number, range?: number): Promise<void>;
-  jump(itemID: number): Promise<void>;
+  /** The jump; `onJumping` said as the jump itself is asked (after any closing in), which starts the gate effect. */
+  jump(itemID: number, onJumping?: () => void): Promise<void>;
   lock(itemID: number): Promise<void>;
   unlock(itemID: number): Promise<void>;
   /** What is locked, and what has the pilot locked: the BFF's read (GET /api/bridge/targets). */
@@ -202,13 +203,13 @@ export class SpaceView {
     // The jump order starts the gate effect.
     const jump = actions.jump.bind(actions);
     // The call returns once the session has changed, after the new system's park has come: the effect starts as the
-    // order is given, and is let go if the order is refused.
+    // jump itself is asked (not while the ship is still flown to the gate), and is let go if the order is refused.
     this.actions = {
       ...actions,
       jump: async (id) => {
-        this.jumpOrderedAt = performance.now();
-        this.jumpArrivedAt = null;
-        try { await jump(id); } catch (e) { this.jumpOrderedAt = null; throw e; }
+        try {
+          await jump(id, () => { this.jumpOrderedAt = performance.now(); this.jumpArrivedAt = null; });
+        } catch (e) { this.jumpOrderedAt = null; throw e; }
       },
     };
     this.modeEl = this.root.querySelector(".ship-mode")!;
