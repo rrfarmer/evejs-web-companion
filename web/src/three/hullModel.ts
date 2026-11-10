@@ -104,6 +104,18 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
   return group;
 }
 
+/**
+ * A controller variable set on a space object (EveSpaceObject2::SetControllerVariable: kept, and handed to every
+ * controller of the object and its children, each taking it where it has a variable of that name; a controller started
+ * later is handed the kept ones). The client's: IsWarping (ship.py EnterWarp / ExitWarp, and on load in warp).
+ */
+export function setControllerVariable(model: THREE.Object3D, name: string, value: number): void {
+  const vars = (model.userData.controllerVars ??= {}) as Record<string, number>;
+  if (vars[name] === value) return;
+  vars[name] = value;
+  model.userData.controllerVarsVersion = ((model.userData.controllerVarsVersion as number | undefined) ?? 0) + 1;
+}
+
 /** The ship's speed and top speed (m/s), for its children's controllers (ShipSpeed(), ShipMaxSpeed()). */
 export function setShipSpeed(model: THREE.Object3D, speed: number, maxSpeed: number): void {
   model.userData.shipSpeed = speed;

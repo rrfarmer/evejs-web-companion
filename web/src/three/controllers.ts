@@ -174,10 +174,14 @@ export class ControllerRun {
   private readonly vars = new Map<string, number>();
   /** A variable set since the last update: the transitions that read variables are looked at again. */
   private dirty = false;
+  /** The version of the object's kept variables last taken (setControllerVariable). */
+  private varsVersion = -1;
   private readonly machines: { current: number; stateStart: number; live: Live[]; vetoed: boolean }[] = [];
 
   constructor(private readonly data: SofController, private readonly owner: THREE.Object3D, private readonly host: ChildEffectHost, private readonly ownerId: number | null = null) {
     for (const v of data.variables) this.vars.set(v.name, v.value);
+    this.takeObjectVariables();
+    this.dirty = false;
     const now = performance.now() / 1000;
     for (const m of data.machines) {
       const run = { current: -1, stateStart: now, live: [] as Live[], vetoed: false };
@@ -190,6 +194,7 @@ export class ControllerRun {
   }
 
   update(): void {
+    this.takeObjectVariables();
     const now = performance.now() / 1000;
     const dirty = this.dirty;
     this.dirty = false;
@@ -225,6 +230,21 @@ export class ControllerRun {
       run.stateStart = now;
       this.enter(m.states[t.to]!, run, now);
       allDirty = true;
+    }
+  }
+
+  /** The space object's kept controller variables, where they changed: each one this controller has, set. */
+  private takeObjectVariables(): void {
+    for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) {
+      const store = o.userData.controllerVars as Record<string, number> | undefined;
+      if (!store) continue;
+      const version = (o.userData.controllerVarsVersion as number | undefined) ?? 0;
+      if (version === this.varsVersion) return;
+      this.varsVersion = version;
+      for (const [name, value] of Object.entries(store)) {
+        if (this.vars.has(name) && this.vars.get(name) !== value) { this.vars.set(name, value); this.dirty = true; }
+      }
+      return;
     }
   }
 
