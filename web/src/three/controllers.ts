@@ -170,6 +170,8 @@ export interface ChildEffectHost {
   setScale?(set: number, scale: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
   setDisplay?(target: number, on: boolean): void;
+  /** An effect propagator's trigger set (by id): its copies placed. */
+  trigger?(target: number): void;
   stop?(owner: number, name: string): void;
   duration?(owner: number, name: string, range: string): number;
 }
@@ -301,7 +303,7 @@ export class ControllerRun {
   private enter(state: SofControllerState, run: { live: Live[] }, now: number): void {
     for (const a of state.actions) {
       // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
-      if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale") && a.value !== undefined) {
+      if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger") && a.value !== undefined) {
         const c = conditionOf(a.value);
         if (!c) continue;
         const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() });
@@ -310,6 +312,9 @@ export class ControllerRun {
         } else if (a.k === "setDisplay" && a.target !== undefined) this.host.setDisplay?.(a.target, v !== 0);
         else if (a.k === "setSetTime" && a.curveSet !== undefined) this.host.applyTime?.(a.curveSet, v);
         else if (a.k === "setSetScale" && a.curveSet !== undefined) this.host.setScale?.(a.curveSet, v);
+        // an effect propagator's trigger: set (non-nought) it places its copies; nought does nothing (m_trigger is
+        // only read when set, then cleared by Play)
+        else if (a.k === "trigger" && a.target !== undefined && v !== 0) this.host.trigger?.(a.target);
         continue;
       }
       // Tr2ActionAnimateCurveSet: each update (after the machines'), its set applied at its value expression's value,

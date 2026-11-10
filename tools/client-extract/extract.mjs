@@ -26,7 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { childEffectRoots, readHullChildren, readHullControllers, readTrafficInstances } from "./lib/children.mjs";
+import { childEffectRoots, readHullChildren, readHullControllers, readTrafficInstances, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
@@ -121,6 +121,10 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   built.childEffects = childEffectRoots();
   // the hull's own controllers (their owner the whole model)
   built.hullControllers = readHullControllers(rf, sof.hulls.get(String(hullName).toLowerCase()));
+  // the hull's locator sets its children's effect propagators name: each locator [x, y, z, qx, qy, qz, qw]
+  const locatorHull = sof.hulls.get(String(hullName).toLowerCase());
+  built.locatorSets = Object.fromEntries(usedLocatorSets().map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
+    .map((l) => [...(l.position ?? [0, 0, 0]), ...(l.rotation ?? [0, 0, 0, 1])])]));
   // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
   // textures copied
   const trafficNodes = [], meshNodes = [];
@@ -130,6 +134,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
     if (n.k === "mesh" || n.k === "particles") meshNodes.push(n);
     if (n.k === "lines") for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     for (const o of n.objects ?? []) walkChildren(o);
+    if (n.k === "propagator") walkChildren(n.source);
   };
   for (const c of built.children) walkChildren(c.root);
   for (const root of Object.values(built.childEffects)) walkChildren(root);

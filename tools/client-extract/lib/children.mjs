@@ -120,6 +120,9 @@ function readCurveSet(cs) {
 // The object files Tr2ActionChildEffect loads (by their .red path, as the actions name them), each read once per build
 // as a child's graph (readNode): the page builds one when a controller's state starts.
 let effectRoots = new Map();
+// the hull locator sets the file's effect propagators name (written with the children: extract.mjs locatorSets)
+let locatorSetsUsed = new Set();
+export const usedLocatorSets = () => [...locatorSetsUsed];
 /** The child effects the last readHullChildren read, by path. */
 export function childEffectRoots() {
   return Object.fromEntries(effectRoots);
@@ -179,6 +182,9 @@ function readController(c, skipped, owner) {
       // a curve set's time or speed (Owner...curveSets["name"]: TriCurveSet's scaledTime and scale)
       const set = a.attribute === "scaledTime" || a.attribute === "scale" ? setValueObject(owner, a) : null;
       if (set?.type === "TriCurveSet") return { k: a.attribute === "scale" ? "setSetScale" : "setSetTime", curveSet: idOf(set), value };
+      // an effect propagator's trigger (EveChildEffectPropagator "trigger": non-nought reads its locators and plays)
+      const propagator = a.attribute === "trigger" ? setValueObject(owner, a) : null;
+      if (propagator?.type === "EveChildEffectPropagator") return { k: "trigger", target: idOf(propagator), value };
       skipped[a.type] = (skipped[a.type] ?? 0) + 1;
       return { k: a.type };
     }
@@ -305,6 +311,27 @@ function readShown(o, skipped) {
       textures: effectTextures(o.lineSet.lineEffect), curves,
     };
   }
+  // EveChildEffectPropagator (Trinity's Eve/SpaceObject/Children/): its instance container's source copied to each
+  // locator of the set it names; read where the set is the owner's (propagationType externalLocatorSet, 1) and the
+  // trigger places every copy at once and keeps it (triggerMethood instantPermanent, 2)
+  if (o.type === "EveChildEffectPropagator") {
+    const type = o.propagationType ?? 0, trigger = o.triggerMethood ?? 0;
+    const source = o.effect?.type === "EveChildInstanceContainer" ? readNode(o.effect.source, skipped) : null;
+    if (type !== 1 || trigger !== 2 || !source) {
+      const k = `EveChildEffectPropagator:${type}/${trigger}${source ? "" : "/no-source"}`;
+      skipped[k] = (skipped[k] ?? 0) + 1;
+      return null;
+    }
+    // ProcessRefLocators: an empty name is "damage"
+    const set = String(o.locatorSetName || "damage").trim();
+    locatorSetsUsed.add(set);
+    const m = srt(o);
+    return {
+      k: "propagator", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, locatorSet: set,
+      completeness: Math.min(1, Math.max(0, o.completeness ?? 1)), scaling: o.effectScaling ?? [1, 1, 1],
+      randScale: [o.randScaleMin ?? 1, Math.max(o.randScaleMin ?? 1, o.randScaleMax ?? 1)], source,
+    };
+  }
   if (o.type === "EveChildContainer") {
     if (!HIGH_QUALITY.has(o.displayFilter ?? 5)) return null;
     const objects = (o.objects ?? []).map((c) => readNode(c, skipped)).filter(Boolean);
@@ -424,6 +451,7 @@ export function readHullChildren(rf, sofHull, faction = null) {
   ids = new WeakMap();
   nextId = 1;
   effectRoots = new Map();
+  locatorSetsUsed = new Set();
   readRf = rf;
   for (const child of hullChildEntries(sofHull, faction)) {
     const res = String(child.redFilePath ?? "").toLowerCase().replace(/\.red$/, ".black");

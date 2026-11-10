@@ -100,7 +100,24 @@ export interface SofChildLines {
   textures: Record<string, string | null>;
   curves: { m: number[]; p1: number[]; c: number[]; p2: number[]; segments: number; width: number }[];
 }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles;
+/**
+ * An EveChildEffectPropagator (children.mjs): its instance container's source, copied to each locator of the owner's
+ * set of that name (each copy at the locator's position and rotation, scaled by scaling x a random factor in randScale,
+ * a locator kept with chance completeness), all at once when its trigger is set, and kept.
+ */
+export interface SofChildPropagator {
+  k: "propagator";
+  id?: number;
+  display?: boolean;
+  name: string | null;
+  m: number[] | null;
+  locatorSet: string;
+  completeness: number;
+  scaling: number[];
+  randScale: number[];
+  source: SofChildNode;
+}
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -993,6 +1010,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
         stop: (owner: number, name: string) => animator?.stop(owner, name),
         setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
+        trigger: (target: number) => group.traverse((o) => { if (o.userData.propagatorId === target) o.visible = true; }),
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
         setScale: (set: number, scale: number) => animator?.setScale(set, scale),
         duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
@@ -1057,7 +1075,8 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
   });
 }
 
-export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = []): Promise<THREE.Object3D | null> {
+export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = [],
+  locatorSets: Record<string, number[][]> = {}): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
   const animator = new ChildAnimator();
@@ -1156,6 +1175,39 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         if (node.id !== undefined) l.userData.childId = node.id;
         place(l, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
         sink(l);
+      }
+      return;
+    }
+    if (node.k === "propagator") {
+      // EveChildEffectPropagator (externalLocatorSet, instantPermanent): ProcessRefLocators takes each locator of the
+      // owner's set (TriRand() > completeness skips one), its transform the locator's position and rotation and
+      // effectScaling x randScaleMin..Max; the trigger then has the instance container copy its source to each
+      // (EveChildInstanceContainer::CreateInstance: a deep copy - its own particles, curve sets and controllers -
+      // under a container set up with that transform). Each copy here is the source built anew (its own animator,
+      // controllers and particle systems), placed in the propagator's space, the copies hidden until the trigger.
+      const locators = locatorSets[node.locatorSet] ?? [];
+      const holder = new THREE.Group();
+      holder.name = `child-propagator:${node.name ?? ""}`;
+      if (node.id !== undefined) { holder.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
+      const copies = new THREE.Group();
+      copies.name = "propagator-copies";
+      copies.visible = false;
+      if (node.id !== undefined) copies.userData.propagatorId = node.id;
+      holder.add(copies);
+      place(holder, local.clone().multiply(node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4()), undefined);
+      sink(holder);
+      for (const l of locators) {
+        if (Math.random() > node.completeness) continue;
+        const k = node.randScale[0]! + Math.random() * (node.randScale[1]! - node.randScale[0]!);
+        const at = new THREE.Matrix4().compose(new THREE.Vector3(l[0], l[1], l[2]), new THREE.Quaternion(l[3], l[4], l[5], l[6]),
+          new THREE.Vector3((node.scaling[0] ?? 1) * k, (node.scaling[1] ?? 1) * k, (node.scaling[2] ?? 1) * k));
+        pending.push(hullChildren([{ res: "", root: node.source, skipped: {} }], effects).then((copy) => {
+          if (!copy) return;
+          // in EVE's space already (the holder's parents are): the copy's own mirror replaced by the locator's transform
+          copy.matrixAutoUpdate = false;
+          copy.matrix.copy(at);
+          copies.add(copy);
+        }).catch(() => undefined));
       }
       return;
     }

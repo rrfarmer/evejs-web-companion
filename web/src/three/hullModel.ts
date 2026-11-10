@@ -655,7 +655,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   // the hull's sprite lights and plane cards (hullFx.ts)
   const fx = sof ? await hullFx(sof as { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[]; hazeSets?: SofHazeSet[] }).catch(() => null) : null;
   // the hull's children (hullChildren.ts): the static part of their graph
-  const children = sof ? await hullChildren((sof as { children?: SofHullChild[] }).children, (sof as { childEffects?: Record<string, SofChildNode | null> }).childEffects ?? {}, (sof as { hullControllers?: SofController[] }).hullControllers ?? []).catch((e) => { console.warn("hull children", e); return null; }) : null;
+  const children = sof ? await hullChildren((sof as { children?: SofHullChild[] }).children, (sof as { childEffects?: Record<string, SofChildNode | null> }).childEffects ?? {}, (sof as { hullControllers?: SofController[] }).hullControllers ?? [], (sof as { locatorSets?: Record<string, number[][]> }).locatorSets ?? {}).catch((e) => { console.warn("hull children", e); return null; }) : null;
   if (!boosters && !fx && !children) return lod;
   // The engines and lights belong to the hull, not to one LOD: a holder carries them all.
   const holder = new THREE.Group();

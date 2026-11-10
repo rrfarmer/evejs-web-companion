@@ -243,12 +243,15 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf): 
  * Color3 from it to 1, times SpriteColor; the pixel the texture's rgb x the colour's x (1 + SpriteFactors.x (colour
  * alpha x texture alpha - 1)), alpha the texture's x the colour's x SpriteFactors.z, all x Brightness; blended ONE /
  * INVSRCALPHA (its record's states). Its sampler wraps; nothing is read as sRGB. The fog volume map's factor is 1.
+ *
+ * dynamic/2layerdynmaskv2.fx (its one record, BINDLESS_RENDERING aside) is the same but for three things: the mask's
+ * alpha discards nothing, there is no Brightness, and it has no options (no offsets, no near fade).
  */
-export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
+export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, dynMaskV2 = false): THREE.ShaderMaterial | null {
   const o = area.options as Record<string, string>;
-  if ((o.PARTICLE_TYPE ?? "PARTICLE_STATIC") !== "PARTICLE_DYNAMIC" || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED") return null;
-  const offsets = o.TEXTURE_OFFSETS === "TEXTURE_OFFSETS_ENABLED";
-  const nearFade = o.NEAR_FADE === "NEAR_FADE_ENABLED";
+  if (!dynMaskV2 && ((o.PARTICLE_TYPE ?? "PARTICLE_STATIC") !== "PARTICLE_DYNAMIC" || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED")) return null;
+  const offsets = !dynMaskV2 && o.TEXTURE_OFFSETS === "TEXTURE_OFFSETS_ENABLED";
+  const nearFade = !dynMaskV2 && o.NEAR_FADE === "NEAR_FADE_ENABLED";
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
     time: particleClock,
@@ -259,7 +262,7 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf): 
     color1: { value: v4(p.Color1, [1, 1, 1, 0]) }, color2: { value: v4(p.Color2, [0.5, 0.5, 0.5, 0]) }, color3: { value: v4(p.Color3, [0, 0, 0, 0]) },
     colorMidpoint: { value: f1(p.ColorMidpoint, 0.5) },
     spriteColor: { value: v4(p.SpriteColor, [1, 1, 1, 1]) }, particleParams: { value: v4(p.ParticleParams, [0, 100, 0.5, 0]) },
-    brightness: { value: f1(p.Brightness, 1) },
+    brightness: { value: dynMaskV2 ? 1 : f1(p.Brightness, 1) },
     layer1: { value: null }, layer2: { value: null }, mask: { value: null },
   };
   // the sampler wraps (EveSpaceSceneEnvMapSampler): on the texture objects (the clamping effects clamp in the shader)
@@ -286,7 +289,7 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf): 
       varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor; varying float vDepth;
       void main() {
         vec4 m = texture2D(mask, vMaskUv);
-        if (m.a <= 0.0) discard;
+        ${dynMaskV2 ? "" : "if (m.a <= 0.0) discard;"}
         vec4 t = texture2D(layer1, vUv12.xy) * texture2D(layer2, vUv12.zw) * m;
         ${nearFade ? "t *= clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);" : ""}
         vec4 col = vColor * spriteColor;
@@ -314,6 +317,7 @@ function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMateria
   }
   if (path.endsWith("/specialfx/particles/motionvector.fx")) return motionVectorParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/2layermask.fx")) return twoLayerMaskParticleMaterial(area, textureOf);
+  if (path.endsWith("/specialfx/particles/dynamic/2layerdynmaskv2.fx")) return twoLayerMaskParticleMaterial(area, textureOf, true);
   return null;
 }
 
@@ -351,7 +355,7 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
  * A particle child's drawn object: one quad (the mesh's geometry) instanced per live particle of its mesh's system,
  * the emitters and systems stepped each frame it is drawn (a model's copies share it), the system's GPU elements
  * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it). Drawn by its first area
- * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, 2layermask); null where none is.
+ * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, 2layermask, 2layerdynmaskv2); null where none is.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
   registerEmitter?: (id: number, get: (attr: string) => number | undefined, set: (attr: string, v: number) => void) => void): THREE.Object3D | null {
