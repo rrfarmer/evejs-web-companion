@@ -148,7 +148,63 @@ export interface TypeModelInfo {
  * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
-export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold" };
+export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold", Layer1Map: "layer1", Layer2Map: "layer2", LayerMaskMap: "layerMask" };
+
+/**
+ * A hull area drawn with fx/fxv5.fx or fx/fxdirectionalv5.fx (their record 0, fxres.py; the same pixel stage):
+ * Layer1Map at uv x Layer1Transform.xy + .zw + Layer1Scroll.xy x time + .zw, times the ship's activation strength
+ * (1), times Layer2Map likewise, times LayerMaskMap at the uv, times BaseColor; the colour times the fresnel (as
+ * ubershader.fx's), alpha as it is. fxdirectionalv5's uv is the mesh's position in EVE's space, scaled by the world
+ * transform's axis lengths, dotted with DirectionU and DirectionV (each times its .w). fxv5 blends ONE/ONE itself;
+ * fxdirectionalv5 sets nothing: its batch's preset (additive ONE/ONE, transparent alpha). Culling: neither sets one,
+ * so the batch's (additive none, transparent CW: FrontSide). Defaults from the files: FresnelFactors (1, 1, 0, 0),
+ * transforms and scrolls (1, 1, 0, 0), BaseColor 1, DirectionU (1, 0, 0, 1), DirectionV (0, 1, 0, 1).
+ */
+function fxHullMaterial(area: SofArea, maps: Record<string, THREE.Texture | undefined>): THREE.ShaderMaterial {
+  const directional = /fxdirectionalv5/i.test(area.shader ?? "");
+  const p = area.params;
+  const v4 = (a: number[] | null | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);
+  for (const t of [maps.layer1, maps.layer2, maps.layerMask]) if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  const additive = !directional || area.kind === "additive";
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      fresnel: { value: v4(p.FresnelFactors, [1, 1, 0, 0]) }, base: { value: v4(p.BaseColor, [1, 1, 1, 1]) },
+      t1: { value: v4(p.Layer1Transform, [1, 1, 0, 0]) }, t2: { value: v4(p.Layer2Transform, [1, 1, 0, 0]) },
+      s1: { value: v4(p.Layer1Scroll, [1, 1, 0, 0]) }, s2: { value: v4(p.Layer2Scroll, [1, 1, 0, 0]) },
+      dirU: { value: v4(p.DirectionU, [1, 0, 0, 1]) }, dirV: { value: v4(p.DirectionV, [0, 1, 0, 1]) },
+      time: heatClock,
+      layer1: { value: maps.layer1 ?? null }, layer2: { value: maps.layer2 ?? null }, layerMask: { value: maps.layerMask ?? null },
+    },
+    vertexShader: `uniform vec4 dirU; uniform vec4 dirV; varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      void main() {
+        ${directional ? `vec3 sc = vec3( length( modelMatrix[0].xyz ), length( modelMatrix[1].xyz ), length( modelMatrix[2].xyz ) );
+        vec3 pe = vec3( position.x, position.y, -position.z ) * sc;
+        vUv = vec2( dot( dirU.xyz, pe ) * dirU.w, dot( dirV.xyz, pe ) * dirV.w );` : "vUv = uv;"}
+        vN = mat3( modelMatrix ) * normal;
+        vec4 mv = modelViewMatrix * vec4( position, 1.0 );
+        vFromEye = ( vec4( mv.xyz, 0.0 ) * viewMatrix ).xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform vec4 fresnel; uniform vec4 base; uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform float time;
+      uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D layerMask;
+      varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      void main() {
+        float f = pow( 1.0 - clamp( dot( normalize( -vFromEye ), normalize( vN ) ) - fresnel.z, 0.0, 1.0 ), fresnel.x );
+        f = fresnel.y < 0.0 ? ( 1.0 - min( f, 1.0 ) ) * -fresnel.y : f * fresnel.y;
+        vec4 c = texture2D( layer1, vUv * t1.xy + t1.zw + s1.xy * time + s1.zw )
+          * texture2D( layer2, vUv * t2.xy + t2.zw + s2.xy * time + s2.zw )
+          * texture2D( layerMask, vUv ) * base;
+        gl_FragColor = vec4( c.rgb * f, c.a );
+      }`,
+    transparent: true, depthWrite: false,
+    side: area.kind === "additive" ? THREE.DoubleSide : THREE.FrontSide,
+    ...(additive
+      ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+      : { blending: THREE.NormalBlending }),
+  });
+  logDepth(mat);
+  return mat;
+}
 
 /** The engines' share of full thrust a hull model shows (setThrust), for its heat glow; 0 unset (a station). */
 function thrustOf(o: THREE.Object3D): number {
@@ -384,16 +440,44 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
     areaMaps.set(area, am);
   }
   const materials = new Map<string, THREE.Material>();
-  gltf.scene.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh) return;
+  // each SOF area over a part of the mesh draws it (EveSOF fills each list's areas; a part may be in more than one:
+  // the first takes the mesh, the others a copy of it beside it); an area in a list not drawn yet (distortion) hides
+  // its part; a part no area names keeps the older guess
+  const materialOf = (area: SofArea): THREE.Material | null => {
+    const key = `sof:${area.kind}:${area.index}:${area.name}`;
+    if (!materials.has(key)) {
+      const shader = area.shader ?? "";
+      const m = area.kind === "distortion" ? null
+        : /^fx\/fx(directional)?v5/i.test(shader) ? fxHullMaterial(area, areaMaps.get(area) ?? {})
+        : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area)
+        : null;
+      if (!m) return null;
+      materials.set(key, m);
+    }
+    return materials.get(key)!;
+  };
+  const meshes: THREE.Mesh[] = [];
+  gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
+  for (const mesh of meshes) {
     const mat = mesh.material as THREE.Material;
     const index = typeof mat.userData?.index === "number" ? (mat.userData.index as number) : null;
-    const area = sof?.areas.find((a) => a.kind === "opaque" && a.index === index) ?? null;
-    const key = area ? `sof:${area.index}` : `legacy:${mat.name}`;
-    if (!materials.has(key)) materials.set(key, area ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area) : eveHullMaterial(maps, mat.name));
-    mesh.material = materials.get(key)!;
-  });
+    const areas = sof?.areas.filter((a) => a.index === index) ?? [];
+    if (!areas.length) {
+      const key = `legacy:${mat.name}`;
+      if (!materials.has(key)) materials.set(key, eveHullMaterial(maps, mat.name));
+      mesh.material = materials.get(key)!;
+      continue;
+    }
+    const drawn = areas.map(materialOf).filter((m): m is THREE.Material => !!m);
+    if (!drawn.length) { mesh.visible = false; continue; }
+    mesh.material = drawn[0]!;
+    for (const m of drawn.slice(1)) {
+      const copy = new THREE.Mesh(mesh.geometry, m);
+      copy.name = `${mesh.name}:${(m as THREE.Material).type}`;
+      copy.position.copy(mesh.position); copy.quaternion.copy(mesh.quaternion); copy.scale.copy(mesh.scale);
+      mesh.parent?.add(copy);
+    }
+  }
   // The file's LODs, finest first, switched by distance in units of the model's size.
   const lodNodes = gltf.scene.children[0]?.children ?? [];
   const size = new THREE.Box3().setFromObject(lodNodes[0] ?? gltf.scene).getBoundingSphere(new THREE.Sphere()).radius || 50;

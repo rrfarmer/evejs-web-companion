@@ -99,7 +99,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
   const wreckMaterial = sof.data.generic?.genericWreckMaterial ?? null;
   const genericShader = (shader) => (sof.data.generic?.areaShaders ?? []).find((g) => String(g.shader).toLowerCase() === String(shader ?? "").toLowerCase()) ?? null;
   const areas = [];
-  for (const [list, kind] of [[hull.opaqueAreas, "opaque"], [hull.transparentAreas, "transparent"], [hull.additiveAreas, "additive"]]) {
+  // every list a hull's mesh areas sit in (a part of the mesh may be in more than one: drawn once by each)
+  for (const [list, kind] of [[hull.opaqueAreas, "opaque"], [hull.decalAreas, "decal"], [hull.transparentAreas, "transparent"], [hull.additiveAreas, "additive"], [hull.distortionAreas, "distortion"]]) {
     for (const a of list ?? []) {
       const typeName = AREA_TYPES[a.areaType ?? 0] ?? "Primary";
       const ofType = areaTypes[typeName] ?? {};
@@ -153,8 +154,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":29)
-    sofBuild: 29,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":30)
+    sofBuild: 30,
     booster,
     areas,
     colorSet,
