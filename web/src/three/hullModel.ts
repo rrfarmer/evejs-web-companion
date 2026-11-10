@@ -138,7 +138,9 @@ export interface TypeModelInfo {
  * - quaddetailv5 (its record 0, fxres.py) adds three tiled detail maps: Detail1..3Map at uv x DetailNData.x +
  *   DetailNData.zw (+ 0.002 on x and y), their alphas x DetailNData.y summed and saturated, times s = DetailSelector .
  *   the material weights: a; the tint and the specular pulled toward DetailAlbedoColor and DetailFresnelColor by a
- *   (before the bare surface's pull); the normals' sum (each x 2 - 1) x s added to the normal map's before the frame.
+ *   (before the bare surface's pull); the normals' sum (each x 2 - 1) x s added to the normal map's before the frame;
+ * - quadheatdetailv5 (its record 0) is quadheatv5's heat glow with that detail layer, its third detail Detail2Map read
+ *   again at SecondaryDetail2Data's tiling and offset, weighed by Detail3Data.y.
  * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
@@ -167,7 +169,8 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   // for thrust the ship's booster intensity (EveShip2's shipData.x; a station's 0); GlowMap read at uv + H.w x w x the
   // offset, ^2.4, x the activation strength (1) x w x GeneralHeatGlowColor. (H.x 1: a glow that burns only under
   // thrust.)
-  const heat = /quadheatv5/i.test(area.shader ?? "") && !!maps.glow;
+  const heat = /quadheat(detail)?v5/i.test(area.shader ?? "") && !!maps.glow;
+  const heatDetail = /quadheatdetailv5/i.test(area.shader ?? "");
   const v4 = (a: number[] | null | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);
   const heatUniforms = {
     heatData: { value: [1, 2, 3, 4].map((i) => v4(area.params[`Mtl${i}HeatGlowData`], [1, 0, 0, 0])) },
@@ -193,15 +196,20 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     sailsDetailData: { value: v3(area.params.SailsDetailData, 0) },
     paintMask: { value: maps.paintMask ?? null },
     generalData: { value: v4(area.params.GeneralData, [1, 0, 0, 0]) },
-    detail1: { value: maps.detail1 ?? null }, detail2: { value: maps.detail2 ?? null }, detail3: { value: maps.detail3 ?? null },
-    detailData: { value: [1, 2, 3].map((i) => v4(area.params[`Detail${i}Data`], [1, 1, 0, 0])) },
+    detail1: { value: maps.detail1 ?? null }, detail2: { value: maps.detail2 ?? null }, detail3: { value: (heatDetail ? maps.detail2 : maps.detail3) ?? null },
+    // quadheatdetailv5 (its record 0) reads its third detail from Detail2Map again, at SecondaryDetail2Data's tiling
+    // and offset, weighed by Detail3Data.y
+    detailData: { value: heatDetail
+      ? [v4(area.params.Detail1Data, [1, 1, 0, 0]), v4(area.params.Detail2Data, [1, 1, 0, 0]),
+        (() => { const s2 = v4(area.params.SecondaryDetail2Data, [1, 1, 0, 0]); return new THREE.Vector4(s2.x, v4(area.params.Detail3Data, [1, 1, 0, 0]).y, s2.z, s2.w); })()]
+      : [1, 2, 3].map((i) => v4(area.params[`Detail${i}Data`], [1, 1, 0, 0])) },
     detailAlbedo: { value: v3(area.params.DetailAlbedoColor, 0) },
     detailFresnel: { value: v3(area.params.DetailFresnelColor, 0) },
     detailSelector: { value: v4(area.params.DetailSelector, [1, 1, 1, 1]) },
   };
   // the detail maps tile (the shader reads every texture through its wrapping sampler)
-  const detail = /quaddetailv5/i.test(area.shader ?? "") && !!(maps.detail1 && maps.detail2 && maps.detail3);
-  if (detail) for (const t of [maps.detail1, maps.detail2, maps.detail3]) { t!.wrapS = t!.wrapT = THREE.RepeatWrapping; t!.needsUpdate = true; }
+  const detail = (/quaddetailv5/i.test(area.shader ?? "") && !!(maps.detail1 && maps.detail2 && maps.detail3)) || (heatDetail && !!(maps.detail1 && maps.detail2));
+  if (detail) for (const t of [maps.detail1, maps.detail2, maps.detail3]) if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {});
