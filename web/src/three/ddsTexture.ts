@@ -185,10 +185,69 @@ export async function loadDds(url: string): Promise<THREE.CompressedTexture> {
 }
 const failed = new Set<string>();
 
-/** What this GPU can take; a ship needs RGTC (BC4/BC5) and BPTC (BC7). */
+/** One BC1 colour block (8 bytes at `o`) into 16 RGBA texels, its alpha left to the caller where `withAlpha` is false. */
+function bc1Block(src: Uint8Array, o: number, out: Uint8Array, stride: number, x0: number, y0: number, w: number, h: number, base: number, punch: boolean): void {
+  const c0 = src[o]! | (src[o + 1]! << 8), c1 = src[o + 2]! | (src[o + 3]! << 8);
+  const rgb = (c: number) => [((c >> 11) & 31) * 255 / 31, ((c >> 5) & 63) * 255 / 63, (c & 31) * 255 / 31];
+  const a = rgb(c0), b = rgb(c1);
+  const p: number[][] = [a, b];
+  if (c0 > c1 || !punch) {
+    p.push(a.map((v, i) => (2 * v + b[i]!) / 3), a.map((v, i) => (v + 2 * b[i]!) / 3));
+  } else {
+    p.push(a.map((v, i) => (v + b[i]!) / 2), [0, 0, 0]);
+  }
+  const bits = src[o + 4]! | (src[o + 5]! << 8) | (src[o + 6]! << 16) | (src[o + 7]! << 24);
+  for (let i = 0; i < 16; i++) {
+    const x = x0 + (i & 3), y = y0 + (i >> 2);
+    if (x >= w || y >= h) continue;
+    const k = (bits >>> (2 * i)) & 3;
+    const t = base + (y * stride + x) * 4;
+    out[t] = p[k]![0]!; out[t + 1] = p[k]![1]!; out[t + 2] = p[k]![2]!;
+    if (punch) out[t + 3] = c0 <= c1 && k === 3 ? 0 : 255;
+  }
+}
+
+/** One BC3 alpha block (8 bytes at `o`) into 16 texels' alpha. */
+function bc3Alpha(src: Uint8Array, o: number, out: Uint8Array, stride: number, x0: number, y0: number, w: number, h: number, base: number): void {
+  const a0 = src[o]!, a1 = src[o + 1]!;
+  const p = [a0, a1];
+  if (a0 > a1) for (let i = 1; i < 7; i++) p.push(((7 - i) * a0 + i * a1) / 7);
+  else { for (let i = 1; i < 5; i++) p.push(((5 - i) * a0 + i * a1) / 5); p.push(0, 255); }
+  let bits = 0n;
+  for (let i = 0; i < 6; i++) bits |= BigInt(src[o + 2 + i]!) << BigInt(8 * i);
+  for (let i = 0; i < 16; i++) {
+    const x = x0 + (i & 3), y = y0 + (i >> 2);
+    if (x >= w || y >= h) continue;
+    out[base + (y * stride + x) * 4 + 3] = p[Number((bits >> BigInt(3 * i)) & 7n)]!;
+  }
+}
+
+/** A block-compressed (DXT1 / DXT5) surface of `depth` slices, top level only, decoded to RGBA8. */
+function decodeBcVolume(src: Uint8Array, w: number, h: number, depth: number, dxt5: boolean): Uint8Array {
+  const out = new Uint8Array(w * h * depth * 4);
+  const bw = Math.max(1, Math.ceil(w / 4)), bh = Math.max(1, Math.ceil(h / 4));
+  const blockBytes = dxt5 ? 16 : 8;
+  let o = 0;
+  for (let z = 0; z < depth; z++) {
+    const base = z * w * h * 4;
+    for (let by = 0; by < bh; by++) {
+      for (let bx = 0; bx < bw; bx++, o += blockBytes) {
+        if (dxt5) {
+          bc3Alpha(src, o, out, w, bx * 4, by * 4, w, h, base);
+          bc1Block(src, o + 8, out, w, bx * 4, by * 4, w, h, base, false);
+        } else {
+          bc1Block(src, o, out, w, bx * 4, by * 4, w, h, base, true);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /**
- * A volume DDS (DDSD_DEPTH: the storm planets' 64^3 noise, uncompressed 32-bit) as a 3D texture, repeating, its top
- * level only.
+ * A volume DDS (DDSD_DEPTH) as a 3D texture, repeating, its top level only: uncompressed (the storm planets' 64^3
+ * noise, 32-bit) or DXT1 / DXT5 (the hull effects' 3D layers, fx3dv5.fx's LayerAllMap), decoded here, a compressed 3D
+ * texture being nothing WebGL 2 takes.
  */
 const volumes = new Map<string, Promise<THREE.Data3DTexture>>();
 export function loadDds3D(url: string): Promise<THREE.Data3DTexture> {
@@ -199,8 +258,15 @@ export function loadDds3D(url: string): Promise<THREE.Data3DTexture> {
       const dv = new DataView(buf);
       if (dv.getUint32(0, true) !== 0x20534444) throw new Error(`${url}: not a DDS`);
       const height = dv.getUint32(12, true), width = dv.getUint32(16, true), depth = Math.max(1, dv.getUint32(24, true));
-      if (dv.getUint32(80, true) & 0x4) throw new Error(`${url}: a compressed volume is not handled`);
-      const { data, format } = unpack(dv, buf, 128, width, height * depth, url);
+      let data: Uint8Array, format: THREE.PixelFormat;
+      if (dv.getUint32(80, true) & 0x4) {
+        const cc = String.fromCharCode(dv.getUint8(84), dv.getUint8(85), dv.getUint8(86), dv.getUint8(87));
+        if (cc !== "DXT5" && cc !== "DXT1") throw new Error(`${url}: a ${JSON.stringify(cc)} volume is not handled`);
+        data = decodeBcVolume(new Uint8Array(buf, 128), width, height, depth, cc === "DXT5");
+        format = THREE.RGBAFormat;
+      } else {
+        ({ data, format } = unpack(dv, buf, 128, width, height * depth, url));
+      }
       const tex = new THREE.Data3DTexture(data, width, height, depth);
       tex.format = format;
       tex.minFilter = tex.magFilter = THREE.LinearFilter;

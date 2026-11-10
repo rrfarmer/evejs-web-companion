@@ -6,7 +6,7 @@
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
-import { loadDds } from "./ddsTexture.ts";
+import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
@@ -246,9 +246,10 @@ const effectClock = { get value() { return performance.now() / 1000; } };
  * clamped where MASK_TEXTURE_SAMPLING is CLAMP; a read that is nought in all four channels discards the pixel; the
  * reads multiplied together and by DiffuseColor; the colour (not the alpha) times the fresnel f = (1 - sat(N.V -
  * F.z))^F.x x F.y, or (1 - min(f, 1)) x -F.y where F.y < 0 (F FresnelFactors, N the world normal unnormalised by the
- * inverse transpose, as the client's, V toward the eye); alpha saturated. Additive areas added (one, one),
- * transparent ones blended over. Not drawn: the PHONG variation's sun (drawn as REGULAR), the soft depth fade and the
- * screen-space occlusion array.
+ * inverse transpose, as the client's, V toward the eye); alpha saturated. The PHONG variation lights the colour first:
+ * times sunColour x l + ambient, l = (N.L + 1) / 2 x (1 - (1 - sat(N.L))^2), L toward the sun (the scene's first
+ * directional light, its colour x intensity; the ambient light's). Additive areas added (one, one), transparent ones
+ * blended over. Not drawn: the soft depth fade and the screen-space occlusion array.
  */
 function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
@@ -259,6 +260,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
     colour: { value: v4(p.DiffuseColor, [1, 1, 1, 1]) }, fresnel: { value: v4(p.FresnelFactors, [0, 1, 0, 0]) },
     maskT: { value: v4(p.MaskTransform, [0, 0, 1, 1]) }, maskS: { value: v4(p.MaskScroll, [0, 0, 0, 0]) },
     mask: { value: null },
+    sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColour: { value: new THREE.Color(1, 1, 1) }, ambient: { value: new THREE.Color(0, 0, 0) },
   };
   for (let i = 1; i <= 3; i++) {
     uniforms[`t${i}`] = { value: v4(p[`TextureTransform${i}`], [0, 0, 1, 1]) };
@@ -285,6 +287,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
     fragmentShader: `uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D d3; uniform sampler2D mask;
       uniform vec4 t1; uniform vec4 t2; uniform vec4 t3; uniform vec4 s1; uniform vec4 s2; uniform vec4 s3;
       uniform vec4 maskT; uniform vec4 maskS; uniform vec4 colour; uniform vec4 fresnel; uniform float time;
+      uniform vec3 sunDir; uniform vec3 sunColour; uniform vec3 ambient;
       varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
       void main() {
         vec4 c = vec4(1.0);
@@ -294,12 +297,89 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         vec4 m = texture2D(mask, mUv);
         if (dot(m, m) == 0.0) discard;
         c *= m * colour;
+        ${area.options.VARIATION === "PHONG" ? `float nl = dot(normalize(sunDir), normalize(vN));
+        float l = (nl + 1.0) * 0.5 * (1.0 - pow(1.0 - clamp(nl, 0.0, 1.0), 2.0));
+        c.rgb *= sunColour * l + ambient;` : ""}
         float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
         f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
         gl_FragColor = vec4(c.rgb * f, clamp(c.a, 0.0, 1.0));
       }`,
     side: THREE.DoubleSide, transparent: true, depthWrite: false,
     ...(additive
+      ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+      : { blending: THREE.NormalBlending }),
+  });
+  if (area.options.VARIATION === "PHONG") {
+    mat.onBeforeRender = (_r, scene) => {
+      let sun: THREE.DirectionalLight | null = null, amb: THREE.AmbientLight | null = null;
+      scene.traverse((o) => {
+        if (!sun && (o as THREE.DirectionalLight).isDirectionalLight) sun = o as THREE.DirectionalLight;
+        if (!amb && (o as THREE.AmbientLight).isAmbientLight) amb = o as THREE.AmbientLight;
+      });
+      const s = sun as THREE.DirectionalLight | null, a = amb as THREE.AmbientLight | null;
+      if (s) {
+        (uniforms.sunDir!.value as THREE.Vector3).copy(s.position).sub(s.target.position).normalize();
+        (uniforms.sunColour!.value as THREE.Color).copy(s.color).multiplyScalar(s.intensity);
+      }
+      if (a) (uniforms.ambient!.value as THREE.Color).copy(a.color).multiplyScalar(a.intensity);
+    };
+  }
+  logDepth(mat);
+  return mat;
+}
+
+/**
+ * An area drawn with fx3dv5.fx (its sm_hi stages disassembled, client 3396210; its MASK_TYPE option
+ * VERTEX_POSITION_MASK_TYPE, the default here, or UV_MASK_TYPE): two reads of the 3D LayerAllMap at the point in the
+ * mesh's own space, p x LayerNTransform.x + LayerNTransform.yzw + frac(LayerNScroll.x x time) + LayerNScroll.yzw, its
+ * red channel for the first and green for the second, multiplied; the LayerMaskMap read at the distance from
+ * Layer3Center (or the uv) x Layer3Transform.xy + .zw + frac(Layer3Scroll.xy x time) + .zw; the colour
+ * layers x (mask rgb, 1) x BaseColor + mask alpha x FxColor, its rgb times the fresnel (as ubershader.fx's); added
+ * (one, one) for an additive area. The screen-space occlusion array is not drawn.
+ */
+function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    time: effectClock, layers: { value: null }, mask: { value: null },
+    base: { value: v4(p.BaseColor, [1, 1, 1, 1]) }, fx: { value: v4(p.FxColor, [0, 0, 0, 0]) },
+    fresnel: { value: v4(p.FresnelFactors, [0, 1, 0, 0]) }, centre: { value: v4(p.Layer3Center, [0, 0, 0, 0]) },
+  };
+  for (let i = 1; i <= 3; i++) {
+    uniforms[`t${i}`] = { value: v4(p[`Layer${i}Transform`], [1, 0, 0, 0]) };
+    uniforms[`s${i}`] = { value: v4(p[`Layer${i}Scroll`], [0, 0, 0, 0]) };
+  }
+  if (area.textures.LayerAllMap) {
+    void loadDds3D(area.textures.LayerAllMap).then((t) => { uniforms.layers!.value = t; }).catch(() => undefined);
+  }
+  void childTexture(area.textures.LayerMaskMap).then((t) => { uniforms.mask!.value = t; });
+  const byUv = area.options.MASK_TYPE === "UV_MASK_TYPE";
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `varying vec3 vObj; varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      void main() {
+        vObj = position; vUv = uv;
+        vN = mat3(modelMatrix) * normal;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `precision highp sampler3D;
+      uniform sampler3D layers; uniform sampler2D mask; uniform float time;
+      uniform vec4 t1; uniform vec4 t2; uniform vec4 t3; uniform vec4 s1; uniform vec4 s2; uniform vec4 s3;
+      uniform vec4 base; uniform vec4 fx; uniform vec4 fresnel; uniform vec4 centre;
+      varying vec3 vObj; varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      void main() {
+        float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
+        f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
+        float a = texture(layers, vObj * t1.x + t1.yzw + fract(s1.x * time) + s1.yzw).r;
+        float b = texture(layers, vObj * t2.x + t2.yzw + fract(s2.x * time) + s2.yzw).g;
+        vec2 mUv = ${byUv ? "vUv * t3.xy + t3.zw" : "length(vObj - centre.xyz) * t3.xy + t3.zw"} + fract(s3.xy * time) + s3.zw;
+        vec4 m = texture2D(mask, mUv);
+        vec4 c = a * b * vec4(m.rgb, 1.0) * base + m.a * fx;
+        gl_FragColor = vec4(c.rgb * f, c.a);
+      }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    ...(area.kind === "additive"
       ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
       : { blending: THREE.NormalBlending }),
   });
@@ -332,7 +412,7 @@ async function childMesh(node: SofChildMesh): Promise<THREE.Object3D | null> {
       const at = typeof index === "number" ? index : 0;
       const area = node.areas.find((a) => at >= a.index && at < a.index + a.count);
       if (!area) return;
-      if (!materials.has(area)) materials.set(area, uberMaterial(area));
+      if (!materials.has(area)) materials.set(area, area.effect === "fx3dv5" ? fx3dMaterial(area) : uberMaterial(area));
       const m = new THREE.Mesh(mesh.geometry, materials.get(area)!);
       m.renderOrder = 3;
       m.frustumCulled = false;

@@ -11,7 +11,8 @@
 //   geometry's file, the effect's constants and its textures (PositionMap, TexMap); the instances themselves are
 //   read by the caller (readTrafficInstances), the reader being asynchronous;
 // - EveChildMesh on a Tr2Mesh: its transform, geometry file (the caller extracts it), mesh index and the areas drawn
-//   with ubershader.fx (kind, index, count, the effect's options, constants and textures); its other areas counted.
+//   with ubershader.fx or fx3dv5.fx (kind, index, count, the effect's options, constants and textures); its other
+//   areas counted.
 //
 // The rest is counted, not read (meshes, line sets, particle systems, point lights, curve sets, state machines).
 // A child with a groupIndex is built for some factions or skins only; those are left out (a child without one is
@@ -70,7 +71,7 @@ function readNode(o, skipped) {
     for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"]]) {
       for (const a of o.mesh[list] ?? []) {
         const fx = effectName(a.effect);
-        if (fx !== "ubershader") { skipped[`area:${fx}`] = (skipped[`area:${fx}`] ?? 0) + 1; continue; }
+        if (fx !== "ubershader" && fx !== "fx3dv5") { skipped[`area:${fx}`] = (skipped[`area:${fx}`] ?? 0) + 1; continue; }
         areas.push({
           kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
           options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
