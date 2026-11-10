@@ -138,6 +138,12 @@ function clientAssets(): Plugin {
             if (!fs.existsSync(infoFile)) await extractOnce(`graphic:${graphicAsk[1]}`, buildDir, ["--graphic", graphicAsk[1]!]);
             const g = JSON.parse(fs.readFileSync(infoFile, "utf8"));
             res.setHeader("content-type", "application/json");
+            if (g.scene && !("postprocess" in g.scene)) {
+              // a scene extracted before it carried its post-process settings is extracted again
+              fs.rmSync(infoFile);
+              await extractOnce(`graphic:${graphicAsk[1]}:postprocess`, buildDir, ["--graphic", graphicAsk[1]!]);
+              return res.end(fs.readFileSync(infoFile, "utf8"));
+            }
             if (g.scene) return res.end(JSON.stringify(g));
             const stem = String(g.gr2).slice("res:/".length, -".gr2".length);
             const sofName = `${stem}.${String(g.faction ?? "none").toLowerCase()}.sof.json`;

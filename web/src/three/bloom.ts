@@ -12,6 +12,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import type { DynamicExposure } from "./exposure.ts";
 
 export interface Bloom {
   render(): void;
@@ -21,7 +22,8 @@ export interface Bloom {
 }
 
 /** A scene drawn with a glow: strength (how much), radius (how far, 0 to 1), threshold (the brightness it starts at). */
-export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, glow: { strength: number; radius: number; threshold: number }): Bloom {
+export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, glow: { strength: number; radius: number; threshold: number },
+  exposure: () => DynamicExposure | null = () => null): Bloom {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const w = Math.max(1, size.x), h = Math.max(1, size.y);
   const drawn = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
@@ -49,6 +51,9 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
       renderer.setRenderTarget(null);
+      // the scene's dynamic exposure, where it has one, measured on the frame as drawn and set for the output
+      const e = exposure();
+      if (e) { e.measure(renderer, drawn.texture); e.step(renderer); }
       composer.render();
     },
     setSize: (cw, ch) => {

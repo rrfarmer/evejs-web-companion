@@ -11,10 +11,15 @@ import { typeModel, graphicModel, setThrust } from "../three/hullModel.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
+import { DynamicExposure, installClientToneMapping, type DynamicExposureParams } from "../three/exposure.ts";
 import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
 import { pickDockSwing, type DockSwing } from "./hangarRegistry.ts";
 
-interface HangarScene { reflection: string | null; sunDiffuseColor: number[] | null; sunDirection: number[] | null; ambientColor: number[] | null }
+interface HangarScene {
+  reflection: string | null; sunDiffuseColor: number[] | null; sunDirection: number[] | null; ambientColor: number[] | null;
+  /** the scene's post-process settings that are drawn (Tr2PostProcess2): its dynamic exposure's own values */
+  postprocess?: { dynamicExposure: Partial<DynamicExposureParams> | null } | null;
+}
 
 /** How many of a hangar's point lights are lit (the nearest to the ship): three's forward renderer pays for each. */
 const HANGAR_LIGHTS = 24;
@@ -36,6 +41,8 @@ export class HangarView {
   private stopped = false;
   /** The hangar scenes' bloom (their Tr2PPBloomEffect, luminanceThreshold 0): glow maps, panels and lights bleed. */
   private bloom: Bloom | null = null;
+  /** The hangar scene's dynamic exposure (Tr2PPDynamicExposureEffect): every hangar scene has one. */
+  private exposure: DynamicExposure | null = null;
   /** The camera's zoom limits for the ship shown, and the ship's own measures for its bobbing. */
   private zoom = { near: 10, far: 2050 };
   private swing: Swing = DEFAULT_SWING;
@@ -52,7 +59,9 @@ export class HangarView {
     this.root.className = "hangar-view";
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // the client's tone map (Tr2PPTonemappingEffect's filmic curve), its exposure set by the scene's dynamic exposure
+    installClientToneMapping();
+    this.renderer.toneMapping = THREE.CustomToneMapping;
     this.root.appendChild(this.renderer.domElement);
     // a dark bay: a faint studio reflection, a warm key, a cool rim, and a dim fill from below
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -223,6 +232,9 @@ export class HangarView {
    */
   private async setScene(scene: HangarScene | null): Promise<void> {
     this.sun.intensity = 0;
+    this.exposure?.dispose();
+    this.exposure = scene?.postprocess?.dynamicExposure ? new DynamicExposure(scene.postprocess.dynamicExposure) : null;
+    this.renderer.toneMappingExposure = 1;
     if (!scene) { this.scene.environment = this.studioEnvironment; this.scene.environmentIntensity = 0.25; return; }
     if (scene.reflection) {
       try {
@@ -276,7 +288,7 @@ export class HangarView {
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.7, radius: 0.5, threshold: 0.35 });
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.7, radius: 0.5, threshold: 0.35 }, () => this.exposure);
     this.bloom.render();
   }
 
@@ -290,6 +302,7 @@ export class HangarView {
     this.probeTarget?.dispose();
     this.probeEnv?.dispose();
     this.bloom?.dispose();
+    this.exposure?.dispose();
     this.renderer.dispose();
     this.root.remove();
   }

@@ -323,6 +323,8 @@ async function main() {
         fs.writeFileSync(file, JSON.stringify({ graphicID, scene: {
           reflection: copy(s.envMapResPath), envMap1: copy(s.envMap1ResPath), blur: copy(s.envMap2ResPath),
           sunDiffuseColor: s.sunDiffuseColor ?? null, sunDirection: s.sunDirection ?? null, ambientColor: s.ambientColor ?? null,
+          // the post-process effects drawn so far: the dynamic exposure's values the scene sets (the rest are defaults)
+          postprocess: { dynamicExposure: s.postprocess?.dynamicExposure ? Object.fromEntries(Object.entries(s.postprocess.dynamicExposure).filter(([k, v]) => k !== "type" && typeof v === "number")) : null },
         } }));
         console.log(`graphic ${graphicID}: scene ${g.graphicFile}`);
         continue;
