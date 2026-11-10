@@ -159,11 +159,22 @@ export function extractCelestial(rf, graphicFile, outRoot) {
 /**
  * A system's planets and moons, each as the client builds it (lib/typeGraphics.mjs findSystemCelestials): its preset's
  * object file extracted (extractCelestial) and its height maps copied, written as celestials/<solarSystemID>.json:
- * { solarSystemID, items: { itemID: { typeID, kind, celestial, NormalHeight1, NormalHeight2 } } }, each a URL or null.
+ * { solarSystemID, items: { itemID: { typeID, kind, celestial, NormalHeight1, NormalHeight2, geometry } } }, each a
+ * URL or null; the geometry (the preset's sphere mesh) extracted as a .glb once.
  */
 export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot) {
   const items = {};
   const done = new Map();
+  const meshes = new Map();
+  const meshOf = async (res) => {
+    if (!res || !rf.has(res)) return null;
+    if (!meshes.has(res)) {
+      const glb = path.join(outRoot, ...`${res.slice("res:/".length, -".gr2".length)}.glb`.split("/"));
+      if (!fs.existsSync(glb)) await extractHull(rf, res, outRoot);
+      meshes.set(res, `/client-assets/${res.slice("res:/".length, -".gr2".length)}.glb`);
+    }
+    return meshes.get(res);
+  };
   for (const c of await findSystemCelestials(sdeDir, solarSystemID)) {
     let celestial = null;
     if (c.preset && rf.has(c.preset.replace(/\.red$/i, ".black").toLowerCase())) {
@@ -171,7 +182,8 @@ export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot
       celestial = `/client-assets/${path.relative(outRoot, done.get(c.preset)).split(path.sep).join("/")}`;
     }
     const tex = (res) => (res && rf.has(res.toLowerCase()) ? copyRes(rf, res, outRoot) : null);
-    items[c.itemID] = { typeID: c.typeID, kind: c.kind, celestial, NormalHeight1: tex(c.heightMap1), NormalHeight2: tex(c.heightMap2) };
+    const geometry = celestial ? await meshOf(JSON.parse(fs.readFileSync(done.get(c.preset), "utf8")).geometry ?? null) : null;
+    items[c.itemID] = { typeID: c.typeID, kind: c.kind, celestial, NormalHeight1: tex(c.heightMap1), NormalHeight2: tex(c.heightMap2), geometry };
   }
   const file = path.join(outRoot, "celestials", `${solarSystemID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });

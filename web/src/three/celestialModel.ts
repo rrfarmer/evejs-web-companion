@@ -10,6 +10,7 @@
 // NormalHeight1 is its colour map (gasgiantNN_d.dds); a rocky planet's is its height, which shades its tints.
 
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
 
 interface Celestial { type: string; effects: string[]; textures: Record<string, string | null>; params: Record<string, number[]> }
@@ -26,7 +27,50 @@ const col = (v: number[] | undefined, d: [number, number, number]) => new THREE.
 const SURFACE = ["FillTexture", "DetailTexture", "DistortionMap", "DiffuseMap", "HeightMap1", "NoiseMap"];
 
 /** A planet or moon's own build: its preset's object file and its height maps (extract.mjs --system-celestials). */
-export interface CelestialItem { typeID?: number | null; kind?: string; celestial: string | null; NormalHeight1: string | null; NormalHeight2: string | null }
+export interface CelestialItem {
+  typeID?: number | null; kind?: string; celestial: string | null; NormalHeight1: string | null; NormalHeight2: string | null;
+  /** the preset's sphere mesh (PlanetSphere.glb): its UVs are the client's, its second set the polar projection */
+  geometry?: string | null;
+}
+
+/**
+ * The client's planet sphere (radius 1; its finest LOD), loaded once per URL: uv is its own equirectangular map (u 0 at
+ * +x running towards EVE's -z, v 0 at the north pole: the client's, which three's SphereGeometry has half a turn round
+ * and upside down) and uv1 the polar projection the shaders blend in near the poles.
+ */
+const spheres = new Map<string, Promise<THREE.BufferGeometry | null>>();
+function clientSphere(url: string): Promise<THREE.BufferGeometry | null> {
+  if (!spheres.has(url)) {
+    spheres.set(url, new GLTFLoader().loadAsync(url).then((gltf) => {
+      let found: THREE.BufferGeometry | null = null;
+      gltf.scene.traverse((o) => { if (!found && (o as THREE.Mesh).isMesh) found = (o as THREE.Mesh).geometry; });
+      if (!found) return null;
+      // a sphere's normal is its point's direction (the file's own normals are not taken: they read wrong here)
+      const g = (found as THREE.BufferGeometry).clone();
+      const pos = g.getAttribute("position");
+      const nor = new Float32Array(pos.count * 3);
+      const p = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) { p.fromBufferAttribute(pos, i).normalize(); nor.set([p.x, p.y, p.z], i * 3); }
+      g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+      return g;
+    }).catch(() => null));
+  }
+  return spheres.get(url)!;
+}
+
+/** Each sphere of a built planet (its surface and shells) on the client's mesh at the same radius. */
+async function onClientSphere(obj: THREE.Object3D, url: string | null | undefined): Promise<void> {
+  if (!url) return;
+  const base = await clientSphere(url);
+  if (!base) return;
+  obj.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || mesh.geometry.type !== "SphereGeometry") return;
+    const r = (mesh.geometry as THREE.SphereGeometry).parameters.radius;
+    mesh.geometry.dispose();
+    mesh.geometry = base.clone().scale(r, r, r);
+  });
+}
 
 const bySystem = new Map<number, Promise<Record<string, CelestialItem>>>();
 /** A system's planets and moons, each with its own preset and height maps; none where they cannot be read. */
@@ -67,6 +111,12 @@ const isGasGiant = (c: Celestial) => c.effects.some((e) => /\/gasgiant\.fx$/i.te
  * the earthlikeclouds effect, the cloud shell (cloudShell).
  */
 export async function celestialModel(typeID: number, kind: string, radius: number, item: CelestialItem | null = null, itemID: number | null = null): Promise<THREE.Object3D | null> {
+  const built = await buildCelestial(typeID, kind, radius, item, itemID);
+  if (built && kind !== "sun") await onClientSphere(built, item?.geometry);
+  return built;
+}
+
+async function buildCelestial(typeID: number, kind: string, radius: number, item: CelestialItem | null, itemID: number | null): Promise<THREE.Object3D | null> {
   const surface = await celestialSurface(typeID, kind, radius, item, itemID);
   if (!surface || kind === "sun") return surface;
   const c = (item?.celestial ? await celestialAt(item.celestial) : null) ?? await celestialOf(typeID);
@@ -305,13 +355,14 @@ async function gasGiantModel(c: Celestial, bandMap: string, radius: number, item
  */
 async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
   const opt = (url: string | null | undefined) => (url ? texture(url) : Promise.resolve(null));
-  const [h1, h2, detail, s1, s2, clouds, cap, cityLight, cityUv, cityMask] = await Promise.all([
+  const [h1, h2, detail, s1, s2, clouds, cap, cityLight, cityUv, cityMask, rockPoles] = await Promise.all([
     texture(heightMap1),
     heightMap2 ? texture(heightMap2) : Promise.resolve(null),
     texture(c.textures.FillTexture!),
     opt(c.textures.GroundScattering1), opt(c.textures.GroundScattering2),
     opt(c.textures.CloudsTexture), opt(c.textures.CloudCapTexture),
     opt(c.textures.CityLight), opt(c.textures.CityDistributionTexture), opt(c.textures.CityDistributionMask),
+    opt(c.textures.PolesGradient),
   ]);
   const hasCity = !!(cityLight && cityUv && cityMask && c.params.CityLightColor);
   for (const t of [h1, h2, detail, clouds, cityLight, cityUv, cityMask]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
@@ -333,7 +384,8 @@ async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string |
     shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
     cityLight: { value: cityLight }, cityUv: { value: cityUv }, cityMask: { value: cityMask },
     cityColour: { value: v3(c.params.CityLightColor, [0, 0, 0]) },
-  }, `uniform sampler2D cityLight; uniform sampler2D cityUv; uniform sampler2D cityMask; uniform vec3 cityColour;
+    poles: { value: rockPoles }, hasPoles: { value: rockPoles ? 1 : 0 },
+  }, `uniform sampler2D poles; uniform float hasPoles; uniform sampler2D cityLight; uniform sampler2D cityUv; uniform sampler2D cityMask; uniform vec3 cityColour;
       uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform sampler2D clouds; uniform float hasClouds; uniform float hasScatter;
       uniform vec4 detailF; uniform vec4 miscF; uniform vec4 sharpF; uniform vec4 coverF;
       uniform vec3 fillTint; uniform vec3 vegTint; uniform vec3 eqTint; uniform vec3 mountTint; uniform vec3 water; uniform vec3 shallow;
@@ -341,7 +393,18 @@ async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string |
         float a = texture2D(h1, vUv * vec2(2.0, 1.0) + shiftA).r;
         float b = texture2D(heightMap2, vUv * vec2(3.0, 1.5) + shiftB + 1.0).r;
         vec4 d = ${detail ? "texture2D(detailMap, vUv * vec2(2.0, 1.0) * detailF.x)" : "vec4(0.5)"};
-        float h = clamp((a * b - miscF.x) * 4.0, 0.0, 1.0) + d.z * detailF.y * 0.01;
+        float h = clamp((a * b - miscF.x) * 4.0, 0.0, 1.0);
+        // the poles (earthlikeplanet.fx / sandstormplanet.fx): the heights and the fill read again on the mesh's polar
+        // projection (uv1: x 0.25 and x 0.375, the fill x 0.5 of its tiling), blended in by
+        // saturate(2 (1 - PolesGradient)^3)
+        if (hasPoles > 0.5) {
+          float wp = clamp(2.0 * pow(1.0 - texture2D(poles, vUv).r, 3.0), 0.0, 1.0);
+          float ap = texture2D(h1, vUv1 * 0.25 + shiftA).r;
+          float bp = texture2D(heightMap2, vUv1 * 0.375 + shiftB + 1.0).r;
+          h = mix(h, clamp((ap * bp - miscF.x) * 4.0, 0.0, 1.0), wp);
+          ${detail ? "d = mix(d, texture2D(detailMap, vUv1 * detailF.x * 0.5), wp);" : ""}
+        }
+        h += d.z * detailF.y * 0.01;
         vec3 land = d.x * fillTint;
         land = mix(land, d.y * vegTint, clamp(sharpF.x * (coverF.y - (h - miscF.x)), 0.0, 1.0));
         land = mix(land, d.z * eqTint, clamp((h - (1.0 - (coverF.z + coverF.x))) * sharpF.y, 0.0, 1.0));
@@ -400,10 +463,10 @@ function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uni
   const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
   const mat = new THREE.ShaderMaterial({
     uniforms: { ...uniforms, scatter1: { value: s1 }, scatter2: { value: s2 }, sunDir: { value: sunDir }, ambient: { value: SCATTER_AMBIENT }, time: { value: 0 } },
-    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vW;
-      void main() { vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    vertexShader: `attribute vec2 uv1; varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW;
+      void main() { vUv = uv; vUv1 = uv1; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: `uniform sampler2D scatter1; uniform sampler2D scatter2; uniform vec3 sunDir; uniform vec3 ambient; uniform float time;
-      varying vec2 vUv; varying vec3 vN; varying vec3 vW;
+      varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW;
       ${head}
       void main() {
         vec3 N = normalize(vN), L = normalize(sunDir), V = normalize(cameraPosition - vW);
@@ -552,6 +615,13 @@ async function moonModel(c: Celestial, heightMap1: string, heightMap2: string | 
         float b = texture2D(heightMap2, vUv * vec2(3.0, 1.5) + shiftB + 1.0).r;
         float h = min(a, b);
         vec3 det = texture2D(detailMap, vUv * vec2(2.0, 1.0) * tiling).xyz;
+        // the poles (SimpleMoon's pixel stage): the heights read again on the mesh's polar projection (uv1 x 0.5 and
+        // x 0.75), the detail at uv1 x 0.25 of its tiling, blended in by saturate(2 (1 - PolesGradient)^3)
+        if (hasPoles > 0.5) {
+          float wp = clamp(2.0 * pow(1.0 - texture2D(poles, vUv).r, 3.0), 0.0, 1.0);
+          h = mix(h, min(texture2D(h1, vUv1 * 0.5 + shiftA).r, texture2D(heightMap2, vUv1 * 0.75 + shiftB + 1.0).r), wp);
+          det = mix(det, texture2D(detailMap, vUv1 * tiling * 0.25).xyz, wp);
+        }
         float da = det.x * detailF.x, db = det.y * detailF.y;
         float shade = mix(da, det.z * detailF.z, h);
         float t = h / rampBias;

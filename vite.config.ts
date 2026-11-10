@@ -106,7 +106,10 @@ function clientAssets(): Plugin {
           try {
             const buildDir = path.join(root, build);
             const file = path.join(buildDir, "celestials", `${systemCelestialsAsk[1]}.json`);
-            if (!fs.existsSync(file)) await extractOnce(`celestials:${systemCelestialsAsk[1]}`, buildDir, ["--system-celestials", systemCelestialsAsk[1]!]);
+            // a list from before it named each planet's sphere mesh is made again
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"geometry"')) {
+              await extractOnce(`celestials:${systemCelestialsAsk[1]}`, buildDir, ["--system-celestials", systemCelestialsAsk[1]!]);
+            }
             res.setHeader("content-type", "application/json");
             return res.end(fs.readFileSync(file));
           } catch (e) {
