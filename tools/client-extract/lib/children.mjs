@@ -12,7 +12,10 @@
 //   read by the caller (readTrafficInstances), the reader being asynchronous;
 // - EveChildMesh on a Tr2Mesh: its transform, geometry file (the caller extracts it), mesh index and the areas drawn
 //   with ubershader.fx or fx3dv5.fx (kind, index, count, the effect's options, constants and textures); its other
-//   areas counted.
+//   areas counted;
+// - EveChildLineSet: its transform, colours, brightness, the line set's additive flag, width factor and textures, and
+//   each EveBezierCurve (its own transform, point1, bezierPoint, point2, segments, lineWidth), defaults as the
+//   client's classes have them (read in its Python).
 //
 // The rest is counted, not read (meshes, line sets, particle systems, point lights, curve sets, state machines).
 // A child with a groupIndex is built for some factions or skins only; those are left out (a child without one is
@@ -89,6 +92,19 @@ function readNode(o, skipped) {
       k: "mesh", name: o.name ?? null, m: srt(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
       meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
+    };
+  }
+  if (o.type === "EveChildLineSet" && o.lineSet) {
+    const curves = (o.lines ?? []).filter((c) => c?.type === "EveBezierCurve" && c.display !== false).map((c) => ({
+      m: srt(c), p1: c.point1 ?? [0, 0, 0], c: c.bezierPoint ?? [0, 0, 0], p2: c.point2 ?? [0, 0, 0],
+      segments: c.segments ?? 24, width: c.lineWidth ?? 1,
+    }));
+    if (!curves.length) { skipped.EveChildLineSet = (skipped.EveChildLineSet ?? 0) + 1; return null; }
+    return {
+      k: "lines", name: o.name ?? null, m: srt(o), baseColor: o.baseColor ?? [1, 1, 1, 1], animColor: o.animColor ?? [0, 0, 0, 1],
+      brightness: o.brightness ?? 1, additive: o.lineSet.additive === true || o.additiveBatches === true,
+      widthFactor: o.lineSet.lineWidthFactor ?? 1, effect: effectName(o.lineSet.lineEffect),
+      textures: effectTextures(o.lineSet.lineEffect), curves,
     };
   }
   if (o.type === "EveChildContainer") {

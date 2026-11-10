@@ -58,7 +58,20 @@ export interface SofChildMesh {
 }
 /** An EveChildModifierSRT's own transform. */
 export interface SofChildSrt { translation: number[]; rotation: number[]; scaling: number[] }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh;
+export interface SofChildLines {
+  k: "lines";
+  name: string | null;
+  m: number[];
+  baseColor: number[];
+  animColor: number[];
+  brightness: number;
+  additive: boolean;
+  widthFactor: number;
+  effect: string | null;
+  textures: Record<string, string | null>;
+  curves: { m: number[]; p1: number[]; c: number[]; p2: number[]; segments: number; width: number }[];
+}
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -392,6 +405,82 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
 }
 
 /**
+ * A child line set (EveChildLineSet on an EveCurveLineSet, lines3d.fx): each EveBezierCurve a quadratic curve from
+ * point1 through bezierPoint to point2 (in the curve's own transform), cut in `segments` pieces, drawn as a ribbon
+ * lineWidth x the set's lineWidthFactor pixels wide on the screen (lines3d.fx's vertex stage lays the width on in
+ * pixels, by the viewport's size); the pixel TexMap across the ribbon x baseColor x brightness, added for an additive
+ * set. lines3d.fx's other inputs come from trinity's vertex builder, not yet read: the moving front (animColor before
+ * it, by movementSpeed), the scrolling OverlayTexMap and the end caps are not drawn.
+ */
+function lineSet(node: SofChildLines): THREE.Object3D | null {
+  const pos: number[] = [], next: number[] = [], side: number[] = [], width: number[] = [], index: number[] = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (const curve of node.curves) {
+    const m = new THREE.Matrix4().fromArray(curve.m);
+    const p1 = new THREE.Vector3(...(curve.p1 as [number, number, number])).applyMatrix4(m);
+    const cp = new THREE.Vector3(...(curve.c as [number, number, number])).applyMatrix4(m);
+    const p2 = new THREE.Vector3(...(curve.p2 as [number, number, number])).applyMatrix4(m);
+    const n = Math.max(1, Math.round(curve.segments));
+    const at = (t: number, out: THREE.Vector3) => out.copy(p1).multiplyScalar((1 - t) * (1 - t)).addScaledVector(cp, 2 * (1 - t) * t).addScaledVector(p2, t * t);
+    const w = curve.width * node.widthFactor;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      at(t, a);
+      // the way along: toward the next point (the last one from the one before)
+      if (i < n) at((i + 1) / n, b); else { at((i - 1) / n, c); b.copy(a).multiplyScalar(2).sub(c); }
+      const base = pos.length / 3;
+      for (const s of [-1, 1]) { pos.push(a.x, a.y, a.z); next.push(b.x, b.y, b.z); side.push(s); width.push(w); }
+      if (i < n) index.push(base, base + 1, base + 3, base, base + 3, base + 2);
+    }
+  }
+  if (!index.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("aNext", new THREE.Float32BufferAttribute(next, 3));
+  geo.setAttribute("aSide", new THREE.Float32BufferAttribute(side, 1));
+  geo.setAttribute("aWidth", new THREE.Float32BufferAttribute(width, 1));
+  geo.setIndex(index);
+  const bc = node.baseColor, k = node.brightness;
+  const uniforms = {
+    tex: { value: null as THREE.Texture | null }, viewport: { value: new THREE.Vector2(1920, 1080) },
+    colour: { value: new THREE.Vector4((bc[0] ?? 1) * k, (bc[1] ?? 1) * k, (bc[2] ?? 1) * k, bc[3] ?? 1) },
+  };
+  void childTexture(node.textures.TexMap).then((t) => { uniforms.tex.value = t; });
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `attribute vec3 aNext; attribute float aSide; attribute float aWidth; uniform vec2 viewport; varying float vAcross;
+      void main() {
+        vec4 c0 = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 c1 = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
+        vec2 s0 = c0.xy / c0.w * viewport, s1 = c1.xy / c1.w * viewport;
+        vec2 dir = s1 - s0;
+        dir = dot(dir, dir) > 1e-12 ? normalize(dir) : vec2(1.0, 0.0);
+        vec2 n = vec2(-dir.y, dir.x);
+        c0.xy += n * aSide * aWidth / viewport * c0.w;
+        vAcross = aSide * 0.5 + 0.5;
+        gl_Position = c0;
+      }`,
+    fragmentShader: `uniform sampler2D tex; uniform vec4 colour; varying float vAcross;
+      void main() {
+        vec4 t = texture2D(tex, vec2(vAcross, 0.5));
+        gl_FragColor = vec4(t.rgb * colour.rgb, t.a * colour.a);
+      }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    ...(node.additive
+      ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+      : { blending: THREE.NormalBlending }),
+  });
+  const size = new THREE.Vector2();
+  mat.onBeforeRender = (renderer) => { renderer.getDrawingBufferSize(size); uniforms.viewport.value.set(size.x, size.y); };
+  logDepth(mat);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = `child-lines:${node.name ?? ""}`;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 3;
+  return mesh;
+}
+
+/**
  * A child mesh: its geometry file (extracted as a hull's, so in our mirrored space: mirrored back here, the group
  * above mirroring it again), the mesh of its meshIndex, each triangle group drawn by the area whose index range
  * holds it (Tr2MeshArea index, count); groups no area names are not drawn.
@@ -563,6 +652,14 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
         place(o, at, node.modifiers, node.srt ?? null);
         sink(o);
       }));
+      return;
+    }
+    if (node.k === "lines") {
+      const l = lineSet(node);
+      if (l) {
+        place(l, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
+        sink(l);
+      }
       return;
     }
     if (node.k === "traffic") {

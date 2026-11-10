@@ -123,6 +123,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
     if (!n) return;
     if (n.k === "traffic") trafficNodes.push(n);
     if (n.k === "mesh") meshNodes.push(n);
+    if (n.k === "lines") for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     for (const o of n.objects ?? []) walkChildren(o);
   };
   for (const c of built.children) walkChildren(c.root);
