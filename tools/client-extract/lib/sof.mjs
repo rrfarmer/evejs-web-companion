@@ -92,6 +92,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":2)
+    sofBuild: 2,
     booster,
     areas,
     colorSet,
@@ -172,8 +174,9 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
         };
       }),
     })),
-    // Its point lights (EveSOFDataHullLightSet items), each its colour from the faction's colour set.
-    lights: (hull.lightSets ?? []).flatMap((set) => (set.items ?? []).map((it) => ({
+    // Its point lights (EveSOFDataHullLightSet items, of the sets in no or a shown visibility group), each its colour
+    // from the faction's colour set.
+    lights: (hull.lightSets ?? []).filter(visible).flatMap((set) => (set.items ?? []).map((it) => ({
       position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,
       color: (colorSet && colorSet[COLOR_TYPES[it.lightColor ?? 0]]) ?? null,
     }))),
