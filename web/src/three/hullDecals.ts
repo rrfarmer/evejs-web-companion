@@ -15,7 +15,10 @@
 // - standard decals (usage 0; decalv5.fx): lit as the client lights them (standardMaterial).
 // - cylindrical decals (usage 3; decalcylindricv5.fx): as the standard ones, their UV wrapped round the box's z axis
 //   as the glow cylindrical decals' is.
-// Kill counters, holes and logo decals are not drawn yet.
+// - logo decals (usage 6): standard decals in the faction's logo for their logoType (the extractor's SOF build gives
+//   them the faction logo set's textures; a faction without that logo has no such decal, as EveSOF::SetupDecalSets).
+// Not drawn: kill counters (they count the ship's displayKillCounterValue, 0 by default, so the client draws none
+// either) and holes (wrecks).
 
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
@@ -32,6 +35,7 @@ const USAGE_STANDARD = 0;
 const USAGE_GLOW = 5;
 const USAGE_GLOW_CYLINDRICAL = 4;
 const USAGE_CYLINDRICAL = 3;
+const USAGE_LOGO = 6;
 
 const clock = { value: 0 };
 
@@ -195,7 +199,7 @@ async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null
 /** The decals added to each LOD node of a hull (each node's own index list), the glow ones animated. */
 export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: readonly SofDecalSet[]): Promise<number> {
   let added = 0;
-  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && [USAGE_STANDARD, USAGE_CYLINDRICAL, USAGE_GLOW, USAGE_GLOW_CYLINDRICAL].includes(d.usage));
+  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && [USAGE_STANDARD, USAGE_CYLINDRICAL, USAGE_GLOW, USAGE_GLOW_CYLINDRICAL, USAGE_LOGO].includes(d.usage));
   for (const d of items) {
     const box = new THREE.Matrix4().compose(
       new THREE.Vector3(d.position[0] ?? 0, d.position[1] ?? 0, d.position[2] ?? 0),
@@ -217,7 +221,7 @@ export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: reado
       const hull = source as THREE.Mesh;
       const geometry = decalGeometry(hull.geometry, indices, inverse);
       if (!geometry) continue;
-      const material = d.usage === USAGE_STANDARD || d.usage === USAGE_CYLINDRICAL
+      const material = d.usage === USAGE_STANDARD || d.usage === USAGE_CYLINDRICAL || d.usage === USAGE_LOGO
         ? await standardMaterial(d, hull.material as THREE.Material, d.usage === USAGE_CYLINDRICAL, axes)
         : await glowMaterial(d, d.usage === USAGE_GLOW_CYLINDRICAL);
       if (!material) continue;

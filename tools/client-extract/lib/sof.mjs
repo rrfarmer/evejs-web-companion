@@ -20,6 +20,9 @@ export const COLOR_TYPES = ["Primary", "Secondary", "Tertiary", "Black", "White"
   "PrimarySpotlight", "SecondarySpotlight", "TertiarySpotlight", "PrimaryBillboard", "PrimaryWarpFx", "PrimaryAttackFX",
   "PrimarySiegeFX", "PrimaryDockedFX"];
 
+/** EveSOFDataFactionLogoSet's logos by a logo decal's logoType (trinity.EveSOFDataLogoSetType, read in the client). */
+export const LOGO_TYPES = ["Primary", "Secondary", "Tertiary", "Marking_01", "Marking_02"];
+
 export const AREA_TYPES = ["Primary", "Glass", "Sails", "Reactor", "Darkhull", "Wreck", "Rock", "Monument", "Ornament", "SimplePrimary"];
 
 const cache = new WeakMap();
@@ -96,8 +99,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":4)
-    sofBuild: 4,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":5)
+    sofBuild: 5,
     booster,
     areas,
     colorSet,
@@ -162,14 +165,17 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     // DecalGlowColor to the faction's colour of the item's glowColorType (0, Primary, where it names none) before the
     // item's own parameters, which are each added only where the effect has none yet - so the faction's colour wins
     // over an item's DecalGlowColor, which stands only where the faction's colour set has no such colour.
+    // A logo decal (usage 6) takes its textures from the faction's logo set, by its logoType; SetupDecalSets makes
+    // none where the faction has no such logo.
     decalSets: (hull.decalSets ?? []).filter(visible).map((set) => ({
       name: set.name ?? null,
-      items: (set.items ?? []).map((it) => {
+      items: (set.items ?? []).filter((it) => (it.usage ?? 0) !== 6 || faction?.logoSet?.[LOGO_TYPES[it.logoType ?? 0]]).map((it) => {
         const p = params(it.parameters);
+        const logo = (it.usage ?? 0) === 6 ? faction.logoSet[LOGO_TYPES[it.logoType ?? 0]] : null;
         return {
           name: it.name ?? null, usage: it.usage ?? 0, meshIndex: it.meshIndex ?? 0, logoType: it.logoType ?? null,
           position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
-          textures: Object.fromEntries((it.textures ?? []).filter((t) => t?.name && t.resFilePath).map((t) => [t.name, String(t.resFilePath).toLowerCase()])),
+          textures: Object.fromEntries((logo?.textures ?? it.textures ?? []).filter((t) => t?.name && t.resFilePath).map((t) => [t.name, String(t.resFilePath).toLowerCase()])),
           parameters: p,
           glowColor: ((it.usage ?? 0) !== 0 && (it.usage ?? 0) !== 6 && colorSet && colorSet[COLOR_TYPES[it.glowColorType ?? 0]]) || p.DecalGlowColor || null,
           indexBuffers: (it.indexBuffers ?? []).map((b) => {
