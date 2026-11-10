@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
+import { HULL_TEXTURE_ROLES, sofHullMaterial, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, animators, type SofCurveSet } from "./childAnimation.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -778,7 +779,26 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
   holder.name = `child-mesh:${node.name ?? ""}`;
   const url = node.geometry;
   if (!glbCache.has(url)) glbCache.set(url, gltfLoader.loadAsync(url).then((g) => g.scene).catch(() => null));
-  const materials = new Map<SofChildMeshArea, THREE.ShaderMaterial>();
+  const materials = new Map<SofChildMeshArea, THREE.Material>();
+  // an area drawn with a hull shader (quadv5.fx, quadglassv5.fx) takes the hull's material: its textures by role (read
+  // first, the material taking them as made), its four materials from the effect's own Mtl1..4 DiffuseColor,
+  // FresnelColor and Gloss.x, else the file's defaults (1, 1 and 0.4: quadv5.sm_hi's header; a child mesh's effect
+  // inherits nothing from its ship but the colour set, which this shader does not read)
+  const hullAreas = new Map<SofChildMeshArea, THREE.Material>();
+  await Promise.all(node.areas.filter((a) => a.effect === "quadv5" || a.effect === "quadglassv5").map(async (a) => {
+    const maps: Record<string, THREE.Texture | undefined> = {};
+    await Promise.all(Object.entries(a.textures).map(async ([name, res]) => {
+      const role = HULL_TEXTURE_ROLES[name];
+      if (role && res) maps[role] = (await childTexture(res)) ?? undefined;
+    }));
+    if (maps.albedo) maps.albedo.colorSpace = THREE.SRGBColorSpace;
+    const v = (k: string) => (Array.isArray(a.params[k]) ? (a.params[k] as number[]) : null);
+    const area: SofArea = {
+      kind: "opaque", name: a.name ?? "", index: a.index, areaType: "Primary", shader: a.effect, textures: {}, params: {},
+      materials: [1, 2, 3, 4].map((i) => ({ name: `Mtl${i}`, diffuse: v(`Mtl${i}DiffuseColor`) ?? [1, 1, 1, 1], dust: null, fresnel: v(`Mtl${i}FresnelColor`) ?? [1, 1, 1, 1], gloss: v(`Mtl${i}Gloss`)?.[0] ?? 0.4 })),
+    };
+    hullAreas.set(a, sofHullMaterial(maps, area));
+  }));
   {
     const scene = await glbCache.get(url)!;
     const lod = scene?.children[0]?.children[node.meshIndex] ?? null;
@@ -792,6 +812,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
       const at = typeof index === "number" ? index : 0;
       const area = node.areas.find((a) => at >= a.index && at < a.index + a.count);
       if (!area) return;
+      if (!materials.has(area) && hullAreas.has(area)) materials.set(area, hullAreas.get(area)!);
       if (!materials.has(area)) {
         const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
           texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
@@ -801,7 +822,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
       }
       o.updateWorldMatrix(true, false);
       // an effect of two passes (ubershadertwosided's back faces) draws its second as a second mesh, after the first
-      for (const mat of [materials.get(area)!, materials.get(area)!.userData.backPass as THREE.ShaderMaterial | undefined]) {
+      for (const mat of [materials.get(area)!, materials.get(area)!.userData.backPass as THREE.Material | undefined]) {
         if (!mat) continue;
         const m = new THREE.Mesh(mesh.geometry, mat);
         m.renderOrder = 3;

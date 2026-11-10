@@ -28,7 +28,8 @@ interface Key { t: number; v: number; left: number; right: number; interp: numbe
  * GetTangentAt at each key returns the stored tangent, AUTO_CLAMP keys included).
  */
 export function prepareScalar(curve: ScalarCurve): Key[] {
-  return curve.keys.map((k) => ({ t: k[0], v: k[1], left: k[2], right: k[3], interp: k[5], type: k[6] })).sort((a, b) => a.t - b.t);
+  // a curve the file gives no keys is empty (its value nought: Tr2CurveScalar::GetValue)
+  return (curve.keys ?? []).map((k) => ({ t: k[0], v: k[1], left: k[2], right: k[3], interp: k[5], type: k[6] })).sort((a, b) => a.t - b.t);
 }
 
 function segment(a: Key, b: Key, t: number): number {
@@ -307,6 +308,9 @@ export function colorValue(curve: Composite, time: number): [number, number, num
   // its components at the time less its own timeOffset (Tr2CurveColor.cpp's UpdateValue)
   time -= Number(curve.timeOffset ?? 0);
   const c = [curveValue(curve.r as Curve, time), curveValue(curve.g as Curve, time), curveValue(curve.b as Curve, time), curveValue(curve.a as Curve, time)] as [number, number, number, number];
+  // an empty alpha curve gives 1 (Tr2CurveColor::UpdateValue: m_a.IsEmpty())
+  const a = curve.a as { keys?: unknown[]; type?: string } | undefined;
+  if (!a || (a.type === "Tr2CurveScalar" && !(a.keys?.length))) c[3] = 1;
   if (curve.srgbOutput === true) for (let i = 0; i < 3; i++) c[i] = Math.fround(Math.pow(Math.max(c[i]!, 0), 1 / 2.2));
   return c;
 }

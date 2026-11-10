@@ -132,6 +132,9 @@ export interface TypeModelInfo {
  * The dirt layer (DirtMap at the area's dirt level, lerping the colour to white and the specular to 0.0384) and the
  * pattern layers are not drawn yet.
  */
+/** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
+export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail" };
+
 export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea): THREE.MeshStandardMaterial {
   const m = eveHullMaterial(maps, area.name);
   m.metalness = 0;
@@ -261,7 +264,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   // The Space Object Factory's build of this hull for the type's faction, where there is one: each mesh area takes the
   // SOF area of its index (EveSOFDataHullArea.index), with that area's own textures and the faction's materials.
   const sof = info.sof ? ((await (await fetch(info.sof)).json()) as SofHull) : null;
-  const ROLE: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail" };
+  const ROLE = HULL_TEXTURE_ROLES;
   const areaMaps = new Map<SofArea, Record<string, THREE.Texture | undefined>>();
   const texCache = new Map<string, Promise<THREE.Texture | undefined>>();
   const tex = (url: string) => {
