@@ -6,7 +6,9 @@
 //   DecalIntensityData.x, squared, is the decal's strength; the glow map is read where DecalTextureScaling moves it
 //   (along each axis with a scaling: the fraction of time * scaling + DecalTextureOffset, the whole decal at once;
 //   turned by scaling.z * time about the middle), its red squared to the power 1.2; DecalGlowColor times that times
-//   the strength, added to the frame;
+//   the strength, added to the frame. The shader also multiplies by two per-object constants; taken as 1, the space
+//   object's activationStrength (1.0 by default, and what the client's Python leaves a ship at outside cloaking and
+//   scan holograms) and ccpwgl's Shipdata.y (1);
 // - glow cylindrical decals (usage 4; decalglowcylindricv5.fx): the same glow wrapped round the box's z axis - u
 //   the angle about it, (atan2(y, x) + pi) / 2 pi times DecalTextureScaling.w, v the place along it - the strength
 //   the transparency times the intensity, not squared;
