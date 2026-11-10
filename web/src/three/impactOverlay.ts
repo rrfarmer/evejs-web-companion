@@ -15,8 +15,12 @@
 // (ArmorImpactColor) out to the edge and inside it the hole - InsideMap's metal, lit by the sun, with its glow - put
 // over the hull premultiplied.
 //
-// Left out: the shield's booster and hardener layers and the armor's repair and hardener ones (their faders nought
-// without SetImpactAnimation), the froxel fog (1), the holes' inside lit by the environment and shadowed (the sun only),
+// The defensive modules play on it too (SetImpactAnimation, from the client's ImpactEffect: effects.ShieldBoosting,
+// ModifyShieldResonance, ArmorRepair, TetheringRepair, ArmorHardening, StructureRepair): each starts a fader over a
+// quarter of its cycle (Tr2ScalarFader) - the shield's boosting and hardening kick-ins pulse its 3D layers over the
+// ellipsoid, the armor's hardening shimmers over the hull, its repairing and the hull's light the holes' edges.
+//
+// Left out: the froxel fog (1), the holes' inside lit by the environment and shadowed (the sun only),
 // gammaBrightness (1), the ripple's way to the shooter followed each frame (the turret's UpdateImpact: here the one at
 // the hit), the hull flicker (the activation strength), the holes made at assembly from the model's seed, part
 // overlays, the occluded-locator filter, skinned hulls' variant.
@@ -86,6 +90,64 @@ function shieldTexture(url: string | null | undefined): Promise<THREE.Texture | 
   return shieldTextures.get(url)!;
 }
 
+/**
+ * Tr2ScalarFader: a value faded to 1 or 0 over a length, and on a fade in a kick-in sin(pi x^0.66)^3 over that length
+ * (x the time into it over the length), nought after.
+ */
+class ScalarFader {
+  value = 0;
+  private fading = 0;
+  private fadeTime = -1;
+  private kickInLength = 1;
+  update(dt: number): void {
+    if (this.fading !== 0) {
+      this.value += this.fading * dt;
+      if (this.value < 0) { this.value = 0; this.fading = 0; } else if (this.value > 1) { this.value = 1; this.fading = 0; }
+    }
+    if (this.fadeTime >= 0) { this.fadeTime += dt; if (this.fadeTime > this.kickInLength) this.fadeTime = -1; }
+  }
+  start(fadeIn: boolean, length: number): void {
+    this.kickInLength = Math.max(length, 1e-6);
+    this.fading = (fadeIn ? 1 : -1) / this.kickInLength;
+    if (fadeIn) this.fadeTime = 0;
+  }
+  get kickIn(): number {
+    if (this.fadeTime < 0) return 0;
+    const x = Math.min(1, Math.max(0, this.fadeTime / this.kickInLength));
+    return Math.sin(Math.PI * x ** 0.66) ** 3;
+  }
+  get isZero(): boolean { return this.value === 0 && this.fading === 0; }
+  get isKickInZero(): boolean { return this.fadeTime <= 0; }
+}
+
+/**
+ * effects.* to its SetImpactAnimation name (the client's effects table, res:/staticdata/effects.fsdbinary read with its
+ * own loader: each an ImpactEffect of 10 s unless the trigger gives a duration).
+ */
+export const IMPACT_ANIMATIONS: Record<string, string> = {
+  "effects.ShieldBoosting": "shieldboost",
+  "effects.ModifyShieldResonance": "shieldhardening",
+  "effects.ArmorRepair": "armorrepair",
+  "effects.TetheringRepair": "armorrepair",
+  "effects.ArmorHardening": "armorhardening",
+  "effects.StructureRepair": "hullrepair",
+};
+
+/** A layer texture: wrapping (the records' samplers), a volume where asked. */
+const layerTextures = new Map<string, Promise<THREE.Texture | null>>();
+function layerTexture(url: string | null | undefined, volume: boolean, clamp = false): Promise<THREE.Texture | null> {
+  if (!url) return Promise.resolve(null);
+  const key = `${url}|${clamp}`;
+  if (!layerTextures.has(key)) layerTextures.set(key, (volume ? loadDds3D(url) : loadDds(url)).then((t) => {
+    const w = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+    t.wrapS = t.wrapT = w;
+    if ((t as THREE.Data3DTexture).isData3DTexture) (t as THREE.Data3DTexture).wrapR = w;
+    t.needsUpdate = true;
+    return t as THREE.Texture;
+  }).catch(() => null));
+  return layerTextures.get(key)!;
+}
+
 /** EveDamageOverlay's most holes a ship shows (the goal count's ceiling). */
 const MAX_ARMOR_IMPACTS = 16;
 
@@ -126,7 +188,19 @@ function armorMaterial(params: Record<string, number[] | null>): THREE.ShaderMat
       ArmorInsideAlbedoColor: { value: p("ArmorInsideAlbedoColor", [0.05, 0.05, 0.05, 1]) },
       ArmorInsideGlowColor: { value: p("ArmorInsideGlowColor", [1, 0.1, 0, 1]) },
       ArmorImpactColor: { value: p("ArmorImpactColor", [0, 0, 0, 1]) },
+      FresnelFactors: { value: p("FresnelFactors", [1, 1, 0, 0]) },
+      ArmorRepairTransform: { value: p("ArmorRepairTransform", [1, 1, 1, 1]) }, ArmorRepairData: { value: p("ArmorRepairData", [10, 1, 1, 0]) },
+      ArmorRepairColor: { value: p("ArmorRepairColor", [1, 1, 1, 1]) },
+      HullRepairTransform: { value: p("HullRepairTransform", [1, 1, 1, 1]) }, HullRepairData: { value: p("HullRepairData", [10, 1, 1, 0]) },
+      HullRepairColor: { value: p("HullRepairColor", [1, 1, 1, 1]) },
+      ArmorHardenerTransform: { value: p("ArmorHardenerTransform", [1, 1, 1, 1]) },
+      ArmorHardenerGradientTransform: { value: p("ArmorHardenerGradientTransform", [1, 1, 1, 1]) },
+      ArmorHardenerColor: { value: p("ArmorHardenerColor", [1, 1, 1, 1]) },
+      // the faders (EveDamageOverlay's header: armor repair, armor hardening, hull repair) and the bounding radius
+      faders: { value: new THREE.Vector3() }, boundRadius: { value: 1 },
       CutOffsetMap: { value: null }, InsideMap: { value: null }, InsideNormalMap: { value: null },
+      LayerAllMap: { value: null }, GradientMap: { value: null }, HullRepairLayerAllMap: { value: null },
+      HullRepairGradientMap: { value: null }, ArmorHardeningGradientMap: { value: null },
     },
     vertexShader: `uniform mat4 worldToEve;
       varying vec3 vOS; varying vec2 vUv; varying vec3 vWorld; varying vec3 vNormalW;
@@ -144,6 +218,12 @@ function armorMaterial(params: Record<string, number[] | null>): THREE.ShaderMat
       uniform vec4 ArmorImpactData; uniform vec4 ArmorImpactHole; uniform vec4 ArmorImpactInside; uniform vec4 ArmorInsideFresnelColor;
       uniform vec4 ArmorInsideAlbedoColor; uniform vec4 ArmorInsideGlowColor; uniform vec4 ArmorImpactColor;
       uniform sampler3D CutOffsetMap; uniform sampler2D InsideMap; uniform sampler2D InsideNormalMap;
+      uniform vec4 FresnelFactors; uniform vec4 ArmorRepairTransform; uniform vec4 ArmorRepairData; uniform vec4 ArmorRepairColor;
+      uniform vec4 HullRepairTransform; uniform vec4 HullRepairData; uniform vec4 HullRepairColor;
+      uniform vec4 ArmorHardenerTransform; uniform vec4 ArmorHardenerGradientTransform; uniform vec4 ArmorHardenerColor;
+      uniform vec3 faders; uniform float boundRadius;
+      uniform sampler3D LayerAllMap; uniform sampler2D GradientMap; uniform sampler3D HullRepairLayerAllMap;
+      uniform sampler2D HullRepairGradientMap; uniform sampler2D ArmorHardeningGradientMap;
       varying vec3 vOS; varying vec2 vUv; varying vec3 vWorld; varying vec3 vNormalW;
       vec3 encode( vec3 c ) { return mix( c * 12.92, 1.055 * pow( c, vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), c ) ); }
       void main() {
@@ -151,15 +231,20 @@ function armorMaterial(params: Record<string, number[] | null>): THREE.ShaderMat
         float n = texture( CutOffsetMap, pA * ArmorImpactData.z ).y * texture( CutOffsetMap, pA * ArmorImpactData.w ).y + 0.25;
         float edgeW = n * ArmorImpactData.y;
         float holeR = n * ArmorImpactHole.y + ArmorImpactHole.x;
-        float A = 0.0, B = 0.0;
+        float outerR = edgeW + ArmorImpactData.x;
+        float A = 0.0, B = 0.0, C = 0.0, Dm = 0.0, E = 0.0;
         for ( int i = 0; i < ${MAX_ARMOR_IMPACTS}; i++ ) {
           if ( i >= count ) break;
           float d = length( holes[ i ].xyz - vOS ) / holes[ i ].w;
           A += 1.0 - clamp( ( d - ArmorImpactData.x ) / edgeW, 0.0, 1.0 );
           B += 1.0 - clamp( d - holeR, 0.0, 1.0 );
+          C += 1.0 - clamp( d / ArmorRepairData.x, 0.0, 1.0 );
+          Dm += 1.0 - clamp( ( d - outerR ) / ( 0.5 * outerR ), 0.0, 1.0 );
+          E += 1.0 - clamp( d / HullRepairData.x, 0.0, 1.0 );
         }
-        A = clamp( A, 0.0, 1.0 ); B = clamp( B, 0.0, 1.0 );
-        if ( A <= 0.0 ) discard;
+        A = clamp( A, 0.0, 1.0 ); B = clamp( B, 0.0, 1.0 ); C = clamp( C, 0.0, 1.0 ); Dm = clamp( Dm, 0.0, 1.0 );
+        // (nothing to draw: no scorch and no hardener)
+        if ( A <= 0.0 && faders.y <= 0.0 ) discard;
         vec2 uvI = vUv * vec2( 2.0, 1.0 ) * ArmorImpactInside.x;
         vec4 I = texture( InsideMap, uvI );
         vec3 NI = texture( InsideNormalMap, uvI ).xyz * 2.0 - 1.0;
@@ -186,7 +271,28 @@ function armorMaterial(params: Record<string, number[] | null>): THREE.ShaderMat
         vec3 inside = max( ( vis * D * F * 3.14159265 + albedo * ( 1.0 - F ) ) * nl * sunColour * horizon, 0.0 );
         vec4 col = mix( vec4( ArmorImpactColor.rgb, A * ArmorImpactColor.w ), vec4( inside, A ), B );
         col.rgb += ArmorInsideGlowColor.rgb * glow;
-        gl_FragColor = vec4( encode( max( col.rgb * col.a, 0.0 ) ), col.a );
+        // the armor repairing (its fader): LayerAllMap's x and y at the armor-size space, the repair zone's gradient
+        float rep = texture( LayerAllMap, pA * ArmorRepairTransform.x + fract( ArmorRepairTransform.z * time ) ).x
+          * texture( LayerAllMap, pA * ArmorRepairTransform.y + fract( ArmorRepairTransform.w * time ) ).y
+          * texture( GradientMap, vec2( fract( ( C - ArmorRepairData.z * time ) * ArmorRepairData.y ) ) ).x * C * faders.x;
+        col.rgb += rep * ArmorRepairColor.rgb;
+        // the hull repairing (its fader): the hull repair layers' x and y, its gradient along the unsaturated zone
+        float hrep = texture( HullRepairLayerAllMap, pA * HullRepairTransform.x + fract( HullRepairTransform.z * time ) ).x
+          * texture( HullRepairLayerAllMap, pA * HullRepairTransform.y + fract( HullRepairTransform.w * time ) ).y
+          * texture( HullRepairGradientMap, vec2( ( E - HullRepairData.z * time ) * HullRepairData.y ) ).x * E * faders.z;
+        vec3 rgb = ( col.rgb + hrep * HullRepairColor.rgb ) * col.a;
+        // the armor hardening (its fader), added outside the holes: LayerAllMap's w twice at the bounding-radius space,
+        // the gradient map's colour twice, a fresnel
+        vec3 pB = vOS / boundRadius;
+        float fr = pow( 1.0 - clamp( dot( V, Ng ) - FresnelFactors.z, 0.0, 1.0 ), FresnelFactors.x );
+        fr = FresnelFactors.y < 0.0 ? ( 1.0 - min( fr, 1.0 ) ) * -FresnelFactors.y : fr * FresnelFactors.y;
+        rgb += texture( LayerAllMap, pB * ArmorHardenerTransform.x + fract( ArmorHardenerTransform.z * time ) ).w
+          * texture( LayerAllMap, pB * ArmorHardenerTransform.y + fract( ArmorHardenerTransform.w * time ) ).w * faders.y
+          * ArmorHardenerColor.rgb
+          * texture( ArmorHardeningGradientMap, vUv * ArmorHardenerGradientTransform.x + fract( ArmorHardenerGradientTransform.z * time ) ).rgb
+          * texture( ArmorHardeningGradientMap, vUv * ArmorHardenerGradientTransform.y + fract( ArmorHardenerGradientTransform.w * time ) ).rgb
+          * fr * ( 1.0 - Dm );
+        gl_FragColor = vec4( encode( max( rgb, 0.0 ) ), col.a );
       }`,
     transparent: true, depthWrite: false, depthTest: true, depthFunc: THREE.LessEqualDepth,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
@@ -234,24 +340,39 @@ function shieldMaterial(params: Record<string, number[] | null>, center: THREE.V
       FullShieldColor: { value: p("FullShieldColor", [1, 1, 1, 1]) },
       EmptyShieldColor: { value: p("EmptyShieldColor", [1, 1, 1, 1]) },
       ShieldFresnel: { value: p("ShieldFresnel", [1, 0, 0, 0]) },
-      RadialIntensityMap: { value: null }, TemporalFadeoutMap: { value: null },
+      ShieldLayer1Transform3D: { value: p("ShieldLayer1Transform3D", [1, 1, 1, 1]) },
+      ShieldLayer2Transform3D: { value: p("ShieldLayer2Transform3D", [1, 1, 1, 1]) },
+      ShieldLayer3Transform3D: { value: p("ShieldLayer3Transform3D", [1, 1, 1, 1]) },
+      ShieldHardeningCenter: { value: p("ShieldHardeningCenter", [0, 0, 0, 0]) },
+      ShieldHardeningTransform: { value: p("ShieldHardeningTransform", [1, 1, 0, 0]) },
+      ShieldBoostingCenter: { value: p("ShieldBoostingCenter", [0, 0, 0, 0]) },
+      ShieldBoostingTransform: { value: p("ShieldBoostingTransform", [1, 1, 0, 0]) },
+      // the boosting and hardening kick-ins (the header's v[1].w and .z), the bounding radius (the layers' space), the time
+      kicks: { value: new THREE.Vector2() }, boundRadius: { value: 1 }, time: { value: 0 },
+      RadialIntensityMap: { value: null }, TemporalFadeoutMap: { value: null }, Layer3DMap: { value: null }, LayerRadMap: { value: null },
     },
-    vertexShader: `uniform vec3 ellipsoidCenter; uniform vec3 ellipsoidRadii;
-      varying vec3 vOS; varying vec3 vN; varying vec3 vV;
+    vertexShader: `uniform vec3 ellipsoidCenter; uniform vec3 ellipsoidRadii; uniform float boundRadius;
+      varying vec3 vOS; varying vec3 vN; varying vec3 vV; varying vec3 vLayer;
       void main() {
         vec3 n = normalize( position );
         vec3 pOS = ellipsoidRadii * n + ellipsoidCenter;
         vOS = pOS;
+        vLayer = pOS / boundRadius;
         vec4 world = modelMatrix * vec4( pOS, 1.0 );
         vN = mat3( modelMatrix ) * normalize( pOS / ( ellipsoidRadii * ellipsoidRadii ) );
         vV = cameraPosition - world.xyz;
         gl_Position = projectionMatrix * viewMatrix * world;
       }`,
-    fragmentShader: `uniform vec4 imp0[${MAX_SHIELD_IMPACTS}]; uniform vec4 imp1[${MAX_SHIELD_IMPACTS}]; uniform int count;
+    fragmentShader: `precision highp sampler3D;
+      uniform vec4 imp0[${MAX_SHIELD_IMPACTS}]; uniform vec4 imp1[${MAX_SHIELD_IMPACTS}]; uniform int count;
       uniform float colorFade; uniform float parentSize;
       uniform vec4 ShieldImpactData; uniform vec4 ShieldColorIntensity; uniform vec4 FullShieldColor; uniform vec4 EmptyShieldColor; uniform vec4 ShieldFresnel;
       uniform sampler2D RadialIntensityMap; uniform sampler2D TemporalFadeoutMap;
-      varying vec3 vOS; varying vec3 vN; varying vec3 vV;
+      uniform vec4 ShieldLayer1Transform3D; uniform vec4 ShieldLayer2Transform3D; uniform vec4 ShieldLayer3Transform3D;
+      uniform vec4 ShieldHardeningCenter; uniform vec4 ShieldHardeningTransform; uniform vec4 ShieldBoostingCenter; uniform vec4 ShieldBoostingTransform;
+      uniform vec2 kicks; uniform float time;
+      uniform sampler3D Layer3DMap; uniform sampler2D LayerRadMap;
+      varying vec3 vOS; varying vec3 vN; varying vec3 vV; varying vec3 vLayer;
       void main() {
         float sum = 0.0;
         for ( int i = 0; i < ${MAX_SHIELD_IMPACTS}; i++ ) {
@@ -267,7 +388,17 @@ function shieldMaterial(params: Record<string, number[] | null>, center: THREE.V
         sum = clamp( sum, 0.0, 1.0 );
         vec3 color = mix( FullShieldColor.rgb, EmptyShieldColor.rgb, colorFade );
         float fres = pow( abs( dot( normalize( vV ), normalize( vN ) ) ), ShieldFresnel.x );
-        gl_FragColor = vec4( fres * sum * ShieldColorIntensity.x * color, 1.0 );
+        // the boosting and hardening pulses (their kick-ins): three 3D layers, a radial band about each centre
+        vec3 ext = vec3( 0.0 );
+        if ( kicks.x > 0.0 || kicks.y > 0.0 ) {
+          float L1 = texture( Layer3DMap, fract( ShieldLayer1Transform3D.xyz * time ) + vLayer * ShieldLayer1Transform3D.w ).x;
+          float L2 = texture( Layer3DMap, fract( ShieldLayer2Transform3D.xyz * time ) + vLayer * ShieldLayer2Transform3D.w ).y;
+          float L3 = texture( Layer3DMap, fract( ShieldLayer3Transform3D.xyz * time ) + vLayer * ShieldLayer3Transform3D.w ).w;
+          float boostRad = texture( LayerRadMap, length( vLayer - ShieldBoostingCenter.xyz ) * ShieldBoostingTransform.xy + fract( ShieldBoostingTransform.zw * time ) ).x;
+          float hardRad = texture( LayerRadMap, length( vLayer - ShieldHardeningCenter.xyz ) * ShieldHardeningTransform.xy + fract( ShieldHardeningTransform.zw * time ) ).y;
+          ext = 0.1 * ( color * ShieldColorIntensity.w * kicks.x * ( L1 * L2 * boostRad ) + color * ShieldColorIntensity.z * kicks.y * ( L3 * hardRad ) );
+        }
+        gl_FragColor = vec4( fres * ( sum * ShieldColorIntensity.x * color + ext ), 1.0 );
       }`,
     transparent: true, depthWrite: false, depthTest: true,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
@@ -310,6 +441,12 @@ export class ImpactOverlay {
       void armorTexture(sof.armor.textures.CutOffsetMap, true).then((t) => { material.uniforms.CutOffsetMap!.value = t; });
       void armorTexture(sof.armor.textures.InsideMap, false).then((t) => { material.uniforms.InsideMap!.value = t; });
       void armorTexture(sof.armor.textures.InsideNormalMap, false).then((t) => { material.uniforms.InsideNormalMap!.value = t; });
+      void layerTexture(sof.armor.textures.LayerAllMap, true).then((t) => { material.uniforms.LayerAllMap!.value = t; });
+      void layerTexture(sof.armor.textures.GradientMap, false, true).then((t) => { material.uniforms.GradientMap!.value = t; });
+      void layerTexture(sof.armor.textures.HullRepairLayerAllMap, true).then((t) => { material.uniforms.HullRepairLayerAllMap!.value = t; });
+      void layerTexture(sof.armor.textures.HullRepairGradientMap, false).then((t) => { material.uniforms.HullRepairGradientMap!.value = t; });
+      void layerTexture(sof.armor.textures.ArmorHardeningGradientMap, false).then((t) => { material.uniforms.ArmorHardeningGradientMap!.value = t; });
+      material.uniforms.boundRadius!.value = Math.max(1e-3, boundingRadius);
       material.uniforms.parentSize!.value = Math.max(1e-3, Math.min(boundingRadius, ARMOR_PARENT_MAX));
       (this as { armorMaterial: THREE.ShaderMaterial | null }).armorMaterial = material;
     }
@@ -317,6 +454,9 @@ export class ImpactOverlay {
       const material = shieldMaterial(sof.shield.params, this.center, this.radii);
       void shieldTexture(sof.shield.textures.RadialIntensityMap).then((t) => { material.uniforms.RadialIntensityMap!.value = t; });
       void shieldTexture(sof.shield.textures.TemporalFadeoutMap).then((t) => { material.uniforms.TemporalFadeoutMap!.value = t; });
+      void layerTexture(sof.shield.textures.Layer3DMap, true).then((t) => { material.uniforms.Layer3DMap!.value = t; });
+      void layerTexture(sof.shield.textures.LayerRadMap, false).then((t) => { material.uniforms.LayerRadMap!.value = t; });
+      material.uniforms.boundRadius!.value = Math.max(1e-3, boundingRadius);
       material.uniforms.parentSize!.value = Math.min(2000, Math.max(70, boundingRadius));
       const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), material);
       mesh.name = "shield-impacts";
@@ -343,6 +483,21 @@ export class ImpactOverlay {
   /** The holes' draw, over each of the hull's meshes (attachArmor); null for a race with no armor effect. */
   readonly armorMaterial: THREE.ShaderMaterial | null = null;
   private readonly armorMeshes: THREE.Mesh[] = [];
+  /** EveImpactOverlay's shield boosting and hardening faders; EveDamageOverlay's armor hardening, armor and hull repairing. */
+  private readonly faders = { shieldboost: new ScalarFader(), shieldhardening: new ScalarFader(), armorhardening: new ScalarFader(), armorrepair: new ScalarFader(), hullrepair: new ScalarFader() };
+
+  /**
+   * SetImpactAnimation (EveImpactOverlay::ToggleEffect, EveDamageOverlay::ToggleEffect): the named fader faded in or
+   * out over a quarter of the duration (seconds).
+   */
+  setImpactAnimation(name: string, on: boolean, duration: number): void {
+    const f = (this.faders as Record<string, ScalarFader>)[name];
+    if (f) f.start(on, duration / 4);
+  }
+  /** The faders' values and kick-ins (for checks). */
+  get animationState(): Record<string, [number, number]> {
+    return Object.fromEntries(Object.entries(this.faders).map(([k, f]) => [k, [f.value, f.kickIn]]));
+  }
 
   /**
    * The holes' draw put over the hull: a copy of each of its meshes (each geometry once in each LOD; not its decals nor
@@ -486,7 +641,11 @@ export class ImpactOverlay {
     u.time!.value = performance.now() / 1000;
     this.anchor.updateWorldMatrix(true, false);
     (u.worldToEve!.value as THREE.Matrix4).copy(this.anchor.matrixWorld).invert();
-    for (const o of this.armorMeshes) o.visible = i > 0;
+    const F = this.faders;
+    (u.faders!.value as THREE.Vector3).set(F.armorrepair.value, F.armorhardening.value, F.hullrepair.value);
+    // EveDamageOverlay::HasArmorActivity: holes, or the armor hardening or repairing fader not at rest
+    const active = i > 0 || !F.armorhardening.isZero || !F.armorrepair.isZero;
+    for (const o of this.armorMeshes) o.visible = active;
   }
 
   /** The ripples aged (erased at no life left: :189-200), placed again, and given to the shield's draw. */
@@ -507,7 +666,11 @@ export class ImpactOverlay {
       i++;
     }
     u.count!.value = i;
-    mesh.visible = i > 0;
+    const F = this.faders;
+    (u.kicks!.value as THREE.Vector2).set(F.shieldboost.kickIn, F.shieldhardening.kickIn);
+    u.time!.value = performance.now() / 1000;
+    // EveImpactOverlay::HasShieldActivity: ripples, or a boosting or hardening kick-in under way
+    mesh.visible = i > 0 || !F.shieldboost.isKickInZero || !F.shieldhardening.isKickInZero;
   }
 
   /**
@@ -518,6 +681,7 @@ export class ImpactOverlay {
    */
   update(dt: number, scene: THREE.Object3D, velocity: THREE.Vector3, pixelDiameter: number): void {
     this.lastSpawned = 0;
+    for (const f of Object.values(this.faders)) f.update(dt);
     this.stepRipples(dt);
     this.stepHoles();
     let rank = 0;

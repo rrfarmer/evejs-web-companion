@@ -19,8 +19,8 @@ import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
-import { TurretFx } from "./turretFx.ts";
-import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
+import { TurretFx, fxGuid } from "./turretFx.ts";
+import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -168,8 +168,31 @@ export class SpaceView {
     const at = impact.locatorPosition(locator);
     impact.createImpact(locator, size, at ? from.clone().sub(at) : undefined, lifeTime);
   };
+  /**
+   * The defensive modules' impact animations under way (effects.ImpactEffect: Start and each Repeat set the animation
+   * on for the cycle's length, Stop sets it off): by the module, its ship, its name, the cycle and when it next repeats.
+   */
+  private readonly impactAnimations = new Map<string, { ship: number; name: string; cycle: number; next: number; until: number }>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);
+    if (name === "OnSpecialFX") {
+      const anim = IMPACT_ANIMATIONS[fxGuid(args[5])];
+      if (anim) {
+        const ship = Number(args[0]), key = `${ship}:${Number(args[1])}`;
+        // GenericEffect: the trigger's duration, else the effect's 10 s
+        const duration = Number(args[9]) > 0 ? Number(args[9]) : 10_000, repeat = Number(args[10]);
+        const impact = this.marks.get(ship)?.userData.impact as ImpactOverlay | undefined;
+        if (Number(args[7]) === 1) {
+          impact?.setImpactAnimation(anim, true, duration / 1000);
+          const now = performance.now();
+          this.impactAnimations.set(key, { ship, name: anim, cycle: duration, next: now + duration, until: now + duration * Math.max(1, Number.isFinite(repeat) && repeat > 0 ? Math.min(repeat, 1000) : 1) });
+        } else {
+          const a = this.impactAnimations.get(key);
+          if (a) impact?.setImpactAnimation(a.name, false, a.cycle / 1000);
+          this.impactAnimations.delete(key);
+        }
+      }
+    }
     // OnClientControllerEvent(ballID, targetID, eventName, value): to the ball's model (spaceMgr.OnClientControllerEvent
     // -> spaceObject.SetControllerVariableFromEvent: Activated sets IsTriggered to the value; any other is an event)
     if (name === "OnClientControllerEvent") {
@@ -565,6 +588,13 @@ export class SpaceView {
    * with the ball's velocity, the count by its diameter on the screen in pixels (the client's render priority).
    */
   private stepImpacts(dt: number): void {
+    // the defensive modules' repeats (ImpactEffect.Repeat: on again for the cycle), and their end (Stop: off)
+    const now = performance.now();
+    for (const [key, a] of this.impactAnimations) {
+      const impact = this.marks.get(a.ship)?.userData.impact as ImpactOverlay | undefined;
+      if (now >= a.until) { impact?.setImpactAnimation(a.name, false, a.cycle / 1000); this.impactAnimations.delete(key); continue; }
+      if (now >= a.next) { a.next += a.cycle; impact?.setImpactAnimation(a.name, true, a.cycle / 1000); }
+    }
     const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e as Entity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }]));
     const pixelsPerRadian = innerHeight / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
     const camAt = this.camera.getWorldPosition(new THREE.Vector3());
