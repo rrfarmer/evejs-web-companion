@@ -87,7 +87,7 @@ interface SrtTarget { kind: "srt"; owner: number; translation: number[]; rotatio
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 /** A set's play state: its owners (the containers it is under, its own first-to-last), time and range. */
-interface SetRun { set: SofCurveSet; owners: number[]; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null }
+interface SetRun { set: SofCurveSet; owners: number[]; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null; scale: number }
 
 /** A curve's length (Tr2CurveScalar::Length: its last key's time; a composite's, its parts' longest). */
 function curveLength(c: unknown): number {
@@ -140,7 +140,7 @@ export class ChildAnimator {
     };
     for (const s of sets ?? []) {
       const onLoad = s.playOnLoad !== false;
-      this.sets.push({ set: s, owners, playing: onLoad, last: performance.now(), time: 0, range: null, applyAt: null });
+      this.sets.push({ set: s, owners, playing: onLoad, last: performance.now(), time: 0, range: null, applyAt: null, scale: s.scale });
       index(s.curves);
       for (const b of s.bindings) { if (b.id !== undefined) this.bindingsById.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
     }
@@ -168,6 +168,10 @@ export class ChildAnimator {
   applyTime(id: number, time: number): void {
     for (const r of this.sets) if (r.set.id === id) r.applyAt = time;
   }
+  /** A controller's SetValue on a set's scale: its time advances by this x the time passed. */
+  setScale(id: number, scale: number): void {
+    for (const r of this.sets) if (r.set.id === id) r.scale = scale;
+  }
   /** A controller's SetValue on an object's display (a container, mesh, quad or line set). */
   setDisplay(id: number, on: boolean): void {
     const t = this.targets.get(id);
@@ -193,7 +197,7 @@ export class ChildAnimator {
       if (!run.playing && run.applyAt === null) continue;
       const set = run.set;
       if (run.applyAt !== null) { run.time = run.applyAt; run.applyAt = null; run.last = now; }
-      else run.time += set.scale * Math.max(0, now - run.last) / 1000;
+      else run.time += run.scale * Math.max(0, now - run.last) / 1000;
       run.last = now;
       if (run.range && run.playing) {
         const { min, max, looped } = run.range;

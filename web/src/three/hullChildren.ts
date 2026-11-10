@@ -993,6 +993,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         stop: (owner: number, name: string) => animator?.stop(owner, name),
         setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
+        setScale: (set: number, scale: number) => animator?.setScale(set, scale),
         duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
       };
       const owners: THREE.Object3D[] = [];

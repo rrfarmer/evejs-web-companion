@@ -163,6 +163,8 @@ export interface ChildEffectHost {
   play?(owner: number, name: string, range: string): void;
   /** A curve set (by id) applied at a time (TriCurveSet::ApplyTime). */
   applyTime?(set: number, time: number): void;
+  /** A curve set's speed (TriCurveSet.scale). */
+  setScale?(set: number, scale: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
   setDisplay?(target: number, on: boolean): void;
   stop?(owner: number, name: string): void;
@@ -296,13 +298,15 @@ export class ControllerRun {
   private enter(state: SofControllerState, run: { live: Live[] }, now: number): void {
     for (const a of state.actions) {
       // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
-      if ((a.k === "setVar" || a.k === "setDisplay") && a.value !== undefined) {
+      if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale") && a.value !== undefined) {
         const c = conditionOf(a.value);
         if (!c) continue;
         const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() });
         if (a.k === "setVar" && a.variable && this.vars.has(a.variable)) {
           if (this.vars.get(a.variable) !== v) { this.vars.set(a.variable, v); this.dirty = true; }
         } else if (a.k === "setDisplay" && a.target !== undefined) this.host.setDisplay?.(a.target, v !== 0);
+        else if (a.k === "setSetTime" && a.curveSet !== undefined) this.host.applyTime?.(a.curveSet, v);
+        else if (a.k === "setSetScale" && a.curveSet !== undefined) this.host.setScale?.(a.curveSet, v);
         continue;
       }
       // Tr2ActionAnimateCurveSet: each update (after the machines'), its set applied at its value expression's value,

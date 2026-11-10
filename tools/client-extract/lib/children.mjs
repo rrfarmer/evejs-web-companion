@@ -149,11 +149,11 @@ function readChildEffect(path, skipped) {
  */
 function setValueObject(owner, a) {
   if (!a.path) return a.destination ?? null;
-  const m = /^Owner((?:\.objects\["[^"]*"\])*)$/.exec(String(a.path));
+  const m = /^Owner((?:\.(?:objects|curveSets)\["[^"]*"\])*)$/.exec(String(a.path));
   if (!m) return null;
   let o = owner;
-  for (const step of m[1].matchAll(/\.objects\["([^"]*)"\]/g)) {
-    o = (o?.objects ?? []).find((x) => x?.name === step[1]) ?? null;
+  for (const step of m[1].matchAll(/\.(objects|curveSets)\["([^"]*)"\]/g)) {
+    o = (o?.[step[1]] ?? []).find((x) => x?.name === step[2]) ?? null;
     if (!o) return null;
   }
   return o;
@@ -176,6 +176,9 @@ function readController(c, skipped, owner) {
       if (a.attribute === "value" && !a.path && a.destination?.type === "Tr2ControllerFloatVariable") return { k: "setVar", variable: a.destination.name, value };
       const target = a.attribute === "display" ? setValueObject(owner, a) : null;
       if (target) return { k: "setDisplay", target: idOf(target), value };
+      // a curve set's time or speed (Owner...curveSets["name"]: TriCurveSet's scaledTime and scale)
+      const set = a.attribute === "scaledTime" || a.attribute === "scale" ? setValueObject(owner, a) : null;
+      if (set?.type === "TriCurveSet") return { k: a.attribute === "scale" ? "setSetScale" : "setSetTime", curveSet: idOf(set), value };
       skipped[a.type] = (skipped[a.type] ?? 0) + 1;
       return { k: a.type };
     }
