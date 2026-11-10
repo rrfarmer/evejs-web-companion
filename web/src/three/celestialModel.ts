@@ -297,16 +297,17 @@ async function gasGiantModel(c: Celestial, bandMap: string, radius: number, item
  * polar cloud cap, the earthlike planets' city lights on the night side.
  */
 async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
-  const [h1, h2, detail, s1, s2, clouds, cap] = await Promise.all([
+  const opt = (url: string | null | undefined) => (url ? texture(url) : Promise.resolve(null));
+  const [h1, h2, detail, s1, s2, clouds, cap, cityLight, cityUv, cityMask] = await Promise.all([
     texture(heightMap1),
     heightMap2 ? texture(heightMap2) : Promise.resolve(null),
     texture(c.textures.FillTexture!),
-    c.textures.GroundScattering1 ? texture(c.textures.GroundScattering1) : Promise.resolve(null),
-    c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
-    c.textures.CloudsTexture ? texture(c.textures.CloudsTexture) : Promise.resolve(null),
-    c.textures.CloudCapTexture ? texture(c.textures.CloudCapTexture) : Promise.resolve(null),
+    opt(c.textures.GroundScattering1), opt(c.textures.GroundScattering2),
+    opt(c.textures.CloudsTexture), opt(c.textures.CloudCapTexture),
+    opt(c.textures.CityLight), opt(c.textures.CityDistributionTexture), opt(c.textures.CityDistributionMask),
   ]);
-  for (const t of [h1, h2, detail, clouds]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  const hasCity = !!(cityLight && cityUv && cityMask && c.params.CityLightColor);
+  for (const t of [h1, h2, detail, clouds, cityLight, cityUv, cityMask]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
   const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
   const random = itemID === null ? 0 : itemID % 100;
@@ -323,7 +324,10 @@ async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string |
     water: { value: v3(c.params.WaterColor, [0.05, 0.07, 0.08]) }, shallow: { value: v3(c.params.shallowWaterColor, [0.07, 0.15, 0.15]) },
     cloudColour: { value: v3(c.params.CloudsColor, [1, 1, 1]) }, cloudF: { value: v4(c.params.CloudsFactors, [0, 0, 1, 1]) },
     shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
-  }, `uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform sampler2D clouds; uniform float hasClouds; uniform float hasScatter;
+    cityLight: { value: cityLight }, cityUv: { value: cityUv }, cityMask: { value: cityMask },
+    cityColour: { value: v3(c.params.CityLightColor, [0, 0, 0]) },
+  }, `uniform sampler2D cityLight; uniform sampler2D cityUv; uniform sampler2D cityMask; uniform vec3 cityColour;
+      uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform sampler2D clouds; uniform float hasClouds; uniform float hasScatter;
       uniform vec4 detailF; uniform vec4 miscF; uniform vec4 sharpF; uniform vec4 coverF;
       uniform vec3 fillTint; uniform vec3 vegTint; uniform vec3 eqTint; uniform vec3 mountTint; uniform vec3 water; uniform vec3 shallow;
       uniform vec3 cloudColour; uniform vec4 cloudF; uniform vec2 shiftA; uniform vec2 shiftB;`, `
@@ -361,7 +365,15 @@ async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string |
         if (hasClouds > 0.5) {
           vec2 cuv = vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0) - L.xy * 0.0035;
           g = mix(g, cloudF.x * S2, pow(abs(texture2D(clouds, cuv).r), cloudF.z));
-        }`}`);
+        }
+        ${hasCity
+          // its city lights (earthlikeplanet.fx, the pixel stage's end): CityLight read where CityDistributionTexture
+          // points, times CityDistributionMask, to the power 1 / CoverageFactors.w, on the night side (-N.L), on
+          // land only, times CityLightColor, added before the colour goes to linear
+          ? `float city = texture2D(cityLight, texture2D(cityUv, vUv).xy).r * texture2D(cityMask, vUv).r;
+        city = pow(abs(city), 1.0 / coverF.w) * max(-NL, 0.0);
+        g += clamp(city * cityColour * (1.0 - ${hasWater ? "sea" : "0.0"}), 0.0, 1.0);`
+          : ""}`}`);
   void cap;
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
