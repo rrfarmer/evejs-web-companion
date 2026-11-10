@@ -216,7 +216,8 @@ export class ChildAnimator {
 
   private shown(t: { display: boolean; ancestors: number[] }): boolean {
     if (!t.display) return false;
-    for (const a of t.ancestors) { const c = this.targets.get(a); if (c && c.kind === "container" && !c.display) return false; }
+    // a hidden container hides what it holds, a hidden mesh its areas
+    for (const a of t.ancestors) { const c = this.targets.get(a); if (c && (c.kind === "container" || c.kind === "object") && !c.display) return false; }
     return true;
   }
 

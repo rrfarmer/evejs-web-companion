@@ -866,6 +866,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
           const m = new THREE.Mesh(mesh.geometry, mat);
           m.frustumCulled = false;
           m.layers.set(DISTORTION_LAYER);
+          if (area.id !== undefined) m.userData.childId = area.id;
           m.applyMatrix4(o.matrixWorld);
           inner.add(m);
           continue;
@@ -883,6 +884,8 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
           if (!mat) continue;
           const m = new THREE.Mesh(mesh.geometry, mat);
           m.renderOrder = 3;
+          // the area's own display (a curve set may drive it: Tr2MeshArea.display)
+          if (area.id !== undefined) m.userData.childId = area.id;
           m.frustumCulled = false;
           m.applyMatrix4(o.matrixWorld);
           inner.add(m);
@@ -1007,6 +1010,9 @@ function ticker(): THREE.Mesh {
  * The hull's children as drawn so far, under one group mirrored in z (EVE's model space to ours), or null where
  * nothing of them is drawn.
  */
+/** Ids for the children whose file gives them none (below every file id). */
+let syntheticChildId = -1;
+
 export async function hullChildren(children: SofHullChild[] | undefined): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
@@ -1077,6 +1083,8 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
       pending.push(childMesh(node, animator).then((o) => {
         if (!o) return;
         if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
+        // each area a display target of its own, under its mesh
+        for (const a of node.areas) if (a.id !== undefined) animator.object(a.id, node.id !== undefined ? [...ancestors, node.id] : ancestors);
         if (node.id !== undefined && moved.has(node.id)) {
           o.userData.parentMatrix = local.toArray();
           animator.xform(node.id, node.t ?? [0, 0, 0], node.r ?? [0, 0, 0, 1], node.s ?? [1, 1, 1]);
@@ -1099,6 +1107,10 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
     if (node.k === "traffic") {
       const t = trafficMeshes(node);
       if (t) {
+        // no id in its file: one of its own, so that a container a set hides hides it too
+        const id = --syntheticChildId;
+        t.userData.childId = id;
+        animator.object(id, ancestors);
         place(t, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
         sink(t);
       }
