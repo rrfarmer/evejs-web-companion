@@ -45,6 +45,11 @@ function effectParams(fx) {
   return out;
 }
 const effectTextures = (fx) => Object.fromEntries((fx?.resources ?? []).filter((r) => r?.name && r.resourcePath).map((r) => [r.name, String(r.resourcePath).toLowerCase()]));
+/** An EveChildModifierSRT's own transform (its translation, rotation and scaling; the defaults where unsaid), or null. */
+const srtOf = (mods) => {
+  const m = (mods ?? []).find((t) => t?.type === "EveChildModifierSRT");
+  return m ? { translation: m.translation ?? [0, 0, 0], rotation: m.rotation ?? [0, 0, 0, 1], scaling: m.scaling ?? [1, 1, 1] } : null;
+};
 const effectName = (fx) => (fx?.effectFilePath ? String(fx.effectFilePath).split("/").pop().replace(/\.fx$/i, "").toLowerCase() : null);
 
 /** One EveChild* object as the page draws it, or null where nothing of it is drawn; `skipped` counts the rest by type. */
@@ -83,7 +88,7 @@ function readNode(o, skipped) {
     return {
       k: "mesh", name: o.name ?? null, m: srt(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
       meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
-      modifiers: (o.transformModifiers ?? []).map((t) => t.type),
+      modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
     };
   }
   if (o.type === "EveChildContainer") {
@@ -96,7 +101,7 @@ function readNode(o, skipped) {
     const m = srt(o);
     return {
       k: "container", name: o.name ?? null, m: identity(m) ? null : m,
-      modifiers: (o.transformModifiers ?? []).map((t) => t.type),
+      modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
       objects,
     };
   }

@@ -23,6 +23,7 @@ export interface SofChildContainer {
   name: string | null;
   m: number[] | null;
   modifiers: string[];
+  srt?: SofChildSrt | null;
   objects: SofChildNode[];
 }
 export interface SofChildTraffic {
@@ -52,8 +53,11 @@ export interface SofChildMesh {
   meshIndex: number;
   minScreenSize: number;
   modifiers?: string[];
+  srt?: SofChildSrt | null;
   areas: SofChildMeshArea[];
 }
+/** An EveChildModifierSRT's own transform. */
+export interface SofChildSrt { translation: number[]; rotation: number[]; scaling: number[] }
 export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh;
 export interface SofHullChild {
   res: string;
@@ -426,7 +430,7 @@ async function childMesh(node: SofChildMesh): Promise<THREE.Object3D | null> {
 }
 
 /** The transform modifiers drawn so far (the rest leave the transform as it is). */
-const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierCameraOrientedRotationConstrained"]);
+const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT"]);
 
 /**
  * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
@@ -435,9 +439,13 @@ const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierCameraOrient
  *   the length of the child's own, times f = max(z . d, 0)^2 for z the child's z axis and d the way to the eye,
  *   both normalised: a billboard turned to the eye, gone as it is seen from the side;
  * - EveChildModifierCameraOrientedRotationConstrained: the child turned about its own y axis by atan2(d . x, d . z)
- *   (x, z its unit axes, d the way to the eye from its translation): its z axis toward the eye, its y kept.
+ *   (x, z its unit axes, d the way to the eye from its translation): its z axis toward the eye, its y kept;
+ * - EveChildModifierBillboard2D: the halo's without its fall-off: the eye's axes, each the length of the child's own;
+ * - EveChildModifierSRT: the modifier's own transform (scaling, rotation, translation) laid on in the child's space.
+ * (EveChildModifierHaloInverted, a billboard in the child's own frame turned by a camera vector not yet placed, is
+ * not drawn.)
  */
-function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4): void {
+function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4, srt: SofChildSrt | null = null): void {
   out.copy(base);
   const x = new THREE.Vector3(), y = new THREE.Vector3(), z = new THREE.Vector3(), t = new THREE.Vector3(), d = new THREE.Vector3();
   for (const mod of mods) {
@@ -449,6 +457,13 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
       const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
       out.makeBasis(ex.clone().multiplyScalar(x.length() * f), ey.clone().multiplyScalar(y.length() * f), ez.clone().multiplyScalar(z.length() * f));
       out.setPosition(t);
+    } else if (mod === "EveChildModifierBillboard2D") {
+      const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+      out.makeBasis(ex.clone().multiplyScalar(x.length()), ey.clone().multiplyScalar(y.length()), ez.clone().multiplyScalar(z.length()));
+      out.setPosition(t);
+    } else if (mod === "EveChildModifierSRT" && srt) {
+      const [tx, ty, tz] = srt.translation, [qx, qy, qz, qw] = srt.rotation, [sx, sy, sz] = srt.scaling;
+      out.multiply(new THREE.Matrix4().compose(new THREE.Vector3(tx, ty, tz), new THREE.Quaternion(qx, qy, qz, qw), new THREE.Vector3(sx, sy, sz)));
     } else if (mod === "EveChildModifierCameraOrientedRotationConstrained") {
       const angle = Math.atan2(d.dot(x.normalize()), d.dot(z.normalize()));
       out.multiply(new THREE.Matrix4().makeRotationY(angle));
@@ -482,7 +497,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
   const axes = [cx.applyMatrix3(rot).normalize(), cy.applyMatrix3(rot).normalize(), cz.negate().applyMatrix3(rot).normalize()];
   for (const o of list) {
     const base = new THREE.Matrix4().fromArray(o.userData.modifierBase as number[]);
-    applyModifiers(base, o.userData.modifiers as string[], eye, axes, o.matrix);
+    applyModifiers(base, o.userData.modifiers as string[], eye, axes, o.matrix, (o.userData.srt as SofChildSrt | undefined) ?? null);
     o.matrixWorldNeedsUpdate = true;
     o.updateMatrixWorld(true);
   }
@@ -508,13 +523,14 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   let modified = 0;
   // `flat` is the node's parents' transform from the hull (for the quads, drawn as one mesh); `local` the same from
   // the object the node is added to (`sink`): a modified container's own group, or the hull's
-  const place = (o: THREE.Object3D, at: THREE.Matrix4, mods: string[] | undefined) => {
+  const place = (o: THREE.Object3D, at: THREE.Matrix4, mods: string[] | undefined, srt: SofChildSrt | null = null) => {
     o.matrixAutoUpdate = false;
     o.matrix.copy(at);
     const kept = (mods ?? []).filter((m) => MODIFIERS.has(m));
     if (kept.length) {
       o.userData.modifiers = kept;
       o.userData.modifierBase = at.toArray();
+      if (srt) o.userData.srt = srt;
       modified++;
     }
   };
@@ -531,7 +547,7 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
       if (node.modifiers.some((x) => MODIFIERS.has(x))) {
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
-        place(g, local.clone().multiply(m), node.modifiers);
+        place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
         sink(g);
         for (const o of node.objects) walk(o, flatHere, new THREE.Matrix4(), (c) => g.add(c), halo);
         return;
@@ -544,7 +560,7 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
       const at = local.clone().multiply(new THREE.Matrix4().fromArray(node.m));
       pending.push(childMesh(node).then((o) => {
         if (!o) return;
-        place(o, at, node.modifiers);
+        place(o, at, node.modifiers, node.srt ?? null);
         sink(o);
       }));
       return;
