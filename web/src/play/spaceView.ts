@@ -21,6 +21,7 @@ import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { TurretFx } from "./turretFx.ts";
 import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
+import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
@@ -156,16 +157,16 @@ export class SpaceView {
   private readonly turretFx = new TurretFx();
   /**
    * A shot landing on a ball with an impact overlay: at the damage locator facing the shooter best (the turret's
-   * choice, EveTurretSet.cpp:3252-3330, roughly), its way the shooter's place less the locator's, of the medium guns'
-   * impactSize (0.75) and a second's life until the turrets' own are read.
+   * choice, EveTurretSet.cpp:3252-3330, roughly), its way the shooter's place less the locator's, the turret's size and
+   * life (turretFx.ts).
    */
-  private readonly onShot = (shooter: number, target: number): void => {
+  private readonly onShot = (shooter: number, target: number, size: number, lifeTime: number): void => {
     const impact = this.marks.get(target)?.userData.impact as ImpactOverlay | undefined;
     const from = this.placeOf(shooter, this.lastOrigin);
     if (!impact || !from) return;
     const locator = impact.locatorFacing(from);
     const at = impact.locatorPosition(locator);
-    impact.createImpact(locator, 0.75, at ? from.clone().sub(at) : undefined, 1);
+    impact.createImpact(locator, size, at ? from.clone().sub(at) : undefined, lifeTime);
   };
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);
@@ -545,7 +546,10 @@ export class SpaceView {
    * for a shot of ours, over our own ship for one at us, rising and fading in a second and a half.
    */
   private readonly damageNumbers: { el: HTMLDivElement; itemID: number; bornAt: number }[] = [];
-  showDamage(entry: { direction: "dealt" | "taken"; otherPartyID: number | null; amount: number }): void {
+  showDamage(entry: { direction: "dealt" | "taken"; otherPartyID: number | null; amount: number; weaponTypeID?: number | null; quality?: number | null; routing?: DamageRouting }): void {
+    // the shot's hit or miss to the turret that fired it, as the client routes the message (turretFx.damageMessage)
+    const own = this.snapshot?.ship?.itemID ?? null;
+    if (own !== null && entry.routing) this.turretFx.damageMessage(own, entry.routing, entry.weaponTypeID ?? null, entry.quality ?? null);
     const itemID = entry.direction === "dealt" ? entry.otherPartyID : this.snapshot?.ship?.itemID ?? null;
     if (itemID === null) return;
     const el = document.createElement("div");

@@ -18,6 +18,7 @@ import type { FittingSkillWarning } from "../bridge/fittingSkills.ts";
 
 import type {
   ActivityCalendarEventRow,
+  DamageRouting,
   BotRefusal,
   ActivityCalendarResponseRow,
   ActivityNotificationRow,
@@ -849,6 +850,8 @@ export type FeedEvent =
       readonly amount: number;
       readonly quality: number | null;
       readonly atMs: number;
+      /** The keys the payload carried that the client routes it by (godma.OnDamageMessage), absent where unread. */
+      readonly routing?: DamageRouting;
     }
   // Goal R23 slice B — the mining loop. The ship's mining holds, by NAME (the
   // retail flagIDs never reach the browser), each with its own read error so one

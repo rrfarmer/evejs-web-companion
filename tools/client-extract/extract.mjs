@@ -5,6 +5,7 @@
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
+//        [--turret <res path of a turret module's graphic> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -34,6 +35,7 @@ import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelesti
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
+import { readTurret } from "./lib/turret.mjs";
 import { readBlack } from "./lib/black.mjs";
 import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.mjs";
 import { createRequire } from "node:module";
@@ -251,6 +253,19 @@ export function extractCelestial(rf, graphicFile, outRoot) {
 }
 
 /**
+ * A turret module's graphic read for its shots' impacts (lib/turret.mjs), written as <graphic stem>.turret.json (a
+ * graphic that is no turret set: {turret: null}).
+ */
+export function extractTurret(rf, graphicFile, outRoot) {
+  const t = readTurret(rf, graphicFile) ?? { turretBuild: 1, graphicFile, turret: null };
+  const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".turret.json";
+  const file = path.join(outRoot, ...rel.split("/"));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(t, null, 1));
+  return file;
+}
+
+/**
  * A system's planets and moons, each as the client builds it (lib/typeGraphics.mjs findSystemCelestials): its preset's
  * object file extracted (extractCelestial) and its height maps copied, written as celestials/<solarSystemID>.json:
  * { solarSystemID, items: { itemID: { typeID, kind, celestial, NormalHeight1, NormalHeight2, geometry } } }, each a
@@ -343,7 +358,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], systemCelestials: [], typeGraphics: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], systemCelestials: [], typeGraphics: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -356,6 +371,7 @@ function parseArgs(argv) {
     else if (a === "--graphic") out.graphics.push(Number(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
     else if (a === "--celestial") out.celestials.push(argv[++i]);
+    else if (a === "--turret") out.turrets.push(argv[++i]);
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
     else throw new Error(`unknown argument ${a}`);
   }
@@ -464,6 +480,7 @@ async function main() {
   }
   if (done.length) addToManifest(outRoot, build, client, done);
   for (const c of args.celestials) console.log(`${c} -> ${path.relative(outRoot, extractCelestial(rf, c, outRoot))}`);
+  for (const t of args.turrets) console.log(`${t} -> ${path.relative(outRoot, extractTurret(rf, t, outRoot))}`);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
   const sde = args.sde ?? old.sde ?? null;
   for (const systemID of args.systemCelestials) {
@@ -475,7 +492,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

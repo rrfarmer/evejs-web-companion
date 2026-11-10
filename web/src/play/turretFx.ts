@@ -9,7 +9,31 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 
-interface Firing { shooter: number; target: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number; cycle: number; nextShot: number }
+interface Firing {
+  shooter: number; target: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number;
+  /** One shot a cycle: its length (ms) and when the next begins; whether the turret was idle (its first shot waits to track). */
+  cycle: number; nextCycle: number; idle: boolean;
+  /** The turret's miss queue (EveTurretTarget: the last four told, popped by each shot; empty a hit). */
+  misses: boolean[];
+  /** Shots begun whose impact is still to come: when, and its size and life. */
+  shots: { at: number; size: number; life: number }[];
+}
+/** A turret module's graphic as the extractor reads it (lib/turret.mjs; GET /client-assets/turret/<typeID>). */
+export interface TurretInfo { impactSize: number; useRandomFiringDelay: boolean; maxTrackingTime: number; firingPeakTime: number; firingDuration: number }
+/** EveTurretTarget.h EVE_TURRET_RANDOM_DELAY_MAX: GetShotTimeVariance. */
+const RANDOM_DELAY_MAX = 0.6;
+const turretInfos = new Map<number, TurretInfo | null>();
+const turretAsked = new Set<number>();
+/** A module type's turret graphic, asked for once; null until it has come, or where the type has none. */
+function turretInfo(typeID: number): TurretInfo | null {
+  if (!turretAsked.has(typeID) && typeID > 0 && typeof fetch === "function") {
+    turretAsked.add(typeID);
+    void fetch(`/client-assets/turret/${typeID}`).then((r) => r.json()).then((t: Partial<TurretInfo> & { turret?: null }) => {
+      turretInfos.set(typeID, t && typeof t.impactSize === "number" ? t as TurretInfo : null);
+    }).catch(() => undefined);
+  }
+  return turretInfos.get(typeID) ?? null;
+}
 interface Pulse { firing: Firing; bornAt: number; mesh: Line2; flash: THREE.Sprite }
 interface Blast { itemID: number; at: THREE.Vector3 | null; bornAt: number; sprite: THREE.Sprite; size: number }
 
@@ -51,11 +75,39 @@ export class TurretFx {
   constructor() { this.group.name = "turretFx"; }
 
   /**
-   * A shot landing, once a cycle (the client's turret set fires one shot each weapon cycle, turretSet.py, and its
-   * EveTurretTarget makes the target's impact as the shot lands: EveTurretTarget.cpp:136-159): the shooter and the
-   * target. Misses are not told apart yet (every shot lands, as the client's empty miss queue).
+   * A shot's impact on its target (the client's turret set fires one shot each weapon cycle, turretSet.py; its
+   * EveTurretSet::EnterStateFiring starts the shot after a random delay of up to 0.6 s - plus the turret's tracking
+   * time when it was idle - and the firing effect's peak, and EveTurretTarget::StartFireAtLocator pops the miss queue:
+   * a hit with an impact size above nought makes the target's impact when the delay is over, living the firing's
+   * length less its peak, EveTurretTarget.cpp:136-159, :258-265): the shooter, the target, the turret's impact size and
+   * that life in seconds.
    */
-  onShot: ((shooter: number, target: number) => void) | null = null;
+  onShot: ((shooter: number, target: number, size: number, lifeTime: number) => void) | null = null;
+
+  /**
+   * godma.OnDamageMessage: by the message's keys, the ship whose turrets hear the shot's hit or miss - observed: the
+   * source's; a target: the pilot's own (only those shooting that target); an owner: the owner's ship (none that we
+   * know: a targeted pilot's, targetSvc.ownerToShipIDCache); else a source: the source's. Of that ship's turrets
+   * shooting (with the message's weapon type where it names one), the one with the fewest misses queued is told
+   * (DamageMessageTurretPropogation, DamageMessageGrouped: hit quality at most 0 a miss, 3 or more a hit, 1 a miss half
+   * the time, 2 a quarter; none given 5). Its miss queue keeps the last four.
+   */
+  damageMessage(ownShipID: number, routing: { observed: boolean; targetID: number | null; hasOwner: boolean; sourceID: number | null }, weaponTypeID: number | null, hitQuality: number | null): void {
+    const shipID = routing.observed ? routing.sourceID : routing.targetID !== null ? ownShipID : routing.hasOwner ? null : routing.sourceID;
+    if (shipID === null) return;
+    let best: Firing | null = null;
+    for (const f of this.firings.values()) {
+      if (f.shooter !== shipID) continue;
+      if (routing.targetID !== null && f.target !== routing.targetID) continue;
+      if (weaponTypeID && f.moduleTypeID !== weaponTypeID) continue;
+      if (!best || f.misses.length < best.misses.length) best = f;
+    }
+    if (!best) return;
+    const q = hitQuality ?? 5;
+    const missed = q <= 0 ? true : q >= 3 ? false : Math.random() < [0.5, 0.25][q - 1]!;
+    best.misses.push(missed);
+    while (best.misses.length > 4) best.misses.shift();
+  }
 
   /** A park entry: OnSpecialFX (a firing begun or stopped) or TerminalPlayDestructionEffect (a ball blown up). */
   hear(name: string, args: readonly unknown[]): void {
@@ -70,16 +122,34 @@ export class TurretFx {
     if (name !== "OnSpecialFX") return;
     const kind = KIND[fxGuid(args[5])];
     if (!kind) return;
-    const shooter = Number(args[0]), moduleID = Number(args[1]), target = Number(args[3]);
+    const shooter = Number(args[0]), moduleID = Number(args[1]), moduleTypeID = Number(args[2]), target = Number(args[3]);
     const key = `${shooter}:${moduleID}`;
     if (Number(args[7]) !== 1) { this.firings.delete(key); return; }
+    turretInfo(moduleTypeID);
     const duration = Number(args[9]), repeat = Number(args[10]);
     const now = performance.now();
     // a cycle's length times its repeats, or a minute where the server leaves it open (it says stop when it stops)
     const until = duration > 0 ? now + duration * Math.max(1, Number.isFinite(repeat) && repeat > 0 ? Math.min(repeat, 1000) : 1) : now + 60_000;
-    // its shots: one a cycle (a second where the server gives none), the first as the first pulse lands (a laser's at once)
+    // its shots: one a cycle (a second where the server gives none), the first at once; a firing begun anew keeps the
+    // turret's state (a repeat of one already shooting is no idle turret)
     const cycle = duration > 0 ? duration : 1000;
-    this.firings.set(key, { shooter, target, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0, cycle, nextShot: now + (kind === "laser" ? 0 : FLIGHT_MS) });
+    const was = this.firings.get(key);
+    this.firings.set(key, {
+      shooter, target, moduleTypeID, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0,
+      cycle, nextCycle: now, idle: !was, misses: was && was.target === target ? was.misses : [], shots: was?.shots ?? [],
+    });
+  }
+
+  /** EnterStateFiring and StartFireAtLocator for one shot begun at `at` (ms). */
+  private startShot(f: Firing, at: number): void {
+    const info = turretInfo(f.moduleTypeID);
+    // until the turret's graphic has come: a medium gun's size, no peak, a second's firing
+    const peak = info?.firingPeakTime ?? 0, total = info?.firingDuration ?? 1, size = info?.impactSize ?? 0.75;
+    let delay = (info?.useRandomFiringDelay ?? true) ? RANDOM_DELAY_MAX * Math.random() : 0;
+    if (f.idle) { delay += info?.maxTrackingTime ?? 1; f.idle = false; }
+    delay += peak;
+    const missed = f.misses.shift() ?? false;
+    if (!missed && size > 0) f.shots.push({ at: at + delay * 1000, size, life: Math.max(total - peak, 0) });
   }
 
   /** One frame: where things are drawn now (by itemID), and the time. */
@@ -87,8 +157,14 @@ export class TurretFx {
     for (const [key, f] of this.firings) {
       const from = positionOf(f.shooter), to = positionOf(f.target);
       if (now > f.until || !from || !to) { this.firings.delete(key); continue; }
-      for (let n = 0; now >= f.nextShot && n < 4; n++) { f.nextShot += f.cycle; this.onShot?.(f.shooter, f.target); }
-      if (now >= f.nextShot) f.nextShot = now + f.cycle;
+      for (let n = 0; now >= f.nextCycle && n < 4; n++) { this.startShot(f, f.nextCycle); f.nextCycle += f.cycle; }
+      if (now >= f.nextCycle) f.nextCycle = now + f.cycle;
+      for (let i = f.shots.length - 1; i >= 0; i--) {
+        const s = f.shots[i]!;
+        if (now < s.at) continue;
+        f.shots.splice(i, 1);
+        this.onShot?.(f.shooter, f.target, s.size, s.life);
+      }
       if (f.kind === "laser") continue;
       if (now - f.lastPulse >= PULSE_EVERY_MS) { f.lastPulse = now; this.pulse(f, now); }
     }

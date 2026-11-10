@@ -2463,6 +2463,17 @@ export interface TargetingState {
  * live — outgoing frames carry attackType "me" with a null attackerID, and
  * incoming carry "otherPlayerWeapons" with the attacker's id populated.
  */
+/**
+ * The keys of an `OnDamageMessage` the client routes the shot's hit or miss by (godma.OnDamageMessage): `observed`,
+ * then `target` (the pilot's own turrets), then `owner` (the owner's ship), then `source` (the shooter's turrets).
+ */
+export interface DamageRouting {
+  readonly observed: boolean;
+  readonly targetID: number | null;
+  readonly hasOwner: boolean;
+  readonly sourceID: number | null;
+}
+
 export interface DamageEvent {
   /** Monotonic within the session, for keyed rendering only. Never shown. */
   readonly id: number;
@@ -2479,6 +2490,8 @@ export interface DamageEvent {
    * this server, and inventing it would be fabricated detail.
    */
   readonly quality: number | null;
+  /** The keys the client routes the shot's hit or miss by; absent on entries made without them. */
+  readonly routing?: DamageRouting;
   /** Browser clock reading for when the frame arrived. */
   readonly atMs: number;
 }

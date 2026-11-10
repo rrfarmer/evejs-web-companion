@@ -6432,8 +6432,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const otherPartyID = Number(other) > 0 ? Number(other) : null;
     const weapon = Number(readDictEntry(payload, "weapon"));
     const quality = Number(readDictEntry(payload, "hitQuality"));
+    const idOf = (key: string) => { const v = readDictEntry(payload, key); return v === undefined || v === null ? null : Number(v) > 0 ? Number(v) : null; };
     store.apply({
       type: "targeting/damage",
+      routing: {
+        observed: readDictEntry(payload, "observed") !== undefined,
+        targetID: readDictEntry(payload, "target") !== undefined ? idOf("target") ?? 0 : null,
+        hasOwner: readDictEntry(payload, "owner") !== undefined,
+        sourceID: idOf("source"),
+      },
       direction: dealt ? "dealt" : "taken",
       otherPartyID,
       weaponTypeID: weapon > 0 ? weapon : null,

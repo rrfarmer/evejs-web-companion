@@ -2413,6 +2413,7 @@ export function createClientStore(): ClientStore {
               weaponTypeID: event.weaponTypeID,
               amount: event.amount,
               quality: event.quality,
+              ...(event.routing ? { routing: event.routing } : {}),
               atMs: event.atMs,
             },
           ].slice(-DAMAGE_LOG_LIMIT),
