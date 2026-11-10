@@ -55,13 +55,53 @@ const srtOf = (mods) => {
 };
 const effectName = (fx) => (fx?.effectFilePath ? String(fx.effectFilePath).split("/").pop().replace(/\.fx$/i, "").toLowerCase() : null);
 
+// Every object a curve set's binding may name gets an id (the binding's destinationObject is the object itself in the
+// file's graph): the drawn nodes, a mesh's areas and its effects' parameters carry theirs.
+let ids = new WeakMap();
+let nextId = 1;
+const idOf = (o) => { if (!ids.has(o)) ids.set(o, nextId++); return ids.get(o); };
+
+/** A curve as the page evaluates it (web/src/three/curves.ts): its own fields, a scalar's keys as their rows. */
+function curveData(c) {
+  if (Array.isArray(c)) return c.map(curveData);
+  if (!c || typeof c !== "object") return c;
+  const out = {};
+  for (const [k, v] of Object.entries(c)) {
+    if (k === "keys" && v && Array.isArray(v.items)) out.keys = v.items;
+    else if (v && typeof v === "object") out[k] = curveData(v);
+    else out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * A curve set that plays on load (TriCurveSet: playOnLoad, true unless said; the others wait for a controller's state
+ * machine): its scale, its curves, and the bindings whose source is one of its curves (or any curve), each naming its
+ * destination by id.
+ */
+function readCurveSet(cs) {
+  const curves = (cs.curves ?? []).filter((c) => typeof c?.type === "string" && c.type.startsWith("Tr2Curve"));
+  const index = new Map(curves.map((c, i) => [c, i]));
+  const bindings = [];
+  for (const b of cs.bindings ?? []) {
+    const src = b?.sourceObject, dst = b?.destinationObject;
+    if (!src || !dst || typeof src.type !== "string" || !src.type.startsWith("Tr2Curve")) continue;
+    bindings.push({
+      source: index.has(src) ? index.get(src) : null, sourceCurve: index.has(src) ? null : curveData(src),
+      sourceAttribute: b.sourceAttribute ?? "currentValue", destination: idOf(dst), destinationType: dst.type ?? null,
+      destinationAttribute: b.destinationAttribute ?? "", scale: b.scale ?? 1, offset: b.offset ?? [0, 0, 0, 0],
+    });
+  }
+  return { name: cs.name ?? null, scale: cs.scale ?? 1, curves: curves.map(curveData), bindings };
+}
+
 /** One EveChild* object as the page draws it, or null where nothing of it is drawn; `skipped` counts the rest by type. */
 function readNode(o, skipped) {
   if (!o || typeof o !== "object") return null;
   if (o.display === false) return null;
   if (o.type === "EveChildQuad") {
     return {
-      k: "quad", name: o.name ?? null, m: srt(o), color: o.color ?? [1, 1, 1, 1], brightness: o.brightness ?? 1,
+      k: "quad", id: idOf(o), name: o.name ?? null, m: srt(o), color: o.color ?? [1, 1, 1, 1], brightness: o.brightness ?? 1,
       minScreenSize: o.minScreenSize ?? 0, effect: effectName(o.effect),
     };
   }
@@ -81,6 +121,7 @@ function readNode(o, skipped) {
         const fx = effectName(a.effect);
         if (fx !== "ubershader" && fx !== "fx3dv5") { skipped[`area:${fx}`] = (skipped[`area:${fx}`] ?? 0) + 1; continue; }
         areas.push({
+          id: idOf(a), paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
           kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
           options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
           params: effectParams(a.effect), textures: effectTextures(a.effect),
@@ -89,7 +130,7 @@ function readNode(o, skipped) {
     }
     if (!areas.length) return null;
     return {
-      k: "mesh", name: o.name ?? null, m: srt(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
+      k: "mesh", id: idOf(o), name: o.name ?? null, m: srt(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
       meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
     };
@@ -101,7 +142,7 @@ function readNode(o, skipped) {
     }));
     if (!curves.length) { skipped.EveChildLineSet = (skipped.EveChildLineSet ?? 0) + 1; return null; }
     return {
-      k: "lines", name: o.name ?? null, m: srt(o), baseColor: o.baseColor ?? [1, 1, 1, 1], animColor: o.animColor ?? [0, 0, 0, 1],
+      k: "lines", id: idOf(o), name: o.name ?? null, m: srt(o), baseColor: o.baseColor ?? [1, 1, 1, 1], animColor: o.animColor ?? [0, 0, 0, 1],
       brightness: o.brightness ?? 1, additive: o.lineSet.additive === true || o.additiveBatches === true,
       widthFactor: o.lineSet.lineWidthFactor ?? 1, scrollSpeed: o.scrollSpeed ?? 0, effect: effectName(o.lineSet.lineEffect),
       textures: effectTextures(o.lineSet.lineEffect), curves,
@@ -117,12 +158,14 @@ function readNode(o, skipped) {
         lights.push({ position: l.position ?? [0, 0, 0], radius: l.radius ?? 1, innerRadius: l.innerRadius ?? 0, color: l.color ?? [1, 1, 1, 1], brightness: l.brightness ?? 1 });
       } else skipped[l?.type ?? "?"] = (skipped[l?.type ?? "?"] ?? 0) + 1;
     }
-    if (o.curveSets?.length) skipped.TriCurveSet = (skipped.TriCurveSet ?? 0) + o.curveSets.length;
+    const curveSets = (o.curveSets ?? []).filter((cs) => cs?.playOnLoad !== false).map(readCurveSet);
+    const waiting = (o.curveSets ?? []).length - curveSets.length;
+    if (waiting) skipped.TriCurveSet = (skipped.TriCurveSet ?? 0) + waiting;
     if (o.controllers?.length) skipped.Tr2Controller = (skipped.Tr2Controller ?? 0) + o.controllers.length;
-    if (!objects.length && !lights.length) return null;
+    if (!objects.length && !lights.length && !curveSets.length) return null;
     const m = srt(o);
     return {
-      k: "container", name: o.name ?? null, m: identity(m) ? null : m,
+      k: "container", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, curveSets,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
       objects,
       lights,
@@ -138,6 +181,8 @@ function readNode(o, skipped) {
  */
 export function readHullChildren(rf, sofHull) {
   const out = [];
+  ids = new WeakMap();
+  nextId = 1;
   for (const child of sofHull?.children ?? []) {
     if (child.groupIndex !== undefined && child.groupIndex !== null) continue;
     const res = String(child.redFilePath ?? "").toLowerCase().replace(/\.red$/, ".black");

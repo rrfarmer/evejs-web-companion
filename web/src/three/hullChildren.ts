@@ -7,10 +7,12 @@
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
+import { ChildAnimator, animators, type SofCurveSet } from "./childAnimation.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
   k: "quad";
+  id?: number;
   name: string | null;
   m: number[];
   color: number[];
@@ -20,6 +22,8 @@ export interface SofChildQuad {
 }
 export interface SofChildContainer {
   k: "container";
+  id?: number;
+  curveSets?: SofCurveSet[];
   name: string | null;
   m: number[] | null;
   modifiers: string[];
@@ -38,6 +42,8 @@ export interface SofChildTraffic {
   textures: Record<string, string | null>;
 }
 export interface SofChildMeshArea {
+  id?: number;
+  paramIds?: Record<string, number>;
   kind: "opaque" | "transparent" | "additive";
   name: string | null;
   index: number;
@@ -49,6 +55,7 @@ export interface SofChildMeshArea {
 }
 export interface SofChildMesh {
   k: "mesh";
+  id?: number;
   name: string | null;
   m: number[];
   geometry: string | null;
@@ -62,6 +69,7 @@ export interface SofChildMesh {
 export interface SofChildSrt { translation: number[]; rotation: number[]; scaling: number[] }
 export interface SofChildLines {
   k: "lines";
+  id?: number;
   name: string | null;
   m: number[];
   baseColor: number[];
@@ -423,7 +431,7 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
  * speed being "the speed the pattern/texture crawls along the line"). No curve sets a multicolour. The screen-space
  * occlusion array is not drawn.
  */
-function lineSet(node: SofChildLines): THREE.Object3D | null {
+function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: number[] = []): THREE.Object3D | null {
   const pos: number[] = [], other: number[] = [], side: number[] = [], end: number[] = [], width: number[] = [], index: number[] = [];
   const a = new THREE.Vector3(), b = new THREE.Vector3();
   for (const curve of node.curves) {
@@ -462,6 +470,7 @@ function lineSet(node: SofChildLines): THREE.Object3D | null {
   };
   void childTexture(node.textures.TexMap).then((t) => { uniforms.tex.value = t; });
   void childTexture(node.textures.OverlayTexMap).then((t) => { uniforms.overlay.value = t; });
+  if (animator && node.id !== undefined) animator.lines(node.id, uniforms.colour, uniforms.anim, node.baseColor, node.brightness, ancestors);
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: `attribute vec3 aOther; attribute float aSide; attribute float aEnd; attribute float aWidth;
@@ -507,7 +516,15 @@ function lineSet(node: SofChildLines): THREE.Object3D | null {
  * above mirroring it again), the mesh of its meshIndex, each triangle group drawn by the area whose index range
  * holds it (Tr2MeshArea index, count); groups no area names are not drawn.
  */
-async function childMesh(node: SofChildMesh): Promise<THREE.Object3D | null> {
+/** An effect parameter's name to its material's uniform (ubershader.fx's and fx3dv5.fx's). */
+const PARAM_UNIFORM: Record<string, string> = {
+  DiffuseColor: "colour", FresnelFactors: "fresnel", MaskTransform: "maskT", MaskScroll: "maskS",
+  TextureTransform1: "t1", TextureTransform2: "t2", TextureTransform3: "t3", TextureScroll1: "s1", TextureScroll2: "s2", TextureScroll3: "s3",
+  BaseColor: "base", FxColor: "fx", Layer3Center: "centre",
+  Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
+};
+
+async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<THREE.Object3D | null> {
   if (!node.geometry) return null;
   const holder = new THREE.Group();
   holder.name = `child-mesh:${node.name ?? ""}`;
@@ -527,7 +544,11 @@ async function childMesh(node: SofChildMesh): Promise<THREE.Object3D | null> {
       const at = typeof index === "number" ? index : 0;
       const area = node.areas.find((a) => at >= a.index && at < a.index + a.count);
       if (!area) return;
-      if (!materials.has(area)) materials.set(area, area.effect === "fx3dv5" ? fx3dMaterial(area) : uberMaterial(area));
+      if (!materials.has(area)) {
+        const mat = area.effect === "fx3dv5" ? fx3dMaterial(area) : uberMaterial(area);
+        materials.set(area, mat);
+        for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);
+      }
       const m = new THREE.Mesh(mesh.geometry, materials.get(area)!);
       m.renderOrder = 3;
       m.frustumCulled = false;
@@ -589,9 +610,22 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
  */
 const tickerMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false });
 const modifiedOf = new WeakMap<THREE.Object3D, THREE.Object3D[]>();
+const playedOf = new WeakMap<THREE.Object3D, { objects: Map<number, THREE.Object3D[]>; seen: { visibility: number } }>();
 tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
   const group = object.parent;
   if (!group) return;
+  // the curve sets (childAnimation.ts): their objects found in this clone of the model by their ids
+  const animator = animators.get(group.userData.animatorKey as string);
+  if (animator) {
+    let played = playedOf.get(object);
+    if (!played) {
+      const objects = new Map<number, THREE.Object3D[]>();
+      group.traverse((o) => { const id = o.userData.childId as number | undefined; if (id !== undefined) objects.set(id, [...(objects.get(id) ?? []), o]); });
+      played = { objects, seen: { visibility: 0 } };
+      playedOf.set(object, played);
+    }
+    animator.step(played.objects, played.seen);
+  }
   let list = modifiedOf.get(object);
   if (!list) {
     list = [];
@@ -630,6 +664,7 @@ function ticker(): THREE.Mesh {
 export async function hullChildren(children: SofHullChild[] | undefined): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
+  const animator = new ChildAnimator();
   const pending: Promise<void>[] = [];
   let modified = 0;
   // the containers' point lights, in the hull's EVE space (the group's userData.lights, read by the space view)
@@ -648,8 +683,10 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
     }
   };
   type Halo = { z: THREE.Vector3; at: THREE.Vector3 } | null;
-  const walk = (node: SofChildNode, flat: THREE.Matrix4, local: THREE.Matrix4, sink: (o: THREE.Object3D) => void, halo: Halo = null) => {
+  const walk = (node: SofChildNode, flat: THREE.Matrix4, local: THREE.Matrix4, sink: (o: THREE.Object3D) => void, halo: Halo = null, ancestors: number[] = []) => {
     if (node.k === "container") {
+      if (node.id !== undefined) { animator.container(node.id); ancestors = [...ancestors, node.id]; }
+      animator.curveSets(node.curveSets);
       const m = node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4();
       const flatHere = flat.clone().multiply(m);
       for (const l of node.lights ?? []) {
@@ -666,25 +703,27 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
         g.name = `child-container:${node.name ?? ""}`;
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
         sink(g);
-        for (const o of node.objects) walk(o, flatHere, new THREE.Matrix4(), (c) => g.add(c), halo);
+        for (const o of node.objects) walk(o, flatHere, new THREE.Matrix4(), (c) => g.add(c), halo, ancestors);
         return;
       }
       const localHere = local.clone().multiply(m);
-      for (const o of node.objects) walk(o, flatHere, localHere, sink, halo);
+      for (const o of node.objects) walk(o, flatHere, localHere, sink, halo, ancestors);
       return;
     }
     if (node.k === "mesh") {
       const at = local.clone().multiply(new THREE.Matrix4().fromArray(node.m));
-      pending.push(childMesh(node).then((o) => {
+      pending.push(childMesh(node, animator).then((o) => {
         if (!o) return;
+        if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors); }
         place(o, at, node.modifiers, node.srt ?? null);
         sink(o);
       }));
       return;
     }
     if (node.k === "lines") {
-      const l = lineSet(node);
+      const l = lineSet(node, animator, ancestors);
       if (l) {
+        if (node.id !== undefined) l.userData.childId = node.id;
         place(l, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
         sink(l);
       }
@@ -704,6 +743,7 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
     const s = meanScale(parent);
     const e = local4.elements;
     const b = node.brightness;
+    if (node.id !== undefined) animator.quad(node.id, quads.length, node.color, b, ancestors);
     quads.push({
       centre: new THREE.Vector3(e[12], e[13], e[14]).applyMatrix4(parent),
       ax: new THREE.Vector3(e[0], e[1], e[2]).multiplyScalar(s),
@@ -720,8 +760,14 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   group.name = "hull-children";
   group.userData.lights = lights;
   group.scale.set(1, 1, -1);
-  if (quads.length) group.add(quadMesh(quads));
+  if (quads.length) {
+    const qm = quadMesh(quads);
+    animator.quadAttribute(qm.geometry.getAttribute("iColour") as THREE.InstancedBufferAttribute);
+    group.add(qm);
+  }
   for (const o of others) group.add(o);
-  if (modified) group.add(ticker());
+  // the curve sets play from the ticker's frame (with the modifiers)
+  if (animator.playing) { animators.set(animator.key, animator); group.userData.animatorKey = animator.key; }
+  if (modified || animator.playing) group.add(ticker());
   return group;
 }
