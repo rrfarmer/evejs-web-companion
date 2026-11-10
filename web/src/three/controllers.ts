@@ -37,6 +37,9 @@ export interface SofControllerAction {
   add?: boolean;
   remove?: boolean;
   other?: string | null;
+  /** spawnParticles: the emitter's id and the count (x the emitter's rate). */
+  emitter?: number;
+  rate?: number;
 }
 export interface SofControllerState {
   name: string | null;
@@ -168,6 +171,8 @@ export interface ChildEffectHost {
   applyTime?(set: number, time: number): void;
   /** A curve set's speed (TriCurveSet.scale). */
   setScale?(set: number, scale: number): void;
+  /** A particle emitter (by id) spawning rate x its own rate at once (Tr2ActionSpawnParticles). */
+  spawn?(emitter: number, rate: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
   setDisplay?(target: number, on: boolean): void;
   /** An effect propagator's trigger set (by id): its copies placed. */
@@ -309,6 +314,8 @@ export class ControllerRun {
 
   private enter(state: SofControllerState, run: { live: Live[] }, now: number): void {
     for (const a of state.actions) {
+      // Tr2ActionSpawnParticles (Start): the emitter spawns rate x its own rate
+      if (a.k === "spawnParticles" && a.emitter !== undefined) { this.host.spawn?.(a.emitter, a.rate ?? 1); continue; }
       // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
       if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger") && a.value !== undefined) {
         const c = conditionOf(a.value);

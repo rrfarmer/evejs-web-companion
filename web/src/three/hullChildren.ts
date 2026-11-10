@@ -1052,6 +1052,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
         stop: (owner: number, name: string) => animator?.stop(owner, name),
         setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
+        spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
         trigger: (target: number) => group.traverse((o) => { if (o.userData.propagatorId === target) o.visible = true; }),
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
         setScale: (set: number, scale: number) => animator?.setScale(set, scale),
@@ -1274,7 +1275,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         let quad: THREE.BufferGeometry | null = null;
         lod?.traverse((o) => { if (!quad && (o as THREE.Mesh).isMesh) quad = (o as THREE.Mesh).geometry; });
         if (!quad) return;
-        const o = particleObject(node, quad, childTexture, (id, get, set) => animator.values(id, get, set), (id, u) => animator.uniform(id, u));
+        const o = particleObject(node, quad, childTexture, (id, get, set, spawn) => { animator.values(id, get, set); if (spawn) animator.spawner(id, spawn); }, (id, u) => animator.uniform(id, u));
         if (!o) return;
         if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
         place(o, at, node.modifiers);

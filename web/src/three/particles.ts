@@ -541,8 +541,112 @@ export function dynDecalMaterial(area: Area, textureOf: TextureOf): THREE.Shader
   return mat;
 }
 
+/**
+ * The particle effect particles/gateparticles.fx (a stargate's arrival and departure flash: its EFFECT_TYPE records
+ * PARTICLE_DEPARTURE and PARTICLE_ARRIVAL, four passes each; client 3396210). ParticleDynamics x, y, z (distance,
+ * start share, stretch), a the particle's age:
+ * - the climb along the object's y axis: departing x (y a + (1 - y) a^2) from the particle, its speed x (y + (1 - y) a);
+ *   arriving x - x (y b + (1 - y) b^2), b = sat(1.3 a), from the particle up x, the same speed;
+ * - pass 0: the particle there, a card of lerp(size.x, size.y, a) stretched along its screen speed x z; colour Color1 to
+ *   Color2 over age 0 .. ColorMidpoint, Color2 to Color3 to 1;
+ * - pass 1: a ribbon from there back to where it began (the particle, or up x arriving), across it the eye's view of the
+ *   y axis (normalize(y axis x (point - eye))) x the size; TexMap's column u 0.5 at v, its mip bias 4 (1 -
+ *   sat((1 - u) colour.r)), x the colour x SpriteColor x (1 - u) x 0.3;
+ * - pass 2: the start flash, a card at the particle's x, z on the y = 0 plane (y = x arriving) of 2 x lerp(size.x,
+ *   size.y, f) x StartFlash.y, f = sqrt(a / StartFlash.x), coloured by f x StartFlash.z;
+ * - pass 3: the end flash at the climb's end (y = x departing, 0 arriving), f = sat(a - 1 + StartFlash.x) / .x, its
+ *   colour by f x f x StartFlash.z;
+ * - every pass: TexMap (sRGB, decoded here after filtering) x colour x SpriteColor, alpha 1; the records set no blend
+ *   (the area's preset).
+ */
+export function gateParticlesMaterials(area: Area, textureOf: TextureOf): THREE.ShaderMaterial[] {
+  const p = area.params;
+  const arrival = (area.options as Record<string, string> | undefined)?.EFFECT_TYPE === "PARTICLE_ARRIVAL";
+  const uniforms: Record<string, THREE.IUniform> = {
+    color1: { value: v4(p.Color1, [1, 1, 1, 0]) }, color2: { value: v4(p.Color2, [0.5, 0.5, 0.5, 0]) }, color3: { value: v4(p.Color3, [0, 0, 0, 0]) },
+    colorMidpoint: { value: f1(p.ColorMidpoint, 0.5) }, particleDynamics: { value: v4(p.ParticleDynamics, [100, 0.01, 0, 0]) },
+    startFlash: { value: v4(p.StartFlash, [0.1, 1, 1, 0]) }, spriteColor: { value: v4(p.SpriteColor, [1, 1, 1, 1]) }, texMap: { value: null },
+  };
+  void textureOf(area.textures.TexMap).then((t) => { if (!t) return; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; uniforms.texMap!.value = t; });
+  const head = `uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint; uniform vec4 particleDynamics; uniform vec4 startFlash;
+      attribute vec3 iPos; attribute vec2 iLife; attribute vec2 iT8;
+      varying vec2 vUv; varying vec4 vColor;
+      vec4 byAge( float t ) {
+        return t > colorMidpoint ? mix( color2, color3, clamp( ( t - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
+          : mix( color1, color2, clamp( t / colorMidpoint, 0.0, 1.0 ) );
+      }
+      float climb( float a ) {
+        float x = particleDynamics.x, y = particleDynamics.y;
+        ${arrival ? "float b = clamp( a * 1.3, 0.0, 1.0 ); return x - ( x * y * b + ( 1.0 - y ) * x * b * b );" : "return x * y * a + ( 1.0 - y ) * x * a * a;"}
+      }
+      float speed( float a ) { return particleDynamics.x * particleDynamics.y + ( 1.0 - particleDynamics.y ) * particleDynamics.x * a; }`;
+  const ps = (body: string) => `uniform sampler2D texMap; uniform vec4 spriteColor;
+      varying vec2 vUv; varying vec4 vColor;
+      vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+      void main() { ${body} }`;
+  const plain = ps("gl_FragColor = vec4(decode(texture2D(texMap, vUv).rgb) * vColor.rgb * spriteColor.rgb, 1.0);");
+  const passes: [string, string][] = [
+    [`${head}
+      void main() {
+        float a = iLife.x;
+        vec4 view = viewMatrix * modelMatrix * vec4( iPos + vec3( 0.0, climb( a ), 0.0 ), 1.0 );
+        vec3 viewVel = ( viewMatrix * vec4( modelMatrix[1].xyz * speed( a ), 0.0 ) ).xyz;
+        vec2 sNow = ( projectionMatrix * view ).xy;
+        vec2 sMove = ( projectionMatrix * ( view + vec4( viewVel, 0.0 ) ) ).xy - sNow;
+        float sLen = length( sMove );
+        vec2 sDir = sLen > 0.0 ? sMove / sLen : vec2( 0.0 );
+        vec2 corner = position.xy * mix( iT8.x, iT8.y, a );
+        vec4 p = view + vec4( corner, 0.0, 0.0 );
+        if ( sLen > 0.0 ) p.xyz += viewVel * particleDynamics.z * dot( corner, sDir );
+        gl_Position = projectionMatrix * p;
+        vUv = uv; vColor = byAge( a );
+      }`, plain],
+    [`${head}
+      void main() {
+        float a = iLife.x;
+        vec4 now = modelMatrix * vec4( iPos + vec3( 0.0, climb( a ), 0.0 ), 1.0 );
+        vec4 from = modelMatrix * vec4( iPos + vec3( 0.0, ${arrival ? "particleDynamics.x" : "0.0"}, 0.0 ), 1.0 );
+        vec4 w = mix( now, from, position.x + 0.5 );
+        vec3 across = normalize( cross( normalize( modelMatrix[1].xyz ), w.xyz - cameraPosition ) );
+        w.xyz += across * mix( iT8.x, iT8.y, a ) * position.y;
+        gl_Position = projectionMatrix * viewMatrix * w;
+        vUv = uv; vColor = byAge( a );
+      }`, ps(`float u = vUv.x;
+        float bias = 4.0 * ( 1.0 - clamp( ( 1.0 - u ) * vColor.r, 0.0, 1.0 ) );
+        vec3 t = decode( texture2D( texMap, vec2( 0.5, vUv.y ), bias ).rgb );
+        gl_FragColor = vec4( t * vColor.rgb * spriteColor.rgb * ( 1.0 - u ) * 0.3, 1.0 );`)],
+    [`${head}
+      void main() {
+        float f = sqrt( iLife.x / startFlash.x );
+        float size = 2.0 * ( iT8.x * startFlash.y + ( iT8.y * startFlash.y - iT8.x * startFlash.y ) * f );
+        vec4 view = viewMatrix * modelMatrix * vec4( iPos.x, ${arrival ? "particleDynamics.x" : "0.0"}, iPos.z, 1.0 );
+        gl_Position = projectionMatrix * ( view + vec4( position.xy * size, 0.0, 0.0 ) );
+        vUv = uv; vColor = byAge( f ) * startFlash.z;
+      }`, plain],
+    [`${head}
+      void main() {
+        float f = clamp( iLife.x - ( 1.0 - startFlash.x ), 0.0, 1.0 ) / startFlash.x;
+        float size = 2.0 * ( iT8.x * startFlash.y + ( iT8.y * startFlash.y - iT8.x * startFlash.y ) * f );
+        vec4 view = viewMatrix * modelMatrix * vec4( iPos.x, ${arrival ? "0.0" : "particleDynamics.x"}, iPos.z, 1.0 );
+        gl_Position = projectionMatrix * ( view + vec4( position.xy * size, 0.0, 0.0 ) );
+        vUv = uv; vColor = byAge( f ) * ( f * startFlash.z );
+      }`, plain],
+  ];
+  return passes.map(([vertexShader, fragmentShader]) => {
+    const mat = new THREE.ShaderMaterial({
+      uniforms, vertexShader, fragmentShader,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      ...(area.kind === "additive"
+        ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+        : { blending: THREE.NormalBlending }),
+    });
+    logDepth(mat);
+    return mat;
+  });
+}
+
 /** An area's particle material, by its effect file; null for an effect or permutation not drawn here. */
-function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
+function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | THREE.ShaderMaterial[] | null {
   const path = (area as { path?: string }).path ?? "";
   if (area.effect === "1layerdynv2") {
     const material = oneLayerDynMaterial(area.params, null);
@@ -556,6 +660,7 @@ function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMateria
   if (path.endsWith("/specialfx/particles/motionvector.fx")) return motionVectorParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/motionvectorramp.fx")) return motionVectorParticleMaterial(area, textureOf, true);
   if (path.endsWith("/specialfx/particles/dynamic/motionvector.fx")) return dynamicMotionVectorMaterial(area, textureOf);
+  if (path.endsWith("/specialfx/particles/gateparticles.fx")) return gateParticlesMaterials(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/3ddyndecalv2.fx")) return dynDecalMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/2layermask.fx")) return twoLayerMaskParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/2layerdynmaskv2.fx")) return twoLayerMaskParticleMaterial(area, textureOf, true);
@@ -586,6 +691,7 @@ const PARAM_UNIFORM: Record<string, string> = {
   Layer1TexCoordModifier: "layer1Mod", Layer2TexCoordModifier: "layer2Mod", Layer1TexCoordSpeed: "layer1Speed", Layer2TexCoordSpeed: "layer2Speed",
   Color1: "color1", Color2: "color2", Color3: "color3", ColorMidpoint: "colorMidpoint", SpriteColor: "spriteColor",
   DistanceScalingParams: "distanceScaling", ParticleParams: "particleParams", Brightness: "brightness",
+  ParticleDynamics: "particleDynamics", StartFlash: "startFlash",
   AtlasInfo: "atlas", Colors: "colors", Colors2: "colors2", SelfIllumination: "selfIllum",
 };
 
@@ -612,13 +718,16 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
  * null where none is.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
-  registerEmitter?: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void) => void,
+  registerEmitter?: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void, spawn?: (rate: number) => void) => void,
   registerUniform?: (id: number, uniform: THREE.IUniform | undefined) => void): THREE.Object3D | null {
-  let material: THREE.ShaderMaterial | null = null;
+  let made: THREE.ShaderMaterial | THREE.ShaderMaterial[] | null = null;
   let drawn: Area | null = null;
-  for (const a of node.areas) if (!material) { material = particleMaterial(a, textureOf); drawn = a; }
-  if (!material || !drawn) return null;
-  for (const [name, id] of Object.entries(drawn.paramIds ?? {})) if (PARAM_UNIFORM[name] && material.uniforms[PARAM_UNIFORM[name]!]) registerUniform?.(id, material.uniforms[PARAM_UNIFORM[name]!]);
+  for (const a of node.areas) if (!made) { made = particleMaterial(a, textureOf); drawn = a; }
+  if (!made || !drawn) return null;
+  // an effect of several passes draws each as a mesh of its own over the same instances (the first steps them)
+  const materials = Array.isArray(made) ? made : [made];
+  const material = materials[0]!;
+  for (const m of materials) for (const [name, id] of Object.entries(drawn.paramIds ?? {})) if (PARAM_UNIFORM[name] && m.uniforms[PARAM_UNIFORM[name]!]) registerUniform?.(id, m.uniforms[PARAM_UNIFORM[name]!]);
   const sims = node.systems.map((s) => new ParticleSim(s));
   const sim = sims[node.meshSystem];
   if (!sim || sim.max === 0) return null;
@@ -629,7 +738,8 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     const id = (e.data as { id?: number }).id;
     if (id === undefined || !registerEmitter) continue;
     registerEmitter(id, (attr) => (attr === "rate" ? Number(e.data.rate ?? 0) : attr === "maxParticles" ? Number(e.data.maxParticles ?? -1) : undefined),
-      (attr, v) => { const n = Array.isArray(v) ? v[0] ?? 0 : v; if (attr === "rate") e.data.rate = n; else if (attr === "maxParticles") e.data.maxParticles = n; });
+      (attr, v) => { const n = Array.isArray(v) ? v[0] ?? 0 : v; if (attr === "rate") e.data.rate = n; else if (attr === "maxParticles") e.data.maxParticles = n; },
+      (rate) => e.spawn(rate));
     // its generators' ranges and speeds (read at each spawn): a vector range nought where the file has none
     for (const g of (e.data.generators ?? []) as Record<string, unknown>[]) {
       if (!g || typeof g.id !== "number") continue;
@@ -656,10 +766,15 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     filled.push({ attr, key: a.key(usage), size: a.size });
   }
   geometry.instanceCount = 0;
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = `child-particles:${node.name ?? ""}`;
-  mesh.frustumCulled = false;
-  mesh.renderOrder = 3;
+  const meshes = materials.map((m) => {
+    const mesh = new THREE.Mesh(geometry, m);
+    mesh.name = `child-particles:${node.name ?? ""}`;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 3;
+    return mesh;
+  });
+  let mesh: THREE.Object3D = meshes[0]!;
+  if (meshes.length > 1) { mesh = new THREE.Group(); mesh.name = `child-particle-passes:${node.name ?? ""}`; for (const m of meshes) mesh.add(m); }
   let stepped = 0;
   // stepped from the material's hook: a model's copies (Object3D.clone) share the material and the geometry but not
   // an object's own onBeforeRender
@@ -668,7 +783,8 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     const now = performance.now() / 1000;
     if (now === stepped) return;
     stepped = now;
-    for (const e of emitters) e.update(now);
+    // (an emitter only an action fires is not updated: Tr2ActionSpawnParticles' own)
+    for (const e of emitters) if (!(e.data as { actionOnly?: boolean }).actionOnly) e.update(now);
     for (const s of updated) s.update(now);
     for (const f of filled) {
       const src = f.key ? sim.arrays.get(f.key) : undefined;

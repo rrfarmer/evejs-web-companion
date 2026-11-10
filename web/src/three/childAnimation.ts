@@ -198,6 +198,10 @@ export class ChildAnimator {
   applyTime(id: number, time: number): void {
     for (const r of this.sets) if (r.set.id === id) r.applyAt = time;
   }
+  /** The particle emitters a controller's Tr2ActionSpawnParticles may fire, by id. */
+  private readonly spawners = new Map<number, (rate: number) => void>();
+  spawner(id: number, spawn: (rate: number) => void): void { this.spawners.set(id, spawn); }
+  spawn(id: number, rate: number): void { this.spawners.get(id)?.(rate); }
   /** A controller's SetValue on a set's scale: its time advances by this x the time passed. */
   setScale(id: number, scale: number): void {
     for (const r of this.sets) if (r.set.id === id) r.scale = scale;

@@ -401,9 +401,17 @@ export class ParticleEmitter {
     if (this.last === 0) this.last = now;
     const dt = Math.min(now - this.last, 0.3);
     this.last = now;
+    this.spawn(dt);
+  }
+  /**
+   * Tr2DynamicEmitter::SpawnParticles: rate x the modifier (an update's dt, or a Tr2ActionSpawnParticles' rate) added
+   * to what is carried, its whole part emitted (within maxParticles), the fraction carried.
+   */
+  spawn(modifier: number): void {
+    if (!this.valid || !this.sim) return;
     const rate = num(this.data.rate, 0);
     if (rate <= 0) return;
-    this.acc += rate * dt;
+    this.acc += rate * modifier;
     let count = Math.trunc(this.acc);
     this.acc -= Math.floor(this.acc);
     const limit = num(this.data.maxParticles, -1);

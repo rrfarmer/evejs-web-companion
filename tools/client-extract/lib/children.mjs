@@ -145,15 +145,17 @@ function readChildEffect(path, skipped) {
   effectRoots.set(key, null);
   const res = key.replace(/\.red$/, ".black");
   if (!readRf?.has(res)) return key;
-  const kept = shownBySet;
+  const kept = shownBySet, keptEmitters = actionEmitters;
   try {
     const o = readBlack(readRf.read(res), res);
     shownBySet = findShownBySet(o);
+    actionEmitters = findActionEmitters(o);
     effectRoots.set(key, readNode(o, skipped));
   } catch (e) {
     skipped.unreadEffect = String(e.message ?? e);
   } finally {
     shownBySet = kept;
+    actionEmitters = keptEmitters;
   }
   return key;
 }
@@ -205,6 +207,11 @@ function readController(c, skipped, owner) {
       // its set is its own (held by the action, no container's): read with it, never played, only applied
       return { k: "animateCurveSet", curveSet: idOf(a.curveSet), ownSet: { ...readCurveSet(a.curveSet), playOnLoad: false }, value: String(a.value ?? "StateTime()") };
     }
+    // Tr2ActionSpawnParticles: on start its emitter spawns rate x the emitter's own rate (Tr2DynamicEmitter::SpawnParticles)
+    if (a.type === "Tr2ActionSpawnParticles") {
+      if (!a.emitter) { skipped[a.type] = (skipped[a.type] ?? 0) + 1; return { k: a.type }; }
+      return { k: "spawnParticles", emitter: idOf(a.emitter), rate: a.rate ?? 1 };
+    }
     if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
     if (a.type === "Tr2ActionChildEffect") {
       return { k: "childEffect", effect: a.path ? readChildEffect(a.path, skipped) : null, name: a.childName ?? null, add: a.addOnStart !== false, remove: a.removeOnStop !== false, other: a.targetAnotherOwner || null };
@@ -235,6 +242,29 @@ let readRf = null;
 // The objects whose display a curve set drives (in the file being read): one hidden in the file (display false) is
 // read all the same, marked display false, for the set to show (on load, or when a controller plays it).
 let shownBySet = new Set();
+/**
+ * The emitters a file's Tr2ActionSpawnParticles hold (each its own, in no EveChildParticleSystem's list: a gate's Arrival
+ * and Departure emitters), by the particle system they emit into: the particle child that draws that system takes them
+ * as emitters that only the action fires.
+ */
+let actionEmitters = new Map();
+function findActionEmitters(root) {
+  const out = new Map();
+  const seen = new Set();
+  const walk = (o) => {
+    if (!o || typeof o !== "object" || seen.has(o)) return;
+    seen.add(o);
+    if (o.type === "Tr2ActionSpawnParticles" && o.emitter?.particleSystem) {
+      const list = out.get(o.emitter.particleSystem) ?? [];
+      if (!list.includes(o.emitter)) list.push(o.emitter);
+      out.set(o.emitter.particleSystem, list);
+    }
+    for (const v of Object.values(o)) walk(v);
+  };
+  walk(root);
+  return out;
+}
+
 function findShownBySet(root) {
   const out = new Set(), seen = new Set();
   const walk = (o) => {
@@ -394,17 +424,22 @@ function readParticleSystemChild(o, skipped) {
     return sysIndex.get(s);
   };
   const emitters = [];
+  const pushEmitter = (e, actionOnly) => {
+    // its id: a curve set's binding may drive its rate (a Tr2ActionSpawnParticles names it)
+    const plain = { id: idOf(e), ...plainOf(e, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null)), ...(actionOnly ? { actionOnly: true } : {}) };
+    // its generators' ids: a curve set's binding may drive their ranges (a wreck fire's lifetimes, sizes, speeds)
+    if (Array.isArray(plain.generators)) plain.generators = plain.generators.map((g, i) => (g && typeof g === "object" ? { id: idOf(e.generators[i]), ...g } : g));
+    emitters.push(plain);
+  };
   for (const e of o.particleEmitters ?? []) {
     if (e?.type !== "Tr2DynamicEmitter" && e?.type !== "Tr2StaticEmitter") {
       skipped[`particleEmitter:${e?.type ?? "?"}`] = (skipped[`particleEmitter:${e?.type ?? "?"}`] ?? 0) + 1;
       continue;
     }
-    // its id: a curve set's binding may drive its rate
-    const plain = { id: idOf(e), ...plainOf(e, (x) => (x?.type === "Tr2ParticleSystem" ? { system: systemOf(x) } : null)) };
-    // its generators' ids: a curve set's binding may drive their ranges (a wreck fire's lifetimes, sizes, speeds)
-    if (Array.isArray(plain.generators)) plain.generators = plain.generators.map((g, i) => (g && typeof g === "object" ? { id: idOf(e.generators[i]), ...g } : g));
-    emitters.push(plain);
+    pushEmitter(e, false);
   }
+  // the emitters only an action fires (Tr2ActionSpawnParticles' own) into this child's systems
+  for (const s of [o.mesh?.instanceGeometryResource, ...(o.particleSystems ?? [])]) for (const e of actionEmitters.get(s) ?? []) if (e?.type === "Tr2DynamicEmitter" && !emitters.some((x) => x.id === idOf(e))) pushEmitter(e, true);
   const meshSystem = systemOf(o.mesh.instanceGeometryResource);
   const updated = (o.particleSystems ?? []).map(systemOf).filter((i) => i >= 0);
   if (meshSystem < 0 || !emitters.length) return null;
@@ -487,6 +522,7 @@ export function readHullChildren(rf, sofHull, faction = null) {
         o.scaling = child.scaling ?? [1, 1, 1];
       }
       shownBySet = findShownBySet(o);
+      actionEmitters = findActionEmitters(o);
       root = readNode(o, skipped);
     } catch (e) {
       skipped.unread = String(e.message ?? e);
