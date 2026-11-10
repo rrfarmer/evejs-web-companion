@@ -358,7 +358,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         ${soft ? "if (softDepthOn > 0.5) c *= clamp((softSceneDepth() - vSoft.y) / vSoft.x, 0.0, 1.0);" : ""}
         gl_FragColor = vec4(c.rgb, clamp(c.a, 0.0, 1.0));
       }`,
-    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    side: THREE.FrontSide, transparent: true, depthWrite: false,
     ...(additive
       ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
       : { blending: THREE.NormalBlending }),
@@ -433,7 +433,7 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         vec4 c = a * b * vec4(m.rgb, 1.0) * base + m.a * fx;
         gl_FragColor = vec4(c.rgb * f, c.a);
       }`,
-    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    side: presetSide(area), transparent: true, depthWrite: false,
     ...(area.kind === "additive"
       ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
       : { blending: THREE.NormalBlending }),
@@ -567,11 +567,8 @@ function motionVectorRampMaterial(area: SofChildMeshArea): THREE.ShaderMaterial 
   };
   void childTexture(area.textures.TextureMap).then((t) => { uniforms.textureMap!.value = t; });
   void childTexture(area.textures.GradientMap).then((t) => { uniforms.gradientMap!.value = t; });
-  void childTexture(area.textures.ColorRampMap).then((t) => {
-    // ColorRampMapSampler clamps
-    if (t) { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; }
-    uniforms.rampMap!.value = t;
-  });
+  // its samplers all clamp (MaskMapClampedSampler for TextureMap and GradientMap, ColorRampMapSampler): in the shader
+  void childTexture(area.textures.ColorRampMap).then((t) => { uniforms.rampMap!.value = t; });
   const additive = area.kind === "additive";
   const mat = new THREE.ShaderMaterial({
     uniforms,
@@ -588,6 +585,7 @@ function motionVectorRampMaterial(area: SofChildMeshArea): THREE.ShaderMaterial 
       varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
       vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
       vec3 encode(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+      ${CLAMP_GLSL}
       vec2 cell(float f) {
         float row = min(atlas.y - 1.0, floor(f / atlas.x));
         return vec2(min(atlas.x - 1.0, floor(f - row * atlas.x)), row);
@@ -604,21 +602,21 @@ function motionVectorRampMaterial(area: SofChildMeshArea): THREE.ShaderMaterial 
         vec2 uv = clamp(vUv, 0.0, 1.0);
         vec4 mv = vec4(0.0);
         if (colors.w > 0.0) {
-          mv.xy = (texture2D(gradientMap, (uv + c0) / atlas.xy).xy * 2.0 - 1.0) * k;
-          mv.zw = (texture2D(gradientMap, (uv + c1) / atlas.xy).zw * 2.0 - 1.0) * (1.0 - k);
+          mv.xy = (texture2D(gradientMap, clampUv(gradientMap, (uv + c0) / atlas.xy)).xy * 2.0 - 1.0) * k;
+          mv.zw = (texture2D(gradientMap, clampUv(gradientMap, (uv + c1) / atlas.xy)).zw * 2.0 - 1.0) * (1.0 - k);
           mv *= colors.w;
         }
-        vec4 a = texture2D(textureMap, (clamp(vUv - mv.xy, 0.0, 1.0) + c0) / atlas.xy);
-        vec4 b = texture2D(textureMap, (clamp(vUv + mv.zw, 0.0, 1.0) + c1) / atlas.xy);
+        vec4 a = texture2D(textureMap, clampUv(textureMap, (clamp(vUv - mv.xy, 0.0, 1.0) + c0) / atlas.xy));
+        vec4 b = texture2D(textureMap, clampUv(textureMap, (clamp(vUv + mv.zw, 0.0, 1.0) + c1) / atlas.xy));
         vec2 v = mix(vec2(decode(a.rgb).r, a.a), vec2(decode(b.rgb).r, b.a), k);
-        vec4 ramp = texture2D(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), 0.0));
+        vec4 ramp = texture2D(rampMap, clampUv(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), 0.0)));
         vec3 rgb = decode(ramp.rgb) * colors.z;
         float alpha = v.y * ramp.a;
         float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
         f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
         gl_FragColor = vec4(encode(max(rgb, 0.0)), clamp(alpha * f, 0.0, 1.0));
       }`,
-    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    side: presetSide(area), transparent: true, depthWrite: false,
     ...(additive
       ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
       : { blending: THREE.NormalBlending }),
@@ -627,10 +625,150 @@ function motionVectorRampMaterial(area: SofChildMeshArea): THREE.ShaderMaterial 
   return mat;
 }
 
+/**
+ * The cull an area's batch gives an effect that sets none (carbonengine/trinity Tr2EffectStateManager.cpp's presets):
+ * a transparent area's alpha preset culls CW (three's FrontSide: the hull's opaque preset culls CW too and the hulls
+ * are drawn FrontSide), an additive area's culls none.
+ */
+const presetSide = (area: SofChildMeshArea) => (area.kind === "additive" ? THREE.DoubleSide : THREE.FrontSide);
+const areaBlend = (area: SofChildMeshArea) => (area.kind === "additive"
+  ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+  : { blending: THREE.NormalBlending });
+/** A sampler's clamp-to-edge, in the shader (the texture objects are shared between materials). */
+const CLAMP_GLSL = "vec2 clampUv(sampler2D t, vec2 uv) { vec2 h = 0.5 / vec2(textureSize(t, 0)); return clamp(uv, h, 1.0 - h); }";
+const SRGB_ENCODE_GLSL = "vec3 encode(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }";
+const PLAIN_VS = `varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+
+/**
+ * An area drawn with ubershadertwosided.fx (its sm_hi disassembled, client 3396210; defaults and states from its file
+ * by tools/client-extract/shaders/fxres.py): two passes of one shader, the first culling CW and the second CCW (both
+ * faces, the front first); DiffuseMap1 at uv x TextureTransform1.zw + .xy + TextureScroll1.xy x time + .zw, DiffuseMap2
+ * likewise, MaskMap at the plain uv (clamped), multiplied, times DiffuseColor and the fresnel of the vertex (as
+ * ubershader.fx's, from its normal and the way to the eye), alpha too. Defaults DiffuseColor 0.8, FresnelFactors
+ * (1, 1, 0, 0), transforms (0, 0, 1, 1). The back pass is userData.backPass (same uniforms).
+ */
+function twoSidedUberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    time: effectClock,
+    colour: { value: v4(p.DiffuseColor, [0.8, 0.8, 0.8, 1]) }, fresnel: { value: v4(p.FresnelFactors, [1, 1, 0, 0]) },
+    t1: { value: v4(p.TextureTransform1, [0, 0, 1, 1]) }, t2: { value: v4(p.TextureTransform2, [0, 0, 1, 1]) },
+    s1: { value: v4(p.TextureScroll1, [0, 0, 0, 0]) }, s2: { value: v4(p.TextureScroll2, [0, 0, 0, 0]) },
+    d1: { value: null }, d2: { value: null }, mask: { value: null },
+  };
+  void childTexture(area.textures.DiffuseMap1).then((t) => { uniforms.d1!.value = t; });
+  void childTexture(area.textures.DiffuseMap2).then((t) => { uniforms.d2!.value = t; });
+  void childTexture(area.textures.MaskMap).then((t) => { uniforms.mask!.value = t; });
+  const params = {
+    uniforms,
+    vertexShader: `uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform vec4 fresnel; uniform float time;
+      varying vec2 vUv; varying vec4 vUv12; varying float vFresnel;
+      void main() {
+        vUv = uv;
+        vUv12 = vec4(uv * t1.zw + t1.xy + s1.xy * time + s1.zw, uv * t2.zw + t2.xy + s2.xy * time + s2.zw);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vec3 toEye = normalize(-(vec4(mv.xyz, 0.0) * viewMatrix).xyz);
+        vec3 n = normalize(mat3(modelMatrix) * normal);
+        float f = pow(1.0 - clamp(dot(toEye, n) - fresnel.z, 0.0, 1.0), fresnel.x);
+        vFresnel = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D mask; uniform vec4 colour;
+      varying vec2 vUv; varying vec4 vUv12; varying float vFresnel;
+      ${CLAMP_GLSL}
+      void main() {
+        gl_FragColor = texture2D(d1, vUv12.xy) * texture2D(d2, vUv12.zw) * texture2D(mask, clampUv(mask, vUv)) * (vFresnel * colour);
+      }`,
+    transparent: true, depthWrite: false, ...areaBlend(area),
+  };
+  const mat = logDepth(new THREE.ShaderMaterial({ ...params, side: THREE.FrontSide }));
+  mat.userData.backPass = logDepth(new THREE.ShaderMaterial({ ...params, side: THREE.BackSide }));
+  return mat;
+}
+
+/**
+ * An area drawn with texturecolor.fx (DEPTH_MAP_OCCLUSION_NO, its default): DiffuseMap at uv x TextureScaling.xy +
+ * TextureTranslation.xy, times DiffuseColor and Brightness; both faces (its file culls none). Defaults DiffuseColor
+ * 0.8, Brightness 1, TextureTranslation 0, TextureScaling 1.
+ */
+function textureColorMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    colour: { value: v4(p.DiffuseColor, [0.8, 0.8, 0.8, 1]) }, brightness: { value: typeof p.Brightness === "number" ? p.Brightness : 1 },
+    translation: { value: v4(p.TextureTranslation, [0, 0, 0, 0]) }, scaling: { value: v4(p.TextureScaling, [1, 1, 1, 1]) },
+    map: { value: null },
+  };
+  void childTexture(area.textures.DiffuseMap).then((t) => { uniforms.map!.value = t; });
+  return logDepth(new THREE.ShaderMaterial({
+    uniforms, vertexShader: PLAIN_VS,
+    fragmentShader: `uniform sampler2D map; uniform vec4 colour; uniform float brightness; uniform vec4 translation; uniform vec4 scaling;
+      varying vec2 vUv;
+      void main() { gl_FragColor = texture2D(map, vUv * scaling.xy + translation.xy) * colour * brightness; }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false, ...areaBlend(area),
+  }));
+}
+
+/**
+ * An area drawn with lensflares/flare.fx: GradientMap (clamped) at (d, d) for d the distance from the uv's middle
+ * x 2, times DiffuseColor and Brightness; both faces. Defaults DiffuseColor 1, Brightness 1. The fog volume map's
+ * factor is 1.
+ */
+function flareMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    colour: { value: v4(p.DiffuseColor, [1, 1, 1, 1]) }, brightness: { value: typeof p.Brightness === "number" ? p.Brightness : 1 },
+    gradient: { value: null },
+  };
+  void childTexture(area.textures.GradientMap).then((t) => { uniforms.gradient!.value = t; });
+  return logDepth(new THREE.ShaderMaterial({
+    uniforms, vertexShader: PLAIN_VS,
+    fragmentShader: `uniform sampler2D gradient; uniform vec4 colour; uniform float brightness; varying vec2 vUv;
+      ${CLAMP_GLSL}
+      void main() { float d = length((vUv - 0.5) * 2.0); gl_FragColor = texture2D(gradient, clampUv(gradient, vec2(d))) * colour * brightness; }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false, ...areaBlend(area),
+  }));
+}
+
+/**
+ * An area drawn with twocolorflare.fx: the mesh's x and y only (z nought) through its transform; per vertex k =
+ * (asin(c) / pi)^2 for c the cosine of its angle off the eye's axis (saturated); the pixel's d = length((uv - 0.5) x
+ * 2): the colour mix(ColorInner, ColorOutter, d x sqrt 2), times ((1 / (min(d, 1) + 0.001) - 0.999001) x 1.001)^2 x k,
+ * its colour written sRGB-encoded (the per-frame gamma 1); both faces. Defaults both colours 1. The fog volume map's
+ * factor is 1.
+ */
+function twoColorFlareMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    inner: { value: v4(p.ColorInner, [1, 1, 1, 1]) }, outer: { value: v4(p.ColorOutter, [1, 1, 1, 1]) },
+  };
+  return logDepth(new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `varying vec3 vUvK;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position.xy, 0.0, 1.0);
+        float c = clamp(-mv.z / length(mv.xyz), 0.0, 1.0);
+        float a = asin(c) / 3.14159265;
+        vUvK = vec3(uv, a * a);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform vec4 inner; uniform vec4 outer; varying vec3 vUvK;
+      ${SRGB_ENCODE_GLSL}
+      void main() {
+        float d = length((vUvK.xy - 0.5) * 2.0);
+        float fall = (1.0 / (min(d, 1.0) + 0.001) - 0.999001) * 1.001;
+        vec4 c = mix(inner, outer, d * 1.414214) * (fall * fall * vUvK.z);
+        gl_FragColor = vec4(encode(max(c.rgb, 0.0)), c.a);
+      }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false, ...areaBlend(area),
+  }));
+}
+
 const PARAM_UNIFORM: Record<string, string> = {
   DiffuseColor: "colour", FresnelFactors: "fresnel", MaskTransform: "maskT", MaskScroll: "maskS",
   TextureTransform1: "t1", TextureTransform2: "t2", TextureTransform3: "t3", TextureScroll1: "s1", TextureScroll2: "s2", TextureScroll3: "s3",
   BaseColor: "base", FxColor: "fx", Layer3Center: "centre", CurrentTime: "currentTime", AtlasInfo: "atlas", Colors: "colors",
+  Brightness: "brightness", ColorInner: "inner", ColorOutter: "outer", TextureTranslation: "translation", TextureScaling: "scaling",
   Layer1Transform: "t1", Layer2Transform: "t2", Layer3Transform: "t3", Layer1Scroll: "s1", Layer2Scroll: "s2", Layer3Scroll: "s3",
 };
 
@@ -655,16 +793,22 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
       const area = node.areas.find((a) => at >= a.index && at < a.index + a.count);
       if (!area) return;
       if (!materials.has(area)) {
-        const mat = area.effect === "fx3dv5" ? fx3dMaterial(area) : area.effect === "motionvectorramp" ? motionVectorRampMaterial(area) : uberMaterial(area);
+        const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
+          texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
+        const mat = make(area);
         materials.set(area, mat);
         for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);
       }
-      const m = new THREE.Mesh(mesh.geometry, materials.get(area)!);
-      m.renderOrder = 3;
-      m.frustumCulled = false;
       o.updateWorldMatrix(true, false);
-      m.applyMatrix4(o.matrixWorld);
-      inner.add(m);
+      // an effect of two passes (ubershadertwosided's back faces) draws its second as a second mesh, after the first
+      for (const mat of [materials.get(area)!, materials.get(area)!.userData.backPass as THREE.ShaderMaterial | undefined]) {
+        if (!mat) continue;
+        const m = new THREE.Mesh(mesh.geometry, mat);
+        m.renderOrder = 3;
+        m.frustumCulled = false;
+        m.applyMatrix4(o.matrixWorld);
+        inner.add(m);
+      }
     });
     holder.add(inner);
   }

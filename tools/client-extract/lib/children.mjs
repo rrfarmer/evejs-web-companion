@@ -11,7 +11,8 @@
 //   geometry's file, the effect's constants and its textures (PositionMap, TexMap); the instances themselves are
 //   read by the caller (readTrafficInstances), the reader being asynchronous;
 // - EveChildMesh on a Tr2Mesh: its transform, geometry file (the caller extracts it), mesh index and the areas drawn
-//   with ubershader.fx, fx3dv5.fx or motionvectorramp.fx in its default options (kind, index, count, the effect's options, constants and textures); its other
+//   with ubershader.fx, ubershadertwosided.fx, fx3dv5.fx, texturecolor.fx, flare.fx, twocolorflare.fx or
+//   motionvectorramp.fx in its default options (kind, index, count, the effect's options, constants and textures); its other
 //   areas counted;
 // - EveChildLineSet: its transform, colours, brightness, the line set's additive flag, width factor and textures, and
 //   each EveBezierCurve (its own transform, point1, bezierPoint, point2, segments, lineWidth), defaults as the
@@ -162,8 +163,10 @@ function readShown(o, skipped) {
       for (const a of o.mesh[list] ?? []) {
         const fx = effectName(a.effect);
         const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
-        const drawn = fx === "ubershader" || fx === "fx3dv5" || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === v));
-        if (!drawn) { const k = fx === "motionvectorramp" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
+        const drawn = ["ubershader", "fx3dv5", "ubershadertwosided", "flare", "twocolorflare"].includes(fx)
+          || (fx === "texturecolor" && (opts.DEPTH_MAP_OCCLUSION ?? "DEPTH_MAP_OCCLUSION_NO") === "DEPTH_MAP_OCCLUSION_NO")
+          || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === v));
+        if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
         areas.push({
           id: idOf(a), paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
           kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
