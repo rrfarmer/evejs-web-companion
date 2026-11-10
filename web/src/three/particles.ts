@@ -100,6 +100,223 @@ export function oneLayerDynMaterial(params: Record<string, unknown>, texture: TH
   return mat;
 }
 
+type Area = SofChildParticles["areas"][number];
+type TextureOf = (res: string | null | undefined) => Promise<THREE.Texture | null>;
+const particleClock = { get value() { return performance.now() / 1000; } };
+const CLAMP_UV = "vec2 clampUv(sampler2D t, vec2 uv) { vec2 h = 0.5 / vec2(textureSize(t, 0)); return clamp(uv, h, 1.0 - h); }";
+const SRGB = `vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+      vec3 encode(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }`;
+
+/**
+ * The dynamic particle vertex stage motionvector.fx and 2layermask.fx share (their PARTICLE_DYNAMIC records, client
+ * 3396210): the particle's view position, its quad corner x lerp(size.x, size.y, age) (TEXCOORD8; times the world
+ * scale where UseWorldScale) turned by age x lifetime x spinVel + spin + SpriteFactors.y, stretched along its screen
+ * velocity by VelocityStretch x sat(age / SpriteFactors2.x) x (the turned corner . the screen direction). Where
+ * UseWorldScale the view velocity is divided by the world scale, and in 2layermask the stretch too. No distance
+ * scaling (1layerdynv2's). Leaves age, the view position view and the varying vDepth (the view depth) set.
+ */
+function dynamicParticleVS(stretchByScale: boolean, decl: string, body: string): string {
+  return `uniform vec4 spriteFactors; uniform float velocityStretch; uniform vec4 spriteFactors2; uniform float useWorldScale;
+      attribute vec3 iPos; attribute vec2 iLife; attribute vec3 iVel; attribute vec2 iT8; attribute float iT9; attribute float iT10; attribute vec4 iT13;
+      varying float vDepth;
+      ${decl}
+      void main() {
+        float age = iLife.x;
+        mat3 m3 = mat3( modelMatrix );
+        float worldScale = length( vec3( m3[0][0] + m3[1][0] + m3[2][0], m3[0][1] + m3[1][1] + m3[2][1], m3[0][2] + m3[1][2] + m3[2][2] ) ) * 0.57735;
+        bool byScale = useWorldScale > 0.0;
+        vec4 view = viewMatrix * ( modelMatrix * vec4( iPos, 1.0 ) );
+        vec3 viewVel = ( viewMatrix * vec4( m3 * iVel, 0.0 ) ).xyz;
+        if ( byScale ) viewVel /= worldScale;
+        vec2 sNow = ( projectionMatrix * view ).xy;
+        vec2 sMove = ( projectionMatrix * ( view + vec4( viewVel, 0.0 ) ) ).xy - sNow;
+        float sLen = length( sMove );
+        vec2 sDir = sLen > 0.0 ? sMove / sLen : vec2( 0.0 );
+        float size = mix( iT8.x, iT8.y, age );
+        float stretch = velocityStretch;
+        if ( byScale ) { size *= worldScale; ${stretchByScale ? "stretch /= worldScale;" : ""} }
+        vec2 corner = position.xy * size;
+        float a = age * iT10 * iLife.y + iT9 + spriteFactors.y;
+        float s = sin( a ), c = cos( a );
+        vec2 turned = vec2( c * corner.x - s * corner.y, s * corner.x + c * corner.y );
+        vec4 p = view + vec4( turned, 0.0, 0.0 );
+        if ( sLen > 0.0 ) p.xyz += viewVel * stretch * clamp( age / spriteFactors2.x, 0.0, 1.0 ) * dot( turned, sDir );
+        gl_Position = projectionMatrix * p;
+        vDepth = abs( p.z );
+        ${body}
+      }`;
+}
+
+/**
+ * The particle effect motionvector.fx (res:/graphics/effect/managed/space/specialfx/particles/, its sm_hi records,
+ * client 3396210) for PARTICLE_DYNAMIC with COLOR_RAMP_ENABLED or COLOR_RAMP_2_RAMPS and any NEAR_FADE (the
+ * permutations the client's CPU particle children use but 20 static and 16 COLOR_BY_VALUE areas): a flipbook over the
+ * particle's life - TextureMap an atlas of AtlasInfo.x by .y frames, frame frames x frac(age); the frame and the next
+ * (past the last: the first where AtlasInfo.w, cycling, is above nought, else the last) blended by the fraction
+ * between them, each first pushed along GradientMap's motion vectors (the frame's .xy x the fraction, the next's .zw x
+ * 1 - it, x 2 - 1, times Colors.w, where that is above nought); its red r and alpha a (none: discarded); the colour
+ * ColorRampMap at (sat((r - Colors.x) / (Colors.y - Colors.x)), age) x Colors.z, with 2 ramps plus
+ * SelfIlluminationGradientMap at (sat((r - SelfIllumination.x) / (.y - .x)), age) x SelfIllumination.z; alpha a x the
+ * ramp's alpha x Colors2.w; NEAR_FADE_ALPHA fades the alpha, NEAR_FADE_COLOR the colour, by sat((depth -
+ * ParticleParams.x) / (.y - .x)); the colour written sRGB-encoded (the per-frame gamma 1). TextureMap and ColorRampMap
+ * are read as sRGB (decoded here after filtering); every sampler clamps. The record sets no blend: its batch's
+ * preset (transparent alpha, additive ONE / ONE). The fog volume map's factor is 1.
+ */
+export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
+  const o = area.options as Record<string, string>;
+  if ((o.PARTICLE_TYPE ?? "PARTICLE_STATIC") !== "PARTICLE_DYNAMIC" || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED") return null;
+  const ramp = o.COLOR_RAMP ?? "COLOR_RAMP_DISABLED";
+  if (ramp !== "COLOR_RAMP_ENABLED" && ramp !== "COLOR_RAMP_2_RAMPS") return null;
+  const twoRamps = ramp === "COLOR_RAMP_2_RAMPS";
+  const fade = o.NEAR_FADE ?? "NEAR_FADE_DISABLED";
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) }, velocityStretch: { value: f1(p.VelocityStretch, 0) },
+    spriteFactors2: { value: v4(p.SpriteFactors2, [0.05, 1, 1, 1]) }, useWorldScale: { value: f1(p.UseWorldScale, 0) },
+    atlas: { value: v4(p.AtlasInfo, [6, 6, 10, 1]) }, colors: { value: v4(p.Colors, [0, 1, 1, 0.01]) },
+    colors2: { value: v4(p.Colors2, [1, 1, 1, 1]) }, particleParams: { value: v4(p.ParticleParams, [0, 100, 0.5, 0]) },
+    selfIllum: { value: v4(p.SelfIllumination, [0, 1, 1, 0]) },
+    textureMap: { value: null }, rampMap: { value: null }, gradientMap: { value: null }, siMap: { value: null },
+  };
+  const load = (res: string | null | undefined, name: string) => void textureOf(res).then((t) => { if (t) uniforms[name]!.value = t; });
+  load(area.textures.TextureMap, "textureMap");
+  load(area.textures.ColorRampMap, "rampMap");
+  load(area.textures.GradientMap, "gradientMap");
+  if (twoRamps) load(area.textures.SelfIlluminationGradientMap, "siMap");
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: dynamicParticleVS(false, "varying vec3 vUvAge;", "vUvAge = vec3( uv, age );"),
+    fragmentShader: `uniform sampler2D textureMap; uniform sampler2D rampMap; uniform sampler2D gradientMap; uniform sampler2D siMap;
+      uniform vec4 atlas; uniform vec4 colors; uniform vec4 colors2; uniform vec4 particleParams; uniform vec4 selfIllum;
+      varying vec3 vUvAge; varying float vDepth;
+      ${SRGB}
+      ${CLAMP_UV}
+      vec2 cell(float f) {
+        float row = min(atlas.y - 1.0, floor(f / atlas.x));
+        return vec2(min(atlas.x - 1.0, floor(f - row * atlas.x)), row);
+      }
+      void main() {
+        float age = vUvAge.z;
+        float frames = atlas.x * atlas.y;
+        float t = age * atlas.z;
+        float at = frames * fract(t / atlas.z);
+        float f0 = floor(at);
+        float last = frames - 1.0;
+        float f1 = atlas.w > 0.0 ? (f0 + 1.0 >= frames ? 0.0 : f0 + 1.0) : min(f0 + 1.0, last);
+        float k = fract(at);
+        if (t >= atlas.z && atlas.w <= 0.0) { f0 = last; f1 = last; }
+        vec2 c0 = cell(f0), c1 = cell(f1);
+        vec2 uv = clamp(vUvAge.xy, 0.0, 1.0);
+        vec4 mv = vec4(0.0);
+        if (colors.w > 0.0) {
+          mv.xy = (texture2D(gradientMap, clampUv(gradientMap, (uv + c0) / atlas.xy)).xy * 2.0 - 1.0) * k;
+          mv.zw = (texture2D(gradientMap, clampUv(gradientMap, (uv + c1) / atlas.xy)).zw * 2.0 - 1.0) * (1.0 - k);
+          mv *= colors.w;
+        }
+        vec4 a = texture2D(textureMap, clampUv(textureMap, (clamp(vUvAge.xy - mv.xy, 0.0, 1.0) + c0) / atlas.xy));
+        vec4 b = texture2D(textureMap, clampUv(textureMap, (clamp(vUvAge.xy + mv.zw, 0.0, 1.0) + c1) / atlas.xy));
+        vec2 v = mix(vec2(decode(a.rgb).r, a.a), vec2(decode(b.rgb).r, b.a), k);
+        if (v.y <= 0.0) discard;
+        vec4 ramp = texture2D(rampMap, clampUv(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), age)));
+        vec3 rgb = decode(ramp.rgb) * colors.z;
+        ${twoRamps ? "rgb += texture2D(siMap, clampUv(siMap, vec2(clamp((v.x - selfIllum.x) / (selfIllum.y - selfIllum.x), 0.0, 1.0), age))).rgb * selfIllum.z;" : ""}
+        float alpha = v.y * ramp.a * colors2.w;
+        float fade = clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);
+        ${fade === "NEAR_FADE_ALPHA" ? "alpha *= fade;" : fade === "NEAR_FADE_COLOR" ? "rgb *= fade;" : ""}
+        gl_FragColor = vec4(encode(max(rgb, 0.0)), alpha);
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    ...(area.kind === "additive"
+      ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+      : { blending: THREE.NormalBlending }),
+  });
+  logDepth(mat);
+  return mat;
+}
+
+/**
+ * The particle effect 2layermask.fx (specialfx/particles/, its sm_hi records, client 3396210) for PARTICLE_DYNAMIC
+ * (its static records wait on the static emitter): TexMapLayer1 at uv x Layer1TexCoordModifier.xy + time x
+ * Layer1TexCoordSpeed.xy + .zw (with TEXTURE_OFFSETS plus the particle's TEXCOORD13.xy), times TexMapLayer2 the same
+ * with Layer2 and TEXCOORD13.zw, times MaskMap at the plain uv (its alpha nought: discarded); with NEAR_FADE all of it
+ * x sat((depth - ParticleParams.x) / (.y - .x)); the colour Color1 to Color2 over age 0 .. ColorMidpoint, Color2 to
+ * Color3 from it to 1, times SpriteColor; the pixel the texture's rgb x the colour's x (1 + SpriteFactors.x (colour
+ * alpha x texture alpha - 1)), alpha the texture's x the colour's x SpriteFactors.z, all x Brightness; blended ONE /
+ * INVSRCALPHA (its record's states). Its sampler wraps; nothing is read as sRGB. The fog volume map's factor is 1.
+ */
+export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
+  const o = area.options as Record<string, string>;
+  if ((o.PARTICLE_TYPE ?? "PARTICLE_STATIC") !== "PARTICLE_DYNAMIC" || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED") return null;
+  const offsets = o.TEXTURE_OFFSETS === "TEXTURE_OFFSETS_ENABLED";
+  const nearFade = o.NEAR_FADE === "NEAR_FADE_ENABLED";
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    time: particleClock,
+    spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) }, velocityStretch: { value: f1(p.VelocityStretch, 0) },
+    spriteFactors2: { value: v4(p.SpriteFactors2, [0.05, 1, 1, 1]) }, useWorldScale: { value: f1(p.UseWorldScale, 0) },
+    layer1Mod: { value: v4(p.Layer1TexCoordModifier, [1, 1, 0, 0]) }, layer2Mod: { value: v4(p.Layer2TexCoordModifier, [1, 1, 0, 0]) },
+    layer1Speed: { value: v4(p.Layer1TexCoordSpeed, [0, 0, 0, 0]) }, layer2Speed: { value: v4(p.Layer2TexCoordSpeed, [0, 0, 0, 0]) },
+    color1: { value: v4(p.Color1, [1, 1, 1, 0]) }, color2: { value: v4(p.Color2, [0.5, 0.5, 0.5, 0]) }, color3: { value: v4(p.Color3, [0, 0, 0, 0]) },
+    colorMidpoint: { value: f1(p.ColorMidpoint, 0.5) },
+    spriteColor: { value: v4(p.SpriteColor, [1, 1, 1, 1]) }, particleParams: { value: v4(p.ParticleParams, [0, 100, 0.5, 0]) },
+    brightness: { value: f1(p.Brightness, 1) },
+    layer1: { value: null }, layer2: { value: null }, mask: { value: null },
+  };
+  // the sampler wraps (EveSpaceSceneEnvMapSampler): on the texture objects (the clamping effects clamp in the shader)
+  const load = (res: string | null | undefined, name: string) => void textureOf(res).then((t) => {
+    if (!t) return;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true;
+    uniforms[name]!.value = t;
+  });
+  load(area.textures.TexMapLayer1, "layer1");
+  load(area.textures.TexMapLayer2, "layer2");
+  load(area.textures.MaskMap, "mask");
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: dynamicParticleVS(true, `uniform float time; uniform vec4 layer1Mod; uniform vec4 layer2Mod; uniform vec4 layer1Speed; uniform vec4 layer2Speed;
+      uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint;
+      varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor;`, `
+        vUv12 = vec4( layer1Mod.xy * uv + time * layer1Speed.xy + layer1Mod.zw, layer2Mod.xy * uv + time * layer2Speed.xy + layer2Mod.zw );
+        ${offsets ? "vUv12 += iT13;" : ""}
+        vMaskUv = uv;
+        vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
+          : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );`),
+    fragmentShader: `uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask;
+      uniform vec4 spriteColor; uniform vec4 spriteFactors; uniform vec4 particleParams; uniform float brightness;
+      varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor; varying float vDepth;
+      void main() {
+        vec4 m = texture2D(mask, vMaskUv);
+        if (m.a <= 0.0) discard;
+        vec4 t = texture2D(layer1, vUv12.xy) * texture2D(layer2, vUv12.zw) * m;
+        ${nearFade ? "t *= clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);" : ""}
+        vec4 col = vColor * spriteColor;
+        float k = spriteFactors.x * (col.a * t.a - 1.0) + 1.0;
+        gl_FragColor = vec4(t.rgb * col.rgb * k, t.a * col.a * spriteFactors.z) * brightness;
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
+  });
+  logDepth(mat);
+  return mat;
+}
+
+/** An area's particle material, by its effect file; null for an effect or permutation not drawn here. */
+function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
+  const path = (area as { path?: string }).path ?? "";
+  if (area.effect === "1layerdynv2") {
+    const material = oneLayerDynMaterial(area.params, null);
+    void textureOf(area.textures.TexMapLayer1).then((t) => {
+      if (!t) return;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true;
+      material.uniforms.layer1!.value = t;
+    });
+    return material;
+  }
+  if (path.endsWith("/specialfx/particles/motionvector.fx")) return motionVectorParticleMaterial(area, textureOf);
+  if (path.endsWith("/specialfx/particles/2layermask.fx")) return twoLayerMaskParticleMaterial(area, textureOf);
+  return null;
+}
+
 /** An EveChildParticleSystem as the extractor writes it (children.mjs readParticleSystemChild). */
 export interface SofChildParticles {
   k: "particles";
@@ -110,7 +327,7 @@ export interface SofChildParticles {
   geometry: string | null;
   meshIndex: number;
   minScreenSize: number;
-  areas: { kind: string; effect: string; params: Record<string, unknown>; textures: Record<string, string | null> }[];
+  areas: { kind: string; effect: string; path?: string; options?: Record<string, string>; params: Record<string, unknown>; textures: Record<string, string | null> }[];
   meshSystem: number;
   systems: ParticleSystemData[];
   emitters: ParticleEmitterData[];
@@ -127,18 +344,20 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
   { name: "iT9", size: 1, key: (u) => u.get(1) },
   { name: "iT10", size: 1, key: (u) => u.get(2) },
   { name: "iT11", size: 1, key: (u) => u.get(3) },
+  { name: "iT13", size: 4, key: (u) => u.get(5) },
 ];
 
 /**
  * A particle child's drawn object: one quad (the mesh's geometry) instanced per live particle of its mesh's system,
  * the emitters and systems stepped each frame it is drawn (a model's copies share it), the system's GPU elements
- * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it). Only areas drawn with
- * 1layerdynv2.fx are drawn so far; null for any other.
+ * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it). Drawn by its first area
+ * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, 2layermask); null where none is.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
   registerEmitter?: (id: number, get: (attr: string) => number | undefined, set: (attr: string, v: number) => void) => void): THREE.Object3D | null {
-  const area = node.areas.find((a) => a.effect === "1layerdynv2");
-  if (!area) return null;
+  let material: THREE.ShaderMaterial | null = null;
+  for (const a of node.areas) if (!material) material = particleMaterial(a, textureOf);
+  if (!material) return null;
   const sims = node.systems.map((s) => new ParticleSim(s));
   const sim = sims[node.meshSystem];
   if (!sim || sim.max === 0) return null;
@@ -166,12 +385,6 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     filled.push({ attr, key: a.key(usage), size: a.size });
   }
   geometry.instanceCount = 0;
-  const material = oneLayerDynMaterial(area.params, null);
-  void textureOf(area.textures.TexMapLayer1).then((t) => {
-    if (!t) return;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true;
-    material.uniforms.layer1!.value = t;
-  });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = `child-particles:${node.name ?? ""}`;
   mesh.frustumCulled = false;

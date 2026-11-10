@@ -119,7 +119,7 @@ export function compileCondition(src: string): Compiled {
   };
   const PREC: Record<string, number> = { "||": 1, "&&": 2, "==": 3, "!=": 3, "<": 4, ">": 4, "<=": 4, ">=": 4, "+": 5, "-": 5, "*": 6, "/": 6, "%": 6 };
   const expr = (min: number): F | null => {
-    let left = primary();
+    let left: F | null = primary();
     if (!left) return null;
     for (;;) {
       const op = peek();
@@ -128,8 +128,8 @@ export function compileCondition(src: string): Compiled {
       next();
       const right = expr(p + 1);
       if (!right) return null;
-      const l = left;
-      const r = right;
+      const l: F = left;
+      const r: F = right;
       switch (op) {
         case "||": left = (s) => (l(s) !== 0 || r(s) !== 0 ? 1 : 0); break;
         case "&&": left = (s) => (l(s) !== 0 && r(s) !== 0 ? 1 : 0); break;
@@ -317,16 +317,16 @@ export class ControllerRun {
       if (a.k === "animateCurveSet" && a.curveSet !== undefined && this.host.applyTime) {
         const c = conditionOf(a.value || "StateTime()");
         if (!c) continue;
-        const host = this.host, set = a.curveSet, start = now;
+        const host = this.host, applyTime = this.host.applyTime, set = a.curveSet, start = now;
         run.live.push({
           stop: () => {},
-          tick: (t) => host.applyTime!(set, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() })),
+          tick: (t) => applyTime(set, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() })),
         });
         continue;
       }
       if (a.k === "playCurveSet" && a.set && this.ownerId !== null && this.host.play) {
         const owner = this.ownerId, host = this.host, set = a.set, range = a.range ?? "";
-        host.play(owner, set, range);
+        this.host.play(owner, set, range);
         // syncToRange (a named range of positive length): a transition waits for the range to come round
         const length = a.sync && range && host.duration ? host.duration(owner, set, range) : 0;
         const start = now;

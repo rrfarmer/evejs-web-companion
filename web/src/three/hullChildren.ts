@@ -1047,7 +1047,7 @@ const effectObjects = new Map<string, Promise<THREE.Object3D | null>>();
 function childEffectObject(path: string, effects: Record<string, SofChildNode | null>): Promise<THREE.Object3D | null> {
   if (!effectObjects.has(path)) {
     const root = effects[path] ?? null;
-    effectObjects.set(path, root ? hullChildren([{ root }], effects).catch(() => null) : Promise.resolve(null));
+    effectObjects.set(path, root ? hullChildren([{ res: path, root, skipped: {} }], effects).catch(() => null) : Promise.resolve(null));
   }
   return effectObjects.get(path)!.then((o) => {
     if (!o) return null;

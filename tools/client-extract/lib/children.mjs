@@ -368,6 +368,8 @@ function readParticleSystemChild(o, skipped) {
     if (!a?.effect) continue;
     areas.push({
       id: idOf(a), kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: effectName(a.effect),
+      // the whole path: particles/motionvector.fx and particles/dynamic/motionvector.fx are different effects
+      path: String(a.effect.effectFilePath ?? "").toLowerCase(),
       options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
       params: effectParams(a.effect), textures: effectTextures(a.effect),
     });
