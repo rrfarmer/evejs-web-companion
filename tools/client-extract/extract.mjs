@@ -26,6 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
+import { readHullChildren } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb } from "./lib/glb.mjs";
@@ -113,6 +114,8 @@ function copyRes(rf, res, outRoot) {
 export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = null) {
   const built = buildHull(loadSof(rf), hullName, factionName, raceName);
   if (!built) return null;
+  // the hull's children built for every faction (lib/children.mjs): their drawn graph
+  built.children = readHullChildren(rf, loadSof(rf).hulls.get(String(hullName).toLowerCase()));
   for (const area of built.areas) {
     for (const [name, res] of Object.entries(area.textures)) {
       area.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;

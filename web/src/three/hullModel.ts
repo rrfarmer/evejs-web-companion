@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import { addDecals, type SofDecalSet } from "./hullDecals.ts";
+import { hullChildren, type SofHullChild } from "./hullChildren.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
@@ -297,12 +298,15 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   const boosters = sof ? buildBoosters(sof) : null;
   // the hull's sprite lights and plane cards (hullFx.ts)
   const fx = sof ? await hullFx(sof as { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[]; hazeSets?: SofHazeSet[] }).catch(() => null) : null;
-  if (!boosters && !fx) return lod;
+  // the hull's children (hullChildren.ts): the static part of their graph
+  const children = sof ? hullChildren((sof as { children?: SofHullChild[] }).children) : null;
+  if (!boosters && !fx && !children) return lod;
   // The engines and lights belong to the hull, not to one LOD: a holder carries them all.
   const holder = new THREE.Group();
   holder.add(lod);
   if (boosters) holder.add(boosters);
   if (fx) holder.add(fx);
+  if (children) holder.add(children);
   holder.userData = lod.userData;
   return holder;
 }
