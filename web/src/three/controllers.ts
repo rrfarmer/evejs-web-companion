@@ -11,13 +11,20 @@
 // stop: addOnStart and removeOnStop, both true unless said; a child of that name already there is taken, not loaded);
 // Tr2ActionPlayCurveSet (play the owner's curve sets of that name - in a range where it names one - on start, stop
 // them on stop; synced to its range, the state may leave only on the frame the range comes round). CurveSetTime()
-// is the owner's sets' length (or the range's). The other actions, the ship functions and the controller's event
-// handlers are not run yet: a condition that calls a function not here never holds.
+// is the owner's sets' length (or the range's). Tr2ActionSetValue: its value expression into one of the controller's
+// variables (marking them changed: the transitions that read variables are looked at again on the next update) or
+// into an object's display (a path from Owner through objects["name"], resolved to the object when read). Random(min,
+// max) is min + rand() % int(max - min). The other actions, the ship functions and the controller's event handlers
+// are not run yet: a condition that calls a function not here never holds.
 
 import * as THREE from "three";
 
 export interface SofControllerAction {
   k: string;
+  /** setVar: the variable; setDisplay: the target's id; both: the value expression. */
+  variable?: string;
+  target?: number;
+  value?: string;
   set?: string;
   range?: string;
   sync?: boolean;
@@ -65,14 +72,30 @@ export function compileCondition(src: string): Compiled {
     if (/^[A-Za-z_]/.test(t)) {
       if (peek() === "(") {
         next();
-        if (t === "StateTime" && next() === ")") { pure = false; return (s) => s.stateTime; }
-        // CurveSetTime("set") or ("set/range"): not pure either
-        if (t === "CurveSetTime" && i < tokens.length && tokens[i - 1] === "(") {
-          const arg = next();
-          if (!arg || !arg.startsWith('"') || next() !== ")") return null;
-          const name = arg.slice(1, -1);
+        // the arguments: strings or expressions, comma-separated
+        const args: (F | string)[] = [];
+        if (peek() !== ")") {
+          for (;;) {
+            const a = peek();
+            if (a?.startsWith('"')) { next(); args.push(a.slice(1, -1)); }
+            else { const e = expr(0); if (!e) return null; args.push(e); }
+            if (peek() === ",") { next(); continue; }
+            break;
+          }
+        }
+        if (next() !== ")") return null;
+        // StateTime(), CurveSetTime("set" or "set/range"), Random(min, max): none of them pure
+        if (t === "StateTime" && !args.length) { pure = false; return (s) => s.stateTime; }
+        if (t === "CurveSetTime" && args.length === 1 && typeof args[0] === "string") {
+          const name = args[0];
           pure = false;
           return (s) => s.curveSetTime(name);
+        }
+        if (t === "Random" && args.length === 2 && typeof args[0] === "function" && typeof args[1] === "function") {
+          // min + rand() % int(max - min)
+          const lo = args[0], hi = args[1];
+          pure = false;
+          return (s) => { const a = lo(s), n = Math.trunc(hi(s) - a); return n > 0 ? a + Math.floor(Math.random() * n) : a; };
         }
         return null;
       }
@@ -128,6 +151,8 @@ export interface ChildEffectHost {
   build(effect: string): Promise<THREE.Object3D | null>;
   /** The curve sets of that name under the owner (by its id): played (with a range or without), stopped, measured. */
   play?(owner: number, name: string, range: string): void;
+  /** An object's display (a container, mesh, quad or line set, by id). */
+  setDisplay?(target: number, on: boolean): void;
   stop?(owner: number, name: string): void;
   duration?(owner: number, name: string, range: string): number;
 }
@@ -137,6 +162,8 @@ type Live = { stop(): void; canTransition?(now: number): boolean; tick?(now: num
 /** One clone's run of one controller, its owner the container's group in that clone. */
 export class ControllerRun {
   private readonly vars = new Map<string, number>();
+  /** A variable set since the last update: the transitions that read variables are looked at again. */
+  private dirty = false;
   private readonly machines: { current: number; stateStart: number; live: Live[]; vetoed: boolean }[] = [];
 
   constructor(private readonly data: SofController, private readonly owner: THREE.Object3D, private readonly host: ChildEffectHost, private readonly ownerId: number | null = null) {
@@ -154,7 +181,9 @@ export class ControllerRun {
 
   update(): void {
     const now = performance.now() / 1000;
-    for (let i = 0; i < this.machines.length; i++) this.follow(i, now, this.machines[i]!.vetoed);
+    const dirty = this.dirty;
+    this.dirty = false;
+    for (let i = 0; i < this.machines.length; i++) this.follow(i, now, dirty || this.machines[i]!.vetoed);
     // the actions' own updates after the machines' (Tr2Controller::Update: the updateables last)
     for (const run of this.machines) for (const a of run.live) a.tick?.(now);
   }
@@ -198,6 +227,16 @@ export class ControllerRun {
 
   private enter(state: SofControllerState, run: { live: Live[] }, now: number): void {
     for (const a of state.actions) {
+      // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
+      if ((a.k === "setVar" || a.k === "setDisplay") && a.value !== undefined) {
+        const c = conditionOf(a.value);
+        if (!c) continue;
+        const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name) });
+        if (a.k === "setVar" && a.variable && this.vars.has(a.variable)) {
+          if (this.vars.get(a.variable) !== v) { this.vars.set(a.variable, v); this.dirty = true; }
+        } else if (a.k === "setDisplay" && a.target !== undefined) this.host.setDisplay?.(a.target, v !== 0);
+        continue;
+      }
       if (a.k === "playCurveSet" && a.set && this.ownerId !== null && this.host.play) {
         const owner = this.ownerId, host = this.host, set = a.set, range = a.range ?? "";
         host.play(owner, set, range);

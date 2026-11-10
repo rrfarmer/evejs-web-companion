@@ -162,6 +162,14 @@ export class ChildAnimator {
     }
   }
   stop(owner: number, name: string): void { for (const r of this.under(owner, name)) r.playing = false; }
+  /** A controller's SetValue on an object's display (a container, mesh, quad or line set). */
+  setDisplay(id: number, on: boolean): void {
+    const t = this.targets.get(id);
+    if (!t || !("display" in t) || t.display === on) return;
+    t.display = on;
+    this.visibility++;
+    if (t.kind === "quad") this.writeQuad(t);
+  }
   /** CurveSetTime(): the longest curve of the sets of that name under the owner, or the range's length. */
   duration(owner: number, name: string, range = ""): number {
     let d = 0;

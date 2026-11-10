@@ -991,6 +991,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         build: (path: string) => childEffectObject(path, effects),
         play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
         stop: (owner: number, name: string) => animator?.stop(owner, name),
+        setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
         duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
       };
       const owners: THREE.Object3D[] = [];

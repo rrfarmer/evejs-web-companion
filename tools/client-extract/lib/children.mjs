@@ -144,12 +144,29 @@ function readChildEffect(path, skipped) {
 }
 
 /**
+ * The object a Tr2ActionSetValue's binding point names (Tr2BindingPoint): its destination object, or its path from a
+ * root - "Owner" (the controller's owner) then .objects["name"] steps (a list's element of that name) - or null.
+ */
+function setValueObject(owner, a) {
+  if (!a.path) return a.destination ?? null;
+  const m = /^Owner((?:\.objects\["[^"]*"\])*)$/.exec(String(a.path));
+  if (!m) return null;
+  let o = owner;
+  for (const step of m[1].matchAll(/\.objects\["([^"]*)"\]/g)) {
+    o = (o?.objects ?? []).find((x) => x?.name === step[1]) ?? null;
+    if (!o) return null;
+  }
+  return o;
+}
+
+/**
  * A Tr2Controller (Trinity's Controllers/): its float variables at their defaults, and each state machine's states
  * (the start state's index; each state's actions and transitions, a transition's destination being the state of its
  * name - Tr2StateMachineTransition's "name" is its destinationName). Of the actions, Tr2ActionChildEffect is read (its
  * file read as a child effect); the others are kept by type only.
  */
-function readController(c, skipped) {
+function readController(c, skipped, owner) {
+  const varNames = new Set((c.variables ?? []).filter((v) => v?.name).map((v) => v.name));
   const machines = (c.stateMachines ?? []).filter(Boolean).map((sm) => {
     const states = (sm.states ?? []).filter(Boolean);
     const indexOf = (name) => states.findIndex((s) => s.name === name);
@@ -159,6 +176,17 @@ function readController(c, skipped) {
       states: states.map((st) => ({
         name: st.name ?? null,
         actions: (st.actions ?? []).filter(Boolean).map((a) => {
+          // Tr2ActionSetValue: into a variable (its path a variable's name, or its destination the variable), or into an
+          // object's display (its path from Owner, or its destination object): the object's id
+          if (a.type === "Tr2ActionSetValue") {
+            const value = String(a.value ?? "");
+            if (a.attribute === "value" && a.path && varNames.has(a.path)) return { k: "setVar", variable: a.path, value };
+            if (a.attribute === "value" && !a.path && a.destination?.type === "Tr2ControllerFloatVariable") return { k: "setVar", variable: a.destination.name, value };
+            const target = a.attribute === "display" ? setValueObject(owner, a) : null;
+            if (target) return { k: "setDisplay", target: idOf(target), value };
+            skipped[a.type] = (skipped[a.type] ?? 0) + 1;
+            return { k: a.type };
+          }
           if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
           if (a.type === "Tr2ActionChildEffect") {
             return { k: "childEffect", effect: a.path ? readChildEffect(a.path, skipped) : null, name: a.childName ?? null, add: a.addOnStart !== false, remove: a.removeOnStop !== false, other: a.targetAnotherOwner || null };
@@ -184,6 +212,12 @@ function findShownBySet(root) {
     seen.add(o);
     if (o.type === "TriCurveSet") {
       for (const b of o.bindings ?? []) if (b?.destinationObject && String(b.destinationAttribute ?? "").split(".")[0] === "display") out.add(b.destinationObject);
+    }
+    // a controller's SetValue on an object's display shows it too
+    for (const c of o.controllers ?? []) for (const sm of c?.stateMachines ?? []) for (const st of sm?.states ?? []) for (const a of st?.actions ?? []) {
+      if (a?.type !== "Tr2ActionSetValue" || a.attribute !== "display") continue;
+      const target = setValueObject(o, a);
+      if (target) out.add(target);
     }
     for (const v of Object.values(o)) walk(v);
   };
@@ -267,7 +301,7 @@ function readShown(o, skipped) {
       } else skipped[l?.type ?? "?"] = (skipped[l?.type ?? "?"] ?? 0) + 1;
     }
     const curveSets = (o.curveSets ?? []).filter((cs) => cs?.type === "TriCurveSet").map(readCurveSet);
-    const controllers = (o.controllers ?? []).filter((c) => c?.type === "Tr2Controller").map((c) => readController(c, skipped));
+    const controllers = (o.controllers ?? []).filter((c) => c?.type === "Tr2Controller").map((c) => readController(c, skipped, o));
     if (!objects.length && !lights.length && !curveSets.length && !controllers.length) return null;
     const m = srt(o);
     return {
