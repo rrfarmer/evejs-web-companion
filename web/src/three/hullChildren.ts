@@ -69,6 +69,7 @@ export interface SofChildLines {
   brightness: number;
   additive: boolean;
   widthFactor: number;
+  scrollSpeed?: number;
   effect: string | null;
   textures: Record<string, string | null>;
   curves: { m: number[]; p1: number[]; c: number[]; p2: number[]; segments: number; width: number }[];
@@ -407,16 +408,24 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
 }
 
 /**
- * A child line set (EveChildLineSet on an EveCurveLineSet, lines3d.fx): each EveBezierCurve a quadratic curve from
- * point1 through bezierPoint to point2 (in the curve's own transform), cut in `segments` pieces, drawn as a ribbon
- * lineWidth x the set's lineWidthFactor pixels wide on the screen (lines3d.fx's vertex stage lays the width on in
- * pixels, by the viewport's size); the pixel TexMap across the ribbon x baseColor x brightness, added for an additive
- * set. lines3d.fx's other inputs come from trinity's vertex builder, not yet read: the moving front (animColor before
- * it, by movementSpeed), the scrolling OverlayTexMap and the end caps are not drawn.
+ * A child line set (EveChildLineSet on an EveCurveLineSet, lines3d.fx), as trinity fills its vertices
+ * (_trinity_dx11.dll, Ghidra: Tr2CurveLineSet::FillVertexBuffer at 0x180c29220, its segment writer 0x180c28460, and
+ * EveBezierCurve's submit 0x1802db1d0 / 0x1802d6070):
+ * - each EveBezierCurve a quadratic from point1 through bezierPoint to point2 (in its own transform), cut in
+ *   `segments` pieces, each piece its own straight line (AddStraightLine) whose t runs 0 to 1 along it;
+ * - a line a quad lineWidth x the set's lineWidthFactor wide in pixels (lines3d.fx's vertex stage, by the viewport's
+ *   size), carried past each end by its half width (where the caps fall);
+ * - the pixel: colour = gradient x TexMap.rgb + OverlayTexMap.rgb x animation colour, alpha = TexMap.a x gradient.a
+ *   x (1 + animation.a x (overlay.a - 1)); TexMap read across the line, OverlayTexMap across it and along at
+ *   (speed x time + t) x scale (scale 1, as the curve's ChangeLineAnimation call gives it); added for an additive set.
+ * The gradient colour is baseColor x brightness and the animation colour animColor; the speed the set's scrollSpeed
+ * (the call that hands these to the curve is not read: its fields are taken by their names, ChangeLineAnimation's
+ * speed being "the speed the pattern/texture crawls along the line"). No curve sets a multicolour. The screen-space
+ * occlusion array is not drawn.
  */
 function lineSet(node: SofChildLines): THREE.Object3D | null {
-  const pos: number[] = [], next: number[] = [], side: number[] = [], width: number[] = [], index: number[] = [];
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const pos: number[] = [], other: number[] = [], side: number[] = [], end: number[] = [], width: number[] = [], index: number[] = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3();
   for (const curve of node.curves) {
     const m = new THREE.Matrix4().fromArray(curve.m);
     const p1 = new THREE.Vector3(...(curve.p1 as [number, number, number])).applyMatrix4(m);
@@ -425,47 +434,58 @@ function lineSet(node: SofChildLines): THREE.Object3D | null {
     const n = Math.max(1, Math.round(curve.segments));
     const at = (t: number, out: THREE.Vector3) => out.copy(p1).multiplyScalar((1 - t) * (1 - t)).addScaledVector(cp, 2 * (1 - t) * t).addScaledVector(p2, t * t);
     const w = curve.width * node.widthFactor;
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      at(t, a);
-      // the way along: toward the next point (the last one from the one before)
-      if (i < n) at((i + 1) / n, b); else { at((i - 1) / n, c); b.copy(a).multiplyScalar(2).sub(c); }
+    for (let i = 0; i < n; i++) {
+      at(i / n, a);
+      at((i + 1) / n, b);
+      // a segment's four corners: its start and its end, each on both sides; each knows the other end
       const base = pos.length / 3;
-      for (const s of [-1, 1]) { pos.push(a.x, a.y, a.z); next.push(b.x, b.y, b.z); side.push(s); width.push(w); }
-      if (i < n) index.push(base, base + 1, base + 3, base, base + 3, base + 2);
+      for (const [p, q, e] of [[a, b, 0], [b, a, 1]] as [THREE.Vector3, THREE.Vector3, number][]) {
+        for (const s of [-1, 1]) { pos.push(p.x, p.y, p.z); other.push(q.x, q.y, q.z); side.push(s); end.push(e); width.push(w); }
+      }
+      index.push(base, base + 1, base + 3, base, base + 3, base + 2);
     }
   }
   if (!index.length) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute("aNext", new THREE.Float32BufferAttribute(next, 3));
+  geo.setAttribute("aOther", new THREE.Float32BufferAttribute(other, 3));
   geo.setAttribute("aSide", new THREE.Float32BufferAttribute(side, 1));
+  geo.setAttribute("aEnd", new THREE.Float32BufferAttribute(end, 1));
   geo.setAttribute("aWidth", new THREE.Float32BufferAttribute(width, 1));
   geo.setIndex(index);
-  const bc = node.baseColor, k = node.brightness;
+  const bc = node.baseColor, ac = node.animColor, k = node.brightness;
   const uniforms = {
-    tex: { value: null as THREE.Texture | null }, viewport: { value: new THREE.Vector2(1920, 1080) },
+    tex: { value: null as THREE.Texture | null }, overlay: { value: null as THREE.Texture | null },
+    viewport: { value: new THREE.Vector2(1920, 1080) }, time: effectClock, speed: { value: node.scrollSpeed ?? 0 },
     colour: { value: new THREE.Vector4((bc[0] ?? 1) * k, (bc[1] ?? 1) * k, (bc[2] ?? 1) * k, bc[3] ?? 1) },
+    anim: { value: new THREE.Vector4(ac[0] ?? 0, ac[1] ?? 0, ac[2] ?? 0, ac[3] ?? 1) },
   };
   void childTexture(node.textures.TexMap).then((t) => { uniforms.tex.value = t; });
+  void childTexture(node.textures.OverlayTexMap).then((t) => { uniforms.overlay.value = t; });
   const mat = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: `attribute vec3 aNext; attribute float aSide; attribute float aWidth; uniform vec2 viewport; varying float vAcross;
+    vertexShader: `attribute vec3 aOther; attribute float aSide; attribute float aEnd; attribute float aWidth;
+      uniform vec2 viewport; varying float vAcross; varying float vAlong;
       void main() {
         vec4 c0 = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        vec4 c1 = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
+        vec4 c1 = projectionMatrix * modelViewMatrix * vec4(aOther, 1.0);
         vec2 s0 = c0.xy / c0.w * viewport, s1 = c1.xy / c1.w * viewport;
-        vec2 dir = s1 - s0;
+        vec2 dir = s0 - s1;
         dir = dot(dir, dir) > 1e-12 ? normalize(dir) : vec2(1.0, 0.0);
         vec2 n = vec2(-dir.y, dir.x);
-        c0.xy += n * aSide * aWidth / viewport * c0.w;
+        // across by the side, and on past this end by the half width
+        c0.xy += (n * aSide * (2.0 * aEnd - 1.0) + dir) * aWidth / viewport * c0.w;
+        // (the offset above is the same side of the line at both ends: the side's own sign, not flipped)
         vAcross = aSide * 0.5 + 0.5;
+        vAlong = aEnd;
         gl_Position = c0;
       }`,
-    fragmentShader: `uniform sampler2D tex; uniform vec4 colour; varying float vAcross;
+    fragmentShader: `uniform sampler2D tex; uniform sampler2D overlay; uniform vec4 colour; uniform vec4 anim; uniform float time; uniform float speed;
+      varying float vAcross; varying float vAlong;
       void main() {
         vec4 t = texture2D(tex, vec2(vAcross, 0.5));
-        gl_FragColor = vec4(t.rgb * colour.rgb, t.a * colour.a);
+        vec4 o = texture2D(overlay, vec2(vAcross, speed * time + vAlong));
+        gl_FragColor = vec4(colour.rgb * t.rgb + o.rgb * anim.rgb, t.a * colour.a * (1.0 + anim.a * (o.a - 1.0)));
       }`,
     side: THREE.DoubleSide, transparent: true, depthWrite: false,
     ...(node.additive

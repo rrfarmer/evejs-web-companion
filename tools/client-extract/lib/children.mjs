@@ -103,7 +103,7 @@ function readNode(o, skipped) {
     return {
       k: "lines", name: o.name ?? null, m: srt(o), baseColor: o.baseColor ?? [1, 1, 1, 1], animColor: o.animColor ?? [0, 0, 0, 1],
       brightness: o.brightness ?? 1, additive: o.lineSet.additive === true || o.additiveBatches === true,
-      widthFactor: o.lineSet.lineWidthFactor ?? 1, effect: effectName(o.lineSet.lineEffect),
+      widthFactor: o.lineSet.lineWidthFactor ?? 1, scrollSpeed: o.scrollSpeed ?? 0, effect: effectName(o.lineSet.lineEffect),
       textures: effectTextures(o.lineSet.lineEffect), curves,
     };
   }

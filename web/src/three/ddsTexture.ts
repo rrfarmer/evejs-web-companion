@@ -120,6 +120,21 @@ export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTextur
     tex.needsUpdate = true;
     return tex as unknown as THREE.CompressedTexture;
   }
+  // D3DFMT_A32B32G32R32F (116) / A16B16G16R16F (113): four floats a texel, its top level (the line sets' gradients)
+  if (dv.getUint32(80, true) & DDPF_FOURCC && (dv.getUint32(84, true) === 116 || dv.getUint32(84, true) === 113)) {
+    const half = dv.getUint32(84, true) === 113;
+    const n = width * height * 4;
+    const tex = half
+      ? new THREE.DataTexture(new Uint16Array(buf.slice(128, 128 + n * 2)), width, height, THREE.RGBAFormat, THREE.HalfFloatType)
+      : new THREE.DataTexture(new Float32Array(buf.slice(128, 128 + n * 4)), width, height, THREE.RGBAFormat, THREE.FloatType);
+    tex.minFilter = tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.flipY = false;
+    tex.name = name;
+    tex.needsUpdate = true;
+    return tex as unknown as THREE.CompressedTexture;
+  }
   if (!(dv.getUint32(80, true) & DDPF_FOURCC)) {
     if (dv.getUint32(112, true) & DDSCAPS2_CUBEMAP) return parseUncompressedCube(dv, buf, width, height, mipCount, name) as unknown as THREE.CompressedTexture;
     return parseUncompressed(dv, buf, width, height, name) as unknown as THREE.CompressedTexture;
