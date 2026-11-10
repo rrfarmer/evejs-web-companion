@@ -9,7 +9,9 @@
 // - EveChildQuad: transform, color, brightness, minScreenSize and its effect (flarequad.fx, flarequadsoft.fx);
 // - EveChildMesh on a Tr2InstancedMesh drawn with traffic.fx (a station's traffic): its transform, the instance
 //   geometry's file, the effect's constants and its textures (PositionMap, TexMap); the instances themselves are
-//   read by the caller (readTrafficInstances), the reader being asynchronous.
+//   read by the caller (readTrafficInstances), the reader being asynchronous;
+// - EveChildMesh on a Tr2Mesh: its transform, geometry file (the caller extracts it), mesh index and the areas drawn
+//   with ubershader.fx (kind, index, count, the effect's options, constants and textures); its other areas counted.
 //
 // The rest is counted, not read (meshes, line sets, particle systems, point lights, curve sets, state machines).
 // A child with a groupIndex is built for some factions or skins only; those are left out (a child without one is
@@ -62,6 +64,25 @@ function readNode(o, skipped) {
         params: effectParams(area.effect), textures: effectTextures(area.effect),
       };
     }
+  }
+  if (o.type === "EveChildMesh" && o.mesh?.type === "Tr2Mesh" && o.mesh.geometryResPath) {
+    const areas = [];
+    for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"]]) {
+      for (const a of o.mesh[list] ?? []) {
+        const fx = effectName(a.effect);
+        if (fx !== "ubershader") { skipped[`area:${fx}`] = (skipped[`area:${fx}`] ?? 0) + 1; continue; }
+        areas.push({
+          kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
+          options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
+          params: effectParams(a.effect), textures: effectTextures(a.effect),
+        });
+      }
+    }
+    if (!areas.length) return null;
+    return {
+      k: "mesh", name: o.name ?? null, m: srt(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
+      meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
+    };
   }
   if (o.type === "EveChildContainer") {
     if (!HIGH_QUALITY.has(o.displayFilter ?? 5)) return null;

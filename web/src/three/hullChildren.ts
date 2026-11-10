@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { loadDds } from "./ddsTexture.ts";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
   k: "quad";
@@ -33,7 +34,26 @@ export interface SofChildTraffic {
   params: Record<string, number[] | number | null>;
   textures: Record<string, string | null>;
 }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic;
+export interface SofChildMeshArea {
+  kind: "opaque" | "transparent" | "additive";
+  name: string | null;
+  index: number;
+  count: number;
+  effect: string;
+  options: Record<string, string>;
+  params: Record<string, number[] | number | null>;
+  textures: Record<string, string | null>;
+}
+export interface SofChildMesh {
+  k: "mesh";
+  name: string | null;
+  m: number[];
+  geometry: string | null;
+  meshIndex: number;
+  minScreenSize: number;
+  areas: SofChildMeshArea[];
+}
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -195,17 +215,145 @@ function trafficMeshes(node: SofChildTraffic): THREE.Object3D | null {
   return group;
 }
 
+const gltfLoader = new GLTFLoader();
+const glbCache = new Map<string, Promise<THREE.Object3D | null>>();
+const childTextures = new Map<string, Promise<THREE.Texture | null>>();
+const childTexture = (url: string | null | undefined) => {
+  if (!url) return Promise.resolve(null);
+  if (!childTextures.has(url)) childTextures.set(url, loadDds(url).then((t) => t as THREE.Texture).catch(() => null));
+  return childTextures.get(url)!;
+};
+const effectClock = { get value() { return performance.now() / 1000; } };
+
+/**
+ * An area drawn with ubershader.fx as its REGULAR variation does (its sm_hi permutations disassembled, client
+ * 3396210): DIFFUSE_MAP_COUNT diffuse maps (the option, else as many as the area carries; the files leave the default,
+ * two, unsaid), each at uv x TextureTransformN.zw + TextureTransformN.xy + TextureScrollN.xy x time +
+ * TextureScrollN.zw, and the MaskMap at the plain uv (MASK_TRANSFORM OFF) or by MaskTransform and MaskScroll (ON),
+ * clamped where MASK_TEXTURE_SAMPLING is CLAMP; a read that is nought in all four channels discards the pixel; the
+ * reads multiplied together and by DiffuseColor; the colour (not the alpha) times the fresnel f = (1 - sat(N.V -
+ * F.z))^F.x x F.y, or (1 - min(f, 1)) x -F.y where F.y < 0 (F FresnelFactors, N the world normal unnormalised by the
+ * inverse transpose, as the client's, V toward the eye); alpha saturated. Additive areas added (one, one),
+ * transparent ones blended over. Not drawn: the PHONG variation's sun (drawn as REGULAR), the soft depth fade and the
+ * screen-space occlusion array.
+ */
+function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const maps = ["DiffuseMap1", "DiffuseMap2", "DiffuseMap3"].filter((k) => area.textures[k]).length;
+  const count = ({ ONE: 1, TWO: 2, THREE: 3 } as Record<string, number>)[area.options.DIFFUSE_MAP_COUNT ?? ""] ?? Math.max(1, maps);
+  const uniforms: Record<string, THREE.IUniform> = {
+    time: effectClock,
+    colour: { value: v4(p.DiffuseColor, [1, 1, 1, 1]) }, fresnel: { value: v4(p.FresnelFactors, [0, 1, 0, 0]) },
+    maskT: { value: v4(p.MaskTransform, [0, 0, 1, 1]) }, maskS: { value: v4(p.MaskScroll, [0, 0, 0, 0]) },
+    mask: { value: null },
+  };
+  for (let i = 1; i <= 3; i++) {
+    uniforms[`t${i}`] = { value: v4(p[`TextureTransform${i}`], [0, 0, 1, 1]) };
+    uniforms[`s${i}`] = { value: v4(p[`TextureScroll${i}`], [0, 0, 0, 0]) };
+    uniforms[`d${i}`] = { value: null };
+  }
+  for (let i = 1; i <= count; i++) void childTexture(area.textures[`DiffuseMap${i}`]).then((t) => { uniforms[`d${i}`]!.value = t; });
+  void childTexture(area.textures.MaskMap).then((t) => { uniforms.mask!.value = t; });
+  const read = (i: number) => `vec4 r${i} = texture2D(d${i}, vUv * t${i}.zw + t${i}.xy + s${i}.xy * time + s${i}.zw);
+        if (dot(r${i}, r${i}) == 0.0) discard;
+        c *= r${i};`;
+  const maskUv = area.options.MASK_TRANSFORM === "ON" ? "vUv * maskT.zw + maskT.xy + maskS.xy * time + maskS.zw" : "vUv";
+  const additive = area.kind === "additive";
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      void main() {
+        vUv = uv;
+        vN = mat3(modelMatrix) * normal;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D d3; uniform sampler2D mask;
+      uniform vec4 t1; uniform vec4 t2; uniform vec4 t3; uniform vec4 s1; uniform vec4 s2; uniform vec4 s3;
+      uniform vec4 maskT; uniform vec4 maskS; uniform vec4 colour; uniform vec4 fresnel; uniform float time;
+      varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      void main() {
+        vec4 c = vec4(1.0);
+        ${[1, 2, 3].filter((i) => i <= count).map(read).join("\n        ")}
+        vec2 mUv = ${maskUv};
+        ${area.options.MASK_TEXTURE_SAMPLING === "CLAMP" ? "mUv = clamp(mUv, 0.0, 1.0);" : ""}
+        vec4 m = texture2D(mask, mUv);
+        if (dot(m, m) == 0.0) discard;
+        c *= m * colour;
+        float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
+        f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
+        gl_FragColor = vec4(c.rgb * f, clamp(c.a, 0.0, 1.0));
+      }`,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    ...(additive
+      ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }
+      : { blending: THREE.NormalBlending }),
+  });
+  logDepth(mat);
+  return mat;
+}
+
+/**
+ * A child mesh: its geometry file (extracted as a hull's, so in our mirrored space: mirrored back here, the group
+ * above mirroring it again), the mesh of its meshIndex, each triangle group drawn by the area whose index range
+ * holds it (Tr2MeshArea index, count); groups no area names are not drawn.
+ */
+async function childMesh(node: SofChildMesh): Promise<THREE.Object3D | null> {
+  if (!node.geometry) return null;
+  const holder = new THREE.Group();
+  holder.name = `child-mesh:${node.name ?? ""}`;
+  const url = node.geometry;
+  if (!glbCache.has(url)) glbCache.set(url, gltfLoader.loadAsync(url).then((g) => g.scene).catch(() => null));
+  const materials = new Map<SofChildMeshArea, THREE.ShaderMaterial>();
+  {
+    const scene = await glbCache.get(url)!;
+    const lod = scene?.children[0]?.children[node.meshIndex] ?? null;
+    if (!lod) return null;
+    const inner = new THREE.Group();
+    inner.scale.set(1, 1, -1);
+    lod.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const index = (mesh.material as THREE.Material).userData?.index;
+      const at = typeof index === "number" ? index : 0;
+      const area = node.areas.find((a) => at >= a.index && at < a.index + a.count);
+      if (!area) return;
+      if (!materials.has(area)) materials.set(area, uberMaterial(area));
+      const m = new THREE.Mesh(mesh.geometry, materials.get(area)!);
+      m.renderOrder = 3;
+      m.frustumCulled = false;
+      o.updateWorldMatrix(true, false);
+      m.applyMatrix4(o.matrixWorld);
+      inner.add(m);
+    });
+    holder.add(inner);
+  }
+  return holder;
+}
+
 /**
  * The hull's children as drawn so far, under one group mirrored in z (EVE's model space to ours), or null where
  * nothing of them is drawn.
  */
-export function hullChildren(children: SofHullChild[] | undefined): THREE.Object3D | null {
+export async function hullChildren(children: SofHullChild[] | undefined): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
+  const pending: Promise<void>[] = [];
   const walk = (node: SofChildNode, parent: THREE.Matrix4) => {
     if (node.k === "container") {
       const world = node.m ? parent.clone().multiply(new THREE.Matrix4().fromArray(node.m)) : parent;
       for (const o of node.objects) walk(o, world);
+      return;
+    }
+    if (node.k === "mesh") {
+      const at = parent.clone().multiply(new THREE.Matrix4().fromArray(node.m));
+      pending.push(childMesh(node).then((o) => {
+        if (!o) return;
+        o.matrixAutoUpdate = false;
+        o.matrix.copy(at);
+        others.push(o);
+      }));
       return;
     }
     if (node.k === "traffic") {
@@ -231,6 +379,7 @@ export function hullChildren(children: SofHullChild[] | undefined): THREE.Object
     });
   };
   for (const child of children ?? []) if (child.root) walk(child.root, new THREE.Matrix4());
+  await Promise.all(pending);
   if (!quads.length && !others.length) return null;
   const group = new THREE.Group();
   group.name = "hull-children";

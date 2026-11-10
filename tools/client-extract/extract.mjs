@@ -116,13 +116,29 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   if (!built) return null;
   // the hull's children built for every faction (lib/children.mjs): their drawn graph
   built.children = readHullChildren(rf, loadSof(rf).hulls.get(String(hullName).toLowerCase()));
-  // a traffic mesh's instances read, its textures copied
-  const trafficNodes = [];
-  const walkChildren = (n) => { if (!n) return; if (n.k === "traffic") trafficNodes.push(n); for (const o of n.objects ?? []) walkChildren(o); };
+  // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
+  // textures copied
+  const trafficNodes = [], meshNodes = [];
+  const walkChildren = (n) => {
+    if (!n) return;
+    if (n.k === "traffic") trafficNodes.push(n);
+    if (n.k === "mesh") meshNodes.push(n);
+    for (const o of n.objects ?? []) walkChildren(o);
+  };
   for (const c of built.children) walkChildren(c.root);
   for (const n of trafficNodes) {
     n.instances = rf.has(n.instances) ? await readTrafficInstances(rf, n.instances) : null;
     for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+  }
+  for (const n of meshNodes) {
+    const res = n.geometry;
+    const glb = path.join(outRoot, ...`${res.slice("res:/".length, -".gr2".length)}.glb`.split("/"));
+    if (!rf.has(res)) n.geometry = null;
+    else {
+      if (!fs.existsSync(glb)) await extractHull(rf, res, outRoot).catch((e) => console.warn(`child mesh ${res}: ${e.message}`));
+      n.geometry = fs.existsSync(glb) ? `/client-assets/${res.slice("res:/".length, -".gr2".length)}.glb` : null;
+    }
+    for (const a of n.areas) for (const [name, t] of Object.entries(a.textures)) a.textures[name] = rf.has(t) ? copyRes(rf, t, outRoot) : null;
   }
   for (const area of built.areas) {
     for (const [name, res] of Object.entries(area.textures)) {
