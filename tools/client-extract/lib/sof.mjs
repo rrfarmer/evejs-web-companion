@@ -116,6 +116,9 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
   const visible = (set) => groups.has(String(set.visibilityGroup ?? "primary"));
   const visibleOnSof6 = (set) => !hull.sof6 || visible(set);
   const colorSet = faction?.colorSet ? Object.fromEntries(Object.entries(faction.colorSet).filter(([k]) => k !== "type")) : null;
+  // a colour of the faction's set by its type's index: EveSOFDNA::GetColorSet()[type] (the full set, its defaults where
+  // the faction sets none: colorOf); none without a faction
+  const col = (type) => (faction ? colorOf(colorSet, COLOR_TYPES[type ?? 0]) : null);
   // The race's engines (EveSOFDataRace.booster): the flame's colours and shapes, the glow and the halo, as the
   // client's EveBoosterSet2 is set up from them.
   const rb = raceName ? sof.races.get(String(raceName).toLowerCase())?.booster ?? null : null;
@@ -130,8 +133,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":25)
-    sofBuild: 25,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":26)
+    sofBuild: 26,
     booster,
     areas,
     colorSet,
@@ -148,7 +151,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
       items: (set.items ?? []).map((it) => ({
         position: it.position ?? [0, 0, 0], blinkRate: it.blinkRate ?? 0, blinkPhase: it.blinkPhase ?? 0,
         minScale: it.minScale ?? 1, maxScale: it.maxScale ?? it.minScale ?? 1, intensity: it.intensity ?? 1, falloff: it.falloff ?? 0,
-        color: (colorSet && colorSet[COLOR_TYPES[it.colorType ?? 0]]) ?? null,
+        color: col(it.colorType),
       })),
     })),
     // Its plane sets (EveSOFDataHullPlaneSet: force fields, holograms, haze cards): each plane placed, its two scrolling
@@ -184,7 +187,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
       name: set.name ?? null, hazeType: set.hazeType ?? 0,
       items: (set.items ?? []).map((it) => ({
         position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
-        color: (colorSet && colorSet[COLOR_TYPES[it.colorType ?? 0]]) ?? null, colorType: it.colorType ?? 0,
+        color: col(it.colorType), colorType: it.colorType ?? 0,
         hazeBrightness: it.hazeBrightness ?? 1, hazeFalloff: it.hazeFalloff ?? 6, sourceBrightness: it.sourceBrightness ?? 2,
         sourceSize: it.sourceSize ?? 0.2, saturation: it.saturation ?? 1, boosterGainInfluence: !!it.boosterGainInfluence,
       })),
@@ -192,10 +195,10 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     // Its decals (EveSOFDataHullDecalSet items): each a box (position, rotation, scaling) the hull's own triangles
     // are projected through, those triangles one index list per LOD (uint32, the hull mesh's vertex order), its
     // textures and parameters, and its usage (0 standard, 1 kill counter, 2 hole, 3 cylindrical, 4 glow cylindrical,
-    // 5 glow, 6 logo). EveSOF::SetupDecalSets (_trinity_dx11.dll, decompiled): for every usage but 0 and 6 it sets
-    // DecalGlowColor to the faction's colour of the item's glowColorType (0, Primary, where it names none) before the
-    // item's own parameters, which are each added only where the effect has none yet - so the faction's colour wins
-    // over an item's DecalGlowColor, which stands only where the faction's colour set has no such colour.
+    // 5 glow, 6 logo). EveSOF::SetupDecalSets (carbonengine/trinity EveSOF.cpp): for every usage but 0 and 6 it sets
+    // DecalGlowColor to the colour set's colour of the item's glowColorType (0, Primary, where it names none) before
+    // the item's own parameters, which are each added only where the effect has none yet - so that colour wins, the
+    // set's default where the faction sets none (colorOf); an item's DecalGlowColor stands only without a faction.
     // A logo decal (usage 6) takes its textures from the faction's logo set, by its logoType; SetupDecalSets makes
     // none where the faction has no such logo.
     decalSets: (hull.decalSets ?? []).filter(visible).map((set) => ({
@@ -208,7 +211,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
           position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
           textures: Object.fromEntries((logo?.textures ?? it.textures ?? []).filter((t) => t?.name && t.resFilePath).map((t) => [t.name, String(t.resFilePath).toLowerCase()])),
           parameters: p,
-          glowColor: ((it.usage ?? 0) !== 0 && (it.usage ?? 0) !== 6 && colorSet && colorSet[COLOR_TYPES[it.glowColorType ?? 0]]) || p.DecalGlowColor || null,
+          glowColor: ((it.usage ?? 0) !== 0 && (it.usage ?? 0) !== 6 ? col(it.glowColorType) : null) ?? p.DecalGlowColor ?? null,
           indexBuffers: (it.indexBuffers ?? []).map((b) => {
             const bytes = b?.indexBuffer;
             if (!bytes || !bytes.length) return [];
@@ -222,7 +225,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     // from the faction's colour set.
     lights: (hull.lightSets ?? []).filter(visible).flatMap((set) => (set.items ?? []).map((it) => ({
       position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,
-      color: (colorSet && colorSet[COLOR_TYPES[it.lightColor ?? 0]]) ?? null,
+      color: col(it.lightColor),
     }))),
   };
 }
