@@ -11,8 +11,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import type { DynamicExposure } from "./exposure.ts";
+import { clientOutputPass, type DynamicExposure, type ToneMapMethod } from "./exposure.ts";
 
 export interface Bloom {
   render(): void;
@@ -21,9 +20,12 @@ export interface Bloom {
   readonly pass: UnrealBloomPass;
 }
 
-/** A scene drawn with a glow: strength (how much), radius (how far, 0 to 1), threshold (the brightness it starts at). */
+/**
+ * A scene drawn with a glow - strength (how much), radius (how far, 0 to 1), threshold (the brightness it starts at) -
+ * and output as the client outputs it (exposure.ts): the scene's dynamic exposure, where it has one, and its tone map.
+ */
 export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, glow: { strength: number; radius: number; threshold: number },
-  exposure: () => DynamicExposure | null = () => null): Bloom {
+  post: { exposure: () => DynamicExposure | null; toneMap: ToneMapMethod }): Bloom {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const w = Math.max(1, size.x), h = Math.max(1, size.y);
   const drawn = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
@@ -44,7 +46,8 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   composer.addPass(copyIn);
   const pass = new UnrealBloomPass(new THREE.Vector2(w, h), glow.strength, glow.radius, glow.threshold);
   composer.addPass(pass);
-  composer.addPass(new OutputPass());
+  const output = clientOutputPass(post.toneMap);
+  composer.addPass(output);
   return {
     pass,
     render: () => {
@@ -52,8 +55,9 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       renderer.render(scene, camera);
       renderer.setRenderTarget(null);
       // the scene's dynamic exposure, where it has one, measured on the frame as drawn and set for the output
-      const e = exposure();
-      if (e) { e.measure(renderer, drawn.texture); e.step(renderer); }
+      const e = post.exposure();
+      if (e) e.measure(renderer, drawn.texture);
+      output.uniforms["exposure"]!.value = e ? e.step() : 1;
       composer.render();
     },
     setSize: (cw, ch) => {

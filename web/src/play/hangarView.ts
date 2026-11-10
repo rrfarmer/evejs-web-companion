@@ -11,7 +11,7 @@ import { typeModel, graphicModel, setThrust } from "../three/hullModel.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
-import { DynamicExposure, installClientToneMapping, type DynamicExposureParams } from "../three/exposure.ts";
+import { DynamicExposure, type DynamicExposureParams } from "../three/exposure.ts";
 import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
 import { pickDockSwing, type DockSwing } from "./hangarRegistry.ts";
 
@@ -59,9 +59,8 @@ export class HangarView {
     this.root.className = "hangar-view";
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // the client's tone map (Tr2PPTonemappingEffect's filmic curve), its exposure set by the scene's dynamic exposure
-    installClientToneMapping();
-    this.renderer.toneMapping = THREE.CustomToneMapping;
+    // exposed and tone-mapped as the client does it, in the bloom's last pass (exposure.ts)
+    this.renderer.toneMapping = THREE.NoToneMapping;
     this.root.appendChild(this.renderer.domElement);
     // a dark bay: a faint studio reflection, a warm key, a cool rim, and a dim fill from below
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -234,7 +233,6 @@ export class HangarView {
     this.sun.intensity = 0;
     this.exposure?.dispose();
     this.exposure = scene?.postprocess?.dynamicExposure ? new DynamicExposure(scene.postprocess.dynamicExposure) : null;
-    this.renderer.toneMappingExposure = 1;
     if (!scene) { this.scene.environment = this.studioEnvironment; this.scene.environmentIntensity = 0.25; return; }
     if (scene.reflection) {
       try {
@@ -288,7 +286,9 @@ export class HangarView {
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.7, radius: 0.5, threshold: 0.35 }, () => this.exposure);
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.7, radius: 0.5, threshold: 0.35 },
+      // a hangar scene names a dynamic exposure and no tone map: the tone map is the effect's own default, method 1
+      { exposure: () => this.exposure, toneMap: 1 });
     this.bloom.render();
   }
 

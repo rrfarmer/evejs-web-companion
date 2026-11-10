@@ -28,6 +28,7 @@ import { bracketIcon, loadBrackets } from "./brackets.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
+import { DynamicExposure } from "../three/exposure.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 
 export interface Entity {
@@ -115,6 +116,11 @@ export class SpaceView {
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
   /** Space's bloom (the space scenes' Tr2PPBloomEffect): the sun, engine flames, glow maps, weapons fire, lava. */
   private bloom: Bloom | null = null;
+  /**
+   * Space's dynamic exposure: the space scenes have no post-process of their own, so the client gives them
+   * res:/dx9/default/postprocess.black (dynamic exposure at its defaults, tone map method 0).
+   */
+  private readonly exposure = new DynamicExposure();
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(60, 1, 1, 1e13);
   private readonly controls: OrbitControls;
@@ -288,6 +294,7 @@ export class SpaceView {
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
     this.bloom?.dispose();
+    this.exposure.dispose();
     this.renderer.dispose();
     this.shipHud.dispose();
     this.targetBar.dispose();
@@ -801,7 +808,8 @@ export class SpaceView {
     }
     this.updateTargetBar();
     this.controls.update();
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.6, radius: 0.4, threshold: 0.7 });
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.6, radius: 0.4, threshold: 0.7 },
+      { exposure: () => this.exposure, toneMap: 0 });
     this.bloom.render();
   }
 
