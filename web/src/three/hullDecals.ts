@@ -1,0 +1,177 @@
+// A hull's decals as the Space Object Factory lays them (EveSOFDataHullDecalSet, the extractor's SOF build): each a
+// box (position, rotation, scaling, in EVE's model space) through which some of the hull's own triangles - one index
+// list per LOD, in the hull mesh's vertex order - are textured: the decal's UV is the vertex's place in the box, x and
+// y from -1..1 to 0..1 (the decal shaders' vertex stage: two rows of the box's inverse). Drawn here:
+// - glow decals (usage 5; decalglowv5.fx, disassembled, client 3396210): the transparency map's red times
+//   DecalIntensityData.x, squared, is the decal's strength; the glow map is read where DecalTextureScaling moves it
+//   (along each axis with a scaling: the fraction of time * scaling + DecalTextureOffset, the whole decal at once;
+//   turned by scaling.z * time about the middle), its red squared to the power 1.2; DecalGlowColor times that times
+//   the strength, added to the frame;
+// - standard decals (usage 0; decalv5.fx): the hull's own material with the decal's albedo and roughness maps,
+//   through the transparency map's red. The client lights a decal in its own pass (its normal and fresnel maps, the
+//   tangent frame from the box's axes); here neither map is used yet.
+// Kill counters, holes, cylindrical and logo decals are not drawn yet.
+
+import * as THREE from "three";
+import { loadDds } from "./ddsTexture.ts";
+
+export interface SofDecal {
+  name: string | null; usage: number; meshIndex: number;
+  position: number[]; rotation: number[]; scaling: number[];
+  textures: Record<string, string | null>; parameters: Record<string, number[] | null>;
+  glowColor: number[] | null; indexBuffers: number[][];
+}
+export interface SofDecalSet { name: string | null; items: SofDecal[] }
+
+const USAGE_STANDARD = 0;
+const USAGE_GLOW = 5;
+
+const clock = { value: 0 };
+
+const textures = new Map<string, Promise<THREE.Texture | null>>();
+function texture(url: string | null | undefined, srgb = false): Promise<THREE.Texture | null> {
+  if (!url) return Promise.resolve(null);
+  const key = `${url}|${srgb}`;
+  if (!textures.has(key)) {
+    textures.set(key, loadDds(url).then((t) => {
+      const tex = t as THREE.Texture;
+      if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }).catch(() => null));
+  }
+  return textures.get(key)!;
+}
+
+/** The decal's geometry on one LOD: the LOD's vertices, the decal's triangles (wound as the hull's), the box's UV. */
+function decalGeometry(source: THREE.BufferGeometry, indices: readonly number[], inverse: THREE.Matrix4): THREE.BufferGeometry | null {
+  const position = source.getAttribute("position") as THREE.BufferAttribute | undefined;
+  if (!position || indices.length < 3) return null;
+  const n = position.count;
+  const geometry = new THREE.BufferGeometry();
+  for (const name of ["position", "normal", "tangent"]) {
+    const a = source.getAttribute(name);
+    if (a) geometry.setAttribute(name, a);
+  }
+  const uv = new Float32Array(n * 2);
+  const p = new THREE.Vector3();
+  const flipped = new Uint32Array(indices.length - (indices.length % 3));
+  for (let t = 0; t < flipped.length; t += 3) {
+    flipped[t] = indices[t]!; flipped[t + 1] = indices[t + 2]!; flipped[t + 2] = indices[t + 1]!;
+  }
+  for (const i of flipped) {
+    if (i >= n) return null; // not this mesh's vertices
+    // our vertices are mirrored in z; the box is in EVE's space
+    p.set(position.getX(i), position.getY(i), -position.getZ(i)).applyMatrix4(inverse);
+    uv[i * 2] = p.x * 0.5 + 0.5;
+    uv[i * 2 + 1] = p.y * 0.5 + 0.5;
+  }
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  geometry.setIndex(new THREE.BufferAttribute(flipped, 1));
+  geometry.boundingSphere = source.boundingSphere;
+  geometry.boundingBox = source.boundingBox;
+  return geometry;
+}
+
+function vec4(v: number[] | null | undefined, d = 0): THREE.Vector4 {
+  return new THREE.Vector4(v?.[0] ?? d, v?.[1] ?? d, v?.[2] ?? d, v?.[3] ?? d);
+}
+
+async function glowMaterial(d: SofDecal): Promise<THREE.Material | null> {
+  const [transparency, glow] = await Promise.all([texture(d.textures["DecalTransparencyMap"]), texture(d.textures["DecalGlowMap"])]);
+  if (!glow) return null;
+  // the glow map repeats as it scrolls; the transparency map ends at the box (the triangles reach past it)
+  glow.wrapS = glow.wrapT = THREE.RepeatWrapping; glow.needsUpdate = true;
+  const c = d.glowColor ?? [1, 1, 1, 1];
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      transparency: { value: transparency }, glow: { value: glow }, hasTransparency: { value: transparency ? 1 : 0 },
+      colour: { value: new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1) },
+      intensity: { value: d.parameters["DecalIntensityData"]?.[0] ?? 1 },
+      scaling: { value: vec4(d.parameters["DecalTextureScaling"]) }, offset: { value: vec4(d.parameters["DecalTextureOffset"]) },
+      time: clock,
+    },
+    vertexShader: `varying vec2 vUv;
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        #include <logdepthbuf_vertex>
+      }`,
+    fragmentShader: `uniform sampler2D transparency, glow; uniform float hasTransparency, intensity, time; uniform vec3 colour; uniform vec4 scaling, offset; varying vec2 vUv;
+      #include <logdepthbuf_pars_fragment>
+      void main() {
+        #include <logdepthbuf_fragment>
+        // the decal ends at its box (the triangles reach past it)
+        if ( any( lessThan( vUv, vec2( 0.0 ) ) ) || any( greaterThan( vUv, vec2( 1.0 ) ) ) ) discard;
+        float strength = ( hasTransparency > 0.5 ? texture2D( transparency, vUv ).r : 1.0 ) * intensity;
+        strength *= strength;
+        vec2 moved = vUv + sign( scaling.xy ) * ( fract( time * scaling.xy + offset.xy ) - vUv );
+        float a = scaling.z * time;
+        vec2 q = moved - 0.5;
+        vec2 turned = vec2( cos( a ) * q.x - sin( a ) * q.y, sin( a ) * q.x + cos( a ) * q.y ) + 0.5;
+        float g = texture2D( glow, turned ).r;
+        g = pow( g * g, 1.2 );
+        gl_FragColor = vec4( max( colour * g * strength, 0.0 ), 1.0 );
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+}
+
+async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null): Promise<THREE.Material | null> {
+  const [albedo, roughness, transparency] = await Promise.all([
+    texture(d.textures["DecalAlbedoMap"], true), texture(d.textures["DecalRoughnessMap"]), texture(d.textures["DecalTransparencyMap"]),
+  ]);
+  if (!albedo || !transparency) return null;
+  const base = hullMaterial as THREE.MeshStandardMaterial | null;
+  const m = new THREE.MeshStandardMaterial({
+    map: albedo, roughnessMap: roughness, roughness: roughness ? 1 : 0.6, metalness: 0,
+    alphaMap: transparency, transparent: true, depthWrite: false,
+    envMapIntensity: base?.envMapIntensity ?? 1,
+  });
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <alphamap_fragment>", `if ( any( lessThan( vAlphaMapUv, vec2( 0.0 ) ) ) || any( greaterThan( vAlphaMapUv, vec2( 1.0 ) ) ) ) discard;
+        diffuseColor.a *= texture2D( alphaMap, vAlphaMapUv ).r;`)
+      .replace("#include <roughnessmap_fragment>", roughness
+        ? "float roughnessFactor = roughness; roughnessFactor *= 1.0 - texture2D( roughnessMap, vRoughnessMapUv ).r;"
+        : "float roughnessFactor = roughness;");
+  };
+  m.customProgramCacheKey = () => `decal${roughness ? "r" : ""}`;
+  return m;
+}
+
+/** The decals added to each LOD node of a hull (each node's own index list), the glow ones animated. */
+export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: readonly SofDecalSet[]): Promise<number> {
+  let added = 0;
+  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && (d.usage === USAGE_GLOW || d.usage === USAGE_STANDARD));
+  for (const d of items) {
+    const box = new THREE.Matrix4().compose(
+      new THREE.Vector3(d.position[0] ?? 0, d.position[1] ?? 0, d.position[2] ?? 0),
+      new THREE.Quaternion(d.rotation[0] ?? 0, d.rotation[1] ?? 0, d.rotation[2] ?? 0, d.rotation[3] ?? 1),
+      new THREE.Vector3(d.scaling[0] ?? 1, d.scaling[1] ?? 1, d.scaling[2] ?? 1),
+    );
+    const inverse = box.clone().invert();
+    for (const [lod, node] of lodNodes.entries()) {
+      const indices = d.indexBuffers[lod];
+      if (!indices?.length) continue;
+      let source: THREE.Mesh | null = null;
+      node.traverse((o) => { if (!source && (o as THREE.Mesh).isMesh) source = o as THREE.Mesh; });
+      if (!source) continue;
+      const hull = source as THREE.Mesh;
+      const geometry = decalGeometry(hull.geometry, indices, inverse);
+      if (!geometry) continue;
+      const material = d.usage === USAGE_GLOW ? await glowMaterial(d) : await standardMaterial(d, hull.material as THREE.Material);
+      if (!material) continue;
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = `decal:${d.name ?? ""}`;
+      mesh.renderOrder = 2;
+      mesh.onBeforeRender = () => { clock.value = performance.now() / 1000; };
+      // the decal sits where the hull mesh does inside the node
+      mesh.position.copy(hull.position); mesh.quaternion.copy(hull.quaternion); mesh.scale.copy(hull.scale);
+      (hull.parent ?? node).add(mesh);
+      added++;
+    }
+  }
+  return added;
+}

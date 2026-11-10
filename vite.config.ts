@@ -148,7 +148,7 @@ function clientAssets(): Plugin {
             const stem = String(g.gr2).slice("res:/".length, -".gr2".length);
             const sofName = `${stem}.${String(g.faction ?? "none").toLowerCase()}.sof.json`;
             // a SOF build from before it carried the sprite, plane, spotlight and haze sets is made again
-            if (fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"hazeSets"')) {
+            if (fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"decalSets"')) {
               await extractOnce(`graphic:${graphicAsk[1]}:sets`, buildDir, ["--graphic", graphicAsk[1]!]);
             }
             const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
@@ -170,7 +170,7 @@ function clientAssets(): Plugin {
             const stem = String(tg.gr2).slice("res:/".length, -".gr2".length);
             const sofName = `${stem}.${String(tg.faction ?? "none").toLowerCase()}.sof.json`;
             // a SOF build from before it carried the sprite and plane sets is made again
-            const sofStale = fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"hazeSets"');
+            const sofStale = fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"decalSets"');
             if (!fs.existsSync(path.join(buildDir, stem + ".glb")) || !fs.existsSync(path.join(buildDir, sofName)) || sofStale) {
               await extractOnce(`type:${typeAsk[1]}`, buildDir, ["--type", typeAsk[1]!]);
             }

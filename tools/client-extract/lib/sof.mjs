@@ -149,6 +149,29 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
         sourceSize: it.sourceSize ?? 0.2, saturation: it.saturation ?? 1, boosterGainInfluence: !!it.boosterGainInfluence,
       })),
     })),
+    // Its decals (EveSOFDataHullDecalSet items): each a box (position, rotation, scaling) the hull's own triangles
+    // are projected through, those triangles one index list per LOD (uint32, the hull mesh's vertex order), its
+    // textures and parameters, and its usage (0 standard, 1 kill counter, 2 hole, 3 cylindrical, 4 glow cylindrical,
+    // 5 glow, 6 logo); a glow's colour the item's DecalGlowColor, else the faction's colour of its glowColorType.
+    decalSets: (hull.decalSets ?? []).filter(visible).map((set) => ({
+      name: set.name ?? null,
+      items: (set.items ?? []).map((it) => {
+        const p = params(it.parameters);
+        return {
+          name: it.name ?? null, usage: it.usage ?? 0, meshIndex: it.meshIndex ?? 0, logoType: it.logoType ?? null,
+          position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
+          textures: Object.fromEntries((it.textures ?? []).filter((t) => t?.name && t.resFilePath).map((t) => [t.name, String(t.resFilePath).toLowerCase()])),
+          parameters: p,
+          glowColor: p.DecalGlowColor ?? ((it.glowColorType !== undefined && colorSet && colorSet[COLOR_TYPES[it.glowColorType]]) || null),
+          indexBuffers: (it.indexBuffers ?? []).map((b) => {
+            const bytes = b?.indexBuffer;
+            if (!bytes || !bytes.length) return [];
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            return Array.from({ length: bytes.byteLength >> 2 }, (_, i) => view.getUint32(i * 4, true));
+          }),
+        };
+      }),
+    })),
     // Its point lights (EveSOFDataHullLightSet items), each its colour from the faction's colour set.
     lights: (hull.lightSets ?? []).flatMap((set) => (set.items ?? []).map((it) => ({
       position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,

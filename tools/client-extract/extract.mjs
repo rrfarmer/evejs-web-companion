@@ -124,6 +124,11 @@ export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = n
       set[key] = res && rf.has(res) ? copyRes(rf, res, outRoot) : null;
     }
   }
+  for (const set of built.decalSets ?? []) {
+    for (const item of set.items) {
+      for (const [name, res] of Object.entries(item.textures)) item.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+    }
+  }
   for (const set of built.planeSets ?? []) {
     for (const key of ["layer1", "layer2", "mask"]) {
       const res = set[key] ? String(set[key]).toLowerCase() : null;
@@ -133,7 +138,7 @@ export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = n
   const stem = gr2.toLowerCase().slice("res:/".length, -".gr2".length);
   const file = path.join(outRoot, ...`${stem}.${(factionName ?? "none").toLowerCase()}.sof.json`.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(built, null, 1));
+  fs.writeFileSync(file, JSON.stringify(built));
   return file;
 }
 

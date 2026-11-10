@@ -4,7 +4,8 @@
 // SOF reader.
 
 import * as THREE from "three";
-import { hullFx, type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
+import { addDecals, type SofDecalSet } from "./hullDecals.ts";
+import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
 
@@ -286,6 +287,10 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   const size = new THREE.Box3().setFromObject(lodNodes[0] ?? gltf.scene).getBoundingSphere(new THREE.Sphere()).radius || 50;
   const lod = new THREE.LOD();
   lodNodes.slice().forEach((node, i) => lod.addLevel(node, i === 0 ? 0 : size * 12 * 2 ** (i - 1)));
+  // the hull's decals, on each LOD (hullDecals.ts)
+  const decalSets = (sof as { decalSets?: SofDecalSet[] } | null)?.decalSets;
+  // (the LOD's levels: lodNodes is the file's live children list, which addLevel has emptied)
+  if (decalSets?.length) await addDecals(lod.levels.map((l) => l.object), decalSets).catch((e) => console.warn("hull decals", e));
   lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, maxCameraDistance: sof?.maxCameraDistance ?? null, lights: sof?.lights ?? [], boundingSphere: (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere ?? null };
   const boosters = sof ? buildBoosters(sof) : null;
   // the hull's sprite lights and plane cards (hullFx.ts)
