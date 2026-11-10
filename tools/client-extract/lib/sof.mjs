@@ -80,10 +80,15 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
       });
     }
   }
-  // A set in a visibility group is built only where the faction's visibility group set names that group (the police
-  // lights of a hull, say, for a police faction); a set in none always is.
-  const groups = new Set((faction?.visibilityGroupSet?.visibilityGroups ?? []).map((g) => String(g.str ?? "").toLowerCase()));
-  const visible = (set) => !set.visibilityGroup || groups.has(String(set.visibilityGroup).toLowerCase());
+  // A set is built only where the faction's visibility group set names its group (carbonengine/trinity
+  // EveSOFDNA::IsInVisibilityData: the name's FNV hash, as written), a set naming none being in "primary" (every
+  // EveSOFDataHull*Set's default); so a faction that does not name "primary" (amarrpolice, ["police"]; 17 of 641)
+  // gets only its own groups' sets. Sprite, sprite line, haze, decal, light and banner sets are always so chosen;
+  // plane and spotlight sets only on a sof6 hull (EveSOF.cpp SetupPlaneSets, SetupSpotlightSets), another hull
+  // taking them all.
+  const groups = new Set((faction?.visibilityGroupSet?.visibilityGroups ?? []).map((g) => String(g.str ?? "")));
+  const visible = (set) => groups.has(String(set.visibilityGroup ?? "primary"));
+  const visibleOnSof6 = (set) => !hull.sof6 || visible(set);
   const colorSet = faction?.colorSet ? Object.fromEntries(Object.entries(faction.colorSet).filter(([k]) => k !== "type")) : null;
   // The race's engines (EveSOFDataRace.booster): the flame's colours and shapes, the glow and the halo, as the
   // client's EveBoosterSet2 is set up from them.
@@ -122,7 +127,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     })),
     // Its plane sets (EveSOFDataHullPlaneSet: force fields, holograms, haze cards): each plane placed, its two scrolling
     // layers and mask, its own colour and its group's colour from the faction (EveSOFDataFactionPlaneSet by groupIndex).
-    planeSets: (hull.planeSets ?? []).filter(visible).map((set) => ({
+    planeSets: (hull.planeSets ?? []).filter(visibleOnSof6).map((set) => ({
       name: set.name ?? null, layer1: set.layer1MapResPath ?? null, layer2: set.layer2MapResPath ?? null, mask: set.maskMapResPath ?? null,
       items: (set.items ?? []).map((it) => ({
         position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
@@ -135,7 +140,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     })),
     // Its spotlight sets (EveSOFDataHullSpotlightSet: light cones, their glows and flares): each item's transform (a
     // column-major 4x4 in EVE's space) and intensities, its colours from the faction's spotlight set of its groupIndex.
-    spotlightSets: (hull.spotlightSets ?? []).filter(visible).map((set) => ({
+    spotlightSets: (hull.spotlightSets ?? []).filter(visibleOnSof6).map((set) => ({
       name: set.name ?? null, cone: set.coneTextureResPath ?? null, glow: set.glowTextureResPath ?? null, zOffset: set.zOffset ?? 0,
       items: (set.items ?? []).map((it) => {
         const g = (faction?.spotlightSets ?? []).find((f) => f.groupIndex === (it.groupIndex ?? -1)) ?? null;
