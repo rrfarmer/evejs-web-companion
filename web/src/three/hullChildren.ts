@@ -51,6 +51,7 @@ export interface SofChildMesh {
   geometry: string | null;
   meshIndex: number;
   minScreenSize: number;
+  modifiers?: string[];
   areas: SofChildMeshArea[];
 }
 export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh;
@@ -76,32 +77,44 @@ function meanScale(m: THREE.Matrix4): number {
  * pixel stage also takes a screen-space occlusion array by depth (its t0), not drawn here; flarequadsoft.fx is drawn
  * as flarequad.fx. A quad under minScreenSize pixels across is not drawn.
  */
-function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.Vector3; colour: number[]; min: number }[]): THREE.Mesh {
+function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.Vector3; colour: number[]; min: number; halo: { z: THREE.Vector3; at: THREE.Vector3 } | null }[]): THREE.Mesh {
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
   geo.setIndex([0, 1, 2, 0, 2, 3]);
   const n = quads.length;
   const centre = new Float32Array(n * 3), ax = new Float32Array(n * 3), ay = new Float32Array(n * 3), colour = new Float32Array(n * 4), min = new Float32Array(n);
+  const haloZ = new Float32Array(n * 4), haloAt = new Float32Array(n * 3);
   quads.forEach((q, i) => {
     q.centre.toArray(centre, i * 3); q.ax.toArray(ax, i * 3); q.ay.toArray(ay, i * 3);
     colour.set(q.colour.slice(0, 4), i * 4); min[i] = q.min;
+    if (q.halo) { q.halo.z.toArray(haloZ, i * 4); haloZ[i * 4 + 3] = 1; q.halo.at.toArray(haloAt, i * 3); }
   });
   geo.setAttribute("iCentre", new THREE.InstancedBufferAttribute(centre, 3));
   geo.setAttribute("iAxisX", new THREE.InstancedBufferAttribute(ax, 3));
   geo.setAttribute("iAxisY", new THREE.InstancedBufferAttribute(ay, 3));
   geo.setAttribute("iColour", new THREE.InstancedBufferAttribute(colour, 4));
   geo.setAttribute("iMin", new THREE.InstancedBufferAttribute(min, 1));
+  geo.setAttribute("iHaloZ", new THREE.InstancedBufferAttribute(haloZ, 4));
+  geo.setAttribute("iHaloAt", new THREE.InstancedBufferAttribute(haloAt, 3));
   geo.instanceCount = n;
   const viewHeight = { value: 1080 };
   const mat = new THREE.ShaderMaterial({
     uniforms: { viewHeight },
     vertexShader: `attribute vec3 iCentre; attribute vec3 iAxisX; attribute vec3 iAxisY; attribute vec4 iColour; attribute float iMin;
+      attribute vec4 iHaloZ; attribute vec3 iHaloAt;
       uniform float viewHeight; varying vec2 vUv; varying vec4 vColour;
       void main() {
         vUv = uv;
         float s = (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz) + length(modelMatrix[2].xyz)) / 3.0;
         vec4 mv = modelViewMatrix * vec4(iCentre, 1.0);
+        // under an EveChildModifierHalo container: its axes, so the quad's size, times max(z . d, 0)^2 (z the
+        // container's axis, d the way from it to the eye, in the hull's EVE space)
+        if (iHaloZ.w > 0.5) {
+          vec3 eye = (inverse(modelViewMatrix) * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          float h = max(dot(normalize(iHaloZ.xyz), normalize(eye - iHaloAt)), 0.0);
+          s *= h * h;
+        }
         vec3 ax = iAxisX * s, ay = iAxisY * s;
         float c = clamp(-normalize(mv.xyz).z, 0.0, 1.0);
         float f = asin(c) * 0.63662;
@@ -332,6 +345,78 @@ async function childMesh(node: SofChildMesh): Promise<THREE.Object3D | null> {
   return holder;
 }
 
+/** The transform modifiers drawn so far (the rest leave the transform as it is). */
+const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierCameraOrientedRotationConstrained"]);
+
+/**
+ * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
+ * modifiers make a child's world transform (_trinity_dx11.dll, their vtables' transform function, decompiled):
+ * - EveChildModifierHalo: the translation kept; the axes the eye's (its view-inverse rows: right, up, forward), each
+ *   the length of the child's own, times f = max(z . d, 0)^2 for z the child's z axis and d the way to the eye,
+ *   both normalised: a billboard turned to the eye, gone as it is seen from the side;
+ * - EveChildModifierCameraOrientedRotationConstrained: the child turned about its own y axis by atan2(d . x, d . z)
+ *   (x, z its unit axes, d the way to the eye from its translation): its z axis toward the eye, its y kept.
+ */
+function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4): void {
+  out.copy(base);
+  const x = new THREE.Vector3(), y = new THREE.Vector3(), z = new THREE.Vector3(), t = new THREE.Vector3(), d = new THREE.Vector3();
+  for (const mod of mods) {
+    out.extractBasis(x, y, z);
+    t.setFromMatrixPosition(out);
+    d.subVectors(eye, t);
+    if (mod === "EveChildModifierHalo") {
+      const f = Math.max(z.clone().normalize().dot(d.clone().normalize()), 0) ** 2;
+      const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+      out.makeBasis(ex.clone().multiplyScalar(x.length() * f), ey.clone().multiplyScalar(y.length() * f), ez.clone().multiplyScalar(z.length() * f));
+      out.setPosition(t);
+    } else if (mod === "EveChildModifierCameraOrientedRotationConstrained") {
+      const angle = Math.atan2(d.dot(x.normalize()), d.dot(z.normalize()));
+      out.multiply(new THREE.Matrix4().makeRotationY(angle));
+    }
+  }
+}
+
+/**
+ * The modified children of one hull's group, kept turned to the eye: a mesh that draws nothing, drawn first (its
+ * material's onBeforeRender, which a clone of the model shares), finds them in the group it sits in (a clone's own)
+ * and sets each one's transform for this frame's eye, then their world transforms.
+ */
+const tickerMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false });
+const modifiedOf = new WeakMap<THREE.Object3D, THREE.Object3D[]>();
+tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
+  const group = object.parent;
+  if (!group) return;
+  let list = modifiedOf.get(object);
+  if (!list) {
+    list = [];
+    group.traverse((o) => { if (o.userData.modifiers) list!.push(o); });
+    modifiedOf.set(object, list);
+  }
+  group.updateWorldMatrix(true, false);
+  const toEve = group.matrixWorld.clone().invert();
+  const eye = camera.getWorldPosition(new THREE.Vector3()).applyMatrix4(toEve);
+  const cx = new THREE.Vector3(), cy = new THREE.Vector3(), cz = new THREE.Vector3();
+  camera.matrixWorld.extractBasis(cx, cy, cz);
+  const rot = new THREE.Matrix3().setFromMatrix4(toEve);
+  // the eye's axes in EVE's model space: right, up and forward (the view-inverse rows of a left-handed view)
+  const axes = [cx.applyMatrix3(rot).normalize(), cy.applyMatrix3(rot).normalize(), cz.negate().applyMatrix3(rot).normalize()];
+  for (const o of list) {
+    const base = new THREE.Matrix4().fromArray(o.userData.modifierBase as number[]);
+    applyModifiers(base, o.userData.modifiers as string[], eye, axes, o.matrix);
+    o.matrixWorldNeedsUpdate = true;
+    o.updateMatrixWorld(true);
+  }
+};
+function ticker(): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
+  const mesh = new THREE.Mesh(geo, tickerMaterial);
+  mesh.name = "child-modifiers";
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -1e9;
+  return mesh;
+}
+
 /**
  * The hull's children as drawn so far, under one group mirrored in z (EVE's model space to ours), or null where
  * nothing of them is drawn.
@@ -340,35 +425,63 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
   const pending: Promise<void>[] = [];
-  const walk = (node: SofChildNode, parent: THREE.Matrix4) => {
+  let modified = 0;
+  // `flat` is the node's parents' transform from the hull (for the quads, drawn as one mesh); `local` the same from
+  // the object the node is added to (`sink`): a modified container's own group, or the hull's
+  const place = (o: THREE.Object3D, at: THREE.Matrix4, mods: string[] | undefined) => {
+    o.matrixAutoUpdate = false;
+    o.matrix.copy(at);
+    const kept = (mods ?? []).filter((m) => MODIFIERS.has(m));
+    if (kept.length) {
+      o.userData.modifiers = kept;
+      o.userData.modifierBase = at.toArray();
+      modified++;
+    }
+  };
+  type Halo = { z: THREE.Vector3; at: THREE.Vector3 } | null;
+  const walk = (node: SofChildNode, flat: THREE.Matrix4, local: THREE.Matrix4, sink: (o: THREE.Object3D) => void, halo: Halo = null) => {
     if (node.k === "container") {
-      const world = node.m ? parent.clone().multiply(new THREE.Matrix4().fromArray(node.m)) : parent;
-      for (const o of node.objects) walk(o, world);
+      const m = node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4();
+      const flatHere = flat.clone().multiply(m);
+      if (node.modifiers.includes("EveChildModifierHalo")) {
+        const z = new THREE.Vector3();
+        flatHere.extractBasis(new THREE.Vector3(), new THREE.Vector3(), z);
+        halo = { z: z.normalize(), at: new THREE.Vector3().setFromMatrixPosition(flatHere) };
+      }
+      if (node.modifiers.some((x) => MODIFIERS.has(x))) {
+        const g = new THREE.Group();
+        g.name = `child-container:${node.name ?? ""}`;
+        place(g, local.clone().multiply(m), node.modifiers);
+        sink(g);
+        for (const o of node.objects) walk(o, flatHere, new THREE.Matrix4(), (c) => g.add(c), halo);
+        return;
+      }
+      const localHere = local.clone().multiply(m);
+      for (const o of node.objects) walk(o, flatHere, localHere, sink, halo);
       return;
     }
     if (node.k === "mesh") {
-      const at = parent.clone().multiply(new THREE.Matrix4().fromArray(node.m));
+      const at = local.clone().multiply(new THREE.Matrix4().fromArray(node.m));
       pending.push(childMesh(node).then((o) => {
         if (!o) return;
-        o.matrixAutoUpdate = false;
-        o.matrix.copy(at);
-        others.push(o);
+        place(o, at, node.modifiers);
+        sink(o);
       }));
       return;
     }
     if (node.k === "traffic") {
       const t = trafficMeshes(node);
       if (t) {
-        t.matrixAutoUpdate = false;
-        t.matrix.copy(parent).multiply(new THREE.Matrix4().fromArray(node.m));
-        others.push(t);
+        place(t, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
+        sink(t);
       }
       return;
     }
     if (node.k !== "quad") return;
-    const local = new THREE.Matrix4().fromArray(node.m);
+    const parent = flat;
+    const local4 = new THREE.Matrix4().fromArray(node.m);
     const s = meanScale(parent);
-    const e = local.elements;
+    const e = local4.elements;
     const b = node.brightness;
     quads.push({
       centre: new THREE.Vector3(e[12], e[13], e[14]).applyMatrix4(parent),
@@ -376,9 +489,10 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
       ay: new THREE.Vector3(e[4], e[5], e[6]).multiplyScalar(s),
       colour: [(node.color[0] ?? 1) * b, (node.color[1] ?? 1) * b, (node.color[2] ?? 1) * b, (node.color[3] ?? 1) * b],
       min: node.minScreenSize,
+      halo,
     });
   };
-  for (const child of children ?? []) if (child.root) walk(child.root, new THREE.Matrix4());
+  for (const child of children ?? []) if (child.root) walk(child.root, new THREE.Matrix4(), new THREE.Matrix4(), (o) => others.push(o));
   await Promise.all(pending);
   if (!quads.length && !others.length) return null;
   const group = new THREE.Group();
@@ -386,5 +500,6 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   group.scale.set(1, 1, -1);
   if (quads.length) group.add(quadMesh(quads));
   for (const o of others) group.add(o);
+  if (modified) group.add(ticker());
   return group;
 }

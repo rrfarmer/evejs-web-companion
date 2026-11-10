@@ -82,6 +82,7 @@ function readNode(o, skipped) {
     return {
       k: "mesh", name: o.name ?? null, m: srt(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
       meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
+      modifiers: (o.transformModifiers ?? []).map((t) => t.type),
     };
   }
   if (o.type === "EveChildContainer") {
