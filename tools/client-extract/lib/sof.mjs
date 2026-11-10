@@ -57,7 +57,9 @@ export function loadSof(rf) {
   return sof;
 }
 
-const params = (list) => Object.fromEntries((list ?? []).filter((p) => p && p.name).map((p) => [p.name, p.value ?? null]));
+// a parameter the data names without a value is (0, 0, 0, 0): EveSOFDataParameter's m_value as constructed, which
+// GetValue() hands the effect (EveSOFData.cpp, EveSOFDataMgr::GetHullAreaData) - not the effect file's default
+const params = (list) => Object.fromEntries((list ?? []).filter((p) => p && p.name).map((p) => [p.name, p.value ?? [0, 0, 0, 0]]));
 
 function material(sof, name) {
   if (!name) return null;
@@ -154,8 +156,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":30)
-    sofBuild: 30,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":31)
+    sofBuild: 31,
     booster,
     areas,
     colorSet,
