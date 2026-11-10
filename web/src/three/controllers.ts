@@ -8,14 +8,19 @@
 //   (a mask of nought), is looked at every update;
 // - StateTime() is the seconds since the state started.
 // Actions: Tr2ActionChildEffect (load an object file as a child of the owner on the state's start, remove it on its
-// stop: addOnStart and removeOnStop, both true unless said; a child of that name already there is taken, not loaded).
-// The others, and CurveSetTime(), the ship functions and the controller's event handlers, are not run yet: a condition
-// that calls a function not here never holds.
+// stop: addOnStart and removeOnStop, both true unless said; a child of that name already there is taken, not loaded);
+// Tr2ActionPlayCurveSet (play the owner's curve sets of that name - in a range where it names one - on start, stop
+// them on stop; synced to its range, the state may leave only on the frame the range comes round). CurveSetTime()
+// is the owner's sets' length (or the range's). The other actions, the ship functions and the controller's event
+// handlers are not run yet: a condition that calls a function not here never holds.
 
 import * as THREE from "three";
 
 export interface SofControllerAction {
   k: string;
+  set?: string;
+  range?: string;
+  sync?: boolean;
   effect?: string | null;
   name?: string | null;
   add?: boolean;
@@ -33,7 +38,7 @@ export interface SofController {
   machines: { name: string | null; start: number; states: SofControllerState[] }[];
 }
 
-type Scope = { vars: Map<string, number>; stateTime: number };
+type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number };
 /** masked: pure and reading a variable (looked at only when a variable changed). */
 type Compiled = { run: (s: Scope) => number; masked: boolean } | null;
 
@@ -61,6 +66,14 @@ export function compileCondition(src: string): Compiled {
       if (peek() === "(") {
         next();
         if (t === "StateTime" && next() === ")") { pure = false; return (s) => s.stateTime; }
+        // CurveSetTime("set") or ("set/range"): not pure either
+        if (t === "CurveSetTime" && i < tokens.length && tokens[i - 1] === "(") {
+          const arg = next();
+          if (!arg || !arg.startsWith('"') || next() !== ")") return null;
+          const name = arg.slice(1, -1);
+          pure = false;
+          return (s) => s.curveSetTime(name);
+        }
         return null;
       }
       readsVar = true;
@@ -109,22 +122,28 @@ const conditionOf = (src: string): Compiled => {
   return compiled.get(src)!;
 };
 
-/** How a running controller adds and removes a child effect (the caller builds the object). */
+/** What a running controller reaches: child effects (built by the caller) and its owner's curve sets. */
 export interface ChildEffectHost {
   /** The object a child effect's file builds, or null (a new copy each call). */
   build(effect: string): Promise<THREE.Object3D | null>;
+  /** The curve sets of that name under the owner (by its id): played (with a range or without), stopped, measured. */
+  play?(owner: number, name: string, range: string): void;
+  stop?(owner: number, name: string): void;
+  duration?(owner: number, name: string, range: string): number;
 }
+
+type Live = { stop(): void; canTransition?(now: number): boolean; tick?(now: number): void };
 
 /** One clone's run of one controller, its owner the container's group in that clone. */
 export class ControllerRun {
   private readonly vars = new Map<string, number>();
-  private readonly machines: { current: number; stateStart: number; live: { stop(): void }[] }[] = [];
+  private readonly machines: { current: number; stateStart: number; live: Live[]; vetoed: boolean }[] = [];
 
-  constructor(private readonly data: SofController, private readonly owner: THREE.Object3D, private readonly host: ChildEffectHost) {
+  constructor(private readonly data: SofController, private readonly owner: THREE.Object3D, private readonly host: ChildEffectHost, private readonly ownerId: number | null = null) {
     for (const v of data.variables) this.vars.set(v.name, v.value);
     const now = performance.now() / 1000;
     for (const m of data.machines) {
-      const run = { current: -1, stateStart: now, live: [] as { stop(): void }[] };
+      const run = { current: -1, stateStart: now, live: [] as Live[], vetoed: false };
       this.machines.push(run);
       if (m.start < 0 || !m.states[m.start]) continue;
       run.current = m.start;
@@ -135,7 +154,9 @@ export class ControllerRun {
 
   update(): void {
     const now = performance.now() / 1000;
-    for (let i = 0; i < this.machines.length; i++) this.follow(i, now, false);
+    for (let i = 0; i < this.machines.length; i++) this.follow(i, now, this.machines[i]!.vetoed);
+    // the actions' own updates after the machines' (Tr2Controller::Update: the updateables last)
+    for (const run of this.machines) for (const a of run.live) a.tick?.(now);
   }
 
   stop(): void {
@@ -147,7 +168,7 @@ export class ControllerRun {
     const run = this.machines[i]!;
     for (let hop = 0; hop < 40 && run.current >= 0; hop++) {
       const state = m.states[run.current]!;
-      const scope = { vars: this.vars, stateTime: now - run.stateStart };
+      const scope = { vars: this.vars, stateTime: now - run.stateStart, curveSetTime: (name: string) => this.curveSetTime(name) };
       const t = state.transitions.find((tr) => {
         if (tr.to < 0 || !m.states[tr.to]) return false;
         const c = conditionOf(tr.condition);
@@ -155,6 +176,10 @@ export class ControllerRun {
         return c.run(scope) !== 0;
       });
       if (!t) return;
+      // an action may hold the state (Tr2ActionPlayCurveSet synced to its range: until the range comes round); a
+      // vetoed state looks at every transition again on the next update
+      if (run.live.some((a) => a.canTransition && !a.canTransition(now))) { run.vetoed = true; return; }
+      run.vetoed = false;
       for (const a of run.live) a.stop();
       run.live = [];
       run.current = t.to;
@@ -164,8 +189,29 @@ export class ControllerRun {
     }
   }
 
-  private enter(state: SofControllerState, run: { live: { stop(): void }[] }, _now: number): void {
+  /** CurveSetTime("set") or ("set/range") of the owner's sets. */
+  private curveSetTime(name: string): number {
+    if (this.ownerId === null || !this.host.duration) return 0;
+    const slash = name.indexOf("/");
+    return slash >= 0 ? this.host.duration(this.ownerId, name.slice(0, slash), name.slice(slash + 1)) : this.host.duration(this.ownerId, name, "");
+  }
+
+  private enter(state: SofControllerState, run: { live: Live[] }, now: number): void {
     for (const a of state.actions) {
+      if (a.k === "playCurveSet" && a.set && this.ownerId !== null && this.host.play) {
+        const owner = this.ownerId, host = this.host, set = a.set, range = a.range ?? "";
+        host.play(owner, set, range);
+        // syncToRange (a named range of positive length): a transition waits for the range to come round
+        const length = a.sync && range && host.duration ? host.duration(owner, set, range) : 0;
+        const start = now;
+        let prev = now;
+        run.live.push({
+          stop: () => host.stop?.(owner, set),
+          canTransition: length > 0 ? (t) => t === start || Math.floor((prev - start) / length) !== Math.floor((t - start) / length) : undefined,
+          tick: (t) => { prev = t; },
+        });
+        continue;
+      }
       if (a.k !== "childEffect" || a.other) continue;
       let child: THREE.Object3D | null = a.name ? this.owner.children.find((c) => c.name === a.name) ?? null : null;
       let stopped = false;

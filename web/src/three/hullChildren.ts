@@ -987,10 +987,15 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
     if (!runs) {
       runs = [];
       const effects = (group.userData.childEffects ?? {}) as Record<string, SofChildNode | null>;
-      const host = { build: (path: string) => childEffectObject(path, effects) };
+      const host = {
+        build: (path: string) => childEffectObject(path, effects),
+        play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
+        stop: (owner: number, name: string) => animator?.stop(owner, name),
+        duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
+      };
       const owners: THREE.Object3D[] = [];
       group.traverse((o) => { if (typeof o.userData.controllerOwner === "number") owners.push(o); });
-      for (const owner of owners) for (const c of controllerData[owner.userData.controllerOwner as number] ?? []) runs.push(new ControllerRun(c, owner, host));
+      for (const owner of owners) for (const c of controllerData[owner.userData.controllerOwner as number] ?? []) runs.push(new ControllerRun(c, owner, host, (owner.userData.controllerOwnerId as number | null) ?? null));
       controllerRunsOf.set(object, runs);
     }
     for (const r of runs) r.update();
@@ -1083,7 +1088,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   const walk = (node: SofChildNode, flat: THREE.Matrix4, local: THREE.Matrix4, sink: (o: THREE.Object3D) => void, halo: Halo = null, ancestors: number[] = []) => {
     if (node.k === "container") {
       if (node.id !== undefined) { animator.container(node.id, node.display !== false); ancestors = [...ancestors, node.id]; }
-      animator.curveSets(node.curveSets);
+      animator.curveSets(node.curveSets, ancestors);
       const m = node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4();
       const flatHere = flat.clone().multiply(m);
       for (const l of node.lights ?? []) {
@@ -1100,7 +1105,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
         // a controller's owner: the child effects its states load go here
-        if (node.controllers?.length) { g.userData.controllerOwner = controllers.length; controllers.push(node.controllers); }
+        if (node.controllers?.length) { g.userData.controllerOwner = controllers.length; g.userData.controllerOwnerId = node.id ?? null; controllers.push(node.controllers); }
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
         // a curve set may drive its SRT modifier (found in a clone by the container's id)
         if (node.srt?.id !== undefined && node.id !== undefined) { g.userData.childId = node.id; animator.srt(node.srt.id, node.id, node.srt); }

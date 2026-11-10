@@ -95,9 +95,9 @@ function curveData(c) {
 }
 
 /**
- * A curve set that plays on load (TriCurveSet: playOnLoad, true unless said; the others wait for a controller's state
- * machine): its scale, its curves, and the bindings whose source is one of its curves (or any curve), each naming its
- * destination by id.
+ * A curve set (TriCurveSet): its name, whether it plays on load (true unless said; the others wait for a controller's
+ * state machine to play them), its scale, its time ranges (Tr2CurveSetRange: start 0, end 1, not looped unless said),
+ * its curves, and the bindings whose source is one of its curves (or any curve), each naming its destination by id.
  */
 function readCurveSet(cs) {
   const curves = (cs.curves ?? []).filter((c) => typeof c?.type === "string" && c.type.startsWith("Tr2Curve"));
@@ -113,7 +113,8 @@ function readCurveSet(cs) {
       destinationAttribute: b.destinationAttribute ?? "", scale: b.scale ?? 1, offset: b.offset ?? [0, 0, 0, 0],
     });
   }
-  return { name: cs.name ?? null, scale: cs.scale ?? 1, curves: curves.map(curveData), bindings };
+  const ranges = (cs.ranges ?? []).filter((r) => r?.name).map((r) => ({ name: r.name, start: r.startTime ?? 0, end: r.endTime ?? 1, looped: r.looped === true }));
+  return { name: cs.name ?? null, playOnLoad: cs.playOnLoad !== false, scale: cs.scale ?? 1, ranges, curves: curves.map(curveData), bindings };
 }
 
 // The object files Tr2ActionChildEffect loads (by their .red path, as the actions name them), each read once per build
@@ -158,6 +159,7 @@ function readController(c, skipped) {
       states: states.map((st) => ({
         name: st.name ?? null,
         actions: (st.actions ?? []).filter(Boolean).map((a) => {
+          if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
           if (a.type === "Tr2ActionChildEffect") {
             return { k: "childEffect", effect: a.path ? readChildEffect(a.path, skipped) : null, name: a.childName ?? null, add: a.addOnStart !== false, remove: a.removeOnStop !== false, other: a.targetAnotherOwner || null };
           }
@@ -172,15 +174,15 @@ function readController(c, skipped) {
 }
 let readRf = null;
 
-// The objects whose display a curve set that plays on load drives (in the file being read): one hidden in the file
-// (display false) is read all the same, marked display false, for the set to show.
+// The objects whose display a curve set drives (in the file being read): one hidden in the file (display false) is
+// read all the same, marked display false, for the set to show (on load, or when a controller plays it).
 let shownBySet = new Set();
 function findShownBySet(root) {
   const out = new Set(), seen = new Set();
   const walk = (o) => {
     if (!o || typeof o !== "object" || seen.has(o)) return;
     seen.add(o);
-    if (o.type === "TriCurveSet" && o.playOnLoad !== false) {
+    if (o.type === "TriCurveSet") {
       for (const b of o.bindings ?? []) if (b?.destinationObject && String(b.destinationAttribute ?? "").split(".")[0] === "display") out.add(b.destinationObject);
     }
     for (const v of Object.values(o)) walk(v);
@@ -264,9 +266,7 @@ function readShown(o, skipped) {
         lights.push({ position: l.position ?? [0, 0, 0], radius: l.radius ?? 1, innerRadius: l.innerRadius ?? 0, color: l.color ?? [1, 1, 1, 1], brightness: l.brightness ?? 1 });
       } else skipped[l?.type ?? "?"] = (skipped[l?.type ?? "?"] ?? 0) + 1;
     }
-    const curveSets = (o.curveSets ?? []).filter((cs) => cs?.playOnLoad !== false).map(readCurveSet);
-    const waiting = (o.curveSets ?? []).length - curveSets.length;
-    if (waiting) skipped.TriCurveSet = (skipped.TriCurveSet ?? 0) + waiting;
+    const curveSets = (o.curveSets ?? []).filter((cs) => cs?.type === "TriCurveSet").map(readCurveSet);
     const controllers = (o.controllers ?? []).filter((c) => c?.type === "Tr2Controller").map((c) => readController(c, skipped));
     if (!objects.length && !lights.length && !curveSets.length && !controllers.length) return null;
     const m = srt(o);

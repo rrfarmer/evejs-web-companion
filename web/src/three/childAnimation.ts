@@ -1,6 +1,10 @@
 // The hull children's curve sets played (trinity's TriCurveSet and TriValueBinding: carbonengine/trinity
-// Curves/TriCurveSet.cpp, TriValueBinding.cpp): a set that plays on load runs from nought, its time the time since
-// load x its scale, unbounded (each curve's extrapolation does the rest); each frame its curves are evaluated and its
+// Curves/TriCurveSet.cpp, TriValueBinding.cpp): a set that plays on load runs from nought; a set plays (PlayFrom(0)),
+// its time advancing by its scale x the time passed, within its time range where it has one (held at the range's
+// start below it; wrapped where the range loops, else held at its end), unbounded otherwise (each curve's
+// extrapolation does the rest); a stopped set is left as it was. A controller plays and stops sets by name under its
+// container (EveChildContainer::PlayCurveSet: its own sets of that name and its objects'), with a range or without
+// (ResetTimeRange). Each frame a playing set's curves are evaluated and its
 // bindings copy them to their objects: a scalar to a scalar as value x scale + offset.x, to a vector as value x scale
 // + the offset's own component on each, a vector or colour to a vector component by component; a ".x" .. ".w" on the
 // attribute names one component (on either side).
@@ -18,7 +22,10 @@ import { colorValue, curveValue, rotationValue, vector3Value, type Curve } from 
 
 export interface SofCurveSet {
   name: string | null;
+  /** false: waits for a controller to play it (absent: plays on load). */
+  playOnLoad?: boolean;
   scale: number;
+  ranges?: { name: string; start: number; end: number; looped: boolean }[];
   curves: Curve[];
   bindings: {
     id?: number;
@@ -77,12 +84,24 @@ interface ContainerTarget { kind: "container"; display: boolean }
 interface SrtTarget { kind: "srt"; owner: number; translation: number[]; rotation: number[]; scaling: number[]; dirty: number }
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
+/** A set's play state: its owners (the containers it is under, its own first-to-last), time and range. */
+interface SetRun { set: SofCurveSet; owners: number[]; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null }
+
+/** A curve's length (Tr2CurveScalar::Length: its last key's time; a composite's, its parts' longest). */
+function curveLength(c: unknown): number {
+  if (!c || typeof c !== "object") return 0;
+  const o = c as Record<string, unknown>;
+  if (Array.isArray(o.keys)) return Math.max(0, ...(o.keys as number[][]).map((k) => k[0] ?? 0));
+  let l = 0;
+  for (const [k, v] of Object.entries(o)) if (k !== "keys" && v && typeof v === "object" && typeof (v as { type?: unknown }).type === "string") l = Math.max(l, curveLength(v));
+  return l;
+}
 
 /** One hull's curve sets and what their bindings reach; shared by the model's clones (found by their key). */
 export class ChildAnimator {
   readonly key = THREE.MathUtils.generateUUID();
   private readonly targets = new Map<number, Target>();
-  private readonly sets: SofCurveSet[] = [];
+  private readonly sets: SetRun[] = [];
   private readonly xforms = new Map<number, Xform>();
   /** The curves and bindings by id, for the bindings that drive a curve's timeOffset or a binding's scale. */
   private readonly curvesById = new Map<number, { timeOffset?: number }>();
@@ -108,7 +127,8 @@ export class ChildAnimator {
   }
   /** A container (hidden where its file has it so: a set shows it). */
   container(id: number, display = true): void { if (!this.targets.has(id)) this.targets.set(id, { kind: "container", display }); }
-  curveSets(sets: SofCurveSet[] | undefined): void {
+  /** A container's curve sets; owners: the containers they are under (ids), down to their own. */
+  curveSets(sets: SofCurveSet[] | undefined, owners: number[] = []): void {
     const index = (c: unknown): void => {
       if (!c || typeof c !== "object") return;
       if (Array.isArray(c)) { c.forEach(index); return; }
@@ -117,19 +137,55 @@ export class ChildAnimator {
       for (const [k, v] of Object.entries(o)) if (k !== "keys" && v && typeof v === "object") index(v);
     };
     for (const s of sets ?? []) {
-      if (!s.bindings.length) continue;
-      this.sets.push(s);
+      const onLoad = s.playOnLoad !== false;
+      this.sets.push({ set: s, owners, playing: onLoad, last: performance.now(), time: 0, range: null });
       index(s.curves);
       for (const b of s.bindings) { if (b.id !== undefined) this.bindingsById.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
     }
   }
   get playing(): boolean { return this.sets.length > 0; }
 
+  private under(owner: number, name: string): SetRun[] {
+    return this.sets.filter((r) => r.set.name === name && r.owners.includes(owner));
+  }
+  /** TriCurveSet::Play (no range: ResetTimeRange) or PlayTimeRange (a range it lacks: left as it is). */
+  play(owner: number, name: string, range = ""): void {
+    for (const r of this.under(owner, name)) {
+      if (range) {
+        const found = r.set.ranges?.find((x) => x.name === range);
+        if (!found) continue;
+        r.range = { min: Math.min(found.start, found.end), max: Math.max(found.start, found.end), looped: found.looped };
+      } else r.range = null;
+      r.playing = true;
+      r.time = 0;
+      r.last = performance.now();
+    }
+  }
+  stop(owner: number, name: string): void { for (const r of this.under(owner, name)) r.playing = false; }
+  /** CurveSetTime(): the longest curve of the sets of that name under the owner, or the range's length. */
+  duration(owner: number, name: string, range = ""): number {
+    let d = 0;
+    for (const r of this.under(owner, name)) {
+      if (range) { const x = r.set.ranges?.find((y) => y.name === range); d = Math.max(d, x ? x.end - x.start : 0); }
+      else d = Math.max(d, ...r.set.curves.map(curveLength), 0);
+    }
+    return d;
+  }
+
   /** One frame: every set's curves at its time, every binding copied; visibility to the given objects (a clone's). */
   step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number>; srts?: Map<number, number> }): void {
-    const t = (performance.now() - this.start) / 1000;
-    for (const set of this.sets) {
-      const time = t * set.scale;
+    const now = performance.now();
+    for (const run of this.sets) {
+      if (!run.playing) continue;
+      const set = run.set;
+      run.time += set.scale * Math.max(0, now - run.last) / 1000;
+      run.last = now;
+      if (run.range) {
+        const { min, max, looped } = run.range;
+        if (run.time < min) run.time = min;
+        run.time = looped && max > min ? ((run.time - min) % (max - min)) + min : Math.min(run.time, max);
+      }
+      const time = run.time;
       const values = new Map<number, Value>();
       for (const b of set.bindings) {
         const [attr0] = b.destinationAttribute.split(".");
