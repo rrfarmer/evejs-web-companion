@@ -154,7 +154,7 @@ export interface TypeModelInfo {
  * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
-export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold", Layer1Map: "layer1", Layer2Map: "layer2", LayerMaskMap: "layerMask", DistortionMap: "distortion" };
+export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold", Layer1Map: "layer1", Layer2Map: "layer2", LayerMaskMap: "layerMask", DistortionMap: "distortion", OilFilmLookupMap: "oilFilm" };
 
 /**
  * A hull area drawn with fx/fxv5.fx or fx/fxdirectionalv5.fx (their record 0, fxres.py; the same pixel stage):
@@ -247,6 +247,20 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     maps.alphaThreshold!.needsUpdate = true;
   }
   const v4 = (a: number[] | null | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);
+  // quadenvironmentv5 (its record 0, fxres.py): every map but MaterialMap read at uv x GeneralTiling.y, MaterialMap at
+  // uv x GeneralTiling.x; no PaintMaskMap (no bare surface); two tiled details, Detail1Map at uv x DetailData.x and
+  // Detail2Map at uv x DetailData.y, each weighed by w = DetailNMaterial . the material weights: its normal (x 2 - 1)
+  // x w added to the normal map's, and the tint and the specular pulled toward DetailNAlbedoColor and
+  // DetailNFresnelColor by its alpha x sat(w), the first then the second.
+  const env = /quadenvironmentv5/i.test(area.shader ?? "") && !!(maps.detail1 && maps.detail2);
+  if (env) for (const t of [maps.detail1, maps.detail2]) { t!.wrapS = t!.wrapT = THREE.RepeatWrapping; t!.needsUpdate = true; }
+  // quadoilv5 (its record 0): quadv5 with an oil film added to the lit colour: OilFilmLookupMap (sRGB, wrapping) at
+  // (0.7 (n.x + n.y) + 3 / c, 0.5), its mip level 1 / c, for n the normal map's x and y (+ 0.002, x 2 - 1) and c =
+  // clamp(N . V, 0.001, 1); times 0.02 (2 - sqrt c), sat(R . L x 0.5 + 0.5)^16 (R the eye's reflection about N, L the
+  // way to the sun), RoughnessMap.r and the sun's shadow. (The client turns R by the environment map's rotation
+  // first and has a shadow map: neither here.)
+  const oil = /quadoilv5/i.test(area.shader ?? "") && !!maps.oilFilm && !!maps.normal && !!maps.roughness;
+  if (oil) { maps.oilFilm!.colorSpace = THREE.SRGBColorSpace; maps.oilFilm!.wrapS = maps.oilFilm!.wrapT = THREE.RepeatWrapping; maps.oilFilm!.needsUpdate = true; }
   const heatUniforms = {
     heatData: { value: [1, 2, 3, 4].map((i) => v4(area.params[`Mtl${i}HeatGlowData`], [1, 0, 0, 0])) },
     heatColor: { value: v3(area.heatGlowColor ?? null, 1) },
@@ -285,6 +299,12 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     wreckFactors: { value: v4(area.params.WreckFactors, [1, 1, 0, 0]) },
     wreckTime: heatClock,
     alphaThreshold: { value: maps.alphaThreshold ?? null },
+    envTiling: { value: v4(area.params.GeneralTiling, [1, 1, 0, 0]) },
+    envDetail: { value: v4(area.params.DetailData, [1, 1, 1, 1]) },
+    envMtl1: { value: v4(area.params.Detail1Material, [0, 0, 0, 0]) }, envMtl2: { value: v4(area.params.Detail2Material, [0, 0, 0, 0]) },
+    envAlbedo1: { value: v3(area.params.Detail1AlbedoColor, 0) }, envAlbedo2: { value: v3(area.params.Detail2AlbedoColor, 0) },
+    envFresnel1: { value: v3(area.params.Detail1FresnelColor, 0) }, envFresnel2: { value: v3(area.params.Detail2FresnelColor, 0) },
+    oilFilm: { value: maps.oilFilm ?? null },
   };
   // the detail maps tile (the shader reads every texture through its wrapping sampler)
   const detail = (/quaddetailv5/i.test(area.shader ?? "") && !!(maps.detail1 && maps.detail2 && maps.detail3)) || (heatDetail && !!(maps.detail1 && maps.detail2));
@@ -293,10 +313,10 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {});
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold;${wreck ? " varying float vWreckV;" : ""}
+    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""}${env ? " varying vec2 vEnvUv;" : ""}
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
-        float mtlSel = texture2D( materialMap, vMapUv ).r;
+        float mtlSel = texture2D( materialMap, ${env ? "vEnvUv * envTiling.x" : "vMapUv"} ).r;
         ${sails ? `// quadsailsv5: where the map picks the first material, the sail's weave (SailsDetailMap, tiled by
         // SailsDetailData.x and turned by .y radians) picks among the four instead.
         float sailW = clamp( 1.031915 - abs( mtlSel * 3.191489 ), 0.0, 1.0 );
@@ -316,10 +336,17 @@ ${shader.fragmentShader}`
         vec3 detN = ( det1.xyz * 2.0 - 1.0 + det2.xyz * 2.0 - 1.0 + det3.xyz * 2.0 - 1.0 ) * detSel;
         mtlTint = mix( mtlTint, detailAlbedo, detA );
         mtlFr = mix( mtlFr, detailFresnel, detA );` : ""}
+        ${env ? `vec4 envD1 = texture2D( detail1, vEnvUv * envDetail.x );
+        vec4 envD2 = texture2D( detail2, vEnvUv * envDetail.y );
+        float envW1 = dot( envMtl1, mtlW ), envW2 = dot( envMtl2, mtlW );
+        vec3 envN = ( envD1.xyz * 2.0 - 1.0 ) * envW1 + ( envD2.xyz * 2.0 - 1.0 ) * envW2;
+        float envA1 = envD1.w * clamp( envW1, 0.0, 1.0 ), envA2 = envD2.w * clamp( envW2, 0.0, 1.0 );
+        mtlFr = mix( mix( mtlFr, envFresnel1, envA1 ), envFresnel2, envA2 );
+        mtlTint = mix( mix( mtlTint, envAlbedo1, envA1 ), envAlbedo2, envA2 );` : ""}
         ${glass ? `float glassP = ${maps.paintMask ? "texture2D( paintMask, vMapUv ).r" : "0.0"};
         vec3 glassTint = mtlTint * glassP;
         mtlTint = vec3( 0.0 );
-        float bareD = 0.0;` : maps.paintMask ? "float bareD = texture2D( paintMask, vMapUv ).r * generalData.x;" : "float bareD = 0.0;"}
+        float bareD = 0.0;` : maps.paintMask && !env ? "float bareD = texture2D( paintMask, vMapUv ).r * generalData.x;" : "float bareD = 0.0;"}
         mtlTint = mix( mtlTint, vec3( 1.0 ), bareD );
         mtlFr = mix( mtlFr, vec3( 0.038384, 0.039352, 0.039165 ), bareD );
         diffuseColor.rgb *= mtlTint;`)
@@ -331,10 +358,35 @@ ${shader.fragmentShader}`
         diffuseColor.a = 1.0 - glassP;
         #include <opaque_fragment>` : wreck ? `vec3 wreckA = texture2D( alphaThreshold, vMapUv * wreckFactors.x ).rgb;
         outgoingLight = mix( wreckColor * wreckA, outgoingLight, pow( clamp( wreckA.r + vWreckV, 0.0, 1.0 ), wreckFactors.y ) );
+        #include <opaque_fragment>` : oil ? `float oilC = clamp( dot( normal, normalize( vViewPosition ) ), 0.001, 1.0 );
+        vec2 oilN = ( texture2D( normalMap, vNormalMapUv ).xy + 0.002 ) * 2.0 - 1.0;
+        float oilS = 0.0;
+        #if NUM_DIR_LIGHTS > 0
+        oilS = pow( clamp( dot( reflect( -normalize( vViewPosition ), normal ), directionalLights[ 0 ].direction ) * 0.5 + 0.5, 0.0, 1.0 ), 16.0 );
+        #endif
+        outgoingLight += textureLod( oilFilm, vec2( ( oilN.x + oilN.y ) * 0.7 + 3.0 / oilC, 0.5 ), 1.0 / oilC ).rgb
+          * ( 2.0 - sqrt( oilC ) ) * 0.02 * oilS * texture2D( roughnessMap, vRoughnessMapUv ).r;
         #include <opaque_fragment>` : "#include <opaque_fragment>")
       .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
         material.specularColor = mtlFr;
         material.specularColorBlended = mtlFr;`);
+    if (env) {
+      shader.vertexShader = `uniform vec4 envTiling; varying vec2 vEnvUv;
+${shader.vertexShader.replace("#include <uv_vertex>", `#include <uv_vertex>
+  vEnvUv = uv;
+  #ifdef USE_MAP
+  vMapUv *= envTiling.y;
+  #endif
+  #ifdef USE_NORMALMAP
+  vNormalMapUv *= envTiling.y;
+  #endif
+  #ifdef USE_ROUGHNESSMAP
+  vRoughnessMapUv *= envTiling.y;
+  #endif
+  #ifdef USE_EMISSIVEMAP
+  vEmissiveMapUv *= envTiling.y;
+  #endif`)}`;
+    }
     if (wreck) {
       shader.vertexShader = `attribute vec4 color; varying float vWreckV;
 ${shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n  vWreckV = color.x;")}`;
@@ -347,6 +399,8 @@ ${shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex
     // the details' normals join the normal map's, in its tangent space and its green's sense
     if (detail) shader.fragmentShader = change(shader.fragmentShader, "mapN.z = 1.0; // quadv5: T x + B y + N, normalised (no z rebuilt from x and y)",
       "mapN.z = 1.0; mapN += vec3( detN.x, -detN.y, detN.z );");
+    if (env) shader.fragmentShader = change(shader.fragmentShader, "mapN.z = 1.0; // quadv5: T x + B y + N, normalised (no z rebuilt from x and y)",
+      "mapN.z = 1.0; mapN += vec3( envN.x, -envN.y, envN.z );");
     if (heat) {
       shader.fragmentShader = `uniform vec4 heatData[4]; uniform vec3 heatColor; uniform sampler2D heatNoise; uniform float heatTime; uniform float thrust;
 ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv );", `vec4 heatH = heatData[0] * mtlW.x + heatData[1] * mtlW.y + heatData[2] * mtlW.z + heatData[3] * mtlW.w;
@@ -356,7 +410,7 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
         "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
     }
   };
-  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}`;
+  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}`;
   return m;
 }
 
