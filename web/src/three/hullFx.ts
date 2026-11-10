@@ -7,6 +7,7 @@
 
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
+import { logDepth } from "./logDepth";
 
 export interface SofSpriteSet {
   name: string | null;
@@ -99,6 +100,7 @@ function spritePoints(sets: readonly SofSpriteSet[]): THREE.Points | null {
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
+  logDepth(mat);
   const points = new THREE.Points(geo, mat);
   points.name = "spriteSets";
   points.frustumCulled = false;
@@ -194,6 +196,7 @@ async function planeMeshes(sets: readonly SofPlaneSet[]): Promise<THREE.Group | 
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
+    logDepth(mat);
     const mesh = new THREE.InstancedMesh(geometry, mat, n);
     mesh.name = `planeSet:${set.name ?? ""}`;
     set.items.forEach((it, i) => {
@@ -259,16 +262,17 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
       uniforms: { map: { value: map }, hasMap: { value: map ? 1 : 0 } },
       vertexShader: `attribute vec3 colour; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
         void main() {
-          vec4 world = modelMatrix * vec4(position, 1.0);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
           vec3 n = normalize(mat3(modelMatrix) * normal);
-          vFacing = abs(dot(n, normalize(cameraPosition - world.xyz)));
+          vFacing = abs(dot(n, normalize(-(vec4(mv.xyz, 0.0) * viewMatrix).xyz)));
           vColour = colour; vUv = uv;
-          gl_Position = projectionMatrix * viewMatrix * world;
+          gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `uniform sampler2D map; uniform float hasMap; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
         void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour * vFacing, 1.0); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
+    logDepth(mat);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     group.add(mesh);
@@ -332,10 +336,9 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
       vertexShader: `attribute vec3 axis; attribute vec2 corner; attribute vec2 size; attribute vec3 colour; attribute float least;
         varying vec3 vColour; varying vec2 vUv;
         void main() {
-          vec4 world = modelMatrix * vec4(position, 1.0);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
           vec3 z = normalize(mat3(modelMatrix) * axis);
-          float f = clamp(max(least, dot(normalize(cameraPosition - world.xyz), z)), 0.0, 1.0);
-          vec4 mv = viewMatrix * world;
+          float f = clamp(max(least, dot(normalize(-(vec4(mv.xyz, 0.0) * viewMatrix).xyz), z)), 0.0, 1.0);
           mv.xy += f * (corner - 0.5) * size;
           vColour = colour; vUv = vec2(corner.x, 1.0 - corner.y);
           gl_Position = projectionMatrix * mv;
@@ -344,6 +347,7 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
         void main() { vec3 t = hasMap > 0.5 ? texture2D(map, vUv).rgb : vec3(1.0); gl_FragColor = vec4(t * vColour, 1.0); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
+    logDepth(mat);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     group.add(mesh);
@@ -377,7 +381,7 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
       vertexShader: `varying vec3 vObj; varying vec3 vEye;
         void main() {
           vObj = position;
-          vEye = ( inverse( modelMatrix ) * vec4( cameraPosition, 1.0 ) ).xyz;
+          vEye = ( inverse( modelViewMatrix ) * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
           gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         }`,
       fragmentShader: `uniform vec3 colour; uniform vec3 data; varying vec3 vObj; varying vec3 vEye;
@@ -395,6 +399,7 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
     });
+    logDepth(mat);
     const mesh = new THREE.Mesh(sphere, mat);
     mesh.position.set(it.position[0] ?? 0, it.position[1] ?? 0, -(it.position[2] ?? 0));
     // a rotation in EVE's space, mirrored in z (as the plane sets')

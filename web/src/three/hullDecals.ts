@@ -222,7 +222,7 @@ async function holeMaterial(d: SofDecal, inverse: THREE.Matrix4): Promise<THREE.
       void main() {
         vDecal = decal;
         // the eye in the box's space (our space is EVE's mirrored in z)
-        vec3 e = ( inverse( modelMatrix ) * vec4( cameraPosition, 1.0 ) ).xyz;
+        vec3 e = ( inverse( modelViewMatrix ) * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
         vEye = ( boxInverse * vec4( e.x, e.y, -e.z, 1.0 ) ).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         #include <logdepthbuf_vertex>

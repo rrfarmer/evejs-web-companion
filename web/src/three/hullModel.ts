@@ -8,6 +8,7 @@ import { addDecals, type SofDecalSet } from "./hullDecals.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
+import { logDepth } from "./logDepth";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
 export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[] }
@@ -68,6 +69,7 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   });
+  logDepth(flameMat);
   const plane = new THREE.PlaneGeometry(1, 1);
   plane.translate(0, 0.5, 0); // from the nozzle (v = 0) out along the flame
   plane.rotateX(Math.PI / 2); // along +z: aft, once mirrored

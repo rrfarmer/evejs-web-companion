@@ -12,6 +12,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
+import { logDepth } from "./logDepth";
 
 interface CelestialRing { name: string | null; params: Record<string, number[]>; textures: Record<string, string | null> }
 interface Celestial { type: string; effects: string[]; textures: Record<string, string | null>; params: Record<string, number[]>; rings?: CelestialRing[] }
@@ -139,8 +140,8 @@ async function buildCelestial(typeID: number, kind: string, radius: number, item
  * 0.25 exp(-0.00287 + x(0.459 + x(3.83 + x(-6.80 + x 5.25)))); Rayleigh 1/wavelength^4 (wavelengthsMicroMeters, read in
  * reverse, z y x) x Kr x ESun and Mie Km x ESun (ScatteringFactors x, y, z), both times AtmosphereFactors.y x
  * AtmosphereColor; its pixel shader's Mie phase with g = -0.995; the sum clamped to 1, a gamma colour taken to linear,
- * added over what is behind. The client draws it on a disc turned to the eye; here per pixel on the outer sphere, in
- * units of the planet's radius.
+ * added over what is behind. The client draws it on a disc turned to the eye; here per pixel on the outer sphere's far
+ * side, in units of the planet's radius.
  */
 function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
   const af = c.params.AtmosphereFactors ?? [1.015, 0.05, 0, 0];
@@ -161,8 +162,8 @@ function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: `uniform vec3 centre; uniform float unit; varying vec3 vL;
-      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vL = (w.xyz - centre) / unit; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    vertexShader: `uniform float unit; varying vec3 vL;
+      void main() { vL = mat3(modelMatrix) * position / unit; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform vec3 camL; uniform vec3 sunDir; uniform vec3 invW; uniform float outerR; uniform float krESun; uniform float kmESun;
       uniform float kr4PI; uniform float km4PI; uniform float scaleF; uniform float scaleOverDepth; uniform vec3 tint; varying vec3 vL;
       float sc(float c) { float x = 1.0 - c; return 0.25 * exp(-0.00287 + x * (0.459 + x * (3.83 + x * (-6.80 + x * 5.25)))); }
@@ -174,12 +175,12 @@ function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
         vec3 start = camL + ray * near; far -= near;
         float startOffset = exp(-4.0) * sc(dot(ray, start) / outerR);
         float sampleLength = far * 0.5; float scaled = sampleLength * scaleF;
-        vec3 step = ray * sampleLength; vec3 q = start + step * 0.5; vec3 front = vec3(0.0);
+        vec3 dq = ray * sampleLength; vec3 q = start + dq * 0.5; vec3 front = vec3(0.0);
         for (int i = 0; i < 2; i++) {
           float h = length(q); float depth = exp(scaleOverDepth * (1.0 - h));
           float scatter = startOffset + depth * (sc(dot(sunDir, q) / h) - sc(dot(ray, q) / h));
           front += exp(-scatter * (invW * kr4PI + km4PI)) * depth * scaled;
-          q += step;
+          q += dq;
         }
         vec3 rayleigh = front * invW * krESun * tint, mie = front * kmESun * tint;
         float cosA = dot(sunDir, -ray);
@@ -190,8 +191,12 @@ function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    // the far side of the shell: O'Neil's integral from the near crossing to the far one, kept to the halo past the
+    // limb by the planet in front (rays into the planet take the scale function past 1 - c = 1, where it runs to
+    // infinity: drawn over the planet, they were white)
+    side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
+  logDepth(mat);
   const centre = new THREE.Vector3(), camW = new THREE.Vector3();
   let lightOf: THREE.DirectionalLight | null = null;
   mat.onBeforeRender = (_r, scene, camera, _g, object) => {
@@ -503,6 +508,7 @@ async function ringMesh(ring: CelestialRing, radius: number): Promise<THREE.Mesh
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
+  logDepth(mat);
   let lightOf: THREE.DirectionalLight | null = null;
   mat.onBeforeRender = (_r, scene) => {
     if (!lightOf || !lightOf.parent) {
@@ -534,13 +540,13 @@ function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uni
   const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
   const mat = new THREE.ShaderMaterial({
     uniforms: { ...uniforms, scatter1: { value: s1 }, scatter2: { value: s2 }, sunDir: { value: sunDir }, ambient: { value: SCATTER_AMBIENT }, time: { value: 0 } },
-    vertexShader: `attribute vec2 uv1; varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW; varying vec3 vObj;
-      void main() { vUv = uv; vUv1 = uv1; vObj = position; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    vertexShader: `attribute vec2 uv1; varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vFromEye; varying vec3 vObj;
+      void main() { vUv = uv; vUv1 = uv1; vObj = position; vN = normalize(mat3(modelMatrix) * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz; gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform sampler2D scatter1; uniform sampler2D scatter2; uniform vec3 sunDir; uniform vec3 ambient; uniform float time;
-      varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW; varying vec3 vObj;
+      varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vFromEye; varying vec3 vObj;
       ${head}
       void main() {
-        vec3 N = normalize(vN), L = normalize(sunDir), V = normalize(cameraPosition - vW);
+        vec3 N = normalize(vN), L = normalize(sunDir), V = normalize(-vFromEye);
         float NL = dot(N, L), NV = dot(N, V);
         vec2 su = vec2(NL * 0.5 + 0.5, clamp(NV, 0.0, 1.0));
         vec3 S1 = texture2D(scatter1, su).rgb, S2 = texture2D(scatter2, su).rgb;
@@ -556,6 +562,7 @@ function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uni
     // a shell (the clouds) goes over what is under it as the client blends it: its colour already carries its cover
     ...(alpha ? { transparent: true, depthWrite: false, premultipliedAlpha: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor } : {}),
   });
+  logDepth(mat);
   let lightOf: THREE.DirectionalLight | null = null;
   mat.onBeforeRender = (_r, scene) => {
     (mat.uniforms.time as { value: number }).value = performance.now() / 1000;
