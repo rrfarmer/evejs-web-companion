@@ -432,9 +432,8 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
  * - the pixel: colour = gradient x TexMap.rgb + OverlayTexMap.rgb x animation colour, alpha = TexMap.a x gradient.a
  *   x (1 + animation.a x (overlay.a - 1)); TexMap read across the line, OverlayTexMap across it and along at
  *   (speed x time + t) x scale (scale 1, as the curve's ChangeLineAnimation call gives it); added for an additive set.
- * The gradient colour is baseColor x brightness and the animation colour animColor; the speed the set's scrollSpeed
- * (the call that hands these to the curve is not read: its fields are taken by their names, ChangeLineAnimation's
- * speed being "the speed the pattern/texture crawls along the line"). No curve sets a multicolour. The screen-space
+ * The gradient colour is baseColor x brightness, the animation colour animColor x brightness and the speed the set's
+ * scrollSpeed (EveChildLineSet.cpp's AddLinesToSet). No curve sets a multicolour. The screen-space
  * occlusion array is not drawn.
  */
 function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: number[] = []): THREE.Object3D | null {
@@ -471,12 +470,14 @@ function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: numbe
   const uniforms = {
     tex: { value: null as THREE.Texture | null }, overlay: { value: null as THREE.Texture | null },
     viewport: { value: new THREE.Vector2(1920, 1080) }, time: effectClock, speed: { value: node.scrollSpeed ?? 0 },
-    colour: { value: new THREE.Vector4((bc[0] ?? 1) * k, (bc[1] ?? 1) * k, (bc[2] ?? 1) * k, bc[3] ?? 1) },
-    anim: { value: new THREE.Vector4(ac[0] ?? 0, ac[1] ?? 0, ac[2] ?? 0, ac[3] ?? 1) },
+    // EveChildLineSet.cpp: AddLinesToSet(baseColor x brightness, animColor x brightness, scrollSpeed), a colour times a
+    // number being all four of its components times it
+    colour: { value: new THREE.Vector4((bc[0] ?? 1) * k, (bc[1] ?? 1) * k, (bc[2] ?? 1) * k, (bc[3] ?? 1) * k) },
+    anim: { value: new THREE.Vector4((ac[0] ?? 0) * k, (ac[1] ?? 0) * k, (ac[2] ?? 0) * k, (ac[3] ?? 1) * k) },
   };
   void childTexture(node.textures.TexMap).then((t) => { uniforms.tex.value = t; });
   void childTexture(node.textures.OverlayTexMap).then((t) => { uniforms.overlay.value = t; });
-  if (animator && node.id !== undefined) animator.lines(node.id, uniforms.colour, uniforms.anim, node.baseColor, node.brightness, ancestors);
+  if (animator && node.id !== undefined) animator.lines(node.id, uniforms.colour, uniforms.anim, node.baseColor, node.animColor, node.brightness, ancestors);
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: `attribute vec3 aOther; attribute float aSide; attribute float aEnd; attribute float aWidth;
@@ -568,7 +569,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
 }
 
 /** The transform modifiers drawn so far (the rest leave the transform as it is). */
-const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT"]);
+const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT"]);
 
 /**
  * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
@@ -580,8 +581,11 @@ const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierCameraOrient
  *   (x, z its unit axes, d the way to the eye from its translation): its z axis toward the eye, its y kept;
  * - EveChildModifierBillboard2D: the halo's without its fall-off: the eye's axes, each the length of the child's own;
  * - EveChildModifierSRT: the modifier's own transform (scaling, rotation, translation) laid on in the child's space.
- * (EveChildModifierHaloInverted, a billboard in the child's own frame turned by a camera vector not yet placed, is
- * not drawn.)
+ * - EveChildModifierHaloInverted (carbonengine/trinity EveChildModifierHaloInverted.cpp, DistanceBase in
+ *   EveChildModifierTransformCommon.h): the child's frame turned to the eye in its own space - z the way to the eye
+ *   in its axes (each component over its axis' squared length, normalised), y = normalize(z x the eye's right in its
+ *   axes), x = y x z - and scaled by max(d . -z, 0) (d the way to the eye, z the child's own axis, both normalised):
+ *   seen from behind; the child's transform x that basis x the scale.
  */
 function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4, srt: SofChildSrt | null = null): void {
   out.copy(base);
@@ -595,6 +599,16 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
       const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
       out.makeBasis(ex.clone().multiplyScalar(x.length() * f), ey.clone().multiplyScalar(y.length() * f), ez.clone().multiplyScalar(z.length() * f));
       out.setPosition(t);
+    } else if (mod === "EveChildModifierHaloInverted") {
+      const ux = x.clone(), uy = y.clone(), uz = z.clone();
+      const right = (eyeAxes[0] as THREE.Vector3).clone();
+      const sq = (v: THREE.Vector3) => v.lengthSq() || Infinity;
+      const n = new THREE.Vector3(d.dot(ux) / sq(ux), d.dot(uy) / sq(uy), d.dot(uz) / sq(uz)).normalize();
+      const r = new THREE.Vector3(right.dot(ux), right.dot(uy), right.dot(uz));
+      const up = new THREE.Vector3().crossVectors(n, r).normalize();
+      const across = new THREE.Vector3().crossVectors(up, n);
+      const f = Math.max(d.clone().normalize().dot(uz.clone().normalize().negate()), 0);
+      out.multiply(new THREE.Matrix4().makeBasis(across, up, n)).multiply(new THREE.Matrix4().makeScale(f, f, f));
     } else if (mod === "EveChildModifierBillboard2D") {
       const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
       out.makeBasis(ex.clone().multiplyScalar(x.length()), ey.clone().multiplyScalar(y.length()), ez.clone().multiplyScalar(z.length()));

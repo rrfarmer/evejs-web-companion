@@ -61,7 +61,7 @@ function copied(src: Value, srcComponent: number | null, scale: number, offset: 
 
 interface QuadTarget { kind: "quad"; index: number; color: number[]; brightness: number; display: boolean; ancestors: number[] }
 interface UniformTarget { kind: "uniform"; uniform: THREE.IUniform }
-interface LinesTarget { kind: "lines"; colour: THREE.IUniform; anim: THREE.IUniform; base: number[]; brightness: number; display: boolean; ancestors: number[] }
+interface LinesTarget { kind: "lines"; colour: THREE.IUniform; anim: THREE.IUniform; base: number[]; anim0: number[]; brightness: number; display: boolean; ancestors: number[] }
 interface ObjectTarget { kind: "object"; display: boolean; ancestors: number[] }
 interface ContainerTarget { kind: "container"; display: boolean }
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget;
@@ -82,8 +82,8 @@ export class ChildAnimator {
   }
   quadAttribute(a: THREE.InstancedBufferAttribute): void { this.quadColour = a; }
   uniform(id: number, uniform: THREE.IUniform | undefined): void { if (uniform) this.targets.set(id, { kind: "uniform", uniform }); }
-  lines(id: number, colour: THREE.IUniform, anim: THREE.IUniform, base: number[], brightness: number, ancestors: number[]): void {
-    this.targets.set(id, { kind: "lines", colour, anim, base: base.slice(0, 4), brightness, display: true, ancestors });
+  lines(id: number, colour: THREE.IUniform, anim: THREE.IUniform, base: number[], animColor: number[], brightness: number, ancestors: number[]): void {
+    this.targets.set(id, { kind: "lines", colour, anim, base: base.slice(0, 4), anim0: animColor.slice(0, 4), brightness, display: true, ancestors });
   }
   object(id: number, ancestors: number[]): void { this.targets.set(id, { kind: "object", display: true, ancestors }); }
   /** A container or mesh whose translation, rotation or scaling a binding drives (its own, in its parent's space). */
@@ -155,8 +155,9 @@ export class ChildAnimator {
         return;
       }
       case "lines":
-        if (attr === "baseColor") { target.base = copied(src, srcComp, scale, offset, target.base, comp) as number[]; (target.colour.value as THREE.Vector4).set(target.base[0]! * target.brightness, target.base[1]! * target.brightness, target.base[2]! * target.brightness, target.base[3]!); }
-        else if (attr === "animColor") { const a = target.anim.value as THREE.Vector4; a.fromArray(copied(src, srcComp, scale, offset, a.toArray(), comp) as number[]); }
+        // both colours reach the line set times the brightness, all four components (EveChildLineSet.cpp)
+        if (attr === "baseColor") { target.base = copied(src, srcComp, scale, offset, target.base, comp) as number[]; (target.colour.value as THREE.Vector4).fromArray(target.base.map((c) => c * target.brightness)); }
+        else if (attr === "animColor") { target.anim0 = copied(src, srcComp, scale, offset, target.anim0, comp) as number[]; (target.anim.value as THREE.Vector4).fromArray(target.anim0.map((c) => c * target.brightness)); }
         else if (attr === "display") { const d = (copied(src, srcComp, scale, offset, 0, null) as number) !== 0; if (d !== target.display) { target.display = d; this.visibility++; } }
         return;
       case "object": case "container":
