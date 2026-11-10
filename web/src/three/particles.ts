@@ -161,9 +161,12 @@ function dynamicParticleVS(stretchByScale: boolean, decl: string, body: string):
  * ParticleParams.x) / (.y - .x)); the colour written sRGB-encoded (the per-frame gamma 1). TextureMap and ColorRampMap
  * are read as sRGB (decoded here after filtering); every sampler clamps. The record sets no blend: its batch's
  * preset (transparent alpha, additive ONE / ONE). The fog volume map's factor is 1.
+ *
+ * particles/dynamic/motionvectorramp.fx (its one record) is the COLOR_RAMP_ENABLED, NEAR_FADE_DISABLED record but for
+ * two things: a pixel of nought alpha is not discarded, and the alpha is a x the ramp's alpha (no Colors2).
  */
-export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
-  const o = area.options as Record<string, string>;
+export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, dynamicRamp = false): THREE.ShaderMaterial | null {
+  const o = (dynamicRamp ? { PARTICLE_TYPE: "PARTICLE_DYNAMIC", COLOR_RAMP: "COLOR_RAMP_ENABLED" } : area.options) as Record<string, string>;
   if ((o.PARTICLE_TYPE ?? "PARTICLE_STATIC") !== "PARTICLE_DYNAMIC" || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED") return null;
   const ramp = o.COLOR_RAMP ?? "COLOR_RAMP_DISABLED";
   if (ramp !== "COLOR_RAMP_ENABLED" && ramp !== "COLOR_RAMP_2_RAMPS") return null;
@@ -216,11 +219,11 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf): 
         vec4 a = texture2D(textureMap, clampUv(textureMap, (clamp(vUvAge.xy - mv.xy, 0.0, 1.0) + c0) / atlas.xy));
         vec4 b = texture2D(textureMap, clampUv(textureMap, (clamp(vUvAge.xy + mv.zw, 0.0, 1.0) + c1) / atlas.xy));
         vec2 v = mix(vec2(decode(a.rgb).r, a.a), vec2(decode(b.rgb).r, b.a), k);
-        if (v.y <= 0.0) discard;
+        ${dynamicRamp ? "" : "if (v.y <= 0.0) discard;"}
         vec4 ramp = texture2D(rampMap, clampUv(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), age)));
         vec3 rgb = decode(ramp.rgb) * colors.z;
         ${twoRamps ? "rgb += texture2D(siMap, clampUv(siMap, vec2(clamp((v.x - selfIllum.x) / (selfIllum.y - selfIllum.x), 0.0, 1.0), age))).rgb * selfIllum.z;" : ""}
-        float alpha = v.y * ramp.a * colors2.w;
+        float alpha = v.y * ramp.a${dynamicRamp ? "" : " * colors2.w"};
         float fade = clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);
         ${fade === "NEAR_FADE_ALPHA" ? "alpha *= fade;" : fade === "NEAR_FADE_COLOR" ? "rgb *= fade;" : ""}
         gl_FragColor = vec4(encode(max(rgb, 0.0)), alpha);
@@ -316,6 +319,7 @@ function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMateria
     return material;
   }
   if (path.endsWith("/specialfx/particles/motionvector.fx")) return motionVectorParticleMaterial(area, textureOf);
+  if (path.endsWith("/specialfx/particles/dynamic/motionvectorramp.fx")) return motionVectorParticleMaterial(area, textureOf, true);
   if (path.endsWith("/specialfx/particles/2layermask.fx")) return twoLayerMaskParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/2layerdynmaskv2.fx")) return twoLayerMaskParticleMaterial(area, textureOf, true);
   return null;
@@ -364,7 +368,8 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
  * A particle child's drawn object: one quad (the mesh's geometry) instanced per live particle of its mesh's system,
  * the emitters and systems stepped each frame it is drawn (a model's copies share it), the system's GPU elements
  * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it). Drawn by its first area
- * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, 2layermask, 2layerdynmaskv2); null where none is.
+ * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, motionvectorramp, 2layermask, 2layerdynmaskv2);
+ * null where none is.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
   registerEmitter?: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void) => void,
