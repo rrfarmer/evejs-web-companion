@@ -37,8 +37,10 @@
 import { readBlack } from "./black.mjs";
 
 const HIGH_QUALITY = new Set([3, 4, 5]);
-// motionvectorramp.fx is drawn in its default permutation only (its file's permutations: Tr2EffectRes.cpp's reader)
+// motionvectorramp.fx is drawn in the permutations the client's child meshes use (its file's permutations:
+// Tr2EffectRes.cpp's reader): the default, and record 19 (no interpolation, one diffuse map, the mask)
 const MOTION_VECTOR_RAMP_DEFAULTS = [["INTERPOLATION", "INTERPOLATION_ENABLED"], ["DIFFUSE_MAP_COUNT", "ZERO"], ["COLORMAP", "COLORMAP_RAMP"], ["MASK", "MASK_DISABLED"], ["TEXTURE_TRANSFORM", "TRANSFORM_DISABLED"]];
+const MOTION_VECTOR_RAMP_DRAWN = [{}, { INTERPOLATION: "INTERPOLATION_DISABLED", DIFFUSE_MAP_COUNT: "ONE", MASK: "MASK_ENABLED" }];
 
 const srt = (o) => {
   const t = o.translation ?? [0, 0, 0], r = o.rotation ?? [0, 0, 0, 1], s = o.scaling ?? [1, 1, 1];
@@ -165,7 +167,7 @@ function readShown(o, skipped) {
         const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
         const drawn = ["ubershader", "fx3dv5", "ubershadertwosided", "flare", "twocolorflare", "quadv5", "quadglassv5"].includes(fx)
           || (fx === "texturecolor" && (opts.DEPTH_MAP_OCCLUSION ?? "DEPTH_MAP_OCCLUSION_NO") === "DEPTH_MAP_OCCLUSION_NO")
-          || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === v));
+          || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
         if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
         areas.push({
           id: idOf(a), paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
