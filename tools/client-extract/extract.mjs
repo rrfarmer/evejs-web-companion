@@ -149,6 +149,7 @@ export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = n
 export function extractCelestial(rf, graphicFile, outRoot) {
   const c = readCelestial(rf, graphicFile);
   for (const [name, res] of Object.entries(c.textures)) c.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+  for (const ring of c.rings ?? []) for (const [name, res] of Object.entries(ring.textures)) ring.textures[name] = rf.has(res.toLowerCase()) ? copyRes(rf, res.toLowerCase(), outRoot) : null;
   const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".celestial.json";
   const file = path.join(outRoot, ...rel.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -187,7 +188,8 @@ export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot
   }
   const file = path.join(outRoot, "celestials", `${solarSystemID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ solarSystemID, items }));
+  // what the dev server checks a list is current by (vite.config.ts looks for "celestialBuild":2)
+  fs.writeFileSync(file, JSON.stringify({ solarSystemID, celestialBuild: 2, items }));
   return file;
 }
 

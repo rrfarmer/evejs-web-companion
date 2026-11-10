@@ -13,7 +13,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
 
-interface Celestial { type: string; effects: string[]; textures: Record<string, string | null>; params: Record<string, number[]> }
+interface CelestialRing { name: string | null; params: Record<string, number[]>; textures: Record<string, string | null> }
+interface Celestial { type: string; effects: string[]; textures: Record<string, string | null>; params: Record<string, number[]>; rings?: CelestialRing[] }
 
 const byType = new Map<number, Promise<Celestial | null>>();
 function celestialOf(typeID: number): Promise<Celestial | null> {
@@ -119,6 +120,10 @@ async function buildCelestial(typeID: number, kind: string, radius: number, item
     if (clouds) shells.push(clouds);
   }
   if (c.effects.some((e) => /\/atmosphere\.fx$/i.test(e)) && c.params.AtmosphereFactors && c.params.ScatteringFactors) shells.push(atmosphereShell(c, radius));
+  for (const ring of c.rings ?? []) {
+    const mesh = await ringMesh(ring, radius).catch(() => null);
+    if (mesh) shells.push(mesh);
+  }
   if (!shells.length) return surface;
   const group = new THREE.Group();
   group.name = "celestial";
@@ -440,6 +445,80 @@ async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string |
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;
+}
+
+/**
+ * A gas giant's ring as rings.fx draws it (its pixel and vertex stages disassembled, client 3396210): the ring mesh is
+ * a flat 20 x 20 quad in the planet's plane (gasgiantring.gr2), in the planet's units; the shader keeps the part
+ * between 1 + RingsFactors.w and RingsFactors.x of the planet's radius and reads the ring texture across it,
+ * u = (r - inner) / (outer - inner). Lit: the planet's shadow behind it (the point's distance from the sun's line
+ * through the middle, smoothed over 1 -+ RingsFactors.z, unless the point is on the sun's side), the sun's angle to
+ * the ring's plane (|sun . up| + 0.5, at most 1), the noise texture added; in the shadow the ambient times the
+ * ring's red. The colour times DiffuseColor, the cover the texture's alpha times Alpha. Two of them, IsBack -1 and
+ * 1, each drawing only the half nearer or farther than the planet's middle (the client sorts them about the planet).
+ */
+async function ringMesh(ring: CelestialRing, radius: number): Promise<THREE.Mesh | null> {
+  const [rings, noise] = await Promise.all([
+    ring.textures.RingsTexture ? texture(ring.textures.RingsTexture) : Promise.resolve(null),
+    ring.textures.NoiseTexture ? texture(ring.textures.NoiseTexture) : Promise.resolve(null),
+  ]);
+  if (!rings) return null;
+  if (noise && noise.wrapS !== THREE.RepeatWrapping) { noise.wrapS = noise.wrapT = THREE.RepeatWrapping; noise.needsUpdate = true; }
+  const f = ring.params.RingsFactors ?? [2.2, 1, 0.05, 0.4];
+  const d = ring.params.DiffuseColor ?? [1, 1, 1, 0];
+  const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      rings: { value: rings }, noise: { value: noise }, hasNoise: { value: noise ? 1 : 0 },
+      factors: { value: new THREE.Vector4(f[0], f[1], f[2], f[3]) }, diffuse: { value: new THREE.Vector3(d[0], d[1], d[2]) },
+      alpha: { value: ring.params.Alpha?.[0] ?? 1 }, isBack: { value: ring.params.IsBack?.[0] ?? 1 },
+      sunDir: { value: sunDir }, ambient: { value: SCATTER_AMBIENT },
+    },
+    vertexShader: `uniform float isBack; uniform vec3 sunDir; varying vec3 vPos; varying vec2 vUv; varying float vSide; varying vec3 vSun;
+      void main() {
+        vPos = position; vUv = uv;
+        vSun = transpose(mat3(modelMatrix)) * sunDir;
+        vec4 p = modelViewMatrix * vec4(position, 1.0), c = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        vSide = isBack * (c.z - p.z) - isBack * 0.00001;
+        gl_Position = projectionMatrix * p;
+      }`,
+    fragmentShader: `uniform sampler2D rings; uniform sampler2D noise; uniform float hasNoise; uniform vec4 factors; uniform vec3 diffuse;
+      uniform float alpha; uniform vec3 ambient; varying vec3 vPos; varying vec2 vUv; varying float vSide; varying vec3 vSun;
+      void main() {
+        float r = length(vPos);
+        float inner = factors.w + 1.0;
+        if (r > factors.x || r < inner || vSide < 0.0) discard;
+        vec3 sun = normalize(vSun);
+        float s = clamp((length(cross(vPos, sun)) - (1.0 - factors.z)) / (2.0 * factors.z), 0.0, 1.0);
+        float lit = min(s * s * (3.0 - 2.0 * s) + clamp(dot(vPos, sun), 0.0, 1.0), 1.0);
+        float facing = min(abs(sun.y) + 0.5, 1.0);
+        vec4 t = texture2D(rings, vec2((r - inner) / (factors.x - inner), 0.5));
+        vec3 col = t.rgb + (hasNoise > 0.5 ? texture2D(noise, vUv).rgb : vec3(0.0));
+        vec3 shade = col.x * ambient;
+        vec3 g = max(diffuse * mix(shade, facing * col, lit), vec3(0.0));
+        vec3 c = mix(g / 12.92, pow((g + 0.055) / 1.055, vec3(2.4)), step(0.04045, g));
+        gl_FragColor = vec4(c, t.a * alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  });
+  let lightOf: THREE.DirectionalLight | null = null;
+  mat.onBeforeRender = (_r, scene) => {
+    if (!lightOf || !lightOf.parent) {
+      lightOf = null;
+      scene.traverse((o) => { if (!lightOf && (o as THREE.DirectionalLight).isDirectionalLight && (o as THREE.DirectionalLight).intensity > 0) lightOf = o as THREE.DirectionalLight; });
+    }
+    if (lightOf) sunDir.copy(lightOf.position).sub(lightOf.target.position).normalize();
+  };
+  // the quad in the planet's plane, in its units (the ring mesh is 20 x 20 about the middle)
+  const quad = new THREE.PlaneGeometry(20, 20);
+  quad.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(quad, mat);
+  mesh.name = `ring:${ring.name ?? ""}`;
+  mesh.scale.setScalar(radius);
+  mesh.renderOrder = (ring.params.IsBack?.[0] ?? 1) > 0 ? 1 : 3;
+  return mesh;
 }
 
 /**

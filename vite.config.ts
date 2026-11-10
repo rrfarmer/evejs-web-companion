@@ -106,8 +106,8 @@ function clientAssets(): Plugin {
           try {
             const buildDir = path.join(root, build);
             const file = path.join(buildDir, "celestials", `${systemCelestialsAsk[1]}.json`);
-            // a list from before it named each planet's sphere mesh is made again
-            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"geometry"')) {
+            // a list from an older extraction (before the sphere mesh, the gas giants' rings) is made again
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"celestialBuild":2')) {
               await extractOnce(`celestials:${systemCelestialsAsk[1]}`, buildDir, ["--system-celestials", systemCelestialsAsk[1]!]);
             }
             res.setHeader("content-type", "application/json");
