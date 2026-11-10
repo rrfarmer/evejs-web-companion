@@ -127,12 +127,15 @@ export interface TypeModelInfo {
  * forward pass disassembled, client 3396210), on three's standard material:
  * - the MaterialMap (one channel) weighs the faction's four materials for the area (EveSOF areaTypes material1..4):
  *   w_i = saturate(1.031915 - |m - i/3| * 3.191489);
+ * - d = PaintMaskMap.r x GeneralData.x (the area's, else (1, 0, 0, 0); no PaintMaskMap, nought) pulls the three
+ *   below toward a bare surface: the tint toward white, the specular toward (0.038384, 0.039352, 0.039165), the gloss
+ *   toward 0.4;
  * - the base colour is the albedo times the weighed DiffuseColor (linear, no other factor);
  * - the specular colour at normal incidence is the weighed FresnelColor itself: a specular workflow, not a metal one;
  * - the roughness is 1 - RoughnessMap.r * the weighed Gloss (the map is read as a gloss), squared for the lobe as
- *   three squares it.
- * The dirt layer (DirtMap at the area's dirt level, lerping the colour to white and the specular to 0.0384) and the
- * pattern layers are not drawn yet.
+ *   three squares it;
+ * - the normal: NormalMap.xy + 0.002, x 2 - 1, on the tangent frame with z 1 (T x + B y + N, normalised).
+ * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
 export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise" };
@@ -184,12 +187,14 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     materialMap: { value: maps.materialMap ?? null },
     sailsDetailMap: { value: maps.sailsDetail ?? null },
     sailsDetailData: { value: v3(area.params.SailsDetailData, 0) },
+    paintMask: { value: maps.paintMask ?? null },
+    generalData: { value: v4(area.params.GeneralData, [1, 0, 0, 0]) },
   };
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {});
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData;
+    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData;
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
         float mtlSel = texture2D( materialMap, vMapUv ).r;
@@ -204,9 +209,12 @@ ${shader.fragmentShader}`
         vec3 mtlTint = mtlDiffuse[0] * mtlW.x + mtlDiffuse[1] * mtlW.y + mtlDiffuse[2] * mtlW.z + mtlDiffuse[3] * mtlW.w;
         float mtlGl = mtlGloss[0] * mtlW.x + mtlGloss[1] * mtlW.y + mtlGloss[2] * mtlW.z + mtlGloss[3] * mtlW.w;
         vec3 mtlFr = mtlFresnel[0] * mtlW.x + mtlFresnel[1] * mtlW.y + mtlFresnel[2] * mtlW.z + mtlFresnel[3] * mtlW.w;
+        ${maps.paintMask ? "float bareD = texture2D( paintMask, vMapUv ).r * generalData.x;" : "float bareD = 0.0;"}
+        mtlTint = mix( mtlTint, vec3( 1.0 ), bareD );
+        mtlFr = mix( mtlFr, vec3( 0.038384, 0.039352, 0.039165 ), bareD );
         diffuseColor.rgb *= mtlTint;`)
       .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
-        roughnessFactor = clamp( 1.0 - roughnessFactor * mtlGl, 0.0, 1.0 );`)
+        roughnessFactor = clamp( 1.0 - mix( roughnessFactor * mtlGl, 0.4, bareD ), 0.0, 1.0 );`)
       .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
         material.specularColor = mtlFr;
         material.specularColorBlended = mtlFr;`);
@@ -220,7 +228,7 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
         "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
     }
   };
-  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}`;
+  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}`;
   return m;
 }
 
@@ -258,9 +266,9 @@ export function eveHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     let fs = resolveIncludes(shader.fragmentShader);
     if (maps.normal) {
       fs = change(fs, "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
-        `vec3 mapN; mapN.xy = texture2D( normalMap, vNormalMapUv ).xy * 2.0 - 1.0;
+        `vec3 mapN; mapN.xy = ( texture2D( normalMap, vNormalMapUv ).xy + 0.002 ) * 2.0 - 1.0;
          ${flipGreen ? "mapN.y = -mapN.y;" : ""}
-         mapN.z = sqrt( max( 0.0, 1.0 - dot( mapN.xy, mapN.xy ) ) );`);
+         mapN.z = 1.0; // quadv5: T x + B y + N, normalised (no z rebuilt from x and y)`);
     }
     if (maps.roughness) fs = change(fs, "roughnessFactor *= texelRoughness.g;", "roughnessFactor *= texelRoughness.r;");
     if (maps.glow) fs = change(fs, "totalEmissiveRadiance *= emissiveColor.rgb;", glow ? `totalEmissiveRadiance *= vec3( pow( emissiveColor.r, ${glow.power.toFixed(1)} ) );` : "totalEmissiveRadiance *= emissiveColor.rrr;");

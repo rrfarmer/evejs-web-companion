@@ -809,7 +809,8 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
     if (maps.albedo) maps.albedo.colorSpace = THREE.SRGBColorSpace;
     const v = (k: string) => (Array.isArray(a.params[k]) ? (a.params[k] as number[]) : null);
     const area: SofArea = {
-      kind: "opaque", name: a.name ?? "", index: a.index, areaType: "Primary", shader: a.effect, textures: {}, params: {},
+      kind: "opaque", name: a.name ?? "", index: a.index, areaType: "Primary", shader: a.effect, textures: {},
+      params: a.params as Record<string, number[] | null>,
       glowColor: v("GeneralGlowColor") ?? [1, 1, 1, 1],
       materials: [1, 2, 3, 4].map((i) => ({ name: `Mtl${i}`, diffuse: v(`Mtl${i}DiffuseColor`) ?? [1, 1, 1, 1], dust: null, fresnel: v(`Mtl${i}FresnelColor`) ?? [1, 1, 1, 1], gloss: v(`Mtl${i}Gloss`)?.[0] ?? 0.4 })),
     };
