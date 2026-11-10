@@ -7,10 +7,13 @@
 //   (along each axis with a scaling: the fraction of time * scaling + DecalTextureOffset, the whole decal at once;
 //   turned by scaling.z * time about the middle), its red squared to the power 1.2; DecalGlowColor times that times
 //   the strength, added to the frame;
+// - glow cylindrical decals (usage 4; decalglowcylindricv5.fx): the same glow wrapped round the box's z axis - u
+//   the angle about it, (atan2(y, x) + pi) / 2 pi times DecalTextureScaling.w, v the place along it - the strength
+//   the transparency times the intensity, not squared;
 // - standard decals (usage 0; decalv5.fx): the hull's own material with the decal's albedo and roughness maps,
 //   through the transparency map's red. The client lights a decal in its own pass (its normal and fresnel maps, the
 //   tangent frame from the box's axes); here neither map is used yet.
-// Kill counters, holes, cylindrical and logo decals are not drawn yet.
+// Kill counters, holes, (non-glow) cylindrical and logo decals are not drawn yet.
 
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
@@ -25,6 +28,7 @@ export interface SofDecalSet { name: string | null; items: SofDecal[] }
 
 const USAGE_STANDARD = 0;
 const USAGE_GLOW = 5;
+const USAGE_GLOW_CYLINDRICAL = 4;
 
 const clock = { value: 0 };
 
@@ -42,7 +46,10 @@ function texture(url: string | null | undefined, srgb = false): Promise<THREE.Te
   return textures.get(key)!;
 }
 
-/** The decal's geometry on one LOD: the LOD's vertices, the decal's triangles (wound as the hull's), the box's UV. */
+/**
+ * The decal's geometry on one LOD: the LOD's vertices, the decal's triangles (wound as the hull's), the vertex's place
+ * in the box (attribute `decal`, -1..1 across it) and the planar UV from it.
+ */
 function decalGeometry(source: THREE.BufferGeometry, indices: readonly number[], inverse: THREE.Matrix4): THREE.BufferGeometry | null {
   const position = source.getAttribute("position") as THREE.BufferAttribute | undefined;
   if (!position || indices.length < 3) return null;
@@ -53,6 +60,7 @@ function decalGeometry(source: THREE.BufferGeometry, indices: readonly number[],
     if (a) geometry.setAttribute(name, a);
   }
   const uv = new Float32Array(n * 2);
+  const local = new Float32Array(n * 3);
   const p = new THREE.Vector3();
   const flipped = new Uint32Array(indices.length - (indices.length % 3));
   for (let t = 0; t < flipped.length; t += 3) {
@@ -64,8 +72,10 @@ function decalGeometry(source: THREE.BufferGeometry, indices: readonly number[],
     p.set(position.getX(i), position.getY(i), -position.getZ(i)).applyMatrix4(inverse);
     uv[i * 2] = p.x * 0.5 + 0.5;
     uv[i * 2 + 1] = p.y * 0.5 + 0.5;
+    local[i * 3] = p.x; local[i * 3 + 1] = p.y; local[i * 3 + 2] = p.z;
   }
   geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  geometry.setAttribute("decal", new THREE.BufferAttribute(local, 3));
   geometry.setIndex(new THREE.BufferAttribute(flipped, 1));
   geometry.boundingSphere = source.boundingSphere;
   geometry.boundingBox = source.boundingBox;
@@ -76,13 +86,13 @@ function vec4(v: number[] | null | undefined, d = 0): THREE.Vector4 {
   return new THREE.Vector4(v?.[0] ?? d, v?.[1] ?? d, v?.[2] ?? d, v?.[3] ?? d);
 }
 
-async function glowMaterial(d: SofDecal): Promise<THREE.Material | null> {
+async function glowMaterial(d: SofDecal, cylindrical: boolean): Promise<THREE.Material | null> {
   const [transparency, glow] = await Promise.all([texture(d.textures["DecalTransparencyMap"]), texture(d.textures["DecalGlowMap"])]);
   if (!glow) return null;
   // the glow map repeats as it scrolls; the transparency map ends at the box (the triangles reach past it)
   glow.wrapS = glow.wrapT = THREE.RepeatWrapping; glow.needsUpdate = true;
   const c = d.glowColor ?? [1, 1, 1, 1];
-  return new THREE.ShaderMaterial({
+  const material = new THREE.ShaderMaterial({
     uniforms: {
       transparency: { value: transparency }, glow: { value: glow }, hasTransparency: { value: transparency ? 1 : 0 },
       colour: { value: new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1) },
@@ -90,22 +100,26 @@ async function glowMaterial(d: SofDecal): Promise<THREE.Material | null> {
       scaling: { value: vec4(d.parameters["DecalTextureScaling"]) }, offset: { value: vec4(d.parameters["DecalTextureOffset"]) },
       time: clock,
     },
-    vertexShader: `varying vec2 vUv;
+    vertexShader: `attribute vec3 decal; varying vec3 vDecal;
       #include <common>
       #include <logdepthbuf_pars_vertex>
       void main() {
-        vUv = uv;
+        vDecal = decal;
         gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         #include <logdepthbuf_vertex>
       }`,
-    fragmentShader: `uniform sampler2D transparency, glow; uniform float hasTransparency, intensity, time; uniform vec3 colour; uniform vec4 scaling, offset; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D transparency, glow; uniform float hasTransparency, intensity, time; uniform vec3 colour; uniform vec4 scaling, offset; varying vec3 vDecal;
       #include <logdepthbuf_pars_fragment>
       void main() {
         #include <logdepthbuf_fragment>
+        ${cylindrical
+          ? `vec2 vUv = vec2( ( atan( vDecal.y, vDecal.x ) + 3.141593 ) * scaling.w * 0.159155, vDecal.z * 0.5 + 0.5 );
+        float strength = ( hasTransparency > 0.5 ? texture2D( transparency, vUv ).r : 1.0 ) * intensity;`
+          : `vec2 vUv = vDecal.xy * 0.5 + 0.5;
         // the decal ends at its box (the triangles reach past it)
         if ( any( lessThan( vUv, vec2( 0.0 ) ) ) || any( greaterThan( vUv, vec2( 1.0 ) ) ) ) discard;
         float strength = ( hasTransparency > 0.5 ? texture2D( transparency, vUv ).r : 1.0 ) * intensity;
-        strength *= strength;
+        strength *= strength;`}
         vec2 moved = vUv + sign( scaling.xy ) * ( fract( time * scaling.xy + offset.xy ) - vUv );
         float a = scaling.z * time;
         vec2 q = moved - 0.5;
@@ -116,6 +130,8 @@ async function glowMaterial(d: SofDecal): Promise<THREE.Material | null> {
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
+  if (cylindrical && transparency) { transparency.wrapS = THREE.RepeatWrapping; transparency.needsUpdate = true; }
+  return material;
 }
 
 async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null): Promise<THREE.Material | null> {
@@ -144,7 +160,7 @@ async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null
 /** The decals added to each LOD node of a hull (each node's own index list), the glow ones animated. */
 export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: readonly SofDecalSet[]): Promise<number> {
   let added = 0;
-  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && (d.usage === USAGE_GLOW || d.usage === USAGE_STANDARD));
+  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && (d.usage === USAGE_GLOW || d.usage === USAGE_GLOW_CYLINDRICAL || d.usage === USAGE_STANDARD));
   for (const d of items) {
     const box = new THREE.Matrix4().compose(
       new THREE.Vector3(d.position[0] ?? 0, d.position[1] ?? 0, d.position[2] ?? 0),
@@ -161,7 +177,7 @@ export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: reado
       const hull = source as THREE.Mesh;
       const geometry = decalGeometry(hull.geometry, indices, inverse);
       if (!geometry) continue;
-      const material = d.usage === USAGE_GLOW ? await glowMaterial(d) : await standardMaterial(d, hull.material as THREE.Material);
+      const material = d.usage === USAGE_STANDARD ? await standardMaterial(d, hull.material as THREE.Material) : await glowMaterial(d, d.usage === USAGE_GLOW_CYLINDRICAL);
       if (!material) continue;
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `decal:${d.name ?? ""}`;
