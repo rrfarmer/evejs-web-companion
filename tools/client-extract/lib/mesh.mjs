@@ -50,7 +50,22 @@ export function meshArrays(mesh) {
   let normal = null, tangent = null;
   const packed = get("Tangent");
   const plainNormal = get("Normal");
-  if (plainNormal) normal = Float32Array.from(plainNormal.data, (x) => normalized(plainNormal.type, x));
+  // a plain Normal column may be 3 or 4 wide (PlanetSphere's is 4 half floats): its xyz at its own stride
+  const xyz = (c) => Float32Array.from({ length: n * 3 }, (_, j) => normalized(c.type, c.data[Math.floor(j / 3) * c.width + (j % 3)]));
+  if (plainNormal) normal = xyz(plainNormal);
+  const plainTangent = plainNormal && packed && packed.width >= 3 ? packed : null;
+  const plainBinormal = get("Binormal");
+  if (plainTangent) {
+    // a plain tangent beside it (with a binormal): glTF's xyz + handedness
+    const T = xyz(plainTangent), B = plainBinormal && plainBinormal.width >= 3 ? xyz(plainBinormal) : null;
+    tangent = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const N = [normal[i * 3], normal[i * 3 + 1], normal[i * 3 + 2]], t = [T[i * 3], T[i * 3 + 1], T[i * 3 + 2]];
+      const c = [N[1] * t[2] - N[2] * t[1], N[2] * t[0] - N[0] * t[2], N[0] * t[1] - N[1] * t[0]];
+      const w = B && c[0] * B[i * 3] + c[1] * B[i * 3 + 1] + c[2] * B[i * 3 + 2] < 0 ? -1 : 1;
+      tangent.set([t[0], t[1], t[2], w], i * 4);
+    }
+  }
   if (packed && packed.width === 4 && !plainNormal) {
     normal = new Float32Array(n * 3);
     tangent = new Float32Array(n * 4);

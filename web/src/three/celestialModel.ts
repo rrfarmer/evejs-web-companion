@@ -44,15 +44,7 @@ function clientSphere(url: string): Promise<THREE.BufferGeometry | null> {
     spheres.set(url, new GLTFLoader().loadAsync(url).then((gltf) => {
       let found: THREE.BufferGeometry | null = null;
       gltf.scene.traverse((o) => { if (!found && (o as THREE.Mesh).isMesh) found = (o as THREE.Mesh).geometry; });
-      if (!found) return null;
-      // a sphere's normal is its point's direction (the file's own normals are not taken: they read wrong here)
-      const g = (found as THREE.BufferGeometry).clone();
-      const pos = g.getAttribute("position");
-      const nor = new Float32Array(pos.count * 3);
-      const p = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) { p.fromBufferAttribute(pos, i).normalize(); nor.set([p.x, p.y, p.z], i * 3); }
-      g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
-      return g;
+      return found;
     }).catch(() => null));
   }
   return spheres.get(url)!;
