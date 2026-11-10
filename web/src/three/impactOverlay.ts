@@ -20,11 +20,16 @@
 // gammaBrightness (1), the ripple's way to the shooter followed each frame (the turret's UpdateImpact: here the one at
 // the hit), the hull flicker (the activation strength), the holes made at assembly from the model's seed, part
 // overlays, the occluded-locator filter, skinned hulls' variant.
+//
+// Below 90 % hull the ship's lights flicker (EveDamageOverlay::GetActivationStrength): its activation strength - the
+// glow's and its children's - follows the generic damage's Perlin curve, clamped to [0.3, 1], over e^(the hull damage
+// factor) (activationStrength; hullModel.ts setActivationStrength takes it to the model).
 
 import * as THREE from "three";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth.ts";
+import { curveValue, type Curve } from "./curves.ts";
 
 /** The hull's impact setup as the extractor writes it (extract.mjs: built.impact). */
 export interface SofImpact {
@@ -295,6 +300,8 @@ export class ImpactOverlay {
   constructor(readonly anchor: THREE.Object3D, readonly sof: SofImpact, private readonly boundingRadius: number, box: THREE.Box3 | null = null) {
     this.armorEmitter = sof.armorEmitter ? new GpuEmitter(sof.armorEmitter) : null;
     this.hullEmitter = sof.hullEmitter ? new GpuEmitter(sof.hullEmitter) : null;
+    const f = sof.flicker;
+    this.flicker = f ? { type: "TriPerlinCurve", speed: f.speed, alpha: f.alpha, beta: f.beta, N: f.n, scale: 0, offset: 1 } : null;
     const r = sof.ellipsoid?.radius, c = sof.ellipsoid?.center;
     if (r && (r[0] ?? 0) > 0) { this.radii.set(r[0]!, r[1] ?? 0, r[2] ?? 0); this.center.set(c?.[0] ?? 0, c?.[1] ?? 0, c?.[2] ?? 0); }
     else if (box && !box.isEmpty()) { box.getSize(this.radii).multiplyScalar(0.5 * Math.sqrt(3)); box.getCenter(this.center); }
@@ -320,6 +327,19 @@ export class ImpactOverlay {
     }
   }
   get rippleCount(): number { return this.ripples.size; }
+  /** The flicker's curve (EveSOF.cpp:2768-2780: a TriPerlinCurve of the generic damage's numbers), its scale and offset the damage's. */
+  private readonly flicker: { type: "TriPerlinCurve"; speed: number; alpha: number; beta: number; N: number; scale: number; offset: number } | null;
+  /** TriLinearize(0.9, 0.1, hull): nought at 90 % hull and above, 1 at 10 % and below. */
+  private hullDamageFactor = 0;
+
+  /**
+   * EveDamageOverlay::GetActivationStrength (:403-423): with hull damage the flicker curve at the time (seconds),
+   * clamped to [0.3, 1], over e^(the hull damage factor); else 1.
+   */
+  activationStrength(time: number): number {
+    if (!(this.hullDamageFactor > 0) || !this.flicker) return 1;
+    return Math.min(1, Math.max(0.3, curveValue(this.flicker as unknown as Curve, time))) / Math.exp(this.hullDamageFactor);
+  }
   /** The holes' draw, over each of the hull's meshes (attachArmor); null for a race with no armor effect. */
   readonly armorMaterial: THREE.ShaderMaterial | null = null;
   private readonly armorMeshes: THREE.Mesh[] = [];
@@ -356,6 +376,10 @@ export class ImpactOverlay {
   /** EveDamageOverlay::SetDamageState (:450-495): the fractions left; the configuration from them. */
   setDamageState(shield: number, armor: number, hull: number): void {
     this.shield = clamp01(shield); this.armor = clamp01(armor); this.hull = clamp01(hull);
+    // EveDamageOverlay::SetDamageState (:470-477): the hull damage factor; the flicker scaled by the damage (scale
+    // TriLinearize(1, 0, hull) = 1 - hull, offset 1 less that)
+    this.hullDamageFactor = Math.min(1, Math.max(0, (0.9 - this.hull) / 0.8));
+    if (this.flicker) { this.flicker.scale = 1 - this.hull; this.flicker.offset = this.hull; }
     // EveImpactOverlay::SetDamageState (:534-540): the shield's colour toward the empty one as it goes
     if (this.shieldMesh) this.shieldMesh.material.uniforms.colorFade!.value = clamp01((1 - this.shield) ** 2);
     this.configuration = this.shield > 0.05 ? "shield" : this.armor > 0.05 ? "armor" : this.hull > 0 ? "hull" : "invalid";

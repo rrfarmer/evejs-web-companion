@@ -1003,7 +1003,7 @@ const playedOf = new WeakMap<THREE.Object3D, { objects: Map<number, THREE.Object
  *   the eye (backward), as lookAt is (and as the six-point lit particles' view z, particles.ts, where the other reading
  *   lit a front-lit sprite darkest), in EVE's space, our z mirrored; objectRotation and rotationWithChildTransform, the
  *   container's z axis in EVE's space;
- * - EveSpaceObjectFxAttributes: activationStrength 1 (no space object here sets another), activeTurretCount 0 and
+ * - EveSpaceObjectFxAttributes: activationStrength the ship's (1 but for its damage flicker), activeTurretCount 0 and
  *   killCount 0 (not followed), boundingSphereRadius 0 (not given).
  * The models' copies share their curves: the last copy drawn sets their inputs.
  */
@@ -1020,7 +1020,10 @@ function gatherFx(list: { owner: THREE.Object3D; holder: THREE.Object3D; type: s
       const z = new THREE.Vector3().setFromMatrixColumn(f.owner.matrixWorld, 2).normalize();
       f.holder.userData.fx = { distanceToCamera: d, lookAngleToObject: d > 0 ? forward.dot(to) / d : 0, cameraRotation: eve(forward.clone().negate()), objectRotation: eve(z), rotationWithChildTransform: eve(z) };
     } else {
-      f.holder.userData.fx = { activationStrength: 1, activeTurretCount: 0, killCount: 0, boundingSphereRadius: 0 };
+      // the ship's activation strength (setActivationStrength: its damage flicker), 1 where it has none
+      let activation = 1;
+      for (let p: THREE.Object3D | null = f.owner; p; p = p.parent) if (typeof p.userData.activation === "number") { activation = p.userData.activation as number; break; }
+      f.holder.userData.fx = { activationStrength: activation, activeTurretCount: 0, killCount: 0, boundingSphereRadius: 0 };
     }
   }
 }

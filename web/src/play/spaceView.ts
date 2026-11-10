@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
-import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent } from "../three/hullModel.ts";
+import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent, setActivationStrength } from "../three/hullModel.ts";
 import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
@@ -575,6 +575,8 @@ export class SpaceView {
       if (e.shieldRatio != null || e.armorRatio != null || e.hullRatio != null) impact.setDamageState(e.shieldRatio ?? 0, e.armorRatio ?? 0, e.hullRatio ?? 0);
       const distance = Math.max(1, mark.getWorldPosition(new THREE.Vector3()).distanceTo(camAt));
       impact.update(dt, this.scene, new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z), (2 * e.radius * pixelsPerRadian) / distance);
+      // the lights' flicker below 90 % hull
+      setActivationStrength(mark, impact.activationStrength(performance.now() / 1000));
     }
   }
   /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */

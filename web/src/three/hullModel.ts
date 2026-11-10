@@ -120,6 +120,36 @@ export function setControllerVariable(model: THREE.Object3D, name: string, value
 }
 
 /**
+ * A ship's activation strength (EveSpaceObject2: Shipdata.y and the ActivationStrength controller variable; the damage
+ * overlay's flicker, impactOverlay.ts): its hull glow's strength (quadv5's GeneralGlowColor x activation x
+ * GlowMap^2.4: three's emissive intensity, so the ship's glowing materials are its own copies once it is not 1 - each
+ * sharing its program), its children's fx attributes (hullChildren.ts) and the controllers' variable.
+ */
+export function setActivationStrength(model: THREE.Object3D, value: number): void {
+  if (model.userData.activation === value) return;
+  model.userData.activation = value;
+  setControllerVariable(model, "ActivationStrength", value);
+  if (value === 1 && !model.userData.ownGlow) return;
+  model.userData.ownGlow = true;
+  model.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
+    if (!mesh.isMesh || !mat || Array.isArray(mat) || !mat.isMeshStandardMaterial || !mat.emissiveMap) return;
+    if (mesh.userData.glowBase === undefined) {
+      const own = mat.clone();
+      // (what clone leaves: the shader changes and the per-draw hook, shared, so the program is the same one)
+      own.onBeforeCompile = mat.onBeforeCompile;
+      own.customProgramCacheKey = mat.customProgramCacheKey;
+      own.onBeforeRender = mat.onBeforeRender;
+      own.userData = mat.userData;
+      mesh.material = own;
+      mesh.userData.glowBase = mat.emissiveIntensity;
+    }
+    (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = (mesh.userData.glowBase as number) * value;
+  });
+}
+
+/**
  * A controller event sent to a space object (EveSpaceObject2::HandleControllerEvent: to every controller of it and its
  * children; the server's OnClientControllerEvent, as spaceObject.SetControllerVariableFromEvent hands it on). The
  * running controllers take each once; one started later takes none sent before it.
