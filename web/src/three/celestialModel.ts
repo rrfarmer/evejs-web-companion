@@ -30,6 +30,13 @@ export interface CelestialItem { typeID?: number | null; kind?: string; celestia
 
 const bySystem = new Map<number, Promise<Record<string, CelestialItem>>>();
 /** A system's planets and moons, each with its own preset and height maps; none where they cannot be read. */
+/**
+ * The scene's reflection cube (the system's nebula _refl map: the EveSpaceSceneEnvMap the planet shaders read), one
+ * for every planet material; the space view and the hull viewer set it as they load a system.
+ */
+const planetEnvironment: { value: THREE.Texture | null } = { value: null };
+export function setPlanetEnvironment(cube: THREE.Texture | null): void { planetEnvironment.value = cube; }
+
 export function systemCelestials(solarSystemID: number): Promise<Record<string, CelestialItem>> {
   if (!bySystem.has(solarSystemID)) {
     bySystem.set(solarSystemID, fetch(`/client-assets/celestials/${solarSystemID}.json`).then((r) => (r.ok ? r.json() : null)).then((j) => (j?.items ?? {}) as Record<string, CelestialItem>).catch(() => ({})));
@@ -517,10 +524,11 @@ async function thunderModel(c: Celestial, radius: number): Promise<THREE.Object3
  *   ported.
  */
 async function moonModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
-  const [h1, h2, detail] = await Promise.all([
+  const [h1, h2, detail, poles] = await Promise.all([
     texture(heightMap1),
     heightMap2 ? texture(heightMap2) : Promise.resolve(null),
     texture(c.textures.DetailTexture!),
+    c.textures.PolesGradient ? texture(c.textures.PolesGradient) : Promise.resolve(null),
   ]);
   for (const t of [h1, h2, detail]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
@@ -534,7 +542,10 @@ async function moonModel(c: Celestial, heightMap1: string, heightMap2: string | 
     ramp3: { value: v3(c.params.Ramp3, [0.18, 0.18, 0.18]) }, maskColour: { value: v3(c.params.DetailMaskColor, [1, 1, 1]) },
     fresnelF: { value: v4(c.params.FresnelFactors, [6, 1.8, 0, 0]) }, fresnelColour: { value: v3(c.params.MoonFresnelColor, [0.58, 0.62, 0.79]) },
     shiftA: { value: new THREE.Vector2(0.01, 0.1).multiplyScalar(random) }, shiftB: { value: new THREE.Vector2(0.1, 0.01).multiplyScalar(random) },
-  }, `uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform vec4 detailF; uniform float tiling; uniform float rampBias;
+    poles: { value: poles }, hasPoles: { value: poles ? 1 : 0 },
+    envCube: planetEnvironment, hasEnv: { get value() { return planetEnvironment.value ? 1 : 0; } },
+  }, `uniform sampler2D poles; uniform float hasPoles; uniform samplerCube envCube; uniform float hasEnv;
+      uniform sampler2D h1; uniform sampler2D heightMap2; uniform sampler2D detailMap; uniform vec4 detailF; uniform float tiling; uniform float rampBias;
       uniform vec3 ramp1; uniform vec3 ramp2; uniform vec3 ramp3; uniform vec3 maskColour; uniform vec4 fresnelF; uniform vec3 fresnelColour;
       uniform vec2 shiftA; uniform vec2 shiftB;`, `
         float a = texture2D(h1, vUv * vec2(2.0, 1.0) + shiftA).r;
@@ -549,15 +560,28 @@ async function moonModel(c: Celestial, heightMap1: string, heightMap2: string | 
         // SimpleMoon's light (its pixel shader's end; a global it reads, cb4[27].x, taken so that its k is 0): half the
         // wrapped N.L, y = 1 - (1 - saturate(half))^2, z = min(half, 1); the sun's share max((half - 0.1)^3, z y) x 0.9
         // + y x 0.1, brightened by the fresnel colour (1 - N.V)^FresnelFactors.x x FresnelFactors.y x MoonFresnelColor;
-        // the ambient by z, and a little more in the shade (x (1 - y)(1 - z) x 0.35). Its reflection-cube fresnel is not
-        // ported.
+        // the ambient by z, and a little more in the shade (x (1 - y)(1 - z) x 0.35).
         float hw = (NL + 1.0) * 0.5;
         float y = 1.0 - pow(1.0 - clamp(hw, 0.0, 1.0), 2.0);
         float z = min(hw, 1.0);
         float hm = hw - 0.1;
         float sun = max(hm * hm * hm, z * y) * 0.9 + y * 0.1;
         vec3 fc = pow(1.0 - clamp(NV, 0.0, 1.0), fresnelF.x) * fresnelF.y * fresnelColour;
-        g = albedo * (sun * (fc + 1.0) + z * ambient) + albedo * (1.0 - y) * (1.0 - z) * ambient * 0.35;`);
+        g = albedo * (sun * (fc + 1.0) + z * ambient) + albedo * (1.0 - y) * (1.0 - z) * ambient * 0.35;
+        // its reflection-cube fresnel (the pixel stage's middle): the scene's reflection cube read at mip 4 where the
+        // light reflects about the half way of the normal and the light, its saturation raised by half, blended in by
+        // saturate(PolesGradient x (0.9 - 2|0.5 - z|) x (1 - V.L)^3 x (fresnel x FresnelFactors.y x
+        // MoonFresnelColor)^0.6) - 0.3: a sheen at the terminator, strongest with the sun behind the moon
+        if (hasEnv > 0.5) {
+          float pole = hasPoles > 0.5 ? texture2D(poles, vUv).r : 1.0;
+          float back = clamp(1.0 - dot(V, L), 0.0, 1.0);
+          float edge = (0.9 - 2.0 * abs(0.5 - z)) * back * back * back;
+          vec3 fr = pow(max(pow(1.0 - clamp(NV, 0.0, 1.0), fresnelF.x) * fresnelF.y * fresnelColour, vec3(0.0)), vec3(0.6));
+          vec3 w = max(clamp(pole * fr * edge, 0.0, 1.0) - 0.3, 0.0);
+          vec3 env = textureLod(envCube, reflect(-L, normalize((N + L) * 0.5)), 4.0).rgb;
+          float lum = dot(env, vec3(0.299, 0.587, 0.114));
+          g = mix(g, lum + (env - lum) * 1.5, w);
+        }`);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;

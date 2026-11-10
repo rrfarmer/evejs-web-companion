@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadDds, compressedSupport } from "./ddsTexture";
 import { typeModel, setThrust } from "./hullModel";
-import { celestialModel, systemCelestials } from "./celestialModel";
+import { celestialModel, systemCelestials, setPlanetEnvironment } from "./celestialModel";
 
 const params = new URLSearchParams(location.search);
 const typeID = Number(params.get("type") ?? 588);
@@ -53,6 +53,7 @@ async function loadSystem(): Promise<void> {
   }
   if (info.maps?.reflection) {
     scene.environment = await loadDds(info.maps.reflection);
+    setPlanetEnvironment(scene.environment);
     scene.environmentRotation.copy(halfTurn);
     scene.environmentIntensity = 1.55;
   }

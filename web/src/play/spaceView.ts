@@ -15,7 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust } from "../three/hullModel.ts";
-import { celestialModel, systemCelestials, type CelestialItem } from "../three/celestialModel.ts";
+import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { TurretFx } from "./turretFx.ts";
@@ -664,6 +664,7 @@ export class SpaceView {
       const refl = await loadDds(info.maps.reflection);
       if (this.sceneFor !== solarSystemID) return;
       this.scene.environment = refl;
+      setPlanetEnvironment(refl);
       this.scene.environmentRotation.copy(halfTurn);
       this.scene.environmentIntensity = 1.55; // EveSpaceScene.reflectionIntensity
     }
