@@ -11,7 +11,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { loadDds } from "./ddsTexture.ts";
+import { loadDds, loadDds3D } from "./ddsTexture.ts";
 
 interface CelestialRing { name: string | null; params: Record<string, number[]>; textures: Record<string, string | null> }
 interface Celestial { type: string; effects: string[]; textures: Record<string, string | null>; params: Record<string, number[]>; rings?: CelestialRing[] }
@@ -534,10 +534,10 @@ function scatterMaterial(s1: THREE.Texture | null, s2: THREE.Texture | null, uni
   const sunDir = new THREE.Vector3(1, 0.5, 0.5).normalize();
   const mat = new THREE.ShaderMaterial({
     uniforms: { ...uniforms, scatter1: { value: s1 }, scatter2: { value: s2 }, sunDir: { value: sunDir }, ambient: { value: SCATTER_AMBIENT }, time: { value: 0 } },
-    vertexShader: `attribute vec2 uv1; varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW;
-      void main() { vUv = uv; vUv1 = uv1; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    vertexShader: `attribute vec2 uv1; varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW; varying vec3 vObj;
+      void main() { vUv = uv; vUv1 = uv1; vObj = position; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: `uniform sampler2D scatter1; uniform sampler2D scatter2; uniform vec3 sunDir; uniform vec3 ambient; uniform float time;
-      varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW;
+      varying vec2 vUv; varying vec2 vUv1; varying vec3 vN; varying vec3 vW; varying vec3 vObj;
       ${head}
       void main() {
         vec3 N = normalize(vN), L = normalize(sunDir), V = normalize(cameraPosition - vW);
@@ -616,31 +616,84 @@ async function oceanModel(c: Celestial, heightMap1: string, heightMap2: string |
 }
 
 /**
- * A storm planet as thunderstormplanet.fx colours it (its sm_hi pixel shader; Time c2.x, PlanetColor c3, MagmaFactors
- * c4, MagmaFactors2 c5, CloudsColor c6, CloudsFactors c7, LightningColor c8, Lightningfactors c9): PlanetColor lit by
- * the ground scattering, under clouds (CloudsTexture tiled by CloudsFactors.w, turning once an hour) at
- * pow(cloud, CloudsFactors.z) + 0.01 toward CloudsColor x CloudsFactors.y lit with a faint rim, plus
- * GroundScattering2. The shader's swirl (its coordinates moved by a 3D noise volume, MagmaFactors) and its lightning
- * flashes are not ported.
+ * A storm planet as thunderstormplanet.fx colours it (its sm_hi pixel stage disassembled, client 3396210; Time c2.x,
+ * PlanetColor c3, MagmaFactors c4, MagmaFactors2 c5, CloudsColor c6, CloudsFactors c7, LightningColor c8,
+ * Lightningfactors c9; textures by their use: MaskMap, the two ground scatterings, CloudsTexture, CloudCapTexture,
+ * Lava3DNoiseMap, LightningMap):
+ * - the swirl: four octaves (x 4.17 each, (noise - 0.5) x 6 / octave) of the 3D noise read at three placements of
+ *   0.2 x MagmaFactors.y x the point (one moved along each axis by 1000 x frac(Time x MagmaFactors.z / 3000)),
+ *   blended by the point's direction to the 4th power per axis; to the power MagmaFactors2.x, times MagmaFactors.w,
+ *   it moves both UV sets;
+ * - the ground PlanetColor x GroundScattering1; the clouds the larger of CloudsTexture (at the moved UV x CloudsFactors.w
+ *   x (2, 1), turning once an hour) and CloudCapTexture (at the moved polar UV), to the power CloudsFactors.z, + 0.01:
+ *   how far the ground goes toward the clouds' colour (CloudsColor x CloudsFactors.y x (GroundScattering1 + 2 ambient)
+ *   plus a faint rim) plus the lightning;
+ * - the lightning: (100 x mask(uv x 3) x mask(uv x 10) x max(sin(0.628 Time), 0.7))^5, the masks drifting, times
+ *   3 x LightningMap at two places stepped by floor(Time x Lightningfactors), times a fast mask (x 10), times
+ *   LightningColor, saturated;
+ * - plus GroundScattering2.
  */
 async function thunderModel(c: Celestial, radius: number): Promise<THREE.Object3D> {
-  const [clouds, s1, s2] = await Promise.all([
-    c.textures.CloudsTexture ? texture(c.textures.CloudsTexture) : Promise.resolve(null),
-    texture(c.textures.GroundScattering1!), c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
+  const opt = (url: string | null | undefined) => (url ? texture(url) : Promise.resolve(null));
+  const [clouds, cap, s1, s2, mask, lightning, noise] = await Promise.all([
+    opt(c.textures.CloudsTexture), opt(c.textures.CloudCapTexture),
+    texture(c.textures.GroundScattering1!), opt(c.textures.GroundScattering2),
+    opt(c.textures.MaskMap), opt(c.textures.LightningMap),
+    c.textures.Lava3DNoiseMap ? loadDds3D(c.textures.Lava3DNoiseMap).catch(() => null) : Promise.resolve(null),
   ]);
-  if (clouds && clouds.wrapS !== THREE.RepeatWrapping) { clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping; clouds.needsUpdate = true; }
+  for (const t of [clouds, cap, mask, lightning]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
   const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
   const mat = scatterMaterial(s1, s2, {
-    clouds: { value: clouds }, hasClouds: { value: clouds ? 1 : 0 },
+    clouds: { value: clouds }, hasClouds: { value: clouds ? 1 : 0 }, cap: { value: cap }, hasCap: { value: cap ? 1 : 0 },
+    stormMask: { value: mask }, lightningMap: { value: lightning }, hasLightning: { value: mask && lightning ? 1 : 0 },
+    noise3: { value: noise }, hasNoise: { value: noise ? 1 : 0 }, unit: { value: 1 / radius },
     planet: { value: v3(c.params.PlanetColor, [0.2, 0.23, 0.23]) },
+    magma: { value: v4(c.params.MagmaFactors, [0, 1, 1, 0]) }, magma2: { value: v4(c.params.MagmaFactors2, [1, 0, 0, 0]) },
     cloudColour: { value: v3(c.params.CloudsColor, [0.01, 0.01, 0.01]) }, cloudF: { value: v4(c.params.CloudsFactors, [0.1, 1, 0.11, 1]) },
-  }, `uniform sampler2D clouds; uniform float hasClouds; uniform vec3 planet; uniform vec3 cloudColour; uniform vec4 cloudF;`, `
+    lightningColour: { value: v3(c.params.LightningColor, [0, 0, 0]) }, lightningF: { value: v4(c.params.Lightningfactors, [1, 1, 0, 0]) },
+  }, `uniform sampler2D clouds; uniform float hasClouds; uniform sampler2D cap; uniform float hasCap;
+      uniform sampler2D stormMask; uniform sampler2D lightningMap; uniform float hasLightning;
+      uniform highp sampler3D noise3; uniform float hasNoise; uniform float unit;
+      uniform vec3 planet; uniform vec4 magma; uniform vec4 magma2; uniform vec3 cloudColour; uniform vec4 cloudF;
+      uniform vec3 lightningColour; uniform vec4 lightningF;`, `
+        vec2 uv0 = vUv, uv1 = vUv1;
+        if (hasNoise > 0.5) {
+          vec3 P = vObj * unit;
+          float o = fract(time * magma.z * 0.000333) * 1000.0;
+          vec3 pa = (magma.y * P + vec3(0.0, 0.0, o)) * 0.2;
+          vec3 pb = (vec3(magma.y * P.x, magma.y * P.y, -magma.y * P.z) + vec3(0.0, o, 0.0)) * 0.2;
+          vec3 pc = (vec3(-magma.y * P.x, magma.y * P.y, magma.y * P.z) + vec3(o, 0.0, 0.0)) * 0.2;
+          vec4 na = vec4(0.0), nb = vec4(0.0), nc = vec4(0.0);
+          float f = 1.0;
+          for (int i = 0; i < 4; i++) {
+            na += (texture(noise3, pa * f) - 0.5) * 6.0 / f;
+            nb += (texture(noise3, pb * f) - 0.5) * 6.0 / f;
+            nc += (texture(noise3, pc * f) - 0.5) * 6.0 / f;
+            f *= 4.17;
+          }
+          vec3 w = normalize(P); w = w * w; w = w * w;
+          vec2 d = w.x * (nc.xy + nc.zw) + w.y * (nb.xy + nb.zw) + w.z * (na.xy + na.zw);
+          d = magma.w * pow(abs(d), vec2(magma2.x));
+          uv0 += d; uv1 += d;
+        }
         vec3 ground = planet * lit;
+        vec3 flash = vec3(0.0);
+        if (hasLightning > 0.5) {
+          float m = texture2D(stormMask, uv0 * 3.0 + time * vec2(-0.01, -0.005)).r * texture2D(stormMask, uv0 * 10.0 + time * vec2(0.01, 0.005)).r;
+          m = pow(abs(m), 2.5) * max(sin(time * 0.628319), 0.7) * 100.0;
+          m = m * m * m * m * m;
+          vec4 at = floor(time * lightningF.xxyy) * 0.9 + vec4(uv0.x * 2.0, uv0.y, uv0.x * 2.0, uv0.y);
+          float bolts = 3.0 * texture2D(lightningMap, at.xy).r * texture2D(lightningMap, at.zw).r;
+          float fast = texture2D(stormMask, vec2(uv0.x * 2.0, uv0.y) + time * 2.0).r * 10.0;
+          flash = clamp(fast * m * bolts * lightningColour, 0.0, 1.0);
+        }
         float rim = pow(1.0 - clamp(NV, 0.0, 1.0), 3.0);
-        float cl = hasClouds > 0.5 ? texture2D(clouds, vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0)).r : 0.0;
+        vec3 cloudLit = cloudColour * cloudF.y * (lit + ambient) + rim * 0.04;
+        float cl = hasClouds > 0.5 ? texture2D(clouds, uv0 * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0)).r : 0.0;
+        if (hasCap > 0.5) cl = max(cl, texture2D(cap, uv1 * cloudF.w).r);
         float k = pow(abs(cl), cloudF.z) + 0.01;
-        g = mix(ground, cloudColour * cloudF.y * lit + rim * 0.04, clamp(k, 0.0, 1.0)) + S2;`);
+        g = mix(ground, flash + cloudLit, k) + S2;`);
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;

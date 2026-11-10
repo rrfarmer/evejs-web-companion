@@ -176,6 +176,33 @@ export async function loadDds(url: string): Promise<THREE.CompressedTexture> {
 const failed = new Set<string>();
 
 /** What this GPU can take; a ship needs RGTC (BC4/BC5) and BPTC (BC7). */
+/**
+ * A volume DDS (DDSD_DEPTH: the storm planets' 64^3 noise, uncompressed 32-bit) as a 3D texture, repeating, its top
+ * level only.
+ */
+const volumes = new Map<string, Promise<THREE.Data3DTexture>>();
+export function loadDds3D(url: string): Promise<THREE.Data3DTexture> {
+  if (!volumes.has(url)) {
+    volumes.set(url, fetch(url).then(async (r) => {
+      if (!r.ok) throw new Error(`${url}: ${r.status}`);
+      const buf = await r.arrayBuffer();
+      const dv = new DataView(buf);
+      if (dv.getUint32(0, true) !== 0x20534444) throw new Error(`${url}: not a DDS`);
+      const height = dv.getUint32(12, true), width = dv.getUint32(16, true), depth = Math.max(1, dv.getUint32(24, true));
+      if (dv.getUint32(80, true) & 0x4) throw new Error(`${url}: a compressed volume is not handled`);
+      const { data, format } = unpack(dv, buf, 128, width, height * depth, url);
+      const tex = new THREE.Data3DTexture(data, width, height, depth);
+      tex.format = format;
+      tex.minFilter = tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = tex.wrapT = tex.wrapR = THREE.RepeatWrapping;
+      tex.unpackAlignment = 1;
+      tex.needsUpdate = true;
+      return tex;
+    }));
+  }
+  return volumes.get(url)!;
+}
+
 export function compressedSupport(renderer: THREE.WebGLRenderer) {
   const gl = renderer.getContext();
   return {
