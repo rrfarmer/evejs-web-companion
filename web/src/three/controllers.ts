@@ -45,7 +45,7 @@ export interface SofControllerState {
 }
 export interface SofController {
   name: string | null;
-  variables: { name: string; value: number }[];
+  variables: { name: string; value: number; id?: number }[];
   machines: { name: string | null; start: number; states: SofControllerState[] }[];
   /** Tr2ControllerEventHandler: on the event of its name, its actions started, then stopped. */
   eventHandlers?: { name: string; actions: SofControllerAction[] }[];
@@ -269,6 +269,13 @@ export class ControllerRun {
       for (const a of run.live) a.stop();
     }
   }
+
+  /** A variable set from outside (a curve set's binding into a Tr2ControllerFloatVariable): changed, it is dirty. */
+  setVariable(name: string, value: number): void {
+    if (this.vars.has(name) && this.vars.get(name) !== value) { this.vars.set(name, value); this.dirty = true; }
+  }
+  /** Its variables that have ids (a binding may set them). */
+  get variableIds(): { id: number; name: string }[] { return this.data.variables.filter((v) => v.id !== undefined).map((v) => ({ id: v.id!, name: v.name })); }
 
   /** The space object's kept controller variables, where they changed: each one this controller has, set. */
   private takeObjectVariables(): void {

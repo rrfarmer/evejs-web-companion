@@ -33,6 +33,8 @@ export interface SofCurveSet {
     id?: number;
     source: number | null;
     sourceCurve: Curve | null;
+    /** A container's fx attributes as the source (its id): the ticker's values for them, by attribute name. */
+    sourceFx?: number;
     sourceAttribute: string;
     destination: number;
     destinationType: string | null;
@@ -240,13 +242,25 @@ export class ChildAnimator {
         const target = this.targets.get(b.destination);
         // a curve's own number: a scalar's timeOffset, a TriPerlinCurve's speed, scale, offset and the like (its value is
         // its output: set, then read over)
-        const curve = this.curvesById.get(b.destination) && (attr0 === "timeOffset" || b.destinationType === "TriPerlinCurve" || b.destinationType === "Tr2CurveColorMixer") ? this.curvesById.get(b.destination) : undefined;
+        // (and an expression's inputs: input1 .. input4, which its terms read)
+        const curve = this.curvesById.get(b.destination) && (attr0 === "timeOffset" || b.destinationType === "TriPerlinCurve" || b.destinationType === "Tr2CurveColorMixer"
+          || (/Expression$/.test(b.destinationType ?? "") && /^input[1-4]$/.test(attr0 ?? ""))) ? this.curvesById.get(b.destination) : undefined;
         const binding = attr0 === "scale" && b.destinationType === "TriValueBinding" ? this.bindingsById.get(b.destination) : undefined;
-        if (!target && !xf && !curve && !binding) continue;
+        // a controller's float variable (this clone's controller runs put a setter under its id)
+        const sinks = !target && !xf && !curve && !binding && b.destinationType === "Tr2ControllerFloatVariable"
+          ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.setVariable === "function") : [];
+        // another curve set's speed (TriCurveSet.scale: a set that waits at scale nought until one of its own sets it)
+        const setScale = !target && !xf && !curve && !binding && b.destinationType === "TriCurveSet" && attr0 === "scale";
+        if (!target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
-        if (!srcCurve) continue;
-        if (srcCurve.type === "Tr2CurveColorMixer") src = mixerValue(srcCurve as unknown as Record<string, unknown>, b.sourceAttribute === "convertedLinearValue");
+        if (b.sourceFx !== undefined) {
+          const fx = objects.get(b.sourceFx)?.[0]?.userData.fx as Record<string, Value> | undefined;
+          const v = fx?.[b.sourceAttribute.split(".")[0] ?? ""];
+          if (v === undefined) continue;
+          src = v;
+        } else if (!srcCurve) continue;
+        else if (srcCurve.type === "Tr2CurveColorMixer") src = mixerValue(srcCurve as unknown as Record<string, unknown>, b.sourceAttribute === "convertedLinearValue");
         else if (b.source !== null) {
           if (!values.has(b.source)) values.set(b.source, valueOf(srcCurve, time));
           src = values.get(b.source)!;
@@ -255,6 +269,8 @@ export class ChildAnimator {
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");
         const srcC = srcComp !== undefined ? COMPONENT[srcComp] ?? null : null;
+        if (sinks.length) { const v = copied(src, srcC, b.scale, b.offset, 0, null) as number; for (const o of sinks) (o.userData.setVariable as (v: number) => void)(v); continue; }
+        if (setScale) { this.setScale(b.destination, copied(src, srcC, b.scale, b.offset, 0, null) as number); continue; }
         if (curve) { curve[attr ?? "timeOffset"] = copied(src, srcC, b.scale, b.offset, typeof curve[attr ?? ""] === "number" ? (curve[attr ?? ""] as number) : 0, null) as number; continue; }
         if (binding) { binding.scale = copied(src, srcC, b.scale, b.offset, binding.scale, null) as number; continue; }
         if (xf) {

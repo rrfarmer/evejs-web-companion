@@ -44,6 +44,8 @@ export interface SofChildContainer {
   lights?: { position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number }[];
   /** Its controllers (controllers.ts), run with it as their owner. */
   controllers?: SofController[];
+  /** Its fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes): values gathered each frame for its sets. */
+  fxAttributes?: { id: number; type: string }[];
 }
 export interface SofChildTraffic {
   k: "traffic";
@@ -980,7 +982,36 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
  */
 const tickerMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false });
 const modifiedOf = new WeakMap<THREE.Object3D, THREE.Object3D[]>();
-const playedOf = new WeakMap<THREE.Object3D, { objects: Map<number, THREE.Object3D[]>; seen: { visibility: number } }>();
+const playedOf = new WeakMap<THREE.Object3D, { objects: Map<number, THREE.Object3D[]>; seen: { visibility: number }; fx: { owner: THREE.Object3D; holder: THREE.Object3D; type: string }[] }>();
+/**
+ * The fx attributes' values (Trinity's Eve/SpaceObject/Utils/fxAttributes/), for the container that holds them:
+ * - EveCameraFxAttributes: distanceToCamera, the container's world position's distance from the eye;
+ *   lookAngleToObject, -(lookAt . (position - eye)) / distance - here the cosine of the angle between the eye's forward
+ *   and the container, positive facing it (the files' own expressions want it near 1 when it is in view: a ViewAngle
+ *   curve of 0 at 0 and 1 at 0.9, its stored input 0.975); cameraRotation, the view's third column - the eye's
+ *   forward in EVE's (left-handed) space, our z mirrored; objectRotation and rotationWithChildTransform, the
+ *   container's z axis in EVE's space;
+ * - EveSpaceObjectFxAttributes: activationStrength 1 (no space object here sets another), activeTurretCount 0 and
+ *   killCount 0 (not followed), boundingSphereRadius 0 (not given).
+ * The models' copies share their curves: the last copy drawn sets their inputs.
+ */
+function gatherFx(list: { owner: THREE.Object3D; holder: THREE.Object3D; type: string }[], camera: THREE.Camera): void {
+  const eye = camera.getWorldPosition(new THREE.Vector3());
+  const forward = camera.getWorldDirection(new THREE.Vector3());
+  const eve = (v: THREE.Vector3) => [v.x, v.y, -v.z];
+  for (const f of list) {
+    f.owner.updateWorldMatrix(true, false);
+    if (f.type === "EveCameraFxAttributes") {
+      const at = new THREE.Vector3().setFromMatrixPosition(f.owner.matrixWorld);
+      const to = at.clone().sub(eye);
+      const d = to.length();
+      const z = new THREE.Vector3().setFromMatrixColumn(f.owner.matrixWorld, 2).normalize();
+      f.holder.userData.fx = { distanceToCamera: d, lookAngleToObject: d > 0 ? forward.dot(to) / d : 0, cameraRotation: eve(forward), objectRotation: eve(z), rotationWithChildTransform: eve(z) };
+    } else {
+      f.holder.userData.fx = { activationStrength: 1, activeTurretCount: 0, killCount: 0, boundingSphereRadius: 0 };
+    }
+  }
+}
 /** Each clone's controller runs (found by its ticker), started on its first frame. */
 const controllerRunsOf = new WeakMap<THREE.Object3D, ControllerRun[]>();
 tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
@@ -993,9 +1024,19 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
     if (!played) {
       const objects = new Map<number, THREE.Object3D[]>();
       group.traverse((o) => { const id = o.userData.childId as number | undefined; if (id !== undefined) objects.set(id, [...(objects.get(id) ?? []), o]); });
-      played = { objects, seen: { visibility: 0 } };
+      // the containers' fx attributes: a holder each, its values (userData.fx) gathered below, found by the attribute's id
+      const fx: { owner: THREE.Object3D; holder: THREE.Object3D; type: string }[] = [];
+      group.traverse((o) => {
+        for (const f of (o.userData.fxAttributes ?? []) as { id: number; type: string }[]) {
+          const holder = new THREE.Object3D();
+          objects.set(f.id, [holder]);
+          fx.push({ owner: o, holder, type: f.type });
+        }
+      });
+      played = { objects, seen: { visibility: 0 }, fx };
       playedOf.set(object, played);
     }
+    if (played.fx.length) gatherFx(played.fx, camera);
     animator.step(played.objects, played.seen);
   }
   // the controllers (controllers.ts), each owned by its container's group in this clone
@@ -1018,6 +1059,13 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
       const owners: THREE.Object3D[] = [];
       group.traverse((o) => { if (typeof o.userData.controllerOwner === "number") owners.push(o); });
       for (const owner of owners) for (const c of controllerData[owner.userData.controllerOwner as number] ?? []) runs.push(new ControllerRun(c, owner, host, (owner.userData.controllerOwnerId as number | null) ?? null));
+      // their variables a curve set's binding may set: a setter each under the variable's id, for the animator
+      const played = playedOf.get(object);
+      if (played) for (const run of runs) for (const v of run.variableIds) {
+        const sink = new THREE.Object3D();
+        sink.userData.setVariable = (value: number) => run.setVariable(v.name, value);
+        played.objects.set(v.id, [...(played.objects.get(v.id) ?? []), sink]);
+      }
       controllerRunsOf.set(object, runs);
     }
     for (const r of runs) r.update();
@@ -1124,7 +1172,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         halo = { z: z.normalize(), at: new THREE.Vector3().setFromMatrixPosition(flatHere) };
       }
       const driven = node.id !== undefined && moved.has(node.id);
-      if (node.modifiers.some((x) => MODIFIERS.has(x)) || driven || node.controllers?.length) {
+      if (node.modifiers.some((x) => MODIFIERS.has(x)) || driven || node.controllers?.length || node.fxAttributes?.length) {
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
         // a controller's owner: the child effects its states load go here
@@ -1137,6 +1185,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
           }
         }
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
+        // its fx attributes: their values gathered each frame where the group is (the ticker), found by their ids
+        if (node.fxAttributes?.length) g.userData.fxAttributes = node.fxAttributes;
         // a curve set may drive its SRT modifier (found in a clone by the container's id)
         if (node.srt?.id !== undefined && node.id !== undefined) { g.userData.childId = node.id; animator.srt(node.srt.id, node.id, node.srt); }
         if (driven) {

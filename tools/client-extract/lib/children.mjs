@@ -107,6 +107,16 @@ function readCurveSet(cs) {
   const bindings = [];
   for (const b of cs.bindings ?? []) {
     const src = b?.sourceObject, dst = b?.destinationObject;
+    // a source that is a container's fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes: values the
+    // engine gathers each update - distance to the camera, look angle, ...): named by its id and type
+    if (src && dst && /^Eve(Camera|SpaceObject)FxAttributes$/.test(src.type ?? "")) {
+      bindings.push({
+        id: idOf(b), source: null, sourceCurve: null, sourceFx: idOf(src), sourceFxType: src.type,
+        sourceAttribute: b.sourceAttribute ?? "", destination: idOf(dst), destinationType: dst.type ?? null,
+        destinationAttribute: b.destinationAttribute ?? "", scale: b.scale ?? 1, offset: b.offset ?? [0, 0, 0, 0],
+      });
+      continue;
+    }
     if (!src || !dst || !isCurve(src)) continue;
     bindings.push({
       // a binding may be another's destination (its scale)
@@ -217,7 +227,8 @@ function readController(c, skipped, owner) {
   });
   // its event handlers (Tr2ControllerEventHandler: a name, actions started then stopped when the event comes)
   const eventHandlers = (c.eventHandlers ?? []).filter((e) => e?.name).map((e) => ({ name: e.name, actions: readActions(e.actions) }));
-  return { name: c.name ?? null, variables: (c.variables ?? []).filter((v) => v?.name).map((v) => ({ name: v.name, value: v.defaultValue ?? 0 })), machines, ...(eventHandlers.length ? { eventHandlers } : {}) };
+  // each variable's id: a curve set's binding may set it (Tr2ControllerFloatVariable "value")
+  return { name: c.name ?? null, variables: (c.variables ?? []).filter((v) => v?.name).map((v) => ({ name: v.name, value: v.defaultValue ?? 0, id: idOf(v) })), machines, ...(eventHandlers.length ? { eventHandlers } : {}) };
 }
 let readRf = null;
 
@@ -346,6 +357,8 @@ function readShown(o, skipped) {
     }
     const curveSets = (o.curveSets ?? []).filter((cs) => cs?.type === "TriCurveSet").map(readCurveSet);
     const controllers = (o.controllers ?? []).filter((c) => c?.type === "Tr2Controller").map((c) => readController(c, skipped, o));
+    // its fx attributes (EveChildContainer.fxAttributes: their values gathered each update, read by its sets' bindings)
+    const fxAttributes = (o.fxAttributes ?? []).filter((f) => /^Eve(Camera|SpaceObject)FxAttributes$/.test(f?.type ?? "")).map((f) => ({ id: idOf(f), type: f.type }));
     if (!objects.length && !lights.length && !curveSets.length && !controllers.length) return null;
     const m = srt(o);
     return {
@@ -354,6 +367,7 @@ function readShown(o, skipped) {
       objects,
       lights,
       ...(controllers.length ? { controllers } : {}),
+      ...(fxAttributes.length ? { fxAttributes } : {}),
     };
   }
   skipped[o.type ?? "?"] = (skipped[o.type ?? "?"] ?? 0) + 1;
