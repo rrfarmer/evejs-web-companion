@@ -808,8 +808,7 @@ export class SpaceView {
     }
     this.updateTargetBar();
     this.controls.update();
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.6, radius: 0.4, threshold: 0.7 },
-      { exposure: () => this.exposure, toneMap: 0 });
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0 });
     this.bloom.render();
   }
 

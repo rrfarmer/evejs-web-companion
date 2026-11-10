@@ -18,7 +18,6 @@
 // 2^adjustment (the effect's adjustment is in stops; the shader multiplies by its constant).
 
 import * as THREE from "three";
-import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
 export interface DynamicExposureParams {
   middleValue: number; minLuminance: number; maxLuminance: number; minBrightness: number; maxBrightness: number;
@@ -80,26 +79,16 @@ export const exposureFor = (luminance: number, p: DynamicExposureParams) =>
   2 ** p.adjustment * p.middleValue / (0.5 + p.influence * (luminance - 0.5));
 
 /**
- * The client's output: the frame times the exposure, through the method's filmic curve over the white, to sRGB.
- * The last pass of a composer; its `exposure` uniform is set each frame.
+ * GLSL for the method's tone map: `filmic(x)` the curve, `toneMapped(c)` a colour (already exposed) doubled through
+ * it over the curve at the white.
  */
-export function clientOutputPass(method: ToneMapMethod): ShaderPass {
+export function toneMapGlsl(method: ToneMapMethod): string {
   const c = TONEMAP_CURVES[method];
   const f = (v: number) => v.toFixed(6);
-  return new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, exposure: { value: 1 } },
-    vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-    fragmentShader: `uniform sampler2D tDiffuse; uniform float exposure; varying vec2 vUv;
-      vec3 filmic( vec3 x ) {
-        return ( x * ( ${f(c.A)} * x + ${f(c.C * c.B)} ) + ${f(c.D * c.E)} ) / ( x * ( ${f(c.A)} * x + ${f(c.B)} ) + ${f(c.D * c.F)} ) - ${f(c.E / c.F)};
-      }
-      void main() {
-        vec3 colour = texture2D( tDiffuse, vUv ).rgb * exposure;
-        colour = clamp( max( filmic( 2.0 * colour ), 0.0 ) / filmic( vec3( ${f(WHITE_SCALE)} ) ), 0.0, 1.0 );
-        vec3 srgb = mix( colour * 12.92, 1.055 * pow( colour, vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), colour ) );
-        gl_FragColor = vec4( srgb, 1.0 );
-      }`,
-  });
+  return `vec3 filmic( vec3 x ) {
+      return ( x * ( ${f(c.A)} * x + ${f(c.C * c.B)} ) + ${f(c.D * c.E)} ) / ( x * ( ${f(c.A)} * x + ${f(c.B)} ) + ${f(c.D * c.F)} ) - ${f(c.E / c.F)};
+    }
+    vec3 toneMapped( vec3 c ) { return max( filmic( 2.0 * c ), 0.0 ) / filmic( vec3( ${f(WHITE_SCALE)} ) ); }`;
 }
 
 /**

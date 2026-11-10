@@ -286,9 +286,8 @@ export class HangarView {
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.7, radius: 0.5, threshold: 0.35 },
-      // a hangar scene names a dynamic exposure and no tone map: the tone map is the effect's own default, method 1
-      { exposure: () => this.exposure, toneMap: 1 });
+    // a hangar scene names a dynamic exposure and no tone map: the tone map is the effect's own default, method 1
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 1 });
     this.bloom.render();
   }
 
