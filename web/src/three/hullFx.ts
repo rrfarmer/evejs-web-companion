@@ -42,6 +42,14 @@ export interface SofSpotlightSet {
   }[];
 }
 
+export interface SofHazeSet {
+  name: string | null; hazeType: number;
+  items: {
+    position: number[]; rotation: number[]; scaling: number[]; color: number[] | null;
+    hazeBrightness: number; hazeFalloff: number; sourceBrightness: number; sourceSize: number; saturation: number;
+  }[];
+}
+
 /** The time the effects run by, in seconds; one clock for every hull. */
 const clock = { value: 0 };
 function tick(): void { clock.value = performance.now() / 1000; }
@@ -320,17 +328,75 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
 }
 
 /** A hull's sprite lights, plane cards and light cones as one group, or null where it has none. */
-export async function hullFx(sof: { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[] }): Promise<THREE.Group | null> {
+/**
+ * The haze volumes (hazespherical.fx, its shaders disassembled): each item a sphere of diameter 1 in its own space,
+ * scaled into an ellipsoid, placed and turned. For each pixel the eye's ray through it: the haze is the length of the
+ * ray's chord through the sphere to the power of the falloff, and the source a glow at the middle,
+ * sourceBrightness * saturate(1 - 2 d / sourceSize)^(falloff / 3) for the ray's nearest distance d from the middle;
+ * their sum, at most 1, times the colour, added to the frame. The colour is the faction's colour of the item's
+ * colorType desaturated by its saturation, times its hazeBrightness (the runtime item's colour; how the factory
+ * makes it is not in the shaders). Drawn from the inside faces so the eye can be within one (a hangar's are
+ * kilometres wide). The client also dims the haze by a cascaded map of the scene (its third texture); not here.
+ */
+function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
+  const items = sets.flatMap((s) => s.items);
+  if (!items.length) return null;
+  const group = new THREE.Group();
+  group.name = "hazeSets";
+  const sphere = new THREE.SphereGeometry(0.5, 24, 16);
+  for (const it of items) {
+    const c = it.color ?? [1, 1, 1, 1];
+    const grey = 0.299 * (c[0] ?? 1) + 0.587 * (c[1] ?? 1) + 0.114 * (c[2] ?? 1);
+    const colour = new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1).lerp(new THREE.Vector3(grey, grey, grey), 1 - it.saturation).multiplyScalar(it.hazeBrightness);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { colour: { value: colour }, data: { value: new THREE.Vector3(it.hazeFalloff, it.sourceSize, it.sourceBrightness) } },
+      vertexShader: `varying vec3 vObj; varying vec3 vEye;
+        void main() {
+          vObj = position;
+          vEye = ( inverse( modelMatrix ) * vec4( cameraPosition, 1.0 ) ).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        }`,
+      fragmentShader: `uniform vec3 colour; uniform vec3 data; varying vec3 vObj; varying vec3 vEye;
+        void main() {
+          vec3 o = vEye;
+          vec3 d = normalize( vObj - o );
+          float b = dot( o, d );
+          float disc = b * b - dot( o, o ) + 0.25;
+          if ( disc < 0.0 ) discard;
+          float chord = 2.0 * sqrt( disc );
+          float near = length( o - b * d );
+          float source = pow( clamp( 1.0 - near / ( 0.5 * data.y ), 0.0, 1.0 ), data.x / 3.0 );
+          float haze = min( data.z * source + pow( chord, data.x ), 1.0 );
+          gl_FragColor = vec4( clamp( haze * colour, 0.0, 1.0 ), 1.0 );
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
+    });
+    const mesh = new THREE.Mesh(sphere, mat);
+    mesh.position.set(it.position[0] ?? 0, it.position[1] ?? 0, -(it.position[2] ?? 0));
+    // a rotation in EVE's space, mirrored in z (as the plane sets')
+    const r = it.rotation;
+    mesh.quaternion.set(-(r[0] ?? 0), -(r[1] ?? 0), r[2] ?? 0, r[3] ?? 1);
+    mesh.scale.set(it.scaling[0] ?? 1, it.scaling[1] ?? 1, it.scaling[2] ?? 1);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 1;
+    group.add(mesh);
+  }
+  return group;
+}
+
+export async function hullFx(sof: { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[]; hazeSets?: SofHazeSet[] }): Promise<THREE.Group | null> {
   const points = spritePoints(sof.spriteSets ?? []);
   const planes = await planeMeshes(sof.planeSets ?? []);
   const cones = await spotlightCones(sof.spotlightSets ?? []);
   const glows = await spotlightGlows(sof.spotlightSets ?? []);
-  if (!points && !planes && !cones && !glows) return null;
+  const haze = hazeMeshes(sof.hazeSets ?? []);
+  if (!points && !planes && !cones && !glows && !haze) return null;
   const group = new THREE.Group();
   group.name = "hullFx";
   if (points) group.add(points);
   if (planes) group.add(planes);
   if (cones) group.add(cones);
   if (glows) group.add(glows);
+  if (haze) group.add(haze);
   return group;
 }

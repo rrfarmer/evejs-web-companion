@@ -137,6 +137,18 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
         };
       }),
     })),
+    // Its haze sets (EveSOFDataHullHazeSet: glowing volumes), each item an ellipsoid (position, rotation, scaling), its
+    // colour the faction's colour of its colorType; the item defaults are the class's own (read in the client's Python:
+    // hazeBrightness 1, hazeFalloff 6, sourceBrightness 2, sourceSize 0.2, saturation 1).
+    hazeSets: (hull.hazeSets ?? []).filter(visible).map((set) => ({
+      name: set.name ?? null, hazeType: set.hazeType ?? 0,
+      items: (set.items ?? []).map((it) => ({
+        position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
+        color: (colorSet && colorSet[COLOR_TYPES[it.colorType ?? 0]]) ?? null, colorType: it.colorType ?? 0,
+        hazeBrightness: it.hazeBrightness ?? 1, hazeFalloff: it.hazeFalloff ?? 6, sourceBrightness: it.sourceBrightness ?? 2,
+        sourceSize: it.sourceSize ?? 0.2, saturation: it.saturation ?? 1, boosterGainInfluence: !!it.boosterGainInfluence,
+      })),
+    })),
     // Its point lights (EveSOFDataHullLightSet items), each its colour from the faction's colour set.
     lights: (hull.lightSets ?? []).flatMap((set) => (set.items ?? []).map((it) => ({
       position: it.position ?? [0, 0, 0], radius: it.radius ?? null, innerRadius: it.innerRadius ?? null, brightness: it.brightness ?? 1,
