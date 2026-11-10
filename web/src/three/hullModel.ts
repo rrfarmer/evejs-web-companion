@@ -5,7 +5,7 @@
 
 import * as THREE from "three";
 import { addDecals, type SofDecalSet } from "./hullDecals.ts";
-import { hullChildren, type SofHullChild } from "./hullChildren.ts";
+import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildren.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
@@ -623,7 +623,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   // the hull's sprite lights and plane cards (hullFx.ts)
   const fx = sof ? await hullFx(sof as { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[]; hazeSets?: SofHazeSet[] }).catch(() => null) : null;
   // the hull's children (hullChildren.ts): the static part of their graph
-  const children = sof ? await hullChildren((sof as { children?: SofHullChild[] }).children).catch((e) => { console.warn("hull children", e); return null; }) : null;
+  const children = sof ? await hullChildren((sof as { children?: SofHullChild[] }).children, (sof as { childEffects?: Record<string, SofChildNode | null> }).childEffects ?? {}).catch((e) => { console.warn("hull children", e); return null; }) : null;
   if (!boosters && !fx && !children) return lod;
   // The engines and lights belong to the hull, not to one LOD: a holder carries them all.
   const holder = new THREE.Group();

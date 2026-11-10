@@ -116,6 +116,62 @@ function readCurveSet(cs) {
   return { name: cs.name ?? null, scale: cs.scale ?? 1, curves: curves.map(curveData), bindings };
 }
 
+// The object files Tr2ActionChildEffect loads (by their .red path, as the actions name them), each read once per build
+// as a child's graph (readNode): the page builds one when a controller's state starts.
+let effectRoots = new Map();
+/** The child effects the last readHullChildren read, by path. */
+export function childEffectRoots() {
+  return Object.fromEntries(effectRoots);
+}
+function readChildEffect(path, skipped) {
+  const key = String(path).toLowerCase();
+  if (effectRoots.has(key)) return key;
+  effectRoots.set(key, null);
+  const res = key.replace(/\.red$/, ".black");
+  if (!readRf?.has(res)) return key;
+  const kept = shownBySet;
+  try {
+    const o = readBlack(readRf.read(res), res);
+    shownBySet = findShownBySet(o);
+    effectRoots.set(key, readNode(o, skipped));
+  } catch (e) {
+    skipped.unreadEffect = String(e.message ?? e);
+  } finally {
+    shownBySet = kept;
+  }
+  return key;
+}
+
+/**
+ * A Tr2Controller (Trinity's Controllers/): its float variables at their defaults, and each state machine's states
+ * (the start state's index; each state's actions and transitions, a transition's destination being the state of its
+ * name - Tr2StateMachineTransition's "name" is its destinationName). Of the actions, Tr2ActionChildEffect is read (its
+ * file read as a child effect); the others are kept by type only.
+ */
+function readController(c, skipped) {
+  const machines = (c.stateMachines ?? []).filter(Boolean).map((sm) => {
+    const states = (sm.states ?? []).filter(Boolean);
+    const indexOf = (name) => states.findIndex((s) => s.name === name);
+    return {
+      name: sm.name ?? null,
+      start: sm.startState ? states.indexOf(sm.startState) : -1,
+      states: states.map((st) => ({
+        name: st.name ?? null,
+        actions: (st.actions ?? []).filter(Boolean).map((a) => {
+          if (a.type === "Tr2ActionChildEffect") {
+            return { k: "childEffect", effect: a.path ? readChildEffect(a.path, skipped) : null, name: a.childName ?? null, add: a.addOnStart !== false, remove: a.removeOnStop !== false, other: a.targetAnotherOwner || null };
+          }
+          skipped[a.type ?? "?"] = (skipped[a.type ?? "?"] ?? 0) + 1;
+          return { k: a.type ?? "?" };
+        }),
+        transitions: (st.transitions ?? []).filter(Boolean).map((t) => ({ condition: String(t.condition ?? ""), to: indexOf(t.name) })),
+      })),
+    };
+  });
+  return { name: c.name ?? null, variables: (c.variables ?? []).filter((v) => v?.name).map((v) => ({ name: v.name, value: v.defaultValue ?? 0 })), machines };
+}
+let readRf = null;
+
 // The objects whose display a curve set that plays on load drives (in the file being read): one hidden in the file
 // (display false) is read all the same, marked display false, for the set to show.
 let shownBySet = new Set();
@@ -211,14 +267,15 @@ function readShown(o, skipped) {
     const curveSets = (o.curveSets ?? []).filter((cs) => cs?.playOnLoad !== false).map(readCurveSet);
     const waiting = (o.curveSets ?? []).length - curveSets.length;
     if (waiting) skipped.TriCurveSet = (skipped.TriCurveSet ?? 0) + waiting;
-    if (o.controllers?.length) skipped.Tr2Controller = (skipped.Tr2Controller ?? 0) + o.controllers.length;
-    if (!objects.length && !lights.length && !curveSets.length) return null;
+    const controllers = (o.controllers ?? []).filter((c) => c?.type === "Tr2Controller").map((c) => readController(c, skipped));
+    if (!objects.length && !lights.length && !curveSets.length && !controllers.length) return null;
     const m = srt(o);
     return {
       k: "container", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, ...parts(o), curveSets,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
       objects,
       lights,
+      ...(controllers.length ? { controllers } : {}),
     };
   }
   skipped[o.type ?? "?"] = (skipped[o.type ?? "?"] ?? 0) + 1;
@@ -248,6 +305,8 @@ export function readHullChildren(rf, sofHull, faction = null) {
   const out = [];
   ids = new WeakMap();
   nextId = 1;
+  effectRoots = new Map();
+  readRf = rf;
   for (const child of hullChildEntries(sofHull, faction)) {
     const res = String(child.redFilePath ?? "").toLowerCase().replace(/\.red$/, ".black");
     if (!res || !rf.has(res)) continue;

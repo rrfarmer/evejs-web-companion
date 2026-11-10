@@ -26,7 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { readHullChildren, readTrafficInstances } from "./lib/children.mjs";
+import { childEffectRoots, readHullChildren, readTrafficInstances } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
@@ -117,6 +117,8 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   // the hull's children as EveSOF builds them for the faction (lib/children.mjs): their drawn graph
   const sof = loadSof(rf);
   built.children = readHullChildren(rf, sof.hulls.get(String(hullName).toLowerCase()), factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null);
+  // the object files its controllers load as child effects (each read once, by path)
+  built.childEffects = childEffectRoots();
   // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
   // textures copied
   const trafficNodes = [], meshNodes = [];
@@ -128,6 +130,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
     for (const o of n.objects ?? []) walkChildren(o);
   };
   for (const c of built.children) walkChildren(c.root);
+  for (const root of Object.values(built.childEffects)) walkChildren(root);
   for (const n of trafficNodes) {
     n.instances = rf.has(n.instances) ? await readTrafficInstances(rf, n.instances) : null;
     for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;

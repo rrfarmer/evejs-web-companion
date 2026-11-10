@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
+import { ControllerRun, type SofController } from "./controllers.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
@@ -40,6 +41,8 @@ export interface SofChildContainer {
   objects: SofChildNode[];
   /** Its point lights (Tr2PointLight), in its own space. */
   lights?: { position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number }[];
+  /** Its controllers (controllers.ts), run with it as their owner. */
+  controllers?: SofController[];
 }
 export interface SofChildTraffic {
   k: "traffic";
@@ -960,6 +963,8 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
 const tickerMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false });
 const modifiedOf = new WeakMap<THREE.Object3D, THREE.Object3D[]>();
 const playedOf = new WeakMap<THREE.Object3D, { objects: Map<number, THREE.Object3D[]>; seen: { visibility: number } }>();
+/** Each clone's controller runs (found by its ticker), started on its first frame. */
+const controllerRunsOf = new WeakMap<THREE.Object3D, ControllerRun[]>();
 tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
   const group = object.parent;
   if (!group) return;
@@ -974,6 +979,21 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
       playedOf.set(object, played);
     }
     animator.step(played.objects, played.seen);
+  }
+  // the controllers (controllers.ts), each owned by its container's group in this clone
+  const controllerData = group.userData.controllers as SofController[][] | undefined;
+  if (controllerData) {
+    let runs = controllerRunsOf.get(object);
+    if (!runs) {
+      runs = [];
+      const effects = (group.userData.childEffects ?? {}) as Record<string, SofChildNode | null>;
+      const host = { build: (path: string) => childEffectObject(path, effects) };
+      const owners: THREE.Object3D[] = [];
+      group.traverse((o) => { if (typeof o.userData.controllerOwner === "number") owners.push(o); });
+      for (const owner of owners) for (const c of controllerData[owner.userData.controllerOwner as number] ?? []) runs.push(new ControllerRun(c, owner, host));
+      controllerRunsOf.set(object, runs);
+    }
+    for (const r of runs) r.update();
   }
   let list = modifiedOf.get(object);
   if (!list) {
@@ -1013,7 +1033,22 @@ function ticker(): THREE.Mesh {
 /** Ids for the children whose file gives them none (below every file id). */
 let syntheticChildId = -1;
 
-export async function hullChildren(children: SofHullChild[] | undefined): Promise<THREE.Object3D | null> {
+/** A child effect's object, built once per path; each use takes a copy (in EVE's space: the copy's mirror undone). */
+const effectObjects = new Map<string, Promise<THREE.Object3D | null>>();
+function childEffectObject(path: string, effects: Record<string, SofChildNode | null>): Promise<THREE.Object3D | null> {
+  if (!effectObjects.has(path)) {
+    const root = effects[path] ?? null;
+    effectObjects.set(path, root ? hullChildren([{ root }], effects).catch(() => null) : Promise.resolve(null));
+  }
+  return effectObjects.get(path)!.then((o) => {
+    if (!o) return null;
+    const copy = o.clone();
+    copy.scale.set(1, 1, 1);
+    return copy;
+  });
+}
+
+export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
   const animator = new ChildAnimator();
@@ -1027,6 +1062,8 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   for (const child of children ?? []) if (child.root) scan(child.root);
   const pending: Promise<void>[] = [];
   let modified = 0;
+  // the containers' controllers, by owner (an owner's group carries its index as userData.controllerOwner)
+  const controllers: SofController[][] = [];
   // the containers' point lights, in the hull's EVE space (the group's userData.lights, read by the space view)
   const lights: { position: number[]; radius: number; color: number[]; brightness: number }[] = [];
   // `flat` is the node's parents' transform from the hull (for the quads, drawn as one mesh); `local` the same from
@@ -1059,9 +1096,11 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
         halo = { z: z.normalize(), at: new THREE.Vector3().setFromMatrixPosition(flatHere) };
       }
       const driven = node.id !== undefined && moved.has(node.id);
-      if (node.modifiers.some((x) => MODIFIERS.has(x)) || driven) {
+      if (node.modifiers.some((x) => MODIFIERS.has(x)) || driven || node.controllers?.length) {
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
+        // a controller's owner: the child effects its states load go here
+        if (node.controllers?.length) { g.userData.controllerOwner = controllers.length; controllers.push(node.controllers); }
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
         // a curve set may drive its SRT modifier (found in a clone by the container's id)
         if (node.srt?.id !== undefined && node.id !== undefined) { g.userData.childId = node.id; animator.srt(node.srt.id, node.id, node.srt); }
@@ -1134,7 +1173,7 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   };
   for (const child of children ?? []) if (child.root) walk(child.root, new THREE.Matrix4(), new THREE.Matrix4(), (o) => others.push(o));
   await Promise.all(pending);
-  if (!quads.length && !others.length && !lights.length) return null;
+  if (!quads.length && !others.length && !lights.length && !controllers.length) return null;
   const group = new THREE.Group();
   group.name = "hull-children";
   group.userData.lights = lights;
@@ -1147,6 +1186,7 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   for (const o of others) group.add(o);
   // the curve sets play from the ticker's frame (with the modifiers)
   if (animator.playing) { animators.set(animator.key, animator); group.userData.animatorKey = animator.key; }
-  if (modified || animator.playing) group.add(ticker());
+  if (controllers.length) { group.userData.controllers = controllers; group.userData.childEffects = effects; }
+  if (modified || animator.playing || controllers.length) group.add(ticker());
   return group;
 }
