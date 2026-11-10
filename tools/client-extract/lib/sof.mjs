@@ -175,8 +175,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":56)
-    sofBuild: 56,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":57)
+    sofBuild: 57,
     booster,
     pattern,
     areas,
@@ -220,6 +220,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
           transform: it.transform ?? null, coneIntensity: it.coneIntensity ?? 0, spriteIntensity: it.spriteIntensity ?? 0,
           flareIntensity: it.flareIntensity ?? 0, spriteScale: it.spriteScale ?? [1, 1, 1],
           coneColor: g?.coneColor ?? null, spriteColor: g?.spriteColor ?? null, flareColor: g?.flareColor ?? null,
+          boosterGainInfluence: !!it.boosterGainInfluence,
         };
       }),
     })),

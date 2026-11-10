@@ -41,6 +41,8 @@ export interface SofSpotlightSet {
   items: {
     transform: number[] | null; coneIntensity: number; coneColor: number[] | null;
     spriteIntensity: number; flareIntensity: number; spriteScale: number[]; spriteColor: number[] | null; flareColor: number[] | null;
+    /** Whether its light follows the ship's booster gain (EveSOFDataHullSpotlightSetItem.boosterGainInfluence). */
+    boosterGainInfluence?: boolean;
   }[];
 }
 
@@ -239,7 +241,7 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
   const CORNERS: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
   for (const set of lit) {
     const map = await tex(set.cone);
-    const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [], index: number[] = [];
+    const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [], gain: number[] = [], index: number[] = [];
     for (const it of set.items) {
       if (!it.transform || it.coneIntensity <= 0) continue;
       const m = new THREE.Matrix4().fromArray(it.transform).premultiply(mirror);
@@ -256,11 +258,13 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
           nor.push(n.x, n.y, n.z);
           uv.push(tx, 1 - ty);
           col.push((c[0] ?? 1) * k, (c[1] ?? 1) * k, (c[2] ?? 1) * k);
+          gain.push(it.boosterGainInfluence ? 1 : 0);
         }
         index.push(base, base + 1, base + 2, base, base + 2, base + 3);
       }
     }
     const geo = new THREE.BufferGeometry();
+    geo.setAttribute("gainInfluence", new THREE.Float32BufferAttribute(gain, 1));
     geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
     geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
@@ -268,12 +272,14 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
     geo.setIndex(index);
     const mat = new THREE.ShaderMaterial({
       uniforms: { map: { value: map }, hasMap: { value: map ? 1 : 0 } },
-      vertexShader: `attribute vec3 colour; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
+      vertexShader: `attribute vec3 colour; attribute float gainInfluence; uniform float boosterGain; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
         void main() {
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           vec3 n = normalize(mat3(modelMatrix) * normal);
           vFacing = abs(dot(n, normalize(-(vec4(mv.xyz, 0.0) * viewMatrix).xyz)));
-          vColour = colour; vUv = uv;
+          // (EveSpotlightSet::AddToQuadRenderer: 1 + (the booster gain - 1) x the item's boosterGainInfluence, its pixel
+          // stage's factor beside the facing)
+          vColour = colour * ( 1.0 + gainInfluence * ( boosterGain - 1.0 ) ); vUv = uv;
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv; varying float vFacing;
@@ -282,8 +288,8 @@ async function spotlightCones(sets: readonly SofSpotlightSet[]): Promise<THREE.G
     });
     logDepth(mat);
     // x the ship's activation strength (EveSpotlightSet::AddToQuadRenderer: activation x the set's intensity per cone,
-    // multiplied in spotlightconepool's pixel stage)
-    followActivation(mat);
+    // the colour's w in spotlightconepool) and the booster gain factor
+    followActivation(mat, true);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     group.add(mesh);
@@ -307,7 +313,7 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
   const CORNERS: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
   for (const set of lit) {
     const map = await tex(set.glow);
-    const centre: number[] = [], axis: number[] = [], corner: number[] = [], size: number[] = [], col: number[] = [], least: number[] = [], index: number[] = [];
+    const centre: number[] = [], axis: number[] = [], corner: number[] = [], size: number[] = [], col: number[] = [], least: number[] = [], gain: number[] = [], index: number[] = [];
     for (const it of set.items) {
       if (!it.transform) continue;
       const m = new THREE.Matrix4().fromArray(it.transform).premultiply(mirror);
@@ -329,6 +335,7 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
           size.push(w, h);
           col.push((c[0] ?? 1) * k * (c[3] ?? 1), (c[1] ?? 1) * k * (c[3] ?? 1), (c[2] ?? 1) * k * (c[3] ?? 1));
           least.push(low);
+          gain.push(it.boosterGainInfluence ? 1 : 0);
         }
         index.push(base, base + 1, base + 2, base, base + 2, base + 3);
       }
@@ -341,17 +348,20 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
     geo.setAttribute("size", new THREE.Float32BufferAttribute(size, 2));
     geo.setAttribute("colour", new THREE.Float32BufferAttribute(col, 3));
     geo.setAttribute("least", new THREE.Float32BufferAttribute(least, 1));
+    geo.setAttribute("gainInfluence", new THREE.Float32BufferAttribute(gain, 1));
     geo.setIndex(index);
     const mat = new THREE.ShaderMaterial({
       uniforms: { map: { value: map }, hasMap: { value: map ? 1 : 0 } },
       vertexShader: `attribute vec3 axis; attribute vec2 corner; attribute vec2 size; attribute vec3 colour; attribute float least;
+        attribute float gainInfluence; uniform float boosterGain;
         varying vec3 vColour; varying vec2 vUv;
         void main() {
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           vec3 z = normalize(mat3(modelMatrix) * axis);
           float f = clamp(max(least, dot(normalize(-(vec4(mv.xyz, 0.0) * viewMatrix).xyz), z)), 0.0, 1.0);
           mv.xy += f * (corner - 0.5) * size;
-          vColour = colour; vUv = vec2(corner.x, 1.0 - corner.y);
+          // (the glow's TEXCOORD3.w: 1 + (the booster gain - 1) x the item's boosterGainInfluence, x the colour in its pixel stage)
+          vColour = colour * ( 1.0 + gainInfluence * ( boosterGain - 1.0 ) ); vUv = vec2(corner.x, 1.0 - corner.y);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `uniform sampler2D map; uniform float hasMap; uniform float activation; varying vec3 vColour; varying vec2 vUv;
@@ -359,8 +369,9 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
     logDepth(mat);
-    // x the ship's activation strength (the glow's per-light activation, multiplied in spotlightglowpool's pixel stage)
-    followActivation(mat);
+    // x the ship's activation strength (the glow's per-light activation, the colour's w in spotlightglowpool) and the
+    // booster gain factor
+    followActivation(mat, true);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     group.add(mesh);
