@@ -125,6 +125,40 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   const locatorHull = sof.hulls.get(String(hullName).toLowerCase());
   built.locatorSets = Object.fromEntries(usedLocatorSets().map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
     .map((l) => [...(l.position ?? [0, 0, 0]), ...(l.rotation ?? [0, 0, 0, 1])])]));
+  // the hull's impact effects as EveSOF::SetupImpactEffects (EveSOF.cpp:2652-2785) sets them up where its
+  // impactEffectType is not nought (1 an ellipsoid shield, 2 none drawn): its "damage" locators [x, y, z, qx, qy, qz, qw],
+  // its shape ellipsoid, and the generic armor debris and hull smoke GPU emitters (generic.damage, generic.hullDamage;
+  // the emitters' other fields nought, as the SOF's memset; absent fields the SOF data's class defaults)
+  const impactType = Number(locatorHull?.impactEffectType ?? 0);
+  if (impactType) {
+    const dmg = sof.data.generic?.damage ?? null, hd = sof.data.generic?.hullDamage ?? null;
+    const pair = (v) => (Array.isArray(v) ? [Number(v[0] ?? 0), Number(v[1] ?? 0)] : [0, 0]);
+    const vec4 = (v) => (Array.isArray(v) ? [0, 1, 2, 3].map((i) => Number(v[i] ?? 0)) : [0, 0, 0, 0]);
+    const emitter = (src, p, defaults) => {
+      if (!src) return null;
+      const get = (k) => src[`${p}${k}`] ?? defaults[k];
+      const speed = pair(get("MinMaxSpeed")), life = pair(get("MinMaxLifeTime")), sizes = vec4(get("Sizes"));
+      return {
+        type: "Tr2GpuUniqueEmitter", continuousEmitter: false, rate: get("Rate"), angle: get("Angle"), innerAngle: get("InnerAngle"),
+        radius: 0, minSpeed: speed[0], maxSpeed: speed[1], minLifeTime: life[0], maxLifeTime: life[1],
+        sizes: sizes.slice(0, 3), sizeVariance: sizes[3], color0: vec4(get("Color0")), color1: vec4(get("Color1")),
+        color2: vec4(get("Color2")), color3: vec4(get("Color3")), textureIndex: get("TextureIndex"),
+        velocityStretchRotation: get("VelocityStretchRotation"), drag: get("Drag"), turbulenceAmplitude: get("TurbulenceAmplitude"),
+        turbulenceFrequency: get("TurbulenceFrequency"), colorMidpoint: get("ColorMidpoint"), gravity: 0, attractorStrength: 0,
+      };
+    };
+    const zero = { Rate: 0, Angle: 0, InnerAngle: 0, TextureIndex: 0, VelocityStretchRotation: 0, Drag: 0, TurbulenceAmplitude: 0, TurbulenceFrequency: 1, ColorMidpoint: 0.5 };
+    built.impact = {
+      type: impactType,
+      ellipsoid: { center: locatorHull?.shapeEllipsoidCenter ?? null, radius: locatorHull?.shapeEllipsoidRadius ?? null },
+      damageLocators: ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === "damage")?.locators ?? [])
+        .map((l) => [...(l.position ?? [0, 0, 0]), ...(l.rotation ?? [0, 0, 0, 1])]),
+      // (the armor colour midpoint is armorParticleColorMidPoint, absent from the data: its default)
+      armorEmitter: emitter(dmg ? { ...dmg, armorParticleColorMidpoint: dmg.armorParticleColorMidPoint } : null, "armorParticle", zero),
+      hullEmitter: emitter(hd, "hullParticle", zero),
+      flicker: dmg ? { speed: dmg.flickerPerlinSpeed ?? 1, alpha: dmg.flickerPerlinAlpha ?? 1.1, beta: dmg.flickerPerlinBeta ?? 2, n: dmg.flickerPerlinN ?? 3 } : null,
+    };
+  }
   // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
   // textures copied
   const trafficNodes = [], meshNodes = [];
@@ -143,8 +177,8 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   for (const c of built.children) findGpu(c.root);
   for (const root of Object.values(built.childEffects)) findGpu(root);
   // the scene GPU particle system's atlas and turbulence volume (res:/fisfx/gpuparticles/system.black's), where a child
-  // has GPU emitters
-  if (gpu) built.gpuParticles = Object.fromEntries([["atlas", "res:/fisfx/gpuparticles/systematlas.dds"], ["noise", "res:/texture/global/noise32cube_volume.dds"]]
+  // has GPU emitters or the hull has impact debris
+  if (gpu || built.impact) built.gpuParticles = Object.fromEntries([["atlas", "res:/fisfx/gpuparticles/systematlas.dds"], ["noise", "res:/texture/global/noise32cube_volume.dds"]]
     .map(([k, res]) => [k, rf.has(res) ? copyRes(rf, res, outRoot) : null]));
   for (const n of trafficNodes) {
     n.instances = rf.has(n.instances) ? await readTrafficInstances(rf, n.instances) : null;

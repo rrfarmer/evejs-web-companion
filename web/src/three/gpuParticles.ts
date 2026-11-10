@@ -5,8 +5,8 @@
 // birth), and draws each as a camera-facing card, back to front, after the scene's transparent things. Each particle
 // keeps its emitter's params (a unique emitter's live ones: its particles see a change at once).
 //
-// Left out: the scene's fog volumes (their factor 1), the GPU budget of 1 048 576 (here 65 536), emit-during-life and
-// collision GPU emitters, Tr2GpuSharedEmitter's params by value (here its own object, which never changes), minScreenSize.
+// Left out: the scene's fog volumes (their factor 1), the GPU budget of 1 048 576 (here 65 536), Tr2GpuSharedEmitter's
+// params by value (here its own object, which never changes), minScreenSize.
 
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
@@ -385,6 +385,32 @@ export class GpuEmitter {
     const P = new THREE.Vector3(...((at ?? v3(this.data.position, [0, 0, 0])) as [number, number, number])).applyMatrix4(world);
     const V = vel ? new THREE.Vector3(...(vel as [number, number, number])).applyMatrix3(new THREE.Matrix3().setFromMatrix4(world)) : new THREE.Vector3();
     this.spawnCore(P, P, V, V, 0, modifier, system, world, scale);
+  }
+
+  /**
+   * Tr2GpuSharedEmitter::SpawnOnce (:236-275; an impact's debris, EveImpactOverlay::SpawnImpactDebris): int(rate x
+   * rateModifier) at once from the point along the direction (both in the system's space), the velocity as given (no
+   * inheritVelocity); the radius and speeds x scale, and where scale is not 1 a copy of the params with the sizes and
+   * the turbulence's amplitude x scale, its frequency uint(frequency / scale).
+   */
+  spawnOnce(system: GpuParticleSystem, pos: THREE.Vector3, dir: THREE.Vector3, vel: THREE.Vector3, scale: number, rateModifier: number): number {
+    const d = this.data;
+    const count = Math.trunc(n0(d.rate, 0) * rateModifier);
+    if (count <= 0) return 0;
+    let params = this.params;
+    if (scale !== 1) {
+      params = paramsOf(d);
+      params.sizes = params.sizes.map((x) => x * scale);
+      params.turbAmp *= scale;
+      params.turbFreq = (Math.trunc(n0(d.turbulenceFrequency, 1) / scale) >>> 0) / 4096;
+    }
+    system.emit({
+      count, seed: (Math.floor(Math.random() * 32768) << 16) >>> 0,
+      pos: pos.clone(), posPrev: pos.clone(), dir: dir.clone(), dirPrev: dir.clone(), vel: vel.clone(), velPrev: vel.clone(),
+      radius: n0(d.radius, 0) * scale, angle: n0(d.angle, 0), inner: n0(d.innerAngle, 0),
+      minSpeed: n0(d.minSpeed, 0) * scale, maxSpeed: n0(d.maxSpeed, 0) * scale, params,
+    });
+    return count;
   }
 
   /**

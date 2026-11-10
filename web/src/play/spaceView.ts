@@ -20,6 +20,7 @@ import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialI
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { TurretFx } from "./turretFx.ts";
+import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
@@ -153,6 +154,16 @@ export class SpaceView {
   private readonly warpTunnel = new WarpTunnel();
   /** Weapons fire, from the park's special effects. */
   private readonly turretFx = new TurretFx();
+  /**
+   * A shot landing on a ball with an impact overlay: at the damage locator facing the shooter best (the turret's
+   * choice, EveTurretSet.cpp:3252-3330, roughly), of the medium guns' impactSize (0.75) until the turrets' own are read.
+   */
+  private readonly onShot = (shooter: number, target: number): void => {
+    const impact = this.marks.get(target)?.userData.impact as ImpactOverlay | undefined;
+    const from = this.placeOf(shooter, this.lastOrigin);
+    if (!impact || !from) return;
+    impact.createImpact(impact.locatorFacing(from), 0.75);
+  };
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);
     // OnClientControllerEvent(ballID, targetID, eventName, value): to the ball's model (spaceMgr.OnClientControllerEvent
@@ -541,6 +552,24 @@ export class SpaceView {
     this.damageNumbers.push({ el, itemID, bornAt: performance.now() });
     if (this.damageNumbers.length > 40) this.damageNumbers.shift()!.el.remove();
   }
+  /**
+   * The balls' impact overlays (impactOverlay.ts): each one's damage state from the park's (michelle's, extrapolated:
+   * spaceObject._OnDamageState, a missing value nought; none before the first), then its frame - its holes' debris sent
+   * with the ball's velocity, the count by its diameter on the screen in pixels (the client's render priority).
+   */
+  private stepImpacts(dt: number): void {
+    const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e as Entity & { shieldRatio?: number | null; armorRatio?: number | null; hullRatio?: number | null }]));
+    const pixelsPerRadian = innerHeight / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
+    const camAt = this.camera.getWorldPosition(new THREE.Vector3());
+    for (const [id, mark] of this.marks) {
+      const impact = mark.userData.impact as ImpactOverlay | undefined;
+      const e = byID.get(id);
+      if (!impact || !e) continue;
+      if (e.shieldRatio != null || e.armorRatio != null || e.hullRatio != null) impact.setDamageState(e.shieldRatio ?? 0, e.armorRatio ?? 0, e.hullRatio ?? 0);
+      const distance = Math.max(1, mark.getWorldPosition(new THREE.Vector3()).distanceTo(camAt));
+      impact.update(dt, this.scene, new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z), (2 * e.radius * pixelsPerRadian) / distance);
+    }
+  }
   /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */
   private placeOf(id: number, origin: { x: number; y: number; z: number }): THREE.Vector3 | null {
     const mark = this.marks.get(id);
@@ -817,7 +846,9 @@ export class SpaceView {
     this.flashEl.style.opacity = flash.toFixed(3);
     this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, dt);
     this.turretFx.setResolution(innerWidth, innerHeight);
+    this.turretFx.onShot = this.onShot;
     this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null);
+    this.stepImpacts(dt);
     this.stepDamageNumbers(now);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
     // keeps them; often enough for the cycle sweep to move smoothly.
@@ -905,6 +936,7 @@ export class SpaceView {
         model.rotation.y = Math.PI;
         holder.remove(standIn);
         holder.add(model);
+        holder.userData.impact = impactOverlayOf(model);
       }).catch(() => { /* no model: the stand-in stays */ });
     }
     return holder;

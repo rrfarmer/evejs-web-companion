@@ -9,7 +9,7 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 
-interface Firing { shooter: number; target: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number }
+interface Firing { shooter: number; target: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number; cycle: number; nextShot: number }
 interface Pulse { firing: Firing; bornAt: number; mesh: Line2; flash: THREE.Sprite }
 interface Blast { itemID: number; at: THREE.Vector3 | null; bornAt: number; sprite: THREE.Sprite; size: number }
 
@@ -50,6 +50,13 @@ export class TurretFx {
 
   constructor() { this.group.name = "turretFx"; }
 
+  /**
+   * A shot landing, once a cycle (the client's turret set fires one shot each weapon cycle, turretSet.py, and its
+   * EveTurretTarget makes the target's impact as the shot lands: EveTurretTarget.cpp:136-159): the shooter and the
+   * target. Misses are not told apart yet (every shot lands, as the client's empty miss queue).
+   */
+  onShot: ((shooter: number, target: number) => void) | null = null;
+
   /** A park entry: OnSpecialFX (a firing begun or stopped) or TerminalPlayDestructionEffect (a ball blown up). */
   hear(name: string, args: readonly unknown[]): void {
     if (name === "TerminalPlayDestructionEffect") {
@@ -70,7 +77,9 @@ export class TurretFx {
     const now = performance.now();
     // a cycle's length times its repeats, or a minute where the server leaves it open (it says stop when it stops)
     const until = duration > 0 ? now + duration * Math.max(1, Number.isFinite(repeat) && repeat > 0 ? Math.min(repeat, 1000) : 1) : now + 60_000;
-    this.firings.set(key, { shooter, target, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0 });
+    // its shots: one a cycle (a second where the server gives none), the first as the first pulse lands (a laser's at once)
+    const cycle = duration > 0 ? duration : 1000;
+    this.firings.set(key, { shooter, target, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0, cycle, nextShot: now + (kind === "laser" ? 0 : FLIGHT_MS) });
   }
 
   /** One frame: where things are drawn now (by itemID), and the time. */
@@ -78,6 +87,8 @@ export class TurretFx {
     for (const [key, f] of this.firings) {
       const from = positionOf(f.shooter), to = positionOf(f.target);
       if (now > f.until || !from || !to) { this.firings.delete(key); continue; }
+      for (let n = 0; now >= f.nextShot && n < 4; n++) { f.nextShot += f.cycle; this.onShot?.(f.shooter, f.target); }
+      if (now >= f.nextShot) f.nextShot = now + f.cycle;
       if (f.kind === "laser") continue;
       if (now - f.lastPulse >= PULSE_EVERY_MS) { f.lastPulse = now; this.pulse(f, now); }
     }
