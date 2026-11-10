@@ -148,6 +148,32 @@ function dynamicParticleVS(stretchByScale: boolean, decl: string, body: string):
 }
 
 /**
+ * The static particle vertex stage motionvector.fx and 2layermask.fx share (their PARTICLE_STATIC records): no age, no
+ * stretch - the particle's view position, its quad corner x TEXCOORD8.x (times the world scale where UseWorldScale)
+ * turned by TEXCOORD9.x + SpriteFactors.y. Leaves the varying vDepth (the view depth) set.
+ */
+function staticParticleVS(decl: string, body: string): string {
+  return `uniform vec4 spriteFactors; uniform float useWorldScale;
+      attribute vec3 iPos; attribute vec2 iT8; attribute float iT9; attribute vec4 iT10; attribute vec4 iT13;
+      varying float vDepth;
+      ${decl}
+      void main() {
+        mat3 m3 = mat3( modelMatrix );
+        float worldScale = length( vec3( m3[0][0] + m3[1][0] + m3[2][0], m3[0][1] + m3[1][1] + m3[2][1], m3[0][2] + m3[1][2] + m3[2][2] ) ) * 0.57735;
+        float size = iT8.x;
+        if ( useWorldScale > 0.0 ) size *= worldScale;
+        vec2 corner = position.xy * size;
+        float a = iT9 + spriteFactors.y;
+        float s = sin( a ), c = cos( a );
+        vec2 turned = vec2( c * corner.x - s * corner.y, s * corner.x + c * corner.y );
+        vec4 p = viewMatrix * ( modelMatrix * vec4( iPos, 1.0 ) ) + vec4( turned, 0.0, 0.0 );
+        gl_Position = projectionMatrix * p;
+        vDepth = abs( p.z );
+        ${body}
+      }`;
+}
+
+/**
  * The particle effect motionvector.fx (res:/graphics/effect/managed/space/specialfx/particles/, its sm_hi records,
  * client 3396210) for PARTICLE_DYNAMIC with COLOR_RAMP_ENABLED or COLOR_RAMP_2_RAMPS and any NEAR_FADE (the
  * permutations the client's CPU particle children use but 20 static and 16 COLOR_BY_VALUE areas): a flipbook over the
@@ -164,16 +190,24 @@ function dynamicParticleVS(stretchByScale: boolean, decl: string, body: string):
  *
  * particles/dynamic/motionvectorramp.fx (its one record) is the COLOR_RAMP_ENABLED, NEAR_FADE_DISABLED record but for
  * two things: a pixel of nought alpha is not discarded, and the alpha is a x the ramp's alpha (no Colors2).
+ *
+ * PARTICLE_STATIC (COLOR_RAMP_ENABLED; its static records): the static vertex stage, the flipbook's "age" time /
+ * AtlasInfo.z + TEXCOORD9.x (cb1[45].x, the frame's time - so it loops where AtlasInfo.w), and the colour (the ramp's,
+ * all four) times TEXCOORD10 before Colors.z and Colors2.w.
  */
 export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, dynamicRamp = false): THREE.ShaderMaterial | null {
   const o = (dynamicRamp ? { PARTICLE_TYPE: "PARTICLE_DYNAMIC", COLOR_RAMP: "COLOR_RAMP_ENABLED" } : area.options) as Record<string, string>;
-  if ((o.PARTICLE_TYPE ?? "PARTICLE_STATIC") !== "PARTICLE_DYNAMIC" || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED") return null;
+  const type = o.PARTICLE_TYPE ?? "PARTICLE_STATIC";
+  if ((type !== "PARTICLE_DYNAMIC" && type !== "PARTICLE_STATIC") || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED") return null;
+  const isStatic = type === "PARTICLE_STATIC";
   const ramp = o.COLOR_RAMP ?? "COLOR_RAMP_DISABLED";
-  if (ramp !== "COLOR_RAMP_ENABLED" && ramp !== "COLOR_RAMP_2_RAMPS") return null;
+  if (ramp !== "COLOR_RAMP_ENABLED" && (ramp !== "COLOR_RAMP_2_RAMPS" || isStatic)) return null;
+  if ((o.LIGHTING_MODE ?? "LIGHTING_DISABLED") !== "LIGHTING_DISABLED") return null;
   const twoRamps = ramp === "COLOR_RAMP_2_RAMPS";
   const fade = o.NEAR_FADE ?? "NEAR_FADE_DISABLED";
   const p = area.params;
   const uniforms: Record<string, THREE.IUniform> = {
+    time: particleClock,
     spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) }, velocityStretch: { value: f1(p.VelocityStretch, 0) },
     spriteFactors2: { value: v4(p.SpriteFactors2, [0.05, 1, 1, 1]) }, useWorldScale: { value: f1(p.UseWorldScale, 0) },
     atlas: { value: v4(p.AtlasInfo, [6, 6, 10, 1]) }, colors: { value: v4(p.Colors, [0, 1, 1, 0.01]) },
@@ -188,10 +222,12 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
   if (twoRamps) load(area.textures.SelfIlluminationGradientMap, "siMap");
   const mat = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: dynamicParticleVS(false, "varying vec3 vUvAge;", "vUvAge = vec3( uv, age );"),
+    vertexShader: isStatic
+      ? staticParticleVS("uniform float time; uniform vec4 atlas; varying vec3 vUvAge; varying vec4 vColor;", "vUvAge = vec3( uv, time / atlas.z + iT9 ); vColor = iT10;")
+      : dynamicParticleVS(false, "varying vec3 vUvAge;", "vUvAge = vec3( uv, age );"),
     fragmentShader: `uniform sampler2D textureMap; uniform sampler2D rampMap; uniform sampler2D gradientMap; uniform sampler2D siMap;
       uniform vec4 atlas; uniform vec4 colors; uniform vec4 colors2; uniform vec4 particleParams; uniform vec4 selfIllum;
-      varying vec3 vUvAge; varying float vDepth;
+      varying vec3 vUvAge; varying float vDepth;${isStatic ? " varying vec4 vColor;" : ""}
       ${SRGB}
       ${CLAMP_UV}
       vec2 cell(float f) {
@@ -221,7 +257,7 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
         vec2 v = mix(vec2(decode(a.rgb).r, a.a), vec2(decode(b.rgb).r, b.a), k);
         ${dynamicRamp ? "" : "if (v.y <= 0.0) discard;"}
         vec4 ramp = texture2D(rampMap, clampUv(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), age)));
-        vec3 rgb = decode(ramp.rgb) * colors.z;
+        ${isStatic ? "ramp = vec4(decode(ramp.rgb), ramp.a) * vColor; vec3 rgb = ramp.rgb * colors.z;" : "vec3 rgb = decode(ramp.rgb) * colors.z;"}
         ${twoRamps ? "rgb += texture2D(siMap, clampUv(siMap, vec2(clamp((v.x - selfIllum.x) / (selfIllum.y - selfIllum.x), 0.0, 1.0), age))).rgb * selfIllum.z;" : ""}
         float alpha = v.y * ramp.a${dynamicRamp ? "" : " * colors2.w"};
         float fade = clamp((vDepth - particleParams.x) / (particleParams.y - particleParams.x), 0.0, 1.0);
@@ -247,12 +283,18 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
  * alpha x texture alpha - 1)), alpha the texture's x the colour's x SpriteFactors.z, all x Brightness; blended ONE /
  * INVSRCALPHA (its record's states). Its sampler wraps; nothing is read as sRGB. The fog volume map's factor is 1.
  *
+ * PARTICLE_STATIC (its static records, LIGHTING_DISABLED): the static vertex stage, the colour that of age nought
+ * (Color1, or Color2 to Color3 at -ColorMidpoint / (1 - ColorMidpoint) where the midpoint is below nought).
+ *
  * dynamic/2layerdynmaskv2.fx (its one record, BINDLESS_RENDERING aside) is the same but for three things: the mask's
  * alpha discards nothing, there is no Brightness, and it has no options (no offsets, no near fade).
  */
 export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, dynMaskV2 = false): THREE.ShaderMaterial | null {
   const o = area.options as Record<string, string>;
-  if (!dynMaskV2 && ((o.PARTICLE_TYPE ?? "PARTICLE_STATIC") !== "PARTICLE_DYNAMIC" || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED")) return null;
+  const type = dynMaskV2 ? "PARTICLE_DYNAMIC" : o.PARTICLE_TYPE ?? "PARTICLE_STATIC";
+  if (!dynMaskV2 && ((type !== "PARTICLE_DYNAMIC" && type !== "PARTICLE_STATIC") || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED")) return null;
+  if (!dynMaskV2 && (o.LIGHTING_MODE ?? "LIGHTING_DISABLED") !== "LIGHTING_DISABLED") return null;
+  const isStatic = type === "PARTICLE_STATIC";
   const offsets = !dynMaskV2 && o.TEXTURE_OFFSETS === "TEXTURE_OFFSETS_ENABLED";
   const nearFade = !dynMaskV2 && o.NEAR_FADE === "NEAR_FADE_ENABLED";
   const p = area.params;
@@ -279,14 +321,15 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
   load(area.textures.MaskMap, "mask");
   const mat = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: dynamicParticleVS(true, `uniform float time; uniform vec4 layer1Mod; uniform vec4 layer2Mod; uniform vec4 layer1Speed; uniform vec4 layer2Speed;
+    vertexShader: (isStatic ? staticParticleVS : (d: string, b: string) => dynamicParticleVS(true, d, b))(`uniform float time; uniform vec4 layer1Mod; uniform vec4 layer2Mod; uniform vec4 layer1Speed; uniform vec4 layer2Speed;
       uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint;
       varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor;`, `
         vUv12 = vec4( layer1Mod.xy * uv + time * layer1Speed.xy + layer1Mod.zw, layer2Mod.xy * uv + time * layer2Speed.xy + layer2Mod.zw );
         ${offsets ? "vUv12 += iT13;" : ""}
         vMaskUv = uv;
-        vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
-          : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );`),
+        ${isStatic ? `vColor = colorMidpoint < 0.0 ? mix( color2, color3, clamp( -colorMidpoint / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) ) : color1;`
+    : `vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
+          : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );`}`),
     fragmentShader: `uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D mask;
       uniform vec4 spriteColor; uniform vec4 spriteFactors; uniform vec4 particleParams; uniform float brightness;
       varying vec4 vUv12; varying vec2 vMaskUv; varying vec4 vColor; varying float vDepth;
@@ -359,7 +402,8 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
   { name: "iVel", size: 3, key: () => elementKey({ elementType: ELEMENT.VELOCITY }) },
   { name: "iT8", size: 2, key: (u) => u.get(0) },
   { name: "iT9", size: 1, key: (u) => u.get(1) },
-  { name: "iT10", size: 1, key: (u) => u.get(2) },
+  // a vector where the static records read TEXCOORD10 whole (motionvector's colour); the dynamic ones its x
+  { name: "iT10", size: 4, key: (u) => u.get(2) },
   { name: "iT11", size: 1, key: (u) => u.get(3) },
   { name: "iT13", size: 4, key: (u) => u.get(5) },
 ];
