@@ -246,7 +246,10 @@
       keepAtRange: (id, range) => s.flow.keepAtRange(id, range ?? 1000),
       alignTo: (id) => s.flow.alignTo(id),
       warpTo: (id, range) => s.flow.warpTo(id, range ?? 0),
-      dock: (id) => s.flow.dock(id),
+      // menusvc.Dock -> DockStation -> GetCloseAndTryCommand(itemID, RealDock): the client's system navigation (warp,
+      // approach) to the station and then CmdDock; flow.dock is the bare CmdDock, which from beyond the docking radius
+      // only sets the ship approaching (seen: 5,300 km off Perimeter II - Moon 1, slow-boating at 337 m/s).
+      dock: (id) => s.flow.dockAt(id),
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
       openCargo: (id) => s.flow.openCargo(id),
