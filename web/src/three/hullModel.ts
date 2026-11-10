@@ -58,8 +58,9 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
     vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
     fragmentShader: `uniform vec3 colour; uniform vec3 core; varying vec2 vUv;
       void main() {
-        float across = 1.0 - abs(vUv.x * 2.0 - 1.0);
-        float along = 1.0 - vUv.y;
+        // clamped: multisampling evaluates the uv a little outside the plane, and pow() of a negative is NaN
+        float across = clamp(1.0 - abs(vUv.x * 2.0 - 1.0), 0.0, 1.0);
+        float along = clamp(1.0 - vUv.y, 0.0, 1.0);
         float a = pow(across, 0.9) * pow(along, 1.4);
         vec3 c = mix(colour, core, pow(across, 6.0) * along);
         gl_FragColor = vec4(c * a * 1.4, a);

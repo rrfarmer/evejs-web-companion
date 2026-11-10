@@ -27,6 +27,7 @@ import { Neocom } from "./neocom.ts";
 import { bracketIcon, loadBrackets } from "./brackets.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
+import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 
 export interface Entity {
@@ -112,6 +113,8 @@ export function distanceWords(m: number): string {
 export class SpaceView {
   readonly root = document.createElement("div");
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+  /** Space's bloom (the space scenes' Tr2PPBloomEffect): the sun, engine flames, glow maps, weapons fire, lava. */
+  private bloom: Bloom | null = null;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(60, 1, 1, 1e13);
   private readonly controls: OrbitControls;
@@ -284,6 +287,7 @@ export class SpaceView {
   dispose(): void {
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
+    this.bloom?.dispose();
     this.renderer.dispose();
     this.shipHud.dispose();
     this.targetBar.dispose();
@@ -319,6 +323,7 @@ export class SpaceView {
   private resize(): void {
     const w = innerWidth, h = innerHeight;
     this.renderer.setSize(w, h);
+    this.bloom?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -796,7 +801,8 @@ export class SpaceView {
     }
     this.updateTargetBar();
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.6, radius: 0.4, threshold: 0.7 });
+    this.bloom.render();
   }
 
   /** A lock, shown as locking (on its bracket) until the call returns: the server answers AddTarget once locked. */

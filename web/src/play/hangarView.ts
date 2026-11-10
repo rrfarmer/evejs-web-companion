@@ -10,6 +10,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { typeModel, graphicModel, setThrust } from "../three/hullModel.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { loadDds } from "../three/ddsTexture.ts";
+import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
 import { pickDockSwing, type DockSwing } from "./hangarRegistry.ts";
 
@@ -33,6 +34,8 @@ export class HangarView {
   private readonly hangarLights = new THREE.Group();
   private readonly studio: THREE.Light[] = [];
   private stopped = false;
+  /** The hangar scenes' bloom (their Tr2PPBloomEffect, luminanceThreshold 0): glow maps, panels and lights bleed. */
+  private bloom: Bloom | null = null;
   /** The camera's zoom limits for the ship shown, and the ship's own measures for its bobbing. */
   private zoom = { near: 10, far: 2050 };
   private swing: Swing = DEFAULT_SWING;
@@ -261,6 +264,7 @@ export class HangarView {
   private resize(): void {
     const w = this.root.clientWidth || innerWidth, h = this.root.clientHeight || innerHeight;
     this.renderer.setSize(w, h, false);
+    this.bloom?.setSize(w, h);
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
     this.camera.aspect = w / h;
@@ -272,7 +276,8 @@ export class HangarView {
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { strength: 0.7, radius: 0.5, threshold: 0.35 });
+    this.bloom.render();
   }
 
   dispose(): void {
@@ -284,6 +289,7 @@ export class HangarView {
     this.controls.dispose();
     this.probeTarget?.dispose();
     this.probeEnv?.dispose();
+    this.bloom?.dispose();
     this.renderer.dispose();
     this.root.remove();
   }
