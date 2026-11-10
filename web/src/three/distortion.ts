@@ -32,16 +32,48 @@ const clock = { get value() { return performance.now() / 1000; } };
  */
 export function distortionMaterial(params: Record<string, number[] | null | undefined>, maps: { distortion?: THREE.Texture; layer2?: THREE.Texture }): THREE.ShaderMaterial | null {
   if (!maps.distortion || !maps.layer2) return null;
-  const v4 = (a: number[] | null | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);
-  for (const t of [maps.distortion, maps.layer2]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  return offsetMaterial({
+    normalMap: maps.distortion, maskMap: maps.layer2,
+    t1: v4(params.Layer1Transform, [1, 1, 0, 0]), t2: v4(params.Layer2Transform, [1, 1, 0, 0]),
+    s1: v4(params.Layer1Scroll, [1, 1, 0, 0]), s2: v4(params.Layer2Scroll, [1, 1, 0, 0]),
+    factors: v4(params.DistortionFactors, [1, 1, 10000, 1]), fresnel: v4(params.FresnelFactors, [1, 1, 0, 0]),
+    uber: false, side: THREE.DoubleSide,
+  });
+}
+
+/**
+ * A child mesh's distortion area, drawn with ubershaderdistortion.fx (its one record, technique Main, two passes as
+ * fxdistortionv5's): NormalMap1 at uv x TextureTransform1.zw + .xy + TextureScroll1.xy x time + .zw, x 2 - 1, its z
+ * over DistortionFactors.w (not times), normalised, through the tangent frame (not normalised again); its view x and
+ * y times MaskMap.r at the second transform's and scroll's uv, the fresnel, DistortionFactors.x, over max(1, eye
+ * distance / max|DistortionFactors.z x the sum of a row of the world transform's upper 3x3|) - no activation. It
+ * culls CW (front faces drawn) and writes no depth. Defaults from the file: TextureTransform (0, 0, 1, 1), TextureScroll
+ * 0, DistortionFactors (1, 1, 10000, 1), FresnelFactors (1, 1, 0, 0).
+ */
+export function uberDistortionMaterial(params: Record<string, unknown>, maps: { normal1?: THREE.Texture | null; mask?: THREE.Texture | null }): THREE.ShaderMaterial | null {
+  if (!maps.normal1 || !maps.mask) return null;
+  const p = (k: string) => (Array.isArray(params[k]) ? (params[k] as number[]) : null);
+  const tt1 = v4(p("TextureTransform1"), [0, 0, 1, 1]), tt2 = v4(p("TextureTransform2"), [0, 0, 1, 1]);
+  return offsetMaterial({
+    normalMap: maps.normal1, maskMap: maps.mask,
+    // as fxdistortionv5's uniforms: uv x .xy + .zw
+    t1: new THREE.Vector4(tt1.z, tt1.w, tt1.x, tt1.y), t2: new THREE.Vector4(tt2.z, tt2.w, tt2.x, tt2.y),
+    s1: v4(p("TextureScroll1"), [0, 0, 0, 0]), s2: v4(p("TextureScroll2"), [0, 0, 0, 0]),
+    factors: v4(p("DistortionFactors"), [1, 1, 10000, 1]), fresnel: v4(p("FresnelFactors"), [1, 1, 0, 0]),
+    uber: true, side: THREE.FrontSide,
+  });
+}
+
+const v4 = (a: number[] | null | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);
+
+function offsetMaterial(o: { normalMap: THREE.Texture; maskMap: THREE.Texture; t1: THREE.Vector4; t2: THREE.Vector4; s1: THREE.Vector4; s2: THREE.Vector4;
+  factors: THREE.Vector4; fresnel: THREE.Vector4; uber: boolean; side: THREE.Side }): THREE.ShaderMaterial {
+  for (const t of [o.normalMap, o.maskMap]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const mat = new THREE.ShaderMaterial({
     uniforms: {
-      t1: { value: v4(params.Layer1Transform, [1, 1, 0, 0]) }, t2: { value: v4(params.Layer2Transform, [1, 1, 0, 0]) },
-      s1: { value: v4(params.Layer1Scroll, [1, 1, 0, 0]) }, s2: { value: v4(params.Layer2Scroll, [1, 1, 0, 0]) },
-      factors: { value: v4(params.DistortionFactors, [1, 1, 10000, 1]) },
-      fresnel: { value: v4(params.FresnelFactors, [1, 1, 0, 0]) },
-      time: clock,
-      distortionMap: { value: maps.distortion }, layer2Map: { value: maps.layer2 },
+      t1: { value: o.t1 }, t2: { value: o.t2 }, s1: { value: o.s1 }, s2: { value: o.s2 },
+      factors: { value: o.factors }, fresnel: { value: o.fresnel }, time: clock,
+      distortionMap: { value: o.normalMap }, layer2Map: { value: o.maskMap },
     },
     vertexShader: `attribute vec4 tangent; uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform vec4 factors; uniform float time;
       varying vec4 vUv; varying vec3 vN; varying vec3 vT; varying vec3 vB; varying vec3 vToEye; varying float vFade;
@@ -55,7 +87,11 @@ export function distortionMaterial(params: Record<string, number[] | null | unde
         vec3 toEye = cameraPosition - world.xyz;
         float dist = length( toEye );
         vToEye = toEye / dist;
-        float axis = max( max( length( modelMatrix[0].xyz ), length( modelMatrix[1].xyz ) ), length( modelMatrix[2].xyz ) ) * factors.z;
+        ${o.uber
+          ? `// the rows of EVE's world transform (three's with z mirrored on both sides: |m[i][0] + m[i][1] - m[i][2]|)
+        mat3 m3 = mat3( modelMatrix );
+        float axis = max( max( abs( m3[0][0] + m3[1][0] - m3[2][0] ), abs( m3[0][1] + m3[1][1] - m3[2][1] ) ), abs( m3[0][2] + m3[1][2] - m3[2][2] ) ) * factors.z;`
+          : "float axis = max( max( length( modelMatrix[0].xyz ), length( modelMatrix[1].xyz ) ), length( modelMatrix[2].xyz ) ) * factors.z;"}
         vFade = axis == 0.0 ? 1.0 : max( dist / axis, 1.0 );
         gl_Position = projectionMatrix * viewMatrix * world;
       }`,
@@ -63,9 +99,9 @@ export function distortionMaterial(params: Record<string, number[] | null | unde
       varying vec4 vUv; varying vec3 vN; varying vec3 vT; varying vec3 vB; varying vec3 vToEye; varying float vFade;
       void main() {
         vec3 n = texture2D( distortionMap, vUv.xy ).xyz * 2.0 - 1.0;
-        n.z *= factors.w;
+        ${o.uber ? "n.z /= factors.w;" : "n.z *= factors.w;"}
         n = normalize( n );
-        n = normalize( vT * n.x - vB * n.y + vN * n.z );
+        n = ${o.uber ? "vT * n.x - vB * n.y + vN * n.z" : "normalize( vT * n.x - vB * n.y + vN * n.z )"};
         vec2 nv = ( viewMatrix * vec4( n, 0.0 ) ).xy;
         float f = pow( 1.0 - clamp( dot( vToEye, vN ) - fresnel.z, 0.0, 1.0 ), fresnel.x );
         f = fresnel.y < 0.0 ? ( 1.0 - min( f, 1.0 ) ) * -fresnel.y : f * fresnel.y;
@@ -74,7 +110,7 @@ export function distortionMaterial(params: Record<string, number[] | null | unde
         vec2 offset = -nv * texture2D( layer2Map, vUv.zw ).r * f * factors.x / vFade;
         gl_FragColor = vec4( offset / 64.0, 1.0 / 256.0, factors.y );
       }`,
-    transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
+    transparent: true, depthWrite: false, depthTest: true, side: o.side,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
     blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor, blendEquationAlpha: THREE.AddEquation,
   });

@@ -6,6 +6,7 @@
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
+import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, sofHullMaterial, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
@@ -52,7 +53,7 @@ export interface SofChildTraffic {
 export interface SofChildMeshArea {
   id?: number;
   paramIds?: Record<string, number>;
-  kind: "opaque" | "transparent" | "additive";
+  kind: "opaque" | "transparent" | "additive" | "distortion";
   name: string | null;
   index: number;
   count: number;
@@ -816,6 +817,12 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
     };
     hullAreas.set(a, sofHullMaterial(maps, area));
   }));
+  // a distortion area (ubershaderdistortion.fx) draws into the distortion map, on its layer alone (distortion.ts)
+  const distortionAreas = new Map<SofChildMeshArea, THREE.Material | null>();
+  await Promise.all(node.areas.filter((a) => a.kind === "distortion").map(async (a) => {
+    const [normal1, mask] = await Promise.all([childTexture(a.textures.NormalMap1), childTexture(a.textures.MaskMap)]);
+    distortionAreas.set(a, uberDistortionMaterial(a.params, { normal1, mask }));
+  }));
   {
     const scene = await glbCache.get(url)!;
     const lod = scene?.children[0]?.children[node.meshIndex] ?? null;
@@ -831,6 +838,17 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
       // mesh, in the areas' order)
       for (const area of node.areas.filter((a) => at >= a.index && at < a.index + a.count)) {
         if (!materials.has(area) && hullAreas.has(area)) materials.set(area, hullAreas.get(area)!);
+        if (area.kind === "distortion") {
+          const mat = distortionAreas.get(area);
+          if (!mat) continue;
+          o.updateWorldMatrix(true, false);
+          const m = new THREE.Mesh(mesh.geometry, mat);
+          m.frustumCulled = false;
+          m.layers.set(DISTORTION_LAYER);
+          m.applyMatrix4(o.matrixWorld);
+          inner.add(m);
+          continue;
+        }
         if (!materials.has(area)) {
           const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
             texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;

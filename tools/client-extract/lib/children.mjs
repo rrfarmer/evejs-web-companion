@@ -161,11 +161,12 @@ function readShown(o, skipped) {
   }
   if (o.type === "EveChildMesh" && o.mesh?.type === "Tr2Mesh" && o.mesh.geometryResPath) {
     const areas = [];
-    for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"]]) {
+    for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"], ["distortionAreas", "distortion"]]) {
       for (const a of o.mesh[list] ?? []) {
         const fx = effectName(a.effect);
         const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
-        const drawn = ["ubershader", "fx3dv5", "ubershadertwosided", "flare", "twocolorflare", "quadv5", "quadglassv5"].includes(fx)
+        // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
+        const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "flare", "twocolorflare", "quadv5", "quadglassv5"].includes(fx)
           || (fx === "texturecolor" && (opts.DEPTH_MAP_OCCLUSION ?? "DEPTH_MAP_OCCLUSION_NO") === "DEPTH_MAP_OCCLUSION_NO")
           || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
         if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
