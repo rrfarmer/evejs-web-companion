@@ -26,7 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { childEffectRoots, readHullChildren, readTrafficInstances } from "./lib/children.mjs";
+import { childEffectRoots, readHullChildren, readHullControllers, readTrafficInstances } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
@@ -119,6 +119,8 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   built.children = readHullChildren(rf, sof.hulls.get(String(hullName).toLowerCase()), factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null);
   // the object files its controllers load as child effects (each read once, by path)
   built.childEffects = childEffectRoots();
+  // the hull's own controllers (their owner the whole model)
+  built.hullControllers = readHullControllers(rf, sof.hulls.get(String(hullName).toLowerCase()));
   // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
   // textures copied
   const trafficNodes = [], meshNodes = [];

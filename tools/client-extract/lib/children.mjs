@@ -446,6 +446,27 @@ export function readHullChildren(rf, sofHull, faction = null) {
 }
 
 /**
+ * The hull's own controllers (EveSOFDataHull.controllers: each a Tr2Controller's file, res:/dx9/model/controller/
+ * shipstandard.red and the like), read as a child's are, their owner the space object itself. Read after
+ * readHullChildren, whose ids they continue. A file the client does not ship, or not a controller, is left out.
+ */
+export function readHullControllers(rf, sofHull) {
+  const out = [];
+  const skipped = {};
+  for (const c of sofHull?.controllers ?? []) {
+    const res = String(c?.path ?? "").toLowerCase().replace(/\.red$/, ".black");
+    if (!res || !rf.has(res)) continue;
+    try {
+      const o = readBlack(rf.read(res), res);
+      if (o?.type === "Tr2Controller") out.push({ path: res, ...readController(o, skipped, null) });
+    } catch {
+      // an unreadable controller file draws nothing
+    }
+  }
+  return out;
+}
+
+/**
  * A traffic mesh's instances (its instance geometry: Position xyzw, TextureCoordinates0 xyzw; traffic.fx's POSITION8
  * and TEXCOORD8): one row of eight numbers each - the offset (x, y, z) and the path (w); the size, the speed (its sign
  * the way along the path), the colour's mix and the phase.

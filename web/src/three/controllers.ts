@@ -101,6 +101,9 @@ export function compileCondition(src: string): Compiled {
         // it has none)
         if (t === "ShipSpeed" && !args.length) { pure = false; return (s) => s.ship?.().speed ?? 0; }
         if (t === "ShipMaxSpeed" && !args.length) { pure = false; return (s) => { const m = s.ship?.().max ?? 0; return m > 0 ? m : 1; }; }
+        // IsAnimationPlaying("layer") and AnimationTime("name"): the owner's geometry animations - none play here, so
+        // nought (a hull controller's transitions wait on them)
+        if ((t === "IsAnimationPlaying" || t === "AnimationTime") && args.length === 1 && typeof args[0] === "string") { pure = false; return () => 0; }
         if (t === "Random" && args.length === 2 && typeof args[0] === "function" && typeof args[1] === "function") {
           // min + rand() % int(max - min)
           const lo = args[0], hi = args[1];

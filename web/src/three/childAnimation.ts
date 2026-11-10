@@ -101,6 +101,9 @@ function curveLength(c: unknown): number {
   return l;
 }
 
+/** The owner id of a hull-level controller: the space object itself (EveSpaceObject2::PlayCurveSet reaches every child). */
+export const HULL_OWNER = 0;
+
 /** One hull's curve sets and what their bindings reach; shared by the model's clones (found by their key). */
 export class ChildAnimator {
   readonly key = THREE.MathUtils.generateUUID();
@@ -151,8 +154,9 @@ export class ChildAnimator {
   }
   get playing(): boolean { return this.sets.length > 0; }
 
+  /** The sets of a name under an owner: a container (by id), or HULL_OWNER - the space object, every set. */
   private under(owner: number, name: string): SetRun[] {
-    return this.sets.filter((r) => r.set.name === name && r.owners.includes(owner));
+    return this.sets.filter((r) => r.set.name === name && (owner === HULL_OWNER || r.owners.includes(owner)));
   }
   /** TriCurveSet::Play (no range: ResetTimeRange) or PlayTimeRange (a range it lacks: left as it is). */
   play(owner: number, name: string, range = ""): void {

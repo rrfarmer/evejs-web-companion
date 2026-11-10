@@ -12,7 +12,7 @@ import { particleObject, type SofChildParticles } from "./particles.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
-import { ChildAnimator, animators, type SofCurveSet } from "./childAnimation.ts";
+import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childAnimation.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
@@ -1057,7 +1057,7 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
   });
 }
 
-export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}): Promise<THREE.Object3D | null> {
+export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = []): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
   const animator = new ChildAnimator();
@@ -1221,6 +1221,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   for (const o of others) group.add(o);
   // the curve sets play from the ticker's frame (with the modifiers)
   if (animator.playing) { animators.set(animator.key, animator); group.userData.animatorKey = animator.key; }
+  // the hull's own controllers: owned by the space object (this group, HULL_OWNER: their sets are every child's)
+  if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); }
   if (controllers.length) { group.userData.controllers = controllers; group.userData.childEffects = effects; }
   if (modified || animator.playing || controllers.length) group.add(ticker());
   return group;
