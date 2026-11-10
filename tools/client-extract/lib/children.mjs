@@ -110,15 +110,22 @@ function readNode(o, skipped) {
   if (o.type === "EveChildContainer") {
     if (!HIGH_QUALITY.has(o.displayFilter ?? 5)) return null;
     const objects = (o.objects ?? []).map((c) => readNode(c, skipped)).filter(Boolean);
-    for (const l of o.lights ?? []) skipped[l.type] = (skipped[l.type] ?? 0) + 1;
+    // its point lights (Tr2PointLight: in the container's space); spot lights counted
+    const lights = [];
+    for (const l of o.lights ?? []) {
+      if (l?.type === "Tr2PointLight") {
+        lights.push({ position: l.position ?? [0, 0, 0], radius: l.radius ?? 1, innerRadius: l.innerRadius ?? 0, color: l.color ?? [1, 1, 1, 1], brightness: l.brightness ?? 1 });
+      } else skipped[l?.type ?? "?"] = (skipped[l?.type ?? "?"] ?? 0) + 1;
+    }
     if (o.curveSets?.length) skipped.TriCurveSet = (skipped.TriCurveSet ?? 0) + o.curveSets.length;
     if (o.controllers?.length) skipped.Tr2Controller = (skipped.Tr2Controller ?? 0) + o.controllers.length;
-    if (!objects.length) return null;
+    if (!objects.length && !lights.length) return null;
     const m = srt(o);
     return {
       k: "container", name: o.name ?? null, m: identity(m) ? null : m,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
       objects,
+      lights,
     };
   }
   skipped[o.type ?? "?"] = (skipped[o.type ?? "?"] ?? 0) + 1;

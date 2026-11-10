@@ -128,6 +128,16 @@ export class SpaceView {
   private readonly brackets = document.createElement("div");
   private readonly bracketEls = new Map<number, HTMLDivElement>();
   private readonly marks = new Map<number, THREE.Object3D>();
+  /**
+   * The hulls' point lights nearest the eye's focus, lit (as the hangar lights its own: hangarView.lightHangar): a
+   * fixed set of three.js point lights, so that the hull materials keep their programs, given each frame to the
+   * nearest of every hull's SOF light sets (the holder's userData.lights) and its children's Tr2PointLights (the
+   * children group's userData.lights), both in EVE's model space; each its colour, brightness x 2, falling off to
+   * nothing at its radius. The client puts them all in its scene's light list.
+   */
+  // (an unused one is dark, never hidden: a hidden light changes the light count, and every material's program with it)
+  private readonly hullLights = Array.from({ length: 16 }, () => new THREE.PointLight(0xffffff, 0, 1, 0));
+  private readonly hullLightSources = new WeakMap<THREE.Object3D, { holder: THREE.Object3D; mirror: boolean; lights: { position: number[]; radius: number | null; brightness: number; color: number[] | null }[] }[]>();
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
   private readonly targetBar = new TargetBar();
@@ -235,6 +245,7 @@ export class SpaceView {
     // The system's star lights the grid from where it is (aimed each frame at the sun ball, frame()).
     this.sunLight.position.set(-1, 0.4, 0.6);
     this.scene.add(this.sunLight);
+    for (const l of this.hullLights) this.scene.add(l);
     this.scene.add(this.warpTunnel.object, this.turretFx.group);
     live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
@@ -530,6 +541,47 @@ export class SpaceView {
     if (this.damageNumbers.length > 40) this.damageNumbers.shift()!.el.remove();
   }
   /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */
+  private lightHulls(): void {
+    const focus = this.controls.target;
+    const near: { at: THREE.Vector3; d: number; radius: number; brightness: number; color: number[] }[] = [];
+    const markAt = new THREE.Vector3();
+    for (const mark of this.marks.values()) {
+      mark.getWorldPosition(markAt);
+      // a hull more than 200 km from the focus lights nothing near it
+      if (markAt.distanceToSquared(focus) > 4e10) continue;
+      let sources = this.hullLightSources.get(mark);
+      if (!sources) {
+        sources = [];
+        mark.traverse((o) => {
+          const ls = o.userData?.lights as { position: number[]; radius: number | null; brightness: number; color: number[] | null }[] | undefined;
+          if (!Array.isArray(ls) || !ls.length) return;
+          // a hull's LOD shares its holder's SOF lights (holder.userData is the LOD's)
+          if ((o as THREE.LOD).isLOD && Array.isArray(o.parent?.userData?.lights)) return;
+          // the children group carries its z mirror in its own transform; a hull's SOF lights are mirrored here
+          sources!.push({ holder: o, mirror: o.name !== "hull-children", lights: ls });
+        });
+        // a model still loading has none yet: asked again next frame
+        if (sources.length) this.hullLightSources.set(mark, sources);
+      }
+      for (const s of sources) {
+        s.holder.updateWorldMatrix(true, false);
+        for (const l of s.lights) {
+          const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, (s.mirror ? -1 : 1) * (l.position[2] ?? 0)).applyMatrix4(s.holder.matrixWorld);
+          near.push({ at, d: at.distanceToSquared(focus), radius: l.radius ?? 300, brightness: l.brightness, color: l.color ?? [1, 1, 1, 1] });
+        }
+      }
+    }
+    near.sort((a, b) => a.d - b.d);
+    this.hullLights.forEach((light, i) => {
+      const l = near[i];
+      if (!l) { light.intensity = 0; return; }
+      light.position.copy(l.at);
+      light.color.setRGB(l.color[0] ?? 1, l.color[1] ?? 1, l.color[2] ?? 1);
+      light.intensity = l.brightness * 2;
+      light.distance = l.radius;
+    });
+  }
+
   private placeOf(id: number, origin: { x: number; y: number; z: number }): THREE.Vector3 | null {
     const mark = this.marks.get(id);
     if (mark) return mark.position;
@@ -809,6 +861,7 @@ export class SpaceView {
       this.feedEl.textContent = `${this.live.status} · tick ${park.currentTime % 100000} · ${snap?.entities.length ?? 0} on grid · ${this.live.items} updates${this.live.failures.length ? ` · ${this.live.failures.length} failed` : ""}`;
     }
     this.updateTargetBar();
+    this.lightHulls();
     this.controls.update();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0 });
     this.bloom.render();

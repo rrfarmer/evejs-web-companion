@@ -25,6 +25,8 @@ export interface SofChildContainer {
   modifiers: string[];
   srt?: SofChildSrt | null;
   objects: SofChildNode[];
+  /** Its point lights (Tr2PointLight), in its own space. */
+  lights?: { position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number }[];
 }
 export interface SofChildTraffic {
   k: "traffic";
@@ -610,6 +612,8 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   const others: THREE.Object3D[] = [];
   const pending: Promise<void>[] = [];
   let modified = 0;
+  // the containers' point lights, in the hull's EVE space (the group's userData.lights, read by the space view)
+  const lights: { position: number[]; radius: number; color: number[]; brightness: number }[] = [];
   // `flat` is the node's parents' transform from the hull (for the quads, drawn as one mesh); `local` the same from
   // the object the node is added to (`sink`): a modified container's own group, or the hull's
   const place = (o: THREE.Object3D, at: THREE.Matrix4, mods: string[] | undefined, srt: SofChildSrt | null = null) => {
@@ -628,6 +632,10 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
     if (node.k === "container") {
       const m = node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4();
       const flatHere = flat.clone().multiply(m);
+      for (const l of node.lights ?? []) {
+        const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(flatHere);
+        lights.push({ position: at.toArray(), radius: l.radius * meanScale(flatHere), color: l.color, brightness: l.brightness });
+      }
       if (node.modifiers.includes("EveChildModifierHalo")) {
         const z = new THREE.Vector3();
         flatHere.extractBasis(new THREE.Vector3(), new THREE.Vector3(), z);
@@ -687,9 +695,10 @@ export async function hullChildren(children: SofHullChild[] | undefined): Promis
   };
   for (const child of children ?? []) if (child.root) walk(child.root, new THREE.Matrix4(), new THREE.Matrix4(), (o) => others.push(o));
   await Promise.all(pending);
-  if (!quads.length && !others.length) return null;
+  if (!quads.length && !others.length && !lights.length) return null;
   const group = new THREE.Group();
   group.name = "hull-children";
+  group.userData.lights = lights;
   group.scale.set(1, 1, -1);
   if (quads.length) group.add(quadMesh(quads));
   for (const o of others) group.add(o);
