@@ -134,11 +134,15 @@ export interface TypeModelInfo {
  * - the specular colour at normal incidence is the weighed FresnelColor itself: a specular workflow, not a metal one;
  * - the roughness is 1 - RoughnessMap.r * the weighed Gloss (the map is read as a gloss), squared for the lobe as
  *   three squares it;
- * - the normal: NormalMap.xy + 0.002, x 2 - 1, on the tangent frame with z 1 (T x + B y + N, normalised).
+ * - the normal: NormalMap.xy + 0.002, x 2 - 1, on the tangent frame with z 1 (T x + B y + N, normalised);
+ * - quaddetailv5 (its record 0, fxres.py) adds three tiled detail maps: Detail1..3Map at uv x DetailNData.x +
+ *   DetailNData.zw (+ 0.002 on x and y), their alphas x DetailNData.y summed and saturated, times s = DetailSelector .
+ *   the material weights: a; the tint and the specular pulled toward DetailAlbedoColor and DetailFresnelColor by a
+ *   (before the bare surface's pull); the normals' sum (each x 2 - 1) x s added to the normal map's before the frame.
  * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
-export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise" };
+export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3" };
 
 /** The engines' share of full thrust a hull model shows (setThrust), for its heat glow; 0 unset (a station). */
 function thrustOf(o: THREE.Object3D): number {
@@ -189,12 +193,20 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     sailsDetailData: { value: v3(area.params.SailsDetailData, 0) },
     paintMask: { value: maps.paintMask ?? null },
     generalData: { value: v4(area.params.GeneralData, [1, 0, 0, 0]) },
+    detail1: { value: maps.detail1 ?? null }, detail2: { value: maps.detail2 ?? null }, detail3: { value: maps.detail3 ?? null },
+    detailData: { value: [1, 2, 3].map((i) => v4(area.params[`Detail${i}Data`], [1, 1, 0, 0])) },
+    detailAlbedo: { value: v3(area.params.DetailAlbedoColor, 0) },
+    detailFresnel: { value: v3(area.params.DetailFresnelColor, 0) },
+    detailSelector: { value: v4(area.params.DetailSelector, [1, 1, 1, 1]) },
   };
+  // the detail maps tile (the shader reads every texture through its wrapping sampler)
+  const detail = /quaddetailv5/i.test(area.shader ?? "") && !!(maps.detail1 && maps.detail2 && maps.detail3);
+  if (detail) for (const t of [maps.detail1, maps.detail2, maps.detail3]) { t!.wrapS = t!.wrapT = THREE.RepeatWrapping; t!.needsUpdate = true; }
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {});
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData;
+    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector;
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
         float mtlSel = texture2D( materialMap, vMapUv ).r;
@@ -209,6 +221,14 @@ ${shader.fragmentShader}`
         vec3 mtlTint = mtlDiffuse[0] * mtlW.x + mtlDiffuse[1] * mtlW.y + mtlDiffuse[2] * mtlW.z + mtlDiffuse[3] * mtlW.w;
         float mtlGl = mtlGloss[0] * mtlW.x + mtlGloss[1] * mtlW.y + mtlGloss[2] * mtlW.z + mtlGloss[3] * mtlW.w;
         vec3 mtlFr = mtlFresnel[0] * mtlW.x + mtlFresnel[1] * mtlW.y + mtlFresnel[2] * mtlW.z + mtlFresnel[3] * mtlW.w;
+        ${detail ? `vec4 det1 = texture2D( detail1, vMapUv * detailData[0].x + detailData[0].zw ) + vec4( 0.002, 0.002, 0.0, 0.0 );
+        vec4 det2 = texture2D( detail2, vMapUv * detailData[1].x + detailData[1].zw ) + vec4( 0.002, 0.002, 0.0, 0.0 );
+        vec4 det3 = texture2D( detail3, vMapUv * detailData[2].x + detailData[2].zw ) + vec4( 0.002, 0.002, 0.0, 0.0 );
+        float detSel = dot( detailSelector, mtlW );
+        float detA = clamp( det1.w * detailData[0].y + det2.w * detailData[1].y + det3.w * detailData[2].y, 0.0, 1.0 ) * detSel;
+        vec3 detN = ( det1.xyz * 2.0 - 1.0 + det2.xyz * 2.0 - 1.0 + det3.xyz * 2.0 - 1.0 ) * detSel;
+        mtlTint = mix( mtlTint, detailAlbedo, detA );
+        mtlFr = mix( mtlFr, detailFresnel, detA );` : ""}
         ${maps.paintMask ? "float bareD = texture2D( paintMask, vMapUv ).r * generalData.x;" : "float bareD = 0.0;"}
         mtlTint = mix( mtlTint, vec3( 1.0 ), bareD );
         mtlFr = mix( mtlFr, vec3( 0.038384, 0.039352, 0.039165 ), bareD );
@@ -219,6 +239,9 @@ ${shader.fragmentShader}`
         material.specularColor = mtlFr;
         material.specularColorBlended = mtlFr;`);
     base.call(m, shader, renderer);
+    // the details' normals join the normal map's, in its tangent space and its green's sense
+    if (detail) shader.fragmentShader = change(shader.fragmentShader, "mapN.z = 1.0; // quadv5: T x + B y + N, normalised (no z rebuilt from x and y)",
+      "mapN.z = 1.0; mapN += vec3( detN.x, -detN.y, detN.z );");
     if (heat) {
       shader.fragmentShader = `uniform vec4 heatData[4]; uniform vec3 heatColor; uniform sampler2D heatNoise; uniform float heatTime; uniform float thrust;
 ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv );", `vec4 heatH = heatData[0] * mtlW.x + heatData[1] * mtlW.y + heatData[2] * mtlW.z + heatData[3] * mtlW.w;
@@ -228,7 +251,7 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
         "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
     }
   };
-  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}`;
+  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}`;
   return m;
 }
 
