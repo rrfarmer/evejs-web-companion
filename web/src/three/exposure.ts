@@ -124,17 +124,28 @@ export class DynamicExposure {
   /** The adapted luminance, for a look from outside. */
   get adapted(): number | null { return this.luminance; }
 
-  /** Read the frame's luminances, at most every 200 ms. */
+  /**
+   * Read the frame's luminances, at most every 200 ms. The read is asynchronous (a pixel-pack buffer and a fence,
+   * three's readRenderTargetPixelsAsync), so the frame does not wait on the GPU; the measure lands a frame or two
+   * later, as the client's own (a compute pass whose result the next frames read) does.
+   */
   measure(renderer: THREE.WebGLRenderer, frame: THREE.Texture): void {
     const now = performance.now();
-    if (now - this.lastMeasure < 200) return;
+    if (this.reading || now - this.lastMeasure < 200) return;
     this.lastMeasure = now;
     this.material.uniforms["frame"]!.value = frame;
     const was = renderer.getRenderTarget();
     renderer.setRenderTarget(this.small);
     renderer.render(this.quad, this.cam);
     renderer.setRenderTarget(was);
-    renderer.readRenderTargetPixels(this.small, 0, 0, 128, 72, this.pixels);
+    this.reading = true;
+    renderer.readRenderTargetPixelsAsync(this.small, 0, 0, 128, 72, this.pixels)
+      .then(() => this.measured(), () => { /* a lost read: the next one measures */ })
+      .finally(() => { this.reading = false; });
+  }
+  private reading = false;
+
+  private measured(): void {
     for (let i = 0; i < this.lums.length; i++) {
       const r = THREE.DataUtils.fromHalfFloat(this.pixels[i * 4]!), g = THREE.DataUtils.fromHalfFloat(this.pixels[i * 4 + 1]!), b = THREE.DataUtils.fromHalfFloat(this.pixels[i * 4 + 2]!);
       const l = 0.2125 * r + 0.7154 * g + 0.0721 * b;
