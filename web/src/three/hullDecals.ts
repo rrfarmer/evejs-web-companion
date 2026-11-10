@@ -6,9 +6,9 @@
 //   DecalIntensityData.x, squared, is the decal's strength; the glow map is read where DecalTextureScaling moves it
 //   (along each axis with a scaling: the fraction of time * scaling + DecalTextureOffset, the whole decal at once;
 //   turned by scaling.z * time about the middle), its red squared to the power 1.2; DecalGlowColor times that times
-//   the strength, added to the frame. The shader also multiplies by two per-object constants; taken as 1, the space
-//   object's activationStrength (1.0 by default, and what the client's Python leaves a ship at outside cloaking and
-//   scan holograms) and ccpwgl's Shipdata.y (1);
+//   the strength, added to the frame. Two per-object constants (EveSpaceObjectDecal.fxh's EveSpaceObjectDecalDataPS):
+//   Shipdata.y, the ship's activation strength (activation.ts: 1 but for its damage flicker), multiplies the strength
+//   before it is squared and the colour after; DisplayData.y the result (taken as 1);
 // - glow cylindrical decals (usage 4; decalglowcylindricv5.fx): the same glow wrapped round the box's z axis - u
 //   the angle about it, (atan2(y, x) + pi) / 2 pi times DecalTextureScaling.w, v the place along it - the strength
 //   the transparency times the intensity, not squared;
@@ -22,6 +22,7 @@
 // - hole decals (usage 2, wrecks): holeMaterial.
 
 import * as THREE from "three";
+import { followActivation } from "./activation.ts";
 import { loadDds } from "./ddsTexture.ts";
 
 export interface SofDecal {
@@ -116,17 +117,17 @@ async function glowMaterial(d: SofDecal, cylindrical: boolean): Promise<THREE.Ma
         gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         #include <logdepthbuf_vertex>
       }`,
-    fragmentShader: `uniform sampler2D transparency, glow; uniform float hasTransparency, intensity, time; uniform vec3 colour; uniform vec4 scaling, offset; varying vec3 vDecal;
+    fragmentShader: `uniform sampler2D transparency, glow; uniform float hasTransparency, intensity, time, activation; uniform vec3 colour; uniform vec4 scaling, offset; varying vec3 vDecal;
       #include <logdepthbuf_pars_fragment>
       void main() {
         #include <logdepthbuf_fragment>
         ${cylindrical
           ? `vec2 vUv = vec2( ( atan( vDecal.y, vDecal.x ) + 3.141593 ) * scaling.w * 0.159155, vDecal.z * 0.5 + 0.5 );
-        float strength = ( hasTransparency > 0.5 ? texture2D( transparency, vUv ).r : 1.0 ) * intensity;`
+        float strength = ( hasTransparency > 0.5 ? texture2D( transparency, vUv ).r : 1.0 ) * intensity * activation;`
           : `vec2 vUv = vDecal.xy * 0.5 + 0.5;
         // the decal ends at its box (the triangles reach past it)
         if ( any( lessThan( vUv, vec2( 0.0 ) ) ) || any( greaterThan( vUv, vec2( 1.0 ) ) ) ) discard;
-        float strength = ( hasTransparency > 0.5 ? texture2D( transparency, vUv ).r : 1.0 ) * intensity;
+        float strength = ( hasTransparency > 0.5 ? texture2D( transparency, vUv ).r : 1.0 ) * intensity * activation;
         strength *= strength;`}
         vec2 moved = vUv + sign( scaling.xy ) * ( fract( time * scaling.xy + offset.xy ) - vUv );
         float a = scaling.z * time;
@@ -134,12 +135,13 @@ async function glowMaterial(d: SofDecal, cylindrical: boolean): Promise<THREE.Ma
         vec2 turned = vec2( cos( a ) * q.x - sin( a ) * q.y, sin( a ) * q.x + cos( a ) * q.y ) + 0.5;
         float g = texture2D( glow, turned ).r;
         g = pow( g * g, 1.2 );
-        gl_FragColor = vec4( max( colour * g * strength, 0.0 ), 1.0 );
+        gl_FragColor = vec4( max( colour * g * strength * activation, 0.0 ), 1.0 );
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   if (cylindrical && transparency) { transparency.wrapS = THREE.RepeatWrapping; transparency.needsUpdate = true; }
-  return material;
+  // x the ship's activation strength (its damage flicker: activation.ts)
+  return followActivation(material);
 }
 
 /**

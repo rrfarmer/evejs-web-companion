@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
+import { followActivation } from "./activation.ts";
 
 export interface SofSpriteSet {
   name: string | null;
@@ -364,7 +365,9 @@ async function spotlightGlows(sets: readonly SofSpotlightSet[]): Promise<THREE.G
  * their sum, at most 1, times the colour, added to the frame. The colour is the faction's colour of the item's
  * colorType desaturated by its saturation, times its hazeBrightness (the runtime item's colour; how the factory
  * makes it is not in the shaders). Drawn from the inside faces so the eye can be within one (a hangar's are
- * kilometres wide). The client also dims the haze by a cascaded map of the scene (its third texture); not here.
+ * kilometres wide). The colour is times the ship's activation strength (Shipdata.y) and 1 + w (Shipdata.x - 1) for
+ * the item's w (the latter not here). The client also dims the haze by a cascaded map of the scene (its third
+ * texture); not here.
  */
 function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
   const items = sets.flatMap((s) => s.items);
@@ -384,7 +387,7 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
           vEye = ( inverse( modelViewMatrix ) * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
           gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         }`,
-      fragmentShader: `uniform vec3 colour; uniform vec3 data; varying vec3 vObj; varying vec3 vEye;
+      fragmentShader: `uniform vec3 colour; uniform vec3 data; uniform float activation; varying vec3 vObj; varying vec3 vEye;
         void main() {
           vec3 o = vEye;
           vec3 d = normalize( vObj - o );
@@ -395,11 +398,13 @@ function hazeMeshes(sets: readonly SofHazeSet[]): THREE.Group | null {
           float near = length( o - b * d );
           float source = pow( clamp( 1.0 - near / ( 0.5 * data.y ), 0.0, 1.0 ), data.x / 3.0 );
           float haze = min( data.z * source + pow( chord, data.x ), 1.0 );
-          gl_FragColor = vec4( clamp( haze * colour, 0.0, 1.0 ), 1.0 );
+          gl_FragColor = vec4( clamp( haze * colour * activation, 0.0, 1.0 ), 1.0 );
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
     });
     logDepth(mat);
+    // x the ship's activation strength (the vertex stage's Shipdata.y: activation.ts)
+    followActivation(mat);
     const mesh = new THREE.Mesh(sphere, mat);
     mesh.position.set(it.position[0] ?? 0, it.position[1] ?? 0, -(it.position[2] ?? 0));
     // a rotation in EVE's space, mirrored in z (as the plane sets')

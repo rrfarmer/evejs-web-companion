@@ -8,6 +8,7 @@ import { addDecals, type SofDecalSet } from "./hullDecals.ts";
 import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildren.ts";
 import type { SofController } from "./controllers.ts";
 import { setGpuParticleAssets } from "./gpuParticles.ts";
+import { followActivation } from "./activation.ts";
 import { impactAnchor, type SofImpact } from "./impactOverlay.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -228,7 +229,7 @@ export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo",
 /**
  * A hull area drawn with fx/fxv5.fx or fx/fxdirectionalv5.fx (their record 0, fxres.py; the same pixel stage):
  * Layer1Map at uv x Layer1Transform.xy + .zw + Layer1Scroll.xy x time + .zw, times the ship's activation strength
- * (1), times Layer2Map likewise, times LayerMaskMap at the uv, times BaseColor; the colour times the fresnel (as
+ * (activation.ts: its damage flicker), times Layer2Map likewise, times LayerMaskMap at the uv, times BaseColor; the colour times the fresnel (as
  * ubershader.fx's), alpha as it is. fxdirectionalv5's uv is the mesh's position in EVE's space, scaled by the world
  * transform's axis lengths, dotted with DirectionU and DirectionV (each times its .w). fxv5 blends ONE/ONE itself;
  * fxdirectionalv5 sets nothing: its batch's preset (additive ONE/ONE, transparent alpha). Culling: neither sets one,
@@ -260,7 +261,7 @@ export function fxHullMaterial(area: SofArea, maps: Record<string, THREE.Texture
         vFromEye = ( vec4( mv.xyz, 0.0 ) * viewMatrix ).xyz;
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `uniform vec4 fresnel; uniform vec4 base; uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform float time;
+    fragmentShader: `uniform vec4 fresnel; uniform vec4 base; uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform float time; uniform float activation;
       uniform sampler2D layer1; uniform sampler2D layer2; uniform sampler2D layerMask;
       varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
       void main() {
@@ -268,7 +269,7 @@ export function fxHullMaterial(area: SofArea, maps: Record<string, THREE.Texture
         f = fresnel.y < 0.0 ? ( 1.0 - min( f, 1.0 ) ) * -fresnel.y : f * fresnel.y;
         vec4 c = texture2D( layer1, vUv * t1.xy + t1.zw + s1.xy * time + s1.zw )
           * texture2D( layer2, vUv * t2.xy + t2.zw + s2.xy * time + s2.zw )
-          * texture2D( layerMask, vUv ) * base;
+          * texture2D( layerMask, vUv ) * base * activation;
         gl_FragColor = vec4( c.rgb * f, c.a );
       }`,
     transparent: true, depthWrite: false,
@@ -278,7 +279,7 @@ export function fxHullMaterial(area: SofArea, maps: Record<string, THREE.Texture
       : { blending: THREE.NormalBlending }),
   });
   logDepth(mat);
-  return mat;
+  return followActivation(mat);
 }
 
 /** The engines' share of full thrust a hull model shows (setThrust), for its heat glow; 0 unset (a station). */
