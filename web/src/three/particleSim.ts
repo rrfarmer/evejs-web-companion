@@ -155,6 +155,7 @@ export class ParticleSim {
   readonly arrays = new Map<string, Float32Array>();
   readonly sizes = new Map<string, number>();
   private readonly forces: Force[];
+  private readonly constraints: Constraint[];
   private readonly aging: boolean;
   private readonly simulate: boolean;
   private readonly applyForce: boolean;
@@ -168,6 +169,7 @@ export class ParticleSim {
       this.arrays.set(key, new Float32Array(Math.max(1, this.max) * size));
     }
     this.forces = (data.forces ?? []).map(makeForce).filter((x): x is Force => !!x);
+    this.constraints = (data.constraints ?? []).map((c) => makeConstraint(c, this)).filter((x): x is Constraint => !!x);
     this.aging = data.applyAging !== false;
     this.simulate = data.updateSimulation !== false;
     this.applyForce = data.applyForce !== false;
@@ -199,7 +201,12 @@ export class ParticleSim {
       }
     }
     const pos = this.arrays.get(`type:${ELEMENT.POSITION}`), vel = this.arrays.get(`type:${ELEMENT.VELOCITY}`);
-    if (!this.simulate || !pos || !vel) return;
+    if (this.simulate && pos && vel) this.move(pos, vel, dt);
+    // the constraints, after the move (Tr2ParticleSystem::UpdateSimulation: where updateSimulation)
+    if (this.simulate) for (const c of this.constraints) c(dt);
+  }
+
+  private move(pos: Float32Array, vel: Float32Array, dt: number): void {
     for (const f of this.forces) f.update(dt);
     const mass = this.arrays.get(`type:${ELEMENT.MASS}`);
     const useForces = this.applyForce && this.forces.length > 0;
@@ -216,6 +223,112 @@ export class ParticleSim {
       pos[o] = pos[o]! + vel[o]! * dt; pos[o + 1] = pos[o + 1]! + vel[o + 1]! * dt; pos[o + 2] = pos[o + 2]! + vel[o + 2]! * dt;
     }
   }
+}
+
+type Constraint = (dt: number) => void;
+/**
+ * A system's constraint (Trinity's Particle/Tr2PlaneConstraint.cpp, Tr2SphereConstraint.cpp), bound to it: null where
+ * the system has no POSITION or the type is not ported. Plane: a particle on or behind the plane (normalised; minus its
+ * radius element . particleRadiusCoefficient) and moving into it is moved onto it, its velocity's normal part turned
+ * back x elasticity and the rest x friction (and reflectionNoise: a random push across the normal, x speed); then the
+ * constraint's generators run on it. Sphere: a particle inside the sphere (outside it where invertSphere; the radius
+ * less or more the particle's) is put on its surface, its velocity likewise where it moves inward; one outside that
+ * would cross the surface within dt is put at the crossing; the generators run on every particle not passed over (as
+ * the source has it), and its reflectionNoise replaces the velocity (as the source does). Collision emitters are not
+ * run (the client's files give these only GPU emitters).
+ */
+function makeConstraint(c: Record<string, unknown>, sim: ParticleSim): Constraint | null {
+  const pos = sim.arrays.get(`type:${ELEMENT.POSITION}`);
+  if (!pos) return null;
+  const vel = sim.arrays.get(`type:${ELEMENT.VELOCITY}`) ?? null;
+  const radiusKey = typeof c.particleRadiusComponent === "string" && c.particleRadiusComponent ? `custom:${c.particleRadiusComponent}` : null;
+  const radiusArr = radiusKey ? sim.arrays.get(radiusKey) ?? null : null;
+  if (radiusKey && !radiusArr) return null;
+  const radiusSize = radiusKey ? sim.sizes.get(radiusKey) ?? 0 : 0;
+  const coef = arr(c.particleRadiusCoefficient, 4);
+  if (!Array.isArray(c.particleRadiusCoefficient)) { coef[0] = 1; }
+  const radiusOf = (i: number) => { if (!radiusArr) return 0; let r = 0; for (let d = 0; d < Math.min(4, radiusSize); d++) r += radiusArr[i * radiusSize + d]! * coef[d]!; return r; };
+  const gens = ((c.generators ?? []) as Record<string, unknown>[]).map(makeGenerator);
+  if (gens.some((g) => !g)) return null;
+  const regen = (i: number) => { for (const g of gens) g!(sim, i); };
+  const friction = num(c.friction, 1), elasticity = num(c.elasticity, 1), noise = num(c.reflectionNoise, 0);
+  const affectPos = c.affectPosition !== false, affectVel = c.affectVelocity !== false;
+  if (c.type === "Tr2PlaneConstraint") {
+    const pl = arr(c.plane, 4); if (!Array.isArray(c.plane)) { pl[1] = 1; }
+    const len = Math.hypot(pl[0]!, pl[1]!, pl[2]!) || 1;
+    const n = [pl[0]! / len, pl[1]! / len, pl[2]! / len], d0 = pl[3]! / len;
+    return () => {
+      for (let i = 0; i < sim.alive; i++) {
+        const o = i * 3;
+        const dot = n[0]! * pos[o]! + n[1]! * pos[o + 1]! + n[2]! * pos[o + 2]! + d0 - radiusOf(i);
+        const vd = vel ? n[0]! * vel[o]! + n[1]! * vel[o + 1]! + n[2]! * vel[o + 2]! : -1;
+        if (!(dot <= 0 && vd < 0)) continue;
+        if (affectPos) for (let k = 0; k < 3; k++) pos[o + k] = pos[o + k]! - n[k]! * dot;
+        if (affectVel && vel) {
+          const v = [vel[o]!, vel[o + 1]!, vel[o + 2]!];
+          const out = [0, 1, 2].map((k) => n[k]! * vd * -elasticity + (v[k]! - n[k]! * vd) * friction);
+          if (noise > 0) {
+            const r = [0, 1, 2].map(() => (rand() * 2 - 1) * noise);
+            const rn = r[0]! * n[0]! + r[1]! * n[1]! + r[2]! * n[2]!;
+            const speed = Math.hypot(out[0]!, out[1]!, out[2]!);
+            for (let k = 0; k < 3; k++) out[k] = out[k]! + (r[k]! - n[k]! * rn) * speed;
+          }
+          vel[o] = out[0]!; vel[o + 1] = out[1]!; vel[o + 2] = out[2]!;
+        }
+        regen(i);
+      }
+    };
+  }
+  if (c.type === "Tr2SphereConstraint") {
+    const at = arr(c.position, 3), R = num(c.radius, 1), invert = c.invertSphere === true ? -1 : 1;
+    return (dt) => {
+      for (let i = 0; i < sim.alive; i++) {
+        const o = i * 3;
+        const radius = R + (radiusArr ? (invert < 0 ? -radiusOf(i) : radiusOf(i)) : 0);
+        const off = [pos[o]! - at[0]!, pos[o + 1]! - at[1]!, pos[o + 2]! - at[2]!];
+        const lsq = off[0]! * off[0]! + off[1]! * off[1]! + off[2]! * off[2]!;
+        const v = vel ? [vel[o]!, vel[o + 1]!, vel[o + 2]!] : [0, 0, 0];
+        const respond = (nrm: number[]) => {
+          if (!affectVel || !vel) return;
+          const vd = v[0]! * nrm[0]! + v[1]! * nrm[1]! + v[2]! * nrm[2]!;
+          if (!(vd < 0)) return;
+          const out = [0, 1, 2].map((k) => nrm[k]! * -vd * elasticity + (v[k]! - nrm[k]! * vd) * friction);
+          if (noise > 0) {
+            const r = [0, 1, 2].map(() => (rand() * 2 - 1) * noise);
+            const rn = r[0]! * nrm[0]! + r[1]! * nrm[1]! + r[2]! * nrm[2]!;
+            const speed = Math.hypot(v[0]!, v[1]!, v[2]!);
+            for (let k = 0; k < 3; k++) out[k] = (r[k]! - nrm[k]! * rn) * speed;
+          }
+          vel[o] = out[0]!; vel[o + 1] = out[1]!; vel[o + 2] = out[2]!;
+        };
+        if (lsq * invert < invert * R * R) {
+          if (affectPos) {
+            const l = Math.sqrt(lsq) || 1;
+            const u = [off[0]! / l, off[1]! / l, off[2]! / l];
+            for (let k = 0; k < 3; k++) pos[o + k] = u[k]! * radius + at[k]!;
+            respond(u.map((x) => x * invert));
+          }
+        } else if (vel) {
+          const a = v[0]! * v[0]! + v[1]! * v[1]! + v[2]! * v[2]!;
+          const b = 2 * (v[0]! * off[0]! + v[1]! * off[1]! + v[2]! * off[2]!);
+          const cc = lsq - R * R;
+          const det = b * b - 4 * a * cc;
+          if (det < 0 || a === 0) continue;
+          const t = invert < 0 ? (-b + Math.sqrt(det)) / (2 * a) : (-b - Math.sqrt(det)) / (2 * a);
+          if (t > dt || t < 0) continue;
+          if (affectPos) {
+            const p = [pos[o]! + v[0]! * t, pos[o + 1]! + v[1]! * t, pos[o + 2]! + v[2]! * t];
+            pos[o] = p[0]!; pos[o + 1] = p[1]!; pos[o + 2] = p[2]!;
+            const d = [p[0]! - at[0]!, p[1]! - at[1]!, p[2]! - at[2]!];
+            const l = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
+            respond(d.map((x) => (x / l) * invert));
+          }
+        }
+        regen(i);
+      }
+    };
+  }
+  return null;
 }
 
 type Generator = (sim: ParticleSim, i: number) => void;
