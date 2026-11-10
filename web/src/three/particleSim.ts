@@ -160,6 +160,12 @@ export class ParticleSim {
   private readonly simulate: boolean;
   private readonly applyForce: boolean;
   private last = 0;
+  /**
+   * Its emitParticleOnDeathEmitter's and emitParticleDuringLifeEmitter's work (Tr2ParticleSystem.cpp:584, :699): a dying
+   * particle's position and velocity (in the system's space); a moving one's before and after the step, and the step.
+   */
+  onDeath: ((p: Vec3, v: Vec3 | null) => void) | null = null;
+  duringLife: ((p0: Vec3, p1: Vec3, v0: Vec3, v1: Vec3, dt: number) => void) | null = null;
 
   constructor(readonly data: ParticleSystemData) {
     this.max = Math.min(10000, Math.max(0, num(data.maxParticleCount, 0)));
@@ -194,6 +200,10 @@ export class ParticleSim {
       for (let i = 0; i < this.alive; i++) {
         life[i * 2] = life[i * 2]! + dt / life[i * 2 + 1]!;
         if (life[i * 2]! >= 1) {
+          if (this.onDeath) {
+            const p = this.arrays.get(`type:${ELEMENT.POSITION}`), v = this.arrays.get(`type:${ELEMENT.VELOCITY}`);
+            if (p) this.onDeath([p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!], v ? [v[i * 3]!, v[i * 3 + 1]!, v[i * 3 + 2]!] : null);
+          }
           this.alive--;
           if (i < this.alive) for (const [key, a] of this.arrays) { const s = this.sizes.get(key)!; a.copyWithin(i * s, this.alive * s, (this.alive + 1) * s); }
           i--;
@@ -212,6 +222,7 @@ export class ParticleSim {
     const useForces = this.applyForce && this.forces.length > 0;
     for (let i = 0; i < this.alive; i++) {
       const o = i * 3;
+      const p0: Vec3 | null = this.duringLife ? [pos[o]!, pos[o + 1]!, pos[o + 2]!] : null, v0: Vec3 | null = this.duringLife ? [vel[o]!, vel[o + 1]!, vel[o + 2]!] : null;
       if (useForces) {
         const m = mass ? mass[i]! : 1;
         const p: Vec3 = [pos[o]!, pos[o + 1]!, pos[o + 2]!], v: Vec3 = [vel[o]!, vel[o + 1]!, vel[o + 2]!];
@@ -221,6 +232,7 @@ export class ParticleSim {
         vel[o] = vel[o]! + F[0] * k * dt; vel[o + 1] = vel[o + 1]! + F[1] * k * dt; vel[o + 2] = vel[o + 2]! + F[2] * k * dt;
       }
       pos[o] = pos[o]! + vel[o]! * dt; pos[o + 1] = pos[o + 1]! + vel[o + 1]! * dt; pos[o + 2] = pos[o + 2]! + vel[o + 2]! * dt;
+      if (this.duringLife) this.duringLife(p0!, [pos[o]!, pos[o + 1]!, pos[o + 2]!], v0!, [vel[o]!, vel[o + 1]!, vel[o + 2]!], dt);
     }
   }
 }

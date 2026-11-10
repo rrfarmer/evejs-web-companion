@@ -333,6 +333,75 @@ export class GpuEmitter {
     this.unique = data.type === "Tr2GpuUniqueEmitter";
     this.params = paramsOf(data);
   }
+  /** The unique emitter's scale where scaledByParent: its params scaled (the emit's radius and speeds by the caller). */
+  private scaled(world: THREE.Matrix4): number {
+    const d = this.data;
+    if (this.unique) paramsOf(d, this.params);
+    if (!(this.unique && d.scaledByParent)) return 1;
+    const s = new THREE.Vector3(); world.decompose(new THREE.Vector3(), new THREE.Quaternion(), s);
+    const scale = (Math.abs(s.x) + Math.abs(s.y) + Math.abs(s.z)) / 3;
+    const p = this.params;
+    p.sizes = p.sizes.map((x) => x * scale); p.gravity *= scale; p.turbAmp *= scale; p.attractorStrength *= scale;
+    return scale;
+  }
+
+  /**
+   * Tr2GpuSharedEmitter::Spawn: rate x deltaTime (x emitCountFactor) plus what is carried, plus the emission density
+   * for the move, nothing past maxDisplacement; the request from start to end. The carry left.
+   */
+  private spawnCore(start: THREE.Vector3, end: THREE.Vector3, velStart: THREE.Vector3, velEnd: THREE.Vector3, carry: number, deltaTime: number,
+    system: GpuParticleSystem, world: THREE.Matrix4, scale: number, emitCountFactor = 1): number {
+    const d = this.data;
+    let total = carry + deltaTime * n0(d.rate, 0) * emitCountFactor;
+    const move = start.distanceTo(end);
+    if (move > n0(d.maxDisplacement, 1000)) return 0;
+    const density = n0(d.emissionDensity, 0);
+    if (density > 0) total += Math.min(n0(d.maxEmissionDensity, 10000), move * density);
+    const left = total - Math.floor(total);
+    const count = Math.max(Math.trunc(total), 0);
+    if (count) {
+      const inherit = n0(d.inheritVelocity, 1);
+      const dirPrev = this.emittedOnce ? this.dir.clone() : new THREE.Vector3();
+      this.dir.set(...(v3(d.direction, [0, 1, 0]) as [number, number, number])).transformDirection(world);
+      this.emittedOnce = true;
+      system.emit({
+        count, seed: (Math.floor(Math.random() * 32768) << 16) >>> 0,
+        pos: end.clone(), posPrev: start.clone(), dir: this.dir.clone(), dirPrev,
+        vel: velEnd.clone().multiplyScalar(inherit), velPrev: velStart.clone().multiplyScalar(inherit),
+        radius: n0(d.radius, 0) * scale, angle: n0(d.angle, 0), inner: n0(d.innerAngle, 0),
+        minSpeed: n0(d.minSpeed, 0) * scale, maxSpeed: n0(d.maxSpeed, 0) * scale, params: this.params,
+      });
+    }
+    return left;
+  }
+
+  /**
+   * SpawnParticles(args, position, velocity, rateModifier) (an on-death emitter): int(rate x modifier) at once from the
+   * point (the system's space; the emitter's own position without one), no carry. The attractor is not moved into the
+   * world here (only Update does that: such an emitter pulls toward the world's origin, as the client's).
+   */
+  spawnAt(world: THREE.Matrix4, system: GpuParticleSystem, at: number[] | null, vel: number[] | null, modifier = 1): void {
+    const scale = this.scaled(world);
+    const P = new THREE.Vector3(...((at ?? v3(this.data.position, [0, 0, 0])) as [number, number, number])).applyMatrix4(world);
+    const V = vel ? new THREE.Vector3(...(vel as [number, number, number])).applyMatrix3(new THREE.Matrix3().setFromMatrix4(world)) : new THREE.Vector3();
+    this.spawnCore(P, P, V, V, 0, modifier, system, world, scale);
+  }
+
+  /**
+   * SpawnParticles(args, posStart, posEnd, velStart, velEnd, dt) (an emit-during-life emitter, for each particle of its
+   * system each step): from where the particle was to where it is, all of the system's particles sharing one carry.
+   */
+  spawnAlong(world: THREE.Matrix4, system: GpuParticleSystem, p0: number[], p1: number[], v0: number[], v1: number[], dt: number): void {
+    const scale = this.scaled(world);
+    const m3 = new THREE.Matrix3().setFromMatrix4(world);
+    const end = new THREE.Vector3(...(p1 as [number, number, number])).applyMatrix4(world);
+    const start = new THREE.Vector3(...(p0 as [number, number, number])).applyMatrix4(world).sub(system.pending);
+    const velStart = new THREE.Vector3(...(v0 as [number, number, number])).applyMatrix3(m3);
+    // (the client subtracts the origin shift from the end's velocity too: Tr2GpuSharedEmitter.cpp:165-191)
+    const velEnd = new THREE.Vector3(...(v1 as [number, number, number])).applyMatrix3(m3).sub(system.pending);
+    this.carry = this.spawnCore(start, end, velStart, velEnd, this.carry, Math.min(dt, 1 / 15), system, world, scale);
+  }
+
   update(now: number, world: THREE.Matrix4, system: GpuParticleSystem, emitCountFactor = 1): void {
     const d = this.data;
     const first = this.prevTime < 0;

@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { sceneReflection } from "./celestialModel.ts";
 import { loadDds3D } from "./ddsTexture.ts";
+import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
 
 import { ELEMENT, ParticleEmitter, ParticleSim, elementKey, type ParticleEmitterData, type ParticleSystemData } from "./particleSim.ts";
 
@@ -752,6 +753,15 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     }
   }
   const updated = node.updated.map((i) => sims[i]).filter((s): s is ParticleSim => !!s);
+  // the systems' GPU emitters on a particle's death and along its life (into the scene's GPU particle system, from the
+  // drawn object's place: the systems' space)
+  let drawnBy: { scene: THREE.Object3D; world: THREE.Matrix4 } | null = null;
+  for (const s of sims) {
+    const hook = (k: string) => { const e = s.data[k] as GpuEmitterData | undefined; return e && /^Tr2Gpu(Unique|Shared)Emitter$/.test(e.type ?? "") ? new GpuEmitter(e) : null; };
+    const death = hook("emitParticleOnDeathEmitter"), life = hook("emitParticleDuringLifeEmitter");
+    if (death) s.onDeath = (p, v) => { if (drawnBy) death.spawnAt(drawnBy.world, gpuSystemOf(drawnBy.scene), p, v, 1); };
+    if (life) s.duringLife = (p0, p1, v0, v1, dt) => { if (drawnBy) life.spawnAlong(drawnBy.world, gpuSystemOf(drawnBy.scene), p0, p1, v0, v1, dt); };
+  }
   const usage = new Map<number, string>();
   for (const e of sim.data.elements ?? []) if ((e.elementType ?? ELEMENT.CUSTOM) === ELEMENT.CUSTOM && e.usedByGPU !== false) usage.set(e.usageIndex ?? 0, elementKey(e));
   const geometry = new THREE.InstancedBufferGeometry();
@@ -778,8 +788,10 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
   let stepped = 0;
   // stepped from the material's hook: a model's copies (Object3D.clone) share the material and the geometry but not
   // an object's own onBeforeRender
-  material.onBeforeRender = (_r, scene) => {
+  material.onBeforeRender = (_r, scene, _c, _g, object) => {
     (material.userData.beforeDraw as ((s: THREE.Object3D) => void) | undefined)?.(scene);
+    object.updateWorldMatrix(true, false);
+    drawnBy = { scene, world: object.matrixWorld };
     const now = performance.now() / 1000;
     if (now === stepped) return;
     stepped = now;
