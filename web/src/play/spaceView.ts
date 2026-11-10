@@ -748,7 +748,7 @@ export class SpaceView {
         // ratio); a ship's own capacitor is not in the park's slim item.
         capacitorRatio: this.options.rack?.capacitor?.().ratio ?? ego.capacitorRatio ?? null,
         capacitorMax: this.options.rack?.capacitor?.().max ?? null,
-        speed, maxSpeed: ego.maxVelocity ?? null,
+        speed, maxSpeed: ego.maxVelocity ?? null, warping: ego.mode === "WARP",
       });
       this.modeEl.textContent = ego.mode === "STOP" && speed < 1 ? "Stopped" : ego.mode === "WARP" ? "Warping" : ego.mode === "ORBIT" ? "Orbiting" : ego.mode === "FOLLOW" ? "Approaching" : speed > 0.5 ? "Moving" : "";
     }

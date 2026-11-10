@@ -120,6 +120,8 @@ export interface ShipHudState {
   capacitorMax: number | null;
   /** m/s */
   speed: number;
+  /** The ship's ball is in warp mode (activeShipController.IsInWarp: from the warp order on, its align too). */
+  warping?: boolean;
   maxSpeed: number | null;
   /** 0..1 rack heat; the heat gauges stay at 0 when left out. */
   heatLow?: number; heatMed?: number; heatHi?: number;
@@ -410,7 +412,7 @@ export class ShipHud {
   /** Called every frame; work is done only where something changed. */
   update(s: ShipHudState): void {
     const now = performance.now();
-    this.setSpeed(s.speed, s.maxSpeed);
+    this.setSpeed(s.speed, s.maxSpeed, s.warping === true);
 
     // ShipUI.UpdateGauges reads HP every 500 ms; each gauge morphs to a new value over 0.5 s.
     if (now - this.lastHpRead >= 500) {
@@ -461,14 +463,16 @@ export class ShipHud {
 
   // ── speed ──
 
-  private setSpeed(speed: number, maxSpeed: number | null): void {
+  private setSpeed(speed: number, maxSpeed: number | null, warping = false): void {
     const portion = maxSpeed && maxSpeed > 0 ? clamp01(speed / maxSpeed) : 0;
     if (Math.abs(portion - this.speedPortion) > 1e-4) {
       this.speedPortion = portion;
       this.needle.style.transform = `rotate(${-(45 + 90 * portion)}deg)`;
     }
     // activeShipController._GetSpeedFormatted: one decimal under 100 m/s, whole metres above
-    const text = !Number.isFinite(speed) ? "" : speed < 100 ? `${(Math.round(speed * 10) / 10).toFixed(1)} m/s` : `${Math.trunc(speed).toLocaleString("en-US")} m/s`;
+    // speedGauge.UpdateSpeedThread: in warp the label is UI/Inflight/WarpSpeedNotification with
+    // UI/Inflight/Scanner/Warping, "(Warping)", not the speed
+    const text = warping ? "(Warping)" : !Number.isFinite(speed) ? "" : speed < 100 ? `${(Math.round(speed * 10) / 10).toFixed(1)} m/s` : `${Math.trunc(speed).toLocaleString("en-US")} m/s`;
     if (text !== this.speedText) { this.speedText = text; this.speedLabel.textContent = text; }
   }
 

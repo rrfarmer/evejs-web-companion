@@ -133,8 +133,35 @@ export class HangarView {
     this.lastInput = performance.now();
     this.place(entryAt(first ? 0 : 1, this.zoom.near, this.zoom.far, this.swing));
     this.lightHangar(look);
+    if (hangar) this.probe(look);
   }
   private shownBefore = false;
+
+  /**
+   * The reflection probe (hangarView's reflectionProbe): the client lights a docked ship mostly by a cube rendered of
+   * the hangar about it. Here the hangar is rendered once into a cube from the ship's place, the ship hidden, and
+   * that cube, filtered for rough surfaces (PMREM), is what the hulls reflect and are lit by.
+   */
+  private probeTarget: THREE.WebGLCubeRenderTarget | null = null;
+  private probeEnv: THREE.Texture | null = null;
+  private probe(at: THREE.Vector3): void {
+    this.probeTarget?.dispose();
+    this.probeEnv?.dispose();
+    const target = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    const eye = new THREE.CubeCamera(1, 1e5, target);
+    eye.position.copy(at);
+    this.turntable.visible = false;
+    this.scene.updateMatrixWorld(true);
+    eye.update(this.renderer, this.scene);
+    this.turntable.visible = true;
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.probeEnv = pmrem.fromCubemap(target.texture).texture;
+    pmrem.dispose();
+    this.probeTarget = target;
+    this.scene.environment = this.probeEnv;
+    this.scene.environmentRotation.set(0, 0, 0);
+    this.scene.environmentIntensity = 1;
+  }
 
   /** The camera put at a yaw, pitch and distance about its target (and a fov, where given). */
   private place(at: { yaw: number; pitch: number; distance: number; fov?: number }): void {
@@ -189,7 +216,7 @@ export class HangarView {
   /**
    * The hangar's EveSpaceScene: its reflection cube for what the hulls reflect (as the space view takes a nebula's,
    * a half turn about y), its sun as the key light (sunDiffuseColor along sunDirection), no ambient (ambientColor is
-   * black in the race hangars). Without one, the dark bay's studio light.
+   * black in the race hangars), the studio lights at a third as a fill. Without one, the dark bay's studio light.
    */
   private async setScene(scene: HangarScene | null): Promise<void> {
     this.sun.intensity = 0;
@@ -201,9 +228,14 @@ export class HangarView {
         this.scene.environmentIntensity = 1;
       } catch { /* a cube this GPU cannot take: the studio one stays */ }
     }
-    for (const l of this.studio) l.intensity = 0;
+    // The client lights a docked ship mostly through its live reflection probe of the hangar (hangarView's
+    // reflectionProbe; the scenes even turn the sun black where dynamic lights are on, and none of the hangar's own
+    // point lights reaches the pad). We have only the scene's static cube, dark in some hangars (ch1's is near black):
+    // so the studio lights stay on at a third as a fill, our own drawing's stand-in for the probe.
+    for (const l of this.studio) l.intensity = (l.userData.full ?? l.intensity) * 0.3;
     const c = scene.sunDiffuseColor ?? [1, 1, 1, 1];
-    const d = scene.sunDirection ?? [1, -1, 1];
+    // a scene that names no sunDirection (ch1) is lit from overhead here
+    const d = scene.sunDirection ?? [0, -1, 0];
     this.sun.color.setRGB(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1);
     this.sun.intensity = 3;
     // light comes along sunDirection: the light sits against it (EVE z mirrored)
@@ -250,6 +282,8 @@ export class HangarView {
     this.controls.removeEventListener("start", this.onInput);
     this.renderer.domElement.removeEventListener("wheel", this.onInput);
     this.controls.dispose();
+    this.probeTarget?.dispose();
+    this.probeEnv?.dispose();
     this.renderer.dispose();
     this.root.remove();
   }
