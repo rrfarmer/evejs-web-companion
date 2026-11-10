@@ -114,7 +114,7 @@ function readCurveSet(cs) {
     });
   }
   const ranges = (cs.ranges ?? []).filter((r) => r?.name).map((r) => ({ name: r.name, start: r.startTime ?? 0, end: r.endTime ?? 1, looped: r.looped === true }));
-  return { name: cs.name ?? null, playOnLoad: cs.playOnLoad !== false, scale: cs.scale ?? 1, ranges, curves: curves.map(curveData), bindings };
+  return { id: idOf(cs), name: cs.name ?? null, playOnLoad: cs.playOnLoad !== false, scale: cs.scale ?? 1, ranges, curves: curves.map(curveData), bindings };
 }
 
 // The object files Tr2ActionChildEffect loads (by their .red path, as the actions name them), each read once per build
@@ -186,6 +186,11 @@ function readController(c, skipped, owner) {
             if (target) return { k: "setDisplay", target: idOf(target), value };
             skipped[a.type] = (skipped[a.type] ?? 0) + 1;
             return { k: a.type };
+          }
+          if (a.type === "Tr2ActionAnimateCurveSet") {
+            if (!a.curveSet) { skipped[a.type] = (skipped[a.type] ?? 0) + 1; return { k: a.type }; }
+            // its set is its own (held by the action, no container's): read with it, never played, only applied
+            return { k: "animateCurveSet", curveSet: idOf(a.curveSet), ownSet: { ...readCurveSet(a.curveSet), playOnLoad: false }, value: String(a.value ?? "StateTime()") };
           }
           if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
           if (a.type === "Tr2ActionChildEffect") {

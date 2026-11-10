@@ -104,6 +104,12 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
   return group;
 }
 
+/** The ship's speed and top speed (m/s), for its children's controllers (ShipSpeed(), ShipMaxSpeed()). */
+export function setShipSpeed(model: THREE.Object3D, speed: number, maxSpeed: number): void {
+  model.userData.shipSpeed = speed;
+  model.userData.shipMaxSpeed = maxSpeed;
+}
+
 /** Engines burn as the ship goes: the flames' length follows speed, as a share of the ship's top speed. */
 export function setThrust(model: THREE.Object3D, share: number): void {
   // the heat glow's booster intensity (sofHullMaterial)

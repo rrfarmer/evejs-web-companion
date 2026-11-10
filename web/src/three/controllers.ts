@@ -14,15 +14,19 @@
 // is the owner's sets' length (or the range's). Tr2ActionSetValue: its value expression into one of the controller's
 // variables (marking them changed: the transitions that read variables are looked at again on the next update) or
 // into an object's display (a path from Owner through objects["name"], resolved to the object when read). Random(min,
-// max) is min + rand() % int(max - min). The other actions, the ship functions and the controller's event handlers
+// max) is min + rand() % int(max - min). Tr2ActionAnimateCurveSet applies its set at its value expression's value
+// each update (StateTime() there its own time; the files' are ShipSpeed()/ShipMaxSpeed() and ActivationStrength).
+// ShipSpeed() and ShipMaxSpeed() read the ship's model (setShipSpeed). The other actions, the ship functions and the controller's event handlers
 // are not run yet: a condition that calls a function not here never holds.
 
 import * as THREE from "three";
 
 export interface SofControllerAction {
   k: string;
-  /** setVar: the variable; setDisplay: the target's id; both: the value expression. */
+  /** setVar: the variable; setDisplay: the target's id; both, and animateCurveSet: the value expression. */
   variable?: string;
+  /** animateCurveSet: the set's id. */
+  curveSet?: number;
   target?: number;
   value?: string;
   set?: string;
@@ -45,7 +49,7 @@ export interface SofController {
   machines: { name: string | null; start: number; states: SofControllerState[] }[];
 }
 
-type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number };
+type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number; ship?: () => { speed: number; max: number } };
 /** masked: pure and reading a variable (looked at only when a variable changed). */
 type Compiled = { run: (s: Scope) => number; masked: boolean } | null;
 
@@ -91,6 +95,10 @@ export function compileCondition(src: string): Compiled {
           pure = false;
           return (s) => s.curveSetTime(name);
         }
+        // ShipSpeed(): the owning ship's speed (m/s; nought for a station); ShipMaxSpeed(): its top speed (1 where
+        // it has none)
+        if (t === "ShipSpeed" && !args.length) { pure = false; return (s) => s.ship?.().speed ?? 0; }
+        if (t === "ShipMaxSpeed" && !args.length) { pure = false; return (s) => { const m = s.ship?.().max ?? 0; return m > 0 ? m : 1; }; }
         if (t === "Random" && args.length === 2 && typeof args[0] === "function" && typeof args[1] === "function") {
           // min + rand() % int(max - min)
           const lo = args[0], hi = args[1];
@@ -151,6 +159,8 @@ export interface ChildEffectHost {
   build(effect: string): Promise<THREE.Object3D | null>;
   /** The curve sets of that name under the owner (by its id): played (with a range or without), stopped, measured. */
   play?(owner: number, name: string, range: string): void;
+  /** A curve set (by id) applied at a time (TriCurveSet::ApplyTime). */
+  applyTime?(set: number, time: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
   setDisplay?(target: number, on: boolean): void;
   stop?(owner: number, name: string): void;
@@ -197,7 +207,7 @@ export class ControllerRun {
     const run = this.machines[i]!;
     for (let hop = 0; hop < 40 && run.current >= 0; hop++) {
       const state = m.states[run.current]!;
-      const scope = { vars: this.vars, stateTime: now - run.stateStart, curveSetTime: (name: string) => this.curveSetTime(name) };
+      const scope = { vars: this.vars, stateTime: now - run.stateStart, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() };
       const t = state.transitions.find((tr) => {
         if (tr.to < 0 || !m.states[tr.to]) return false;
         const c = conditionOf(tr.condition);
@@ -218,6 +228,14 @@ export class ControllerRun {
     }
   }
 
+  /** The owning ship's speed and top speed (setShipSpeed on its model; nought where none is set). */
+  private ship(): { speed: number; max: number } {
+    for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) {
+      if (typeof o.userData.shipSpeed === "number") return { speed: o.userData.shipSpeed as number, max: (o.userData.shipMaxSpeed as number) ?? 0 };
+    }
+    return { speed: 0, max: 0 };
+  }
+
   /** CurveSetTime("set") or ("set/range") of the owner's sets. */
   private curveSetTime(name: string): number {
     if (this.ownerId === null || !this.host.duration) return 0;
@@ -231,10 +249,22 @@ export class ControllerRun {
       if ((a.k === "setVar" || a.k === "setDisplay") && a.value !== undefined) {
         const c = conditionOf(a.value);
         if (!c) continue;
-        const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name) });
+        const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() });
         if (a.k === "setVar" && a.variable && this.vars.has(a.variable)) {
           if (this.vars.get(a.variable) !== v) { this.vars.set(a.variable, v); this.dirty = true; }
         } else if (a.k === "setDisplay" && a.target !== undefined) this.host.setDisplay?.(a.target, v !== 0);
+        continue;
+      }
+      // Tr2ActionAnimateCurveSet: each update (after the machines'), its set applied at its value expression's value,
+      // StateTime() there the time since the action started
+      if (a.k === "animateCurveSet" && a.curveSet !== undefined && this.host.applyTime) {
+        const c = conditionOf(a.value || "StateTime()");
+        if (!c) continue;
+        const host = this.host, set = a.curveSet, start = now;
+        run.live.push({
+          stop: () => {},
+          tick: (t) => host.applyTime!(set, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() })),
+        });
         continue;
       }
       if (a.k === "playCurveSet" && a.set && this.ownerId !== null && this.host.play) {

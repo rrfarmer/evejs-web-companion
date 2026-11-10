@@ -992,6 +992,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
         stop: (owner: number, name: string) => animator?.stop(owner, name),
         setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
+        applyTime: (set: number, time: number) => animator?.applyTime(set, time),
         duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
       };
       const owners: THREE.Object3D[] = [];
@@ -1106,7 +1107,14 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         const g = new THREE.Group();
         g.name = `child-container:${node.name ?? ""}`;
         // a controller's owner: the child effects its states load go here
-        if (node.controllers?.length) { g.userData.controllerOwner = controllers.length; g.userData.controllerOwnerId = node.id ?? null; controllers.push(node.controllers); }
+        if (node.controllers?.length) {
+          g.userData.controllerOwner = controllers.length; g.userData.controllerOwnerId = node.id ?? null; controllers.push(node.controllers);
+          // the sets its AnimateCurveSet actions hold (their own, applied at a time each update, never played)
+          for (const c of node.controllers) for (const m of c.machines) for (const s of m.states) for (const a of s.actions) {
+            const set = (a as { ownSet?: unknown }).ownSet;
+            if (a.k === "animateCurveSet" && set && typeof set === "object") animator.curveSets([set as SofCurveSet], ancestors);
+          }
+        }
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
         // a curve set may drive its SRT modifier (found in a clone by the container's id)
         if (node.srt?.id !== undefined && node.id !== undefined) { g.userData.childId = node.id; animator.srt(node.srt.id, node.id, node.srt); }

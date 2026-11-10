@@ -21,6 +21,8 @@ import * as THREE from "three";
 import { colorValue, curveValue, rotationValue, vector3Value, type Curve } from "./curves.ts";
 
 export interface SofCurveSet {
+  /** Its id (a controller's AnimateCurveSet names it). */
+  id?: number;
   name: string | null;
   /** false: waits for a controller to play it (absent: plays on load). */
   playOnLoad?: boolean;
@@ -85,7 +87,7 @@ interface SrtTarget { kind: "srt"; owner: number; translation: number[]; rotatio
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 /** A set's play state: its owners (the containers it is under, its own first-to-last), time and range. */
-interface SetRun { set: SofCurveSet; owners: number[]; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null }
+interface SetRun { set: SofCurveSet; owners: number[]; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null }
 
 /** A curve's length (Tr2CurveScalar::Length: its last key's time; a composite's, its parts' longest). */
 function curveLength(c: unknown): number {
@@ -138,7 +140,7 @@ export class ChildAnimator {
     };
     for (const s of sets ?? []) {
       const onLoad = s.playOnLoad !== false;
-      this.sets.push({ set: s, owners, playing: onLoad, last: performance.now(), time: 0, range: null });
+      this.sets.push({ set: s, owners, playing: onLoad, last: performance.now(), time: 0, range: null, applyAt: null });
       index(s.curves);
       for (const b of s.bindings) { if (b.id !== undefined) this.bindingsById.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
     }
@@ -162,6 +164,10 @@ export class ChildAnimator {
     }
   }
   stop(owner: number, name: string): void { for (const r of this.under(owner, name)) r.playing = false; }
+  /** TriCurveSet::ApplyTime: the set's curves and bindings at that time, next step (a playing set goes on from it). */
+  applyTime(id: number, time: number): void {
+    for (const r of this.sets) if (r.set.id === id) r.applyAt = time;
+  }
   /** A controller's SetValue on an object's display (a container, mesh, quad or line set). */
   setDisplay(id: number, on: boolean): void {
     const t = this.targets.get(id);
@@ -184,11 +190,12 @@ export class ChildAnimator {
   step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number>; srts?: Map<number, number> }): void {
     const now = performance.now();
     for (const run of this.sets) {
-      if (!run.playing) continue;
+      if (!run.playing && run.applyAt === null) continue;
       const set = run.set;
-      run.time += set.scale * Math.max(0, now - run.last) / 1000;
+      if (run.applyAt !== null) { run.time = run.applyAt; run.applyAt = null; run.last = now; }
+      else run.time += set.scale * Math.max(0, now - run.last) / 1000;
       run.last = now;
-      if (run.range) {
+      if (run.range && run.playing) {
         const { min, max, looped } = run.range;
         if (run.time < min) run.time = min;
         run.time = looped && max > min ? ((run.time - min) % (max - min)) + min : Math.min(run.time, max);

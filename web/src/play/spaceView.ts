@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
-import { typeModel, setThrust } from "../three/hullModel.ts";
+import { typeModel, setThrust, setShipSpeed } from "../three/hullModel.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
@@ -699,6 +699,7 @@ export class SpaceView {
       mark.position.copy(rel);
       this.orient(mark, e);
       if (e.maxVelocity) setThrust(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity);
+      setShipSpeed(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z), e.maxVelocity ?? 0);
       if (e.kind === "sun") this.sunLight.position.copy(rel).normalize();
       if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);
