@@ -7,6 +7,7 @@
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
+import { sceneReflection } from "./celestialModel.ts";
 
 import { ELEMENT, ParticleEmitter, ParticleSim, elementKey, type ParticleEmitterData, type ParticleSystemData } from "./particleSim.ts";
 
@@ -191,6 +192,13 @@ function staticParticleVS(decl: string, body: string): string {
  * particles/dynamic/motionvectorramp.fx (its one record) is the COLOR_RAMP_ENABLED, NEAR_FADE_DISABLED record but for
  * two things: a pixel of nought alpha is not discarded, and the alpha is a x the ramp's alpha (no Colors2).
  *
+ * COLOR_BY_VALUE (dynamic): no ramp - the vertex stage's colour Color1 to Color2 over age 0 .. ColorMidpoint, Color2
+ * to Color3 from it to 1 (1layerdynv2's), and the frames' alpha alone (blended, nought discarded): the colour x that,
+ * its rgb x Colors.z, its alpha x Colors2.w. With NEBULA_BLEEDING (the only nebula permutation the children use is
+ * this one) the scene's reflection cube (EveSpaceSceneEnvMap, sRGB) is added to the rgb before Colors.z: read along the
+ * eye's ray to the particle at mip 7 (1 - log2(2 / (ParticleParams.w / 8)^4 - 1) / 28) (nought where .w is under
+ * 0.004204), times the colour's alpha x ParticleParams.z.
+ *
  * PARTICLE_STATIC (COLOR_RAMP_ENABLED; its static records): the static vertex stage, the flipbook's "age" time /
  * AtlasInfo.z + TEXCOORD9.x (cb1[45].x, the frame's time - so it loops where AtlasInfo.w), and the colour (the ramp's,
  * all four) times TEXCOORD10 before Colors.z and Colors2.w.
@@ -198,10 +206,14 @@ function staticParticleVS(decl: string, body: string): string {
 export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, dynamicRamp = false): THREE.ShaderMaterial | null {
   const o = (dynamicRamp ? { PARTICLE_TYPE: "PARTICLE_DYNAMIC", COLOR_RAMP: "COLOR_RAMP_ENABLED" } : area.options) as Record<string, string>;
   const type = o.PARTICLE_TYPE ?? "PARTICLE_STATIC";
-  if ((type !== "PARTICLE_DYNAMIC" && type !== "PARTICLE_STATIC") || (o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED") return null;
+  if (type !== "PARTICLE_DYNAMIC" && type !== "PARTICLE_STATIC") return null;
   const isStatic = type === "PARTICLE_STATIC";
   const ramp = o.COLOR_RAMP ?? "COLOR_RAMP_DISABLED";
-  if (ramp !== "COLOR_RAMP_ENABLED" && (ramp !== "COLOR_RAMP_2_RAMPS" || isStatic)) return null;
+  // (its NEAR_FADE_DISABLED record read; the census has no other)
+  const byValue = ramp === "COLOR_BY_VALUE" && !isStatic && !dynamicRamp && (o.NEAR_FADE ?? "NEAR_FADE_DISABLED") === "NEAR_FADE_DISABLED";
+  const nebula = byValue && o.NEBULA_BLEEDING === "NEBULA_BLEEDING_ENABLED";
+  if (ramp !== "COLOR_RAMP_ENABLED" && !byValue && (ramp !== "COLOR_RAMP_2_RAMPS" || isStatic)) return null;
+  if ((o.NEBULA_BLEEDING ?? "NEBULA_BLEEDING_DISABLED") !== "NEBULA_BLEEDING_DISABLED" && !nebula) return null;
   if ((o.LIGHTING_MODE ?? "LIGHTING_DISABLED") !== "LIGHTING_DISABLED") return null;
   const twoRamps = ramp === "COLOR_RAMP_2_RAMPS";
   const fade = o.NEAR_FADE ?? "NEAR_FADE_DISABLED";
@@ -213,6 +225,9 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
     atlas: { value: v4(p.AtlasInfo, [6, 6, 10, 1]) }, colors: { value: v4(p.Colors, [0, 1, 1, 0.01]) },
     colors2: { value: v4(p.Colors2, [1, 1, 1, 1]) }, particleParams: { value: v4(p.ParticleParams, [0, 100, 0.5, 0]) },
     selfIllum: { value: v4(p.SelfIllumination, [0, 1, 1, 0]) },
+    color1: { value: v4(p.Color1, [1, 1, 1, 0]) }, color2: { value: v4(p.Color2, [0.5, 0.5, 0.5, 0]) }, color3: { value: v4(p.Color3, [0, 0, 0, 0]) },
+    colorMidpoint: { value: f1(p.ColorMidpoint, 0.5) },
+    envCube: sceneReflection, hasEnv: { get value() { return sceneReflection.value ? 1 : 0; } },
     textureMap: { value: null }, rampMap: { value: null }, gradientMap: { value: null }, siMap: { value: null },
   };
   const load = (res: string | null | undefined, name: string) => void textureOf(res).then((t) => { if (t) uniforms[name]!.value = t; });
@@ -224,10 +239,16 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
     uniforms,
     vertexShader: isStatic
       ? staticParticleVS("uniform float time; uniform vec4 atlas; varying vec3 vUvAge; varying vec4 vColor;", "vUvAge = vec3( uv, time / atlas.z + iT9 ); vColor = iT10;")
-      : dynamicParticleVS(false, "varying vec3 vUvAge;", "vUvAge = vec3( uv, age );"),
+      : byValue
+        ? dynamicParticleVS(false, "uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint; varying vec3 vUvAge; varying vec4 vColor; varying vec3 vFromEye;",
+          `vUvAge = vec3( uv, age );
+        vFromEye = ( modelMatrix * vec4( iPos, 1.0 ) ).xyz - cameraPosition;
+        vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
+          : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );`)
+        : dynamicParticleVS(false, "varying vec3 vUvAge;", "vUvAge = vec3( uv, age );"),
     fragmentShader: `uniform sampler2D textureMap; uniform sampler2D rampMap; uniform sampler2D gradientMap; uniform sampler2D siMap;
       uniform vec4 atlas; uniform vec4 colors; uniform vec4 colors2; uniform vec4 particleParams; uniform vec4 selfIllum;
-      varying vec3 vUvAge; varying float vDepth;${isStatic ? " varying vec4 vColor;" : ""}
+      varying vec3 vUvAge; varying float vDepth;${isStatic || byValue ? " varying vec4 vColor;" : ""}${byValue ? " varying vec3 vFromEye; uniform samplerCube envCube; uniform float hasEnv;" : ""}
       ${SRGB}
       ${CLAMP_UV}
       vec2 cell(float f) {
@@ -255,6 +276,16 @@ export function motionVectorParticleMaterial(area: Area, textureOf: TextureOf, d
         vec4 a = texture2D(textureMap, clampUv(textureMap, (clamp(vUvAge.xy - mv.xy, 0.0, 1.0) + c0) / atlas.xy));
         vec4 b = texture2D(textureMap, clampUv(textureMap, (clamp(vUvAge.xy + mv.zw, 0.0, 1.0) + c1) / atlas.xy));
         vec2 v = mix(vec2(decode(a.rgb).r, a.a), vec2(decode(b.rgb).r, b.a), k);
+        ${byValue ? `if (v.y <= 0.0) discard;
+        vec4 byValue = v.y * vColor;
+        ${nebula ? `if (hasEnv > 0.5) {
+          float r4 = particleParams.w * 0.125; r4 *= r4; r4 *= r4;
+          float lod = particleParams.w >= 0.004204 ? 7.0 * (1.0 - log2(2.0 / r4 - 1.0) * 0.035714) : 0.0;
+          // EVE's direction (our z mirrored), as the background's cube is read
+          byValue.rgb += decode(textureLod(envCube, vec3(vFromEye.x, vFromEye.y, -vFromEye.z), lod).rgb) * byValue.a * particleParams.z;
+        }` : ""}
+        gl_FragColor = vec4(encode(max(byValue.rgb * colors.z, 0.0)), byValue.a * colors2.w);
+        return;` : ""}
         ${dynamicRamp ? "" : "if (v.y <= 0.0) discard;"}
         vec4 ramp = texture2D(rampMap, clampUv(rampMap, vec2(clamp((v.x - colors.x) / (colors.y - colors.x), 0.0, 1.0), age)));
         ${isStatic ? "ramp = vec4(decode(ramp.rgb), ramp.a) * vColor; vec3 rgb = ramp.rgb * colors.z;" : "vec3 rgb = decode(ramp.rgb) * colors.z;"}

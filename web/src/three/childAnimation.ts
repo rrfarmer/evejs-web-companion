@@ -46,9 +46,29 @@ type Value = number | number[];
 
 const COMPONENT: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3 };
 
+/**
+ * Tr2CurveColorMixer's value (Curves/Tr2CurveColorMixer.cpp GetValue): lerp(color1, color2, lerpValue), drawn toward
+ * its own intensity (0.299 r + 0.587 g + 0.114 b, all four) where saturation is not 1, times brightness, its alpha
+ * alphaOverride (saturated) where that is not -1. Defaults: colours (0, 0, 0, 1), lerpValue 0, saturation and
+ * brightness 1, alphaOverride -1. Its convertedLinearValue is that with r, g and b sRGB-decoded.
+ */
+function mixerValue(c: Record<string, unknown>, linear: boolean): number[] {
+  const a = Array.isArray(c.color1) ? (c.color1 as number[]) : [0, 0, 0, 1], b = Array.isArray(c.color2) ? (c.color2 as number[]) : [0, 0, 0, 1];
+  const t = typeof c.lerpValue === "number" ? c.lerpValue : 0;
+  let out = [0, 1, 2, 3].map((i) => (a[i] ?? (i === 3 ? 1 : 0)) + ((b[i] ?? (i === 3 ? 1 : 0)) - (a[i] ?? (i === 3 ? 1 : 0))) * t);
+  const sat = typeof c.saturation === "number" ? c.saturation : 1;
+  if (sat !== 1) { const i = out[0]! * 0.299 + out[1]! * 0.587 + out[2]! * 0.114; out = out.map((v) => i + (v - i) * Math.max(0, sat)); }
+  const k = typeof c.brightness === "number" ? c.brightness : 1;
+  out = out.map((v) => v * k);
+  if (typeof c.alphaOverride === "number" && c.alphaOverride !== -1) out[3] = Math.min(1, Math.max(0, c.alphaOverride));
+  if (linear) for (let i = 0; i < 3; i++) { const x = out[i]!; out[i] = x < 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }
+  return out;
+}
+
 /** A curve's value as a binding reads its currentValue. */
 function valueOf(curve: Curve, time: number): Value {
   switch (curve.type) {
+    case "Tr2CurveColorMixer": return mixerValue(curve as unknown as Record<string, unknown>, false);
     case "Tr2CurveColor": return colorValue(curve as never, time);
     case "Tr2CurveVector3": case "Tr2CurveVector3Expression": return vector3Value(curve as never, time);
     case "Tr2CurveEulerRotation": case "Tr2CurveEulerRotationExpression": return rotationValue(curve as never, time);
@@ -220,15 +240,17 @@ export class ChildAnimator {
         const target = this.targets.get(b.destination);
         // a curve's own number: a scalar's timeOffset, a TriPerlinCurve's speed, scale, offset and the like (its value is
         // its output: set, then read over)
-        const curve = this.curvesById.get(b.destination) && (attr0 === "timeOffset" || b.destinationType === "TriPerlinCurve") ? this.curvesById.get(b.destination) : undefined;
+        const curve = this.curvesById.get(b.destination) && (attr0 === "timeOffset" || b.destinationType === "TriPerlinCurve" || b.destinationType === "Tr2CurveColorMixer") ? this.curvesById.get(b.destination) : undefined;
         const binding = attr0 === "scale" && b.destinationType === "TriValueBinding" ? this.bindingsById.get(b.destination) : undefined;
         if (!target && !xf && !curve && !binding) continue;
         let src: Value;
-        if (b.source !== null) {
-          if (!values.has(b.source)) values.set(b.source, valueOf(set.curves[b.source]!, time));
+        const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
+        if (!srcCurve) continue;
+        if (srcCurve.type === "Tr2CurveColorMixer") src = mixerValue(srcCurve as unknown as Record<string, unknown>, b.sourceAttribute === "convertedLinearValue");
+        else if (b.source !== null) {
+          if (!values.has(b.source)) values.set(b.source, valueOf(srcCurve, time));
           src = values.get(b.source)!;
-        } else if (b.sourceCurve) src = valueOf(b.sourceCurve, time);
-        else continue;
+        } else src = valueOf(srcCurve, time);
         const [srcAttr, srcComp] = b.sourceAttribute.split(".");
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");

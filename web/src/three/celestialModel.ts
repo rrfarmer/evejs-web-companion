@@ -74,6 +74,8 @@ const bySystem = new Map<number, Promise<Record<string, CelestialItem>>>();
  */
 const planetEnvironment: { value: THREE.Texture | null } = { value: null };
 export function setPlanetEnvironment(cube: THREE.Texture | null): void { planetEnvironment.value = cube; }
+/** The same cube for the other effects that read EveSpaceSceneEnvMap (a particle's nebula bleeding), as a uniform. */
+export const sceneReflection: { readonly value: THREE.Texture | null } = planetEnvironment;
 
 export function systemCelestials(solarSystemID: number): Promise<Record<string, CelestialItem>> {
   if (!bySystem.has(solarSystemID)) {
