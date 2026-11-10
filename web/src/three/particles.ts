@@ -444,6 +444,66 @@ export function dynamicMotionVectorMaterial(area: Area, textureOf: TextureOf): T
   return mat;
 }
 
+/**
+ * The particle effect particles/dynamic/3ddyndecalv2.fx (record 0, client 3396210; debris, rocks, corpses): each
+ * particle draws the mesh itself in the world, not a camera-facing card - the mesh's vertex x lerp(size.x, size.y, age)
+ * (TEXCOORD8), turned about the particle's axis (TEXCOORD11.xyz, normalised) by age x lifetime x spinVel (TEXCOORD10) +
+ * spin (TEXCOORD9) + SpriteFactors.y (the axis-angle matrix), at the particle's position; TexMapLayer1 read at the atlas
+ * cell TEXCOORD11.w of SpriteFactors.w x .w (as 1layerdynv2's), times the vertex colour (Color1 to Color2 over age 0 ..
+ * ColorMidpoint, Color2 to Color3 to 1), alpha under 0.5 discarded; rgb plus GlowMapLayer1 at the same uv x
+ * SpriteColor.rgb. Opaque, both faces (CULLMODE none), depth written. Its second target (the motion vectors, from the
+ * previous frame's POSITION9 / TANGENT9) has nothing to go to here. Its sampler wraps; nothing is sRGB.
+ */
+export function dynDecalMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) }, spriteColor: { value: v4(p.SpriteColor, [1, 1, 1, 1]) },
+    color1: { value: v4(p.Color1, [1, 1, 1, 0]) }, color2: { value: v4(p.Color2, [0.5, 0.5, 0.5, 0]) }, color3: { value: v4(p.Color3, [0, 0, 0, 0]) },
+    colorMidpoint: { value: f1(p.ColorMidpoint, 0.5) },
+    layer1: { value: null }, glow: { value: null },
+  };
+  const load = (res: string | null | undefined, name: string) => void textureOf(res).then((t) => {
+    if (!t) return;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true;
+    uniforms[name]!.value = t;
+  });
+  load(area.textures.TexMapLayer1, "layer1");
+  load(area.textures.GlowMapLayer1, "glow");
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `uniform vec4 spriteFactors; uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint;
+      attribute vec3 iPos; attribute vec2 iLife; attribute vec2 iT8; attribute float iT9; attribute float iT10; attribute vec4 iT11;
+      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas;
+      void main() {
+        float age = iLife.x;
+        float a = age * iT10 * iLife.y + iT9 + spriteFactors.y;
+        vec3 n = normalize( iT11.xyz );
+        vec3 v = position * mix( iT8.x, iT8.y, age );
+        float s = sin( a ), c = cos( a );
+        vec3 turned = v * c + cross( n, v ) * s + n * dot( n, v ) * ( 1.0 - c );
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4( turned + iPos, 1.0 );
+        vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
+          : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );
+        vUv = uv;
+        float cell = trunc( iT11.w ) / spriteFactors.w;
+        vAtlas = vec3( fract( cell ), trunc( cell ) / spriteFactors.w, 1.0 / spriteFactors.w );
+      }`,
+    fragmentShader: `uniform sampler2D layer1; uniform sampler2D glow; uniform vec4 spriteColor;
+      varying vec4 vColor; varying vec2 vUv; varying vec3 vAtlas;
+      void main() {
+        vec2 cellUv = fract( vUv ) * vAtlas.z + vAtlas.xy;
+        vec2 grad = vUv * vAtlas.z + vAtlas.xy;
+        vec4 t = textureGrad( layer1, cellUv, dFdx( grad ), dFdy( grad ) ) * vColor;
+        if ( t.a < 0.5 ) discard;
+        vec3 g = textureGrad( glow, cellUv, dFdx( grad ), dFdy( grad ) ).rgb;
+        gl_FragColor = vec4( spriteColor.rgb * g + t.rgb, t.a );
+      }`,
+    side: THREE.DoubleSide,
+  });
+  logDepth(mat);
+  return mat;
+}
+
 /** An area's particle material, by its effect file; null for an effect or permutation not drawn here. */
 function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
   const path = (area as { path?: string }).path ?? "";
@@ -459,6 +519,7 @@ function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMateria
   if (path.endsWith("/specialfx/particles/motionvector.fx")) return motionVectorParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/motionvectorramp.fx")) return motionVectorParticleMaterial(area, textureOf, true);
   if (path.endsWith("/specialfx/particles/dynamic/motionvector.fx")) return dynamicMotionVectorMaterial(area, textureOf);
+  if (path.endsWith("/specialfx/particles/dynamic/3ddyndecalv2.fx")) return dynDecalMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/2layermask.fx")) return twoLayerMaskParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/2layerdynmaskv2.fx")) return twoLayerMaskParticleMaterial(area, textureOf, true);
   return null;
@@ -500,7 +561,8 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
   { name: "iT9", size: 1, key: (u) => u.get(1) },
   // a vector where the static records read TEXCOORD10 whole (motionvector's colour); the dynamic ones its x
   { name: "iT10", size: 4, key: (u) => u.get(2) },
-  { name: "iT11", size: 1, key: (u) => u.get(3) },
+  // a vector where 3ddyndecalv2 reads TEXCOORD11 whole (the axis and the atlas cell); the others its x
+  { name: "iT11", size: 4, key: (u) => u.get(3) },
   { name: "iT13", size: 4, key: (u) => u.get(5) },
 ];
 
@@ -509,7 +571,7 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
  * the emitters and systems stepped each frame it is drawn (a model's copies share it), the system's GPU elements
  * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it). Drawn by its first area
  * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, motionvectorramp, dynamic motionvector,
- * 2layermask, 2layerdynmaskv2);
+ * 3ddyndecalv2, 2layermask, 2layerdynmaskv2);
  * null where none is.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
