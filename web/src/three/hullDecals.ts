@@ -18,7 +18,8 @@
 // - logo decals (usage 6): standard decals in the faction's logo for their logoType (the extractor's SOF build gives
 //   them the faction logo set's textures; a faction without that logo has no such decal, as EveSOF::SetupDecalSets).
 // Not drawn: kill counters (they count the ship's displayKillCounterValue, 0 by default, so the client draws none
-// either) and holes (wrecks).
+// either).
+// - hole decals (usage 2, wrecks): holeMaterial.
 
 import * as THREE from "three";
 import { loadDds } from "./ddsTexture.ts";
@@ -36,6 +37,7 @@ const USAGE_GLOW = 5;
 const USAGE_GLOW_CYLINDRICAL = 4;
 const USAGE_CYLINDRICAL = 3;
 const USAGE_LOGO = 6;
+const USAGE_HOLE = 2;
 
 const clock = { value: 0 };
 
@@ -196,10 +198,60 @@ async function standardMaterial(d: SofDecal, hullMaterial: THREE.Material | null
   return m;
 }
 
+/**
+ * A hole decal (usage 2; decalholev5.fx, disassembled): a look into the hull. The eye's ray to the pixel, in the box's
+ * space, meets a sphere of radius 1 about the box's middle at its far side; the inside cube map is read in that
+ * direction. The colour is DecalGlowColor times the transparency map's red blended to the cube's alpha by the
+ * transparency map's alpha; the cover is the hole map's alpha. The box's axes go to the shader's in its order
+ * (the projection axis first: the box rows the decal shaders read are z, x, y of ours).
+ */
+async function holeMaterial(d: SofDecal, inverse: THREE.Matrix4): Promise<THREE.Material | null> {
+  const [hole, transparency, inside] = await Promise.all([
+    texture(d.textures["DecalHoleMap"]), texture(d.textures["DecalTransparencyMap"]), texture(d.textures["DecalInsideCubeMap"]),
+  ]);
+  if (!hole || !transparency) return null;
+  const c = d.glowColor ?? [1, 1, 1, 1];
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      hole: { value: hole }, transparency: { value: transparency }, inside: { value: inside }, hasInside: { value: inside ? 1 : 0 },
+      colour: { value: new THREE.Vector3(c[0] ?? 1, c[1] ?? 1, c[2] ?? 1) }, boxInverse: { value: inverse },
+    },
+    vertexShader: `attribute vec3 decal; uniform mat4 boxInverse; varying vec3 vDecal; varying vec3 vEye;
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
+      void main() {
+        vDecal = decal;
+        // the eye in the box's space (our space is EVE's mirrored in z)
+        vec3 e = ( inverse( modelMatrix ) * vec4( cameraPosition, 1.0 ) ).xyz;
+        vEye = ( boxInverse * vec4( e.x, e.y, -e.z, 1.0 ) ).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        #include <logdepthbuf_vertex>
+      }`,
+    fragmentShader: `uniform sampler2D hole, transparency; uniform samplerCube inside; uniform float hasInside; uniform vec3 colour;
+      varying vec3 vDecal; varying vec3 vEye;
+      #include <logdepthbuf_pars_fragment>
+      void main() {
+        #include <logdepthbuf_fragment>
+        vec2 uv = vDecal.xy * 0.5 + 0.5;
+        if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) ) discard;
+        vec3 o = vEye.zxy, q = vDecal.zxy;
+        vec3 dir = normalize( q - o );
+        float b = dot( dir, o );
+        float disc = b * b - dot( o, o ) + 1.0;
+        if ( disc < 0.0 ) discard;
+        vec3 far = o + ( -b + sqrt( disc ) ) * dir;
+        float cube = hasInside > 0.5 ? textureCube( inside, normalize( far ) ).a : 0.0;
+        vec4 t = texture2D( transparency, uv );
+        gl_FragColor = vec4( max( colour * mix( t.r, cube, t.a ), 0.0 ), texture2D( hole, uv ).a );
+      }`,
+    transparent: true, depthWrite: false,
+  });
+}
+
 /** The decals added to each LOD node of a hull (each node's own index list), the glow ones animated. */
 export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: readonly SofDecalSet[]): Promise<number> {
   let added = 0;
-  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && [USAGE_STANDARD, USAGE_CYLINDRICAL, USAGE_GLOW, USAGE_GLOW_CYLINDRICAL, USAGE_LOGO].includes(d.usage));
+  const items = sets.flatMap((s) => s.items).filter((d) => d.meshIndex === 0 && [USAGE_STANDARD, USAGE_CYLINDRICAL, USAGE_GLOW, USAGE_GLOW_CYLINDRICAL, USAGE_LOGO, USAGE_HOLE].includes(d.usage));
   for (const d of items) {
     const box = new THREE.Matrix4().compose(
       new THREE.Vector3(d.position[0] ?? 0, d.position[1] ?? 0, d.position[2] ?? 0),
@@ -223,6 +275,7 @@ export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: reado
       if (!geometry) continue;
       const material = d.usage === USAGE_STANDARD || d.usage === USAGE_CYLINDRICAL || d.usage === USAGE_LOGO
         ? await standardMaterial(d, hull.material as THREE.Material, d.usage === USAGE_CYLINDRICAL, axes)
+        : d.usage === USAGE_HOLE ? await holeMaterial(d, inverse)
         : await glowMaterial(d, d.usage === USAGE_GLOW_CYLINDRICAL);
       if (!material) continue;
       const mesh = new THREE.Mesh(geometry, material);
