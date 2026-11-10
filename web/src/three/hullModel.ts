@@ -10,6 +10,7 @@ import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type 
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
+import { distortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
 export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[]; glowColor?: number[] | null; heatGlowColor?: number[] | null }
@@ -153,7 +154,7 @@ export interface TypeModelInfo {
  * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
-export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold", Layer1Map: "layer1", Layer2Map: "layer2", LayerMaskMap: "layerMask" };
+export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold", Layer1Map: "layer1", Layer2Map: "layer2", LayerMaskMap: "layerMask", DistortionMap: "distortion" };
 
 /**
  * A hull area drawn with fx/fxv5.fx or fx/fxdirectionalv5.fx (their record 0, fxres.py; the same pixel stage):
@@ -456,13 +457,13 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   }
   const materials = new Map<string, THREE.Material>();
   // each SOF area over a part of the mesh draws it (EveSOF fills each list's areas; a part may be in more than one:
-  // the first takes the mesh, the others a copy of it beside it); an area in a list not drawn yet (distortion) hides
-  // its part; a part no area names keeps the older guess
+  // the first takes the mesh, the others a copy of it beside it); a distortion area's draw is on the distortion layer
+  // alone (distortion.ts); a part no area names keeps the older guess
   const materialOf = (area: SofArea): THREE.Material | null => {
     const key = `sof:${area.kind}:${area.index}:${area.name}`;
     if (!materials.has(key)) {
       const shader = area.shader ?? "";
-      const m = area.kind === "distortion" ? null
+      const m = area.kind === "distortion" ? (/^fx\/fxdistortionv5/i.test(shader) ? distortionMaterial(area.params, areaMaps.get(area) ?? {}) : null)
         : /^fx\/fx(directional)?v5/i.test(shader) ? fxHullMaterial(area, areaMaps.get(area) ?? {})
         : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area)
         : null;
@@ -486,10 +487,12 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
     const drawn = areas.map(materialOf).filter((m): m is THREE.Material => !!m);
     if (!drawn.length) { mesh.visible = false; continue; }
     mesh.material = drawn[0]!;
+    if (drawn[0]!.userData.distortion) mesh.layers.set(DISTORTION_LAYER);
     for (const m of drawn.slice(1)) {
       const copy = new THREE.Mesh(mesh.geometry, m);
       copy.name = `${mesh.name}:${(m as THREE.Material).type}`;
       copy.position.copy(mesh.position); copy.quaternion.copy(mesh.quaternion); copy.scale.copy(mesh.scale);
+      if (m.userData.distortion) copy.layers.set(DISTORTION_LAYER);
       mesh.parent?.add(copy);
     }
   }

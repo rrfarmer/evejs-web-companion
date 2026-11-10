@@ -19,6 +19,7 @@ import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { toneMapGlsl, type DynamicExposure, type ToneMapMethod } from "./exposure.ts";
 import { SoftDepthPass } from "./softDepth.ts";
+import { DistortionPass } from "./distortion.ts";
 
 /** Tr2PPBloomEffect's values (the client's defaults; the scenes set luminanceThreshold 0). */
 export const BLOOM = {
@@ -155,14 +156,19 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
 
   // the opaque depth behind the soft areas (softDepth.ts), where one is in view
   const softDepth = new SoftDepthPass();
+  // the distortion surfaces' warp of the frame (distortion.ts), before the post-process reads it
+  const distortion = new DistortionPass();
 
   return {
     render: () => {
       softDepth.render(renderer, scene, camera, drawn.width, drawn.height);
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
+      const frame = distortion.render(renderer, scene, camera, drawn);
+      highPass.uniforms["frame"]!.value = frame;
+      output.uniforms["frame"]!.value = frame;
       const e = post.exposure();
-      if (e) e.measure(renderer, drawn.texture);
+      if (e) e.measure(renderer, frame);
       // the bloom
       highPass.uniforms["texel"]!.value.set(1 / drawn.width, 1 / drawn.height);
       draw(highPass, levels[0]!);
@@ -195,6 +201,8 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       for (const t of [drawn, ...levels, ...spare, ...blurred]) t.dispose();
       for (const m of [highPass, half, blur, output]) m.dispose();
       quad.dispose();
+      softDepth.dispose();
+      distortion.dispose();
     },
   };
 }
