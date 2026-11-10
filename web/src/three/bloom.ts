@@ -1,13 +1,17 @@
 // The scenes' post-process as the client draws it (Tr2PostProcess2), from the drawn frame to the screen:
 // - the bloom (Tr2PPBloomEffect; its defaults read from the client, build 3396210, are Unreal Engine 4's bloom
 //   defaults): highpassfilter.sm_hi keeps of each pixel colour * max(0, 1 - threshold / luminance) * luminanceScale
-//   (0.5), the luminance being the darkest of four neighbouring taps (against flicker); the result is halved down to
-//   1/64 size; then six blurs of it, each `size` percent of the screen's width (times sizeScale, 4) wide, are summed,
-//   each times its tint. Every scene file sets luminanceThreshold 0: the whole frame blooms, a little;
+//   (0.5), the luminance being the darkest of four neighbouring taps (against flicker), at half size; that is halved
+//   down to 1/64 by downsample.sm_hi (thirteen taps: the inner four at 1/8 each, four corner boxes of four at 1/32);
+//   step i blurs level i (1/2^(i+1)) with upsample.sm_hi, Unreal's weighted sample sum: a separable kernel of radius
+//   2 * size * sizeScale percent of the level's width, weights e^(-16 (x / radius)^2), at most 127 texels, and adds
+//   it times its tint to the steps below. Every scene file sets luminanceThreshold 0: the whole frame blooms, a little;
 // - the output (tonemapping.sm_hi): the scene plus the bloom * brightness (0.2) through the tone map, then times the
 //   exposure (exposure.ts), through the tone map again, to sRGB.
-// Ours: the blurs are separable Gaussians (sigma a third of the width) drawn at the size where they are 8-16 texels
-// wide, and the halving is a four-tap box rather than the client's thirteen taps. The frame is drawn into its own
+// The kernel's weights are Unreal's (Compute1DGaussianFilterKernel); the client builds them on the CPU, so they are
+// not in its shaders. The steps are summed in the output pass rather than chained level to level (the same sum,
+// upsampled once rather than step by step). The client's luminance-weighted downsample variants are not used: which
+// one a scene with threshold 0 gets is not in the shaders. The frame is drawn into its own
 // multisampled target and read from its resolve; NaN or infinite pixels are dropped as read (a NaN anywhere would
 // spread through the blurs and black the frame).
 
@@ -26,8 +30,8 @@ export const BLOOM = {
 
 /** How many halvings below the frame the bloom's levels go (level 0 is the high-pass, at half size). */
 const LEVELS = 6;
-/** Gaussian taps either side of the centre. */
-const TAPS = 12;
+/** The widest kernel, in texels either side (upsample.sm_hi takes 64 pairs of taps). */
+const MAX_RADIUS = 127;
 
 export interface Bloom {
   render(): void;
@@ -51,7 +55,6 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
   let levels: THREE.WebGLRenderTarget[] = [];
   let spare: THREE.WebGLRenderTarget[] = [];
   let blurred: THREE.WebGLRenderTarget[] = [];
-  const stepLevel: number[] = [];
   const stepRadius: number[] = [];
 
   const highPass = new THREE.ShaderMaterial({
@@ -73,25 +76,32 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       }`,
     depthTest: false, depthWrite: false,
   });
+  // downsample.sm_hi: thirteen taps, in texels of the level above
   const half = new THREE.ShaderMaterial({
     uniforms: { source: { value: null }, texel: { value: new THREE.Vector2() } },
     vertexShader: VERTEX,
     fragmentShader: `uniform sampler2D source; uniform vec2 texel; varying vec2 vUv;
+      vec3 at( float x, float y ) { return texture2D( source, vUv + texel * vec2( x, y ) ).rgb; }
       void main() {
-        vec3 c = texture2D( source, vUv + texel * vec2( -0.5, -0.5 ) ).rgb + texture2D( source, vUv + texel * vec2( 0.5, -0.5 ) ).rgb
-          + texture2D( source, vUv + texel * vec2( -0.5, 0.5 ) ).rgb + texture2D( source, vUv + texel * vec2( 0.5, 0.5 ) ).rgb;
-        gl_FragColor = vec4( c * 0.25, 1.0 );
+        vec3 inner = at( -1.0, -1.0 ) + at( 1.0, -1.0 ) + at( -1.0, 1.0 ) + at( 1.0, 1.0 );
+        vec3 c = at( 0.0, 0.0 ), n = at( 0.0, -2.0 ), s = at( 0.0, 2.0 ), w = at( -2.0, 0.0 ), e = at( 2.0, 0.0 );
+        vec3 boxes = ( at( -2.0, -2.0 ) + n + w + c ) + ( at( 2.0, -2.0 ) + n + e + c ) + ( at( -2.0, 2.0 ) + s + w + c ) + ( at( 2.0, 2.0 ) + s + e + c );
+        gl_FragColor = vec4( inner * 0.125 + boxes * 0.03125, 1.0 );
       }`,
     depthTest: false, depthWrite: false,
   });
+  // upsample.sm_hi's kernel: every texel within the radius, weighed e^(-16 (x / radius)^2)
   const blur = new THREE.ShaderMaterial({
-    uniforms: { source: { value: null }, step: { value: new THREE.Vector2() }, sigma: { value: 1 } },
+    uniforms: { source: { value: null }, step: { value: new THREE.Vector2() }, radius: { value: 1 } },
     vertexShader: VERTEX,
-    fragmentShader: `uniform sampler2D source; uniform vec2 step; uniform float sigma; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D source; uniform vec2 step; uniform float radius; varying vec2 vUv;
       void main() {
+        int reach = int( min( ceil( radius ), ${MAX_RADIUS}.0 ) );
         vec3 sum = vec3( 0.0 ); float weights = 0.0;
-        for ( int i = -${TAPS}; i <= ${TAPS}; i++ ) {
-          float w = exp( -0.5 * float( i * i ) / ( sigma * sigma ) );
+        for ( int i = -${MAX_RADIUS}; i <= ${MAX_RADIUS}; i++ ) {
+          if ( i < -reach || i > reach ) continue;
+          float x = float( i ) / radius;
+          float w = exp( -16.0 * x * x );
           sum += texture2D( source, vUv + step * float( i ) ).rgb * w;
           weights += w;
         }
@@ -128,15 +138,10 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       levels.push(target(lw, lh));
       spare.push(target(lw, lh));
     }
-    // each step blurs at the level where its width is about 8-16 texels
-    stepLevel.length = 0; stepRadius.length = 0;
-    for (const s of BLOOM.steps) {
-      const radius = (s.size * BLOOM.sizeScale / 100) * w;
-      const level = Math.min(LEVELS - 1, Math.max(0, Math.round(Math.log2(radius / 8)) - 1));
-      stepLevel.push(level);
-      stepRadius.push(radius / 2 ** (level + 1));
-    }
-    blurred = BLOOM.steps.map((_, s) => target(levels[stepLevel[s]!]!.width, levels[stepLevel[s]!]!.height));
+    // step i on level i, its radius in that level's texels ("*2 as we use the diameter", Unreal's weighted sum)
+    stepRadius.length = 0;
+    BLOOM.steps.forEach((s, i) => stepRadius.push(Math.min(MAX_RADIUS, Math.max(0.01, (s.size * BLOOM.sizeScale * 2 / 100) * levels[i]!.width))));
+    blurred = BLOOM.steps.map((_, i) => target(levels[i]!.width, levels[i]!.height));
     blurred.forEach((t, s) => { output.uniforms[`step${s}`]!.value = t.texture; });
   };
   layout(drawn.width, drawn.height);
@@ -161,19 +166,15 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
         half.uniforms["texel"]!.value.set(1 / levels[i - 1]!.width, 1 / levels[i - 1]!.height);
         draw(half, levels[i]!);
       }
-      BLOOM.steps.forEach((_, s) => {
-        const at = stepLevel[s]!;
-        const level = levels[at]!;
-        const r = stepRadius[s]!;
-        // the taps spread to cover the width: a texel apart up to TAPS texels, wider beyond
-        const spacing = Math.max(1, r / TAPS);
-        blur.uniforms["sigma"]!.value = Math.max(0.5, r / 3 / spacing);
+      BLOOM.steps.forEach((_, i) => {
+        const level = levels[i]!;
+        blur.uniforms["radius"]!.value = stepRadius[i]!;
         blur.uniforms["source"]!.value = level.texture;
-        blur.uniforms["step"]!.value.set(spacing / level.width, 0);
-        draw(blur, spare[at]!);
-        blur.uniforms["source"]!.value = spare[at]!.texture;
-        blur.uniforms["step"]!.value.set(0, spacing / level.height);
-        draw(blur, blurred[s]!);
+        blur.uniforms["step"]!.value.set(1 / level.width, 0);
+        draw(blur, spare[i]!);
+        blur.uniforms["source"]!.value = spare[i]!.texture;
+        blur.uniforms["step"]!.value.set(0, 1 / level.height);
+        draw(blur, blurred[i]!);
       });
       // the output
       output.uniforms["exposure"]!.value = e ? e.step() : 1;
