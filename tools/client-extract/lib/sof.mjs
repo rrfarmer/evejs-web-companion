@@ -92,8 +92,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":2)
-    sofBuild: 2,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":3)
+    sofBuild: 3,
     booster,
     areas,
     colorSet,
@@ -154,7 +154,10 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     // Its decals (EveSOFDataHullDecalSet items): each a box (position, rotation, scaling) the hull's own triangles
     // are projected through, those triangles one index list per LOD (uint32, the hull mesh's vertex order), its
     // textures and parameters, and its usage (0 standard, 1 kill counter, 2 hole, 3 cylindrical, 4 glow cylindrical,
-    // 5 glow, 6 logo); a glow's colour the item's DecalGlowColor, else the faction's colour of its glowColorType.
+    // 5 glow, 6 logo). EveSOF::SetupDecalSets (_trinity_dx11.dll, decompiled): for every usage but 0 and 6 it sets
+    // DecalGlowColor to the faction's colour of the item's glowColorType (0, Primary, where it names none) before the
+    // item's own parameters, which are each added only where the effect has none yet - so the faction's colour wins
+    // over an item's DecalGlowColor, which stands only where the faction's colour set has no such colour.
     decalSets: (hull.decalSets ?? []).filter(visible).map((set) => ({
       name: set.name ?? null,
       items: (set.items ?? []).map((it) => {
@@ -164,7 +167,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
           position: it.position ?? [0, 0, 0], rotation: it.rotation ?? [0, 0, 0, 1], scaling: it.scaling ?? [1, 1, 1],
           textures: Object.fromEntries((it.textures ?? []).filter((t) => t?.name && t.resFilePath).map((t) => [t.name, String(t.resFilePath).toLowerCase()])),
           parameters: p,
-          glowColor: p.DecalGlowColor ?? ((it.glowColorType !== undefined && colorSet && colorSet[COLOR_TYPES[it.glowColorType]]) || null),
+          glowColor: ((it.usage ?? 0) !== 0 && (it.usage ?? 0) !== 6 && colorSet && colorSet[COLOR_TYPES[it.glowColorType ?? 0]]) || p.DecalGlowColor || null,
           indexBuffers: (it.indexBuffers ?? []).map((b) => {
             const bytes = b?.indexBuffer;
             if (!bytes || !bytes.length) return [];
