@@ -147,6 +147,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
       area.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     }
   }
+  for (const layer of built.pattern?.layers ?? []) layer.texture = rf.has(layer.texture) ? copyRes(rf, layer.texture, outRoot) : null;
   for (const set of built.spotlightSets ?? []) {
     for (const key of ["cone", "glow"]) {
       const res = set[key] ? String(set[key]).toLowerCase() : null;

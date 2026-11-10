@@ -152,13 +152,33 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     shape0Color: rb.shape0?.color ?? null, shape1Color: rb.shape1?.color ?? null,
     warpShape0Color: rb.warpShape0?.color ?? null, warpGlowColor: rb.warpGlowColor ?? null,
   } : null;
+  // The hull's default pattern, where no DNA pattern command names one (EveSOFDNA::GetPatternLayerCount and
+  // GetPatternApplicationData, EveSOF::SetupCustomMask): a hull of the older layout (not sof6) whose defaultPattern has a
+  // transformLayer1 gets one layer, the faction's defaultPattern (its texture, projection types, material source and
+  // target materials; EveSOFDataPatternLayer's defaults - repeat, Mtl1, every material - where it says none; every
+  // area type), projected by that transform; PMtl1 is the faction's defaultPatternLayer1MaterialName. (A sof6 hull's
+  // comes from the faction's defaultPatternName, which no faction sets.) None where the faction has no default
+  // pattern: the shader's mask then reads nought and nothing changes.
+  const patternLayer = faction?.defaultPattern ?? null, patternTransform = hull.defaultPattern?.transformLayer1 ?? null;
+  const pattern = !hull.sof6 && patternLayer?.textureResFilePath && patternTransform ? {
+    layers: [{
+      texture: String(patternLayer.textureResFilePath).toLowerCase(),
+      projectionU: patternLayer.projectionTypeU ?? 0, projectionV: patternLayer.projectionTypeV ?? 0,
+      source: patternLayer.materialSource ?? 0,
+      targets: [1, 2, 3, 4].map((i) => ((patternLayer[`isTargetMtl${i}`] ?? true) ? 1 : 0)),
+      position: patternTransform.position ?? [0, 0, 0], scaling: patternTransform.scaling ?? [1, 1, 1],
+      rotation: patternTransform.rotation ?? [0, 0, 0, 1], mirrored: patternTransform.isMirrored === true,
+    }],
+    pmtl1: material(sof, faction.defaultPatternLayer1MaterialName),
+  } : null;
   return {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":32)
-    sofBuild: 32,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":33)
+    sofBuild: 33,
     booster,
+    pattern,
     areas,
     colorSet,
     boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null })),

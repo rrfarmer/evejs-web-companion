@@ -14,9 +14,14 @@ import { distortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
 export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[]; glowColor?: number[] | null; heatGlowColor?: number[] | null }
+/** A hull's default pattern layer (sof.mjs): its mask texture, projection and the materials it pulls toward. */
+export interface SofPatternLayer { texture: string | null; projectionU: number; projectionV: number; source: number; targets: number[]; position: number[]; scaling: number[]; rotation: number[]; mirrored: boolean }
+export interface SofPattern { layers: SofPatternLayer[]; pmtl1: SofMaterial | null }
+/** A pattern layer as a material draws it: its loaded mask with the hull's PMtl1. */
+export interface HullPattern { layer: SofPatternLayer; mask: THREE.Texture; pmtl1: SofMaterial | null }
 export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null }
 export interface SofHull {
-  hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[];
+  hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; pattern?: SofPattern | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[];
   /** The hull's "anchorpoint" locator, in EVE's model space (a hangar's: where its ship floats). */
   anchor?: number[] | null;
   /** Its "maxCameraDistance" locator, in EVE's model space (a hangar's farthest camera, by its length). */
@@ -219,7 +224,7 @@ function thrustOf(o: THREE.Object3D): number {
 }
 const heatClock = { get value() { return performance.now() / 1000; } };
 
-export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea): THREE.MeshStandardMaterial {
+export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea, pattern: HullPattern | null = null): THREE.MeshStandardMaterial {
   // the glow (quadv5.sm_hi): GeneralGlowColor x the ship's activation strength (1) x GlowMap.r^2.4, added
   const m = eveHullMaterial(maps, area.name, true, { color: area.glowColor ?? [1, 1, 1], power: 2.4 });
   m.metalness = 0;
@@ -261,6 +266,33 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   // first and has a shadow map: neither here.)
   const oil = /quadoilv5/i.test(area.shader ?? "") && !!maps.oilFilm && !!maps.normal && !!maps.roughness;
   if (oil) { maps.oilFilm!.colorSpace = THREE.SRGBColorSpace; maps.oilFilm!.wrapS = maps.oilFilm!.wrapT = THREE.RepeatWrapping; maps.oilFilm!.needsUpdate = true; }
+  // the pattern layer (quadv5's SOPPT_ENABLED permutation, record 4, fxres.py; EveCustomMask::FillPerObjectData): the
+  // mesh's position in EVE's model space (x made |x| where the projection is mirrored) through the inverse of the
+  // projection's scaling, rotation and translation; its y and z, + 1, / 2, the uv PatternMask1Map's red is read at
+  // (clamped to [0, 1] on an axis of the clamp type; nought off it on a border one). That x the layer's target
+  // weights pulls each of the four materials' diffuse colour, fresnel colour and gloss toward the source material's
+  // (Mtl1..4, or PMtl1: the hull's pattern material) before they are weighed.
+  const patternUniforms = (() => {
+    if (!pattern) return null;
+    const l = pattern.layer;
+    const wrapOf = (mode: number) => (mode === 0 ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping);
+    pattern.mask.wrapS = wrapOf(l.projectionU); pattern.mask.wrapT = wrapOf(l.projectionV); pattern.mask.needsUpdate = true;
+    const src = l.source < 4 ? mats[l.source] ?? null : l.source === 4 ? pattern.pmtl1 : null;
+    const pick = (k: string, fromMat: number[] | null | undefined, d: number) => v3((l.source === 4 ? area.params[`PMtl1${k}`] : null) ?? fromMat, d);
+    return {
+      patMask: { value: pattern.mask },
+      patPos: { value: new THREE.Vector3(...(l.position as [number, number, number])) },
+      patScale: { value: new THREE.Vector3(...(l.scaling as [number, number, number])) },
+      patRot: { value: new THREE.Vector4(...(l.rotation as [number, number, number, number])) },
+      patMirror: { value: l.mirrored ? 1 : 0 },
+      patModes: { value: new THREE.Vector2(l.projectionU, l.projectionV) },
+      patTargets: { value: new THREE.Vector4(...(l.targets as [number, number, number, number])) },
+      // a source the hull's data leaves unsaid reads the shader's defaults (1, 1, 0.4)
+      patDiffuse: { value: pick("DiffuseColor", src?.diffuse, 1) },
+      patFresnel: { value: pick("FresnelColor", src?.fresnel, 1) },
+      patGloss: { value: (l.source === 4 ? area.params.PMtl1Gloss?.[0] : null) ?? src?.gloss ?? 0.4 },
+    };
+  })();
   const heatUniforms = {
     heatData: { value: [1, 2, 3, 4].map((i) => v4(area.params[`Mtl${i}HeatGlowData`], [1, 0, 0, 0])) },
     heatColor: { value: v3(area.heatGlowColor ?? null, 1) },
@@ -311,9 +343,9 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   if (detail) for (const t of [maps.detail1, maps.detail2, maps.detail3]) if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
-    Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {});
+    Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {}, patternUniforms ?? {});
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""}${env ? " varying vec2 vEnvUv;" : ""}
+    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""}${patternUniforms ? " uniform sampler2D patMask; uniform vec2 patModes; uniform vec4 patTargets; uniform vec3 patDiffuse; uniform vec3 patFresnel; uniform float patGloss; varying vec2 vPatUv;" : ""}${env ? " varying vec2 vEnvUv;" : ""}
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
         float mtlSel = texture2D( materialMap, ${env ? "vEnvUv * envTiling.x" : "vMapUv"} ).r;
@@ -325,9 +357,19 @@ ${shader.fragmentShader}`
         sailUv = vec2( sc * sailUv.x - ss * sailUv.y, ss * sailUv.x + sc * sailUv.y );
         mtlSel = mix( mtlSel, texture2D( sailsDetailMap, sailUv ).r, sailW );` : ""}
         vec4 mtlW = clamp( 1.031915 - abs( vec4( mtlSel ) - vec4( 0.0, 0.333333, 0.666667, 1.0 ) ) * 3.191489, 0.0, 1.0 );
-        vec3 mtlTint = mtlDiffuse[0] * mtlW.x + mtlDiffuse[1] * mtlW.y + mtlDiffuse[2] * mtlW.z + mtlDiffuse[3] * mtlW.w;
+        ${patternUniforms ? `vec2 patUv = vPatUv;
+        if ( patModes.x == 1.0 ) patUv.x = clamp( patUv.x, 0.0, 1.0 );
+        if ( patModes.y == 1.0 ) patUv.y = clamp( patUv.y, 0.0, 1.0 );
+        bool patOff = ( patModes.x == 2.0 && ( patUv.x < 0.0 || patUv.x > 1.0 ) ) || ( patModes.y == 2.0 && ( patUv.y < 0.0 || patUv.y > 1.0 ) );
+        vec4 patT = ( patOff ? 0.0 : texture2D( patMask, patUv ).r ) * patTargets;
+        vec3 patD0 = mix( mtlDiffuse[0], patDiffuse, patT.x ), patD1 = mix( mtlDiffuse[1], patDiffuse, patT.y ), patD2 = mix( mtlDiffuse[2], patDiffuse, patT.z ), patD3 = mix( mtlDiffuse[3], patDiffuse, patT.w );
+        vec3 patF0 = mix( mtlFresnel[0], patFresnel, patT.x ), patF1 = mix( mtlFresnel[1], patFresnel, patT.y ), patF2 = mix( mtlFresnel[2], patFresnel, patT.z ), patF3 = mix( mtlFresnel[3], patFresnel, patT.w );
+        vec4 patG = mix( vec4( mtlGloss[0], mtlGloss[1], mtlGloss[2], mtlGloss[3] ), vec4( patGloss ), patT );
+        vec3 mtlTint = patD0 * mtlW.x + patD1 * mtlW.y + patD2 * mtlW.z + patD3 * mtlW.w;
+        float mtlGl = dot( patG, mtlW );
+        vec3 mtlFr = patF0 * mtlW.x + patF1 * mtlW.y + patF2 * mtlW.z + patF3 * mtlW.w;` : `vec3 mtlTint = mtlDiffuse[0] * mtlW.x + mtlDiffuse[1] * mtlW.y + mtlDiffuse[2] * mtlW.z + mtlDiffuse[3] * mtlW.w;
         float mtlGl = mtlGloss[0] * mtlW.x + mtlGloss[1] * mtlW.y + mtlGloss[2] * mtlW.z + mtlGloss[3] * mtlW.w;
-        vec3 mtlFr = mtlFresnel[0] * mtlW.x + mtlFresnel[1] * mtlW.y + mtlFresnel[2] * mtlW.z + mtlFresnel[3] * mtlW.w;
+        vec3 mtlFr = mtlFresnel[0] * mtlW.x + mtlFresnel[1] * mtlW.y + mtlFresnel[2] * mtlW.z + mtlFresnel[3] * mtlW.w;`}
         ${detail ? `vec4 det1 = texture2D( detail1, vMapUv * detailData[0].x + detailData[0].zw ) + vec4( 0.002, 0.002, 0.0, 0.0 );
         vec4 det2 = texture2D( detail2, vMapUv * detailData[1].x + detailData[1].zw ) + vec4( 0.002, 0.002, 0.0, 0.0 );
         vec4 det3 = texture2D( detail3, vMapUv * detailData[2].x + detailData[2].zw ) + vec4( 0.002, 0.002, 0.0, 0.0 );
@@ -370,6 +412,19 @@ ${shader.fragmentShader}`
       .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
         material.specularColor = mtlFr;
         material.specularColorBlended = mtlFr;`);
+    if (patternUniforms) {
+      shader.vertexShader = `uniform vec3 patPos; uniform vec3 patScale; uniform vec4 patRot; uniform float patMirror; varying vec2 vPatUv;
+${shader.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
+  {
+    vec3 patP = vec3( position.x, position.y, -position.z );
+    if ( patMirror > 0.5 ) patP.x = abs( patP.x );
+    patP -= patPos;
+    vec3 patQ = -patRot.xyz;
+    vec3 patC = 2.0 * cross( patQ, patP );
+    patP += patRot.w * patC + cross( patQ, patC );
+    vPatUv = ( patP.yz / patScale.yz + 1.0 ) * 0.5;
+  }`)}`;
+    }
     if (env) {
       shader.vertexShader = `uniform vec4 envTiling; varying vec2 vEnvUv;
 ${shader.vertexShader.replace("#include <uv_vertex>", `#include <uv_vertex>
@@ -410,7 +465,7 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
         "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
     }
   };
-  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}`;
+  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}${patternUniforms ? "t" : ""}`;
   return m;
 }
 
@@ -509,6 +564,10 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
     if (am.albedo) am.albedo.colorSpace = THREE.SRGBColorSpace;
     areaMaps.set(area, am);
   }
+  // the hull's default pattern (one layer), its mask loaded once
+  const patternLayer = sof?.pattern?.layers[0] ?? null;
+  const patternMask = patternLayer?.texture ? await tex(patternLayer.texture) : undefined;
+  const pattern: HullPattern | null = patternLayer && patternMask ? { layer: patternLayer, mask: patternMask, pmtl1: sof?.pattern?.pmtl1 ?? null } : null;
   const materials = new Map<string, THREE.Material>();
   // each SOF area over a part of the mesh draws it (EveSOF fills each list's areas; a part may be in more than one:
   // the first takes the mesh, the others a copy of it beside it); a distortion area's draw is on the distortion layer
@@ -519,7 +578,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
       const shader = area.shader ?? "";
       const m = area.kind === "distortion" ? (/^fx\/fxdistortionv5/i.test(shader) ? distortionMaterial(area.params, areaMaps.get(area) ?? {}) : null)
         : /^fx\/fx(directional)?v5/i.test(shader) ? fxHullMaterial(area, areaMaps.get(area) ?? {})
-        : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area)
+        : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area, pattern)
         : null;
       if (!m) return null;
       materials.set(key, m);
