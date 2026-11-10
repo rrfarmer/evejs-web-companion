@@ -8,6 +8,17 @@
 const FLOAT = 5126, UINT16 = 5123, UINT32 = 5125;
 const ARRAY_BUFFER = 34962, ELEMENT_ARRAY_BUFFER = 34963;
 
+/** The GLBs' build: one older than this (or without one) is extracted again (2: COLOR_0, the vertex colour). */
+export const GLB_BUILD = 2;
+/** A GLB file's build (its root node's extras.glbBuild; 1 before builds were written). */
+export function glbBuildOf(bytes) {
+  try {
+    const len = bytes.readUInt32LE(12);
+    const json = JSON.parse(bytes.subarray(20, 20 + len).toString("utf8"));
+    return Number(json.nodes?.[0]?.extras?.glbBuild ?? 1);
+  } catch { return 0; }
+}
+
 export function writeGlb({ name, lods, extras = {} }) {
   const chunks = [];
   let byteLength = 0;
@@ -66,6 +77,7 @@ export function writeGlb({ name, lods, extras = {} }) {
     }
     if (m.uv0) attributes.TEXCOORD_0 = addAccessor(m.uv0, FLOAT, "VEC2", n, ARRAY_BUFFER);
     if (m.uv1) attributes.TEXCOORD_1 = addAccessor(m.uv1, FLOAT, "VEC2", n, ARRAY_BUFFER);
+    if (m.color0) attributes.COLOR_0 = addAccessor(m.color0, FLOAT, "VEC4", n, ARRAY_BUFFER);
 
     const primitives = m.groups.filter((g) => g.count > 0).map((g) => {
       const tri = m.indices.subarray(g.first * 3, (g.first + g.count) * 3);
@@ -83,7 +95,7 @@ export function writeGlb({ name, lods, extras = {} }) {
     asset: { version: "2.0", generator: "evejs-web-poc client-extract" },
     scene: 0,
     scenes: [{ name, nodes: [0] }],
-    nodes: [{ name, children: nodes.map((_, i) => i + 1), extras }, ...nodes],
+    nodes: [{ name, children: nodes.map((_, i) => i + 1), extras: { ...extras, glbBuild: GLB_BUILD } }, ...nodes],
     meshes, materials, accessors, bufferViews,
     buffers: [{ byteLength }],
   };

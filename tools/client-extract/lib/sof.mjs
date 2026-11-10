@@ -96,6 +96,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     if (type !== null && faction) return colorOf(factionColors, COLOR_TYPES[type]);
     return params(hullParameters).GeneralHeatGlowColor ?? null;
   };
+  const wreckMaterial = sof.data.generic?.genericWreckMaterial ?? null;
   const genericShader = (shader) => (sof.data.generic?.areaShaders ?? []).find((g) => String(g.shader).toLowerCase() === String(shader ?? "").toLowerCase()) ?? null;
   const areas = [];
   for (const [list, kind] of [[hull.opaqueAreas, "opaque"], [hull.transparentAreas, "transparent"], [hull.additiveAreas, "additive"]]) {
@@ -116,9 +117,11 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
           ...Object.fromEntries((a.textures ?? []).filter((t) => t.resFilePath).map((t) => [t.name, t.resFilePath])),
         },
         params: params(a.parameters),
-        materials: [1, 2, 3, 4].map((i) => material(sof, ofType[`material${i}`] ?? primary[`material${i}`])),
+        // a Wreck area's materials and glow colour come first from the generic wreck material (EveSOFDNA::
+        // GetMeshAreaParameter's TYPE_WRECK branch: genericWreckMaterialData)
+        materials: [1, 2, 3, 4].map((i) => material(sof, (typeName === "Wreck" ? wreckMaterial?.[`material${i}`] : null) ?? ofType[`material${i}`] ?? primary[`material${i}`])),
         colorType: ofType.colorType ?? null,
-        glowColor: glowColor(typeName, a.parameters),
+        glowColor: typeName === "Wreck" && wreckMaterial && faction ? colorOf(factionColors, COLOR_TYPES[wreckMaterial.colorType ?? COLOR_TYPES.indexOf("Hull")]) : glowColor(typeName, a.parameters),
         heatGlowColor: heatGlowColor(typeName, a.parameters),
       });
     }
@@ -150,8 +153,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":27)
-    sofBuild: 27,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":29)
+    sofBuild: 29,
     booster,
     areas,
     colorSet,

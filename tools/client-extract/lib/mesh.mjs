@@ -104,6 +104,11 @@ export function meshArrays(mesh) {
     vertexCount: n,
     position, normal, tangent,
     uv0: uvOf("TextureCoordinates0"), uv1: uvOf("TextureCoordinates1"),
+    // the vertex colour (DiffuseColor0, 4 wide: a wreck's burn mask in its red, quadwreckv5's COLOR0), where it has one
+    color0: (() => {
+      const c = get("DiffuseColor0");
+      return c && c.width === 4 ? Float32Array.from({ length: n * 4 }, (_, j) => normalized(c.type, c.data[j])) : null;
+    })(),
     indices, groups,
     components: Object.fromEntries(Object.entries(col).map(([k, c]) => [k, `${c.width}x type ${c.type}`])),
     materials: (mesh.MaterialBindings ?? []).map((b) => b?.Material?.Name ?? null),

@@ -29,7 +29,7 @@ import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { readHullChildren, readTrafficInstances } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
-import { writeGlb } from "./lib/glb.mjs";
+import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
@@ -334,7 +334,9 @@ async function main() {
     const tg = typeGraphics?.[typeID];
     if (!tg?.gr2) throw new Error(`--type ${typeID}: no SOF hull model known (run --type-graphics with --sde first)`);
     const stem = tg.gr2.slice("res:/".length, -".gr2".length);
-    if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(tg.gr2);
+    // the model where it is missing or of an older GLB build (glb.mjs GLB_BUILD)
+    const glbFile = path.join(outRoot, ...`${stem}.glb`.split("/"));
+    if (!fs.existsSync(glbFile) || glbBuildOf(fs.readFileSync(glbFile)) < GLB_BUILD) specs.push(tg.gr2);
     const sofFile = await extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot, tg.race);
     console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
   }
