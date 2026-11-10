@@ -18,6 +18,7 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { toneMapGlsl, type DynamicExposure, type ToneMapMethod } from "./exposure.ts";
+import { SoftDepthPass } from "./softDepth.ts";
 
 /** Tr2PPBloomEffect's values (the client's defaults; the scenes set luminanceThreshold 0). */
 export const BLOOM = {
@@ -152,8 +153,12 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
     quad.render(renderer);
   };
 
+  // the opaque depth behind the soft areas (softDepth.ts), where one is in view
+  const softDepth = new SoftDepthPass();
+
   return {
     render: () => {
+      softDepth.render(renderer, scene, camera, drawn.width, drawn.height);
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
       const e = post.exposure();

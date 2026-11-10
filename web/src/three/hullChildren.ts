@@ -6,6 +6,7 @@
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
+import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, animators, type SofCurveSet } from "./childAnimation.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -107,9 +108,10 @@ function meanScale(m: THREE.Matrix4): number {
  * the quad's own x and y axes (its rotation and scaling), times the mean scale of its parents' world transform, laid
  * on in the eye's space (a billboard turned and shaped by the quad's own transform); its colour colour x brightness,
  * times (asin(c) / (pi/2))^2 for c the cosine of its angle off the eye's axis (dimmer toward the screen's edge). The
- * pixel: (1 / (d + 0.001) - 0.999001) x 1.001 for d the distance from the middle (1 at the edge), added. The client's
- * pixel stage also takes a screen-space occlusion array by depth (its t0), not drawn here; flarequadsoft.fx is drawn
- * as flarequad.fx. A quad under minScreenSize pixels across is not drawn.
+ * pixel: (1 / (d + 0.001) - 0.999001) x 1.001 for d the distance from the middle (1 at the edge), added; its t0,
+ * the scene's fog volume map by depth slice (EveSceneFogVolumeMap: the colour times 1 minus it), is EveChildCloud2's
+ * only, the client's empty map black where none is drawn (as here: the factor 1). flarequadsoft.fx is drawn as
+ * flarequad.fx. A quad under minScreenSize pixels across is not drawn.
  */
 function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.Vector3; colour: number[]; min: number; halo: { z: THREE.Vector3; at: THREE.Vector3 } | null }[]): THREE.Mesh {
   const geo = new THREE.InstancedBufferGeometry();
@@ -192,7 +194,7 @@ const v4 = (v: unknown, d: number[]) => new THREE.Vector4(...([0, 1, 2, 3].map((
  * in the eye's space (laid on there); its colour GlowColor1 to GlowColor2 by its mix, times
  * saturate(SpriteProperties.z / -z). The second pass, the engines: the sprite sized by its size x SpriteSizes.zw x how
  * far the way it came points toward the eye (the path a texel back, by the speed's sign), in GlowColor1. The pixel
- * TexMap x colour, its alpha over the colour, added. The client's screen-space occlusion array is not drawn.
+ * TexMap x colour, its alpha over the colour, added. The fog volume map's factor is 1 (as flarequad.fx's).
  */
 function trafficMeshes(node: SofChildTraffic): THREE.Object3D | null {
   const inst = node.instances;
@@ -282,8 +284,12 @@ const effectClock = { get value() { return performance.now() / 1000; } };
  * F.z))^F.x x F.y, or (1 - min(f, 1)) x -F.y where F.y < 0 (F FresnelFactors, N the world normal unnormalised by the
  * inverse transpose, as the client's, V toward the eye); alpha saturated. The PHONG variation lights the colour first:
  * times sunColour x l + ambient, l = (N.L + 1) / 2 x (1 - (1 - sat(N.L))^2), L toward the sun (the scene's first
- * directional light, its colour x intensity; the ambient light's). Additive areas added (one, one), transparent ones
- * blended over. Not drawn: the soft depth fade and the screen-space occlusion array.
+ * directional light, its colour x intensity; the ambient light's). UBER_DEPTH_ON fades it where it meets the scene:
+ * colour and alpha times sat((D - z) / (s / 2)), D the scene's depth at the pixel (its DepthMap: softDepth.ts), z the
+ * pixel's own depth from a point Depth metres (the effect's "Depth In Meters", 10 unless set) along the world's z,
+ * s the length of the world transform's z axis. Additive areas added (one, one), transparent ones blended over. The
+ * scene fog volume map (EveSceneFogVolumeMap, a colour times 1 minus it) is drawn by EveChildCloud2 only, none of
+ * them drawn here: the client's empty map is black, the factor 1.
  */
 function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
@@ -308,17 +314,23 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         c *= r${i};`;
   const maskUv = area.options.MASK_TRANSFORM === "ON" ? "vUv * maskT.zw + maskT.xy + maskS.xy * time + maskS.zw" : "vUv";
   const additive = area.kind === "additive";
+  const soft = area.options.UBER_DEPTH === "UBER_DEPTH_ON";
+  if (soft) Object.assign(uniforms, SOFT_DEPTH, { depthOffset: { value: Number((p.Depth as number[] | undefined)?.[0] ?? 10) } });
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vFromEye;
+      ${soft ? "uniform float depthOffset; varying vec2 vSoft;" : ""}
       void main() {
         vUv = uv;
         vN = mat3(modelMatrix) * normal;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         vFromEye = (vec4(mv.xyz, 0.0) * viewMatrix).xyz;
+        ${soft ? `// half the z axis' length, and the depth of the point Depth metres along EVE's world z (three's -z)
+        vSoft = vec2(0.5 * length(modelMatrix[2].xyz), -(mv.z + (viewMatrix * vec4(0.0, 0.0, -depthOffset, 0.0)).z));` : ""}
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D d3; uniform sampler2D mask;
+    fragmentShader: `${soft ? SOFT_DEPTH_GLSL + " varying vec2 vSoft;" : ""}
+      uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D d3; uniform sampler2D mask;
       uniform vec4 t1; uniform vec4 t2; uniform vec4 t3; uniform vec4 s1; uniform vec4 s2; uniform vec4 s3;
       uniform vec4 maskT; uniform vec4 maskS; uniform vec4 colour; uniform vec4 fresnel; uniform float time;
       uniform vec3 sunDir; uniform vec3 sunColour; uniform vec3 ambient;
@@ -336,7 +348,9 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
         c.rgb *= sunColour * l + ambient;` : ""}
         float f = pow(1.0 - clamp(dot(normalize(-vFromEye), normalize(vN)) - fresnel.z, 0.0, 1.0), fresnel.x);
         f = fresnel.y < 0.0 ? (1.0 - min(f, 1.0)) * -fresnel.y : f * fresnel.y;
-        gl_FragColor = vec4(c.rgb * f, clamp(c.a, 0.0, 1.0));
+        c.rgb *= f;
+        ${soft ? "if (softDepthOn > 0.5) c *= clamp((softSceneDepth() - vSoft.y) / vSoft.x, 0.0, 1.0);" : ""}
+        gl_FragColor = vec4(c.rgb, clamp(c.a, 0.0, 1.0));
       }`,
     side: THREE.DoubleSide, transparent: true, depthWrite: false,
     ...(additive
@@ -358,6 +372,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
       if (a) (uniforms.ambient!.value as THREE.Color).copy(a.color).multiplyScalar(a.intensity);
     };
   }
+  if (soft) mat.userData.softDepth = true;
   logDepth(mat);
   return mat;
 }
@@ -369,7 +384,7 @@ function uberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
  * red channel for the first and green for the second, multiplied; the LayerMaskMap read at the distance from
  * Layer3Center (or the uv) x Layer3Transform.xy + .zw + frac(Layer3Scroll.xy x time) + .zw; the colour
  * layers x (mask rgb, 1) x BaseColor + mask alpha x FxColor, its rgb times the fresnel (as ubershader.fx's); added
- * (one, one) for an additive area. The screen-space occlusion array is not drawn.
+ * (one, one) for an additive area. The fog volume map's factor is 1 (as flarequad.fx's).
  */
 function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
@@ -433,8 +448,8 @@ function fx3dMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
  *   x (1 + animation.a x (overlay.a - 1)); TexMap read across the line, OverlayTexMap across it and along at
  *   (speed x time + t) x scale (scale 1, as the curve's ChangeLineAnimation call gives it); added for an additive set.
  * The gradient colour is baseColor x brightness, the animation colour animColor x brightness and the speed the set's
- * scrollSpeed (EveChildLineSet.cpp's AddLinesToSet). No curve sets a multicolour. The screen-space
- * occlusion array is not drawn.
+ * scrollSpeed (EveChildLineSet.cpp's AddLinesToSet). No curve sets a multicolour. The fog volume
+ * map's factor is 1 (as flarequad.fx's).
  */
 function lineSet(node: SofChildLines, animator?: ChildAnimator, ancestors: number[] = []): THREE.Object3D | null {
   const pos: number[] = [], other: number[] = [], side: number[] = [], end: number[] = [], width: number[] = [], index: number[] = [];
