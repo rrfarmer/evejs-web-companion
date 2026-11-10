@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { sceneReflection } from "./celestialModel.ts";
+import { loadDds3D } from "./ddsTexture.ts";
 
 import { ELEMENT, ParticleEmitter, ParticleSim, elementKey, type ParticleEmitterData, type ParticleSystemData } from "./particleSim.ts";
 
@@ -380,6 +381,69 @@ export function twoLayerMaskParticleMaterial(area: Area, textureOf: TextureOf, d
   return mat;
 }
 
+/**
+ * The particle effect particles/dynamic/motionvector.fx (its record 0, client 3396210): a flipbook in a volume -
+ * TextureMap a 3D texture of Frames slices, played over t = sat(age)^TimeCurve: slices f = floor(t x Frames) and f + 1
+ * (at z (f + 0.5) / Frames and (f + 1.5) / Frames), blended by the fraction. Each is first moved along a flow made
+ * from the red and green channels: their gradients (central differences SampleDistance apart, summed over both
+ * slices, normalised with SampleOffset added to the length) times the channel's change between the slices, the two
+ * channels' summed, x DistortionStrength; the frame back along it by the fraction, the next forward by its rest. The
+ * result's red read through GradientMap at (1 - r, t), its rgb times that, times its alpha and the vertex colour
+ * (Color1 to Color2 over age 0 .. ColorMidpoint, Color2 to Color3 to 1); alpha x SpriteFactors.z; ONE / INVSRCALPHA
+ * (its record's states). The flow's reads are at mip VelocitySmoothness: here the volume has its top level only (a
+ * compressed 3D texture is nothing WebGL takes; ddsTexture.ts decodes it), so they are not smoothed. Samplers clamp.
+ */
+export function dynamicMotionVectorMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    spriteFactors: { value: v4(p.SpriteFactors, [0, 0, 0, 1]) }, velocityStretch: { value: f1(p.VelocityStretch, 0) },
+    spriteFactors2: { value: v4(p.SpriteFactors2, [0.05, 1, 1, 1]) }, useWorldScale: { value: f1(p.UseWorldScale, 0) },
+    color1: { value: v4(p.Color1, [1, 1, 1, 0]) }, color2: { value: v4(p.Color2, [0.5, 0.5, 0.5, 0]) }, color3: { value: v4(p.Color3, [0, 0, 0, 0]) },
+    colorMidpoint: { value: f1(p.ColorMidpoint, 0.5) },
+    frames: { value: f1(p.Frames, 64) }, sampleDistance: { value: f1(p.SampleDistance, 0.01) }, sampleOffset: { value: f1(p.SampleOffset, 0) },
+    distortionStrength: { value: f1(p.DistortionStrength, 0.01) }, timeCurve: { value: f1(p.TimeCurve, 1) },
+    volume: { value: null }, gradientMap: { value: null }, ready: { value: 0 },
+  };
+  const res = area.textures.TextureMap;
+  if (res) void loadDds3D(res).then((t) => { uniforms.volume!.value = t; uniforms.ready!.value = 1; }).catch(() => undefined);
+  void textureOf(area.textures.GradientMap).then((t) => { if (t) uniforms.gradientMap!.value = t; });
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: dynamicParticleVS(false, "uniform vec4 color1; uniform vec4 color2; uniform vec4 color3; uniform float colorMidpoint; varying vec3 vUvAge; varying vec4 vColor;",
+      `vUvAge = vec3( uv, age );
+        vColor = age > colorMidpoint ? mix( color2, color3, clamp( ( age - colorMidpoint ) / ( 1.0 - colorMidpoint ), 0.0, 1.0 ) )
+          : mix( color1, color2, clamp( age / colorMidpoint, 0.0, 1.0 ) );`),
+    fragmentShader: `precision highp sampler3D;
+      uniform sampler3D volume; uniform sampler2D gradientMap; uniform float ready; uniform vec4 spriteFactors;
+      uniform float frames; uniform float sampleDistance; uniform float sampleOffset; uniform float distortionStrength; uniform float timeCurve;
+      varying vec3 vUvAge; varying vec4 vColor; varying float vDepth;
+      ${CLAMP_UV}
+      vec4 vol(vec3 p) { vec3 h = 0.5 / vec3(textureSize(volume, 0)); return texture(volume, clamp(p, h, 1.0 - h)); }
+      void main() {
+        if (ready < 0.5) discard;
+        float t = pow(clamp(vUvAge.z, 0.0, 1.0), timeCurve);
+        float ft = t * frames;
+        float f = floor(ft) + 0.5, k = fract(ft);
+        vec3 p0 = vec3(vUvAge.xy, f / frames), p1 = vec3(vUvAge.xy, f / frames + 1.0 / frames);
+        vec3 dy = vec3(0.0, sampleDistance, 0.0), dx = vec3(sampleDistance, 0.0, 0.0);
+        vec2 gy = vol(p0 + dy).xy - vol(p0 - dy).xy + vol(p1 + dy).xy - vol(p1 - dy).xy;
+        vec2 gx = vol(p0 + dx).xy - vol(p0 - dx).xy + vol(p1 + dx).xy - vol(p1 - dx).xy;
+        vec2 len = sqrt(gx * gx + gy * gy) + sampleOffset;
+        vec2 change = vol(p0).xy - vol(p1).xy;
+        vec2 wx = change / len;
+        vec3 flow = vec3(dot(gx, wx), dot(gy, wx), 0.0) * distortionStrength;
+        vec4 c = mix(vol(p0 - flow * k), vol(p1 + flow * (1.0 - k)), k);
+        vec3 g = texture2D(gradientMap, clampUv(gradientMap, vec2(clamp(1.0 - c.x, 0.0, 1.0), t))).rgb;
+        vec4 col = c.a * vColor;
+        gl_FragColor = vec4(c.rgb * g * col.rgb, col.a * spriteFactors.z);
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation,
+  });
+  logDepth(mat);
+  return mat;
+}
+
 /** An area's particle material, by its effect file; null for an effect or permutation not drawn here. */
 function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMaterial | null {
   const path = (area as { path?: string }).path ?? "";
@@ -394,6 +458,7 @@ function particleMaterial(area: Area, textureOf: TextureOf): THREE.ShaderMateria
   }
   if (path.endsWith("/specialfx/particles/motionvector.fx")) return motionVectorParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/motionvectorramp.fx")) return motionVectorParticleMaterial(area, textureOf, true);
+  if (path.endsWith("/specialfx/particles/dynamic/motionvector.fx")) return dynamicMotionVectorMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/2layermask.fx")) return twoLayerMaskParticleMaterial(area, textureOf);
   if (path.endsWith("/specialfx/particles/dynamic/2layerdynmaskv2.fx")) return twoLayerMaskParticleMaterial(area, textureOf, true);
   return null;
@@ -443,7 +508,8 @@ const ATTRIBUTES: { name: string; size: number; key: (usage: Map<number, string>
  * A particle child's drawn object: one quad (the mesh's geometry) instanced per live particle of its mesh's system,
  * the emitters and systems stepped each frame it is drawn (a model's copies share it), the system's GPU elements
  * copied into the instance attributes (a custom element by its usage index: TEXCOORD8 + it). Drawn by its first area
- * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, motionvectorramp, 2layermask, 2layerdynmaskv2);
+ * whose effect is ported (particleMaterial: 1layerdynv2, motionvector, motionvectorramp, dynamic motionvector,
+ * 2layermask, 2layerdynmaskv2);
  * null where none is.
  */
 export function particleObject(node: SofChildParticles, quad: THREE.BufferGeometry, textureOf: (res: string | null | undefined) => Promise<THREE.Texture | null>,
