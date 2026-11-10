@@ -108,14 +108,19 @@ if len(sys.argv) > 2:
     os.makedirs(out, exist_ok=True)
     R = Rec(d[rec[1]:rec[1] + rec[2]])
     techniques = R.r('B')
-    print('techniques', techniques, '(the first read)')
-    tech = R.rs()
-    passes = R.r('B')
-    print('technique', tech, 'passes', passes)
-    for pi in range(passes):
-        n = R.r('B')
-        print(f'=== pass {pi}: {n} stages')
-        for _ in range(n):
-            stage(R, out, f'{pi}' if pi else '')
-        states = [R.r('II') for _ in range(R.r('B'))]
-        print('    render states', ', '.join(f'{RS.get(k, k)}={v}' for k, v in states))
+    for ti in range(techniques):
+        tech = R.rs()
+        passes = R.r('B')
+        print(f'##### technique {ti} {tech}: passes {passes}')
+        for pi in range(passes):
+            n = R.r('B')
+            print(f'=== pass {pi}: {n} stages')
+            for _ in range(n):
+                stage(R, out, (f'_{tech}' if ti else '') + (f'{pi}' if pi else ''))
+            states = [R.r('II') for _ in range(R.r('B'))]
+            print('    render states', ', '.join(f'{RS.get(k, k)}={v}' for k, v in states))
+        # raytracing libraries (version > 13)
+        for _ in range(R.r('B')):
+            R.r('I'); size = R.r('I'); R.r('I')
+            for _ in range(R.r('I')): R.r('B'); R.rs()
+            R.rs()

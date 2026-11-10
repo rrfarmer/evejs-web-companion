@@ -86,6 +86,17 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     if (entry && faction) return colorOf(factionColors, COLOR_TYPES[entry.colorType ?? COLOR_TYPES.indexOf("Hull")]);
     return params(hullParameters).GeneralGlowColor ?? null;
   };
+  // An area's GeneralHeatGlowColor (quadheatv5.fx's): for a Primary or Reactor area the race's
+  // (EveSOFDataMgr's race reader: hullPrimaryHeatColorType, Booster unless set; hullReactorHeatColorType, Reactor),
+  // the faction's colour of that type; for another, the hull's own parameter; else none (the shader's white).
+  const race = raceName ? sof.races.get(String(raceName).toLowerCase()) ?? null : null;
+  const heatGlowColor = (typeName, hullParameters) => {
+    const type = typeName === "Primary" ? (race?.hullPrimaryHeatColorType ?? COLOR_TYPES.indexOf("Booster"))
+      : typeName === "Reactor" ? (race?.hullReactorHeatColorType ?? COLOR_TYPES.indexOf("Reactor")) : null;
+    if (type !== null && faction) return colorOf(factionColors, COLOR_TYPES[type]);
+    return params(hullParameters).GeneralHeatGlowColor ?? null;
+  };
+  const genericShader = (shader) => (sof.data.generic?.areaShaders ?? []).find((g) => String(g.shader).toLowerCase() === String(shader ?? "").toLowerCase()) ?? null;
   const areas = [];
   for (const [list, kind] of [[hull.opaqueAreas, "opaque"], [hull.transparentAreas, "transparent"], [hull.additiveAreas, "additive"]]) {
     for (const a of list ?? []) {
@@ -98,11 +109,17 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
         index: a.index ?? 0,
         areaType: typeName,
         shader: a.shader ?? null,
-        textures: Object.fromEntries((a.textures ?? []).filter((t) => t.resFilePath).map((t) => [t.name, t.resFilePath])),
+        // the hull's textures, then the generic shader's defaults for those it does not name (EveSOF's
+        // FillMeshAreaVector adds generic defaultTextures after the area's: quadheatv5's HeatGlowNoiseMap, say)
+        textures: {
+          ...Object.fromEntries((genericShader(a.shader)?.defaultTextures ?? []).filter((t) => t?.name && t.resFilePath).map((t) => [t.name, t.resFilePath])),
+          ...Object.fromEntries((a.textures ?? []).filter((t) => t.resFilePath).map((t) => [t.name, t.resFilePath])),
+        },
         params: params(a.parameters),
         materials: [1, 2, 3, 4].map((i) => material(sof, ofType[`material${i}`] ?? primary[`material${i}`])),
         colorType: ofType.colorType ?? null,
         glowColor: glowColor(typeName, a.parameters),
+        heatGlowColor: heatGlowColor(typeName, a.parameters),
       });
     }
   }
@@ -133,8 +150,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":26)
-    sofBuild: 26,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":27)
+    sofBuild: 27,
     booster,
     areas,
     colorSet,

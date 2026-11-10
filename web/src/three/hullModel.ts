@@ -12,7 +12,7 @@ import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
-export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[]; glowColor?: number[] | null }
+export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[]; glowColor?: number[] | null; heatGlowColor?: number[] | null }
 export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null }
 export interface SofHull {
   hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[];
@@ -100,6 +100,8 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
 
 /** Engines burn as the ship goes: the flames' length follows speed, as a share of the ship's top speed. */
 export function setThrust(model: THREE.Object3D, share: number): void {
+  // the heat glow's booster intensity (sofHullMaterial)
+  model.userData.thrust = Math.max(0, Math.min(1, share));
   const boosters = model.getObjectByName("boosters");
   if (!boosters) return;
   const k = 0.15 + 0.85 * Math.max(0, Math.min(1, share));
@@ -133,7 +135,14 @@ export interface TypeModelInfo {
  * pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
-export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail" };
+export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise" };
+
+/** The engines' share of full thrust a hull model shows (setThrust), for its heat glow; 0 unset (a station). */
+function thrustOf(o: THREE.Object3D): number {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (typeof p.userData.thrust === "number") return p.userData.thrust as number;
+  return 0;
+}
+const heatClock = { get value() { return performance.now() / 1000; } };
 
 export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea): THREE.MeshStandardMaterial {
   // the glow (quadv5.sm_hi): GeneralGlowColor x the ship's activation strength (1) x GlowMap.r^2.4, added
@@ -145,6 +154,29 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   if (maps.sailsDetail) { maps.sailsDetail.wrapS = maps.sailsDetail.wrapT = THREE.RepeatWrapping; maps.sailsDetail.needsUpdate = true; }
   const mats = [0, 1, 2, 3].map((i) => area.materials[i] ?? null);
   const v3 = (a: number[] | null | undefined, d: number) => new THREE.Vector3(a?.[0] ?? d, a?.[1] ?? d, a?.[2] ?? d);
+  // quadheatv5.sm_hi (record 0, disassembled; fxres.py): no GeneralGlowColor; its glow is the heat glow: H the
+  // weighed Mtl1..4HeatGlowData (default (1, 0, 0, 0)); HeatGlowNoiseMap read at (uv + H.y x time) x H.z (.xy) and at
+  // (uv - H.y x time) x H.z (.zx), multiplied, - 0.5: an offset; w = sat(1 + H.x x (sat((thrust - 0.005) x 66.67) - 1))
+  // for thrust the ship's booster intensity (EveShip2's shipData.x; a station's 0); GlowMap read at uv + H.w x w x the
+  // offset, ^2.4, x the activation strength (1) x w x GeneralHeatGlowColor. (H.x 1: a glow that burns only under
+  // thrust.)
+  const heat = /quadheatv5/i.test(area.shader ?? "") && !!maps.glow;
+  const v4 = (a: number[] | null | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);
+  const heatUniforms = {
+    heatData: { value: [1, 2, 3, 4].map((i) => v4(area.params[`Mtl${i}HeatGlowData`], [1, 0, 0, 0])) },
+    heatColor: { value: v3(area.heatGlowColor ?? null, 1) },
+    heatNoise: { value: maps.heatNoise ?? null },
+    heatTime: heatClock,
+    thrust: { value: 0 },
+  };
+  if (heat) {
+    if (maps.heatNoise) { maps.heatNoise.wrapS = maps.heatNoise.wrapT = THREE.RepeatWrapping; maps.heatNoise.needsUpdate = true; }
+    m.onBeforeRender = (_r, _s, _c, _g, object) => {
+      const t = thrustOf(object);
+      // (uploaded with the material, once a frame where it is first drawn: a model's clones, one type's ships, share it)
+      heatUniforms.thrust.value = t;
+    };
+  }
   const uniforms = {
     mtlDiffuse: { value: mats.map((x) => v3(x?.diffuse, 0.05)) },
     mtlFresnel: { value: mats.map((x) => v3(x?.fresnel, 0.04)) },
@@ -155,7 +187,7 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   };
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
-    Object.assign(shader.uniforms, uniforms);
+    Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {});
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
     shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData;
 ${shader.fragmentShader}`
@@ -179,14 +211,22 @@ ${shader.fragmentShader}`
         material.specularColor = mtlFr;
         material.specularColorBlended = mtlFr;`);
     base.call(m, shader, renderer);
+    if (heat) {
+      shader.fragmentShader = `uniform vec4 heatData[4]; uniform vec3 heatColor; uniform sampler2D heatNoise; uniform float heatTime; uniform float thrust;
+${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv );", `vec4 heatH = heatData[0] * mtlW.x + heatData[1] * mtlW.y + heatData[2] * mtlW.z + heatData[3] * mtlW.w;
+        vec2 heatN = texture2D( heatNoise, ( vEmissiveMapUv + heatH.y * heatTime ) * heatH.z ).xy * texture2D( heatNoise, ( vEmissiveMapUv - heatH.y * heatTime ) * heatH.z ).zx - 0.5;
+        float heatW = clamp( 1.0 + heatH.x * ( clamp( ( thrust - 0.005 ) * 66.666672, 0.0, 1.0 ) - 1.0 ), 0.0, 1.0 );
+        vec4 emissiveColor = texture2D( emissiveMap, vEmissiveMapUv + heatH.w * heatW * heatN );`),
+        "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
+    }
   };
-  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}`;
+  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}`;
   return m;
 }
 
 /** three's #include chunks written out, so the lines inside them can be changed (onBeforeCompile sees them unexpanded). */
 function resolveIncludes(src: string): string {
-  return src.replace(/^[ 	]*#include +<([wd.]+)>/gm, (_m, name: string) => {
+  return src.replace(/^[ 	]*#include +<([\w.]+)>/gm, (_m, name: string) => {
     const chunk = (THREE.ShaderChunk as Record<string, string>)[name];
     if (chunk === undefined) throw new Error(`no shader chunk ${name}`);
     return resolveIncludes(chunk);
