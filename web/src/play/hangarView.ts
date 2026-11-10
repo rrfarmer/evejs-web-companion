@@ -152,6 +152,8 @@ export class HangarView {
    */
   private probeTarget: THREE.WebGLCubeRenderTarget | null = null;
   private probeEnv: THREE.Texture | null = null;
+  /** The hangar scene's reflection cube, filtered (setScene). */
+  private sceneEnv: THREE.Texture | null = null;
   private probe(at: THREE.Vector3): void {
     this.probeTarget?.dispose();
     this.probeEnv?.dispose();
@@ -233,7 +235,15 @@ export class HangarView {
     if (!scene) { this.scene.environment = this.studioEnvironment; this.scene.environmentIntensity = 0.25; return; }
     if (scene.reflection) {
       try {
-        this.scene.environment = await loadDds(scene.reflection);
+        // filtered for rough surfaces here, once (PMREM): left to three, a standard material's first draw converts it
+        // in the middle of that draw, its passes taking texture units on top of the draw's own (THREE.WebGLTextures:
+        // "Trying to use 17 texture units while this GPU supports only 16", from its PMREMGGXIntegration pass)
+        const cube = await loadDds(scene.reflection);
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        this.sceneEnv?.dispose();
+        this.sceneEnv = pmrem.fromCubemap(cube as unknown as THREE.CubeTexture).texture;
+        pmrem.dispose();
+        this.scene.environment = this.sceneEnv;
         this.scene.environmentRotation.set(0, Math.PI, 0);
         this.scene.environmentIntensity = 1;
       } catch { /* a cube this GPU cannot take: the studio one stays */ }
@@ -275,6 +285,7 @@ export class HangarView {
   dispose(): void {
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
+    this.sceneEnv?.dispose();
     removeEventListener("resize", this.onResize);
     this.controls.removeEventListener("start", this.onInput);
     this.renderer.domElement.removeEventListener("wheel", this.onInput);

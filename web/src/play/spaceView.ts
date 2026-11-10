@@ -344,6 +344,7 @@ export class SpaceView {
   dispose(): void {
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
+    this.sceneEnv?.dispose();
     this.bloom?.dispose();
     this.exposure.dispose();
     this.renderer.dispose();
@@ -718,6 +719,8 @@ export class SpaceView {
   }
 
   private sceneFor: number | null = null;
+  /** The system's reflection cube, filtered (loadScene). */
+  private sceneEnv: THREE.Texture | null = null;
 
   /**
    * The system's space scene, as the client draws it: its region's nebula cube map as the background, and the
@@ -744,7 +747,13 @@ export class SpaceView {
     if (info.maps?.reflection) {
       const refl = await loadDds(info.maps.reflection);
       if (this.sceneFor !== solarSystemID) return;
-      this.scene.environment = refl;
+      // filtered for rough surfaces here, once (PMREM), not left to three's first draw of a standard material (which
+      // converts it in the middle of that draw: hangarView.ts setScene); the planets read the cube itself
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.sceneEnv?.dispose();
+      this.sceneEnv = pmrem.fromCubemap(refl as unknown as THREE.CubeTexture).texture;
+      pmrem.dispose();
+      this.scene.environment = this.sceneEnv;
       setPlanetEnvironment(refl);
       this.scene.environmentRotation.copy(halfTurn);
       this.scene.environmentIntensity = 1.55; // EveSpaceScene.reflectionIntensity
