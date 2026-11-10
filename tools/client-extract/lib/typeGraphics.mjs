@@ -19,6 +19,20 @@ async function* jsonl(file) {
  * the region's nebula (eveCfg.GetNebula: mapRegionCache[regionID].nebulaPath), a graphic whose file is an EveSpaceScene
  * (res:/dx9/scene/universe/<name>_cube.red) beside its cube maps <name>_cube.dds, _refl and _blur.
  */
+/**
+ * { typeID: gfxTurretID } for every type the SDE gives a gfxTurretID (dogma attribute 245): the turret module type an
+ * NPC hull or a sentry is drawn and fires with (entityShip.LoadModel: turretTypeID = godmaType.gfxTurretID; turretSet's
+ * fitting of a ship with no modules fits that type).
+ */
+export async function buildGfxTurrets(sdeDir) {
+  const out = {};
+  for await (const t of jsonl(path.join(sdeDir, "typeDogma.jsonl"))) {
+    const a = (t.dogmaAttributes ?? []).find((x) => x.attributeID === 245);
+    if (a && a.value > 0) out[t._key] = Math.trunc(a.value);
+  }
+  return out;
+}
+
 export async function buildSystemScenes(sdeDir) {
   const graphics = new Map();
   for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) if (g.graphicFile) graphics.set(g._key, g.graphicFile);

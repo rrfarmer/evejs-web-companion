@@ -118,13 +118,22 @@ function clientAssets(): Plugin {
           }
         }
         // /client-assets/turret/<typeID>: a turret module's graphic read for its shots' impacts (lib/turret.mjs: the
-        // impact size, the firing's peak and length), on first ask; {turret: null} for a type with no turret graphic.
+        // impact size, the firing's peak and length), on first ask; an NPC hull or a sentry (a type whose own graphic is
+        // no turret) answered by its gfxTurretID's (gfxTurrets.json, made on first ask: the client fits that turret type
+        // on it and fires it); {turret: null} for a type with neither.
         const turretAsk = /^\/turret\/(\d+)$/.exec(rel);
         if (turretAsk) {
           try {
             const buildDir = path.join(root, build);
-            const tg = JSON.parse(fs.readFileSync(path.join(buildDir, "typeGraphics.json"), "utf8"))[turretAsk[1]!] ?? null;
+            const graphics = JSON.parse(fs.readFileSync(path.join(buildDir, "typeGraphics.json"), "utf8"));
+            let tg = graphics[turretAsk[1]!] ?? null;
             res.setHeader("content-type", "application/json");
+            if (!/\/turret\//i.test(String(tg?.graphicFile ?? ""))) {
+              const gfxFile = path.join(buildDir, "gfxTurrets.json");
+              if (!fs.existsSync(gfxFile)) await extractOnce("gfx-turrets", buildDir, ["--gfx-turrets"]);
+              const fitted = JSON.parse(fs.readFileSync(gfxFile, "utf8"))[turretAsk[1]!] ?? null;
+              tg = fitted ? graphics[String(fitted)] ?? null : null;
+            }
             if (!/\/turret\//i.test(String(tg?.graphicFile ?? ""))) return res.end(JSON.stringify({ typeID: Number(turretAsk[1]), turret: null }));
             const rel2 = String(tg.graphicFile).toLowerCase().slice("res:/".length).replace(/\.(red|black)$/, "") + ".turret.json";
             const have = () => fs.existsSync(path.join(buildDir, rel2)) && fs.readFileSync(path.join(buildDir, rel2), "utf8").includes('"turretBuild": 1');

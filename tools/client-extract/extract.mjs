@@ -5,7 +5,7 @@
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
-//        [--turret <res path of a turret module's graphic> ...]
+//        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -31,7 +31,7 @@ import { childEffectRoots, readHullChildren, readHullControllers, readTrafficIns
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
-import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials } from "./lib/typeGraphics.mjs";
+import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
@@ -367,7 +367,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], systemCelestials: [], typeGraphics: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -381,6 +381,7 @@ function parseArgs(argv) {
     else if (a === "--scene") out.scenes.push(argv[++i]);
     else if (a === "--celestial") out.celestials.push(argv[++i]);
     else if (a === "--turret") out.turrets.push(argv[++i]);
+    else if (a === "--gfx-turrets") out.gfxTurrets = true;
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
     else throw new Error(`unknown argument ${a}`);
   }
@@ -492,6 +493,13 @@ async function main() {
   for (const t of args.turrets) console.log(`${t} -> ${path.relative(outRoot, extractTurret(rf, t, outRoot))}`);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
   const sde = args.sde ?? old.sde ?? null;
+  // gfxTurrets.json: an NPC hull's or a sentry's turret module type, by its type (the SDE's gfxTurretID)
+  if (args.gfxTurrets) {
+    if (!sde) throw new Error("--gfx-turrets needs the SDE (--sde, or a config.json that names it)");
+    const map = await buildGfxTurrets(sde);
+    fs.writeFileSync(path.join(outRoot, "gfxTurrets.json"), JSON.stringify(map));
+    console.log(`gfxTurrets.json: ${Object.keys(map).length} types`);
+  }
   for (const systemID of args.systemCelestials) {
     if (!sde) throw new Error("--system-celestials needs the SDE (--sde, or a config.json that names it)");
     const file = await extractSystemCelestials(rf, sde, systemID, outRoot);
@@ -501,7 +509,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.gfxTurrets && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

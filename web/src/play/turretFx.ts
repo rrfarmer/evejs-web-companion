@@ -15,8 +15,8 @@ interface Firing {
   cycle: number; nextCycle: number; idle: boolean;
   /** The turret's miss queue (EveTurretTarget: the last four told, popped by each shot; empty a hit). */
   misses: boolean[];
-  /** Shots begun whose impact is still to come: when, and its size and life. */
-  shots: { at: number; size: number; life: number }[];
+  /** Shots begun whose impact is still to come: when, and its size and life (null: read when it lands, the turret's graphic not come when it began). */
+  shots: { at: number; size: number | null; life: number | null }[];
 }
 /** A turret module's graphic as the extractor reads it (lib/turret.mjs; GET /client-assets/turret/<typeID>). */
 export interface TurretInfo { impactSize: number; useRandomFiringDelay: boolean; maxTrackingTime: number; firingPeakTime: number; firingDuration: number }
@@ -149,7 +149,7 @@ export class TurretFx {
     if (f.idle) { delay += info?.maxTrackingTime ?? 1; f.idle = false; }
     delay += peak;
     const missed = f.misses.shift() ?? false;
-    if (!missed && size > 0) f.shots.push({ at: at + delay * 1000, size, life: Math.max(total - peak, 0) });
+    if (!missed && size > 0) f.shots.push({ at: at + delay * 1000, size: info ? size : null, life: info ? Math.max(total - peak, 0) : null });
   }
 
   /** One frame: where things are drawn now (by itemID), and the time. */
@@ -163,7 +163,9 @@ export class TurretFx {
         const s = f.shots[i]!;
         if (now < s.at) continue;
         f.shots.splice(i, 1);
-        this.onShot?.(f.shooter, f.target, s.size, s.life);
+        const later = s.size === null ? turretInfo(f.moduleTypeID) : null;
+        const size = s.size ?? later?.impactSize ?? 0.75, life = s.life ?? (later ? Math.max(later.firingDuration - later.firingPeakTime, 0) : 1);
+        if (size > 0) this.onShot?.(f.shooter, f.target, size, life);
       }
       if (f.kind === "laser") continue;
       if (now - f.lastPulse >= PULSE_EVERY_MS) { f.lastPulse = now; this.pulse(f, now); }
