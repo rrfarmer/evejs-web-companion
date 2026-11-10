@@ -165,6 +165,8 @@ export class ParticleSim {
    * particle's position and velocity (in the system's space); a moving one's before and after the step, and the step.
    */
   onDeath: ((p: Vec3, v: Vec3 | null) => void) | null = null;
+  /** A constraint's onCollisionEmitters for a particle it caught: each emitter's data, the particle's place and velocity. */
+  onCollision: ((emitter: Record<string, unknown>, p: Vec3, v: Vec3 | null) => void) | null = null;
   duringLife: ((p0: Vec3, p1: Vec3, v0: Vec3, v1: Vec3, dt: number) => void) | null = null;
 
   constructor(readonly data: ParticleSystemData) {
@@ -246,8 +248,8 @@ type Constraint = (dt: number) => void;
  * constraint's generators run on it. Sphere: a particle inside the sphere (outside it where invertSphere; the radius
  * less or more the particle's) is put on its surface, its velocity likewise where it moves inward; one outside that
  * would cross the surface within dt is put at the crossing; the generators run on every particle not passed over (as
- * the source has it), and its reflectionNoise replaces the velocity (as the source does). Collision emitters are not
- * run (the client's files give these only GPU emitters).
+ * the source has it), and its reflectionNoise replaces the velocity (as the source does). Collision emitters fire at
+ * the particle (the system's onCollision: GPU ones into the scene's GPU particle system, particles.ts).
  */
 function makeConstraint(c: Record<string, unknown>, sim: ParticleSim): Constraint | null {
   const pos = sim.arrays.get(`type:${ELEMENT.POSITION}`);
@@ -262,7 +264,15 @@ function makeConstraint(c: Record<string, unknown>, sim: ParticleSim): Constrain
   const radiusOf = (i: number) => { if (!radiusArr) return 0; let r = 0; for (let d = 0; d < Math.min(4, radiusSize); d++) r += radiusArr[i * radiusSize + d]! * coef[d]!; return r; };
   const gens = ((c.generators ?? []) as Record<string, unknown>[]).map(makeGenerator);
   if (gens.some((g) => !g)) return null;
-  const regen = (i: number) => { for (const g of gens) g!(sim, i); };
+  // then its collision emitters, each at the particle (SpawnParticles(args, position, velocity): rate x 1 at once)
+  const emitters = ((c.onCollisionEmitters ?? []) as Record<string, unknown>[]).filter((e) => e && typeof e === "object");
+  const regen = (i: number) => {
+    for (const g of gens) g!(sim, i);
+    if (emitters.length && sim.onCollision) {
+      const p: Vec3 = [pos[i * 3]!, pos[i * 3 + 1]!, pos[i * 3 + 2]!], v: Vec3 | null = vel ? [vel[i * 3]!, vel[i * 3 + 1]!, vel[i * 3 + 2]!] : null;
+      for (const e of emitters) sim.onCollision(e, p, v);
+    }
+  };
   const friction = num(c.friction, 1), elasticity = num(c.elasticity, 1), noise = num(c.reflectionNoise, 0);
   const affectPos = c.affectPosition !== false, affectVel = c.affectVelocity !== false;
   if (c.type === "Tr2PlaneConstraint") {

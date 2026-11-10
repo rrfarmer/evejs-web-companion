@@ -760,6 +760,13 @@ export function particleObject(node: SofChildParticles, quad: THREE.BufferGeomet
     const hook = (k: string) => { const e = s.data[k] as GpuEmitterData | undefined; return e && /^Tr2Gpu(Unique|Shared)Emitter$/.test(e.type ?? "") ? new GpuEmitter(e) : null; };
     const death = hook("emitParticleOnDeathEmitter"), life = hook("emitParticleDuringLifeEmitter");
     if (death) s.onDeath = (p, v) => { if (drawnBy) death.spawnAt(drawnBy.world, gpuSystemOf(drawnBy.scene), p, v, 1); };
+    // its constraints' collision emitters (a GPU emitter each, made on its first collision)
+    const onHit = new Map<Record<string, unknown>, GpuEmitter | null>();
+    s.onCollision = (data, p, v) => {
+      if (!drawnBy) return;
+      if (!onHit.has(data)) onHit.set(data, /^Tr2Gpu(Unique|Shared)Emitter$/.test(String(data.type ?? "")) ? new GpuEmitter(data as unknown as GpuEmitterData) : null);
+      onHit.get(data)?.spawnAt(drawnBy.world, gpuSystemOf(drawnBy.scene), p, v, 1);
+    };
     if (life) s.duringLife = (p0, p1, v0, v1, dt) => { if (drawnBy) life.spawnAlong(drawnBy.world, gpuSystemOf(drawnBy.scene), p0, p1, v0, v1, dt); };
   }
   const usage = new Map<number, string>();
