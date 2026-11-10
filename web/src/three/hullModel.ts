@@ -171,7 +171,7 @@ export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo",
  * so the batch's (additive none, transparent CW: FrontSide). Defaults from the files: FresnelFactors (1, 1, 0, 0),
  * transforms and scrolls (1, 1, 0, 0), BaseColor 1, DirectionU (1, 0, 0, 1), DirectionV (0, 1, 0, 1).
  */
-function fxHullMaterial(area: SofArea, maps: Record<string, THREE.Texture | undefined>): THREE.ShaderMaterial {
+export function fxHullMaterial(area: SofArea, maps: Record<string, THREE.Texture | undefined>): THREE.ShaderMaterial {
   const directional = /fxdirectionalv5/i.test(area.shader ?? "");
   const p = area.params;
   const v4 = (a: number[] | null | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);

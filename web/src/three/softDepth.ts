@@ -21,15 +21,19 @@ export const SOFT_DEPTH = {
   softDepthNearFar: { value: new THREE.Vector2(1, 1e6) },
 };
 
-/** The GLSL that turns the scene depth at this pixel into a view distance (in metres, ahead of the eye). */
+/**
+ * The GLSL that turns the scene depth at this pixel (softSceneDepth), or at a pixel position (softSceneDepthAt), into a
+ * view distance (in metres, ahead of the eye).
+ */
 export const SOFT_DEPTH_GLSL = `uniform sampler2D softDepthMap; uniform float softDepthOn; uniform vec2 softDepthSize;
 uniform float softDepthLogFar; uniform vec2 softDepthNearFar;
-float softSceneDepth() {
-  float d = texture2D(softDepthMap, gl_FragCoord.xy / softDepthSize).x;
+float softSceneDepthAt(vec2 frag) {
+  float d = texture2D(softDepthMap, frag / softDepthSize).x;
   if (softDepthLogFar > 0.0) return exp2(d * softDepthLogFar) - 1.0;
   float n = softDepthNearFar.x, f = softDepthNearFar.y;
   return (n * f) / (f - d * (f - n));
-}`;
+}
+float softSceneDepth() { return softSceneDepthAt(gl_FragCoord.xy); }`;
 
 const opaque = (m: THREE.Material) => !m.transparent && m.depthWrite && m.depthTest && m.blending === THREE.NormalBlending && m.visible;
 

@@ -8,7 +8,7 @@ import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
-import { HULL_TEXTURE_ROLES, sofHullMaterial, type SofArea } from "./hullModel.ts";
+import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, animators, type SofCurveSet } from "./childAnimation.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -705,9 +705,11 @@ function twoSidedUberMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
 }
 
 /**
- * An area drawn with texturecolor.fx (DEPTH_MAP_OCCLUSION_NO, its default): DiffuseMap at uv x TextureScaling.xy +
- * TextureTranslation.xy, times DiffuseColor and Brightness; both faces (its file culls none). Defaults DiffuseColor
- * 0.8, Brightness 1, TextureTranslation 0, TextureScaling 1.
+ * An area drawn with texturecolor.fx: DiffuseMap at uv x TextureScaling.xy + TextureTranslation.xy, times DiffuseColor
+ * and Brightness; both faces (its file culls none). Defaults DiffuseColor 0.8, Brightness 1, TextureTranslation 0,
+ * TextureScaling 1. DEPTH_MAP_OCCLUSION_YES (its record 2) multiplies the alpha by the share of 21 taps of the scene's
+ * depth - a 5 x 5 pixel block about the pixel, its corners left out - that the area is in front of (the scene's depth
+ * here: softDepth.ts; all of it where none was drawn).
  */
 function textureColorMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
   const p = area.params;
@@ -717,13 +719,30 @@ function textureColorMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
     map: { value: null },
   };
   void childTexture(area.textures.DiffuseMap).then((t) => { uniforms.map!.value = t; });
-  return logDepth(new THREE.ShaderMaterial({
-    uniforms, vertexShader: PLAIN_VS,
-    fragmentShader: `uniform sampler2D map; uniform vec4 colour; uniform float brightness; uniform vec4 translation; uniform vec4 scaling;
+  const occlusion = area.options?.DEPTH_MAP_OCCLUSION === "DEPTH_MAP_OCCLUSION_YES";
+  if (occlusion) Object.assign(uniforms, SOFT_DEPTH);
+  const mat = logDepth(new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: occlusion ? `varying vec2 vUv; varying float vViewZ;
+      void main() { vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vViewZ = -mv.z; gl_Position = projectionMatrix * mv; }` : PLAIN_VS,
+    fragmentShader: `${occlusion ? SOFT_DEPTH_GLSL + " varying float vViewZ;" : ""}
+      uniform sampler2D map; uniform vec4 colour; uniform float brightness; uniform vec4 translation; uniform vec4 scaling;
       varying vec2 vUv;
-      void main() { gl_FragColor = texture2D(map, vUv * scaling.xy + translation.xy) * colour * brightness; }`,
+      void main() {
+        gl_FragColor = texture2D(map, vUv * scaling.xy + translation.xy) * colour * brightness;
+        ${occlusion ? `if (softDepthOn > 0.5) {
+          float seen = 0.0;
+          for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) {
+            if (abs(x) == 2 && abs(y) == 2) continue;
+            seen += vViewZ <= softSceneDepthAt(gl_FragCoord.xy + vec2(float(x), float(y))) ? 1.0 : 0.0;
+          }
+          gl_FragColor.a *= seen / 21.0;
+        }` : ""}
+      }`,
     side: THREE.DoubleSide, transparent: true, depthWrite: false, ...areaBlend(area),
   }));
+  if (occlusion) mat.userData.softDepth = true;
+  return mat;
 }
 
 /**
@@ -801,7 +820,9 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
   // FresnelColor and Gloss.x, else the file's defaults (1, 1 and 0.4: quadv5.sm_hi's header; a child mesh's effect
   // inherits nothing from its ship but the colour set, which this shader does not read)
   const hullAreas = new Map<SofChildMeshArea, THREE.Material>();
-  await Promise.all(node.areas.filter((a) => a.effect === "quadv5" || a.effect === "quadglassv5").map(async (a) => {
+  // (quaddetailv5 too: its detail layer from the effect's own Detail1..3Map and parameters; fx/fxv5.fx areas take the
+  // hull's fx material, their Layer1Map, Layer2Map and LayerMaskMap and the effect's parameters)
+  await Promise.all(node.areas.filter((a) => a.effect === "quadv5" || a.effect === "quadglassv5" || a.effect === "quaddetailv5" || a.effect === "fxv5").map(async (a) => {
     const maps: Record<string, THREE.Texture | undefined> = {};
     await Promise.all(Object.entries(a.textures).map(async ([name, res]) => {
       const role = HULL_TEXTURE_ROLES[name];
@@ -815,7 +836,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
       glowColor: v("GeneralGlowColor") ?? [1, 1, 1, 1],
       materials: [1, 2, 3, 4].map((i) => ({ name: `Mtl${i}`, diffuse: v(`Mtl${i}DiffuseColor`) ?? [1, 1, 1, 1], dust: null, fresnel: v(`Mtl${i}FresnelColor`) ?? [1, 1, 1, 1], gloss: v(`Mtl${i}Gloss`)?.[0] ?? 0.4 })),
     };
-    hullAreas.set(a, sofHullMaterial(maps, area));
+    hullAreas.set(a, a.effect === "fxv5" ? fxHullMaterial({ ...area, kind: a.kind }, maps) : sofHullMaterial(maps, area));
   }));
   // a distortion area (ubershaderdistortion.fx) draws into the distortion map, on its layer alone (distortion.ts)
   const distortionAreas = new Map<SofChildMeshArea, THREE.Material | null>();
