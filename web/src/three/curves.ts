@@ -278,3 +278,49 @@ function expressionValue(curve: ExpressionCurve, time: number): number {
   };
   return Math.fround(ev(s.node));
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// The composite curves, each of scalar curves or expressions (measured against the client's GetValueAt):
+// - Tr2CurveColor: r, g, b, a; with srgbOutput, r g b each to the power 1 / 2.2 (0.2 -> 0.4812), a as it is;
+// - Tr2CurveVector3: x, y, z; Tr2CurveVector3Expression: expressionX, Y, Z over its inputs;
+// - Tr2CurveEulerRotation: yaw, pitch, roll in radians, to a quaternion (x, y, z, w) yaw about y, pitch about x, roll
+//   about z - three.js's YXZ order (0.3, 0.7, -1.1 -> 0.2157, 0.2969, -0.5292, 0.7651, as the client's);
+//   Tr2CurveEulerRotationExpression: expressionYaw, Pitch, Roll over its inputs.
+
+type Composite = { type: string; [k: string]: unknown };
+
+/** An expression of a composite curve (its own string, the curve's inputs, the curve's own random state). */
+function partExpression(curve: Composite, key: string, time: number): number {
+  const part = (curve as Record<string, unknown>)[`__${key}`] as ExpressionCurve | undefined;
+  if (part) return expressionValue(part, time);
+  const made: ExpressionCurve = {
+    type: "Tr2CurveScalarExpression", expression: String(curve[key] ?? ""), inputs: curve.inputs as Curve[] | undefined,
+    input1: curve.input1 as number | undefined, input2: curve.input2 as number | undefined,
+    input3: curve.input3 as number | undefined, input4: curve.input4 as number | undefined,
+  };
+  Object.defineProperty(curve, `__${key}`, { value: made, enumerable: false });
+  return expressionValue(made, time);
+}
+
+/** A colour curve's value (r, g, b, a). */
+export function colorValue(curve: Composite, time: number): [number, number, number, number] {
+  const c = [curveValue(curve.r as Curve, time), curveValue(curve.g as Curve, time), curveValue(curve.b as Curve, time), curveValue(curve.a as Curve, time)] as [number, number, number, number];
+  if (curve.srgbOutput === true) for (let i = 0; i < 3; i++) c[i] = Math.fround(Math.pow(Math.max(c[i]!, 0), 1 / 2.2));
+  return c;
+}
+
+/** A vector curve's value (x, y, z). */
+export function vector3Value(curve: Composite, time: number): [number, number, number] {
+  if (curve.type === "Tr2CurveVector3Expression") return [partExpression(curve, "expressionX", time), partExpression(curve, "expressionY", time), partExpression(curve, "expressionZ", time)];
+  return [curveValue(curve.x as Curve, time), curveValue(curve.y as Curve, time), curveValue(curve.z as Curve, time)];
+}
+
+/** A rotation curve's value, a quaternion (x, y, z, w). */
+export function rotationValue(curve: Composite, time: number): [number, number, number, number] {
+  const [yaw, pitch, roll] = curve.type === "Tr2CurveEulerRotationExpression"
+    ? [partExpression(curve, "expressionYaw", time), partExpression(curve, "expressionPitch", time), partExpression(curve, "expressionRoll", time)]
+    : [curveValue(curve.yaw as Curve, time), curveValue(curve.pitch as Curve, time), curveValue(curve.roll as Curve, time)];
+  // YXZ: q = qYaw x qPitch x qRoll
+  const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2), cr = Math.cos(roll / 2), sr = Math.sin(roll / 2);
+  return [sp * cy * cr + cp * sy * sr, cp * sy * cr - sp * cy * sr, cp * cy * sr - sp * sy * cr, cp * cy * cr + sp * sy * sr];
+}
