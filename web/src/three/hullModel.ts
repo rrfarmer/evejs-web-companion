@@ -144,7 +144,12 @@ export interface TypeModelInfo {
  * - quadwreckv5 (its record 0), a wreck: the glow times a flicker - GlowMap.r at the uv stepped to fifteenths and
  *   pushed outward along it by WreckFactors.w x time, ^1.2 = g; sat(-z) (1 - z g) + z g for z WreckFactors.z - and the
  *   whole lit colour then burnt toward WreckColor x a, a AlphaThresholdMap (sRGB) at uv x WreckFactors.x: mixed by
- *   sat(a.r + the vertex colour's red)^WreckFactors.y.
+ *   sat(a.r + the vertex colour's red)^WreckFactors.y;
+ * - quadglassv5 in a transparent area (its SOT_TRANSPARENT record 16: two passes, back faces then front, the
+ *   transparent batch's alpha blend): no albedo and no diffuse light - the sun's specular and the environment's
+ *   reflection on the weighed FresnelColor and gloss (no bare-surface pull), plus an unlit tint, the weighed
+ *   DiffuseColor x P x (1 - 0.75 |N . V|) for P = PaintMaskMap.r, plus the glow; that sRGB-encoded as c, written
+ *   mix(c / (1.01 - P), c, the first material's weight) at alpha 1 - P.
  * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
@@ -231,6 +236,9 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   // thrust.)
   const heat = /quadheat(detail)?v5/i.test(area.shader ?? "") && !!maps.glow;
   const heatDetail = /quadheatdetailv5/i.test(area.shader ?? "");
+  const glass = /quadglassv5/i.test(area.shader ?? "") && area.kind === "transparent";
+  // (its albedo stays bound for the uv the material map is read at; the tint of nought takes it out of the light)
+  if (glass) { m.transparent = true; m.depthWrite = false; }
   const wreck = /quadwreckv5/i.test(area.shader ?? "") && !!maps.alphaThreshold;
   if (wreck) {
     maps.alphaThreshold!.colorSpace = THREE.SRGBColorSpace;
@@ -307,13 +315,20 @@ ${shader.fragmentShader}`
         vec3 detN = ( det1.xyz * 2.0 - 1.0 + det2.xyz * 2.0 - 1.0 + det3.xyz * 2.0 - 1.0 ) * detSel;
         mtlTint = mix( mtlTint, detailAlbedo, detA );
         mtlFr = mix( mtlFr, detailFresnel, detA );` : ""}
-        ${maps.paintMask ? "float bareD = texture2D( paintMask, vMapUv ).r * generalData.x;" : "float bareD = 0.0;"}
+        ${glass ? `float glassP = ${maps.paintMask ? "texture2D( paintMask, vMapUv ).r" : "0.0"};
+        vec3 glassTint = mtlTint * glassP;
+        mtlTint = vec3( 0.0 );
+        float bareD = 0.0;` : maps.paintMask ? "float bareD = texture2D( paintMask, vMapUv ).r * generalData.x;" : "float bareD = 0.0;"}
         mtlTint = mix( mtlTint, vec3( 1.0 ), bareD );
         mtlFr = mix( mtlFr, vec3( 0.038384, 0.039352, 0.039165 ), bareD );
         diffuseColor.rgb *= mtlTint;`)
       .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
         roughnessFactor = clamp( 1.0 - mix( roughnessFactor * mtlGl, 0.4, bareD ), 0.0, 1.0 );`)
-      .replace("#include <opaque_fragment>", wreck ? `vec3 wreckA = texture2D( alphaThreshold, vMapUv * wreckFactors.x ).rgb;
+      .replace("#include <opaque_fragment>", glass ? `outgoingLight += glassTint * ( 1.0 - 0.75 * abs( dot( normal, normalize( vViewPosition ) ) ) );
+        vec3 glassC = mix( outgoingLight * 12.92, 1.055 * pow( max( outgoingLight, 0.0 ), vec3( 1.0 / 2.4 ) ) - 0.055, step( vec3( 0.0031308 ), outgoingLight ) );
+        outgoingLight = mix( glassC / ( 1.01 - glassP ), glassC, mtlW.x );
+        diffuseColor.a = 1.0 - glassP;
+        #include <opaque_fragment>` : wreck ? `vec3 wreckA = texture2D( alphaThreshold, vMapUv * wreckFactors.x ).rgb;
         outgoingLight = mix( wreckColor * wreckA, outgoingLight, pow( clamp( wreckA.r + vWreckV, 0.0, 1.0 ), wreckFactors.y ) );
         #include <opaque_fragment>` : "#include <opaque_fragment>")
       .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
@@ -340,7 +355,7 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
         "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
     }
   };
-  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}`;
+  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}`;
   return m;
 }
 
