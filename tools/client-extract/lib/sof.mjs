@@ -20,6 +20,21 @@ export const COLOR_TYPES = ["Primary", "Secondary", "Tertiary", "Black", "White"
   "PrimarySpotlight", "SecondarySpotlight", "TertiarySpotlight", "PrimaryBillboard", "PrimaryWarpFx", "PrimaryAttackFX",
   "PrimarySiegeFX", "PrimaryDockedFX"];
 
+/**
+ * A faction's colour by type name, as its colour set holds it: one the faction does not set is
+ * EveSOFDataFactionColorSet's default (carbonengine/trinity EveSOFData.cpp): (0, 0, 0, 1), but for PrimaryBillboard
+ * (2.5 in all four) and three authored ones (0xFFFF6333, 0xFF4C82E2, 0xFFFF180B: ARGB bytes).
+ */
+const COLOR_SET_DEFAULTS = {
+  PrimaryBillboard: [2.5, 2.5, 2.5, 2.5],
+  PrimaryWarpFx: [0xff / 255, 0x63 / 255, 0x33 / 255, 1],
+  PrimaryDockedFX: [0x4c / 255, 0x82 / 255, 0xe2 / 255, 1],
+  PrimaryAttackFX: [0xff / 255, 0x18 / 255, 0x0b / 255, 1],
+};
+export function colorOf(colorSet, name) {
+  return colorSet?.[name] ?? COLOR_SET_DEFAULTS[name] ?? [0, 0, 0, 1];
+}
+
 /** EveSOFDataFactionLogoSet's logos by a logo decal's logoType (trinity.EveSOFDataLogoSetType, read in the client). */
 export const LOGO_TYPES = ["Primary", "Secondary", "Tertiary", "Marking_01", "Marking_02"];
 
@@ -61,6 +76,16 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
   if (!hull) return null;
   const faction = factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null;
   const areaTypes = faction?.areaTypes ?? {};
+  const factionColors = faction?.colorSet ?? null;
+  // An area's GeneralGlowColor as EveSOF finds it (carbonengine/trinity EveSOFDNA::GetMeshAreaParameter,
+  // EveSOFUtils::SearchForParameterData): the faction's colour set at the glow colour type of the faction's material
+  // entry for the area's type (EveSOFDataAreaMaterial.colorType, TYPE_HULL where unsaid), else of its Primary entry;
+  // without either, the hull's own parameter; else none (the shader's default, white).
+  const glowColor = (typeName, hullParameters) => {
+    const entry = areaTypes[typeName] ?? areaTypes.Primary ?? null;
+    if (entry && faction) return colorOf(factionColors, COLOR_TYPES[entry.colorType ?? COLOR_TYPES.indexOf("Hull")]);
+    return params(hullParameters).GeneralGlowColor ?? null;
+  };
   const areas = [];
   for (const [list, kind] of [[hull.opaqueAreas, "opaque"], [hull.transparentAreas, "transparent"], [hull.additiveAreas, "additive"]]) {
     for (const a of list ?? []) {
@@ -77,6 +102,7 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
         params: params(a.parameters),
         materials: [1, 2, 3, 4].map((i) => material(sof, ofType[`material${i}`] ?? primary[`material${i}`])),
         colorType: ofType.colorType ?? null,
+        glowColor: glowColor(typeName, a.parameters),
       });
     }
   }
@@ -104,8 +130,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":23)
-    sofBuild: 23,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":25)
+    sofBuild: 25,
     booster,
     areas,
     colorSet,

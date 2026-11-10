@@ -12,7 +12,7 @@ import { loadDds } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
-export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[] }
+export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[]; glowColor?: number[] | null }
 export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null }
 export interface SofHull {
   hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[];
@@ -136,7 +136,8 @@ export interface TypeModelInfo {
 export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail" };
 
 export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea): THREE.MeshStandardMaterial {
-  const m = eveHullMaterial(maps, area.name);
+  // the glow (quadv5.sm_hi): GeneralGlowColor x the ship's activation strength (1) x GlowMap.r^2.4, added
+  const m = eveHullMaterial(maps, area.name, true, { color: area.glowColor ?? [1, 1, 1], power: 2.4 });
   m.metalness = 0;
   // quadsailsv5's sails weave; quadglassv5 draws both faces (its normal turned for the back one).
   const sails = /sails/i.test(area.shader ?? "") && !!maps.sailsDetail;
@@ -199,7 +200,7 @@ function change(src: string, from: string, to: string): string {
 }
 
 /** The client's channel layout on three's standard material: BC5 normal (z rebuilt), BC4 roughness and glow (red). */
-export function eveHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: string, flipGreen = true): THREE.MeshStandardMaterial {
+export function eveHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: string, flipGreen = true, glow: { color: number[]; power: number } | null = null): THREE.MeshStandardMaterial {
   const isBooster = /exhaust|booster/i.test(area);
   const m = new THREE.MeshStandardMaterial({
     map: maps.albedo ?? null,
@@ -209,8 +210,9 @@ export function eveHullMaterial(maps: Record<string, THREE.Texture | undefined>,
     roughness: maps.roughness ? 1 : 0.55,
     metalness: 0.6,
     emissiveMap: maps.glow ?? null,
-    emissive: new THREE.Color(maps.glow ? (isBooster ? 0xffa060 : 0x9fd8ff) : 0x000000),
-    emissiveIntensity: isBooster ? 4 : 2,
+    // without the SOF's glow colour (an older model): a guessed colour, kept as it was
+    emissive: maps.glow ? (glow ? new THREE.Color(glow.color[0] ?? 1, glow.color[1] ?? 1, glow.color[2] ?? 1) : new THREE.Color(isBooster ? 0xffa060 : 0x9fd8ff)) : new THREE.Color(0x000000),
+    emissiveIntensity: glow ? 1 : isBooster ? 4 : 2,
   });
   m.onBeforeCompile = (shader) => {
     let fs = resolveIncludes(shader.fragmentShader);
@@ -221,7 +223,7 @@ export function eveHullMaterial(maps: Record<string, THREE.Texture | undefined>,
          mapN.z = sqrt( max( 0.0, 1.0 - dot( mapN.xy, mapN.xy ) ) );`);
     }
     if (maps.roughness) fs = change(fs, "roughnessFactor *= texelRoughness.g;", "roughnessFactor *= texelRoughness.r;");
-    if (maps.glow) fs = change(fs, "totalEmissiveRadiance *= emissiveColor.rgb;", "totalEmissiveRadiance *= emissiveColor.rrr;");
+    if (maps.glow) fs = change(fs, "totalEmissiveRadiance *= emissiveColor.rgb;", glow ? `totalEmissiveRadiance *= vec3( pow( emissiveColor.r, ${glow.power.toFixed(1)} ) );` : "totalEmissiveRadiance *= emissiveColor.rrr;");
     shader.fragmentShader = fs;
   };
   return m;
