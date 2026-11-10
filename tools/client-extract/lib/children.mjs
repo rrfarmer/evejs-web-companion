@@ -311,9 +311,18 @@ function readShown(o, skipped) {
       };
     }
   }
-  if (o.type === "EveChildParticleSystem" && o.mesh?.type === "Tr2InstancedMesh" && o.mesh.geometryResPath) {
-    const node = readParticleSystemChild(o, skipped);
-    if (node) return node;
+  if (o.type === "EveChildParticleSystem") {
+    const cpu = o.mesh?.type === "Tr2InstancedMesh" && o.mesh.geometryResPath ? readParticleSystemChild(o, skipped) : null;
+    // its GPU emitters (Tr2GpuUniqueEmitter, Tr2GpuSharedEmitter): they emit into the scene's one GPU particle system
+    // (gpuParticles.ts), each from where the child is (EveChildParticleSystem::Update's childWorldTransform)
+    const gpu = (o.particleEmitters ?? []).filter((e) => e?.type === "Tr2GpuUniqueEmitter" || e?.type === "Tr2GpuSharedEmitter");
+    const gpuNode = gpu.length ? {
+      k: "gpuParticles", id: idOf(o), name: o.name ?? null, m: srt(o), ...parts(o),
+      emitters: gpu.map((e) => ({ id: idOf(e), ...plainOf(e, () => null) })),
+      modifiers: (o.transformModifiers ?? []).map((t) => t.type),
+    } : null;
+    if (cpu && gpuNode) return { k: "container", name: o.name ?? null, m: null, t: [0, 0, 0], r: [0, 0, 0, 1], s: [1, 1, 1], curveSets: [], modifiers: [], srt: null, objects: [cpu, gpuNode], lights: [] };
+    if (cpu || gpuNode) return cpu ?? gpuNode;
   }
   if (o.type === "EveChildMesh" && o.mesh?.type === "Tr2Mesh" && o.mesh.geometryResPath) {
     const areas = [];

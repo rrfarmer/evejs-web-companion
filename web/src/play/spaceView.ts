@@ -15,6 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent } from "../three/hullModel.ts";
+import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
@@ -697,6 +698,10 @@ export class SpaceView {
     const ego = snap?.ship ?? null;
     // the ship's place is the scene's origin; with no ship (blown up, the capsule not yet in the park) the last one stays
     const origin = ego ? ego.position : this.lastOrigin;
+    // the world moved under the GPU particles (they live in our space, which follows the ship): by the origin's move,
+    // mirrored into three's handedness
+    const moved = new THREE.Vector3(-(origin.x - this.lastOrigin.x), -(origin.y - this.lastOrigin.y), origin.z - this.lastOrigin.z);
+    if (moved.lengthSq() > 0) shiftGpuParticles(this.scene, moved);
     this.lastOrigin = { x: origin.x, y: origin.y, z: origin.z };
     const seen = new Set<number>();
     const tmp = new THREE.Vector3();

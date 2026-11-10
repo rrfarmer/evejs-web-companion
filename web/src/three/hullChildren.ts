@@ -9,6 +9,7 @@ import { logDepth } from "./logDepth.ts";
 import { uberDistortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 import { ControllerRun, type SofController } from "./controllers.ts";
 import { particleObject, type SofChildParticles } from "./particles.ts";
+import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
@@ -107,6 +108,16 @@ export interface SofChildLines {
  * set of that name (each copy at the locator's position and rotation, scaled by scaling x a random factor in randScale,
  * a locator kept with chance completeness), all at once when its trigger is set, and kept.
  */
+/** An EveChildParticleSystem's GPU emitters (children.mjs): they emit into the scene's GPU particle system. */
+export interface SofChildGpuParticles {
+  k: "gpuParticles";
+  id?: number;
+  display?: boolean;
+  name: string | null;
+  m: number[];
+  emitters: GpuEmitterData[];
+  modifiers?: string[];
+}
 export interface SofChildPropagator {
   k: "propagator";
   id?: number;
@@ -119,7 +130,7 @@ export interface SofChildPropagator {
   randScale: number[];
   source: SofChildNode;
 }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator;
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -1093,6 +1104,37 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
     o.updateMatrixWorld(true);
   }
 };
+/**
+ * A child's GPU emitters, driven where the child is: each draw of this (invisible) object updates its copy's emitters
+ * with its world matrix (EveChildParticleSystem::Update gives them the child's world transform; nothing is emitted while
+ * it is hidden), into its scene's system (gpuParticles.ts).
+ */
+const gpuDriverMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false });
+const gpuEmittersOf = new WeakMap<THREE.Object3D, GpuEmitter[]>();
+/** The emitters' data by a driver's key: one object per child for a model's copies (a curve set's binding sets it). */
+const gpuEmitterData = new Map<number, GpuEmitterData[]>();
+let gpuEmitterKey = 0;
+gpuDriverMaterial.onBeforeRender = (_r, scene, _c, _g, object) => {
+  let list = gpuEmittersOf.get(object);
+  if (!list) { list = (gpuEmitterData.get(object.userData.gpuEmitterKey as number) ?? []).map((d) => new GpuEmitter(d)); gpuEmittersOf.set(object, list); }
+  const system = gpuSystemOf(scene);
+  object.updateWorldMatrix(true, false);
+  const now = performance.now() / 1000;
+  for (const e of list) e.update(now, object.matrixWorld, system);
+};
+function gpuDriver(node: SofChildGpuParticles): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
+  const mesh = new THREE.Mesh(geo, gpuDriverMaterial);
+  mesh.name = `child-gpu-emitters:${node.name ?? ""}`;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -1e9;
+  const key = ++gpuEmitterKey;
+  gpuEmitterData.set(key, node.emitters);
+  mesh.userData.gpuEmitterKey = key;
+  return mesh;
+}
+
 function ticker(): THREE.Mesh {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
@@ -1228,6 +1270,19 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         place(l, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
         sink(l);
       }
+      return;
+    }
+    if (node.k === "gpuParticles") {
+      const o = gpuDriver(node);
+      // their numbers a curve set's binding may drive (rate, colours, sizes, ...: read by the emitter each update)
+      for (const e of node.emitters) {
+        if (e.id === undefined) continue;
+        const rec = e as unknown as Record<string, unknown>;
+        animator.values(e.id, (attr) => { const v = rec[attr]; return typeof v === "number" || Array.isArray(v) ? (v as number | number[]) : attr === "rate" ? 0 : undefined; }, (attr, v) => { rec[attr] = v; });
+      }
+      if (node.id !== undefined) { o.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
+      place(o, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), node.modifiers);
+      sink(o);
       return;
     }
     if (node.k === "propagator") {

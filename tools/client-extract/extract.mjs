@@ -136,8 +136,16 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
     for (const o of n.objects ?? []) walkChildren(o);
     if (n.k === "propagator") walkChildren(n.source);
   };
+  let gpu = false;
+  const findGpu = (n) => { if (!n || gpu) return; if (n.k === "gpuParticles") gpu = true; for (const o of n.objects ?? []) findGpu(o); if (n.k === "propagator") findGpu(n.source); };
   for (const c of built.children) walkChildren(c.root);
   for (const root of Object.values(built.childEffects)) walkChildren(root);
+  for (const c of built.children) findGpu(c.root);
+  for (const root of Object.values(built.childEffects)) findGpu(root);
+  // the scene GPU particle system's atlas and turbulence volume (res:/fisfx/gpuparticles/system.black's), where a child
+  // has GPU emitters
+  if (gpu) built.gpuParticles = Object.fromEntries([["atlas", "res:/fisfx/gpuparticles/systematlas.dds"], ["noise", "res:/texture/global/noise32cube_volume.dds"]]
+    .map(([k, res]) => [k, rf.has(res) ? copyRes(rf, res, outRoot) : null]));
   for (const n of trafficNodes) {
     n.instances = rf.has(n.instances) ? await readTrafficInstances(rf, n.instances) : null;
     for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
