@@ -114,8 +114,9 @@ function copyRes(rf, res, outRoot) {
 export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = null) {
   const built = buildHull(loadSof(rf), hullName, factionName, raceName);
   if (!built) return null;
-  // the hull's children built for every faction (lib/children.mjs): their drawn graph
-  built.children = readHullChildren(rf, loadSof(rf).hulls.get(String(hullName).toLowerCase()));
+  // the hull's children as EveSOF builds them for the faction (lib/children.mjs): their drawn graph
+  const sof = loadSof(rf);
+  built.children = readHullChildren(rf, sof.hulls.get(String(hullName).toLowerCase()), factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null);
   // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
   // textures copied
   const trafficNodes = [], meshNodes = [];

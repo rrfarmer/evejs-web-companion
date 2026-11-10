@@ -18,8 +18,18 @@
 //   client's classes have them (read in its Python).
 //
 // The rest is counted, not read (meshes, line sets, particle systems, point lights, curve sets, state machines).
-// A child with a groupIndex is built for some factions or skins only; those are left out (a child without one is
-// built for every faction).
+//
+// Which children a hull gets for a faction, and where (carbonengine/trinity EveSOF.cpp's SetupEffects, a standalone
+// build, EveSOFDataHullBuildFilter::STANDALONE = 1):
+// - a sof6 hull's are its childSets' items (SetupEffectChildren): a set only where the faction's visibility group set
+//   names its visibilityGroup (EveSOFDNA::IsInVisibilityData: the name's FNV hash, as written; a set naming none is
+//   in "primary", EveSOFDataHullChildSet's default, which all but 17 factions name), an item only where its
+//   buildFilter has STANDALONE; its children list is not read;
+// - another hull's are its children (SetupChildrenAndAnimations): one only where its buildFilter has STANDALONE, and
+//   not where the faction's child data for its groupIndex (EveSOFDataFactionChild, the last of that index; -1 none)
+//   says it is not visible (isVisible, false where unsaid); a groupIndex the faction does not name is built;
+// - each child's root takes the entry's translation, rotation and scaling (the defaults 0, identity, 1 where unsaid)
+//   in place of its own (EveChildTransform::Setup, where useSRT; EveTransform's SetTranslation and the rest).
 
 import { readBlack } from "./black.mjs";
 
@@ -177,22 +187,42 @@ function readNode(o, skipped) {
   return null;
 }
 
+const STANDALONE = 1;
+const built = (entry) => ((entry.buildFilter ?? -1) & STANDALONE) !== 0;
+
+/** The children EveSOF builds for this hull and faction (EveSOFDataHullChild or EveSOFDataHullChildSetItem entries). */
+export function hullChildEntries(sofHull, faction) {
+  if (sofHull?.sof6) {
+    const groups = new Set((faction?.visibilityGroupSet?.visibilityGroups ?? []).map((g) => String(g.str ?? "")));
+    return (sofHull.childSets ?? []).filter((set) => groups.has(String(set.visibilityGroup ?? "primary"))).flatMap((set) => set.items ?? []).filter(built);
+  }
+  const shown = new Map();
+  for (const c of faction?.children ?? []) shown.set(c.groupIndex ?? -1, c.isVisible === true);
+  return (sofHull?.children ?? []).filter((c) => built(c) && !((c.groupIndex ?? -1) !== -1 && shown.get(c.groupIndex) === false));
+}
+
 /**
- * The hull's children built for every faction (no groupIndex), each { res, root, skipped }: the object file, its
- * drawn graph (readNode), and what of it is not drawn yet, by type. A file the client does not ship is left out.
+ * The hull's children as EveSOF builds them for the faction (hullChildEntries), each { res, root, skipped }: the
+ * object file, its drawn graph (readNode, its root placed by the entry), and what of it is not drawn yet, by type. A
+ * file the client does not ship is left out.
  */
-export function readHullChildren(rf, sofHull) {
+export function readHullChildren(rf, sofHull, faction = null) {
   const out = [];
   ids = new WeakMap();
   nextId = 1;
-  for (const child of sofHull?.children ?? []) {
-    if (child.groupIndex !== undefined && child.groupIndex !== null) continue;
+  for (const child of hullChildEntries(sofHull, faction)) {
     const res = String(child.redFilePath ?? "").toLowerCase().replace(/\.red$/, ".black");
     if (!res || !rf.has(res)) continue;
     const skipped = {};
     let root = null;
     try {
-      root = readNode(readBlack(rf.read(res), res), skipped);
+      const o = readBlack(rf.read(res), res);
+      if (o && typeof o === "object" && o.useSRT !== false) {
+        o.translation = child.translation ?? [0, 0, 0];
+        o.rotation = child.rotation ?? [0, 0, 0, 1];
+        o.scaling = child.scaling ?? [1, 1, 1];
+      }
+      root = readNode(o, skipped);
     } catch (e) {
       skipped.unread = String(e.message ?? e);
     }
