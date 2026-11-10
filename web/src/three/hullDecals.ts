@@ -39,7 +39,9 @@ const USAGE_CYLINDRICAL = 3;
 const USAGE_LOGO = 6;
 const USAGE_HOLE = 2;
 
-const clock = { value: 0 };
+// the clock read as the uniform is: a model is drawn as a clone, and a clone has no onBeforeRender of its own (the
+// glow decals' clock stood at 0 so)
+const clock = { get value() { return performance.now() / 1000; } };
 
 const textures = new Map<string, Promise<THREE.Texture | null>>();
 function texture(url: string | null | undefined, srgb = false): Promise<THREE.Texture | null> {
@@ -281,7 +283,6 @@ export async function addDecals(lodNodes: readonly THREE.Object3D[], sets: reado
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `decal:${d.name ?? ""}`;
       mesh.renderOrder = 2;
-      mesh.onBeforeRender = () => { clock.value = performance.now() / 1000; };
       // the decal sits where the hull mesh does inside the node
       mesh.position.copy(hull.position); mesh.quaternion.copy(hull.quaternion); mesh.scale.copy(hull.scale);
       (hull.parent ?? node).add(mesh);

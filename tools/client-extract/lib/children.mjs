@@ -6,7 +6,10 @@
 // - EveChildContainer: its transform (useSRT, the client's default: translation, rotation, scaling), display, its
 //   displayFilter (trinity.DisplayModifierChooser: Low 0, Low_and_Medium 1, Medium 2, Medium_and_High 3, High 4,
 //   None_ 5, the default; kept at high quality: 3, 4, 5), its objects and transform modifiers;
-// - EveChildQuad: transform, color, brightness, minScreenSize and its effect (flarequad.fx, flarequadsoft.fx).
+// - EveChildQuad: transform, color, brightness, minScreenSize and its effect (flarequad.fx, flarequadsoft.fx);
+// - EveChildMesh on a Tr2InstancedMesh drawn with traffic.fx (a station's traffic): its transform, the instance
+//   geometry's file, the effect's constants and its textures (PositionMap, TexMap); the instances themselves are
+//   read by the caller (readTrafficInstances), the reader being asynchronous.
 //
 // The rest is counted, not read (meshes, line sets, particle systems, point lights, curve sets, state machines).
 // A child with a groupIndex is built for some factions or skins only; those are left out (a child without one is
@@ -31,6 +34,14 @@ const srt = (o) => {
   ];
 };
 const identity = (m) => m.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-9);
+/** An effect's constants by name: its constParameters (name, value rows) and its Tr2Vector4Parameter / Tr2FloatParameter list. */
+function effectParams(fx) {
+  const out = {};
+  for (const row of fx?.constParameters?.items ?? []) if (Array.isArray(row) && typeof row[0] === "string") out[row[0]] = row[1];
+  for (const p of fx?.parameters ?? []) if (p?.name) out[p.name] = p.value ?? null;
+  return out;
+}
+const effectTextures = (fx) => Object.fromEntries((fx?.resources ?? []).filter((r) => r?.name && r.resourcePath).map((r) => [r.name, String(r.resourcePath).toLowerCase()]));
 const effectName = (fx) => (fx?.effectFilePath ? String(fx.effectFilePath).split("/").pop().replace(/\.fx$/i, "").toLowerCase() : null);
 
 /** One EveChild* object as the page draws it, or null where nothing of it is drawn; `skipped` counts the rest by type. */
@@ -42,6 +53,15 @@ function readNode(o, skipped) {
       k: "quad", name: o.name ?? null, m: srt(o), color: o.color ?? [1, 1, 1, 1], brightness: o.brightness ?? 1,
       minScreenSize: o.minScreenSize ?? 0, effect: effectName(o.effect),
     };
+  }
+  if (o.type === "EveChildMesh" && o.mesh?.type === "Tr2InstancedMesh") {
+    const area = [...(o.mesh.additiveAreas ?? []), ...(o.mesh.transparentAreas ?? []), ...(o.mesh.opaqueAreas ?? [])][0];
+    if (effectName(area?.effect) === "traffic" && o.mesh.instanceGeometryResPath) {
+      return {
+        k: "traffic", name: o.name ?? null, m: srt(o), instances: String(o.mesh.instanceGeometryResPath).toLowerCase(),
+        params: effectParams(area.effect), textures: effectTextures(area.effect),
+      };
+    }
   }
   if (o.type === "EveChildContainer") {
     if (!HIGH_QUALITY.has(o.displayFilter ?? 5)) return null;
@@ -79,6 +99,28 @@ export function readHullChildren(rf, sofHull) {
       skipped.unread = String(e.message ?? e);
     }
     out.push({ res, root, skipped });
+  }
+  return out;
+}
+
+/**
+ * A traffic mesh's instances (its instance geometry: Position xyzw, TextureCoordinates0 xyzw; traffic.fx's POSITION8
+ * and TEXCOORD8): one row of eight numbers each - the offset (x, y, z) and the path (w); the size, the speed (its sign
+ * the way along the path), the colour's mix and the phase.
+ */
+export async function readTrafficInstances(rf, res) {
+  const { readGranny } = await import("./granny.mjs");
+  const g = await readGranny(rf.read(res), res);
+  const cols = g.root?.Meshes?.[0]?.PrimaryVertexData?.Vertices?.columns ?? {};
+  const a = cols.Position, b = cols.TextureCoordinates0;
+  if (!a || !b || a.width !== 4 || b.width !== 4) throw new Error(`${res}: not a traffic instance buffer`);
+  const n = a.data.length / 4;
+  const out = new Array(n * 8);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < 4; j++) {
+      out[i * 8 + j] = Math.round(a.data[i * 4 + j] * 1e4) / 1e4;
+      out[i * 8 + 4 + j] = Math.round(b.data[i * 4 + j] * 1e4) / 1e4;
+    }
   }
   return out;
 }

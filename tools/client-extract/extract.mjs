@@ -26,7 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { readHullChildren } from "./lib/children.mjs";
+import { readHullChildren, readTrafficInstances } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb } from "./lib/glb.mjs";
@@ -111,11 +111,19 @@ function copyRes(rf, res, outRoot) {
  * A hull as the Space Object Factory builds it for a faction (lib/sof.mjs), written beside the model as
  * <hull stem>.<faction>.sof.json, every texture it names copied (a station's come from shared texture sets).
  */
-export function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = null) {
+export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceName = null) {
   const built = buildHull(loadSof(rf), hullName, factionName, raceName);
   if (!built) return null;
   // the hull's children built for every faction (lib/children.mjs): their drawn graph
   built.children = readHullChildren(rf, loadSof(rf).hulls.get(String(hullName).toLowerCase()));
+  // a traffic mesh's instances read, its textures copied
+  const trafficNodes = [];
+  const walkChildren = (n) => { if (!n) return; if (n.k === "traffic") trafficNodes.push(n); for (const o of n.objects ?? []) walkChildren(o); };
+  for (const c of built.children) walkChildren(c.root);
+  for (const n of trafficNodes) {
+    n.instances = rf.has(n.instances) ? await readTrafficInstances(rf, n.instances) : null;
+    for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+  }
   for (const area of built.areas) {
     for (const [name, res] of Object.entries(area.textures)) {
       area.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
@@ -309,7 +317,7 @@ async function main() {
     if (!tg?.gr2) throw new Error(`--type ${typeID}: no SOF hull model known (run --type-graphics with --sde first)`);
     const stem = tg.gr2.slice("res:/".length, -".gr2".length);
     if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(tg.gr2);
-    const sofFile = extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot, tg.race);
+    const sofFile = await extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot, tg.race);
     console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
   }
   // --graphic: a SOF graphic that is no type's (a station hangar: hangarRegistry's hangarModelGraphicID), its hull and
@@ -358,7 +366,7 @@ async function main() {
       if (!gr2) throw new Error(`--graphic ${graphicID}: no model ${hull}.gr2 in the client`);
       const stem = gr2.slice("res:/".length, -".gr2".length);
       if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(gr2);
-      extractSof(rf, gr2, g.sofHullName, g.sofFactionName ?? null, outRoot, g.sofRaceName ?? null);
+      await extractSof(rf, gr2, g.sofHullName, g.sofFactionName ?? null, outRoot, g.sofRaceName ?? null);
       fs.writeFileSync(file, JSON.stringify({ graphicID, hull: g.sofHullName, faction: g.sofFactionName ?? null, race: g.sofRaceName ?? null, gr2 }));
       console.log(`graphic ${graphicID}: ${g.sofHullName} as ${g.sofFactionName ?? "none"}`);
     }

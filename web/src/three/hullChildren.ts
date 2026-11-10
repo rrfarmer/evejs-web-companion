@@ -1,10 +1,12 @@
 // A hull's children (EveSOFDataHull.children, read by tools/client-extract/lib/children.mjs): the static part of the
 // client's EveChild* graph, in EVE's model space, mirrored in z here as the model is. Drawn so far: the containers'
-// transforms and the quads (EveChildQuad with flarequad.fx / flarequadsoft.fx). Meshes, line sets, particle systems,
-// lights, curve sets and state machines are later stages.
+// transforms, the quads (EveChildQuad with flarequad.fx / flarequadsoft.fx) and a station's traffic (an EveChildMesh on
+// a Tr2InstancedMesh with traffic.fx). Other meshes, line sets, particle systems, lights, curve sets and state machines
+// are later stages.
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
+import { loadDds } from "./ddsTexture.ts";
 
 export interface SofChildQuad {
   k: "quad";
@@ -22,7 +24,16 @@ export interface SofChildContainer {
   modifiers: string[];
   objects: SofChildNode[];
 }
-export type SofChildNode = SofChildQuad | SofChildContainer;
+export interface SofChildTraffic {
+  k: "traffic";
+  name: string | null;
+  m: number[];
+  /** Eight numbers an instance: offset x, y, z, path; size, speed, colour mix, phase. */
+  instances: number[] | null;
+  params: Record<string, number[] | number | null>;
+  textures: Record<string, string | null>;
+}
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -98,8 +109,90 @@ function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.V
   mesh.frustumCulled = false;
   mesh.renderOrder = 3;
   const size = new THREE.Vector2();
-  mesh.onBeforeRender = (renderer) => { viewHeight.value = renderer.getDrawingBufferSize(size).y; };
+  // on the material, which a clone of the model shares (Object3D.clone does not carry an object's own onBeforeRender)
+  mat.onBeforeRender = (renderer) => { viewHeight.value = renderer.getDrawingBufferSize(size).y; };
   return mesh;
+}
+
+const v4 = (v: unknown, d: number[]) => new THREE.Vector4(...([0, 1, 2, 3].map((i) => (Array.isArray(v) && typeof v[i] === "number" ? (v[i] as number) : d[i]!)) as [number, number, number, number]));
+
+/**
+ * A station's traffic as traffic.fx draws it (its sm_hi stages disassembled, client 3396210; TextureProperties c0,
+ * SpriteSizes c1, SpriteProperties c2, GlowColor1 c3, GlowColor2 c4): each instance a sprite running along one of the
+ * PositionMap's paths (three rows a path, x y z in metres, TextureProperties.y rows, wrapping along its width):
+ * at frac(speed x TextureProperties.z x time + phase), plus TextureProperties.w x its offset; its size the unit
+ * plane's corner x its size x SpriteSizes.xy, times pow(|z|, SpriteProperties.x) x SpriteProperties.y for z its depth
+ * in the eye's space (laid on there); its colour GlowColor1 to GlowColor2 by its mix, times
+ * saturate(SpriteProperties.z / -z). The second pass, the engines: the sprite sized by its size x SpriteSizes.zw x how
+ * far the way it came points toward the eye (the path a texel back, by the speed's sign), in GlowColor1. The pixel
+ * TexMap x colour, its alpha over the colour, added. The client's screen-space occlusion array is not drawn.
+ */
+function trafficMeshes(node: SofChildTraffic): THREE.Object3D | null {
+  const inst = node.instances;
+  if (!inst?.length || !node.textures.PositionMap) return null;
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  const buf = new THREE.InstancedInterleavedBuffer(Float32Array.from(inst), 8);
+  geo.setAttribute("iA", new THREE.InterleavedBufferAttribute(buf, 4, 0));
+  geo.setAttribute("iB", new THREE.InterleavedBufferAttribute(buf, 4, 4));
+  geo.instanceCount = inst.length / 8;
+  const p = node.params;
+  const uniforms = {
+    // the clock read as the uniform is (a model is drawn as a clone, and a clone has no onBeforeRender of its own)
+    posMap: { value: null as THREE.Texture | null }, texMap: { value: null as THREE.Texture | null }, time: { get value() { return performance.now() / 1000; } },
+    texProps: { value: v4(p.TextureProperties, [256, 33, 0.025, 12]) }, sizes: { value: v4(p.SpriteSizes, [1, 1, 1, 1]) },
+    spriteProps: { value: v4(p.SpriteProperties, [1, 1, 1e9, 1]) },
+    glow1: { value: v4(p.GlowColor1, [1, 1, 1, 1]) }, glow2: { value: v4(p.GlowColor2, [1, 1, 1, 1]) },
+  };
+  void loadDds(node.textures.PositionMap).then((t) => { t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; uniforms.posMap.value = t; }).catch(() => undefined);
+  if (node.textures.TexMap) void loadDds(node.textures.TexMap).then((t) => { uniforms.texMap.value = t; }).catch(() => undefined);
+  const head = `attribute vec4 iA; attribute vec4 iB;
+      uniform sampler2D posMap; uniform float time; uniform vec4 texProps; uniform vec4 sizes; uniform vec4 spriteProps;
+      uniform vec4 glow1; uniform vec4 glow2; varying vec2 vUv; varying vec4 vColour;
+      vec3 pathAt(float u, float row) {
+        return vec3(texture2D(posMap, vec2(u, (row + 0.5) / texProps.y)).r, texture2D(posMap, vec2(u, (row + 1.5) / texProps.y)).r,
+          texture2D(posMap, vec2(u, (row + 2.5) / texProps.y)).r);
+      }`;
+  const body = (engines: boolean) => `
+        vUv = uv;
+        float row = fract(iA.w * 3.0 / texProps.y) * texProps.y;
+        float u = fract(iB.y * texProps.z * time + iB.w);
+        vec3 at = pathAt(u, row);
+        vec4 mv = modelViewMatrix * vec4(texProps.w * iA.xyz + at, 1.0);
+        float k = pow(abs(mv.z), spriteProps.x) * spriteProps.y;
+        ${engines ? `vec3 back = normalize(pathAt(fract(u - sign(iB.y) / texProps.x), row) - at);
+        // the eye's z axis (toward the eye) in the model's space
+        vec3 eye = normalize(transpose(mat3(modelMatrix)) * vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+        mv.xy += position.xy * clamp(dot(eye, back), 0.0, 1.0) * iB.x * sizes.zw * k;
+        vColour = clamp(-spriteProps.z / mv.z, 0.0, 1.0) * glow1;` : `mv.xy += position.xy * iB.x * sizes.xy * k;
+        vColour = clamp(-spriteProps.z / mv.z, 0.0, 1.0) * mix(glow1, glow2, iB.z);`}
+        gl_Position = projectionMatrix * mv;`;
+  const group = new THREE.Group();
+  group.name = "child-traffic";
+  for (const engines of [false, true]) {
+    const mat = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: `${head}
+      void main() {${body(engines)}
+      }`,
+      fragmentShader: `uniform sampler2D texMap; varying vec2 vUv; varying vec4 vColour;
+      void main() {
+        vec4 t = texture2D(texMap, vUv);
+        gl_FragColor = vec4(t.rgb * vColour.rgb, 1.0) * t.a;
+      }`,
+      side: THREE.DoubleSide, transparent: true, depthWrite: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
+    });
+    logDepth(mat);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = engines ? "traffic-engines" : "traffic";
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 3;
+    group.add(mesh);
+  }
+  return group;
 }
 
 /**
@@ -108,10 +201,20 @@ function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.V
  */
 export function hullChildren(children: SofHullChild[] | undefined): THREE.Object3D | null {
   const quads: Parameters<typeof quadMesh>[0] = [];
+  const others: THREE.Object3D[] = [];
   const walk = (node: SofChildNode, parent: THREE.Matrix4) => {
     if (node.k === "container") {
       const world = node.m ? parent.clone().multiply(new THREE.Matrix4().fromArray(node.m)) : parent;
       for (const o of node.objects) walk(o, world);
+      return;
+    }
+    if (node.k === "traffic") {
+      const t = trafficMeshes(node);
+      if (t) {
+        t.matrixAutoUpdate = false;
+        t.matrix.copy(parent).multiply(new THREE.Matrix4().fromArray(node.m));
+        others.push(t);
+      }
       return;
     }
     if (node.k !== "quad") return;
@@ -128,10 +231,11 @@ export function hullChildren(children: SofHullChild[] | undefined): THREE.Object
     });
   };
   for (const child of children ?? []) if (child.root) walk(child.root, new THREE.Matrix4());
-  if (!quads.length) return null;
+  if (!quads.length && !others.length) return null;
   const group = new THREE.Group();
   group.name = "hull-children";
   group.scale.set(1, 1, -1);
-  group.add(quadMesh(quads));
+  if (quads.length) group.add(quadMesh(quads));
+  for (const o of others) group.add(o);
   return group;
 }

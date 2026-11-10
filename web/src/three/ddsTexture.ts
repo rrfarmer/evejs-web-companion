@@ -110,6 +110,16 @@ export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTextur
   const mipCount = Math.max(1, dv.getUint32(28, true));
   const fourCC = String.fromCharCode(dv.getUint8(84), dv.getUint8(85), dv.getUint8(86), dv.getUint8(87));
   const DDPF_FOURCC = 0x4;
+  // D3DFMT_R32F (FourCC 114): one float a texel, its top level (a station traffic's path positions, in metres)
+  if (dv.getUint32(80, true) & DDPF_FOURCC && dv.getUint32(84, true) === 114) {
+    const tex = new THREE.DataTexture(new Float32Array(buf.slice(128, 128 + width * height * 4)), width, height, THREE.RedFormat, THREE.FloatType);
+    tex.minFilter = tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    tex.flipY = false;
+    tex.name = name;
+    tex.needsUpdate = true;
+    return tex as unknown as THREE.CompressedTexture;
+  }
   if (!(dv.getUint32(80, true) & DDPF_FOURCC)) {
     if (dv.getUint32(112, true) & DDSCAPS2_CUBEMAP) return parseUncompressedCube(dv, buf, width, height, mipCount, name) as unknown as THREE.CompressedTexture;
     return parseUncompressed(dv, buf, width, height, name) as unknown as THREE.CompressedTexture;
