@@ -35,6 +35,8 @@ export interface SofCurveSet {
     sourceCurve: Curve | null;
     /** A container's fx attributes as the source (its id): the ticker's values for them, by attribute name. */
     sourceFx?: number;
+    /** The container's inherited properties as the source (EveChildInheritProperties): the faction's colour, fixed. */
+    sourceConst?: number[];
     sourceAttribute: string;
     destination: number;
     destinationType: string | null;
@@ -291,7 +293,8 @@ export class ChildAnimator {
         if (!triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
-        if (b.sourceFx !== undefined) {
+        if (b.sourceConst) src = b.sourceConst;
+        else if (b.sourceFx !== undefined) {
           const fx = objects.get(b.sourceFx)?.[0]?.userData.fx as Record<string, Value> | undefined;
           const v = fx?.[b.sourceAttribute.split(".")[0] ?? ""];
           if (v === undefined) continue;
@@ -320,7 +323,14 @@ export class ChildAnimator {
           }
           continue;
         }
-        if (curve) { curve[attr ?? "timeOffset"] = copied(src, srcC, b.scale, b.offset, typeof curve[attr ?? ""] === "number" ? (curve[attr ?? ""] as number) : 0, null) as number; continue; }
+        if (curve) {
+          // (a colour mixer's color1 / color2: four components, one where the attribute names it)
+          const now = curve[attr ?? ""] ?? (b.destinationType === "Tr2CurveColorMixer" && /^color[12]$/.test(attr ?? "") ? [0, 0, 0, 1] : undefined);
+          curve[attr ?? "timeOffset"] = Array.isArray(now)
+            ? copied(src, srcC, b.scale, b.offset, (now as number[]).slice(), comp !== undefined ? COMPONENT[comp] ?? null : null)
+            : copied(src, srcC, b.scale, b.offset, typeof now === "number" ? now : 0, null);
+          continue;
+        }
         if (binding) { binding.scale = copied(src, srcC, b.scale, b.offset, binding.scale, null) as number; continue; }
         if (xf) {
           const key = attr === "translation" ? "t" : attr === "rotation" ? "r" : "s";

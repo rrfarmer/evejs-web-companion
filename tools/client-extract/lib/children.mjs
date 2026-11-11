@@ -118,6 +118,17 @@ function readCurveSet(cs) {
       });
       continue;
     }
+    // a source that is the container's inherited properties (EveChildInheritProperties: the colour set EveSOF gives
+    // the space object from its DNA, SetInheritProperties, handed down to every child container): the faction's colour
+    // by the attribute's name (Primary .. PrimaryDockedFx), a constant for this build
+    if (src && dst && src.type === "EveChildInheritProperties") {
+      bindings.push({
+        id: idOf(b), source: null, sourceCurve: null, sourceConst: colorOf(readFaction?.colorSet ?? null, String(b.sourceAttribute ?? "").split(".")[0]),
+        sourceAttribute: b.sourceAttribute ?? "", destination: idOf(dst), destinationType: dst.type ?? null,
+        destinationAttribute: b.destinationAttribute ?? "", scale: b.scale ?? 1, offset: b.offset ?? [0, 0, 0, 0],
+      });
+      continue;
+    }
     if (!src || !dst || !isCurve(src)) continue;
     bindings.push({
       // a binding may be another's destination (its scale)
