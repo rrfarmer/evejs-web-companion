@@ -114,7 +114,7 @@ function copyRes(rf, res, outRoot) {
 /**
  * A child graph's assets (children.mjs nodes, rewritten in place to URLs): a traffic mesh's instances read, its textures
  * copied; a mesh's or particle system's geometry extracted (as a hull's, once), its areas' textures copied; a line set's
- * textures copied. Whether any node has GPU emitters (the scene's GPU particle system's atlas is then wanted).
+ * textures copied; a behaviour system's group meshes as a mesh's. Whether any node has GPU emitters (the scene's GPU particle system's atlas is then wanted).
  */
 async function copyChildGraphAssets(rf, roots, outRoot) {
   const trafficNodes = [], meshNodes = [];
@@ -127,6 +127,8 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
     if (n.k === "lines") for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     for (const o of n.objects ?? []) walkChildren(o);
     if (n.k === "propagator") walkChildren(n.source);
+    // a behaviour system's groups: each drawn as its mesh
+    if (n.k === "agents") for (const g of n.groups ?? []) walkChildren(g.mesh);
   };
   for (const r of roots) walkChildren(r);
   for (const n of trafficNodes) {

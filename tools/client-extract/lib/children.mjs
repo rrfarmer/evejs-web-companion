@@ -407,6 +407,34 @@ function readNode(o, skipped) {
   return node;
 }
 
+/**
+ * A Tr2Mesh's areas the page draws, each with its effect, options, parameters and textures (an EveChildMesh's mesh, a
+ * behaviour group's). quadinstancedv5.fx (the behaviour groups' instanced hull shader: quadv5 with the instance's
+ * transform) is read as quadv5 - the page instances the mesh itself.
+ */
+function meshAreas(mesh, skipped) {
+  const areas = [];
+  for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"], ["distortionAreas", "distortion"]]) {
+    for (const a of mesh[list] ?? []) {
+      const named = effectName(a.effect);
+      const fx = named === "quadinstancedv5" ? "quadv5" : named;
+      const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
+      // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
+      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5"].includes(fx)
+        || fx === "texturecolor"
+        || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
+      if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
+      areas.push({
+        id: idOf(a), paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
+        kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
+        options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
+        params: effectParams(a.effect), textures: effectTextures(a.effect),
+      });
+    }
+  }
+  return areas;
+}
+
 function readShown(o, skipped) {
   if (o.type === "EveChildQuad") {
     return {
@@ -437,30 +465,40 @@ function readShown(o, skipped) {
     if (cpu || gpuNode) return cpu ?? gpuNode;
   }
   if (o.type === "EveChildMesh" && o.mesh?.type === "Tr2Mesh" && o.mesh.geometryResPath) {
-    const areas = [];
-    for (const [list, kind] of [["opaqueAreas", "opaque"], ["transparentAreas", "transparent"], ["additiveAreas", "additive"], ["distortionAreas", "distortion"]]) {
-      for (const a of o.mesh[list] ?? []) {
-        const fx = effectName(a.effect);
-        const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
-        // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
-        const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5"].includes(fx)
-          || fx === "texturecolor"
-          || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
-        if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
-        areas.push({
-          id: idOf(a), paramIds: Object.fromEntries((a.effect.parameters ?? []).filter((p) => p?.name).map((p) => [p.name, idOf(p)])),
-          kind, name: a.name ?? null, index: a.index ?? 0, count: a.count ?? 1, effect: fx,
-          options: Object.fromEntries((a.effect.options?.items ?? []).filter((r) => Array.isArray(r))),
-          params: effectParams(a.effect), textures: effectTextures(a.effect),
-        });
-      }
-    }
+    const areas = meshAreas(o.mesh, skipped);
     if (!areas.length) return null;
     return {
       k: "mesh", id: idOf(o), name: o.name ?? null, m: srt(o), ...parts(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
       meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
     };
+  }
+  // EveChildBehaviorSystem (Children/EveChildBehaviorSystem.cpp, Behaviors/*): groups of agents, each drawn as the
+  // group's mesh, instanced. Its still groups only - those whose behaviours are all SpawnDrones (no forces): count agents
+  // at the group's spawn position (BehaviorGroup::InitializeGeometryResource -> SetCount), or, addOnGrid, a grid of
+  // gridInfo x * y * z points from the spawn position, gridInfo.w apart (gridSpacing where not nought), each kept where
+  // a random number is at most gridFullnessFactor (-1: a random fullness per point) - SpawnDrones::UpdateGrid, its first
+  // update. The moving groups (seek, avoid, tunnels, ...) are not drawn yet.
+  if (o.type === "EveChildBehaviorSystem") {
+    const groups = [];
+    for (const g of o.behaviorGroups ?? []) {
+      const behaviors = (g?.behaviors ?? []).filter((b) => b && typeof b === "object");
+      if (!behaviors.every((b) => b.type === "SpawnDrones")) { skipped["BehaviorGroup:moving"] = (skipped["BehaviorGroup:moving"] ?? 0) + 1; continue; }
+      if (g.mesh?.type !== "Tr2Mesh" || !g.mesh.geometryResPath) continue;
+      const areas = meshAreas(g.mesh, skipped);
+      if (!areas.length) continue;
+      // SpawnDrones' defaults (its constructor): enabled, not on a grid, gridInfo (1, 1, 1, 10), gridSpacing 0, fullness 1
+      const grid = behaviors.find((b) => b.enabled !== false && b.addOnGrid === true);
+      groups.push({
+        id: idOf(g), name: g.name ?? null, display: g.display !== false, count: g.count ?? 0, scale: g.scale ?? 1,
+        spawnPosition: g.spawnPosition ?? [0, 0, 0], boundingSphereRadius: g.boundingSphereRadius ?? 5,
+        renderThreshold: g.renderThreshold ?? 1, blendMin: g.blendScreenSizeMin ?? 5, blendMax: g.blendScreenSizeMax ?? 15,
+        grid: grid ? { id: idOf(grid), info: grid.gridInfo ?? [1, 1, 1, 10], spacing: grid.gridSpacing ?? [0, 0, 0], fullness: grid.gridFullnessFactor ?? 1 } : null,
+        mesh: { k: "mesh", name: g.name ?? null, m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], geometry: String(g.mesh.geometryResPath).toLowerCase(), meshIndex: g.mesh.meshIndex ?? 0, minScreenSize: 0, areas, modifiers: [] },
+      });
+    }
+    if (!groups.length) return null;
+    return { k: "agents", id: idOf(o), name: o.name ?? null, m: srt(o), display: o.display !== false, groups };
   }
   if (o.type === "EveChildLineSet" && o.lineSet) {
     const curves = (o.lines ?? []).filter((c) => c?.type === "EveBezierCurve" && c.display !== false).map((c) => ({

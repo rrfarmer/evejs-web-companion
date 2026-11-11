@@ -17,6 +17,7 @@ import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childA
 import { addOverlay, removeOverlay, type SofOverlay } from "./hullOverlay.ts";
 import { PropagatorRun, type PropagatorData } from "./propagator.ts";
 import { offerLights, type ChildLight } from "./dynamicLights.ts";
+import { AgentRun, buildAgents, type SofChildAgents } from "./behaviorAgents.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
@@ -141,7 +142,7 @@ export interface SofChildProcedural {
   randomize: boolean;
   items: { effect: string; duration: number; restart: boolean }[];
 }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles | SofChildProcedural;
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles | SofChildProcedural | SofChildAgents;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -1144,6 +1145,8 @@ const proceduralNodes = new Map<string, { node: SofChildProcedural; effects: Rec
 let proceduralKeys = 0;
 /** Each clone's procedural container runs (found by its ticker). */
 const cyclingRunsOf = new WeakMap<THREE.Object3D, CyclingRun[]>();
+/** Each clone's behaviour-system agents (behaviorAgents.ts), placed on its first frame. */
+const agentRunsOf = new WeakMap<THREE.Object3D, { holder: THREE.Object3D; run: AgentRun }[]>();
 
 /** The effect propagators built (by their holders' key): the node, the effects its source may load, its hull locators. */
 const propagatorNodes = new Map<string, { node: SofChildPropagator; effects: Record<string, SofChildNode | null>; locators: number[][] }>();
@@ -1198,6 +1201,14 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
     cyclingRunsOf.set(object, cycling);
   }
   if (cycling.length) { const now = performance.now() / 1000; for (const c of cycling) c.update(now); }
+  // the behaviour systems' agents (after the curve sets: a grid's fullness may be bound), each clone's own
+  let agentRuns = agentRunsOf.get(object);
+  if (!agentRuns) {
+    agentRuns = [];
+    group.traverse((o) => { if (o.userData.agentsHolder) agentRuns!.push({ holder: o, run: new AgentRun(o) }); });
+    agentRunsOf.set(object, agentRuns);
+  }
+  for (const a of agentRuns) a.run.update(renderer, camera, a.holder);
   // the effect propagators (propagator.ts), each clone's own, stepped before its controllers (which may trigger them)
   let props = propagatorRunsOf.get(object);
   if (!props) {
@@ -1473,6 +1484,16 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
         place(o, at, node.modifiers, node.srt ?? null);
         if (node.srt?.id !== undefined && node.id !== undefined) animator.srt(node.srt.id, node.id, node.srt);
         sink(o);
+      }));
+      return;
+    }
+    if (node.k === "agents") {
+      // EveChildBehaviorSystem's still groups: instanced, placed per clone (behaviorAgents.ts AgentRun, from the ticker)
+      pending.push(buildAgents(node, (mesh) => childMesh(mesh, animator), (id, get, set) => animator.values(id, get, set)).then((g) => {
+        g.userData.agentsHolder = true;
+        if (node.id !== undefined) { g.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
+        place(g, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);
+        sink(g);
       }));
       return;
     }
