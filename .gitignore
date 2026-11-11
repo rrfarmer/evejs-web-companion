@@ -24,3 +24,7 @@ _local/evejs-store/
 # Handoff research specs and the handoff note (working files, shader dumps)
 _local/specs/
 _local/HANDOFF-*.md
+# The three.js loop progress tracker (local, milestone level)
+docs/threejs-play-progress.md
+# Leftover copy of the eve-cs mirror scripts from the machine transfer (the site lives in tools/eve-cs-mirror/site)
+_local/eve-cs-mirror/
