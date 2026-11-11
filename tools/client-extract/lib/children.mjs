@@ -488,6 +488,26 @@ function readShown(o, skipped) {
       frequency: o.frequency ?? 1, duration: o.durationPerEffect ?? 3, stopAfter: o.stopAfterNumTriggers ?? -1, source,
     };
   }
+  // EveChildProceduralContainer (ProceduralContainer/): one of its children shown at a time, chosen by its selection
+  // method; read where that is EveProceduralMethodCycling (every one the SOF hulls' children have): each parameter's
+  // EveChildRef file read as a child effect, its playDuration (1 unless said) and restartRequired (true unless said)
+  if (o.type === "EveChildProceduralContainer") {
+    const sm = o.selectionMethod;
+    const items = sm?.type === "EveProceduralMethodCycling"
+      ? (sm.parameters ?? []).filter((p) => p?.child?.resPath).map((p) => ({ effect: readChildEffect(String(p.child.resPath), skipped), duration: p.playDuration ?? 1, restart: p.restartRequired !== false }))
+      : [];
+    if (!items.length) {
+      const k = `EveChildProceduralContainer:${sm?.type ?? "none"}`;
+      skipped[k] = (skipped[k] ?? 0) + 1;
+      return null;
+    }
+    const m = srt(o);
+    return {
+      k: "procedural", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, display: o.display !== false,
+      modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
+      startOffset: sm.startTimeOffset ?? 0, randomize: sm.randomizeOrder === true, items,
+    };
+  }
   if (o.type === "EveChildContainer") {
     if (!HIGH_QUALITY.has(o.displayFilter ?? 5)) return null;
     const objects = (o.objects ?? []).map((c) => readNode(c, skipped)).filter(Boolean);
@@ -545,6 +565,8 @@ function readParticleSystemChild(o, skipped) {
     emitters.push(plain);
   };
   for (const e of o.particleEmitters ?? []) {
+    // (the GPU emitters are the child's GPU node's: not skipped)
+    if (e?.type === "Tr2GpuUniqueEmitter" || e?.type === "Tr2GpuSharedEmitter") continue;
     if (e?.type !== "Tr2DynamicEmitter" && e?.type !== "Tr2StaticEmitter") {
       skipped[`particleEmitter:${e?.type ?? "?"}`] = (skipped[`particleEmitter:${e?.type ?? "?"}`] ?? 0) + 1;
       continue;

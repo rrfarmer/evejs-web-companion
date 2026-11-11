@@ -124,7 +124,23 @@ export interface SofChildPropagator extends PropagatorData {
   m: number[] | null;
   source: SofChildNode;
 }
-export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles;
+/**
+ * An EveChildProceduralContainer cycling its children (EveProceduralMethodCycling, children.mjs): each a child effect
+ * (its EveChildRef file, by path) shown for its duration, restarted when shown where restart is set.
+ */
+export interface SofChildProcedural {
+  k: "procedural";
+  id?: number;
+  display?: boolean;
+  name: string | null;
+  m: number[] | null;
+  modifiers: string[];
+  srt?: SofChildSrt | null;
+  startOffset: number;
+  randomize: boolean;
+  items: { effect: string; duration: number; restart: boolean }[];
+}
+export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles | SofChildProcedural;
 export interface SofHullChild {
   res: string;
   root: SofChildNode | null;
@@ -1083,6 +1099,51 @@ function setShown(o: THREE.Object3D, shown: boolean): void {
   }
 }
 
+/**
+ * EveProceduralMethodCycling for one clone's procedural container: SelectParameter takes the next child (with
+ * randomizeOrder and more than two, a random one other than the last: rand() % (n - 1), past the old index), its start
+ * the time less startTimeOffset; UpdateAsyncronous moves on when the child's playDuration has passed. The chosen
+ * child's file built (a copy of it, childEffectObject) in place of the last, started where it asks to be.
+ */
+class CyclingRun {
+  private index = -1;
+  private start = 0;
+  private current: THREE.Object3D | null = null;
+  private token = 0;
+  constructor(private readonly node: SofChildProcedural, private readonly holder: THREE.Object3D, private readonly effects: Record<string, SofChildNode | null>) {}
+  update(now: number): void {
+    const item = this.index >= 0 ? this.node.items[this.index] : undefined;
+    if (!item) { this.select(now); return; }
+    if (now - this.start >= item.duration) this.select(now);
+  }
+  private select(now: number): void {
+    const n = this.node.items.length;
+    if (!n) return;
+    if (this.node.randomize && n > 2) {
+      const old = this.index;
+      let i = Math.floor(Math.random() * (n - 1));
+      if (i >= old) i++;
+      this.index = i;
+    } else this.index = (this.index + 1) % n;
+    this.start = now - this.node.startOffset;
+    const item = this.node.items[this.index]!;
+    const token = ++this.token;
+    void childEffectObject(item.effect, this.effects).then((o) => {
+      if (token !== this.token) return;
+      this.current?.removeFromParent();
+      this.current = o;
+      if (!o) return;
+      this.holder.add(o);
+      if (item.restart) startEffect(o);
+    });
+  }
+}
+/** The procedural containers built (by their holders' key): the node and the effects its children are. */
+const proceduralNodes = new Map<string, { node: SofChildProcedural; effects: Record<string, SofChildNode | null> }>();
+let proceduralKeys = 0;
+/** Each clone's procedural container runs (found by its ticker). */
+const cyclingRunsOf = new WeakMap<THREE.Object3D, CyclingRun[]>();
+
 /** The effect propagators built (by their holders' key): the node, the effects its source may load, its hull locators. */
 const propagatorNodes = new Map<string, { node: SofChildPropagator; effects: Record<string, SofChildNode | null>; locators: number[][] }>();
 let propagatorKeys = 0;
@@ -1116,6 +1177,17 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
     if (played.fx.length) gatherFx(played.fx, camera);
     animator.step(played.objects, played.seen);
   }
+  // the procedural containers, each clone's own
+  let cycling = cyclingRunsOf.get(object);
+  if (!cycling) {
+    cycling = [];
+    group.traverse((o) => {
+      const entry = proceduralNodes.get(o.userData.proceduralKey as string);
+      if (entry) cycling!.push(new CyclingRun(entry.node, o, entry.effects));
+    });
+    cyclingRunsOf.set(object, cycling);
+  }
+  if (cycling.length) { const now = performance.now() / 1000; for (const c of cycling) c.update(now); }
   // the effect propagators (propagator.ts), each clone's own, stepped before its controllers (which may trigger them)
   let props = propagatorRunsOf.get(object);
   if (!props) {
@@ -1302,8 +1374,9 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   for (const child of children ?? []) if (child.root) scan(child.root);
   const pending: Promise<void>[] = [];
   let modified = 0;
-  // the effect propagators placed (each clone runs them from its ticker)
+  // the effect propagators and procedural containers placed (each clone runs them from its ticker)
   let propagators = 0;
+  let procedurals = 0;
   // the containers' controllers, by owner (an owner's group carries its index as userData.controllerOwner)
   const controllers: SofController[][] = [];
   // the containers' point lights, in the hull's EVE space (the group's userData.lights, read by the space view)
@@ -1407,6 +1480,19 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       sink(o);
       return;
     }
+    if (node.k === "procedural") {
+      // EveChildProceduralContainer: a holder in its space; each clone cycles its children (CyclingRun, from the ticker)
+      const g = new THREE.Group();
+      g.name = `child-procedural:${node.name ?? ""}`;
+      if (node.display === false) g.visible = false;
+      const key = `procedural:${++proceduralKeys}`;
+      proceduralNodes.set(key, { node, effects });
+      g.userData.proceduralKey = key;
+      place(g, local.clone().multiply(node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4()), node.modifiers, node.srt ?? null);
+      sink(g);
+      procedurals++;
+      return;
+    }
     if (node.k === "propagator") {
       // EveChildEffectPropagator: a holder in the propagator's space; each model clone runs it (propagator.ts, from the
       // ticker), its instances the source built anew (its own animator, controllers and particle systems: a deep copy,
@@ -1490,6 +1576,6 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   // the hull's own controllers: owned by the space object (this group, HULL_OWNER: their sets are every child's)
   if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); group.userData.locatorSets = locatorSets; group.userData.overlays = overlays; }
   if (controllers.length) { group.userData.controllers = controllers; group.userData.childEffects = effects; }
-  if (modified || animator.playing || controllers.length || propagators) group.add(ticker());
+  if (modified || animator.playing || controllers.length || propagators || procedurals) group.add(ticker());
   return group;
 }
