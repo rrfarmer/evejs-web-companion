@@ -126,7 +126,22 @@ export function setControllerVariable(model: THREE.Object3D, name: string, value
  * GlowMap^2.4: three's emissive intensity, so the ship's glowing materials are its own copies once it is not 1 - each
  * sharing its program), its children's fx attributes (hullChildren.ts) and the controllers' variable.
  */
-export function setActivationStrength(model: THREE.Object3D, value: number): void {
+export function setActivationStrength(model: THREE.Object3D, impact: number): void {
+  model.userData.impactActivation = impact;
+  applyActivation(model);
+}
+
+/**
+ * The space object's own activationStrength (EveSpaceObject2.activationStrength, set by its controllers - structure.red,
+ * buildable.red and the like): EveMobile / EveStation2::PrepareShaderData multiply the impact overlay's by it.
+ */
+export function setOwnerActivation(model: THREE.Object3D, value: number): void {
+  model.userData.ownerActivation = value;
+  applyActivation(model);
+}
+
+function applyActivation(model: THREE.Object3D): void {
+  const value = ((model.userData.impactActivation as number | undefined) ?? 1) * ((model.userData.ownerActivation as number | undefined) ?? 1);
   if (model.userData.activation === value) return;
   model.userData.activation = value;
   setControllerVariable(model, "ActivationStrength", value);

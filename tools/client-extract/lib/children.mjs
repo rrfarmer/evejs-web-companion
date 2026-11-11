@@ -209,6 +209,7 @@ function effectParametersOf(o) {
  * name - Tr2StateMachineTransition's "name" is its destinationName). Of the actions, Tr2ActionChildEffect is read (its
  * file read as a child effect); the others are kept by type only.
  */
+const OWNER_ATTRIBUTES = new Set(["activationStrength", "display", "clipSphereFactor", "clipSphereFactor2"]);
 function readController(c, skipped, owner) {
   const varNames = new Set((c.variables ?? []).filter((v) => v?.name).map((v) => v.name));
   // the child effects this controller loads, by the name each takes (read now: a SetValue may reach into them)
@@ -228,6 +229,12 @@ function readController(c, skipped, owner) {
   const readActions = (list) => (list ?? []).filter(Boolean).map((a) => {
     // Tr2ActionSetValue: into a variable (its path a variable's name, or its destination the variable), or into an
     // object's display (its path from Owner, or its destination object): the object's id
+    // the space object's own attributes (a hull controller's Owner: EveSpaceObject2's activationStrength, display,
+    // clipSphereFactor/2): SetValue once, AnimateValue each update (its value expression, Curve(x) its curve's value)
+    if (!owner && (a.type === "Tr2ActionSetValue" || a.type === "Tr2ActionAnimateValue") && a.path === "Owner" && OWNER_ATTRIBUTES.has(a.attribute)) {
+      if (a.type === "Tr2ActionSetValue") return { k: "setOwner", attribute: a.attribute, value: String(a.value ?? "") };
+      return { k: "animateOwner", attribute: a.attribute, value: String(a.value ?? "Curve(StateTime())"), curve: a.curve ? curveData(a.curve) : null };
+    }
     if (a.type === "Tr2ActionSetValue") {
       const value = String(a.value ?? "");
       if (a.attribute === "value" && a.path && varNames.has(a.path)) return { k: "setVar", variable: a.path, value };

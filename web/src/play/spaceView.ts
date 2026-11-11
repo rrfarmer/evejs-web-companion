@@ -1173,6 +1173,8 @@ export class SpaceView {
         holder.remove(standIn);
         holder.add(model);
         holder.userData.impact = impactOverlayOf(model);
+        // the space object: its controllers' own attributes (activationStrength, clipSphereFactor) land here
+        holder.userData.spaceObject = true;
         holder.userData.model = model;
         if (e.kind === "ship") this.fitTurrets(e.itemID, holder);
       }).catch(() => { /* no model: the stand-in stays */ });

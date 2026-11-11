@@ -20,6 +20,7 @@
 // are not run yet: a condition that calls a function not here never holds.
 
 import * as THREE from "three";
+import { curveValue, type Curve } from "./curves.ts";
 
 export interface SofControllerAction {
   k: string;
@@ -37,6 +38,9 @@ export interface SofControllerAction {
   add?: boolean;
   remove?: boolean;
   other?: string | null;
+  /** setValue / setOwner / animateOwner: the attribute; animateOwner: its curve (Curve(x) in its value). */
+  attribute?: string;
+  curve?: Curve | null;
   /** spawnParticles: the emitter's id and the count (x the emitter's rate). */
   emitter?: number;
   rate?: number;
@@ -54,7 +58,7 @@ export interface SofController {
   eventHandlers?: { name: string; actions: SofControllerAction[] }[];
 }
 
-type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number; ship?: () => { speed: number; max: number } };
+type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number; ship?: () => { speed: number; max: number }; curve?: (x: number) => number };
 /** masked: pure and reading a variable (looked at only when a variable changed). */
 type Compiled = { run: (s: Scope) => number; masked: boolean } | null;
 
@@ -107,6 +111,12 @@ export function compileCondition(src: string): Compiled {
         // IsAnimationPlaying("layer") and AnimationTime("name"): the owner's geometry animations - none play here, so
         // nought (a hull controller's transitions wait on them)
         if ((t === "IsAnimationPlaying" || t === "AnimationTime") && args.length === 1 && typeof args[0] === "string") { pure = false; return () => 0; }
+        // Curve(x): an AnimateValue's curve at x (Tr2ActionAnimateValue's extra function; nought without one)
+        if (t === "Curve" && args.length === 1 && typeof args[0] === "function") {
+          const x = args[0];
+          pure = false;
+          return (s) => (s.curve ? s.curve(x(s)) : 0);
+        }
         if (t === "Random" && args.length === 2 && typeof args[0] === "function" && typeof args[1] === "function") {
           // min + rand() % int(max - min)
           const lo = args[0], hi = args[1];
@@ -177,6 +187,8 @@ export interface ChildEffectHost {
   setValue?(target: number, attribute: string, value: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
   setDisplay?(target: number, on: boolean): void;
+  /** One of the space object's own attributes (activationStrength, display, clipSphereFactor/2). */
+  setOwner?(attribute: string, value: number): void;
   /** An effect propagator's trigger set (by id): its copies placed. */
   trigger?(target: number): void;
   stop?(owner: number, name: string): void;
@@ -319,7 +331,7 @@ export class ControllerRun {
       // Tr2ActionSpawnParticles (Start): the emitter spawns rate x its own rate
       if (a.k === "spawnParticles" && a.emitter !== undefined) { this.host.spawn?.(a.emitter, a.rate ?? 1); continue; }
       // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
-      if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger" || a.k === "setValue") && a.value !== undefined) {
+      if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger" || a.k === "setValue" || a.k === "setOwner") && a.value !== undefined) {
         const c = conditionOf(a.value);
         if (!c) continue;
         const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() });
@@ -331,6 +343,7 @@ export class ControllerRun {
         // an effect propagator's trigger: set (non-nought) it places its copies; nought does nothing (m_trigger is
         // only read when set, then cleared by Play)
         else if (a.k === "trigger" && a.target !== undefined && v !== 0) this.host.trigger?.(a.target);
+        else if (a.k === "setOwner" && a.attribute) this.host.setOwner?.(a.attribute, v);
         else if (a.k === "setValue" && a.target !== undefined) {
           // every candidate (one per child effect file the controller may load): only the loaded one has its target
           for (const t of (a as { targets?: number[] }).targets ?? [a.target]) this.host.setValue?.(t, (a as { attribute?: string }).attribute ?? "value", v);
@@ -346,6 +359,19 @@ export class ControllerRun {
         run.live.push({
           stop: () => {},
           tick: (t) => applyTime(set, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() })),
+        });
+        continue;
+      }
+      // Tr2ActionAnimateValue on the space object: each update (after the machines'), its value expression (StateTime()
+      // the time since the action started, Curve(x) its curve at x) into the attribute
+      if (a.k === "animateOwner" && a.attribute && this.host.setOwner) {
+        const c = conditionOf(a.value || "Curve(StateTime())");
+        if (!c) continue;
+        const setOwner = this.host.setOwner, attribute = a.attribute, curve = a.curve ?? null, start = now;
+        const at = (x: number) => curveValue(curve, x);
+        run.live.push({
+          stop: () => {},
+          tick: (t) => setOwner(attribute, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), curve: at })),
         });
         continue;
       }

@@ -11,7 +11,7 @@ import { ControllerRun, type SofController } from "./controllers.ts";
 import { particleObject, type SofChildParticles } from "./particles.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
-import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, type SofArea } from "./hullModel.ts";
+import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, setControllerVariable, setOwnerActivation, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childAnimation.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -1027,6 +1027,46 @@ function gatherFx(list: { owner: THREE.Object3D; holder: THREE.Object3D; type: s
     }
   }
 }
+/**
+ * A hull controller's SetValue / AnimateValue into the space object's own attribute (EveSpaceObject2), from its
+ * children's group (the model's holder its parent; the space object the nearest holder marked spaceObject - the space
+ * view's mark, which takes the impact overlay's activation too - else the model):
+ * - activationStrength: x the impact overlay's (hullModel.ts setOwnerActivation); nought, its children are not drawn
+ *   (EveChildContainer::GetBatches: activationStrength 0 draws nothing);
+ * - display: nought, nothing of it is drawn (its controllers still run: the ticker stays);
+ * - clipSphereFactor / clipSphereFactor2: kept (userData) and handed to its controllers (ClipSphereFactor, -2), as
+ *   EveSpaceObject2::OnModified does; the hull's dissolve by it is not drawn yet.
+ */
+function setOwnerAttribute(group: THREE.Object3D, attribute: string, value: number): void {
+  const model = group.parent;
+  if (!model) return;
+  let object: THREE.Object3D = model;
+  for (let p: THREE.Object3D | null = model; p; p = p.parent) if (p.userData.spaceObject) { object = p; break; }
+  if (attribute === "activationStrength") setOwnerActivation(object, value);
+  else if (attribute === "display") model.userData.ownerDisplay = value;
+  else if (attribute === "clipSphereFactor" || attribute === "clipSphereFactor2") {
+    if (object.userData[attribute] === value) return;
+    object.userData[attribute] = value;
+    setControllerVariable(object, attribute === "clipSphereFactor" ? "ClipSphereFactor" : "ClipSphereFactor2", value);
+    return;
+  } else return;
+  const shown = model.userData.ownerDisplay !== 0;
+  const childrenShown = shown && object.userData.ownerActivation !== 0;
+  for (const c of model.children) {
+    if (c !== group) { setShown(c, shown); continue; }
+    for (const g of group.children) if (g.name !== "child-modifiers") setShown(g, childrenShown);
+  }
+}
+/** Hidden by the space object's display or activation, and shown again as it was (kept while hidden). */
+function setShown(o: THREE.Object3D, shown: boolean): void {
+  if (!shown) {
+    if (o.userData.ownerHidden === undefined) { o.userData.ownerHidden = o.visible; o.visible = false; }
+  } else if (o.userData.ownerHidden !== undefined) {
+    o.visible = o.userData.ownerHidden as boolean;
+    delete o.userData.ownerHidden;
+  }
+}
+
 /** Each clone's controller runs (found by its ticker), started on its first frame. */
 const controllerRunsOf = new WeakMap<THREE.Object3D, ControllerRun[]>();
 tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
@@ -1074,6 +1114,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
             if (key && key !== group.userData.animatorKey) animators.get(key)?.setValue(target, attribute, value);
           });
         },
+        setOwner: (attribute: string, value: number) => setOwnerAttribute(group, attribute, value),
         spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
         trigger: (target: number) => group.traverse((o) => { if (o.userData.propagatorId === target) o.visible = true; }),
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
@@ -1387,7 +1428,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   };
   for (const child of children ?? []) if (child.root) walk(child.root, new THREE.Matrix4(), new THREE.Matrix4(), (o) => others.push(o));
   await Promise.all(pending);
-  if (!quads.length && !others.length && !lights.length && !controllers.length) return null;
+  // (a hull with no children still runs its own controllers)
+  if (!quads.length && !others.length && !lights.length && !controllers.length && !hullControllers.length) return null;
   const group = new THREE.Group();
   group.name = "hull-children";
   group.userData.lights = lights;
