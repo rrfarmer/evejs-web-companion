@@ -16,8 +16,9 @@
 // into an object's display (a path from Owner through objects["name"], resolved to the object when read). Random(min,
 // max) is min + rand() % int(max - min). Tr2ActionAnimateCurveSet applies its set at its value expression's value
 // each update (StateTime() there its own time; the files' are ShipSpeed()/ShipMaxSpeed() and ActivationStrength).
-// ShipSpeed() and ShipMaxSpeed() read the ship's model (setShipSpeed). The other actions, the ship functions and the controller's event handlers
-// are not run yet: a condition that calls a function not here never holds.
+// ShipSpeed() and ShipMaxSpeed() read the ship's model (setShipSpeed); Tr2ControllerExpression.cpp's other functions
+// (the server's time from the browser's UTC clock, IsWeekend, BoundingSphereRadius, ...) and CcpParser's standard
+// functions and constants are here too. A condition that calls a function not here never holds.
 
 import * as THREE from "three";
 import { curveValue, type Curve } from "./curves.ts";
@@ -61,16 +62,64 @@ export interface SofController {
   eventHandlers?: { name: string; actions: SofControllerAction[] }[];
 }
 
-type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number; ship?: () => { speed: number; max: number }; curve?: (x: number) => number };
+/** The owning space object's numbers a few functions read (BoundingSphereRadius, ShipBoosterIntensity, GetExternalControllerVariable). */
+type ObjectInfo = { radius(): number; booster(): number; external(name: string): number | undefined };
+type Scope = { vars: Map<string, number>; stateTime: number; curveSetTime: (name: string) => number; ship?: () => { speed: number; max: number }; curve?: (x: number) => number; object?: ObjectInfo };
+
+/**
+ * The server's time (Tr2ControllerExpression.cpp GetServerTimeParts: Be::Time, the frame's wall clock - EVE time, UTC -
+ * through FileTimeToSystemTime) as the browser's clock has it.
+ */
+function serverParts(): { year: number; month: number; day: number; dow: number; hour: number; minute: number; second: number } {
+  const d = new Date();
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), dow: d.getUTCDay(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds() };
+}
+/** ServerTimeGreaterThan / LessThanOrEqual / Equal (ServerTimeComparisonHelper): year to second, -1 skipped. */
+function serverTimeCompare(args: number[], over: (s: number, u: number) => boolean, dis: (s: number, u: number) => boolean): number {
+  const p = serverParts();
+  const parts = [p.year, p.month, p.day, p.hour, p.minute, p.second];
+  for (let i = 0; i < 6; i++) {
+    const u = args[i] ?? -1;
+    if (u === -1) continue;
+    if (over(parts[i]!, u)) return 1;
+    if (dis(parts[i]!, u)) return 0;
+  }
+  return 1;
+}
+/** ServerTimePhase(period): the server time (Be::Time, 100 ns since 1601) modulo the period, in seconds. */
+function serverTimePhase(period: number): number {
+  let p = BigInt(Math.trunc(period * 1e7));
+  if (p === 0n) return 0;
+  if (p < 0n) p = -p;
+  const now = (BigInt(Date.now()) + 11644473600000n) * 10000n;
+  return Number(now % p) / 1e7;
+}
+/** DaysSinceServerTime(year, month, day): days from that date (-1 parts the server's) to the server's date. */
+function daysSince(year: number, month: number, day: number): number {
+  const p = serverParts();
+  const at = Date.UTC(year === -1 ? p.year : year, (month === -1 ? p.month : month) - 1, day === -1 ? p.day : day);
+  return (Date.UTC(p.year, p.month - 1, p.day) - at) / 86400000;
+}
+/** CcpParser's standard functions (carbonengine/parser stdfunctions.cpp), all pure. */
+const STD: Record<string, (a: number[]) => number> = {
+  sin: (a) => Math.sin(a[0]!), cos: (a) => Math.cos(a[0]!), tan: (a) => Math.tan(a[0]!), asin: (a) => Math.asin(a[0]!), acos: (a) => Math.acos(a[0]!),
+  atan: (a) => Math.atan(a[0]!), sinh: (a) => Math.sinh(a[0]!), cosh: (a) => Math.cosh(a[0]!), tanh: (a) => Math.tanh(a[0]!), asinh: (a) => Math.asinh(a[0]!),
+  acosh: (a) => Math.acosh(a[0]!), atanh: (a) => Math.atanh(a[0]!), log2: (a) => Math.log2(a[0]!), log10: (a) => Math.log10(a[0]!), log: (a) => Math.log(a[0]!),
+  ln: (a) => Math.log(a[0]!), exp: (a) => Math.exp(a[0]!), sqrt: (a) => Math.sqrt(a[0]!), sign: (a) => (a[0]! > 0 ? 1 : a[0]! < 0 ? -1 : 0),
+  // rintf: to the nearest, halves to even
+  rint: (a) => { const x = a[0]!, r = Math.round(x); return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r; },
+  abs: (a) => Math.abs(a[0]!), min: (a) => Math.min(...a), max: (a) => Math.max(...a), sum: (a) => a.reduce((x, y) => x + y, 0),
+  avg: (a) => a.reduce((x, y) => x + y, 0) / a.length,
+};
 /** masked: pure and reading a variable (looked at only when a variable changed). */
 type Compiled = { run: (s: Scope) => number; masked: boolean } | null;
 
 /**
- * A condition compiled (CcpParser's grammar as the files use it: numbers, variables, StateTime(), unary - and !,
- * * / %, + -, comparisons, == !=, && ||, parentheses); null where it has anything else.
+ * A condition compiled (CcpParser's grammar as the files use it: numbers, variables, function calls, unary - + !,
+ * * / %, + -, comparisons, == !=, && ||, c ? a : b, parentheses); null where it has anything else.
  */
 export function compileCondition(src: string): Compiled {
-  const tokens = src.match(/\s*(\d+\.?\d*(?:[eE][-+]?\d+)?|\.\d+|[A-Za-z_]\w*|"[^"]*"|&&|\|\||[<>!=]=|[-+*/%()<>!,])/g)?.map((t) => t.trim()) ?? [];
+  const tokens = src.match(/\s*(\d+\.?\d*(?:[eE][-+]?\d+)?|\.\d+|[A-Za-z_]\w*|"[^"]*"|&&|\|\||[<>!=]=|[-+*/%()<>!,?:])/g)?.map((t) => t.trim()) ?? [];
   if (tokens.join("").replace(/\s/g, "") !== src.replace(/\s/g, "")) return null;
   let i = 0;
   let pure = true;
@@ -81,8 +130,9 @@ export function compileCondition(src: string): Compiled {
   const primary = (): F | null => {
     const t = next();
     if (t === undefined) return null;
-    if (t === "(") { const e = expr(0); if (!e || next() !== ")") return null; return e; }
+    if (t === "(") { const e = ternary(); if (!e || next() !== ")") return null; return e; }
     if (t === "-") { const e = primary(); return e ? (s) => -e(s) : null; }
+    if (t === "+") return primary();
     if (t === "!") { const e = primary(); return e ? (s) => (e(s) === 0 ? 1 : 0) : null; }
     if (/^(\d|\.)/.test(t)) { const v = Number(t); return () => v; }
     if (/^[A-Za-z_]/.test(t)) {
@@ -94,7 +144,7 @@ export function compileCondition(src: string): Compiled {
           for (;;) {
             const a = peek();
             if (a?.startsWith('"')) { next(); args.push(a.slice(1, -1)); }
-            else { const e = expr(0); if (!e) return null; args.push(e); }
+            else { const e = ternary(); if (!e) return null; args.push(e); }
             if (peek() === ",") { next(); continue; }
             break;
           }
@@ -120,6 +170,38 @@ export function compileCondition(src: string): Compiled {
           pure = false;
           return (s) => (s.curve ? s.curve(x(s)) : 0);
         }
+        const nums = args.filter((x): x is F => typeof x === "function");
+        if (nums.length === args.length) {
+          // the standard functions (min / max / sum / avg take 1 to 7 numbers; the others one)
+          const std = STD[t];
+          if (std && (/^(min|max|sum|avg)$/.test(t) ? nums.length >= 1 && nums.length <= 7 : nums.length === 1)) return (s) => std(nums.map((f) => f(s)));
+          // the server's time (the frame's wall clock): none pure
+          const time: Record<string, (a: number[]) => number> = {
+            ServerYear: () => serverParts().year, ServerMonth: () => serverParts().month, ServerDay: () => serverParts().day,
+            ServerDayOfWeek: () => serverParts().dow, ServerHour: () => serverParts().hour, ServerMinute: () => serverParts().minute,
+            ServerSecond: () => serverParts().second, IsWeekend: () => (serverParts().dow % 6 === 0 ? 1 : 0),
+            ServerTimePhase: (a) => serverTimePhase(a[0]!),
+            ServerTimeGreaterThan: (a) => serverTimeCompare(a, (x, y) => x > y, (x, y) => x < y),
+            ServerTimeLessThanOrEqual: (a) => serverTimeCompare(a, (x, y) => x < y, (x, y) => x > y),
+            ServerTimeEqual: (a) => serverTimeCompare(a, () => false, (x, y) => x !== y),
+            DaysSinceServerTime: (a) => daysSince(a[0]!, a[1]!, a[2]!),
+          };
+          const arity: Record<string, number> = { ServerTimePhase: 1, ServerTimeGreaterThan: 6, ServerTimeLessThanOrEqual: 6, ServerTimeEqual: 6, DaysSinceServerTime: 3 };
+          const fn = time[t];
+          if (fn && nums.length === (arity[t] ?? 0)) { pure = false; return (s) => fn(nums.map((f) => f(s))); }
+          // the owning object's: BoundingSphereRadius (its radius), ShipBoosterIntensity (its booster gain, >= 0),
+          // KillCount (not kept here: nought), ShaderQuality (TR2SM_3_0_DEPTH, the highest: 2)
+          if (t === "BoundingSphereRadius" && !nums.length) { pure = false; return (s) => s.object?.radius() ?? 0; }
+          if (t === "ShipBoosterIntensity" && !nums.length) { pure = false; return (s) => Math.max(0, s.object?.booster() ?? 0); }
+          if (t === "KillCount" && !nums.length) { pure = false; return () => 0; }
+          if (t === "ShaderQuality" && !nums.length) { pure = false; return () => 2; }
+        }
+        // GetExternalControllerVariable("name", default): the owner's controller value of that name, else the default
+        if (t === "GetExternalControllerVariable" && args.length === 2 && typeof args[0] === "string" && typeof args[1] === "function") {
+          const name = args[0], d = args[1];
+          pure = false;
+          return (s) => s.object?.external(name) ?? d(s);
+        }
         if (t === "Random" && args.length === 2 && typeof args[0] === "function" && typeof args[1] === "function") {
           // min + rand() % int(max - min)
           const lo = args[0], hi = args[1];
@@ -128,6 +210,9 @@ export function compileCondition(src: string): Compiled {
         }
         return null;
       }
+      // CcpParser's standard constants
+      if (t === "_pi") return () => Math.fround(Math.PI);
+      if (t === "_e") return () => Math.fround(Math.E);
       readsVar = true;
       return (s) => s.vars.get(t) ?? 0;
     }
@@ -163,7 +248,18 @@ export function compileCondition(src: string): Compiled {
       }
     }
   };
-  const run = expr(0);
+  // c ? a : b, below every binary operator, to the right (CcpParser's, as C's)
+  const ternary = (): F | null => {
+    const c = expr(0);
+    if (!c || peek() !== "?") return c;
+    next();
+    const a = ternary();
+    if (!a || next() !== ":") return null;
+    const b = ternary();
+    if (!b) return null;
+    return (s) => (c(s) !== 0 ? a(s) : b(s));
+  };
+  const run = ternary();
   if (!run || i !== tokens.length) return null;
   return { run, masked: pure && readsVar };
 }
@@ -250,7 +346,7 @@ export class ControllerRun {
     const run = this.machines[i]!;
     for (let hop = 0; hop < 40 && run.current >= 0; hop++) {
       const state = m.states[run.current]!;
-      const scope = { vars: this.vars, stateTime: now - run.stateStart, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() };
+      const scope = { vars: this.vars, stateTime: now - run.stateStart, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), object: this.objectInfo };
       const t = state.transitions.find((tr) => {
         if (tr.to < 0 || !m.states[tr.to]) return false;
         const c = conditionOf(tr.condition);
@@ -319,6 +415,28 @@ export class ControllerRun {
   }
 
   /** The owning ship's speed and top speed (setShipSpeed on its model; nought where none is set). */
+  /** The owning space object's radius (its bounding sphere), booster gain and kept controller variables. */
+  private readonly objectInfo: ObjectInfo = {
+    radius: () => {
+      for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) {
+        const bs = o.userData.boundingSphere as number[] | null | undefined;
+        if (bs?.[3] !== undefined) return bs[3];
+      }
+      return 0;
+    },
+    booster: () => {
+      for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) if (typeof o.userData.thrust === "number") return o.userData.thrust as number;
+      return 0;
+    },
+    external: (name) => {
+      for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) {
+        const store = o.userData.controllerVars as Record<string, number> | undefined;
+        if (store && name in store) return store[name];
+      }
+      return undefined;
+    },
+  };
+
   private ship(): { speed: number; max: number } {
     for (let o: THREE.Object3D | null = this.owner; o; o = o.parent) {
       if (typeof o.userData.shipSpeed === "number") return { speed: o.userData.shipSpeed as number, max: (o.userData.shipMaxSpeed as number) ?? 0 };
@@ -349,7 +467,7 @@ export class ControllerRun {
       if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger" || a.k === "setValue" || a.k === "setOwner") && a.value !== undefined) {
         const c = conditionOf(a.value);
         if (!c) continue;
-        const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() });
+        const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), object: this.objectInfo });
         if (a.k === "setVar" && a.variable && this.vars.has(a.variable)) {
           if (this.vars.get(a.variable) !== v) { this.vars.set(a.variable, v); this.dirty = true; }
         } else if (a.k === "setDisplay" && a.target !== undefined) this.host.setDisplay?.(a.target, v !== 0);
@@ -373,7 +491,7 @@ export class ControllerRun {
         const host = this.host, applyTime = this.host.applyTime, set = a.curveSet, start = now;
         run.live.push({
           stop: () => {},
-          tick: (t) => applyTime(set, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() })),
+          tick: (t) => applyTime(set, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), object: this.objectInfo })),
         });
         continue;
       }
@@ -386,7 +504,7 @@ export class ControllerRun {
         const at = (x: number) => curveValue(curve, x);
         run.live.push({
           stop: () => {},
-          tick: (t) => setOwner(attribute, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), curve: at })),
+          tick: (t) => setOwner(attribute, c.run({ vars: this.vars, stateTime: t - start, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship(), object: this.objectInfo, curve: at })),
         });
         continue;
       }
