@@ -154,6 +154,8 @@ export class SpaceView {
   private readonly overview: Overview;
   private starfieldObj!: THREE.Points;
   private readonly sunLight = new THREE.DirectionalLight(0xfff6e8, 3);
+  /** Toward the system's star (from the grid): the sun light sits along it from the point looked at (fitSunShadow). */
+  private readonly sunDir = new THREE.Vector3(-1, 0.4, 0.6).normalize();
   private snapshot: Snapshot | null = null;
   private frameCount = 0;
   private stopped = false;
@@ -294,8 +296,14 @@ export class SpaceView {
     this.scene.add(this.starfieldObj);
     this.scene.add(new THREE.AmbientLight(0x334455, 0.6));
     // The system's star lights the grid from where it is (aimed each frame at the sun ball, frame()).
-    this.sunLight.position.set(-1, 0.4, 0.6);
-    this.scene.add(this.sunLight);
+    this.sunLight.position.copy(this.sunDir);
+    this.scene.add(this.sunLight, this.sunLight.target);
+    // the sun's shadow on the space objects (quadv5.sm_depth: EveSpaceSceneShadowMap x the sun's colour, the scene's
+    // cascaded shadow pass): three's shadow map of the sun light, fitted around the point looked at (fitSunShadow)
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.sunLight.castShadow = true;
+    this.sunLight.shadow.mapSize.set(4096, 4096);
     this.scene.add(this.warpTunnel.object, this.turretFx.group, this.missileFx.group);
     live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
@@ -649,7 +657,7 @@ export class SpaceView {
     if (!balls.length && !this.missileFx.active) return;
     const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
     this.missileFx.update({
-      balls, origin, shift: moved, dt, scene: this.scene, sun: this.sunLight.position, aspect: innerWidth / Math.max(1, innerHeight),
+      balls, origin, shift: moved, dt, scene: this.scene, sun: this.sunDir, aspect: innerWidth / Math.max(1, innerHeight),
       camera: this.camera, width: this.renderer.domElement.width,
       muzzleOf: (ship, moduleID, shot, target) => this.muzzleOf(ship, moduleID, shot, target, origin),
       target: (id) => {
@@ -970,7 +978,7 @@ export class SpaceView {
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if (e.kind === "ship" && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
-      if (e.kind === "sun") this.sunLight.position.copy(rel).normalize();
+      if (e.kind === "sun") this.sunDir.copy(rel).normalize();
       if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);
       if (!el) {
@@ -1094,8 +1102,30 @@ export class SpaceView {
     // the shake: the point looked at moved across the view for this frame (the controls look at their target again next)
     const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);
     if (shaken) this.camera.lookAt(this.controls.target.clone().add(shaken));
+    this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0 });
     this.bloom.render();
+  }
+
+  /**
+   * The sun light along the sun's direction from the point looked at, its shadow's orthographic camera a square of
+   * 1.25 x the camera's distance about it (400 m to 150 km: a ship close up, a station whole), deep enough for what
+   * lies between; the normal bias two of its texels.
+   */
+  private fitSunShadow(): void {
+    const t = this.controls.target;
+    const half = THREE.MathUtils.clamp(this.camera.position.distanceTo(t) * 1.25, 400, 150000);
+    this.sunLight.position.copy(t).addScaledVector(this.sunDir, half * 4);
+    this.sunLight.target.position.copy(t);
+    this.sunLight.target.updateMatrixWorld();
+    const c = this.sunLight.shadow.camera;
+    if (c.right !== half) {
+      c.left = -half; c.right = half; c.top = half; c.bottom = -half;
+      c.near = half * 0.5; c.far = half * 8;
+      c.updateProjectionMatrix();
+      this.sunLight.shadow.normalBias = (2 * half / this.sunLight.shadow.mapSize.x) * 2;
+      this.sunLight.shadow.bias = -0.0002;
+    }
   }
 
   /** A lock, shown as locking (on its bracket) until the call returns: the server answers AddTarget once locked. */

@@ -796,6 +796,9 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   const meshes: THREE.Mesh[] = [];
   gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
   for (const mesh of meshes) {
+    // the hull casts and takes the sun's shadow (spaceView.ts fitSunShadow)
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     const mat = mesh.material as THREE.Material;
     const index = typeof mat.userData?.index === "number" ? (mat.userData.index as number) : null;
     const areas = sof?.areas.filter((a) => a.index === index) ?? [];
