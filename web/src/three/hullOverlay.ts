@@ -14,7 +14,13 @@
 //   (p k + NoiseFactors.w x time) / (NoiseFactors.y x R) for the model-space position p, plus (|p - c| - r) /
 //   (NoiseFactors.x x R x 0.1), saturated, reads GradientMap.x at (x, 0): the alpha (nought where r < 0.001) of a flat
 //   FxColor - a band of colour at the dissolve's front.
-// fxbuildv5 (the additive blueprint layer) is not drawn yet.
+// - nanobuilder/fxbuildv5, pass 1 (the additive batch's ONE/ONE, no culling): the fresnel f = (1 - sat(N.V -
+//   FresnelFactors.z))^FresnelFactors.x x .y (with .y < 0: -.y (1 - min(that, 1))); BlueprintMap and
+//   BlueprintLayerMap at uv x Transform.xy + .zw + Scroll.xy x time + .zw, x BlueprintMaskMap at uv, x BlueprintColor,
+//   x BlueprintFalloffMap at (|p - c| / r, 0.5), its colour x f - inside the clip sphere only; plus, within
+//   NoiseFactors.x x R of the sphere's surface, CooldownMap.x at (min(|(|p - c| - r) / that|, 1), 0.5) x
+//   TransitionColor x NoiseFactors.z (alpha 1). Its pass 0 (a geometry shader: a thin strip along each triangle's cut
+//   by the sphere, BuildLineMap's 3D noise) is not drawn: WebGL has no geometry stage.
 
 import * as THREE from "three";
 import { logDepth } from "./logDepth.ts";
@@ -72,10 +78,45 @@ void main() {
   gl_FragColor = vec4( fxColor.rgb, a );
 }`;
 
+const BUILD_VS = `varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+void main() {
+  vUv = uv;
+  vP = vec3( position.x, position.y, -position.z );
+  vec4 world = modelMatrix * vec4( position, 1.0 );
+  vN = normalize( mat3( modelMatrix ) * normal );
+  vV = normalize( cameraPosition - world.xyz );
+  gl_Position = projectionMatrix * viewMatrix * world;
+}`;
+
+const BUILD_FS = `uniform vec4 clipData; uniform float radius; uniform float time;
+uniform vec4 fresnelFactors; uniform vec4 noiseFactors; uniform vec4 blueprintColor; uniform vec4 transitionColor;
+uniform vec4 fgScroll; uniform vec4 fgTransform; uniform vec4 layerScroll; uniform vec4 layerTransform;
+uniform sampler2D cooldownMap; uniform sampler2D blueprintMap; uniform sampler2D blueprintLayerMap; uniform sampler2D blueprintMaskMap; uniform sampler2D blueprintFalloffMap;
+varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+void main() {
+  float fr = pow( 1.0 - clamp( dot( vV, vN ) - fresnelFactors.z, 0.0, 1.0 ), fresnelFactors.x );
+  float f = fresnelFactors.y < 0.0 ? -fresnelFactors.y * ( 1.0 - min( fr, 1.0 ) ) : fr * fresnelFactors.y;
+  vec4 bp = texture( blueprintMap, vUv * fgTransform.xy + fgTransform.zw + fgScroll.xy * time + fgScroll.zw )
+    * texture( blueprintLayerMap, vUv * layerTransform.xy + layerTransform.zw + layerScroll.xy * time + layerScroll.zw )
+    * texture( blueprintMaskMap, vUv ) * blueprintColor;
+  float d = length( vP - clipData.xyz );
+  float r = sqrt( abs( clipData.w ) );
+  bp *= texture( blueprintFalloffMap, vec2( d / r, 0.5 ) );
+  bp.rgb *= f;
+  float w = noiseFactors.x * radius;
+  float e = d - r;
+  float inside = r >= d ? 1.0 : 0.0;
+  float band = w >= abs( e ) ? 1.0 : 0.0;
+  float cool = texture( cooldownMap, vec2( min( abs( e / w ), 1.0 ), 0.5 ) ).x;
+  gl_FragColor = bp * inside + vec4( cool * transitionColor.rgb * noiseFactors.z, 1.0 ) * band;
+}`;
+
 const v4 = (a: number[] | undefined, d: number[]) => new THREE.Vector4(a?.[0] ?? d[0], a?.[1] ?? d[1], a?.[2] ?? d[2], a?.[3] ?? d[3]);
 
 /** One overlay effect's material (null for a shader not drawn here), its clip uniforms set per draw from the object's. */
-function overlayMaterial(fx: SofOverlayFx, radius: number, pass: "opaque" | "transparent"): THREE.ShaderMaterial | null {
+function overlayMaterial(fx: SofOverlayFx, radius: number, pass: "opaque" | "transparent" | "additive"): THREE.ShaderMaterial | null {
+  if (fx.shader === "fxbuildv5") return pass === "additive" ? buildMaterial(fx, radius) : null;
+  if (pass === "additive") return null;
   const capper = fx.shader === "fxholecapperv5";
   if (!capper && fx.shader !== "fxtransitionv5") return null;
   if (capper !== (pass === "opaque")) return null;
@@ -94,12 +135,52 @@ function overlayMaterial(fx: SofOverlayFx, radius: number, pass: "opaque" | "tra
   const noise = fx.textures.NoiseMap, gradient = fx.textures.GradientMap;
   if (noise) void loadDds3D(noise).then((t) => { mat.uniforms.noiseMap!.value = t; mat.uniformsNeedUpdate = true; }).catch(() => {});
   if (gradient) void loadDds(gradient).then((t) => { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; mat.uniforms.gradientMap!.value = t; mat.uniformsNeedUpdate = true; }).catch(() => {});
+  followClipData(mat, clipData, clip2);
+  return mat;
+}
+
+/** The material's clip uniforms set for each draw from the drawn object's space object (clipOf). */
+function followClipData(mat: THREE.ShaderMaterial, clipData: { value: THREE.Vector4 }, clip2: { value: number }): void {
   mat.onBeforeRender = (_r, _s, _c, _g, object) => {
     const c = clipOf(object);
     const v = clipData.value;
     const x = c?.[0] ?? 0, y = c?.[1] ?? 0, z = c?.[2] ?? 0, w = c?.[3] ?? 0, w2 = c?.[4] ?? 0;
     if (v.x !== x || v.y !== y || v.z !== z || v.w !== w || clip2.value !== w2) { v.set(x, y, z, w); clip2.value = w2; mat.uniformsNeedUpdate = true; }
   };
+}
+
+/** fxbuildv5's blueprint pass (its pass 1), additive, both faces; its maps loaded as they come (Blueprint* wrap). */
+function buildMaterial(fx: SofOverlayFx, radius: number): THREE.ShaderMaterial {
+  const p = fx.params;
+  const clipData = { value: new THREE.Vector4() }, clip2 = { value: 0 };
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      clipData, clipRadius2Sq: clip2, radius: { value: radius }, time: clock,
+      fresnelFactors: { value: v4(p.FresnelFactors, [1, 1, 0, 0]) }, noiseFactors: { value: v4(p.NoiseFactors, [0, 0, 0, 0]) },
+      blueprintColor: { value: v4(p.BlueprintColor, [1, 1, 1, 1]) }, transitionColor: { value: v4(p.TransitionColor, [1, 1, 1, 1]) },
+      fgScroll: { value: v4(p.BlueprintForegroundScroll, [1, 1, 0, 0]) }, fgTransform: { value: v4(p.BlueprintForegroundTransform, [1, 1, 0, 0]) },
+      layerScroll: { value: v4(p.BlueprintLayerScroll, [1, 1, 0, 0]) }, layerTransform: { value: v4(p.BlueprintLayerTransform, [1, 1, 0, 0]) },
+      cooldownMap: { value: null }, blueprintMap: { value: null }, blueprintLayerMap: { value: null }, blueprintMaskMap: { value: null }, blueprintFalloffMap: { value: null },
+    },
+    vertexShader: BUILD_VS,
+    fragmentShader: BUILD_FS,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
+  });
+  logDepth(mat);
+  const maps: [string, string, boolean][] = [["CooldownMap", "cooldownMap", false], ["BlueprintMap", "blueprintMap", true], ["BlueprintLayerMap", "blueprintLayerMap", true],
+    ["BlueprintMaskMap", "blueprintMaskMap", true], ["BlueprintFalloffMap", "blueprintFalloffMap", false]];
+  for (const [name, uniform, wrap] of maps) {
+    const url = fx.textures[name];
+    if (!url) continue;
+    void loadDds(url).then((t) => {
+      t.wrapS = t.wrapT = wrap ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+      t.needsUpdate = true;
+      mat.uniforms[uniform]!.value = t;
+      mat.uniformsNeedUpdate = true;
+    }).catch(() => {});
+  }
+  followClipData(mat, clipData, clip2);
   return mat;
 }
 
@@ -116,7 +197,8 @@ export function addOverlay(model: THREE.Object3D, key: string, overlay: SofOverl
   const radius = bs?.[3] ?? (model.userData.radius as number | undefined) ?? 1;
   const materials = {
     opaque: overlay.opaque.map((fx) => overlayMaterial(fx, radius, "opaque")).filter((m): m is THREE.ShaderMaterial => !!m),
-    transparent: overlay.transparent.map((fx) => overlayMaterial(fx, radius, "transparent")).filter((m): m is THREE.ShaderMaterial => !!m),
+    transparent: [...overlay.transparent.map((fx) => overlayMaterial(fx, radius, "transparent")), ...overlay.additive.map((fx) => overlayMaterial(fx, radius, "additive"))]
+      .filter((m): m is THREE.ShaderMaterial => !!m),
   };
   const meshes: THREE.Mesh[] = [];
   model.traverse((o) => { if ((o as THREE.Mesh).isMesh && Array.isArray(o.userData.areaKinds)) meshes.push(o as THREE.Mesh); });
