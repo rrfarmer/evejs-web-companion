@@ -1,4 +1,5 @@
 import { createBotLogBuffer } from "./botLogBuffer.ts";
+import { nextLocalID } from "./localID.ts";
 
 /** The flight recorder never has more than one delivery, including its retry, in flight. */
 export function createBotLogWriter<T extends { readonly kind: string }>(
@@ -12,10 +13,6 @@ export function createBotLogWriter<T extends { readonly kind: string }>(
   });
   let cancelScheduled: (() => void) | null = null;
   let delivery: Promise<void> | null = null;
-  // LAN HTTP pages may have no randomUUID; delivery ids are bookkeeping, not
-  // credentials. A per-writer random prefix and monotonic counter suffice there.
-  const writerID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  let batchSequence = 0;
 
   function scheduleFlush(): void {
     if (cancelScheduled !== null) return;
@@ -33,7 +30,7 @@ export function createBotLogWriter<T extends { readonly kind: string }>(
     cancelScheduled = null;
     if (buffer.size === 0) return Promise.resolve();
     const batch = buffer.take();
-    const batchID = globalThis.crypto?.randomUUID?.() ?? `${writerID}-${++batchSequence}`;
+    const batchID = nextLocalID();
     delivery = (async () => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {

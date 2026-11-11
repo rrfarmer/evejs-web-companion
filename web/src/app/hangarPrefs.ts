@@ -14,6 +14,8 @@
 // component reaches into storage itself, and every rule is testable without a
 // DOM.
 
+import { nextLocalID } from "./localID.ts";
+
 /** One player-made group of pilots, spanning accounts. */
 export interface Squad {
   readonly id: string;
@@ -182,8 +184,7 @@ export function saveHangarPrefs(prefs: HangarPrefs): void {
 
 /** A squad id that cannot collide with another made in the same millisecond. */
 export function nextSquadId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid ? `squad-${uuid}` : `squad-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `squad-${nextLocalID()}`;
 }
 
 /** The next palette colour for a new squad, cycling so two in a row differ. */
