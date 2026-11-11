@@ -199,6 +199,13 @@
           return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null);
         });
       });
+      // its fitted turrets (the fitting's high and medium slots: slot = the place in its rack + 1, as
+      // TurretSet.GetSlotFromModuleFlagID; the fit is applied only when it changes)
+      $effect(() => {
+        const slots = $fitting?.slots ?? [];
+        hangar.setFit(slots.filter((s) => s.module && (s.family === "high" || s.family === "mid"))
+          .map((s) => ({ typeID: s.module!.typeID, slot: s.index + 1, count: 1, moduleID: s.module!.itemID })));
+      });
     });
     return () => { stop(); hangar.dispose(); };
   });

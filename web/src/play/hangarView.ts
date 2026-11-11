@@ -14,6 +14,7 @@ import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure, type DynamicExposureParams } from "../three/exposure.ts";
 import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
 import { pickDockSwing, type DockSwing } from "./hangarRegistry.ts";
+import { buildTurrets, type HullTurretData, type TurretFit, type TurretSetState } from "../three/turretModel.ts";
 
 interface HangarScene {
   reflection: string | null; sunDiffuseColor: number[] | null; sunDirection: number[] | null; ambientColor: number[] | null;
@@ -132,6 +133,8 @@ export class HangarView {
     this.camera.near = Math.max(0.5, radius / 50);
     this.camera.far = hangar ? 1e5 : radius * 400;
     this.ship = { model, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
+    // its turrets, for the fit known now
+    void this.applyFit();
     this.lastBob = 0;
     // the first ship shown is the docking: the camera swings in (AnimEnterHangar); a ship boarded after is placed
     // where that swing ends
@@ -272,8 +275,39 @@ export class HangarView {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * The shown ship's fitted turrets (turretModel.ts, as the client fits a docked ship's hardpoints): built onto the
+   * model, online - each set idle, playing Active - again only when the fit or the ship changes.
+   */
+  setFit(fits: readonly TurretFit[]): void {
+    const key = fits.map((f) => `${f.typeID}:${f.slot}`).join(",");
+    if (key === this.fitKey) return;
+    this.fitKey = key;
+    this.fits = [...fits];
+    void this.applyFit();
+  }
+  private fits: TurretFit[] = [];
+  private fitKey = "";
+  private turretSets: TurretSetState[] = [];
+  private async applyFit(): Promise<void> {
+    const model = this.ship?.model;
+    if (!model) return;
+    const key = this.fitKey;
+    const data = model.userData as { turretLocators?: HullTurretData["turretLocators"]; turretPrimary?: HullTurretData["primary"]; faction?: string | null };
+    const group = await buildTurrets({ turretLocators: data.turretLocators ?? [], primary: data.turretPrimary ?? null }, this.fits, data.faction ?? null).catch(() => null);
+    if (key !== this.fitKey || model !== this.ship?.model) return;
+    const old = model.getObjectByName("turrets");
+    if (old) model.remove(old);
+    this.turretSets = [];
+    if (!group) return;
+    model.add(group);
+    this.turretSets = ((group.userData.sets ?? []) as { state: TurretSetState }[]).map((x) => x.state);
+    for (const s of this.turretSets) s.enterIdle();
+  }
+
   frame(): void {
     if (this.stopped) return;
+    for (const s of this.turretSets) for (const r of s.rigs) r.update(null);
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();
