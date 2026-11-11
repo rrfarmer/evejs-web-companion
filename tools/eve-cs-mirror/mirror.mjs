@@ -158,24 +158,30 @@ function expandTemplates() {
 }
 
 function harvest(text, fileUrl, type) {
+  // A page's relative references (attributes, inline CSS and module imports, the import map) resolve against its
+  // <base href>, not its own URL: the pages say <base href="/">, and resolving their inline
+  // url(assets/ui/evecs_logo_large.svg) against /scenarios/basics/ecm fetched the SPA shell at an ever deeper path.
+  let rel = fileUrl;
   if (/html/.test(type)) {
+    const baseHref = /<base\s[^>]*href\s*=\s*"([^"]*)"/i.exec(text)?.[1];
+    if (baseHref !== undefined) try { rel = new URL(baseHref, fileUrl).href; } catch {}
     for (const m of text.matchAll(/<script type="importmap">([\s\S]*?)<\/script>/g)) {
       try { Object.assign(importMap, JSON.parse(m[1]).imports || {}); } catch {}
-      for (const v of Object.values(importMap)) enqueue(v, fileUrl);
+      for (const v of Object.values(importMap)) enqueue(v, rel);
     }
-    for (const m of text.matchAll(/\s(?:src|href|poster|data-src|content)\s*=\s*"([^"]+)"/g)) enqueueFound(m[1], fileUrl);
-    for (const m of text.matchAll(/\ssrcset\s*=\s*"([^"]+)"/g)) m[1].split(",").forEach((p) => enqueueFound(p.trim().split(/\s+/)[0], fileUrl));
+    for (const m of text.matchAll(/\s(?:src|href|poster|data-src|content)\s*=\s*"([^"]+)"/g)) enqueueFound(m[1], rel);
+    for (const m of text.matchAll(/\ssrcset\s*=\s*"([^"]+)"/g)) m[1].split(",").forEach((p) => enqueueFound(p.trim().split(/\s+/)[0], rel));
   }
   if (/css|html/.test(type)) {
-    for (const m of text.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)) enqueue(m[1], fileUrl);
-    for (const m of text.matchAll(/@import\s+['"]([^'"]+)['"]/g)) enqueue(m[1], fileUrl);
+    for (const m of text.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)) enqueue(m[1], rel);
+    for (const m of text.matchAll(/@import\s+['"]([^'"]+)['"]/g)) enqueue(m[1], rel);
   }
   if (/javascript|html/.test(type)) {
-    for (const m of text.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*["'`]([^"'`$]+)["'`]/g)) enqueue(m[1], fileUrl);
+    for (const m of text.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*["'`]([^"'`$]+)["'`]/g)) enqueue(m[1], rel);
     harvestPrefixVars(text);
   }
   if (/obj|mtl/.test(fileUrl)) for (const m of text.matchAll(/^(?:mtllib|map_\w+|bump|norm)\s+(.+)$/gm)) enqueue(m[1].trim(), fileUrl);
-  harvestStrings(text, fileUrl);
+  harvestStrings(text, rel);
   if (/json/.test(type) && /\.gltf/.test(fileUrl)) {
     try { const j = JSON.parse(text); [...(j.buffers || []), ...(j.images || [])].forEach((b) => b.uri && enqueue(b.uri, fileUrl)); } catch {}
   }
@@ -244,8 +250,9 @@ async function fetchOne(key) {
     }
     buf = Buffer.from(await r.arrayBuffer());
     type = r.headers.get("content-type") || guessType(file);
-    // A path guessed from a string that the server answers with the SPA shell is not a file.
-    if (/text\/html/.test(type) && /\.(png|webp|jpe?g|json|js|css|glb|wav|mp3|ogg|mp4)$/i.test(url.pathname)) { stats.failed++; return; }
+    // A path guessed from a string that the server answers with the SPA shell is not a file: refuse HTML for any
+    // site path with a file extension other than .html (an .svg one once let the shell in and crawled it again).
+    if (/text\/html/.test(type) && url.origin === ORIGIN && /\.[A-Za-z0-9]{1,6}$/.test(url.pathname) && !/\.html?$/i.test(url.pathname)) { stats.failed++; return; }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, buf);
     stats.fetched++;
