@@ -279,7 +279,11 @@ export class ChildAnimator {
           ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.setVariable === "function") : [];
         // another curve set's speed (TriCurveSet.scale: a set that waits at scale nought until one of its own sets it)
         const setScale = !target && !xf && !curve && !binding && b.destinationType === "TriCurveSet" && attr0 === "scale";
-        if (!target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
+        // an effect propagator's trigger (a bool: each update the value is not nought it is set, and the propagator
+        // reads its locators and plays again - this clone's run, put on its holder)
+        const triggers = !target && !xf && !curve && !binding && b.destinationType === "EveChildEffectPropagator" && attr0 === "trigger"
+          ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.onTrigger === "function") : [];
+        if (!target && !xf && !curve && !binding && !sinks.length && !setScale && !triggers.length) continue;
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
         if (b.sourceFx !== undefined) {
@@ -299,6 +303,7 @@ export class ChildAnimator {
         const srcC = srcComp !== undefined ? COMPONENT[srcComp] ?? null : null;
         if (sinks.length) { const v = copied(src, srcC, b.scale, b.offset, 0, null) as number; for (const o of sinks) (o.userData.setVariable as (v: number) => void)(v); continue; }
         if (setScale) { this.setScale(b.destination, copied(src, srcC, b.scale, b.offset, 0, null) as number); continue; }
+        if (triggers.length) { if ((copied(src, srcC, b.scale, b.offset, 0, null) as number) !== 0) for (const o of triggers) (o.userData.onTrigger as () => void)(); continue; }
         if (curve) { curve[attr ?? "timeOffset"] = copied(src, srcC, b.scale, b.offset, typeof curve[attr ?? ""] === "number" ? (curve[attr ?? ""] as number) : 0, null) as number; continue; }
         if (binding) { binding.scale = copied(src, srcC, b.scale, b.offset, binding.scale, null) as number; continue; }
         if (xf) {

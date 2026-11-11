@@ -279,6 +279,11 @@ function readController(c, skipped, owner) {
         const vars = (own ? [own] : childEffectTargets(a, childEffects)).filter((t) => t?.type === "Tr2ControllerFloatVariable");
         if (vars.length) return { k: "setValue", target: idOf(vars[0]), targets: vars.map(idOf), attribute: "value", value };
       }
+      // an effect propagator's frequency (its interval triggers per second)
+      if (a.attribute === "frequency") {
+        const p = setValueObject(owner, a);
+        if (p?.type === "EveChildEffectPropagator") return { k: "setValue", target: idOf(p), targets: [idOf(p)], attribute: "frequency", value };
+      }
       // an effect propagator's trigger (EveChildEffectPropagator "trigger": non-nought reads its locators and plays)
       const propagator = a.attribute === "trigger" ? setValueObject(owner, a) : null;
       if (propagator?.type === "EveChildEffectPropagator") return { k: "trigger", target: idOf(propagator), value };
@@ -456,25 +461,31 @@ function readShown(o, skipped) {
       textures: effectTextures(o.lineSet.lineEffect), curves,
     };
   }
-  // EveChildEffectPropagator (Trinity's Eve/SpaceObject/Children/): its instance container's source copied to each
-  // locator of the set it names; read where the set is the owner's (propagationType externalLocatorSet, 1) and the
-  // trigger places every copy at once and keeps it (triggerMethood instantPermanent, 2)
+  // EveChildEffectPropagator (Trinity's Eve/SpaceObject/Children/): its instance container's source copied to its
+  // locators as its trigger method plays (propagator.ts): its locators (propagationType 0 its own, 1 a hull set, 2 a
+  // random spread), trigger method (triggerMethood 0 sphere curve, 1 interval, 2 instant) and their settings, with
+  // the class's defaults (EveChildEffectPropagator.cpp's constructor) and OnModified's clamps
   if (o.type === "EveChildEffectPropagator") {
     const type = o.propagationType ?? 0, trigger = o.triggerMethood ?? 0;
     const source = o.effect?.type === "EveChildInstanceContainer" ? readNode(o.effect.source, skipped) : null;
-    if (type !== 1 || trigger !== 2 || !source) {
-      const k = `EveChildEffectPropagator:${type}/${trigger}${source ? "" : "/no-source"}`;
-      skipped[k] = (skipped[k] ?? 0) + 1;
+    if (!source) {
+      skipped["EveChildEffectPropagator:no-source"] = (skipped["EveChildEffectPropagator:no-source"] ?? 0) + 1;
       return null;
     }
     // ProcessRefLocators: an empty name is "damage"
-    const set = String(o.locatorSetName || "damage").trim();
-    locatorSetsUsed.add(set);
+    const set = type === 1 ? String(o.locatorSetName || "damage").trim() : null;
+    if (set) locatorSetsUsed.add(set);
     const m = srt(o);
+    const lo = Math.max(0, o.randScaleMin ?? 1);
     return {
-      k: "propagator", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, locatorSet: set,
+      k: "propagator", id: idOf(o), name: o.name ?? null, m: identity(m) ? null : m, type, trigger, locatorSet: set,
+      local: type === 0 ? (o.localLocators?.locators?.items ?? []).map((l) => [...(l?.[0] ?? [0, 0, 0]), ...(l?.[1] ?? [0, 0, 0, 1])]) : null,
+      numTriggers: Number(o.numTriggers ?? 10), range: o.range ?? 500, closeness: o.ClosenessPreference ?? 0.25, minRange: o.minRangeThreshold ?? 0,
       completeness: Math.min(1, Math.max(0, o.completeness ?? 1)), scaling: o.effectScaling ?? [1, 1, 1],
-      randScale: [o.randScaleMin ?? 1, Math.max(o.randScaleMin ?? 1, o.randScaleMax ?? 1)], source,
+      randScale: [lo, Math.max(lo, o.randScaleMax ?? 1)], sphereOffset: o.triggerSphereOffset ?? [0, 0, 0],
+      sphereCurve: o.triggerSphereRadiusCurve ? curveData(o.triggerSphereRadiusCurve) : null,
+      skipCleanup: o.skipCleanup === true, stopToClearDelay: o.stopToClearDelay ?? 0, replayAfterDelay: o.replayAfterDelay === true,
+      frequency: o.frequency ?? 1, duration: o.durationPerEffect ?? 3, stopAfter: o.stopAfterNumTriggers ?? -1, source,
     };
   }
   if (o.type === "EveChildContainer") {

@@ -15,6 +15,7 @@ import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, setControllerVaria
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childAnimation.ts";
 import { addOverlay, removeOverlay, type SofOverlay } from "./hullOverlay.ts";
+import { PropagatorRun, type PropagatorData } from "./propagator.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
@@ -104,11 +105,6 @@ export interface SofChildLines {
   textures: Record<string, string | null>;
   curves: { m: number[]; p1: number[]; c: number[]; p2: number[]; segments: number; width: number }[];
 }
-/**
- * An EveChildEffectPropagator (children.mjs): its instance container's source, copied to each locator of the owner's
- * set of that name (each copy at the locator's position and rotation, scaled by scaling x a random factor in randScale,
- * a locator kept with chance completeness), all at once when its trigger is set, and kept.
- */
 /** An EveChildParticleSystem's GPU emitters (children.mjs): they emit into the scene's GPU particle system. */
 export interface SofChildGpuParticles {
   k: "gpuParticles";
@@ -119,16 +115,13 @@ export interface SofChildGpuParticles {
   emitters: GpuEmitterData[];
   modifiers?: string[];
 }
-export interface SofChildPropagator {
+/** An EveChildEffectPropagator (children.mjs): its locators, trigger method and settings, and its instance container's source (propagator.ts runs it). */
+export interface SofChildPropagator extends PropagatorData {
   k: "propagator";
   id?: number;
   display?: boolean;
   name: string | null;
   m: number[] | null;
-  locatorSet: string;
-  completeness: number;
-  scaling: number[];
-  randScale: number[];
   source: SofChildNode;
 }
 export type SofChildNode = SofChildQuad | SofChildContainer | SofChildTraffic | SofChildMesh | SofChildLines | SofChildParticles | SofChildPropagator | SofChildGpuParticles;
@@ -1090,6 +1083,12 @@ function setShown(o: THREE.Object3D, shown: boolean): void {
   }
 }
 
+/** The effect propagators built (by their holders' key): the node, the effects its source may load, its hull locators. */
+const propagatorNodes = new Map<string, { node: SofChildPropagator; effects: Record<string, SofChildNode | null>; locators: number[][] }>();
+let propagatorKeys = 0;
+/** Each clone's propagator runs (found by its ticker), by the propagator's id. */
+const propagatorRunsOf = new WeakMap<THREE.Object3D, { id: number | null; run: PropagatorRun; last: number }[]>();
+
 /** Each clone's controller runs (found by its ticker), started on its first frame. */
 const controllerRunsOf = new WeakMap<THREE.Object3D, ControllerRun[]>();
 tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
@@ -1117,6 +1116,29 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
     if (played.fx.length) gatherFx(played.fx, camera);
     animator.step(played.objects, played.seen);
   }
+  // the effect propagators (propagator.ts), each clone's own, stepped before its controllers (which may trigger them)
+  let props = propagatorRunsOf.get(object);
+  if (!props) {
+    props = [];
+    const model = group.parent;
+    const bs = model?.userData.boundingSphere as number[] | null | undefined;
+    const radius = bs?.[3] ?? (model?.userData.radius as number | undefined) ?? 1;
+    group.traverse((o) => {
+      const entry = propagatorNodes.get(o.userData.propagatorKey as string);
+      if (!entry) return;
+      const { node, effects, locators } = entry;
+      const make = () => hullChildren([{ res: "", root: structuredClone(node.source), skipped: {} }], effects);
+      const run = new PropagatorRun(node, o, locators, radius, make, startEffect);
+      // (a curve set's binding into its trigger reaches it here: childAnimation.ts)
+      o.userData.onTrigger = () => run.trigger();
+      props!.push({ id: node.id ?? null, run, last: performance.now() / 1000 });
+    });
+    propagatorRunsOf.set(object, props);
+  }
+  if (props.length) {
+    const now = performance.now() / 1000;
+    for (const p of props) { p.run.update(Math.min(0.25, now - p.last)); p.last = now; }
+  }
   // the controllers (controllers.ts), each owned by its container's group in this clone
   const controllerData = group.userData.controllers as SofController[][] | undefined;
   if (controllerData) {
@@ -1132,6 +1154,8 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         // the owner's own target, else one in a child effect loaded under it (its own animator, by its key)
         setValue: (target: number, attribute: string, value: number) => {
           if (animator?.setValue(target, attribute, value)) return;
+          // an effect propagator's frequency (by its id), in this clone
+          if (attribute === "frequency") { for (const p of propagatorRunsOf.get(object) ?? []) if (p.id === target) p.run.setFrequency(value); return; }
           // a controller's variable (by its id): the run holding it, in this clone
           if (attribute === "value") {
             let found = false;
@@ -1152,7 +1176,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
           else removeOverlay(model, effect);
         },
         spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
-        trigger: (target: number) => group.traverse((o) => { if (o.userData.propagatorId === target) o.visible = true; }),
+        trigger: (target: number) => { for (const p of propagatorRunsOf.get(object) ?? []) if (p.id === target) p.run.trigger(); },
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
         setScale: (set: number, scale: number) => animator?.setScale(set, scale),
         duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
@@ -1278,6 +1302,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   for (const child of children ?? []) if (child.root) scan(child.root);
   const pending: Promise<void>[] = [];
   let modified = 0;
+  // the effect propagators placed (each clone runs them from its ticker)
+  let propagators = 0;
   // the containers' controllers, by owner (an owner's group carries its index as userData.controllerOwner)
   const controllers: SofController[][] = [];
   // the containers' point lights, in the hull's EVE space (the group's userData.lights, read by the space view)
@@ -1382,37 +1408,20 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       return;
     }
     if (node.k === "propagator") {
-      // EveChildEffectPropagator (externalLocatorSet, instantPermanent): ProcessRefLocators takes each locator of the
-      // owner's set (TriRand() > completeness skips one), its transform the locator's position and rotation and
-      // effectScaling x randScaleMin..Max; the trigger then has the instance container copy its source to each
-      // (EveChildInstanceContainer::CreateInstance: a deep copy - its own particles, curve sets and controllers -
-      // under a container set up with that transform). Each copy here is the source built anew (its own animator,
-      // controllers and particle systems), placed in the propagator's space, the copies hidden until the trigger.
-      const locators = locatorSets[node.locatorSet] ?? [];
+      // EveChildEffectPropagator: a holder in the propagator's space; each model clone runs it (propagator.ts, from the
+      // ticker), its instances the source built anew (its own animator, controllers and particle systems: a deep copy,
+      // EveChildInstanceContainer::CreateInstance) and placed by their transforms - in EVE's space already, the copy's
+      // own mirror replaced by the transform
       const holder = new THREE.Group();
       holder.name = `child-propagator:${node.name ?? ""}`;
       if (node.id !== undefined) { holder.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
-      const copies = new THREE.Group();
-      copies.name = "propagator-copies";
-      copies.visible = false;
-      if (node.id !== undefined) copies.userData.propagatorId = node.id;
-      holder.add(copies);
+      const key = `propagator:${++propagatorKeys}`;
+      propagatorNodes.set(key, { node, effects, locators: node.locatorSet ? locatorSets[node.locatorSet] ?? [] : [] });
+      holder.userData.propagatorKey = key;
+      if (node.id !== undefined) holder.userData.propagatorId = node.id;
       place(holder, local.clone().multiply(node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4()), undefined);
       sink(holder);
-      for (const l of locators) {
-        if (Math.random() > node.completeness) continue;
-        const k = node.randScale[0]! + Math.random() * (node.randScale[1]! - node.randScale[0]!);
-        const at = new THREE.Matrix4().compose(new THREE.Vector3(l[0], l[1], l[2]), new THREE.Quaternion(l[3], l[4], l[5], l[6]),
-          new THREE.Vector3((node.scaling[0] ?? 1) * k, (node.scaling[1] ?? 1) * k, (node.scaling[2] ?? 1) * k));
-        // its own copy of the source's data: its curves (a randconst, a Perlin curve's start), generators and emitters
-        pending.push(hullChildren([{ res: "", root: structuredClone(node.source), skipped: {} }], effects).then((copy) => {
-          if (!copy) return;
-          // in EVE's space already (the holder's parents are): the copy's own mirror replaced by the locator's transform
-          copy.matrixAutoUpdate = false;
-          copy.matrix.copy(at);
-          copies.add(copy);
-        }).catch(() => undefined));
-      }
+      propagators++;
       return;
     }
     if (node.k === "particles") {
@@ -1481,6 +1490,6 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   // the hull's own controllers: owned by the space object (this group, HULL_OWNER: their sets are every child's)
   if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); group.userData.locatorSets = locatorSets; group.userData.overlays = overlays; }
   if (controllers.length) { group.userData.controllers = controllers; group.userData.childEffects = effects; }
-  if (modified || animator.playing || controllers.length) group.add(ticker());
+  if (modified || animator.playing || controllers.length || propagators) group.add(ticker());
   return group;
 }
