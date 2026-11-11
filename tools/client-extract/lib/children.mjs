@@ -453,6 +453,9 @@ function readShown(o, skipped) {
       m: srt(c), p1: c.point1 ?? [0, 0, 0], c: c.bezierPoint ?? [0, 0, 0], p2: c.point2 ?? [0, 0, 0],
       segments: c.segments ?? 24, width: c.lineWidth ?? 1,
     }));
+    // its circles (EveCircle, LineSetPaths/EveCircle.cpp): GeneratePoints (once: movementSpeed moves only the mesh
+    // objects) and AddLinesToSet's straight lines between them, each a one-piece curve through its midpoint
+    for (const c of (o.lines ?? []).filter((x) => x?.type === "EveCircle" && x.display !== false)) curves.push(...circleLines(c));
     if (!curves.length) { skipped.EveChildLineSet = (skipped.EveChildLineSet ?? 0) + 1; return null; }
     return {
       k: "lines", id: idOf(o), name: o.name ?? null, m: srt(o), baseColor: o.baseColor ?? [1, 1, 1, 1], animColor: o.animColor ?? [0, 0, 0, 1],
@@ -535,6 +538,44 @@ function readShown(o, skipped) {
   }
   skipped[o.type ?? "?"] = (skipped[o.type ?? "?"] ?? 0) + 1;
   return null;
+}
+
+/**
+ * An EveCircle's straight lines (EveCircle.cpp, its defaults from the constructor and OnModified's clamps): seg points
+ * (numSegments + 0.5, or that x (1 - |completeness - 1|) where scaleSegmentsByCompleteness) around the arc of
+ * (1 - |completeness - 1|) x 2 pi from startPoint x 2 pi + max(completeness - 1, 0) x 2 pi + half a piece, at
+ * (cos, distorted y, sin) x circleRadius; a line from each point to the next, the closing one left out where
+ * completeness is not 1. Each as a one-piece curve (its control point the middle: a straight line).
+ */
+function circleLines(c) {
+  const segments = Math.min(Math.max(1, c.numSegments ?? 64), 128);
+  const completeness = Math.min(2, Math.max(0, c.completeness ?? 1));
+  const startPoint = (c.startPoint ?? 0) % 1;
+  const radius = c.circleRadius ?? 100;
+  const distort = c.circleDistort ?? [1, 0, 1, 0];
+  const anim = c.animValue ?? 0;
+  const seg = c.scaleSegmentsByCompleteness === true ? Math.trunc((segments + 0.5) * (1 - Math.abs(completeness - 1))) : Math.trunc(segments + 0.5);
+  if (seg <= 1) return [];
+  const arc = (1 - Math.abs(completeness - 1)) * Math.PI * 2;
+  const start = startPoint * Math.PI * 2 + Math.max(completeness - 1, 0) * Math.PI * 2 + arc / (2 * seg);
+  const points = [];
+  for (let i = 0; i < seg; i++) {
+    const at = start + arc * (i / seg + anim / seg);
+    let y = 0;
+    if (distort[1] !== 0 || distort[3] !== 0) {
+      const d1 = Math.sin(at) < 0 ? distort[0] : distort[2], d2 = Math.cos(at) < 0 ? distort[3] : distort[1];
+      y = Math.sin(at) ** 2 * radius * d1 + Math.cos(at) ** 2 * radius * d2;
+    }
+    points.push([Math.cos(at) * radius, y, Math.sin(at) * radius]);
+  }
+  const m = srt(c), width = c.lineWidth ?? 1, out = [];
+  for (let i = 0; i < seg; i++) {
+    const next = (i + 1) % seg;
+    if (completeness !== 1 && next === 0) continue;
+    const p1 = points[i], p2 = points[next];
+    out.push({ m, p1, c: [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2], p2, segments: 1, width });
+  }
+  return out;
 }
 
 /**
