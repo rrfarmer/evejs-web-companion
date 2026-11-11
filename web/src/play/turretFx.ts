@@ -165,6 +165,7 @@ export class TurretFx {
 
   /** EnterStateFiring and StartFireAtLocator for one shot begun at `at` (ms). */
   private startShot(f: Firing, at: number): void {
+    this.onFire?.(f.shooter, f.moduleID, f.target);
     const info = turretInfo(f.moduleTypeID);
     // until the turret's graphic has come: a medium gun's size, no peak, a second's firing
     const peak = info?.firingPeakTime ?? 0, total = info?.firingDuration ?? 1, size = info?.impactSize ?? 0.75;
@@ -180,6 +181,8 @@ export class TurretFx {
    * muzzles; null where the ship draws no turret for it (the ship's centre then).
    */
   muzzleOf: ((shooter: number, moduleID: number, shot: number, target: number) => THREE.Vector3 | null) | null = null;
+  /** Each shot begun (EnterStateFiring of the module's turret set): its ship, module and target. */
+  onFire: ((shooter: number, moduleID: number, target: number) => void) | null = null;
   private shotCount = 0;
 
   /** One frame: where things are drawn now (by itemID), and the time. */

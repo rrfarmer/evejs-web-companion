@@ -29,6 +29,7 @@ import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { childEffectRoots, readEffectFile, readHullChildren, readHullControllers, readTrafficInstances, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
+import { readAnimations } from "./lib/grannyAnim.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets } from "./lib/typeGraphics.mjs";
@@ -302,7 +303,7 @@ export function extractCelestial(rf, graphicFile, outRoot) {
  * graphic that is no turret set: {turret: null}).
  */
 export async function extractTurret(rf, graphicFile, outRoot) {
-  const t = readTurret(rf, graphicFile) ?? { turretBuild: 3, graphicFile, turret: null };
+  const t = readTurret(rf, graphicFile) ?? { turretBuild: 4, graphicFile, turret: null };
   // its model extracted as a hull's (once) and its textures copied
   if (t.geometry) {
     const stem = t.geometry.slice("res:/".length, -".gr2".length);
@@ -325,6 +326,9 @@ export async function extractTurret(rf, graphicFile, outRoot) {
           scaleShear: b.Transform?.scaleShear ?? [1, 0, 0, 0, 1, 0, 0, 0, 1], inverseWorld: b.InverseWorldTransform ?? null,
         })),
         vertexBones: col ? Array.from({ length: mesh.PrimaryVertexData.Vertices.count }, (_, i) => binding[col.data[i * col.width]] ?? 0) : null,
+        // its animations (Deploy, Active, Fire, Pack, Inactive, Reload...): per bone, position / orientation / scale-shear
+        // keys (lib/grannyAnim.mjs)
+        animations: readAnimations(g.root).animations,
       };
     }
   }

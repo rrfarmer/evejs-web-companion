@@ -9,8 +9,11 @@
 // Each turret is its model's first LOD hung on its skeleton (a turret's vertices are bound rigidly, one bone each: the
 // mesh is split by bone, each part under its bone's node through the bone's inverse bind), with the quadv5 hull
 // material, and aimed as EveTurretSet::UpdateSingleTurrets aims it (EveTurretAiming::ModifySystemBoneTransform on the
-// "Sys_*" bones, the target in the turret's own space, by the tracking influence). Not yet: the Granny animations
-// (Deploy, Fire, Pack: the bind pose stands in), bottomClipHeight, the special locator names' sequential fit.
+// "Sys_*" bones, the target in the turret's own space, by the tracking influence) on top of its animation's pose: the
+// model's Granny animations (Deploy, Active, Fire, FireNN, Pack, Inactive) played as EveTurretSet::PlayAnimation plays
+// them (one once after a delay, then an idle one looping after it), the pose the latest player's; a set's turrets go
+// through EveTurretSet's states (TurretSetState). Not yet: bottomClipHeight, the special locator names' sequential fit,
+// Reload.
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -22,8 +25,29 @@ export interface TurretModelInfo {
   turret?: null;
   model?: string | null; locatorName?: string; effect?: string | null; maxCyclingFirePos?: number;
   textures?: Record<string, string | null>; params?: Record<string, number[]>;
-  skeleton?: { bones: TurretBone[]; vertexBones: number[] | null } | null;
+  skeleton?: { bones: TurretBone[]; vertexBones: number[] | null; animations?: TurretAnimation[] } | null;
   aiming?: TurretAimingData | null;
+  useRandomFiringDelay?: boolean; maxTrackingTime?: number;
+}
+/** A decoded key track (lib/grannyAnim.mjs): times, values `width` per key. */
+interface KeyTrack { times: number[]; values: number[]; width: number }
+interface TurretAnimation { name: string; duration: number; tracks: Record<string, { position: KeyTrack | null; orientation: KeyTrack | null; scaleShear: KeyTrack | null }> }
+/** One PlayAnimation's player: its animation, when it starts and stops (ms; stop Infinity loops), once or looping. */
+interface Player { anim: TurretAnimation; start: number; stop: number; loop: boolean }
+
+/** A track's value at a time: the keys' straight interpolation (orientation slerped, its hemisphere kept). */
+function sampleTrack(k: KeyTrack, t: number, out: number[]): number[] {
+  const n = k.times.length, w = k.width;
+  if (n === 1 || t <= k.times[0]!) { for (let j = 0; j < w; j++) out[j] = k.values[j]!; return out; }
+  if (t >= k.times[n - 1]!) { for (let j = 0; j < w; j++) out[j] = k.values[(n - 1) * w + j]!; return out; }
+  let i = 1;
+  while (i < n - 1 && k.times[i]! < t) i++;
+  const t0 = k.times[i - 1]!, t1 = k.times[i]!;
+  const f = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
+  let sign = 1;
+  if (w === 4) { let d = 0; for (let j = 0; j < 4; j++) d += k.values[(i - 1) * 4 + j]! * k.values[i * 4 + j]!; if (d < 0) sign = -1; }
+  for (let j = 0; j < w; j++) out[j] = k.values[(i - 1) * w + j]! * (1 - f) + sign * k.values[i * w + j]! * f;
+  return out;
 }
 interface TurretBone { name: string; parent: number; position: number[]; orientation: number[]; scaleShear: number[]; inverseWorld: number[] | null }
 /** EveTurretAiming's numbers (degrees where angles). */
@@ -46,14 +70,54 @@ export class TurretRig {
   readonly bones: THREE.Object3D[] = [];
   private readonly rest: { p: THREE.Vector3; q: THREE.Quaternion }[] = [];
   readonly muzzles: THREE.Object3D[] = [];
-  /** EveTurretSet's tracking influence (0 .. maxTrackingTime, 1 here), faded over TRACKING_FADE_TIME (1 s). */
-  influence = 0;
   /** The last target aimed at (the turret's own space), kept while the influence fades out. */
   private target: THREE.Vector3 | null = null;
   /** The module this turret's set is (aiming and firing follow it); null: every firing of its ship (an NPC's). */
   moduleID: number | null = null;
+  /** Its set (the module's turrets: one state, one tracking influence). */
+  set: TurretSetState | null = null;
+  private players: Player[] = [];
+  private readonly anims = new Map<string, TurretAnimation>();
 
-  constructor(readonly aimData: TurretAimingData | null) {}
+  constructor(readonly aimData: TurretAimingData | null, animations: readonly TurretAnimation[] = []) {
+    for (const a of animations) this.anims.set(a.name, a);
+  }
+
+  /**
+   * EveTurretSet::PlayAnimation for this turret: what plays now stops after the delay (StopAnimation), `name` plays
+   * once from then, `idle` loops after it. The first's length (0 where it has none). Times in seconds.
+   */
+  play(name: string, idle: string, delay = 0, now = performance.now()): number {
+    const first = name ? this.anims.get(name) : undefined;
+    if (name && !first) return 0;
+    const idleAnim = idle ? this.anims.get(idle) : undefined;
+    if (idle && !idleAnim) return 0;
+    const at = now + delay * 1000;
+    for (const p of this.players) p.stop = Math.min(p.stop, at);
+    const length = first?.duration ?? 0;
+    if (first) this.players.push({ anim: first, start: at, stop: at + length * 1000, loop: false });
+    if (idleAnim) this.players.push({ anim: idleAnim, start: at + length * 1000, stop: Infinity, loop: true });
+    this.players = this.players.filter((p) => p.stop > now - 1);
+    return length;
+  }
+
+  /** The pose now: each bone's from the latest player under way (its track's, identity where a curve is), else its rest. */
+  private pose(now: number): void {
+    let player: Player | null = null;
+    for (const p of this.players) if (p.start <= now && now < p.stop && (!player || p.start >= player.start)) player = p;
+    const v = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    this.bones.forEach((o, i) => {
+      const rest = this.rest[i]!;
+      const track = player?.anim.tracks[o.name.slice("bone:".length)];
+      if (!player || !track) { o.position.copy(rest.p); o.quaternion.copy(rest.q); return; }
+      const d = player.anim.duration;
+      let t = (now - player.start) / 1000;
+      if (player.loop && d > 0) t %= d;
+      if (track.position) { sampleTrack(track.position, t, v); o.position.set(v[0]!, v[1]!, v[2]!); } else o.position.set(0, 0, 0);
+      if (track.orientation) { sampleTrack(track.orientation, t, v); o.quaternion.set(v[0]!, v[1]!, v[2]!, v[3]!).normalize(); } else o.quaternion.identity();
+      if (track.scaleShear) { sampleTrack(track.scaleShear, t, v); o.scale.set(v[0]!, v[4]!, v[8]!); } else o.scale.set(1, 1, 1);
+    });
+  }
 
   addBone(b: TurretBone, parent: THREE.Object3D | null): THREE.Object3D {
     const o = new THREE.Object3D();
@@ -70,19 +134,19 @@ export class TurretRig {
   }
 
   /**
-   * One frame: the influence toward 1 while `aimAt` (the world's point) is given, toward 0 without, then the system
-   * bones from their rest by ModifySystemBoneTransform (no pitch pose: the turret's own origin is the pitch's).
+   * One frame (UpdateSingleTurrets): the animation's pose, then the system bones moved from it by
+   * ModifySystemBoneTransform toward `aimAt` (the world's point; the last one kept while none is given) by the set's
+   * tracking influence (no pitch pose: the turret's own origin is the pitch's).
    */
-  update(aimAt: THREE.Vector3 | null, dt: number): void {
+  update(aimAt: THREE.Vector3 | null, now = performance.now()): void {
     if (aimAt) {
       this.root.updateWorldMatrix(true, false);
       this.target = aimAt.clone().applyMatrix4(this.root.matrixWorld.clone().invert());
     }
-    this.influence = Math.max(0, Math.min(1, this.influence + (aimAt ? dt : -dt)));
-    this.bones.forEach((o, i) => { o.position.copy(this.rest[i]!.p); o.quaternion.copy(this.rest[i]!.q); });
+    this.pose(now);
+    const inf = this.set?.influence ?? 0;
     const t = this.target, a = this.aimData;
-    if (!t || this.influence === 0 || !a) return;
-    const inf = this.influence;
+    if (!t || inf === 0 || !a) return;
     const n = t.clone().normalize();
     const pitch = (min: number, max: number, factor: number, offset: number) => {
       const r = Math.asin(Math.max(-1, Math.min(1, n.y)));
@@ -107,6 +171,82 @@ export class TurretRig {
     }
   }
 }
+/** EveTurretSet.cpp TRACKING_FADE_TIME; EveTurretTarget.h EVE_TURRET_RANDOM_DELAY_MAX (GetShotTimeVariance). */
+const TRACKING_FADE_TIME = 1, RANDOM_DELAY_MAX = 0.6;
+type SetState = "invalid" | "deactive" | "idle" | "targeting" | "firing";
+
+/**
+ * One module's turret set (EveTurretSet): its turrets' state and animations, and its tracking influence, faded in or
+ * out over TRACKING_FADE_TIME after the delays the states set (EveTurretSet::Update, :1419-1450).
+ */
+export class TurretSetState {
+  state: SetState = "invalid";
+  influence = 0;
+  private delta = 0;
+  private fadeInIn = 0;
+  private fadeOutIn = 0;
+  private cyclingPos = 0;
+  constructor(readonly rigs: TurretRig[], readonly maxCyclingFirePos: number, readonly useRandomFiringDelay: boolean, readonly maxTrackingTime: number) {
+    for (const r of rigs) r.set = this;
+  }
+  private all(name: string, idle: string, delay = 0): number { let len = 0; for (const r of this.rigs) len = r.play(name, idle, delay); return len; }
+
+  /** EnterStateIdle (online: from nothing or reloading "Active"; from packed Deploy; from aiming back to Active). */
+  enterIdle(): void {
+    switch (this.state) {
+      case "invalid": this.all("", "Active"); break;
+      case "deactive": this.all("Deploy", "Active"); this.influence = 0; break;
+      case "targeting": case "firing": this.fadeOutIn = 0.0001; this.all("", "Active", TRACKING_FADE_TIME); break;
+      default: break;
+    }
+    this.state = "idle";
+  }
+  /** EnterStateDeactive (a warp, offline): Pack, then Inactive. */
+  enterDeactive(): void {
+    switch (this.state) {
+      case "deactive": break;
+      case "idle": case "invalid": this.influence = 0; this.all("Pack", "Inactive"); this.fadeOutIn = 0; break;
+      case "targeting": case "firing": this.fadeOutIn = 0.0001; this.all("Pack", "Inactive", TRACKING_FADE_TIME); break;
+    }
+    this.state = "deactive";
+  }
+  /** EnterStateTargeting (a target taken): from packed Deploy, the tracking fading in after it. */
+  enterTargeting(): void {
+    switch (this.state) {
+      case "deactive": { const len = this.all("Deploy", "Active", TRACKING_FADE_TIME); this.fadeInIn = len + 0.0001; break; }
+      case "idle": case "invalid": this.fadeInIn = 0.0001; this.all("", "Active", TRACKING_FADE_TIME); break;
+      case "firing": this.all("", "Active", 0); break;
+      default: break;
+    }
+    this.state = "targeting";
+  }
+  /**
+   * EnterStateFiring (a shot): the muzzle cycle steps on, a random delay (plus the tracking time from idle), the turret
+   * facing the target (`firing`) plays Fire (FireNN by the cycle), the others Active.
+   */
+  enterFiring(firing: TurretRig | null): number {
+    if (this.state === "deactive" || this.state === "invalid") return 0;
+    if (this.maxCyclingFirePos > 1) { this.cyclingPos += 1; if (this.cyclingPos >= this.maxCyclingFirePos) this.cyclingPos = 0; }
+    let delay = this.useRandomFiringDelay ? RANDOM_DELAY_MAX * Math.random() : 0;
+    if (this.state === "idle") { delay += this.maxTrackingTime; this.fadeInIn = 0.0001; }
+    const fire = this.cyclingPos > 0 ? `Fire0${this.cyclingPos}` : "Fire";
+    for (const r of this.rigs) if (r === firing) r.play(fire, "Active", delay); else r.play("", "Active", delay);
+    this.state = "firing";
+    // m_randomFiringDelay (MissileTurretWrapper.firingDelay: the missile's warhead waits it too)
+    return delay;
+  }
+  /** The tracking influence's fade (EveTurretSet::Update, :1419-1450). */
+  update(dt: number): void {
+    if (this.delta !== 0) {
+      this.influence += this.delta * dt;
+      if (this.influence > this.maxTrackingTime) { this.influence = this.maxTrackingTime; this.delta = 0; }
+      else if (this.influence < 0) { this.influence = 0; this.delta = 0; }
+    }
+    if (this.fadeOutIn > 0) { this.fadeOutIn -= dt; if (this.fadeOutIn <= 0) { this.fadeOutIn = 0; this.delta = -1 / TRACKING_FADE_TIME; } }
+    if (this.fadeInIn > 0) { this.fadeInIn -= dt; if (this.fadeInIn <= 0) { this.fadeInIn = 0; this.delta = 1 / TRACKING_FADE_TIME; } }
+  }
+}
+
 /** The hull's turret locators and its Primary area's materials (hullModel.ts loadModel puts them in userData). */
 export interface HullTurretData {
   turretLocators: { name: string; transform: number[] }[];
@@ -120,7 +260,7 @@ export interface TurretFit { typeID: number; slot: number; count: number; module
  * bind and the glb's mirror (the glb is in glTF's mirrored space; the rig is in EVE's).
  */
 function rigOf(info: TurretModelInfo, parts: TurretParts): TurretRig {
-  const rig = new TurretRig(info.aiming ?? null);
+  const rig = new TurretRig(info.aiming ?? null, info.skeleton?.animations ?? []);
   const bones = info.skeleton?.bones ?? [];
   const nodes: THREE.Object3D[] = [];
   bones.forEach((b) => { nodes.push(rig.addBone(b, b.parent >= 0 ? nodes[b.parent] ?? null : null)); });
@@ -245,6 +385,9 @@ export async function buildTurrets(hull: HullTurretData, fits: readonly TurretFi
   const sorted = [...fits].sort((a, b) => a.slot - b.slot);
   const rigs: TurretRig[] = [];
   group.userData.rigs = rigs;
+  // each fitted set's state (EveTurretSet), with the module it is
+  const sets: { state: TurretSetState; moduleID: number | null }[] = [];
+  group.userData.sets = sets;
   const placed: Promise<void>[] = [];
   let counter = 1;
   for (const fit of sorted) {
@@ -261,6 +404,7 @@ export async function buildTurrets(hull: HullTurretData, fits: readonly TurretFi
       const locs = hull.turretLocators.filter((l) => l.name.startsWith(base) && /^[a-z]$/.test(l.name.slice(base.length)));
       placed.push(turretProto(info, hull, `${fit.typeID}:${faction ?? ""}`).then((parts) => {
         if (!parts) return;
+        const setRigs: TurretRig[] = [];
         for (const l of locs) {
           const rig = rigOf(info, parts);
           rig.moduleID = fit.moduleID ?? null;
@@ -271,7 +415,9 @@ export async function buildTurrets(hull: HullTurretData, fits: readonly TurretFi
           at.userData.rig = rig;
           group.add(at);
           rigs.push(rig);
+          setRigs.push(rig);
         }
+        if (setRigs.length) sets.push({ state: new TurretSetState(setRigs, info.maxCyclingFirePos ?? 1, info.useRandomFiringDelay !== false, info.maxTrackingTime ?? 1), moduleID: fit.moduleID ?? null });
       }));
     }
   }

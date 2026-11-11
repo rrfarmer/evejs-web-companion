@@ -23,7 +23,7 @@ import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
 import { CameraShake } from "./cameraShake.ts";
-import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig } from "../three/turretModel.ts";
+import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -698,15 +698,43 @@ export class SpaceView {
    * an NPC's - its rigs have no module - any of its ship's), the tracking influence fading in and out over a second.
    */
   private stepTurrets(origin: { x: number; y: number; z: number }, dt: number): void {
+    const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
     for (const [shipID, mark] of this.marks) {
       const group = (mark.userData.model as THREE.Object3D | undefined)?.getObjectByName("turrets");
-      const rigs = group?.userData.rigs as TurretRig[] | undefined;
-      if (!rigs?.length) continue;
-      for (const rig of rigs) {
-        const target = this.turretFx.aimTarget(shipID, rig.moduleID);
-        rig.update(target !== null ? this.placeOf(target, origin) : null, dt);
+      const sets = group?.userData.sets as { state: TurretSetState; moduleID: number | null }[] | undefined;
+      if (!sets?.length) continue;
+      // turretSet.py: online at fitting (EnterStateIdle); a warp packs them (EnterWarp / ExitWarp); a target being
+      // worked on aims them (TakeAim: EnterStateTargeting), none sends them back to idle (StopShooting)
+      const warping = byID.get(shipID)?.mode === "WARP";
+      for (const { state: set, moduleID } of sets) {
+        const target = this.turretFx.aimTarget(shipID, moduleID);
+        if (set.state === "invalid") set.enterIdle();
+        if (warping) set.enterDeactive();
+        else if (set.state === "deactive") set.enterIdle();
+        else if (target !== null && set.state === "idle") set.enterTargeting();
+        else if (target === null && (set.state === "targeting" || set.state === "firing")) set.enterIdle();
+        set.update(dt);
+        const at = target !== null ? this.placeOf(target, origin) : null;
+        for (const rig of set.rigs) rig.update(at);
       }
     }
+  }
+  /** A ship's module's turret set fires (a gun's shot, a launcher's missile): EnterStateFiring, by the turret facing the target. */
+  private fireTurretSet(shipID: number, moduleID: number, targetID: number | null): number {
+    const group = (this.marks.get(shipID)?.userData.model as THREE.Object3D | undefined)?.getObjectByName("turrets");
+    const sets = (group?.userData.sets as { state: TurretSetState; moduleID: number | null }[] | undefined) ?? [];
+    const set = sets.find((x) => x.moduleID === moduleID)?.state ?? sets.find((x) => x.moduleID === null)?.state;
+    if (!set) return 0;
+    const target = targetID !== null ? this.placeOf(targetID, this.lastOrigin) : null;
+    let best: TurretRig | null = null, bestDot = -Infinity;
+    for (const r of set.rigs) {
+      if (!target) { best ??= r; continue; }
+      r.root.updateWorldMatrix(true, false);
+      const up = new THREE.Vector3(0, 1, 0).transformDirection(r.root.matrixWorld);
+      const d = up.dot(target.clone().sub(new THREE.Vector3().setFromMatrixPosition(r.root.matrixWorld)).normalize());
+      if (d > bestDot) { bestDot = d; best = r; }
+    }
+    return set.enterFiring(best);
   }
   /**
    * A ship's firing bone for a module, in the world (EveTurretSet::GetFiringBoneWorldTransform): of the module's turret
@@ -1021,6 +1049,8 @@ export class SpaceView {
     this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, dt);
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
+    this.turretFx.onFire = (ship, moduleID, target) => { this.fireTurretSet(ship, moduleID, target); };
+    this.missileFx.onLaunch = (ship, moduleID, target) => this.fireTurretSet(ship, moduleID, target);
     this.turretFx.muzzleOf = (ship, moduleID, shot, target) => {
       const m = this.muzzleOf(ship, moduleID, shot, target, origin);
       return m ? new THREE.Vector3().setFromMatrixPosition(m) : null;

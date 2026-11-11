@@ -91,6 +91,8 @@ class Warhead {
   lastRelativePosition = new THREE.Vector3();
   lastPositionValid = false;
   bombFlightpath = false;
+  /** When _StartWarhead launches it (ms): after its turret set's firing delay. */
+  launchAt = 0;
   /** EveMissileWarhead::Update's noise seed (the client's: its own address & 0xfff). */
   readonly noiseSeed = Math.floor(Math.random() * 4096);
   readonly world = new THREE.Matrix4();
@@ -416,6 +418,8 @@ export class MissileFx {
   exploded = 0;
   /** The explosions playing: their object, where (three's space, moved with the world) and when they end. */
   private readonly explosions: { object: THREE.Object3D; until: number }[] = [];
+  /** MissileTurretWrapper.StartShooting: a launcher's turret set fires (its ship, module, the missile's target). */
+  onLaunch: ((shipID: number, moduleID: number, targetID: number | null) => number) | null = null;
   /** PlaceMissileImpact's camera shake: its magnitude and the place (three's space). */
   onShake: ((magnitude: number, at: THREE.Vector3) => void) | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
@@ -560,6 +564,9 @@ export class MissileFx {
     m.aliveTime = timeToTarget;
     m.time = 0;
     m.lastValidSpeed = 0;
+    // MissileGraphics.Start: each launcher's turret StartShooting (EnterStateFiring)
+    // (each warhead waits its turret set's random firing delay: _StartWarhead sleeps firingDelay + the muzzle's delay)
+    if (m.sourceShipID !== null) m.launchModules.forEach((id, i) => { const w = m.warheads[i]; const d = this.onLaunch?.(m.sourceShipID!, id, m.targetID) ?? 0; if (w) w.launchAt = performance.now() + d * 1000; });
     // (each warhead is launched in the first frame it is stepped: _StartWarhead takes the start transform then)
     m.started = true;
     // ExplosionManager.Preload: an explosion for each warhead, made now
@@ -589,7 +596,7 @@ export class MissileFx {
     for (const w of m.warheads) {
       // a warhead not launched yet is launched at the end of this step (Python's _StartWarhead runs between frames: the
       // ball's move this frame is not to be countered)
-      if (!w.startDataValid) { launchNow.push(w); continue; }
+      if (!w.startDataValid) { if (performance.now() >= w.launchAt) launchNow.push(w); continue; }
       const evt = w.updateState(dt, m.aliveTime, target);
       if (w.state !== State.DEAD) {
         const locator = target ? (target.impact?.locatorPosition(w.targetLocator) ?? target.position.clone()) : m.ballPos.clone();
