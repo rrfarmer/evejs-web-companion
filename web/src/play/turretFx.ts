@@ -10,7 +10,7 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 
 interface Firing {
-  shooter: number; target: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number;
+  shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number;
   /** One shot a cycle: its length (ms) and when the next begins; whether the turret was idle (its first shot waits to track). */
   cycle: number; nextCycle: number; idle: boolean;
   /** The turret's miss queue (EveTurretTarget: the last four told, popped by each shot; empty a hit). */
@@ -34,7 +34,7 @@ function turretInfo(typeID: number): TurretInfo | null {
   }
   return turretInfos.get(typeID) ?? null;
 }
-interface Pulse { firing: Firing; bornAt: number; mesh: Line2; flash: THREE.Sprite }
+interface Pulse { firing: Firing; bornAt: number; mesh: Line2; flash: THREE.Sprite; from: THREE.Vector3 | null }
 interface Blast { itemID: number; at: THREE.Vector3 | null; bornAt: number; sprite: THREE.Sprite; size: number }
 
 const KIND: Record<string, Firing["kind"]> = {
@@ -158,7 +158,7 @@ export class TurretFx {
     const cycle = duration > 0 ? duration : 1000;
     const was = this.firings.get(key);
     this.firings.set(key, {
-      shooter, target, moduleTypeID, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0,
+      shooter, target, moduleID, moduleTypeID, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0,
       cycle, nextCycle: now, idle: !was, misses: was && was.target === target ? was.misses : [], shots: was?.shots ?? [],
     });
   }
@@ -174,6 +174,13 @@ export class TurretFx {
     const missed = f.misses.shift() ?? false;
     if (!missed && size > 0) f.shots.push({ at: at + delay * 1000, size: info ? size : null, life: info ? Math.max(total - peak, 0) : null });
   }
+
+  /**
+   * Where a ship's turret for a module fires from now (its muzzle, turretModel.ts), the shot's number cycling the
+   * muzzles; null where the ship draws no turret for it (the ship's centre then).
+   */
+  muzzleOf: ((shooter: number, moduleID: number, shot: number, target: number) => THREE.Vector3 | null) | null = null;
+  private shotCount = 0;
 
   /** One frame: where things are drawn now (by itemID), and the time. */
   update(positionOf: (itemID: number) => THREE.Vector3 | null, now = performance.now(), radiusOf?: (itemID: number) => number | null): void {
@@ -197,7 +204,7 @@ export class TurretFx {
     for (const [f, beam] of this.beams) if (![...this.firings.values()].includes(f)) { this.group.remove(beam); beam.geometry.dispose(); this.beams.delete(f); }
     for (const f of this.firings.values()) {
       if (f.kind !== "laser") continue;
-      const from = positionOf(f.shooter)!, to = positionOf(f.target)!;
+      const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!, to = positionOf(f.target)!;
       let beam = this.beams.get(f);
       if (!beam) {
         beam = this.line(COLOUR.laser, 2.5);
@@ -224,7 +231,7 @@ export class TurretFx {
     // gun pulses: a short bright streak travelling to the target, a flash as it lands
     for (let i = this.pulses.length - 1; i >= 0; i--) {
       const p = this.pulses[i]!;
-      const from = positionOf(p.firing.shooter), to = positionOf(p.firing.target);
+      const from = p.from ?? positionOf(p.firing.shooter), to = positionOf(p.firing.target);
       const t = (now - p.bornAt) / FLIGHT_MS;
       if (!from || !to || t > 1.6) { this.drop(i); continue; }
       const way = to.clone().sub(from);
@@ -247,7 +254,9 @@ export class TurretFx {
     const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flash(), color: COLOUR[f.kind], blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
     flash.visible = false;
     this.group.add(mesh, flash);
-    this.pulses.push({ firing: f, bornAt: now, mesh, flash });
+    // the shot leaves its turret's muzzle (where the ship draws the turret), held there as it flies
+    const muzzle = this.muzzleOf?.(f.shooter, f.moduleID, this.shotCount++, f.target) ?? null;
+    this.pulses.push({ firing: f, bornAt: now, mesh, flash, from: muzzle });
   }
 
   private drop(i: number): void {

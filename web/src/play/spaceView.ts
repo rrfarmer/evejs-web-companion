@@ -633,7 +633,8 @@ export class SpaceView {
       const mods = slim?.get("launchModules");
       balls.push({
         itemID: e.itemID, typeID: e.typeID, maxVelocity: Number(ball?.maxVelocity ?? 0) || (e.maxVelocity ?? 0), targetID: follow > 0 ? follow : null, sourceShipID: src > 0 ? src : null,
-        launchModules: Array.isArray(mods) ? mods.length : 1,
+        // its launchers' item ids (a marshal list: its items)
+        launchModules: ((Array.isArray(mods) ? mods : (mods as { items?: unknown[] } | undefined)?.items ?? []) as unknown[]).map(Number).filter((x) => x > 0),
         // the tick's collisions (Ballpark::Potential): a missile only ever meets the ball it is aimed at
         collided: follow > 0 && (ball?.collisions ?? []).some((c) => Number(c) === follow),
         position: new THREE.Vector3(e.position.x - origin.x, e.position.y - origin.y, -(e.position.z - origin.z)),
@@ -646,6 +647,7 @@ export class SpaceView {
     this.missileFx.update({
       balls, origin, shift: moved, dt, scene: this.scene, sun: this.sunLight.position, aspect: innerWidth / Math.max(1, innerHeight),
       camera: this.camera, width: this.renderer.domElement.width,
+      muzzleOf: (ship, moduleID, shot, target) => this.muzzleOf(ship, moduleID, shot, target, origin),
       target: (id) => {
         const place = this.placeOf(id, origin);
         if (!place) return null;
@@ -705,6 +707,32 @@ export class SpaceView {
         rig.update(target !== null ? this.placeOf(target, origin) : null, dt);
       }
     }
+  }
+  /**
+   * A ship's firing bone for a module, in the world (EveTurretSet::GetFiringBoneWorldTransform): of the module's turret
+   * rigs (an NPC's: all its rigs, its modules being the ship), the one whose up axis faces the target best
+   * (GetClosestTurretAndLocator), its muzzle by the shot cycling through them (m_currentCyclingFiresPos); null where
+   * the ship draws no turret for the module.
+   */
+  private muzzleOf(shipID: number, moduleID: number, shot: number, targetID: number | null, origin: { x: number; y: number; z: number }): THREE.Matrix4 | null {
+    const group = (this.marks.get(shipID)?.userData.model as THREE.Object3D | undefined)?.getObjectByName("turrets");
+    const all = (group?.userData.rigs as TurretRig[] | undefined) ?? [];
+    let rigs = all.filter((r) => r.moduleID === moduleID);
+    if (!rigs.length) rigs = all.filter((r) => r.moduleID === null);
+    if (!rigs.length) return null;
+    const target = targetID !== null ? this.placeOf(targetID, origin) : null;
+    let best = rigs[0]!, bestDot = -Infinity;
+    for (const r of rigs) {
+      r.root.updateWorldMatrix(true, false);
+      if (!target) break;
+      const at = new THREE.Vector3().setFromMatrixPosition(r.root.matrixWorld);
+      const up = new THREE.Vector3(0, 1, 0).transformDirection(r.root.matrixWorld);
+      const d = up.dot(target.clone().sub(at).normalize());
+      if (d > bestDot) { bestDot = d; best = r; }
+    }
+    const muzzle = best.muzzles.length ? best.muzzles[shot % best.muzzles.length]! : best.root;
+    muzzle.updateWorldMatrix(true, false);
+    return muzzle.matrixWorld.clone();
   }
   /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */
   private placeOf(id: number, origin: { x: number; y: number; z: number }): THREE.Vector3 | null {
@@ -993,6 +1021,10 @@ export class SpaceView {
     this.warpTunnel.update(this.camera, this.controls.target, tunnelWay, share, dt);
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
+    this.turretFx.muzzleOf = (ship, moduleID, shot, target) => {
+      const m = this.muzzleOf(ship, moduleID, shot, target, origin);
+      return m ? new THREE.Vector3().setFromMatrixPosition(m) : null;
+    };
     this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null);
     this.stepMissiles(origin, moved, dt);
     this.stepTurrets(origin, dt);

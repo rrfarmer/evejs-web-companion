@@ -244,14 +244,14 @@ class Missile {
   impactPool: Promise<THREE.Object3D | null>[] = [];
   info: MissileInfo | null = null;
   readonly bornAt = performance.now();
-  constructor(readonly itemID: number, readonly typeID: number, readonly targetID: number | null, readonly sourceShipID: number | null, readonly launchModules: number) {}
+  constructor(readonly itemID: number, readonly typeID: number, readonly targetID: number | null, readonly sourceShipID: number | null, readonly launchModules: number[]) {}
   get done(): boolean { return this.started && this.warheads.every((w) => w.state === State.DEAD); }
 }
 
 /** What the space view tells the missiles each frame. */
 export interface MissileFrame {
   /** The missile balls in the park: id, type, place and velocity (three's space, the view's origin), max speed. */
-  balls: { itemID: number; typeID: number; position: THREE.Vector3; velocity: THREE.Vector3; maxVelocity: number; targetID: number | null; sourceShipID: number | null; launchModules: number;
+  balls: { itemID: number; typeID: number; position: THREE.Vector3; velocity: THREE.Vector3; maxVelocity: number; targetID: number | null; sourceShipID: number | null; launchModules: number[];
     /** Destiny's collision of the ball with its target this tick (the client's DoCollision). */
     collided: boolean }[];
   /** The view's origin (the ship's place, the system's frame): a ball gone is kept still where it was. */
@@ -263,6 +263,11 @@ export interface MissileFrame {
   shift: THREE.Vector3;
   dt: number;
   scene: THREE.Object3D;
+  /**
+   * A launcher's firing bone in the world (EveTurretSet::GetFiringBoneWorldTransform: the set's turret facing the target
+   * best, its muzzle for this warhead), or null where the ship draws no turret for the module.
+   */
+  muzzleOf?: (shipID: number, moduleID: number, warheadIdx: number, targetID: number | null) => THREE.Matrix4 | null;
   /** The direction to the sun (three's space): missile.fx's light. */
   sun: THREE.Vector3;
   aspect: number;
@@ -539,8 +544,9 @@ export class MissileFx {
     if (!doSpread) m.collided = true;
     const toCentre = Math.max(0.5, est(true));
     timeToTarget = timeToTarget > 0 ? (timeToTarget + toCentre) * 0.5 : toCentre * 0.5;
-    // Start: a warhead for each launcher (one each without a turret set), each launched at once (no firing delay)
-    const count = Math.max(m.launchModules, 1);
+    // Start: a warhead for each launcher (one each: the turret sets here fire one muzzle a shot), launched at once (the
+    // turret set's random firing delay and the effect's muzzle delays not yet read)
+    const count = Math.max(m.launchModules.length, 1);
     for (let i = 0; i < count; i++) {
       const object = await warheadObject(m.typeID, 0, d);
       const w = new Warhead(d, i, doSpread, object);
@@ -554,7 +560,7 @@ export class MissileFx {
     m.aliveTime = timeToTarget;
     m.time = 0;
     m.lastValidSpeed = 0;
-    for (const w of m.warheads) w.launch(new THREE.Matrix4());
+    // (each warhead is launched in the first frame it is stepped: _StartWarhead takes the start transform then)
     m.started = true;
     // ExplosionManager.Preload: an explosion for each warhead, made now
     if (info.impact?.root) m.impactPool = m.warheads.map(() => buildImpact(info));
@@ -579,7 +585,11 @@ export class MissileFx {
     const ball = new THREE.Matrix4().compose(m.ballPos, m.ballRot, new THREE.Vector3(1, 1, 1));
     const system = gpuSystemOf(f.scene);
     const now = performance.now() / 1000;
+    const launchNow: Warhead[] = [];
     for (const w of m.warheads) {
+      // a warhead not launched yet is launched at the end of this step (Python's _StartWarhead runs between frames: the
+      // ball's move this frame is not to be countered)
+      if (!w.startDataValid) { launchNow.push(w); continue; }
       const evt = w.updateState(dt, m.aliveTime, target);
       if (w.state !== State.DEAD) {
         const locator = target ? (target.impact?.locatorPosition(w.targetLocator) ?? target.position.clone()) : m.ballPos.clone();
@@ -599,6 +609,16 @@ export class MissileFx {
         this.onExplode?.(m.typeID, info(m), w.explosionPosition.clone(), m.targetID);
       }
       if (w.state === State.EXPLODED || w.state === State.DEAD) w.object.visible = false;
+    }
+    // _StartWarhead / _GetWarheadStartTransform: the launcher's firing bone in the missile ball's space (identity without
+    // a turret set): its place, and its barrel's way (the bone's +z) as the warhead's facing
+    for (const w of launchNow) {
+      const moduleID = m.launchModules[w.id];
+      const bone = m.sourceShipID !== null && moduleID !== undefined ? f.muzzleOf?.(m.sourceShipID, moduleID, 0, m.targetID) ?? null : null;
+      if (!bone) { w.launch(new THREE.Matrix4()); continue; }
+      const at = new THREE.Vector3().setFromMatrixPosition(bone).applyMatrix4(ball.clone().invert());
+      const way = new THREE.Vector3(0, 0, 1).transformDirection(bone).applyQuaternion(inv);
+      w.launch(new THREE.Matrix4().compose(at, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), way), new THREE.Vector3(1, 1, 1)));
     }
   }
 
