@@ -23,6 +23,7 @@ import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
 import { CameraShake } from "./cameraShake.ts";
+import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -653,6 +654,43 @@ export class SpaceView {
       velocityOf: (id) => { const e = byID.get(id); return e ? new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z) : null; },
     });
   }
+  /**
+   * A ship's turrets (turretModel.ts, turretSet.py FitTurrets): its slim item's modules (itemID, typeID, flagID: the
+   * active ship's too - the same list its fitting gives), each a set at its slot; an NPC's hull with none its
+   * gfxTurretID's set, one per locator group (the turret route answers a hull type with its gfxTurretID's graphic).
+   * Fitted again when the slim item's list changes (OnSlimItemChange); a module with no turret graphic is passed by.
+   */
+  private fitTurrets(itemID: number, holder: THREE.Object3D): void {
+    const model = holder.userData.model as THREE.Object3D | undefined;
+    if (!model) return;
+    const park = this.live.park as unknown as { slimItems?: Map<number, Map<string, unknown>> };
+    const slim = park.slimItems?.get(itemID);
+    const raw = slim?.get("modules") as { items?: unknown[] } | unknown[] | undefined;
+    const rows = (Array.isArray(raw) ? raw : raw?.items ?? []) as unknown[];
+    const modules = rows.map((r) => { const t = (Array.isArray(r) ? r : (r as { items?: unknown[] })?.items ?? []) as unknown[]; return { typeID: Number(t[1]), flagID: Number(t[2]) }; })
+      .filter((m) => m.typeID > 0);
+    const signature = modules.map((m) => `${m.typeID}:${m.flagID}`).join(",") || `hull:${Number(slim?.get("typeID") ?? 0)}`;
+    if (holder.userData.turretSignature === signature) return;
+    holder.userData.turretSignature = signature;
+    const data = model.userData as HullTurretData & { faction?: string | null; turretPrimary?: HullTurretData["primary"] };
+    const hull: HullTurretData = { turretLocators: data.turretLocators ?? [], primary: data.turretPrimary ?? null };
+    if (!hull.turretLocators.length) return;
+    void (async () => {
+      let fits: TurretFit[] = modules.map((m) => ({ typeID: m.typeID, slot: slotOfFlag(m.flagID), count: 1 }));
+      if (!fits.length) {
+        // FitTurrets for a ship without modules: its type's gfxTurretID, a set for each locator group
+        const hullType = Number(slim?.get("typeID") ?? 0);
+        const info = hullType ? await turretModelInfo(hullType) : null;
+        const count = info ? turretSetCount(hull, info) : 0;
+        if (count) fits = [{ typeID: hullType, slot: -1, count }];
+      }
+      const group = await buildTurrets(hull, fits, data.faction ?? null);
+      if (holder.userData.turretSignature !== signature) return;
+      const old = model.getObjectByName("turrets");
+      if (old) model.remove(old);
+      if (group) model.add(group);
+    })().catch((e) => console.warn("turrets", e));
+  }
   /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */
   private placeOf(id: number, origin: { x: number; y: number; z: number }): THREE.Vector3 | null {
     const mark = this.marks.get(id);
@@ -838,6 +876,8 @@ export class SpaceView {
       setShipSpeed(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z), e.maxVelocity ?? 0);
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
+      // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
+      if (e.kind === "ship" && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") this.sunLight.position.copy(rel).normalize();
       if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);
@@ -1034,6 +1074,8 @@ export class SpaceView {
         holder.remove(standIn);
         holder.add(model);
         holder.userData.impact = impactOverlayOf(model);
+        holder.userData.model = model;
+        if (e.kind === "ship") this.fitTurrets(e.itemID, holder);
       }).catch(() => { /* no model: the stand-in stays */ });
     }
     return holder;

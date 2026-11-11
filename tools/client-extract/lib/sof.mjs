@@ -175,14 +175,18 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":57)
-    sofBuild: 57,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":58)
+    sofBuild: 58,
     booster,
     pattern,
     areas,
     colorSet,
     boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null })),
     boundingSphere: hull.boundingSphere ?? null,
+    // Its turret locators (EveSOFDataHull.locatorTurrets, EveSOF adds each to the ship as an EveLocator2): name and
+    // transform (row-major 4x4, EVE's model space); EveMobile::RebuildTurretPositions fits a turret set's turrets to
+    // "<locatorName><slot>a", "...b" and on.
+    turretLocators: (hull.locatorTurrets ?? []).filter((l) => l?.name && Array.isArray(l.transform)).map((l) => ({ name: String(l.name), transform: l.transform })),
     // The hull's "anchorpoint" locator (a hangar's: where its ship floats, DefaultHangarShipBehaviour.SetAnchorPoint).
     anchor: (hull.locatorSets ?? []).find((s) => String(s.name).trim() === "anchorpoint")?.locators?.[0]?.position ?? null,
     // Its "maxCameraDistance" locator (a hangar's: hangarView.LoadCamera takes the farthest zoom from its length).

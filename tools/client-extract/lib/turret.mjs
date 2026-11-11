@@ -56,8 +56,18 @@ export function readTurret(rf, graphicFile) {
     findFx(readBlack(rf.read(fxFile), fxFile));
   }
   const override = fx?.firingDurationOverride ?? -1;
+  const effect = set.turretEffect ?? null;
   return {
-    turretBuild: 1,
+    turretBuild: 2,
+    // the drawn turret (EveTurretSet: its model, its effect's name, textures and constant parameters, the locators it
+    // fits to; maxCyclingFirePos: how many muzzles it fires in turn)
+    geometry: set.geometryResPath ? String(set.geometryResPath).toLowerCase() : null,
+    locatorName: String(set.locatorName ?? ""),
+    maxCyclingFirePos: Number(set.maxCyclingFirePos ?? 1),
+    effect: effect?.effectFilePath ? String(effect.effectFilePath).split("/").pop().replace(/\.fx$/i, "").toLowerCase() : null,
+    textures: Object.fromEntries((effect?.resources ?? []).filter((r) => r?.name && r.resourcePath).map((r) => [r.name, String(r.resourcePath).toLowerCase()])),
+    params: Object.fromEntries(((effect?.constParameters?.items ?? [])).filter((r) => Array.isArray(r)).map(([k, v]) => [k, v])),
+    randomizeExplosionRotation: set.randomizeExplosionRotation !== false,
     graphicFile,
     impactSize: Number(set.impactSize ?? 0),
     useRandomFiringDelay: set.useRandomFiringDelay !== false,

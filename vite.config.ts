@@ -136,7 +136,7 @@ function clientAssets(): Plugin {
             }
             if (!/\/turret\//i.test(String(tg?.graphicFile ?? ""))) return res.end(JSON.stringify({ typeID: Number(turretAsk[1]), turret: null }));
             const rel2 = String(tg.graphicFile).toLowerCase().slice("res:/".length).replace(/\.(red|black)$/, "") + ".turret.json";
-            const have = () => fs.existsSync(path.join(buildDir, rel2)) && fs.readFileSync(path.join(buildDir, rel2), "utf8").includes('"turretBuild": 1');
+            const have = () => fs.existsSync(path.join(buildDir, rel2)) && fs.readFileSync(path.join(buildDir, rel2), "utf8").includes('"turretBuild": 2');
             if (!have()) await extractOnce(`turret:${rel2}`, buildDir, ["--turret", tg.graphicFile]);
             return res.end(fs.readFileSync(path.join(buildDir, rel2)));
           } catch (e) {
@@ -193,7 +193,7 @@ function clientAssets(): Plugin {
             const stem = String(g.gr2).slice("res:/".length, -".gr2".length);
             const sofName = `${stem}.${String(g.faction ?? "none").toLowerCase()}.sof.json`;
             // a SOF build from before it carried the sprite, plane, spotlight and haze sets is made again
-            if (fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":57')) {
+            if (fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":58')) {
               await extractOnce(`graphic:${graphicAsk[1]}:sets`, buildDir, ["--graphic", graphicAsk[1]!]);
             }
             const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
@@ -215,7 +215,7 @@ function clientAssets(): Plugin {
             const stem = String(tg.gr2).slice("res:/".length, -".gr2".length);
             const sofName = `${stem}.${String(tg.faction ?? "none").toLowerCase()}.sof.json`;
             // a SOF build from before it carried the sprite and plane sets is made again
-            const sofStale = fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":57');
+            const sofStale = fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":58');
             if (!fs.existsSync(path.join(buildDir, stem + ".glb")) || !fs.existsSync(path.join(buildDir, sofName)) || sofStale) {
               await extractOnce(`type:${typeAsk[1]}`, buildDir, ["--type", typeAsk[1]!]);
             }

@@ -301,8 +301,16 @@ export function extractCelestial(rf, graphicFile, outRoot) {
  * A turret module's graphic read for its shots' impacts (lib/turret.mjs), written as <graphic stem>.turret.json (a
  * graphic that is no turret set: {turret: null}).
  */
-export function extractTurret(rf, graphicFile, outRoot) {
-  const t = readTurret(rf, graphicFile) ?? { turretBuild: 1, graphicFile, turret: null };
+export async function extractTurret(rf, graphicFile, outRoot) {
+  const t = readTurret(rf, graphicFile) ?? { turretBuild: 2, graphicFile, turret: null };
+  // its model extracted as a hull's (once) and its textures copied
+  if (t.geometry) {
+    const stem = t.geometry.slice("res:/".length, -".gr2".length);
+    const glb = path.join(outRoot, ...`${stem}.glb`.split("/"));
+    if (rf.has(t.geometry) && !fs.existsSync(glb)) await extractHull(rf, t.geometry, outRoot).catch((e) => console.warn(`turret model ${t.geometry}: ${e.message}`));
+    t.model = fs.existsSync(glb) ? `/client-assets/${stem}.glb` : null;
+  }
+  for (const [k, res] of Object.entries(t.textures ?? {})) t.textures[k] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
   const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".turret.json";
   const file = path.join(outRoot, ...rel.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -527,7 +535,7 @@ async function main() {
   }
   if (done.length) addToManifest(outRoot, build, client, done);
   for (const c of args.celestials) console.log(`${c} -> ${path.relative(outRoot, extractCelestial(rf, c, outRoot))}`);
-  for (const t of args.turrets) console.log(`${t} -> ${path.relative(outRoot, extractTurret(rf, t, outRoot))}`);
+  for (const t of args.turrets) console.log(`${t} -> ${path.relative(outRoot, await extractTurret(rf, t, outRoot))}`);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);
   const sde = args.sde ?? old.sde ?? null;
   // gfxTurrets.json: an NPC hull's or a sentry's turret module type, by its type (the SDE's gfxTurretID)
