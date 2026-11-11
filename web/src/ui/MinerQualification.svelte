@@ -5,6 +5,7 @@
   import { requirementCounts, skillTargetLabel, type PlanMode } from "../training/factory.ts";
   import type { MinerTrainingRead, RequirementRow, CorporationSavedFitting, StageFittingSelection } from "../training/types.ts";
   import { equipmentState } from "../training/equipment.ts";
+  import { nextLocalID } from "../app/localID.ts";
   let { result, selections, mode, busy, onSelect, onAccept, configurations = [], role = "MINER", onSave = () => {}, onRemove = () => {}, now = Date.now(), onReviewEquipment = () => {}, equipmentSourceReady = false }: {
     now?: number; onReviewEquipment?: (id: string) => void; equipmentSourceReady?: boolean;
     configurations?: readonly TrainingConfiguration[]; role?: string; onSave?: (config: TrainingConfiguration) => void; onRemove?: (id: string) => void;
@@ -27,7 +28,7 @@
       const previous = configurations.find((c) => c.configurationID === editing);
       if (configurations.some((c) => c.configurationID !== editing && c.corporationOwnerID === fit.ownerID && c.fittingID === fit.fittingID)) throw new Error("This qualification contract already exists.");
       if (!previous && configurations.length >= 3) throw new Error("Maximum three configurations per role.");
-      const next = configurationFromFit(role, fit, previous?.order ?? configurations.length, previous?.configurationID || crypto.randomUUID(), policy || null);
+      const next = configurationFromFit(role, fit, previous?.order ?? configurations.length, previous?.configurationID || nextLocalID(), policy || null);
       if (previous && previous.fittingID === fit.fittingID && previous.hullTypeID === fit.shipTypeID && previous.corporationOwnerID === fit.ownerID) {
         next.acceptedSavedDate = previous.acceptedSavedDate; next.acceptedFingerprint = previous.acceptedFingerprint;
       }

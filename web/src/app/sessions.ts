@@ -9,6 +9,7 @@
 
 import { createClientStore, type ClientStore } from "../store/clientStore.ts";
 import { createAppFlow, type AppFlow, type AppFlowOptions } from "./flow.ts";
+import { nextLocalID } from "./localID.ts";
 
 export interface Session {
   /** Stable client-side id for this slot, distinct from the character/account. */
@@ -19,8 +20,7 @@ export interface Session {
 
 /** A unique slot id; the character/account identity lives in the store. */
 function nextSessionId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid ? `session-${uuid}` : `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `session-${nextLocalID()}`;
 }
 
 /**
