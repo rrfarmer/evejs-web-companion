@@ -199,6 +199,9 @@ const perlin = (() => {
   };
 })();
 
+/** Trinity's PerlinNoise1D(x, alpha, beta, n) (EveMissileWarhead::Update's path wobble reads it too). */
+export const perlinNoise1D = perlin;
+
 interface ExprState { node: Node; offset: number; constants: Map<Node, number> }
 const exprStates = new WeakMap<object, ExprState>();
 const scalarKeys = new WeakMap<object, ReturnType<typeof prepareScalar>>();

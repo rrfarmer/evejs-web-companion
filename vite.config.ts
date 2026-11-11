@@ -144,6 +144,21 @@ function clientAssets(): Plugin {
             return res.end(JSON.stringify({ error: (e as Error).message }));
           }
         }
+        // /client-assets/missile/<typeID>: a missile type's graphics (lib/missile.mjs: its group's missile model, the
+        // warhead's numbers, lights, trail emitters and textures; its impact file), extracted on first ask.
+        const missileAsk = /^\/missile\/(\d+)$/.exec(rel);
+        if (missileAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const file = path.join(buildDir, "missiles", `${missileAsk[1]}.json`);
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"missileBuild":1')) await extractOnce(`missile:${missileAsk[1]}`, buildDir, ["--missile", missileAsk[1]!]);
+            res.setHeader("content-type", "application/json");
+            return res.end(fs.readFileSync(file));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const celestialAsk = /^\/celestial\/(\d+)$/.exec(rel);
         if (celestialAsk) {
           try {

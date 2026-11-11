@@ -21,6 +21,7 @@ import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
 import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
+import { MissileFx } from "./missileFx.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -155,6 +156,8 @@ export class SpaceView {
   private readonly warpTunnel = new WarpTunnel();
   /** Weapons fire, from the park's special effects. */
   private readonly turretFx = new TurretFx();
+  /** Missiles in flight (missileFx.ts): their warheads flown to the target's damage locators. */
+  readonly missileFx = new MissileFx();
   /**
    * A shot landing on a ball with an impact overlay: at the damage locator facing the shooter best (the turret's
    * choice, EveTurretSet.cpp:3252-3330, roughly), its way the shooter's place less the locator's, the turret's size and
@@ -285,7 +288,7 @@ export class SpaceView {
     // The system's star lights the grid from where it is (aimed each frame at the sun ball, frame()).
     this.sunLight.position.set(-1, 0.4, 0.6);
     this.scene.add(this.sunLight);
-    this.scene.add(this.warpTunnel.object, this.turretFx.group);
+    this.scene.add(this.warpTunnel.object, this.turretFx.group, this.missileFx.group);
     live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -610,6 +613,41 @@ export class SpaceView {
       setActivationStrength(mark, impact.activationStrength(performance.now() / 1000));
     }
   }
+  /**
+   * The missile balls (kind "missile") to the missiles' drawing: each ball's place and velocity in three's space, its
+   * top speed (the ball's own: the overview's row has none for a missile), its target (the ball's followId) and its slim item's sourceShipID and launchModules (missile.py LoadModel).
+   */
+  private stepMissiles(origin: { x: number; y: number; z: number }, moved: THREE.Vector3, dt: number): void {
+    const park = this.live.park as unknown as { ballpark: { ball(id: number): { followId?: unknown; collisions?: unknown[]; maxVelocity?: unknown } | undefined }; slimItems?: Map<number, Map<string, unknown>> };
+    const balls = [];
+    for (const e of this.snapshot?.entities ?? []) {
+      if (e.kind !== "missile" || !e.typeID) continue;
+      const slim = park.slimItems?.get(e.itemID);
+      const ball = park.ballpark.ball(e.itemID);
+      const follow = Number(ball?.followId ?? 0);
+      const src = Number(slim?.get("sourceShipID") ?? 0);
+      const mods = slim?.get("launchModules");
+      balls.push({
+        itemID: e.itemID, typeID: e.typeID, maxVelocity: Number(ball?.maxVelocity ?? 0) || (e.maxVelocity ?? 0), targetID: follow > 0 ? follow : null, sourceShipID: src > 0 ? src : null,
+        launchModules: Array.isArray(mods) ? mods.length : 1,
+        // the tick's collisions (Ballpark::Potential): a missile only ever meets the ball it is aimed at
+        collided: follow > 0 && (ball?.collisions ?? []).some((c) => Number(c) === follow),
+        position: new THREE.Vector3(e.position.x - origin.x, e.position.y - origin.y, -(e.position.z - origin.z)),
+        velocity: new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z),
+      });
+    }
+    if (!balls.length && !this.missileFx.active) return;
+    const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
+    this.missileFx.update({
+      balls, origin, shift: moved, dt, scene: this.scene, sun: this.sunLight.position, aspect: innerWidth / Math.max(1, innerHeight),
+      target: (id) => {
+        const place = this.placeOf(id, origin);
+        if (!place) return null;
+        return { position: place.clone(), radius: byID.get(id)?.radius ?? this.gone.get(id)?.radius ?? 0, impact: (this.marks.get(id)?.userData.impact as ImpactOverlay | undefined) ?? null };
+      },
+      velocityOf: (id) => { const e = byID.get(id); return e ? new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z) : null; },
+    });
+  }
   /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */
   private placeOf(id: number, origin: { x: number; y: number; z: number }): THREE.Vector3 | null {
     const mark = this.marks.get(id);
@@ -896,6 +934,7 @@ export class SpaceView {
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
     this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null);
+    this.stepMissiles(origin, moved, dt);
     this.stepImpacts(dt);
     this.stepDamageNumbers(now);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
@@ -960,6 +999,8 @@ export class SpaceView {
    */
   private markFor(e: Entity): THREE.Object3D {
     const holder = new THREE.Group();
+    // a missile's ball draws nothing of its own: its warheads are drawn by missileFx
+    if (e.kind === "missile") { holder.userData = { kind: e.kind, radius: e.radius }; return holder; }
     const big = ["station", "planet", "moon", "sun", "stargate", "structure"].includes(e.kind);
     const colour = e.kind === "sun" ? 0xffd27a : e.kind === "planet" || e.kind === "moon" ? 0x5d6f80 : big ? 0x7d8a94 : 0x6f7a82;
     const standIn = new THREE.Mesh(new THREE.SphereGeometry(Math.max(Math.min(e.radius, big ? e.radius : 60), 5), big ? 48 : 12, big ? 32 : 8),

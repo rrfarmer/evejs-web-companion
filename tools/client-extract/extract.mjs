@@ -5,7 +5,7 @@
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
-//        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets]
+//        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--missile <missile typeID> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -36,6 +36,7 @@ import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
 import { readTurret } from "./lib/turret.mjs";
+import { readMissileModel, groupGraphics, graphicIdsOfType, sdeGraphic } from "./lib/missile.mjs";
 import { readBlack } from "./lib/black.mjs";
 import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.mjs";
 import { createRequire } from "node:module";
@@ -247,6 +248,33 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
 }
 
 /**
+ * A missile type's graphics (lib/missile.mjs): its model from the type's group graphic (groupGraphics), its impact from
+ * the type's own graphicFile; the warhead's textures copied, and the scene GPU particle system's atlas and turbulence
+ * volume (the trail's emitters draw into it). Written as missiles/<typeID>.json.
+ */
+export function extractMissile(rf, clientDir, sdeDir, typeID, outRoot) {
+  const names = JSON.parse(fs.readFileSync(path.join(outRoot, "typeNames.json"), "utf8"));
+  const tg = JSON.parse(fs.readFileSync(path.join(outRoot, "typeGraphics.json"), "utf8"))[String(typeID)] ?? null;
+  const groupID = names.types?.[String(typeID)]?.[1] ?? tg?.groupID ?? null;
+  const ids = groupID === null ? null : graphicIdsOfType(groupGraphics(rf, clientDir, outRoot, REPO), typeID, groupID);
+  const missileFile = ids?.length ? sdeGraphic(sdeDir, ids[0])?.graphicFile ?? null : null;
+  const model = missileFile ? readMissileModel(rf, missileFile) : null;
+  const copy = (res) => (res && rf.has(res) ? copyRes(rf, res, outRoot) : null);
+  for (const w of model?.warheads ?? []) {
+    for (const k of Object.keys(w.spriteTextures)) w.spriteTextures[k] = copy(w.spriteTextures[k]);
+    if (w.mesh) for (const k of Object.keys(w.mesh.textures)) w.mesh.textures[k] = copy(w.mesh.textures[k]);
+  }
+  const out = {
+    missileBuild: 1, typeID, groupID, graphicID: ids?.[0] ?? null, missileFile, impactFile: tg?.graphicFile ?? null, model,
+    gpuParticles: { atlas: copy("res:/fisfx/gpuparticles/systematlas.dds"), noise: copy("res:/texture/global/noise32cube_volume.dds") },
+  };
+  const file = path.join(outRoot, "missiles", `${typeID}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(out));
+  return file;
+}
+
+/**
  * A planet, moon or sun's object file read for its textures and shader parameters (lib/celestial.mjs), the
  * textures copied, written as <graphic file>.celestial.json.
  */
@@ -367,7 +395,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -382,6 +410,7 @@ function parseArgs(argv) {
     else if (a === "--celestial") out.celestials.push(argv[++i]);
     else if (a === "--turret") out.turrets.push(argv[++i]);
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
+    else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
     else throw new Error(`unknown argument ${a}`);
   }
@@ -500,6 +529,10 @@ async function main() {
     fs.writeFileSync(path.join(outRoot, "gfxTurrets.json"), JSON.stringify(map));
     console.log(`gfxTurrets.json: ${Object.keys(map).length} types`);
   }
+  for (const typeID of args.missiles) {
+    if (!sde) throw new Error("--missile needs the SDE (--sde, or a config.json that names it)");
+    console.log(`missile ${typeID} -> ${path.relative(outRoot, extractMissile(rf, client, sde, typeID, outRoot))}`);
+  }
   for (const systemID of args.systemCelestials) {
     if (!sde) throw new Error("--system-celestials needs the SDE (--sde, or a config.json that names it)");
     const file = await extractSystemCelestials(rf, sde, systemID, outRoot);
@@ -509,7 +542,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.gfxTurrets && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

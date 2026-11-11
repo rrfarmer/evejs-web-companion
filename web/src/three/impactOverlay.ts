@@ -566,6 +566,73 @@ export class ImpactOverlay {
   }
 
   /**
+   * EveSpaceObject2::GetGoodLocatorIndex for the damage set (EveSpaceObject2.cpp:2716-2783; a missile warhead's choice of
+   * where to go, EveMissileWarhead::UpdateState): of the locators facing the point (IsLocatorFacingPosition: the point
+   * moved by the locator's way is nearer the object's origin), the one whose distance fit times direction fit is nearest
+   * a random wanted fit (rand x (0.25 - (1 - best direction fit)) + 0.75); none facing: the nearest facing
+   * (GetClosestLocatorIndex), else -1. The point in the world.
+   */
+  goodLocatorIndex(worldPoint: THREE.Vector3): number {
+    const locs = this.sof.damageLocators;
+    if (!locs.length) return 0;
+    this.anchor.updateWorldMatrix(true, false);
+    const pos = this.anchor.worldToLocal(worldPoint.clone());
+    const posLen = pos.lengthSq();
+    const facing: { i: number; v: THREE.Vector3; dir: THREE.Vector3 }[] = [];
+    locs.forEach((l, i) => {
+      const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(l[3]!, l[4]!, l[5]!, l[6]!));
+      if (pos.clone().sub(dir).lengthSq() < posLen) facing.push({ i, v: new THREE.Vector3(l[0]!, l[1]!, l[2]!).sub(pos), dir });
+    });
+    const directionFit = (a: THREE.Vector3, b: THREE.Vector3) => { const d = -a.dot(b); return d < 0 ? (1 - Math.sqrt(Math.abs(d))) * 0.5 : (Math.sqrt(Math.abs(d)) + 1) * 0.5; };
+    let minDistance = Number.MAX_VALUE, maxDistance = 1.17549435e-38, bestDirectionFit = 0;
+    for (const f of facing) {
+      const length = f.v.length();
+      minDistance = Math.min(minDistance, length); maxDistance = Math.max(maxDistance, length);
+      bestDirectionFit = Math.max(bestDirectionFit, directionFit(f.dir, f.v.clone().normalize()));
+    }
+    const desiredFit = Math.random() * (0.25 - (1 - bestDirectionFit)) + 0.75;
+    let bestFit = 1, best = -1;
+    for (const f of facing) {
+      // GetDistanceFit
+      let val = 2 * (1 - (f.v.length() - minDistance) / (maxDistance - minDistance)) - 1;
+      val = (val < 0 ? 1 - Math.sqrt(Math.abs(val)) : Math.sqrt(Math.abs(val)) + 1) * 0.5;
+      const fit = val * directionFit(f.dir, f.v.clone().normalize());
+      if (Math.abs(fit - desiredFit) < bestFit) { bestFit = Math.abs(fit - desiredFit); best = f.i; }
+    }
+    if (best < 0) {
+      let closest = Number.MAX_VALUE;
+      for (const f of facing) if (f.v.lengthSq() < closest) { closest = f.v.lengthSq(); best = f.i; }
+    }
+    return best;
+  }
+
+  /**
+   * EveSpaceObject2::GetImpactPosition (:2930-2960): in shield, where the move from prev to now (the world) crosses the
+   * shape ellipsoid (within one move either way), or now where it is inside it; else the locator's place where now is
+   * within epsilon (a squared distance) of it. Null where there is no impact yet.
+   */
+  impactPosition(locator: number, prev: THREE.Vector3, now: THREE.Vector3, epsilon: number): THREE.Vector3 | null {
+    this.anchor.updateWorldMatrix(true, false);
+    if (this.configuration === "shield") {
+      const c = this.sof.ellipsoid.center, r = this.sof.ellipsoid.radius;
+      if (!c || !r) return null;
+      const center = new THREE.Vector3(c[0]!, c[1]!, c[2]!), radii = new THREE.Vector3(r[0]!, r[1]!, r[2]!);
+      const p0 = this.anchor.worldToLocal(prev.clone()), p1 = this.anchor.worldToLocal(now.clone());
+      const dir = p1.clone().sub(p0);
+      if (dir.lengthSq() > 0) {
+        const hit = intersectEllipsoidRay(center, radii, p0, dir);
+        if (hit) {
+          const t = dir.dot(hit.clone().sub(p0)) / dir.lengthSq();
+          if (t <= 1 && t >= -1) return hit.applyMatrix4(this.anchor.matrixWorld);
+        }
+      }
+      return p1.sub(center).divide(radii).lengthSq() <= 1 ? now.clone() : null;
+    }
+    const at = this.locatorPosition(locator) ?? new THREE.Vector3().setFromMatrixPosition(this.anchor.matrixWorld);
+    return now.distanceToSquared(at) < epsilon ? at : null;
+  }
+
+  /**
    * EveImpactOverlay::CreateImpact (:558-579): in shield a ripple (CreateShieldImpact, a hull with a shield mesh); in
    * armor or hull EveDamageOverlay::CreateImpact (:511-533) - the hole at the locator grown to the size and sprayed
    * again, or a new one. direction: toward the shooter, in the world; lifeTime in seconds. Its index, -1 for none.
