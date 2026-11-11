@@ -77,6 +77,7 @@
   import type { SkillPlanValidationFacts } from "../bridge/skillPlanValidation.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { nextLocalID } from "../app/localID.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { romanLevel } from "../bridge/skills.ts";
@@ -322,7 +323,7 @@
   let milestones = $state<EditorMilestones>({ toAdd: [], toDelete: [] });
   let persisted = $state<readonly Milestone[]>([]);
   let typeFacts = $state<{ required: Record<number, readonly (readonly [number, number])[]>; categoryID: Map<number, number | null> }>({ required: {}, categoryID: new Map() });
-  const newMilestoneID = (): string => crypto.randomUUID();
+  const newMilestoneID = nextLocalID;
 
   async function readTypeFacts(typeIDs: readonly number[]): Promise<boolean> {
     const missing = [...new Set(typeIDs)].filter((typeID) => !typeFacts.categoryID.has(typeID));
