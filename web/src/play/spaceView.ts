@@ -22,6 +22,7 @@ import { WarpTunnel } from "./warpTunnel.ts";
 import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
+import { CameraShake } from "./cameraShake.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -158,6 +159,8 @@ export class SpaceView {
   private readonly turretFx = new TurretFx();
   /** Missiles in flight (missileFx.ts): their warheads flown to the target's damage locators. */
   readonly missileFx = new MissileFx();
+  /** The camera's shake (cameraShake.ts): explosions shake it. */
+  private readonly shake = new CameraShake();
   /**
    * A shot landing on a ball with an impact overlay: at the damage locator facing the shooter best (the turret's
    * choice, EveTurretSet.cpp:3252-3330, roughly), its way the shooter's place less the locator's, the turret's size and
@@ -636,10 +639,12 @@ export class SpaceView {
         velocity: new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z),
       });
     }
+    this.missileFx.onShake = (magnitude, at) => { this.shake.shake(magnitude, at, this.camera.getWorldPosition(new THREE.Vector3())); };
     if (!balls.length && !this.missileFx.active) return;
     const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
     this.missileFx.update({
       balls, origin, shift: moved, dt, scene: this.scene, sun: this.sunLight.position, aspect: innerWidth / Math.max(1, innerHeight),
+      camera: this.camera, width: this.renderer.domElement.width,
       target: (id) => {
         const place = this.placeOf(id, origin);
         if (!place) return null;
@@ -947,6 +952,9 @@ export class SpaceView {
     }
     this.updateTargetBar();
     this.controls.update();
+    // the shake: the point looked at moved across the view for this frame (the controls look at their target again next)
+    const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);
+    if (shaken) this.camera.lookAt(this.controls.target.clone().add(shaken));
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0 });
     this.bloom.render();
   }

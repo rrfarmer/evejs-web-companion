@@ -10,9 +10,11 @@
 // warhead (ExplosionManager.Preload) and started where the warhead exploded, turned at random (no turret set to say
 // otherwise), for the file's duration (ExplosionManager: -1 is ten seconds).
 //
+// An explosion under four pixels across (its file's bounding sphere, MissileGraphics._SpawnExplosion) is not made; one
+// that is shakes the camera by its radius between 50 and 250 (PlaceMissileImpact, onShake).
+//
 // Not yet: the launcher turrets' firing bones and delays (a warhead starts at the ball, as the client's does where the
-// source ship has no turret set for the module), the explosion's pixel-size cull, the camera shake and the target's
-// torque.
+// source ship has no turret set for the module) and the target's torque.
 
 import * as THREE from "three";
 import { GpuEmitter, gpuSystemOf, setGpuParticleAssets, type GpuEmitterData } from "../three/gpuParticles.ts";
@@ -264,6 +266,9 @@ export interface MissileFrame {
   /** The direction to the sun (three's space): missile.fx's light. */
   sun: THREE.Vector3;
   aspect: number;
+  /** The view's camera and its drawing width in pixels (the explosion's pixel-size cull). */
+  camera: THREE.PerspectiveCamera;
+  width: number;
 }
 
 const textures = new Map<string, Promise<THREE.Texture | null>>();
@@ -406,6 +411,10 @@ export class MissileFx {
   exploded = 0;
   /** The explosions playing: their object, where (three's space, moved with the world) and when they end. */
   private readonly explosions: { object: THREE.Object3D; until: number }[] = [];
+  /** PlaceMissileImpact's camera shake: its magnitude and the place (three's space). */
+  onShake: ((magnitude: number, at: THREE.Vector3) => void) | null = null;
+  private camera: THREE.PerspectiveCamera | null = null;
+  private width = 1;
   /** Each explosion: the missile's type and impact file, where (three's space) - the impact effect's hook. */
   onExplode: ((typeID: number, impactFile: string | null, at: THREE.Vector3, targetID: number | null) => void) | null = null;
 
@@ -421,6 +430,8 @@ export class MissileFx {
     while (this.shifts.length && performance.now() - this.shifts[0]!.at > 5000) this.shifts.shift();
     sunDir.value.copy(f.sun).normalize();
     aspect.value = f.aspect;
+    this.camera = f.camera;
+    this.width = f.width;
     const seen = new Set<number>();
     for (const b of f.balls) {
       seen.add(b.itemID);
@@ -470,6 +481,16 @@ export class MissileFx {
   private explode(m: Missile, at: THREE.Vector3): void {
     const info = m.info;
     if (!info?.impact) return;
+    // GetPixelSizeAcrossEst(position, radius, eye, projection) = radius / distance x P[0][0] x the viewport's width; an
+    // explosion no more than four pixels across is not made (its copy made beforehand is let go)
+    const radius = info.impact.boundingSphereRadius;
+    if (this.camera) {
+      const eye = this.camera.getWorldPosition(new THREE.Vector3());
+      const pixels = (radius / Math.max(at.distanceTo(eye), 1e-5)) * this.camera.projectionMatrix.elements[0]! * this.width;
+      if (!(pixels > 4)) { m.impactPool.shift(); return; }
+    }
+    // PlaceMissileImpact: the camera shaken by the explosion's size, between 50 and 250
+    this.onShake?.(Math.max(50, Math.min(radius, 250)), at.clone());
     const made = m.impactPool.shift() ?? buildImpact(info);
     const bornAt = performance.now();
     void made.then((object) => {
