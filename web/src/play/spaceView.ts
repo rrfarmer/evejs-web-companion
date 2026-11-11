@@ -23,7 +23,7 @@ import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
 import { CameraShake } from "./cameraShake.ts";
-import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit } from "../three/turretModel.ts";
+import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -667,7 +667,7 @@ export class SpaceView {
     const slim = park.slimItems?.get(itemID);
     const raw = slim?.get("modules") as { items?: unknown[] } | unknown[] | undefined;
     const rows = (Array.isArray(raw) ? raw : raw?.items ?? []) as unknown[];
-    const modules = rows.map((r) => { const t = (Array.isArray(r) ? r : (r as { items?: unknown[] })?.items ?? []) as unknown[]; return { typeID: Number(t[1]), flagID: Number(t[2]) }; })
+    const modules = rows.map((r) => { const t = (Array.isArray(r) ? r : (r as { items?: unknown[] })?.items ?? []) as unknown[]; return { moduleID: Number(t[0]), typeID: Number(t[1]), flagID: Number(t[2]) }; })
       .filter((m) => m.typeID > 0);
     const signature = modules.map((m) => `${m.typeID}:${m.flagID}`).join(",") || `hull:${Number(slim?.get("typeID") ?? 0)}`;
     if (holder.userData.turretSignature === signature) return;
@@ -676,7 +676,7 @@ export class SpaceView {
     const hull: HullTurretData = { turretLocators: data.turretLocators ?? [], primary: data.turretPrimary ?? null };
     if (!hull.turretLocators.length) return;
     void (async () => {
-      let fits: TurretFit[] = modules.map((m) => ({ typeID: m.typeID, slot: slotOfFlag(m.flagID), count: 1 }));
+      let fits: TurretFit[] = modules.map((m) => ({ typeID: m.typeID, slot: slotOfFlag(m.flagID), count: 1, moduleID: m.moduleID }));
       if (!fits.length) {
         // FitTurrets for a ship without modules: its type's gfxTurretID, a set for each locator group
         const hullType = Number(slim?.get("typeID") ?? 0);
@@ -690,6 +690,21 @@ export class SpaceView {
       if (old) model.remove(old);
       if (group) model.add(group);
     })().catch((e) => console.warn("turrets", e));
+  }
+  /**
+   * The turrets' aiming: each rig toward the target its module is working on (OnSpecialFX under way, turretFx.aimTarget;
+   * an NPC's - its rigs have no module - any of its ship's), the tracking influence fading in and out over a second.
+   */
+  private stepTurrets(origin: { x: number; y: number; z: number }, dt: number): void {
+    for (const [shipID, mark] of this.marks) {
+      const group = (mark.userData.model as THREE.Object3D | undefined)?.getObjectByName("turrets");
+      const rigs = group?.userData.rigs as TurretRig[] | undefined;
+      if (!rigs?.length) continue;
+      for (const rig of rigs) {
+        const target = this.turretFx.aimTarget(shipID, rig.moduleID);
+        rig.update(target !== null ? this.placeOf(target, origin) : null, dt);
+      }
+    }
   }
   /** Where a thing is drawn now, or was a moment ago before it went (blown up, out of the park). */
   private placeOf(id: number, origin: { x: number; y: number; z: number }): THREE.Vector3 | null {
@@ -980,6 +995,7 @@ export class SpaceView {
     this.turretFx.onShot = this.onShot;
     this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null);
     this.stepMissiles(origin, moved, dt);
+    this.stepTurrets(origin, dt);
     this.stepImpacts(dt);
     this.stepDamageNumbers(now);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session

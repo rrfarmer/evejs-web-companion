@@ -302,13 +302,31 @@ export function extractCelestial(rf, graphicFile, outRoot) {
  * graphic that is no turret set: {turret: null}).
  */
 export async function extractTurret(rf, graphicFile, outRoot) {
-  const t = readTurret(rf, graphicFile) ?? { turretBuild: 2, graphicFile, turret: null };
+  const t = readTurret(rf, graphicFile) ?? { turretBuild: 3, graphicFile, turret: null };
   // its model extracted as a hull's (once) and its textures copied
   if (t.geometry) {
     const stem = t.geometry.slice("res:/".length, -".gr2".length);
     const glb = path.join(outRoot, ...`${stem}.glb`.split("/"));
     if (rf.has(t.geometry) && !fs.existsSync(glb)) await extractHull(rf, t.geometry, outRoot).catch((e) => console.warn(`turret model ${t.geometry}: ${e.message}`));
     t.model = fs.existsSync(glb) ? `/client-assets/${stem}.glb` : null;
+    // its skeleton (the aiming's system bones, the firing bones): each bone's name, parent, local transform and
+    // inverse bind (EVE's space, row-major), and the first LOD's vertices' bones (a turret's vertices are bound rigidly:
+    // BoneIndices with no weights, the first index into the mesh's bone bindings)
+    if (rf.has(t.geometry)) {
+      const g = await readGranny(rf.read(t.geometry), t.geometry);
+      const bones = g.root.Skeletons?.[0]?.Bones ?? [];
+      const byName = new Map(bones.map((b, i) => [b.Name, i]));
+      const mesh = g.root.Meshes?.[0];
+      const col = mesh?.PrimaryVertexData?.Vertices?.columns?.BoneIndices ?? null;
+      const binding = (mesh?.BoneBindings ?? []).map((b) => byName.get(b.BoneName) ?? 0);
+      t.skeleton = {
+        bones: bones.map((b) => ({
+          name: b.Name, parent: b.ParentIndex, position: b.Transform?.position ?? [0, 0, 0], orientation: b.Transform?.orientation ?? [0, 0, 0, 1],
+          scaleShear: b.Transform?.scaleShear ?? [1, 0, 0, 0, 1, 0, 0, 0, 1], inverseWorld: b.InverseWorldTransform ?? null,
+        })),
+        vertexBones: col ? Array.from({ length: mesh.PrimaryVertexData.Vertices.count }, (_, i) => binding[col.data[i * col.width]] ?? 0) : null,
+      };
+    }
   }
   for (const [k, res] of Object.entries(t.textures ?? {})) t.textures[k] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
   const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".turret.json";

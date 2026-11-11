@@ -58,7 +58,16 @@ export function readTurret(rf, graphicFile) {
   const override = fx?.firingDurationOverride ?? -1;
   const effect = set.turretEffect ?? null;
   return {
-    turretBuild: 2,
+    turretBuild: 3,
+    // the aiming (EveTurretAiming: the file's sysBone numbers, its class defaults where it has none)
+    aiming: {
+      height: Number(set.sysBoneHeight ?? 1), pitchFactor: Number(set.sysBonePitchFactor ?? 1), pitchOffset: Number(set.sysBonePitchOffset ?? 0),
+      pitchMin: Number(set.sysBonePitchMin ?? 0), pitchMax: Number(set.sysBonePitchMax ?? 90),
+      pitch01Factor: Number(set.sysBonePitch01Factor ?? 1), pitch01Offset: Number(set.sysBonePitch01Offset ?? 0),
+      pitch02Factor: Number(set.sysBonePitch02Factor ?? 1), pitch02Offset: Number(set.sysBonePitch02Offset ?? 0),
+      pitch03Factor: Number(set.sysBonePitch03Factor ?? 1), pitch03Offset: Number(set.sysBonePitch03Offset ?? 0),
+      updatePitchPose: set.updatePitchPose === true,
+    },
     // the drawn turret (EveTurretSet: its model, its effect's name, textures and constant parameters, the locators it
     // fits to; maxCyclingFirePos: how many muzzles it fires in turn)
     geometry: set.geometryResPath ? String(set.geometryResPath).toLowerCase() : null,

@@ -109,8 +109,31 @@ export class TurretFx {
     while (best.misses.length > 4) best.misses.shift();
   }
 
+  /**
+   * Every module effect under way (any OnSpecialFX: guns, launchers, the rest), by shooter and module: its target and
+   * when it ends (a cycle times its repeats; a minute where open). The turrets aim at it (turretModel.ts).
+   */
+  private readonly aims = new Map<string, { shooter: number; moduleID: number; target: number; until: number }>();
+  /** The target a ship's module is working on now (moduleID null: any of the ship's), or null. */
+  aimTarget(shooter: number, moduleID: number | null, now = performance.now()): number | null {
+    for (const a of this.aims.values()) {
+      if (a.shooter !== shooter || (moduleID !== null && a.moduleID !== moduleID)) continue;
+      if (now > a.until) continue;
+      if (a.target > 0) return a.target;
+    }
+    return null;
+  }
+
   /** A park entry: OnSpecialFX (a firing begun or stopped) or TerminalPlayDestructionEffect (a ball blown up). */
   hear(name: string, args: readonly unknown[]): void {
+    if (name === "OnSpecialFX") {
+      const key = `${Number(args[0])}:${Number(args[1])}`;
+      if (Number(args[7]) === 1) {
+        const duration = Number(args[9]), repeat = Number(args[10]);
+        const until = performance.now() + (duration > 0 ? duration * Math.max(1, Number.isFinite(repeat) && repeat > 0 ? Math.min(repeat, 1000) : 1) : 60_000);
+        this.aims.set(key, { shooter: Number(args[0]), moduleID: Number(args[1]), target: Number(args[3]), until });
+      } else this.aims.delete(key);
+    }
     if (name === "TerminalPlayDestructionEffect") {
       // the ball goes with an explosion where it was last drawn
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flash(), color: 0xffb060, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
