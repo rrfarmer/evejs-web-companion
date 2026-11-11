@@ -81,6 +81,26 @@ test("plain ore Start preserves its existing capability policy", async () => {
   } finally { f.flow.stopCustomBot(); }
 });
 
+test("custom mining and support bots start on HTTP pages without crypto.randomUUID", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto")!;
+  // A LAN HTTP browser still exposes getRandomValues, but not randomUUID.
+  Object.defineProperty(globalThis, "crypto", { configurable: true,
+    value: { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) } });
+  try {
+    for (const support of [false, true]) {
+      const f = fixture("none", support ? "operation" : undefined);
+      await f.flow.selectCharacter(42);
+      try {
+        const work: MacroStep = support
+          ? { id: "support", kind: "macro", macro: "mining-support", args: {} }
+          : mine("ore", "site");
+        await f.flow.startCustomBot(script([wait, work]));
+        assert.equal(f.store.customBot.get().status, "running");
+      } finally { f.flow.stopCustomBot(); }
+    }
+  } finally { Object.defineProperty(globalThis, "crypto", descriptor); }
+});
+
 test("an operation still refuses missing ore capability before its program undocks", async () => {
   const f = fixture("gas", "operation"); await f.flow.selectCharacter(42);
   try {

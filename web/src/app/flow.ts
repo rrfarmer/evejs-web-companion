@@ -505,6 +505,7 @@ import { nameKey, type NameRef } from "../store/names.ts";
 
 import type { BotLogDraft, BotLogSink } from "../nav/botLog.ts";
 import { createBotLogWriter } from "./botLogWriter.ts";
+import { nextLocalID } from "./localID.ts";
 import {
   routeAlong,
   type SystemGraph,
@@ -24624,7 +24625,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   let supportPositionTickBusy = false;
   let supportWorkScriptGeneration: number | null = null;
   function freshSupportScript() {
-    return { epoch: crypto.randomUUID(), position: freshSupportPositionMemory(), feedback: null as SupportPositionFeedback | null,
+    return { epoch: nextLocalID(), position: freshSupportPositionMemory(), feedback: null as SupportPositionFeedback | null,
       self: freshSupportSelfMiningMemory(), selfFeedback: null as SupportSelfMiningFeedback | null,
       tractor: freshSupportTractorMemory(), tractorFeedback: null as SupportTractorFeedback | null,
       collection: freshSupportCollectionMemory(), emptiedContainerID: undefined as number | undefined,
@@ -25503,7 +25504,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const unavailableMiningTargets = new Map<string, number>();
     const miningSiteBookmarks: Record<string, number> = {};
     const siteBookmarkScope = `${options.miningOperationID}:${Date.now()}`;
-    let fleetMinerEpoch = crypto.randomUUID();
+    let fleetMinerEpoch = nextLocalID();
     const capabilityCache = createCapabilityCache(
       {
         value: initialCapabilities,
@@ -25531,7 +25532,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     invalidateScriptRecoveryCaches = () => {
       capabilityCache.invalidate(); bayCache = null; droneStackSizesSeen = new Map();
       beltMemoryCache = null; foundAgentCache = null; agentSearchFailureCache = null;
-      fleetMinerEpoch = crypto.randomUUID();
+      fleetMinerEpoch = nextLocalID();
     };
     async function activeShipBays(): Promise<readonly ShipBay[]> {
       const shipID = capabilityCache.peek().shipID;

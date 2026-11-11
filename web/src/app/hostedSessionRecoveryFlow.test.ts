@@ -13,12 +13,12 @@ import { freshSupportSelfMiningMemory } from "../nav/miningSupportSelfMining.ts"
 
 const doc: BotScript = { format: "evejs-bot-script", version: 1, name: "Patient run", notes: "", home: { entity: "station", id: 60000358, name: "Home", systemName: null },
   interrupts: [], program: [{ id: "wait", kind: "macro", macro: "wait", args: { seconds: { kind: "count", value: 500 } } }] };
-function fixture(inSpace = false) {
+function fixture(inSpace = false, withSupport = false) {
   let badFleet = false, refit = false;
   const paths: string[] = [];
   const keyVal = (entries: unknown[][]) => ({ type: "object", args: { type: "dict", entries } });
   const store = createClientStore();
-  const flow = createAppFlow(store, { livePush: false, fetch: async (input, init) => {
+  const flow = createAppFlow(store, { livePush: false, ...(withSupport ? { miningOperationID: "recovery-operation" } : {}), fetch: async (input, init) => {
     const path = String(input).replace(/\?view=menu$/, ""); paths.push(path);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     let result: unknown = { ok: true };
@@ -32,6 +32,9 @@ function fixture(inSpace = false) {
     if (path === "/api/names") result = namesBody(body);
     if (path === "/api/bridge/bound-fleet") result = badFleet ? { ok: true, characterID: 42, reads: {} }
       : { ok: true, characterID: 42, reads: { GetInitState: { result: keyVal([["fleetID", 700], ["members", { type: "dict", entries: [[42, keyVal([["charID", 42]])]] }]]) } } };
+    if (withSupport && path === "/api/mining-operations/assignment/current") result = { ok: true,
+      assignment: { operationID: "recovery-operation", role: "COMMAND", stopRequested: false,
+        currentTarget: { targetKey: "belt", state: "ACTIVE", claimedByOperationID: "recovery-operation" } } };
     return new Response(JSON.stringify(result));
   } });
   return { store, flow, paths, failFleet: () => { badFleet = true; }, refit: () => { refit = true; } };
@@ -45,6 +48,38 @@ test("hosted reselection enables the existing drone gate and resumes the same pa
   assert.ok(f.paths.includes("/api/bridge/drone-recovery/ready"));
   f.flow.resumeHostedSession(); assert.equal(f.store.customBot.get().status, "running"); f.flow.stopCustomBot();
 });
+
+for (const withSupport of [false, true]) {
+  for (const missing of ["randomUUID", "crypto"] as const) {
+    test(`${withSupport ? "support" : "script"} recovery resets run epochs without ${missing}`, async t => {
+      const f = fixture(false, withSupport);
+      t.after(() => f.flow.stopCustomBot());
+      await f.flow.selectCharacter(42);
+      const program: BotScript = withSupport ? { ...doc, program: [...doc.program,
+        { id: "support", kind: "macro", macro: "mining-support", args: {} }] } : doc;
+      await f.flow.startCustomBot(program);
+      const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto")!;
+      const crypto = missing === "crypto" ? undefined
+        : { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) };
+      Object.defineProperty(globalThis, "crypto", { configurable: true, value: crypto });
+      t.after(() => Object.defineProperty(globalThis, "crypto", descriptor));
+      // Both recovery branches create new identities: support work is rebased,
+      // then the script's cached fleet membership epoch is invalidated.
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await f.flow.suspendHostedSession();
+        assert.equal(f.store.customBot.get().status, "paused");
+        assert.throws(() => f.flow.resumeHostedSession(), /not been verified/);
+        await f.flow.selectCharacter(42);
+        await f.flow.verifyHostedSessionRecovery(SHIP_ID);
+        f.flow.resumeHostedSession();
+        assert.equal(f.store.customBot.get().status, "running");
+        assert.equal(f.store.customBot.get().name, doc.name);
+      }
+      assert.ok(f.paths.includes("/api/bridge/drone-recovery/ready"));
+      if (withSupport) assert.ok(f.paths.includes("/api/mining-operations/assignment/current"));
+    });
+  }
+}
 
 test("ordinary fleet read errors and a changed fit cannot validate hosted recovery", async () => {
   for (const failure of ["fleet", "fit"] as const) {
