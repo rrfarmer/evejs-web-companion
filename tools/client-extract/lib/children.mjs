@@ -35,6 +35,7 @@
 //   in place of its own (EveChildTransform::Setup, where useSRT; EveTransform's SetTranslation and the rest).
 
 import { readBlack } from "./black.mjs";
+import { COLOR_TYPES, colorOf } from "./sof.mjs";
 
 const HIGH_QUALITY = new Set([3, 4, 5]);
 // motionvectorramp.fx is drawn in the permutations the client's child meshes use (its file's permutations:
@@ -336,6 +337,8 @@ function readController(c, skipped, owner) {
   return { name: c.name ?? null, variables: (c.variables ?? []).filter((v) => v?.name).map((v) => ({ name: v.name, value: v.defaultValue ?? 0, id: idOf(v) })), machines, ...(eventHandlers.length ? { eventHandlers } : {}) };
 }
 let readRf = null;
+// the faction the hull is built for (its colour set: Tr2FactionLight)
+let readFaction = null;
 
 // The objects whose display a curve set drives (in the file being read): one hidden in the file (display false) is
 // read all the same, marked display false, for the set to show (on load, or when a controller plays it).
@@ -514,12 +517,12 @@ function readShown(o, skipped) {
   if (o.type === "EveChildContainer") {
     if (!HIGH_QUALITY.has(o.displayFilter ?? 5)) return null;
     const objects = (o.objects ?? []).map((c) => readNode(c, skipped)).filter(Boolean);
-    // its point lights (Tr2PointLight: in the container's space); spot lights counted
+    // its lights (in the container's space): point, spot and faction lights (readLight)
     const lights = [];
     for (const l of o.lights ?? []) {
-      if (l?.type === "Tr2PointLight") {
-        lights.push({ position: l.position ?? [0, 0, 0], radius: l.radius ?? 1, innerRadius: l.innerRadius ?? 0, color: l.color ?? [1, 1, 1, 1], brightness: l.brightness ?? 1 });
-      } else skipped[l?.type ?? "?"] = (skipped[l?.type ?? "?"] ?? 0) + 1;
+      const light = readLight(l);
+      if (light) lights.push(light);
+      else skipped[l?.type ?? "?"] = (skipped[l?.type ?? "?"] ?? 0) + 1;
     }
     const curveSets = (o.curveSets ?? []).filter((cs) => cs?.type === "TriCurveSet").map(readCurveSet);
     const controllers = (o.controllers ?? []).filter((c) => c?.type === "Tr2Controller").map((c) => readController(c, skipped, o));
@@ -538,6 +541,31 @@ function readShown(o, skipped) {
   }
   skipped[o.type ?? "?"] = (skipped[o.type ?? "?"] ?? 0) + 1;
   return null;
+}
+
+/**
+ * A child's light (Lights/Tr2Light.cpp, its defaults the constructor's: colour (0, 0, 0, 1), brightness 1, radius 0):
+ * a Tr2PointLight, a Tr2SpotLight (rotation, innerAngle and outerAngle in degrees) or a Tr2FactionLight - a point or
+ * (isSpotlight) spot light whose colour is the faction's colour set at factionColor (SOFDataFactionColorChooser's
+ * order: COLOR_TYPES), Saturate'd by saturation (toward its intensity 0.299 r + 0.587 g + 0.114 b). Its innerRadius is
+ * the source radius. Null for another type.
+ */
+function readLight(l) {
+  if (!l || !["Tr2PointLight", "Tr2SpotLight", "Tr2FactionLight"].includes(l.type)) return null;
+  let color = l.color ?? [0, 0, 0, 1];
+  if (l.type === "Tr2FactionLight") {
+    const name = COLOR_TYPES[l.factionColor ?? -1];
+    if (name && readFaction) {
+      const c = colorOf(readFaction.colorSet ?? null, name), s = l.saturation ?? 1;
+      const i = c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+      color = s === 1 ? c : [0, 1, 2].map((k) => i + (c[k] - i) * Math.max(0, s)).concat([c[3] ?? 1]);
+    }
+  }
+  const spot = l.type === "Tr2SpotLight" || (l.type === "Tr2FactionLight" && l.isSpotlight === true);
+  return {
+    position: l.position ?? [0, 0, 0], radius: l.radius ?? 0, innerRadius: l.innerRadius ?? 0, color, brightness: l.brightness ?? 1,
+    ...(spot ? { rotation: l.rotation ?? [0, 0, 0, 1], innerAngle: l.innerAngle ?? 0, outerAngle: l.outerAngle ?? 0 } : {}),
+  };
 }
 
 /**
@@ -680,6 +708,7 @@ export function hullChildEntries(sofHull, faction) {
  */
 export function readHullChildren(rf, sofHull, faction = null) {
   const out = [];
+  readFaction = faction;
   ids = new WeakMap();
   nextId = 1;
   effectRoots = new Map();

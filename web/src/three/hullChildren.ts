@@ -16,6 +16,7 @@ import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childAnimation.ts";
 import { addOverlay, removeOverlay, type SofOverlay } from "./hullOverlay.ts";
 import { PropagatorRun, type PropagatorData } from "./propagator.ts";
+import { offerLights, type ChildLight } from "./dynamicLights.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
@@ -43,8 +44,8 @@ export interface SofChildContainer {
   modifiers: string[];
   srt?: SofChildSrt | null;
   objects: SofChildNode[];
-  /** Its point lights (Tr2PointLight), in its own space. */
-  lights?: { position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number }[];
+  /** Its lights (Tr2PointLight, Tr2SpotLight, Tr2FactionLight: children.mjs readLight), in its own space. */
+  lights?: { position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number }[];
   /** Its controllers (controllers.ts), run with it as their owner. */
   controllers?: SofController[];
   /** Its fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes): values gathered each frame for its sets. */
@@ -1152,9 +1153,11 @@ const propagatorRunsOf = new WeakMap<THREE.Object3D, { id: number | null; run: P
 
 /** Each clone's controller runs (found by its ticker), started on its first frame. */
 const controllerRunsOf = new WeakMap<THREE.Object3D, ControllerRun[]>();
-tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
+tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
   const group = object.parent;
   if (!group) return;
+  // its lights, for the dynamic lights' next list (dynamicLights.ts)
+  offerLights(renderer, camera, group);
   // the curve sets (childAnimation.ts): their objects found in this clone of the model by their ids
   const animator = animators.get(group.userData.animatorKey as string);
   if (animator) {
@@ -1380,7 +1383,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   // the containers' controllers, by owner (an owner's group carries its index as userData.controllerOwner)
   const controllers: SofController[][] = [];
   // the containers' point lights, in the hull's EVE space (the group's userData.lights, read by the space view)
-  const lights: { position: number[]; radius: number; color: number[]; brightness: number }[] = [];
+  const lights: ChildLight[] = [];
   // `flat` is the node's parents' transform from the hull (for the quads, drawn as one mesh); `local` the same from
   // the object the node is added to (`sink`): a modified container's own group, or the hull's
   const place = (o: THREE.Object3D, at: THREE.Matrix4, mods: string[] | undefined, srt: SofChildSrt | null = null) => {
@@ -1402,8 +1405,16 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
       const m = node.m ? new THREE.Matrix4().fromArray(node.m) : new THREE.Matrix4();
       const flatHere = flat.clone().multiply(m);
       for (const l of node.lights ?? []) {
+        // (Tr2Light::AddLight: position by the transform, radius and source radius by its scale; a spot's direction its
+        // rotation applied to (0, 0, -1), turned by the transform, its cones' cosines from the angles in degrees)
         const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(flatHere);
-        lights.push({ position: at.toArray(), radius: l.radius * meanScale(flatHere), color: l.color, brightness: l.brightness });
+        const k = meanScale(flatHere);
+        const spot = l.rotation ? {
+          direction: new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(l.rotation[0], l.rotation[1], l.rotation[2], l.rotation[3]))
+            .transformDirection(flatHere).toArray(),
+          cosOuter: Math.cos((Math.PI * 2 * (l.outerAngle ?? 0)) / 360), cosInner: Math.cos((Math.PI * 2 * (l.innerAngle ?? 0)) / 360),
+        } : {};
+        lights.push({ position: at.toArray(), radius: l.radius * k, sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, ...spot });
       }
       if (node.modifiers.includes("EveChildModifierHalo")) {
         const z = new THREE.Vector3();
@@ -1576,6 +1587,6 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   // the hull's own controllers: owned by the space object (this group, HULL_OWNER: their sets are every child's)
   if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); group.userData.locatorSets = locatorSets; group.userData.overlays = overlays; }
   if (controllers.length) { group.userData.controllers = controllers; group.userData.childEffects = effects; }
-  if (modified || animator.playing || controllers.length || propagators || procedurals) group.add(ticker());
+  if (modified || animator.playing || controllers.length || propagators || procedurals || lights.length) group.add(ticker());
   return group;
 }

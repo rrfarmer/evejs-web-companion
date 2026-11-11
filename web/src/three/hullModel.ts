@@ -10,6 +10,7 @@ import type { SofController } from "./controllers.ts";
 import { setGpuParticleAssets } from "./gpuParticles.ts";
 import { followActivation, followClip } from "./activation.ts";
 import type { SofOverlay } from "./hullOverlay.ts";
+import { followDynamicLights } from "./dynamicLights.ts";
 import { impactAnchor, type SofImpact } from "./impactOverlay.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -583,7 +584,8 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
     }
   };
   followClip(m);
-  m.customProgramCacheKey = () => `sofHull5c${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}${patternUniforms ? "t" : ""}`;
+  followDynamicLights(m);
+  m.customProgramCacheKey = () => `sofHull5cl${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}${patternUniforms ? "t" : ""}`;
   return m;
 }
 
