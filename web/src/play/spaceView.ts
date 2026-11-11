@@ -205,9 +205,11 @@ export class SpaceView {
     // OnClientControllerEvent(ballID, targetID, eventName, value): to the ball's model (spaceMgr.OnClientControllerEvent
     // -> spaceObject.SetControllerVariableFromEvent: Activated sets IsTriggered to the value; any other is an event)
     if (name === "OnClientControllerEvent") {
-      const [ballID, , eventName, value] = args as [unknown, unknown, unknown, unknown];
+      const [ballID, , rawName, value] = args as [unknown, unknown, unknown, unknown];
       const mark = this.marks.get(Number(ballID));
-      if (!mark || typeof eventName !== "string") return;
+      // the name comes as the wire decoded it: a string, or a marshal buffer (as a gate's Departure does)
+      const eventName = rawName === null || rawName === undefined ? "" : fxGuid(rawName);
+      if (!mark || !eventName) return;
       if (eventName === "Activated") setControllerVariable(mark, "IsTriggered", Number(value ?? 0));
       else sendControllerEvent(mark, eventName);
     }
