@@ -1,2 +1,5 @@
 # The native client layer's shipped add-ons (scripts/native-prebuilt): compiled binaries, never text.
 *.node binary
+
+# Shell scripts run under Git Bash/Linux: never CRLF.
+*.sh text eol=lf

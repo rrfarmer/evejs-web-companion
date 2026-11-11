@@ -12,13 +12,19 @@
 #                                                  serves the client's pictures (EVEJS_CLIENT_ROOT, native layer off)
 #   scripts/threejs-evejs-docker.sh bff-stop       stop it
 #
-# Env: EVEJS_ROOT (default ../eve.js), EVEJS_WEB_GATEWAY_TOKEN (default: read from
+# Env: EVEJS_ROOT (default ../eve.js, else ../EveOffline), EVEJS_WEB_GATEWAY_TOKEN (default: read from
 # _local/evejs-store/gateway-token, made on first use), EVEJS_THREEJS_IMAGE (default: newest
 # evejs-local:threejs-* tag).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-EVEJS_ROOT="${EVEJS_ROOT:-$HERE/../eve.js}"
+# The eve.js checkout is `eve.js` on some machines and `EveOffline` (its GitHub name) on others.
+if [[ -z "${EVEJS_ROOT:-}" ]]; then
+  for cand in "$HERE/../eve.js" "$HERE/../EveOffline"; do
+    [[ -f "$cand/compose.yaml" ]] && { EVEJS_ROOT="$cand"; break; }
+  done
+  : "${EVEJS_ROOT:?no eve.js checkout next to this repo (../eve.js or ../EveOffline): set EVEJS_ROOT}"
+fi
 STORE_DIR="$HERE/_local/evejs-store"
 mkdir -p "$STORE_DIR"
 TOKEN_FILE="$STORE_DIR/gateway-token"
