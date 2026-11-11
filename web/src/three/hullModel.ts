@@ -8,7 +8,7 @@ import { addDecals, type SofDecalSet } from "./hullDecals.ts";
 import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildren.ts";
 import type { SofController } from "./controllers.ts";
 import { setGpuParticleAssets } from "./gpuParticles.ts";
-import { followActivation } from "./activation.ts";
+import { followActivation, followClip } from "./activation.ts";
 import { impactAnchor, type SofImpact } from "./impactOverlay.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -151,17 +151,53 @@ function applyActivation(model: THREE.Object3D): void {
     const mesh = o as THREE.Mesh;
     const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
     if (!mesh.isMesh || !mat || Array.isArray(mat) || !mat.isMeshStandardMaterial || !mat.emissiveMap) return;
-    if (mesh.userData.glowBase === undefined) {
-      const own = mat.clone();
-      // (what clone leaves: the shader changes and the per-draw hook, shared, so the program is the same one)
-      own.onBeforeCompile = mat.onBeforeCompile;
-      own.customProgramCacheKey = mat.customProgramCacheKey;
-      own.onBeforeRender = mat.onBeforeRender;
-      own.userData = mat.userData;
-      mesh.material = own;
-      mesh.userData.glowBase = mat.emissiveIntensity;
-    }
+    if (mesh.userData.glowBase === undefined) mesh.userData.glowBase = ownMaterial(mesh).emissiveIntensity;
     (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = (mesh.userData.glowBase as number) * value;
+  });
+}
+
+/**
+ * The mesh's own copy of its (standard) material, made once: what clone leaves - the shader changes and the per-draw
+ * hook - shared, so the program is the same one. three uploads a standard material's own uniforms only when the draw's
+ * material changes, so an object whose per-draw values differ from its type's other copies draws with its own.
+ */
+function ownMaterial(mesh: THREE.Mesh): THREE.MeshStandardMaterial {
+  const mat = mesh.material as THREE.MeshStandardMaterial;
+  if (mesh.userData.ownMaterial) return mat;
+  const own = mat.clone();
+  own.onBeforeCompile = mat.onBeforeCompile;
+  own.customProgramCacheKey = mat.customProgramCacheKey;
+  own.onBeforeRender = mat.onBeforeRender;
+  own.userData = mat.userData;
+  mesh.material = own;
+  mesh.userData.ownMaterial = true;
+  return own;
+}
+
+/**
+ * The space object's clip spheres (EveSpaceObject2::PrepareShaderData), from its clipSphereFactor / -2 and clip sphere
+ * centre (userData, hullChildren.ts; the centre 0 until a ResetClipSphereCenter) and the hull's bounding sphere (EVE's
+ * model space, modelScale 1): R' = R + |c|, inside = min(1, |c| / R'), radius = factor x R' x (1 + inside), each kept
+ * as its signed square; the centre c + the bounding sphere's centre. userData.clip [cx, cy, cz, r1Sq, r2Sq] (null while
+ * neither factor is set: SOC_DISABLED), read per draw by the hull's materials (activation.ts followClip); its standard
+ * materials become its own copies the first time it clips.
+ */
+export function setClipSphere(object: THREE.Object3D, model: THREE.Object3D): void {
+  const f1 = (object.userData.clipSphereFactor as number | undefined) ?? 0, f2 = (object.userData.clipSphereFactor2 as number | undefined) ?? 0;
+  if (f1 === 0 && f2 === 0) { object.userData.clip = null; return; }
+  const bs = (model.userData.boundingSphere as number[] | null | undefined) ?? [0, 0, 0, (model.userData.radius as number | undefined) ?? 0];
+  const c = (object.userData.clipSphereCenter as number[] | undefined) ?? [0, 0, 0];
+  const offset = Math.hypot(c[0]!, c[1]!, c[2]!);
+  const r = (bs[3] ?? 0) + offset;
+  const inside = r > 0 ? Math.min(1, offset / r) : 0;
+  const sq = (f: number) => { const d = f * r * (1 + inside); return Math.sign(d) * d * d; };
+  object.userData.clip = [c[0]! + (bs[0] ?? 0), c[1]! + (bs[1] ?? 0), c[2]! + (bs[2] ?? 0), sq(f1), sq(f2)];
+  if (object.userData.ownClip) return;
+  object.userData.ownClip = true;
+  object.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const mat = mesh.material as THREE.Material | undefined;
+    if (mesh.isMesh && mat && !Array.isArray(mat) && (mat as THREE.MeshStandardMaterial).isMeshStandardMaterial && mat.userData.followsClip) ownMaterial(mesh);
   });
 }
 
@@ -294,7 +330,7 @@ export function fxHullMaterial(area: SofArea, maps: Record<string, THREE.Texture
       : { blending: THREE.NormalBlending }),
   });
   logDepth(mat);
-  return followActivation(mat);
+  return followClip(followActivation(mat));
 }
 
 /** The engines' share of full thrust a hull model shows (setThrust), for its heat glow; 0 unset (a station). */
@@ -545,7 +581,8 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
         "totalEmissiveRadiance *= vec3( pow( emissiveColor.r, 2.4 ) );", "totalEmissiveRadiance = heatColor * heatW * pow( emissiveColor.r, 2.4 );")}`;
     }
   };
-  m.customProgramCacheKey = () => `sofHull5${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}${patternUniforms ? "t" : ""}`;
+  followClip(m);
+  m.customProgramCacheKey = () => `sofHull5c${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}${patternUniforms ? "t" : ""}`;
   return m;
 }
 

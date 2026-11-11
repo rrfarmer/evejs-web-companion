@@ -261,6 +261,9 @@ function readController(c, skipped, owner) {
       skipped[a.type] = (skipped[a.type] ?? 0) + 1;
       return { k: a.type };
     }
+    // Tr2ActionResetClipSphereCenter on the space object: its resetBehavior (0 the object's centre, 1 the last damage
+    // locator hit, 2 a named locator set's locator; index -1 a random one)
+    if (!owner && a.type === "Tr2ActionResetClipSphereCenter") return { k: "resetClipCenter", behavior: a.resetBehavior ?? 0, set: a.locatorSetName ?? "", index: a.locatorIndex ?? -1 };
     if (a.type === "Tr2ActionAnimateCurveSet") {
       if (!a.curveSet) { skipped[a.type] = (skipped[a.type] ?? 0) + 1; return { k: a.type }; }
       // its set is its own (held by the action, no container's): read with it, never played, only applied

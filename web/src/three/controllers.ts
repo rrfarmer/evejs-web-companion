@@ -41,6 +41,9 @@ export interface SofControllerAction {
   /** setValue / setOwner / animateOwner: the attribute; animateOwner: its curve (Curve(x) in its value). */
   attribute?: string;
   curve?: Curve | null;
+  /** resetClipCenter: the behaviour (0 object centre, 1 last damage locator, 2 the locator set `set`) and index. */
+  behavior?: number;
+  index?: number;
   /** spawnParticles: the emitter's id and the count (x the emitter's rate). */
   emitter?: number;
   rate?: number;
@@ -189,6 +192,8 @@ export interface ChildEffectHost {
   setDisplay?(target: number, on: boolean): void;
   /** One of the space object's own attributes (activationStrength, display, clipSphereFactor/2). */
   setOwner?(attribute: string, value: number): void;
+  /** Tr2ActionResetClipSphereCenter: the space object's clip sphere centre moved. */
+  resetClipCenter?(behavior: number, set: string, index: number): void;
   /** An effect propagator's trigger set (by id): its copies placed. */
   trigger?(target: number): void;
   stop?(owner: number, name: string): void;
@@ -330,6 +335,7 @@ export class ControllerRun {
     for (const a of state.actions) {
       // Tr2ActionSpawnParticles (Start): the emitter spawns rate x its own rate
       if (a.k === "spawnParticles" && a.emitter !== undefined) { this.host.spawn?.(a.emitter, a.rate ?? 1); continue; }
+      if (a.k === "resetClipCenter") { this.host.resetClipCenter?.(a.behavior ?? 0, a.set ?? "", a.index ?? -1); continue; }
       // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
       if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger" || a.k === "setValue" || a.k === "setOwner") && a.value !== undefined) {
         const c = conditionOf(a.value);

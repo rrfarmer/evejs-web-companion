@@ -11,7 +11,7 @@ import { ControllerRun, type SofController } from "./controllers.ts";
 import { particleObject, type SofChildParticles } from "./particles.ts";
 import { GpuEmitter, gpuSystemOf, type GpuEmitterData } from "./gpuParticles.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
-import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, setControllerVariable, setOwnerActivation, type SofArea } from "./hullModel.ts";
+import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, setControllerVariable, setOwnerActivation, setClipSphere, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childAnimation.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -1034,8 +1034,8 @@ function gatherFx(list: { owner: THREE.Object3D; holder: THREE.Object3D; type: s
  * - activationStrength: x the impact overlay's (hullModel.ts setOwnerActivation); nought, its children are not drawn
  *   (EveChildContainer::GetBatches: activationStrength 0 draws nothing);
  * - display: nought, nothing of it is drawn (its controllers still run: the ticker stays);
- * - clipSphereFactor / clipSphereFactor2: kept (userData) and handed to its controllers (ClipSphereFactor, -2), as
- *   EveSpaceObject2::OnModified does; the hull's dissolve by it is not drawn yet.
+ * - clipSphereFactor / clipSphereFactor2: kept (userData), handed to its controllers (ClipSphereFactor, -2), as
+ *   EveSpaceObject2::OnModified does, and the hull clipped by them (hullModel.ts setClipSphere).
  */
 function setOwnerAttribute(group: THREE.Object3D, attribute: string, value: number): void {
   const model = group.parent;
@@ -1048,6 +1048,7 @@ function setOwnerAttribute(group: THREE.Object3D, attribute: string, value: numb
     if (object.userData[attribute] === value) return;
     object.userData[attribute] = value;
     setControllerVariable(object, attribute === "clipSphereFactor" ? "ClipSphereFactor" : "ClipSphereFactor2", value);
+    setClipSphere(object, model);
     return;
   } else return;
   const shown = model.userData.ownerDisplay !== 0;
@@ -1056,6 +1057,27 @@ function setOwnerAttribute(group: THREE.Object3D, attribute: string, value: numb
     if (c !== group) { setShown(c, shown); continue; }
     for (const g of group.children) if (g.name !== "child-modifiers") setShown(g, childrenShown);
   }
+}
+/**
+ * Tr2ActionResetClipSphereCenter::Start: the clip sphere's centre (EVE's model space, before the bounding sphere's centre
+ * is added) at minus that centre (the object's origin), or at a locator's position - of the damage set (no hit is kept
+ * here: a random one) or a named set, a random one at index -1; a set the hull does not have leaves it.
+ */
+function resetClipCenter(group: THREE.Object3D, behavior: number, set: string, index: number): void {
+  const model = group.parent;
+  if (!model) return;
+  let object: THREE.Object3D = model;
+  for (let p: THREE.Object3D | null = model; p; p = p.parent) if (p.userData.spaceObject) { object = p; break; }
+  if (behavior === 1 || behavior === 2) {
+    const locators = (group.userData.locatorSets as Record<string, number[][]> | undefined)?.[behavior === 1 ? "damage" : set];
+    if (!locators?.length || (index >= 0 && index >= locators.length)) return;
+    const l = locators[index < 0 || behavior === 1 ? Math.floor(Math.random() * locators.length) : index]!;
+    object.userData.clipSphereCenter = [l[0] ?? 0, l[1] ?? 0, l[2] ?? 0];
+  } else {
+    const bs = (model.userData.boundingSphere as number[] | null | undefined) ?? [0, 0, 0, 0];
+    object.userData.clipSphereCenter = [-(bs[0] ?? 0), -(bs[1] ?? 0), -(bs[2] ?? 0)];
+  }
+  setClipSphere(object, model);
 }
 /** Hidden by the space object's display or activation, and shown again as it was (kept while hidden). */
 function setShown(o: THREE.Object3D, shown: boolean): void {
@@ -1115,6 +1137,7 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
           });
         },
         setOwner: (attribute: string, value: number) => setOwnerAttribute(group, attribute, value),
+        resetClipCenter: (behavior: number, set: string, index: number) => resetClipCenter(group, behavior, set, index),
         spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
         trigger: (target: number) => group.traverse((o) => { if (o.userData.propagatorId === target) o.visible = true; }),
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
@@ -1443,7 +1466,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   // the curve sets play from the ticker's frame (with the modifiers)
   if (animator.playing) { animators.set(animator.key, animator); group.userData.animatorKey = animator.key; }
   // the hull's own controllers: owned by the space object (this group, HULL_OWNER: their sets are every child's)
-  if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); }
+  if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); group.userData.locatorSets = locatorSets; }
   if (controllers.length) { group.userData.controllers = controllers; group.userData.childEffects = effects; }
   if (modified || animator.playing || controllers.length) group.add(ticker());
   return group;
