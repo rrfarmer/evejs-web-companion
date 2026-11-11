@@ -331,7 +331,10 @@ export class ControllerRun {
         // an effect propagator's trigger: set (non-nought) it places its copies; nought does nothing (m_trigger is
         // only read when set, then cleared by Play)
         else if (a.k === "trigger" && a.target !== undefined && v !== 0) this.host.trigger?.(a.target);
-        else if (a.k === "setValue" && a.target !== undefined) this.host.setValue?.(a.target, (a as { attribute?: string }).attribute ?? "value", v);
+        else if (a.k === "setValue" && a.target !== undefined) {
+          // every candidate (one per child effect file the controller may load): only the loaded one has its target
+          for (const t of (a as { targets?: number[] }).targets ?? [a.target]) this.host.setValue?.(t, (a as { attribute?: string }).attribute ?? "value", v);
+        }
         continue;
       }
       // Tr2ActionAnimateCurveSet: each update (after the machines'), its set applied at its value expression's value,

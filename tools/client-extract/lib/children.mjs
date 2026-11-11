@@ -132,6 +132,8 @@ function readCurveSet(cs) {
 // The object files Tr2ActionChildEffect loads (by their .red path, as the actions name them), each read once per build
 // as a child's graph (readNode): the page builds one when a controller's state starts.
 let effectRoots = new Map();
+// the same files' raw roots (as read), for a SetValue that reaches into an effect a controller loads at run time
+let rawEffects = new Map();
 // the hull locator sets the file's effect propagators name (written with the children: extract.mjs locatorSets)
 let locatorSetsUsed = new Set();
 export const usedLocatorSets = () => [...locatorSetsUsed];
@@ -150,6 +152,7 @@ function readChildEffect(path, skipped) {
     const o = readBlack(readRf.read(res), res);
     shownBySet = findShownBySet(o);
     actionEmitters = findActionEmitters(o);
+    rawEffects.set(key, o);
     effectRoots.set(key, readNode(o, skipped));
   } catch (e) {
     skipped.unreadEffect = String(e.message ?? e);
@@ -164,6 +167,23 @@ function readChildEffect(path, skipped) {
  * The object a Tr2ActionSetValue's binding point names (Tr2BindingPoint): its destination object, or its path from a
  * root - "Owner" (the controller's owner) then .objects["name"] steps (a list's element of that name) - or null.
  */
+/**
+ * A SetValue whose path starts at a child effect the controller loads at run time (Tr2ActionChildEffect childName:
+ * Owner.objects["<childName>"] is that effect's root once loaded): the object the rest of the path names in each file
+ * the controller may load under that name (none where a file has no such object: Trinity's binding then finds nothing).
+ */
+function childEffectTargets(a, childEffects) {
+  const m = /^Owner\.objects\["([^"]*)"\](.*)$/.exec(String(a.path ?? ""));
+  if (!m || !childEffects.has(m[1])) return [];
+  const out = [];
+  for (const key of childEffects.get(m[1])) {
+    const root = rawEffects.get(key);
+    const target = root ? setValueObject(root, { path: `Owner${m[2]}` }) : null;
+    if (target) out.push(target);
+  }
+  return out;
+}
+
 function setValueObject(owner, a) {
   if (!a.path) return a.destination ?? null;
   const m = /^Owner((?:\.(?:objects|curveSets|curves|parameters)\["[^"]*"\])*)$/.exec(String(a.path));
@@ -191,6 +211,20 @@ function effectParametersOf(o) {
  */
 function readController(c, skipped, owner) {
   const varNames = new Set((c.variables ?? []).filter((v) => v?.name).map((v) => v.name));
+  // the child effects this controller loads, by the name each takes (read now: a SetValue may reach into them)
+  const childEffects = new Map();
+  const findLoads = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(findLoads); return; }
+    if (n.type === "Tr2ActionChildEffect" && n.path && n.childName) {
+      const key = readChildEffect(n.path, skipped);
+      if (!childEffects.has(n.childName)) childEffects.set(n.childName, new Set());
+      childEffects.get(n.childName).add(key);
+    }
+    for (const [k, v] of Object.entries(n)) if (v && typeof v === "object" && k !== "destination") findLoads(v);
+  };
+  findLoads(c.stateMachines);
+  findLoads(c.eventHandlers);
   const readActions = (list) => (list ?? []).filter(Boolean).map((a) => {
     // Tr2ActionSetValue: into a variable (its path a variable's name, or its destination the variable), or into an
     // object's display (its path from Owner, or its destination object): the object's id
@@ -203,15 +237,16 @@ function readController(c, skipped, owner) {
       // a curve set's time or speed (Owner...curveSets["name"]: TriCurveSet's scaledTime and scale)
       const set = a.attribute === "scaledTime" || a.attribute === "scale" ? setValueObject(owner, a) : null;
       if (set?.type === "TriCurveSet") return { k: a.attribute === "scale" ? "setSetScale" : "setSetTime", curveSet: idOf(set), value };
-      // a curve's input (an expression's input1..4: Tr2CurveScalarExpression) by its id, as a binding's
-      if (/^input[1-4]$/.test(a.attribute ?? "")) {
-        const curve = setValueObject(owner, a);
-        if (isCurve(curve)) return { k: "setValue", target: idOf(curve), attribute: a.attribute, value };
-      }
-      // an effect parameter's value (Tr2Vector4Parameter / Tr2FloatParameter: "value", or one component "value.w")
-      if (/^value(\.[xyzw])?$/.test(a.attribute ?? "")) {
-        const param = setValueObject(owner, a);
-        if (/^Tr2(Vector[234]|Float)Parameter$/.test(param?.type ?? "")) return { k: "setValue", target: idOf(param), attribute: a.attribute, value };
+      // a curve's input (an expression's input1..4: Tr2CurveScalarExpression) or an effect parameter's value
+      // (Tr2Vector4Parameter / Tr2FloatParameter: "value", or one component "value.w"), by id, as a binding's; in the
+      // owner, or in each child effect it may load (the setter then reaches whichever is loaded)
+      const isParam = (o) => /^Tr2(Vector[234]|Float)Parameter$/.test(o?.type ?? "");
+      const fits = /^input[1-4]$/.test(a.attribute ?? "") ? isCurve : /^value(\.[xyzw])?$/.test(a.attribute ?? "") ? isParam : null;
+      if (fits) {
+        const own = setValueObject(owner, a);
+        const targets = own ? [own] : childEffectTargets(a, childEffects);
+        const ids = targets.filter(fits).map(idOf);
+        if (ids.length) return { k: "setValue", target: ids[0], targets: ids, attribute: a.attribute, value };
       }
       // an effect propagator's trigger (EveChildEffectPropagator "trigger": non-nought reads its locators and plays)
       const propagator = a.attribute === "trigger" ? setValueObject(owner, a) : null;
@@ -533,6 +568,7 @@ export function readHullChildren(rf, sofHull, faction = null) {
   ids = new WeakMap();
   nextId = 1;
   effectRoots = new Map();
+  rawEffects = new Map();
   locatorSetsUsed = new Set();
   readRf = rf;
   for (const child of hullChildEntries(sofHull, faction)) {
@@ -570,6 +606,7 @@ export function readEffectFile(rf, path) {
   ids = new WeakMap();
   nextId = 1;
   effectRoots = new Map();
+  rawEffects = new Map();
   locatorSetsUsed = new Set();
   readRf = rf;
   const skipped = {};

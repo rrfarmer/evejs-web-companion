@@ -1066,7 +1066,14 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
         stop: (owner: number, name: string) => animator?.stop(owner, name),
         setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
-        setValue: (target: number, attribute: string, value: number) => { animator?.setValue(target, attribute, value); },
+        // the owner's own target, else one in a child effect loaded under it (its own animator, by its key)
+        setValue: (target: number, attribute: string, value: number) => {
+          if (animator?.setValue(target, attribute, value)) return;
+          group.traverse((o) => {
+            const key = o.userData.animatorKey as string | undefined;
+            if (key && key !== group.userData.animatorKey) animators.get(key)?.setValue(target, attribute, value);
+          });
+        },
         spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
         trigger: (target: number) => group.traverse((o) => { if (o.userData.propagatorId === target) o.visible = true; }),
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
