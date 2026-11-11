@@ -118,8 +118,18 @@ export function followDynamicLights<M extends THREE.Material>(material: M): M {
   material.onBeforeCompile = function (shader, renderer) {
     Object.assign(shader.uniforms, dynamicLightUniforms);
     shader.fragmentShader = `#define DYN_MAX ${MAX_DYNAMIC_LIGHTS}
+#define DYN_LIGHTS
 uniform int dynCount; uniform vec3 dynPos[DYN_MAX]; uniform vec3 dynColor[DYN_MAX]; uniform vec4 dynShape[DYN_MAX]; uniform vec4 dynSpot[DYN_MAX];
+#define DYN_LIGHTS_LOOP ${LOOP.replace(/\s*\n\s*/g, " ")}
 ${shader.fragmentShader.replace("#include <lights_fragment_begin>", `#include <lights_fragment_begin>
+  DYN_LIGHTS_LOOP`)}`;
+    compile.call(this, shader, renderer);
+  };
+  return material;
+}
+
+/** The loop, one line (a macro): the material's second lighting pass (hullModel.ts's dust layer) runs it too. */
+const LOOP = `
   for ( int i = 0; i < DYN_MAX; i ++ ) {
     if ( i >= dynCount ) break;
     vec3 dynL = dynPos[ i ] - geometryPosition;
@@ -138,8 +148,4 @@ ${shader.fragmentShader.replace("#include <lights_fragment_begin>", `#include <l
     directLight.direction = dynL;
     directLight.visible = true;
     RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
-  }`)}`;
-    compile.call(this, shader, renderer);
-  };
-  return material;
-}
+  }`;

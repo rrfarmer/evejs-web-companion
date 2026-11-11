@@ -176,6 +176,44 @@ function ownMaterial(mesh: THREE.Mesh): THREE.MeshStandardMaterial {
   return own;
 }
 
+/** The dirt level of the space object an object is part of (setDirtLevel); EVE_SPACEOBJECT_DIRT_LEVEL_DEFAULT 0. */
+function dirtOf(o: THREE.Object3D): number {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (typeof p.userData.dirtLevel === "number") return p.userData.dirtLevel as number;
+  return 0;
+}
+/** The hull material's dirt level set for each draw from the drawn object's (a dirty object draws with its own copies). */
+function followDirt(material: THREE.Material, uniform: { value: number }): void {
+  material.userData.followsDust = true;
+  const before = material.onBeforeRender;
+  material.onBeforeRender = function (renderer, scene, camera, geometry, object, group) {
+    before.call(this, renderer, scene, camera, geometry, object, group);
+    uniform.value = dirtOf(object);
+  };
+}
+
+/**
+ * A space object's dirt level (EveSpaceObject2.dirtLevel, shipData.z: the hull's dust layer). The client's for a ship:
+ * gfxutils.CalcDirtLevelFromAge of its slim item's dirtTime, 0.7 - 1 / (weeks^0.65 + 1 / 2.7). Its dusty materials
+ * become its own copies where it is not the default 0.
+ */
+export function setDirtLevel(object: THREE.Object3D, level: number): void {
+  if (object.userData.dirtLevel === level) return;
+  object.userData.dirtLevel = level;
+  if (level === 0) return;
+  object.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const mat = mesh.material as THREE.Material | undefined;
+    if (mesh.isMesh && mat && !Array.isArray(mat) && mat.userData.followsDust) ownMaterial(mesh);
+  });
+}
+
+/** CalcDirtLevelFromAge (evegraphics/utils.py): a FILETIME (100 ns since 1601) to the dirt level. */
+export function dirtLevelFromTime(fileTime: bigint | number): number {
+  const ms = Number((BigInt(Date.now()) + 11644473600000n) * 10000n - BigInt(fileTime)) / 10000;
+  const weeks = Math.max(ms, 0) / 604800000;
+  return 0.7 - 1 / (Math.pow(weeks, 0.65) + 1 / 2.7);
+}
+
 /**
  * The space object's clip spheres (EveSpaceObject2::PrepareShaderData), from its clipSphereFactor / -2 and clip sphere
  * centre (userData, hullChildren.ts; the centre 0 until a ResetClipSphereCenter) and the hull's bounding sphere (EVE's
@@ -277,7 +315,7 @@ export interface TypeModelInfo {
  * The pattern layers are not drawn yet.
  */
 /** The hull shaders' texture parameters by the role sofHullMaterial takes them in. */
-export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold", Layer1Map: "layer1", Layer2Map: "layer2", LayerMaskMap: "layerMask", DistortionMap: "distortion", OilFilmLookupMap: "oilFilm" };
+export const HULL_TEXTURE_ROLES: Record<string, string> = { AlbedoMap: "albedo", NormalMap: "normal", RoughnessMap: "roughness", MaterialMap: "materialMap", GlowMap: "glow", DirtMap: "dirt", DustNoiseMap: "dustNoise", PaintMaskMap: "paintMask", SailsDetailMap: "sailsDetail", HeatGlowNoiseMap: "heatNoise", Detail1Map: "detail1", Detail2Map: "detail2", Detail3Map: "detail3", AlphaThresholdMap: "alphaThreshold", Layer1Map: "layer1", Layer2Map: "layer2", LayerMaskMap: "layerMask", DistortionMap: "distortion", OilFilmLookupMap: "oilFilm" };
 
 /**
  * A hull area drawn with fx/fxv5.fx or fx/fxdirectionalv5.fx (their record 0, fxres.py; the same pixel stage):
@@ -426,7 +464,16 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
       heatUniforms.thrust.value = t;
     };
   }
+  // the dust layer (quadv5.sm_depth, the client's high quality; fxres.py): a second lighting of the surface with the
+  // dust's material - albedo x the weighed Mtl1..4DustDiffuseColor x (n.x + 0.5), specular (0.019, 0.017, 0.014) x
+  // (n.y + 0.5), roughness 1 - 0.4 x RoughnessMap.r x (n.z + 0.5) - for n DustNoiseMap at uv x 20; the two mixed as
+  // clean x (1 - x)^3 + dust x x, x = sat(DirtMap.r x (n.w + 0.5) / (1 - dirtLevel)) (shipData.z: the space object's
+  // dirtLevel, 0 unless set - a ship's from its age, setDirtLevel)
+  const dust = !!(maps.dirt && maps.dustNoise) && !/glass/i.test(area.shader ?? "");
+  if (dust) { maps.dustNoise!.wrapS = maps.dustNoise!.wrapT = THREE.RepeatWrapping; maps.dustNoise!.needsUpdate = true; }
+  const dirtLevel = { value: 0 };
   const uniforms = {
+    mtlDust: { value: mats.map((x) => v3(x?.dust, 1)) }, dirtMap: { value: maps.dirt ?? null }, dustNoise: { value: maps.dustNoise ?? null }, dirtLevel,
     mtlDiffuse: { value: mats.map((x) => v3(x?.diffuse, 0.05)) },
     mtlFresnel: { value: mats.map((x) => v3(x?.fresnel, 0.04)) },
     mtlGloss: { value: mats.map((x) => x?.gloss ?? 0.4) },
@@ -463,7 +510,7 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   m.onBeforeCompile = (shader, renderer) => {
     Object.assign(shader.uniforms, uniforms, heat ? heatUniforms : {}, patternUniforms ?? {});
     // inserted beside the chunk names first; the base then writes the chunks out and fixes the channels in them
-    shader.fragmentShader = `uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""}${patternUniforms ? " uniform sampler2D patMask; uniform vec2 patModes; uniform vec4 patTargets; uniform vec3 patDiffuse; uniform vec3 patFresnel; uniform float patGloss; varying vec2 vPatUv;" : ""}${env ? " varying vec2 vEnvUv;" : ""}
+    shader.fragmentShader = `${dust ? "#define HULL_DUST\nuniform vec3 mtlDust[4]; uniform sampler2D dirtMap; uniform sampler2D dustNoise; uniform float dirtLevel;\n" : ""}uniform vec3 mtlDiffuse[4]; uniform vec3 mtlFresnel[4]; uniform float mtlGloss[4]; uniform sampler2D materialMap; uniform sampler2D sailsDetailMap; uniform vec3 sailsDetailData; uniform sampler2D paintMask; uniform vec4 generalData; uniform sampler2D detail1; uniform sampler2D detail2; uniform sampler2D detail3; uniform vec4 detailData[3]; uniform vec3 detailAlbedo; uniform vec3 detailFresnel; uniform vec4 detailSelector; uniform vec3 wreckColor; uniform vec4 wreckFactors; uniform float wreckTime; uniform sampler2D alphaThreshold; uniform vec4 envTiling; uniform vec4 envDetail; uniform vec4 envMtl1; uniform vec4 envMtl2; uniform vec3 envAlbedo1; uniform vec3 envAlbedo2; uniform vec3 envFresnel1; uniform vec3 envFresnel2; uniform sampler2D oilFilm;${wreck ? " varying float vWreckV;" : ""}${patternUniforms ? " uniform sampler2D patMask; uniform vec2 patModes; uniform vec4 patTargets; uniform vec3 patDiffuse; uniform vec3 patFresnel; uniform float patGloss; varying vec2 vPatUv;" : ""}${env ? " varying vec2 vEnvUv;" : ""}
 ${shader.fragmentShader}`
       .replace("#include <map_fragment>", `#include <map_fragment>
         float mtlSel = texture2D( materialMap, ${env ? "vEnvUv * envTiling.x" : "vMapUv"} ).r;
@@ -529,7 +576,47 @@ ${shader.fragmentShader}`
         #include <opaque_fragment>` : "#include <opaque_fragment>")
       .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
         material.specularColor = mtlFr;
-        material.specularColorBlended = mtlFr;`);
+        material.specularColorBlended = mtlFr;`)
+      .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
+        #ifdef HULL_DUST
+        {
+          vec4 dustN = texture2D( dustNoise, vMapUv * 20.0 ) + 0.5;
+          float dustX = clamp( texture2D( dirtMap, vMapUv ).x * dustN.w / ( 1.0 - dirtLevel ), 0.0, 1.0 );
+          if ( dustX > 0.0 ) {
+            PhysicalMaterial dustM = material;
+            vec3 dustAlbedo = vec3( 1.0 );
+            #ifdef USE_MAP
+            dustAlbedo = texture2D( map, vMapUv ).rgb;
+            #endif
+            float dustRough = 1.0;
+            #ifdef USE_ROUGHNESSMAP
+            dustRough = texture2D( roughnessMap, vRoughnessMapUv ).r;
+            #endif
+            dustM.diffuseColor = dustAlbedo * ( mtlDust[ 0 ] * mtlW.x + mtlDust[ 1 ] * mtlW.y + mtlDust[ 2 ] * mtlW.z + mtlDust[ 3 ] * mtlW.w ) * dustN.x;
+            dustM.specularColor = vec3( 0.019, 0.017, 0.014 ) * dustN.y;
+            dustM.specularColorBlended = dustM.specularColor;
+            dustM.roughness = max( clamp( 1.0 - 0.4 * dustRough * dustN.z, 0.0, 1.0 ), 0.0525 );
+            ReflectedLight cleanLight = reflectedLight;
+            ReflectedLight dustLight;
+            {
+              PhysicalMaterial material = dustM;
+              ReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );
+              #include <lights_fragment_begin>
+              #ifdef DYN_LIGHTS
+              DYN_LIGHTS_LOOP
+              #endif
+              #include <lights_fragment_maps>
+              #include <lights_fragment_end>
+              dustLight = reflectedLight;
+            }
+            float dustC = pow( 1.0 - dustX, 3.0 );
+            reflectedLight.directDiffuse = cleanLight.directDiffuse * dustC + dustLight.directDiffuse * dustX;
+            reflectedLight.directSpecular = cleanLight.directSpecular * dustC + dustLight.directSpecular * dustX;
+            reflectedLight.indirectDiffuse = cleanLight.indirectDiffuse * dustC + dustLight.indirectDiffuse * dustX;
+            reflectedLight.indirectSpecular = cleanLight.indirectSpecular * dustC + dustLight.indirectSpecular * dustX;
+          }
+        }
+        #endif`);
     if (patternUniforms) {
       shader.vertexShader = `uniform vec3 patPos; uniform vec3 patScale; uniform vec4 patRot; uniform float patMirror; varying vec2 vPatUv;
 ${shader.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
@@ -585,7 +672,8 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
   };
   followClip(m);
   followDynamicLights(m);
-  m.customProgramCacheKey = () => `sofHull5cl${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}${patternUniforms ? "t" : ""}`;
+  if (dust) followDirt(m, dirtLevel);
+  m.customProgramCacheKey = () => `sofHull5cl${dust ? "u" : ""}${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}${patternUniforms ? "t" : ""}`;
   return m;
 }
 

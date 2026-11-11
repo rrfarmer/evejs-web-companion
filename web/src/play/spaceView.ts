@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
-import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent, setActivationStrength } from "../three/hullModel.ts";
+import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent, setActivationStrength, setDirtLevel, dirtLevelFromTime } from "../three/hullModel.ts";
 import { shiftGpuParticles } from "../three/gpuParticles.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
@@ -1173,6 +1173,9 @@ export class SpaceView {
         holder.remove(standIn);
         holder.add(model);
         holder.userData.impact = impactOverlayOf(model);
+        // its dust (playerShip.UpdateDirtLevel: the slim item's dirtTime, where it has one)
+        const dirtTime = (this.live.park as unknown as { slimItems?: Map<number, Map<string, unknown>> }).slimItems?.get(e.itemID)?.get("dirtTime");
+        if (typeof dirtTime === "bigint" || typeof dirtTime === "number") setDirtLevel(holder, dirtLevelFromTime(dirtTime));
         // the space object: its controllers' own attributes (activationStrength, clipSphereFactor) land here
         holder.userData.spaceObject = true;
         holder.userData.model = model;
