@@ -9,6 +9,7 @@ import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildr
 import type { SofController } from "./controllers.ts";
 import { setGpuParticleAssets } from "./gpuParticles.ts";
 import { followActivation, followClip } from "./activation.ts";
+import type { SofOverlay } from "./hullOverlay.ts";
 import { impactAnchor, type SofImpact } from "./impactOverlay.ts";
 import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type SofHazeSet } from "./hullFx.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -714,6 +715,8 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
       mesh.material = materials.get(key)!;
       continue;
     }
+    // the kinds of the SOF areas over this part (an overlay's passes pick their areas by them, hullOverlay.ts)
+    mesh.userData.areaKinds = areas.map((a) => a.kind);
     const drawn = areas.map(materialOf).filter((m): m is THREE.Material => !!m);
     if (!drawn.length) { mesh.visible = false; continue; }
     mesh.material = drawn[0]!;
@@ -746,7 +749,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   // the hull's children (hullChildren.ts): the static part of their graph
   // the scene GPU particle system's atlas and turbulence volume, where this build names them
   setGpuParticleAssets((sof as { gpuParticles?: { atlas?: string | null; noise?: string | null } } | null)?.gpuParticles);
-  const children = sof ? await hullChildren((sof as { children?: SofHullChild[] }).children, (sof as { childEffects?: Record<string, SofChildNode | null> }).childEffects ?? {}, (sof as { hullControllers?: SofController[] }).hullControllers ?? [], (sof as { locatorSets?: Record<string, number[][]> }).locatorSets ?? {}).catch((e) => { console.warn("hull children", e); return null; }) : null;
+  const children = sof ? await hullChildren((sof as { children?: SofHullChild[] }).children, (sof as { childEffects?: Record<string, SofChildNode | null> }).childEffects ?? {}, (sof as { hullControllers?: SofController[] }).hullControllers ?? [], (sof as { locatorSets?: Record<string, number[][]> }).locatorSets ?? {}, (sof as { overlays?: Record<string, SofOverlay | null> }).overlays ?? {}).catch((e) => { console.warn("hull children", e); return null; }) : null;
   // the hull's damage impacts (impactOverlay.ts), sized by its bounding sphere
   const impactSof = (sof as { impact?: SofImpact } | null)?.impact ?? null;
   const impact = impactSof ? impactAnchor(impactSof, (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere?.[3] ?? size) : null;

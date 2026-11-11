@@ -210,6 +210,8 @@ function effectParametersOf(o) {
  * file read as a child effect); the others are kept by type only.
  */
 const OWNER_ATTRIBUTES = new Set(["activationStrength", "display", "clipSphereFactor", "clipSphereFactor2"]);
+// the overlay files the hull's controllers name (Tr2ActionOverlay), read by hullOverlays
+let overlayPaths = new Set();
 function readController(c, skipped, owner) {
   const varNames = new Set((c.variables ?? []).filter((v) => v?.name).map((v) => v.name));
   // the child effects this controller loads, by the name each takes (read now: a SetValue may reach into them)
@@ -260,6 +262,13 @@ function readController(c, skipped, owner) {
       if (propagator?.type === "EveChildEffectPropagator") return { k: "trigger", target: idOf(propagator), value };
       skipped[a.type] = (skipped[a.type] ?? 0) + 1;
       return { k: a.type };
+    }
+    // Tr2ActionOverlay on the space object: its EveMeshOverlayEffect file (read by hullOverlays), added on start and
+    // removed on stop (addOnStart / removeOnStop, true unless said)
+    if (!owner && a.type === "Tr2ActionOverlay" && a.path && !a.targetAnotherOwner) {
+      const res = String(a.path).toLowerCase().replace(/\.red$/, ".black");
+      overlayPaths.add(res);
+      return { k: "overlay", effect: res, add: a.addOnStart !== false, remove: a.removeOnStop !== false };
     }
     // Tr2ActionResetClipSphereCenter on the space object: its resetBehavior (0 the object's centre, 1 the last damage
     // locator hit, 2 a named locator set's locator; index -1 a random one)
@@ -638,6 +647,7 @@ export function readEffectFile(rf, path) {
  * readHullChildren, whose ids they continue. A file the client does not ship, or not a controller, is left out.
  */
 export function readHullControllers(rf, sofHull) {
+  overlayPaths = new Set();
   const out = [];
   const skipped = {};
   for (const c of sofHull?.controllers ?? []) {
@@ -670,6 +680,35 @@ export async function readTrafficInstances(rf, res) {
     for (let j = 0; j < 4; j++) {
       out[i * 8 + j] = Math.round(a.data[i * 4 + j] * 1e4) / 1e4;
       out[i * 8 + 4 + j] = Math.round(b.data[i * 4 + j] * 1e4) / 1e4;
+    }
+  }
+  return out;
+}
+
+/**
+ * The overlays the hull's controllers name (EveMeshOverlayEffect: extra draws of the hull's mesh, EmitOverlayBatches -
+ * the opaque effects over its opaque areas, the others over its opaque, transparent and decal areas): by path, each
+ * pass's effects - the shader's file name, its parameters (constParameters / Tr2*Parameter values) and textures (res:
+ * paths, copied by the caller). Read after readHullControllers. A file not shipped is null.
+ */
+export function hullOverlays(rf) {
+  const out = {};
+  for (const res of overlayPaths) {
+    if (!rf.has(res)) { out[res] = null; continue; }
+    try {
+      const o = readBlack(rf.read(res), res);
+      const effect = (e) => ({
+        name: e?.name ?? null,
+        shader: String(e?.effectFilePath ?? "").split("/").pop().replace(/\.fx$/i, "").toLowerCase(),
+        params: { ...Object.fromEntries((e?.constParameters?.items ?? []).filter((p) => Array.isArray(p) && p[0]).map(([k, v]) => [k, v])),
+          ...Object.fromEntries((e?.parameters ?? []).filter((p) => p?.name && p.value !== undefined).map((p) => [p.name, p.value])) },
+        textures: Object.fromEntries((e?.resources ?? []).filter((r) => r?.name && r.resourcePath).map((r) => [r.name, String(r.resourcePath).toLowerCase()])),
+      });
+      const pass = (k) => (o?.[k] ?? []).filter((e) => e?.effectFilePath).map(effect);
+      out[res] = { name: o?.name ?? null, opaque: pass("opaqueEffects"), transparent: pass("transparentEffects"), additive: pass("additiveEffects"),
+        decal: pass("decalEffects"), distortion: pass("distortionEffects") };
+    } catch {
+      out[res] = null;
     }
   }
   return out;

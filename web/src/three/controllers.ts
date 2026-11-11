@@ -192,6 +192,8 @@ export interface ChildEffectHost {
   setDisplay?(target: number, on: boolean): void;
   /** One of the space object's own attributes (activationStrength, display, clipSphereFactor/2). */
   setOwner?(attribute: string, value: number): void;
+  /** Tr2ActionOverlay: the space object's mesh overlay (by its file) added or taken off. */
+  overlay?(effect: string, on: boolean): void;
   /** Tr2ActionResetClipSphereCenter: the space object's clip sphere centre moved. */
   resetClipCenter?(behavior: number, set: string, index: number): void;
   /** An effect propagator's trigger set (by id): its copies placed. */
@@ -336,6 +338,13 @@ export class ControllerRun {
       // Tr2ActionSpawnParticles (Start): the emitter spawns rate x its own rate
       if (a.k === "spawnParticles" && a.emitter !== undefined) { this.host.spawn?.(a.emitter, a.rate ?? 1); continue; }
       if (a.k === "resetClipCenter") { this.host.resetClipCenter?.(a.behavior ?? 0, a.set ?? "", a.index ?? -1); continue; }
+      // Tr2ActionOverlay: added on start (addOnStart), taken off on stop (removeOnStop)
+      if (a.k === "overlay" && a.effect && this.host.overlay) {
+        const overlay = this.host.overlay, effect = a.effect;
+        if (a.add !== false) overlay(effect, true);
+        run.live.push({ stop: () => { if (a.remove !== false) overlay(effect, false); } });
+        continue;
+      }
       // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
       if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger" || a.k === "setValue" || a.k === "setOwner") && a.value !== undefined) {
         const c = conditionOf(a.value);

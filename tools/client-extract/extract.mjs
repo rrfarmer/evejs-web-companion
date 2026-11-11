@@ -27,7 +27,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { childEffectRoots, readEffectFile, readHullChildren, readHullControllers, readTrafficInstances, usedLocatorSets } from "./lib/children.mjs";
+import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readTrafficInstances, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { readAnimations } from "./lib/grannyAnim.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
@@ -160,6 +160,13 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   built.childEffects = childEffectRoots();
   // the hull's own controllers (their owner the whole model)
   built.hullControllers = readHullControllers(rf, sof.hulls.get(String(hullName).toLowerCase()));
+  // the overlays those controllers add (Tr2ActionOverlay: construction, teardown, cloaks), their textures copied
+  built.overlays = hullOverlays(rf);
+  for (const ov of Object.values(built.overlays)) {
+    for (const fx of ov ? [...ov.opaque, ...ov.transparent, ...ov.additive, ...ov.decal, ...ov.distortion] : []) {
+      for (const [name, res] of Object.entries(fx.textures)) fx.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+    }
+  }
   // the hull's locator sets its children's effect propagators name: each locator [x, y, z, qx, qy, qz, qw]
   const locatorHull = sof.hulls.get(String(hullName).toLowerCase());
   built.locatorSets = Object.fromEntries(usedLocatorSets().map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])

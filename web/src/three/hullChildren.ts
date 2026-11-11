@@ -14,6 +14,7 @@ import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { HULL_TEXTURE_ROLES, fxHullMaterial, sofHullMaterial, setControllerVariable, setOwnerActivation, setClipSphere, type SofArea } from "./hullModel.ts";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childAnimation.ts";
+import { addOverlay, removeOverlay, type SofOverlay } from "./hullOverlay.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
@@ -1138,6 +1139,12 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         },
         setOwner: (attribute: string, value: number) => setOwnerAttribute(group, attribute, value),
         resetClipCenter: (behavior: number, set: string, index: number) => resetClipCenter(group, behavior, set, index),
+        overlay: (effect: string, on: boolean) => {
+          const model = group.parent;
+          if (!model) return;
+          if (on) addOverlay(model, effect, (group.userData.overlays as Record<string, SofOverlay | null> | undefined)?.[effect]);
+          else removeOverlay(model, effect);
+        },
         spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
         trigger: (target: number) => group.traverse((o) => { if (o.userData.propagatorId === target) o.visible = true; }),
         applyTime: (set: number, time: number) => animator?.applyTime(set, time),
@@ -1251,7 +1258,7 @@ export function startEffect(object: THREE.Object3D): void {
 }
 
 export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = [],
-  locatorSets: Record<string, number[][]> = {}): Promise<THREE.Object3D | null> {
+  locatorSets: Record<string, number[][]> = {}, overlays: Record<string, SofOverlay | null> = {}): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
   const others: THREE.Object3D[] = [];
   const animator = new ChildAnimator();
@@ -1466,7 +1473,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
   // the curve sets play from the ticker's frame (with the modifiers)
   if (animator.playing) { animators.set(animator.key, animator); group.userData.animatorKey = animator.key; }
   // the hull's own controllers: owned by the space object (this group, HULL_OWNER: their sets are every child's)
-  if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); group.userData.locatorSets = locatorSets; }
+  if (hullControllers.length) { group.userData.controllerOwner = controllers.length; group.userData.controllerOwnerId = HULL_OWNER; controllers.push(hullControllers); group.userData.locatorSets = locatorSets; group.userData.overlays = overlays; }
   if (controllers.length) { group.userData.controllers = controllers; group.userData.childEffects = effects; }
   if (modified || animator.playing || controllers.length) group.add(ticker());
   return group;
