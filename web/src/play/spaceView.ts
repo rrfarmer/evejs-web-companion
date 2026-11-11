@@ -61,6 +61,8 @@ export interface SpaceViewOptions {
   rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } };
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
+  /** The reloads the server announced for the pilot's modules (OnChargeBeingLoadedToModule), by module item id. */
+  reloads?: () => Readonly<Record<number, { startedAtMs: number }>>;
   /** True while the pilot is coming out of a station: the view's first sight of the ship is the undock camera's. */
   undocking?: () => boolean;
 }
@@ -706,12 +708,21 @@ export class SpaceView {
       // turretSet.py: online at fitting (EnterStateIdle); a warp packs them (EnterWarp / ExitWarp); a target being
       // worked on aims them (TakeAim: EnterStateTargeting), none sends them back to idle (StopShooting)
       const warping = byID.get(shipID)?.mode === "WARP";
+      // turret.py OnChargeBeingLoadedToModule: the pilot's own ship's modules being loaded play Reload
+      const reloads = shipID === this.snapshot?.ship?.itemID ? this.options.reloads?.() ?? null : null;
       for (const { state: set, moduleID } of sets) {
         const target = this.turretFx.aimTarget(shipID, moduleID);
+        const reload = moduleID !== null ? reloads?.[moduleID] : undefined;
+        if (reload && reload.startedAtMs > ((set as { reloadSeen?: number }).reloadSeen ?? 0)) {
+          (set as { reloadSeen?: number }).reloadSeen = reload.startedAtMs;
+          if (set.state !== "invalid") set.enterReloading();
+        }
         if (set.state === "invalid") set.enterIdle();
         if (warping) set.enterDeactive();
         else if (set.state === "deactive") set.enterIdle();
-        else if (target !== null && set.state === "idle") set.enterTargeting();
+        else if (set.state === "reloading" && performance.now() < set.reloadUntil) { /* the Reload plays out */ }
+        else if (target !== null && (set.state === "idle" || set.state === "reloading")) set.enterTargeting();
+        else if (target === null && set.state === "reloading") set.enterIdle();
         else if (target === null && (set.state === "targeting" || set.state === "firing")) set.enterIdle();
         set.update(dt);
         const at = target !== null ? this.placeOf(target, origin) : null;

@@ -279,6 +279,8 @@
       onNeocom: (id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); },
       windowLayer: windowsEl ? windowLayer : undefined,
       undocking: () => performance.now() - undockedAt < 20000,
+      // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
+      reloads: () => s.store.fitting.get().reloads ?? {},
       showInfo: (itemID, typeID) => {
         void s.flow.infoWindows.show({ kind: "spaceObject", itemID, typeID }, {}).catch((error) => {
           if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });

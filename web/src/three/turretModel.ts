@@ -12,8 +12,8 @@
 // "Sys_*" bones, the target in the turret's own space, by the tracking influence) on top of its animation's pose: the
 // model's Granny animations (Deploy, Active, Fire, FireNN, Pack, Inactive) played as EveTurretSet::PlayAnimation plays
 // them (one once after a delay, then an idle one looping after it), the pose the latest player's; a set's turrets go
-// through EveTurretSet's states (TurretSetState). Not yet: bottomClipHeight, the special locator names' sequential fit,
-// Reload.
+// through EveTurretSet's states (TurretSetState), Reload included. Not yet: bottomClipHeight, the special locator
+// names' sequential fit.
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -173,7 +173,7 @@ export class TurretRig {
 }
 /** EveTurretSet.cpp TRACKING_FADE_TIME; EveTurretTarget.h EVE_TURRET_RANDOM_DELAY_MAX (GetShotTimeVariance). */
 const TRACKING_FADE_TIME = 1, RANDOM_DELAY_MAX = 0.6;
-type SetState = "invalid" | "deactive" | "idle" | "targeting" | "firing";
+type SetState = "invalid" | "deactive" | "idle" | "targeting" | "firing" | "reloading";
 
 /**
  * One module's turret set (EveTurretSet): its turrets' state and animations, and its tracking influence, faded in or
@@ -186,6 +186,8 @@ export class TurretSetState {
   private fadeInIn = 0;
   private fadeOutIn = 0;
   private cyclingPos = 0;
+  /** When the Reload animation ends (ms): the set goes back to aiming only after it. */
+  reloadUntil = 0;
   constructor(readonly rigs: TurretRig[], readonly maxCyclingFirePos: number, readonly useRandomFiringDelay: boolean, readonly maxTrackingTime: number) {
     for (const r of rigs) r.set = this;
   }
@@ -194,7 +196,7 @@ export class TurretSetState {
   /** EnterStateIdle (online: from nothing or reloading "Active"; from packed Deploy; from aiming back to Active). */
   enterIdle(): void {
     switch (this.state) {
-      case "invalid": this.all("", "Active"); break;
+      case "invalid": case "reloading": this.all("", "Active"); break;
       case "deactive": this.all("Deploy", "Active"); this.influence = 0; break;
       case "targeting": case "firing": this.fadeOutIn = 0.0001; this.all("", "Active", TRACKING_FADE_TIME); break;
       default: break;
@@ -205,7 +207,7 @@ export class TurretSetState {
   enterDeactive(): void {
     switch (this.state) {
       case "deactive": break;
-      case "idle": case "invalid": this.influence = 0; this.all("Pack", "Inactive"); this.fadeOutIn = 0; break;
+      case "idle": case "invalid": case "reloading": this.influence = 0; this.all("Pack", "Inactive"); this.fadeOutIn = 0; break;
       case "targeting": case "firing": this.fadeOutIn = 0.0001; this.all("Pack", "Inactive", TRACKING_FADE_TIME); break;
     }
     this.state = "deactive";
@@ -214,7 +216,7 @@ export class TurretSetState {
   enterTargeting(): void {
     switch (this.state) {
       case "deactive": { const len = this.all("Deploy", "Active", TRACKING_FADE_TIME); this.fadeInIn = len + 0.0001; break; }
-      case "idle": case "invalid": this.fadeInIn = 0.0001; this.all("", "Active", TRACKING_FADE_TIME); break;
+      case "idle": case "invalid": case "reloading": this.fadeInIn = 0.0001; this.all("", "Active", TRACKING_FADE_TIME); break;
       case "firing": this.all("", "Active", 0); break;
       default: break;
     }
@@ -228,12 +230,23 @@ export class TurretSetState {
     if (this.state === "deactive" || this.state === "invalid") return 0;
     if (this.maxCyclingFirePos > 1) { this.cyclingPos += 1; if (this.cyclingPos >= this.maxCyclingFirePos) this.cyclingPos = 0; }
     let delay = this.useRandomFiringDelay ? RANDOM_DELAY_MAX * Math.random() : 0;
-    if (this.state === "idle") { delay += this.maxTrackingTime; this.fadeInIn = 0.0001; }
+    if (this.state === "idle" || this.state === "reloading") { delay += this.maxTrackingTime; this.fadeInIn = 0.0001; }
     const fire = this.cyclingPos > 0 ? `Fire0${this.cyclingPos}` : "Fire";
     for (const r of this.rigs) if (r === firing) r.play(fire, "Active", delay); else r.play("", "Active", delay);
     this.state = "firing";
     // m_randomFiringDelay (MissileTurretWrapper.firingDelay: the missile's warhead waits it too)
     return delay;
+  }
+  /** EnterStateReloading (EveTurretSet.cpp:3067-3110): Reload, then Active; from aiming the tracking fades out. */
+  enterReloading(): void {
+    let len = 0;
+    switch (this.state) {
+      case "deactive": return;
+      case "invalid": case "idle": case "reloading": len = this.all("Reload", "Active", 0); break;
+      case "targeting": case "firing": this.fadeOutIn = 0.0001; len = this.all("Reload", "Active", TRACKING_FADE_TIME) + TRACKING_FADE_TIME; break;
+    }
+    this.reloadUntil = performance.now() + len * 1000;
+    this.state = "reloading";
   }
   /** The tracking influence's fade (EveTurretSet::Update, :1419-1450). */
   update(dt: number): void {
