@@ -1889,6 +1889,8 @@ test("the game-port client permits native trade, local inventory helpers and cal
     "expertSystemMgr.GetMyExpertSystems", "expertSystemMgr.RemoveMyExpertSystem",
     // The NPCs' standings with each other, an owner's Standings tab. The gateway's list has it not.
     "standingMgr.GetNPCNPCStandings",
+    // A ship's dirt time, the hangar's (baseHangarBehaviours.SetShipDirtLevel). The gateway's list has it not.
+    "ship.GetDirtTimestamp",
   ]);
   // structureGuests.py 25: sm.RemoteSvc('structureGuests').GetGuests(session.structureid), by the service's name,
   // with the structure the session is docked in and nothing else.

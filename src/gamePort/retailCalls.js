@@ -607,8 +607,11 @@ const MONIKER_NEEDS = Object.freeze({
   }),
 });
 
-/** shipConfigSvc.py 51: eveMoniker.GetShipAccess().GetShipConfiguration(shipID), a Moniker of its own each time. */
-const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration"]);
+/**
+ * shipConfigSvc.py 51: eveMoniker.GetShipAccess().GetShipConfiguration(shipID), and baseHangarBehaviours.py 89:
+ * eveMoniker.GetShipAccess().GetDirtTimestamp(itemID), each a Moniker of its own each time.
+ */
+const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration", "GetDirtTimestamp"]);
 /**
  * Whether the client makes a new Moniker for this call, which binds carrying it and is not kept, or calls one it
  * keeps. All of crimewatch's are made anew (crimewatchSvc.py: CharGetCrimewatchLocation().Method(...) at each use).
@@ -882,6 +885,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // The NPCs' standings with each other, which the standing service keeps (standingsvc.py 115) and an owner's Show Info
   // reads in its Standings tab (panelStandings.GetStandingsFromManyToOneMutual). The gateway's list has it not.
   "standingMgr.GetNPCNPCStandings",
+  // A ship's dirt time, which the client's hangar asks for the docked ship (baseHangarBehaviours.SetShipDirtLevel:
+  // GetShipAccess().GetDirtTimestamp(itemID), for its hull's dust). The gateway's list has it not.
+  "ship.GetDirtTimestamp",
 ]);
 
 /**

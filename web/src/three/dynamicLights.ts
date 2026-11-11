@@ -58,7 +58,8 @@ const tmp = new THREE.Vector3();
 export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera, group: THREE.Object3D): void {
   const f = renderer.info.render.frame;
   if (f !== frame) {
-    if (gathered.length) publish(renderer, camera);
+    // (an empty list too: the last view's lights must not stay on, e.g. the hangar's after undocking)
+    publish(renderer, camera);
     frame = f;
     gathered = [];
   }

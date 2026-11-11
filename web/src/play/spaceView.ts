@@ -301,7 +301,7 @@ export class SpaceView {
     // the sun's shadow on the space objects (quadv5.sm_depth: EveSpaceSceneShadowMap x the sun's colour, the scene's
     // cascaded shadow pass): three's shadow map of the sun light, fitted around the point looked at (fitSunShadow)
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(4096, 4096);
     this.scene.add(this.warpTunnel.object, this.turretFx.group, this.missileFx.group);

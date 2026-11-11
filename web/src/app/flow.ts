@@ -3178,6 +3178,11 @@ export interface AppFlow {
   bloodlineDescriptionID(bloodlineID: number): Promise<number | null>;
   /** An agent's row in the table of agents (agents.GetAgentByID), or null where it is none. */
   agentRecord(agentID: number): Promise<AgentRow | null>;
+  /**
+   * A ship's dirt time (FILETIME), as the client's hangar asks it for the docked ship (baseHangarBehaviours
+   * .SetShipDirtLevel: eveMoniker.GetShipAccess().GetDirtTimestamp(itemID)); null where the server gives none.
+   */
+  shipDirtTime(shipID: number): Promise<bigint | number | null>;
   /** A solar system's celestials and NPC stations, as the client's own map lists them (mapSvc.GetSolarsystemItems). */
   mapSystemObjects(solarSystemID: number): Promise<{ readonly available: boolean; readonly objects: readonly api.SystemObjectRow[] }>;
   /**
@@ -28177,6 +28182,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     async agentRecord(agentID) {
       return (await agentsKnown()).find((agent) => agent.agentID === agentID) ?? null;
+    },
+    async shipDirtTime(shipID) {
+      // (a FILETIME crosses as {type: "long", value: "<decimal>"}: past 2^53, kept exact as a bigint)
+      const answer = await bridgeAsk("ship", "GetDirtTimestamp", [shipID]);
+      if (typeof answer === "bigint" || typeof answer === "number") return answer;
+      const long = answer as { type?: unknown; value?: unknown } | null;
+      return long && typeof long === "object" && long.type === "long" && /^-?\d+$/.test(String(long.value)) ? BigInt(String(long.value)) : null;
     },
     npcNpcStandings() {
       npcNpcStandingsRead ??= readNpcNpcStandings(bridgeAsk).catch((error: unknown) => {

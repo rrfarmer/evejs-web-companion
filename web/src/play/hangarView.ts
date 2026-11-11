@@ -7,7 +7,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { typeModel, graphicModel, setThrust } from "../three/hullModel.ts";
+import { typeModel, graphicModel, setThrust, setDirtLevel } from "../three/hullModel.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
@@ -46,6 +46,8 @@ export class HangarView {
   private zoom = { near: 10, far: 2050 };
   private swing: Swing = DEFAULT_SWING;
   private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
+  /** The docked ship's dirt level (setDirt), kept for the next ship model shown too. */
+  private dirt: number | null = null;
   /** The docking swing (seconds since it began) and the idle turn (from where the camera was), while they run. */
   private entryFrom: number | null = null;
   private idle: { since: number; from: { yaw: number; pitch: number; distance: number } } | null = null;
@@ -88,6 +90,12 @@ export class HangarView {
   }
 
   /** Show a ship type in a hangar (its model and scene graphics, hangarRegistry; null for the dark bay), again only on a change. */
+  /** The docked ship's dust (baseHangarBehaviours.SetShipDirtLevel: CalcDirtLevelFromAge of its dirt time). */
+  setDirt(level: number | null): void {
+    this.dirt = level;
+    if (this.ship && level !== null) setDirtLevel(this.ship.model, level);
+  }
+
   async show(typeID: number | null, hangarGraphics: { model: number; scene: number; swings?: readonly DockSwing[] } | null = null): Promise<void> {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
     if (typeID === this.shownType && hangarKey === this.shownHangar) return;
@@ -133,6 +141,7 @@ export class HangarView {
     this.camera.near = Math.max(0.5, radius / 50);
     this.camera.far = hangar ? 1e5 : radius * 400;
     this.ship = { model, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
+    if (this.dirt !== null) setDirtLevel(model, this.dirt);
     // its turrets, for the fit known now
     void this.applyFit();
     this.lastBob = 0;

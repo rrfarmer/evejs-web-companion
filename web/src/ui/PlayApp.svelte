@@ -27,6 +27,7 @@
   import { typeNames as typeData } from "../play/overview.ts";
   import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
+  import { dirtLevelFromTime } from "../three/hullModel.ts";
   import { Neocom } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
   import type { HudModule } from "../play/shipHud.ts";
@@ -198,6 +199,13 @@
           const categoryID = t?.[1] != null ? names?.groups[String(t[1])]?.[1] ?? null : null;
           return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null);
         });
+      });
+      // its dust: the docked ship's dirt time, asked of the server as the client's hangar asks it
+      $effect(() => {
+        // (the fitting's active ship: the flight is not read while docked)
+        const shipID = $fitting?.activeShipID ?? null;
+        if (!shipID || !$station?.station) { hangar.setDirt(null); return; }
+        void session?.flow.shipDirtTime(shipID).then((t) => hangar.setDirt(t === null ? null : dirtLevelFromTime(t))).catch(() => hangar.setDirt(null));
       });
       // its fitted turrets (the fitting's high and medium slots: slot = the place in its rack + 1, as
       // TurretSet.GetSlotFromModuleFlagID; the fit is applied only when it changes)
