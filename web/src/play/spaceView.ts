@@ -723,9 +723,17 @@ export class SpaceView {
   private fireTurretSet(shipID: number, moduleID: number, targetID: number | null): number {
     const group = (this.marks.get(shipID)?.userData.model as THREE.Object3D | undefined)?.getObjectByName("turrets");
     const sets = (group?.userData.sets as { state: TurretSetState; moduleID: number | null }[] | undefined) ?? [];
-    const set = sets.find((x) => x.moduleID === moduleID)?.state ?? sets.find((x) => x.moduleID === null)?.state;
-    if (!set) return 0;
+    // the module's set; an NPC's sets (no module: FitTurrets fits them as one TurretSet under the ship's id) all fire
+    const own = sets.filter((x) => x.moduleID === moduleID);
+    const chosen = own.length ? own : sets.filter((x) => x.moduleID === null);
+    if (!chosen.length) return 0;
     const target = targetID !== null ? this.placeOf(targetID, this.lastOrigin) : null;
+    let delay = 0;
+    for (const { state } of chosen) delay = this.fireSet(state, target);
+    return delay;
+  }
+  /** EnterStateFiring of one set, by its turret whose up axis faces the target best (GetClosestTurretAndLocator). */
+  private fireSet(set: TurretSetState, target: THREE.Vector3 | null): number {
     let best: TurretRig | null = null, bestDot = -Infinity;
     for (const r of set.rigs) {
       if (!target) { best ??= r; continue; }
