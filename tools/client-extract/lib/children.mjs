@@ -132,6 +132,10 @@ function readCurveSet(cs) {
 // The object files Tr2ActionChildEffect loads (by their .red path, as the actions name them), each read once per build
 // as a child's graph (readNode): the page builds one when a controller's state starts.
 let effectRoots = new Map();
+// the hull's children's raw roots (each named; a hull controller's Owner.effectChildren) and its own controllers' raw
+// objects (Owner.controllers), for SetValue paths
+let rawHullChildren = [];
+let rawHullControllers = [];
 // the same files' raw roots (as read), for a SetValue that reaches into an effect a controller loads at run time
 let rawEffects = new Map();
 // the hull locator sets the file's effect propagators name (written with the children: extract.mjs locatorSets)
@@ -184,16 +188,27 @@ function childEffectTargets(a, childEffects) {
   return out;
 }
 
+/**
+ * The object a SetValue's path names (Tr2ValueBinding's path from Owner): each step an attribute, a list's item by
+ * name (["x"]) or index ([0]), or a plain attribute (.plug, .destinationObject); an object's parameters are its
+ * effect's or its mesh areas' effects'. A hull controller's Owner (owner null) is the space object: its effectChildren
+ * the hull's children (readHullChildren), its controllers the hull's own (readHullControllers). Null where any step
+ * finds nothing (Trinity's binding is then not valid).
+ */
 function setValueObject(owner, a) {
   if (!a.path) return a.destination ?? null;
-  const m = /^Owner((?:\.(?:objects|curveSets|curves|parameters)\["[^"]*"\])*)$/.exec(String(a.path));
-  if (!m) return null;
-  let o = owner;
-  for (const step of m[1].matchAll(/\.(objects|curveSets|curves|parameters)\["([^"]*)"\]/g)) {
-    // an object's parameters: its effect's, or its mesh areas' effects' (the first of that name)
-    const list = step[1] === "parameters" ? effectParametersOf(o) : (o?.[step[1]] ?? []);
-    o = list.find((x) => x?.name === step[2]) ?? null;
-    if (!o) return null;
+  const path = String(a.path);
+  if (!path.startsWith("Owner")) return null;
+  const rest = path.slice("Owner".length);
+  const steps = [...rest.matchAll(/\.([A-Za-z_]\w*)(?:\[(?:"([^"]*)"|(\d+))\])?/g)];
+  if (steps.map((s) => s[0]).join("") !== rest) return null;
+  let o = owner ?? { effectChildren: rawHullChildren, controllers: rawHullControllers };
+  for (const [, name, key, index] of steps) {
+    const value = name === "parameters" ? effectParametersOf(o) : o?.[name];
+    if (key !== undefined) o = Array.isArray(value) ? value.find((x) => x?.name === key) ?? null : null;
+    else if (index !== undefined) o = Array.isArray(value) ? value[Number(index)] ?? null : null;
+    else o = value ?? null;
+    if (!o || typeof o !== "object") return null;
   }
   return o;
 }
@@ -256,6 +271,13 @@ function readController(c, skipped, owner) {
         const targets = own ? [own] : childEffectTargets(a, childEffects);
         const ids = targets.filter(fits).map(idOf);
         if (ids.length) return { k: "setValue", target: ids[0], targets: ids, attribute: a.attribute, value };
+      }
+      // another controller's variable (Tr2ControllerFloatVariable "value", reached by its path: a child's controller,
+      // the hull's other controllers, a child effect's): by the variable's id, as a binding into it is
+      if (a.attribute === "value" && a.path) {
+        const own = setValueObject(owner, a);
+        const vars = (own ? [own] : childEffectTargets(a, childEffects)).filter((t) => t?.type === "Tr2ControllerFloatVariable");
+        if (vars.length) return { k: "setValue", target: idOf(vars[0]), targets: vars.map(idOf), attribute: "value", value };
       }
       // an effect propagator's trigger (EveChildEffectPropagator "trigger": non-nought reads its locators and plays)
       const propagator = a.attribute === "trigger" ? setValueObject(owner, a) : null;
@@ -588,6 +610,8 @@ export function readHullChildren(rf, sofHull, faction = null) {
   nextId = 1;
   effectRoots = new Map();
   rawEffects = new Map();
+  rawHullChildren = [];
+  rawHullControllers = [];
   locatorSetsUsed = new Set();
   readRf = rf;
   for (const child of hullChildEntries(sofHull, faction)) {
@@ -604,6 +628,7 @@ export function readHullChildren(rf, sofHull, faction = null) {
       }
       shownBySet = findShownBySet(o);
       actionEmitters = findActionEmitters(o);
+      if (o && typeof o === "object") rawHullChildren.push(o);
       root = readNode(o, skipped);
     } catch (e) {
       skipped.unread = String(e.message ?? e);
@@ -650,16 +675,20 @@ export function readHullControllers(rf, sofHull) {
   overlayPaths = new Set();
   const out = [];
   const skipped = {};
+  // all read first: one may set another's variables (Owner.controllers["name"])
+  const read = [];
   for (const c of sofHull?.controllers ?? []) {
     const res = String(c?.path ?? "").toLowerCase().replace(/\.red$/, ".black");
     if (!res || !rf.has(res)) continue;
     try {
       const o = readBlack(rf.read(res), res);
-      if (o?.type === "Tr2Controller") out.push({ path: res, ...readController(o, skipped, null) });
+      if (o?.type === "Tr2Controller") read.push([res, o]);
     } catch {
       // an unreadable controller file draws nothing
     }
   }
+  rawHullControllers = read.map(([, o]) => o);
+  for (const [res, o] of read) out.push({ path: res, ...readController(o, skipped, null) });
   return out;
 }
 

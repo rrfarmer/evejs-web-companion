@@ -1132,6 +1132,12 @@ tickerMaterial.onBeforeRender = (_r, _s, camera, _g, object) => {
         // the owner's own target, else one in a child effect loaded under it (its own animator, by its key)
         setValue: (target: number, attribute: string, value: number) => {
           if (animator?.setValue(target, attribute, value)) return;
+          // a controller's variable (by its id): the run holding it, in this clone
+          if (attribute === "value") {
+            let found = false;
+            for (const run of runs ?? []) for (const v of run.variableIds) if (v.id === target) { run.setVariable(v.name, value); found = true; }
+            if (found) return;
+          }
           group.traverse((o) => {
             const key = o.userData.animatorKey as string | undefined;
             if (key && key !== group.userData.animatorKey) animators.get(key)?.setValue(target, attribute, value);
