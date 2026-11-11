@@ -281,9 +281,10 @@ export class ChildAnimator {
         const setScale = !target && !xf && !curve && !binding && b.destinationType === "TriCurveSet" && attr0 === "scale";
         // an effect propagator's trigger (a bool: each update the value is not nought it is set, and the propagator
         // reads its locators and plays again - this clone's run, put on its holder)
-        const triggers = !target && !xf && !curve && !binding && b.destinationType === "EveChildEffectPropagator" && attr0 === "trigger"
+        // (its holder is also a display target: the trigger is looked at first)
+        const triggers = b.destinationType === "EveChildEffectPropagator" && attr0 === "trigger"
           ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.onTrigger === "function") : [];
-        if (!target && !xf && !curve && !binding && !sinks.length && !setScale && !triggers.length) continue;
+        if (!triggers.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
         if (b.sourceFx !== undefined) {
