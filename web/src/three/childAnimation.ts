@@ -194,6 +194,14 @@ export class ChildAnimator {
     }
   }
   stop(owner: number, name: string): void { for (const r of this.under(owner, name)) r.playing = false; }
+  /**
+   * EveEffectRoot2::Start (EveEffectRoot2.cpp:580-596): every curve set played from its start (the root's own and its
+   * children's, PlayAllCurveSets), at its own speed - an effect copy made beforehand begins now.
+   */
+  restart(): void {
+    const now = performance.now();
+    for (const r of this.sets) { r.playing = true; r.time = 0; r.last = now; r.range = null; r.applyAt = null; r.scale = r.set.scale; }
+  }
   /** TriCurveSet::ApplyTime: the set's curves and bindings at that time, next step (a playing set goes on from it). */
   applyTime(id: number, time: number): void {
     for (const r of this.sets) if (r.set.id === id) r.applyAt = time;

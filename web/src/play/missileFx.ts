@@ -6,9 +6,13 @@
 // draws it (a capsule ray-cast in a box), with its sprite lights (lights.fx) and its trail's GPU emitters; on reaching
 // the target it makes the target's impact (CreateImpact: a shield ripple, an armor hole) and is gone.
 //
-// Not yet: the impact effect file (the explosion, the type's graphicFile), the launcher turrets' firing bones and
-// delays (a warhead starts at the ball, as the client's does where the source ship has no turret set for the module),
-// the camera shake and the target's torque.
+// Each warhead's explosion is the type's impact file (its graphicFile, an EveEffectRoot2), made beforehand for each
+// warhead (ExplosionManager.Preload) and started where the warhead exploded, turned at random (no turret set to say
+// otherwise), for the file's duration (ExplosionManager: -1 is ten seconds).
+//
+// Not yet: the launcher turrets' firing bones and delays (a warhead starts at the ball, as the client's does where the
+// source ship has no turret set for the module), the explosion's pixel-size cull, the camera shake and the target's
+// torque.
 
 import * as THREE from "three";
 import { GpuEmitter, gpuSystemOf, setGpuParticleAssets, type GpuEmitterData } from "../three/gpuParticles.ts";
@@ -16,6 +20,7 @@ import { loadDds } from "../three/ddsTexture.ts";
 import { logDepth } from "../three/logDepth.ts";
 import { perlinNoise1D } from "../three/curves.ts";
 import type { ImpactOverlay } from "../three/impactOverlay.ts";
+import { hullChildren, startEffect, type SofChildNode } from "../three/hullChildren.ts";
 
 /** A warhead as the extractor reads it (tools/client-extract/lib/missile.mjs). */
 interface WarheadData {
@@ -29,10 +34,19 @@ interface WarheadData {
 export interface MissileInfo {
   typeID: number; missileFile: string | null; impactFile: string | null;
   model: { name: string | null; warheads: WarheadData[] } | null;
+  /** The impact file read as a hull child's graph (children.mjs readEffectFile): its life in seconds (-1: none given). */
+  impact: { res: string; root: SofChildNode | null; childEffects: Record<string, SofChildNode | null>; duration: number; boundingSphereRadius: number } | null;
   gpuParticles?: { atlas?: string | null; noise?: string | null };
 }
 
 const infos = new Map<number, Promise<MissileInfo | null>>();
+const info = (m: { info: MissileInfo | null }) => m.info?.impactFile ?? null;
+/** An explosion's object: the impact file's graph built as a hull child's (hullChildren), a new one each time. */
+function buildImpact(i: MissileInfo): Promise<THREE.Object3D | null> {
+  const impact = i.impact;
+  if (!impact?.root) return Promise.resolve(null);
+  return hullChildren([{ res: impact.res, root: impact.root, skipped: {} }], impact.childEffects).catch((e) => { console.warn("missile impact", e); return null; });
+}
 function missileInfo(typeID: number): Promise<MissileInfo | null> {
   if (!infos.has(typeID)) infos.set(typeID, fetch(`/client-assets/missile/${typeID}`).then((r) => r.json() as Promise<MissileInfo>).catch(() => null));
   return infos.get(typeID)!;
@@ -224,6 +238,9 @@ class Missile {
   frozen: { x: number; y: number; z: number } | null = null;
   started = false;
   released = 0;
+  /** The explosions made beforehand, one a warhead (ExplosionManager.Preload). */
+  impactPool: Promise<THREE.Object3D | null>[] = [];
+  info: MissileInfo | null = null;
   readonly bornAt = performance.now();
   constructor(readonly itemID: number, readonly typeID: number, readonly targetID: number | null, readonly sourceShipID: number | null, readonly launchModules: number) {}
   get done(): boolean { return this.started && this.warheads.every((w) => w.state === State.DEAD); }
@@ -387,15 +404,21 @@ export class MissileFx {
   private readonly finished = new Set<number>();
   /** How many warheads have exploded (for checks). */
   exploded = 0;
+  /** The explosions playing: their object, where (three's space, moved with the world) and when they end. */
+  private readonly explosions: { object: THREE.Object3D; until: number }[] = [];
   /** Each explosion: the missile's type and impact file, where (three's space) - the impact effect's hook. */
   onExplode: ((typeID: number, impactFile: string | null, at: THREE.Vector3, targetID: number | null) => void) | null = null;
 
   constructor() { this.group.name = "missiles"; }
 
-  get active(): number { return this.missiles.size; }
+  get active(): number { return this.missiles.size + this.explosions.length; }
+  /** How many explosions are playing (for checks). */
+  get explosionsLive(): number { return this.explosions.length; }
 
   update(f: MissileFrame): void {
     clock.value = performance.now() / 1000;
+    this.shifts.push({ at: performance.now(), by: f.shift.clone() });
+    while (this.shifts.length && performance.now() - this.shifts[0]!.at > 5000) this.shifts.shift();
     sunDir.value.copy(f.sun).normalize();
     aspect.value = f.aspect;
     const seen = new Set<number>();
@@ -434,6 +457,40 @@ export class MissileFx {
       }
     }
     for (const id of this.finished) if (!seen.has(id)) this.finished.delete(id);
+    // the explosions: carried with the world under the view, gone at the end of their life (ExplosionManager._Prune)
+    const now = performance.now();
+    for (let i = this.explosions.length - 1; i >= 0; i--) {
+      const e = this.explosions[i]!;
+      if (now >= e.until) { this.group.remove(e.object); this.explosions.splice(i, 1); continue; }
+      e.object.position.add(f.shift);
+    }
+  }
+
+  /** MissileGraphics._SpawnExplosion and PlaceMissileImpact: an explosion made beforehand, started at the place. */
+  private explode(m: Missile, at: THREE.Vector3): void {
+    const info = m.info;
+    if (!info?.impact) return;
+    const made = m.impactPool.shift() ?? buildImpact(info);
+    const bornAt = performance.now();
+    void made.then((object) => {
+      if (!object) return;
+      // where it was, moved by the world since (the explosion waited for its build)
+      const holder = new THREE.Group();
+      holder.position.copy(at).add(this.shiftSince(bornAt));
+      holder.quaternion.setFromEuler(new THREE.Euler(Math.random() * 2 * Math.PI, Math.random() * 2 * Math.PI, Math.random() * 2 * Math.PI, "YXZ"));
+      holder.add(object);
+      startEffect(object);
+      this.group.add(holder);
+      const life = info.impact!.duration === -1 ? 10 : info.impact!.duration;
+      this.explosions.push({ object: holder, until: performance.now() + life * 1000 });
+    });
+  }
+  /** The world's shift under the view since a moment (kept per frame for the explosions that wait for their build). */
+  private readonly shifts: { at: number; by: THREE.Vector3 }[] = [];
+  private shiftSince(t: number): THREE.Vector3 {
+    const out = new THREE.Vector3();
+    for (const s of this.shifts) if (s.at > t) out.add(s.by);
+    return out;
   }
 
   private drop(id: number): void {
@@ -449,6 +506,7 @@ export class MissileFx {
     const model = info?.model;
     if (!model || model.warheads.length !== 1 || !this.missiles.has(m.itemID)) return;
     setGpuParticleAssets(info.gpuParticles);
+    m.info = info;
     const d = model.warheads[0]!;
     // _GetTimeToTarget: to the target's surface and to its centre at the ball's top speed; no spread under 1.6 s (and
     // then the missile is taken as collided at once)
@@ -477,6 +535,8 @@ export class MissileFx {
     m.lastValidSpeed = 0;
     for (const w of m.warheads) w.launch(new THREE.Matrix4());
     m.started = true;
+    // ExplosionManager.Preload: an explosion for each warhead, made now
+    if (info.impact?.root) m.impactPool = m.warheads.map(() => buildImpact(info));
   }
 
   /** EveMissile::UpdateSyncronous (EveMissile.cpp:120-207). */
@@ -514,7 +574,8 @@ export class MissileFx {
       if (w.checkImpact(dt, m.aliveTime, target) === Evt.EXPLODE) {
         this.exploded++;
         w.object.visible = false;
-        this.onExplode?.(m.typeID, null, w.explosionPosition.clone(), m.targetID);
+        this.explode(m, w.explosionPosition.clone());
+        this.onExplode?.(m.typeID, info(m), w.explosionPosition.clone(), m.targetID);
       }
       if (w.state === State.EXPLODED || w.state === State.DEAD) w.object.visible = false;
     }

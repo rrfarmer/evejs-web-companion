@@ -542,6 +542,33 @@ export function readHullChildren(rf, sofHull, faction = null) {
 }
 
 /**
+ * An effect file read whole (an EveEffectRoot2: a missile's impact, an explosion): its effectChildren read as one
+ * container's objects, with the root's own curve sets and controllers (their owner the root), as a hull child's root
+ * is. { res, root, skipped, childEffects, duration, boundingSphereRadius } - the root's duration (-1: none given) and
+ * radius as the file has them; null where the client has no such file.
+ */
+export function readEffectFile(rf, path) {
+  const res = String(path).toLowerCase().replace(/\.red$/, ".black");
+  if (!rf.has(res)) return null;
+  ids = new WeakMap();
+  nextId = 1;
+  effectRoots = new Map();
+  locatorSetsUsed = new Set();
+  readRf = rf;
+  const skipped = {};
+  let root = null, o = null;
+  try {
+    o = readBlack(rf.read(res), res);
+    shownBySet = findShownBySet(o);
+    actionEmitters = findActionEmitters(o);
+    root = o && typeof o === "object" ? readNode({ ...o, type: "EveChildContainer", objects: o.effectChildren ?? [] }, skipped) : null;
+  } catch (e) {
+    skipped.unread = String(e.message ?? e);
+  }
+  return { res, root, skipped, childEffects: childEffectRoots(), duration: o?.duration ?? -1, boundingSphereRadius: o?.boundingSphereRadius ?? 0 };
+}
+
+/**
  * The hull's own controllers (EveSOFDataHull.controllers: each a Tr2Controller's file, res:/dx9/model/controller/
  * shipstandard.red and the like), read as a child's are, their owner the space object itself. Read after
  * readHullChildren, whose ids they continue. A file the client does not ship, or not a controller, is left out.

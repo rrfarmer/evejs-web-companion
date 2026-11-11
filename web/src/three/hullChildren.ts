@@ -1170,6 +1170,14 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
   });
 }
 
+/**
+ * Start an effect object built by hullChildren (EveEffectRoot2::Start, as ExplosionManager.GetExplosion calls it): its
+ * curve sets played from now. Its controllers begin as it is first drawn.
+ */
+export function startEffect(object: THREE.Object3D): void {
+  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(); });
+}
+
 export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = [],
   locatorSets: Record<string, number[][]> = {}): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];

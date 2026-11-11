@@ -27,7 +27,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { childEffectRoots, readHullChildren, readHullControllers, readTrafficInstances, usedLocatorSets } from "./lib/children.mjs";
+import { childEffectRoots, readEffectFile, readHullChildren, readHullControllers, readTrafficInstances, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
@@ -111,6 +111,41 @@ function copyRes(rf, res, outRoot) {
 }
 
 /**
+ * A child graph's assets (children.mjs nodes, rewritten in place to URLs): a traffic mesh's instances read, its textures
+ * copied; a mesh's or particle system's geometry extracted (as a hull's, once), its areas' textures copied; a line set's
+ * textures copied. Whether any node has GPU emitters (the scene's GPU particle system's atlas is then wanted).
+ */
+async function copyChildGraphAssets(rf, roots, outRoot) {
+  const trafficNodes = [], meshNodes = [];
+  let gpu = false;
+  const walkChildren = (n) => {
+    if (!n) return;
+    if (n.k === "gpuParticles") gpu = true;
+    if (n.k === "traffic") trafficNodes.push(n);
+    if (n.k === "mesh" || n.k === "particles") meshNodes.push(n);
+    if (n.k === "lines") for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+    for (const o of n.objects ?? []) walkChildren(o);
+    if (n.k === "propagator") walkChildren(n.source);
+  };
+  for (const r of roots) walkChildren(r);
+  for (const n of trafficNodes) {
+    n.instances = rf.has(n.instances) ? await readTrafficInstances(rf, n.instances) : null;
+    for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+  }
+  for (const n of meshNodes) {
+    const res = n.geometry;
+    const glb = path.join(outRoot, ...`${res.slice("res:/".length, -".gr2".length)}.glb`.split("/"));
+    if (!rf.has(res)) n.geometry = null;
+    else {
+      if (!fs.existsSync(glb)) await extractHull(rf, res, outRoot).catch((e) => console.warn(`child mesh ${res}: ${e.message}`));
+      n.geometry = fs.existsSync(glb) ? `/client-assets/${res.slice("res:/".length, -".gr2".length)}.glb` : null;
+    }
+    for (const a of n.areas) for (const [name, t] of Object.entries(a.textures)) a.textures[name] = rf.has(t) ? copyRes(rf, t, outRoot) : null;
+  }
+  return gpu;
+}
+
+/**
  * A hull as the Space Object Factory builds it for a faction (lib/sof.mjs), written beside the model as
  * <hull stem>.<faction>.sof.json, every texture it names copied (a station's come from shared texture sets).
  */
@@ -182,41 +217,11 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
       };
     }
   }
-  // a traffic mesh's instances read, its textures copied; a mesh's geometry extracted (as a hull's, once), its areas'
-  // textures copied
-  const trafficNodes = [], meshNodes = [];
-  const walkChildren = (n) => {
-    if (!n) return;
-    if (n.k === "traffic") trafficNodes.push(n);
-    if (n.k === "mesh" || n.k === "particles") meshNodes.push(n);
-    if (n.k === "lines") for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
-    for (const o of n.objects ?? []) walkChildren(o);
-    if (n.k === "propagator") walkChildren(n.source);
-  };
-  let gpu = false;
-  const findGpu = (n) => { if (!n || gpu) return; if (n.k === "gpuParticles") gpu = true; for (const o of n.objects ?? []) findGpu(o); if (n.k === "propagator") findGpu(n.source); };
-  for (const c of built.children) walkChildren(c.root);
-  for (const root of Object.values(built.childEffects)) walkChildren(root);
-  for (const c of built.children) findGpu(c.root);
-  for (const root of Object.values(built.childEffects)) findGpu(root);
+  const gpu = await copyChildGraphAssets(rf, [...built.children.map((c) => c.root), ...Object.values(built.childEffects)], outRoot);
   // the scene GPU particle system's atlas and turbulence volume (res:/fisfx/gpuparticles/system.black's), where a child
   // has GPU emitters or the hull has impact debris
   if (gpu || built.impact) built.gpuParticles = Object.fromEntries([["atlas", "res:/fisfx/gpuparticles/systematlas.dds"], ["noise", "res:/texture/global/noise32cube_volume.dds"]]
     .map(([k, res]) => [k, rf.has(res) ? copyRes(rf, res, outRoot) : null]));
-  for (const n of trafficNodes) {
-    n.instances = rf.has(n.instances) ? await readTrafficInstances(rf, n.instances) : null;
-    for (const [name, res] of Object.entries(n.textures)) n.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
-  }
-  for (const n of meshNodes) {
-    const res = n.geometry;
-    const glb = path.join(outRoot, ...`${res.slice("res:/".length, -".gr2".length)}.glb`.split("/"));
-    if (!rf.has(res)) n.geometry = null;
-    else {
-      if (!fs.existsSync(glb)) await extractHull(rf, res, outRoot).catch((e) => console.warn(`child mesh ${res}: ${e.message}`));
-      n.geometry = fs.existsSync(glb) ? `/client-assets/${res.slice("res:/".length, -".gr2".length)}.glb` : null;
-    }
-    for (const a of n.areas) for (const [name, t] of Object.entries(a.textures)) a.textures[name] = rf.has(t) ? copyRes(rf, t, outRoot) : null;
-  }
   for (const area of built.areas) {
     for (const [name, res] of Object.entries(area.textures)) {
       area.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
@@ -252,7 +257,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
  * the type's own graphicFile; the warhead's textures copied, and the scene GPU particle system's atlas and turbulence
  * volume (the trail's emitters draw into it). Written as missiles/<typeID>.json.
  */
-export function extractMissile(rf, clientDir, sdeDir, typeID, outRoot) {
+export async function extractMissile(rf, clientDir, sdeDir, typeID, outRoot) {
   const names = JSON.parse(fs.readFileSync(path.join(outRoot, "typeNames.json"), "utf8"));
   const tg = JSON.parse(fs.readFileSync(path.join(outRoot, "typeGraphics.json"), "utf8"))[String(typeID)] ?? null;
   const groupID = names.types?.[String(typeID)]?.[1] ?? tg?.groupID ?? null;
@@ -264,8 +269,11 @@ export function extractMissile(rf, clientDir, sdeDir, typeID, outRoot) {
     for (const k of Object.keys(w.spriteTextures)) w.spriteTextures[k] = copy(w.spriteTextures[k]);
     if (w.mesh) for (const k of Object.keys(w.mesh.textures)) w.mesh.textures[k] = copy(w.mesh.textures[k]);
   }
+  // the impact (ExplosionManager's explosion: an EveEffectRoot2 read as a hull child's graph, its assets copied)
+  const impact = tg?.graphicFile ? readEffectFile(rf, tg.graphicFile) : null;
+  if (impact) await copyChildGraphAssets(rf, [impact.root, ...Object.values(impact.childEffects)], outRoot);
   const out = {
-    missileBuild: 1, typeID, groupID, graphicID: ids?.[0] ?? null, missileFile, impactFile: tg?.graphicFile ?? null, model,
+    missileBuild: 2, typeID, groupID, graphicID: ids?.[0] ?? null, missileFile, impactFile: tg?.graphicFile ?? null, model, impact,
     gpuParticles: { atlas: copy("res:/fisfx/gpuparticles/systematlas.dds"), noise: copy("res:/texture/global/noise32cube_volume.dds") },
   };
   const file = path.join(outRoot, "missiles", `${typeID}.json`);
@@ -531,7 +539,7 @@ async function main() {
   }
   for (const typeID of args.missiles) {
     if (!sde) throw new Error("--missile needs the SDE (--sde, or a config.json that names it)");
-    console.log(`missile ${typeID} -> ${path.relative(outRoot, extractMissile(rf, client, sde, typeID, outRoot))}`);
+    console.log(`missile ${typeID} -> ${path.relative(outRoot, await extractMissile(rf, client, sde, typeID, outRoot))}`);
   }
   for (const systemID of args.systemCelestials) {
     if (!sde) throw new Error("--system-celestials needs the SDE (--sde, or a config.json that names it)");
