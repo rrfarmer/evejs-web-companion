@@ -281,10 +281,14 @@ export class ChildAnimator {
         const setScale = !target && !xf && !curve && !binding && b.destinationType === "TriCurveSet" && attr0 === "scale";
         // an effect propagator's trigger (a bool: each update the value is not nought it is set, and the propagator
         // reads its locators and plays again - this clone's run, put on its holder)
+        // a child's light (Tr2PointLight / Tr2SpotLight / Tr2FactionLight: this clone's record, dynamicLights.ts): its
+        // brightness, colour (r, g, b, a) or radius (x the scale it is drawn at), as Tr2Light's attributes take them
+        const lightRecords = /^Tr2(Point|Spot|Faction)Light$/.test(b.destinationType ?? "") && /^(brightness|color|radius)$/.test(attr0 ?? "")
+          ? (objects.get(b.destination) ?? []).map((o) => o.userData.lightRecord as { brightness: number; color: number[]; radius: number; scale?: number } | undefined).filter((x) => !!x) : [];
         // (its holder is also a display target: the trigger is looked at first)
         const triggers = b.destinationType === "EveChildEffectPropagator" && attr0 === "trigger"
           ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.onTrigger === "function") : [];
-        if (!triggers.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
+        if (!triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
         if (b.sourceFx !== undefined) {
@@ -305,6 +309,17 @@ export class ChildAnimator {
         if (sinks.length) { const v = copied(src, srcC, b.scale, b.offset, 0, null) as number; for (const o of sinks) (o.userData.setVariable as (v: number) => void)(v); continue; }
         if (setScale) { this.setScale(b.destination, copied(src, srcC, b.scale, b.offset, 0, null) as number); continue; }
         if (triggers.length) { if ((copied(src, srcC, b.scale, b.offset, 0, null) as number) !== 0) for (const o of triggers) (o.userData.onTrigger as () => void)(); continue; }
+        if (lightRecords.length) {
+          for (const r of lightRecords) {
+            if (attr === "brightness") r.brightness = copied(src, srcC, b.scale, b.offset, 0, null) as number;
+            else if (attr === "radius") r.radius = (copied(src, srcC, b.scale, b.offset, 0, null) as number) * (r.scale ?? 1);
+            else if (attr === "color") {
+              const c = comp !== undefined ? COMPONENT[comp] ?? null : null;
+              r.color = copied(src, srcC, b.scale, b.offset, r.color.slice(), c) as number[];
+            }
+          }
+          continue;
+        }
         if (curve) { curve[attr ?? "timeOffset"] = copied(src, srcC, b.scale, b.offset, typeof curve[attr ?? ""] === "number" ? (curve[attr ?? ""] as number) : 0, null) as number; continue; }
         if (binding) { binding.scale = copied(src, srcC, b.scale, b.offset, binding.scale, null) as number; continue; }
         if (xf) {

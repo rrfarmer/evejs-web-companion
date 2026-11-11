@@ -21,6 +21,9 @@ export const MAX_DYNAMIC_LIGHTS = 16;
 
 /** A child light as hullChildren.ts keeps it: in its group's EVE space. */
 export interface ChildLight {
+  /** Its id (a curve set's binding into it, childAnimation.ts) and the scale its radius is drawn at. */
+  id?: number;
+  scale?: number;
   position: number[];
   radius: number;
   sourceRadius?: number;

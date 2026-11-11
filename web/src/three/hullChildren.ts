@@ -45,7 +45,7 @@ export interface SofChildContainer {
   srt?: SofChildSrt | null;
   objects: SofChildNode[];
   /** Its lights (Tr2PointLight, Tr2SpotLight, Tr2FactionLight: children.mjs readLight), in its own space. */
-  lights?: { position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number }[];
+  lights?: { id?: number; position: number[]; radius: number; innerRadius: number; color: number[]; brightness: number; rotation?: number[]; innerAngle?: number; outerAngle?: number }[];
   /** Its controllers (controllers.ts), run with it as their owner. */
   controllers?: SofController[];
   /** Its fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes): values gathered each frame for its sets. */
@@ -1165,6 +1165,13 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
     if (!played) {
       const objects = new Map<number, THREE.Object3D[]>();
       group.traverse((o) => { const id = o.userData.childId as number | undefined; if (id !== undefined) objects.set(id, [...(objects.get(id) ?? []), o]); });
+      // this clone's lights (its own records: a binding into one changes what dynamicLights.ts gathers), each under its id
+      for (const l of (group.userData.lights ?? []) as ChildLight[]) {
+        if (l.id === undefined) continue;
+        const holder = new THREE.Object3D();
+        holder.userData.lightRecord = l;
+        objects.set(l.id, [...(objects.get(l.id) ?? []), holder]);
+      }
       // the containers' fx attributes: a holder each, its values (userData.fx) gathered below, found by the attribute's id
       const fx: { owner: THREE.Object3D; holder: THREE.Object3D; type: string }[] = [];
       group.traverse((o) => {
@@ -1414,7 +1421,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
             .transformDirection(flatHere).toArray(),
           cosOuter: Math.cos((Math.PI * 2 * (l.outerAngle ?? 0)) / 360), cosInner: Math.cos((Math.PI * 2 * (l.innerAngle ?? 0)) / 360),
         } : {};
-        lights.push({ position: at.toArray(), radius: l.radius * k, sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, ...spot });
+        lights.push({ ...(l.id !== undefined ? { id: l.id, scale: k } : {}), position: at.toArray(), radius: l.radius * k, sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, ...spot });
       }
       if (node.modifiers.includes("EveChildModifierHalo")) {
         const z = new THREE.Vector3();

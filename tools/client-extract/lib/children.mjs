@@ -563,7 +563,8 @@ function readLight(l) {
   }
   const spot = l.type === "Tr2SpotLight" || (l.type === "Tr2FactionLight" && l.isSpotlight === true);
   return {
-    position: l.position ?? [0, 0, 0], radius: l.radius ?? 0, innerRadius: l.innerRadius ?? 0, color, brightness: l.brightness ?? 1,
+    // its id: a curve set's binding may drive its brightness, colour or radius
+    id: idOf(l), position: l.position ?? [0, 0, 0], radius: l.radius ?? 0, innerRadius: l.innerRadius ?? 0, color, brightness: l.brightness ?? 1,
     ...(spot ? { rotation: l.rotation ?? [0, 0, 0, 1], innerAngle: l.innerAngle ?? 0, outerAngle: l.outerAngle ?? 0 } : {}),
   };
 }
