@@ -166,14 +166,21 @@ function readChildEffect(path, skipped) {
  */
 function setValueObject(owner, a) {
   if (!a.path) return a.destination ?? null;
-  const m = /^Owner((?:\.(?:objects|curveSets)\["[^"]*"\])*)$/.exec(String(a.path));
+  const m = /^Owner((?:\.(?:objects|curveSets|curves|parameters)\["[^"]*"\])*)$/.exec(String(a.path));
   if (!m) return null;
   let o = owner;
-  for (const step of m[1].matchAll(/\.(objects|curveSets)\["([^"]*)"\]/g)) {
-    o = (o?.[step[1]] ?? []).find((x) => x?.name === step[2]) ?? null;
+  for (const step of m[1].matchAll(/\.(objects|curveSets|curves|parameters)\["([^"]*)"\]/g)) {
+    // an object's parameters: its effect's, or its mesh areas' effects' (the first of that name)
+    const list = step[1] === "parameters" ? effectParametersOf(o) : (o?.[step[1]] ?? []);
+    o = list.find((x) => x?.name === step[2]) ?? null;
     if (!o) return null;
   }
   return o;
+}
+/** An object's effect parameters (Tr2*Parameter): its own effect's, then its mesh's areas' effects'. */
+function effectParametersOf(o) {
+  const areas = ["opaqueAreas", "transparentAreas", "additiveAreas", "decalAreas", "distortionAreas"].flatMap((k) => o?.mesh?.[k] ?? []);
+  return [o?.effect, ...areas.map((x) => x?.effect)].flatMap((fx) => fx?.parameters ?? []);
 }
 
 /**
@@ -196,6 +203,16 @@ function readController(c, skipped, owner) {
       // a curve set's time or speed (Owner...curveSets["name"]: TriCurveSet's scaledTime and scale)
       const set = a.attribute === "scaledTime" || a.attribute === "scale" ? setValueObject(owner, a) : null;
       if (set?.type === "TriCurveSet") return { k: a.attribute === "scale" ? "setSetScale" : "setSetTime", curveSet: idOf(set), value };
+      // a curve's input (an expression's input1..4: Tr2CurveScalarExpression) by its id, as a binding's
+      if (/^input[1-4]$/.test(a.attribute ?? "")) {
+        const curve = setValueObject(owner, a);
+        if (isCurve(curve)) return { k: "setValue", target: idOf(curve), attribute: a.attribute, value };
+      }
+      // an effect parameter's value (Tr2Vector4Parameter / Tr2FloatParameter: "value", or one component "value.w")
+      if (/^value(\.[xyzw])?$/.test(a.attribute ?? "")) {
+        const param = setValueObject(owner, a);
+        if (/^Tr2(Vector[234]|Float)Parameter$/.test(param?.type ?? "")) return { k: "setValue", target: idOf(param), attribute: a.attribute, value };
+      }
       // an effect propagator's trigger (EveChildEffectPropagator "trigger": non-nought reads its locators and plays)
       const propagator = a.attribute === "trigger" ? setValueObject(owner, a) : null;
       if (propagator?.type === "EveChildEffectPropagator") return { k: "trigger", target: idOf(propagator), value };

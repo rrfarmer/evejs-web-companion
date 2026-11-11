@@ -195,6 +195,22 @@ export class ChildAnimator {
   }
   stop(owner: number, name: string): void { for (const r of this.under(owner, name)) r.playing = false; }
   /**
+   * Tr2ActionSetValue on a curve's input (input1..4) or an effect parameter (its uniform: "value" sets every component,
+   * "value.x".."value.w" one). False where this animator has no such target.
+   */
+  setValue(id: number, attribute: string, value: number): boolean {
+    const curve = this.curvesById.get(id);
+    if (curve && /^input[1-4]$/.test(attribute)) { curve[attribute] = value; return true; }
+    const t = this.targets.get(id);
+    if (t?.kind !== "uniform") return false;
+    const u = t.uniform.value as THREE.Vector4 | number;
+    const comp = attribute.split(".")[1];
+    if (typeof u === "number") t.uniform.value = value;
+    else if (comp && comp in u) (u as unknown as Record<string, number>)[comp] = value;
+    else u.set(value, value, value, value);
+    return true;
+  }
+  /**
    * EveEffectRoot2::Start (EveEffectRoot2.cpp:580-596): every curve set played from its start (the root's own and its
    * children's, PlayAllCurveSets), at its own speed - an effect copy made beforehand begins now.
    */

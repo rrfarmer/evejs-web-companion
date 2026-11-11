@@ -173,6 +173,8 @@ export interface ChildEffectHost {
   setScale?(set: number, scale: number): void;
   /** A particle emitter (by id) spawning rate x its own rate at once (Tr2ActionSpawnParticles). */
   spawn?(emitter: number, rate: number): void;
+  /** Tr2ActionSetValue into a curve's input or an effect parameter (by id; "value" or "value.w" and the like). */
+  setValue?(target: number, attribute: string, value: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
   setDisplay?(target: number, on: boolean): void;
   /** An effect propagator's trigger set (by id): its copies placed. */
@@ -317,7 +319,7 @@ export class ControllerRun {
       // Tr2ActionSpawnParticles (Start): the emitter spawns rate x its own rate
       if (a.k === "spawnParticles" && a.emitter !== undefined) { this.host.spawn?.(a.emitter, a.rate ?? 1); continue; }
       // Tr2ActionSetValue: its value expression (no state machine: StateTime() nought) into a variable or a display
-      if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger") && a.value !== undefined) {
+      if ((a.k === "setVar" || a.k === "setDisplay" || a.k === "setSetTime" || a.k === "setSetScale" || a.k === "trigger" || a.k === "setValue") && a.value !== undefined) {
         const c = conditionOf(a.value);
         if (!c) continue;
         const v = c.run({ vars: this.vars, stateTime: 0, curveSetTime: (name: string) => this.curveSetTime(name), ship: () => this.ship() });
@@ -329,6 +331,7 @@ export class ControllerRun {
         // an effect propagator's trigger: set (non-nought) it places its copies; nought does nothing (m_trigger is
         // only read when set, then cleared by Play)
         else if (a.k === "trigger" && a.target !== undefined && v !== 0) this.host.trigger?.(a.target);
+        else if (a.k === "setValue" && a.target !== undefined) this.host.setValue?.(a.target, (a as { attribute?: string }).attribute ?? "value", v);
         continue;
       }
       // Tr2ActionAnimateCurveSet: each update (after the machines'), its set applied at its value expression's value,
