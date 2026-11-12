@@ -6,7 +6,7 @@
 // delay given, stops end; StopFiring stops start and loop and plays end.
 //
 // The effects ported (res:/graphics/effect/managed/space/specialfx/stretch/*.fx, their sm_depth vertex and pixel
-// stages disassembled, client 3396210): laser.fx, projectile.fx, blast.fx and artillery.fx. Each quad of the strip is one part, by its index:
+// stages disassembled, client 3396210): laser.fx, projectile.fx, blast.fx, artillery.fx and atomic.fx. Each quad of the strip is one part, by its index:
 // the beam or stream of shots from source to target (a strip turned to face the camera, at least about two pixels
 // wide, its profile the FalloffMap across it), the flares at the source and target, projectile's muzzle flash, and the
 // splash at the target (a disc facing back along the beam, two CloudMap swirls). Not as the client: no fog volume (no scene sets one); the output stays linear (the client
@@ -38,7 +38,7 @@ export interface SofStretch2 {
 }
 
 /** The effects this file draws. */
-export const STRETCH2_EFFECTS = new Set(["laser", "projectile", "blast", "artillery"]);
+export const STRETCH2_EFFECTS = new Set(["laser", "projectile", "blast", "artillery", "atomic"]);
 
 // --- shared by the effects: the per-object data, the quads' corners, the depth pulled toward the eye, the flares,
 // the target's splash (laser.fx and projectile.fx compile the same code for them)
@@ -85,11 +85,12 @@ vec4 flare(vec3 S, vec3 D, bool atDest, vec2 k, vec2 c) {
   vec3 way = normalize(D - S);
   return flareAt(atDest ? D : S, atDest ? -way : way, k, c);
 }
-// the splash: a disc at the target across the beam (SplashIntensity.x x the target's scale), its strength the
-// effect's (weight: Intensity, or blast's bolt arrived); sets v2, fragW
+// the splash: a disc at the target across the beam (SplashIntensity.x x the target's scale x splashScale), its
+// strength the effect's (weight: Intensity, or blast's bolt arrived); sets v2, fragW
+float splashScale = 1.0;
 vec4 splash(vec3 S, vec3 D, vec2 c, float weight) {
   vec3 way = normalize(D - S);
-  float s = SplashIntensity.x * srcPos.w;
+  float s = SplashIntensity.x * srcPos.w * splashScale;
   vec3 up = abs(way.x) > 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
   vec3 X = normalize(cross(way, up));
   vec3 Y = cross(way, X);
@@ -126,15 +127,18 @@ vec4 flare() {
   float f = textureGrad(FalloffMap, vec2(r * 0.5 + 0.5, 0.0), vec2(dFdx(g), 0.0), vec2(dFdy(g), 0.0)).x;
   return f * v2.x * Color;
 }
-// the splash: two swirls of the cloud map's green by angle and radius, sharpened toward the rim, faded into the scene
+#ifndef SPLASH_CHANNEL
+#define SPLASH_CHANNEL y
+#endif
+// the splash: two swirls of the cloud map (green; atomic's blue) by angle and radius, sharpened toward the rim, faded into the scene
 vec4 splash() {
   vec2 p = v1.xy - 0.5;
   float ang = atan(p.y, p.x) * 0.159155 + 0.5;
   float rr = 1.0 - 2.0 * length(p);
   float t = timing.w + timing.y;
   vec2 g = vec2(dFdx(rr)), h = vec2(dFdy(rr));
-  float s1 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw, g, h).y;
-  float s2 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw * vec2(-0.97, 1.03), g, h).y;
+  float s1 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw, g, h).SPLASH_CHANNEL;
+  float s2 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw * vec2(-0.97, 1.03), g, h).SPLASH_CHANNEL;
   float m = max(rr, 0.0);
   float n = pow(abs(s1 * s2), (1.0 - m) * 10.0);
   float m4 = m * m * m * m;
@@ -143,10 +147,13 @@ vec4 splash() {
   return m4 * soft * n * v2.x * (Color * SplashIntensity.y);
 }
 // the flicker (the noise map at Flicker's rate of the loop's time), the stretch's own intensity; linear out
+#ifndef OUTPUT_SCALE
+#define OUTPUT_SCALE misc.x
+#endif
 void finish(vec4 colour, vec2 flick) {
   float noise = texture2D(NoiseMap, vec2(flick.y * timing.y, 0.0)).x;
   colour *= 1.0 - noise * flick.x;
-  colour *= misc.x;
+  colour *= OUTPUT_SCALE;
   gl_FragColor = vec4(max(colour.rgb, 0.0), colour.a);
 }`;
 
@@ -468,6 +475,130 @@ void main() {
   finish(colour, Flicker.xy);
 }`;
 
+// --- atomic.fx: the Triglavian disintegrators' beam (Properties: x size, y intensity, z the output's scale, w the
+// beam's width - bound to the spool-up, py_intensity). Quad 0 the beam (FalloffMap across and along it, rising from
+// 4 x Properties.x along it over StretchStartFlare.w of that, CloudMap's alpha clouds), 1 the core at the muzzle (a
+// disc facing the eye ray: a vortex of the CloudMap's green inside half its radius, fire of its red outside, a border
+// ring), 2 and 3 the flares (x the target's scale), 4 the start flare 4 x Properties.x along the beam, the rest the
+// splash (CloudMap blue). Its output is x Properties.z (not the stretch's intensity).
+
+const ATOMIC_VERTEX = `${VS_HEAD}
+uniform vec4 Properties; uniform vec4 StretchStartFlare; uniform vec4 Clouds;
+// a quad of size x 16 about a point, its corners along the view's x and y; depth pulled toward the eye by it
+vec4 viewQuad(vec3 at, float size, vec2 c) {
+  vec4 view = viewMatrix * vec4(at, 1.0);
+  view.xy += c * size * 16.0;
+  vec4 clip = projectionMatrix * vec4(view.xyz, 1.0);
+  fragW = max(-min(size * 16.0 + view.z, 0.0), 1e-3);
+  v2 = vec4(size, view.z, 0.0, 0.0);
+  return vec4(clip.xy, biasedDepth(size * 16.0 + view.z, clip.w), clip.w);
+}
+void main() {
+  fragW = 1.0;
+  if (!(Properties.y > 0.0)) {
+    gl_Position = vec4(0.0); v1 = vec4(0.0); v2 = vec4(0.0);
+  } else {
+    vec3 S = (modelMatrix * vec4(srcPos.xyz, 1.0)).xyz, D = (modelMatrix * vec4(dstPos.xyz, 1.0)).xyz;
+    float q = position.x;
+    vec2 c = CORNER[int(position.y + 0.5)];
+    float len = length(S - D);
+    vec3 way = normalize(D - S);
+    float r4z = 1.0;
+    v2 = vec4(0.0);
+    if (q == 0.0) {
+      float u = c.x + 0.5, v = c.y + 0.5;
+      float pix = pixelsAt(mix(S, D, u));
+      float halfW = max(pix, Properties.y * Properties.x * Properties.w * 16.0);
+      gl_Position = facingStrip(S, D, c, halfW);
+      fragW = gl_Position.w;
+      r4z = pix / (Properties.y * 16.0);
+      float t = timing.w + timing.y;
+      vec2 uv = vec2(u * len, v * halfW) / Clouds.y;
+      v2 = vec4(len / (sqrt(Properties.y) * 30.0) * 0.5, uv.x * SplashIntensity.w - t * Clouds.z * SplashIntensity.w, uv.y, len * 0.25);
+      v1.xy = c + 0.5;
+    } else if (q == 1.0) {
+      // the core: a disc at the muzzle across the eye ray (its axes not normalised, as the effect's)
+      vec4 view = viewMatrix * vec4(S, 1.0);
+      vec3 n = normalize(view.xyz);
+      vec3 X = vec3(n.z, 0.0, -n.x);
+      vec3 Y = cross(n, X);
+      float size = Properties.x * 16.0;
+      vec3 p = view.xyz + X * c.x * size + Y * c.y * size;
+      vec4 clip = projectionMatrix * vec4(p, 1.0);
+      gl_Position = vec4(clip.xy, biasedDepth(size + p.z, clip.w), clip.w);
+      fragW = max(-min(size + p.z, 0.0), 1e-3);
+      v2 = vec4(Properties.x, p.z, 0.0, 0.0);
+      v1.xy = 2.0 * c;
+    } else if (q < 4.0) {
+      bool atDest = q == 3.0;
+      vec2 k = (atDest ? FlareIntensity.zw : FlareIntensity.yx) * srcPos.w;
+      gl_Position = flareAt(atDest ? D : S, -way, k, c);
+      v1.xy = 2.0 * c;
+    } else if (q == 4.0) {
+      gl_Position = viewQuad(S + (D - S) * (4.0 / len * Properties.x), StretchStartFlare.x * srcPos.w * Properties.x, c);
+      v1.xy = 2.0 * c;
+    } else {
+      splashScale = Properties.x;
+      gl_Position = splash(S, D, c, 1.0);
+      v1.xy = c + 0.5;
+    }
+    v1.z = q;
+    v1.w = r4z;
+  }
+${VS_TAIL}
+}`;
+
+const ATOMIC_FRAGMENT = `#define SPLASH_CHANNEL z
+#define OUTPUT_SCALE Properties.z
+uniform vec4 Properties;
+${FS_HEAD}
+uniform vec4 Border; uniform vec4 StretchStartFlare; uniform vec4 CoreFireAnimation; uniform vec4 CoreFireLook;
+uniform vec4 CoreVortexAnimation; uniform vec4 CoreVortexLook; uniform vec4 Clouds;
+void main() {
+#include <logdepthbuf_fragment>
+  vec4 colour;
+  vec2 flick = Flicker.xy;
+  if (v1.z == 0.0) {
+    // the beam: the FalloffMap at (across, along), squared toward its edges, the clouds; rising from the start flare
+    float a = texture2D(FalloffMap, v1.yx).x * clamp(1.0 / v1.w, 0.0, 1.0);
+    float edge = 1.0 - abs(1.0 - 2.0 * v1.y);
+    a *= edge * edge;
+    float ends = clamp(min(1.0 - v1.x, v1.x) * v2.x, 0.0, 1.0);
+    float base = clamp(1.0 - Clouds.x, 0.0, 1.0);
+    a *= texture2D(CloudMap, v2.yz).w * (1.0 - base) + base;
+    a *= min((v1.x * v2.w / Properties.x - 1.0) / StretchStartFlare.w, 1.0);
+    colour = ends * a * Color * Properties.y;
+  } else if (v1.z < 1.5) {
+    // the core: by angle and radius (rr 1 at its centre, 0 at half its radius), fire outside, a vortex inside, a ring
+    float ang = atan(v1.y, v1.x) * 0.159155 + 0.5;
+    float rr = 1.0 - length(2.0 * v1.xy);
+    float t = timing.w + timing.y;
+    vec2 g = vec2(dFdx(rr)), h = vec2(dFdy(rr));
+    float val;
+    if (rr < 0.0) {
+      float s = textureGrad(CloudMap, vec2(ang, rr) * CoreFireAnimation.xy + t * CoreFireAnimation.zw, g, h).x;
+      val = pow(max(s + rr / CoreFireLook.x, 0.0), CoreFireLook.y) * CoreFireLook.z;
+    } else {
+      float s = textureGrad(CloudMap, vec2(ang - rr * CoreVortexLook.x, -rr) * CoreVortexAnimation.xy + t * CoreVortexAnimation.zw, g, h).y;
+      val = pow(max(s - rr / CoreVortexLook.y, 0.0), CoreVortexLook.z) * CoreVortexLook.w;
+    }
+    val += pow(max(Border.x - abs(rr) / Border.x, 0.0), Border.z) * Border.y;
+    colour = val * Properties.y * Color;
+  } else if (v1.z < 3.5) colour = flare() * Properties.y;
+  else if (v1.z < 4.5) {
+    // the start flare: its falloff, soft into the scene, to the power StretchStartFlare.z
+    float sz = sqrt(v2.x / StretchStartFlare.x / Properties.x);
+    float d = length(v1.xy);
+    float soft = clamp((sceneDistance() - (-v2.y - sz * 30.0)) / (sz * 30.0), 0.0, 1.0);
+    float r = max(1.0 - d, 0.0) * soft;
+    colour = pow(r, StretchStartFlare.z) * Color * Properties.y * Properties.y * StretchStartFlare.y;
+  } else {
+    colour = splash();
+    flick = Flicker.zw;
+  }
+  finish(colour, flick);
+}`;
+
 /** A texture an effect reads: clamped (its sampler EveSceneFogSampler) or wrapped, and whether it is read as sRGB. */
 interface EffectTexture { clamp: boolean; srgb: boolean }
 interface EffectDef { vertex: string; fragment: string; defaults: Record<string, number | number[]>; textures: Record<string, EffectTexture> }
@@ -491,6 +622,15 @@ const EFFECTS: Record<string, EffectDef> = {
     vertex: ARTILLERY_VERTEX, fragment: ARTILLERY_FRAGMENT,
     textures: { NoiseMap: WRAP, FalloffMap: CLAMP, CloudMap: { clamp: false, srgb: true } },
     defaults: { Intensity: 1, FireParams: [100, 1, 4, 0.1], FlareIntensity: [4, 4, 4, 4], Clouds: [0, 1, 0, 0], Shots: [0.1, 0.7, 50, 1], SplashIntensity: [1, 1, 0.1, 0], Flashes: [0.3, 0.3, 0.3, 0.3], Flicker: [0, 1, 0, 0], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
+  },
+  atomic: {
+    vertex: ATOMIC_VERTEX, fragment: ATOMIC_FRAGMENT,
+    textures: { NoiseMap: WRAP, FalloffMap: CLAMP, CloudMap: WRAP },
+    defaults: {
+      Intensity: 1, Properties: [1, 1, 10, 10], StretchStartFlare: [2, 170, 40, 30], FlareIntensity: [4, 4, 4, 4], Clouds: [0, 1, 0, -0.91],
+      SplashIntensity: [1, 1, 0.1, 1], Border: [0.03, 0.7, 1, 0], CoreFireAnimation: [3, 0.1, 0.03, 0.2], CoreFireLook: [0.5, 3, 1, 0],
+      CoreVortexAnimation: [1, 0.3, 0.01, 0.1], CoreVortexLook: [1, 0.5, 3, 1], Flicker: [0, 1, 0, 1], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5],
+    },
   },
 };
 
@@ -550,6 +690,9 @@ class SetRun {
   stop(): void { this.playing = false; }
   update(now: number): void { if (this.playing) this.time = (this.from + (now - this.at) / 1000) * this.set.scale; }
 }
+
+/** A binding's destination component (".x" .. ".w", ".r" .. ".a"). */
+const COMPONENT: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3 };
 
 /** A curve's value as a binding reads it (a constant's value, a colour's or vector's parts, a scalar's number). */
 function valueOf(c: Curve, time: number): number | number[] {
@@ -621,6 +764,18 @@ export class Stretch2Effect {
     }
   }
 
+  /** turretSet.py SetIntensity: every "py_intensity" constant curve's first value (the Triglavian beams' spool-up). */
+  setPyIntensity(value: number): void {
+    for (const r of [this.sets.start, this.sets.loop, this.sets.end]) {
+      for (const c of r?.set.curves ?? []) {
+        if (c.type !== "Tr2CurveConstant" || (c as { name?: string }).name !== "py_intensity") continue;
+        const v = ((c as { value?: number[] }).value ?? [0, 0, 0, 0]).slice();
+        v[0] = value;
+        (c as { value?: number[] }).value = v;
+      }
+    }
+  }
+
   /** EveStretch2::StartFiring: a new random; start and loop played from the delay (nought or past it), end stopped. */
   startFiring(delay: number, now = performance.now()): void {
     (this.material.uniforms.timing!.value as THREE.Vector4).w = Math.random();
@@ -688,7 +843,9 @@ export class Stretch2Effect {
       if (b.target.startsWith("param:")) {
         const uni = u[b.target.slice(6)];
         if (!uni) continue;
-        if (uni.value instanceof THREE.Vector4) uni.value.fromArray(vector(src));
+        const comp = COMPONENT[b.destinationAttribute.split(".")[1] ?? ""];
+        if (uni.value instanceof THREE.Vector4 && comp !== undefined) uni.value.setComponent(comp, scalar(src));
+        else if (uni.value instanceof THREE.Vector4) uni.value.fromArray(vector(src));
         else uni.value = scalar(src);
         continue;
       }

@@ -2,9 +2,9 @@
 // targetID, otherTypeID, guid, isOffensive, start, active, duration, repeat, ...), the effect a turret plays as it
 // cycles (effects.ProjectileFired, effects.HybridFired, effects.Laser...: start 1 as it begins, start 0 as it stops).
 // A turret whose firing effect is drawn here plays it (EveTurretFiringFX: an EveStretch2 per muzzle - laser.fx,
-// projectile.fx, blast.fx, artillery.fx - three/stretch2.ts); the rest are our own drawing of it: tracer pulses from
-// the shooter to its target for guns, a flickering beam for a laser whose effect has not come, and a flash where the
-// shots land.
+// projectile.fx, blast.fx, artillery.fx, atomic.fx - three/stretch2.ts); the rest are our own drawing of it: tracer
+// pulses from the shooter to its target for guns, a flickering beam for a laser whose effect has not come, and a flash
+// where the shots land.
 
 import * as THREE from "three";
 import { Line2 } from "three/addons/lines/Line2.js";
@@ -16,6 +16,11 @@ interface Firing {
   shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number;
   /** The charge (OnSpecialFX's otherTypeID): its beam colour (ammoColors). */
   chargeTypeID: number;
+  /**
+   * A Triglavian beam's spool-up (effects.TriglavianBeam: OnSpecialFX's graphicInfo, the module's damage bonus per
+   * cycle and its most) and the cycles fired; null for the rest.
+   */
+  spool: { perCycle: number; max: number; cycles: number } | null;
   /** Each muzzle's firing (EveTurretFiringFX per-muzzle data): when its delay is over, when it began; the cycling position. */
   muzzles: { startAt: number | null; startedAt: number | null }[]; cyclingPos: number;
   /** One shot a cycle: its length (ms) and when the next begins; whether the turret was idle (its first shot waits to track). */
@@ -56,6 +61,23 @@ function kitsOf(typeID: number, info: TurretInfo | null): Stretch2Kit[] | null {
   }
   return kits.get(typeID) ?? null;
 }
+/**
+ * OnSpecialFX's graphicInfo for a Triglavian beam (triglavianBeam.py: mulitplierBonusPerCycle - the client's spelling -
+ * and multiplierBonusMax), as a dict however the wire decoded it; noughts where it has none.
+ */
+function spoolOf(raw: unknown): { perCycle: number; max: number } {
+  // a util.KeyVal comes as {type: "object", name, args: {type: "dict", entries: [[key bytes, value]]}}
+  const o0 = raw as Record<string, unknown> | null;
+  const dict = o0 && typeof o0 === "object" && o0.type === "object" && o0.args ? o0.args : raw;
+  const get = (k: string): number => {
+    if (!dict || typeof dict !== "object") return 0;
+    if (dict instanceof Map) return Number(dict.get(k) ?? 0) || 0;
+    const o = dict as Record<string, unknown>;
+    if (Array.isArray(o.entries)) { const e = (o.entries as unknown[][]).find((p) => fxGuid(p?.[0]) === k); return Number(e?.[1] ?? 0) || 0; }
+    return Number(o[k] ?? 0) || 0;
+  };
+  return { perCycle: get("mulitplierBonusPerCycle") || get("multiplierBonusPerCycle"), max: get("multiplierBonusMax") };
+}
 /** EveTurretFiringFX::UpdateVisibility's LOD_ANGLE_FACTOR. */
 const LOD_ANGLE_FACTOR = 0.002;
 /** EveTurretTarget.h EVE_TURRET_RANDOM_DELAY_MAX: GetShotTimeVariance. */
@@ -80,6 +102,7 @@ const KIND: Record<string, Firing["kind"]> = {
   "effects.ProjectileFiredForEntities": "projectile",
   "effects.HybridFired": "hybrid",
   "effects.Laser": "laser",
+  "effects.TriglavianBeam": "laser",
 };
 const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c };
 /** How often a gun's pulse goes out, and how long it takes to get there (a likeness, not the cycle). */
@@ -183,7 +206,10 @@ export class TurretFx {
       return;
     }
     if (name !== "OnSpecialFX") return;
-    const kind = KIND[fxGuid(args[5])];
+    // (a guid may be a list: "effects.TriglavianBeam,effects.AttackMode")
+    const guids = fxGuid(args[5]).split(",").map((g) => g.trim());
+    const guid = guids.find((g) => KIND[g]) ?? "";
+    const kind = KIND[guid];
     if (!kind) return;
     const shooter = Number(args[0]), moduleID = Number(args[1]), moduleTypeID = Number(args[2]), target = Number(args[3]);
     const key = `${shooter}:${moduleID}`;
@@ -201,6 +227,7 @@ export class TurretFx {
       shooter, target, moduleID, moduleTypeID, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0,
       cycle, nextCycle: now, idle: !was, misses: was && was.target === target ? was.misses : [], shots: was?.shots ?? [],
       chargeTypeID: Number(args[4]) || 0, muzzles: was?.muzzles ?? [], cyclingPos: was?.cyclingPos ?? 0,
+      spool: guid === "effects.TriglavianBeam" ? { ...spoolOf(args[13]), cycles: was?.spool?.cycles ?? 0 } : null,
     };
     this.firings.set(key, next);
     // a firing begun anew keeps its turret's effect going
@@ -210,6 +237,7 @@ export class TurretFx {
 
   /** EnterStateFiring and StartFireAtLocator for one shot begun at `at` (ms). */
   private startShot(f: Firing, at: number): void {
+    if (f.spool) f.spool.cycles++;
     this.onFire?.(f.shooter, f.moduleID, f.target);
     const info = turretInfo(f.moduleTypeID);
     // until the turret's graphic has come: a medium gun's size, no peak, a second's firing
@@ -271,6 +299,11 @@ export class TurretFx {
         m.startedAt = now;
       }
       if (m.startedAt === null) return;
+      // TriglavianBeam: Start sets 0.3, each Repeat adds the bonus per cycle (to its most) over its most
+      if (f.spool) {
+        const bonus = f.spool.max > 0 ? Math.min(f.spool.perCycle * Math.max(0, f.spool.cycles - 1), f.spool.max) / f.spool.max : 0;
+        s.setPyIntensity(0.3 + bonus);
+      }
       if (!info.isLoopFiring && (now - m.startedAt) / 1000 >= info.firingDuration) return;
       const at = this.muzzleOf?.(f.shooter, f.moduleID, i, f.target) ?? from;
       live.push({ s, at });
