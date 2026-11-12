@@ -790,6 +790,21 @@
   .fly-windows :global(.mkt-ghost:hover), .fly-windows :global(.mkt-ghost.active) { background: rgba(255, 255, 255, 0.1); }
   .fly-windows :global(.mkt-wallet) { display: flex; align-items: center; gap: 4px; padding: 0 8px; font-size: 12px; color: rgba(255, 255, 255, 0.6); }
   .fly-windows :global(.mkt-wallet img) { width: 16px; height: 16px; padding: 4px; }
+  /* MarketBase.LoadDetails on the play page: the head (the 64 icon, 8 to the text, the name as EveCaptionMedium and
+     its info icon), the Market Data / Price History tabs; our own heading and "pick an item" line give way to it */
+  .fly-windows :global(.mkt-details > h2), .fly-windows :global(.mkt-details > p.note:first-of-type) { display: none; }
+  .fly-windows :global(.mkt-head) { display: flex; align-items: center; min-height: 64px; gap: 8px; margin: 8px 0; }
+  .fly-windows :global(.mkt-head-icon .type-icon), .fly-windows :global(.mkt-head-icon .type-icon img) { width: 64px; height: 64px; }
+  .fly-windows :global(.mkt-head-text) { display: flex; align-items: center; gap: 8px; }
+  .fly-windows :global(.mkt-head-name) { font-size: 20px; color: #fff; }
+  .fly-windows :global(.mkt-info) { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.6); background: none; color: #fff;
+    font: italic 700 10px/14px serif; padding: 0; cursor: pointer; }
+  .fly-windows :global(.mkt-dtabs) { display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 6px; }
+  .fly-windows :global(.mkt-dtabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.mkt-dtabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.8); }
+  .fly-windows :global(.mkt-details.detail-marketdata .mkt-history) { display: none; }
+  .fly-windows :global(.mkt-details.detail-pricehistory > :not(.mkt-head):not(.mkt-dtabs):not(.mkt-history)) { display: none; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

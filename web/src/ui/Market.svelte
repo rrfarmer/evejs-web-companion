@@ -101,6 +101,11 @@
     "UI/Market/Browse": "Browse",
     // (MarketBase's right-side tab bar and the window's WalletBalance, asked with these)
     "UI/Common/Details": "Details",
+    "UI/Market/Marketbase/NoTypeSelected": "No type selected",
+    "UI/Market/MarketData": "Market Data",
+    "UI/Market/Marketbase/PriceHistory": "Price History",
+    "Tooltips/Market/MarketDetailsData": "The orders for the selected item",
+    "Tooltips/Market/MarketDetailsHistory": "The selected item's price history",
     "Tooltips/StationServices/MarketOrders": "Market Orders",
     "Tooltips/Market/MarketDetailsTab": "The selected item's orders",
     "UI/Commands/OpenWallet": "Open the wallet",
@@ -349,6 +354,8 @@
 
   /** Which of the four views is showing. */
   let tab = $state<"book" | "orders" | "trades" | "escrow">("book");
+  /** MarketBase.LoadDetails' detail tabs (the play page): Market Data (the order lists) or Price History. */
+  let detailTab = $state<"marketdata" | "pricehistory">("marketdata");
 
   // The pilot's trades, as the client's market service keeps them (marketSvc.GetPersonalMarketTransactions): read
   // once as this view is chosen, the same read the wallet's Market Transactions shows, and let go when the pilot's
@@ -1053,7 +1060,31 @@
 {/if}
 
 {#if $market.loaded && tab === "book"}
-  <section>
+  <section class={retail ? `mkt-details detail-${detailTab}` : undefined}>
+    {#if retail}
+      <!-- MarketBase.LoadDetails: the type's head (topDetailsCont, at least 64 high) - its 64 icon (MarketGroupItemImage,
+           8 before the text), its name (EveCaptionMedium; NoTypeSelected while none) with its info icon - then the
+           detail tabs, Market Data and Price History. The group trace, the find-in-browse button and the requirements
+           are not built (the page holds no type's market group path). -->
+      <div class="mkt-head">
+        {#if $market.typeID !== null}
+          <span class="mkt-head-icon"><TypeIcon typeID={$market.typeID} name={chosenName || typeName($market.typeID)} size="lg" /></span>
+        {/if}
+        <div class="mkt-head-text">
+          <span class="mkt-head-name">{$market.typeID === null ? qbWord("UI/Market/Marketbase/NoTypeSelected") : chosenName || typeName($market.typeID)}</span>
+          {#if $market.typeID !== null}
+            {@const shownTypeID = $market.typeID}
+            <button type="button" class="mkt-info" aria-label={qbWord("UI/Commands/ShowInfo")} title={qbWord("UI/Commands/ShowInfo")} onclick={() => showInfo({ kind: "type", typeID: shownTypeID })}>i</button>
+          {/if}
+        </div>
+      </div>
+      {#if $market.typeID !== null}
+        <nav class="mkt-dtabs">
+          <button type="button" class:active={detailTab === "marketdata"} title={qbWord("Tooltips/Market/MarketDetailsData")} onclick={() => (detailTab = "marketdata")}>{qbWord("UI/Market/MarketData")}</button>
+          <button type="button" class:active={detailTab === "pricehistory"} title={qbWord("Tooltips/Market/MarketDetailsHistory")} onclick={() => (detailTab = "pricehistory")}>{qbWord("UI/Market/Marketbase/PriceHistory")}</button>
+        </nav>
+      {/if}
+    {/if}
     <h2 bind:this={bookHeading}>
       {#if $market.typeID === null}
         Pick an item
@@ -1173,6 +1204,7 @@
       {/if}
 
       {#if $market.priceHistory.length > 0}
+        <div class="mkt-history">
         <h3>Price history</h3>
         <div class="table-wrap overflow-x-auto">
           <table class="guests reflow">
@@ -1192,6 +1224,7 @@
               {/each}
             </tbody>
           </table>
+        </div>
         </div>
       {/if}
     {/if}
