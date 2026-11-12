@@ -30,6 +30,7 @@
   import { showInfoRequests } from "./showInfo.ts";
   import { notify } from "./notices.ts";
   import { orderableDroneIDs } from "./droneFlight.ts";
+  import { playUiEvent } from "../play/uiAudio.ts";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
@@ -150,6 +151,35 @@
   // One window layer for every window of the play mode: the app's (DesktopWindow), its info windows, and the space
   // view's own (overview, selected item, the scanner). The one last clicked or opened goes on top of all of them.
   let windowsEl = $state<HTMLDivElement | null>(null);
+  /**
+   * The windows' sounds as carbonui makes them (uiconst SOUND_*): Window.CloseByUser SOUND_CLOSE, the collapse
+   * SOUND_COLLAPSE, a Button's or Tab's click SOUND_BUTTON_CLICK and hover SOUND_BUTTON_HOVER, a Checkbox
+   * SOUND_SETSELECTED / SOUND_SETDESELECTED.
+   */
+  $effect(() => {
+    const el = windowsEl;
+    if (!el) return;
+    let hovered: Element | null = null;
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      const box = t?.closest("input[type=checkbox]") as HTMLInputElement | null;
+      if (box) { void playUiEvent(box.checked ? "ui_button_soft4_play" : "msg_DiodeDeselect_play"); return; }
+      const button = t?.closest("button");
+      if (!button || (button as HTMLButtonElement).disabled) return;
+      if (button.classList.contains("win-close")) void playUiEvent("ui_object_close_play");
+      else if (button.classList.contains("win-btn")) void playUiEvent("ui_collapse_play");
+      else void playUiEvent("ui_button_soft4_play");
+    };
+    const onOver = (e: MouseEvent) => {
+      const button = (e.target as HTMLElement | null)?.closest("button") ?? null;
+      if (button === hovered) return;
+      hovered = button;
+      if (button && !(button as HTMLButtonElement).disabled) void playUiEvent("ui_button_soft1_play");
+    };
+    el.addEventListener("click", onClick, true);
+    el.addEventListener("mouseover", onOver);
+    return () => { el.removeEventListener("click", onClick, true); el.removeEventListener("mouseover", onOver); };
+  });
   function topZ(except?: Element): number {
     let top = 0;
     for (const el of windowsEl?.querySelectorAll(".win, .pw") ?? []) {

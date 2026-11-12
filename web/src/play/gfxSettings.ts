@@ -35,6 +35,14 @@ export interface GfxSettings {
   windowTransparencyNoBlur: number;
   /** uiColorSvc's theme (settings.char.windows wndColorThemeID; colorThemes.DEFAULT_COLORTHEMEID Photon). */
   colorThemeID: string;
+  /** The Audio panel (settings.public.audio): audioEnabled, masterVolume 0.8, uiGain 0.5, eveampGain (music) 0.5,
+   *  evevoiceGain 0.7, worldVolume 0.7 - the client's defaults. */
+  audioEnabled: boolean;
+  masterVolume: number;
+  uiGain: number;
+  eveampGain: number;
+  evevoiceGain: number;
+  worldVolume: number;
 }
 
 export const GFX_DEFAULTS: Readonly<GfxSettings> = {
@@ -42,6 +50,7 @@ export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   volumetricQuality: 3, reflectionQuality: 3, turretsEnabled: true, effectsEnabled: true, missilesEnabled: true,
   explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true,
   windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05, colorThemeID: DEFAULT_COLORTHEMEID,
+  audioEnabled: true, masterVolume: 0.8, uiGain: 0.5, eveampGain: 0.5, evevoiceGain: 0.7, worldVolume: 0.7,
 };
 
 import { setMipLevelSkipCount } from "../three/ddsTexture.ts";
@@ -88,7 +97,8 @@ export function setGfx(change: Partial<GfxSettings>): void {
 /** ResetGraphicsSettings: every setting to its default. */
 export function resetGfx(): void {
   // (the graphics only: the window appearance is the User Interface panel's)
-  const { windowBlur: _b, windowTransparency: _t, windowTransparencyNoBlur: _n, colorThemeID: _c, ...graphics } = GFX_DEFAULTS;
+  const { windowBlur: _b, windowTransparency: _t, windowTransparencyNoBlur: _n, colorThemeID: _c, audioEnabled: _a,
+    masterVolume: _m, uiGain: _u, eveampGain: _e, evevoiceGain: _v, worldVolume: _w, ...graphics } = GFX_DEFAULTS;
   setGfx(graphics);
 }
 

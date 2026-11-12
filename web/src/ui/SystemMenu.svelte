@@ -75,7 +75,17 @@
     defaultShortcuts: "UI/SystemMenu/Shortcuts/DefaultShortcuts",
     colorTheme: "UI/SystemMenu/GeneralSettings/ColorTheme", shipTheme: "UI/SystemMenu/GeneralSettings/General/ShipTheme",
     presets: "UI/SystemMenu/GeneralSettings/ColorTheme/Presets",
+    audioEngine: "UI/SystemMenu/AudioAndChat/AudioEngine/Header", audioEnabled: "UI/SystemMenu/AudioAndChat/AudioEngine/AudioEnabled",
+    volumeHeader: "UI/SystemMenu/AudioAndChat/VolumeLevel/Header",
   } as const;
+  // LoadAudio's volume sliders: the setting, its label, the client's default
+  const VOLUMES = [
+    ["masterVolume", "UI/SystemMenu/AudioAndChat/VolumeLevel/MasterLevel", "Master Level"],
+    ["eveampGain", "UI/SystemMenu/AudioAndChat/VolumeLevel/MusicLevel", "Music Level"],
+    ["uiGain", "UI/SystemMenu/AudioAndChat/VolumeLevel/UISoundLevel", "UI Sound Level"],
+    ["evevoiceGain", "UI/SystemMenu/AudioAndChat/VolumeLevel/UIVoiceLevel", "UI Voice Level"],
+    ["worldVolume", "UI/SystemMenu/AudioAndChat/VolumeLevel/WorldLevel", "World Level"],
+  ] as const;
   const word = (label: string, own: string): string => {
     const t = $words.templates[label];
     return typeof t === "string" && t !== "" ? plainText(t) : own;
@@ -86,7 +96,7 @@
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
     flow.requestWords([...Object.values(WORDS), ...PANELS.map((p) => p[1]), ...SHORTCUT_PANELS.map((p) => p[1]), ...Object.values(Q),
-      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id)]);
+      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id), ...VOLUMES.map((v) => v[1])]);
     const off = onGfx((s) => { settings = { ...s }; });
     const onFull = () => { fullScreen = document.fullscreenElement !== null; };
     document.addEventListener("fullscreenchange", onFull);
@@ -223,6 +233,19 @@
               <button type="button" disabled>{word(WORDS.defaultShortcuts, "Default Shortcuts")}</button>
             </div>
           </div>
+        {:else if panel === "audio"}
+          <!-- LoadAudio: Audio Engine (Audio Enabled), Volume Level (the five sliders, 0 .. 1) -->
+          <h3 class="first">{word(WORDS.audioEngine, "Audio Engine")}</h3>
+          <label class="sm-check"><input type="checkbox" checked={settings.audioEnabled}
+            onchange={(ev) => setGfx({ audioEnabled: ev.currentTarget.checked })} /> {word(WORDS.audioEnabled, "Audio Enabled")}</label>
+          <h3>{word(WORDS.volumeHeader, "Volume Level")}</h3>
+          {#each VOLUMES as [key, label, own] (key)}
+            <div class="sm-slider">
+              <span>{word(label, own)}</span>
+              <input type="range" min="0" max="1" step="0.01" value={settings[key]} disabled={!settings.audioEnabled}
+                oninput={(ev) => setGfx({ [key]: Number(ev.currentTarget.value) } as Partial<GfxSettings>)} />
+            </div>
+          {/each}
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check"><input type="checkbox" checked={settings.cameraShakeEnabled}

@@ -49,30 +49,32 @@ export function readBank(bytes) {
 
 let written = 0, failed = 0;
 const failures = new Map();
-for (const bank of all("--bank")) {
+const fail = (e) => { failed++; const m = e instanceof Error ? e.message : String(e); failures.set(m, (failures.get(m) ?? 0) + 1); };
+// --bank all: every soundbank under essential_media
+const bankNames = all("--bank").includes("all")
+  ? res.list("res:/audio/essential_media/", /\.bnk$/).map((r) => r.split("/").pop().replace(/\.bnk$/, ""))
+  : all("--bank");
+for (const bank of bankNames) {
   const bnk = res.read(`res:/audio/essential_media/${bank}.bnk`);
   const { sounds } = readBank(bnk);
+  if (!sounds.length) continue;
   const dir = path.join(root, bank);
   fs.mkdirSync(dir, { recursive: true });
   for (const s of sounds.slice(0, limit)) {
-    try {
-      const { ogg } = wemToOgg(s.bytes, library);
-      fs.writeFileSync(path.join(dir, `${s.id}.ogg`), ogg);
-      written++;
-    } catch (e) {
-      failed++;
-      const m = e instanceof Error ? e.message : String(e);
-      failures.set(m, (failures.get(m) ?? 0) + 1);
-    }
+    const file = path.join(dir, `${s.id}.ogg`);
+    if (fs.existsSync(file)) continue;
+    try { fs.writeFileSync(file, wemToOgg(s.bytes, library).ogg); written++; } catch (e) { fail(e); }
   }
   console.log(`${bank}: ${sounds.length} embedded sounds`);
 }
-console.log(`written ${written}, failed ${failed}`, Object.fromEntries(failures));
+console.log(`embedded: written ${written}, failed ${failed}`, Object.fromEntries(failures));
 
 // The events (HIRC across every bank, bank version 150): an Event (type 4: its id the FNV-1 hash of its lowercase
 // name; a u8 count of action ids) whose Play action (type 3, action type 0x0403: its target id) plays a Sound (type 2:
-// AkBankSourceData - plugin id, stream type, source id) whose source is one written above. events.json maps the
-// event's hash to "<bank>/<source id>" for the page (play/uiAudio.ts); containers and streamed sources come later.
+// AkBankSourceData - plugin id, stream type at +8: 0 in the bank's data, 1 prefetched, 2 streamed; source id at +9) or
+// a random / sequence container (type 5: its CAkPlayList last - a u16 count and (child id, weight) pairs - read from the
+// object's end and checked against the hierarchy). events.json maps the event's hash to the sounds it may play,
+// "<bank>/<source id>" or "streamed/<source id>" (the source's own res:/audio/media or essential_media <id>.wem).
 const objects = new Map();
 for (const res0 of res.list("res:/audio/essential_media/", /\.bnk$/)) {
   const bytes = res.read(res0);
@@ -91,20 +93,55 @@ const sourceBank = new Map();
 for (const bank of fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())) {
   for (const f of fs.readdirSync(path.join(root, bank.name))) if (f.endsWith(".ogg")) sourceBank.set(Number(f.slice(0, -4)), bank.name);
 }
-const events = {};
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+/** A random / sequence container's playlist: the ids at its end, where they make a valid list of known objects. */
+function playlist(body) {
+  for (let n = 1; n <= 255; n++) {
+    const at = body.length - 2 - n * 8;
+    if (at < 4) break;
+    if (u16(body, at) !== n) continue;
+    const ids = [];
+    for (let k = 0; k < n; k++) ids.push(u32(body, at + 2 + k * 8));
+    if (ids.every((id) => objects.has(id))) return ids;
+  }
+  return [];
+}
+let streamedWritten = 0;
+/** The sounds an object may play: a Sound's source, a container's children's. */
+function sourcesOf(id, depth = 0) {
+  const o = objects.get(id);
+  if (!o || depth > 6) return [];
+  if (o.type === 5) return playlist(o.body).flatMap((child) => sourcesOf(child, depth + 1));
+  if (o.type !== 2) return [];
+  const stream = o.body[8], source = u32(o.body, 9);
+  if (stream === 0) { const bank = sourceBank.get(source); return bank ? [`${bank}/${source}`] : []; }
+  // prefetched or streamed: the whole sound is its own file
+  const file = path.join(root, "streamed", `${source}.ogg`);
+  if (!fs.existsSync(file)) {
+    // (streamed files are under res:/audio/media, prefetched ones mostly under essential_media)
+    const wem = [`res:/audio/media/${source}.wem`, `res:/audio/essential_media/${source}.wem`].find((r) => res.has(r));
+    if (!wem) return [];
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, wemToOgg(res.read(wem), library).ogg);
+      streamedWritten++;
+    } catch (e) { fail(e); return []; }
+  }
+  return [`streamed/${source}`];
+}
+const events = {};
+let containers = 0;
 for (const [id, o] of objects) {
   if (o.type !== 4) continue;
   const n = o.body[4];
   for (let k = 0; k < n; k++) {
     const action = objects.get(u32(o.body, 5 + k * 4));
-    if (!action || action.type !== 3 || (action.body[4] | (action.body[5] << 8)) !== 0x0403) continue;
-    const sound = objects.get(u32(action.body, 6));
-    if (!sound || sound.type !== 2) continue;
-    const source = u32(sound.body, 9);
-    const bank = sourceBank.get(source);
-    if (bank) { events[id] = `${bank}/${source}`; break; }
+    if (!action || action.type !== 3 || u16(action.body, 4) !== 0x0403) continue;
+    const target = u32(action.body, 6);
+    const sounds = [...new Set(sourcesOf(target))];
+    if (sounds.length) { events[id] = sounds; if (objects.get(target)?.type === 5) containers++; break; }
   }
 }
 fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
-console.log(`HIRC objects ${objects.size}; events playing a written sound: ${Object.keys(events).length}`);
+console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} through a container); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
