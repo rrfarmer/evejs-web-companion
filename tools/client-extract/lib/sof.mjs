@@ -198,14 +198,17 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":82)
-    sofBuild: 82,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":83)
+    sofBuild: 83,
     booster,
     pattern,
     areas,
     colorSet,
     boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null, atlasIndex0: b.atlasIndex0 ?? 0, atlasIndex1: b.atlasIndex1 ?? 0, lightScale: b.lightScale ?? 1 })),
     boundingSphere: hull.boundingSphere ?? null,
+    // its authored shape ellipsoid (EveSOFDataHull shapeEllipsoidCenter / Radius, set on the ship as
+    // EveSpaceObject2's m_shapeEllipsoid*: the ShipEffect ELLIPSOID flag's scaling and offset); null where unset
+    shapeEllipsoid: Array.isArray(hull.shapeEllipsoidRadius) ? { center: hull.shapeEllipsoidCenter ?? [0, 0, 0], radius: hull.shapeEllipsoidRadius } : null,
     // Its turret locators (EveSOFDataHull.locatorTurrets, EveSOF adds each to the ship as an EveLocator2): name and
     // transform (row-major 4x4, EVE's model space); EveMobile::RebuildTurretPositions fits a turret set's turrets to
     // "<locatorName><slot>a", "...b" and on.

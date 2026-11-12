@@ -1174,7 +1174,28 @@ export class SpaceView {
       const model = mark?.userData.model as THREE.Object3D | undefined;
       const sphere = model?.userData.boundingSphere as number[] | null | undefined;
       const radius = sphere?.[3] ?? this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? null;
-      return { position, radius, quaternion: mark?.quaternion ?? null };
+      // its model's local box (the first level's meshes, in the model's frame), kept; its centre where the model is now
+      let box = model?.userData.localBox as { min: THREE.Vector3; max: THREE.Vector3 } | undefined;
+      if (model && !box) {
+        const b = new THREE.Box3();
+        const level = (model as THREE.LOD).levels?.[0]?.object ?? model;
+        model.updateWorldMatrix(true, true);
+        const toModel = model.matrixWorld.clone().invert();
+        level.traverse((o) => {
+          const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+          if (!(o as THREE.Mesh).isMesh || !g?.attributes?.position) return;
+          if (!g.boundingBox) g.computeBoundingBox();
+          b.union(g.boundingBox!.clone().applyMatrix4(toModel.clone().multiply(o.matrixWorld)));
+        });
+        if (!b.isEmpty()) { box = { min: b.min, max: b.max }; model.userData.localBox = box; }
+      }
+      const centre = box && model ? box.min.clone().add(box.max).multiplyScalar(0.5).applyMatrix4(model.matrixWorld) : null;
+      // (three's scene is shifted by the view's origin as placeOf is: the centre is in the same space)
+      return {
+        position, radius, quaternion: mark?.quaternion ?? null,
+        box: box && centre ? { min: box.min, max: box.max, centre } : null,
+        ellipsoid: model && "shapeEllipsoid" in model.userData ? (model.userData.shapeEllipsoid as { center: number[]; radius: number[] } | null) : undefined,
+      };
     }, now);
     this.stepMissiles(origin, moved, dt);
     this.stepTurrets(origin, dt);

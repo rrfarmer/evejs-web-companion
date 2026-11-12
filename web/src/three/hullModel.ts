@@ -873,6 +873,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   // (the LOD's levels: lodNodes is the file's live children list, which addLevel has emptied)
   if (decalSets?.length) await addDecals(lod.levels.map((l) => l.object), decalSets).catch((e) => console.warn("hull decals", e));
   lod.userData = { typeID, radius: size, hull: info.hull ?? null, anchor: sof?.anchor ?? null, maxCameraDistance: sof?.maxCameraDistance ?? null, lights: sof?.lights ?? [], boundingSphere: (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere ?? null,
+    shapeEllipsoid: (sof as { shapeEllipsoid?: { center: number[]; radius: number[] } | null } | null)?.shapeEllipsoid ?? null,
     // its turret locators and Primary area's faction materials (turretModel.ts: where and how its fitted turrets are drawn)
     turretLocators: (sof as { turretLocators?: unknown[] } | null)?.turretLocators ?? [],
     turretPrimary: (() => { const a = sof?.areas.find((x) => x.areaType === "Primary"); return a ? { materials: a.materials, glowColor: a.glowColor ?? null } : null; })(),
