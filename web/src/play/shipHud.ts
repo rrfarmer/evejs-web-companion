@@ -635,6 +635,17 @@ export class ShipHud {
    * padding 2, GLOWCOLOR (0.24, 0.67, 0.16, 0.75), blinking at 0.75 over a second). Empty slots are not drawn, as with
    * the client's default. A click is the module's (onModule).
    */
+  /**
+   * slotsContainer.ToggleRackOverload (CmdOverloadHigh/Medium/LowPowerRack: Ctrl+3 / 2 / 1): the rack's overload
+   * button clicked, where it has an activation; false where it has none (the client's "Disabled" notice).
+   */
+  toggleRackOverload(rack: "Hi" | "Med" | "Lo"): boolean {
+    const b = this.rackButtons.get(rack);
+    if (!b || b.activationID === null || !this.overload) return false;
+    this.overload.rack(b.activationID, !b.active);
+    return true;
+  }
+
   setModules(modules: readonly HudModule[], onModule: (m: HudModule) => void, overload?: HudOverload): void {
     const sig = modules.map((m) => `${m.family}${m.index}:${m.itemID}:${m.online}`).join("|");
     if (sig !== this.modulesSig) {

@@ -887,15 +887,41 @@ export class SpaceView {
     }
   }
 
-  /** The client's keys for the scanner (eveCommands: OpenDirectionalScanner Alt+D, CmdRefreshDirectionalScan V). */
+  /**
+   * The client's in-space commands by their default shortcuts (shortcutKeys.ts commandForKey, eveCommands.py):
+   * OpenDirectionalScanner (Alt+D) and CmdRefreshDirectionalScan (V); CmdActivate<Rack>PowerSlot1-8 (F1-F8, Alt+F,
+   * Ctrl+F: _cmdshipui -> slotsContainer.OnF, the module at that rack and place clicked) and CmdOverload<Rack>PowerSlot
+   * (with Shift: OnFKeyOverload, its overload toggled); CmdOverload<Rack>PowerRack (Ctrl+3 / 2 / 1: the rack's overload
+   * button); CmdStopShip (Ctrl+Space) and CmdSetShipFullSpeed (Alt+Ctrl+Space).
+   */
   private key(e: KeyboardEvent): void {
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-    if (!this.dscan) return;
-    // the client's commands by their default shortcuts (shortcutKeys.ts): OpenDirectionalScanner, CmdRefreshDirectionalScan
     const cmd = commandForKey(e);
-    if (cmd === "OpenDirectionalScanner") { e.preventDefault(); this.dscan.toggle(); }
-    else if (cmd === "CmdRefreshDirectionalScan") { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); }
+    if (cmd === null) return;
+    if (cmd === "OpenDirectionalScanner" && this.dscan) { e.preventDefault(); this.dscan.toggle(); return; }
+    if (cmd === "CmdRefreshDirectionalScan" && this.dscan) { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); return; }
+    if (cmd === "CmdStopShip") { e.preventDefault(); void this.act("Stop", () => this.actions.stop()); return; }
+    if (cmd === "CmdSetShipFullSpeed") { e.preventDefault(); void this.fullSpeed(); return; }
+    const RACKS = { High: "high", Medium: "mid", Low: "low" } as const;
+    const rack = /^CmdOverload(High|Medium|Low)PowerRack$/.exec(cmd);
+    if (rack) {
+      e.preventDefault();
+      if (!this.shipHud.toggleRackOverload(({ High: "Hi", Medium: "Med", Low: "Lo" } as const)[rack[1] as "High" | "Medium" | "Low"])) this.toast("Disabled");
+      return;
+    }
+    const slot = /^Cmd(Activate|Overload)(High|Medium|Low)PowerSlot(\d)$/.exec(cmd);
+    if (!slot) return;
+    e.preventDefault();
+    const family = RACKS[slot[2] as "High" | "Medium" | "Low"];
+    const index = Number(slot[3]) - 1;
+    const m = this.options.rack?.modules().find((each) => each.family === family && each.index === index) ?? null;
+    // (an empty slot or a module offline: the client's "Disabled" notice)
+    if (!m || !m.online) { this.toast("Disabled"); return; }
+    if (slot[1] === "Activate") { void this.act(m.name ?? "Module", () => this.options.rack!.use(m)); return; }
+    const overload = this.options.rack?.overload;
+    if (!overload || m.overloadable === false) { this.toast("Disabled"); return; }
+    void this.act(m.name ?? "Module", () => overload.module(m.itemID, !m.overloaded));
   }
 
   /** The object in space under a point of the screen: the nearest mark the ray from the camera meets. */
