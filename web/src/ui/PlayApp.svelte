@@ -720,6 +720,13 @@
   .fly-windows :global(.fit-attr) { position: relative; min-height: 26px; margin-top: 1px; display: flex; align-items: center; }
   .fly-windows :global(.fit-attr img) { position: absolute; left: 3px; top: calc(50% - 10px); width: 20px; height: 20px; }
   .fly-windows :global(.fit-attr span) { margin-left: 27px; font-size: 12px; line-height: 1.2; color: rgba(255, 255, 255, 0.75); }
+  /* dronePanel: the active count 7 + 20 in, Manage drones a compact ghost button (cell padding 4) */
+  .fly-windows :global(.fit-attr-plain span) { margin-left: 27px; }
+  .fly-windows :global(.fit-ghost-button) { margin: 4px; padding: 2px 8px; font-size: 12px; background: none; border: 1px solid rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.85); border-radius: 0; cursor: pointer; }
+  .fly-windows :global(.fit-ghost-button:hover:not(:disabled)) { background: rgba(255, 255, 255, 0.1); }
+  /* the drone menu's own simulated-bay list stays below the client's grid; the rest of its table is the client's now */
+  .fly-windows :global(.fit-sec-body.hidden-by-client > table) { display: none; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

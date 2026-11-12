@@ -669,6 +669,7 @@
     "UI/Fitting/FittingWindow/SmartbombsDps": "Area weapons",
     "UI/Fitting/FittingWindow/DronesDps": "Drones",
     "UI/Fitting/FittingWindow/NumDronesActive": "{[numeric]numDrones} active",
+    "UI/Fitting/FittingWindow/ManageDrones": "Manage drones",
     "UI/Fitting/FittingWindow/WithReloadTimeText": "counting reloads",
     // The fighter panel (fighterPanel.py), a structure's in the drones' place.
     "UI/Common/Fighters": "Fighters",
@@ -1979,6 +1980,39 @@
     { icon: "aligntime", hint: "Time to align", text: knownWord(stats.navigation.alignTimeSeconds, (v) => shipWord("UI/Fitting/FittingWindow/AlignTime", { value: v })) },
   ]);
 
+  /**
+   * The play page's offense and drone menus (offensePanel.py, dronePanel.py on basePanel's value grid): offense -
+   * [total dps (DpsLabel, its with-reload figure after it in brackets where it differs), alpha strike (the damage
+   * attribute's form of int(round(alpha)))], the header the total dps alone; drones - [bandwidth (FmtAmt of the used /
+   * the ship's), control range], then the active count and Manage drones, the header the drones' dps.
+   */
+  const clientOffense = $derived.by(() => {
+    if (!retail) return null;
+    const sim = stats.firepower.simulator ?? null;
+    const dps = (v: number) => offenseWord("UI/Fitting/FittingWindow/DpsLabel", { dps: v });
+    const total = sim
+      ? dps(sim.totalDps) + (sim.totalDpsWithReload && sim.totalDpsWithReload !== sim.totalDps ? ` (${dps(sim.totalDpsWithReload)})` : "")
+      : knownWord(stats.firepower.dps, dps);
+    const alpha = sim ? `${whole(Math.round(sim.alphaStrike))} HP` : knownWord(stats.firepower.volley, (v) => `${whole(Math.round(v))} HP`);
+    return {
+      header: sim ? dps(sim.totalDps) : knownWord(stats.firepower.dps, dps),
+      cells: [{ icon: "turretdps", hint: "Damage per second", text: total }, { icon: "alphastrike", hint: "Alpha strike", text: alpha }],
+    };
+  });
+  const clientDrones = $derived.by(() => {
+    if (!retail) return null;
+    const d = stats.drones ?? null;
+    const shipBandwidth = knownWord(stats.bays.droneBandwidth, (v) => `${toFixed(v, 0)} Mbit/sec`);
+    return {
+      header: d ? offenseWord("UI/Fitting/FittingWindow/DpsLabel", { dps: d.dps }) : knownWord(stats.firepower.droneDps, (v) => offenseWord("UI/Fitting/FittingWindow/DpsLabel", { dps: v })),
+      cells: [
+        { icon: "bandwidth", hint: "Drone bandwidth", text: d ? `${Math.round(d.bandwidthUsed).toLocaleString()}/${shipBandwidth}` : shipBandwidth },
+        { icon: "controlrange", hint: "Drone control range", text: knownWord(stats.bays.droneControlRange, (v) => `${whole(v)} m`) },
+      ],
+      active: d ? offenseWord("UI/Fitting/FittingWindow/NumDronesActive", { numDrones: d.activeDrones }) : "",
+    };
+  });
+
   /** defensePanel's resist icons and layer icons (StatsIcons), by damage type and layer. */
   const RESIST_ICON: Record<string, string> = { em: "emresistance", thermal: "thermalresistance", kinetic: "kineticresistance", explosive: "explosiveresistance" };
   const LAYER_ICON: Record<string, string> = { shield: "shieldhp", armor: "armorhp", structure: "structurehp" };
@@ -2674,12 +2708,17 @@
     <details class="fit-sec" open={!retail}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Offense</span>
-        {#if stats.firepower.simulator}
+        {#if clientOffense}
+          <span class="fit-sec-headline">{clientOffense.header}</span>
+        {:else if stats.firepower.simulator}
           <span class="fit-sec-headline">{offenseHeadline(stats.firepower.simulator)}</span>
         {:else}
           <span class="fit-sec-headline">{@render statValue(stats.firepower.dps, (v) => `${whole(v)} dps`)}</span>
         {/if}
       </summary>
+      {#if clientOffense}
+      <div class="fit-sec-body fit-attr-grid">{@render clientAttributeCells(clientOffense.cells)}</div>
+      {:else}
       <div class="fit-sec-body">
         {#if stats.firepower.simulator}
           <table class="guests">
@@ -2713,6 +2752,7 @@
           </p>
         {/if}
       </div>
+      {/if}
     </details>
 
     <details class="fit-sec" open={!retail}>
@@ -2958,14 +2998,25 @@
     <details class="fit-sec" open={!retail} bind:this={dronesSection}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Drones</span>
-        {#if stats.drones}
+        {#if clientDrones}
+          <span class="fit-sec-headline">{clientDrones.header}</span>
+        {:else if stats.drones}
           <!-- dronePanel.SetDroneDpsText: the active drones' damage a second. -->
           <span class="fit-sec-headline">{offenseWord("UI/Fitting/FittingWindow/DpsLabel", { dps: stats.drones.dps })}</span>
         {:else}
           <span class="fit-sec-headline">{@render statValue(stats.firepower.droneDps, (v) => `${whole(v)} dps`)}</span>
         {/if}
       </summary>
-      <div class="fit-sec-body">
+      {#if clientDrones}
+        <div class="fit-sec-body fit-attr-grid">
+          {@render clientAttributeCells(clientDrones.cells)}
+          <div class="fit-attr fit-attr-plain"><span>{clientDrones.active}</span></div>
+          <div class="fit-attr fit-attr-plain">
+            <button type="button" class="fit-ghost-button" disabled={!showInventory && !simulation} onclick={() => showInventory?.()}>{offenseWord("UI/Fitting/FittingWindow/ManageDrones")}</button>
+          </div>
+        </div>
+      {/if}
+      <div class="fit-sec-body" class:hidden-by-client={!!clientDrones}>
         <table class="guests">
           <tbody>
             {#if stats.drones}
