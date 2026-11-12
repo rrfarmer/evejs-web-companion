@@ -62,7 +62,7 @@
   // DeleteContacts), and where none is under "All Agents" their removal from their folders; a drag carries them all.
   //
   // Not here yet: Capture Portrait and the remaining owner actions.
-  import { onMount, untrack } from "svelte";
+  import { getContext, onMount, untrack } from "svelte";
   import OwnerFleetMenu from "./OwnerFleetMenu.svelte";
   import OwnerChatMenu from "./OwnerChatMenu.svelte";
   import OwnerMemberMenu from "./OwnerMemberMenu.svelte";
@@ -1231,6 +1231,8 @@
   // svelte-ignore state_referenced_locally
   const keptTab = flow.addressBookTab();
   // svelte-ignore state_referenced_locally
+  /** On the play page the address book's tabs sit at the top, in the header as addressBookWindow's (ConstructTabs). */
+  const retailChrome = getContext("retailChrome") === true;
   let tab = $state<AddressBookTab>(!organization && (keptTab === "agents" || keptTab === "search") ? keptTab : "contacts");
   /** What the Search tab's last search found, by kind; none before any. */
   let searchFound = $state<ReadonlyMap<number, readonly { readonly id: number; readonly name: string }[]> | null>(null);
@@ -1898,7 +1900,7 @@
   });
 </script>
 
-<section class="panel">
+<section class="panel" class:ct-retail={retailChrome && !organization}>
   {#if !contactAction}
   <header class="panel-head">
     <h2 class="panel-title">{word(WORDS.title, "Contacts")}</h2>

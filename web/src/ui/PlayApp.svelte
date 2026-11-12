@@ -326,20 +326,29 @@
   }
   function open(tab: TabID) { wins = openFly(wins, tab); raiseApp(tab); }
   /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
-  // The probe scanner's caption (ProbeScannerWindow default_captionLabelPath UI/Inflight/Scanner/ProbeScanner), the install's words.
-  let scannerTitle = $state("Probe Scanner");
-  // The Agency's caption (agencyWnd.AgencyWndNew default_captionLabelPath UI/Agency/Caption): the play page's Agent
-  // Finder is the Agency's Missions tab.
-  let agencyTitle = $state("Agency");
+  /**
+   * The windows' captions as the client's (each window class's default_captionLabelPath), the install's words: the probe
+   * scanner (ProbeScannerWindow), the Agency (AgencyWndNew - the play page's Agent Finder is its Missions tab), People &
+   * Places (addressBookWindow), Mail (evemail), the Wallet (walletWnd), the Character Sheet, Personal Assets, Locations,
+   * the Log. The page's own tab label stands until the words are had.
+   */
+  const CAPTION_LABELS: Partial<Record<TabID, string>> = {
+    scanner: "UI/Inflight/Scanner/ProbeScanner", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
+    mail: "Tooltips/Neocom/Mail", wallet: "UI/Wallet/WalletWindow/Wallet", characterSheet: "UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption",
+    assets: "Tooltips/Neocom/PersonalAssets", locations: "UI/PeopleAndPlaces/Locations", log: "UI/Accessories/Log/Log",
+  };
+  let captions = $state<Partial<Record<TabID, string>>>({});
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords(["UI/Inflight/Scanner/ProbeScanner", "UI/Agency/Caption", ...DSCAN_WORDS]);
+    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS]);
     return s.store.words.subscribe((w) => {
-      const t = w.templates["UI/Inflight/Scanner/ProbeScanner"];
-      if (typeof t === "string" && t !== "") scannerTitle = t;
-      const a = w.templates["UI/Agency/Caption"];
-      if (typeof a === "string" && a !== "") agencyTitle = a;
+      const next: Partial<Record<TabID, string>> = {};
+      for (const [tab, label] of Object.entries(CAPTION_LABELS) as [TabID, string][]) {
+        const t = w.templates[label];
+        if (typeof t === "string" && t !== "") next[tab] = plainText(t);
+      }
+      captions = next;
     });
   });
   let dronesTitle = $state("Drones");
@@ -664,7 +673,7 @@
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
-          title={win.id === "drones" ? dronesTitle : win.id === "scanner" ? scannerTitle : win.id === "finder" ? agencyTitle : tabLabel(win.id)}
+          title={win.id === "drones" ? dronesTitle : captions[win.id] ?? tabLabel(win.id)}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
@@ -1265,6 +1274,12 @@
     border-right: 1px solid rgba(255, 255, 255, 0.08); padding-right: 4px; }
   .fly-windows :global(.mail-split.on > .mail-folders button) { text-align: left; }
   .fly-windows :global(.mail-split.on > .mail-right) { flex: 1; min-width: 0; }
+  /* addressBookWindow: its tabs (Contacts, Agents, Search) in the header, at the top */
+  .fly-windows :global(.ct-retail) { display: flex; flex-direction: column; }
+  .fly-windows :global(.ct-retail > nav.tabs) { order: -1; display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 8px; }
+  .fly-windows :global(.ct-retail > nav.tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.6); cursor: pointer; border-radius: 0; }
+  .fly-windows :global(.ct-retail > nav.tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); background: none; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
