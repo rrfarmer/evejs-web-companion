@@ -765,6 +765,16 @@ export class SpaceView {
     }
     return set.enterFiring(best);
   }
+  /** A ship's module's type, from its slim item's modules (itemID, typeID, flagID); null where it is not there. */
+  private moduleTypeOf(shipID: number, moduleID: number): number | null {
+    const park = this.live.park as unknown as { slimItems?: Map<number, Map<string, unknown>> };
+    const raw = park.slimItems?.get(shipID)?.get("modules") as { items?: unknown[] } | unknown[] | undefined;
+    for (const r of (Array.isArray(raw) ? raw : raw?.items ?? []) as unknown[]) {
+      const t = (Array.isArray(r) ? r : (r as { items?: unknown[] })?.items ?? []) as unknown[];
+      if (Number(t[0]) === moduleID) return Number(t[1]) || null;
+    }
+    return null;
+  }
   /**
    * A ship's firing bone for a module, in the world (EveTurretSet::GetFiringBoneWorldTransform): of the module's turret
    * rigs (an NPC's: all its rigs, its modules being the ship), the one whose up axis faces the target best
@@ -1081,7 +1091,13 @@ export class SpaceView {
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
     this.turretFx.onFire = (ship, moduleID, target) => { this.fireTurretSet(ship, moduleID, target); };
-    this.missileFx.onLaunch = (ship, moduleID, target) => this.fireTurretSet(ship, moduleID, target);
+    this.missileFx.onLaunch = (ship, moduleID, target) => {
+      const delay = this.fireTurretSet(ship, moduleID, target);
+      // the launcher's firing effect (turretFx.launch): its type from the ship's slim item's modules
+      const typeID = this.moduleTypeOf(ship, moduleID);
+      if (typeID) this.turretFx.launch(ship, moduleID, typeID, target, delay);
+      return delay;
+    };
     this.turretFx.muzzleOf = (ship, moduleID, shot, target) => {
       const m = this.muzzleOf(ship, moduleID, shot, target, origin);
       return m ? new THREE.Vector3().setFromMatrixPosition(m) : null;

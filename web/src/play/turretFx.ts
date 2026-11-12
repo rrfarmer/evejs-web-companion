@@ -12,12 +12,12 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { Stretch2Effect, stretch2Kit, type SofStretch2, type Stretch2Kit } from "../three/stretch2.ts";
 import { gpuSystemOf } from "../three/gpuParticles.ts";
-import { hullChildren } from "../three/hullChildren.ts";
-import { livePartsOf, placeStretch, setVariable, type SofStretch3 } from "../three/behaviorAgents.ts";
+import { hullChildren, startEffect } from "../three/hullChildren.ts";
+import { livePartsOf, placeEveStretch, placeStretch, setVariable, type SofStretch3 } from "../three/behaviorAgents.ts";
 import { offerLights } from "../three/dynamicLights.ts";
 
 interface Firing {
-  shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser" | "mining"; startedAt: number; until: number; lastPulse: number;
+  shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser" | "mining" | "launcher"; startedAt: number; until: number; lastPulse: number;
   /** The charge (OnSpecialFX's otherTypeID): its beam colour (ammoColors). */
   chargeTypeID: number;
   /**
@@ -39,12 +39,12 @@ interface Firing {
 /** A turret module's graphic as the extractor reads it (lib/turret.mjs; GET /client-assets/turret/<typeID>). */
 export interface TurretInfo {
   impactSize: number; useRandomFiringDelay: boolean; maxTrackingTime: number; firingPeakTime: number; firingDuration: number;
-  isLoopFiring?: boolean; maxCyclingFirePos?: number;
+  isLoopFiring?: boolean; maxCyclingFirePos?: number; cyclingFireGroupCount?: number;
   /** Its firing effect: a stretch per muzzle, the target's scaling (lib/turret.mjs, turretBuild 5). */
   firing?: { stretches: ({ type: string | null } | SofStretch2 | TurretStretch3)[]; scaleEffectTarget: boolean; minRadius: number; maxRadius: number; minScale: number; maxScale: number } | null;
 }
 /** A firing effect's EveStretch3 as the extractor reads it (children.mjs readTurretStretch3). */
-type TurretStretch3 = SofStretch3 & { type: "EveStretch3"; name: string | null };
+type TurretStretch3 = SofStretch3 & { type: "EveStretch3" | "EveStretch"; name: string | null };
 /** A module type's EveStretch3s built (hull-child graphs, one template per stretch), once: null where it has none. */
 const stretch3s = new Map<number, { data: TurretStretch3; template: THREE.Object3D }[] | null>();
 const stretch3Asked = new Set<number>();
@@ -52,7 +52,7 @@ function stretch3Of(typeID: number, info: TurretInfo | null): { data: TurretStre
   if (!info) return null;
   if (!stretch3Asked.has(typeID)) {
     stretch3Asked.add(typeID);
-    const specs = (info.firing?.stretches ?? []).filter((s): s is TurretStretch3 => s.type === "EveStretch3" && !!(s as TurretStretch3).root);
+    const specs = (info.firing?.stretches ?? []).filter((s): s is TurretStretch3 => (s.type === "EveStretch3" || s.type === "EveStretch") && !!(s as TurretStretch3).root);
     if (!specs.length || specs.length !== (info.firing?.stretches.length ?? 0)) stretch3s.set(typeID, null);
     else void Promise.all(specs.map(async (data) => {
       const template = await hullChildren([{ res: "", root: data.root, skipped: {} }]);
@@ -161,7 +161,7 @@ const KIND: Record<string, Firing["kind"]> = {
   "effects.UpwellChainWeaponMedium": "laser",
   "effects.UpwellChainWeaponLarge": "laser",
 };
-const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c, mining: 0xff5a3c };
+const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c, mining: 0xff5a3c, launcher: 0xffc36a };
 /** How often a gun's pulse goes out, and how long it takes to get there (a likeness, not the cycle). */
 const PULSE_EVERY_MS = 220, FLIGHT_MS = 260;
 
@@ -181,8 +181,10 @@ export class TurretFx {
   /** A laser firing's stretches, one per muzzle (its turret's firing effect). */
   private readonly stretches = new Map<Firing, Stretch2Effect[]>();
   /** A firing's EveStretch3s, one per muzzle (a clone of its template each), and whether each has been started. */
-  private readonly stretch3 = new Map<Firing, { fx: THREE.Object3D; started: boolean }[]>();
+  private readonly stretch3 = new Map<Firing, { fx: THREE.Object3D; started: boolean; startedAt: number | null }[]>();
   /** A Vorton firing's chain links (ChainWeaponEffect: turret to target, then target to target), made anew each cycle. */
+  /** Each launcher's cycling position (shooter:module:launch), kept between its shots. */
+  private readonly launchCycling = new Map<string, number>();
   private readonly chainLinks = new Map<Firing, { fx: THREE.Object3D; from: number | null; to: number }[]>();
   private readonly blasts: Blast[] = [];
   /** The screen's size in pixels: fat lines are drawn so many pixels wide. */
@@ -328,7 +330,10 @@ export class TurretFx {
     if (info?.isLoopFiring && f.muzzles.some((m) => m.startedAt !== null)) return;
     if (fx) for (const s of fx) s.stopFiring();
     const cycling = info?.maxCyclingFirePos ?? 1;
-    const group = cycling > 1 ? Math.max(1, Math.floor(n / cycling)) : n;
+    // EveTurretSet::SetupFiringState / EnterStateFiring: the position steps by the group count (default 1) and wraps
+    // at maxCyclingFirePos x it; PrepareFiring(delay, position, group) starts the stretches from that index - a
+    // position past the stretches (a light launcher: one stretch, two positions) starts none that shot
+    const group = cycling > 1 ? Math.max(1, info?.cyclingFireGroupCount ?? 1) : n;
     if (cycling > 1) f.cyclingPos = (f.cyclingPos + group) % (cycling * group);
     const first = cycling > 1 ? f.cyclingPos : 0;
     f.muzzles = Array.from({ length: n }, (_, i) => ({ startAt: i >= first && i < first + group ? startAt : null, startedAt: null }));
@@ -394,6 +399,29 @@ export class TurretFx {
   }
 
   /**
+   * A missile launcher's shot (MissileGraphics.Start: the launcher's turret StartShooting - missileFx.onLaunch): its
+   * firing effect (EveStretch: the muzzle burst) played once, from its muzzles toward the target, after the turret
+   * set's firing delay (seconds); its impacts are the missile's, not drawn here.
+   */
+  launch(shooter: number, moduleID: number, moduleTypeID: number, target: number | null, delay: number, now = performance.now()): void {
+    const info = turretInfo(moduleTypeID);
+    const key = `${shooter}:${moduleID}:launch`;
+    const f: Firing = {
+      shooter, target: target ?? shooter, moduleID, moduleTypeID, kind: "launcher", startedAt: now, until: now + (delay + Math.max(info?.firingDuration ?? 2, 0.5) + 0.5) * 1000, lastPulse: 0,
+      cycle: Infinity, nextCycle: Infinity, idle: false, misses: [], shots: [], chargeTypeID: 0, muzzles: [], cyclingPos: 0, spool: null, chain: null,
+    };
+    const was = this.firings.get(key);
+    if (was) { for (const e of this.stretch3.get(was) ?? []) e.fx.removeFromParent(); this.stretch3.delete(was); }
+    // the launcher's cycling position goes on from its last shot
+    f.cyclingPos = this.launchCycling.get(key) ?? 0;
+    this.firings.set(key, f);
+    if (info) this.prepareFiring(f, info, now + delay * 1000);
+    else f.muzzles = [];
+    this.launchCycling.set(key, f.cyclingPos);
+    f.startedAt = now + delay * 1000;
+  }
+
+  /**
    * ChainWeaponEffect.Shoot for a cycle (Start, and each Repeat after removing the last): the guid's graphic from the
    * turret's first muzzle to the target, then from each target to the next of graphicInfo's targets, each with its
    * jumpNumber (0 the turret's, then 1, 2 ...), started (StartFiring) after a delay growing by 0.3 x random a link.
@@ -443,7 +471,7 @@ export class TurretFx {
    * be a minute off): its muzzles prepared now, to start at once.
    */
   private lateMuzzles(f: Firing, info: TurretInfo, now: number): void {
-    if (!f.muzzles.length && (info.firing?.stretches.length ?? 0) > 0) this.prepareFiring(f, info, now);
+    if (!f.muzzles.length && (info.firing?.stretches.length ?? 0) > 0) this.prepareFiring(f, info, Math.max(now, f.startedAt));
   }
 
   /**
@@ -459,7 +487,7 @@ export class TurretFx {
     this.lateMuzzles(f, info, now);
     let fx = this.stretch3.get(f);
     if (!fx) {
-      fx = built.map((b) => { const c = b.template.clone(); c.name = "turret-stretch3"; c.visible = false; this.group.add(c); return { fx: c, started: false }; });
+      fx = built.map((b) => { const c = b.template.clone(); c.name = "turret-stretch3"; c.visible = false; this.group.add(c); return { fx: c, started: false, startedAt: null }; });
       this.stretch3.set(f, fx);
     }
     fx.forEach((e, i) => {
@@ -469,9 +497,17 @@ export class TurretFx {
       const on = !!m && m.startedAt !== null && (!!info.isLoopFiring || (now - m.startedAt!) / 1000 < info.firingDuration);
       e.fx.visible = on;
       if (!on) return;
+      // an EveStretch's shot begun (EveStretch::StartFiring: its play_start / play_loop sets PlayFrom the start): its
+      // curve sets played from now (startEffect - the clones share their template's animator, so all of them; its
+      // play_end too, which the client leaves stopped)
+      if (b.data.type === "EveStretch" && e.startedAt !== m!.startedAt) {
+        startEffect(e.fx);
+        e.startedAt = m!.startedAt;
+      }
       if (!e.started) { e.started = true; setVariable(e.fx, "FiringDelay", 0); setVariable(e.fx, "IsFiring", 1); }
       const at = this.muzzleOf?.(f.shooter, f.moduleID, i, f.target) ?? from;
-      placeStretch(e.fx, b.data, at, to);
+      if (b.data.type === "EveStretch") placeEveStretch(e.fx, b.data, at, to);
+      else placeStretch(e.fx, b.data, at, to);
       if (renderer && camera) for (const part of livePartsOf(e.fx)) offerLights(renderer, camera, part);
     });
     return true;
@@ -502,7 +538,7 @@ export class TurretFx {
         const size = s.size ?? later?.impactSize ?? 0.75, life = s.life ?? (later ? Math.max(later.firingDuration - later.firingPeakTime, 0) : 1);
         if (size > 0) this.onShot?.(f.shooter, f.target, size, life);
       }
-      if (f.kind === "laser" || f.kind === "mining" || this.stretches.has(f) || this.stretch3.has(f)) continue;
+      if (f.kind === "laser" || f.kind === "mining" || f.kind === "launcher" || this.stretches.has(f) || this.stretch3.has(f)) continue;
       if (now - f.lastPulse >= PULSE_EVERY_MS) { f.lastPulse = now; this.pulse(f, now); }
     }
     // the turret's own firing effect (its stretches) where it is drawn here; else for a laser one beam while it fires,

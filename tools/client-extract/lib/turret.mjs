@@ -156,11 +156,11 @@ export function ammoColors(rf, clientDir, sdeDir, repo) {
  * outside), in place of the type-only entries readStretch leaves for them; their child effects with the first.
  */
 function withStretch3(stretches, rf, fxFile) {
-  if (!fxFile || !stretches.some((s) => s.type === "EveStretch3")) return stretches;
+  if (!fxFile || !stretches.some((s) => s.type === "EveStretch3" || s.type === "EveStretch")) return stretches;
   const read = readTurretStretch3(rf, fxFile);
   return stretches.map((s, i) => {
     const r = read?.stretches[i];
-    return r ? { type: "EveStretch3", name: s.name ?? null, ...r, ...(i === 0 ? { childEffects: read.childEffects } : {}) } : s;
+    return r ? { type: s.type, name: s.name ?? null, ...r, ...(i === 0 ? { childEffects: read.childEffects } : {}) } : s;
   });
 }
 
@@ -181,7 +181,7 @@ export function readTurret(rf, graphicFile) {
   const override = fx?.firingDurationOverride ?? -1;
   const effect = set.turretEffect ?? null;
   return {
-    turretBuild: 8,
+    turretBuild: 10,
     // the aiming (EveTurretAiming: the file's sysBone numbers, its class defaults where it has none)
     aiming: {
       height: Number(set.sysBoneHeight ?? 1), pitchFactor: Number(set.sysBonePitchFactor ?? 1), pitchOffset: Number(set.sysBonePitchOffset ?? 0),
@@ -196,6 +196,8 @@ export function readTurret(rf, graphicFile) {
     geometry: set.geometryResPath ? String(set.geometryResPath).toLowerCase() : null,
     locatorName: String(set.locatorName ?? ""),
     maxCyclingFirePos: Number(set.maxCyclingFirePos ?? 1),
+    // how many muzzles fire together at each cycling position (EveTurretSet m_cyclingFireGroupCount, default 1)
+    cyclingFireGroupCount: Number(set.cyclingFireGroupCount ?? 1),
     effect: effect?.effectFilePath ? String(effect.effectFilePath).split("/").pop().replace(/\.fx$/i, "").toLowerCase() : null,
     textures: Object.fromEntries((effect?.resources ?? []).filter((r) => r?.name && r.resourcePath).map((r) => [r.name, String(r.resourcePath).toLowerCase()])),
     params: Object.fromEntries(((effect?.constParameters?.items ?? [])).filter((r) => Array.isArray(r)).map(([k, v]) => [k, v])),

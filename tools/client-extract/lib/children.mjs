@@ -455,6 +455,51 @@ function readStretch3(fx) {
   return { root, destObjectScale: fx.destObjectScale ?? 1, ids };
 }
 
+/**
+ * An EveTransform (the older scene object an EveStretch hangs: its SRT, children, particle emitters and systems, an
+ * instanced particle mesh or a plain mesh, curve sets) as the child nodes the page builds: a container (its own id,
+ * so a binding into it still finds it) holding its children, an EveChildParticleSystem of its particles (the same
+ * fields) and an EveChildMesh of a plain mesh. Its modifier (billboard and the like) is not followed: counted in
+ * skipped.
+ */
+function transformAsChild(t, skipped) {
+  if (!t || typeof t !== "object" || t.type !== "EveTransform") return t;
+  const objects = (t.children ?? []).map((c) => transformAsChild(c, skipped));
+  const instanced = t.mesh?.type === "Tr2InstancedMesh" ? t.mesh : null;
+  if ((t.particleEmitters ?? []).length || (t.particleSystems ?? []).length || instanced) {
+    objects.push({ type: "EveChildParticleSystem", name: t.name ?? null, particleEmitters: t.particleEmitters ?? [], particleSystems: t.particleSystems ?? [], mesh: instanced });
+  }
+  if (t.mesh?.type === "Tr2Mesh") objects.push({ type: "EveChildMesh", name: t.name ?? null, mesh: t.mesh });
+  if (t.modifier) skipped[`EveTransform.modifier:${t.modifier}`] = (skipped[`EveTransform.modifier:${t.modifier}`] ?? 0) + 1;
+  const c = {
+    type: "EveChildContainer", name: t.name ?? null, display: t.display, translation: t.translation, rotation: t.rotation, scaling: t.scaling,
+    objects, curveSets: t.curveSets ?? [], lights: [],
+  };
+  ids.set(c, idOf(t));
+  return c;
+}
+
+/**
+ * An EveStretch (Eve/Renderable/Stretch/EveStretch.cpp: a turret's firing effect of EveTransform trees - the missile
+ * launchers', salvagers', tractor beams', drones'): its parts as child graphs (transformAsChild) under one container
+ * with the stretch's curve sets - play_start and play_loop played as it starts (StartFiring), play_end not - and the
+ * parts' ids, placed from outside (EveStretch::UpdateVisibility's rules, the page's placeEveStretch).
+ */
+function readEveStretch(fx) {
+  if (fx?.type !== "EveStretch") return null;
+  const skipped = {};
+  const raw = { source: fx.sourceObject, stretch: fx.stretchObject, move: fx.moveObject, dest: fx.destObject };
+  const parts = Object.fromEntries(Object.entries(raw).map(([k, p]) => [k, p && typeof p === "object" ? transformAsChild(p, skipped) : null]));
+  const objects = Object.values(parts).filter(Boolean);
+  if (!objects.length) return null;
+  const curveSets = (fx.curveSets ?? []).map((cs) => (cs?.name === "play_end" ? { ...cs, playOnLoad: false } : cs?.name === "play_start" || cs?.name === "play_loop" ? { ...cs, playOnLoad: true } : cs));
+  const root = readNode({ type: "EveChildContainer", objects, curveSets }, skipped);
+  if (!root) return null;
+  const ids = Object.fromEntries(Object.entries(parts).map(([k, p]) => [k, p ? idOf(p) : null]));
+  for (const o of root.objects ?? []) if (o.k === "container" && Object.values(ids).includes(o.id)) o.live = true;
+  return { root, destObjectScale: fx.destObjectScale ?? 1, ids, skipped };
+}
+
 /** A BehaviorGroupBooster flare's numbers (prefix haloFlare / ambientFlare; its constructor's defaults). */
 const flareOf = (b, k) => ({
   offset: b[`${k}Offset`] ?? [0, 0, 0], scale: b[`${k}Scale`] ?? [1, 1, 1], brightness: b[`${k}Brightness`] ?? 0, color: b[`${k}Color`] ?? [1, 1, 1, 1],
@@ -923,7 +968,7 @@ export function readTurretStretch3(rf, path) {
   actionEmitters = findActionEmitters(fx ?? o);
   // a file that is one EveStretch3 (an effect's own graphic: the Vorton projectors' chain) is its one stretch
   const list = fx ? fx.stretch ?? [] : o?.type === "EveStretch3" ? [o] : [];
-  const stretches = list.map((s) => (s?.type === "EveStretch3" ? readStretch3(s) : null));
+  const stretches = list.map((s) => (s?.type === "EveStretch3" ? readStretch3(s) : s?.type === "EveStretch" ? readEveStretch(s) : null));
   return { res, stretches, childEffects: childEffectRoots() };
 }
 

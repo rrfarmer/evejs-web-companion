@@ -1014,6 +1014,32 @@ const MINUS_Z = new THREE.Vector3(0, 0, -1);
 const arcFromForward = (v: THREE.Vector3) => (v.lengthSq() > 0 ? new THREE.Quaternion().setFromUnitVectors(MINUS_Z, v.clone().normalize()) : new THREE.Quaternion());
 const HALF_TURN_Y = new THREE.Quaternion(0, 1, 0, 0);
 
+/**
+ * EveStretch::UpdateVisibility's placing of its parts (a turret's firing effect: SetFiringTransform makes it
+ * isNegZForward): the source at the source turned by the arc from +y to normalize(source - dest), the dest the same
+ * arc x destObjectScale at the target, the stretch from the source with z scaled by the length and turned by the arc
+ * from forward to that direction; the move object at the source (its progress curve not followed).
+ */
+export function placeEveStretch(fx: THREE.Object3D, data: SofStretch3, source: THREE.Vector3, dest: THREE.Vector3): void {
+  const dir = source.clone().sub(dest);
+  const len = dir.length();
+  if (len > 0) dir.divideScalar(len);
+  const up = len > 0 ? new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir) : new THREE.Quaternion();
+  const set = (id: number | null, m: THREE.Matrix4) => {
+    if (id === null) return;
+    fx.traverse((o) => {
+      if (o.userData.childId !== id || !o.name.startsWith("child-live:")) return;
+      o.matrix.copy(m);
+      o.matrixWorldNeedsUpdate = true;
+    });
+  };
+  const one = new THREE.Vector3(1, 1, 1);
+  set(data.ids.source, new THREE.Matrix4().compose(source, up, one));
+  set(data.ids.dest, new THREE.Matrix4().compose(dest, up, one.clone().multiplyScalar(data.destObjectScale)));
+  set(data.ids.stretch, new THREE.Matrix4().compose(source, arcFromForward(dir), new THREE.Vector3(1, 1, len)));
+  set(data.ids.move, new THREE.Matrix4().compose(source, arcFromForward(dir), one));
+}
+
 /** EveStretch3::UpdateAsyncronous's placing of its parts (in its owner's space). */
 export function placeStretch(fx: THREE.Object3D, data: SofStretch3, source: THREE.Vector3, dest: THREE.Vector3): void {
   const q = arcFromForward(source.clone().sub(dest));
