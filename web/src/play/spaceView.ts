@@ -738,7 +738,10 @@ export class SpaceView {
         const hullType = Number(slim?.get("typeID") ?? 0);
         const info = hullType ? await turretModelInfo(hullType) : null;
         const count = info ? turretSetCount(hull, info) : 0;
-        if (count) fits = [{ typeID: hullType, slot: -1, count }];
+        // (a drone: Drone.py FitHardpoints - the turret its group and race give it, kept as modules[droneID], so its
+        // shots, its own OnSpecialFX, fire from it; the turret route answers a drone type with that turret)
+        const drone = Number(slim?.get("categoryID") ?? 0) === 18;
+        if (count) fits = [{ typeID: hullType, slot: -1, count: drone ? 1 : count, moduleID: drone ? itemID : null }];
       }
       const group = await buildTurrets(hull, fits, data.faction ?? null);
       if (holder.userData.turretSignature !== signature) return;
@@ -1031,7 +1034,7 @@ export class SpaceView {
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
-      if (e.kind === "ship" && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
+      if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") this.sunDir.copy(rel).normalize();
       if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);
@@ -1270,7 +1273,7 @@ export class SpaceView {
         // the space object: its controllers' own attributes (activationStrength, clipSphereFactor) land here
         holder.userData.spaceObject = true;
         holder.userData.model = model;
-        if (e.kind === "ship") this.fitTurrets(e.itemID, holder);
+        if (e.kind === "ship" || e.kind === "drone") this.fitTurrets(e.itemID, holder);
       }).catch(() => { /* no model: the stand-in stays */ });
     }
     return holder;

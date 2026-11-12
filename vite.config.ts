@@ -18,6 +18,7 @@ import { defineConfig, type Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
+import { droneTurret } from "./tools/client-extract/lib/droneTurrets.mjs";
 // View library (locked by the R2 spike): Svelte 5. Components stay thin pure
 // readers of the framework-agnostic signal store (web/src/store), which
 // implements the Svelte store contract so `$slice` auto-subscription works.
@@ -128,6 +129,9 @@ function clientAssets(): Plugin {
             const graphics = JSON.parse(fs.readFileSync(path.join(buildDir, "typeGraphics.json"), "utf8"));
             let tg = graphics[turretAsk[1]!] ?? null;
             res.setHeader("content-type", "application/json");
+            // a drone: the turret the client fits on it (Drone.py FitHardpoints: by its group and its graphic's race)
+            const drone = tg && !/\/turret\//i.test(String(tg.graphicFile ?? "")) ? droneTurret(Number(turretAsk[1]), tg.groupID, tg.race) : null;
+            if (drone) tg = { graphicFile: drone.graphicFile };
             if (!/\/turret\//i.test(String(tg?.graphicFile ?? ""))) {
               const gfxFile = path.join(buildDir, "gfxTurrets.json");
               if (!fs.existsSync(gfxFile)) await extractOnce("gfx-turrets", buildDir, ["--gfx-turrets"]);
