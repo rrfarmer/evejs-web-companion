@@ -1019,6 +1019,29 @@
   .fly-windows :global(.ind-js-submit) { position: absolute; right: 7px; top: 50%; width: 120px; height: 30px; margin-top: -15px; font-size: 13px;
     color: #fff; background: color-mix(in srgb, var(--job) 50%, transparent); border: 1px solid var(--job); cursor: pointer; }
   .fly-windows :global(.ind-js-submit:disabled) { opacity: 0.45; cursor: default; }
+  /* The job's choices: the optional material's place, the panels (OptionalItemTooltipPanel, OutcomeTooltipPanel), the
+     Runs per Copy edit, the Facility box in preview mode, the chosen facility's row */
+  .fly-windows :global(.ind-cv-mat.optional) { border: 0; padding: 0; cursor: pointer; }
+  .fly-windows :global(.ind-cv-mat.optional .glow) { background: #3372b6; opacity: 0.4; }
+  .fly-windows :global(.ind-cv-mat.optional.empty .glow) { background: #333333; }
+  .fly-windows :global(.ind-cv-mat.optional.empty::after) { content: "+"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: rgba(255, 255, 255, 0.5); }
+  .fly-windows :global(.ind-cv-panel) { position: absolute; top: 40px; z-index: 5; width: 250px; max-height: 240px; overflow: auto; padding: 8px;
+    background: rgba(18, 20, 23, 0.97); border: 1px solid rgba(255, 255, 255, 0.15); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
+  .fly-windows :global(.ind-cv-panel.opt) { left: 60px; }
+  .fly-windows :global(.ind-cv-panel.out) { right: 40px; }
+  .fly-windows :global(.ind-cv-panel p) { margin: 0 0 4px; font-size: 12px; }
+  .fly-windows :global(.ind-cv-panel button) { display: flex; align-items: center; gap: 6px; width: 100%; height: 29px; padding: 0 4px; font-size: 12px;
+    text-align: left; background: none; border: 0; color: rgba(255, 255, 255, 0.85); cursor: pointer; }
+  .fly-windows :global(.ind-cv-panel button:hover) { background: rgba(255, 255, 255, 0.06); }
+  .fly-windows :global(.ind-cv-panel button.sel) { background: rgba(51, 114, 182, 0.35); }
+  .fly-windows :global(.ind-cv-panel button img) { width: 24px; height: 24px; }
+  .fly-windows :global(.ind-cv-outcome .pick) { position: absolute; left: 131.5px; top: 69px; width: 64px; height: 64px; background: none; border: 0; cursor: pointer; z-index: 2; }
+  .fly-windows :global(.ind-cv-runs.percopy) { top: 134px; }
+  .fly-windows :global(.ind-cv-box.preview) { border-color: #ff4600; cursor: pointer; }
+  .fly-windows :global(.ind-cv-box .x) { position: absolute; right: 46px; top: 2px; font-size: 11px; color: #ff3030; }
+  .fly-windows :global(.ind-scroll tr.ind-sel td) { background: rgba(51, 114, 182, 0.3); }
+  .fly-windows :global(.ind-fac-client .ind-scroll tbody tr) { cursor: pointer; }
   .fly-windows :global(.ind-cv-center) { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
   .fly-windows :global(.ind-cv-wedges) { position: absolute; left: -75px; top: -75px; width: 150px; height: 150px; }
   .fly-windows :global(.ind-cv-wedges .wedge) { position: absolute; transition: transform 0.7s; }

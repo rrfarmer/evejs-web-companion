@@ -761,7 +761,10 @@
   }
   const inputGroups = $derived.by(() => {
     const byGroup = new Map<number, (typeof materialLines)[number][]>();
-    for (const line of materialLines) {
+    const lines = chosenActivity === "invention" && decryptorForJob === 0
+      ? [...materialLines, { typeID: 0, need: 0, have: null, short: false }]
+      : materialLines;
+    for (const line of lines) {
       const id = industryGroupOf(line.typeID);
       byGroup.set(id, [...(byGroup.get(id) ?? []), line]);
     }
@@ -844,6 +847,33 @@
   const stripKind = $derived(chosenActivity === "manufacturing" ? "manufacturing" : chosenActivity === "reaction" ? "reaction" : "science");
   const STRIP_WORDS = ["UI/Industry/ManufacturingJobs", "UI/Industry/ScienceJobs", "UI/Industry/ReactionJobs", "UI/Industry/ControlRange", "UI/Industry/Start"];
   onMount(() => { if (retail) flow.requestWords(STRIP_WORDS); });
+  /**
+   * The job's remaining choices where the client has them: the facility by selecting a row of the Facilities browser
+   * (BrowserFacilities.OnScrollSelectionChange -> the job's facility; the Facility box then in preview mode - its error
+   * frame and the red x, a click back to the blueprint's own: outputFramedContainers.FacilityContainer.OnClick); the
+   * decryptor by the optional material's panel (material.OptionalMaterial, OptionalItemTooltipPanel: SelectOptional-
+   * Material, UseNoOptionalItem, then each by name); an invention's product by the outcome's panel (OutcomeTooltipPanel:
+   * SelectOutcome and the products); the copies' runs by the Runs per Copy edit under Job Runs (BlueprintCenter.
+   * runsPerCopyEdit, 1 to maxLicensedRuns). Each change makes the job anew: the page's read-only preview again.
+   */
+  let viewPanel = $state<"optional" | "outcome" | null>(null);
+  function rePreview(): void {
+    viewPanel = null;
+    confirming = false;
+    reckonedSeconds = null;
+    reckonedFee = null;
+    reckonedMaterials = null;
+    if (!cannotAsk) askToConfirm();
+  }
+  function chooseFacility(facilityID: number | null): void {
+    if (!startingBlueprint || busy) return;
+    chosenFacilityID = facilityID;
+    rePreview();
+  }
+  const facilityPreview = $derived(startingBlueprint !== null && chosenFacilityID !== null && chosenFacilityID !== startingBlueprint.facilityID);
+  const CHOICE_WORDS = ["UI/Industry/SelectOptionalMaterial", "UI/Industry/UseNoOptionalItem", "UI/Industry/SelectOutcome",
+    "UI/Industry/RunsPerCopy", "UI/Industry/PreviewModeHint"];
+  onMount(() => { if (retail) flow.requestWords(CHOICE_WORDS); });
   const viewFacility = $derived(chosenFacilityID !== null ? $industry.facilities.find((f) => f.facilityID === chosenFacilityID) ?? null : null);
   const VIEW_WORDS = ["UI/Industry/Outcome", "UI/Industry/ResearchedBlueprint", "UI/Industry/BlueprintCopy", "UI/Industry/NoOutcomeSelected",
     "UI/Industry/InputMaterialLocation", "UI/Industry/NoneSelected", "UI/Industry/JobDuration", "UI/Industry/JobCost", "UI/Industry/Runs",
@@ -901,19 +931,50 @@
               <img class="ind-cv-group-icon" alt="" src={`/client-res/ui/texture/classes/industry/groups/${IND_GROUP_ICON[g.id]}.png`} />
               {#each g.lines as m, i (m.typeID)}
                 {@const ready = m.have === null || !m.short}
+                {#if g.id === 13}
+                <button type="button" class="ind-cv-mat optional" class:empty={m.typeID === 0} style={`left: ${38 + (i % g.perRow) * 48}px; top: ${g.contTop + 66 * Math.floor(i / g.perRow)}px`}
+                  title={m.typeID ? typeName(m.typeID) : industryWord("UI/Industry/SelectOptionalMaterial") || "Select optional material"}
+                  disabled={busy} onclick={() => (viewPanel = viewPanel === "optional" ? null : "optional")}>
+                  <span class="glow"></span>
+                  {#if m.typeID}<span class="pic"><TypeIcon typeID={m.typeID} name={typeName(m.typeID)} size="md" /></span><small>{materialAmount(m.need)}</small>{/if}
+                </button>
+                {:else}
                 <div class={`ind-cv-mat ${ready ? "ready" : "short"}`} style={`left: ${38 + (i % g.perRow) * 48}px; top: ${g.contTop + 66 * Math.floor(i / g.perRow)}px`}
                   title={`${typeName(m.typeID)}: ${m.need.toLocaleString("en-US")}${m.have !== null ? ` (${m.have.toLocaleString("en-US")})` : ""}`}>
                   <span class="glow"></span><span class="pic"><TypeIcon typeID={m.typeID} name={typeName(m.typeID)} size="md" /></span>
                   <span class="gauge"><span style={`width: ${m.have === null ? 100 : Math.min(1, m.have / Math.max(1, m.need)) * 100}%`}></span></span>
                   <small>{materialAmount(m.need)}</small>
                 </div>
+                {/if}
               {/each}
             </div>
           {/each}
         </div>
+        {#if viewPanel === "optional"}
+          <div class="ind-cv-panel opt">
+            <p>{industryWord("UI/Industry/SelectOptionalMaterial") || "Select optional material"}</p>
+            <button type="button" class:sel={chosenDecryptorTypeID === null} onclick={() => { chosenDecryptorTypeID = null; rePreview(); }}>{industryWord("UI/Industry/UseNoOptionalItem") || "Use no optional item"}</button>
+            {#each [...(decryptors ?? [])].sort((a, b) => typeName(a.typeID).localeCompare(typeName(b.typeID))) as d (d.typeID)}
+              <button type="button" class:sel={chosenDecryptorTypeID === d.typeID} onclick={() => { chosenDecryptorTypeID = d.typeID; rePreview(); }}>
+                <TypeIcon typeID={d.typeID} name={typeName(d.typeID)} />{typeName(d.typeID)}</button>
+            {/each}
+          </div>
+        {/if}
+        {#if viewPanel === "outcome"}
+          <div class="ind-cv-panel out">
+            <p>{industryWord("UI/Industry/SelectOutcome") || "Select outcome"}</p>
+            {#each [...productChoices].sort((a, b) => typeName(a).localeCompare(typeName(b))) as typeID (typeID)}
+              <button type="button" class:sel={chosenProductTypeID === typeID} onclick={() => { chosenProductTypeID = typeID; rePreview(); }}>
+                <TypeIcon typeID={typeID} name={typeName(typeID)} />{typeName(typeID)}</button>
+            {/each}
+          </div>
+        {/if}
         <div class="ind-cv-outputs" class:on={startingBlueprint !== null}>
           <span class="bgflip"></span>
-          <div class="ind-cv-box fac">
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="ind-cv-box fac" class:preview={facilityPreview} title={facilityPreview ? industryWord("UI/Industry/PreviewModeHint") || "Preview mode" : ""}
+            onclick={() => { if (facilityPreview && startingBlueprint) chooseFacility(startingBlueprint.facilityID); }}>
+            {#if facilityPreview}<span class="x">✕</span>{/if}
             <small>{industryWord("UI/Industry/Facility") || "Facility"}</small>
             <span class="name">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : industryWord("UI/Industry/NoneSelected") || "None Selected"}</span>
             {#if viewFacility}<span class="facpic"><TypeIcon typeID={viewFacility.typeID} name={typeName(viewFacility.typeID)} size="md" /></span>{/if}
@@ -925,6 +986,10 @@
             <span class="itembg"></span><span class="itemcolor"></span>
             <div class="cap"><b>{industryWord("UI/Industry/Outcome") || "Outcome"}</b><span>{outcome?.label ?? ""}</span></div>
             {#if outcome?.typeID != null}<span class="pic"><TypeIcon typeID={outcome.typeID} name={outcome.label} size="lg" /></span>{/if}
+            {#if chosenActivity === "invention" && productChoices.length > 1}
+              <button type="button" class="pick" title={industryWord("UI/Industry/SelectOutcome") || "Select outcome"} disabled={busy}
+                onclick={() => (viewPanel = viewPanel === "outcome" ? null : "outcome")}></button>
+            {/if}
             <b class="qty">{outcome?.amount ?? ""}</b>
             {#if outcome?.copy}
               <div class="copyinfo">
@@ -953,7 +1018,11 @@
               <div class="ind-cv-remaining"><small>{runsRemainingCaption}</small><span>{runsRemainingValue}</span></div>
             {/if}
             <label class="ind-cv-runs"><small>{industryWord("UI/Industry/JobRuns") || "Job Runs"}</small>
-              <input type="number" min="1" max={maxRuns} bind:value={chosenRuns} disabled={busy || confirming} /></label>
+              <input type="number" min="1" max={maxRuns} bind:value={chosenRuns} disabled={busy} onchange={rePreview} /></label>
+            {#if chosenActivity === "copying"}
+              <label class="ind-cv-runs percopy"><small>{industryWord("UI/Industry/RunsPerCopy") || "Runs per Copy"}</small>
+                <input type="number" min="1" max={mostLicensedRuns(startingBlueprint)} bind:value={chosenLicensedRuns} disabled={busy} onchange={rePreview} /></label>
+            {/if}
           {/if}
           {#each [{ k: "me", v: startingBlueprint?.materialEfficiency ?? 0, max: 10 }, { k: "te", v: startingBlueprint?.timeEfficiency ?? 0, max: 20 }] as m (m.k)}
             <div class={`ind-cv-mete ${m.k}`}>
@@ -1333,7 +1402,7 @@
   </section>
   {/if}
 
-  {#if startingBlueprint}
+  {#if startingBlueprint && !retail}
     <section class="bulk ind-view">
       <h2>Start a job with {typeName(startingBlueprint.typeID)}</h2>
       {#if blueprintActivities(startingBlueprint).length === 0}
@@ -1540,7 +1609,7 @@
         <tbody>
           {#each shownFacilities as f (f.facilityID)}
             {@const sec = securityBySystem.get(f.solarSystemID)}
-            <tr>
+            <tr class:ind-sel={startingBlueprint !== null && chosenFacilityID === f.facilityID} onclick={() => chooseFacility(f.facilityID)}>
               <td class="r">—</td>
               <td>{#if sec !== undefined}<span style={`color: ${securityStatusColor(sec)}`}>{shownSecurity(sec).toFixed(1)}</span>{/if}</td>
               <td>{facilityName(f.facilityID)}{#if !f.online}<small class="note"> offline</small>{/if}</td>
