@@ -1,16 +1,22 @@
 // Weapons fire, drawn from the server's own word of it: michelle.OnSpecialFX(shipID, moduleID, moduleTypeID,
 // targetID, otherTypeID, guid, isOffensive, start, active, duration, repeat, ...), the effect a turret plays as it
 // cycles (effects.ProjectileFired, effects.HybridFired, effects.Laser...: start 1 as it begins, start 0 as it stops).
-// Our own drawing of it (the client plays each weapon's effect file): tracer pulses from the shooter to its target for
-// guns, a flickering beam for lasers, and a flash where the shots land.
+// A laser turret plays its graphic's own firing effect (EveTurretFiringFX: an EveStretch2 per muzzle, laser.fx,
+// three/stretch2.ts); the rest are our own drawing of it: tracer pulses from the shooter to its target for guns, a
+// flickering beam for a laser whose effect has not come, and a flash where the shots land.
 
 import * as THREE from "three";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { Stretch2Effect, stretch2Kit, type SofStretch2, type Stretch2Kit } from "../three/stretch2.ts";
 
 interface Firing {
   shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number;
+  /** The charge (OnSpecialFX's otherTypeID): its beam colour (ammoColors). */
+  chargeTypeID: number;
+  /** Each muzzle's firing (EveTurretFiringFX per-muzzle data): when its delay is over, when it began; the cycling position. */
+  muzzles: { startAt: number | null; startedAt: number | null }[]; cyclingPos: number;
   /** One shot a cycle: its length (ms) and when the next begins; whether the turret was idle (its first shot waits to track). */
   cycle: number; nextCycle: number; idle: boolean;
   /** The turret's miss queue (EveTurretTarget: the last four told, popped by each shot; empty a hit). */
@@ -19,7 +25,38 @@ interface Firing {
   shots: { at: number; size: number | null; life: number | null }[];
 }
 /** A turret module's graphic as the extractor reads it (lib/turret.mjs; GET /client-assets/turret/<typeID>). */
-export interface TurretInfo { impactSize: number; useRandomFiringDelay: boolean; maxTrackingTime: number; firingPeakTime: number; firingDuration: number }
+export interface TurretInfo {
+  impactSize: number; useRandomFiringDelay: boolean; maxTrackingTime: number; firingPeakTime: number; firingDuration: number;
+  isLoopFiring?: boolean; maxCyclingFirePos?: number;
+  /** Its firing effect: a stretch per muzzle, the target's scaling (lib/turret.mjs, turretBuild 5). */
+  firing?: { stretches: ({ type: string | null } | SofStretch2)[]; scaleEffectTarget: boolean; minRadius: number; maxRadius: number; minScale: number; maxScale: number } | null;
+}
+/** A charge's beam colour by its typeID (/client-assets/ammoColors.json), once asked. */
+let ammoColours: Record<string, number[]> | null = null;
+let ammoAsked = false;
+function ammoColour(typeID: number): number[] | null {
+  if (!ammoAsked && typeof fetch === "function") {
+    ammoAsked = true;
+    void fetch("/client-assets/ammoColors.json").then((r) => r.json()).then((m: Record<string, number[]>) => { ammoColours = m; }).catch(() => undefined);
+  }
+  return ammoColours?.[String(typeID)] ?? null;
+}
+/** A module type's stretches made ready (their textures), once: null where it has none drawn here. */
+const kits = new Map<number, Stretch2Kit[] | null>();
+const kitsAsked = new Set<number>();
+function kitsOf(typeID: number, info: TurretInfo | null): Stretch2Kit[] | null {
+  if (!info) return null;
+  if (!kitsAsked.has(typeID)) {
+    kitsAsked.add(typeID);
+    const specs = (info.firing?.stretches ?? []).filter((s): s is SofStretch2 => s.type === "EveStretch2");
+    // only a firing effect wholly of stretches drawn here (a mix would lose its other muzzles)
+    if (!specs.length || specs.length !== (info.firing?.stretches.length ?? 0)) kits.set(typeID, null);
+    else void Promise.all(specs.map(stretch2Kit)).then((k) => kits.set(typeID, k.every((x) => !!x) ? k as Stretch2Kit[] : null)).catch(() => kits.set(typeID, null));
+  }
+  return kits.get(typeID) ?? null;
+}
+/** EveTurretFiringFX::UpdateVisibility's LOD_ANGLE_FACTOR. */
+const LOD_ANGLE_FACTOR = 0.002;
 /** EveTurretTarget.h EVE_TURRET_RANDOM_DELAY_MAX: GetShotTimeVariance. */
 const RANDOM_DELAY_MAX = 0.6;
 const turretInfos = new Map<number, TurretInfo | null>();
@@ -60,6 +97,8 @@ export class TurretFx {
   private readonly firings = new Map<string, Firing>();
   private readonly pulses: Pulse[] = [];
   private readonly beams = new Map<Firing, Line2>();
+  /** A laser firing's stretches, one per muzzle (its turret's firing effect). */
+  private readonly stretches = new Map<Firing, Stretch2Effect[]>();
   private readonly blasts: Blast[] = [];
   /** The screen's size in pixels: fat lines are drawn so many pixels wide. */
   private readonly resolution = new THREE.Vector2(1, 1);
@@ -157,10 +196,15 @@ export class TurretFx {
     // turret's state (a repeat of one already shooting is no idle turret)
     const cycle = duration > 0 ? duration : 1000;
     const was = this.firings.get(key);
-    this.firings.set(key, {
+    const next: Firing = {
       shooter, target, moduleID, moduleTypeID, kind, startedAt: now, until: Math.min(until, now + 10 * 60_000), lastPulse: 0,
       cycle, nextCycle: now, idle: !was, misses: was && was.target === target ? was.misses : [], shots: was?.shots ?? [],
-    });
+      chargeTypeID: Number(args[4]) || 0, muzzles: was?.muzzles ?? [], cyclingPos: was?.cyclingPos ?? 0,
+    };
+    this.firings.set(key, next);
+    // a firing begun anew keeps its turret's effect going
+    const fx = was ? this.stretches.get(was) : undefined;
+    if (was && fx) { this.stretches.delete(was); this.stretches.set(next, fx); }
   }
 
   /** EnterStateFiring and StartFireAtLocator for one shot begun at `at` (ms). */
@@ -171,9 +215,81 @@ export class TurretFx {
     const peak = info?.firingPeakTime ?? 0, total = info?.firingDuration ?? 1, size = info?.impactSize ?? 0.75;
     let delay = (info?.useRandomFiringDelay ?? true) ? RANDOM_DELAY_MAX * Math.random() : 0;
     if (f.idle) { delay += info?.maxTrackingTime ?? 1; f.idle = false; }
+    this.prepareFiring(f, info, at + delay * 1000);
     delay += peak;
     const missed = f.misses.shift() ?? false;
     if (!missed && size > 0) f.shots.push({ at: at + delay * 1000, size: info ? size : null, life: info ? Math.max(total - peak, 0) : null });
+  }
+
+  /**
+   * EveTurretSet::EnterStateFiring for the firing effect: a looping one left going once it fires, else stopped and each
+   * muzzle's stretch made to start when the delay is over (PrepareFiring; a turret cycling its muzzles - maxCyclingFirePos
+   * above one - only the next group's: its stretches over its cycling positions).
+   */
+  private prepareFiring(f: Firing, info: TurretInfo | null, startAt: number): void {
+    const n = info?.firing?.stretches.length ?? 0;
+    if (!n) return;
+    const fx = this.stretches.get(f);
+    if (info?.isLoopFiring && f.muzzles.some((m) => m.startedAt !== null)) return;
+    if (fx) for (const s of fx) s.stopFiring();
+    const cycling = info?.maxCyclingFirePos ?? 1;
+    const group = cycling > 1 ? Math.max(1, Math.floor(n / cycling)) : n;
+    if (cycling > 1) f.cyclingPos = (f.cyclingPos + group) % (cycling * group);
+    const first = cycling > 1 ? f.cyclingPos : 0;
+    f.muzzles = Array.from({ length: n }, (_, i) => ({ startAt: i >= first && i < first + group ? startAt : null, startedAt: null }));
+  }
+
+  /**
+   * EveTurretFiringFX::UpdateAsynchronous / UpdateVisibility for a laser firing: each muzzle's stretch started when its
+   * delay is over, drawn for the effect's length (or on, looping) from its muzzle to the target, the target's end scaled
+   * by its radius (SetScaleByRadius); muzzles near each other on screen merged into the first (its intensity theirs).
+   */
+  private drawStretches(f: Firing, from: THREE.Vector3, to: THREE.Vector3, now: number, radius: number | null, camera: THREE.PerspectiveCamera | null): boolean {
+    const info = turretInfo(f.moduleTypeID);
+    const kit = kitsOf(f.moduleTypeID, info);
+    if (!kit || !info?.firing) return false;
+    let fx = this.stretches.get(f);
+    if (!fx) {
+      fx = kit.map((k) => new Stretch2Effect(k));
+      for (const s of fx) this.group.add(s.mesh);
+      this.stretches.set(f, fx);
+    }
+    const colour = f.chargeTypeID ? ammoColour(f.chargeTypeID) : null;
+    const fi = info.firing;
+    const destScale = fi.scaleEffectTarget && radius !== null && fi.maxRadius !== fi.minRadius
+      ? Math.max(fi.minScale, Math.min(fi.maxScale, (radius - fi.minRadius) * (fi.maxScale - fi.minScale) / (fi.maxRadius - fi.minRadius) + fi.minScale))
+      : 1;
+    const live: { s: Stretch2Effect; at: THREE.Vector3 }[] = [];
+    fx.forEach((s, i) => {
+      const m = f.muzzles[i];
+      s.mesh.visible = false;
+      if (!m) return;
+      if (m.startedAt === null && m.startAt !== null && now >= m.startAt) {
+        if (colour) s.setAmmoColor(colour);
+        s.startFiring(-(now - m.startAt) / 1000, now);
+        m.startedAt = now;
+      }
+      if (m.startedAt === null) return;
+      if (!info.isLoopFiring && (now - m.startedAt) / 1000 >= info.firingDuration) return;
+      const at = this.muzzleOf?.(f.shooter, f.moduleID, i, f.target) ?? from;
+      live.push({ s, at });
+    });
+    // the merge: the started muzzles' spread seen from the camera against a LOD angle (its fov x 0.002)
+    let merge = 1;
+    if (live.length > 1 && camera) {
+      const centre = live.reduce((c, l) => c.add(l.at), new THREE.Vector3()).divideScalar(live.length);
+      const spread = Math.max(...live.map((l) => l.at.distanceTo(centre)));
+      const angle = Math.atan(spread * 2 / (camera.position.distanceTo(centre) + 1));
+      const lod = THREE.MathUtils.degToRad(camera.fov) * LOD_ANGLE_FACTOR;
+      merge = angle <= lod ? 0 : Math.min((angle - lod) / lod, 1);
+    }
+    live.forEach(({ s, at }, i) => {
+      const intensity = live.length > 1 && camera ? (i === 0 ? live.length + (1 - live.length) * merge : merge) : 1;
+      s.place(at, to, destScale, intensity);
+      s.update(now);
+      s.mesh.visible = intensity > 0;
+    });
+    return true;
   }
 
   /**
@@ -186,7 +302,7 @@ export class TurretFx {
   private shotCount = 0;
 
   /** One frame: where things are drawn now (by itemID), and the time. */
-  update(positionOf: (itemID: number) => THREE.Vector3 | null, now = performance.now(), radiusOf?: (itemID: number) => number | null): void {
+  update(positionOf: (itemID: number) => THREE.Vector3 | null, now = performance.now(), radiusOf?: (itemID: number) => number | null, camera: THREE.PerspectiveCamera | null = null): void {
     for (const [key, f] of this.firings) {
       const from = positionOf(f.shooter), to = positionOf(f.target);
       if (now > f.until || !from || !to) { this.firings.delete(key); continue; }
@@ -203,11 +319,18 @@ export class TurretFx {
       if (f.kind === "laser") continue;
       if (now - f.lastPulse >= PULSE_EVERY_MS) { f.lastPulse = now; this.pulse(f, now); }
     }
-    // lasers: one beam each while it fires, flickering
-    for (const [f, beam] of this.beams) if (![...this.firings.values()].includes(f)) { this.group.remove(beam); beam.geometry.dispose(); this.beams.delete(f); }
+    // lasers: their turret's stretches, or until those have come one beam each while it fires, flickering
+    const firing = new Set(this.firings.values());
+    for (const [f, beam] of this.beams) if (!firing.has(f)) { this.group.remove(beam); beam.geometry.dispose(); this.beams.delete(f); }
+    for (const [f, fx] of this.stretches) if (!firing.has(f)) { for (const s of fx) s.dispose(); this.stretches.delete(f); }
     for (const f of this.firings.values()) {
       if (f.kind !== "laser") continue;
       const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!, to = positionOf(f.target)!;
+      if (this.drawStretches(f, from, to, now, radiusOf?.(f.target) ?? null, camera)) {
+        const old = this.beams.get(f);
+        if (old) { this.group.remove(old); old.geometry.dispose(); this.beams.delete(f); }
+        continue;
+      }
       let beam = this.beams.get(f);
       if (!beam) {
         beam = this.line(COLOUR.laser, 2.5);
@@ -290,6 +413,7 @@ export class TurretFx {
   dispose(): void {
     for (let i = this.pulses.length - 1; i >= 0; i--) this.drop(i);
     for (const beam of this.beams.values()) { beam.geometry.dispose(); beam.material.dispose(); }
+    for (const fx of this.stretches.values()) for (const s of fx) s.dispose();
     for (const b of this.blasts) (b.sprite.material as THREE.Material).dispose();
     this.flashTexture?.dispose();
   }

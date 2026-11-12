@@ -136,9 +136,22 @@ function clientAssets(): Plugin {
             }
             if (!/\/turret\//i.test(String(tg?.graphicFile ?? ""))) return res.end(JSON.stringify({ typeID: Number(turretAsk[1]), turret: null }));
             const rel2 = String(tg.graphicFile).toLowerCase().slice("res:/".length).replace(/\.(red|black)$/, "") + ".turret.json";
-            const have = () => fs.existsSync(path.join(buildDir, rel2)) && fs.readFileSync(path.join(buildDir, rel2), "utf8").includes('"turretBuild": 4');
+            const have = () => fs.existsSync(path.join(buildDir, rel2)) && fs.readFileSync(path.join(buildDir, rel2), "utf8").includes('"turretBuild": 5');
             if (!have()) await extractOnce(`turret:${rel2}`, buildDir, ["--turret", tg.graphicFile]);
             return res.end(fs.readFileSync(path.join(buildDir, rel2)));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
+        // /client-assets/ammoColors.json: a charge's beam colour by its typeID (extract.mjs --ammo-colors), made on first ask
+        if (rel === "/ammoColors.json") {
+          try {
+            const buildDir = path.join(root, build);
+            const file = path.join(buildDir, "ammoColors.json");
+            if (!fs.existsSync(file)) await extractOnce("ammo-colors", buildDir, ["--ammo-colors"]);
+            res.setHeader("content-type", "application/json");
+            return res.end(fs.readFileSync(file));
           } catch (e) {
             res.statusCode = 500;
             return res.end(JSON.stringify({ error: (e as Error).message }));

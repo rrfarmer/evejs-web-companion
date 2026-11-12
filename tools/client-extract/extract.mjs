@@ -5,7 +5,7 @@
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
-//        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--missile <missile typeID> ...]
+//        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--missile <missile typeID> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -36,7 +36,7 @@ import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelesti
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
-import { readTurret } from "./lib/turret.mjs";
+import { readTurret, ammoColors } from "./lib/turret.mjs";
 import { readMissileModel, groupGraphics, graphicIdsOfType, sdeGraphic } from "./lib/missile.mjs";
 import { readBlack } from "./lib/black.mjs";
 import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.mjs";
@@ -350,6 +350,8 @@ export async function extractTurret(rf, graphicFile, outRoot) {
     }
   }
   for (const [k, res] of Object.entries(t.textures ?? {})) t.textures[k] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+  // its firing effect's stretches' textures
+  for (const s of t.firing?.stretches ?? []) for (const [k, res] of Object.entries(s.textures ?? {})) s.textures[k] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
   const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".turret.json";
   const file = path.join(outRoot, ...rel.split("/"));
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -450,7 +452,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -465,6 +467,7 @@ function parseArgs(argv) {
     else if (a === "--celestial") out.celestials.push(argv[++i]);
     else if (a === "--turret") out.turrets.push(argv[++i]);
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
+    else if (a === "--ammo-colors") out.ammoColors = true;
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
     else throw new Error(`unknown argument ${a}`);
@@ -584,6 +587,13 @@ async function main() {
     fs.writeFileSync(path.join(outRoot, "gfxTurrets.json"), JSON.stringify(map));
     console.log(`gfxTurrets.json: ${Object.keys(map).length} types`);
   }
+  // ammoColors.json: the beam colour a charge gives its turret's firing effect, by the charge's typeID
+  if (args.ammoColors) {
+    if (!sde) throw new Error("--ammo-colors needs the SDE (--sde, or a config.json that names it)");
+    const map = ammoColors(rf, client, sde, REPO);
+    fs.writeFileSync(path.join(outRoot, "ammoColors.json"), JSON.stringify(map));
+    console.log(`ammoColors.json: ${Object.keys(map).length} types`);
+  }
   for (const typeID of args.missiles) {
     if (!sde) throw new Error("--missile needs the SDE (--sde, or a config.json that names it)");
     console.log(`missile ${typeID} -> ${path.relative(outRoot, await extractMissile(rf, client, sde, typeID, outRoot))}`);
@@ -597,7 +607,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
