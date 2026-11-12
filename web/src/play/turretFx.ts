@@ -2,8 +2,8 @@
 // targetID, otherTypeID, guid, isOffensive, start, active, duration, repeat, ...), the effect a turret plays as it
 // cycles (effects.ProjectileFired, effects.HybridFired, effects.Laser...: start 1 as it begins, start 0 as it stops).
 // A turret whose firing effect is drawn here plays it (EveTurretFiringFX: an EveStretch2 per muzzle - laser.fx,
-// projectile.fx - three/stretch2.ts); the rest are our own drawing of it: tracer pulses from the shooter to its target
-// for guns, a flickering beam for a laser whose effect has not come, and a flash where the shots land.
+// projectile.fx, blast.fx - three/stretch2.ts); the rest are our own drawing of it: tracer pulses from the shooter
+// to its target for guns, a flickering beam for a laser whose effect has not come, and a flash where the shots land.
 
 import * as THREE from "three";
 import { Line2 } from "three/addons/lines/Line2.js";

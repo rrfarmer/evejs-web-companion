@@ -6,7 +6,7 @@
 // delay given, stops end; StopFiring stops start and loop and plays end.
 //
 // The effects ported (res:/graphics/effect/managed/space/specialfx/stretch/*.fx, their sm_depth vertex and pixel
-// stages disassembled, client 3396210): laser.fx and projectile.fx. Each quad of the strip is one part, by its index:
+// stages disassembled, client 3396210): laser.fx, projectile.fx and blast.fx. Each quad of the strip is one part, by its index:
 // the beam or stream of shots from source to target (a strip turned to face the camera, at least about two pixels
 // wide, its profile the FalloffMap across it), the flares at the source and target, projectile's muzzle flash, and the
 // splash at the target (a disc facing back along the beam, two CloudMap swirls). Not as the client: no fog volume (no scene sets one); the output stays linear (the client
@@ -38,7 +38,7 @@ export interface SofStretch2 {
 }
 
 /** The effects this file draws. */
-export const STRETCH2_EFFECTS = new Set(["laser", "projectile"]);
+export const STRETCH2_EFFECTS = new Set(["laser", "projectile", "blast"]);
 
 // --- shared by the effects: the per-object data, the quads' corners, the depth pulled toward the eye, the flares,
 // the target's splash (laser.fx and projectile.fx compile the same code for them)
@@ -84,8 +84,9 @@ vec4 flare(vec3 S, vec3 D, bool atDest, vec2 k, vec2 c) {
   v2 = vec4(size, view.z, 0.0, 0.0);
   return vec4(clip.xy, biasedDepth(size * 16.0 + view.z, clip.w), clip.w);
 }
-// the splash: a disc at the target across the beam (SplashIntensity.x x the target's scale); sets v2, fragW
-vec4 splash(vec3 S, vec3 D, vec2 c) {
+// the splash: a disc at the target across the beam (SplashIntensity.x x the target's scale), its strength the
+// effect's (weight: Intensity, or blast's bolt arrived); sets v2, fragW
+vec4 splash(vec3 S, vec3 D, vec2 c, float weight) {
   vec3 way = normalize(D - S);
   float s = SplashIntensity.x * srcPos.w;
   vec3 up = abs(way.x) > 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
@@ -97,7 +98,7 @@ vec4 splash(vec3 S, vec3 D, vec2 c) {
   float z = s * SplashIntensity.z + view.z;
   fragW = max(-min(z, 0.0), 1e-3);
   vec3 toEye = normalize(cameraPosition - D);
-  float f = min(abs(dot(-way, toEye)), 1.0) * Intensity;
+  float f = min(abs(dot(-way, toEye)), 1.0) * weight;
   v2 = vec4(f * f, s * SplashIntensity.z, -min(z, 0.0), 1.0);
   return vec4(clip.xy, biasedDepth(z, clip.w), clip.w);
 }`;
@@ -183,7 +184,7 @@ void main() {
       gl_Position = flare(S, D, atDest, atDest ? FlareIntensity.zw * srcPos.w : FlareIntensity.xy, c);
       v1.xy = (c + 0.5) * 2.0 - 1.0;
     } else {
-      gl_Position = splash(S, D, c);
+      gl_Position = splash(S, D, c, Intensity);
       v1.xy = c + 0.5;
     }
     v1.z = q;
@@ -249,7 +250,7 @@ void main() {
     r3z = (1.0 - abs(dot(way, back))) * FireParams.z;
     v1.xy = c + 0.5;
   } else {
-    gl_Position = splash(S, D, c);
+    gl_Position = splash(S, D, c, Intensity);
     v1.xy = c + 0.5;
   }
   v1.z = q;
@@ -279,16 +280,122 @@ void main() {
   finish(colour, Flicker.xy);
 }`;
 
-interface EffectDef { vertex: string; fragment: string; defaults: Record<string, number | number[]>; srgb: Set<string> }
+// --- blast.fx: one bolt travelling the strip (the hybrids). Its progress (loop time - Shots.x) / (Shots.y - Shots.x)
+// over the strip and a bolt length min(2 x length, Shots.z): bolt(k) is where a point k along it (0 source, 1 target)
+// lies against the bolt (1 its head, below 0 not reached), the ShotsMap's profile there (faded in below 0 by Shots.w)
+// its strength. Quad 0 the bolt (StretchFalloffMap across it, the ShotsMap along it, two CloudMap scrolls), 1 and 3
+// the flares (as strong as the bolt at their end), 2 the muzzle flash (as projectile's, as strong as the bolt at the
+// muzzle), the rest the splash (once the bolt is past SplashIntensity.w, until it has gone)
+
+const BLAST_BOLT = `
+uniform vec4 Shots;
+float bolt(float k, float len) {
+  float L2 = min(2.0 * len, Shots.z);
+  float prog = (timing.y - Shots.x) / (Shots.y - Shots.x);
+  return 1.0 + len * (k * len / (len + L2) - prog) / L2;
+}`;
+
+const BLAST_VERTEX = `${VS_HEAD}
+uniform vec4 FireParams; uniform vec4 Clouds; uniform sampler2D NoiseMap; uniform sampler2D ShotsMap;
+${BLAST_BOLT}
+float boltWeight(float a) {
+  float s = textureLod(ShotsMap, vec2(clamp(a, 0.0, 1.0), 0.0), 0.0).x;
+  return a < 0.0 ? clamp(a * Shots.w + 1.0, 0.0, 1.0) * s : s;
+}
+void main() {
+  fragW = 1.0;
+  vec3 S = (modelMatrix * vec4(srcPos.xyz, 1.0)).xyz, D = (modelMatrix * vec4(dstPos.xyz, 1.0)).xyz;
+  float q = position.x;
+  vec2 c = CORNER[int(position.y + 0.5)];
+  float len = length(S - D);
+  float r2z = 1.0;
+  v2 = vec4(0.0);
+  if (q == 0.0) {
+    float u = c.x + 0.5, v = c.y + 0.5;
+    float pix = pixelsAt(mix(S, D, u));
+    float halfW = max(pix, Intensity * 16.0);
+    gl_Position = facingStrip(S, D, c, halfW);
+    fragW = gl_Position.w;
+    r2z = pix / (Intensity * 16.0);
+    float t = timing.w + timing.y;
+    vec2 uv = vec2(u * len, v * halfW) / Clouds.y;
+    v2 = vec4(bolt(u, len), uv.x + t * Clouds.z, uv.y, -t * Clouds.z * 0.91 + uv.x);
+    v1.xy = c + 0.5;
+  } else if (q == 1.0 || q == 3.0) {
+    bool atDest = q == 3.0;
+    float w = boltWeight(bolt(atDest ? 1.0 : 0.0, len));
+    gl_Position = flare(S, D, atDest, (atDest ? FlareIntensity.zw * srcPos.w : FlareIntensity.xy) * w, c);
+    v1.xy = 2.0 * c;
+  } else if (q == 2.0) {
+    float halfW = Intensity * FireParams.y * 16.0;
+    float strength = boltWeight(bolt(0.0, len)) * FireParams.z;
+    float n = textureLod(NoiseMap, vec2(timing.y, 0.0), 0.0).x;
+    float flashLen = (FireParams.w * (n - 1.0) + 1.0) * FireParams.x;
+    vec3 way = normalize(D - S);
+    vec3 back = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+    gl_Position = facingStrip(S, S + way * flashLen, c, halfW);
+    fragW = gl_Position.w;
+    r2z = strength * (1.0 - abs(dot(way, back)));
+    v1.xy = c + 0.5;
+  } else {
+    float a = bolt(1.0, len);
+    float w = (a < 0.0 ? clamp(a * Shots.w + 1.0, 0.0, 1.0) : clamp((SplashIntensity.w - a) * 10.0, 0.0, 1.0)) * Intensity;
+    gl_Position = splash(S, D, c, a > SplashIntensity.w ? 0.0 : w);
+    v1.xy = c + 0.5;
+  }
+  v1.z = q;
+  v1.w = r2z;
+${VS_TAIL}
+}`;
+
+const BLAST_FRAGMENT = `${FS_HEAD}
+uniform vec4 FireParams; uniform vec4 Clouds; uniform vec4 srcPos; uniform vec4 dstPos;
+uniform sampler2D ShotsMap; uniform sampler2D StretchFalloffMap;
+uniform vec4 Shots;
+void main() {
+#include <logdepthbuf_fragment>
+  vec4 colour;
+  if (v1.z == 0.0) {
+    // the bolt: its profile across, faded at the strip's ends and where it is thinner than the pixels; the ShotsMap
+    // along it from its head; the clouds
+    float a = texture2D(StretchFalloffMap, vec2(v1.y, 0.0)).x * clamp(1.0 / v1.w, 0.0, 1.0);
+    float len = length(srcPos.xyz - dstPos.xyz);
+    float ends = clamp(len / (sqrt(Intensity) * 30.0) * 0.5 * min(1.0 - v1.x, v1.x), 0.0, 1.0);
+    float k = v2.x > 1.0 ? 0.0 : ends * a;
+    k *= texture2D(ShotsMap, vec2(v2.x, 0.0)).x;
+    if (v2.x < 0.0) k *= clamp(v2.x * Shots.w + 1.0, 0.0, 1.0);
+    float base = clamp(1.0 - Clouds.x, 0.0, 1.0);
+    float cl = texture2D(CloudMap, v2.yz).y * texture2D(CloudMap, v2.wz).y;
+    cl = cl * (1.0 - base) + base;
+    colour = k * cl * Color * Intensity;
+  } else if (v1.z < 1.5 || (v1.z > 2.5 && v1.z < 3.5)) colour = flare();
+  else if (v1.z < 2.5) {
+    float k = timing.w * FireParams.w + 1.0;
+    float n = texture2D(NoiseMap, v1.xy * 2.0 - vec2(timing.y * 60.0, 0.0)).x * 0.7 + 0.3;
+    float flash = texture2D(CloudMap, clamp(v1.xy, 0.0, 1.0)).z * v1.w;
+    colour = Intensity * Color * (k * n * flash);
+  } else colour = splash();
+  finish(colour, Flicker.xy);
+}`;
+
+/** A texture an effect reads: clamped (its sampler EveSceneFogSampler) or wrapped, and whether it is read as sRGB. */
+interface EffectTexture { clamp: boolean; srgb: boolean }
+interface EffectDef { vertex: string; fragment: string; defaults: Record<string, number | number[]>; textures: Record<string, EffectTexture> }
+const WRAP = { clamp: false, srgb: false }, CLAMP = { clamp: true, srgb: false };
 // each effect's shaders, its constants' defaults (the sm_depth record's constant table) and its sRGB textures
 const EFFECTS: Record<string, EffectDef> = {
   laser: {
-    vertex: LASER_VERTEX, fragment: LASER_FRAGMENT, srgb: new Set(),
+    vertex: LASER_VERTEX, fragment: LASER_FRAGMENT, textures: { NoiseMap: WRAP, FalloffMap: CLAMP, CloudMap: WRAP },
     defaults: { Intensity: 1, FlareIntensity: [4, 4, 4, 4], Clouds: [0, 1, 0, -0.91], SplashIntensity: [1, 1, 0.1, 1], Flicker: [0, 1, 0, 1], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
   },
   projectile: {
-    vertex: PROJECTILE_VERTEX, fragment: PROJECTILE_FRAGMENT, srgb: new Set(["CloudMap"]),
+    vertex: PROJECTILE_VERTEX, fragment: PROJECTILE_FRAGMENT, textures: { NoiseMap: WRAP, FalloffMap: CLAMP, CloudMap: { clamp: false, srgb: true } },
     defaults: { Intensity: 1, FireParams: [100, 1, 4, 0.1], FlareIntensity: [4, 4, 4, 4], Shots: [1, 1000, 1000, 0], SplashIntensity: [1, 1, 0.1, 0], Flicker: [0, 1, 0, 0], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
+  },
+  blast: {
+    vertex: BLAST_VERTEX, fragment: BLAST_FRAGMENT,
+    textures: { NoiseMap: WRAP, FalloffMap: CLAMP, StretchFalloffMap: CLAMP, CloudMap: { clamp: false, srgb: true }, ShotsMap: { clamp: true, srgb: true } },
+    defaults: { Intensity: 1, FireParams: [100, 1, 4, 0.1], FlareIntensity: [4, 4, 4, 4], Shots: [0.1, 0.7, 1000, 1], SplashIntensity: [1, 1, 0.1, 0.9], Clouds: [0, 1, 0, 0], Flicker: [0, 1, 0, 0], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
   },
 };
 
@@ -328,12 +435,13 @@ function mapOf(url: string | null | undefined, clamp: boolean, srgb = false): Pr
 }
 
 /** What a stretch needs before it can be drawn: its textures. */
-export interface Stretch2Kit { spec: SofStretch2; noise: THREE.Texture | null; falloff: THREE.Texture | null; cloud: THREE.Texture | null }
+export interface Stretch2Kit { spec: SofStretch2; maps: Record<string, THREE.Texture | null> }
 export async function stretch2Kit(spec: SofStretch2): Promise<Stretch2Kit | null> {
   if (!spec.effect || !STRETCH2_EFFECTS.has(spec.effect) || spec.quadCount <= 0) return null;
-  const srgb = EFFECTS[spec.effect]!.srgb;
-  const [noise, falloff, cloud] = await Promise.all([mapOf(spec.textures.NoiseMap, false, srgb.has("NoiseMap")), mapOf(spec.textures.FalloffMap, true, srgb.has("FalloffMap")), mapOf(spec.textures.CloudMap, false, srgb.has("CloudMap"))]);
-  return { spec, noise, falloff, cloud };
+  const def = EFFECTS[spec.effect]!;
+  const names = Object.keys(def.textures);
+  const loaded = await Promise.all(names.map((n) => mapOf(spec.textures[n], def.textures[n]!.clamp, def.textures[n]!.srgb)));
+  return { spec, maps: Object.fromEntries(names.map((n, i) => [n, loaded[i] ?? null])) };
 }
 
 /** A curve set's play state (TriCurveSet: PlayFrom, Stop; its scaled time). */
@@ -385,7 +493,7 @@ export class Stretch2Effect {
         timing: { value: new THREE.Vector4(0, 0, 0, Math.random()) }, misc: { value: new THREE.Vector4(1, 0, 0, 0) },
         viewport: { value: new THREE.Vector2(1, 1) },
         ...constants,
-        NoiseMap: { value: kit.noise }, FalloffMap: { value: kit.falloff }, CloudMap: { value: kit.cloud },
+        ...Object.fromEntries(Object.entries(kit.maps).map(([n, t]) => [n, { value: t }])),
         ...SOFT_DEPTH,
       },
       // TRIBATCHTYPE_ADDITIVE: added, tested against the scene's depth, not written
