@@ -1276,6 +1276,16 @@
     return `${singular} ${slot.index + 1}`;
   }
 
+  /**
+   * fittingWnd.ConstructPowerAndCpuLabels / UpdateCPU / UpdatePower (the play page): what is left of the output over
+   * the output, each FmtAmt(showFraction=1) - "left/output" - under its bold header, bottom right of the ring; over
+   * the output, fading 0.25 -> 1 each half second.
+   */
+  function leftOverText(resource: FittingResource): string {
+    if (!resource.known) return "—";
+    const one = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    return `${one(resource.total - resource.used)}/${one(resource.total)}`;
+  }
   function resourceText(resource: FittingResource, unit: string): string {
     if (!resource.known) {
       return "—";
@@ -1359,6 +1369,8 @@
   // The simulation's words: the ghost ship icon's (ghostShipIcon.py, simulationModeTooltip.py) and a module's state's
   // (moduleStateUtil activationStateLabels), each the page's own where the install's are not to be had.
   const SIMULATION_WORDS: Record<string, string> = {
+    "UI/Fitting/FittingWindow/CPUStatusHeader": "CPU",
+    "UI/Fitting/FittingWindow/PowergridHeader": "Power Grid",
     "UI/Fitting/FittingWindow/Simulate": "Simulate",
     "UI/Fitting/FittingWindow/ExitSimulation": "Exit simulation",
     "UI/Fitting/FittingWindow/SimulateShipFitting": "Simulate this fitting",
@@ -3686,6 +3698,14 @@
                 </button>
               {/each}
             </div>
+            {#if retail}
+              <div class="fit-cpu-power" aria-label="CPU and power grid left">
+                <b>{simulationWord("UI/Fitting/FittingWindow/CPUStatusHeader")}</b>
+                <span class:over={resources.cpu.known && resources.cpu.used > resources.cpu.total}>{leftOverText(resources.cpu)}</span>
+                <b class="gap">{simulationWord("UI/Fitting/FittingWindow/PowergridHeader")}</b>
+                <span class:over={resources.powergrid.known && resources.powergrid.used > resources.powergrid.total}>{leftOverText(resources.powergrid)}</span>
+              </div>
+            {/if}
           </div>
 
           <ul class="fit-legend">

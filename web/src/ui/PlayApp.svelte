@@ -737,6 +737,23 @@
   .fly-windows :global(.fit-price) { margin-top: auto; height: 40px; position: relative; flex: none; }
   .fly-windows :global(.fit-price span) { position: absolute; right: 30px; bottom: 1px; font-size: 16px; color: rgba(255, 255, 255, 0.9); }
   .fly-windows :global(.fit-price img) { position: absolute; right: 4px; bottom: 0; width: 24px; height: 24px; opacity: 0.8; }
+  /* fittingWnd's middle as the client lays it (LoadWnd): no slot legend, hint line or resource bars - the gauges are on
+     the ring, the CPU and power grid left over bottom right (ConstructPowerAndCpuLabels: LayoutGrid BOTTOMRIGHT 4 in,
+     bold headers, 10 between); the name row over the ring's top left (nameAndWarningsCont at 8 down, its info icon
+     and link-iconed name, no hull icon); the side panel's tab buttons over the left edge, not beside it */
+  .fly-windows :global(.fit-window .fit-stage) { gap: 0; position: relative; flex-wrap: nowrap; }
+  .fly-windows :global(.fit-window .fit-center) { position: relative; flex: 1 1 auto; min-width: 0; }
+  .fly-windows :global(.fit-window .fit-toolbar) { position: absolute; left: 0; top: 40%; z-index: 2; }
+  .fly-windows :global(.fit-window .fit-legend), .fly-windows :global(.fit-window .fit-hint), .fly-windows :global(.fit-window .fit-bars) { display: none; }
+  .fly-windows :global(.fit-window .fit-topline) { position: absolute; left: 0; top: 8px; z-index: 2; }
+  .fly-windows :global(.fit-window .fit-topline > .type-icon), .fly-windows :global(.fit-window .fit-ship-class) { display: none; }
+  .fly-windows :global(.fit-window .fit-ring.retail) { margin: 0 auto; }
+  .fly-windows :global(.fit-window .fit-ring-wrap) { position: relative; }
+  .fly-windows :global(.fit-cpu-power) { position: absolute; right: 4px; bottom: 0; display: grid; justify-items: end; font-size: 12px;
+    color: rgba(255, 255, 255, 0.75); z-index: 2; pointer-events: none; }
+  .fly-windows :global(.fit-cpu-power b) { font-weight: 700; color: rgba(255, 255, 255, 0.9); }
+  .fly-windows :global(.fit-cpu-power b.gap) { margin-top: 10px; }
+  .fly-windows :global(.fit-cpu-power .over) { animation: fit-gauge-over 0.5s linear infinite; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
