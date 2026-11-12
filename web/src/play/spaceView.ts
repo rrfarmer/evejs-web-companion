@@ -208,6 +208,8 @@ export class SpaceView {
   private readonly impactAnimations = new Map<string, { ship: number; name: string; cycle: number; next: number; until: number }>();
   /** How many space objects the LOD quality's visibility threshold left undrawn this frame (for checks). */
   lodCulled = 0;
+  /** How many drawn objects' boosters the low detail threshold left undrawn this frame (for checks). */
+  lodBoostersHidden = 0;
   /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
   private readonly fxEmitters = new Set<string>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
@@ -1492,7 +1494,8 @@ export class SpaceView {
     const threshold = lodSettings(settings).visibility;
     const eye = this.camera.getWorldPosition(new THREE.Vector3());
     const across = (this.camera.projectionMatrix.elements[0] ?? 1) * this.renderer.domElement.width;
-    let culled = 0;
+    let culled = 0, boostersHidden = 0;
+    const lod = lodSettings(settings), ahead = this.camera.getWorldDirection(new THREE.Vector3()), centre = new THREE.Vector3();
     for (const [id, m] of this.marks) {
       const model = m.userData.model as THREE.Object3D | undefined;
       if (!model) continue;
@@ -1501,8 +1504,24 @@ export class SpaceView {
       const shown = pixels >= threshold && (!m.userData.playerDrone || this.droneModels);
       if (!(pixels >= threshold)) culled++;
       if (model.visible !== shown) model.visible = shown;
+      // EveBoosterSet2Renderable::UpdateVisibility: the boosters' LOD 2 x their padded sphere's size across
+      // (TriFrustum::GetPixelSizeAccross: radius / depth x P[0][0] x the width; the eye inside it: no limit) - drawn
+      // above the low detail threshold, their glows with them (flareLodEnabled)
+      const boosters = shown ? model.getObjectByName("boosters") : undefined;
+      const s = boosters?.userData.boosterSphere as { x: number; y: number; z: number; r: number } | undefined;
+      if (boosters && s) {
+        boosters.localToWorld(centre.set(s.x, s.y, s.z));
+        const r = s.r * boosters.getWorldScale(new THREE.Vector3()).x;
+        const rel = centre.sub(eye);
+        const size = rel.lengthSq() < r * r ? Infinity : (r / Math.max(1e-5, rel.dot(ahead))) * across;
+        const on = 2 * size > lod.lowDetail;
+        if (!on) boostersHidden++;
+        if (boosters.visible !== on) boosters.visible = on;
+      }
     }
     this.lodCulled = culled;
+    this.lodBoostersHidden = boostersHidden;
+    this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });
     this.bloom.render();

@@ -418,6 +418,8 @@ export class MissileFx {
   exploded = 0;
   /** The explosions playing: their object, where (three's space, moved with the world) and when they end. */
   private readonly explosions: { object: THREE.Object3D; until: number }[] = [];
+  /** ExplosionManager's limit (sceneManager: the LOD quality x 30): past it the oldest playing is stopped. */
+  explosionLimit = 90;
   /** MissileTurretWrapper.StartShooting: a launcher's turret set fires (its ship, module, the missile's target). */
   onLaunch: ((shipID: number, moduleID: number, targetID: number | null) => number) | null = null;
   /** PlaceMissileImpact's camera shake: its magnitude and the place (three's space). */
@@ -511,8 +513,10 @@ export class MissileFx {
       holder.add(object);
       startEffect(object);
       this.group.add(holder);
-      const life = info.impact!.duration === -1 ? 10 : info.impact!.duration;
+      // ExplosionManager._Append: its life at most ageLimit (20 s); more than the limit playing - the oldest stopped
+      const life = Math.min(info.impact!.duration === -1 ? 10 : info.impact!.duration, 20);
       this.explosions.push({ object: holder, until: performance.now() + life * 1000 });
+      while (this.explosions.length > this.explosionLimit) this.group.remove(this.explosions.shift()!.object);
     });
   }
   /** The world's shift under the view since a moment (kept per frame for the explosions that wait for their build). */

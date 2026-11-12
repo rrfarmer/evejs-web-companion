@@ -70,6 +70,21 @@ function buildBoosters(sof: SofHull, flames: THREE.Mesh | null = null, glows: TH
   const coreColour = hdr(b.shape1Color, [1, 0.8, 0.5]);
   const group = new THREE.Group();
   group.name = "boosters";
+  // EveBoosterSet2::Add: the set's bounding sphere grown over each booster's position (BoundingSphereUpdate, from
+  // (0, 0, 0, 0): the points only, not their size); PadBoosterBoundingSphere: its centre moved back half its radius
+  // along z, its radius doubled - kept in the group's frame (EVE's z mirrored) for the LOD test (boosterLod)
+  const sphere = [0, 0, 0, 0];
+  for (const item of sof.boosters) {
+    const t = item.transform;
+    if (!t || t.length < 16) continue;
+    const d = [t[12]! - sphere[0]!, t[13]! - sphere[1]!, t[14]! - sphere[2]!];
+    const len = Math.hypot(d[0]!, d[1]!, d[2]!);
+    if (len <= sphere[3]!) continue;
+    const k = 0.5 * (1 - sphere[3]! / len);
+    sphere[0]! += k * d[0]!; sphere[1]! += k * d[1]!; sphere[2]! += k * d[2]!;
+    sphere[3] = 0.5 * (sphere[3]! + len);
+  }
+  group.userData.boosterSphere = { x: sphere[0], y: sphere[1], z: -(sphere[2]! - 0.5 * sphere[3]!), r: 2 * sphere[3]! };
   const flameMat = new THREE.ShaderMaterial({
     uniforms: { colour: { value: flameColour }, core: { value: coreColour } },
     vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
