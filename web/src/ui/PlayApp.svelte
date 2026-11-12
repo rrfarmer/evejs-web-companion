@@ -540,7 +540,11 @@
       // menusvc.Dock -> DockStation -> GetCloseAndTryCommand(itemID, RealDock): the client's system navigation (warp,
       // approach) to the station and then CmdDock; flow.dock is the bare CmdDock, which from beyond the docking radius
       // only sets the ship approaching (seen: 5,300 km off Perimeter II - Moon 1, slow-boating at 337 m/s).
-      dock: (id) => s.flow.dockAt(id),
+      // dockingHeroNotificationService: the docking accepted - its intro and waiting loop (the outro when docked)
+      dock: async (id) => {
+        await s.flow.dockAt(id);
+        if (!s.store.flight.get().actionError) dockingSound("start");
+      },
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
       word: (label, args) => {
@@ -662,17 +666,39 @@
     if (wasDocked === null) { wasDocked = now; return; }
     if (now === wasDocked) return;
     wasDocked = now;
-    if (now) { fadeTo(0, 2000, 1); return; }
+    if (now) { fadeTo(0, 2000, 1); dockingSound("end"); return; }
     fadeTo(1, 0, 1);
     // in space: the black holds until the pilot's ship is in the park (or 4 s at most), then lifts
     const started = performance.now();
     const wait = () => {
       const ship = live?.hello?.shipID ?? null;
       const there = !!live?.park.validState && ship !== null && live.park.ballpark.balls.has(ship);
-      if (there || performance.now() - started > 4000) fadeTo(0, 1000); else setTimeout(wait, 100);
+      if (there || performance.now() - started > 4000) { fadeTo(0, 1000); dockingSound("end"); } else setTimeout(wait, 100);
     };
     setTimeout(wait, 100);
   });
+
+  /**
+   * The docking / undocking hero notification's sounds (dockingHeroNotificationService.py): play_intro_sound
+   * (docking_overlay_start_play) and play_loop_sound (docking_overlay_waiting_play) as it starts - the docking
+   * accepted, the undock begun -, play_outro_sound (docking_overlay_waiting_stop, _end_play, _outro_play) as it ends -
+   * in the station, in space. (The notification's own text is not drawn.)
+   */
+  let dockingSounding = false;
+  function dockingSound(phase: "start" | "end") {
+    if (phase === "start") {
+      if (dockingSounding) return;
+      dockingSounding = true;
+      void playUiEvent("docking_overlay_start_play");
+      void playUiEvent("docking_overlay_waiting_play");
+      return;
+    }
+    if (!dockingSounding) return;
+    dockingSounding = false;
+    void playUiEvent("docking_overlay_waiting_stop");
+    void playUiEvent("docking_overlay_end_play");
+    void playUiEvent("docking_overlay_outro_play");
+  }
 
   let undockedAt = -Infinity;
   async function undock() {
@@ -680,7 +706,8 @@
     error = "";
     undockedAt = performance.now();
     fadeTo(1, 500);
-    try { await session.flow.undock(); } catch (err) { error = (err as Error).message; fadeTo(0, 300); }
+    dockingSound("start");
+    try { await session.flow.undock(); } catch (err) { error = (err as Error).message; fadeTo(0, 300); dockingSound("end"); }
   }
 
   onDestroy(() => { view?.dispose(); live?.close(); spaceClaimed?.flow.stopSpacePolling(); });
