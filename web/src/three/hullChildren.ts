@@ -90,6 +90,8 @@ export interface SofChildMesh {
   geometry: string | null;
   meshIndex: number;
   minScreenSize: number;
+  /** Its lowestLodVisible (Tr2Lod 1 medium, 2 high), where not low. */
+  lod?: number;
   modifiers?: string[];
   srt?: SofChildSrt | null;
   areas: SofChildMeshArea[];
@@ -996,10 +998,12 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
     });
     // EveChildMesh::UpdateVisibility: drawn only where its size across (its world bounding sphere's) x the inverse LOD
     // factor is at least its minScreenSize - its sphere kept (in the holder's frame) for the view to test each frame
-    if (node.minScreenSize > 0) {
+    // (and only where its parent's LOD is at least its lowestLodVisible)
+    if (node.minScreenSize > 0 || (node.lod ?? 0) > 0) {
       const sphere = new THREE.Box3().setFromObject(inner).getBoundingSphere(new THREE.Sphere());
       inner.name = "size-gated";
       inner.userData.minScreenSize = node.minScreenSize;
+      inner.userData.lowestLod = node.lod ?? 0;
       inner.userData.sphere = [sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius];
     }
     holder.add(inner);

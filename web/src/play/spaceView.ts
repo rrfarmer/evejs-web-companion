@@ -216,7 +216,7 @@ export class SpaceView {
   /** How many child meshes their minScreenSize left undrawn this frame (for checks). */
   lodChildMeshesHidden = 0;
   /** Each model's child meshes with a minScreenSize (found once its children are built). */
-  private readonly sizeGated = new WeakMap<THREE.Object3D, THREE.Object3D[]>();
+  private readonly sizeGated = new WeakMap<THREE.Object3D, { list: THREE.Object3D[]; at: number }>();
   /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
   private readonly fxEmitters = new Set<string>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
@@ -1531,20 +1531,25 @@ export class SpaceView {
       // its child meshes with a minScreenSize: each drawn where its sphere's size across (GetPixelSizeAccross) / the
       // LOD factor is at least that (EveChildMesh::UpdateVisibility; their own lowestLodVisible not extracted)
       if (shown) {
-        let gated = this.sizeGated.get(model);
-        if (!gated) {
-          gated = [];
-          model.traverse((o) => { if (o.name === "size-gated") gated!.push(o); });
-          // (the children load after the hull: looked for again until some are found, a few times)
-          if (gated.length || (model.userData.sizeGateLooks = (model.userData.sizeGateLooks ?? 0) + 1) > 20) this.sizeGated.set(model, gated);
+        // EveSpaceObject2::UpdateVisibility: its LOD with children by its size across - above the medium detail
+        // threshold high (2), above the low one medium (1), else low (0)
+        const parentLod = pixels > lod.mediumDetail ? 2 : pixels > lod.lowDetail ? 1 : 0;
+        // (looked for again every 120 frames: the children load after the hull, some long after - a list kept from
+        // the first find missed what came later)
+        let entry = this.sizeGated.get(model);
+        if (!entry || this.frameCount - entry.at >= 120) {
+          const list: THREE.Object3D[] = [];
+          model.traverse((o) => { if (o.name === "size-gated") list.push(o); });
+          entry = { list, at: this.frameCount };
+          this.sizeGated.set(model, entry);
         }
-        for (const o of gated) {
+        for (const o of entry.list) {
           const sp = o.userData.sphere as number[];
           o.localToWorld(centre.set(sp[0]!, sp[1]!, sp[2]!));
           const r = sp[3]! * o.getWorldScale(new THREE.Vector3()).x;
           const rel = centre.sub(eye);
           const size = rel.lengthSq() < r * r ? Infinity : (r / Math.max(1e-5, rel.dot(ahead))) * across;
-          const on = size / lod.lodFactor >= (o.userData.minScreenSize as number);
+          const on = parentLod >= ((o.userData.lowestLod as number | undefined) ?? 0) && size / lod.lodFactor >= (o.userData.minScreenSize as number);
           if (!on) childMeshesHidden++;
           if (o.visible !== on) o.visible = on;
         }

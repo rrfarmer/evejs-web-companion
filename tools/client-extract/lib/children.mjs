@@ -610,6 +610,8 @@ function readShown(o, skipped) {
       k: "mesh", id: idOf(o), name: o.name ?? null, m: srt(o), ...parts(o), geometry: String(o.mesh.geometryResPath).toLowerCase(),
       meshIndex: o.mesh.meshIndex ?? 0, minScreenSize: o.minScreenSize ?? 0, areas,
       modifiers: (o.transformModifiers ?? []).map((t) => t.type), srt: srtOf(o.transformModifiers),
+      // its lowestLodVisible (Tr2Lod: 0 low - always -, 1 medium, 2 high), where not low
+      ...(o.lowestLodVisible ? { lod: o.lowestLodVisible } : {}),
     };
   }
   // EveChildBehaviorSystem (Children/EveChildBehaviorSystem.cpp, Behaviors/*): groups of agents, each drawn as the
@@ -932,6 +934,12 @@ export function readHullChildren(rf, sofHull, faction = null) {
       actionEmitters = findActionEmitters(o);
       if (o && typeof o === "object") rawHullChildren.push(o);
       root = readNode(o, skipped);
+      // EveSOF: a hull child's Setup(..., the entry's lowestLodVisible) - a child mesh's own lodding replaced by the
+      // entry's (EveChildMesh::Setup; a container's Setup keeps none of it)
+      if (root?.k === "mesh") {
+        if (child.lowestLodVisible) root.lod = child.lowestLodVisible;
+        else delete root.lod;
+      }
     } catch (e) {
       skipped.unread = String(e.message ?? e);
     }
