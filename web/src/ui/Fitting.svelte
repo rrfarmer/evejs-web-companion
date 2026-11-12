@@ -2350,7 +2350,8 @@
   function holdReadout(used: PyNumber | null, capacity: number): string {
     const amount = (value: PyNumber): string => formatNumeric(value, { useGrouping: true, decimalPlaces: 1 });
     const usage = simulationWord("UI/Fitting/FittingWindow/CargoUsage", { color: "", text: amount(capacity) });
-    return `${used === null ? "—" : amount(used)} ${usage} ${simulationWord("UI/Fitting/FittingWindow/CubicMeters")}`;
+    // (on the play page in CargoSlots' two lines: the use, then the capacity and the m3 label)
+    return `${used === null ? "—" : amount(used)}${retail ? "\n" : " "}${usage} ${simulationWord("UI/Fitting/FittingWindow/CubicMeters")}`;
   }
   /** A figure as the server sent it: EveJS's marshal writes a whole number as an int (marshal.js), any other as a float. */
   function sentNumber(value: number | null | undefined): PyNumber | null {
@@ -3172,11 +3173,11 @@
       </div>
     </div>
     <dl class="fit-readouts">
-      <div>
+      <div class="fit-ro-cal">
         <dt>Calibration</dt>
         <dd>{resourceText(resources.calibration, "")}</dd>
       </div>
-      <div class:fit-readout-warning={slotWarningColor(5) !== null} style={slotWarningColor(5) ? `--slot-warning: ${slotWarningColor(5)}` : undefined}>
+      <div class="fit-ro-cargo" class:fit-readout-warning={slotWarningColor(5) !== null} style={slotWarningColor(5) ? `--slot-warning: ${slotWarningColor(5)}` : undefined}>
         <dt>Cargo hold</dt>
         {#if simulation}
           <!-- The simulated hold's use and capacity (GetSimulatedCapacity: the fitting location's GetCapacity). -->
@@ -3194,7 +3195,7 @@
         <!-- The simulated fighter bay (minihangar CargoFighterSlots) in the drone bay's place, where the hull has one
              (ContructDroneAndFighterIcons: HasFighterBay): its use and capacity (GetCapacity(flagFighterBay)); a click
              shows its picker, a picked fighter put on it goes to a tube or the bay. -->
-        <div class:fit-readout-warning={fighterBayWarningColor() !== null} style={fighterBayWarningColor() ? `--slot-warning: ${fighterBayWarningColor()}` : undefined}>
+        <div class="fit-ro-bay" class:fit-readout-warning={fighterBayWarningColor() !== null} style={fighterBayWarningColor() ? `--slot-warning: ${fighterBayWarningColor()}` : undefined}>
           <dt>{offenseWord("UI/Fitting/FittingWindow/FighterBay")}</dt>
           <dd><button type="button" class="minor fit-sim-fighters-open" aria-expanded={simFightersOpen} disabled={busy} onclick={clickSimulatedFighterBay}
             ondragover={overSimulatedHold} ondrop={dropOnSimulatedFighterBay}>
@@ -3203,7 +3204,7 @@
       {:else if simulation}
         <!-- The simulated drone bay (minihangar CargoDroneSlots): its use (GetSimulatedCapacity: each drone's volume) over
              GetDroneCapacity; a picked drone put on it goes in the bay, a click shows its drones. -->
-        <div>
+        <div class="fit-ro-bay">
           <dt>Drone bay</dt>
           <dd><button type="button" class="minor fit-sim-drones-open" disabled={busy} onclick={clickSimulatedDroneBay}
             ondragover={overSimulatedHold} ondrop={dropOnSimulatedDroneBay}>
@@ -3213,7 +3214,7 @@
         <!-- The ship's own fighter bay, or its drone bay where it has none (CargoFighterSlots, CargoDroneSlots): its
              inventory's use over GetFighterCapacity or GetDroneCapacity. -->
         {@const frame = realBayReadout.kind === "fighter" ? fighterBayWarningColor() : null}
-        <div class:fit-readout-warning={frame !== null} style={frame ? `--slot-warning: ${frame}` : undefined}>
+        <div class="fit-ro-bay" class:fit-readout-warning={frame !== null} style={frame ? `--slot-warning: ${frame}` : undefined}>
           <dt>{realBayReadout.kind === "fighter" ? offenseWord("UI/Fitting/FittingWindow/FighterBay") : "Drone bay"}</dt>
           <!-- OnHoldClicked: the bay in the inventory (OpenFighterBayOfActiveShip, OpenDroneBayOfActiveShip). -->
           <dd><button type="button" class="minor fit-hold-open" onclick={() => openShipHold(realBayReadout.kind)}
@@ -3221,7 +3222,7 @@
             {holdReadout(sentNumber(realBayReadout.used), realBayReadout.capacity)}</button></dd>
         </div>
       {:else}
-        <div>
+        <div class="fit-ro-bay">
           <dt>Drone bay</dt>
           <dd><button type="button" class="minor fit-hold-open" onclick={() => openShipHold("drone")}
             ondragover={overSimulatedHold} ondrop={(event) => dropOnRealHold(event, { kind: "shipBay", bay: "drone" })}>{@render statValue(stats.bays.droneCapacity, asVolume)}</button></dd>

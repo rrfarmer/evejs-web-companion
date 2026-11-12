@@ -754,6 +754,21 @@
   .fly-windows :global(.fit-cpu-power b) { font-weight: 700; color: rgba(255, 255, 255, 0.9); }
   .fly-windows :global(.fit-cpu-power b.gap) { margin-top: 10px; }
   .fly-windows :global(.fit-cpu-power .over) { animation: fit-gauge-over 0.5s linear infinite; }
+  /* fittingWnd.ConstructInventoryIcons: cargoDroneCont BOTTOMLEFT 4 in over the ring, 110 wide - the cargo hold
+     (CargoCargoSlots, invCtrl.ShipCargo's WindowIcons/ships.png) over the drone (or fighter) bay (dronebay.png), each
+     32 high: the icon 32 at 0.8 (1 under the mouse), the use and "/ capacity" right-aligned beside it (top 2 and 14),
+     the m3 after; no calibration or fit-value read-out (the price label is the fit's value) */
+  .fly-windows :global(.fit-window .fit-readouts) { position: relative; z-index: 2; width: 110px; margin: -70px 0 6px 4px; display: block; }
+  .fly-windows :global(.fit-window .fit-readouts > .fit-ro-cal), .fly-windows :global(.fit-window .fit-readouts > .fit-readout-value) { display: none; }
+  .fly-windows :global(.fit-window .fit-readouts > div) { position: relative; height: 32px; margin: 0; padding: 0 0 0 32px; border: none; background: none; }
+  .fly-windows :global(.fit-window .fit-readouts > div::before) { content: ""; position: absolute; left: 0; top: 0; width: 32px; height: 32px; opacity: 0.8;
+    background: url('/client-res/ui/texture/windowicons/ships.png') center / 32px 32px no-repeat; pointer-events: none; }
+  .fly-windows :global(.fit-window .fit-readouts > div.fit-ro-bay::before) { background-image: url('/client-res/ui/texture/windowicons/dronebay.png'); }
+  .fly-windows :global(.fit-window .fit-readouts > div:hover::before) { opacity: 1; }
+  .fly-windows :global(.fit-window .fit-readouts dt) { display: none; }
+  .fly-windows :global(.fit-window .fit-readouts dd) { margin: 0; }
+  .fly-windows :global(.fit-window .fit-readouts dd button) { margin-left: -32px; padding: 2px 0 0 32px; height: 32px; min-width: 32px; border: none; background: none;
+    white-space: pre; text-align: right; font-size: 12px; line-height: 12px; color: rgba(255, 255, 255, 0.75); cursor: pointer; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
