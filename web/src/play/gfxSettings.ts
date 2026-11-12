@@ -36,8 +36,9 @@ export interface GfxSettings {
   /** uiColorSvc's theme (settings.char.windows wndColorThemeID; colorThemes.DEFAULT_COLORTHEMEID Photon). */
   colorThemeID: string;
   /** The Audio panel (settings.public.audio): audioEnabled, masterVolume 0.8, uiGain 0.5, eveampGain (music) 0.5,
-   *  evevoiceGain 0.7, worldVolume 0.7 - the client's defaults. */
+   *  evevoiceGain 0.7, worldVolume 0.7 - the client's defaults; useCombatMusic (audioSvc.GetCombatMusicUsage: 1). */
   audioEnabled: boolean;
+  useCombatMusic: boolean;
   masterVolume: number;
   uiGain: number;
   eveampGain: number;
@@ -50,7 +51,7 @@ export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   volumetricQuality: 3, reflectionQuality: 3, turretsEnabled: true, effectsEnabled: true, missilesEnabled: true,
   explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true,
   windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05, colorThemeID: DEFAULT_COLORTHEMEID,
-  audioEnabled: true, masterVolume: 0.8, uiGain: 0.5, eveampGain: 0.5, evevoiceGain: 0.7, worldVolume: 0.7,
+  audioEnabled: true, useCombatMusic: true, masterVolume: 0.8, uiGain: 0.5, eveampGain: 0.5, evevoiceGain: 0.7, worldVolume: 0.7,
 };
 
 import { setMipLevelSkipCount } from "../three/ddsTexture.ts";

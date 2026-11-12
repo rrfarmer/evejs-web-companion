@@ -8,8 +8,11 @@
 // (their item trees: sequence or random groups, loop counts, weights, avoid-repeat) and the segments (each track's
 // clips; a random sub-track picked where there are several; the next segment's entry marker at its exit marker).
 // Its loudness: the Audio panel's master volume x its Music level (the client's volume_music RTPC: its curve not read).
+// In combat - something has the ship targeted (targetMgr.IsTargeted: its targetedBy not empty) and the Use Combat
+// Music setting on - 823 instead of 809: music_eve_combat_play, then music_switch_combat_empire (high sec) /
+// _nullsec (low sec) / _zerosec_and_wormhole (zero sec); music_eve_combat_stop as it stops.
 // Not built: the transition rules (a changed switch crossfades over 2 s here), stingers, the music objects' own
-// volumes, the combat, dungeon, abyssal, Zarzakh, insurgency, Triglavian and Pochven branches.
+// volumes, the dungeon, abyssal, Zarzakh, insurgency, Triglavian and Pochven branches.
 
 import { gfx, onGfx } from "./gfxSettings.ts";
 import { audioContext } from "./uiAudio.ts";
@@ -209,6 +212,14 @@ export async function sendMusicEvent(name: string, forcePlay = false): Promise<v
 /** What is playing (for checks): each music object, the playlist or segment its states picked, the segments started. */
 export function musicPlaying(): { root: number; leaf: number | null; played: number[] }[] {
   return [...playing.values()].map((p) => ({ root: p.root, leaf: p.leaf, played: [...p.played] }));
+}
+
+/** The combat music's switch for a system (823's tree by security class: 2 -> 818, 1 -> 820, 0 -> 821; the safe class none). */
+export function combatSwitch(security: number): string | null {
+  if (security <= 0) return "music_switch_combat_zerosec_and_wormhole";
+  if (security < 0.45) return "music_switch_combat_nullsec";
+  if (security < 0.95) return "music_switch_combat_empire";
+  return null;
 }
 
 /**
