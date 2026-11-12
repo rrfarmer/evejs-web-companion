@@ -510,7 +510,42 @@
     "UI/Fitting/FittingWindow/ExcessCapacitor": "Recharge left over",
     "UI/Fitting/FittingWindow/CapSustainableBy": "Settles at {[numeric]balance, decimalPlaces=1}% of its capacity",
     "UI/Fitting/FittingWindow/CapRunsOutBy": "Lasts {[timeinterval]ttl, from=hour, to=second}",
+    "UI/Fitting/FittingWindow/CapacitorCapAndRechargeTime": "{capacitorCapacity} / {capacitorRechargeTime}",
+    "UI/Fitting/FittingWindow/CapacityAndRechargeRate": "Capacity and recharge time",
   };
+  /**
+   * The play page's capacitor menu (capacitorPanel.py): the power core - min(10, int(capacity / 50)) columns, each
+   * max(12, min(16, int(192 / columns))) wide and 30 high in a 30 x 30 box at 5, 5, turned by column x 360 / columns,
+   * three capacitorCell.png cells down from its top (8 - 2i wide, 4 high, at 4i), added on; ColorPowerCore: of the
+   * cells, last column's first, the first int(loadBalance x cells) in BAD_COLOR x (1 - balance) + GOOD_COLOR x balance,
+   * the rest EMPTY_COLOR - and the capacity and recharge line, and the delta line, 45 in.
+   */
+  const clientCapacitor = $derived.by(() => {
+    if (!retail) return null;
+    const cap = stats.capacitor;
+    const capacity = cap.capacity.known ? cap.capacity.value : null;
+    const columns = capacity === null ? 0 : Math.min(10, Math.trunc(capacity / 50));
+    const width = Math.max(12, Math.min(16, columns ? Math.trunc(192 / columns) : 0));
+    const total = columns * 3;
+    const sim = cap.simulator ?? null;
+    const visible = sim ? Math.max(0, Math.min(total, Math.trunc(sim.loadBalance * total))) : 0;
+    const lb = sim?.loadBalance ?? 0;
+    const lit = `rgb(${[70 / 256 * (1 - lb) + 240 / 256 * lb, 26 / 256 * (1 - lb) + 90 / 256 * lb, 13 / 256 * (1 - lb) + 50 / 256 * lb].map((c) => Math.round(Math.min(1, c) * 255)).join(", ")})`;
+    const cells: { col: number; cell: number; color: string }[] = [];
+    for (let col = 0; col < columns; col++) {
+      for (let cell = 0; cell < 3; cell++) {
+        // powerUnits.insert(0, cell): the last added comes first
+        const order = total - 1 - (col * 3 + cell);
+        cells.push({ col, cell, color: order < visible ? lit : "rgba(64, 64, 64, 0.75)" });
+      }
+    }
+    const capText = capacity === null || !cap.rechargeSeconds.known ? "" : capacitorWord("UI/Fitting/FittingWindow/CapacitorCapAndRechargeTime", {
+      capacitorCapacity: `${Math.trunc(capacity).toLocaleString()} GJ`, capacitorRechargeTime: asSeconds(cap.rechargeSeconds.value),
+      startColorTag1: "", startColorTag2: "", endColorTag: "",
+    });
+    const deltaText = sim ? capacitorWord("UI/Fitting/FittingWindow/CapacitorDelta", { delta: sim.delta, percentage: sim.deltaPercentage }) : "";
+    return { columns, width, step: columns ? 360 / columns : 0, cells, capText, deltaText, hint: sim ? capacitorBalance(sim) : "" };
+  });
   $effect(() => {
     if (!$fitting.activeShipID) return;
     flow.requestWords([...Object.keys(CAPACITOR_WORDS), ...INTERVAL_WORD_LABELS, ...SHORT_INTERVAL_WORD_LABELS]);
@@ -2558,6 +2593,23 @@
           </span>
         {/if}
       </summary>
+      {#if clientCapacitor}
+      <div class="fit-sec-body fit-cap" title={clientCapacitor.hint}>
+        <div class="fit-cap-core" aria-hidden="true">
+          {#each Array.from({ length: clientCapacitor.columns }, (_, i) => i) as col (col)}
+            <div class="fit-cap-col" style={`width: ${clientCapacitor.width}px; transform: translate(-50%, -50%) rotate(${col * clientCapacitor.step}deg)`}>
+              {#each clientCapacitor.cells.filter((c) => c.col === col) as c (c.cell)}
+                <span class="fit-cap-cell" style={`top: ${c.cell * 4}px; width: ${8 - c.cell * 2}px; --cell: ${c.color}`}></span>
+              {/each}
+            </div>
+          {/each}
+        </div>
+        <div class="fit-cap-text">
+          <div title={capacitorWord("UI/Fitting/FittingWindow/CapacityAndRechargeRate")}>{clientCapacitor.capText}</div>
+          {#if clientCapacitor.deltaText}<div title={capacitorWord("UI/Fitting/FittingWindow/ExcessCapacitor")}>{clientCapacitor.deltaText}</div>{/if}
+        </div>
+      </div>
+      {:else}
       <div class="fit-sec-body">
         <table class="guests">
           <tbody>
@@ -2584,6 +2636,7 @@
           </p>
         {/if}
       </div>
+      {/if}
     </details>
 
     <details class="fit-sec" open={!retail}>

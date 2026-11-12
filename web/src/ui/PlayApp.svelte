@@ -706,6 +706,14 @@
   .fly-windows :global(.fit-def-gauge.dmg-thermal) { --gauge: rgb(140, 26, 26); --gauge-bg: rgba(140, 112, 112, 0.2); }
   .fly-windows :global(.fit-def-gauge.dmg-kinetic) { --gauge: rgb(115, 115, 115); --gauge-bg: rgba(115, 115, 115, 0.2); }
   .fly-windows :global(.fit-def-gauge.dmg-explosive) { --gauge: rgb(140, 94, 26); --gauge-bg: rgba(140, 129, 112, 0.2); }
+  /* capacitorPanel.py: the power core 30 x 30 at 5, 5; the text (EveLabelMedium) 45 in, centred down; maxHeight 64 */
+  .fly-windows :global(.fit-window .fit-cap) { position: relative; min-height: 40px; padding: 0; display: flex; align-items: center; }
+  .fly-windows :global(.fit-cap-core) { position: absolute; left: 5px; top: 5px; width: 30px; height: 30px; }
+  .fly-windows :global(.fit-cap-col) { position: absolute; left: 50%; top: 50%; height: 30px; }
+  .fly-windows :global(.fit-cap-cell) { position: absolute; left: 50%; height: 4px; transform: translateX(-50%); background: var(--cell);
+    mix-blend-mode: plus-lighter; -webkit-mask: url('/client-res/ui/texture/classes/shipui/capacitorcell.png') center / 100% 100% no-repeat;
+    mask: url('/client-res/ui/texture/classes/shipui/capacitorcell.png') center / 100% 100% no-repeat; }
+  .fly-windows :global(.fit-cap-text) { margin-left: 45px; font-size: 12px; line-height: 1.25; color: rgba(255, 255, 255, 0.75); padding: 4px 0; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
