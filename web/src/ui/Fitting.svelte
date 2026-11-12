@@ -29,7 +29,8 @@
     slotFlagOf,
     slotsOfFamily,
   } from "../bridge/fitting.ts";
-  import { OUTER_RADIUS_PERCENT, countByFamily, placeFamily } from "./fittingGeometry.ts";
+  import { CLIENT_BASE, CLIENT_GROUP_FLAGS, CLIENT_SLOT_HEIGHT, CLIENT_SLOT_WIDTH, OUTER_RADIUS_PERCENT, clientSlotPlacement, countByFamily, placeFamily } from "./fittingGeometry.ts";
+  import { getContext } from "svelte";
   import { abbreviate } from "./fittingIcons.ts";
   import { HANGAR_NAME, moveQuantityFor, rowsIn } from "./inventoryModel.ts";
   import type { InventoryPlace } from "../store/types.ts";
@@ -219,6 +220,34 @@
   /** The slots shown: the simulation's while the window simulates the ship, the ship's own otherwise. */
   const shownSlots = $derived.by(() => ($fitting.simulation ? $fitting.simulation.slots : $fitting.slots));
 
+  /**
+   * The play page's windows (PlayApp's "retailChrome" context): the client's own ring - fittingLayout.py's base, the
+   * slots where SlotAdder puts them (fittingGeometry clientSlotPlacement), turned with the ring, a hull's missing flags
+   * drawn faint (EntryAnimation's 0.05 for a disabled slot).
+   */
+  const retail = getContext("retailChrome") === true;
+  /** The flags a group has that the hull lacks, as the client draws them (its empty slot icon, faint). */
+  const absentPlaces = $derived.by(() => {
+    if (!retail) return [];
+    const out: { family: SlotFamily; index: number; x: number; y: number; angle: number }[] = [];
+    for (const family of SLOT_FAMILY_ORDER) {
+      const have = slotsOfFamily(shownSlots, family).length;
+      // (every group's every flag, the subsystems' too on a hull without them: FittingController's slotsByGroups)
+      for (let index = have; index < CLIENT_GROUP_FLAGS[family]; index++) {
+        const p = clientSlotPlacement(family, index);
+        out.push({ family, index, x: (p.x / CLIENT_BASE) * 100, y: (p.y / CLIENT_BASE) * 100, angle: p.angleDegrees });
+      }
+    }
+    return out;
+  });
+  /** The empty slot's icon (slot.py: 81_64_7 high, _6 mid, _5 low, _8 rig; subsystems' by flag, turned 180°). */
+  const EMPTY_SLOT_ICON: Record<SlotFamily, string> = { high: "81_64_7", mid: "81_64_6", low: "81_64_5", rig: "81_64_8", subsystem: "81_64_11" };
+  const SUBSYSTEM_ICONS = ["81_64_11", "81_64_10", "81_64_12", "81_64_13"];
+  function emptyIcon(family: SlotFamily, index: number): string {
+    const name = family === "subsystem" ? SUBSYSTEM_ICONS[index] ?? EMPTY_SLOT_ICON.subsystem : EMPTY_SLOT_ICON[family];
+    return `/client-res/ui/texture/icons/${name}.png`;
+  }
+
   /** The sockets to draw, with each one's placement and what is in it. */
   const sockets = $derived.by(() => {
     const counts = countByFamily(shownSlots);
@@ -226,7 +255,17 @@
       slot: FittingSlot;
       xPercent: number;
       yPercent: number;
+      angle?: number;
     }[] = [];
+    if (retail) {
+      for (const family of SLOT_FAMILY_ORDER) {
+        slotsOfFamily(shownSlots, family).forEach((slot, index) => {
+          const p = clientSlotPlacement(family, index);
+          placed.push({ slot, xPercent: (p.x / CLIENT_BASE) * 100, yPercent: (p.y / CLIENT_BASE) * 100, angle: p.angleDegrees });
+        });
+      }
+      return placed;
+    }
     for (const family of SLOT_FAMILY_ORDER) {
       const placements = placeFamily(family, counts[family], OUTER_RADIUS_PERCENT);
       const familySlots = slotsOfFamily(shownSlots, family);
@@ -3211,8 +3250,22 @@
           </p>
 
           <div class="fit-ring-wrap overflow-x-auto">
-            <div class="fit-ring">
-              <div class="fit-ring-guide" aria-hidden="true"></div>
+            <div class="fit-ring" class:retail style={retail ? `--slot-w: ${(CLIENT_SLOT_WIDTH / CLIENT_BASE) * 100}%; --slot-h: ${(CLIENT_SLOT_HEIGHT / CLIENT_BASE) * 100}%` : ""}>
+              {#if retail}
+                <!-- fittingLayout.py's base, bottom up: fittingbase (black 0.86), fittingbase_basecircle (the theme's UI
+                     base colour), [fittingbase_dotproduct - a DOT-lit sprite - and the three gauges], fittingbase_overlay
+                     (white 0.39) -->
+                <div class="fit-base" aria-hidden="true" style="--tex: url('/client-res/ui/texture/classes/fitting/fittingbase.png'); --tint: rgba(0,0,0,0.86)"></div>
+                <div class="fit-base" aria-hidden="true" style="--tex: url('/client-res/ui/texture/classes/fitting/fittingbase_basecircle.png'); --tint: #060a0c"></div>
+                <div class="fit-base" aria-hidden="true" style="--tex: url('/client-res/ui/texture/classes/fitting/fittingbase_overlay.png'); --tint: rgba(255,255,255,0.39)"></div>
+                {#each absentPlaces as place (`${place.family}:${place.index}`)}
+                  <div class="fit-socket-absent" aria-hidden="true" style={`left: ${place.x}%; top: ${place.y}%; --turn: ${place.angle}deg`}>
+                    <img alt="" src={emptyIcon(place.family, place.index)} style={place.family === "subsystem" ? "transform: rotate(180deg)" : ""} />
+                  </div>
+                {/each}
+              {:else}
+                <div class="fit-ring-guide" aria-hidden="true"></div>
+              {/if}
               <div class="fit-hull">
                 <TypeIcon typeID={ringTypeID} name={ringName} size="lg" />
                 {#if simulation && simulation.shipID === null}
@@ -3250,7 +3303,7 @@
                   class:sim-online={simulatedState(slot) === 1}
                   class:sim-active={simulatedState(slot) === 2}
                   class:sim-overheated={simulatedState(slot) === 3}
-                  style={`left: ${socket.xPercent}%; top: ${socket.yPercent}%${slotWarningColor(slotFlagOf(slot.family, slot.index)) ? `; --slot-warning: ${slotWarningColor(slotFlagOf(slot.family, slot.index))}` : ""}`}
+                  style={`left: ${socket.xPercent}%; top: ${socket.yPercent}%${socket.angle !== undefined ? `; --turn: ${socket.angle}deg` : ""}${slotWarningColor(slotFlagOf(slot.family, slot.index)) ? `; --slot-warning: ${slotWarningColor(slotFlagOf(slot.family, slot.index))}` : ""}`}
                   class:warning={slotWarningColor(slotFlagOf(slot.family, slot.index)) !== null}
                   title={simulation && slot.module ? `${slotName(slot)}, ${moduleName(slot.module.typeID)}. ${simulationWord("UI/Fitting/FittingWindow/ModuleMode")}: ${simulatedStateText(slot) ?? ""}. ${simulationWord("UI/Fitting/FittingWindow/ModuleModeHint")} Right-click takes it out.` : socketDescription(slot)}
                   aria-label={simulation ? simulatedSocketDescription(slot) : socketDescription(slot)}
@@ -3275,6 +3328,8 @@
                       size="socket"
                       fallbackText={abbreviate(moduleLabel)}
                     />
+                  {:else if retail}
+                    <img class="fit-empty-icon" alt="" src={emptyIcon(slot.family, slot.index)} style={slot.family === "subsystem" ? "transform: rotate(180deg)" : ""} />
                   {:else}
                     <span class="fit-socket-text">{socketText(slot)}</span>
                   {/if}

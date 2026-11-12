@@ -154,6 +154,32 @@ export function layoutSockets(
   return placements;
 }
 
+// ---- The client's own ring (the play page's fitting window) -------------------------------------------------
+//
+// eve/client/script/ui/shared/fitting/fittingController.py SLOTGROUP_LAYOUT_ARCS and slotAdder.py SlotAdder: each
+// group's flags (fittingScreen GetSlotsByGroups: every flag of the group, the hull's own and those it lacks) spread
+// from the group's start angle by arcLength / number of flags, at radius 239 of the 640-wide base (GetBaseShapeSize,
+// before GetScaleFactor), each slot 44 x 54 and turned by -angle (carbonui's turn, anticlockwise: clockwise by the
+// angle on the screen); angle 0 at twelve o'clock (GetPositionNumbers: cos / sin of angle - 90).
+
+/** SLOTGROUP_LAYOUT_ARCS: [start, length] in degrees, by ShipFittingController.SLOTGROUPS' index (0 high, 1 mid, 2 low,
+ * 3 subsystem, 4 rig). */
+export const CLIENT_SLOT_ARCS: Readonly<Record<SlotFamily, readonly [number, number]>> = {
+  high: [-35, 82], mid: [54, 82], low: [143, 82], subsystem: [233, 51], rig: [287, 31],
+};
+/** How many flags each group holds (inventorycommon hiSlotFlags 8, medSlotFlags 8, loSlotFlags 8, rigSlotFlags 3, subsystemSlotFlags 4). */
+export const CLIENT_GROUP_FLAGS: Readonly<Record<SlotFamily, number>> = { high: 8, mid: 8, low: 8, rig: 3, subsystem: 4 };
+/** The base's size and the slots' radius and size in it (SlotAdder at scale 1). */
+export const CLIENT_BASE = 640, CLIENT_SLOT_RADIUS = 239, CLIENT_SLOT_WIDTH = 44, CLIENT_SLOT_HEIGHT = 54;
+
+/** Where the client puts a group's index-th flag: its centre (in the 640 base, from the top left) and its angle. */
+export function clientSlotPlacement(family: SlotFamily, index: number): { x: number; y: number; angleDegrees: number } {
+  const [start, length] = CLIENT_SLOT_ARCS[family];
+  const angleDegrees = start + (length / CLIENT_GROUP_FLAGS[family]) * index;
+  const radians = ((angleDegrees - 90) * Math.PI) / 180;
+  return { x: CLIENT_SLOT_RADIUS * Math.cos(radians) + CLIENT_BASE / 2, y: CLIENT_SLOT_RADIUS * Math.sin(radians) + CLIENT_BASE / 2, angleDegrees };
+}
+
 /** Count the slots of each family present in a decoded fit. */
 export function countByFamily(
   slots: readonly { readonly family: SlotFamily }[],

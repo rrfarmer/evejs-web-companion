@@ -9,6 +9,9 @@
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers } from "../app/api.ts";
   import { StarMap } from "../play/starMap.ts";
+  import { setContext } from "svelte";
+  // The app panels in this page's windows draw as the client's where they know how (Fitting.svelte's ring).
+  setContext("retailChrome", true);
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
@@ -616,6 +619,24 @@
   .fly-hangar { position: absolute; inset: 0; }
   .fly-hangar :global(.hangar-view) { position: absolute; inset: 0; }
   .fly-neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; }
+  /* The fitting window's ring as the client's (fittingLayout.py, slotAdder.py, slot.py): the 640 base scaled by
+     GetScaleFactor (min(1, max(0.75, desktop width / 1400))), each slot 44 x 54 turned by its angle with its module
+     frame (moduleFrame.png, padded 8 x 4) under it, a fitted module's icon (48) turned back upright, an empty slot's
+     icon turning with it; a missing flag at 0.05. */
+  .fly-windows :global(.fit-ring.retail) { width: min(100%, calc(640px * max(0.75, min(1, 100vw / 1400px)))); max-width: none; min-width: 0; aspect-ratio: 1; }
+  .fly-windows :global(.fit-ring.retail .fit-base) { position: absolute; inset: 0; pointer-events: none; background: var(--tint);
+    -webkit-mask: var(--tex) center / 100% 100% no-repeat; mask: var(--tex) center / 100% 100% no-repeat; }
+  .fly-windows :global(.fit-ring.retail .fit-socket), .fly-windows :global(.fit-ring.retail .fit-socket-absent) {
+    position: absolute; width: var(--slot-w); height: var(--slot-h); transform: translate(-50%, -50%) rotate(var(--turn, 0deg));
+    padding: 0; border: none; background: none; overflow: visible; display: flex; align-items: center; justify-content: center; }
+  .fly-windows :global(.fit-ring.retail .fit-socket::before), .fly-windows :global(.fit-ring.retail .fit-socket-absent::before) {
+    content: ""; position: absolute; inset: -7.4% -18.2%; pointer-events: none;
+    background: url('/client-res/ui/texture/classes/fitting/moduleframe.png') center / 100% 100% no-repeat; }
+  .fly-windows :global(.fit-ring.retail .fit-socket-absent) { opacity: 0.05; pointer-events: none; }
+  .fly-windows :global(.fit-ring.retail .fit-socket .type-icon), .fly-windows :global(.fit-ring.retail .fit-socket .type-icon-socket) {
+    width: 109%; max-width: none; height: auto; aspect-ratio: 1; transform: rotate(calc(-1 * var(--turn, 0deg))); position: relative; }
+  .fly-windows :global(.fit-ring.retail .fit-socket img.fit-empty-icon), .fly-windows :global(.fit-ring.retail .fit-socket-absent img) {
+    width: 109%; max-width: none; height: auto; aspect-ratio: 1; position: relative; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
