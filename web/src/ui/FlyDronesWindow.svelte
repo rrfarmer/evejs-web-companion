@@ -8,7 +8,7 @@
   import { DRONE_NOT_UNDER_YOUR_CONTROL, NO_DRONE_UNDER_YOUR_CONTROL, panelErrorWords } from "../bridge/refusals.ts";
   import { droneActivityLabel } from "../bridge/drones.ts";
   import { canMyShipOrderDrone } from "../space/overview.ts";
-  import { orderableDroneIDs, salvageDroneIDs } from "./droneFlight.ts";
+  import { orderableDroneIDs, salvageDroneIDs, pilotDroneCap } from "./droneFlight.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -75,7 +75,10 @@
     return [...rows.values()];
   });
   const outCount = $derived(($drones.inSpace ?? []).length);
-  const maxActive = $derived($drones.limits.maxActiveDrones);
+  // svelte-ignore state_referenced_locally
+  const dogma = store.dogma;
+  // (the pilot's cap, read off the character's attributes as the client does: the drone read can come before them)
+  const maxActive = $derived(pilotDroneCap($dogma.allInfo, $drones.limits.maxActiveDrones));
 
   const allDroneIDs = $derived(orderableDroneIDs($drones.inSpace, snapshot?.entities ?? null, ship?.itemID ?? null));
   const salvageIDs = $derived(salvageDroneIDs(allDroneIDs, $drones.inSpace, (typeID) => resolvedName($names.resolved, "typeGroup", typeID, "")));

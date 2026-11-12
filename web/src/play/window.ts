@@ -56,6 +56,16 @@ export class PlayWindow {
 
   set caption(text: string) { (this.head.querySelector(".pw-caption") as HTMLElement).textContent = text; }
 
+  /**
+   * An element in the title row in place of the icon and caption (the Overview's tabs, as the client and the eve-cs
+   * mirror draw them in the window's header); a press on it does not drag the window.
+   */
+  headSlot(el: HTMLElement): void {
+    el.classList.add("pw-nodrag");
+    this.head.classList.add("pw-head-slotted");
+    this.head.insertBefore(el, this.head.querySelector(".pw-buttons"));
+  }
+
   private toggleMinimized(): void {
     this.minimized = !this.minimized;
     this.root.classList.toggle("minimized", this.minimized);
@@ -63,7 +73,7 @@ export class PlayWindow {
 
   private drag(handle: HTMLElement, move: (dx: number, dy: number, start: { left: number; top: number; width: number; height: number }) => void): void {
     handle.addEventListener("pointerdown", (e) => {
-      if ((e.target as HTMLElement).classList.contains("pw-btn")) return;
+      if ((e.target as HTMLElement).classList.contains("pw-btn") || (e.target as HTMLElement).closest(".pw-nodrag")) return;
       e.preventDefault();
       const r = this.root.getBoundingClientRect();
       const start = { left: r.left, top: r.top, width: r.width, height: r.height };

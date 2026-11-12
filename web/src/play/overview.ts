@@ -50,6 +50,8 @@ export class Overview {
     this.window.body.classList.add("ov");
     this.window.body.innerHTML = `<div class="ov-tabs"><span class="ov-tab active">General</span></div>`;
     this.tabsEl = this.window.body.querySelector(".ov-tabs")!;
+    // (in the title row, the window's icon and caption giving way to them)
+    this.window.headSlot(this.tabsEl);
     this.tabsEl.addEventListener("click", (e) => {
       const i = Number((e.target as HTMLElement).closest<HTMLElement>(".ov-tab")?.dataset.tab);
       if (Number.isInteger(i)) this.choose(i);

@@ -12,6 +12,7 @@
 import { canMyShipOrderDrone } from "../space/overview.ts";
 import { droneRoleForGroup } from "../nav/droneRoles.ts";
 import type { DroneInSpace, SpaceEntity } from "../store/types.ts";
+import type { BoundDogmaAllInfo } from "../bridge/boundDogma.ts";
 
 /**
  * The ids a group order may be sent with.
@@ -71,4 +72,17 @@ export function salvageDroneIDs(
   return dronesInSpace
     .filter((drone) => mayOrder.has(drone.itemID) && drone.typeID !== null && droneRoleForGroup(groupNameOf(drone.typeID)) === "salvage")
     .map((drone) => drone.itemID);
+}
+
+/**
+ * The pilot's active-drone cap, read off the character as the client reads it (godma.GetItem(session.charid)
+ * .maxActiveDrones: GetAllInfo's shipModifiedCharAttributes, else its character; attribute 352), or the ship's
+ * figure where the pilot's is not read yet (flow.ts withPilotDroneCap, for a view that has only the store).
+ */
+export function pilotDroneCap(allInfo: BoundDogmaAllInfo | null | undefined, shipFigure: number | null): number | null {
+  for (const item of [allInfo?.shipModifiedCharAttributes ?? null, allInfo?.character ?? null]) {
+    const value = item?.attributes.find((attribute) => attribute.attributeID === 352)?.value;
+    if (typeof value === "number") return Math.max(0, Math.trunc(value));
+  }
+  return shipFigure;
 }

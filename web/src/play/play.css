@@ -107,6 +107,15 @@ button { font: inherit; color: inherit; }
 .pw-head { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px; flex: none; cursor: move; user-select: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
 .pw-icon { width: 16px; height: 16px; opacity: .9; }
+/* a title row holding the window's own controls in place of its caption (the Overview's tabs: the eve-cs mirror's
+   32 px header, 12 px tabs at 0 6 px, white at 50 %, the active one green with a 2 px green underline) */
+.pw-head.pw-head-slotted { height: 32px; padding-top: 1px; }
+.pw-head.pw-head-slotted .pw-icon, .pw-head.pw-head-slotted .pw-caption { display: none; }
+.pw-head .ov-tabs { flex: 1; align-self: stretch; padding: 0; border: 0; gap: 0; min-width: 0; overflow: hidden; }
+.pw-head .ov-tab { display: flex; align-items: center; padding: 0 6px; font-size: 12px; color: rgba(255, 255, 255, 0.5);
+  background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.pw-head .ov-tab:hover:not(.active) { color: rgba(255, 255, 255, 0.8); }
+.pw-head .ov-tab.active { color: rgb(102, 255, 102); background: none; border-color: transparent; border-bottom-color: rgb(102, 255, 102); }
 .pw-caption { flex: 1; font-size: 13px; color: #c8ccc8; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pw-buttons { display: flex; gap: 2px; }
 .pw-btn { width: 16px; height: 16px; padding: 2px; opacity: .55; cursor: pointer; }

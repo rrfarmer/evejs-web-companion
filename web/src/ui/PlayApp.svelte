@@ -11,6 +11,7 @@
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
+  import { pilotDroneCap } from "./droneFlight.ts";
   import NoticeBridge from "./NoticeBridge.svelte";
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
@@ -247,6 +248,19 @@
     return had ? next : next.map((w) => (w.id === tab && w.x < NEOCOM_W + 8 ? { ...w, x: w.x + NEOCOM_W } : w));
   }
   function open(tab: TabID) { wins = openFly(wins, tab); raiseApp(tab); }
+  /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
+  let dronesTitle = $state("Drones");
+  $effect(() => {
+    if (!session) return;
+    const s = session;
+    const show = () => {
+      const d = s.store.drones.get();
+      const out = (d.inSpace ?? []).length, max = pilotDroneCap(s.store.dogma.get().allInfo, d.limits.maxActiveDrones);
+      dronesTitle = max === null ? `Drones ${out}` : `Drones ${out}/${max}`;
+    };
+    const a = s.store.drones.subscribe(show), b = s.store.dogma.subscribe(show);
+    return () => { a(); b(); };
+  });
 
   // The client's keys for its windows (eveCommands.py): Alt and a letter. Alt+D and V (the directional scanner) are
   // the space view's own.
@@ -468,7 +482,7 @@
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
-          title={tabLabel(win.id)}
+          title={win.id === "drones" ? dronesTitle : tabLabel(win.id)}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
