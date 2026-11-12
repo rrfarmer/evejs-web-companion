@@ -49,13 +49,20 @@
 //   system's) += OPACITY_LINES_SELECTED 1.0, and while a system is hovered += OPACITY_LINES_HOVERED 0.3 - for the same
 //   active constellation (_UpdateLineOpacitySolarSystem takes _activeConstellationID whichever system is given); a line
 //   in none keeps the default 0.2; the colour's alpha that, as a UBYTE4N colour clamps it, at most 1.
+// - the route (UpdateAutopilotJumpRoute: the destination path from the pilot's system, _UpdatePathLineAppearance): each
+//   line of it ApplyJumpLineColorAndWidth - each end the colour of its system's security (mapSvc.GetModifiedSystemColor:
+//   FmtSystemSecStatus's colour) at alpha 2.0 (1 once a UBYTE4N colour), AUTOPILOT_LINE_WIDTH (3 x 2) - and
+//   ChangeLineAnimation((0, 0, 0, 0.75), AUTOPILOT_LINE_ANIM_SPEED / scale x direction, scale = length /
+//   AUTOPILOT_LINE_TICKSIZE (AU x 10000 x UNIVERSE_SCALE)), the direction -1 where the route runs from the line's first
+//   end; set after the opacities, which it overrides.
 // Not yet: the abstract layout, constellation and region markers, the my-location marker's pulse circles (three
-// circleFilled256 rings, alpha to 0.02), the route.
+// circleFilled256 rings, alpha to 0.02).
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadDds } from "../three/ddsTexture.ts";
 import { logDepth } from "../three/logDepth.ts";
+import { securityStatusRgb } from "../bridge/systemSecurity.ts";
 
 /** mapViewConst.py */
 const UNIVERSE_SCALE = 1.5e-13;
@@ -99,7 +106,7 @@ export function mapPosition(x: number, y: number, z: number): THREE.Vector3 {
 }
 
 export interface StarMapSystems {
-  readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number, string?]>;
+  readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number, string?, (number | null)?]>;
   readonly jumps: ReadonlyArray<readonly [number, number]>;
 }
 
@@ -151,6 +158,7 @@ const BUBBLE_FS = `
   }`;
 /** mapViewConst.py; const.AU. */
 const AU = 149597870700;
+const AUTOPILOT_LINE_TICKSIZE = AU * 10000 * UNIVERSE_SCALE, AUTOPILOT_LINE_ANIM_SPEED = 1.0;
 const JUMPLINE_BASE_WIDTH = 3.0, REGION_LINE_TICKSIZE = AU * 8000 * UNIVERSE_SCALE, CONSTELLATION_LINE_TICKSIZE = AU * 4000 * UNIVERSE_SCALE;
 const LINE_COLOR: [number, number, number] = [0.5, 0.5, 0.5];
 /** LineOpacityFinder3D.GetLineDefaultOpacity, VIEWMODE_LINES_ALL (the default line mode). */
@@ -225,6 +233,14 @@ export class StarMap {
   /** Each line's two systems, by its index, and the colour attribute its alpha goes into. */
   private lineEnds: [number, number][] = [];
   private lineColours: THREE.BufferAttribute | null = null;
+  /** Each line's own look (UpdateLineColorAndWidth's), put back where the route leaves it, and the attributes. */
+  private lineLooks: { rgb: number[]; width: number; overlay: number[]; scale: number }[] = [];
+  private lineAttrs: { dir: THREE.BufferAttribute; anim: THREE.BufferAttribute; ovl: THREE.BufferAttribute } | null = null;
+  /** The route's lines, by index: the system it runs from. */
+  private routeLines = new Map<number, number>();
+  private security = new Map<number, number>();
+  /** How many lines the route holds (for checks). */
+  get routeLength(): number { return this.routeLines.size; }
   /** The pilot's system (the my-location marker), the active (selected) item and the hovered system. */
   private hereID: number | null = null;
   selectedID: number | null = null;
@@ -287,7 +303,7 @@ export class StarMap {
     const colours = new Map<number, [number, number, number]>();
     const within = new Map<number, [number, number]>();
     const names = new Map<number, string>();
-    for (const s of data.systems) names.set(s[0], s[7] ?? "");
+    for (const s of data.systems) { names.set(s[0], s[7] ?? ""); if (typeof s[8] === "number") this.security.set(s[0], s[8]); }
     const iPos: number[] = [], iColour: number[] = [], iSize: number[] = [];
     for (const [id, x, y, z, factionID, regionID, constellationID] of data.systems) {
       within.set(id, [regionID, constellationID]);
@@ -349,6 +365,7 @@ export class StarMap {
         ovl.push(...overlay);
       }
       this.lineEnds.push([a, b]);
+      this.lineLooks.push({ rgb: [...c], width, overlay: [...overlay], scale });
       count++;
     }
     const lg = new THREE.BufferGeometry();
@@ -360,6 +377,7 @@ export class StarMap {
     lg.setAttribute("colour", this.lineColours);
     lg.setAttribute("overrideColour", new THREE.Float32BufferAttribute(ovr, 4));
     lg.setAttribute("overlayColour", new THREE.Float32BufferAttribute(ovl, 4));
+    this.lineAttrs = { dir: lg.getAttribute("lineDir") as THREE.BufferAttribute, anim: lg.getAttribute("animation") as THREE.BufferAttribute, ovl: lg.getAttribute("overlayColour") as THREE.BufferAttribute };
     const lineMat = new THREE.ShaderMaterial({ uniforms: this.lineUniforms, vertexShader: LINE_VS, fragmentShader: LINE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     logDepth(lineMat);
     const lines = new THREE.Mesh(lg, lineMat);
@@ -423,6 +441,47 @@ export class StarMap {
     this.updateLineOpacity();
   }
 
+  /** The destination path, the pilot's system first (UpdateAutopilotJumpRoute): its lines drawn as the route. */
+  setRoute(systemIDs: readonly number[]): void {
+    if (!this.lineAttrs || !this.lineColours) return;
+    const old = [...this.routeLines.keys()];
+    this.routeLines.clear();
+    const lineOf = new Map<string, number>();
+    this.lineEnds.forEach(([a, b], i) => { lineOf.set(`${a}:${b}`, i); lineOf.set(`${b}:${a}`, i); });
+    for (let k = 0; k + 1 < systemIDs.length; k++) {
+      const i = lineOf.get(`${systemIDs[k]}:${systemIDs[k + 1]}`);
+      if (i !== undefined) this.routeLines.set(i, systemIDs[k]!);
+    }
+    for (const i of new Set([...old, ...this.routeLines.keys()])) this.writeLine(i);
+    this.updateLineOpacity();
+  }
+
+  /** A line's attributes: its own look, or the route's (ApplyJumpLineColorAndWidth, ChangeLineAnimation). */
+  private writeLine(i: number): void {
+    const look = this.lineLooks[i]!;
+    const [a, b] = this.lineEnds[i]!;
+    const from = this.routeLines.get(i);
+    const dir = this.lineAttrs!.dir.array as Float32Array, anim = this.lineAttrs!.anim.array as Float32Array, ovl = this.lineAttrs!.ovl.array as Float32Array;
+    const col = this.lineColours!.array as Float32Array;
+    const secRgb = (id: number) => securityStatusRgb(this.security.get(id) ?? 0);
+    const length = this.positions.get(a)!.distanceTo(this.positions.get(b)!);
+    const scale = from !== undefined ? length / AUTOPILOT_LINE_TICKSIZE : look.scale;
+    const speed = from !== undefined ? AUTOPILOT_LINE_ANIM_SPEED / scale * (from === a ? -1 : 1) : 0;
+    const width = from !== undefined ? JUMPLINE_BASE_WIDTH * 2 : look.width;
+    const overlay = from !== undefined ? [0, 0, 0, 0.75] : look.overlay;
+    for (let k = 0; k < 6; k++) {
+      const v = i * 6 + k;
+      const end = k === 2 || k === 4 || k === 5 ? 1 : 0;
+      const rgb = from !== undefined ? secRgb(end ? b : a) : look.rgb;
+      col[v * 4] = rgb[0]!; col[v * 4 + 1] = rgb[1]!; col[v * 4 + 2] = rgb[2]!;
+      dir[v * 4 + 3] = Math.sign(dir[v * 4 + 3]!) * width;
+      anim[v * 2] = speed; anim[v * 2 + 1] = scale;
+      ovl[v * 4] = overlay[0]!; ovl[v * 4 + 1] = overlay[1]!; ovl[v * 4 + 2] = overlay[2]!; ovl[v * 4 + 3] = overlay[3]!;
+    }
+    this.lineAttrs!.dir.needsUpdate = this.lineAttrs!.anim.needsUpdate = this.lineAttrs!.ovl.needsUpdate = true;
+    this.lineColours!.needsUpdate = true;
+  }
+
   /** LineOpacityFinder3D.GetLineOpacityByLineID, into each line's colour alpha (clamped as a UBYTE4N colour is). */
   private updateLineOpacity(): void {
     if (!this.lineColours || !this.data) return;
@@ -432,7 +491,8 @@ export class StarMap {
     this.lineEnds.forEach(([a, b], i) => {
       // each of the active constellation's systems adds to each of its lines (a line between two adds twice)
       const n = (inActive(a) ? 1 : 0) + (inActive(b) ? 1 : 0);
-      const opacity = n ? n * 1.0 + (this.hoverID !== null ? n * 0.3 : 0) : LINE_OPACITY_DEFAULT;
+      // (a route line's colour is set after, at alpha 2.0)
+      const opacity = this.routeLines.has(i) ? 2.0 : n ? n * 1.0 + (this.hoverID !== null ? n * 0.3 : 0) : LINE_OPACITY_DEFAULT;
       const alpha = Math.min(1, opacity);
       for (let k = 0; k < 6; k++) arr[(i * 6 + k) * 4 + 3] = alpha;
     });

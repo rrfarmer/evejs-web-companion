@@ -50,11 +50,16 @@ const SECURITY_STATUS_COLORS: readonly (readonly [number, number, number])[] = O
   [0.173, 0.459, 0.886],
 ]);
 
-/** A system's colour as the client draws it for a level, as CSS. */
-export function securityStatusColor(level: number): string {
+/** A system's colour as the client draws it for a level, 0..1 each. */
+export function securityStatusRgb(level: number): readonly [number, number, number] {
   const rounded = Number(level.toFixed(1));
   const index = Math.min(SECURITY_STATUS_COLORS.length - 1, Math.trunc(Math.max(rounded, 0) * 10));
-  const [r, g, b] = SECURITY_STATUS_COLORS[index] ?? SECURITY_STATUS_COLORS[0]!;
+  return SECURITY_STATUS_COLORS[index] ?? SECURITY_STATUS_COLORS[0]!;
+}
+
+/** A system's colour as the client draws it for a level, as CSS. */
+export function securityStatusColor(level: number): string {
+  const [r, g, b] = securityStatusRgb(level);
   return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
 }
 

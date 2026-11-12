@@ -2607,8 +2607,8 @@ export interface SystemGraphResult {
 /** Fetch the system-adjacency graph for the client-side route solver. */
 /** The star map's universe (GET /api/map/stars): each known-space system and each stargate pair. */
 export interface StarMapData {
-  /** [systemID, x, y, z (metres, the data's centre), factionID (0: none), regionID, constellationID, name] */
-  readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number, string?]>;
+  /** [systemID, x, y, z (metres, the data's centre), factionID (0: none), regionID, constellationID, name, security] */
+  readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number, string?, (number | null)?]>;
   /** [fromSystemID, toSystemID], each pair once */
   readonly jumps: ReadonlyArray<readonly [number, number]>;
 }

@@ -291,7 +291,7 @@
     if (tab) open(tab);
   }
   function toggleStarMap(show = !starMap) {
-    if (!show) { starMap?.dispose(); starMap = null; return; }
+    if (!show) { starMap?.root.dispatchEvent(new Event("star-map-closed")); starMap?.dispose(); starMap = null; return; }
     if (starMap || !session || !mapHost) return;
     const s = session;
     const m = new StarMap();
@@ -305,7 +305,24 @@
     mapHost.appendChild(m.root);
     m.start();
     const here = s.store.station.get().online?.solarSystemID ?? live?.hello?.solarSystemID ?? null;
-    void s.flow.loadStarMap().then((data) => { if (starMap === m) m.build(data, here); }).catch((e) => {
+    // the destination path (starmap GetDestinationPath: the pilot's system, then each waypoint's way and the waypoint)
+    const route = () => void s.flow.routeWindowWaypoints().then((read) => {
+      if (starMap !== m) return;
+      const path: number[] = read ? [read.currentSystemID] : [];
+      for (const w of read?.waypoints ?? []) {
+        const systemID = w.id >= 30_000_000 && w.id <= 39_999_999 ? w.id : w.within.find((x) => x >= 30_000_000 && x <= 39_999_999);
+        path.push(...w.between);
+        if (systemID !== undefined) path.push(systemID);
+      }
+      m.setRoute(path);
+    }).catch(() => {});
+    void s.flow.loadStarMap().then((data) => {
+      if (starMap !== m) return;
+      m.build(data, here);
+      route();
+      const stop = s.flow.waypoints.subscribe(() => route());
+      m.root.addEventListener("star-map-closed", () => stop(), { once: true });
+    }).catch((e) => {
       notify({ kind: "danger", title: "Map", detail: e instanceof Error ? e.message : String(e) });
     });
     (window as unknown as { __starMap: unknown }).__starMap = m;
