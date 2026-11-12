@@ -683,6 +683,29 @@
   .fly-windows :global(.fit-window .fit-sec-name) { color: rgba(255, 255, 255, 0.75); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px; }
   .fly-windows :global(.fit-window .fit-sec-headline) { font-size: 12px; color: rgba(255, 255, 255, 0.9); }
   .fly-windows :global(.fit-window .fit-sec-body) { padding: 4px 6px 2px; }
+  /* defensePanel.py: the top row 28 high (5 above, 3 in) - the best-repair cell 90 wide (a 20 icon, its label) and
+     the resist icons (24, in columns of (280 - 90 - 10) / 4 from 90, centred less 6); a row a layer 32 high, 3 in - its
+     20 icon, its label 62 wide, the gauges from 90: four, each a quarter less 3 a side (DamageGaugeContainerFitting),
+     16 high 8 down, the type's colour over the colour at saturation 0.2 and alpha 0.2 (Gauge), the value centred
+     (EveLabelSmall). */
+  .fly-windows :global(.fit-window .fit-def) { padding: 0; }
+  .fly-windows :global(.fit-def-top) { position: relative; height: 28px; margin-top: 5px; margin-left: 3px; }
+  .fly-windows :global(.fit-def-best) { position: absolute; left: 0; top: 0; width: 90px; height: 28px; display: flex; align-items: center; overflow: hidden; }
+  .fly-windows :global(.fit-def-best img) { width: 20px; height: 20px; flex: none; }
+  .fly-windows :global(.fit-def-best span) { font-size: 10px; line-height: 1.05; color: rgba(255, 255, 255, 0.75);
+    -webkit-mask: linear-gradient(90deg, #000 calc(100% - 15px), transparent); mask: linear-gradient(90deg, #000 calc(100% - 15px), transparent); }
+  .fly-windows :global(.fit-def-res-icon) { position: absolute; top: 2px; width: 24px; height: 24px; }
+  .fly-windows :global(.fit-def-row) { position: relative; height: 32px; margin-left: 3px; display: flex; align-items: center; }
+  .fly-windows :global(.fit-def-row > img) { width: 20px; height: 20px; flex: none; }
+  .fly-windows :global(.fit-def-hp) { width: 62px; max-height: 34px; overflow: hidden; line-height: 0.95; color: rgba(255, 255, 255, 0.75); }
+  .fly-windows :global(.fit-def-gauges) { position: absolute; left: 87px; right: 0; top: 0; bottom: 0; display: flex; }
+  .fly-windows :global(.fit-def-gauge) { position: relative; flex: 1 1 0; margin: 8px 3px 0; height: 16px; overflow: hidden; background: var(--gauge-bg); }
+  .fly-windows :global(.fit-def-fill) { position: absolute; left: 0; top: 0; bottom: 0; background: var(--gauge); transition: width 0.6s; }
+  .fly-windows :global(.fit-def-val) { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; }
+  .fly-windows :global(.fit-def-gauge.dmg-em) { --gauge: rgb(26, 94, 140); --gauge-bg: rgba(112, 129, 140, 0.2); }
+  .fly-windows :global(.fit-def-gauge.dmg-thermal) { --gauge: rgb(140, 26, 26); --gauge-bg: rgba(140, 112, 112, 0.2); }
+  .fly-windows :global(.fit-def-gauge.dmg-kinetic) { --gauge: rgb(115, 115, 115); --gauge-bg: rgba(115, 115, 115, 0.2); }
+  .fly-windows :global(.fit-def-gauge.dmg-explosive) { --gauge: rgb(140, 94, 26); --gauge-bg: rgba(140, 129, 112, 0.2); }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

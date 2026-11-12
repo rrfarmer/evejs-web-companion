@@ -1890,6 +1890,51 @@
   });
 
   /** The resistance grid: one row per layer, four damage types across. */
+  /**
+   * The play page's defense menu as defensePanel.py lays it out: the best-repair cell (the passive shield recharge,
+   * GetPassiveRechargeRate's int(2.5 x shield capacity / (recharge time in s))), the four resist icons, and a row a
+   * layer - its icon, its hit points (SetDefenseLayerText, the shield's with its recharge time under a day), and a
+   * gauge a damage type at 1 - its resonance with the resist written on it (ColoredResistanceLabel, 100 - int(x 100)).
+   */
+  const clientDefense = $derived.by(() => {
+    if (!retail) return null;
+    const d = stats.defense;
+    const rows = DEFENSE_LAYERS.map((row) => {
+      if (d) {
+        return {
+          layer: row.layer, label: defenseWord(row.label), text: layerText(d, row.layer),
+          resist: Object.fromEntries(DAMAGE_TYPES.map((t) => [t.key, d.layers[row.layer].resistances[t.key] / 100])) as Record<string, number | null>,
+        };
+      }
+      const tank = stats.tank[row.layer === "structure" ? "hull" : row.layer];
+      const hp = tank.hp.known ? hitPoints(tank.hp.value) : null;
+      const recharge = stats.shieldRechargeSeconds;
+      const text = hp === null ? "" : row.layer === "shield" && recharge.known && recharge.value < 86400
+        ? defenseWord("UI/Fitting/FittingWindow/ColoredHitpointsAndRechargeTime2", { hp, rechargeTime: Math.trunc(recharge.value), startColorTag1: "", startColorTag2: "", endColorTag: "" })
+        : defenseWord("UI/Fitting/FittingWindow/ColoredHp2", { hp });
+      return {
+        layer: row.layer, label: defenseWord(row.label), text,
+        resist: Object.fromEntries(DAMAGE_TYPES.map((t) => { const x = tank.resistances[t.key]; return [t.key, x.known ? x.value : null]; })) as Record<string, number | null>,
+      };
+    });
+    const shield = stats.tank.shield.hp, recharge = stats.shieldRechargeSeconds;
+    const passive = d ? d.passiveShieldRecharge : shield.known && recharge.known && recharge.value > 0 ? Math.trunc((2.5 * shield.value) / recharge.value) : null;
+    return { rows, passive: passive === null ? "" : defenseWord("UI/Fitting/FittingWindow/ColoredPassiveRepairRate", { hpPerSec: passive }) };
+  });
+  /** defensePanel's resist icons and layer icons (StatsIcons), by damage type and layer. */
+  const RESIST_ICON: Record<string, string> = { em: "emresistance", thermal: "thermalresistance", kinetic: "kineticresistance", explosive: "explosiveresistance" };
+  const LAYER_ICON: Record<string, string> = { shield: "shieldhp", armor: "armorhp", structure: "structurehp" };
+  /** SetDefenseLayerText's fit: the font made smaller (from 12) until the text is within 62 x 34. */
+  function fitDefenseLabel(el: HTMLElement, _text: string) {
+    const fit = () => {
+      let size = 12;
+      el.style.fontSize = `${size}px`;
+      while (size > 6 && (el.scrollWidth > 62 || el.scrollHeight > 34)) el.style.fontSize = `${--size}px`;
+    };
+    fit();
+    return { update: () => fit() };
+  }
+
   const defenceRows = $derived.by(() =>
     LAYERS.map((layer) => ({
       layer,
@@ -2594,7 +2639,35 @@
           <span class="fit-sec-headline">{@render statValue(stats.totalEhp, (v) => `${whole(v)} ehp`)}</span>
         {/if}
       </summary>
-      {#if stats.defense}
+      {#if clientDefense}
+        <div class="fit-sec-body fit-def">
+          <div class="fit-def-top">
+            <div class="fit-def-best" title={defenseWord("UI/Fitting/FittingWindow/PassiveShieldRecharge")}>
+              <img alt="" src="/client-res/ui/texture/classes/fitting/statsicons/passiveshieldrecharge.png" />
+              <span>{clientDefense.passive}</span>
+            </div>
+            {#each DAMAGE_TYPES as dt, i (dt.key)}
+              <img class="fit-def-res-icon" alt={dt.label} title={dt.label} style={`left: ${90 + Math.trunc(i * 45) + Math.trunc(45 / 2) - 12 - 6}px`}
+                src={`/client-res/ui/texture/classes/fitting/statsicons/${RESIST_ICON[dt.key]}.png`} />
+            {/each}
+          </div>
+          {#each clientDefense.rows as row (row.layer)}
+            <div class="fit-def-row">
+              <img alt={row.label} title={row.label} src={`/client-res/ui/texture/classes/fitting/statsicons/${LAYER_ICON[row.layer]}.png`} />
+              <span class="fit-def-hp" use:fitDefenseLabel={row.text}>{row.text}</span>
+              <div class="fit-def-gauges">
+                {#each DAMAGE_TYPES as dt (dt.key)}
+                  {@const r = row.resist[dt.key] ?? null}
+                  <div class="fit-def-gauge dmg-{dt.key}" title={dt.label}>
+                    <span class="fit-def-fill" style={`width: ${r === null ? 0 : Math.max(0, Math.min(1, r)) * 100}%`}></span>
+                    <span class="fit-def-val">{r === null ? "" : defenseWord("UI/Fitting/FittingWindow/ColoredResistanceLabel", { number: Math.round(r * 100) })}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else if stats.defense}
         <div class="fit-sec-body">
           <div class="table-wrap overflow-x-auto">
             <table class="guests defence-grid">
