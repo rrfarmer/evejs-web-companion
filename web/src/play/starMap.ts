@@ -33,7 +33,16 @@
 //   its rgb x the overlay colour's and takes its alpha by the overlay's alpha; the colour faded by distanceRange (x 100
 //   at the far end) as the stars are; alpha-blended (the line set's transparent batch), no culling;
 // - the map camera (camera/mapCamera.py): fov 1.0 rad, orbiting the current system.
-// Not yet: the abstract layout, markers and labels, the selected / hovered lines' opacity, the route.
+// - the markers (markers/mapMarkersHandler.py): the current system the selected item (LoadStarLayout(activeItemID));
+//   _UpdateActiveMarkers / GetActiveAndSelectedIdsSolarSystem: its gate neighbours and its constellation's systems
+//   active, it selected; a system's MarkerLabelSolarSystem (normal, not abstract, content: MarkerContainerContentSimple
+//   - its name in EveLabelSmall bold, TextColor.NORMAL (1, 1, 1, 0.75), LABEL_LEFT 22 px right of the point, centred
+//   on it) shown while active or selected (maxDispRange 0 otherwise), its opacity OPACITY_MARKER_ACTIVE 1 selected,
+//   else GetMarkerBaseOpacity(camera distance, 0, 17500) = 1 - d / 17500; MarkerMyLocation ("You are here", always
+//   shown, opacity 1): MarkerIconBase's 14 px container 30 px above the point (projectBracket.offsetY -30), the
+//   focusIcon.png 16 px in it, tagBackground.png 64 px under it 12 px down.
+// Not yet: the abstract layout, constellation and region markers, the my-location marker's pulse circles (three
+// circleFilled256 rings, alpha to 0.02), the selected / hovered lines' opacity, the route.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -82,7 +91,7 @@ export function mapPosition(x: number, y: number, z: number): THREE.Vector3 {
 }
 
 export interface StarMapSystems {
-  readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number]>;
+  readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number, string?]>;
   readonly jumps: ReadonlyArray<readonly [number, number]>;
 }
 
@@ -198,6 +207,10 @@ export class StarMap {
   };
   private readonly positions = new Map<number, THREE.Vector3>();
   private running = false;
+  /** The markers' layer over the canvas, the labels of the active systems and the my-location marker. */
+  private readonly markers = document.createElement("div");
+  private labels: { id: number; at: THREE.Vector3; el: HTMLDivElement; selected: boolean }[] = [];
+  private myLocation: { at: THREE.Vector3; el: HTMLDivElement } | null = null;
   /** How many stars and jump lines are drawn (for checks). */
   stars = 0;
   jumps = 0;
@@ -209,6 +222,8 @@ export class StarMap {
     this.renderer.setPixelRatio(Math.min(2, devicePixelRatio));
     this.root.appendChild(this.renderer.domElement);
     this.renderer.domElement.style.cssText = "width:100%;height:100%;display:block;";
+    this.markers.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;";
+    this.root.appendChild(this.markers);
     this.camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(1.0), 1, 0.1, MAX_CAMERA_DISTANCE * 4);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.minDistance = MIN_CAMERA_DISTANCE;
@@ -236,6 +251,8 @@ export class StarMap {
   build(data: StarMapSystems, focusSystemID: number | null): void {
     const colours = new Map<number, [number, number, number]>();
     const within = new Map<number, [number, number]>();
+    const names = new Map<number, string>();
+    for (const s of data.systems) names.set(s[0], s[7] ?? "");
     const iPos: number[] = [], iColour: number[] = [], iSize: number[] = [];
     for (const [id, x, y, z, factionID, regionID, constellationID] of data.systems) {
       within.set(id, [regionID, constellationID]);
@@ -313,7 +330,66 @@ export class StarMap {
     lines.renderOrder = 1;
     this.scene.add(lines);
     this.jumps = count;
+    this.buildMarkers(data, within, names, focusSystemID);
     this.focus(focusSystemID);
+  }
+
+  /** The selected system's markers: its label and its active systems' (neighbours, constellation), "You are here". */
+  private buildMarkers(data: StarMapSystems, within: Map<number, [number, number]>, names: Map<number, string>, systemID: number | null): void {
+    this.markers.replaceChildren();
+    this.labels = [];
+    this.myLocation = null;
+    if (systemID === null || !this.positions.has(systemID)) return;
+    const constellation = within.get(systemID)?.[1];
+    const active = new Set<number>([systemID]);
+    for (const [a, b] of data.jumps) { if (a === systemID) active.add(b); if (b === systemID) active.add(a); }
+    for (const [id, , , , , , c] of data.systems) if (c === constellation) active.add(id);
+    for (const id of active) {
+      const at = this.positions.get(id);
+      if (!at) continue;
+      const el = document.createElement("div");
+      el.textContent = names.get(id) ?? "";
+      el.style.cssText = "position:absolute;white-space:nowrap;font-size:10px;line-height:12px;font-weight:700;color:rgba(255,255,255,0.75);"
+        + "font-family:'EVE Sans Neue','Barlow Semi Condensed','Segoe UI',sans-serif;";
+      this.markers.appendChild(el);
+      this.labels.push({ id, at, el, selected: id === systemID });
+    }
+    const here = document.createElement("div");
+    here.style.cssText = "position:absolute;width:14px;height:14px;";
+    const bg = document.createElement("img");
+    bg.src = "/client-res/ui/texture/classes/mapview/tagbackground.png";
+    bg.style.cssText = "position:absolute;left:-25px;top:-13px;width:64px;height:64px;";
+    const icon = document.createElement("img");
+    icon.src = "/client-res/ui/texture/classes/mapview/focusicon.png";
+    icon.style.cssText = "position:absolute;left:-1px;top:-1px;width:16px;height:16px;";
+    here.title = "You are here";
+    here.append(bg, icon);
+    this.markers.appendChild(here);
+    this.myLocation = { at: this.positions.get(systemID)!, el: here };
+  }
+
+  /** Each marker where its point projects (a bracket's place), its opacity as the client's. */
+  private placeMarkers(w: number, h: number): void {
+    const v = new THREE.Vector3();
+    const project = (at: THREE.Vector3) => {
+      v.copy(at).project(this.camera);
+      return v.z < 1 && v.z > -1 ? { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h } : null;
+    };
+    const eye = this.camera.position;
+    for (const l of this.labels) {
+      const p = project(l.at);
+      const opacity = l.selected ? 1 : Math.max(0, Math.min(1, 1 - eye.distanceTo(l.at) / 17500));
+      if (!p || opacity <= 0) { l.el.style.display = "none"; continue; }
+      l.el.style.display = "";
+      l.el.style.opacity = String(opacity);
+      // CENTERLEFT: its text LABEL_LEFT (22 px) right of the point, centred on it
+      l.el.style.transform = `translate(${(p.x + 22).toFixed(1)}px, ${(p.y - 6).toFixed(1)}px)`;
+    }
+    if (this.myLocation) {
+      const p = project(this.myLocation.at);
+      this.myLocation.el.style.display = p ? "" : "none";
+      if (p) this.myLocation.el.style.transform = `translate(${(p.x - 7).toFixed(1)}px, ${(p.y - 7 - 30).toFixed(1)}px)`;
+    }
   }
 
   /** The camera on a system (LoadStarLayout(activeItemID)), at ZOOM_DIST_SYSTEM from it, looking down (the default eye). */
@@ -351,6 +427,7 @@ export class StarMap {
     this.lineUniforms.targetResolution.value.set(this.renderer.domElement.width, this.renderer.domElement.height);
     this.lineUniforms.time.value = performance.now() / 1000;
     this.renderer.render(this.scene, this.camera);
+    this.placeMarkers(w, h);
   }
 
   dispose(): void {
