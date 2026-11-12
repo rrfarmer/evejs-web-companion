@@ -1263,7 +1263,9 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
       runs = [];
       const effects = (group.userData.childEffects ?? {}) as Record<string, SofChildNode | null>;
       const host = {
-        build: (path: string) => childEffectObject(path, effects),
+        // (Tr2ActionChildEffect loads the file afresh each time: a copy here shares its first's curve sets, so they
+        // are played from the start - else a propagator's trigger binding, already past, never fires again)
+        build: (path: string) => childEffectObject(path, effects).then((o) => { if (o) startEffect(o); return o; }),
         // an EveMultiEffect's parameters (the hangar's VFX: its "ship"): bound on the clone or above it (otherOwners)
         otherOwner: (name: string) => {
           for (let up: THREE.Object3D | null = group; up; up = up.parent) {
@@ -1404,10 +1406,6 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
 }
 
 /**
- * Start an effect object built by hullChildren (EveEffectRoot2::Start, as ExplosionManager.GetExplosion calls it): its
- * curve sets played from now. Its controllers begin as it is first drawn.
- */
-/**
  * An effect file's root built (the hangar VFX, effects/<graphicID>.json): its controllers and curve sets run from its
  * ticker, the child effects they load built from its own list.
  */
@@ -1415,6 +1413,10 @@ export async function effectObject(root: SofChildNode, effects: Record<string, S
   return hullChildren([{ res: "", root, skipped: {} }], effects);
 }
 
+/**
+ * Start an effect object built by hullChildren (EveEffectRoot2::Start, as ExplosionManager.GetExplosion calls it): its
+ * curve sets played from now. Its controllers begin as it is first drawn.
+ */
 export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
   object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip); });
 }
