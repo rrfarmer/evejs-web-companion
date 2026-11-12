@@ -24,9 +24,42 @@ type Layer = string[] | { s: string[]; d: [number, number, number][] };
 type EventSounds = string | string[] | Layer[];
 
 /**
- * A Wwise curve at x (its points' interpolations, AkCurveInterpolation: 9 constant, 4 linear, 5 S-curve; the others
- * taken as linear): the first point's value before it, the last's after.
+ * A segment's shape, AkCurveInterpolation, as the client's Wwise engine evaluates it (_audio2.dll at RVA 0x179950:
+ * (t, from, to, interpolation) -> from + (to - from) x shape(t), its switch's table at 0x179c80 for 0 .. 8, its own
+ * polynomials and constants): 0 Log3, 1 Sine, 2 Log1, 3 InvSCurve, 4 Linear, 5 SCurve, 6 Exp1, 7 SineRecip, 8 Exp3
+ * (9 Constant: the segment's first value).
  */
+export function curveShape(kind: number, t: number): number {
+  switch (kind) {
+    case 0: return 1 - (1 - t) ** 3;
+    case 1: {
+      // a polynomial for sin(t pi / 2)
+      const x = t * (Math.PI / 2);
+      const k = 0.286479 - 0.0911891 * x;
+      return t * k * (Math.PI * t) - x * k * t * t + (0.986761 - 0.314096 * x) * x;
+    }
+    case 2: return t * (3 - t) / 2;
+    case 3: {
+      // the inverted S, by halves: a polynomial for sin(t pi) / 2 up to the middle, 1 - sin(pi - t pi) / 2 after it
+      const half = (x: number) => { const y = x * x; return (((0.00415316 - 9.18183e-5 * y) * y - 0.0833241) * y + 0.499998) * x; };
+      return t <= 0.5 ? half(t * Math.PI) : 1 - half(Math.PI - t * Math.PI);
+    }
+    case 5: {
+      // a polynomial for (1 - cos(t pi)) / 2
+      const y = t * t * 9.86961;
+      return Math.min(1, ((0.000484834 * y - 0.0196138) * y + 0.247675) * y + 0.000696702);
+    }
+    case 6: return t * (t + 1) / 2;
+    case 7: {
+      // 1 - a polynomial for cos(t pi / 2)
+      const u = t * t * 2.4674;
+      return 1 - (((0.0414877 - 0.00127121 * u) * u - 0.499912) * u + 0.999993);
+    }
+    case 8: return t * t * t;
+    default: return t;
+  }
+}
+/** A Wwise curve at x (each segment by its first point's interpolation): the first point's value before it, the last's after. */
 export function curveAt(points: readonly [number, number, number][], x: number): number {
   if (!points.length) return 1;
   if (x <= points[0]![0]) return points[0]![1];
@@ -34,9 +67,7 @@ export function curveAt(points: readonly [number, number, number][], x: number):
     const [x0, y0, kind] = points[i]!, [x1, y1] = points[i + 1]!;
     if (x > x1) continue;
     if (kind === 9 || x1 === x0) return y0;
-    let t = (x - x0) / (x1 - x0);
-    if (kind === 5) t = t * t * (3 - 2 * t);
-    return y0 + (y1 - y0) * t;
+    return y0 + (y1 - y0) * curveShape(kind, (x - x0) / (x1 - x0));
   }
   return points[points.length - 1]![1];
 }
