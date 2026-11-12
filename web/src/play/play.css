@@ -294,3 +294,8 @@ button { font: inherit; color: inherit; }
   font: 600 13px/1 var(--font); text-shadow: 0 1px 2px #000, 0 0 4px #000; }
 .brackets .dmg-num.dealt { color: #ffe3a0; }
 .brackets .dmg-num.taken { color: #ff6a5a; }
+/* the HUD's shortcut indication while a combat command is held (HudActionIndicationController.set_shortcut_indication) */
+.space .cmd-indication { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: 6px 14px; font-size: 14px;
+  color: #fff; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.15); pointer-events: none; opacity: 0;
+  transition: opacity 0.15s; z-index: 6; white-space: nowrap; }
+.space .cmd-indication.show { opacity: 1; }

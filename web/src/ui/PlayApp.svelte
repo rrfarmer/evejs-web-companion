@@ -25,7 +25,7 @@
   import InfoWindows from "./InfoWindows.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
-  import { commandForKey } from "../play/shortcutKeys.ts";
+  import { commandForKey, COMBAT_WORDS } from "../play/shortcutKeys.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { notify } from "./notices.ts";
@@ -345,7 +345,7 @@
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS]);
+    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS]);
     return s.store.words.subscribe((w) => {
       const next: Partial<Record<TabID, string>> = {};
       for (const [tab, label] of Object.entries(CAPTION_LABELS) as [TabID, string][]) {

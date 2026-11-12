@@ -25,7 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
-import { commandForKey } from "./shortcutKeys.ts";
+import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
@@ -281,6 +281,15 @@ export class SpaceView {
     return ticker ? `${name} [${ticker}]` : name;
   }
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
+  /** CombatKeyUnloadListener: the loaded combat command let go when its key comes up, or the window loses focus. */
+  private readonly onKeyUp = (e: KeyboardEvent) => { if (this.combat && e.code === this.combat.code) this.unloadCombat(); };
+  private readonly onBlur = () => this.unloadCombat();
+  /** The modifiers held at the last press of a pointer (a modifier-only combat command is a click with them). */
+  private readonly onPointer = (e: PointerEvent) => { this.clickMods = { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, at: performance.now() }; };
+  private clickMods = { ctrl: false, shift: false, alt: false, at: 0 };
+  /** The combat command loaded (LoadCombatCommand): its name and the key that holds it. */
+  private combat: { cmd: CombatCommand; code: string } | null = null;
+  private readonly indicationEl = document.createElement("div");
   private readonly unhold: (() => void)[] = [];
   private lastFrameAt = performance.now();
 
@@ -385,6 +394,11 @@ export class SpaceView {
       this.raiseOnClick(this.dscan.window.root);
     }
     addEventListener("keydown", this.onKey);
+    addEventListener("keyup", this.onKeyUp);
+    addEventListener("blur", this.onBlur);
+    addEventListener("pointerdown", this.onPointer, true);
+    this.indicationEl.className = "cmd-indication";
+    this.root.appendChild(this.indicationEl);
     this.unhold.push(
       holdToOpen(this.brackets, rowID, openRadial),
       holdToOpen(this.overview.window.body, rowID, openRadial),
@@ -394,7 +408,11 @@ export class SpaceView {
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
     this.root.appendChild(new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`))).root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
-    this.renderer.domElement.addEventListener("click", () => this.select(null));
+    // a click in space: with a combat command loaded, on the object under it (its pick); else the selection cleared
+    this.renderer.domElement.addEventListener("click", (e) => {
+      const id = this.combat || this.modifierCombat(false) ? this.pickAt(e.clientX, e.clientY) : null;
+      this.select(id);
+    });
     addEventListener("resize", () => this.resize());
     this.resize();
     this.renderer.setAnimationLoop(() => this.frame());
@@ -416,6 +434,9 @@ export class SpaceView {
     // the windows in the shared layer are the view's to take away
     for (const el of [this.selectedEl, this.overview.window.root, this.dscan?.window.root, this.radial.root]) el?.remove();
     removeEventListener("keydown", this.onKey);
+    removeEventListener("keyup", this.onKeyUp);
+    removeEventListener("blur", this.onBlur);
+    removeEventListener("pointerdown", this.onPointer, true);
     this.radial.close();
     this.root.remove();
   }
@@ -489,6 +510,9 @@ export class SpaceView {
   }
 
   private select(itemID: number | null): void {
+    // ExecuteCombatCommand: a click on an object while a combat command is loaded runs it on the object
+    const combat = itemID !== null ? this.combat?.cmd ?? this.modifierCombat() : null;
+    if (combat && combat !== "CmdSelectTargetItem" && itemID !== null) { this.runCombat(combat, itemID); return; }
     this.selected = itemID;
     for (const [id, el] of this.bracketEls) el.classList.toggle("selected", id === itemID);
     this.overview.setSelected(itemID);
@@ -899,6 +923,11 @@ export class SpaceView {
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     const cmd = commandForKey(e);
     if (cmd === null) return;
+    if (isCombatCommand(cmd)) {
+      e.preventDefault();
+      if (!this.combat) this.loadCombat(cmd, e.code);
+      return;
+    }
     if (cmd === "OpenDirectionalScanner" && this.dscan) { e.preventDefault(); this.dscan.toggle(); return; }
     if (cmd === "CmdRefreshDirectionalScan" && this.dscan) { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); return; }
     if (cmd === "CmdStopShip") { e.preventDefault(); void this.act("Stop", () => this.actions.stop()); return; }
@@ -922,6 +951,56 @@ export class SpaceView {
     const overload = this.options.rack?.overload;
     if (!overload || m.overloadable === false) { this.toast("Disabled"); return; }
     void this.act(m.name ?? "Module", () => overload.module(m.itemID, !m.overloaded));
+  }
+
+  /** A click's modifier-only combat command (Ctrl lock, Ctrl+Shift unlock, Alt look at), for a press just now. */
+  private modifierCombat(consume = true): CombatCommand | null {
+    if (performance.now() - this.clickMods.at > 1000) return null;
+    // (one click, one command: the press's modifiers are used once)
+    const cmd = combatForModifiers(this.clickMods);
+    if (cmd && consume) this.clickMods = { ...this.clickMods, at: 0 };
+    return cmd;
+  }
+
+  /**
+   * LoadCombatCommand: the command held for the next click, the HUD's shortcut indication saying it (the command's name
+   * and UI/Commands/ClickTarget).
+   */
+  private loadCombat(cmd: CombatCommand, code: string): void {
+    this.combat = { cmd, code };
+    const label = labelOf(cmd);
+    const name = (label ? this.actions.word?.(label) : null) ?? cmd;
+    const click = this.actions.word?.("UI/Commands/ClickTarget") ?? "";
+    this.indicationEl.textContent = click ? `${name} - ${click}` : name;
+    this.indicationEl.classList.add("show");
+  }
+
+  private unloadCombat(): void {
+    this.combat = null;
+    this.indicationEl.classList.remove("show");
+  }
+
+  /** The loaded command's function on the object clicked (movementFunctions / the menu's, as the page has them). */
+  private runCombat(cmd: CombatCommand, id: number): void {
+    const e = this.snapshot?.entities.find((each) => each.itemID === id) ?? null;
+    const run = (title: string, fn: () => Promise<void>) => void this.act(title, fn).then(() => this.refreshTargets());
+    switch (cmd) {
+      case "CmdApproachItem": run("Approach", () => this.actions.approach(id)); break;
+      case "CmdOrbitItem": run("Orbit", () => this.actions.orbit(id)); break;
+      case "CmdKeepItemAtRange": run("Keep at Range", () => this.actions.keepAtRange(id)); break;
+      case "CmdWarpToItem": run("Warp To", () => this.actions.warpTo(id)); break;
+      case "CmdAlignToItem": run("Align To", () => this.actions.alignTo(id)); break;
+      case "CmdLockTargetItem": run("Lock Target", () => this.actions.lock(id)); break;
+      case "CmdUnlockTargetItem": run("Unlock Target", () => this.actions.unlock(id)); break;
+      case "CmdDockOrJumpOrActivateGate":
+        // (a station or structure docked at, a stargate jumped through; nothing else here)
+        if (e?.kind === "station" || e?.kind === "structure") run("Dock", () => this.actions.dock(id));
+        else if (e?.kind === "stargate") run("Jump", () => this.actions.jump(id));
+        break;
+      case "CmdShowItemInfo": this.options.showInfo?.(id, e?.typeID ?? null); break;
+      case "CmdToggleLookAtItem": this.lookAt = this.lookAt === id ? null : id; break;
+      case "CmdSelectTargetItem": break;
+    }
   }
 
   /** The object in space under a point of the screen: the nearest mark the ray from the camera meets. */

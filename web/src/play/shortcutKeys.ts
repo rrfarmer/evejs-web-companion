@@ -47,6 +47,39 @@ export function commandForKey(e: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKe
   return hit?.cmd ?? null;
 }
 
+/**
+ * The client's combat commands (eveCommands.py: each LoadCombatCommand(movementFunctions.X / menu function, cmd)) - not
+ * run as their key is pressed: loaded while it is held, the next click on an object running it on that object.
+ * The modifier-only ones (Ctrl lock, Ctrl+Shift unlock, Shift select, Alt look at) are a click with the modifiers held.
+ */
+export const COMBAT_COMMANDS = [
+  "CmdApproachItem", "CmdOrbitItem", "CmdKeepItemAtRange", "CmdWarpToItem", "CmdDockOrJumpOrActivateGate", "CmdAlignToItem",
+  "CmdShowItemInfo", "CmdLockTargetItem", "CmdUnlockTargetItem", "CmdSelectTargetItem", "CmdToggleLookAtItem",
+] as const;
+export type CombatCommand = (typeof COMBAT_COMMANDS)[number];
+export const isCombatCommand = (cmd: string): cmd is CombatCommand => (COMBAT_COMMANDS as readonly string[]).includes(cmd);
+
+/** The combat command a click with these modifiers held is (its shortcut only modifiers), or null. */
+export function combatForModifiers(m: { ctrl: boolean; shift: boolean; alt: boolean }): CombatCommand | null {
+  for (const cmd of COMBAT_COMMANDS) {
+    const keys = CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.keys ?? "";
+    if (!keys || parseShortcut(keys) !== null) continue;
+    const parts = keys.split("-");
+    if (parts.includes("Ctrl") === m.ctrl && parts.includes("Shift") === m.shift && parts.includes("Alt") === m.alt) return cmd;
+  }
+  return null;
+}
+
+/** The labels the combat commands' indication shows (their names, and UI/Commands/ClickTarget). */
+export const COMBAT_WORDS: readonly string[] = [
+  ...COMBAT_COMMANDS.map((cmd) => CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.label ?? null).filter((l): l is string => l !== null),
+  "UI/Commands/ClickTarget",
+];
+/** A command's name label, or null. */
+export function labelOf(cmd: string): string | null {
+  return CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.label ?? null;
+}
+
 /** A command's default shortcut as the client writes it ("Alt-C"), "" where it has none. */
 export function shortcutOf(cmd: string): string {
   return CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.keys ?? "";
