@@ -694,6 +694,57 @@ function motionVectorRampMaterial(area: SofChildMeshArea): THREE.ShaderMaterial 
 }
 
 /**
+ * An area drawn with ubershadercube.fx (its one record, .sm_depth and .sm_hi alike, disassembled, client 3396210;
+ * defaults from its header): DiffuseMap1 and DiffuseMap2 at uv x TextureTransformN.zw + .xy + TextureScrollN.xy x
+ * time + .zw, MaskMap at the plain uv, all three multiplied; the world normal (normalised) pushed by that product's rgb
+ * x ScaleAlongNormal and normalised; the per-frame camera forward (EveSpaceSceneDataPS ViewMat's third column, cb2[6])
+ * reflected about it - reflect(-forward, n) - read from MainCubeMap; the colour that x DiffuseColor.rgb, alpha the
+ * product's alpha x DiffuseColor.a (the fog volume map's factor 1); written sRGB-encoded (the per-frame gamma 1). No
+ * texture is read as sRGB. Defaults DiffuseColor 0.8, 0.8, 0.8, 1; TextureTransforms 0, 0, 1, 1; the rest nought.
+ */
+function uberCubeMaterial(area: SofChildMeshArea): THREE.ShaderMaterial {
+  const p = area.params;
+  const uniforms: Record<string, THREE.IUniform> = {
+    time: effectClock, colour: { value: v4(p.DiffuseColor, [0.8, 0.8, 0.8, 1]) },
+    t1: { value: v4(p.TextureTransform1, [0, 0, 1, 1]) }, t2: { value: v4(p.TextureTransform2, [0, 0, 1, 1]) },
+    s1: { value: v4(p.TextureScroll1, [0, 0, 0, 0]) }, s2: { value: v4(p.TextureScroll2, [0, 0, 0, 0]) },
+    alongNormal: { value: new THREE.Vector3(...([0, 1, 2].map((i) => (Array.isArray(p.ScaleAlongNormal) ? Number(p.ScaleAlongNormal[i]) || 0 : 0)) as [number, number, number])) },
+    d1: { value: null }, d2: { value: null }, mask: { value: null }, cube: { value: null }, hasCube: { value: 0 },
+  };
+  void childTexture(area.textures.DiffuseMap1).then((t) => { uniforms.d1!.value = t; });
+  void childTexture(area.textures.DiffuseMap2).then((t) => { uniforms.d2!.value = t; });
+  void childTexture(area.textures.MaskMap).then((t) => { uniforms.mask!.value = t; });
+  void childTexture(area.textures.MainCubeMap).then((t) => { if (t && (t as THREE.CubeTexture).isCubeTexture) { uniforms.cube!.value = t; uniforms.hasCube!.value = 1; } });
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `varying vec2 vUv; varying vec3 vN;
+      void main() {
+        vUv = uv;
+        vN = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `uniform sampler2D d1; uniform sampler2D d2; uniform sampler2D mask; uniform samplerCube cube; uniform float hasCube;
+      uniform vec4 colour; uniform vec4 t1; uniform vec4 t2; uniform vec4 s1; uniform vec4 s2; uniform vec3 alongNormal; uniform float time;
+      varying vec2 vUv; varying vec3 vN;
+      ${SRGB_ENCODE_GLSL}
+      void main() {
+        vec4 c = texture2D(d1, vUv * t1.zw + t1.xy + s1.xy * time + s1.zw) * texture2D(d2, vUv * t2.zw + t2.xy + s2.xy * time + s2.zw)
+          * texture2D(mask, vUv);
+        vec3 n = normalize(c.rgb * alongNormal + vN);
+        // the camera's forward (its look direction) in the world: three's camera looks down its -z
+        vec3 forward = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
+        vec3 r = reflect(-forward, n);
+        vec3 env = hasCube > 0.5 ? textureCube(cube, vec3(r.x, r.y, -r.z)).rgb : vec3(0.0);
+        gl_FragColor = vec4(encode(max(env * colour.rgb, 0.0)), c.a * colour.a);
+      }`,
+    side: presetSide(area), transparent: true, depthWrite: false,
+    ...areaBlend(area),
+  });
+  logDepth(mat);
+  return mat;
+}
+
+/**
  * The cull an area's batch gives an effect that sets none (carbonengine/trinity Tr2EffectStateManager.cpp's presets):
  * a transparent area's alpha preset culls CW (three's FrontSide: the hull's opaque preset culls CW too and the hulls
  * are drawn FrontSide), an additive area's culls none.
@@ -924,7 +975,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
         }
         if (!materials.has(area)) {
           const make = ({ fx3dv5: fx3dMaterial, motionvectorramp: motionVectorRampMaterial, ubershadertwosided: twoSidedUberMaterial,
-            texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
+            texturecolor: textureColorMaterial, flare: flareMaterial, twocolorflare: twoColorFlareMaterial, ubershadercube: uberCubeMaterial } as Record<string, (a: SofChildMeshArea) => THREE.ShaderMaterial>)[area.effect] ?? uberMaterial;
           const mat = make(area);
           materials.set(area, mat);
           for (const [name, id] of Object.entries(area.paramIds ?? {})) if (PARAM_UNIFORM[name]) animator?.uniform(id, mat.uniforms[PARAM_UNIFORM[name]!]);
@@ -949,7 +1000,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
 }
 
 /** The transform modifiers drawn so far (the rest leave the transform as it is). */
-const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT", "EveTransformLookAtCamera"]);
+const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT", "EveTransformLookAtCamera", "EveTransformCameraRotationAligned"]);
 
 /**
  * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
@@ -964,13 +1015,18 @@ const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted
  * - EveTransformLookAtCamera (an EveTransform's "Look at camera" modifier, Tr2Transform.cpp: Transpose(LookAtMatrix(eye,
  *   pos, +y))): the translation kept; for v = normalize(pos - eye) the axes -normalize(+y x v), normalize(v x right)
  *   and -v, each the length of the child's own.
+ * - EveTransformCameraRotationAligned (an EveTransform's modifier 100, Tr2Transform.cpp
+ *   TR2TM_EVE_CAMERA_ROTATION_ALIGNED): in its parent's space, fwd the way to the eye (each component over its axis'
+ *   squared length, normalised), up = normalize(fwd x the eye's right there), the basis (up x fwd, up, fwd)
+ *   (TriMatrixChangeBase); the transform parent x T x that basis x R x S (its own translation, rotation, scaling).
  * - EveChildModifierHaloInverted (carbonengine/trinity EveChildModifierHaloInverted.cpp, DistanceBase in
  *   EveChildModifierTransformCommon.h): the child's frame turned to the eye in its own space - z the way to the eye
  *   in its axes (each component over its axis' squared length, normalised), y = normalize(z x the eye's right in its
  *   axes), x = y x z - and scaled by max(d . -z, 0) (d the way to the eye, z the child's own axis, both normalised):
  *   seen from behind; the child's transform x that basis x the scale.
  */
-function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4, srt: SofChildSrt | null = null): void {
+function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3, eyeAxes: THREE.Vector3[], out: THREE.Matrix4, srt: SofChildSrt | null = null,
+  parent: THREE.Matrix4 | null = null): void {
   out.copy(base);
   const x = new THREE.Vector3(), y = new THREE.Vector3(), z = new THREE.Vector3(), t = new THREE.Vector3(), d = new THREE.Vector3();
   for (const mod of mods) {
@@ -996,6 +1052,23 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
       const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
       out.makeBasis(ex.clone().multiplyScalar(x.length()), ey.clone().multiplyScalar(y.length()), ez.clone().multiplyScalar(z.length()));
       out.setPosition(t);
+    } else if (mod === "EveTransformCameraRotationAligned") {
+      const p = parent ?? new THREE.Matrix4();
+      const own = p.clone().invert().multiply(out);
+      const ot = new THREE.Vector3(), or = new THREE.Quaternion(), os = new THREE.Vector3();
+      own.decompose(ot, or, os);
+      const at = ot.clone().applyMatrix4(p);
+      const px = new THREE.Vector3(), py = new THREE.Vector3(), pz = new THREE.Vector3();
+      p.extractBasis(px, py, pz);
+      const sq = (v: THREE.Vector3) => v.lengthSq() || Infinity;
+      const toEye = eye.clone().sub(at);
+      const fwd = new THREE.Vector3(toEye.dot(px) / sq(px), toEye.dot(py) / sq(py), toEye.dot(pz) / sq(pz)).normalize();
+      const right = eyeAxes[0] as THREE.Vector3;
+      const r = new THREE.Vector3(right.dot(px), right.dot(py), right.dot(pz));
+      const up = new THREE.Vector3().crossVectors(fwd, r).normalize();
+      const across = new THREE.Vector3().crossVectors(up, fwd);
+      out.copy(p).multiply(new THREE.Matrix4().makeTranslation(ot.x, ot.y, ot.z)).multiply(new THREE.Matrix4().makeBasis(across, up, fwd))
+        .multiply(new THREE.Matrix4().makeRotationFromQuaternion(or)).multiply(new THREE.Matrix4().makeScale(os.x, os.y, os.z));
     } else if (mod === "EveTransformLookAtCamera") {
       const v = t.clone().sub(eye).normalize();
       const right = new THREE.Vector3(0, 1, 0).cross(v).normalize();
@@ -1337,7 +1410,8 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
   const axes = [cx.applyMatrix3(rot).normalize(), cy.applyMatrix3(rot).normalize(), cz.negate().applyMatrix3(rot).normalize()];
   for (const o of list) {
     const base = new THREE.Matrix4().fromArray(o.userData.modifierBase as number[]);
-    applyModifiers(base, o.userData.modifiers as string[], eye, axes, o.matrix, (o.userData.srt as SofChildSrt | undefined) ?? null);
+    const parent = o.userData.parentMatrix ? new THREE.Matrix4().fromArray(o.userData.parentMatrix as number[]) : null;
+    applyModifiers(base, o.userData.modifiers as string[], eye, axes, o.matrix, (o.userData.srt as SofChildSrt | undefined) ?? null, parent);
     o.matrixWorldNeedsUpdate = true;
     o.updateMatrixWorld(true);
   }
@@ -1438,6 +1512,10 @@ export function effectCurve(object: THREE.Object3D, setName: string, curveName: 
   return out;
 }
 
+/** A curve set of a name played from its start in a built object, at a speed where one is given (a ShipEffect's Start). */
+export function playEffectSet(object: THREE.Object3D, name: string | null, scale?: number): void {
+  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.playNamed(name, scale); });
+}
 export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
   object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip); });
 }
@@ -1545,6 +1623,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
             if (a.k === "animateCurveSet" && set && typeof set === "object") animator.curveSets([set as SofCurveSet], ancestors);
           }
         }
+        // (a camera-aligned transform turns in its parent's space)
+        if (node.modifiers.includes("EveTransformCameraRotationAligned")) g.userData.parentMatrix = local.toArray();
         place(g, local.clone().multiply(m), node.modifiers, node.srt ?? null);
         // its fx attributes: their values gathered each frame where the group is (the ticker), found by their ids
         if (node.fxAttributes?.length) g.userData.fxAttributes = node.fxAttributes;

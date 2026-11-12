@@ -360,10 +360,15 @@ async function extractFxGraphic(rf, clientDir, sde, guid, outRoot) {
   const read = graphicFile ? readTurretStretch3(rf, graphicFile) : null;
   const stretches = (read?.stretches ?? []).filter(Boolean);
   if (stretches.length) await copyChildGraphAssets(rf, [...stretches.map((s) => s.root), ...Object.values(read.childEffects ?? {})], outRoot);
+  // a ShipEffect's graphic (GenericEffect.py ShipEffect: an EveTransform, an EveChildContainer or an effect root) read
+  // whole, with the table's transformFlags (effectConsts FX_TF_*) and timeScale
+  const ship = fx?.type === "ShipEffect" && graphicFile ? readEffectFile(rf, graphicFile) : null;
+  if (ship?.root) await copyChildGraphAssets(rf, [ship.root, ...Object.values(ship.childEffects ?? {})], outRoot);
   const out = {
-    fxBuild: 2, guid, type: fx?.type ?? null, graphicID: fx?.graphicID ?? null, graphicFile, duration: fx?.duration ?? null,
+    fxBuild: 3, guid, type: fx?.type ?? null, graphicID: fx?.graphicID ?? null, graphicFile, duration: fx?.duration ?? null,
     sourceDamage: fx?.sourceDamage ?? null, targetDamage: fx?.targetDamage ?? null,
     stretches: stretches.map((s) => ({ type: "EveStretch3", ...s })),
+    shipEffect: ship?.root ? { root: ship.root, childEffects: ship.childEffects ?? {}, skipped: ship.skipped ?? {}, transformFlags: fx.transformFlags ?? [], timeScale: !!fx.timeScale, firstSet: ship.firstSet ?? null } : null,
   };
   const file = path.join(outRoot, "fx", `${guid}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });

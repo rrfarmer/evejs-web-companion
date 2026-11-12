@@ -434,7 +434,7 @@ function meshAreas(mesh, skipped) {
       const fx = named === "quadinstancedv5" ? "quadv5" : named;
       const opts = Object.fromEntries((a.effect?.options?.items ?? []).filter((r) => Array.isArray(r)));
       // a distortion area draws into the distortion map (ubershaderdistortion.fx, the one effect such areas use)
-      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5"].includes(fx)
+      const drawn = kind === "distortion" ? fx === "ubershaderdistortion" : ["ubershader", "fx3dv5", "ubershadertwosided", "ubershadercube", "flare", "twocolorflare", "quadv5", "quadglassv5", "quaddetailv5", "fxv5"].includes(fx)
         || fx === "texturecolor"
         || (fx === "motionvectorramp" && MOTION_VECTOR_RAMP_DRAWN.some((perm) => MOTION_VECTOR_RAMP_DEFAULTS.every(([k, v]) => (opts[k] ?? v) === (perm[k] ?? v))));
       if (!drawn) { const k = fx === "motionvectorramp" || fx === "texturecolor" ? `area:${fx}:options` : `area:${fx}`; skipped[k] = (skipped[k] ?? 0) + 1; continue; }
@@ -488,7 +488,8 @@ function transformAsChild(t, skipped) {
   // the view's axes, each the transform's own scale - is EveChildModifierBillboard2D; a halo (that x max(z . d, 0)^2)
   // EveChildModifierHalo; look-at-camera (axes from LookAtMatrix(eye, pos, +y)) the page's EveTransformLookAtCamera;
   // another counted in skipped
-  const MODIFIER = { 1: "EveChildModifierBillboard2D", 3: "EveTransformLookAtCamera", 4: "EveChildModifierHalo", 8: "EveChildModifierHalo" };
+  // (100, EVE camera rotation aligned: the page's EveTransformCameraRotationAligned)
+  const MODIFIER = { 1: "EveChildModifierBillboard2D", 3: "EveTransformLookAtCamera", 4: "EveChildModifierHalo", 8: "EveChildModifierHalo", 100: "EveTransformCameraRotationAligned" };
   const mod = t.modifier ? MODIFIER[t.modifier] : null;
   if (t.modifier && !mod) skipped[`EveTransform.modifier:${t.modifier}`] = (skipped[`EveTransform.modifier:${t.modifier}`] ?? 0) + 1;
   const c = {
@@ -1010,11 +1011,34 @@ export function readEffectFile(rf, path) {
     shownBySet = findShownBySet(o);
     actionEmitters = findActionEmitters(o);
     if (o && typeof o === "object") external = joinDynamicBindings(o, skipped);
-    root = o && typeof o === "object" ? readNode({ ...o, type: "EveChildContainer", objects: o.effectChildren ?? [] }, skipped) : null;
+    // (a file whose root is an EveTransform - a ShipEffect's graphic: the web's - is that transform as a container)
+    root = o?.type === "EveTransform" ? readNode(transformAsChild(o, skipped), skipped)
+      : o && typeof o === "object" ? readNode({ ...o, type: "EveChildContainer", objects: o.effectChildren ?? [] }, skipped) : null;
   } catch (e) {
     skipped.unread = String(e.message ?? e);
   }
-  return { res, root, skipped, external, childEffects: childEffectRoots(), duration: o?.duration ?? -1, boundingSphereRadius: o?.boundingSphereRadius ?? 0 };
+  return { res, root, skipped, external, childEffects: childEffectRoots(), duration: o?.duration ?? -1, boundingSphereRadius: o?.boundingSphereRadius ?? 0,
+    firstSet: firstSetOf(o) };
+}
+
+/**
+ * The root's first curve set (what a ShipEffect plays: gfx.curveSets[0]) by its name, with TriCurveSet::
+ * GetMaxCurveDuration - the longest of its curves' lengths, each its last key's time (Tr2CurveScalar::Length).
+ */
+function firstSetOf(o) {
+  const set = o?.curveSets?.[0];
+  if (!set) return null;
+  const lastTime = (c) => {
+    const k = c?.keys;
+    if (k && Array.isArray(k.items) && Array.isArray(k.structure)) {
+      const at = Math.max(0, k.structure.findIndex((f) => f?.[0] === "time"));
+      const last = k.items[k.items.length - 1];
+      return Array.isArray(last) && typeof last[at] === "number" ? last[at] : 0;
+    }
+    if (Array.isArray(k)) { const last = k[k.length - 1]; return typeof last?.time === "number" ? last.time : 0; }
+    return typeof c?.length === "number" ? c.length : 0;
+  };
+  return { name: set.name ?? null, length: Math.max(0, ...(set.curves ?? []).map(lastTime)) };
 }
 
 /**

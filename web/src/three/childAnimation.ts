@@ -212,6 +212,15 @@ export class ChildAnimator {
     }
   }
   stop(owner: number, name: string): void { for (const r of this.under(owner, name)) r.playing = false; }
+  /** TriCurveSet::Play on every set of a name, at a speed (TriCurveSet.scale) where one is given. */
+  playNamed(name: string | null, scale?: number): void {
+    const now = performance.now();
+    for (const r of this.sets) {
+      if (r.set.name !== name) continue;
+      r.playing = true; r.time = 0; r.last = now; r.range = null; r.applyAt = null;
+      if (scale !== undefined) r.scale = scale;
+    }
+  }
   /**
    * Tr2ActionSetValue on a curve's input (input1..4) or an effect parameter (its uniform: "value" sets every component,
    * "value.x".."value.w" one). False where this animator has no such target.

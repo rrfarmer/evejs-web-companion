@@ -22,6 +22,7 @@ import { WarpTunnel } from "./warpTunnel.ts";
 import { TurretFx, fxGuid } from "./turretFx.ts";
 import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { MissileFx } from "./missileFx.ts";
+import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -168,6 +169,8 @@ export class SpaceView {
   private readonly turretFx = new TurretFx();
   /** Missiles in flight (missileFx.ts): their warheads flown to the target's damage locators. */
   readonly missileFx = new MissileFx();
+  /** The ShipEffects playing (shipFx.ts): a web's vortex on its target and the like. */
+  readonly shipFx = new ShipFx();
   /** The camera's shake (cameraShake.ts): explosions shake it. */
   private readonly shake = new CameraShake();
   /**
@@ -190,6 +193,7 @@ export class SpaceView {
   private readonly impactAnimations = new Map<string, { ship: number; name: string; cycle: number; next: number; until: number }>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);
+    this.shipFx.hear(name, args);
     if (name === "OnSpecialFX") {
       const anim = IMPACT_ANIMATIONS[fxGuid(args[5])];
       if (anim) {
@@ -327,7 +331,7 @@ export class SpaceView {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(4096, 4096);
-    this.scene.add(this.warpTunnel.object, this.turretFx.group, this.missileFx.group);
+    this.scene.add(this.warpTunnel.object, this.turretFx.group, this.missileFx.group, this.shipFx.group);
     live.fxListeners.add(this.hearFx);
     this.camera.position.set(-600, 250, 900);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -1152,6 +1156,17 @@ export class SpaceView {
       return m ? new THREE.Vector3().setFromMatrixPosition(m) : null;
     };
     this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null, this.camera, this.renderer);
+    // the ShipEffects at their balls: the model's bounding sphere radius (GetBoundingSphereRadius: its SOF hull's),
+    // else the ball's
+    this.shipFx.update((id) => {
+      const position = this.placeOf(id, origin);
+      if (!position) return null;
+      const mark = this.marks.get(id);
+      const model = mark?.userData.model as THREE.Object3D | undefined;
+      const sphere = model?.userData.boundingSphere as number[] | null | undefined;
+      const radius = sphere?.[3] ?? this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? null;
+      return { position, radius, quaternion: mark?.quaternion ?? null };
+    }, now);
     this.stepMissiles(origin, moved, dt);
     this.stepTurrets(origin, dt);
     this.stepImpacts(dt);
