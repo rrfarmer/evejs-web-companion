@@ -13,6 +13,7 @@
   import { gfx, setGfx, resetGfx, onGfx, type GfxSettings } from "../play/gfxSettings.ts";
   import { CLIENT_SHORTCUTS } from "../play/clientShortcuts.ts";
   import { COLOR_THEMES } from "../play/colorThemes.ts";
+  import { playUiEvent } from "../play/uiAudio.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -112,6 +113,11 @@
       .map((c) => ({ cmd: c.cmd, description: c.label ? word(c.label, c.cmd) : c.cmd, keys: c.keys, locked: c.locked === true }))
       .filter((c) => filterText === "" || c.description.toLowerCase().includes(filterText));
   });
+  /** CloseMenuClick: PlaySound(uiconst.SOUND_BUTTON_CLICK, "ui_button_soft4_play"), then the menu closed (OnEsc). */
+  function closeMenuClick(): void {
+    void playUiEvent("ui_button_soft4_play");
+    onClose();
+  }
   /** ColorThemeContainer._load: the presets sorted by their names (localization.util.Sort). */
   const themes = $derived([...COLOR_THEMES].map((t) => ({ ...t, name: word(t.id, t.id.split("/").pop() ?? t.id) })).sort((a, b) => a.name.localeCompare(b.name)));
   /** OnShaderQualityCombo: at low shader quality the shadow, ambient occlusion and reflection combos are disabled. */
@@ -127,7 +133,7 @@
     <div class="sm-top">
       <img alt="" src="/client-res/ui/texture/windowicons/settings.png" />
       <span class="sm-headline">{word(WORDS.settings, "Settings")}</span>
-      <button type="button" class="sm-close" aria-label="Close" onclick={onClose}>✕</button>
+      <button type="button" class="sm-close" aria-label="Close" onclick={closeMenuClick}>✕</button>
     </div>
     <div class="sm-center">
       <nav class="sm-tree">
@@ -227,7 +233,7 @@
       </div>
     </div>
     <div class="sm-bottom">
-      <button type="button" onclick={onClose}>{word(WORDS.returnToGame, "Return to Game")}</button>
+      <button type="button" onclick={closeMenuClick}>{word(WORDS.returnToGame, "Return to Game")}</button>
       <button type="button" disabled title="Not on the play page yet">{word(WORDS.logOff, "Log Off")}</button>
       <button type="button" disabled title="Close the tab to quit">{word(WORDS.quit, "Quit Game")}</button>
     </div>
