@@ -156,6 +156,9 @@ const KIND: Record<string, Firing["kind"]> = {
   // the miners (their firing effects EveStretch3s; nothing of our own drawn for them)
   "effects.Mining": "mining",
   "effects.CloudMining": "mining",
+  // the tractor beams and salvagers (their firing effects EveStretches; nothing of our own drawn)
+  "effects.TractorBeam": "mining",
+  "effects.Salvaging": "mining",
   // the Vorton projectors (their turret's own firing effect, and the chain: chainLinks)
   "effects.UpwellChainWeaponSmall": "laser",
   "effects.UpwellChainWeaponMedium": "laser",

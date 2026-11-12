@@ -181,7 +181,7 @@ export function readTurret(rf, graphicFile) {
   const override = fx?.firingDurationOverride ?? -1;
   const effect = set.turretEffect ?? null;
   return {
-    turretBuild: 10,
+    turretBuild: 11,
     // the aiming (EveTurretAiming: the file's sysBone numbers, its class defaults where it has none)
     aiming: {
       height: Number(set.sysBoneHeight ?? 1), pitchFactor: Number(set.sysBonePitchFactor ?? 1), pitchOffset: Number(set.sysBonePitchOffset ?? 0),

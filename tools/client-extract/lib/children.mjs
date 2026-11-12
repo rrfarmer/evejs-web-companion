@@ -459,8 +459,7 @@ function readStretch3(fx) {
  * An EveTransform (the older scene object an EveStretch hangs: its SRT, children, particle emitters and systems, an
  * instanced particle mesh or a plain mesh, curve sets) as the child nodes the page builds: a container (its own id,
  * so a binding into it still finds it) holding its children, an EveChildParticleSystem of its particles (the same
- * fields) and an EveChildMesh of a plain mesh. Its modifier (billboard and the like) is not followed: counted in
- * skipped.
+ * fields) and an EveChildMesh of a plain mesh; its modifier as the child modifier that does the same.
  */
 function transformAsChild(t, skipped) {
   if (!t || typeof t !== "object" || t.type !== "EveTransform") return t;
@@ -470,10 +469,17 @@ function transformAsChild(t, skipped) {
     objects.push({ type: "EveChildParticleSystem", name: t.name ?? null, particleEmitters: t.particleEmitters ?? [], particleSystems: t.particleSystems ?? [], mesh: instanced });
   }
   if (t.mesh?.type === "Tr2Mesh") objects.push({ type: "EveChildMesh", name: t.name ?? null, mesh: t.mesh });
-  if (t.modifier) skipped[`EveTransform.modifier:${t.modifier}`] = (skipped[`EveTransform.modifier:${t.modifier}`] ?? 0) + 1;
+  // its modifier (Tr2Transform_Blue.cpp's chooser: 1 Billboard, 3 Look at camera, 4 Simple halo, 8 EVE simple halo)
+  // as the child modifier that makes the same world transform (Tr2Transform.cpp UpdateWorldTransform): a billboard -
+  // the view's axes, each the transform's own scale - is EveChildModifierBillboard2D; a halo (that x max(z . d, 0)^2)
+  // EveChildModifierHalo; look-at-camera (axes from LookAtMatrix(eye, pos, +y)) is drawn as the billboard; another
+  // counted in skipped
+  const MODIFIER = { 1: "EveChildModifierBillboard2D", 3: "EveChildModifierBillboard2D", 4: "EveChildModifierHalo", 8: "EveChildModifierHalo" };
+  const mod = t.modifier ? MODIFIER[t.modifier] : null;
+  if (t.modifier && !mod) skipped[`EveTransform.modifier:${t.modifier}`] = (skipped[`EveTransform.modifier:${t.modifier}`] ?? 0) + 1;
   const c = {
     type: "EveChildContainer", name: t.name ?? null, display: t.display, translation: t.translation, rotation: t.rotation, scaling: t.scaling,
-    objects, curveSets: t.curveSets ?? [], lights: [],
+    objects, curveSets: t.curveSets ?? [], lights: [], transformModifiers: mod ? [{ type: mod }] : [],
   };
   ids.set(c, idOf(t));
   return c;
