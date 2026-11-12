@@ -25,7 +25,7 @@
   // The one WRITE here is taking a contract on. It moves ISK and items and
   // cannot be undone, so it asks first, on a screen that says what changes
   // hands, and the button is dead while the write is in flight.
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import {
     CONTRACT_STATUS_OUTSTANDING,
     CONTRACT_TYPE_COURIER,
@@ -104,7 +104,7 @@
       : { text: jumpWords(JUMP_WORDS.jumps, `${count} jumps`, { numJumps: count }), unreachable: false };
   }
   $effect(() => {
-    flow.requestWords([...Object.values(JUMP_WORDS), ...Object.values(SEARCH_WORDS), ...CONTRACT_TITLE_LABELS]);
+    flow.requestWords([...Object.values(JUMP_WORDS), ...Object.values(SEARCH_WORDS), ...CONTRACT_TITLE_LABELS, ...RETAIL_TAB_WORDS]);
   });
   // The counts are asked for again when the autopilot's settings change, which lets them go.
   $effect(() => {
@@ -131,6 +131,13 @@
   let chosenTab = $state<"board" | "mine" | "search" | null>(null);
   // The window's Contract Search tab (contractsWnd.py 100: its third; contractsearch.py's results), as far as the page
   // has it: the contracts of a type found by the type menu's Find in Contracts (contracts.FindRelated).
+  /**
+   * The play page's windows (PlayApp's "retailChrome"): the window's tabs as contractsWnd.ContractsWindow.LoadTabs
+   * has them in its header - the start page (its caption, Tooltips/Neocom/Contracts: here the summary and the jobs
+   * on offer), My Contracts, Contract Search, in that order.
+   */
+  const retail = getContext("retailChrome") === true;
+  const RETAIL_TAB_WORDS = ["Tooltips/Neocom/Contracts", "UI/Contracts/ContractsWindow/MyContracts"];
   const SEARCH_WORDS = {
     tab: "UI/Contracts/ContractsSearch/ContractSearch",
     contract: "UI/Contracts/ContractsSearch/columnContract",
@@ -380,6 +387,13 @@
     </p>
   {/if}
 
+  {#if retail}
+  <nav class="tabs con-tabs">
+    <button type="button" class:active={tab === "board"} onclick={() => (chosenTab = "board")}>{titleWord("Tooltips/Neocom/Contracts") || "Contracts"}</button>
+    <button type="button" class:active={tab === "mine"} onclick={() => (chosenTab = "mine")}>{titleWord("UI/Contracts/ContractsWindow/MyContracts") || "My Contracts"}{mineCount > 0 ? ` (${mineCount})` : ""}</button>
+    <button type="button" class:active={tab === "search"} onclick={() => (chosenTab = "search")}>{titleWord(SEARCH_WORDS.tab) || "Contract Search"}</button>
+  </nav>
+  {:else}
   <nav class="tabs">
     <button type="button" class:active={tab === "board"} onclick={() => (chosenTab = "board")}>
       Jobs on offer
@@ -391,6 +405,7 @@
       Yours{mineCount > 0 ? ` (${mineCount})` : ""}
     </button>
   </nav>
+  {/if}
 
   {#if tab === "board"}
     {#if !$contracts.loaded}

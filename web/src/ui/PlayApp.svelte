@@ -276,6 +276,11 @@
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
       return { x: NEOCOM_W + 8, y: 8, w: Math.max(Math.min(650, W - NEOCOM_W - 16), Math.min(W - NEOCOM_W - 16, 900)), h: Math.max(Math.min(435, H - 16), Math.min(H - 16, 768)) };
     }
+    // the contracts window (contractsWnd.ContractsWindow: 630 x 500, SetMinSize 700 x 560), within the desktop
+    if (tab === "contracts") {
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 700), h: Math.min(H - 16, 560) };
+    }
     if (tab !== "chat") return null;
     const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
     const w = innerWidth >= 1680 ? 450 : innerWidth >= 1200 ? 360 : 260;
@@ -834,6 +839,11 @@
   .fly-windows :global(.market-layout.retail .mkt-expander) { position: absolute; left: 4px; top: calc(50% - 8px); width: 16px; height: 16px;
     transform: rotate(-90deg); opacity: 0.8; }
   .fly-windows :global(.market-layout.retail .mkt-group-icon) { position: absolute; left: 22px; top: calc(50% - 8px); width: 16px; height: 16px; }
+  /* ContractsWindow's header tabs (TabNavigationWindowHeader): the start page, My Contracts, Contract Search */
+  .fly-windows :global(.con-tabs) { display: flex; gap: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .fly-windows :global(.con-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 14px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.6); cursor: pointer; border-radius: 0; }
+  .fly-windows :global(.con-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); background: none; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
