@@ -221,27 +221,71 @@ function layersOf(id, depth = 0) {
   return sources.length ? [{ s: sources }] : [];
 }
 /**
- * A sound's own properties (its NodeBaseParams' AkPropBundle: a count, the ids, then each value - found after its
- * DirectParentID, the first u32 past its source data that names a known object, and its byBitVector). Bank version
- * 150's ids as the bank's own values show them: 0x00 the volume in dB (-40 .. +12 over 2,028 sounds), 0x54 the loop
- * count (0 for ever - the ships' ambient -, else 2, 6 ...); the others not settled and not read.
+ * An object's NodeBaseParams (a Sound's after its source data, a container's or actor-mixer's after its id): the FX
+ * parameters (their length varies), the OverrideBusId, the DirectParentID, byBitVector, then the AkPropBundle (a
+ * count, the ids ascending, each value). The DirectParentID is found as the first u32 past the start naming a container
+ * or actor-mixer (types 5, 6, 7, 9) whose props then parse - 14,947 of 15,002 sounds, 3,780 of 3,927 parents; a top
+ * of the hierarchy (DirectParentID 0) as the first 0 after a bus id (type 8) or 0 whose props parse. Bank version 150's
+ * ids as the bank's own values show them: 0x00 the volume in dB, 0x54 the loop count (0 for ever); the others not
+ * settled and not read.
  */
 const f32 = (b, o) => new DataView(b.buffer, b.byteOffset + o, 4).getFloat32(0, true);
 const soundProps = {};
-function propsOf(body) {
-  let p = 19;
-  while (p + 4 <= body.length && !objects.has(u32(body, p))) p++;
-  if (p + 6 > body.length) return {};
-  let q = p + 5;
-  const n = body[q]; q += 1;
-  const ids = Array.from(body.subarray(q, q + n)); q += n;
+function propsAt(body, p) {
+  if (p + 6 > body.length) return null;
+  const n = body[p + 5];
+  const ids = Array.from(body.subarray(p + 6, p + 6 + n));
+  const vals = p + 6 + n;
+  if (vals + 4 * n > body.length || ids.some((id, k) => id > 0x7f || (k && id <= ids[k - 1]))) return null;
   const out = {};
   ids.forEach((id, k) => {
-    const at = q + 4 * k;
-    if (at + 4 > body.length) return;
-    if (id === 0x00) out.v = Math.round(f32(body, at) * 100) / 100;
-    if (id === 0x54) out.l = u32(body, at);
+    if (id === 0x00) out.v = f32(body, vals + 4 * k);
+    if (id === 0x54) out.l = u32(body, vals + 4 * k);
   });
+  return out;
+}
+const nodes = new Map();
+function nodeOf(id) {
+  if (nodes.has(id)) return nodes.get(id);
+  const o = objects.get(id);
+  let node = { parent: 0, props: {} };
+  if (o) {
+    const start = o.type === 2 ? 18 : 4;
+    const end = Math.min(o.body.length - 6, start + 80);
+    let found = false;
+    for (let p = start + 2; p < end && !found; p++) {
+      const parent = u32(o.body, p);
+      if (parent === id || ![5, 6, 7, 9].includes(objects.get(parent)?.type ?? -1)) continue;
+      const props = propsAt(o.body, p);
+      if (props) { node = { parent, props }; found = true; }
+    }
+    for (let p = start + 6; p < end && !found; p++) {
+      if (u32(o.body, p) !== 0) continue;
+      const bus = u32(o.body, p - 4);
+      if (bus !== 0 && objects.get(bus)?.type !== 8) continue;
+      const props = propsAt(o.body, p);
+      if (props) { node = { parent: 0, props }; found = true; }
+    }
+  }
+  nodes.set(id, node);
+  return node;
+}
+/**
+ * A sound's volume as Wwise sums it down the hierarchy - its own and each parent's (containers', actor-mixers') 0x00 in
+ * dB - and its own loop count.
+ */
+function propsOf(id) {
+  let v = 0, any = false;
+  const seen = new Set();
+  for (let at = id; at && !seen.has(at) && seen.size < 24; at = nodeOf(at).parent) {
+    seen.add(at);
+    const own = nodeOf(at).props.v;
+    if (own !== undefined && Number.isFinite(own) && Math.abs(own) <= 200) { v += own; any = true; }
+  }
+  const out = {};
+  if (any && v !== 0) out.v = Math.round(v * 100) / 100;
+  const l = nodeOf(id).props.l;
+  if (l !== undefined) out.l = l;
   return out;
 }
 function sourcesOf(id, depth = 0) {
@@ -250,7 +294,7 @@ function sourcesOf(id, depth = 0) {
   if (o.type === 5) return playlist(o.body).flatMap((child) => sourcesOf(child, depth + 1));
   if (o.type !== 2) return [];
   const files = soundSources(o);
-  const props = propsOf(o.body);
+  const props = propsOf(id);
   if (Object.keys(props).length) for (const f of files) soundProps[f] = props;
   return files;
 }
@@ -306,7 +350,7 @@ for (const [id, o] of objects) {
 console.log(`events whose layers fade by distance: ${faded}`);
 const containers = layered;
 fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
-// soundProps.json: a sound file's own volume (v, dB) and loop count (l: 0 for ever)
+// soundProps.json: a sound file's volume (v, dB: its own and its parents' summed) and loop count (l: 0 for ever)
 fs.writeFileSync(path.join(root, "soundProps.json"), JSON.stringify(soundProps));
 console.log(`sounds with their own volume or loop: ${Object.keys(soundProps).length}`);
 console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} with layers); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
