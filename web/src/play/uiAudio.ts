@@ -269,6 +269,34 @@ export async function playWorldEvent(name: string, at: Vec3, scale = 1): Promise
   }, entry);
 }
 
+/**
+ * The effects' emitter scaling by their client class (the effects table's type: eve/client/script/environment/effects,
+ * each class's Prepare and Start followed through its own and its parents' calls, the last scaling set winning):
+ * a number k - GenericEffect.AddSoundToEffect(k) -> ScaleEffectAudioEmitter: the effect's ball's radius^0.95 x 33 x k;
+ * "stretch" - StretchEffect.ScaleEffectAudioEmitters: the source's and the destination's emitters each by its own
+ * ball's radius^0.95 x 33; a class not listed sets none (SuperWeapon's override returns at once; the turrets, beams,
+ * missiles, EveStretch3 ...): its emitters keep their attenuations as authored.
+ */
+const EFFECT_AUDIO_SCALING: Readonly<Record<string, number | "stretch">> = {
+  ShipEffect: 2, Warping: 2, WarpDisruptFieldGenerating: 2, MicroJumpDriveEngage: 2, MicroJumpDriveJump: 2,
+  JumpIn: 2, JumpOut: 2, JumpOutAbyssal: 2, JumpOutAbyssalBetween: 2, JumpOutWormhole: 2, JumpPortal: 2, JumpPortalBO: 2,
+  JumpDriveIn: 2, JumpDriveInBO: 2, JumpDriveOut: 2, JumpDriveOutBO: 2,
+  ImpactEffect: 4, ShipRenderTargetedEffect: 4,
+  ShipRenderEffect: 1, Cloak: 1, CloakNoAnim: 1, CloakRegardless: 1, Uncloak: 1, PointDefense: 1, TriageMode: 1, SkinChange: 1,
+  WarpFlashIn: 0.001, WarpFlashOut: 0.0007,
+  StretchEffect: "stretch", LocatorStretchEffect: "stretch", TurretStretchEffect: "stretch", BoundsToCenterStretchEffect: "stretch",
+  DamageLocatorToDamageLocatorStretchEffect: "stretch",
+};
+let effectTypes: Promise<Record<string, { type?: string }>> | null = null;
+/** An effect's sounds' emitter scaling: its class's rule at the ball it sounds at (radius in m; 35 where unknown, as GetEffectRadius). */
+export async function effectAudioScale(guid: string, radius: number | null): Promise<number> {
+  effectTypes ??= fetch("/client-assets/effects.json").then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const rule = EFFECT_AUDIO_SCALING[(await effectTypes)[guid]?.type ?? ""];
+  if (rule === undefined) return 1;
+  const r = radius !== null && radius > 0 ? radius : 35;
+  return Math.pow(r, 0.95) * 33 * (rule === "stretch" ? 1 : rule);
+}
+
 /** The types' ambient sounds (tools/client-extract/audio.mjs: typeSounds.json - typeID -> its Wwise event). */
 let typeSounds: Promise<Record<string, string>> | null = null;
 export function typeSoundsOf(): Promise<Record<string, string>> {

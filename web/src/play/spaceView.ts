@@ -25,7 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
-import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, type WorldLoop } from "./uiAudio.ts";
+import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -233,10 +233,9 @@ export class SpaceView {
           if (!Number.isFinite(id) || id <= 0) continue;
           window.setTimeout(() => {
             const at = this.placeOf(id, this.lastOrigin);
-            // the effect's emitter scaled by its ball's radius (GenericEffect.ScaleEffectAudioEmitter / StretchEffect:
-            // radius^0.95 x 33; the classes' own scalers - 2 for a micro jump, 4 for an impact - not told apart)
-            const radius = this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? 35;
-            if (at) void playWorldEvent(s.event, at, Math.pow(Math.max(radius, 1), 0.95) * 33);
+            // the effect's emitter scaled as its class scales it, by the ball it sounds at (effectAudioScale)
+            const radius = this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? null;
+            if (at) void effectAudioScale(g, radius).then((scale) => playWorldEvent(s.event, at, scale));
           }, s.time * 1000);
         }
       });
