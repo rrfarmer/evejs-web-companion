@@ -198,8 +198,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":78)
-    sofBuild: 78,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":79)
+    sofBuild: 79,
     booster,
     pattern,
     areas,

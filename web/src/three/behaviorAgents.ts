@@ -18,7 +18,9 @@
 import * as THREE from "three";
 import type { SofChildMesh } from "./hullChildren.ts";
 import { perlinNoise1D, vector3Value } from "./curves.ts";
-import { agentBoosters, agentBoxGeometry, setAgentBooster, type AgentBoosterData } from "./boosterVolumetric.ts";
+import { agentBoosters, agentBoxGeometry, setAgentBooster, type AgentBoosterData, type AgentFlareData } from "./boosterVolumetric.ts";
+import { quadMesh } from "./hullChildren.ts";
+import { offerLights, type ChildLight } from "./dynamicLights.ts";
 
 export interface SofAgentGrid {
   id?: number;
@@ -88,8 +90,9 @@ export interface SofChildAgents {
 /** A group as built: its spec, its parts (instanced, in the system's space through `local`). */
 interface BuiltGroup {
   spec: SofAgentGroup;
-  /** its flames (agentBoosters), found in a clone by name */
+  /** its flames (agentBoosters) and flares (quadMesh), found in a clone by name */
   booster?: string | null;
+  flares?: string | null;
   parts: { mesh: THREE.InstancedMesh; local: THREE.Matrix4; localInv: THREE.Matrix4 }[];
 }
 
@@ -151,6 +154,13 @@ export async function buildAgents(
       flames.name = `agent-boosters:${built.length}`;
       group.booster = flames.name;
       holder.add(flames);
+    }
+    // its flares: a quad per agent and flare (flarequad.fx, as the hull children's quads), written each frame
+    if (spec.booster && (spec.booster.halo || spec.booster.ambient)) {
+      const flares = quadMesh([]);
+      flares.name = `agent-flares:${built.length}`;
+      group.flares = flares.name;
+      holder.add(flares);
     }
     built.push(group);
   }
@@ -697,7 +707,7 @@ function volumeIntensity(v: SofVolume, point: THREE.Vector3): number {
 
 /** One clone's agents: run each frame, then sized and culled for the view. */
 export class AgentRun {
-  private readonly groups: { run: GroupRun; parts: THREE.InstancedMesh[]; drawn: number; flames: THREE.Mesh | null }[] = [];
+  private readonly groups: { run: GroupRun; parts: THREE.InstancedMesh[]; drawn: number; flames: THREE.Mesh | null; flares: THREE.Mesh | null }[] = [];
   private last = -1;
 
   constructor(holder: THREE.Object3D) {
@@ -719,7 +729,8 @@ export class AgentRun {
       // this clone's flames, on a geometry of its own (the instance data is this clone's agents')
       const flames = b.booster ? (holder.getObjectByName(b.booster) as THREE.Mesh | undefined) ?? null : null;
       if (flames) flames.geometry = agentBoxGeometry(Math.max(1, b.spec.count));
-      this.groups.push({ run, parts, drawn: -1, flames });
+      const flares = b.flares ? (holder.getObjectByName(b.flares) as THREE.Mesh | undefined) ?? null : null;
+      this.groups.push({ run, parts, drawn: -1, flames, flares });
     }
   }
 
@@ -755,8 +766,98 @@ export class AgentRun {
     for (const name of ["row0", "row1", "row2", "row3", "phase", "atlas", "agentIntensity"]) (geo.getAttribute(name) as THREE.InstancedBufferAttribute).needsUpdate = true;
   }
 
+  /**
+   * The group's flares (BehaviorGroupBooster::AddFlare, for each shown agent; lod its cross-fade): the halo - at the
+   * offset x (1 + lod)^2 (lod - 1)^2 x the group's scale, turned half about y, through the agent; its quad the halo
+   * scale; brightness 0.1 + 0.9 x intensity x haloFlareBrightness x that - and the ambient - at the offset x mod x scale,
+   * mod = (1 - lod)(lod + 1)(lod - 1)^2; its size mod x ambientFlareScale x scale + (1 - mod) x the bounding sphere x
+   * scale x 2 (at a distance the agent's own glow); brightness (0.25 + 0.25 I + 0.5 mod I) x ambientFlareBrightness -
+   * each x ((PerlinNoise1D((time + index x 10 ms) x noise speed, 2, 2, octaves) + 1) / 2) x the noise amplitude, coloured
+   * by its colour.
+   */
+  private writeFlares(flares: THREE.Mesh, run: GroupRun): void {
+    const spec = run.built.spec;
+    const b = spec.booster!;
+    const quads: Parameters<typeof quadMesh>[0] = [];
+    const now = performance.now() / 1000;
+    const noiseOf = (f: AgentFlareData, i: number) => (f.noiseAmplitude !== 0 ? ((perlinNoise1D((now + i * 0.01) * f.noiseSpeed, 2, 2, f.noiseOctaves) + 1) / 2) * f.noiseAmplitude : 1);
+    const v = (a: number[] | undefined) => new THREE.Vector3(a?.[0] ?? 0, a?.[1] ?? 0, a?.[2] ?? 0);
+    run.agents.forEach((a, i) => {
+      if (!a.shown) return;
+      const lod = a.xfade;
+      const intensity = a.velocity.length() / Math.max(1, spec.maxVelocity ?? 100);
+      const rot = (x: THREE.Vector3) => x.applyQuaternion(a.rotation);
+      if (b.halo) {
+        const h = b.halo;
+        const mod = Math.max(0, (1 + lod) * (1 + lod) * (lod - 1) * (lod - 1));
+        const bright = (0.1 + 0.9 * intensity * h.brightness * mod) * noiseOf(h, i);
+        // Rot(0, 1, 0, 0): x and z turned about; the offset x mod, all x the group scale, through the agent
+        const centre = rot(v(h.offset).multiplyScalar(mod * spec.scale).multiply(new THREE.Vector3(-1, 1, -1))).add(a.position);
+        quads.push({
+          centre, ax: rot(new THREE.Vector3(-spec.scale * (h.scale[0] ?? 1), 0, 0)), ay: rot(new THREE.Vector3(0, spec.scale * (h.scale[1] ?? 1), 0)),
+          colour: [0, 1, 2, 3].map((k) => (h.color[k] ?? 1) * bright), min: 0, halo: { z: rot(new THREE.Vector3(0, 0, -1)), at: centre.clone() },
+        });
+      }
+      if (b.ambient) {
+        const f = b.ambient;
+        const mod = (1 - lod) * (lod + 1) * (lod - 1) * (lod - 1);
+        const bright = (0.25 + 0.25 * intensity + 0.5 * mod * intensity) * f.brightness * noiseOf(f, i);
+        const far = (1 - mod) * spec.boundingSphereRadius * spec.scale * 2;
+        const size = (k: number) => mod * (f.scale[k] ?? 1) * spec.scale + far;
+        const centre = rot(v(f.offset).multiplyScalar(mod * spec.scale)).add(a.position);
+        quads.push({ centre, ax: rot(new THREE.Vector3(size(0), 0, 0)), ay: rot(new THREE.Vector3(0, size(1), 0)), colour: [0, 1, 2, 3].map((k) => (f.color[k] ?? 1) * bright), min: 0, halo: null });
+      }
+    });
+    const geo = flares.geometry as THREE.InstancedBufferGeometry;
+    const room = (geo.getAttribute("iCentre") as THREE.InstancedBufferAttribute).count;
+    if (room < quads.length) {
+      // a new geometry with room (quadMesh's, the material kept)
+      const fresh = quadMesh(Array.from({ length: Math.max(quads.length, room * 2) }, () => ({ centre: new THREE.Vector3(), ax: new THREE.Vector3(), ay: new THREE.Vector3(), colour: [0, 0, 0, 0], min: 0, halo: null })));
+      // (the old one not disposed: the model's clones start from one geometry)
+      flares.geometry = fresh.geometry;
+    }
+    const g2 = flares.geometry as THREE.InstancedBufferGeometry;
+    const set = (name: string, i: number, values: number[]) => (g2.getAttribute(name) as THREE.InstancedBufferAttribute).set(values, i * values.length);
+    quads.forEach((q, i) => {
+      set("iCentre", i, q.centre.toArray());
+      set("iAxisX", i, q.ax.toArray());
+      set("iAxisY", i, q.ay.toArray());
+      set("iColour", i, q.colour);
+      set("iMin", i, [q.min]);
+      set("iHaloZ", i, q.halo ? [...q.halo.z.toArray(), 1] : [0, 0, 0, 0]);
+      set("iHaloAt", i, q.halo ? q.halo.at.toArray() : [0, 0, 0]);
+    });
+    for (const name of ["iCentre", "iAxisX", "iAxisY", "iColour", "iMin", "iHaloZ", "iHaloAt"]) (g2.getAttribute(name) as THREE.InstancedBufferAttribute).needsUpdate = true;
+    g2.instanceCount = quads.length;
+  }
+
+  /**
+   * The group's booster lights (GetBoosterInfoForBuffer / BehaviorGroup::GetLights / BehaviorGroupBooster::AddLight):
+   * an agent shown under the 0.25 cross-fade lights at its booster (offset x scale through it), radius lightRadius x
+   * intensity x (1 - 4 lod)(2 lod + 1) x scale, colour lightColor x the ambient flare's noise (its amplitude, default
+   * 0.2, applies even without the flare).
+   */
+  private gatherLights(run: GroupRun, into: ChildLight[]): void {
+    const spec = run.built.spec;
+    const b = spec.booster!;
+    const now = performance.now() / 1000;
+    const amb = b.ambient ?? { noiseAmplitude: 0.2, noiseSpeed: 1, noiseOctaves: 1 } as AgentFlareData;
+    const off = new THREE.Vector3(b.offset[0] ?? 0, b.offset[1] ?? 0, b.offset[2] ?? 0).multiplyScalar(spec.scale);
+    run.agents.forEach((a, i) => {
+      if (!a.shown || a.xfade >= 0.25) return;
+      const lod = a.xfade;
+      const intensity = a.velocity.length() / Math.max(1, spec.maxVelocity ?? 100);
+      const scale = intensity * (1 - 4 * lod) * (2 * lod + 1) * spec.scale;
+      if (scale <= 0) return;
+      const n = amb.noiseAmplitude !== 0 ? ((perlinNoise1D((now + i * 0.01) * amb.noiseSpeed, 2, 2, amb.noiseOctaves) + 1) / 2) * amb.noiseAmplitude : 1;
+      const at = off.clone().applyQuaternion(a.rotation).add(a.position);
+      into.push({ position: at.toArray(), radius: scale * (b.lightRadius ?? 3.5), color: (b.lightColor ?? [1, 1, 1, 1]).slice(0, 3).map((c) => c * n), brightness: 1 });
+    });
+  }
+
   update(renderer: THREE.WebGLRenderer, camera: THREE.Camera, holder: THREE.Object3D): void {
     const now = performance.now() / 1000;
+    const lights: ChildLight[] = [];
     const dt = this.last < 0 ? 0 : now - this.last;
     this.last = now;
     holder.updateWorldMatrix(true, false);
@@ -809,6 +910,8 @@ export class AgentRun {
         if (Math.abs(xfade - a.xfade) >= 1e-3 || shown !== a.shown) { a.xfade = xfade; a.shown = shown; changed = true; }
       });
       if (g.flames) this.writeFlames(g.flames, g.run);
+      if (g.flares) this.writeFlares(g.flares, g.run);
+      if (g.run.built.spec.booster) this.gatherLights(g.run, lights);
       if (!changed) continue;
       // the agents drawn only (the client writes a nought matrix for the others: here they are left out - a nought
       // scale gives the shader's normal transform a division by nought)
@@ -828,5 +931,8 @@ export class AgentRun {
       g.drawn = agents.length;
       for (const part of g.parts) { part.count = k; part.instanceMatrix.needsUpdate = true; }
     }
+    // the booster lights, for the dynamic lights' next list (in the system's space: the holder's)
+    holder.userData.lights = lights;
+    offerLights(renderer, camera, holder);
   }
 }

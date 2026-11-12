@@ -166,7 +166,7 @@ function meanScale(m: THREE.Matrix4): number {
  * only, the client's empty map black where none is drawn (as here: the factor 1). flarequadsoft.fx is drawn as
  * flarequad.fx. A quad under minScreenSize pixels across is not drawn.
  */
-function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.Vector3; colour: number[]; min: number; halo: { z: THREE.Vector3; at: THREE.Vector3 } | null }[]): THREE.Mesh {
+export function quadMesh(quads: { centre: THREE.Vector3; ax: THREE.Vector3; ay: THREE.Vector3; colour: number[]; min: number; halo: { z: THREE.Vector3; at: THREE.Vector3 } | null }[]): THREE.Mesh {
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));

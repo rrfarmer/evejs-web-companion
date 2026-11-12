@@ -422,7 +422,13 @@ export interface AgentBoosterData {
   atlas: number[];
   textures: Record<string, string | null>;
   params: Record<string, unknown>;
+  halo?: AgentFlareData | null;
+  ambient?: AgentFlareData | null;
+  lightRadius?: number;
+  lightColor?: number[];
 }
+/** A BehaviorGroupBooster flare (haloFlare* / ambientFlare*). */
+export interface AgentFlareData { offset: number[]; scale: number[]; brightness: number; color: number[]; noiseAmplitude: number; noiseSpeed: number; noiseOctaves: number }
 
 /**
  * A behaviour group's flames (droneboostervolumetric.fx, BehaviorGroup::GetBoosterInfoForBuffer): an instanced box per

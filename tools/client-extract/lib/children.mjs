@@ -435,6 +435,12 @@ function meshAreas(mesh, skipped) {
   return areas;
 }
 
+/** A BehaviorGroupBooster flare's numbers (prefix haloFlare / ambientFlare; its constructor's defaults). */
+const flareOf = (b, k) => ({
+  offset: b[`${k}Offset`] ?? [0, 0, 0], scale: b[`${k}Scale`] ?? [1, 1, 1], brightness: b[`${k}Brightness`] ?? 0, color: b[`${k}Color`] ?? [1, 1, 1, 1],
+  noiseAmplitude: b[`${k}NoiseAmplitude`] ?? 0.2, noiseSpeed: b[`${k}NoiseSpeed`] ?? 1, noiseOctaves: b[`${k}NoiseOctaves`] ?? 1,
+});
+
 // the behaviours behaviorAgents.ts runs
 const AGENT_BEHAVIORS = new Set(["SpawnDrones", "ProcessLifetime", "Inertia", "DroneAvoidance", "SeekTarget", "CollisionAvoidance", "InclusionVolume", "Wander", "PlayFX"]);
 
@@ -546,6 +552,10 @@ function readShown(o, skipped) {
         booster: g.boosters?.type === "BehaviorGroupBooster" && g.boosters.display !== false && g.boosters.boosterEffect ? {
           offset: g.boosters.boosterOffset ?? [0, 0, 0], atlas: [g.boosters.atlasIndex0 ?? 0, g.boosters.atlasIndex1 ?? 0],
           textures: effectTextures(g.boosters.boosterEffect), params: effectParams(g.boosters.boosterEffect),
+          // its flares (FlareQuad.fx quads, where it has the effect) and lights (BehaviorGroupBooster's constructor defaults)
+          halo: g.boosters.haloFlareEffect ? flareOf(g.boosters, "haloFlare") : null,
+          ambient: g.boosters.ambientFlareEffect ? flareOf(g.boosters, "ambientFlare") : null,
+          lightRadius: g.boosters.lightRadius ?? 3.5, lightColor: g.boosters.lightColor ?? [1, 1, 1, 1],
         } : null,
         mesh: { k: "mesh", name: g.name ?? null, m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], geometry: String(g.mesh.geometryResPath).toLowerCase(), meshIndex: g.mesh.meshIndex ?? 0, minScreenSize: 0, areas, modifiers: [] },
       });
