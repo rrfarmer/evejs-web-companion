@@ -663,10 +663,11 @@ async function main() {
   // PARTICLE_SPRITE_TEXTURE; mapViewUtil.CreateLineSet's line textures), copied
   if (args.starMap) {
     const textures = {};
-    for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds" })) {
+    for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds",
+      line: "res:/UI/Texture/classes/LineSet/lineSegment.dds", lineOverlay: "res:/UI/Texture/classes/MapView/lineSegmentConstellation.dds" })) {
       textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     }
-    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 1, textures }));
+    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 2, textures }));
     console.log("starmap.json");
   }
   for (const guid of args.fx) {
