@@ -13,14 +13,26 @@
   import CorporationDecorations from "./CorporationDecorations.svelte";
   import CorporationApplications from "./CorporationApplications.svelte";
   import CorporationFindMembers from "./CorporationFindMembers.svelte";
-  import { onDestroy } from "svelte";
+  import { getContext, onDestroy } from "svelte";
   import type { CorporationAdministration } from "../bridge/corporationMemberQuery.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral">("contacts");
+  /**
+   * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
+   * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
+   * per tab its groups as headers and their panels as entries (construct_corporation_panels: General - Projects, My
+   * Corporation, Kill Reports, Bulletins; Recruitment - Find New Corporation, My Applications; Members; Standings;
+   * Voting; Wars - Wars, War Info, War History; the alliance's General and Relationships; Administration's Members).
+   * The panels the page does not have say so.
+   */
+  const retail = getContext("retailChrome") === true;
+  // svelte-ignore state_referenced_locally
+  if (retail) panel = "home";
+  let corpTab = $state<"corp" | "alliance" | "admin">("corp");
   let applicationsOpened = $state(false);
   // svelte-ignore state_referenced_locally
   const applicationsRequested = flow.corporationApplicationsRequested;
@@ -30,7 +42,7 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const playerCorporation = $derived(($station.online?.corporationID ?? 0) >= 98_000_000);
-  $effect(() => { if (!playerCorporation && panel !== "applications" && panel !== "find") { applicationsOpened = true; panel = "applications"; } });
+  $effect(() => { if (!playerCorporation && (panel === "contacts" || panel === "npc" || panel === "members" || panel === "decorations" || panel === "allianceContacts")) { applicationsOpened = true; panel = "applications"; } });
   let administration = $state<CorporationAdministration>({ visible: false, findMembers: false, director: false });
   let administrationError = $state("");
   let administrationRead = 0;
@@ -66,7 +78,62 @@
     "UI/Corporations/BaseCorporationUI/FindMemberInRole": "Find Member in Role",
     "UI/Corporations/CorporationWindow/Standings/CorpContacts": "Contacts",
     "UI/Corporations/CorporationWindow/Standings/NPCStandings": "NPCs' standing",
+    "UI/Corporations/CorporationWindow/Alliances/Alliances": "Alliances",
+    "UI/Generic/General": "General",
+    "UI/Fleet/FleetRegistry/MyCorporation": "My Corporation",
+    "UI/Corporations/Wars/Killmails/KillReports": "Kill Reports",
+    "UI/Corporations/CorpUIHome/Bulletins": "Bulletins",
+    "UI/Corporations/BaseCorporationUI/FindNewCorporation": "Find New Corporation",
+    "UI/Corporations/BaseCorporationUI/Wars": "Wars",
+    "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
+    "UI/Corporations/Wars/WarInfoTab": "War Info",
+    "UI/Corporations/BaseCorporationUI/MyAlliance": "My Alliance",
   };
+  const NOT_BUILT = new Set(["home", "kills", "recruitSearch", "wars", "warInfo", "bulletins", "allianceGeneral"]);
+  type NavEntry = { readonly id: typeof panel; readonly label: string; readonly open?: () => void };
+  const corpNav = $derived.by((): readonly { readonly header: string; readonly entries: readonly NavEntry[] }[] => {
+    if (corpTab === "alliance") {
+      return [
+        { header: "UI/Generic/General", entries: [{ id: "allianceGeneral", label: "UI/Corporations/BaseCorporationUI/MyAlliance" }] },
+        ...(playerCorporation && allianceID !== null
+          ? [{ header: "UI/Corporations/CorporationWindow/Alliances/Relationships", entries: [{ id: "allianceContacts" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllianceContacts" }] }]
+          : []),
+      ];
+    }
+    if (corpTab === "admin") {
+      return administration.findMembers
+        ? [{ header: "UI/Corporations/BaseCorporationUI/Members", entries: [{ id: "find", label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }] }]
+        : [];
+    }
+    return [
+      { header: "UI/Generic/General", entries: [
+        { id: "home", label: "UI/Fleet/FleetRegistry/MyCorporation" }, { id: "kills", label: "UI/Corporations/Wars/Killmails/KillReports" },
+        ...(playerCorporation ? [{ id: "bulletins" as const, label: "UI/Corporations/CorpUIHome/Bulletins" }] : []),
+      ] },
+      { header: "UI/Corporations/BaseCorporationUI/Recruitment", entries: [
+        { id: "recruitSearch", label: "UI/Corporations/BaseCorporationUI/FindNewCorporation" },
+        { id: "applications", label: "UI/Corporations/CorpApplications/MyApplications", open: () => { applicationsOpened = true; } },
+      ] },
+      ...(playerCorporation ? [
+        { header: "UI/Corporations/BaseCorporationUI/Members", entries: [
+          { id: "members" as const, label: "UI/Corporations/BaseCorporationUI/MemberList", open: () => { membersOpened = true; } },
+          { id: "decorations" as const, label: "UI/Corporations/BaseCorporationUI/Decorations", open: () => { decorationsOpened = true; } },
+        ] },
+        { header: "UI/InfoWindow/TabNames/Standings", entries: [
+          { id: "contacts" as const, label: "UI/Corporations/CorporationWindow/Standings/CorpContacts" },
+          { id: "npc" as const, label: "UI/Corporations/CorporationWindow/Standings/NPCStandings" },
+        ] },
+      ] : []),
+      { header: "UI/Corporations/BaseCorporationUI/Wars", entries: [
+        { id: "wars", label: "UI/Corporations/BaseCorporationUI/OngoingWarsTab" }, { id: "warInfo", label: "UI/Corporations/Wars/WarInfoTab" },
+      ] },
+    ];
+  });
+  function pickTab(tab: "corp" | "alliance" | "admin"): void {
+    corpTab = tab;
+    const first = corpNav[0]?.entries[0];
+    if (first) { first.open?.(); panel = first.id; }
+  }
   const word = (label: string): string => {
     const template = $words.templates[label];
     return typeof template === "string" ? template : WORDS[label] ?? "";
@@ -76,11 +143,29 @@
   });
 </script>
 
-<section class="panel">
+<section class="panel" class:corp-retail={retail}>
+  {#if retail}
+    <nav class="corp-tabs">
+      <button type="button" class:active={corpTab === "corp"} onclick={() => pickTab("corp")}>{word("UI/Corporations/BaseCorporationUI/Corporation")}</button>
+      <button type="button" class:active={corpTab === "alliance"} onclick={() => pickTab("alliance")}>{word("UI/Corporations/CorporationWindow/Alliances/Alliances")}</button>
+      {#if administration.visible}<button type="button" class:active={corpTab === "admin"} onclick={() => pickTab("admin")}>{word("UI/Corporations/CorporationWindow/Administration")}</button>{/if}
+    </nav>
+  {:else}
   <header class="panel-head">
     <h2 class="panel-title">{word("UI/Corporations/BaseCorporationUI/Corporation")}</h2>
   </header>
+  {/if}
   <div class="corp-window">
+    {#if retail}
+    <nav class="corp-side">
+      {#each corpNav as group (group.header)}
+        <span class="corp-side-header">{word(group.header)}</span>
+        {#each group.entries as entry (entry.id)}
+          <button type="button" class="corp-side-entry" class:active={panel === entry.id} onclick={() => { entry.open?.(); panel = entry.id; }}>{word(entry.label)}</button>
+        {/each}
+      {/each}
+    </nav>
+    {:else}
     <!-- The Standings node has the corporation Contacts form and NPC Standings panel. -->
     <nav class="corp-tree" aria-label={word("UI/Corporations/BaseCorporationUI/Corporation")}>
       <span class="corp-tree-group">{word("UI/Corporations/BaseCorporationUI/Recruitment")}</span>
@@ -104,8 +189,10 @@
         <button type="button" class="corp-tree-node" class:active={panel === "find"} aria-current={panel === "find" ? "page" : undefined} onclick={() => panel = "find"}>{word("UI/Corporations/BaseCorporationUI/FindMemberInRole")}</button>
       {/if}
     </nav>
+    {/if}
     <div class="corp-panel">
       {#if administrationError}<p class="error">{administrationError}</p>{/if}
+      {#if NOT_BUILT.has(panel)}<p class="note corp-unbuilt">This panel is not on the play page yet.</p>{/if}
       {#key $station.online?.characterID}
         {#if applicationsOpened}<div hidden={panel !== "applications"}><CorporationApplications {store} {flow} /></div>{/if}
       {/key}

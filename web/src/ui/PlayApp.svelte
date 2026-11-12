@@ -281,6 +281,11 @@
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
       return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 700), h: Math.min(H - 16, 560) };
     }
+    // the corporation window (corporationWindow.CorporationWindow: 800 x 832, at least 700 x 832), within the desktop
+    if (tab === "corporation") {
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 800), h: Math.min(H - 16, 832) };
+    }
     // the fleet window (fleetwindow.FleetWindow: 500 x 400, at least 270 x 120), within the desktop
     if (tab === "fleet") {
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
@@ -1075,6 +1080,18 @@
   .fly-windows :global(.fl-finder-info) { padding-top: 4px; }
   .fly-windows :global(.fl-finder-info .top) { display: flex; align-items: center; justify-content: space-between; height: 20px; }
   .fly-windows :global(.fl-finder-info p) { margin: 4px 0 0; font-size: 12px; border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px; }
+  /* CorporationWindow: the header's tabs, the SideNavigation 240 wide (its headers and entries) beside the panel */
+  .fly-windows :global(.corp-tabs) { display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 8px; }
+  .fly-windows :global(.corp-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.corp-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.corp-retail .corp-window) { grid-template-columns: 240px minmax(0, 1fr); }
+  .fly-windows :global(.corp-side) { display: flex; flex-direction: column; border-right: 1px solid rgba(255, 255, 255, 0.08); padding-right: 4px; }
+  .fly-windows :global(.corp-side-header) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.45); padding: 10px 8px 4px; }
+  .fly-windows :global(.corp-side-entry) { text-align: left; background: none; border: 0; border-left: 2px solid transparent; padding: 6px 10px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.75); cursor: pointer; }
+  .fly-windows :global(.corp-side-entry:hover) { background: rgba(255, 255, 255, 0.05); }
+  .fly-windows :global(.corp-side-entry.active) { background: rgba(255, 255, 255, 0.08); border-left-color: rgba(255, 255, 255, 0.85); color: #fff; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
