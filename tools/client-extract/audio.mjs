@@ -241,6 +241,8 @@ function propsAt(body, p) {
   ids.forEach((id, k) => {
     if (id === 0x00) out.v = f32(body, vals + 4 * k);
     if (id === 0x54) out.l = u32(body, vals + 4 * k);
+    // 0x55: the attenuation's id (on 1,513 objects, each naming an attenuation - HIRC 14)
+    if (id === 0x55) out.a = u32(body, vals + 4 * k);
   });
   return out;
 }
@@ -322,13 +324,54 @@ function volumeOf(id) {
   }
   return v + busVolume(bus);
 }
-/** A sound's volume (volumeOf) and its own loop count. */
+/** An object's attenuation: its own or the nearest parent's (0x55). */
+function attenuationOf(id) {
+  const seen = new Set();
+  for (let at = id; at && !seen.has(at) && seen.size < 24; at = nodeOf(at).parent) {
+    seen.add(at);
+    const a = nodeOf(at).props.a;
+    if (a && objects.get(a)?.type === 14) return a;
+  }
+  return 0;
+}
+/**
+ * An attenuation (HIRC 14): a byte, the cone flag (bit 0: the cone's 20 bytes follow), the 19 curve-to-use indices
+ * (the first the volume's; 0xff none), the curve count, each curve (scaling u8, a u16 point count, {x f32, y f32,
+ * interpolation u32} points), then a u16 RTPC count (none set) - all 899 parse to their end. The volume curve: by
+ * distance in m; its scaling 2 (dB) on 897 - y from 0 to -1, -1 at its last point (max distance) on 890: read as the
+ * gain 1 + y (Wwise keeps a dB curve's values linear); scaling 0 on 2 - y in dB (-96.3 at the end).
+ */
+const attenuations = {};
+function attenuation(id) {
+  if (id in attenuations) return;
+  const b = objects.get(id)?.body;
+  attenuations[id] = null;
+  if (!b) return;
+  try {
+    let q = 6 + (b[5] & 1 ? 20 : 0);
+    const volume = b[q];
+    q += 19;
+    const curves = [];
+    for (let n = b[q++], k = 0; k < n; k++) {
+      const scaling = b[q], size = u16(b, q + 1);
+      q += 3;
+      const pts = [];
+      for (let j = 0; j < size; j++, q += 12) pts.push([Math.round(f32(b, q) * 10) / 10, Math.round(f32(b, q + 4) * 1e4) / 1e4, u32(b, q + 8)]);
+      curves.push({ scaling, pts });
+    }
+    const c = curves[volume];
+    if (volume !== 0xff && c) attenuations[id] = { s: c.scaling, p: c.pts };
+  } catch { /* left out */ }
+}
+/** A sound's volume (volumeOf), its own loop count and its attenuation. */
 function propsOf(id) {
   const out = {};
   const v = Math.round(volumeOf(id) * 100) / 100;
   if (v !== 0) out.v = v;
   const l = nodeOf(id).props.l;
   if (l !== undefined) out.l = l;
+  const a = attenuationOf(id);
+  if (a) { attenuation(a); if (attenuations[a]) out.a = a; }
   return out;
 }
 function sourcesOf(id, depth = 0) {
@@ -397,8 +440,12 @@ for (const [id, o] of objects) {
 console.log(`events whose layers fade by distance: ${faded}`);
 const containers = layered;
 fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
-// soundProps.json: a sound file's volume (v, dB: its own and its parents' summed) and loop count (l: 0 for ever)
+// soundProps.json: a sound file's volume (v, dB: its own and its parents' summed), loop count (l: 0 for ever) and
+// attenuation (a); attenuations.json: each attenuation's volume curve by distance (s its scaling, p its points)
 fs.writeFileSync(path.join(root, "soundProps.json"), JSON.stringify(soundProps));
+for (const k of Object.keys(attenuations)) if (attenuations[k] === null) delete attenuations[k];
+fs.writeFileSync(path.join(root, "attenuations.json"), JSON.stringify(attenuations));
+console.log(`attenuations: ${Object.keys(attenuations).length}; sounds with one: ${Object.values(soundProps).filter((p) => p.a).length}`);
 console.log(`sounds with their own volume or loop: ${Object.keys(soundProps).length}`);
 console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} with layers); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
 
@@ -448,7 +495,8 @@ if (fs.existsSync(effectsFile) && config.sde) {
 // table: explosionBucketID); the bucket lists explosions by race ("default" where the race has none), each with its
 // chance and scales; each explosion (explosionIDs: its filePath) is a graphic whose AudEventCurves sound as it plays
 // (SpaceObjectExplosionManager: the GlobalExplosionEmitter's and the child explosions' emitters, their attenuation
-// scaled by the bucket's scales - not applied here). Read with the client's own loaders (scripts/client-built-data.py).
+// scaled by the bucket's scales: each sound's k - l local, g global - and each option's ls / gs). Read with the client's
+// own loaders (scripts/client-built-data.py).
 function builtData(loader, resPath) {
   const entry = res.entry(resPath);
   if (!entry) return null;
@@ -470,16 +518,21 @@ if (graphicIDs && buckets && explosionIDs && fs.existsSync(typeGraphicsFile)) {
     const black = String(file).toLowerCase().replace(/\.red$/, ".black");
     const out = [];
     if (res.has(black)) {
-      const walk = (node) => {
+      // each sound tagged with the child it is under (SetExplosionAudioScaling: the localExplosion(s)' emitters scaled
+      // by the bucket's localScale, the globalExplosion's by its globalScale)
+      const walk = (node, kind) => {
         if (!node || typeof node !== "object") return;
-        if (Array.isArray(node)) { for (const n of node) walk(n); return; }
-        if (node.type === "AudEventCurve") for (const k of node.keys ?? []) if (typeof k?.value === "string" && k.value) out.push({ event: k.value, time: Number(k.time ?? 0) });
-        for (const [k, v] of Object.entries(node)) if (k !== "keys" && v && typeof v === "object") walk(v);
+        if (Array.isArray(node)) { for (const n of node) walk(n, kind); return; }
+        if (node.type === "AudEventCurve") for (const k of node.keys ?? []) if (typeof k?.value === "string" && k.value) out.push({ event: k.value, time: Number(k.time ?? 0), ...(kind ? { k: kind } : {}) });
+        for (const [k, v] of Object.entries(node)) {
+          if (k === "keys" || !v || typeof v !== "object") continue;
+          walk(v, k === "localExplosion" || k === "localExplosions" ? "l" : k === "globalExplosion" ? "g" : kind);
+        }
       };
       try { walk(readBlack(res.read(black), black)); } catch { /* none */ }
     }
     const seen = new Set();
-    const unique = out.filter((o) => { const key = `${o.event}|${o.time}`; if (seen.has(key)) return false; seen.add(key); return true; });
+    const unique = out.filter((o) => { const key = `${o.event}|${o.time}|${o.k ?? ""}`; if (seen.has(key)) return false; seen.add(key); return true; });
     soundsOfFile.set(file, unique);
     return unique;
   };
@@ -487,7 +540,7 @@ if (graphicIDs && buckets && explosionIDs && fs.existsSync(typeGraphicsFile)) {
   for (const [bucketID, bucket] of Object.entries(buckets)) {
     const races = {};
     for (const [race, list] of Object.entries(bucket.racialExplosions ?? {})) {
-      const options = (list ?? []).map((e) => ({ w: Number(e.chanceMultiplier ?? 1), s: explosionSounds(e.explosionID) })).filter((o) => o.s.length);
+      const options = (list ?? []).map((e) => ({ w: Number(e.chanceMultiplier ?? 1), ls: Math.round(Number(e.localScale ?? 1) * 1000) / 1000, gs: Math.round(Number(e.globalScale ?? 1) * 1000) / 1000, s: explosionSounds(e.explosionID) })).filter((o) => o.s.length);
       if (options.length) races[race] = options;
     }
     if (Object.keys(races).length) outBuckets[bucketID] = races;

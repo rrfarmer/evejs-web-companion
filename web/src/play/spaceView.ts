@@ -218,7 +218,7 @@ export class SpaceView {
         for (const s of pickExplosion(table, typeID)) {
           window.setTimeout(() => {
             const at = this.placeOf(id, this.lastOrigin);
-            if (at) void playWorldEvent(s.event, at);
+            if (at) void playWorldEvent(s.event, at, s.scale);
           }, s.time * 1000);
         }
       });
@@ -233,7 +233,10 @@ export class SpaceView {
           if (!Number.isFinite(id) || id <= 0) continue;
           window.setTimeout(() => {
             const at = this.placeOf(id, this.lastOrigin);
-            if (at) void playWorldEvent(s.event, at);
+            // the effect's emitter scaled by its ball's radius (GenericEffect.ScaleEffectAudioEmitter / StretchEffect:
+            // radius^0.95 x 33; the classes' own scalers - 2 for a micro jump, 4 for an impact - not told apart)
+            const radius = this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? 35;
+            if (at) void playWorldEvent(s.event, at, Math.pow(Math.max(radius, 1), 0.95) * 33);
           }, s.time * 1000);
         }
       });

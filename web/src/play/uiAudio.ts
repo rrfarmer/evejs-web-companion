@@ -80,7 +80,7 @@ export function fxSoundsOf(): Promise<Record<string, { event: string; time: numb
  */
 export interface ExplosionSounds {
   types: Record<string, [number, string | null]>;
-  buckets: Record<string, Record<string, { w: number; s: { event: string; time: number }[] }[]>>;
+  buckets: Record<string, Record<string, { w: number; ls?: number; gs?: number; s: { event: string; time: number; k?: "l" | "g" }[] }[]>>;
 }
 let explosions: Promise<ExplosionSounds> | null = null;
 export function explosionSoundsOf(): Promise<ExplosionSounds> {
@@ -88,15 +88,16 @@ export function explosionSoundsOf(): Promise<ExplosionSounds> {
   return explosions;
 }
 /** GetRandomExplosion: one of a type's bucket's explosions for its race (else the default's), by their chances. */
-export function pickExplosion(table: ExplosionSounds, typeID: number): { event: string; time: number }[] {
+/** One of a type's bucket's explosions, by its chance: its sounds, each with its emitter's scaling (the bucket's local or global scale). */
+export function pickExplosion(table: ExplosionSounds, typeID: number): { event: string; time: number; scale: number }[] {
   const t = table.types[String(typeID)];
   if (!t) return [];
   const bucket = table.buckets[String(t[0])];
   const list = bucket?.[t[1] ?? ""] ?? bucket?.["default"] ?? Object.values(bucket ?? {})[0] ?? [];
   const total = list.reduce((n, o) => n + o.w, 0);
   let r = Math.random() * total;
-  for (const o of list) { r -= o.w; if (r <= 0) return o.s; }
-  return list[list.length - 1]?.s ?? [];
+  const chosen = list.find((o) => (r -= o.w) <= 0) ?? list[list.length - 1];
+  return (chosen?.s ?? []).map((s) => ({ event: s.event, time: s.time, scale: s.k === "l" ? chosen!.ls ?? 1 : s.k === "g" ? chosen!.gs ?? 1 : 1 }));
 }
 
 function eventsMap(): Promise<Record<string, EventSounds>> {
@@ -122,13 +123,38 @@ export function setListener(at: Vec3, forward: Vec3, up: Vec3): void {
   }
 }
 
-/** The sounds' own properties (soundProps.json: v its volume in dB, l its loop count - 0 for ever). */
-let soundProps: Record<string, { v?: number; l?: number }> = {};
+/** The sounds' own properties (soundProps.json: v its volume in dB, l its loop count - 0 for ever, a its attenuation). */
+let soundProps: Record<string, { v?: number; l?: number; a?: number }> = {};
 let soundPropsAsked = false;
+/** The attenuations (attenuations.json: each one's volume curve by distance - s its scaling, p its points). */
+let attenuations: Record<string, { s: number; p: [number, number, number][] }> = {};
+let attenuationsReady: Promise<void> | null = null;
 function askSoundProps(): void {
   if (soundPropsAsked) return;
   soundPropsAsked = true;
   void fetch("/client-assets/audio/soundProps.json").then((r) => (r.ok ? r.json() : {})).then((j) => { soundProps = j as typeof soundProps; }).catch(() => {});
+}
+function askAttenuations(): Promise<void> {
+  askSoundProps();
+  attenuationsReady ??= fetch("/client-assets/audio/attenuations.json").then((r) => (r.ok ? r.json() : {})).then((j) => { attenuations = j as typeof attenuations; }).catch(() => {});
+  return attenuationsReady;
+}
+/**
+ * A sound's attenuation at a distance (m): its volume curve there - a dB-scaled curve's value y read as the gain 1 + y
+ * (-1 silent, at its max distance), an unscaled one's as dB; 1 for a sound with none (Wwise does not attenuate it).
+ */
+export function attenuationAt(sound: string, distance: number, scale = 1): number {
+  const a = soundProps[sound]?.a;
+  const curve = a === undefined ? undefined : attenuations[String(a)];
+  if (!curve || !curve.p.length) return 1;
+  // (an emitter's attenuation scaling factor stretches the curve's distances: SetAttenuationScalingFactor)
+  const y = curveAt(curve.p, distance / (scale > 0 ? scale : 1));
+  return curve.s === 2 ? Math.max(0, Math.min(1, 1 + y)) : Math.pow(10, y / 20);
+}
+/** A panner that only places the sound (its fall-off is the sound's attenuation curve, applied as a gain). */
+function placer(ctx: AudioContext, at: Vec3): PannerNode {
+  return new PannerNode(ctx, { panningModel: "equalpower", distanceModel: "linear", refDistance: 1, maxDistance: 1e12, rolloffFactor: 0,
+    positionX: at.x, positionY: at.y, positionZ: at.z });
 }
 /** A sound's own level as a gain (its volume property in dB), and whether it loops for ever. */
 export function ownOf(sound: string): { gain: number; loop: boolean } {
@@ -175,21 +201,23 @@ async function start(name: string, sounds: { sound: string; gain: number }[], vo
 
 /**
  * An emitter's event (AudEmitter.SendEvent) in the world: its sounds placed at the point (the view's frame, as the
- * listener's), at master x World level. Their fall-off with distance is Web Audio's inverse model from 1 km (Wwise's
- * attenuation curves are not read).
+ * listener's), at master x World level, each sound by its attenuation curve at the emitter's distance - its
+ * distances times the emitter's scaling factor (1 unless the client sets one: the effects' and explosions').
  */
-export async function playWorldEvent(name: string, at: Vec3): Promise<void> {
+export async function playWorldEvent(name: string, at: Vec3, scale = 1): Promise<void> {
   // the layers' crossfades by the emitter's distance from the listener (their RTPC bound to Distance)
   const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
-  const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance);
+  await askAttenuations();
+  const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance)
+    .map((s) => ({ ...s, gain: s.gain * attenuationAt(s.sound, distance, scale) }))
+    .filter((s) => s.gain > 0.001);
   const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => `${s.sound}@${s.gain.toFixed(2)}`).join(" + ") || null, distance };
   uiAudioLog.push(entry);
   const settings = gfx();
   const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
   if (!sounds.length || volume <= 0) return;
   await start(name, sounds, volume, (ctx) => {
-    const panner = new PannerNode(ctx, { panningModel: "equalpower", distanceModel: "inverse", refDistance: 1000, maxDistance: 300000, rolloffFactor: 1,
-      positionX: at.x, positionY: at.y, positionZ: at.z });
+    const panner = placer(ctx, at);
     panner.connect(ctx.destination);
     return panner;
   }, entry);
@@ -211,15 +239,23 @@ export interface WorldLoop { move(at: Vec3): void; stop(): void }
  */
 export async function playWorldLoop(name: string, at: Vec3): Promise<WorldLoop> {
   const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
+  await askAttenuations();
   const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance);
   const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => s.sound).join(" + ") || null, distance };
   uiAudioLog.push(entry);
   const settings = gfx();
   const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
-  const nodes: { source: AudioBufferSourceNode; panner: PannerNode }[] = [];
+  const nodes: { source: AudioBufferSourceNode; panner: PannerNode; gain: GainNode; base: number; sound: string }[] = [];
   let stopped = false;
   const handle: WorldLoop = {
-    move(p) { for (const n of nodes) { n.panner.positionX.value = p.x; n.panner.positionY.value = p.y; n.panner.positionZ.value = p.z; } },
+    move(p) {
+      // (its attenuation followed as it or the camera moves)
+      const d = Math.hypot(p.x - listenerAt.x, p.y - listenerAt.y, p.z - listenerAt.z);
+      for (const n of nodes) {
+        n.panner.positionX.value = p.x; n.panner.positionY.value = p.y; n.panner.positionZ.value = p.z;
+        n.gain.gain.value = n.base * attenuationAt(n.sound, d);
+      }
+    },
     stop() { stopped = true; for (const n of nodes) { try { n.source.stop(); } catch { /* over */ } } nodes.length = 0; },
   };
   if (!sounds.length || volume <= 0) return handle;
@@ -234,13 +270,13 @@ export async function playWorldLoop(name: string, at: Vec3): Promise<WorldLoop> 
     source.buffer = buffer;
     source.loop = true;
     const gain = ctx.createGain();
-    gain.gain.value = volume * sounds[n]!.gain * ownOf(sounds[n]!.sound).gain;
-    const panner = new PannerNode(ctx, { panningModel: "equalpower", distanceModel: "inverse", refDistance: 1000, maxDistance: 300000, rolloffFactor: 1,
-      positionX: at.x, positionY: at.y, positionZ: at.z });
+    const base = volume * sounds[n]!.gain * ownOf(sounds[n]!.sound).gain;
+    gain.gain.value = base * attenuationAt(sounds[n]!.sound, distance);
+    const panner = placer(ctx, at);
     source.connect(gain).connect(panner).connect(ctx.destination);
     source.start();
     entry.played = true;
-    nodes.push({ source, panner });
+    nodes.push({ source, panner, gain, base, sound: sounds[n]!.sound });
   }
   return handle;
 }
