@@ -1183,7 +1183,8 @@ export class SpaceView {
       // targetMgr.OnTargetAdded: with no active target, the new one becomes it
       if (this.activeTarget === null) this.activeTarget = id;
       entries.push({
-        itemID: id, typeID: e.typeID, name: e.name, distance: this.distanceTo(e),
+        // (targetInBar.SetTargetLabel: uix.GetSlimItemName - its own name, else its type's, as an NPC's)
+        itemID: id, typeID: e.typeID, name: this.nameOf(e), distance: this.distanceTo(e),
         shieldRatio: e.shieldRatio ?? null, armorRatio: e.armorRatio ?? null, hullRatio: e.hullRatio ?? null,
         locking: false, active: id === this.activeTarget,
       });
@@ -1192,7 +1193,7 @@ export class SpaceView {
       if (this.locked.has(id)) continue;
       const e = byID.get(id);
       entries.push({
-        itemID: id, typeID: e?.typeID ?? null, name: e?.name ?? null, distance: e ? this.distanceTo(e) : 0,
+        itemID: id, typeID: e?.typeID ?? null, name: e ? this.nameOf(e) : null, distance: e ? this.distanceTo(e) : 0,
         shieldRatio: null, armorRatio: null, hullRatio: null, locking: true, active: false,
         lockTimeMs: null, // TODO: the lock time (bracket.GetScanSpeed) for the countdown
         lockStartedAt: startedAt,
