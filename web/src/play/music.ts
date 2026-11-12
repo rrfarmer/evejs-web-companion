@@ -7,19 +7,19 @@
 // Set State actions; the music switch containers (a state group's state picks the child, 0 the default), the playlists
 // (their item trees: sequence or random groups, loop counts, weights, avoid-repeat) and the segments (each track's
 // clips; a random sub-track picked where there are several; the next segment's entry marker at its exit marker).
-// Its loudness: the Audio panel's master volume x its Music level (the client's volume_music RTPC: its curve not read).
+// Its loudness: each clip's volume (its track's, segment's, containers' and the Music bus's, summed by the extractor) x
+// the Audio panel's master volume x its Music level (the client's volume_music RTPC: its curve not read).
 // In combat - something has the ship targeted (targetMgr.IsTargeted: its targetedBy not empty) and the Use Combat
 // Music setting on - 823 instead of 809: music_eve_combat_play, then music_switch_combat_empire (high sec) /
 // _nullsec (low sec) / _zerosec_and_wormhole (zero sec); music_eve_combat_stop as it stops.
-// Not built: the transition rules (a changed switch crossfades over 2 s here), stingers, the music objects' own
-// volumes, the dungeon, abyssal, Zarzakh, insurgency, Triglavian and Pochven branches.
+// Not built: the transition rules (a changed switch crossfades over 2 s here), stingers, the dungeon, abyssal, Zarzakh, insurgency, Triglavian and Pochven branches.
 
 import { gfx, onGfx } from "./gfxSettings.ts";
 import { audioContext } from "./uiAudio.ts";
 
 type Op = ["play", number] | ["stop", number] | ["state", number, number];
-/** A clip: its file, its place in the segment, its begin and end trims, its source's length (ms). */
-type Clip = [string, number, number, number, number];
+/** A clip: its file, its place in the segment, its begin and end trims, its source's length (ms), its volume (dB). */
+type Clip = [string, number, number, number, number, number?];
 interface Segment { d: number; e: number; x: number; t: Clip[][][] }
 type Tree = { s: number; l: number; w: number } | { r: 0 | 1; l: number; a: number; w: number; c: Tree[] };
 type MusicNode = { seg: number } | { g: number; d: number; s: Record<string, number> } | { p: Tree };
@@ -137,7 +137,7 @@ class Playback {
     for (const [n, c] of clips.entries()) {
       const buffer = buffers[n];
       if (!buffer) continue;
-      const [, at, begin, end, length] = c;
+      const [, at, begin, end, length, volume] = c;
       let when = start + (at + begin) / 1000, offset = begin / 1000;
       let duration = (length + end - begin) / 1000;
       if (first && when < start + seg.e / 1000) { const skip = start + seg.e / 1000 - when; when += skip; offset += skip; duration -= skip; }
@@ -146,6 +146,7 @@ class Playback {
       const source = this.ctx.createBufferSource() as AudioBufferSourceNode & { own?: GainNode };
       source.buffer = buffer;
       source.own = this.ctx.createGain();
+      source.own.gain.value = Math.pow(10, (volume ?? 0) / 20);
       source.connect(source.own).connect(this.gain);
       source.start(when, offset, duration);
       this.sources.add(source);

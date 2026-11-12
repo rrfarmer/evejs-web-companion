@@ -245,45 +245,88 @@ function propsAt(body, p) {
   return out;
 }
 const nodes = new Map();
+// The music objects (segments 10, tracks 11, switch containers 12, playlists 13): their NodeBaseParams after their flags
+// - a segment's or container's with no FX at a fixed place (the flags, the FX pair, the metadata pair, OverrideBusId at
+// 9, DirectParentID at 13: all 1,569 such), else found near it; a track's after its sources, clips and automation, so
+// searched through the whole body -, their parents music objects or actor-mixers (every track's found parent is the
+// segment listing it, every segment's its container's: 1,325 and 2,484).
+const MUSIC_TYPES = [10, 11, 12, 13];
 function nodeOf(id) {
   if (nodes.has(id)) return nodes.get(id);
   const o = objects.get(id);
-  let node = { parent: 0, props: {} };
+  let node = { parent: 0, bus: 0, props: {} };
+  if (o && o.type !== 11 && MUSIC_TYPES.includes(o.type) && o.body[6] === 0) {
+    const props = propsAt(o.body, 13);
+    if (props) { node = { parent: u32(o.body, 13), bus: u32(o.body, 9), props }; nodes.set(id, node); return node; }
+  }
   if (o) {
-    const start = o.type === 2 ? 18 : 4;
-    const end = Math.min(o.body.length - 6, start + 80);
+    const music = MUSIC_TYPES.includes(o.type);
+    const start = o.type === 2 ? 18 : music ? 3 : 4;
+    const end = o.type === 11 ? o.body.length - 6 : Math.min(o.body.length - 6, start + (music ? 40 : 80));
+    const parents = music ? [7, 10, 12, 13] : [5, 6, 7, 9];
     let found = false;
     for (let p = start + 2; p < end && !found; p++) {
       const parent = u32(o.body, p);
-      if (parent === id || ![5, 6, 7, 9].includes(objects.get(parent)?.type ?? -1)) continue;
+      if (parent === id || !parents.includes(objects.get(parent)?.type ?? -1)) continue;
       const props = propsAt(o.body, p);
-      if (props) { node = { parent, props }; found = true; }
+      if (props) { node = { parent, bus: u32(o.body, p - 4), props }; found = true; }
     }
     for (let p = start + 6; p < end && !found; p++) {
       if (u32(o.body, p) !== 0) continue;
       const bus = u32(o.body, p - 4);
       if (bus !== 0 && objects.get(bus)?.type !== 8) continue;
       const props = propsAt(o.body, p);
-      if (props) { node = { parent: 0, props }; found = true; }
+      if (props) { node = { parent: 0, bus, props }; found = true; }
     }
+    if (node.bus && objects.get(node.bus)?.type !== 8) node.bus = 0;
   }
   nodes.set(id, node);
   return node;
 }
 /**
- * A sound's volume as Wwise sums it down the hierarchy - its own and each parent's (containers', actor-mixers') 0x00 in
- * dB - and its own loop count.
+ * The buses (init.bnk, HIRC type 8: the id, the parent bus - 0 at the Master Audio Bus, then its device share-set -,
+ * the AkPropBundle): a bus's volume its 0x04 (BusVolume: Music -3, UI -8 and its children +4 / +5, ... dB), summed up
+ * its parents to the master. A bus at -96 (one: a mixing state's, raised at run time) is not applied.
  */
-function propsOf(id) {
-  let v = 0, any = false;
+function busVolume(bus) {
+  let v = 0;
+  const seen = new Set();
+  for (let at = bus; at && !seen.has(at) && objects.get(at)?.type === 8; ) {
+    seen.add(at);
+    const b = objects.get(at).body;
+    const parent = u32(b, 4);
+    const q = parent ? 8 : 12;
+    const n = b[q];
+    for (let k = 0; k < n; k++) {
+      if (b[q + 1 + k] !== 0x04) continue;
+      const own = f32(b, q + 1 + n + 4 * k);
+      if (Number.isFinite(own) && own > -96) v += own;
+    }
+    at = parent;
+  }
+  return v;
+}
+/**
+ * An object's volume as Wwise sums it - its own and each parent's (containers', actor-mixers', music objects') 0x00 in dB
+ * - and its output bus's (the first OverrideBusId set on the way up: its 0x04 and its parents').
+ */
+function volumeOf(id) {
+  let v = 0, bus = 0;
   const seen = new Set();
   for (let at = id; at && !seen.has(at) && seen.size < 24; at = nodeOf(at).parent) {
     seen.add(at);
-    const own = nodeOf(at).props.v;
-    if (own !== undefined && Number.isFinite(own) && Math.abs(own) <= 200) { v += own; any = true; }
+    const node = nodeOf(at);
+    const own = node.props.v;
+    if (own !== undefined && Number.isFinite(own) && Math.abs(own) <= 200) v += own;
+    if (!bus && node.bus) bus = node.bus;
   }
+  return v + busVolume(bus);
+}
+/** A sound's volume (volumeOf) and its own loop count. */
+function propsOf(id) {
   const out = {};
-  if (any && v !== 0) out.v = Math.round(v * 100) / 100;
+  const v = Math.round(volumeOf(id) * 100) / 100;
+  if (v !== 0) out.v = v;
   const l = nodeOf(id).props.l;
   if (l !== undefined) out.l = l;
   return out;
@@ -548,8 +591,9 @@ if (nodeGraphs && musicTriggers) {
         if (!file) continue;
         const sub = u32(t, at);
         if (!subs.has(sub)) subs.set(sub, []);
-        // [file, the clip's place, its begin trim, its end trim, the source's length] (ms)
-        subs.get(sub).push([file, f64(t, at + 12), f64(t, at + 20), f64(t, at + 28), f64(t, at + 36)].map((v) => (typeof v === "number" ? Math.round(v * 10) / 10 : v)));
+        // [file, the clip's place, its begin trim, its end trim, the source's length (ms), its volume (dB: the track's,
+        // its segment's, container's ... and its bus's summed)]
+        subs.get(sub).push([file, f64(t, at + 12), f64(t, at + 20), f64(t, at + 28), f64(t, at + 36), volumeOf(tid)].map((v) => (typeof v === "number" ? Math.round(v * 10) / 10 : v)));
       }
       if (subs.size) tracks.push([...subs.values()]);
     }
