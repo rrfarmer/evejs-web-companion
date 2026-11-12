@@ -10,6 +10,7 @@
   import { bridgeDo } from "../app/api.ts";
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
+  import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import NoticeBridge from "./NoticeBridge.svelte";
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
@@ -465,7 +466,12 @@
           onMove={(x, y) => (wins = moveWindow(wins, win.id, x, y))}
           onResize={(w, h) => (wins = resizeWindow(wins, win.id, w, h))}
         >
-          <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))} />
+          <!-- (the drones window in the client's layout: FlyDronesWindow; the workspace keeps DronesPanel) -->
+          {#if win.id === "drones"}
+            <FlyDronesWindow store={session.store} flow={session.flow} />
+          {:else}
+            <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))} />
+          {/if}
         </DesktopWindow>
       </ErrorBoundary>
     {/each}
