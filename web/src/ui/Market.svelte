@@ -43,6 +43,7 @@
   // R27 — the shared item icon: one cached picture per thing, falling back
   // to a name-derived tile whenever the icon cache has no entry (or no cache).
   import TypeIcon from "./TypeIcon.svelte";
+  import MarketPriceHistory from "./MarketPriceHistory.svelte";
   import NamePopup from "./NamePopup.svelte";
   import { marketQuickbar, changeQuickbar } from "./marketQuickbar.ts";
   import {
@@ -119,6 +120,26 @@
     "UI/Market/MarketQuote/NumberOfJumps": "{[numeric]num} Jumps",
     "UI/Market/MarketQuote/Expired": "Expired",
     "UI/Market/Marketbase/CommandPlaceBuyOrder": "Place Buy Order",
+    // the Price History tab (pricehistorychart.py, marketGraph.py)
+    "UI/PriceHistory/ShowGraph": "Show Graph",
+    "UI/PriceHistory/ShowTable": "Show Table",
+    "/Carbon/UI/Common/Time": "Time",
+    "UI/Common/DateWords/Month": "Month",
+    "UI/Common/DateWords/Months": "Months",
+    "UI/Common/DateWords/Year": "Year",
+    "UI/Common/DateWords/Days": "Days",
+    "UI/Common/Date": "Date",
+    "UI/Market/PriceHistory": "Orders",
+    "UI/Market/PriceHistory/Quantity": "Quantity",
+    "UI/Market/PriceHistory/LowestPrice": "Lowest",
+    "UI/Market/PriceHistory/HighestPrice": "Highest",
+    "UI/Market/PriceHistory/AveragePrice": "Average",
+    "UI/PriceHistory/MedianDayPrice": "Median Day Price",
+    "UI/PriceHistory/MinMax": "Min/Max",
+    "UI/PriceHistory/MovingAvg": "Moving Avg. ({numDays})",
+    "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Day": "{value}d",
+    "UI/PriceHistory/DonchianChannel": "Donchian Channel",
+    "UI/PriceHistory/Volume": "Volume",
     "UI/Market/Marketbase/NoTypeSelected": "No type selected",
     "UI/Market/MarketData": "Market Data",
     "UI/Market/Marketbase/PriceHistory": "Price History",
@@ -1336,6 +1357,9 @@
 
       {#if $market.priceHistory.length > 0}
         <div class="mkt-history">
+        {#if retail}
+          <MarketPriceHistory rows={$market.priceHistory} word={(label, args = {}) => qbWord(label, args)} isk={(v) => formatIsk(v === null ? null : String(v))} />
+        {:else}
         <h3>Price history</h3>
         <div class="table-wrap overflow-x-auto">
           <table class="guests reflow">
@@ -1356,6 +1380,7 @@
             </tbody>
           </table>
         </div>
+        {/if}
         </div>
       {/if}
     {/if}
