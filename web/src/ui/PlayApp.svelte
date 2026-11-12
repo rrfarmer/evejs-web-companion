@@ -867,6 +867,12 @@
   .fly-windows :global(.con-scroll td) { padding: 2px 6px; color: rgba(255, 255, 255, 0.8); white-space: nowrap; }
   .fly-windows :global(.con-scroll .r) { text-align: right; }
   .fly-windows :global(.con-scroll .con-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
+  /* MyContractsPanel: the filter row (a grid of combos, Get Contracts at the right) over the list */
+  .fly-windows :global(.con-my-filters) { display: flex; align-items: flex-end; gap: 8px; margin: 8px 0; }
+  .fly-windows :global(.con-my-filters label) { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: rgba(255, 255, 255, 0.6); }
+  .fly-windows :global(.con-my-filters select) { font-size: 12px; padding: 2px 4px; min-width: 120px; }
+  .fly-windows :global(.con-my-filters button) { margin-left: auto; font-size: 12px; padding: 4px 10px; }
+  .fly-windows :global(.con-my-list) { min-height: 300px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

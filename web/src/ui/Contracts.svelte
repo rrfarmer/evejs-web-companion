@@ -145,7 +145,32 @@
     "UI/Contracts/ContractsSearch/tabBuyAndSell", "UI/Contracts/ContractsSearch/tabCourier", "UI/Contracts/ContractsSearch/buttonSearch",
     "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/ContractsSearch/NoSearch", "UI/Contracts/ContractsSearch/labelNumberContractsFound",
     "UI/Contracts/ContractsSearch/labelNoContractsFound", "UI/Contracts/ContractsSearch/columnJumps", "UI/Contracts/ContractsSearch/columnTimeLeft",
-    "UI/Contracts/ContractsSearch/columnCreated"];
+    "UI/Contracts/ContractsSearch/columnCreated",
+    // MyContractsPanel's
+    "UI/Contracts/ContractsWindow/ContractType", "UI/Contracts/ContractsWindow/Action", "UI/Contracts/ContractsWindow/Status",
+    "UI/Contracts/ContractsWindow/GetContracts", "UI/Contracts/ContractsWindow/IssuedToBy", "UI/Contracts/ContractsWindow/IssuedBy",
+    "UI/Contracts/ContractsWindow/IssuedTo", "UI/Contracts/ContractEntry/Outstanding", "UI/Contracts/ContractsWindow/InProgress",
+    "UI/Contracts/ContractsWindow/Finished", "UI/Contracts/Auction", "UI/Contracts/ContractsWindow/ItemExchange",
+    "UI/Contracts/ContractsWindow/Courier", "UI/Common/All", "UI/Common/Contract", "UI/Common/Type", "UI/Common/From", "UI/Common/To",
+    "UI/Contracts/ContractsWindow/DateIssued", "UI/Contracts/ContractsWindow/TimeLeft", "UI/Contracts/ContractsWindow/DateAccepted",
+    "UI/Contracts/ContractsWindow/DateCompleted", "UI/Contracts/ContractsWindow/NoContractsFound"];
+  /**
+   * MyContractsPanel on the play page (contractPanels.py): its filter row - Contract Type (All, Auction, Item
+   * Exchange, Courier), Action (Issued To/By, Issued By, Issued To), Status (Outstanding, In Progress, Finished) -
+   * and Get Contracts; the list's columns Contract, Type, From, To, then by the status: Date Issued and Time Left,
+   * Date Accepted and Time Left, or Status and Date Completed. The page's own lists stand behind it: offered to you
+   * (issued to, outstanding), waiting (issued by, outstanding), taken on (in progress), expired (finished). The Owner
+   * field (me / my corporation) is not built.
+   */
+  let myType = $state<number | null>(null);
+  let myAction = $state<"both" | "by" | "to">("both");
+  let myStatus = $state<"outstanding" | "inProgress" | "finished">("outstanding");
+  const myRows = $derived.by(() => {
+    const rows = myStatus === "outstanding"
+      ? [...(myAction !== "by" ? $contracts.assigned : []), ...(myAction !== "to" ? $contracts.outstanding : [])]
+      : myStatus === "inProgress" ? $contracts.accepted : $contracts.expired;
+    return myType === null ? rows : rows.filter((r) => r.type === myType);
+  });
   /** The time left to a date as the scroll's Time Left column has it (days and hours; hours and minutes under a day). */
   function timeLeft(filetime: bigint | null): string {
     if (filetime === null) return "—";
@@ -610,6 +635,57 @@
         <p class="note">Showing the first {searchFound.entries.length} of {searchFound.numFound}.</p>
       {/if}
     {/if}
+  {:else if retail}
+    <div class="con-my-filters">
+      <label>{titleWord("UI/Contracts/ContractsWindow/ContractType") || "Contract Type"}
+        <select bind:value={myType}>
+          <option value={null}>{titleWord("UI/Common/All") || "All"}</option>
+          <option value={2}>{titleWord("UI/Contracts/Auction") || "Auction"}</option>
+          <option value={1}>{titleWord("UI/Contracts/ContractsWindow/ItemExchange") || "Item Exchange"}</option>
+          <option value={3}>{titleWord("UI/Contracts/ContractsWindow/Courier") || "Courier"}</option>
+        </select>
+      </label>
+      <label>{titleWord("UI/Contracts/ContractsWindow/Action") || "Action"}
+        <select bind:value={myAction}>
+          <option value="both">{titleWord("UI/Contracts/ContractsWindow/IssuedToBy") || "Issued To/By"}</option>
+          <option value="by">{titleWord("UI/Contracts/ContractsWindow/IssuedBy") || "Issued By"}</option>
+          <option value="to">{titleWord("UI/Contracts/ContractsWindow/IssuedTo") || "Issued To"}</option>
+        </select>
+      </label>
+      <label>{titleWord("UI/Contracts/ContractsWindow/Status") || "Status"}
+        <select bind:value={myStatus}>
+          <option value="outstanding">{titleWord("UI/Contracts/ContractEntry/Outstanding") || "Outstanding"}</option>
+          <option value="inProgress">{titleWord("UI/Contracts/ContractsWindow/InProgress") || "In Progress"}</option>
+          <option value="finished">{titleWord("UI/Contracts/ContractsWindow/Finished") || "Finished"}</option>
+        </select>
+      </label>
+      <button type="button" disabled={busy} onclick={() => void run(() => flow.loadContracts(0))}>{titleWord("UI/Contracts/ContractsWindow/GetContracts") || "Get Contracts"}</button>
+    </div>
+    <div class="con-scroll con-my-list">
+      <table>
+        <thead><tr>
+          <th>{titleWord("UI/Common/Contract") || "Contract"}</th><th>{titleWord("UI/Common/Type") || "Type"}</th>
+          <th>{titleWord("UI/Common/From") || "From"}</th><th>{titleWord("UI/Common/To") || "To"}</th>
+          {#if myStatus === "outstanding"}<th>{titleWord("UI/Contracts/ContractsWindow/DateIssued") || "Date Issued"}</th><th>{titleWord("UI/Contracts/ContractsWindow/TimeLeft") || "Time Left"}</th>
+          {:else if myStatus === "inProgress"}<th>{titleWord("UI/Contracts/ContractsWindow/DateAccepted") || "Date Accepted"}</th><th>{titleWord("UI/Contracts/ContractsWindow/TimeLeft") || "Time Left"}</th>
+          {:else}<th>{titleWord("UI/Contracts/ContractsWindow/Status") || "Status"}</th><th>{titleWord("UI/Contracts/ContractsWindow/DateCompleted") || "Date Completed"}</th>{/if}
+        </tr></thead>
+        <tbody>
+          {#each myRows as row (row.contractID)}
+            <tr ondblclick={() => open(row.contractID)} title="Double-click for the contract's details">
+              <td>{row.title || contractTypeLabel(row.type)}</td><td>{contractTypeLabel(row.type)}</td>
+              <td>{row.forCorp ? ownerName(row.issuerCorpID) : personName(row.issuerID)}</td>
+              <td>{row.assigneeID ? personName(row.assigneeID) : row.acceptorID ? personName(row.acceptorID) : "—"}</td>
+              {#if myStatus === "outstanding"}<td>{dateText(row.dateIssued)}</td><td>{timeLeft(row.dateExpired)}</td>
+              {:else if myStatus === "inProgress"}<td>{dateText(row.dateAccepted)}</td><td>{timeLeft(row.dateExpired)}</td>
+              {:else}<td>{contractStatusLabel(row.status)}</td><td>{dateText(row.dateCompleted)}</td>{/if}
+            </tr>
+          {:else}
+            <tr><td colspan="6" class="con-none">{$contracts.loaded ? titleWord("UI/Contracts/ContractsWindow/NoContractsFound") || "No contracts found" : "Looking up your contracts…"}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   {:else}
     <nav class="tabs">
       <!-- FIRST, and first on purpose: this is the list the summary line's
