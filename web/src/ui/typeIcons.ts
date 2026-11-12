@@ -51,6 +51,18 @@ export function typeIconUrl(typeID: number | null): string | null {
 }
 
 /**
+ * A type's picture from the client's own files, as evePhotosvc.GetIconByType finds it: a drone's, a ship's or a
+ * structure's rendered ahead (its graphic's icon folder), any other type's icon file (the BFF's
+ * /client-res/type-picture route; 404 where the client has none). No download from the image server.
+ */
+export function typePictureUrl(typeID: number | null, size: 64 | 128 = 64): string | null {
+  if (typeID === null || !Number.isSafeInteger(typeID) || typeID <= 0) {
+    return null;
+  }
+  return `/client-res/type-picture/${typeID}/${size}.png`;
+}
+
+/**
  * The one or two characters a fallback tile shows, derived from the item's
  * NAME — never from its ID.
  *

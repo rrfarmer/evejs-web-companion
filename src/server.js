@@ -17520,6 +17520,22 @@ app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|dds))$/, (req, re
   });
 });
 
+// A type's picture from the client's own files (evePhotosvc.GetIconByType): its graphic's picture rendered ahead, or
+// its icon's file (staticData.getTypePictureResPaths), or 404. The CCP image server's cache above is another source;
+// this one needs no download. No session: the install's pictures do not vary by player.
+app.get(/^\/client-res\/type-picture\/(\d+)\/(64|128)\.png$/, (req, res) => {
+  for (const resPath of staticData.getTypePictureResPaths(Number(req.params[0]), Number(req.params[1]))) {
+    const file = /\.dds$/.test(resPath) ? null : clientTextures.fileFor(resPath);
+    const png = file ? null : /\.dds$/.test(resPath) ? clientTextures.pngFor?.(resPath) : null;
+    if (!file && !png) continue;
+    res.set("Cache-Control", "public, max-age=2592000, immutable");
+    if (png) { res.type("png").send(png); return; }
+    res.type("png").sendFile(file, (error) => { if (error && !res.headersSent) res.status(404).end(); });
+    return;
+  }
+  res.status(404).end();
+});
+
 app.use(config.iconCacheUrlPath, express.static(config.iconCacheDir, {
   fallthrough: false,
   immutable: true,

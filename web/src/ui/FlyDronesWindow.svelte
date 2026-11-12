@@ -12,7 +12,7 @@
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
-  import { typeIconUrl, iconInitials } from "./typeIcons.ts";
+  import { typePictureUrl, iconInitials } from "./typeIcons.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
@@ -92,7 +92,7 @@
   });
   $effect(() => { if (!$drones.loaded) void flow.loadDrones().catch(() => {}); });
 
-  /** Type icons that did not load (no cached picture: drones and ships have no iconID, the client renders theirs). */
+  /** Type pictures that did not load (a type the client has no picture for). */
   let missingIcons = $state<Record<number, true>>({});
   let bayOpen = $state(true);
   let spaceOpen = $state(true);
@@ -133,8 +133,8 @@
 <svelte:window onclick={() => (menu = null)} />
 
 {#snippet picture(typeID: number | null, label: string)}
-  {#if typeID !== null && typeIconUrl(typeID) && !missingIcons[typeID]}
-    <img class="picture" src={typeIconUrl(typeID)} alt="" onerror={() => (missingIcons = { ...missingIcons, [typeID]: true })} />
+  {#if typeID !== null && typePictureUrl(typeID) && !missingIcons[typeID]}
+    <img class="picture" src={typePictureUrl(typeID)} alt="" onerror={() => (missingIcons = { ...missingIcons, [typeID]: true })} />
   {:else}
     <span class="picture tile">{iconInitials(label)}</span>
   {/if}

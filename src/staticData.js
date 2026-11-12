@@ -343,6 +343,51 @@ function getFactionName(factionID) {
  * the bloodlines EveJS actually names is the CALLER's job, because only the
  * retail read knows which those are.
  */
+/**
+ * A type's picture as the client finds it (evePhotosvc.GetIconByType): a renderable type's is its graphic's picture
+ * rendered ahead, GetRenderPath - the graphic's iconFolder and `<graphicID>_<64 or 128>.png`; any other type's is its
+ * icon's file (typeHelpers.GetIcon: the type's iconID's iconFile). The res: paths to try, in that order: [] for none.
+ * The SDE's types are scanned once for the two numbers only (the file is large; its other fields are not kept).
+ */
+function getTypePictureResPaths(typeID, size = 64) {
+  const numericTypeID = Number(typeID) || 0;
+  if (numericTypeID <= 0) return [];
+  let types = caches.get("types:graphicAndIcon");
+  if (!types) {
+    types = new Map();
+    const filePath = path.join(SDE_DIR, "types.jsonl");
+    if (fs.existsSync(filePath)) {
+      for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+        const key = /^\{"_key": ?(\d+)/.exec(line);
+        if (!key) continue;
+        const graphic = /"graphicID": ?(\d+)/.exec(line);
+        const icon = /"iconID": ?(\d+)/.exec(line);
+        if (graphic || icon) types.set(Number(key[1]), [graphic ? Number(graphic[1]) : 0, icon ? Number(icon[1]) : 0]);
+      }
+    }
+    caches.set("types:graphicAndIcon", types);
+  }
+  let folders = caches.get("graphics:iconFolder");
+  if (!folders) {
+    folders = new Map();
+    for (const row of readJsonlTable("graphics.jsonl")) if (row && row.iconFolder) folders.set(Number(row._key), String(row.iconFolder));
+    caches.set("graphics:iconFolder", folders);
+  }
+  let iconFiles = caches.get("icons:iconFile");
+  if (!iconFiles) {
+    iconFiles = new Map();
+    for (const row of readJsonlTable("icons.jsonl")) if (row && row.iconFile) iconFiles.set(Number(row._key), String(row.iconFile));
+    caches.set("icons:iconFile", iconFiles);
+  }
+  const [graphicID, iconID] = types.get(numericTypeID) || [0, 0];
+  const out = [];
+  const folder = graphicID ? folders.get(graphicID) : null;
+  if (folder) out.push(`${folder.replace(/\/+$/, "")}/${graphicID}_${size > 64 ? 128 : 64}.png`.toLowerCase());
+  const iconFile = iconID ? iconFiles.get(iconID) : null;
+  if (iconFile) out.push(iconFile.trim().toLowerCase());
+  return out;
+}
+
 function listAncestries() {
   const cacheKey = "ancestries:list";
   if (caches.has(cacheKey)) {
@@ -2455,5 +2500,6 @@ module.exports = {
   getTypeIconUrl,
   getTypeName,
   listAncestries,
+  getTypePictureResPaths,
   normalizeIconRequest,
 };

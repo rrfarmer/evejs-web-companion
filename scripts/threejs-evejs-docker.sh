@@ -79,6 +79,7 @@ case "${1:-}" in
       \$env:EVEJS_WEB_GATEWAY_TOKEN = '$EVEJS_WEB_GATEWAY_TOKEN';
       \$env:EVEJS_GAMESTORE_DATA_DIR = '$(win "$STORE_DIR/gameStore/data")';
       \$env:EVEJS_GAMESTORE_DB = '$(win "$STORE_DIR/gameStore/gamestore.sqlite")';
+      \$env:EVEJS_ROOT = '$(win "$EVEJS_ROOT")';
       \$env:EVEJS_CLIENT_ROOT = '$(win "${EVE_CLIENT_DIR:-$HOME/Documents/EVE Online - 3396210}")';
       \$env:EVEJS_NATIVE_CLIENT = 'off';
       \$p = Start-Process node -ArgumentList '--env-file-if-exists=.env','src/server.js' -WorkingDirectory '$(win "$HERE")' -WindowStyle Hidden -RedirectStandardOutput '$(win "$STORE_DIR/bff.out.log")' -RedirectStandardError '$(win "$STORE_DIR/bff.err.log")' -PassThru;
