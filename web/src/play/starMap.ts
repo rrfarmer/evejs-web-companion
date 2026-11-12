@@ -84,7 +84,14 @@
 //   1) = 145.3 / 5000 x it - at NAME_OPACITY_FULL 0.75; otherwise MARKER_NONE: only a selected or hilighted system's
 //   name, at LABEL_LEFT);
 // - the map opens in the abstract layout (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True).
-// Not yet: the medium zoom's preview bubbles (the systems near the mouse, PREVIEW_PICKER_SIZE); constellation and region markers; the my-location marker's pulse
+// - the medium zoom's preview bubbles (MapViewWorld.PickSceneNearMouse / GetObjectsNearMouse: the systems whose
+//   points are within GetSizeForUIElement(PREVIEW_PICKER_SIZE 1400, ...) px of the mouse, and the active one; ClearNearMouse
+//   leaves the active one): shape 5 (6 the active one) for them, 4 for the rest; their names centred under the medium
+//   content (TUBE_BUBBLE_CONTENT_MEDIUM 106.25), opacity 0 past MAP2D_ZOOM_NO_SYSTEM_NAME 0.71, else NAME_OPACITY_FAINT
+//   0.3 + t x 0.45 with t = (zoom - 0.71) / (0.66 - 0.71), the selected one's 0.75;
+// - in the abstract layout the lines' distance range (MAX_CAMERA_DISTANCE_2DVIEW, x 10000)
+//   (MapViewWorld._UpdateDistanceRangeValues).
+// Not yet: constellation and region markers; the my-location marker's pulse
 // circles (three circleFilled256 rings, alpha to 0.02).
 
 import * as THREE from "three";
@@ -278,6 +285,10 @@ export class StarMap {
   private extraMesh: THREE.Mesh | null = null;
   /** The marker size type the abstract sprites are at (MARKER_NONE / MEDIUM / BIG), and the big markers' names. */
   markerSize: "none" | "medium" | "big" = "none";
+  /** The mouse over the map (page coordinates), and the preview bubbles' systems (previewBubbleMarkerIDs). */
+  private mouse: { x: number; y: number } | null = null;
+  preview = new Set<number>();
+  private zoomValue = 1;
   private bigNames = new Map<number, HTMLDivElement>();
   private readonly positions = new Map<number, THREE.Vector3>();
   /** Each system's place in the two layouts, and the stars' position attribute. */
@@ -343,8 +354,12 @@ export class StarMap {
       }
       down = null;
     });
-    canvas.addEventListener("pointermove", (e) => { if (!down) this.hover(this.starAt(e.clientX, e.clientY)); });
-    canvas.addEventListener("pointerleave", () => this.hover(null));
+    canvas.addEventListener("pointermove", (e) => {
+      this.mouse = { x: e.clientX, y: e.clientY };
+      if (!down) this.hover(this.starAt(e.clientX, e.clientY));
+      this.pickNearMouse();
+    });
+    canvas.addEventListener("pointerleave", () => { this.hover(null); this.mouse = null; this.pickNearMouse(); });
     this.camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(1.0), 1, 0.1, MAX_CAMERA_DISTANCE * 4);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.minDistance = MIN_CAMERA_DISTANCE;
@@ -596,6 +611,39 @@ export class StarMap {
     if (t >= 1) this.morph = null;
   }
 
+  /** PickSceneNearMouse / ClearNearMouse: the preview bubbles' systems at the medium zoom, their shapes redone. */
+  private pickNearMouse(): void {
+    const next = new Set<number>();
+    if (this.abstract && this.markerSize === "medium") {
+      if (this.selectedID !== null) next.add(this.selectedID);
+      if (this.mouse) {
+        const r = this.renderer.domElement.getBoundingClientRect();
+        const box = 1400 / 5000 * r.height;
+        const v = new THREE.Vector3();
+        for (const [id, p] of this.positions) {
+          v.copy(p).project(this.camera);
+          if (v.z <= -1 || v.z >= 1) continue;
+          const x = r.left + (v.x + 1) / 2 * r.width, y = r.top + (1 - v.y) / 2 * r.height;
+          if (x < r.left - 20 || x > r.right + 20 || y < r.top - 20 || y > r.bottom + 20) continue;
+          if ((x - this.mouse.x) ** 2 + (y - this.mouse.y) ** 2 < box * box) next.add(id);
+        }
+      }
+    }
+    if (next.size === this.preview.size && [...next].every((id) => this.preview.has(id))) return;
+    this.preview = next;
+    if (this.markerSize === "medium") this.writeShapes("medium");
+  }
+
+  /** _GetDataTextureShape for every star at a marker size type. */
+  private writeShapes(size: "medium" | "big"): void {
+    if (!this.shapes) return;
+    const a = this.shapes.array as Float32Array;
+    this.starOrder.forEach((id, i) => {
+      a[i] = size === "big" ? (id === this.selectedID ? 1 : 0) : !this.preview.has(id) ? 4 : id === this.selectedID ? 6 : 5;
+    });
+    this.shapes.needsUpdate = true;
+  }
+
   /** ApplyStarColors / _UpdateDataShapeAndSize with the sprite values of a marker size type (MapViewWorld's). */
   private shapesFor: number | null = null;
   private applySpriteValues(size: "none" | "medium" | "big"): void {
@@ -612,13 +660,10 @@ export class StarMap {
       b.heat.value = this.tubeTex; b.hasHeat.value = this.tubeTex ? 1 : 0;
       this.extraUniforms.sizeFactor.value = size === "big" ? 7.6 : 4.5;
       if (this.extraMesh) this.extraMesh.visible = true;
-      if (this.shapes) {
-        const a = this.shapes.array as Float32Array;
-        this.starOrder.forEach((id, i) => { a[i] = size === "big" ? (id === this.selectedID ? 1 : 0) : 4; });
-        this.shapes.needsUpdate = true;
-      }
+      this.writeShapes(size);
     }
-    if (size !== "big") { for (const el of this.bigNames.values()) el.remove(); this.bigNames.clear(); }
+    if (size === "none") { for (const el of this.bigNames.values()) el.remove(); this.bigNames.clear(); }
+    this.pickNearMouse();
   }
 
   /** The destination path, the pilot's system first (UpdateAutopilotJumpRoute): its lines drawn as the route. */
@@ -748,10 +793,14 @@ export class StarMap {
     };
     const eye = this.camera.position;
     // the abstract markers' content: big - every on-screen system's name under its bubble; else only the selected's
-    if (this.markerSize === "big") {
-      const content = 145.3 / 5000 * h;
+    if (this.markerSize === "big" || this.markerSize === "medium") {
+      const big = this.markerSize === "big";
+      const content = (big ? 145.3 : 106.25) / 5000 * h;
+      // the medium names' opacity by the zoom value (_GetMarkerSizeToUse)
+      const faint = this.zoomValue > 0.71 ? 0 : 0.3 + ((this.zoomValue - 0.71) / (0.66 - 0.71)) * 0.45;
       const seen = new Set<number>();
       for (const [id, at] of this.positions) {
+        if (!big && !this.preview.has(id)) continue;
         const p = project(at);
         if (!p || p.x < -100 || p.x > w + 100 || p.y < -100 || p.y > h + 100) continue;
         seen.add(id);
@@ -764,6 +813,7 @@ export class StarMap {
           this.markers.appendChild(el);
           this.bigNames.set(id, el);
         }
+        el.style.opacity = String(big || id === this.selectedID || id === this.hoverID ? 0.75 : faint);
         const width = el.offsetWidth;
         el.style.transform = `translate(${(p.x - width / 2).toFixed(1)}px, ${(p.y + (content + 12) / 2 + 3 - 6).toFixed(1)}px)`;
       }
@@ -834,6 +884,7 @@ export class StarMap {
       const def = zoom < 0.75 ? 0.4 : 0.3;
       if (def !== this.abstractDefault) { this.abstractDefault = def; this.updateLineOpacity(); }
       kind = zoom < 0.66 ? "big" : zoom < 0.75 ? "medium" : "none";
+      this.zoomValue = zoom;
     }
     if (kind !== this.markerSize || (kind !== "none" && this.shapesFor !== this.selectedID)) this.applySpriteValues(kind);
     // the move to a newly selected system: the point of interest and the eye together, over half a second
@@ -853,7 +904,8 @@ export class StarMap {
     this.camera.updateProjectionMatrix();
     const fadeOutFar = Math.max(100, distance * 4);
     this.starUniforms.distanceRange.value.set(distance, fadeOutFar);
-    this.lineUniforms.distanceRange.value.set(distance, fadeOutFar * 100);
+    if (this.abstract) this.lineUniforms.distanceRange.value.set(310000, 310000 * 10000);
+    else this.lineUniforms.distanceRange.value.set(distance, fadeOutFar * 100);
     this.lineUniforms.targetResolution.value.set(this.renderer.domElement.width, this.renderer.domElement.height);
     this.lineUniforms.time.value = performance.now() / 1000;
     this.renderer.render(this.scene, this.camera);
