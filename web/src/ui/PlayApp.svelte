@@ -1132,6 +1132,23 @@
   .fly-windows :global(.ps-results) { flex: 1; min-height: 0; overflow: auto; }
   .fly-windows :global(.ps-filter) { height: 22px; line-height: 22px; padding-left: 2px; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
   .fly-windows :global(.ps-none) { text-align: center; color: rgba(255, 255, 255, 0.5); font-size: 12px; margin-top: 24px; }
+  /* ScanResultNew: 24 high; the icon 16 in the certainty's colour (GetResultColor); the status bar 2 high at the bottom
+     - the base and the change; the warp button 22 in the signal column; the filter row: Scan Results at the left */
+  .fly-windows :global(.ps-retail table) { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .fly-windows :global(.ps-retail th) { text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 4px; }
+  .fly-windows :global(.ps-row) { height: 24px; background-image: linear-gradient(90deg, color-mix(in srgb, var(--cert) 35%, black) var(--base),
+    color-mix(in srgb, var(--cert) 50%, black) var(--base) calc(var(--base) + var(--change)), transparent 0);
+    background-size: 100% 2px; background-repeat: no-repeat; background-position: bottom; }
+  .fly-windows :global(.ps-row td) { padding: 0 4px; white-space: nowrap; }
+  .fly-windows :global(.ps-ic) { width: 16px; padding: 0 2px !important; }
+  .fly-windows :global(.ps-result-icon) { display: block; width: 16px; height: 16px; background: var(--cert, #fff);
+    -webkit-mask: var(--icon) center / 16px 16px no-repeat; mask: var(--icon) center / 16px 16px no-repeat; }
+  .fly-windows :global(.ps-warp) { background: none; border: 0; padding: 0; width: 22px; height: 22px; cursor: pointer; }
+  .fly-windows :global(.ps-warp img) { width: 22px; height: 22px; display: block; }
+  .fly-windows :global(.ps-retail) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .fly-windows :global(.ps-retail > :is(table, p, .error, .filter-panel)) { flex: 0 0 100%; }
+  .fly-windows :global(.ps-retail > .ps-caption) { font-size: 13px; margin-right: auto; padding-left: 2px; }
+  .fly-windows :global(.ps-results) { overflow-x: hidden !important; }
   .fly-windows :global(.ps-bottom) { height: 64px; margin-top: 4px; padding: 4px; background: rgba(255, 255, 255, 0.04); border-top: 1px solid rgba(255, 255, 255, 0.08); }
   .fly-windows :global(.ps-state) { display: flex; align-items: center; height: 24px; margin-bottom: 4px; gap: 4px; padding-left: 4px; }
   .fly-windows :global(.ps-probe) { width: 28px; height: 28px; display: inline-flex; }

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { getContext } from "svelte";
+  import { resultColor } from "../bridge/probeResults.ts";
   // The probe scanner's results (bridge/probeResults.ts): the session's system's results as the client's scan handler
   // keeps them from OnSystemScanStopped, listed as its results scroll lists them (scanResults.py, ScanResultNew):
   // distance from the ship, ID, name, group and signal strength, by ID; the client's words for "no results" where
@@ -47,6 +49,8 @@
   const space = store.space;
 
   const held = $derived($scanner.probeResults);
+  /** On the play page the rows as scannerListEntries.ScanResultNew draws them (the icon, the bar, the warp button). */
+  const retail = getContext("retailChrome") === true;
 
   // The distances are from the ship, as the space read has it (michelle.GetMyPosition). This window shows live space
   // data, so it claims the space feed as every such window does (HudBar, SpaceOverview): on a screen with no HUD (the
@@ -183,7 +187,8 @@
 </script>
 
 {#if held !== null}
-  <section class="probe-results">
+  <section class="probe-results" class:ps-retail={retail}>
+    {#if retail}<span class="ps-caption">{word(PROBE_RESULT_LABELS.scanResults) ?? "Scan Results"}</span>{/if}
     <!-- The filtered box and its panel, "Show results for" (_LoadFilterTooltipPanel, 445 to 480): the anomalies' box
          and each standard filter's. -->
     <div class="ignored-box">
@@ -262,6 +267,7 @@
       <table class="guests">
         <thead>
           <tr>
+            {#if retail}<th class="ps-ic"></th>{/if}
             <th>{word(PROBE_RESULT_LABELS.distance) ?? "Distance"}</th>
             <th>{word(PROBE_RESULT_LABELS.id) ?? "ID"}</th>
             <th>{word(PROBE_RESULT_LABELS.name) ?? "Name"}</th>
@@ -272,12 +278,18 @@
         </thead>
         <tbody>
           {#each rows as row (row.id)}
-            <tr>
+            <tr class:ps-row={retail} style={retail ? `--cert: ${resultColor(row.certainty)}; --base: ${Math.min(row.certainty, row.prevCertainty) * 100}%; --change: ${Math.abs(row.certainty - row.prevCertainty) * 100}%` : undefined}
+              oncontextmenu={retail ? (event) => { event.preventDefault(); menuFor = menuFor === row.id ? null : row.id; } : undefined}>
+              {#if retail}<td class="ps-ic"><span class="ps-result-icon" style={`--icon: url(/client-res/${row.icon})`}></span></td>{/if}
               <td class="num">{row.distance === null ? "" : fmtDist(row.distance)}</td>
               <td>{row.id}</td>
               <td>{row.name}</td>
               <td>{row.group}</td>
-              <td class="num">{row.signal}</td>
+              <td class="num">
+                {#if retail && row.isPerfect && accurateIDs.has(row.id) && row.distance !== null && row.distance > MIN_WARP_DISTANCE}
+                  <button type="button" class="ps-warp" title={word(PROBE_RESULT_LABELS.warpTo) ?? "Warp To"} onclick={() => warpTo(row.id, defaultWarp)}><img alt="" src="/client-res/ui/texture/icons/44_32_18.png" /></button>
+                {:else}{row.signal}{/if}
+              </td>
               <td>
                 <button type="button" class="minor" aria-label="Result menu" aria-expanded={menuFor === row.id}
                   onclick={() => (menuFor = menuFor === row.id ? null : row.id)}>⋯</button>

@@ -81,6 +81,9 @@ export const PROBE_RESULT_LABELS = Object.freeze({
   /** Takes percentage. */
   percentage: "UI/Common/Percentage",
   noResults: "UI/Inflight/Scanner/NoScanResults",
+  /** The filter row's caption and the row's warp button (probeScannerPalette.py 214; ScanResultNew.Load). */
+  scanResults: "UI/Inflight/Scanner/ScanResults",
+  warpTo: "UI/Commands/WarpTo",
   // The results' own menu and the ignored box (scanResults.result_menu, 188 and 189; probeScannerPalette.py 215 and
   // 492 to 537; scannerToolsUIComponents.IgnoredBox, 121 to 129). The first is spelt as the client spells it.
   ignoreResult: "UI/Inflight/Scanner/IngoreResult",
@@ -499,6 +502,30 @@ export interface ResultRow {
   readonly group: string;
   readonly signal: string;
   readonly certainty: number;
+  /** The certainty at the scan before, for the row's bar (ScanResultNew.Load: the base and the change). */
+  readonly prevCertainty: number;
+  /** A perfect result, which the client's row offers a warp to in place of its percentage. */
+  readonly isPerfect: boolean;
+  /**
+   * The row's icon (mapMarkerUtil.GetResultTexturePath): the scan group's bracket (ICONS_BY_SCANGROUP) where the result
+   * has one, else the result-location mark; res: path below res:/, lower-cased as the page serves the install.
+   */
+  readonly icon: string;
+}
+
+/** mapMarkerUtil.ICONS_BY_SCANGROUP: the bracket of each signature kind, by its strength attribute. */
+const ICONS_BY_SCANGROUP: Readonly<Record<number, string>> = Object.freeze({
+  211: "ui/texture/shared/brackets/ore_site_16.png", 209: "ui/texture/shared/brackets/harvestablecloud.png",
+  210: "ui/texture/shared/brackets/relic_site_16.png", 208: "ui/texture/shared/brackets/data_site_16.png",
+  1908: "ui/texture/shared/brackets/wormhole.png", 1136: "ui/texture/shared/brackets/combatsite_16.png",
+});
+
+/** mapMarkerUtil.GetResultColor: red to a quarter, orange to three quarters, yellow below one, green at one. */
+export function resultColor(certainty: number | null): string {
+  if (certainty === null || certainty <= 0.25) return "#ff0000";
+  if (certainty <= 0.75) return "#e68000";
+  if (certainty < 1) return "#ffff1a";
+  return "#00cc00";
 }
 
 export interface ResultWording {
@@ -552,6 +579,9 @@ export function resultRows(results: readonly ShownResult[], myPosition: Vec3 | n
       group: groupNameOf(result, wording),
       signal: wording.words(PROBE_RESULT_LABELS.percentage, { percentage }) ?? `${percentage}%`,
       certainty: result.certainty,
+      prevCertainty: result.prevCertainty,
+      isPerfect: result.isPerfect,
+      icon: (result.strengthAttributeID !== null ? ICONS_BY_SCANGROUP[result.strengthAttributeID] : undefined) ?? "ui/texture/classes/mapview/scanresultlocation.png",
     };
   }).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
