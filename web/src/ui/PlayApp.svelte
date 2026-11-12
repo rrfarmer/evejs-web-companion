@@ -887,6 +887,20 @@
   .fly-windows :global(.ind-layout.retail[data-tab="facilities"] > section:is(.ind-jobs, .ind-blueprints)),
   .fly-windows :global(.ind-layout.retail[data-tab="jobs"] > section:is(.ind-blueprints, .ind-facilities)),
   .fly-windows :global(.ind-layout.retail[data-tab="research"] > section:is(.ind-jobs, .ind-blueprints, .ind-facilities)) { display: none; }
+  /* BrowserFacilities: the top row (Owner, Activity, a filter) over the scroll; the activities' columns headed by their
+     small icons (industryUIConst.ACTIVITY_ICONS_SMALL) */
+  .fly-windows :global(.ind-fac-top) { display: flex; gap: 4px; margin-bottom: 4px; }
+  .fly-windows :global(.ind-fac-top select) { width: 140px; font-size: 12px; padding: 2px 4px; }
+  .fly-windows :global(.ind-fac-top input) { margin-left: auto; width: 160px; font-size: 12px; padding: 2px 6px; }
+  .fly-windows :global(.ind-scroll) { max-height: 420px; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.ind-scroll table) { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .fly-windows :global(.ind-scroll th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6);
+    padding: 3px 6px; white-space: nowrap; }
+  .fly-windows :global(.ind-scroll td) { padding: 2px 6px; color: rgba(255, 255, 255, 0.8); white-space: nowrap; }
+  .fly-windows :global(.ind-scroll .r) { text-align: right; }
+  .fly-windows :global(.ind-scroll .ic) { text-align: center; width: 24px; }
+  .fly-windows :global(.ind-scroll th.ic img) { width: 16px; height: 16px; vertical-align: middle; }
+  .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

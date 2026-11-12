@@ -10,6 +10,7 @@
   // nothing here computes a job outcome — the status a job shows, including
   // whether it is ready, is the one the SERVER returned.
   import { getContext, onMount, untrack } from "svelte";
+  import { securityStatusColor, shownSecurity } from "../bridge/systemSecurity.ts";
   import { installTarget } from "../app/industryInstallTarget.ts";
   import {
     ACTIVITY_LABELS,
@@ -568,7 +569,51 @@
     { id: "jobs", label: "UI/Industry/Jobs", own: "Jobs" },
     { id: "research", label: "UI/Journal/JournalWindow/Agents/Research", own: "Research" },
   ];
-  const INDUSTRY_TAB_WORDS = INDUSTRY_TABS.map((t) => t.label);
+  /**
+   * BrowserFacilities on the play page (browserFacilities.py, facilityEntry.py): its top row - the Owner combo (All
+   * Facilities, Public Facilities, Corp-Owned: a facility owned by the pilot's corporation or not), the Activity
+   * combo (All Activities and the six), a quick filter on the name, owner and type - and the scroll's columns Jumps,
+   * Security, Facility, one per activity (the system cost index there: industry.Reference.SYSTEM modifiers, which the
+   * page does not read - a dash where the facility hosts the activity), Tax with an activity chosen, Facility Type,
+   * Owner. The Range combo and the jumps are not built (the page reads no distances).
+   */
+  const CLIENT_ACTIVITIES: readonly { id: IndustryActivity; label: string; icon: string }[] = [
+    { id: "manufacturing", label: "UI/Industry/ActivityManufacturing", icon: "manufacturing" },
+    { id: "copying", label: "UI/Industry/ActivityCopying", icon: "copying" },
+    { id: "research_material", label: "UI/Industry/ActivityMaterialEfficiencyResearch", icon: "researchmaterial" },
+    { id: "research_time", label: "UI/Industry/ActivityTimeEfficiencyResearch", icon: "researchtime" },
+    { id: "invention", label: "UI/Industry/ActivityInvention", icon: "invention" },
+    { id: "reaction", label: "UI/Industry/ActivityReaction", icon: "reaction" },
+  ];
+  let facOwner = $state<"any" | "npc" | "corp">("any");
+  let facActivity = $state<IndustryActivity | "">("");
+  let facFilter = $state("");
+  let securityBySystem = $state<ReadonlyMap<number, number>>(new Map());
+  $effect(() => {
+    if (!retail || browserTab !== "facilities" || securityBySystem.size) return;
+    void flow.loadStarMap().then((map) => {
+      securityBySystem = new Map(map.systems.filter((s) => typeof s[8] === "number").map((s) => [s[0], s[8] as number]));
+    }).catch(() => {});
+  });
+  $effect(() => {
+    if (!retail || browserTab !== "facilities") return;
+    const refs = $industry.facilities.flatMap((f) => [{ kind: "type" as const, id: f.typeID }, { kind: "owner" as const, id: f.ownerID }]);
+    if (refs.length) flow.requestNames(refs);
+  });
+  const shownFacilities = $derived.by(() => {
+    const corp = $station.online?.corporationID ?? null;
+    const q = facFilter.trim().toLowerCase();
+    return usableFacilities.filter((f) => {
+      if (facActivity && !f.activities.includes(facActivity)) return false;
+      if (facOwner !== "any" && (f.ownerID === corp) !== (facOwner === "corp")) return false;
+      if (q && !(facilityName(f.facilityID) + resolvedName($names.resolved, "owner", f.ownerID, "") + typeName(f.typeID)).toLowerCase().includes(q)) return false;
+      return true;
+    });
+  });
+  const INDUSTRY_TAB_WORDS = [...INDUSTRY_TABS.map((t) => t.label), ...CLIENT_ACTIVITIES.map((a) => a.label),
+    "UI/Industry/AllFacilities", "UI/Industry/PublicFacilities", "UI/Industry/CorpOwnedFacilities", "UI/Industry/AllActivities",
+    "UI/Common/Jumps", "UI/Common/Security", "UI/Industry/Facility", "UI/Industry/Tax", "UI/Industry/FacilityType", "UI/Common/Owner",
+    "UI/Industry/NoFacilitiesFound"];
   $effect(() => { if (retail) flow.requestWords(INDUSTRY_TAB_WORDS); });
   function industryWord(label: string): string {
     const t = $words.templates[label];
@@ -1002,6 +1047,48 @@
     </section>
   {/if}
 
+  {#if retail}
+  <section class="ind-facilities ind-fac-client">
+    <div class="ind-fac-top">
+      <select bind:value={facOwner}>
+        <option value="any">{industryWord("UI/Industry/AllFacilities") || "All Facilities"}</option>
+        <option value="npc">{industryWord("UI/Industry/PublicFacilities") || "Public Facilities"}</option>
+        <option value="corp">{industryWord("UI/Industry/CorpOwnedFacilities") || "Corp-Owned Facilities"}</option>
+      </select>
+      <select bind:value={facActivity}>
+        <option value="">{industryWord("UI/Industry/AllActivities") || "All Activities"}</option>
+        {#each CLIENT_ACTIVITIES as a (a.id)}<option value={a.id}>{industryWord(a.label) || ACTIVITY_LABELS[a.id]}</option>{/each}
+      </select>
+      <input type="search" placeholder="Filter" bind:value={facFilter} />
+    </div>
+    <div class="ind-scroll">
+      <table>
+        <thead><tr>
+          <th class="r">{industryWord("UI/Common/Jumps") || "Jumps"}</th><th>{industryWord("UI/Common/Security") || "Security"}</th>
+          <th>{industryWord("UI/Industry/Facility") || "Facility"}</th>
+          {#each CLIENT_ACTIVITIES as a (a.id)}<th class="ic" title={industryWord(a.label) || ACTIVITY_LABELS[a.id]}><img alt="" src={`/client-res/ui/texture/classes/industry/${a.icon}.png`} /></th>{/each}
+          {#if facActivity}<th class="r">{industryWord("UI/Industry/Tax") || "Tax"}</th>{/if}
+          <th>{industryWord("UI/Industry/FacilityType") || "Facility Type"}</th><th>{industryWord("UI/Common/Owner") || "Owner"}</th>
+        </tr></thead>
+        <tbody>
+          {#each shownFacilities as f (f.facilityID)}
+            {@const sec = securityBySystem.get(f.solarSystemID)}
+            <tr>
+              <td class="r">—</td>
+              <td>{#if sec !== undefined}<span style={`color: ${securityStatusColor(sec)}`}>{shownSecurity(sec).toFixed(1)}</span>{/if}</td>
+              <td>{facilityName(f.facilityID)}{#if !f.online}<small class="note"> offline</small>{/if}</td>
+              {#each CLIENT_ACTIVITIES as a (a.id)}<td class="ic">{f.activities.includes(a.id) ? "—" : ""}</td>{/each}
+              {#if facActivity}<td class="r">{taxText(f.tax)}</td>{/if}
+              <td>{typeName(f.typeID)}</td><td>{resolvedName($names.resolved, "owner", f.ownerID, "")}</td>
+            </tr>
+          {:else}
+            <tr><td colspan="12" class="ind-none">{industryWord("UI/Industry/NoFacilitiesFound") || "No facilities found"}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {:else}
   <section class="ind-facilities">
     <h2>Places you can work</h2>
     {#if $industry.facilitiesError}
@@ -1041,5 +1128,6 @@
       </div>
     {/if}
   </section>
+  {/if}
   </div>
 {/if}
