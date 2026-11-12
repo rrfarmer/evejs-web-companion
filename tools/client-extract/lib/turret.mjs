@@ -64,7 +64,7 @@ const isCurve = (o) => typeof o?.type === "string" && (o.type.startsWith("Tr2Cur
  * destination named as the stretch has it - an effect parameter by its name ("param:Intensity"), or its source or
  * destination light - with its attribute, scale and offset (TriValueBinding).
  */
-function stretchCurveSet(cs, s) {
+function stretchCurveSet(cs, s, all = [s]) {
   if (!cs) return null;
   const curves = (cs.curves ?? []).filter(isCurve);
   const index = new Map(curves.map((c, i) => [c, i]));
@@ -80,6 +80,12 @@ function stretchCurveSet(cs, s) {
     else if (s.destinationLight && same(dst, s.destinationLight) && !same(dst, s.sourceLight)) target = "destinationLight";
     // (the two lights alike: told apart by the binding's name, SRC_ / DEST_ as the client's files name them)
     else if (s.sourceLight && same(dst, s.sourceLight)) target = /^dest/i.test(b.name ?? "") ? "destinationLight" : "sourceLight";
+    // a GPU emitter: this stretch's or another's of the firing effect (a muzzle's set may drive its neighbour's), by
+    // the stretch's index and end
+    if (!target && /^Tr2Gpu(Shared|Unique)Emitter$/.test(dst.type ?? "")) {
+      const i = all.findIndex((x) => x?.sourceEmitter === dst || x?.destinationEmitter === dst);
+      if (i >= 0) target = `emitter:${i}:${all[i].sourceEmitter === dst ? "source" : "destination"}`;
+    }
     if (!target) continue;
     bindings.push({
       name: b.name ?? null, source: index.has(src) ? index.get(src) : null, sourceCurve: index.has(src) ? null : plainCurve(src),
@@ -89,6 +95,9 @@ function stretchCurveSet(cs, s) {
   }
   return { scale: cs.scale ?? 1, curves: curves.map(plainCurve), bindings };
 }
+
+/** A Tr2GpuSharedEmitter / Tr2GpuUniqueEmitter as the file has it (gpuParticles.ts reads its fields by name). */
+const gpuEmitter = (e) => (e && (e.type === "Tr2GpuSharedEmitter" || e.type === "Tr2GpuUniqueEmitter") ? JSON.parse(JSON.stringify(e)) : null);
 
 const pointLight = (l) => (l ? {
   position: l.position ?? [0, 0, 0], radius: Number(l.radius ?? 0), color: l.color ?? [1, 1, 1, 1], brightness: Number(l.brightness ?? 1),
@@ -100,7 +109,7 @@ const pointLight = (l) => (l ? {
  * name), constant parameters and textures, quad count, start / loop / end curve sets and lights; another kind (EveStretch,
  * EveStretch3) by its type alone, not drawn yet.
  */
-function readStretch(s) {
+function readStretch(s, _i, all) {
   if (s?.type !== "EveStretch2") return { type: s?.type ?? null, name: s?.name ?? null };
   const fx = s.effect ?? null;
   const params = {};
@@ -111,9 +120,10 @@ function readStretch(s) {
     type: "EveStretch2", name: s.name ?? null, quadCount: Math.min(128, Number(s.quadCount ?? 0)),
     effect: fx?.effectFilePath ? String(fx.effectFilePath).split("/").pop().replace(/\.fx$/i, "").toLowerCase() : null,
     params, textures,
-    start: stretchCurveSet(s.start, s), loop: stretchCurveSet(s.loop, s), end: stretchCurveSet(s.end, s),
+    start: stretchCurveSet(s.start, s, all), loop: stretchCurveSet(s.loop, s, all), end: stretchCurveSet(s.end, s, all),
     sourceLight: pointLight(s.sourceLight), destinationLight: pointLight(s.destinationLight),
-    hasEmitters: !!(s.sourceEmitter || s.destinationEmitter),
+    // its GPU emitters, updated with the end frames (EveStretch2::Update); another kind of emitter left out
+    sourceEmitter: gpuEmitter(s.sourceEmitter), destinationEmitter: gpuEmitter(s.destinationEmitter),
   };
 }
 
@@ -157,7 +167,7 @@ export function readTurret(rf, graphicFile) {
   const override = fx?.firingDurationOverride ?? -1;
   const effect = set.turretEffect ?? null;
   return {
-    turretBuild: 5,
+    turretBuild: 7,
     // the aiming (EveTurretAiming: the file's sysBone numbers, its class defaults where it has none)
     aiming: {
       height: Number(set.sysBoneHeight ?? 1), pitchFactor: Number(set.sysBonePitchFactor ?? 1), pitchOffset: Number(set.sysBonePitchOffset ?? 0),

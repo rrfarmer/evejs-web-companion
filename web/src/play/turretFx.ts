@@ -11,6 +11,7 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { Stretch2Effect, stretch2Kit, type SofStretch2, type Stretch2Kit } from "../three/stretch2.ts";
+import { gpuSystemOf } from "../three/gpuParticles.ts";
 
 interface Firing {
   shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number;
@@ -280,7 +281,7 @@ export class TurretFx {
     let fx = this.stretches.get(f);
     if (!fx) {
       fx = kit.map((k) => new Stretch2Effect(k));
-      for (const s of fx) this.group.add(s.mesh);
+      for (const s of fx) { this.group.add(s.mesh); s.peers = fx; }
       this.stretches.set(f, fx);
     }
     const colour = f.chargeTypeID ? ammoColour(f.chargeTypeID) : null;
@@ -320,7 +321,7 @@ export class TurretFx {
     live.forEach(({ s, at }, i) => {
       const intensity = live.length > 1 && camera ? (i === 0 ? live.length + (1 - live.length) * merge : merge) : 1;
       s.place(at, to, destScale, intensity);
-      s.update(now);
+      s.update(now, this.group.parent ? gpuSystemOf(this.group.parent) : null);
       s.mesh.visible = intensity > 0;
     });
     return true;

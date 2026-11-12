@@ -333,6 +333,11 @@ export class GpuEmitter {
     this.unique = data.type === "Tr2GpuUniqueEmitter";
     this.params = paramsOf(data);
   }
+  /** An attribute a curve binding sets (a stretch's: rate, color1 ...): the emitter's data, its params read again. */
+  setValue(attr: string, value: number | number[]): void {
+    (this.data as unknown as Record<string, unknown>)[attr] = value;
+    if (attr !== "rate") paramsOf(this.data, this.params);
+  }
   /** The unique emitter's scale where scaledByParent: its params scaled (the emit's radius and speeds by the caller). */
   private scaled(world: THREE.Matrix4): number {
     const d = this.data;

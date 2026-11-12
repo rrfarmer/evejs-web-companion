@@ -17,6 +17,7 @@ import { colorValue, curveValue, vector3Value, type Curve } from "./curves.ts";
 import { loadDds } from "./ddsTexture.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
 import { offerLights, type ChildLight } from "./dynamicLights.ts";
+import { GpuEmitter, type GpuEmitterData, type GpuParticleSystem } from "./gpuParticles.ts";
 
 /** A stretch's curve set as the extractor reads it (lib/turret.mjs stretchCurveSet). */
 export interface StretchSet {
@@ -24,7 +25,7 @@ export interface StretchSet {
   curves: Curve[];
   bindings: {
     name: string | null; source: number | null; sourceCurve: Curve | null; sourceAttribute: string;
-    /** "param:<name>", "sourceLight" or "destinationLight" */
+    /** "param:<name>", "sourceLight", "destinationLight" or "emitter:<stretch index>:source|destination" */
     target: string; destinationAttribute: string; scale: number; offset: number[];
   }[];
 }
@@ -35,6 +36,8 @@ export interface SofStretch2 {
   params: Record<string, number | number[]>; textures: Record<string, string | null>;
   start: StretchSet | null; loop: StretchSet | null; end: StretchSet | null;
   sourceLight: StretchLight | null; destinationLight: StretchLight | null;
+  /** Its GPU emitters, updated with the end frames (their rate and colours often bound to its curves). */
+  sourceEmitter?: GpuEmitterData | null; destinationEmitter?: GpuEmitterData | null;
 }
 
 /** The effects this file draws. */
@@ -714,6 +717,10 @@ export class Stretch2Effect {
   private destScale = 1;
   private sourceLight: ChildLight | null;
   private destLight: ChildLight | null;
+  /** Its GPU emitters (each its own copy of the data: bindings set it). */
+  readonly emitters: { source: GpuEmitter | null; destination: GpuEmitter | null };
+  /** The firing effect's stretches by index (a binding may reach another's emitter); itself alone unless told. */
+  peers: Stretch2Effect[] = [this];
 
   constructor(private readonly kit: Stretch2Kit) {
     const spec = kit.spec;
@@ -747,6 +754,8 @@ export class Stretch2Effect {
     const run = (s: StretchSet | null) => (s ? new SetRun({ ...s, curves: s.curves.map((c) => structuredClone(c)) }) : null);
     this.sets = { start: run(spec.start), loop: run(spec.loop), end: run(spec.end) };
     const light = (l: StretchLight | null): ChildLight | null => (l ? { position: [0, 0, 0], radius: l.radius, color: l.color.slice(), brightness: l.brightness } : null);
+    const emitter = (e: GpuEmitterData | null | undefined) => (e ? new GpuEmitter(structuredClone(e)) : null);
+    this.emitters = { source: emitter(spec.sourceEmitter), destination: emitter(spec.destinationEmitter) };
     this.sourceLight = light(spec.sourceLight);
     this.destLight = light(spec.destinationLight);
     this.mesh.userData.lights = [];
@@ -798,8 +807,8 @@ export class Stretch2Effect {
     (this.material.uniforms.misc!.value as THREE.Vector4).x = intensity;
   }
 
-  /** EveStretch2::Update: the sets' times and bindings, the end frames and the lights in them. */
-  update(now = performance.now()): void {
+  /** EveStretch2::Update: the sets' times and bindings, the end frames, the lights and emitters in them. */
+  update(now = performance.now(), system: GpuParticleSystem | null = null): void {
     const u = this.material.uniforms;
     const timing = u.timing!.value as THREE.Vector4;
     timing.x = timing.y = timing.z = 0;
@@ -829,6 +838,12 @@ export class Stretch2Effect {
     at(this.sourceLight, this.kit.spec.sourceLight, this.source, 1, 1);
     at(this.destLight, this.kit.spec.destinationLight, this.dest, -1, this.destScale);
     this.mesh.userData.lights = lights;
+    // the emitters at the end frames (the source's: z along the beam; the target's: z and x turned back)
+    if (system) {
+      const t = now / 1000;
+      this.emitters.source?.update(t, new THREE.Matrix4().makeBasis(x, y, z).setPosition(this.source), system);
+      this.emitters.destination?.update(t, new THREE.Matrix4().makeBasis(x.clone().negate(), y, z.clone().negate()).setPosition(this.dest), system);
+    }
   }
 
   /** A playing set's bindings copied (TriValueBinding: a scalar x scale + offset.x, a vector part by part). */
@@ -847,6 +862,13 @@ export class Stretch2Effect {
         if (uni.value instanceof THREE.Vector4 && comp !== undefined) uni.value.setComponent(comp, scalar(src));
         else if (uni.value instanceof THREE.Vector4) uni.value.fromArray(vector(src));
         else uni.value = scalar(src);
+        continue;
+      }
+      if (b.target.startsWith("emitter:")) {
+        const [, i, end] = b.target.split(":");
+        const e = this.peers[Number(i)]?.emitters[end === "destination" ? "destination" : "source"];
+        const attr = b.destinationAttribute.split(".")[0] ?? "";
+        if (e && attr) e.setValue(attr, /^colou?r/.test(attr) ? vector(src) : scalar(src));
         continue;
       }
       const light = b.target === "sourceLight" ? this.sourceLight : b.target === "destinationLight" ? this.destLight : null;
