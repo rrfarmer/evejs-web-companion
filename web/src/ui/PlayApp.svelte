@@ -1228,6 +1228,21 @@
   .fly-windows :global(.wl-tab.small .amount) { padding: 0; font-size: 13px; }
   .fly-windows :global(.wl-mine .panel-head) { display: none; }
   .fly-windows :global(.wl-mine > table.guests) { display: none; }
+  /* CharacterSheetWindow: the overview 340 wide at the left (the picture behind, the caption, the name over a divider,
+     the title-over-value rows, the corporation at the bottom), the panels at the right */
+  .fly-windows :global(.cs-retail) { display: flex; gap: 12px; align-items: stretch; min-height: 100%; }
+  .fly-windows :global(.cs-retail > :is(.panel-head, h3.name, dl.facts)) { display: none; }
+  .fly-windows :global(.cs-retail > .error) { position: absolute; }
+  .fly-windows :global(.cs-left) { flex: 0 0 340px; position: relative; display: flex; flex-direction: column; min-height: 560px; padding: 12px;
+    box-sizing: border-box; background: linear-gradient(180deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.75) 70%), var(--portrait, none) center top / cover no-repeat, #0d0f11; }
+  .fly-windows :global(.cs-left .cap) { font-size: 13px; color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.cs-left .info) { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
+  .fly-windows :global(.cs-left .nm) { font-size: 20px; font-weight: 400; color: #fff; }
+  .fly-windows :global(.cs-left .div) { height: 1px; background: rgba(255, 255, 255, 0.2); margin: 4px 0; }
+  .fly-windows :global(.cs-left .row) { display: flex; flex-direction: column; font-size: 13px; }
+  .fly-windows :global(.cs-left .row small) { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
+  .fly-windows :global(.cs-left .bottom) { margin-top: 16px; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+  .fly-windows :global(.cs-retail > .cs-main) { flex: 1; min-width: 0; overflow: auto; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }

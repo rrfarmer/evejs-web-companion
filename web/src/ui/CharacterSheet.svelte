@@ -19,7 +19,9 @@
   // The skill history is the client's History panel's skills tab (bridge/skillHistoryPanel.ts): the date, the
   // skill, what happened and the level, the newest first, in the client's own words where the player's install
   // has them.
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
+  import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { formatSecurityStatus } from "../bridge/characterSheet.ts";
@@ -91,6 +93,19 @@
 
   // svelte-ignore state_referenced_locally
   const sheet = store.characterSheet;
+  /**
+   * On the play page the window as CharacterSheetWindow lays it out (characterSheetWindow.py: 1235 x 768; the leftCont
+   * LEFT_SIDE_WIDTH_EXPANDED 340 - characterOverviewPanel.CharacterSheetCharacterOverviewPanel: the pilot's picture
+   * behind, the caption CharacterSheetCaption at the top, the name over a divider, then Born, Total Net Worth,
+   * Security Status, Home Station, Total Skill Points (CHAR_INFO_ELEMENT_HEIGHT rows: a title over a value), the
+   * corporation's and alliance's icons and Skills at the bottom; the panels at the right under the header's tabs).
+   * The page's identity, security status and home station fill it; Born, Net Worth and Skill Points are not read.
+   */
+  const retail = getContext("retailChrome") === true;
+  const imageServer = flow.imageServer;
+  const CS_WORDS = ["UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption", "UI/CharacterSheet/CharacterSheetWindow/SecurityStatusTitle",
+    "UI/CharacterSheet/CharacterSheetWindow/HomeStationTitle", "UI/CharacterSheet/CharacterSheetWindow/SkillTabs/Skills"];
+  $effect(() => { if (retail) { flow.requestWords(CS_WORDS); flow.loadImageServer(); } });
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -177,7 +192,7 @@
   }
 </script>
 
-<section class="panel">
+<section class="panel" class:cs-retail={retail}>
   <!-- ⚠ REFRESH LIVES IN THE STRIP, NOT AT THE BOTTOM OF THE PAGE. It used
        to be a bare <p><button> after the last section, so this window put its
        one action somewhere no other window puts one — below content of
@@ -235,6 +250,24 @@
       </div>
     </dl>
   {/if}
+  {#if retail && $sheet.identity}
+    {@const portrait = portraitUrl($imageServer, $sheet.identity.characterID, 512) ?? clientTexture(portraitDefaultPath(512))}
+    <aside class="cs-left" style={portrait ? `--portrait: url(${portrait})` : undefined}>
+      <span class="cap">{tabWord("UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption")}</span>
+      <div class="info">
+        <b class="nm">{$sheet.identity.characterName}</b>
+        <span class="div"></span>
+        <span class="row"><small>{tabWord("UI/CharacterSheet/CharacterSheetWindow/SecurityStatusTitle")}</small>
+          <span class={securityTone($sheet.identity.securityStatus)}>{formatSecurityStatus($sheet.identity.securityStatus)}</span></span>
+        <span class="row"><small>{tabWord("UI/CharacterSheet/CharacterSheetWindow/HomeStationTitle")}</small>
+          <span>{$sheet.homeStationID !== null ? resolvedName($names.resolved, "station", $sheet.homeStationID, "") : ""}</span></span>
+      </div>
+      <div class="bottom">
+        <span>{resolvedName($names.resolved, "corporation", $sheet.identity.corporationID, "")}{#if $sheet.identity.allianceID !== null} · {resolvedName($names.resolved, "alliance", $sheet.identity.allianceID, "")}{/if}</span>
+      </div>
+    </aside>
+  {/if}
+  <div class="cs-main">
 
   <!-- The window's tabs, then the tab's own. -->
   <nav class="sheet-tabs" aria-label="Character Sheet">
@@ -370,6 +403,7 @@
   <!-- interactionsPanel's Standings: the pilot's standings panel (toID the pilot). -->
   <Standings {store} {flow} scopes={["char"]} />
   {/if}
+  </div>
 
 </section>
 

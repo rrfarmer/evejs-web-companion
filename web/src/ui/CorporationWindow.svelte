@@ -111,6 +111,7 @@
     if (!retail || panel !== "home") return;
     void $station.online?.corporationID;
     flow.loadOwnerLogos();
+    flow.loadImageServer();
     void flow.ownCorporationDetails().then((home) => {
       corpHome = home;
       if (home) flow.requestNames([
