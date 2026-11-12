@@ -347,12 +347,13 @@ export class TurretFx {
    * above one - only the next group's: its stretches over its cycling positions).
    */
   private prepareFiring(f: Firing, info: TurretInfo | null, startAt: number): void {
+    if (info?.isLoopFiring && f.muzzles.some((m) => m.startedAt !== null)) return;
+    // the firing effect's start curve set played with it: its sound events (EveTurretFiringFX startCurveSet) - a firing
+    // effect with sounds and no stretch drawn sounds all the same
+    if (info?.sounds?.length) this.onSound?.(info.sounds, f.shooter, f.target, startAt);
     const n = info?.firing?.stretches.length ?? 0;
     if (!n) return;
     const fx = this.stretches.get(f);
-    if (info?.isLoopFiring && f.muzzles.some((m) => m.startedAt !== null)) return;
-    // the firing effect's start curve set played with it: its sound events (EveTurretFiringFX startCurveSet)
-    if (info?.sounds?.length) this.onSound?.(info.sounds, f.shooter, f.target, startAt);
     if (fx) for (const s of fx) s.stopFiring();
     const cycling = info?.maxCyclingFirePos ?? 1;
     // EveTurretSet::SetupFiringState / EnterStateFiring: the position steps by the group count (default 1) and wraps
