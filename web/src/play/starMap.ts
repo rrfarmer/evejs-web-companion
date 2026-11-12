@@ -61,9 +61,17 @@
 //   WorldPosToMapPos((x, 0, z)); a change of layout moves each star linearly from where it is to where it goes over
 //   transformTime 500 ms (mapLayoutHandler: UpdateAnimPosition's Vec3Lerp into the particle's first position, each
 //   line's ends with it - UpdateLinePosition).
-// Not yet: the abstract mode's presentation (its 2D camera, LineOpacityFinderAbstract, MarkerContainerContentAdvanced
-// bubbles, the extra star particles) - the client opens in it (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True); here the
-// solar systems' layout opens until that is in; constellation and region markers; the my-location marker's pulse
+// - in the abstract layout (mapViewWorld.UpdateCameraForAbstractView): the 2D map camera (camera/mapCamera.py
+//   Make2DCamera: kMinPitch 0.005, yaw to 0 and pitch to it over 1 s, no orbiting - a drag pans -, zoom between
+//   MIN_CAMERA_DISTANCE_2DVIEW 3100 and MAX_CAMERA_DISTANCE_2DVIEW 310000; Make3DCamera back to 1 - 160000), and the
+//   lines' opacity by LineOpacityFinderAbstract: the default 0.4 while the zoom value (baseCamera GetZoomProportion:
+//   ((d - 3100) / (310000 - 3100)) ^ (1 / kZoomPower 9)) is under MAP2D_ZOOM_TUBE_BUBBLE 0.75, else 0.3; each line of
+//   the active region's systems and of the systems next to it in other regions + that default, the hovered system's
+//   lines + the default (GetBaseOpacityForHoveredLines), the selected system's + OPACITY_LINES_SELECTED 1.0; a line in
+//   none the default (GetLineColor's lineAlphaByLineID.get(lineID, baseLineAlphaModulate): its region argument is
+//   never read - the compiled code has no load of it).
+// Not yet: the abstract mode's markers (MarkerContainerContentAdvanced bubbles) and extra star particles - the client
+// opens in it (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True); here the solar systems' layout opens until they are in; constellation and region markers; the my-location marker's pulse
 // circles (three circleFilled256 rings, alpha to 0.02).
 
 import * as THREE from "three";
@@ -239,6 +247,9 @@ export class StarMap {
   /** The layout shown, and its change under way (from each star's place then, since when). */
   abstract = false;
   private morph: { from: Map<number, THREE.Vector3>; at: number } | null = null;
+  /** The camera's turn to the 2D view (Make2DCamera's morph of pitch and yaw), and the abstract default opacity in use. */
+  private turn: { from: THREE.Vector3; at: number } | null = null;
+  private abstractDefault = 0.4;
   private running = false;
   /** The markers' layer over the canvas, the labels of the active systems and the my-location marker. */
   private readonly markers = document.createElement("div");
@@ -477,6 +488,22 @@ export class StarMap {
       }
     }
     this.abstract = abstract;
+    // UpdateCameraForAbstractView: Make2DCamera / Make3DCamera
+    if (abstract) {
+      this.controls.enableRotate = false;
+      this.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+      this.controls.screenSpacePanning = false;
+      this.controls.minDistance = 3100;
+      this.controls.maxDistance = 310000;
+      this.turn = { from: this.camera.position.clone().sub(this.controls.target), at: performance.now() };
+    } else {
+      this.controls.enableRotate = true;
+      this.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+      this.controls.minDistance = MIN_CAMERA_DISTANCE;
+      this.controls.maxDistance = MAX_CAMERA_DISTANCE;
+      this.turn = null;
+    }
+    this.updateLineOpacity();
     const from = new Map<number, THREE.Vector3>();
     for (const [id, p] of this.positions) from.set(id, p.clone());
     this.morph = { from, at: performance.now() };
@@ -487,7 +514,14 @@ export class StarMap {
     if (!this.morph || !this.starPos || !this.linePos) return;
     const t = Math.min(1, (now - this.morph.at) / 500);
     const target = this.abstract ? this.layouts.abstract : this.layouts.own;
+    // (the camera's point of interest moves with the active item, as the map keeps its camera on it)
+    const sel = this.selectedID !== null ? this.positions.get(this.selectedID)?.clone() ?? null : null;
     for (const [id, p] of this.positions) p.lerpVectors(this.morph.from.get(id)!, target.get(id)!, t);
+    if (sel && this.selectedID !== null && !this.move) {
+      const delta = this.positions.get(this.selectedID)!.clone().sub(sel);
+      this.controls.target.add(delta);
+      this.camera.position.add(delta);
+    }
     const sp = this.starPos.array as Float32Array;
     this.starOrder.forEach((id, i) => { const p = this.positions.get(id)!; sp[i * 3] = p.x; sp[i * 3 + 1] = p.y; sp[i * 3 + 2] = p.z; });
     this.starPos.needsUpdate = true;
@@ -553,6 +587,30 @@ export class StarMap {
     const constellation = this.selectedID !== null ? this.within.get(this.selectedID)?.[1] ?? null : null;
     const inActive = (id: number) => constellation !== null && this.within.get(id)?.[1] === constellation;
     const arr = this.lineColours.array as Float32Array;
+    if (this.abstract) {
+      // LineOpacityFinderAbstract: per system, each of its lines + the opacity given
+      const add = new Map<number, number>();
+      const bySystem = new Map<number, number[]>();
+      this.lineEnds.forEach(([a, b], i) => { for (const id of [a, b]) bySystem.set(id, [...(bySystem.get(id) ?? []), i]); });
+      const give = (ids: Iterable<number>, opacity: number) => { for (const id of ids) for (const i of bySystem.get(id) ?? []) add.set(i, (add.get(i) ?? 0) + opacity); };
+      const def = this.abstractDefault;
+      const region = this.selectedID !== null ? this.within.get(this.selectedID)?.[0] ?? null : null;
+      if (region !== null) {
+        const inRegion = [...this.within].filter(([, w]) => w[0] === region).map(([id]) => id);
+        const set = new Set(inRegion);
+        const others = new Set<number>();
+        for (const [a, b] of this.lineEnds) { if (set.has(a) && !set.has(b)) others.add(b); if (set.has(b) && !set.has(a)) others.add(a); }
+        give([...inRegion, ...others], def);
+      }
+      if (this.hoverID !== null) give([this.hoverID], def);
+      if (this.selectedID !== null) give([this.selectedID], 1.0);
+      this.lineEnds.forEach((_, i) => {
+        const opacity = this.routeLines.has(i) ? 2.0 : add.get(i) ?? def;
+        for (let k = 0; k < 6; k++) arr[(i * 6 + k) * 4 + 3] = Math.min(1, opacity);
+      });
+      this.lineColours.needsUpdate = true;
+      return;
+    }
     this.lineEnds.forEach(([a, b], i) => {
       // each of the active constellation's systems adds to each of its lines (a line between two adds twice)
       const n = (inActive(a) ? 1 : 0) + (inActive(b) ? 1 : 0);
@@ -653,6 +711,23 @@ export class StarMap {
     const size = this.renderer.getSize(new THREE.Vector2());
     if (size.x !== w || size.y !== h) { this.renderer.setSize(w, h, false); this.camera.aspect = w / Math.max(1, h); this.camera.updateProjectionMatrix(); }
     this.stepLayout(performance.now());
+    // Make2DCamera's turn: pitch to kMinPitch (0.005 from straight down) and yaw to 0 over 1 s, the distance kept
+    if (this.turn) {
+      const t = Math.min(1, (performance.now() - this.turn.at) / 1000);
+      const d = Math.min(310000, Math.max(3100, this.turn.from.length()));
+      // yaw 0 with the default eye's way: from above, behind on EVE's -z (three's +z)
+      const top = new THREE.Vector3(0, Math.cos(0.005), Math.sin(0.005)).multiplyScalar(d);
+      const now = this.turn.from.clone().normalize().lerp(top.clone().normalize(), t).normalize().multiplyScalar(this.turn.from.length() + (d - this.turn.from.length()) * t);
+      this.camera.position.copy(this.controls.target).add(now);
+      if (t >= 1) this.turn = null;
+    }
+    // the abstract default opacity by the zoom value (MAP2D_ZOOM_TUBE_BUBBLE)
+    if (this.abstract) {
+      const d = this.camera.position.distanceTo(this.controls.target);
+      const zoom = Math.min(1, Math.max(0, (d - 3100) / (310000 - 3100))) ** (1 / 9);
+      const def = zoom < 0.75 ? 0.4 : 0.3;
+      if (def !== this.abstractDefault) { this.abstractDefault = def; this.updateLineOpacity(); }
+    }
     // the move to a newly selected system: the point of interest and the eye together, over half a second
     if (this.move) {
       const t = Math.min(1, (performance.now() - this.move.at) / 500);
