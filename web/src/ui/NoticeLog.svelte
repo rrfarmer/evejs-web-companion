@@ -6,7 +6,10 @@
   // time, which for a bot run is most of the time.
   //
   // Newest first, because the question is almost always "what just happened".
+  import { getContext } from "svelte";
   import { noticeBoard } from "./notices.ts";
+  /** On the play page the log as LoggerWindow lists it (uilog.py: its scroll's headers Time, Type, Message). */
+  const retail = getContext("retailChrome") === true;
 
   const notices = noticeBoard.notices;
 
@@ -48,6 +51,16 @@
 
   {#if newestFirst.length === 0}
     <p class="empty">Nothing has happened yet.</p>
+  {:else if retail}
+    <table class="log-table">
+      <thead><tr><th>Time</th><th>Type</th><th>Message</th></tr></thead>
+      <tbody>
+        {#each newestFirst as notice (notice.id)}
+          <tr class={`notice ${notice.kind}`}><td>{at(notice.atMs)}</td><td>{kindWord(notice.kind)}</td>
+            <td>{notice.title}{#if notice.detail}: {notice.detail}{/if}</td></tr>
+        {/each}
+      </tbody>
+    </table>
   {:else}
     <ul class="notice-list">
       {#each newestFirst as notice (notice.id)}

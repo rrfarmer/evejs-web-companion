@@ -336,6 +336,7 @@
     scanner: "UI/Inflight/Scanner/ProbeScanner", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
     mail: "Tooltips/Neocom/Mail", wallet: "UI/Wallet/WalletWindow/Wallet", characterSheet: "UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption",
     assets: "Tooltips/Neocom/PersonalAssets", locations: "UI/PeopleAndPlaces/Locations", log: "UI/Accessories/Log/Log",
+    planets: "UI/InfoWindow/TabNames/PlanetaryProduction",
   };
   let captions = $state<Partial<Record<TabID, string>>>({});
   $effect(() => {
@@ -1292,6 +1293,12 @@
   .fly-windows :global(.as-retail) { display: flex; flex-direction: column; }
   .fly-windows :global(.as-retail > .asset-tabs) { order: -1; }
   .fly-windows :global(.as-retail.as-safety > :not(.asset-tabs, .as-safety-note)) { display: none; }
+  /* LoggerWindow: its scroll - Time, Type, Message - and no Clear (the client's actions are its filter and settings menus) */
+  .fly-windows :global(.notice-log .panel-head) { display: none; }
+  .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; }
+  .fly-windows :global(.log-table td) { padding: 1px 6px; vertical-align: top; color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.log-table td:first-child), .fly-windows :global(.log-table td:nth-child(2)) { white-space: nowrap; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
