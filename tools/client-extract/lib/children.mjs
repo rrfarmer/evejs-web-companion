@@ -542,6 +542,11 @@ function readShown(o, skipped) {
         renderThreshold: g.renderThreshold ?? 1, blendMin: g.blendScreenSizeMin ?? 5, blendMax: g.blendScreenSizeMax ?? 15,
         grid: grid ? { id: idOf(grid), info: grid.gridInfo ?? [1, 1, 1, 10], spacing: grid.gridSpacing ?? [0, 0, 0], fullness: grid.gridFullnessFactor ?? 1 } : null,
         maxVelocity: g.maxVelocity ?? 100, update: g.update !== false, behaviors: behaviors.map(readBehavior),
+        // its booster (BehaviorGroupBooster: droneboostervolumetric.fx per agent), where shown and with an effect
+        booster: g.boosters?.type === "BehaviorGroupBooster" && g.boosters.display !== false && g.boosters.boosterEffect ? {
+          offset: g.boosters.boosterOffset ?? [0, 0, 0], atlas: [g.boosters.atlasIndex0 ?? 0, g.boosters.atlasIndex1 ?? 0],
+          textures: effectTextures(g.boosters.boosterEffect), params: effectParams(g.boosters.boosterEffect),
+        } : null,
         mesh: { k: "mesh", name: g.name ?? null, m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], geometry: String(g.mesh.geometryResPath).toLowerCase(), meshIndex: g.mesh.meshIndex ?? 0, minScreenSize: 0, areas, modifiers: [] },
       });
     }

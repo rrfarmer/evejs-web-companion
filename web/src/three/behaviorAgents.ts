@@ -18,6 +18,7 @@
 import * as THREE from "three";
 import type { SofChildMesh } from "./hullChildren.ts";
 import { perlinNoise1D, vector3Value } from "./curves.ts";
+import { agentBoosters, agentBoxGeometry, setAgentBooster, type AgentBoosterData } from "./boosterVolumetric.ts";
 
 export interface SofAgentGrid {
   id?: number;
@@ -69,6 +70,7 @@ export interface SofAgentGroup {
   maxVelocity?: number;
   update?: boolean;
   behaviors?: SofBehavior[];
+  booster?: AgentBoosterData | null;
   mesh: SofChildMesh;
 }
 
@@ -86,6 +88,8 @@ export interface SofChildAgents {
 /** A group as built: its spec, its parts (instanced, in the system's space through `local`). */
 interface BuiltGroup {
   spec: SofAgentGroup;
+  /** its flames (agentBoosters), found in a clone by name */
+  booster?: string | null;
   parts: { mesh: THREE.InstancedMesh; local: THREE.Matrix4; localInv: THREE.Matrix4 }[];
 }
 
@@ -113,10 +117,11 @@ export async function buildAgents(
       const key = (attr: string) => (attr === "gridFullnessFactor" ? "fullness" : attr === "gridInfo" ? "info" : attr === "gridSpacing" ? "spacing" : null);
       values(grid.id, (attr) => { const k = key(attr); return k ? (rec[k] as number | number[]) : undefined; }, (attr, v) => { const k = key(attr); if (k) rec[k] = v; });
     }
-    return { spec, mesh: await childMesh(spec.mesh) };
+    const flames = spec.booster ? await agentBoosters(spec.booster, Math.max(1, spec.count)).catch(() => null) : null;
+    return { spec, mesh: await childMesh(spec.mesh), flames };
   }));
   // (in the groups' order: a group's place in the system's update and its parts' in the holder)
-  for (const { spec, mesh } of made) {
+  for (const { spec, mesh, flames } of made) {
     if (!mesh) continue;
     mesh.updateMatrixWorld(true);
     const group: BuiltGroup = { spec, parts: [] };
@@ -142,6 +147,11 @@ export async function buildAgents(
       holder.add(inst);
     });
     if (!spec.display) for (const p of group.parts) p.mesh.visible = false;
+    if (flames) {
+      flames.name = `agent-boosters:${built.length}`;
+      group.booster = flames.name;
+      holder.add(flames);
+    }
     built.push(group);
   }
   // (by a key: a clone copies userData through JSON)
@@ -687,7 +697,7 @@ function volumeIntensity(v: SofVolume, point: THREE.Vector3): number {
 
 /** One clone's agents: run each frame, then sized and culled for the view. */
 export class AgentRun {
-  private readonly groups: { run: GroupRun; parts: THREE.InstancedMesh[]; drawn: number }[] = [];
+  private readonly groups: { run: GroupRun; parts: THREE.InstancedMesh[]; drawn: number; flames: THREE.Mesh | null }[] = [];
   private last = -1;
 
   constructor(holder: THREE.Object3D) {
@@ -706,8 +716,43 @@ export class AgentRun {
       const run = new GroupRun(b, { tunnels: systemTunnels });
       run.systemGroups = sys.tunnels;
       run.locatorSets = sys.locatorSets;
-      this.groups.push({ run, parts, drawn: -1 });
+      // this clone's flames, on a geometry of its own (the instance data is this clone's agents')
+      const flames = b.booster ? (holder.getObjectByName(b.booster) as THREE.Mesh | undefined) ?? null : null;
+      if (flames) flames.geometry = agentBoxGeometry(Math.max(1, b.spec.count));
+      this.groups.push({ run, parts, drawn: -1, flames });
     }
+  }
+
+  /**
+   * The group's flames (GetBoosterInfoForBuffer): the shown agents under the 0.3 cross-fade, each its booster at the
+   * offset x scale through it (agent space: rotation and place), intensity |velocity| / max(1, maxVelocity), a phase
+   * by its id; the geometry grown (a new one) where the agents outgrow it.
+   */
+  private writeFlames(flames: THREE.Mesh, run: GroupRun): void {
+    const spec = run.built.spec;
+    const offset = (flames.userData.boosterOffset ?? [0, 0, 0]) as number[];
+    const atlas = (flames.userData.boosterAtlas ?? [0, 0]) as number[];
+    const bs = ((flames.material as THREE.ShaderMaterial).uniforms.boosterScale!.value as THREE.Vector3);
+    let geo = flames.geometry as THREE.InstancedBufferGeometry;
+    const need = run.agents.length;
+    if ((geo.getAttribute("agentIntensity") as THREE.InstancedBufferAttribute).count < need) {
+      geo.dispose();
+      geo = agentBoxGeometry(Math.max(need, 2 * (geo.getAttribute("agentIntensity") as THREE.InstancedBufferAttribute).count));
+      flames.geometry = geo;
+    }
+    const at = new THREE.Vector3();
+    const off = new THREE.Vector3(offset[0] ?? 0, offset[1] ?? 0, offset[2] ?? 0).multiplyScalar(spec.scale);
+    let k = 0;
+    for (const a of run.agents) {
+      if (!a.shown || a.xfade >= 0.3) continue;
+      at.copy(off).applyQuaternion(a.rotation).add(a.position);
+      const intensity = a.velocity.length() / Math.max(1, spec.maxVelocity ?? 100);
+      // (srand(id); rand(): a fixed phase per agent id)
+      const phase = ((Math.sin(a.id * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      setAgentBooster(geo, k++, at, a.rotation, spec.scale, bs, intensity, phase, atlas);
+    }
+    geo.instanceCount = k;
+    for (const name of ["row0", "row1", "row2", "row3", "phase", "atlas", "agentIntensity"]) (geo.getAttribute(name) as THREE.InstancedBufferAttribute).needsUpdate = true;
   }
 
   update(renderer: THREE.WebGLRenderer, camera: THREE.Camera, holder: THREE.Object3D): void {
@@ -763,6 +808,7 @@ export class AgentRun {
         }
         if (Math.abs(xfade - a.xfade) >= 1e-3 || shown !== a.shown) { a.xfade = xfade; a.shown = shown; changed = true; }
       });
+      if (g.flames) this.writeFlames(g.flames, g.run);
       if (!changed) continue;
       // the agents drawn only (the client writes a nought matrix for the others: here they are left out - a nought
       // scale gives the shader's normal transform a division by nought)

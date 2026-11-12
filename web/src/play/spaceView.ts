@@ -972,7 +972,9 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
-      if (e.maxVelocity) setThrust(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity, this.accelOf(mark, e));
+      // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
+      mark.userData.boostersAlwaysOn = e.kind === "drone";
+      if (e.maxVelocity || mark.userData.boostersAlwaysOn) setThrust(mark, e.maxVelocity ? Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity : 0, this.accelOf(mark, e));
       setShipSpeed(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z), e.maxVelocity ?? 0);
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);

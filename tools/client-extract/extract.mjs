@@ -128,7 +128,10 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
     for (const o of n.objects ?? []) walkChildren(o);
     if (n.k === "propagator") walkChildren(n.source);
     // a behaviour system's groups: each drawn as its mesh
-    if (n.k === "agents") for (const g of n.groups ?? []) walkChildren(g.mesh);
+    if (n.k === "agents") for (const g of n.groups ?? []) {
+      walkChildren(g.mesh);
+      if (g.booster) for (const [name, res] of Object.entries(g.booster.textures)) g.booster.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+    }
   };
   for (const r of roots) walkChildren(r);
   for (const n of trafficNodes) {

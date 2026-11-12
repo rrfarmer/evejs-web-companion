@@ -74,10 +74,22 @@ const VERTEX = `
 attribute vec4 row0; attribute vec4 row1; attribute vec4 row2; attribute vec4 row3;
 attribute float phase; attribute vec2 atlas;
 uniform vec3 boosterScale; uniform float intensity;
-varying vec3 vBox; varying vec3 vCamBox; varying float vPhase; varying vec2 vAtlas; varying vec4 vViewZ;
+varying vec3 vBox; varying vec3 vCamBox; varying float vPhase; varying vec2 vAtlas; varying vec4 vViewZ; varying float vIntensity;
+#ifdef PER_AGENT
+attribute float agentIntensity;
+#endif
 void main() {
+#ifdef PER_AGENT
+  // droneboostervolumetric: each agent's own intensity; its rows (the agent's rotation x its scale x BoosterScale, the
+  // length also x (0.5 + 0.5 intensity), at its place) made on the CPU
+  float I = agentIntensity;
+  mat4 inst = mat4(row0, row1, row2, row3);
+#else
+  float I = intensity;
   // a row-major transform (x row0 + y row1 + z row2 + row3): its rows are this matrix's columns
-  mat4 inst = mat4(row0 * boosterScale.x, row1 * boosterScale.y, row2 * boosterScale.z * (0.5 + 0.5 * clamp(intensity, 0.0, 1.0)), row3);
+  mat4 inst = mat4(row0 * boosterScale.x, row1 * boosterScale.y, row2 * boosterScale.z * (0.5 + 0.5 * clamp(I, 0.0, 1.0)), row3);
+#endif
+  vIntensity = I;
   mat4 boxToWorld = modelMatrix * inst;
   vBox = position;
   vCamBox = (inverse(boxToWorld) * vec4(cameraPosition, 1.0)).xyz;
@@ -86,14 +98,14 @@ void main() {
   vViewZ = vec4(boxToView[0][2], boxToView[1][2], boxToView[2][2], boxToView[3][2]);
   vPhase = phase;
   vAtlas = atlas;
-  gl_Position = intensity <= 0.0001 ? vec4(0.0) : projectionMatrix * viewMatrix * boxToWorld * vec4(position, 1.0);
+  gl_Position = I <= 0.0001 ? vec4(0.0) : projectionMatrix * viewMatrix * boxToWorld * vec4(position, 1.0);
 }`;
 
 const FRAGMENT = `
 precision highp sampler3D;
 ${SOFT_DEPTH_GLSL}
 uniform sampler2D shapeMap; uniform sampler2D gradient0; uniform sampler2D gradient1; uniform sampler3D noiseMap;
-uniform vec2 atlasSize; uniform vec3 boosterScale; uniform float intensity; uniform float warp; uniform float time;
+uniform vec2 atlasSize; uniform vec3 boosterScale; uniform float warp; uniform float time; varying float vIntensity;
 uniform float nearZ;
 uniform vec4 color0; uniform vec4 color1; uniform vec4 warpColor0; uniform vec4 warpColor1;
 uniform vec4 start0; uniform vec4 end0; uniform vec4 freq0; uniform vec4 start1; uniform vec4 end1;
@@ -134,6 +146,7 @@ void main() {
   // the atlas rows: count shapes of height / count texels each, half a texel in
   float rowSpan = (atlasSize.x / atlasSize.y - 1.0) / atlasSize.x;
   vec2 rowStart = vAtlas / atlasSize.y + 0.5 / atlasSize.x;
+  float intensity = vIntensity;
   float s = clamp(intensity * 0.5, 0.0, 1.0);
   float gradV = warp > 0.0 ? 0.5625 + 0.375 * s : 0.0625 + 0.375 * s;
 
@@ -401,4 +414,110 @@ export function setGlowGain(mesh: THREE.Object3D, gain: number, warp = 0): void 
   // (kept on the mesh, read as it is drawn)
   mesh.userData.glowGain = Math.min(1, Math.max(0, gain));
   mesh.userData.glowWarp = Math.min(1, Math.max(0, warp));
+}
+
+/** A behaviour group's booster (BehaviorGroupBooster): its offset, atlas rows, its effect's textures and numbers. */
+export interface AgentBoosterData {
+  offset: number[];
+  atlas: number[];
+  textures: Record<string, string | null>;
+  params: Record<string, unknown>;
+}
+
+/**
+ * A behaviour group's flames (droneboostervolumetric.fx, BehaviorGroup::GetBoosterInfoForBuffer): an instanced box per
+ * agent, its rows written each frame by the group's run (setAgentBoosters); the effect's numbers its file's, else the
+ * shader's defaults (the groups' files give none: ShapeAtlasSize (64, 2), colours 1, no noise amplitude). No warp.
+ */
+export async function agentBoosters(data: AgentBoosterData, capacity: number): Promise<THREE.Mesh | null> {
+  const t = data.textures;
+  const shape = t.ShapeMap ?? null, g0 = t.GradientMap0 ?? null, g1 = t.GradientMap1 ?? null, noiseUrl = t.NoiseMap ?? null;
+  if (!shape || !g0 || !g1 || !noiseUrl) return null;
+  const [shapeMap, gradient0, gradient1, noise] = await Promise.all([loadDds(shape), loadDds(g0), loadDds(g1), loadDds3D(noiseUrl)]).catch(() => [null, null, null, null]);
+  if (!shapeMap || !gradient0 || !gradient1 || !noise) return null;
+  shapeMap.colorSpace = THREE.SRGBColorSpace;
+  gradient0.colorSpace = THREE.SRGBColorSpace;
+  for (const x of [shapeMap, gradient0, gradient1]) { x.wrapS = x.wrapT = THREE.ClampToEdgeWrapping; x.needsUpdate = true; }
+  noise.wrapS = noise.wrapT = noise.wrapR = THREE.RepeatWrapping;
+  noise.minFilter = noise.magFilter = THREE.LinearFilter;
+  noise.needsUpdate = true;
+  const p = data.params;
+  const v = (name: string, def: number[]) => { const x = p[name]; return new THREE.Vector4(...((Array.isArray(x) ? (x as number[]) : def).concat([0, 0, 0, 0]).slice(0, 4) as [number, number, number, number])); };
+  const f = (name: string, def: number) => (typeof p[name] === "number" ? (p[name] as number) : def);
+  // the shader's defaults (droneboostervolumetric.sm_depth's constants)
+  const freq = v("NoiseFrequency0", [0.2, 0.2, 0.1]);
+  freq.w = f("NoiseSpeed0", 1);
+  const end1 = v("NoiseAmplitudeEnd1", [0, 0, 0]);
+  end1.w = f("NoiseSpeed1", 1);
+  const atlas = (Array.isArray(p.ShapeAtlasSize) ? (p.ShapeAtlasSize as number[]) : [64, 2]);
+  const bs = (Array.isArray(p.BoosterScale) ? (p.BoosterScale as number[]) : [1, 1, 1]);
+  const mat = logDepth(new THREE.ShaderMaterial({
+    vertexShader: VERTEX, fragmentShader: FRAGMENT, defines: { PER_AGENT: "" },
+    uniforms: {
+      shapeMap: { value: shapeMap }, gradient0: { value: gradient0 }, gradient1: { value: gradient1 }, noiseMap: { value: noise },
+      atlasSize: { value: new THREE.Vector2(atlas[0] ?? 64, atlas[1] ?? 2) }, boosterScale: { value: new THREE.Vector3(bs[0] ?? 1, bs[1] ?? 1, bs[2] ?? 1) },
+      intensity: { value: 0 }, warp: { value: 0 }, time: { value: 0 }, nearZ: { value: 0.1 }, ...SOFT_DEPTH,
+      color0: { value: v("Color0", [1, 1, 1, 1]) }, color1: { value: v("Color1", [1, 1, 1, 1]) }, warpColor0: { value: new THREE.Vector4() }, warpColor1: { value: new THREE.Vector4() },
+      start0: { value: v("NoiseAmplitudeStart0", [0, 0, 0]) }, end0: { value: v("NoiseAmplitudeEnd0", [0, 0, 0]) }, freq0: { value: freq },
+      start1: { value: v("NoiseAmplitudeStart1", [0, 0, 0]) }, end1: { value: end1 },
+      wStart0: { value: new THREE.Vector4() }, wEnd0: { value: new THREE.Vector4() }, wFreq0: { value: new THREE.Vector4() },
+      wStart1: { value: new THREE.Vector4() }, wEnd1: { value: new THREE.Vector4() },
+    },
+    side: THREE.BackSide, transparent: true, depthWrite: false, depthTest: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
+  }));
+  mat.userData.softDepth = true;
+  mat.onBeforeRender = (_r, _s, camera) => {
+    mat.uniforms.time!.value = performance.now() / 1000;
+    mat.uniforms.nearZ!.value = (camera as THREE.PerspectiveCamera).near ?? 0.1;
+  };
+  const mesh = new THREE.Mesh(agentBoxGeometry(capacity), mat);
+  mesh.name = "agent-boosters";
+  mesh.frustumCulled = false;
+  mesh.userData.boosterOffset = data.offset;
+  mesh.userData.boosterAtlas = data.atlas;
+  return mesh;
+}
+
+/** The box geometry with room for `capacity` agents' instance data (none drawn yet). */
+export function agentBoxGeometry(capacity: number): THREE.InstancedBufferGeometry {
+  const corners = [
+    [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [-1, -1, -1], [-1, 1, -1], [1, 1, -1], [1, -1, -1],
+    [-1, -1, 0], [-1, 1, 0], [-1, 1, -1], [-1, -1, -1], [1, -1, 0], [1, -1, -1], [1, 1, -1], [1, 1, 0],
+    [-1, -1, 0], [-1, -1, -1], [1, -1, -1], [1, -1, 0], [-1, 1, 0], [1, 1, 0], [1, 1, -1], [-1, 1, -1],
+  ];
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(corners.flat(), 3));
+  const index: number[] = [];
+  for (let q = 0; q < 6; q++) index.push(q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3);
+  geo.setIndex(index);
+  const n = Math.max(1, capacity);
+  for (let r = 0; r < 4; r++) geo.setAttribute(`row${r}`, new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4));
+  geo.setAttribute("phase", new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
+  geo.setAttribute("atlas", new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2));
+  geo.setAttribute("agentIntensity", new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
+  geo.instanceCount = 0;
+  return geo;
+}
+
+/**
+ * One agent's flame into slot k (GetBoosterInfoForBuffer, LOD under 0.3): its booster at the group's offset x scale
+ * through the agent, the agent's rotation, scale x BoosterScale, the length also x (0.5 + 0.5 intensity); intensity
+ * |velocity| / max(1, maxVelocity); a random phase by the agent's id.
+ */
+export function setAgentBooster(geo: THREE.InstancedBufferGeometry, k: number, at: THREE.Vector3, rotation: THREE.Quaternion, scale: number, boosterScale: THREE.Vector3, intensity: number, phase: number, atlas: number[]): void {
+  const m = new THREE.Matrix4().makeRotationFromQuaternion(rotation);
+  const e = m.elements;
+  // the rotation's rows as D3D has them (a row vector times the matrix: three's columns)
+  const len = 0.5 + 0.5 * intensity;
+  const rows = [
+    [e[0]! * scale * boosterScale.x, e[1]! * scale * boosterScale.x, e[2]! * scale * boosterScale.x, 0],
+    [e[4]! * scale * boosterScale.y, e[5]! * scale * boosterScale.y, e[6]! * scale * boosterScale.y, 0],
+    [e[8]! * scale * boosterScale.z * len, e[9]! * scale * boosterScale.z * len, e[10]! * scale * boosterScale.z * len, 0],
+    [at.x, at.y, at.z, 1],
+  ];
+  for (let r = 0; r < 4; r++) (geo.getAttribute(`row${r}`) as THREE.InstancedBufferAttribute).set(rows[r]!, k * 4);
+  (geo.getAttribute("phase") as THREE.InstancedBufferAttribute).setX(k, phase);
+  (geo.getAttribute("atlas") as THREE.InstancedBufferAttribute).setXY(k, atlas[0] ?? 0, atlas[1] ?? 0);
+  (geo.getAttribute("agentIntensity") as THREE.InstancedBufferAttribute).setX(k, intensity);
 }

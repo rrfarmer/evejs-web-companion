@@ -306,7 +306,8 @@ export function setThrust(model: THREE.Object3D, share: number, accel: THREE.Vec
   acc = acc * 0.2 + ((ud.boosterLastAcc as number | undefined) ?? 0) * 0.8;
   ud.boosterLastAcc = acc;
   const last = (ud.boosterLastValue as number | undefined) ?? 0.8 * ratio;
-  const value = Math.min(2, last * 0.8 + (0.8 * ratio + 0.2 * acc) * 0.2);
+  // (alwaysOn - ship.py FitBoosters(alwaysOn=True), a drone's: m_alwaysOnIntensity, 1)
+  const value = ud.boostersAlwaysOn ? 1 : Math.min(2, last * 0.8 + (0.8 * ratio + 0.2 * acc) * 0.2);
   ud.boosterLastValue = value;
   setBoosterIntensity(flames, value, warping);
   const glows = boosters.getObjectByName("booster-glows");
