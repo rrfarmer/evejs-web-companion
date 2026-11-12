@@ -281,6 +281,11 @@
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
       return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 700), h: Math.min(H - 16, 560) };
     }
+    // the probe scanner (probeScannerWindow.ProbeScannerWindow: 400 x 400), within the desktop
+    if (tab === "scanner") {
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 400), h: Math.min(H - 16, 400) };
+    }
     // the corporation window (corporationWindow.CorporationWindow: 800 x 832, at least 700 x 832), within the desktop
     if (tab === "corporation") {
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
@@ -304,6 +309,17 @@
   }
   function open(tab: TabID) { wins = openFly(wins, tab); raiseApp(tab); }
   /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
+  // The probe scanner's caption (ProbeScannerWindow default_captionLabelPath UI/Inflight/Scanner/ProbeScanner), the install's words.
+  let scannerTitle = $state("Probe Scanner");
+  $effect(() => {
+    if (!session) return;
+    const s = session;
+    s.flow.requestWords(["UI/Inflight/Scanner/ProbeScanner"]);
+    return s.store.words.subscribe((w) => {
+      const t = w.templates["UI/Inflight/Scanner/ProbeScanner"];
+      if (typeof t === "string" && t !== "") scannerTitle = t;
+    });
+  });
   let dronesTitle = $state("Drones");
   $effect(() => {
     if (!session) return;
@@ -622,7 +638,7 @@
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
-          title={win.id === "drones" ? dronesTitle : tabLabel(win.id)}
+          title={win.id === "drones" ? dronesTitle : win.id === "scanner" ? scannerTitle : tabLabel(win.id)}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
@@ -1110,6 +1126,29 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
   .fly-windows :global(.corp-home-details .row span:first-child) { color: rgba(255, 255, 255, 0.55); }
   .fly-windows :global(.corp-home-buttons) { display: flex; justify-content: center; gap: 6px; padding: 8px 0; }
+  /* ProbeScannerPalette: the results over the 64-high bottom container - the probe state row (icon 28, count, recover /
+     reconnect at the right), the formation buttons 32, the size slider, Analyze 100 wide */
+  .fly-windows :global(.ps-window) { display: flex; flex-direction: column; height: 100%; min-height: 300px; }
+  .fly-windows :global(.ps-results) { flex: 1; min-height: 0; overflow: auto; }
+  .fly-windows :global(.ps-filter) { height: 22px; line-height: 22px; padding-left: 2px; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.ps-none) { text-align: center; color: rgba(255, 255, 255, 0.5); font-size: 12px; margin-top: 24px; }
+  .fly-windows :global(.ps-bottom) { height: 64px; margin-top: 4px; padding: 4px; background: rgba(255, 255, 255, 0.04); border-top: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.ps-state) { display: flex; align-items: center; height: 24px; margin-bottom: 4px; gap: 4px; padding-left: 4px; }
+  .fly-windows :global(.ps-probe) { width: 28px; height: 28px; display: inline-flex; }
+  .fly-windows :global(.ps-probe img) { width: 28px; height: 28px; }
+  .fly-windows :global(.ps-probe.dim) { opacity: 0.3; }
+  .fly-windows :global(.ps-count) { font-size: 13px; }
+  .fly-windows :global(.ps-count.warn) { color: #f39b2c; }
+  .fly-windows :global(.ps-gap) { flex: 1; }
+  .fly-windows :global(.ps-icon) { background: none; border: 0; padding: 0; width: 16px; height: 16px; cursor: pointer; }
+  .fly-windows :global(.ps-icon:disabled), .fly-windows :global(.ps-form:disabled) { opacity: 0.35; cursor: default; }
+  .fly-windows :global(.ps-icon img) { width: 16px; height: 16px; display: block; }
+  .fly-windows :global(.ps-footer) { display: flex; align-items: center; gap: 2px; height: 32px; }
+  .fly-windows :global(.ps-form) { background: none; border: 0; padding: 0; width: 32px; height: 32px; cursor: pointer; }
+  .fly-windows :global(.ps-form img) { width: 32px; height: 32px; display: block; }
+  .fly-windows :global(.ps-slider) { flex: 1; display: flex; justify-content: flex-end; padding-left: 8px; }
+  .fly-windows :global(.ps-slider input) { width: 100%; max-width: 120px; }
+  .fly-windows :global(.ps-analyze) { width: 100px; margin-left: 8px; font-size: 13px; padding: 4px 0; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }

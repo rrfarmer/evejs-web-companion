@@ -4,7 +4,9 @@
   // the transport keeps it, by the client's own rules (bridge/scannerWrites.ts).
   // The flow reads the scanner again as an order is made, and makes the
   // client's call itself.
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
+  import TypeIcon from "./TypeIcon.svelte";
+  import { PINPOINT_FORMATION, SPREAD_FORMATION } from "../bridge/probeFormations.ts";
   import ScannerCenter from "./ScannerCenter.svelte";
   import ProbeScanResults from "./ProbeScanResults.svelte";
   import ScannerProbes from "./ScannerProbes.svelte";
@@ -25,6 +27,15 @@
   import type { ScannerActionBindings } from "../scanner/scannerCenter.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  /**
+   * On the play page the window as ProbeScannerWindow lays it out (400 x 400, caption UI/Inflight/Scanner/ProbeScanner;
+   * probeScannerPalette.py): the results (their filter row and scroll, ProbeScanResults) over the bottom container 64
+   * high on its segment underlay - the probe state row 24 high (the probe's icon 28, "X n" or NoLauncherFitted /
+   * NoProbesLaunched / NoProbesInLauncher in warning orange, the recover and reconnect buttons at the right), then the
+   * formation buttons 32 (pinpoint, spread, center on self), the size slider (1 to 8, its label the average range) and
+   * the Analyze button 100 wide at the right. The companion's own center and probe table are not drawn there.
+   */
+  const retail = getContext("retailChrome") === true;
 
   // svelte-ignore state_referenced_locally
   const scanner = store.scanner;
@@ -160,16 +171,21 @@
       `dialog:${ABYSSAL_SCAN_QUESTION}/title`,
       `dialog:${ABYSSAL_SCAN_QUESTION}/body`,
       suppressableKey(ABYSSAL_SCAN_QUESTION),
+      ...(retail ? ["UI/Inflight/Scanner/NoLauncherFitted", "UI/Inflight/Scanner/NoProbesLaunched", "UI/Inflight/Scanner/NoProbesInLauncher",
+        "UI/Inflight/Scanner/ReconnectActiveProbes", "UI/Inflight/Scanner/RecoverActiveProbes", "UI/Inflight/Scanner/LaunchPinpointFormation",
+        "UI/Inflight/Scanner/LaunchSpreadFormation", "UI/Inflight/Scanner/CenterOnSelf", "UI/Inflight/Scanner/ProbeSize", "UI/Inflight/Scanner/Analyze", "UI/Inflight/Scanner/ScanResults", "UI/Inflight/Scanner/NoScanResults"] : []),
     ]);
   });
 </script>
 
+{#if !retail}
 <ScannerCenter
   scan={$scanner.scan}
   names={{ typeNames }}
   {actions}
   onRefresh={() => flow.loadScanner()}
 />
+{/if}
 {#if abyssalQuestion !== null}
   <!-- The client's warning before a scan in an Abyssal pocket: its title (the warning's own), body, the box that keeps
        Yes where the install lets it, Yes and No. -->
@@ -186,8 +202,49 @@
     </p>
   </div>
 {/if}
+{#if retail}
+  {@const ops = $scanner.operations.status === "ready" ? $scanner.operations.value : null}
+  {@const probeTypeID = ops?.probes[0]?.typeID ?? ops?.launcher?.chargeTypeID ?? null}
+  {@const numProbes = ops?.probes.length ?? 0}
+  <div class="ps-window">
+    <div class="ps-results">
+      {#if $scanner.probeResults === null}
+        <!-- Before a scan: the filter row's caption (ScanResults) and the scroll's hint (NoScanResults) -->
+        <div class="ps-filter">{word("UI/Inflight/Scanner/ScanResults", "Scan Results")}</div>
+        <p class="ps-none">{word("UI/Inflight/Scanner/NoScanResults", "No scan results")}</p>
+      {/if}
+      <ProbeScanResults {store} {flow} />
+    </div>
+    <div class="ps-bottom">
+      <div class="ps-state">
+        <span class="ps-probe" class:dim={numProbes === 0}>{#if probeTypeID}<TypeIcon typeID={probeTypeID} name={typeNames[probeTypeID] ?? ""} />{/if}</span>
+        <span class="ps-count" class:warn={numProbes === 0}>{numProbes > 0 ? `X ${numProbes}`
+          : ops?.launcher === null ? word("UI/Inflight/Scanner/NoLauncherFitted", "No probe launcher fitted")
+          : (ops?.launcher?.loadedCount ?? 0) > 0 ? word("UI/Inflight/Scanner/NoProbesLaunched", "No probes launched")
+          : word("UI/Inflight/Scanner/NoProbesInLauncher", "No probes in launcher")}</span>
+        <span class="ps-gap"></span>
+        <button type="button" class="ps-icon" title={word("UI/Inflight/Scanner/ReconnectActiveProbes", "Reconnect to lost probes")}
+          disabled={actions.reconnect?.blocked !== undefined} onclick={() => void flow.reconnectScannerProbes()}><img alt="" src="/client-res/ui/texture/classes/probescanner/16/reconnectprobesicon.png" /></button>
+        <button type="button" class="ps-icon" title={word("UI/Inflight/Scanner/RecoverActiveProbes", "Recover active probes")}
+          disabled={actions.recover?.blocked !== undefined || !actions.recover?.probeIDs.length} onclick={() => void flow.recoverScannerProbes()}><img alt="" src="/client-res/ui/texture/classes/probescanner/16/recoverprobesicon.png" /></button>
+      </div>
+      <div class="ps-footer">
+        <button type="button" class="ps-form" title={word("UI/Inflight/Scanner/LaunchPinpointFormation", "Launch pinpoint formation")} disabled={ops === null || !ops.inSpace}
+          onclick={() => void flow.launchProbeFormation(PINPOINT_FORMATION)}><img alt="" src="/client-res/ui/texture/classes/probescanner/32/pinpointformation.png" /></button>
+        <button type="button" class="ps-form" title={word("UI/Inflight/Scanner/LaunchSpreadFormation", "Launch spread formation")} disabled={ops === null || !ops.inSpace}
+          onclick={() => void flow.launchProbeFormation(SPREAD_FORMATION)}><img alt="" src="/client-res/ui/texture/classes/probescanner/32/spreadformation.png" /></button>
+        <button type="button" class="ps-form" title={word("UI/Inflight/Scanner/CenterOnSelf", "Center on self")} disabled>
+          <img alt="" src="/client-res/ui/texture/classes/probescanner/32/centerprobes.png" /></button>
+        <span class="ps-slider"><input type="range" min="1" max="8" step="1" value="4" disabled title={word("UI/Inflight/Scanner/ProbeSize", "Probe size")} /></span>
+        <button type="button" class="ps-analyze" disabled={actions.analyze?.blocked !== undefined} title={actions.analyze?.blocked ?? ""}
+          onclick={() => void analyze()}>{word("UI/Inflight/Scanner/Analyze", "Analyze")}</button>
+      </div>
+    </div>
+  </div>
+{:else}
 <ScannerProbes {store} {flow} />
 <ProbeScanResults {store} {flow} />
+{/if}
 
 <style>
   .scan-question {
