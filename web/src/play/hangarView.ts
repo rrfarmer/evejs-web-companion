@@ -7,9 +7,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { typeModel, graphicModel, setThrust, setDirtLevel, setControllerVariable } from "../three/hullModel.ts";
+import { typeModel, graphicModel, setThrust, setDirtLevel, setControllerVariable, setActivationStrength } from "../three/hullModel.ts";
 import { effectObject, type SofChildNode } from "../three/hullChildren.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
+import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure, type DynamicExposureParams } from "../three/exposure.ts";
@@ -39,6 +40,15 @@ function hangarVfxTemplate(): Promise<THREE.Object3D | null> {
  */
 const shipSizeGroup = (radius: number) => (!radius || radius <= 234 ? 1 : radius <= 1877 ? 2 : 3);
 
+/** modularHangarBehavioursConstants: the repair drones' wait, the repair's length, the repair effects' fading. */
+const REPAIR_DRONES_START_DELAY = 5.5;
+const REPAIR_DRONES_REPAIR_DURATION = 23.0;
+const REPAIR_DRONE_HULL_REPAIR_EFFECT_SPEED = [0.2, -0.3] as const;
+const REPAIR_DRONE_ARMOR_REPAIR_EFFECT_SPEED = [0.05, 0.2, -0.1] as const;
+
+/** A ship's damage state: the fractions of shield, armor and hull left (dogma GetDamageStateEx). */
+export type ShipDamageState = readonly [number, number, number];
+
 /** How many of a hangar's point lights are lit (the nearest to the ship): three's forward renderer pays for each. */
 
 export class HangarView {
@@ -65,6 +75,12 @@ export class HangarView {
   private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
   /** The hangar VFX for the ship shown (its "ship" parameter bound to the ship's EVE-space group). */
   private vfx: THREE.Object3D | null = null;
+  /** The docked ship's damage state (setDamage), applied to each ship shown. */
+  private damage: ShipDamageState | null = null;
+  /** The shown ship's impact overlay (its damage), and the repair running on it. */
+  private impact: ImpactOverlay | null = null;
+  private repairRun = 0;
+  private lastImpactAt = 0;
   /** The hangar's hangarType (hangarRegistry): the VFX's HangarType. */
   private hangarType = 0;
   /** The docked ship's dirt level (setDirt), kept for the next ship model shown too. */
@@ -164,6 +180,10 @@ export class HangarView {
     this.camera.far = hangar ? 1e5 : radius * 400;
     this.ship = { model, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
     void this.applyVfx(model, sphere.radius);
+    // its damage (LoadShipModel's SetShipDamage)
+    this.repairRun++;
+    this.impact = impactOverlayOf(model);
+    if (this.damage) this.shipDamage(this.damage);
     if (this.dirt !== null) setDirtLevel(model, this.dirt);
     // its turrets, for the fit known now
     void this.applyFit();
@@ -276,6 +296,65 @@ export class HangarView {
     this.scene.add(vfx);
     this.vfx = vfx;
   }
+  /**
+   * The docked ship's damage state, as it is read and as it changes (hangarView.OnDamageStateChanged): applied to the
+   * ship shown (shipDamage); where it says the ship that looked damaged is repaired, the VFX's repair drones come.
+   */
+  setDamage(state: ShipDamageState | null): void {
+    if (state && this.damage && state.every((v, i) => v === this.damage![i])) return;
+    this.damage = state;
+    if (!state || !this.ship) return;
+    // (the VFX's RepairDrones machine puts its own copy back to nought: nought first, so each repair is a change)
+    if (this.shipDamage(state)) { this.setVfxVariable("triggerRepairDrones", 0); this.setVfxVariable("triggerRepairDrones", 1); }
+  }
+
+  /**
+   * baseHangarBehaviours.SetShipDamage: a ship whose hull looks damaged (hullDamageFactor over 0.1) and is now whole in
+   * armor and hull is repaired before the eye (ImpactUpdateThread) and true is answered (the drones are to come);
+   * otherwise the damage state is set, its holes made (SetImpactDamageState(..., True)).
+   */
+  private shipDamage([shield, armor, hull]: ShipDamageState): boolean {
+    const impact = this.impact;
+    if (!impact) return false;
+    if (impact.hullDamage > 0.1 && armor > 0.99 && hull > 0.99) {
+      void this.repairBeforeTheEye(impact);
+      return true;
+    }
+    impact.setDamageState(shield, armor, hull, true);
+    return false;
+  }
+
+  /**
+   * ImpactUpdateThread: after the drones' wait the hull, then the armor, mended a step a second (the two together
+   * over REPAIR_DRONES_REPAIR_DURATION), the repairing effects faded in and out as it goes; a ship changed stops it.
+   */
+  private async repairBeforeTheEye(impact: ImpactOverlay): Promise<void> {
+    const run = ++this.repairRun;
+    const sleep = (s: number) => new Promise<boolean>((r) => setTimeout(() => r(run === this.repairRun && !this.stopped), s * 1000));
+    let [shield, armor, hull] = impact.lastDamageState;
+    const step = (2 - (hull + armor)) / REPAIR_DRONES_REPAIR_DURATION;
+    if (!(await sleep(REPAIR_DRONES_START_DELAY))) return;
+    impact.setRepairFading(REPAIR_DRONE_HULL_REPAIR_EFFECT_SPEED[0], REPAIR_DRONE_ARMOR_REPAIR_EFFECT_SPEED[0]);
+    while (hull < 1) {
+      impact.setDamageState(shield, armor, Math.min(hull, 1), true);
+      if (!(await sleep(1))) return;
+      hull += step;
+    }
+    impact.setRepairFading(REPAIR_DRONE_HULL_REPAIR_EFFECT_SPEED[1], REPAIR_DRONE_ARMOR_REPAIR_EFFECT_SPEED[1]);
+    while (armor < 0.8) {
+      impact.setDamageState(1, armor, 1, true);
+      if (!(await sleep(1))) return;
+      armor += step;
+    }
+    impact.setRepairFading(null, REPAIR_DRONE_ARMOR_REPAIR_EFFECT_SPEED[2]);
+    while (armor < 1) {
+      impact.setDamageState(1, armor, 1, true);
+      if (!(await sleep(1))) return;
+      armor += step;
+    }
+    impact.setDamageState(1, 1, 1, true);
+  }
+
   /** A controller variable of the hangar VFX (randomRepairDroneDemo, triggerRepairDrones ...). */
   setVfxVariable(name: string, value: number): void { if (this.vfx) setControllerVariable(this.vfx, name, value); }
 
@@ -370,6 +449,16 @@ export class HangarView {
   frame(): void {
     if (this.stopped) return;
     for (const s of this.turretSets) for (const r of s.rigs) r.update(null);
+    // the ship's damage: its holes and their faders stepped, its lights' flicker below 90 % hull
+    const now = performance.now();
+    if (this.impact && this.ship) {
+      const dt = this.lastImpactAt ? Math.min(0.1, (now - this.lastImpactAt) / 1000) : 0;
+      const distance = Math.max(1, this.camera.position.distanceTo(this.ship.model.getWorldPosition(new THREE.Vector3())));
+      const pixels = (2 * this.ship.radius * innerHeight) / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * distance);
+      this.impact.update(dt, this.scene, new THREE.Vector3(), pixels);
+      setActivationStrength(this.ship.model, this.impact.activationStrength(now / 1000));
+    }
+    this.lastImpactAt = now;
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();

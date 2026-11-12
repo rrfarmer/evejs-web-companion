@@ -207,6 +207,17 @@
         if (!shipID || !$station?.station) { hangar.setDirt(null); return; }
         void session?.flow.shipDirtTime(shipID).then((t) => hangar.setDirt(t === null ? null : dirtLevelFromTime(t))).catch(() => hangar.setDirt(null));
       });
+      // its damage (dogma GetDamageStateEx from the active ship's attributes, kept as OnModuleAttributeChanges tells:
+      // shieldCharge / shieldCapacity, 1 - armorDamage / armorHP, 1 - damage / hp), its change a repair's
+      $effect(() => {
+        const a = $fitting?.shipAttributes;
+        const of = (id: number) => (typeof a?.[id] === "number" ? (a[id] as number) : null);
+        const [charge, capacity, armorDamage, armorHP, damage, hp] = [of(264), of(263), of(266), of(265), of(3), of(9)];
+        if (!$station?.station || hp === null || !(hp > 0)) { hangar.setDamage(null); return; }
+        const ratio = (x: number | null, whole: number | null, used: boolean) =>
+          whole !== null && whole > 0 && x !== null ? Math.min(1, Math.max(0, used ? 1 - x / whole : x / whole)) : 1;
+        hangar.setDamage([ratio(charge, capacity, false), ratio(armorDamage, armorHP, true), ratio(damage, hp, true)]);
+      });
       // its fitted turrets (the fitting's high and medium slots: slot = the place in its rack + 1, as
       // TurretSet.GetSlotFromModuleFlagID; the fit is applied only when it changes)
       $effect(() => {

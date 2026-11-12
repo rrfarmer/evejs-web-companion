@@ -106,6 +106,8 @@ class ScalarFader {
     }
     if (this.fadeTime >= 0) { this.fadeTime += dt; if (this.fadeTime > this.kickInLength) this.fadeTime = -1; }
   }
+  /** Its fading set outright (EveDamageOverlay's hullRepairing / armorRepairing .fading, as the hangar sets it). */
+  fade(rate: number): void { this.fading = rate; }
   start(fadeIn: boolean, length: number): void {
     this.kickInLength = Math.max(length, 1e-6);
     this.fading = (fadeIn ? 1 : -1) / this.kickInLength;
@@ -414,6 +416,8 @@ export class ImpactOverlay {
   /** By index, oldest first (the map's order). */
   private readonly holes = new Map<number, Hole>();
   private nextIndex = 1;
+  /** m_seed: the forced holes' random draw (SetDamageState doCreateArmorImpacts). */
+  private readonly seed = Math.floor(Math.random() * 0x100000000) >>> 0;
   private readonly armorEmitter: GpuEmitter | null;
   private readonly hullEmitter: GpuEmitter | null;
   /** How many particles the last update sent (for checks). */
@@ -528,8 +532,23 @@ export class ImpactOverlay {
   get goalCount(): number { return Math.trunc(12 * clamp01(1 - this.armor) + 4 * clamp01(1 - this.hull)); }
   get holeCount(): number { return this.holes.size; }
 
-  /** EveDamageOverlay::SetDamageState (:450-495): the fractions left; the configuration from them. */
-  setDamageState(shield: number, armor: number, hull: number): void {
+  /** GetLastDamageState: the fractions left last set (shield, armor, hull). */
+  get lastDamageState(): [number, number, number] { return [this.shield, this.armor, this.hull]; }
+  /** hullDamageFactor: TriLinearize(0.9, 0.1, hull). */
+  get hullDamage(): number { return this.hullDamageFactor; }
+  /** The hull and armor repairing faders' fading set (the hangar's ImpactUpdateThread); null leaves one as it is. */
+  setRepairFading(hull: number | null, armor: number | null): void {
+    if (hull !== null) this.faders.hullrepair.fade(hull);
+    if (armor !== null) this.faders.armorrepair.fade(armor);
+  }
+
+  /**
+   * EveDamageOverlay::SetDamageState (:450-495): the fractions left; the configuration from them. createArmorImpacts
+   * (doCreateArmorImpacts: the hangar's SetImpactDamageState(..., True)): holes made up to the goal count, each at a
+   * random damage locator and of a random size in [0.2, 0.8] (a generator seeded with m_seed + the holes there are),
+   * without debris.
+   */
+  setDamageState(shield: number, armor: number, hull: number, createArmorImpacts = false): void {
     this.shield = clamp01(shield); this.armor = clamp01(armor); this.hull = clamp01(hull);
     // EveDamageOverlay::SetDamageState (:470-477): the hull damage factor; the flicker scaled by the damage (scale
     // TriLinearize(1, 0, hull) = 1 - hull, offset 1 less that)
@@ -537,7 +556,23 @@ export class ImpactOverlay {
     if (this.flicker) { this.flicker.scale = 1 - this.hull; this.flicker.offset = this.hull; }
     // EveImpactOverlay::SetDamageState (:534-540): the shield's colour toward the empty one as it goes
     if (this.shieldMesh) this.shieldMesh.material.uniforms.colorFade!.value = clamp01((1 - this.shield) ** 2);
-    this.configuration = this.shield > 0.05 ? "shield" : this.armor > 0.05 ? "armor" : this.hull > 0 ? "hull" : "invalid";
+    // (Trinity keeps the configuration it had where no layer is left)
+    if (this.shield > 0.05) this.configuration = "shield";
+    else if (this.armor > 0.05) this.configuration = "armor";
+    else if (this.hull > 0) this.configuration = "hull";
+    const locators = this.sof.damageLocators.length;
+    if (createArmorImpacts && locators > 0) {
+      let state = (this.seed + this.holes.size) >>> 0;
+      // (a small seeded generator in place of std::mt19937: the draw is random either way)
+      const next = () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 0x100000000; };
+      for (let i = this.holes.size; i < this.goalCount; i++) {
+        const locator = Math.min(locators - 1, Math.floor(next() * locators));
+        const size = 0.2 + 0.6 * next();
+        const held = [...this.holes.values()].find((h) => h.locator === locator);
+        if (held) held.size = Math.max(size, held.size);
+        else this.holes.set(this.nextIndex++, { locator, size, spray: false });
+      }
+    }
   }
 
   /** A damage locator's place in the world (GetDamageLocatorPosition), or null for none. */
