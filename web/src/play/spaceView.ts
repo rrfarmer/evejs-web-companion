@@ -25,7 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
-import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, type WorldLoop } from "./uiAudio.ts";
+import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -206,6 +206,8 @@ export class SpaceView {
    * on for the cycle's length, Stop sets it off): by the module, its ship, its name, the cycle and when it next repeats.
    */
   private readonly impactAnimations = new Map<string, { ship: number; name: string; cycle: number; next: number; until: number }>();
+  /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
+  private readonly fxEmitters = new Set<string>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);
     this.shipFx.hear(name, args);
@@ -223,22 +225,32 @@ export class SpaceView {
         }
       });
     }
-    // an effect started (OnSpecialFX's start flag): its graphic's sounds, at the ship or the target
-    if (name === "OnSpecialFX" && Number(args[7]) === 1) {
+    // an effect started (OnSpecialFX's start flag): its graphic's sounds, at the ship or the target, kept under the
+    // effect's emitter (its guid, ship and module); stopped (the flag 0): the effect's emitter goes, and its sounds with
+    // it - a looping one (a tracking computer's) would sound on for ever
+    if (name === "OnSpecialFX") {
       const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
       const ship = Number(args[0]), target = Number(args[3]);
-      void fxSoundsOf().then((table) => {
-        for (const g of guids) for (const s of table[g] ?? []) {
-          const id = s.at === "target" ? target : ship;
-          if (!Number.isFinite(id) || id <= 0) continue;
-          window.setTimeout(() => {
-            const at = this.placeOf(id, this.lastOrigin);
-            // the effect's emitter scaled as its class scales it, by the ball it sounds at (effectAudioScale)
-            const radius = this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? null;
-            if (at) void effectAudioScale(g, radius).then((scale) => playWorldEvent(s.event, at, scale));
-          }, s.time * 1000);
-        }
-      });
+      const emitterOf = (g: string) => `fx:${g}:${ship}:${String(args[1])}`;
+      if (Number(args[7]) !== 1) {
+        for (const g of guids) { this.fxEmitters.delete(emitterOf(g)); stopEmitter(emitterOf(g)); }
+      } else {
+        for (const g of guids) this.fxEmitters.add(emitterOf(g));
+        void fxSoundsOf().then((table) => {
+          for (const g of guids) for (const s of table[g] ?? []) {
+            const id = s.at === "target" ? target : ship;
+            if (!Number.isFinite(id) || id <= 0) continue;
+            window.setTimeout(() => {
+              // (an effect stopped before its key's time sounds no more)
+              if (!this.fxEmitters.has(emitterOf(g))) return;
+              const at = this.placeOf(id, this.lastOrigin);
+              // the effect's emitter scaled as its class scales it, by the ball it sounds at (effectAudioScale)
+              const radius = this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? null;
+              if (at) void effectAudioScale(g, radius).then((scale) => playWorldEvent(s.event, at, scale, emitterOf(g)));
+            }, s.time * 1000);
+          }
+        });
+      }
     }
     if (name === "OnSpecialFX") {
       const anim = IMPACT_ANIMATIONS[fxGuid(args[5])];

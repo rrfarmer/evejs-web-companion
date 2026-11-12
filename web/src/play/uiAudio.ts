@@ -219,13 +219,12 @@ function bufferOf(ctx: AudioContext, sound: string): Promise<AudioBuffer | null>
  * An event's sounds started: one alternative of each layer, together, through the node given (a gain, a panner); the
  * sources kept under the event's name for its stop event.
  */
-async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext, sound: string) => AudioNode, entry: (typeof uiAudioLog)[number]): Promise<void> {
+async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext, sound: string) => AudioNode, entry: (typeof uiAudioLog)[number], key = name.toLowerCase()): Promise<void> {
   context ??= new AudioContext();
   if (context.state === "suspended") await context.resume().catch(() => {});
   const ctx = context;
   entry.state = ctx.state;
   const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s.sound)));
-  const key = name.toLowerCase();
   const set = playing.get(key) ?? new Set<AudioBufferSourceNode>();
   playing.set(key, set);
   for (const [n, buffer] of buffers.entries()) {
@@ -248,9 +247,10 @@ async function start(name: string, sounds: { sound: string; gain: number }[], vo
 /**
  * An emitter's event (AudEmitter.SendEvent) in the world: its sounds placed at the point (the view's frame, as the
  * listener's), at master x World level, each sound by its attenuation curve at the emitter's distance - its
- * distances times the emitter's scaling factor (1 unless the client sets one: the effects' and explosions').
+ * distances times the emitter's scaling factor (1 unless the client sets one: the effects' and explosions'). Given an
+ * emitter, its sounds are kept under it until stopEmitter (an effect's emitter going with the effect).
  */
-export async function playWorldEvent(name: string, at: Vec3, scale = 1): Promise<void> {
+export async function playWorldEvent(name: string, at: Vec3, scale = 1, emitter?: string): Promise<void> {
   // the layers' crossfades by the emitter's distance from the listener (their RTPC bound to Distance)
   const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
   await askAttenuations();
@@ -266,7 +266,18 @@ export async function playWorldEvent(name: string, at: Vec3, scale = 1): Promise
     const panner = placer(ctx, at);
     panner.connect(ctx.destination);
     return muffled(ctx, sound, panner);
-  }, entry);
+  }, entry, emitter === undefined ? name.toLowerCase() : `${emitter}|${name.toLowerCase()}`);
+}
+
+/** An emitter gone (an effect stopped: the client's effect removes its observer, whose AudEmitter's sounds end): every sound it started, stopped. */
+export function stopEmitter(emitter: string): number {
+  let n = 0;
+  for (const [key, set] of playing) {
+    if (!key.startsWith(`${emitter}|`)) continue;
+    for (const s of set) { try { s.stop(); n++; } catch { /* already over */ } }
+    playing.delete(key);
+  }
+  return n;
 }
 
 /**
