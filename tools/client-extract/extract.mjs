@@ -516,7 +516,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [], effects: [], starMap: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -534,6 +534,7 @@ function parseArgs(argv) {
     else if (a === "--ammo-colors") out.ammoColors = true;
     else if (a === "--fx") out.fx.push(argv[++i]);
     else if (a === "--star-map") out.starMap = true;
+    else if (a === "--fitting-scene") out.fittingScene = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
@@ -661,6 +662,22 @@ async function main() {
   }
   // starmap.json: the star map's textures (mapView.py: the star particles' TexMap, mapFilterConst's
   // PARTICLE_SPRITE_TEXTURE; mapViewUtil.CreateLineSet's line textures), copied
+  // fittingScene.json: the fitting window's ship scene (shipSceneContainer.PrepareSpaceScene's
+  // res:/dx9/scene/fitting/fitting.red): its background cube, reflection cubes, sun and ambient
+  if (args.fittingScene) {
+    const res = "res:/dx9/scene/fitting/fitting.black";
+    const s = readBlack(rf.read(res), res);
+    const nebula = (s.backgroundEffect?.resources ?? []).find((r) => r.name === "NebulaMap")?.resourcePath ?? null;
+    const scene = {
+      nebula: nebula && rf.has(nebula.toLowerCase()) ? copyRes(rf, nebula, outRoot) : null,
+      reflection: s.envMapResPath ? copyRes(rf, s.envMapResPath, outRoot) : null,
+      blur: s.envMap2ResPath ? copyRes(rf, s.envMap2ResPath, outRoot) : null,
+      sunDiffuseColor: s.sunDiffuseColor ?? null, sunDirection: s.sunDirection ?? null, ambientColor: s.ambientColor ?? null,
+      background: Object.fromEntries(s.backgroundEffect?.constParameters?.items ?? []),
+    };
+    fs.writeFileSync(path.join(outRoot, "fittingScene.json"), JSON.stringify(scene));
+    console.log(`fittingScene.json: ${Object.keys(scene).filter((k) => scene[k]).join(", ")}`);
+  }
   if (args.starMap) {
     const textures = {};
     for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds",
@@ -705,7 +722,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

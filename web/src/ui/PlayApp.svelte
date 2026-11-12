@@ -9,9 +9,12 @@
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers } from "../app/api.ts";
   import { StarMap } from "../play/starMap.ts";
+  import { FittingShipScene } from "../play/fittingScene.ts";
   import { setContext } from "svelte";
   // The app panels in this page's windows draw as the client's where they know how (Fitting.svelte's ring).
   setContext("retailChrome", true);
+  // ... and the fitting window's ship in the middle of its ring (play/fittingScene.ts), its own scene a window
+  setContext("fittingShipScene", (host: HTMLElement) => new FittingShipScene(host));
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
@@ -626,6 +629,13 @@
   .fly-windows :global(.fit-ring.retail) { width: min(100%, calc(640px * max(0.75, min(1, 100vw / 1400px)))); max-width: none; min-width: 0; aspect-ratio: 1; }
   .fly-windows :global(.fit-ring.retail .fit-base) { position: absolute; inset: 0; pointer-events: none; background: var(--tint);
     -webkit-mask: var(--tex) center / 100% 100% no-repeat; mask: var(--tex) center / 100% 100% no-repeat; }
+  /* ShipSceneParent: 550 of the 640 base, in the middle, through circleStencil.dds */
+  .fly-windows :global(.fit-ring.retail .fit-ship-scene) { position: absolute; left: 7.03%; top: 7.03%; width: 85.94%; height: 85.94%;
+    border-radius: 50%; overflow: hidden; -webkit-mask: radial-gradient(circle closest-side, #000 96%, transparent 100%);
+    mask: radial-gradient(circle closest-side, #000 96%, transparent 100%); }
+  .fly-windows :global(.fit-ring.retail .fit-hull.has-scene > .type-icon) { display: none; }
+  .fly-windows :global(.fit-ring.retail .fit-hull.has-scene) { pointer-events: none; }
+  .fly-windows :global(.fit-ring.retail .fit-hull.has-scene .fit-simulate) { pointer-events: auto; }
   .fly-windows :global(.fit-ring.retail .fit-gauges) { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
   /* (GaugeCircular's UpdateThread: end moves 3 x the gap a second toward the value) */
   .fly-windows :global(.fit-ring.retail .fit-gauge) { fill: none; stroke-linecap: butt; transition: stroke-dasharray 0.33s ease-out; }

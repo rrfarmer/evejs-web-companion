@@ -121,6 +121,10 @@
   // svelte-ignore state_referenced_locally
   const inventory = store.inventory;
   // svelte-ignore state_referenced_locally
+  const flightState = store.flight;
+  // svelte-ignore state_referenced_locally
+  const spaceState = store.space;
+  // svelte-ignore state_referenced_locally
   const dogma = store.dogma;
   // svelte-ignore state_referenced_locally
   const names = store.names;
@@ -228,6 +232,13 @@
    * drawn faint (EntryAnimation's 0.05 for a disabled slot).
    */
   const retail = getContext("retailChrome") === true;
+  /** The play page's ship view for the ring's middle (play/fittingScene.ts), where it gives one. */
+  const shipSceneOf = getContext<((host: HTMLElement) => { show(typeID: number | null): Promise<void>; close(): void }) | undefined>("fittingShipScene");
+  function shipScene(host: HTMLElement, typeID: number | null) {
+    const view = shipSceneOf!(host);
+    void view.show(typeID);
+    return { update: (next: number | null) => void view.show(next), destroy: () => view.close() };
+  }
   /** The flags a group has that the hull lacks, as the client draws them (its empty slot icon, faint). */
   const absentPlaces = $derived.by(() => {
     if (!retail) return [];
@@ -1142,7 +1153,12 @@
     const row =
       $inventory.hangar.rows.find((entry) => entry.itemID === shipID) ??
       $inventory.cargo.rows.find((entry) => entry.itemID === shipID);
-    return row ? row.typeID : null;
+    if (row) return row.typeID;
+    // in space the ship is in no hangar's rows: the flight's word of the ship flown, else the space snapshot's ship
+    const status = $flightState.status;
+    if (status && status.shipID === shipID && status.shipTypeID !== null) return status.shipTypeID;
+    const ship = $spaceState.snapshot?.ship;
+    return ship && ship.itemID === shipID ? ship.typeID : null;
   });
 
   const activeShipName = $derived.by<string>(() => {
@@ -3289,6 +3305,7 @@
           <div class="fit-ring-wrap overflow-x-auto">
             <div class="fit-ring" class:retail style={retail ? `--slot-w: ${(CLIENT_SLOT_WIDTH / CLIENT_BASE) * 100}%; --slot-h: ${(CLIENT_SLOT_HEIGHT / CLIENT_BASE) * 100}%` : ""}>
               {#if retail}
+                {#if shipSceneOf}<div class="fit-ship-scene" use:shipScene={ringTypeID}></div>{/if}
                 <!-- fittingLayout.py's base, bottom up: fittingbase (black 0.86), fittingbase_basecircle (the theme's UI
                      base colour), [fittingbase_dotproduct - a DOT-lit sprite - and the three gauges], fittingbase_overlay
                      (white 0.39) -->
@@ -3321,7 +3338,7 @@
               {:else}
                 <div class="fit-ring-guide" aria-hidden="true"></div>
               {/if}
-              <div class="fit-hull">
+              <div class="fit-hull" class:has-scene={retail && !!shipSceneOf}>
                 <TypeIcon typeID={ringTypeID} name={ringName} size="lg" />
                 {#if simulation && simulation.shipID === null}
                   <span class="fit-hull-name">{ringName}</span>
