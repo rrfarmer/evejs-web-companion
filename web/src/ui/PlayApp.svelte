@@ -1002,6 +1002,23 @@
   .fly-windows :global(.ind-cv-labels div:last-child) { flex: 1; padding-left: 4px; }
   .fly-windows :global(.ind-cv-labels small) { display: block; font-size: 10px; text-transform: uppercase; opacity: 0.5; }
   .fly-windows :global(.ind-cv-labels span) { display: block; font-size: 15px; }
+  /* JobsStrip: 50 high under the view - the summary at the left, the activity toggles in the middle, Start at the right */
+  .fly-windows :global(.ind-js) { position: relative; height: 50px; margin: -1px 7px 2px 5px; border: 1px solid rgba(255, 255, 255, 0.12);
+    background: linear-gradient(to top, rgba(77, 77, 77, 0.3), rgba(77, 77, 77, 0.05)); }
+  .fly-windows :global(.ind-js-summary) { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); display: grid; grid-template-columns: auto auto;
+    column-gap: 10px; align-items: baseline; }
+  .fly-windows :global(.ind-js-summary small) { font-size: 10px; color: rgba(255, 255, 255, 0.45); }
+  .fly-windows :global(.ind-js-summary span) { font-size: 12px; }
+  .fly-windows :global(.ind-js-acts) { position: absolute; left: 50%; top: 50%; width: 248px; height: 38px; margin: -19px 0 0 -124px; display: flex; }
+  .fly-windows :global(.ind-js-acts button) { flex: 1; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1); margin-left: -1px; padding: 0; cursor: pointer; }
+  .fly-windows :global(.ind-js-acts button:disabled) { cursor: default; }
+  .fly-windows :global(.ind-js-acts button:disabled img) { opacity: 0.2; }
+  .fly-windows :global(.ind-js-acts button.sel) { background: var(--sel); }
+  .fly-windows :global(.ind-js-acts img) { width: 26px; height: 26px; }
+  .fly-windows :global(.ind-js-submit) { position: absolute; right: 7px; top: 50%; width: 120px; height: 30px; margin-top: -15px; font-size: 13px;
+    color: #fff; background: color-mix(in srgb, var(--job) 50%, transparent); border: 1px solid var(--job); cursor: pointer; }
+  .fly-windows :global(.ind-js-submit:disabled) { opacity: 0.45; cursor: default; }
   .fly-windows :global(.ind-cv-center) { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
   .fly-windows :global(.ind-cv-wedges) { position: absolute; left: -75px; top: -75px; width: 150px; height: 150px; }
   .fly-windows :global(.ind-cv-wedges .wedge) { position: absolute; transition: transform 0.7s; }

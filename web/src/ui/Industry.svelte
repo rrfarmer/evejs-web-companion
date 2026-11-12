@@ -825,6 +825,25 @@
     if (!product) return { label: industryWord("UI/Industry/NoOutcomeSelected") || "No outcome selected", typeID: null, amount: "", copy: null };
     return { label: typeName(product.typeID), typeID: product.typeID, amount: `x ${product.quantity * runs}`, copy: null };
   });
+  /**
+   * The JobsStrip under the view (jobsStrip.py, activitySelectionButtons.py, submitButton.py; 50 high, padded 5 / -1 /
+   * 7 / 2, a grey gradient and the UIBASECONTRAST frame): at the left 10 with no job AllJobsSummary - Manufacturing,
+   * Science, Reaction Jobs and their counts - with one JobsSummary (the activity type's jobs, Control Range); in the
+   * middle the six activity toggles 248 x 38 (ACTIVITY_ICONS_LARGE at 26, the blueprint's own enabled, the chosen one
+   * in its colour at half brightness; picking one makes the job anew); at the right 7 the SubmitButton 120 x 30 - Start
+   * in the job's colour at 0.5, disabled while the job has errors (here: until the page's preview has answered). The
+   * page reads no slot limits or control range: the counts stand alone and the range is a dash.
+   */
+  const ACTIVITY_LARGE: Readonly<Record<string, string>> = { manufacturing: "manufacturing", copying: "copying",
+    research_material: "researchmaterial", research_time: "researchtime", invention: "invention", reaction: "reaction" };
+  const ACTIVITY_DIM: Readonly<Record<string, string>> = { manufacturing: "#804d00", reaction: "#097365" };
+  function jobsOf(kind: "manufacturing" | "science" | "reaction"): number {
+    return Object.entries($industry.slotsUsed).reduce((sum, [activity, used]) =>
+      sum + ((kind === "manufacturing" ? activity === "manufacturing" : kind === "reaction" ? activity === "reaction" : activity !== "manufacturing" && activity !== "reaction") ? used ?? 0 : 0), 0);
+  }
+  const stripKind = $derived(chosenActivity === "manufacturing" ? "manufacturing" : chosenActivity === "reaction" ? "reaction" : "science");
+  const STRIP_WORDS = ["UI/Industry/ManufacturingJobs", "UI/Industry/ScienceJobs", "UI/Industry/ReactionJobs", "UI/Industry/ControlRange", "UI/Industry/Start"];
+  onMount(() => { if (retail) flow.requestWords(STRIP_WORDS); });
   const viewFacility = $derived(chosenFacilityID !== null ? $industry.facilities.find((f) => f.facilityID === chosenFacilityID) ?? null : null);
   const VIEW_WORDS = ["UI/Industry/Outcome", "UI/Industry/ResearchedBlueprint", "UI/Industry/BlueprintCopy", "UI/Industry/NoOutcomeSelected",
     "UI/Industry/InputMaterialLocation", "UI/Industry/NoneSelected", "UI/Industry/JobDuration", "UI/Industry/JobCost", "UI/Industry/Runs",
@@ -945,6 +964,32 @@
           {/each}
         </div>
       </div>
+    </div>
+    <div class="ind-js">
+      <div class="ind-js-summary">
+        {#if startingBlueprint}
+          <small>{industryWord(`UI/Industry/${stripKind === "manufacturing" ? "Manufacturing" : stripKind === "reaction" ? "Reaction" : "Science"}Jobs`)}</small><span>{jobsOf(stripKind)}</span>
+          <small>{industryWord("UI/Industry/ControlRange") || "Control Range"}</small><span style={`color: ${viewColor}`}>-</span>
+        {:else}
+          <small>{industryWord("UI/Industry/ManufacturingJobs") || "Manufacturing Jobs"}</small><span>{jobsOf("manufacturing")}</span>
+          <small>{industryWord("UI/Industry/ScienceJobs") || "Science Jobs"}</small><span>{jobsOf("science")}</span>
+          <small>{industryWord("UI/Industry/ReactionJobs") || "Reaction Jobs"}</small><span>{jobsOf("reaction")}</span>
+        {/if}
+      </div>
+      <div class="ind-js-acts">
+        {#each CLIENT_ACTIVITIES as a (a.id)}
+          {@const on = startingBlueprint !== null && blueprintActivities(startingBlueprint).includes(a.id)}
+          <button type="button" class:sel={on && chosenActivity === a.id} disabled={!on || busy}
+            style={`--sel: ${ACTIVITY_DIM[a.id] ?? "#1a3a5b"}`} title={industryWord(a.label) || ACTIVITY_LABELS[a.id]}
+            onclick={() => { if (startingBlueprint) chooseBlueprintActivity(startingBlueprint, a.id); }}>
+            <img alt="" src={`/client-res/ui/texture/classes/industry/activity/${ACTIVITY_LARGE[a.id]}.png`} />
+          </button>
+        {/each}
+      </div>
+      {#if startingBlueprint}
+        <button type="button" class="ind-js-submit" style={`--job: ${viewColor}`} disabled={busy || cannotAsk || !confirming}
+          title={confirming ? "" : "Waiting for the job's preview"} onclick={confirmInstall}>{industryWord("UI/Industry/Start") || "Start"}</button>
+      {/if}
     </div>
     <nav class="ind-tabs">
       {#each INDUSTRY_TABS as t (t.id)}
