@@ -1417,6 +1417,17 @@ export async function effectObject(root: SofChildNode, effects: Record<string, S
  * Start an effect object built by hullChildren (EveEffectRoot2::Start, as ExplosionManager.GetExplosion calls it): its
  * curve sets played from now. Its controllers begin as it is first drawn.
  */
+/** An effect object's PostProcess output (its multi-effect's binding: "fade.intensity"), or null where none is set. */
+export function effectOutput(object: THREE.Object3D, name: string): number | null {
+  let out: number | null = null;
+  object.traverse((o) => {
+    const key = o.userData.animatorKey as string | undefined;
+    const v = key ? animators.get(key)?.outputs.get(name) : undefined;
+    if (out === null && v !== undefined) out = v;
+  });
+  return out;
+}
+
 export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
   object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip); });
 }

@@ -136,6 +136,8 @@ export class ChildAnimator {
   private readonly xforms = new Map<number, Xform>();
   /** The curves and bindings by id, for the bindings that drive a curve's timeOffset or a binding's scale. */
   private readonly curvesById = new Map<number, Record<string, unknown>>();
+  /** An effect's PostProcess outputs (an EveMultiEffect's binding into its PostProcess parameter: "fade.intensity"). */
+  readonly outputs = new Map<string, number>();
   private readonly bindingsById = new Map<number, SofCurveSet["bindings"][number]>();
   private quadColour: THREE.InstancedBufferAttribute | null = null;
   private readonly start = performance.now();
@@ -298,7 +300,8 @@ export class ChildAnimator {
         // (its holder is also a display target: the trigger is looked at first)
         const triggers = b.destinationType === "EveChildEffectPropagator" && attr0 === "trigger"
           ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.onTrigger === "function") : [];
-        if (!triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
+        const output = b.destinationType === "PostProcessOutput";
+        if (!output && !triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
         if (b.sourceConst) src = b.sourceConst;
@@ -317,6 +320,7 @@ export class ChildAnimator {
         void srcAttr;
         const [attr, comp] = b.destinationAttribute.split(".");
         const srcC = srcComp !== undefined ? COMPONENT[srcComp] ?? null : null;
+        if (output) { this.outputs.set(b.destinationAttribute, copied(src, srcC, b.scale, b.offset, 0, null) as number); continue; }
         if (sinks.length) { const v = copied(src, srcC, b.scale, b.offset, 0, null) as number; for (const o of sinks) (o.userData.setVariable as (v: number) => void)(v); continue; }
         if (setScale) { this.setScale(b.destination, copied(src, srcC, b.scale, b.offset, 0, null) as number); continue; }
         if (triggers.length) { if ((copied(src, srcC, b.scale, b.offset, 0, null) as number) !== 0) for (const o of triggers) (o.userData.onTrigger as () => void)(); continue; }

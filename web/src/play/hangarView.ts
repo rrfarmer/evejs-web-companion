@@ -8,7 +8,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { typeModel, graphicModel, setThrust, setDirtLevel, setControllerVariable, setActivationStrength } from "../three/hullModel.ts";
-import { effectObject, type SofChildNode } from "../three/hullChildren.ts";
+import { effectObject, effectOutput, type SofChildNode } from "../three/hullChildren.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -81,6 +81,14 @@ export class HangarView {
   private impact: ImpactOverlay | null = null;
   private repairRun = 0;
   private lastImpactAt = 0;
+  /**
+   * The hangar's PostProcess fade (Tr2PPFadeEffect: the picture toward black by its intensity), as the VFX's
+   * FadeToBlack binding sets it (F2B_activeExpression_CS: min(the fade curve + the boarding moment's, 1)).
+   */
+  private readonly fade = document.createElement("div");
+  /** A ship boarded in this hangar after the first: its VFX starts black and fades in (hangarView ship switch). */
+  private switchFade = false;
+  private fadeTimer: ReturnType<typeof setTimeout> | null = null;
   /** The hangar's hangarType (hangarRegistry): the VFX's HangarType. */
   private hangarType = 0;
   /** The docked ship's dirt level (setDirt), kept for the next ship model shown too. */
@@ -100,6 +108,9 @@ export class HangarView {
     // exposed and tone-mapped as the client does it, in the bloom's last pass (exposure.ts)
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.root.appendChild(this.renderer.domElement);
+    this.fade.className = "hangar-fade";
+    this.fade.style.cssText = "position:absolute;inset:0;background:#000;opacity:0;pointer-events:none";
+    this.root.appendChild(this.fade);
     // a dark bay: a faint studio reflection, a warm key, a cool rim, and a dim fill from below
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = this.studioEnvironment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -137,14 +148,18 @@ export class HangarView {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
     this.hangarType = hangarGraphics?.hangarType ?? 0;
     if (typeID === this.shownType && hangarKey === this.shownHangar) return;
+    // another ship boarded in the same hangar (hangarView.OnActiveShipChanged, a hangar that is not modular):
+    // fadeToFromBlack(True, isQuick=True), the ship replaced 0.2 s on (REPLACE_SWITCHSHIPS)
+    const switching = !!typeID && !!this.ship && !!this.vfx && hangarKey === this.shownHangar;
     this.shownType = typeID;
     this.shownHangar = hangarKey;
-    this.turntable.clear();
-    if (!typeID) return;
+    if (!typeID) { this.turntable.clear(); return; }
+    if (switching) this.fadeToFromBlack(true, true);
     const [model, hangar, scene] = await Promise.all([
       typeModel(typeID).catch(() => null),
       hangarGraphics ? graphicModel(hangarGraphics.model).catch(() => null) : Promise.resolve(null),
       hangarGraphics ? fetch(`/client-assets/graphic/${hangarGraphics.scene}`).then((r) => r.json()).then((g: { scene?: HangarScene }) => g.scene ?? null).catch(() => null) : Promise.resolve(null),
+      switching ? new Promise<void>((r) => setTimeout(r, 200)) : null,
     ]);
     if (!model || this.stopped || this.shownType !== typeID || this.shownHangar !== hangarKey) return;
     // in the hangar the engines are at rest
@@ -160,7 +175,9 @@ export class HangarView {
     const a = (hangar?.userData as { anchor?: number[] | null } | undefined)?.anchor ?? null;
     const anchor = hangar ? new THREE.Vector3(a?.[0] ?? 0, a?.[1] ?? SHIP_FLOATING_HEIGHT, -(a?.[2] ?? 0)) : new THREE.Vector3();
     model.position.copy(anchor).add(new THREE.Vector3(0, hangar ? -box.min.y : 0, 0)).addScaledVector(centre, 0.5);
+    this.turntable.clear();
     this.turntable.add(model);
+    this.switchFade = switching;
     const radius = (model.userData as { radius?: number }).radius ?? 50;
     const look = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
     this.controls.target.copy(look);
@@ -295,6 +312,18 @@ export class HangarView {
     setControllerVariable(vfx, "HangarType", this.hangarType);
     this.scene.add(vfx);
     this.vfx = vfx;
+    // a switched-to ship: black now, from black 0.5 s on, quickly (_FadeFromBlackHandler(0.5, True))
+    if (this.switchFade) {
+      this.fadeToFromBlack(true, true);
+      if (this.fadeTimer) clearTimeout(this.fadeTimer);
+      this.fadeTimer = setTimeout(() => { this.fadeTimer = null; this.fadeToFromBlack(false, true); }, 500);
+    }
+  }
+
+  /** hangarView.fadeToFromBlack: the VFX's F2B_isQuick (where given) and F2B_isBlack; its FadeToBlackHandler fades. */
+  fadeToFromBlack(toBlack: boolean, quick?: boolean): void {
+    if (quick !== undefined) this.setVfxVariable("F2B_isQuick", quick ? 1 : 0);
+    this.setVfxVariable("F2B_isBlack", toBlack ? 1 : 0);
   }
   /**
    * The docked ship's damage state, as it is read and as it changes (hangarView.OnDamageStateChanged): applied to the
@@ -462,6 +491,9 @@ export class HangarView {
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();
+    // the VFX's fade (its PostProcess.fade.intensity binding)
+    const fade = this.vfx ? effectOutput(this.vfx, "fade.intensity") : null;
+    this.fade.style.opacity = String(Math.min(1, Math.max(0, fade ?? 0)));
     // a hangar scene names a dynamic exposure and no tone map: the tone map is the effect's own default, method 1
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 1 });
     this.bloom.render();

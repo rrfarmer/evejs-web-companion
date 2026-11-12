@@ -342,7 +342,7 @@ async function extractEffectGraphic(rf, sde, graphicID, outRoot) {
   const graphicFile = String(sdeGraphic(sde, Number(graphicID))?.graphicFile ?? "").replace(/\\/g, "/").toLowerCase() || null;
   const read = graphicFile ? readEffectFile(rf, graphicFile) : null;
   if (read?.root) await copyChildGraphAssets(rf, [read.root, ...Object.values(read.childEffects ?? {})], outRoot);
-  const out = { effectBuild: 2, graphicID: Number(graphicID), graphicFile, root: read?.root ?? null, childEffects: read?.childEffects ?? {}, skipped: read?.skipped ?? {} };
+  const out = { effectBuild: 3, graphicID: Number(graphicID), graphicFile, root: read?.root ?? null, childEffects: read?.childEffects ?? {}, skipped: read?.skipped ?? {} };
   const file = path.join(outRoot, "effects", `${graphicID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(out));

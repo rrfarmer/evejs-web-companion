@@ -129,6 +129,14 @@ function readCurveSet(cs) {
       });
       continue;
     }
+    if (src && dst?.type === "PostProcessOutput" && isCurve(src)) {
+      bindings.push({
+        id: idOf(b), source: index.has(src) ? index.get(src) : null, sourceCurve: index.has(src) ? null : curveData(src),
+        sourceAttribute: b.sourceAttribute ?? "currentValue", destination: -1, destinationType: "PostProcessOutput",
+        destinationAttribute: b.destinationAttribute ?? "", scale: b.scale ?? 1, offset: b.offset ?? [0, 0, 0, 0],
+      });
+      continue;
+    }
     if (!src || !dst || !isCurve(src)) continue;
     bindings.push({
       // a binding may be another's destination (its scale)
@@ -937,6 +945,41 @@ export function readHullChildren(rf, sofHull, faction = null) {
  * is. { res, root, skipped, childEffects, duration, boundingSphereRadius } - the root's duration (-1: none given) and
  * radius as the file has them; null where the client has no such file.
  */
+/**
+ * An EveMultiEffect's own bindings (Tr2DynamicBinding: each end a path from the effect - a curve set's curve,
+ * `Name.curves["curve"]`, or a parameter's object, `PostProcess.fade`), made curve-set bindings where they can be:
+ * a curve to a curve of its sets (an expression's input) joins the source's set; a curve to the PostProcess
+ * parameter's attribute becomes a "PostProcessOutput" binding, its destinationAttribute the path ("fade.intensity"),
+ * for the page to draw. The rest - the ship's and the hangar's objects - are counted skipped.
+ */
+function joinDynamicBindings(o, skipped) {
+  const sets = (o.curveSets ?? []).filter((cs) => cs?.type === "TriCurveSet");
+  const curveAt = (path) => {
+    const m = /^([^.]+)\.curves\["(.+)"\]$/.exec(String(path ?? ""));
+    if (!m) return null;
+    const set = sets.find((cs) => cs.name === m[1]);
+    const curve = set?.curves?.find((c) => c?.name === m[2]);
+    return set && curve ? { set, curve } : null;
+  };
+  for (const b of o.bindings ?? []) {
+    if (b?.type !== "Tr2DynamicBinding") continue;
+    const src = curveAt(b.sourceObjectPath);
+    const dst = curveAt(b.destinationObjectPath);
+    const post = /^PostProcess\.(.+)$/.exec(String(b.destinationObjectPath ?? ""));
+    if (src && (dst || post)) {
+      (src.set.bindings ??= []).push({
+        type: "TriValueBinding", name: b.name, sourceObject: src.curve, sourceAttribute: b.sourceObjectAttribute ?? "currentValue",
+        destinationObject: dst ? dst.curve : { type: "PostProcessOutput", name: post[1] },
+        destinationAttribute: dst ? b.destinationObjectAttribute ?? "" : `${post[1]}.${b.destinationObjectAttribute ?? ""}`,
+        scale: 1, offset: [0, 0, 0, 0],
+      });
+      continue;
+    }
+    const key = `Tr2DynamicBinding:${String(b.destinationObjectPath ?? "?").split(/[.[]/)[0]}`;
+    skipped[key] = (skipped[key] ?? 0) + 1;
+  }
+}
+
 export function readEffectFile(rf, path) {
   const res = String(path).toLowerCase().replace(/\.red$/, ".black");
   if (!rf.has(res)) return null;
@@ -952,6 +995,7 @@ export function readEffectFile(rf, path) {
     o = readBlack(rf.read(res), res);
     shownBySet = findShownBySet(o);
     actionEmitters = findActionEmitters(o);
+    if (o && typeof o === "object") joinDynamicBindings(o, skipped);
     root = o && typeof o === "object" ? readNode({ ...o, type: "EveChildContainer", objects: o.effectChildren ?? [] }, skipped) : null;
   } catch (e) {
     skipped.unread = String(e.message ?? e);
