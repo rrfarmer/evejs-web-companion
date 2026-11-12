@@ -2496,6 +2496,9 @@ export function createClientStore(): ClientStore {
       case "drones/in-space":
         drones.set({ ...drones.get(), inSpace: event.inSpace });
         break;
+      case "drones/limits":
+        drones.set({ ...drones.get(), limits: event.limits });
+        break;
       // A NEW order clears the LAST order's per-drone reasons along with the
       // two single slots. They describe the order that has just been replaced,
       // and leaving them up would attribute an old drone's refusal to a new

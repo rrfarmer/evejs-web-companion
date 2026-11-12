@@ -4861,6 +4861,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       ?? dogmaNumber(allInfo?.character ?? null, ATTRIBUTE_MAX_ACTIVE_DRONES);
     return pilot === null ? limits : { ...limits, maxActiveDrones: Math.max(0, Math.trunc(pilot)) };
   }
+  // The drone read at login comes before the character's attributes (GetAllInfo): its cap is put in once they come,
+  // and again as they change (shipModifiedCharAttributes after a ship change), so a view of the store reads it.
+  store.dogma.subscribe(() => {
+    const drones = store.drones.get();
+    if (!drones.loaded) return;
+    const limits = withPilotDroneCap(drones.limits);
+    if (limits.maxActiveDrones !== drones.limits.maxActiveDrones) store.apply({ type: "drones/limits", limits });
+  });
   /** dogma/const.py attributeMaxLockedTargets. */
   const ATTRIBUTE_MAX_LOCKED_TARGETS = 192;
   /**

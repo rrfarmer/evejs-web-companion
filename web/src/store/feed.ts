@@ -900,6 +900,8 @@ export type FeedEvent =
   // What is in space after a launch / engage / mine / recall. The server's own
   // return values prove nothing, so this always carries a fresh re-read.
   | { readonly type: "drones/in-space"; readonly inSpace: readonly DroneInSpace[] | null }
+  // The limits again, with the pilot's cap once the character's attributes are read (flow.ts withPilotDroneCap).
+  | { readonly type: "drones/limits"; readonly limits: DroneLimits }
   | { readonly type: "drones/action"; readonly action: string }
   | { readonly type: "drones/action-error"; readonly message: string | null; readonly said?: boolean }
   // A drone call that answered success and changed nothing — the ONLY way a

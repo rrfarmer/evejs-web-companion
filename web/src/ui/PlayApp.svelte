@@ -11,7 +11,6 @@
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
-  import { pilotDroneCap } from "./droneFlight.ts";
   import NoticeBridge from "./NoticeBridge.svelte";
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
@@ -255,11 +254,10 @@
     const s = session;
     const show = () => {
       const d = s.store.drones.get();
-      const out = (d.inSpace ?? []).length, max = pilotDroneCap(s.store.dogma.get().allInfo, d.limits.maxActiveDrones);
+      const out = (d.inSpace ?? []).length, max = d.limits.maxActiveDrones;
       dronesTitle = max === null ? `Drones ${out}` : `Drones ${out}/${max}`;
     };
-    const a = s.store.drones.subscribe(show), b = s.store.dogma.subscribe(show);
-    return () => { a(); b(); };
+    return s.store.drones.subscribe(show);
   });
 
   // The client's keys for its windows (eveCommands.py): Alt and a letter. Alt+D and V (the directional scanner) are
