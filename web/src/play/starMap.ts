@@ -9,14 +9,20 @@
 //   squared, its w 1 counted); the colour the star's, its alpha clamp(range.x / d, 0.1, 1) x max(1 - d / (range.y -
 //   range.x), 0.25) where distanceRange is (camera distance, max(100, 4 x camera distance)) (_UpdateDistanceRangeValues);
 //   the pixel TexMap (mapStarNew5.dds) x that;
+// - and its second pass, the bubbles: the same position, in view space pushed by the corner x d x
+//   cameraDistanceScalingFactor (1 / SIZE_FACTOR_VALUE 5000) x the star's size (CUSTOM0: the filter's GetStarSize,
+//   BaseMapFilterScalar: STAR_SIZE_AFFECTED 60 x the entry's size factor STAR_SIZE_FACTOR_STANDARD 0.5 for a system
+//   with a faction, STAR_SIZE_UNIMPORTANT 8 for one without) x SizeControls.x (BUBBLE_BASE_SIZE_MULTIPLIER 1);
+//   colour the star's (CUSTOM1) x clamp(range.x / d, 0.8, 1); the pixel, in sprite mode 0 (the filter's SpriteValues:
+//   MARKER_NONE, its sprite texture, no static size, mode 0), HeatTexture (the filter's spriteEffectPath,
+//   mapStarNewHeat.dds) x that colour (mode 1, an icon-atlas shape over TexBackgroundColor, no filter here uses);
 // - the default colour mode, STARMODE_FACTIONEMPIRE (mapViewConst VIEWMODE_COLOR_DEFAULT; filters/
 //   mapFilterFactionEmpire.py): a system with an NPC faction its faction's colour (filter_utils.GetBase11ColorByID:
 //   fwwarzone's FACTION_ID_TO_COLOR, else BASE11_COLORRANGE[factionID % 11]), any other NEUTRAL_COLOR;
 // - the jump lines between systems a stargate joins (CreateJumpLineSet), each end the colour of its system
 //   (BaseMapFilter.GetLineColor), faded as Lines3DStarMapNew.fx fades (distanceRange x 100 at the far end);
 // - the map camera (camera/mapCamera.py): fov 1.0 rad, orbiting the current system.
-// Not yet: StarmapNew.fx's second pass (the size bubbles, icon atlas, heat texture), Lines3DStarMapNew.fx's quads
-// (here plain lines), the abstract layout, markers and labels, the route.
+// Not yet: Lines3DStarMapNew.fx's quads (here plain lines), the abstract layout, markers and labels, the route.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -50,6 +56,10 @@ const FACTION_COLOR: Record<number, [number, number, number]> = {
   500010: rgb("E54500"), // Guristas Pirates, GURISTAS_COLOR
   500006: rgb("D3D0AD"), // CONCORD Assembly, CONCORD_COLOR
 };
+/** mapViewConst STAR_SIZE_AFFECTED x mapFilterConst STAR_SIZE_FACTOR_STANDARD; STAR_SIZE_UNIMPORTANT. */
+const STAR_SIZE_FACTION = 60 * 0.5, STAR_SIZE_UNIMPORTANT = 8;
+/** mapViewUtil CAMERA_DISTANCE_SCALING_FACTOR = 1 / SIZE_FACTOR_VALUE; BUBBLE_BASE_SIZE_MULTIPLIER. */
+const CAMERA_DISTANCE_SCALING_FACTOR = 1 / 5000, BUBBLE_BASE_SIZE_MULTIPLIER = 1;
 /** GetBase11ColorByID, for an NPC faction (idCheckers.IsNPC: every factionID); none: NEUTRAL_COLOR. */
 export function starColour(factionID: number): [number, number, number] {
   if (!factionID) return NEUTRAL;
@@ -91,6 +101,26 @@ const STAR_FS = `
     vec4 t = hasTex > 0.5 ? texture2D(texMap, vUv) : vec4(1.0);
     gl_FragColor = t * vColour;
   }`;
+const BUBBLE_VS = `
+  attribute vec3 iPos; attribute vec3 iColour; attribute float iSize;
+  uniform vec2 distanceRange; uniform vec4 sizeControls; uniform float cameraDistanceScalingFactor;
+  varying vec4 vColour; varying vec2 vUv;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(iPos, 1.0);
+    float d = sqrt(dot(mv.xyz, mv.xyz) + 1.0);
+    float fade = clamp(distanceRange.x / d, 0.8, 1.0);
+    vColour = vec4(iColour, 1.0) * fade;
+    mv.xy += d * cameraDistanceScalingFactor * iSize * sizeControls.x * position.xy;
+    gl_Position = projectionMatrix * mv;
+    vUv = uv;
+  }`;
+const BUBBLE_FS = `
+  uniform sampler2D heat; uniform float hasHeat;
+  varying vec4 vColour; varying vec2 vUv;
+  void main() {
+    if (hasHeat < 0.5) discard;
+    gl_FragColor = texture2D(heat, vUv) * vColour;
+  }`;
 const LINE_VS = `
   attribute vec3 colour;
   uniform vec2 distanceRange;
@@ -113,6 +143,10 @@ export class StarMap {
   private readonly controls: OrbitControls;
   private readonly starUniforms = { distanceRange: { value: new THREE.Vector2(1, 4) }, texMap: { value: null as THREE.Texture | null }, hasTex: { value: 0 } };
   private readonly lineUniforms = { distanceRange: { value: new THREE.Vector2(1, 400) } };
+  private readonly bubbleUniforms = {
+    distanceRange: this.starUniforms.distanceRange, sizeControls: { value: new THREE.Vector4(BUBBLE_BASE_SIZE_MULTIPLIER, 1, 1, 1) },
+    cameraDistanceScalingFactor: { value: CAMERA_DISTANCE_SCALING_FACTOR }, heat: { value: null as THREE.Texture | null }, hasHeat: { value: 0 },
+  };
   private readonly positions = new Map<number, THREE.Vector3>();
   private running = false;
   /** How many stars and jump lines are drawn (for checks). */
@@ -131,20 +165,22 @@ export class StarMap {
     this.controls.minDistance = MIN_CAMERA_DISTANCE;
     this.controls.maxDistance = MAX_CAMERA_DISTANCE;
     this.controls.enableDamping = true;
-    void fetch("/client-assets/starmap.json").then((r) => r.json()).then(async (m: { textures?: { star?: string | null } }) => {
-      if (!m.textures?.star) return;
-      const t = await loadDds(m.textures.star);
-      // (mapStarNew5.dds is one uncompressed level: a mipmapped filter on it samples black)
+    // (mapStarNew5.dds and mapStarNewHeat.dds are one uncompressed level each: a mipmapped filter samples black)
+    const level = async (url: string) => {
+      const t = await loadDds(url);
       if (!t.mipmaps?.length) { t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.needsUpdate = true; }
-      this.starUniforms.texMap.value = t;
-      this.starUniforms.hasTex.value = 1;
+      return t;
+    };
+    void fetch("/client-assets/starmap.json").then((r) => r.json()).then(async (m: { textures?: { star?: string | null; heat?: string | null } }) => {
+      if (m.textures?.star) { this.starUniforms.texMap.value = await level(m.textures.star); this.starUniforms.hasTex.value = 1; }
+      if (m.textures?.heat) { this.bubbleUniforms.heat.value = await level(m.textures.heat); this.bubbleUniforms.hasHeat.value = 1; }
     }).catch((e) => console.warn("star map textures", e));
   }
 
   /** The universe laid out (CreateStarParticles, CreateJumpLineSet), the camera on a system. */
   build(data: StarMapSystems, focusSystemID: number | null): void {
     const colours = new Map<number, [number, number, number]>();
-    const iPos: number[] = [], iColour: number[] = [];
+    const iPos: number[] = [], iColour: number[] = [], iSize: number[] = [];
     for (const [id, x, y, z, factionID] of data.systems) {
       const p = mapPosition(x, y, z);
       this.positions.set(id, p);
@@ -152,6 +188,7 @@ export class StarMap {
       colours.set(id, c);
       iPos.push(p.x, p.y, p.z);
       iColour.push(...c);
+      iSize.push(factionID ? STAR_SIZE_FACTION : STAR_SIZE_UNIMPORTANT);
     }
     const plane = new THREE.PlaneGeometry(1, 1);
     const geometry = new THREE.InstancedBufferGeometry();
@@ -160,6 +197,7 @@ export class StarMap {
     geometry.setAttribute("uv", plane.getAttribute("uv"));
     geometry.setAttribute("iPos", new THREE.InstancedBufferAttribute(new Float32Array(iPos), 3));
     geometry.setAttribute("iColour", new THREE.InstancedBufferAttribute(new Float32Array(iColour), 3));
+    geometry.setAttribute("iSize", new THREE.InstancedBufferAttribute(new Float32Array(iSize), 1));
     geometry.instanceCount = data.systems.length;
     const starMat = new THREE.ShaderMaterial({ uniforms: this.starUniforms, vertexShader: STAR_VS, fragmentShader: STAR_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     logDepth(starMat);
@@ -167,6 +205,13 @@ export class StarMap {
     stars.frustumCulled = false;
     stars.renderOrder = 2;
     this.scene.add(stars);
+    // the second pass, after the first
+    const bubbleMat = new THREE.ShaderMaterial({ uniforms: this.bubbleUniforms, vertexShader: BUBBLE_VS, fragmentShader: BUBBLE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    logDepth(bubbleMat);
+    const bubbles = new THREE.Mesh(geometry, bubbleMat);
+    bubbles.frustumCulled = false;
+    bubbles.renderOrder = 3;
+    this.scene.add(bubbles);
     this.stars = data.systems.length;
     // the jump lines: each end its system's colour
     const lp: number[] = [], lc: number[] = [];
