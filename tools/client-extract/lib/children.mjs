@@ -436,7 +436,10 @@ function meshAreas(mesh, skipped) {
 }
 
 // the behaviours behaviorAgents.ts runs
-const AGENT_BEHAVIORS = new Set(["SpawnDrones", "ProcessLifetime", "Inertia", "DroneAvoidance"]);
+const AGENT_BEHAVIORS = new Set(["SpawnDrones", "ProcessLifetime", "Inertia", "DroneAvoidance", "SeekTarget", "CollisionAvoidance", "InclusionVolume", "Wander", "PlayFX"]);
+
+/** An EveEllipsoidVolume (its constructor's defaults: all nought, no rotation). */
+const readVolume = (v) => ({ position: v?.position ?? [0, 0, 0], shape: v?.shape ?? [0, 0, 0], innerShape: v?.innerShape ?? [0, 0, 0], rotation: v?.rotation ?? [0, 0, 0, 1] });
 
 /** A behaviour's numbers, each with its constructor's default (Behaviors/*.cpp); its priority (IBehavior::ProcessPriority). */
 function readBehavior(b) {
@@ -453,6 +456,21 @@ function readBehavior(b) {
   }
   if (b.type === "Inertia") return { ...common, maxRotationSpeed: b.maxRotationSpeed ?? 3.14, maxAcceleration: b.maxAcceleration ?? 60 };
   if (b.type === "DroneAvoidance") return { ...common, behaviorWeight: b.behaviorWeight ?? 300, visionRange: b.visionRange ?? 5, framesBetweenUpdates: b.framesBetweenUpdates ?? 3 };
+  if (b.type === "SeekTarget") {
+    // its own locator set (used where its name is locatorSetName), else the hull's set of that name
+    const name = String(b.locatorSetName ?? "damage");
+    locatorSetsUsed.add(name.trim());
+    return {
+      ...common, behaviorWeight: b.behaviorWeight ?? 1200, arrivedRadius: b.arrivedRadius ?? 10, distFromOrigin: b.distFromOrigin ?? 10,
+      slowDownRadius: b.slowDownRadius ?? 33, firstSpawnAtRandomPlaces: b.firstSpawnAtRandomPlaces === true, locatorSetName: name.trim(),
+      ownSet: b.locatorSet?.name != null ? String(b.locatorSet.name) : null,
+      ownLocators: (b.locatorSet?.locators ?? []).map((l) => [...(l.position ?? [0, 0, 0]), ...(l.direction ?? l.rotation ?? [0, 0, 0, 1])]),
+    };
+  }
+  if (b.type === "CollisionAvoidance") return { ...common, avoidanceScalar: b.avoidanceScalar ?? 12, volumes: (b.exclusionVolumes ?? []).filter((v) => v?.type === "EveEllipsoidVolume").map(readVolume) };
+  if (b.type === "InclusionVolume") return { ...common, behaviorWeight: b.behaviorWeight ?? 60, volumes: (b.inclusionVolumes ?? []).filter((v) => v?.type === "EveEllipsoidVolume").map(readVolume) };
+  if (b.type === "Wander") return { ...common, weightWander: b.weightWander ?? 240, rand1: b.rand1 ?? 0.2, rand2: b.rand2 ?? 0.8, rand3: b.rand3 ?? 1.2, freq: b.freq ?? 2 };
+  if (b.type === "PlayFX") return { ...common, behaviorWeight: b.behaviorWeight ?? 20, sec: b.sec ?? 1, hasEffect: !!b.firingEffect };
   return common;
 }
 
@@ -506,7 +524,8 @@ function readShown(o, skipped) {
   // group's mesh, instanced (behaviorAgents.ts). A group is drawn where the page runs all its behaviours: SpawnDrones
   // (count agents at the group's spawn position - BehaviorGroup::InitializeGeometryResource -> SetCount - or, addOnGrid,
   // SpawnDrones::UpdateGrid's grid, or more on a timer), ProcessLifetime (the spline tunnels: in, about, out), Inertia
-  // and DroneAvoidance. The others (SeekTarget, CollisionAvoidance, PlayFX, ...) not yet: their groups are left out.
+  // DroneAvoidance, SeekTarget (to the hull's locators, which are written with the children), CollisionAvoidance,
+  // InclusionVolume, Wander and PlayFX (its state only: the firing effects are not drawn).
   if (o.type === "EveChildBehaviorSystem") {
     const groups = [];
     for (const g of o.behaviorGroups ?? []) {

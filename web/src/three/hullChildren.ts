@@ -1489,7 +1489,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
     }
     if (node.k === "agents") {
       // EveChildBehaviorSystem's still groups: instanced, placed per clone (behaviorAgents.ts AgentRun, from the ticker)
-      pending.push(buildAgents(node, (mesh) => childMesh(mesh, animator), (id, get, set) => animator.values(id, get, set)).then((g) => {
+      pending.push(buildAgents(node, (mesh) => childMesh(mesh, animator), (id, get, set) => animator.values(id, get, set), locatorSets).then((g) => {
         g.userData.agentsHolder = true;
         if (node.id !== undefined) { g.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
         place(g, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);

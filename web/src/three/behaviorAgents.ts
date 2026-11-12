@@ -17,7 +17,7 @@
 // boosters' flares are not drawn.)
 import * as THREE from "three";
 import type { SofChildMesh } from "./hullChildren.ts";
-import { vector3Value } from "./curves.ts";
+import { perlinNoise1D, vector3Value } from "./curves.ts";
 
 export interface SofAgentGrid {
   id?: number;
@@ -44,7 +44,15 @@ export type SofBehavior =
   | { type: "SpawnDrones"; id?: number; enabled: boolean; priority: number; addByCount: boolean; addOnGrid: boolean; seconds: number; time: number; count: number; spawnPosition: number[] }
   | { type: "ProcessLifetime"; id?: number; enabled: boolean; priority: number; returningAge: number; behaviorWeight: number; wanderAmount: number; respawnAgentsOnDeath: boolean; firstSpawnAtRandomPlaces: boolean; tunnels: SofTunnelGroup[] }
   | { type: "Inertia"; id?: number; enabled: boolean; priority: number; maxRotationSpeed: number; maxAcceleration: number }
-  | { type: "DroneAvoidance"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; visionRange: number; framesBetweenUpdates: number };
+  | { type: "DroneAvoidance"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; visionRange: number; framesBetweenUpdates: number }
+  | { type: "SeekTarget"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; arrivedRadius: number; distFromOrigin: number; slowDownRadius: number; firstSpawnAtRandomPlaces: boolean; locatorSetName: string; ownSet: string | null; ownLocators: number[][] }
+  | { type: "CollisionAvoidance"; id?: number; enabled: boolean; priority: number; avoidanceScalar: number; volumes: SofVolume[] }
+  | { type: "InclusionVolume"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; volumes: SofVolume[] }
+  | { type: "Wander"; id?: number; enabled: boolean; priority: number; weightWander: number; rand1: number; rand2: number; rand3: number; freq: number }
+  | { type: "PlayFX"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; sec: number; hasEffect: boolean };
+
+/** An EveEllipsoidVolume: its centre, outer and inner radii, rotation. */
+export interface SofVolume { position: number[]; shape: number[]; innerShape: number[]; rotation: number[] }
 
 export interface SofAgentGroup {
   id?: number;
@@ -81,7 +89,7 @@ interface BuiltGroup {
   parts: { mesh: THREE.InstancedMesh; local: THREE.Matrix4; localInv: THREE.Matrix4 }[];
 }
 
-interface BuiltSystem { groups: BuiltGroup[]; tunnels: SofTunnelGroup[] }
+interface BuiltSystem { groups: BuiltGroup[]; tunnels: SofTunnelGroup[]; locatorSets: Record<string, number[][]> }
 
 /**
  * The system's holder: each group's mesh (childMesh, as an EveChildMesh's) made instanced, its parts' instance counts
@@ -92,6 +100,7 @@ export async function buildAgents(
   node: SofChildAgents,
   childMesh: (mesh: SofChildMesh) => Promise<THREE.Object3D | null>,
   values: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void) => void,
+  locatorSets: Record<string, number[][]> = {},
 ): Promise<THREE.Group> {
   const holder = new THREE.Group();
   holder.name = `child-agents:${node.name ?? ""}`;
@@ -137,7 +146,7 @@ export async function buildAgents(
   }
   // (by a key: a clone copies userData through JSON)
   const key = `agents:${++agentKeys}`;
-  builtSystems.set(key, { groups: built, tunnels: node.tunnels ?? [] });
+  builtSystems.set(key, { groups: built, tunnels: node.tunnels ?? [], locatorSets });
   holder.userData.agentsKey = key;
   return holder;
 }
@@ -170,6 +179,12 @@ interface Agent {
   id: number;
   /** each behaviour's scratch data, by its index in the group */
   scratch: unknown[];
+  /** SeekTarget's goal (nought: none) and the way it faced last (targetDirection) */
+  target: THREE.Vector3;
+  targetDirection: THREE.Vector3;
+  /** PlayFX: firing, since (seconds) */
+  playFX: boolean;
+  fxStartTime: number;
   xfade: number;
   shown: number;
 }
@@ -236,9 +251,14 @@ class GroupRun {
   }
 
   private newAgent(at: THREE.Vector3): Agent {
-    const a: Agent = { position: at.clone(), rotation: new THREE.Quaternion(), velocity: V(), acceleration: V(), lifetime: 0, id: randInt(500), scratch: [], xfade: -1, shown: 0 };
+    const a: Agent = {
+      position: at.clone(), rotation: new THREE.Quaternion(), velocity: V(), acceleration: V(), lifetime: 0, id: randInt(500), scratch: [],
+      target: V(), targetDirection: V(), playFX: false, fxStartTime: -1, xfade: -1, shown: 0,
+    };
     for (const r of this.runs) a.scratch[r.index] = r.spec.type === "ProcessLifetime" ? { hasUsedEntryTunnel: false, hasUsedExitTunnel: false, assignedLifeTimeTunnel: 0, tunnelPoint: 0, hasSpawned: false } satisfies LifetimeData
-      : r.spec.type === "Inertia" ? { agentAccel: V() } : null;
+      : r.spec.type === "Inertia" ? { agentAccel: V() }
+      : r.spec.type === "SeekTarget" ? { position: V(), direction: V(), arrived: true, hasSpawned: false, timePassed: 0 } satisfies SeekData
+      : r.spec.type === "PlayFX" ? { droneArrived: false, effectPlaying: false, oldTarget: V() } : null;
     return a;
   }
 
@@ -275,6 +295,7 @@ class GroupRun {
       const interest = Z_AXIS.clone().applyQuaternion(a.rotation);
       const facing = interest.clone().lerp(a.velocity, a.velocity.lengthSq() / Math.max(1, maxV * maxV));
       a.rotation = arc(Z_AXIS, facing);
+      a.targetDirection = facing;
       clampLength(a.velocity, maxV);
       a.position.addScaledVector(a.velocity, dt);
       a.acceleration.set(0, 0, 0);
@@ -297,6 +318,122 @@ class GroupRun {
     else if (b.type === "ProcessLifetime") this.processLifetime(r, b, dt);
     else if (b.type === "Inertia") this.inertia(r, b, dt);
     else if (b.type === "DroneAvoidance") this.droneAvoidance(r, b, found);
+    else if (b.type === "SeekTarget") this.seekTarget(r, b, dt);
+    else if (b.type === "CollisionAvoidance") this.collisionAvoidance(b);
+    else if (b.type === "InclusionVolume") this.inclusionVolume(b);
+    else if (b.type === "Wander") this.wander(b);
+    else if (b.type === "PlayFX") this.playFX(r, b);
+  }
+
+  /** The locators SeekTarget picks from: its own set where named so, else the space object's (EveSpaceObject2's). */
+  private seekLocators(b: Extract<SofBehavior, { type: "SeekTarget" }>): number[][] {
+    if (b.ownSet !== null && b.ownSet === b.locatorSetName && b.ownLocators.length) return b.ownLocators;
+    return this.locatorSets[b.locatorSetName] ?? [];
+  }
+
+  /** A random locator's position and direction (its rotation applied to +y: EveGetLocatorPose); none: nought, +y. */
+  private randomLocator(b: Extract<SofBehavior, { type: "SeekTarget" }>): { position: THREE.Vector3; direction: THREE.Vector3 } {
+    const list = this.seekLocators(b);
+    if (!list.length) return { position: V(), direction: new THREE.Vector3(0, 1, 0) };
+    const l = list[randInt(list.length)]!;
+    const q = new THREE.Quaternion(l[3] ?? 0, l[4] ?? 0, l[5] ?? 0, l[6] ?? 1);
+    return { position: new THREE.Vector3(l[0] ?? 0, l[1] ?? 0, l[2] ?? 0), direction: new THREE.Vector3(0, 1, 0).applyQuaternion(q) };
+  }
+
+  /**
+   * SeekTarget::CalculateBehavior, its seek (not its ship repair, which only the client's Python sets up): each agent
+   * that has arrived and has no target takes a random locator; it heads for distFromOrigin along the locator's direction
+   * from it, slowing inside slowDownRadius, where it turns to the locator and starts its PlayFX; arrived inside
+   * arrivedRadius. Outside, its pull grows with the time since (timePassed / 0.35 s, the time at least 0.35 s).
+   */
+  private seekTarget(r: Run, b: Extract<SofBehavior, { type: "SeekTarget" }>, dt: number): void {
+    if (b.behaviorWeight <= 0 || !b.enabled) return;
+    const SECONDS = 0.35;
+    for (const a of this.agents) {
+      const data = a.scratch[r.index] as SeekData;
+      if (!data.hasSpawned && b.firstSpawnAtRandomPlaces) {
+        const at = this.randomLocator(b).position;
+        this.spawnPosition.copy(at);
+        a.position.copy(at);
+        data.hasSpawned = true;
+      }
+      if (data.arrived && a.target.lengthSq() === 0) {
+        const l = this.randomLocator(b);
+        data.position.copy(l.position);
+        data.direction.copy(l.direction);
+        data.arrived = false;
+      }
+      a.target.copy(data.position);
+      if (data.direction.lengthSq() === 0) data.direction.set(0, 1, 0);
+      const goal = norm(data.direction).multiplyScalar(b.distFromOrigin).add(a.target);
+      let desired = goal.clone().sub(a.position);
+      const distance = desired.length();
+      desired = norm(desired);
+      if (distance < b.slowDownRadius) {
+        desired.multiplyScalar(distance / b.slowDownRadius);
+        a.rotation = arc(Z_AXIS, norm(data.position.clone().sub(a.position)));
+        data.timePassed = 0;
+        if (!a.playFX) { a.fxStartTime = performance.now() / 1000; a.playFX = true; }
+        if (distance < b.arrivedRadius) data.arrived = true;
+      } else {
+        data.timePassed = Math.max(data.timePassed + dt, SECONDS);
+        desired.multiplyScalar(b.behaviorWeight * (Math.max(data.timePassed, SECONDS) / SECONDS));
+      }
+      a.acceleration.add(desired.sub(a.velocity));
+    }
+  }
+
+  /** CollisionAvoidance: pushed out of each exclusion volume by (position - its centre) x intensity x avoidanceScalar */
+  private collisionAvoidance(b: Extract<SofBehavior, { type: "CollisionAvoidance" }>): void {
+    if (!b.enabled) return;
+    for (const a of this.agents) {
+      for (const v of b.volumes) {
+        const k = volumeIntensity(v, a.position);
+        if (k > 0) a.acceleration.add(a.position.clone().sub(new THREE.Vector3(v.position[0] ?? 0, v.position[1] ?? 0, v.position[2] ?? 0)).multiplyScalar(k * b.avoidanceScalar));
+      }
+    }
+  }
+
+  /** InclusionVolume: pulled toward a volume's centre while in its outer shell (the last such volume; none inside an inner one) */
+  private inclusionVolume(b: Extract<SofBehavior, { type: "InclusionVolume" }>): void {
+    if (!b.enabled) return;
+    for (const a of this.agents) {
+      let force = V();
+      for (const v of b.volumes) {
+        const status = volumeIntensity(v, a.position);
+        if (status === 1) { force = V(); break; }
+        if (status > 0) force = norm(new THREE.Vector3(v.position[0] ?? 0, v.position[1] ?? 0, v.position[2] ?? 0).sub(a.position)).multiplyScalar(b.behaviorWeight);
+      }
+      a.acceleration.add(force);
+    }
+  }
+
+  /** Wander: PerlinNoise1D(seed x rand1..3 x freq, 2, 1, 1) on each axis, seed its lifetime + id, x weightWander */
+  private wander(b: Extract<SofBehavior, { type: "Wander" }>): void {
+    if (!b.enabled) return;
+    for (const a of this.agents) {
+      const seed = a.lifetime + a.id;
+      const f = new THREE.Vector3(perlinNoise1D(seed * b.rand1 * b.freq, 2, 1, 1), perlinNoise1D(seed * b.rand2 * b.freq, 2, 1, 1), perlinNoise1D(seed * b.rand3 * b.freq, 2, 1, 1));
+      a.acceleration.addScaledVector(f, b.weightWander);
+    }
+  }
+
+  /**
+   * PlayFX: an agent whose SeekTarget started its fire plays it for sec seconds, then stops and drops its target (so
+   * it seeks another locator). Its firing effects (one per agent) are not drawn; without one the client runs none of this.
+   */
+  private playFX(r: Run, b: Extract<SofBehavior, { type: "PlayFX" }>): void {
+    if (b.behaviorWeight <= 0 || !b.enabled || !b.hasEffect) return;
+    const now = performance.now() / 1000;
+    for (const a of this.agents) {
+      const data = a.scratch[r.index] as { droneArrived: boolean; effectPlaying: boolean; oldTarget: THREE.Vector3 };
+      if (a.playFX && !data.effectPlaying) { data.droneArrived = true; data.effectPlaying = true; }
+      if (data.effectPlaying && now - a.fxStartTime > b.sec) {
+        data.effectPlaying = a.playFX = false;
+        data.oldTarget = a.target.clone();
+        a.target.set(0, 0, 0);
+      }
+    }
   }
 
   /** SpawnDrones::CalculateBehavior */
@@ -513,6 +650,39 @@ class GroupRun {
   }
 
   systemGroups: SofTunnelGroup[] = [];
+  locatorSets: Record<string, number[][]> = {};
+}
+
+interface SeekData { position: THREE.Vector3; direction: THREE.Vector3; arrived: boolean; hasSpawned: boolean; timePassed: number }
+
+/**
+ * EveEllipsoidVolume::GetIntensity: the point turned by the volume's inverse rotation (about the origin); 0 outside the
+ * shape, 1 inside the inner shape, else |p - outer hit|^2 / |inner hit - outer hit|^2 along the ray toward the centre
+ * (IntersectEllipsoidRayClosest; no inner shape: the inner hit nought).
+ */
+function volumeIntensity(v: SofVolume, point: THREE.Vector3): number {
+  const c = new THREE.Vector3(v.position[0] ?? 0, v.position[1] ?? 0, v.position[2] ?? 0);
+  const shape = new THREE.Vector3(v.shape[0] ?? 0, v.shape[1] ?? 0, v.shape[2] ?? 0).max(V());
+  const inner = new THREE.Vector3(v.innerShape[0] ?? 0, v.innerShape[1] ?? 0, v.innerShape[2] ?? 0).min(shape).max(V());
+  const p = point.clone().applyQuaternion(new THREE.Quaternion(v.rotation[0] ?? 0, v.rotation[1] ?? 0, v.rotation[2] ?? 0, v.rotation[3] ?? 1).invert());
+  const inside = (r: THREE.Vector3) => { const d = p.clone().sub(c); return (d.x / r.x) ** 2 + (d.y / r.y) ** 2 + (d.z / r.z) ** 2 <= 1; };
+  if (!inside(shape)) return 0;
+  if (inside(inner)) return 1;
+  const dir = norm(c.clone().sub(p));
+  const hit = (r: THREE.Vector3): THREE.Vector3 | null => {
+    const vv = new THREE.Vector3(dir.x / r.x, dir.y / r.y, dir.z / r.z);
+    const s = new THREE.Vector3((p.x - c.x) / r.x, (p.y - c.y) / r.y, (p.z - c.z) / r.z);
+    const v_v = vv.dot(vv), v_s = vv.dot(s), s_s = s.dot(s);
+    let pq = (v_s / v_v) ** 2 - s_s / v_v + 1 / v_v;
+    if (pq < 0) return null;
+    pq = Math.sqrt(pq);
+    const t1 = -pq - v_s / v_v, t2 = pq - v_s / v_v;
+    return dir.clone().multiplyScalar(Math.abs(t1) < Math.abs(t2) ? t1 : t2).add(p);
+  };
+  // (a missed ray keeps the volume's last hit in the client - here nought)
+  const outer = hit(shape) ?? V();
+  const innerHit = inner.lengthSq() !== 0 ? hit(inner) ?? V() : V();
+  return p.distanceToSquared(outer) / innerHit.distanceToSquared(outer);
 }
 
 /** One clone's agents: run each frame, then sized and culled for the view. */
@@ -535,6 +705,7 @@ export class AgentRun {
       i += b.parts.length;
       const run = new GroupRun(b, { tunnels: systemTunnels });
       run.systemGroups = sys.tunnels;
+      run.locatorSets = sys.locatorSets;
       this.groups.push({ run, parts, drawn: -1 });
     }
   }
