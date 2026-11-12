@@ -33,6 +33,8 @@ export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true,
 };
 
+import { setMipLevelSkipCount } from "../three/ddsTexture.ts";
+
 const KEY = "evejs.play.gfxSettings";
 type Listener = (settings: Readonly<GfxSettings>) => void;
 const listeners = new Set<Listener>();
@@ -54,6 +56,8 @@ function load(): GfxSettings {
 }
 
 let current: GfxSettings = load();
+// device.py ApplySettings: trinity.device.mipLevelSkipCount = textureQuality (textures loaded after it take it)
+setMipLevelSkipCount(current.textureQuality);
 
 /** The settings now. */
 export function gfx(): Readonly<GfxSettings> {
@@ -63,6 +67,7 @@ export function gfx(): Readonly<GfxSettings> {
 /** Settings changed (the menu's combos and checkboxes apply at once, as the client's OnGraphicsSettingCombo does). */
 export function setGfx(change: Partial<GfxSettings>): void {
   current = { ...current, ...change };
+  setMipLevelSkipCount(current.textureQuality);
   try { globalThis.localStorage?.setItem(KEY, JSON.stringify(current)); } catch { /* kept for this page only */ }
   for (const l of listeners) l(current);
 }

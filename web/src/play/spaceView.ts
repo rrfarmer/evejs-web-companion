@@ -182,6 +182,8 @@ export class SpaceView {
   readonly shipFx = new ShipFx();
   /** The camera's shake (cameraShake.ts): explosions shake it. */
   private readonly shake = new CameraShake();
+  /** The Drone Models setting the drones' models were last shown by. */
+  private droneModels = true;
   /**
    * A shot landing on a ball with an impact overlay: at the damage locator facing the shooter best (the turret's
    * choice, EveTurretSet.cpp:3252-3330, roughly), its way the shooter's place less the locator's, the turret's size and
@@ -1230,6 +1232,13 @@ export class SpaceView {
     if (this.sunLight.castShadow !== rendering.shadows) this.sunLight.castShadow = rendering.shadows;
     this.turretFx.group.visible = settings.turretsEnabled;
     this.missileFx.group.visible = settings.missilesEnabled;
+    // fxSequencer: with Effects off the ship effects (not the turrets') are disabled
+    this.shipFx.group.visible = settings.effectsEnabled;
+    // Drone.py IsDroneModelEnabled: a player's drone without its model (an empty ship holding its turret locator)
+    if (this.droneModels !== settings.droneModelsEnabled) {
+      this.droneModels = settings.droneModelsEnabled;
+      for (const m of this.marks.values()) if (m.userData.playerDrone) (m.userData.model as THREE.Object3D).visible = this.droneModels;
+    }
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });
     this.bloom.render();
@@ -1338,6 +1347,7 @@ export class SpaceView {
         // the space object: its controllers' own attributes (activationStrength, clipSphereFactor) land here
         holder.userData.spaceObject = true;
         holder.userData.model = model;
+        if (e.kind === "drone") { holder.userData.playerDrone = true; model.visible = gfx().droneModelsEnabled; }
         if (e.kind === "ship" || e.kind === "drone") this.fitTurrets(e.itemID, holder);
       }).catch(() => { /* no model: the stand-in stays */ });
     }

@@ -102,7 +102,31 @@ function parseUncompressedCube(dv: DataView, buf: ArrayBuffer, width: number, he
   return cube;
 }
 
-export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTexture {
+/**
+ * The texture quality setting (device.py: trinity.device.mipLevelSkipCount = textureQuality): how many top mips a
+ * texture leaves out as it loads. UI textures are excluded (_GetAppMipLevelSkipExclusionDirectories: res:/UI/Texture).
+ */
+let mipLevelSkipCount = 0;
+export function setMipLevelSkipCount(count: number): void {
+  mipLevelSkipCount = Math.max(0, Math.floor(count));
+}
+/** The skip a texture of this path loads with now (Tr2Renderer.IsTextureToResize). */
+export function mipSkipFor(url: string): number {
+  return /\/ui\/texture\//i.test(url) ? 0 : mipLevelSkipCount;
+}
+
+/**
+ * ImageIO LoadParameters::GetMipLevelRange: a texture over 8 x 8 with more mips than the skip leaves that many out;
+ * one with fewer (but some) keeps its last three; one without a chain keeps it all.
+ */
+export function mipRange(width: number, height: number, mipCount: number, want: number): number {
+  if (!(width > 8 && height > 8)) return 0;
+  if (mipCount > want) return want;
+  if (mipCount) return mipCount >= 3 ? mipCount - 3 : 0;
+  return 0;
+}
+
+export function parseDds(buf: ArrayBuffer, name = "dds", mipSkip = 0): THREE.CompressedTexture {
   const dv = new DataView(buf);
   if (dv.getUint32(0, true) !== DDS_MAGIC) throw new Error(`${name}: not a DDS file`);
   const height = dv.getUint32(12, true);
@@ -149,10 +173,17 @@ export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTextur
   }
   if (!kind) throw new Error(`${name}: DDS format ${JSON.stringify(fourCC)} not handled`);
 
-  const chain = (): { data: Uint8Array; width: number; height: number }[] => {
+  const chain = (from = 0): { data: Uint8Array; width: number; height: number }[] => {
     const mipmaps: { data: Uint8Array; width: number; height: number }[] = [];
     let w = width, h = height;
     for (let i = 0; i < mipCount; i++) {
+      if (i < from) {
+        // a mip left out (the texture quality): stepped over (Tr2DdsHandler DoReadHeader's skipBytes)
+        offset += Math.max(1, Math.ceil(w / 4)) * Math.max(1, Math.ceil(h / 4)) * kind!.block;
+        w = Math.max(1, w >> 1);
+        h = Math.max(1, h >> 1);
+        continue;
+      }
       const size = Math.max(1, Math.ceil(w / 4)) * Math.max(1, Math.ceil(h / 4)) * kind!.block;
       if (offset + size > buf.byteLength) break;
       mipmaps.push({ data: new Uint8Array(buf, offset, size), width: w, height: h });
@@ -172,8 +203,11 @@ export function parseDds(buf: ArrayBuffer, name = "dds"): THREE.CompressedTextur
     cube.needsUpdate = true;
     return cube as unknown as THREE.CompressedTexture;
   }
-  const mipmaps = chain();
-  const tex = new THREE.CompressedTexture(mipmaps as unknown as ImageData[], width, height, kind.format);
+  // the texture quality's skip (not for cube maps: "this optimization won't work for Cube textures")
+  const DDSD_MIPMAPCOUNT = 0x20000;
+  const skip = mipSkip > 0 ? mipRange(width, height, dv.getUint32(8, true) & DDSD_MIPMAPCOUNT ? dv.getUint32(28, true) : 0, mipSkip) : 0;
+  const mipmaps = chain(skip);
+  const tex = new THREE.CompressedTexture(mipmaps as unknown as ImageData[], mipmaps[0]?.width ?? width, mipmaps[0]?.height ?? height, kind.format);
   tex.minFilter = mipmaps.length > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -192,7 +226,7 @@ export async function loadDds(url: string): Promise<THREE.CompressedTexture> {
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-    return parseDds(await res.arrayBuffer(), url.split("/").pop());
+    return parseDds(await res.arrayBuffer(), url.split("/").pop(), mipSkipFor(url));
   } catch (e) {
     if (!failed.has(url)) { failed.add(url); console.warn(`texture not loaded: ${(e as Error).message}`); }
     throw e;
