@@ -57,6 +57,9 @@
   const NEOCOM_TABS: Record<string, TabID> = {
     agency: "finder", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
     fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat",
+    // the EVE menu's commands (play/neocom.ts EVE_MENU)
+    marketorders: "market", contracts: "contracts", industry: "industry", planets: "planets", locations: "locations",
+    contacts: "contacts", fleet: "fleet", corporation: "corporation", compare: "compare", log: "log",
   };
 
   let session = $state<Session | null>(null);
@@ -242,7 +245,7 @@
     if (!neocomHost) return;
     const neocom = new Neocom(neocomOpen);
     neocomHost.appendChild(neocom.root);
-    return () => neocom.root.remove();
+    return () => { neocom.root.remove(); neocom.dispose(); };
   });
 
   /** The Neocom's width: a window opens right of it, as the eve-cs mirror's windows never sit on its Neocom. */
