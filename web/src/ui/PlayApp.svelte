@@ -1134,7 +1134,18 @@
   .fly-windows :global(.ps-none) { text-align: center; color: rgba(255, 255, 255, 0.5); font-size: 12px; margin-top: 24px; }
   /* ScanResultNew: 24 high; the icon 16 in the certainty's colour (GetResultColor); the status bar 2 high at the bottom
      - the base and the change; the warp button 22 in the signal column; the filter row: Scan Results at the left */
-  .fly-windows :global(.ps-retail table) { width: 100%; border-collapse: collapse; font-size: 12px; }
+  /* The columns as GetColumnsDefaultSize has them (Distance 70, ID 60, Name 100), Group stretched, the signal column 50
+     at the right; long text cut; the row's menu on a right-click, its button not drawn, the menu under the row */
+  .fly-windows :global(.ps-retail table) { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+  .fly-windows :global(.ps-retail :is(th, td):nth-child(2)) { width: 70px; }
+  .fly-windows :global(.ps-retail :is(th, td):nth-child(3)) { width: 60px; }
+  .fly-windows :global(.ps-retail :is(th, td):nth-child(4)) { width: 100px; }
+  .fly-windows :global(.ps-retail :is(th, td):nth-child(6)) { width: 50px; text-align: right; }
+  .fly-windows :global(.ps-retail :is(th, td):nth-child(7)) { width: 0; padding: 0; position: relative; }
+  .fly-windows :global(.ps-retail td:nth-child(7) > button) { display: none; }
+  .fly-windows :global(.ps-retail td:nth-child(7) > .result-menu) { position: absolute; right: 0; top: 22px; z-index: 3; flex-direction: column;
+    background: rgba(18, 20, 23, 0.97); border: 1px solid rgba(255, 255, 255, 0.15); padding: 4px; white-space: nowrap; }
+  .fly-windows :global(.ps-retail td) { overflow: hidden; text-overflow: ellipsis; }
   .fly-windows :global(.ps-retail th) { text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 4px; }
   .fly-windows :global(.ps-row) { height: 24px; background-image: linear-gradient(90deg, color-mix(in srgb, var(--cert) 35%, black) var(--base),
     color-mix(in srgb, var(--cert) 50%, black) var(--base) calc(var(--base) + var(--change)), transparent 0);
