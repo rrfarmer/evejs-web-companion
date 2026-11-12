@@ -433,7 +433,7 @@ import { BridgeCallError } from "../bridge/callMethod.ts";
 import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestionAnswer, questionKeeping, iskWords } from "../bridge/questions.ts";
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
-import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, type JsonValue } from "../bridge/wire.ts";
+import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
 import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
@@ -694,7 +694,7 @@ import { shiftHeld } from "./keyState.ts";
 import { FittingLinkError, fittingFromString, formatFittingUrl, parseFittingUrl, simpleHtmlUnescape, typeIDsInFittingString, type FittingLinkTypeFacts } from "../bridge/fittingLink.ts";
 import { fitFitting, fittedRigsByFlag, fittingForApplying, isModularShip, isRigFlag, isThereRigMismatch, itemsToFitFrom, listHangar, listShip, VISIBLE_SUBSYSTEM_FLAGS } from "../bridge/fittingLoad.ts";
 import { fittingEftString } from "../bridge/fittingExport.ts";
-import { decodeAllianceInfo, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
+import { decodeAllianceInfo, toStr as allianceText, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
 import { aggressionSettingsOf, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
 import { toNumOrNull as corporationShareNumber } from "../bridge/allianceInfo.ts";
 import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailableAndMissing, maxShipsToFit, personalContainers, qtyInPlaceByTypeIDs } from "../bridge/multiFit.ts";
@@ -3183,6 +3183,14 @@ export interface AppFlow {
   characterCorporation(characterID: number): Promise<number | null>;
   /** A corporation's alliance from corp.GetCorporation's shared record cache, or null. */
   corporationAlliance(corporationID: number): Promise<number | null>;
+  /**
+   * The pilot's own corporation as the corporation window's home reads it (corp.GetCorporation: CorpUIHome
+   * GetSubContentDetails) - its name, CEO, founder, headquarters, ticker, shares, members, the ISK and LP tax rates,
+   * its URL; null without a pilot.
+   */
+  ownCorporationDetails(): Promise<{ readonly corporationID: number; readonly name: string; readonly ceoID: number | null; readonly creatorID: number | null;
+    readonly stationID: number | null; readonly ticker: string; readonly shares: number; readonly memberCount: number; readonly taxRate: number;
+    readonly loyaltyPointTaxRate: number; readonly url: string } | null>;
   /** A character's Show Info header's reads (construct_header_character): its Bio, bloodline, start, militia, corporation, titles and security status. */
   characterInfoHeader(characterID: number): Promise<CharacterInfoHeader>;
   /** A character's bloodline as its window's Description reads it for one that is no agent (charMgr.GetPublicInfo3), or null. */
@@ -28173,6 +28181,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     characterCorporation(characterID) {
       return characterCorporationOf(bridgeAsk, characterID);
+    },
+    async ownCorporationDetails() {
+      const corporationID = store.station.get().online?.corporationID ?? null;
+      if (corporationID === null) return null;
+      const row = await corporationRecords.get(bridgeAsk, corporationID);
+      const f = row.fields;
+      const id = (value: JsonValue | undefined): number | null => { const n = Number(unwrapLong(value ?? null)); return Number.isFinite(n) && n > 0 ? n : null; };
+      const num = (value: JsonValue | undefined): number => { const n = Number(unwrapLong(value ?? null)); return Number.isFinite(n) ? n : 0; };
+      // A row's text comes as a wstring where it is Unicode (allianceInfo.toStr), its rates as reals.
+      const text = allianceText;
+      const real = (value: JsonValue | undefined): number => unwrapReal(value ?? null) ?? 0;
+      return { corporationID, name: text(f.corporationName), ceoID: id(f.ceoID), creatorID: id(f.creatorID), stationID: id(f.stationID),
+        ticker: text(f.tickerName), shares: num(f.shares), memberCount: num(f.memberCount), taxRate: real(f.taxRate),
+        loyaltyPointTaxRate: real(f.loyaltyPointTaxRate), url: text(f.url) };
     },
     corporationAlliance(corporationID) {
       return corporationRecords.get(bridgeAsk, corporationID).then(row => {

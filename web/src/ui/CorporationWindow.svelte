@@ -14,6 +14,10 @@
   import CorporationApplications from "./CorporationApplications.svelte";
   import CorporationFindMembers from "./CorporationFindMembers.svelte";
   import { getContext, onDestroy } from "svelte";
+  import OwnerPicture from "./OwnerPicture.svelte";
+  import { clientTexture } from "./skillGroupIcons.ts";
+  import { portraitUrl } from "./ownerImages.ts";
+  import { resolvedName } from "../store/names.ts";
   import type { CorporationAdministration } from "../bridge/corporationMemberQuery.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -89,7 +93,39 @@
     "UI/Corporations/Wars/WarInfoTab": "War Info",
     "UI/Corporations/BaseCorporationUI/MyAlliance": "My Alliance",
   };
-  const NOT_BUILT = new Set(["home", "kills", "recruitSearch", "wars", "warInfo", "bulletins", "allianceGeneral"]);
+  /**
+   * CorpUIHome (corp_ui_home.py): its ButtonGroup at the bottom - Create New Corporation (not the CEO), Quit Corporation
+   * (a player corporation's member); the banner 136 high - the corporation's logo 72 (an NPC one at the left edge, a
+   * player one 32 in), its name and info icon; a player corporation's CEO at the right (CEO_CONT_WIDTH 300: the portrait
+   * 62 in a ring, CEO over the name) over the CorpColorBanner; then the Details group: CEO (CEO and Founder where the
+   * same), Founder, Headquarters, Ticker, Shares, Members (a player corporation), ISK Tax Rate, LP Tax Rate, URL.
+   * Read only: no button acts here yet (each is a write).
+   */
+  type CorpHome = Awaited<ReturnType<AppFlow["ownCorporationDetails"]>>;
+  let corpHome = $state<CorpHome>(null);
+  let corpHomeError = $state("");
+  const names = store.names;
+  const ownerLogos = flow.ownerLogos;
+  const imageServer = flow.imageServer;
+  $effect(() => {
+    if (!retail || panel !== "home") return;
+    void $station.online?.corporationID;
+    flow.loadOwnerLogos();
+    void flow.ownCorporationDetails().then((home) => {
+      corpHome = home;
+      if (home) flow.requestNames([
+        ...(home.ceoID ? [{ kind: "character" as const, id: home.ceoID }] : []), ...(home.creatorID ? [{ kind: "character" as const, id: home.creatorID }] : []),
+        ...(home.stationID ? [{ kind: "station" as const, id: home.stationID }] : []), { kind: "corporation" as const, id: home.corporationID },
+      ]);
+    }, (cause) => { corpHomeError = cause instanceof Error ? cause.message : String(cause); });
+  });
+  const HOME_WORDS = ["UI/Corporations/Common/CEO", "UI/Corporations/CorpUIHome/CeoAndFounder", "UI/Corporations/Common/Founder",
+    "UI/Corporations/CorpUIHome/Headquarters", "UI/Corporations/CorpUIHome/TickerName", "UI/Corporations/CorpUIHome/Shares",
+    "UI/Corporations/CorpUIHome/MemberCount", "UI/Corporations/CorpUIHome/ISKTaxRate", "UI/Corporations/CorpUIHome/LPTaxRate",
+    "UI/Corporations/CorpUIHome/URL", "UI/Common/Details", "UI/Corporations/CorpUIHome/CreateNewCorp", "UI/Corporations/CorpUIHome/QuitCorp"];
+  $effect(() => { if (retail) flow.requestWords(HOME_WORDS); });
+  const homeWord = (label: string, own: string): string => { const t = $words.templates[label]; return typeof t === "string" ? t : own; };
+  const NOT_BUILT = new Set(["kills", "recruitSearch", "wars", "warInfo", "bulletins", "allianceGeneral"]);
   type NavEntry = { readonly id: typeof panel; readonly label: string; readonly open?: () => void };
   const corpNav = $derived.by((): readonly { readonly header: string; readonly entries: readonly NavEntry[] }[] => {
     if (corpTab === "alliance") {
@@ -193,6 +229,47 @@
     <div class="corp-panel">
       {#if administrationError}<p class="error">{administrationError}</p>{/if}
       {#if NOT_BUILT.has(panel)}<p class="note corp-unbuilt">This panel is not on the play page yet.</p>{/if}
+      {#if retail && panel === "home"}
+        <div class="corp-home">
+          {#if corpHomeError}<p class="error">{corpHomeError}</p>{/if}
+          {#if corpHome}
+            {@const npc = !playerCorporation}
+            {@const corpName = corpHome.name || resolvedName($names.resolved, "corporation", corpHome.corporationID, "")}
+            {@const logo = $ownerLogos?.corporations[String(corpHome.corporationID)]}
+            <div class="corp-home-banner" class:npc>
+              <span class="logo"><OwnerPicture name={corpName} urls={logo ? [clientTexture(logo)] : []} size={72} /></span>
+              <span class="name">{corpName}</span>
+              {#if !npc && corpHome.ceoID}
+                {@const portrait = portraitUrl($imageServer, corpHome.ceoID, 64)}
+                <div class="ceo">
+                  <span class="ceo-text"><small>{homeWord("UI/Corporations/Common/CEO", "CEO")}</small><b>{resolvedName($names.resolved, "character", corpHome.ceoID, "")}</b></span>
+                  <span class="ceo-pic"><OwnerPicture name={resolvedName($names.resolved, "character", corpHome.ceoID, "")} urls={portrait ? [portrait] : []} size={62} /></span>
+                </div>
+              {/if}
+            </div>
+            <div class="corp-home-details">
+              <div class="group">{homeWord("UI/Common/Details", "Details")}</div>
+              {#if !npc && corpHome.ceoID}
+                <div class="row"><span>{homeWord(corpHome.ceoID === corpHome.creatorID ? "UI/Corporations/CorpUIHome/CeoAndFounder" : "UI/Corporations/Common/CEO", "CEO")}</span><span>{resolvedName($names.resolved, "character", corpHome.ceoID, "")}</span></div>
+              {/if}
+              {#if !npc && corpHome.creatorID && corpHome.creatorID !== corpHome.ceoID}
+                <div class="row"><span>{homeWord("UI/Corporations/Common/Founder", "Founder")}</span><span>{resolvedName($names.resolved, "character", corpHome.creatorID, "")}</span></div>
+              {/if}
+              {#if corpHome.stationID}<div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/Headquarters", "Headquarters")}</span><span>{resolvedName($names.resolved, "station", corpHome.stationID, "")}</span></div>{/if}
+              <div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/TickerName", "Ticker Name")}</span><span>[{corpHome.ticker}]</span></div>
+              <div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/Shares", "Shares")}</span><span>{corpHome.shares.toLocaleString("en-US")}</span></div>
+              {#if !npc}<div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/MemberCount", "Member Count")}</span><span>{corpHome.memberCount.toLocaleString("en-US")}</span></div>{/if}
+              <div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/ISKTaxRate", "ISK Tax Rate")}</span><span>{(corpHome.taxRate * 100).toFixed(1)}%</span></div>
+              <div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/LPTaxRate", "LP Tax Rate")}</span><span>{(corpHome.loyaltyPointTaxRate * 100).toFixed(1)}%</span></div>
+              {#if corpHome.url}<div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/URL", "URL")}</span><span>{corpHome.url}</span></div>{/if}
+            </div>
+            <div class="corp-home-buttons">
+              <button type="button" disabled title="Not on the play page yet">{homeWord("UI/Corporations/CorpUIHome/CreateNewCorp", "Create New Corporation")}</button>
+              {#if !npc}<button type="button" disabled title="Not on the play page yet">{homeWord("UI/Corporations/CorpUIHome/QuitCorp", "Quit Corporation")}</button>{/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
       {#key $station.online?.characterID}
         {#if applicationsOpened}<div hidden={panel !== "applications"}><CorporationApplications {store} {flow} /></div>{/if}
       {/key}

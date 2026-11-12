@@ -1092,6 +1092,24 @@
     color: rgba(255, 255, 255, 0.75); cursor: pointer; }
   .fly-windows :global(.corp-side-entry:hover) { background: rgba(255, 255, 255, 0.05); }
   .fly-windows :global(.corp-side-entry.active) { background: rgba(255, 255, 255, 0.08); border-left-color: rgba(255, 255, 255, 0.85); color: #fff; }
+  /* CorpUIHome: the banner 136 high (the logo 72, the name; a player corporation's CEO at the right), the Details group's
+     rows, the button group at the bottom */
+  .fly-windows :global(.corp-home) { display: flex; flex-direction: column; min-height: 560px; }
+  .fly-windows :global(.corp-home-banner) { position: relative; height: 136px; display: flex; align-items: center; gap: 0; padding-left: 32px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)); border-radius: 6px; }
+  .fly-windows :global(.corp-home-banner.npc) { padding-left: 0; background: none; }
+  .fly-windows :global(.corp-home-banner .name) { margin-left: 48px; font-size: 20px; color: #fff; }
+  .fly-windows :global(.corp-home-banner .ceo) { position: absolute; right: 37px; top: 0; bottom: 0; display: flex; align-items: center; gap: 16px; }
+  .fly-windows :global(.corp-home-banner .ceo-text) { display: flex; flex-direction: column; text-align: right; }
+  .fly-windows :global(.corp-home-banner .ceo-text small) { font-size: 12px; color: rgba(255, 255, 255, 0.5); }
+  .fly-windows :global(.corp-home-banner .ceo-text b) { font-size: 16px; font-weight: 400; color: #fff; }
+  .fly-windows :global(.corp-home-banner .ceo-pic img) { border-radius: 50%; }
+  .fly-windows :global(.corp-home-details) { flex: 1; margin-top: 16px; }
+  .fly-windows :global(.corp-home-details .group) { font-size: 12px; padding: 4px 6px; background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.corp-home-details .row) { display: flex; justify-content: space-between; padding: 5px 6px 5px 16px; font-size: 13px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+  .fly-windows :global(.corp-home-details .row span:first-child) { color: rgba(255, 255, 255, 0.55); }
+  .fly-windows :global(.corp-home-buttons) { display: flex; justify-content: center; gap: 6px; padding: 8px 0; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
