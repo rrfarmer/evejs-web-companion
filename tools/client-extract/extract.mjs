@@ -350,6 +350,9 @@ export async function extractTurret(rf, graphicFile, outRoot) {
     }
   }
   for (const [k, res] of Object.entries(t.textures ?? {})) t.textures[k] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+  // its firing effect's EveStretch3s' assets (their parts are hull-child graphs)
+  const s3 = (t.firing?.stretches ?? []).filter((s) => s.type === "EveStretch3" && s.root);
+  if (s3.length) await copyChildGraphAssets(rf, [...s3.map((s) => s.root), ...s3.flatMap((s) => Object.values(s.childEffects ?? {}))], outRoot);
   // its firing effect's stretches' textures
   for (const s of t.firing?.stretches ?? []) for (const [k, res] of Object.entries(s.textures ?? {})) s.textures[k] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
   const rel = graphicFile.toLowerCase().slice("res:/".length).replace(/.(red|black)$/, "") + ".turret.json";

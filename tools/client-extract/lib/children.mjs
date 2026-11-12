@@ -903,6 +903,29 @@ export function readEffectFile(rf, path) {
 }
 
 /**
+ * A turret's firing effect file (an EveTurretFiringFX) read for its EveStretch3s: each stretch, by its index, as
+ * readStretch3 reads it (its parts' graph, ids, destObjectScale), null for another kind; with the child effects its
+ * controllers load. Null where the client has no such file.
+ */
+export function readTurretStretch3(rf, path) {
+  const res = String(path).toLowerCase().replace(/\.red$/, ".black");
+  if (!rf.has(res)) return null;
+  ids = new WeakMap();
+  nextId = 1;
+  effectRoots = new Map();
+  rawEffects = new Map();
+  locatorSetsUsed = new Set();
+  readRf = rf;
+  const o = readBlack(rf.read(res), res);
+  const find = (n) => { if (!n || typeof n !== "object") return null; if (n.type === "EveTurretFiringFX") return n; for (const v of Object.values(n)) { const r = find(v); if (r) return r; } return null; };
+  const fx = find(o);
+  shownBySet = findShownBySet(fx ?? o);
+  actionEmitters = findActionEmitters(fx ?? o);
+  const stretches = (fx?.stretch ?? []).map((s) => (s?.type === "EveStretch3" ? readStretch3(s) : null));
+  return { res, stretches, childEffects: childEffectRoots() };
+}
+
+/**
  * The hull's own controllers (EveSOFDataHull.controllers: each a Tr2Controller's file, res:/dx9/model/controller/
  * shipstandard.red and the like), read as a child's are, their owner the space object itself. Read after
  * readHullChildren, whose ids they continue. A file the client does not ship, or not a controller, is left out.

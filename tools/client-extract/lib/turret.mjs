@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { readBlack } from "./black.mjs";
+import { readTurretStretch3 } from "./children.mjs";
 
 /** The .black of a .red/.black path, where the client has it. */
 function blackOf(rf, res) {
@@ -150,6 +151,19 @@ export function ammoColors(rf, clientDir, sdeDir, repo) {
   return out;
 }
 
+/**
+ * The firing effect's EveStretch3s (children.mjs readTurretStretch3: each a hull-child graph of its parts, placed from
+ * outside), in place of the type-only entries readStretch leaves for them; their child effects with the first.
+ */
+function withStretch3(stretches, rf, fxFile) {
+  if (!fxFile || !stretches.some((s) => s.type === "EveStretch3")) return stretches;
+  const read = readTurretStretch3(rf, fxFile);
+  return stretches.map((s, i) => {
+    const r = read?.stretches[i];
+    return r ? { type: "EveStretch3", name: s.name ?? null, ...r, ...(i === 0 ? { childEffects: read.childEffects } : {}) } : s;
+  });
+}
+
 /** {impactSize, firingPeakTime, firingDuration, isLoopFiring} of a turret graphic, or null where it is no turret set. */
 export function readTurret(rf, graphicFile) {
   const file = blackOf(rf, graphicFile);
@@ -167,7 +181,7 @@ export function readTurret(rf, graphicFile) {
   const override = fx?.firingDurationOverride ?? -1;
   const effect = set.turretEffect ?? null;
   return {
-    turretBuild: 7,
+    turretBuild: 8,
     // the aiming (EveTurretAiming: the file's sysBone numbers, its class defaults where it has none)
     aiming: {
       height: Number(set.sysBoneHeight ?? 1), pitchFactor: Number(set.sysBonePitchFactor ?? 1), pitchOffset: Number(set.sysBonePitchOffset ?? 0),
@@ -197,7 +211,7 @@ export function readTurret(rf, graphicFile) {
     // the firing effect drawn (EveTurretFiringFX): a stretch per muzzle, the target's scaling by its radius
     // (SetScaleByRadius: scaleEffectTarget, min / max radius and scale; the class defaults where the file has none)
     firing: fx ? {
-      stretches: (fx.stretch ?? []).map(readStretch),
+      stretches: withStretch3((fx.stretch ?? []).map(readStretch), rf, fxFile),
       scaleEffectTarget: fx.scaleEffectTarget === true,
       minRadius: Number(fx.minRadius ?? 30), maxRadius: Number(fx.maxRadius ?? 3000),
       minScale: Number(fx.minScale ?? 1), maxScale: Number(fx.maxScale ?? 10),

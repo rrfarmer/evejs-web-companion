@@ -12,9 +12,12 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { Stretch2Effect, stretch2Kit, type SofStretch2, type Stretch2Kit } from "../three/stretch2.ts";
 import { gpuSystemOf } from "../three/gpuParticles.ts";
+import { hullChildren } from "../three/hullChildren.ts";
+import { livePartsOf, placeStretch, setVariable, type SofStretch3 } from "../three/behaviorAgents.ts";
+import { offerLights } from "../three/dynamicLights.ts";
 
 interface Firing {
-  shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser"; startedAt: number; until: number; lastPulse: number;
+  shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser" | "mining"; startedAt: number; until: number; lastPulse: number;
   /** The charge (OnSpecialFX's otherTypeID): its beam colour (ammoColors). */
   chargeTypeID: number;
   /**
@@ -36,7 +39,27 @@ export interface TurretInfo {
   impactSize: number; useRandomFiringDelay: boolean; maxTrackingTime: number; firingPeakTime: number; firingDuration: number;
   isLoopFiring?: boolean; maxCyclingFirePos?: number;
   /** Its firing effect: a stretch per muzzle, the target's scaling (lib/turret.mjs, turretBuild 5). */
-  firing?: { stretches: ({ type: string | null } | SofStretch2)[]; scaleEffectTarget: boolean; minRadius: number; maxRadius: number; minScale: number; maxScale: number } | null;
+  firing?: { stretches: ({ type: string | null } | SofStretch2 | TurretStretch3)[]; scaleEffectTarget: boolean; minRadius: number; maxRadius: number; minScale: number; maxScale: number } | null;
+}
+/** A firing effect's EveStretch3 as the extractor reads it (children.mjs readTurretStretch3). */
+type TurretStretch3 = SofStretch3 & { type: "EveStretch3"; name: string | null };
+/** A module type's EveStretch3s built (hull-child graphs, one template per stretch), once: null where it has none. */
+const stretch3s = new Map<number, { data: TurretStretch3; template: THREE.Object3D }[] | null>();
+const stretch3Asked = new Set<number>();
+function stretch3Of(typeID: number, info: TurretInfo | null): { data: TurretStretch3; template: THREE.Object3D }[] | null {
+  if (!info) return null;
+  if (!stretch3Asked.has(typeID)) {
+    stretch3Asked.add(typeID);
+    const specs = (info.firing?.stretches ?? []).filter((s): s is TurretStretch3 => s.type === "EveStretch3" && !!(s as TurretStretch3).root);
+    if (!specs.length || specs.length !== (info.firing?.stretches.length ?? 0)) stretch3s.set(typeID, null);
+    else void Promise.all(specs.map(async (data) => {
+      const template = await hullChildren([{ res: "", root: data.root, skipped: {} }]);
+      if (!template) throw new Error("no graph");
+      template.scale.set(1, 1, 1);
+      return { data, template };
+    })).then((t) => stretch3s.set(typeID, t)).catch(() => stretch3s.set(typeID, null));
+  }
+  return stretch3s.get(typeID) ?? null;
 }
 /** A charge's beam colour by its typeID (/client-assets/ammoColors.json), once asked. */
 let ammoColours: Record<string, number[]> | null = null;
@@ -104,8 +127,11 @@ const KIND: Record<string, Firing["kind"]> = {
   "effects.HybridFired": "hybrid",
   "effects.Laser": "laser",
   "effects.TriglavianBeam": "laser",
+  // the miners (their firing effects EveStretch3s; nothing of our own drawn for them)
+  "effects.Mining": "mining",
+  "effects.CloudMining": "mining",
 };
-const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c };
+const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c, mining: 0xff5a3c };
 /** How often a gun's pulse goes out, and how long it takes to get there (a likeness, not the cycle). */
 const PULSE_EVERY_MS = 220, FLIGHT_MS = 260;
 
@@ -124,6 +150,8 @@ export class TurretFx {
   private readonly beams = new Map<Firing, Line2>();
   /** A laser firing's stretches, one per muzzle (its turret's firing effect). */
   private readonly stretches = new Map<Firing, Stretch2Effect[]>();
+  /** A firing's EveStretch3s, one per muzzle (a clone of its template each), and whether each has been started. */
+  private readonly stretch3 = new Map<Firing, { fx: THREE.Object3D; started: boolean }[]>();
   private readonly blasts: Blast[] = [];
   /** The screen's size in pixels: fat lines are drawn so many pixels wide. */
   private readonly resolution = new THREE.Vector2(1, 1);
@@ -234,6 +262,8 @@ export class TurretFx {
     // a firing begun anew keeps its turret's effect going
     const fx = was ? this.stretches.get(was) : undefined;
     if (was && fx) { this.stretches.delete(was); this.stretches.set(next, fx); }
+    const fx3 = was ? this.stretch3.get(was) : undefined;
+    if (was && fx3) { this.stretch3.delete(was); this.stretch3.set(next, fx3); }
   }
 
   /** EnterStateFiring and StartFireAtLocator for one shot begun at `at` (ms). */
@@ -278,6 +308,7 @@ export class TurretFx {
     const info = turretInfo(f.moduleTypeID);
     const kit = kitsOf(f.moduleTypeID, info);
     if (!kit || !info?.firing) return false;
+    this.lateMuzzles(f, info, now);
     let fx = this.stretches.get(f);
     if (!fx) {
       fx = kit.map((k) => new Stretch2Effect(k));
@@ -328,6 +359,45 @@ export class TurretFx {
   }
 
   /**
+   * A firing whose shot began before its turret's graphic had come (its muzzles not prepared - a miner's next cycle may
+   * be a minute off): its muzzles prepared now, to start at once.
+   */
+  private lateMuzzles(f: Firing, info: TurretInfo, now: number): void {
+    if (!f.muzzles.length && (info.firing?.stretches.length ?? 0) > 0) this.prepareFiring(f, info, now);
+  }
+
+  /**
+   * A firing whose effect is EveStretch3s (the miners, the Vorton projectors): a clone of each stretch's graph per
+   * muzzle, started (EveStretch3::StartFiring: FiringDelay, IsFiring 1 to its controllers) once the muzzle's delay is
+   * over, its parts placed each frame from the muzzle to the target (EveStretch3::UpdateAsyncronous, placeStretch), its
+   * lights offered; gone with the firing (its stop states not played).
+   */
+  private drawStretch3(f: Firing, from: THREE.Vector3, to: THREE.Vector3, now: number, renderer: THREE.WebGLRenderer | null, camera: THREE.Camera | null): boolean {
+    const info = turretInfo(f.moduleTypeID);
+    const built = stretch3Of(f.moduleTypeID, info);
+    if (!built || !info) return false;
+    this.lateMuzzles(f, info, now);
+    let fx = this.stretch3.get(f);
+    if (!fx) {
+      fx = built.map((b) => { const c = b.template.clone(); c.name = "turret-stretch3"; c.visible = false; this.group.add(c); return { fx: c, started: false }; });
+      this.stretch3.set(f, fx);
+    }
+    fx.forEach((e, i) => {
+      const m = f.muzzles[i];
+      const b = built[i]!;
+      if (m && m.startedAt === null && m.startAt !== null && now >= m.startAt) m.startedAt = now;
+      const on = !!m && m.startedAt !== null && (!!info.isLoopFiring || (now - m.startedAt!) / 1000 < info.firingDuration);
+      e.fx.visible = on;
+      if (!on) return;
+      if (!e.started) { e.started = true; setVariable(e.fx, "FiringDelay", 0); setVariable(e.fx, "IsFiring", 1); }
+      const at = this.muzzleOf?.(f.shooter, f.moduleID, i, f.target) ?? from;
+      placeStretch(e.fx, b.data, at, to);
+      if (renderer && camera) for (const part of livePartsOf(e.fx)) offerLights(renderer, camera, part);
+    });
+    return true;
+  }
+
+  /**
    * Where a ship's turret for a module fires from now (its muzzle, turretModel.ts), the shot's number cycling the
    * muzzles; null where the ship draws no turret for it (the ship's centre then).
    */
@@ -337,7 +407,8 @@ export class TurretFx {
   private shotCount = 0;
 
   /** One frame: where things are drawn now (by itemID), and the time. */
-  update(positionOf: (itemID: number) => THREE.Vector3 | null, now = performance.now(), radiusOf?: (itemID: number) => number | null, camera: THREE.PerspectiveCamera | null = null): void {
+  update(positionOf: (itemID: number) => THREE.Vector3 | null, now = performance.now(), radiusOf?: (itemID: number) => number | null, camera: THREE.PerspectiveCamera | null = null,
+    renderer: THREE.WebGLRenderer | null = null): void {
     for (const [key, f] of this.firings) {
       const from = positionOf(f.shooter), to = positionOf(f.target);
       if (now > f.until || !from || !to) { this.firings.delete(key); continue; }
@@ -351,7 +422,7 @@ export class TurretFx {
         const size = s.size ?? later?.impactSize ?? 0.75, life = s.life ?? (later ? Math.max(later.firingDuration - later.firingPeakTime, 0) : 1);
         if (size > 0) this.onShot?.(f.shooter, f.target, size, life);
       }
-      if (f.kind === "laser" || this.stretches.has(f)) continue;
+      if (f.kind === "laser" || f.kind === "mining" || this.stretches.has(f) || this.stretch3.has(f)) continue;
       if (now - f.lastPulse >= PULSE_EVERY_MS) { f.lastPulse = now; this.pulse(f, now); }
     }
     // the turret's own firing effect (its stretches) where it is drawn here; else for a laser one beam while it fires,
@@ -359,9 +430,10 @@ export class TurretFx {
     const firing = new Set(this.firings.values());
     for (const [f, beam] of this.beams) if (!firing.has(f)) { this.group.remove(beam); beam.geometry.dispose(); this.beams.delete(f); }
     for (const [f, fx] of this.stretches) if (!firing.has(f)) { for (const s of fx) s.dispose(); this.stretches.delete(f); }
+    for (const [f, fx] of this.stretch3) if (!firing.has(f)) { for (const s of fx) s.fx.removeFromParent(); this.stretch3.delete(f); }
     for (const f of this.firings.values()) {
       const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!, to = positionOf(f.target)!;
-      if (this.drawStretches(f, from, to, now, radiusOf?.(f.target) ?? null, camera)) {
+      if (this.drawStretches(f, from, to, now, radiusOf?.(f.target) ?? null, camera) || this.drawStretch3(f, from, to, now, renderer, camera)) {
         const old = this.beams.get(f);
         if (old) { this.group.remove(old); old.geometry.dispose(); this.beams.delete(f); }
         continue;

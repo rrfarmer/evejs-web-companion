@@ -996,14 +996,14 @@ export class AgentRun {
 }
 
 /** A controller variable kept on an object (hullModel.ts setControllerVariable: its controllers take it). */
-function setVariable(o: THREE.Object3D, name: string, value: number): void {
+export function setVariable(o: THREE.Object3D, name: string, value: number): void {
   const vars = (o.userData.controllerVars ??= {}) as Record<string, number>;
   if (vars[name] === value) return;
   vars[name] = value;
   o.userData.controllerVarsVersion = ((o.userData.controllerVarsVersion as number | undefined) ?? 0) + 1;
 }
 
-const livePartsOf = (fx: THREE.Object3D) => {
+export const livePartsOf = (fx: THREE.Object3D) => {
   const out: THREE.Object3D[] = [];
   fx.traverse((o) => { if (o.name.startsWith("child-live:")) out.push(o); });
   return out;
@@ -1015,7 +1015,7 @@ const arcFromForward = (v: THREE.Vector3) => (v.lengthSq() > 0 ? new THREE.Quate
 const HALF_TURN_Y = new THREE.Quaternion(0, 1, 0, 0);
 
 /** EveStretch3::UpdateAsyncronous's placing of its parts (in its owner's space). */
-function placeStretch(fx: THREE.Object3D, data: SofStretch3, source: THREE.Vector3, dest: THREE.Vector3): void {
+export function placeStretch(fx: THREE.Object3D, data: SofStretch3, source: THREE.Vector3, dest: THREE.Vector3): void {
   const q = arcFromForward(source.clone().sub(dest));
   const diff = dest.clone().sub(source);
   const set = (id: number | null, m: THREE.Matrix4) => {

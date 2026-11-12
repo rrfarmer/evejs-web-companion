@@ -1086,7 +1086,7 @@ export class SpaceView {
       const m = this.muzzleOf(ship, moduleID, shot, target, origin);
       return m ? new THREE.Vector3().setFromMatrixPosition(m) : null;
     };
-    this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null, this.camera);
+    this.turretFx.update((id) => this.placeOf(id, origin), now, (id) => this.snapshot?.entities.find((e) => e.itemID === id)?.radius ?? this.gone.get(id)?.radius ?? null, this.camera, this.renderer);
     this.stepMissiles(origin, moved, dt);
     this.stepTurrets(origin, dt);
     this.stepImpacts(dt);
