@@ -14,7 +14,7 @@
   // client-local service called `marketQuote`; there is no server call for it.
   // So it is implemented client-side here too, which is also why re-sorting the
   // book costs no round-trip.
-  import { onMount, tick } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import { portal } from "./portal.ts";
   import { marketDetailsTarget } from "./marketDetails.ts";
   import {
@@ -783,8 +783,14 @@
     // while the window is open. The figures the window shows are its open orders' (tiedUp).
     return flow.watchMarketProgression();
   });
+  /**
+   * The play page's windows (PlayApp's "retailChrome"): the market laid out as marketbase.MarketBase - the browse side
+   * (Browse / Quickbar, the search, the tree) at the left, 180 wide, an 8 divider, the rest at the right.
+   */
+  const retail = getContext("retailChrome") === true;
 </script>
 
+<div class="market-layout" class:retail>
 <section class="panel">
   <header class="panel-head" bind:this={windowHead}>
     <h2 class="panel-title">Market</h2>
@@ -1567,6 +1573,8 @@
     {/if}
   </section>
 {/if}
+
+</div>
 
 <style>
   /* The quickbar (QuickbarItem.Load fades a type the market does not sell), its question and its folders. */

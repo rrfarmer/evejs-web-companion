@@ -268,6 +268,11 @@
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
       return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, Math.round(640 * scale) + 8 + 280), h: Math.min(H - 16, 676) };
     }
+    // the market (marketbase.RegionalMarket: default 900 x 768, at least 650 x 435), within the desktop
+    if (tab === "market") {
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.max(Math.min(650, W - NEOCOM_W - 16), Math.min(W - NEOCOM_W - 16, 900)), h: Math.max(Math.min(435, H - 16), Math.min(H - 16, 768)) };
+    }
     if (tab !== "chat") return null;
     const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
     const w = innerWidth >= 1680 ? 450 : innerWidth >= 1200 ? 360 : 260;
@@ -769,6 +774,12 @@
   .fly-windows :global(.fit-window .fit-readouts dd) { margin: 0; }
   .fly-windows :global(.fit-window .fit-readouts dd button) { margin-left: -32px; padding: 2px 0 0 32px; height: 32px; min-width: 32px; border: none; background: none;
     white-space: pre; text-align: right; font-size: 12px; line-height: 12px; color: rgba(255, 255, 255, 0.75); cursor: pointer; }
+  /* marketbase.MarketBase: the left side 180 wide (its tabs, the search row 24 high padded 0 8 8 8, the tree on a
+     panel underlay), an 8 divider, the right side's sections */
+  .fly-windows :global(.market-layout.retail) { display: grid; grid-template-columns: 180px 8px minmax(0, 1fr); align-items: start; }
+  .fly-windows :global(.market-layout.retail > section.panel:first-child) { grid-column: 1; grid-row: 1 / span 40; background: rgba(255, 255, 255, 0.03);
+    min-width: 0; overflow: hidden; align-self: stretch; }
+  .fly-windows :global(.market-layout.retail > :not(:first-child)) { grid-column: 3; min-width: 0; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
