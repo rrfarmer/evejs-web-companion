@@ -243,8 +243,20 @@
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
     const had = list.some((w) => w.id === tab);
-    const next = openWindow(list, tab, FLY_SIZES[tab]);
+    const next = openWindow(list, tab, FLY_SIZES[tab], had ? null : flyPlace(tab));
     return had ? next : next.map((w) => (w.id === tab && w.x < NEOCOM_W + 8 ? { ...w, x: w.x + NEOCOM_W } : w));
+  }
+  /**
+   * Where the client puts a window the first time, for those it places itself: the chat at the bottom left of the
+   * desktop, 16 px in (chat/client/window.py default_left / default_top), its size by the screen's
+   * (chat/client/util.py: 450 / 360 / 260 wide from 1680 / 1200 px, 350 / 320 / 260 high from 1200 / 960 px).
+   */
+  function flyPlace(tab: TabID): { x: number; y: number; w: number; h: number } | null {
+    if (tab !== "chat") return null;
+    const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+    const w = innerWidth >= 1680 ? 450 : innerWidth >= 1200 ? 360 : 260;
+    const h = innerHeight >= 1200 ? 350 : innerHeight >= 960 ? 320 : 260;
+    return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) { wins = openFly(wins, tab); raiseApp(tab); }
   /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
