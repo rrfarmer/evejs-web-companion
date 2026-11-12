@@ -281,6 +281,11 @@
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
       return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 700), h: Math.min(H - 16, 560) };
     }
+    // the fleet window (fleetwindow.FleetWindow: 500 x 400, at least 270 x 120), within the desktop
+    if (tab === "fleet") {
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 500), h: Math.min(H - 16, 400) };
+    }
     // the industry window (industryWnd.Industry: 800 high, at least 1004 x 650), within the desktop
     if (tab === "industry") {
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
@@ -1042,6 +1047,22 @@
   .fly-windows :global(.ind-cv-box .x) { position: absolute; right: 46px; top: 2px; font-size: 11px; color: #ff3030; }
   .fly-windows :global(.ind-scroll tr.ind-sel td) { background: rgba(51, 114, 182, 0.3); }
   .fly-windows :global(.ind-fac-client .ind-scroll tbody tr) { cursor: pointer; }
+  /* FleetWindow: the header's tabs; one panel at a time; PanelFormFleet - its caption and text, Form Fleet and the
+     setup combo at the bottom */
+  .fly-windows :global(.fl-tabs) { display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 8px; }
+  .fly-windows :global(.fl-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.fl-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.fl-retail .panel-head .panel-title) { display: none; }
+  .fly-windows :global(.fl-retail[data-fleet-tab="broadcasts"] > section:not(.fl-keep)),
+  .fly-windows :global(.fl-retail[data-fleet-tab="fleet"] > .fl-broadcasts),
+  .fly-windows :global(.fl-retail:is([data-fleet-tab="respawn"], [data-fleet-tab="formations"], [data-fleet-tab="advert"], [data-fleet-tab="find"]) > :is(section, .fl-broadcasts)) { display: none; }
+  .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
+  .fly-windows :global(.fl-form-text) { flex: 1; }
+  .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
+  .fly-windows :global(.fl-form-text p) { margin: 0; font-size: 13px; color: rgba(255, 255, 255, 0.75); }
+  .fly-windows :global(.fl-form-row) { display: flex; gap: 8px; padding-top: 8px; }
+  .fly-windows :global(.fl-form-row select) { min-width: 140px; }
   .fly-windows :global(.ind-cv-center) { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
   .fly-windows :global(.ind-cv-wedges) { position: absolute; left: -75px; top: -75px; width: 150px; height: 150px; }
   .fly-windows :global(.ind-cv-wedges .wedge) { position: absolute; transition: transform 0.7s; }

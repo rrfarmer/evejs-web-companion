@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import { isSessionLost } from "../app/flow.ts";
   import { nameKey, resolvedName } from "../store/names.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -13,6 +13,33 @@
 
   // svelte-ignore state_referenced_locally
   const fleet = store.fleet;
+  const words = store.words;
+  /**
+   * fleetwindow.FleetWindow on the play page (500 x 400, the tabs in the header - TabNavigationWindowHeader): in a
+   * fleet Fleet, Broadcasts, Respawn, Formations, Advert, Find Fleets (UI/Fleet/Fleet, UI/Fleet/FleetWindow/Broadcasts,
+   * UI/Fleet/Respawn/Respawn, UI/Fleet/FleetFormations/Formations, UI/Fleet/FleetRegistry/Advert,
+   * UI/Fleet/FleetRegistry/FindFleets); out of one Fleet (Tooltips/Neocom/Fleet: PanelFormFleet - FormFleetHeader,
+   * FormFleetDescription, then Form Fleet and the setup combo, Default Setup, at the bottom) and Fleet Finder.
+   */
+  const retail = getContext("retailChrome") === true;
+  type FleetTab = "fleet" | "broadcasts" | "respawn" | "formations" | "advert" | "find" | "form" | "finder";
+  let chosenFleetTab = $state<FleetTab | null>(null);
+  const inFleet = $derived($fleet.loaded && $fleet.availability !== "not-in-fleet" && $fleet.availability !== "unavailable" && $fleet.fleet !== null);
+  const fleetTabs = $derived<readonly { id: FleetTab; label: string; own: string }[]>(inFleet
+    ? [{ id: "fleet", label: "UI/Fleet/Fleet", own: "Fleet" }, { id: "broadcasts", label: "UI/Fleet/FleetWindow/Broadcasts", own: "Broadcasts" },
+       { id: "respawn", label: "UI/Fleet/Respawn/Respawn", own: "Respawn" }, { id: "formations", label: "UI/Fleet/FleetFormations/Formations", own: "Formations" },
+       { id: "advert", label: "UI/Fleet/FleetRegistry/Advert", own: "Advert" }, { id: "find", label: "UI/Fleet/FleetRegistry/FindFleets", own: "Find Fleets" }]
+    : [{ id: "form", label: "Tooltips/Neocom/Fleet", own: "Fleet" }, { id: "finder", label: "UI/Fleet/FleetWindow/FleetFinder", own: "Fleet Finder" }]);
+  const fleetTab = $derived<FleetTab>(chosenFleetTab !== null && fleetTabs.some((t) => t.id === chosenFleetTab) ? chosenFleetTab : fleetTabs[0]?.id ?? "form");
+  function fleetWord(label: string): string {
+    const template = $words.templates[label];
+    return typeof template === "string" ? template : "";
+  }
+  onMount(() => {
+    if (retail) flow.requestWords(["UI/Fleet/Fleet", "UI/Fleet/FleetWindow/Broadcasts", "UI/Fleet/Respawn/Respawn", "UI/Fleet/FleetFormations/Formations",
+      "UI/Fleet/FleetRegistry/Advert", "UI/Fleet/FleetRegistry/FindFleets", "Tooltips/Neocom/Fleet", "UI/Fleet/FleetWindow/FleetFinder",
+      "UI/Fleet/FleetWindow/FormFleetHeader", "UI/Fleet/FleetWindow/FormFleetDescription", "UI/Fleet/FleetWindow/FormFleet", "UI/Fleet/FleetWindow/DefaultSetup"]);
+  });
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -205,7 +232,7 @@
   </li>
 {/snippet}
 
-<section class="panel" aria-busy={$fleet.loading || busy}>
+<section class="panel" class:fl-retail={retail} data-fleet-tab={retail ? fleetTab : undefined} aria-busy={$fleet.loading || busy}>
   <header class="panel-head">
     <h2 class="panel-title">Fleet Center</h2>
     <!-- ⚠ THE SUBTITLE WENT, THE FOUR-WAY STATUS DID NOT. "Your live fleet
@@ -241,6 +268,14 @@
     </span>
   </header>
 
+  {#if retail && $fleet.loaded}
+    <nav class="tabs fl-tabs">
+      {#each fleetTabs as t (t.id)}
+        <button type="button" class:active={fleetTab === t.id} onclick={() => (chosenFleetTab = t.id)}>{fleetWord(t.label) || t.own}</button>
+      {/each}
+    </nav>
+    {#if !["fleet", "broadcasts", "form"].includes(fleetTab)}<p class="note fl-unbuilt">This panel is not on the play page yet.</p>{/if}
+  {/if}
   {#if refreshError}<p class="error">{refreshError}</p>{/if}
   {#if $fleet.readError}<p class="error">{$fleet.readError}</p>{/if}
   <!-- (A refusal the client's own dialog said is not said again here: ClientDialogs.svelte.) -->
@@ -261,6 +296,24 @@
       <h3>Fleet status unavailable</h3>
       <p>The companion could not tell whether you are in a fleet. No fleet action is offered until a clean read succeeds.</p>
     </section>
+  {:else if $fleet.availability === "not-in-fleet" && retail}
+    {#if fleetTab === "form"}
+      <div class="fl-form">
+        <div class="fl-form-text">
+          <h3>{fleetWord("UI/Fleet/FleetWindow/FormFleetHeader") || "Form a fleet"}</h3>
+          <p>{fleetWord("UI/Fleet/FleetWindow/FormFleetDescription")}</p>
+        </div>
+        {#if $fleet.pendingInvite !== null}
+          <p><strong>{inviteSender()}</strong> invited you to join a fleet.
+            <button type="button" disabled={busy} onclick={() => void acceptInvite()}>Accept invitation</button>
+            <button type="button" disabled={busy} onclick={() => void declineInvite()}>Decline</button></p>
+        {/if}
+        <div class="fl-form-row">
+          <button type="button" disabled={busy} onclick={() => void formFleet()}>{fleetWord("UI/Fleet/FleetWindow/FormFleet") || "Form Fleet"}</button>
+          <select><option>{fleetWord("UI/Fleet/FleetWindow/DefaultSetup") || "Default Setup"}</option></select>
+        </div>
+      </div>
+    {/if}
   {:else if $fleet.availability === "not-in-fleet"}
     <section class="state-card empty-state">
       <h3>You are not in a fleet</h3>
@@ -331,7 +384,7 @@
       </form>
     </section>
 
-    <FleetHistory {store} {flow} />
+    <div class="fl-broadcasts"><FleetHistory {store} {flow} /></div>
 
     <section class="hierarchy" aria-label="Fleet hierarchy">
       <h3>Fleet hierarchy</h3>
