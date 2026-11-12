@@ -656,7 +656,7 @@ import {
   type DroneRangeSkillReading,
 } from "../nav/droneControlRange.ts";
 import { readScanFullState } from "../bridge/scanFullState.ts";
-import { ammoMenu, AMMO_MENU_ATTRIBUTES, ATTRIBUTE as AMMO_ATTRIBUTE, isChargeCompatibleWithLauncher, roomForReload, type AmmoMenuEntry } from "../bridge/ammoMenu.ts";
+import { ammoMenu, AMMO_MENU_ATTRIBUTES, ATTRIBUTE as AMMO_ATTRIBUTE, chargePortion, isChargeCompatibleWithLauncher, roomForReload, type AmmoMenuEntry } from "../bridge/ammoMenu.ts";
 import { applyFitting, CHARGEABLE_GROUP_IDS, destroyRig as destroyRigCall, fitModule as fitModuleCall, GROUPABLE_GROUP_IDS, linkWeapons as linkWeaponsCall, unfitModule as unfitModuleCall, unloadChargeToCargo as unloadChargeToCargoCall, unloadChargeToContainer as unloadChargeToContainerCall, unloadModuleToCargo as unloadModuleToCargoCall, unloadModuleToContainer as unloadModuleToContainerCall, THE_HANGAR, type ModuleDestination, type WeaponBanks } from "../bridge/fitModule.ts";
 import { exportToCustomsOffice } from "../bridge/customsWrites.ts";
 import { BAY_FLAGS, corpDivisionFlag, mergeStacks as mergeStacksCall, moveItems as moveItemsCall, officeAt, ordinaryContainerStackPlace, setLabel as setLabelCall, stackAll as stackAllCall, trashItems as trashItemsCall, TrashRefusedError, assembleCargoContainer as assembleCargoContainerCall, type MovePlace, type StackPlace } from "../bridge/inventoryWrites.ts";
@@ -2907,6 +2907,8 @@ export interface AppFlow {
   moduleRepairOf(itemID: number): { readonly startedAtMs: number; readonly durationMs: number } | null;
   /** A module type's effect of the overload category (null: it has none), asked once a type and kept. */
   overloadEffectOf(typeID: number): Promise<number | null>;
+  /** How full a module is of its charge (the charges' volume over its capacity; null where the types cannot be read). */
+  chargePortionOf?(moduleTypeID: number, chargeTypeID: number, quantity: number): Promise<number | null>;
   /**
    * Repair a damaged module with nanite paste — the complement to overloading,
    * without which a burnt-out module could never be brought back.
@@ -30076,6 +30078,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deactivateModule,
     setModuleOverload,
     overloadEffectOf: (typeID: number) => overloadEffects.of(typeID),
+    chargePortionOf: async (moduleTypeID: number, chargeTypeID: number, quantity: number) => {
+      const staticData = await dogmaStaticFor([moduleTypeID, chargeTypeID], AMMO_MENU_ATTRIBUTES);
+      return staticData === null ? null : chargePortion(staticData, moduleTypeID, chargeTypeID, quantity);
+    },
     loadStarMap: () => (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; })),
     moduleRepairOf: (itemID: number) => moduleRepairs.repairOf(itemID)
       ?? (heldWeaponBanks().get(itemID) ?? []).map((slave) => moduleRepairs.repairOf(slave)).find((r) => r !== null) ?? null,

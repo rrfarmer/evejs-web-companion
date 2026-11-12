@@ -32,6 +32,7 @@
   import { CLIENT_GAUGES, CLIENT_GAUGE_LINE, clientGaugePath, type ClientGauge } from "./fittingGeometry.ts";
   import { CLIENT_BASE, CLIENT_GROUP_FLAGS, CLIENT_SLOT_HEIGHT, CLIENT_SLOT_WIDTH, OUTER_RADIUS_PERCENT, clientSlotPlacement, countByFamily, placeFamily } from "./fittingGeometry.ts";
   import { getContext } from "svelte";
+  import { CHARGEABLE_GROUP_IDS } from "../bridge/fitModule.ts";
   import { abbreviate } from "./fittingIcons.ts";
   import { HANGAR_NAME, moveQuantityFor, rowsIn } from "./inventoryModel.ts";
   import type { InventoryPlace } from "../store/types.ts";
@@ -241,6 +242,41 @@
     }
     return out;
   });
+  /**
+   * slot.py UpdateFitting's charge indicator (81_64_2.png, a 44 x 7 piece of it at rectTop 10 x step, the slot's top
+   * edge less 2): a loaded charge's step min(4, int(portion x 5)) of the module's capacity; a chargeable module with
+   * none, step 0; others none. The portions, by module, as the page reads them (flow.chargePortionOf).
+   */
+  let chargePortions = $state<Record<string, number>>({});
+  $effect(() => {
+    if (!retail) return;
+    for (const slot of shownSlots) {
+      const module = slot.module, charge = module?.charge;
+      if (!module || !charge) continue;
+      const key = `${module.itemID}:${charge.typeID}:${charge.quantity}`;
+      if (key in chargePortions) continue;
+      void flow.chargePortionOf?.(module.typeID, charge.typeID, Math.max(1, charge.quantity)).then((portion) => {
+        if (portion !== null) chargePortions = { ...chargePortions, [key]: portion };
+      }).catch(() => {});
+    }
+  });
+  function chargeStep(slot: FittingSlot): number | null {
+    const module = slot.module;
+    if (!module) return null;
+    if (module.charge) {
+      const portion = chargePortions[`${module.itemID}:${module.charge.typeID}:${module.charge.quantity}`];
+      return portion === undefined ? null : Math.max(0, Math.min(4, Math.trunc(portion * 5)));
+    }
+    return CHARGEABLE_GROUP_IDS.has(module.groupID ?? -1) ? 0 : null;
+  }
+  /** fittingSlotController.UpdateStatusDisplay (a simulation only): the fill's texture by the module's kind and state. */
+  function fillTexture(slot: FittingSlot): string | null {
+    const state = simulatedState(slot), flagID = slotFlagOf(slot.family, slot.index);
+    if (state === null || flagID === null || !simulation) return null;
+    const name = (simulation.moduleKinds[flagID] ?? 1) === 1 ? (state === 3 ? "slotoverheated" : "slotactive") : "slotpassive";
+    return `/client-res/ui/texture/classes/fitting/${name}.png`;
+  }
+
   /** The empty slot's icon (slot.py: 81_64_7 high, _6 mid, _5 low, _8 rig; subsystems' by flag, turned 180°). */
   const EMPTY_SLOT_ICON: Record<SlotFamily, string> = { high: "81_64_7", mid: "81_64_6", low: "81_64_5", rig: "81_64_8", subsystem: "81_64_11" };
   const SUBSYSTEM_ICONS = ["81_64_11", "81_64_10", "81_64_12", "81_64_13"];
@@ -3351,6 +3387,12 @@
                     <img class="fit-empty-icon" alt="" src={emptyIcon(slot.family, slot.index)} style={slot.family === "subsystem" ? "transform: rotate(180deg)" : ""} />
                   {:else}
                     <span class="fit-socket-text">{socketText(slot)}</span>
+                  {/if}
+                  {#if retail}
+                    {@const fill = fillTexture(slot)}
+                    {@const step = chargeStep(slot)}
+                    {#if fill}<span class="fit-slot-fill" aria-hidden="true" style={`--tex: url('${fill}')`}></span>{/if}
+                    {#if step !== null}<span class="fit-charge" aria-hidden="true"><img alt="" src="/client-res/ui/texture/icons/81_64_2.png" style={`top: ${(-10 * step / 7) * 100}%`} /></span>{/if}
                   {/if}
                 </button>
               {/each}

@@ -59,6 +59,13 @@ export function isChargeCompatibleWithLauncher(staticData: DogmaStatic, ammoType
   return false;
 }
 
+/** fittingSlotController GetChargeCapacity's used over capacity: the loaded charges' volume over the module's capacity (1 where it has none). */
+export function chargePortion(staticData: DogmaStatic, moduleTypeID: number, chargeTypeID: number, chargeQuantity: number): number {
+  const capacity = typeAttribute2(staticData, moduleTypeID, ATTRIBUTE.CAPACITY);
+  if (!(capacity > 0)) return 1;
+  return (typeAttribute2(staticData, chargeTypeID, ATTRIBUTE.VOLUME) * chargeQuantity) / capacity;
+}
+
 /** shipmodulebutton.GetChargeReloadInfo's room: int(capacity / the charge's volume - what is loaded + 1e-07), nought for no charge type. */
 export function roomForReload(staticData: DogmaStatic, moduleTypeID: number, chargeTypeID: number | null, chargeQuantity: number): number {
   if (chargeTypeID === null) return 0;

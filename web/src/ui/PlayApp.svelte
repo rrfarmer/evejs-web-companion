@@ -638,6 +638,24 @@
     content: ""; position: absolute; inset: -7.4% -18.2%; pointer-events: none;
     background: url('/client-res/ui/texture/classes/fitting/moduleframe.png') center / 100% 100% no-repeat; }
   .fly-windows :global(.fit-ring.retail .fit-socket-absent) { opacity: 0.05; pointer-events: none; }
+  /* baseSlot Hilite: the frame at 0.3, 0.5 under the mouse or picked; a simulated module's state hides it for the fill
+     (slotActive / slotPassive / slotOverheated, padded as the frame, in fittingScreen's OFFLINE (0.5, 0.5, 0.5, 0.3),
+     ONLINE 0.6 grey, ACTIVE (0.55, 0.87, 0.13), OVERHEATED (1, 0.17, 0.15)); an offline module's icon at 0.25
+     (UpdateOnlineDisplay, SetStatusDisplayOffline). */
+  .fly-windows :global(.fit-ring.retail .fit-socket::before) { opacity: 0.3; }
+  .fly-windows :global(.fit-ring.retail .fit-socket:hover::before), .fly-windows :global(.fit-ring.retail .fit-socket.armed::before),
+  .fly-windows :global(.fit-ring.retail .fit-socket.drop-target::before) { opacity: 0.5; }
+  .fly-windows :global(.fit-ring.retail .fit-socket:is(.sim-offline, .sim-online, .sim-active, .sim-overheated)::before) { display: none; }
+  .fly-windows :global(.fit-ring.retail .fit-slot-fill) { position: absolute; inset: -7.4% -18.2%; pointer-events: none; background: var(--fill);
+    -webkit-mask: var(--tex) center / 100% 100% no-repeat; mask: var(--tex) center / 100% 100% no-repeat; }
+  .fly-windows :global(.fit-ring.retail .sim-offline .fit-slot-fill) { --fill: rgba(128, 128, 128, 0.3); }
+  .fly-windows :global(.fit-ring.retail .sim-online .fit-slot-fill) { --fill: rgb(153, 153, 153); }
+  .fly-windows :global(.fit-ring.retail .sim-active .fit-slot-fill) { --fill: rgb(140, 222, 33); }
+  .fly-windows :global(.fit-ring.retail .sim-overheated .fit-slot-fill) { --fill: rgb(255, 43, 38); }
+  .fly-windows :global(.fit-ring.retail .fit-socket.offline .type-icon), .fly-windows :global(.fit-ring.retail .fit-socket.sim-offline .type-icon) { opacity: 0.25; }
+  /* the charge indicator: 7 of the slot's 54 high, 2 above its top, its 44 wide the image's left 44 of 64 */
+  .fly-windows :global(.fit-ring.retail .fit-charge) { position: absolute; left: 0; right: 0; top: -3.7%; height: 12.96%; overflow: hidden; pointer-events: none; }
+  .fly-windows :global(.fit-ring.retail .fit-charge img) { position: absolute; left: 0; width: 145.45%; max-width: none; height: auto; }
   .fly-windows :global(.fit-ring.retail .fit-socket .type-icon), .fly-windows :global(.fit-ring.retail .fit-socket .type-icon-socket) {
     width: 109%; max-width: none; height: auto; aspect-ratio: 1; transform: rotate(calc(-1 * var(--turn, 0deg))); position: relative; }
   .fly-windows :global(.fit-ring.retail .fit-socket img.fit-empty-icon), .fly-windows :global(.fit-ring.retail .fit-socket-absent img) {
