@@ -844,6 +844,12 @@
   .fly-windows :global(.con-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 14px; font-size: 13px;
     color: rgba(255, 255, 255, 0.6); cursor: pointer; border-radius: 0; }
   .fly-windows :global(.con-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); background: none; }
+  /* StartPagePanel: the caption, then ContractStartPageEntry rows (the 32 icon at 4, header and text 50 in, 8 apart) */
+  .fly-windows :global(.con-start-cap) { margin: 8px 0 4px 14px; font-size: 20px; text-transform: none; letter-spacing: 0; color: #fff; }
+  .fly-windows :global(.con-start-entry) { position: relative; padding: 8px 0 8px 50px; min-height: 32px; }
+  .fly-windows :global(.con-start-entry img) { position: absolute; left: 4px; top: 8px; width: 32px; height: 32px; }
+  .fly-windows :global(.con-start-head) { background: none; border: none; padding: 0; font-size: 15px; color: #8fd4ff; cursor: pointer; text-align: left; }
+  .fly-windows :global(.con-start-text) { margin: 2px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

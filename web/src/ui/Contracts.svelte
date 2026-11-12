@@ -137,7 +137,31 @@
    * on offer), My Contracts, Contract Search, in that order.
    */
   const retail = getContext("retailChrome") === true;
-  const RETAIL_TAB_WORDS = ["Tooltips/Neocom/Contracts", "UI/Contracts/ContractsWindow/MyContracts"];
+  const RETAIL_TAB_WORDS = ["Tooltips/Neocom/Contracts", "UI/Contracts/ContractsWindow/MyContracts",
+    // StartPagePanel's (contractPanels.py): its caption and the entries the page's counts can fill
+    "UI/Contracts/ContractEntry/MyStartPage", "UI/Contracts/ContractsService/RequireAttention", "UI/Contracts/ContractsService/RequiresAttentionDesc",
+    "UI/Contracts/ContractsService/AssignedPersonal", "UI/Contracts/ContractsService/InProgress", "UI/Contracts/ContractsService/InProgressDesc"];
+  /**
+   * StartPagePanel.Init's entries (ContractStartPageEntry: a 32 icon at 4, an EveLabelLarge header and an
+   * EveLabelMedium text 50 in, 8 above and below), for the counts the page reads: those needing attention
+   * (WindowIcons/warning.png), assigned to you and in progress (info.png); each header the link the client's is
+   * (ShowContracts / OpenAssignedToMe), here to My Contracts' view. What you can still create, bids and the ignore
+   * list are not read and not shown.
+   */
+  const startEntries = $derived.by(() => {
+    const s = $contracts.summary;
+    if (!retail || !s) return [];
+    const out: { icon: string; header: string; text: string; view: "assigned" | "outstanding" | "accepted" }[] = [];
+    if (s.needsAttention > 0) out.push({ icon: "warning", view: "outstanding",
+      header: titleWord("UI/Contracts/ContractsService/RequireAttention", { numContracts: s.needsAttention }) || `${s.needsAttention} contracts require attention`,
+      text: titleWord("UI/Contracts/ContractsService/RequiresAttentionDesc") });
+    if (s.assignedToMe > 0) out.push({ icon: "info", view: "assigned",
+      header: titleWord("UI/Contracts/ContractsService/AssignedPersonal", { numContracts: s.assignedToMe }) || `${s.assignedToMe} contracts assigned to you`, text: "" });
+    if (s.inProgress > 0) out.push({ icon: "info", view: "accepted",
+      header: titleWord("UI/Contracts/ContractsService/InProgress", { numContracts: s.inProgress }) || `${s.inProgress} contracts in progress`,
+      text: titleWord("UI/Contracts/ContractsService/InProgressDesc") });
+    return out;
+  });
   const SEARCH_WORDS = {
     tab: "UI/Contracts/ContractsSearch/ContractSearch",
     contract: "UI/Contracts/ContractsSearch/columnContract",
@@ -373,7 +397,7 @@
     <p class="error">{error}</p>
   {/if}
 
-  {#if $contracts.summary && ($contracts.summary.needsAttention > 0 || $contracts.summary.inProgress > 0 || $contracts.summary.assignedToMe > 0)}
+  {#if !retail && $contracts.summary && ($contracts.summary.needsAttention > 0 || $contracts.summary.inProgress > 0 || $contracts.summary.assignedToMe > 0)}
     <p class="note">
       {#if $contracts.summary.needsAttention > 0}
         {$contracts.summary.needsAttention} need your attention.
@@ -407,6 +431,19 @@
   </nav>
   {/if}
 
+  {#if tab === "board" && retail}
+    <!-- StartPagePanel: its caption (EveCaptionLarge MyStartPage, 14 in, 8 down) and its entries -->
+    <div class="con-start">
+      <h3 class="con-start-cap">{titleWord("UI/Contracts/ContractEntry/MyStartPage") || "My Start Page"}</h3>
+      {#each startEntries as e (e.view)}
+        <div class="con-start-entry">
+          <img alt="" src={`/client-res/ui/texture/windowicons/${e.icon}.png`} />
+          <button type="button" class="con-start-head" onclick={() => { chosenTab = "mine"; chosenMineView = e.view; }}>{e.header}</button>
+          {#if e.text}<p class="con-start-text">{e.text}</p>{/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
   {#if tab === "board"}
     {#if !$contracts.loaded}
       <p class="note">Looking for jobs…</p>
