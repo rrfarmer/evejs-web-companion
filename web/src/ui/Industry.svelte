@@ -12,6 +12,7 @@
   import { getContext, onMount, untrack } from "svelte";
   import { securityStatusColor, shownSecurity } from "../bridge/systemSecurity.ts";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { installTarget } from "../app/industryInstallTarget.ts";
   import {
     ACTIVITY_LABELS,
@@ -721,7 +722,84 @@
     return industryWord("UI/Industry/MaximumRuns") || "Maximum Runs";
   });
   const runsRemainingValue = $derived(startingBlueprint ? (startingBlueprint.original ? maxRuns : Math.min(startingBlueprint.runs, maxRuns)) : 0);
-  const VIEW_WORDS = ["UI/Industry/JobRuns", "UI/Industry/MaximumRuns", "UI/Industry/RunsRemaining", "UI/Industry/LevelsRemaining"];
+  /**
+   * The view's inputs (views/materialGroups.py, materialGroup.py, material.py; industryUIConst.GetIndustryGroupID,
+   * mixins.GetMaterialsByGroups): the job's materials in industry groups by their type's group / category - a
+   * decryptor the optional group - each sorted by type, the groups by (count, group) downward and then placed by
+   * GROUPORDERINDEXES_BY_NUMGROUPS; six rows of 60 (8 between) shared out by GROUP_NUMROWS, or by what the groups need;
+   * the background for that share (GROUP_BACKGROUNDS); a group's 22 icon at 7 and its materials 45 x 60 from 38, 48
+   * apart, 66 a row, five a row at most (GetNumPerRow); a material's 32 picture at 6, its quantity (FmtAmt 'ss') and a 3
+   * high gauge of what is had, COLOR_READY or COLOR_NOTREADY with the not-ready pattern. With no material, the caption
+   * NoBlueprintSelectedCaption / NoInputItemsRequired in the left half.
+   */
+  const IND_GROUP_BY_GROUP: Readonly<Record<number, number>> = { 18: 1, 423: 1, 530: 2, 528: 2, 886: 2, 754: 4, 966: 4, 427: 5, 428: 5, 429: 5,
+    712: 5, 974: 5, 334: 6, 913: 6, 873: 6, 964: 6, 1136: 6, 536: 6, 716: 9, 333: 10 };
+  const IND_GROUP_BY_CATEGORY: Readonly<Record<number, number>> = { 43: 3, 42: 3, 35: 8 };
+  const IND_GROUP_ICON: Readonly<Record<number, string>> = { 1: "groupmineral", 2: "grouprefinedmaterials", 3: "groupplantarymaterials",
+    4: "groupsalavagematerials", 5: "groupreactionmaterials", 6: "groupcomponents", 8: "groupdecryptors", 9: "groupdatainterfaces",
+    10: "groupdatacores", 11: "groupitems", 12: "groupdatainterfaces", 13: "groupitems" };
+  const GROUP_NUMROWS: readonly (readonly number[])[] = [[6], [3, 3], [2, 2, 2], [2, 1, 1, 2], [1, 1, 2, 1, 1], [1, 1, 1, 1, 1, 1]];
+  const GROUP_BACKGROUND: Readonly<Record<string, string>> = { "6": "bg1groups", "3,3": "bg2groups", "2,2,2": "bg3groups", "2,1,1,2": "bg4groups",
+    "1,1,2,1,1": "bg5groups", "1,1,1,1,1,1": "bg6groups", "2,3,1": "bggroups_2_3_1", "3,1,1,1": "bggroups_3_1_1_1", "4,2": "bggroups_4_2", "5,1": "bggroups_5_1" };
+  const GROUP_ORDER: readonly (readonly number[])[] = [[0], [0, 1], [1, 0, 2], [0, 3, 2, 1], [1, 3, 0, 4, 2], [4, 2, 0, 1, 3, 5]];
+  let typeGroups = $state<ReadonlyMap<number, { readonly groupID: number | null; readonly categoryID: number | null } | null>>(new Map());
+  $effect(() => {
+    if (!retail) return;
+    const wanted = materialLines.map((m) => m.typeID).filter((typeID) => !untrack(() => typeGroups.has(typeID)));
+    if (!wanted.length) return;
+    void flow.industryTypeGroups(wanted).then((found) => { typeGroups = new Map([...typeGroups, ...found]); }).catch(() => {});
+  });
+  function industryGroupOf(typeID: number): number {
+    if (typeID === decryptorForJob) return 13;
+    if (typeID === 30386) return 11;
+    const facts = typeGroups.get(typeID);
+    const byGroup = facts?.groupID != null ? IND_GROUP_BY_GROUP[facts.groupID] : undefined;
+    if (byGroup !== undefined) return byGroup;
+    const byCategory = facts?.categoryID != null ? IND_GROUP_BY_CATEGORY[facts.categoryID] : undefined;
+    if (byCategory !== undefined) return byCategory;
+    return 11;
+  }
+  const inputGroups = $derived.by(() => {
+    const byGroup = new Map<number, (typeof materialLines)[number][]>();
+    for (const line of materialLines) {
+      const id = industryGroupOf(line.typeID);
+      byGroup.set(id, [...(byGroup.get(id) ?? []), line]);
+    }
+    const isShip = (typeID: number) => typeGroups.get(typeID)?.categoryID === 6;
+    const sorted = [...byGroup].map(([id, lines]) => [id, [...lines].sort((a, b) => Number(isShip(b.typeID)) - Number(isShip(a.typeID)) || a.typeID - b.typeID)] as const)
+      .sort((a, b) => b[1].length - a[1].length || b[0] - a[0]).slice(0, 6);
+    const ordered = sorted.length ? (GROUP_ORDER[sorted.length - 1] ?? []).flatMap((i) => (sorted[i] ? [sorted[i]] : [])) : [];
+    // _GetNumRowsByGroup: the share for so many groups, unless a group needs more rows and they fit in six.
+    const share = ordered.length ? [...(GROUP_NUMROWS[ordered.length - 1] ?? [])] : [];
+    const needed = ordered.map(([, lines]) => Math.ceil(lines.length / 5));
+    const total = needed.reduce((a, b) => a + b, 0);
+    let rows = share;
+    if (total <= 6 && needed.some((n, i) => n > (share[i] ?? 0))) {
+      rows = [...needed];
+      if (total < 6) rows[rows.length - 1] = (rows[rows.length - 1] ?? 0) + 6 - total;
+    }
+    let top = 1;
+    const groups = ordered.map(([id, lines], i) => {
+      const numRows = rows[i] ?? 1;
+      const height = 60 * numRows + 8 * Math.max(0, numRows - 1);
+      const perRow = numRows >= 2 && lines.length > 3 ? Math.min(5, Math.ceil(lines.length / 2)) : lines.length;
+      const usedRows = Math.ceil(lines.length / Math.max(1, perRow));
+      const group = { id, lines, top, height, perRow, contTop: (height - (66 * (usedRows - 1) + 60)) / 2 };
+      top += height + 8;
+      return group;
+    });
+    return { groups, background: GROUP_BACKGROUND[rows.join(",")] ?? "bg1groups" };
+  });
+  function materialAmount(n: number): string {
+    const label = n < 100_000 ? "FmtThousandShort" : n < 100_000_000 ? "FmtMillionShort" : "FmtBillionShort";
+    const template = $words.templates[`/Carbon/UI/Common/Formatting/${label}`];
+    if (n < 10_000) return n.toLocaleString("en-US");
+    const value = n / (n < 100_000 ? 1e3 : n < 100_000_000 ? 1e6 : 1e9);
+    return typeof template === "string" ? plainText(formatTemplate(template, { amount: value }, { nameOf: () => "" })) : `${value.toFixed(1)}${label[3]}`;
+  }
+  const VIEW_WORDS = ["UI/Industry/NoBlueprintSelectedCaption", "UI/Industry/NoInputItemsRequired", "UI/Industry/JobActive",
+    "/Carbon/UI/Common/Formatting/FmtThousandShort", "/Carbon/UI/Common/Formatting/FmtMillionShort", "/Carbon/UI/Common/Formatting/FmtBillionShort",
+    "UI/Industry/JobRuns", "UI/Industry/MaximumRuns", "UI/Industry/RunsRemaining", "UI/Industry/LevelsRemaining"];
   onMount(() => { if (retail) flow.requestWords(VIEW_WORDS); });
   const BLUEPRINT_WORDS = ["UI/Industry/OwnedByMe", "UI/Industry/AllBlueprints", "UI/Industry/Originals", "UI/Industry/Copies",
     "UI/Industry/Blueprint", "UI/Industry/MaterialEfficiency", "UI/Industry/TimeEfficiency", "UI/Industry/RunsRemaining",
@@ -764,6 +842,25 @@
     <div class="ind-cv" class:job={startingBlueprint !== null} style={`--job: ${viewColor}`}>
       <div class="ind-cv-top">{startingBlueprint ? typeName(startingBlueprint.typeID) : ""}</div>
       <div class="ind-cv-main">
+        <div class="ind-cv-inputs" style={`--bg: url(/client-res/ui/texture/classes/industry/input/${inputGroups.background}.png)`}>
+          {#if inputGroups.groups.length === 0}
+            <div class="ind-cv-noitems">{startingBlueprint ? industryWord("UI/Industry/NoInputItemsRequired") || "No input items required" : industryWord("UI/Industry/NoBlueprintSelectedCaption") || "No blueprint selected"}</div>
+          {/if}
+          {#each inputGroups.groups as g (g.id)}
+            <div class="ind-cv-group" style={`top: ${g.top}px; height: ${g.height}px`}>
+              <img class="ind-cv-group-icon" alt="" src={`/client-res/ui/texture/classes/industry/groups/${IND_GROUP_ICON[g.id]}.png`} />
+              {#each g.lines as m, i (m.typeID)}
+                {@const ready = m.have === null || !m.short}
+                <div class={`ind-cv-mat ${ready ? "ready" : "short"}`} style={`left: ${38 + (i % g.perRow) * 48}px; top: ${g.contTop + 66 * Math.floor(i / g.perRow)}px`}
+                  title={`${typeName(m.typeID)}: ${m.need.toLocaleString("en-US")}${m.have !== null ? ` (${m.have.toLocaleString("en-US")})` : ""}`}>
+                  <span class="glow"></span><span class="pic"><TypeIcon typeID={m.typeID} name={typeName(m.typeID)} size="md" /></span>
+                  <span class="gauge"><span style={`width: ${m.have === null ? 100 : Math.min(1, m.have / Math.max(1, m.need)) * 100}%`}></span></span>
+                  <small>{materialAmount(m.need)}</small>
+                </div>
+              {/each}
+            </div>
+          {/each}
+        </div>
         <div class="ind-cv-circle"><span class="border"></span></div>
         <div class="ind-cv-center">
           <div class="ind-cv-wedges">

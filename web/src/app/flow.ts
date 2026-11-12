@@ -2021,6 +2021,11 @@ export interface AppFlow {
    * the confirm step so the decision is informed.
    */
   previewIndustryJob(request: api.IndustryJobRequest): Promise<api.IndustryPreviewResult>;
+  /**
+   * Each type's inventory group and category (the game's data, kept once read): the industry window sorts a job's
+   * materials into its groups by them (industryUIConst.GetIndustryGroupID). Null where the type is not known.
+   */
+  industryTypeGroups(typeIDs: readonly number[]): Promise<ReadonlyMap<number, { readonly groupID: number | null; readonly categoryID: number | null } | null>>;
   /** Every decryptor and what it does to an invention (static data). */
   loadDecryptors(): Promise<readonly DecryptorTerms[]>;
   /**
@@ -29412,6 +29417,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // (GetFacilityLocations, kept a minute by the client); its monitor connected once for the job (ConnectJob,
     // industrySvc.py 305 to 307), and what its place has as the monitor answered, or as the server has said since
     // (OnIndustryMaterials, 324). Until 2026-10-14 the BFF's preview route made the job and its monitor.
+    async industryTypeGroups(typeIDs) {
+      const unknown = [...new Set(typeIDs)].filter((typeID) => !industryTypeFactsKept.has(typeID));
+      if (unknown.length) {
+        const closure = await api.getIndustryRecipeClosure(unknown, callOptions);
+        const types = closure !== null && typeof closure === "object" && !Array.isArray(closure) ? (closure as Record<string, JsonValue>).types : null;
+        for (const typeID of unknown) {
+          const type = types !== null && typeof types === "object" && !Array.isArray(types) ? (types as Record<string, JsonValue>)[String(typeID)] : null;
+          industryTypeFactsKept.set(typeID, type === null || type === undefined || typeof type !== "object" || Array.isArray(type)
+            ? null
+            : { typeID, groupID: (type as Record<string, JsonValue>).groupID, categoryID: (type as Record<string, JsonValue>).categoryID });
+        }
+      }
+      const asNumber = (value: JsonValue | undefined): number | null => (typeof value === "number" ? value : null);
+      return new Map(typeIDs.map((typeID) => {
+        const facts = industryTypeFactsKept.get(typeID) ?? null;
+        return [typeID, facts === null ? null : { groupID: asNumber(facts.groupID), categoryID: asNumber(facts.categoryID) }] as const;
+      }));
+    },
     async previewIndustryJob(request) {
       const { characterID, own, dump } = await windowsJob(request);
       const as = monitoredAs(dump);

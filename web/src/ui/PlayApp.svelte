@@ -937,6 +937,30 @@
     -webkit-mask: url(/client-res/ui/texture/classes/industry/center/bgcircleborder.png) center / 100% 100%;
     mask: url(/client-res/ui/texture/classes/industry/center/bgcircleborder.png) center / 100% 100%; }
   .fly-windows :global(.ind-cv:not(.job) .ind-cv-circle) { opacity: 0.55; }
+  /* MaterialGroups: the left half's background stretched between a 10 left edge and its 400 right part, 402 high;
+     the groups 400 wide at the left; a Material 45 x 60 */
+  .fly-windows :global(.ind-cv-inputs) { position: absolute; left: 4px; top: 0; width: calc(50% - 4px); height: 402px;
+    border-style: solid; border-width: 0 400px 0 10px; border-image: var(--bg) 0 400 0 10 fill stretch; box-sizing: border-box; }
+  .fly-windows :global(.ind-cv-noitems) { position: absolute; left: -10px; right: -200px; top: 50%; transform: translateY(-50%); text-align: center;
+    font-size: 16px; color: rgba(255, 255, 255, 0.9); opacity: 0.9; padding: 0 20px; }
+  .fly-windows :global(.ind-cv-group) { position: absolute; left: -10px; width: 400px; }
+  .fly-windows :global(.ind-cv-group-icon) { position: absolute; left: 7px; top: 50%; width: 22px; height: 22px; margin-top: -11px; }
+  .fly-windows :global(.ind-cv-mat) { position: absolute; width: 45px; height: 60px; box-sizing: border-box;
+    background: rgba(20, 22, 25, 0.5); }
+  .fly-windows :global(.ind-cv-mat .glow) { position: absolute; inset: 0; background: #3372b6; opacity: 0.5;
+    -webkit-mask: url(/client-res/ui/texture/classes/industry/input/bgglow.png) center / 100% 100%; mask: url(/client-res/ui/texture/classes/industry/input/bgglow.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-mat.short .glow) { background: #ff4600; }
+  .fly-windows :global(.ind-cv-mat::before) { content: ""; position: absolute; inset: 0; background: #666666;
+    -webkit-mask: url(/client-res/ui/texture/classes/industry/input/bgframe.png) center / 100% 100%; mask: url(/client-res/ui/texture/classes/industry/input/bgframe.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-mat.short::before) { background: #ff4600; }
+  .fly-windows :global(.ind-cv-mat.short::after) { content: ""; position: absolute; inset: 0; background: #ff4600;
+    -webkit-mask: url(/client-res/ui/texture/classes/industry/input/bgnotready.png) center / 100% 100%; mask: url(/client-res/ui/texture/classes/industry/input/bgnotready.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-mat .pic) { position: absolute; left: 6.5px; top: 6px; width: 32px; height: 32px; }
+  .fly-windows :global(.ind-cv-mat .pic .type-icon), .fly-windows :global(.ind-cv-mat .pic img) { width: 32px; height: 32px; display: block; }
+  .fly-windows :global(.ind-cv-mat .gauge) { position: absolute; left: 0; width: 46px; bottom: 13px; height: 3px; }
+  .fly-windows :global(.ind-cv-mat .gauge span) { display: block; height: 100%; background: #3372b6; }
+  .fly-windows :global(.ind-cv-mat.short .gauge span) { background: #ff4600; }
+  .fly-windows :global(.ind-cv-mat small) { position: absolute; left: 0; right: 0; bottom: 1px; text-align: center; font-size: 10px; color: rgba(255, 255, 255, 0.85); }
   .fly-windows :global(.ind-cv-center) { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
   .fly-windows :global(.ind-cv-wedges) { position: absolute; left: -75px; top: -75px; width: 150px; height: 150px; }
   .fly-windows :global(.ind-cv-wedges .wedge) { position: absolute; transition: transform 0.7s; }
