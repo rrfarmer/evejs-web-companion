@@ -154,8 +154,10 @@ export function setListener(at: Vec3, forward: Vec3, up: Vec3): void {
   }
 }
 
-/** The sounds' own properties (soundProps.json: v its volume in dB, l its loop count - 0 for ever, a its attenuation). */
-let soundProps: Record<string, { v?: number; l?: number; a?: number }> = {};
+/** The sounds' own properties (soundProps.json: v its volume in dB, l its loop count - 0 for ever, a its attenuation, m under the turret suppression). */
+let soundProps: Record<string, { v?: number; l?: number; a?: number; m?: number }> = {};
+/** The turret suppression's compressor (muffler.json: threshold dB, ratio, attack s, release s, output gain dB). */
+let muffler: { threshold: number; ratio: number; attack: number; release: number; gain: number } | null = null;
 let soundPropsAsked = false;
 /** The attenuations (attenuations.json: each one's volume curve by distance - s its scaling, p its points). */
 let attenuations: Record<string, { s: number; p: [number, number, number][] }> = {};
@@ -167,6 +169,7 @@ function askSoundProps(): void {
 }
 function askAttenuations(): Promise<void> {
   askSoundProps();
+  void fetch("/client-assets/audio/muffler.json").then((r) => (r.ok ? r.json() : null)).then((j) => { muffler ??= j as typeof muffler; }).catch(() => {});
   attenuationsReady ??= fetch("/client-assets/audio/attenuations.json").then((r) => (r.ok ? r.json() : {})).then((j) => { attenuations = j as typeof attenuations; }).catch(() => {});
   return attenuationsReady;
 }
@@ -181,6 +184,18 @@ export function attenuationAt(sound: string, distance: number, scale = 1): numbe
   // (an emitter's attenuation scaling factor stretches the curve's distances: SetAttenuationScalingFactor)
   const y = curveAt(curve.p, distance / (scale > 0 ? scale : 1));
   return curve.s === 2 ? Math.max(0, Math.min(1, 1 + y)) : Math.pow(10, y / 20);
+}
+/**
+ * With Suppress Turret Sounds on, a sound under the turret mixers goes through their compressor (the Wwise Compressor
+ * the muffler RTPC un-bypasses: hard knee; its output gain after it); else straight to the node given.
+ */
+function muffled(ctx: AudioContext, sound: string, next: AudioNode): AudioNode {
+  if (!gfx().suppressTurret || !soundProps[sound]?.m || !muffler) return next;
+  const c = new DynamicsCompressorNode(ctx, { threshold: Math.max(-100, muffler.threshold), ratio: Math.min(20, Math.max(1, muffler.ratio)), knee: 0,
+    attack: Math.min(1, muffler.attack), release: Math.min(1, muffler.release) });
+  const g = new GainNode(ctx, { gain: Math.pow(10, muffler.gain / 20) });
+  c.connect(g).connect(next);
+  return c;
 }
 /** A panner that only places the sound (its fall-off is the sound's attenuation curve, applied as a gain). */
 function placer(ctx: AudioContext, at: Vec3): PannerNode {
@@ -204,7 +219,7 @@ function bufferOf(ctx: AudioContext, sound: string): Promise<AudioBuffer | null>
  * An event's sounds started: one alternative of each layer, together, through the node given (a gain, a panner); the
  * sources kept under the event's name for its stop event.
  */
-async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext) => AudioNode, entry: (typeof uiAudioLog)[number]): Promise<void> {
+async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext, sound: string) => AudioNode, entry: (typeof uiAudioLog)[number]): Promise<void> {
   context ??= new AudioContext();
   if (context.state === "suspended") await context.resume().catch(() => {});
   const ctx = context;
@@ -222,7 +237,7 @@ async function start(name: string, sounds: { sound: string; gain: number }[], vo
     source.loop = own.loop;
     const gain = ctx.createGain();
     gain.gain.value = volume * sounds[n]!.gain * own.gain;
-    source.connect(gain).connect(out(ctx));
+    source.connect(gain).connect(out(ctx, sounds[n]!.sound));
     source.start();
     entry.played = true;
     set.add(source);
@@ -247,10 +262,10 @@ export async function playWorldEvent(name: string, at: Vec3, scale = 1): Promise
   const settings = gfx();
   const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
   if (!sounds.length || volume <= 0) return;
-  await start(name, sounds, volume, (ctx) => {
+  await start(name, sounds, volume, (ctx, sound) => {
     const panner = placer(ctx, at);
     panner.connect(ctx.destination);
-    return panner;
+    return muffled(ctx, sound, panner);
   }, entry);
 }
 

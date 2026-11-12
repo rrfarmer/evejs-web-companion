@@ -77,6 +77,7 @@
     presets: "UI/SystemMenu/GeneralSettings/ColorTheme/Presets",
     audioEngine: "UI/SystemMenu/AudioAndChat/AudioEngine/Header", audioEnabled: "UI/SystemMenu/AudioAndChat/AudioEngine/AudioEnabled",
     useCombatMusic: "UI/SystemMenu/AudioAndChat/AudioEngine/UseCombatMusic",
+    suppressTurret: "UI/SystemMenu/AudioAndChat/VolumeLevel/SuppressTurretSounds",
     volumeHeader: "UI/SystemMenu/AudioAndChat/VolumeLevel/Header",
   } as const;
   // LoadAudio's volume sliders: the setting, its label, the client's default
@@ -235,11 +236,13 @@
             </div>
           </div>
         {:else if panel === "audio"}
-          <!-- LoadAudio: Audio Engine (Audio Enabled, Use Combat Music; the turret suppression and the old jukebox
-               override not built), Volume Level (the five sliders, 0 .. 1) -->
+          <!-- LoadAudio: Audio Engine (Audio Enabled, Suppress Turret Sounds, Use Combat Music; the old jukebox override
+               not built), Volume Level (the five sliders, 0 .. 1) -->
           <h3 class="first">{word(WORDS.audioEngine, "Audio Engine")}</h3>
           <label class="sm-check"><input type="checkbox" checked={settings.audioEnabled}
             onchange={(ev) => setGfx({ audioEnabled: ev.currentTarget.checked })} /> {word(WORDS.audioEnabled, "Audio Enabled")}</label>
+          <label class="sm-check"><input type="checkbox" checked={settings.suppressTurret}
+            onchange={(ev) => setGfx({ suppressTurret: ev.currentTarget.checked })} /> {word(WORDS.suppressTurret, "Suppress Turret Sounds")}</label>
           <label class="sm-check"><input type="checkbox" checked={settings.useCombatMusic}
             onchange={(ev) => setGfx({ useCombatMusic: ev.currentTarget.checked })} /> {word(WORDS.useCombatMusic, "Use Combat Music")}</label>
           <h3>{word(WORDS.volumeHeader, "Volume Level")}</h3>

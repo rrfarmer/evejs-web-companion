@@ -363,7 +363,43 @@ function attenuation(id) {
     if (volume !== 0xff && c) attenuations[id] = { s: c.scaling, p: c.pts };
   } catch { /* left out */ }
 }
-/** A sound's volume (volumeOf), its own loop count and its attenuation. */
+/**
+ * The turret suppression (audioService.SetTurretSuppression: the global RTPC turret_muffler 0 when suppressed, 1 not):
+ * the actor-mixers whose RTPCs name it (5, in turrets.bnk) bind it to their FX's bypass - a boolean step, 1 at 1 -, so
+ * suppressed their FX runs: a Wwise Compressor (an FX object, HIRC 16, of plugin 0x006c0003; its parameters - a u32
+ * size, then threshold dB, ratio, attack s, release s, output gain dB as f32s, process LFE and channel link bytes).
+ * A sound under one of them is marked m.
+ */
+const mufflerRTPC = fnv1Early("turret_muffler");
+function fnv1Early(name) {
+  let h = 2166136261;
+  for (const c of name.toLowerCase()) h = ((Math.imul(h, 16777619) >>> 0) ^ c.charCodeAt(0)) >>> 0;
+  return h;
+}
+const muffled = new Set();
+let muffler = null;
+for (const [id, o] of objects) {
+  if (o.type !== 7) continue;
+  let named = false;
+  for (let p = 0; p + 4 <= o.body.length && !named; p++) named = u32(o.body, p) === mufflerRTPC;
+  if (!named) continue;
+  muffled.add(id);
+  for (let p = 4; p + 4 <= o.body.length && !muffler; p++) {
+    const fx = objects.get(u32(o.body, p));
+    if (fx?.type !== 16 || u32(fx.body, 4) !== 0x006c0003) continue;
+    const b = fx.body, q = 12;
+    muffler = { threshold: f32(b, q), ratio: f32(b, q + 4), attack: f32(b, q + 8), release: f32(b, q + 12), gain: f32(b, q + 16) };
+  }
+}
+function isMuffled(id) {
+  const seen = new Set();
+  for (let at = id; at && !seen.has(at) && seen.size < 24; at = nodeOf(at).parent) {
+    seen.add(at);
+    if (muffled.has(at)) return true;
+  }
+  return false;
+}
+/** A sound's volume (volumeOf), its own loop count, its attenuation and whether the turret suppression reaches it. */
 function propsOf(id) {
   const out = {};
   const v = Math.round(volumeOf(id) * 100) / 100;
@@ -372,6 +408,7 @@ function propsOf(id) {
   if (l !== undefined) out.l = l;
   const a = attenuationOf(id);
   if (a) { attenuation(a); if (attenuations[a]) out.a = a; }
+  if (isMuffled(id)) out.m = 1;
   return out;
 }
 function sourcesOf(id, depth = 0) {
@@ -445,6 +482,9 @@ fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
 fs.writeFileSync(path.join(root, "soundProps.json"), JSON.stringify(soundProps));
 for (const k of Object.keys(attenuations)) if (attenuations[k] === null) delete attenuations[k];
 fs.writeFileSync(path.join(root, "attenuations.json"), JSON.stringify(attenuations));
+// muffler.json: the turret suppression's compressor
+if (muffler) fs.writeFileSync(path.join(root, "muffler.json"), JSON.stringify(muffler));
+console.log(`turret suppression: ${muffled.size} actor-mixers, ${Object.values(soundProps).filter((p) => p.m).length} sounds; compressor ${JSON.stringify(muffler)}`);
 console.log(`attenuations: ${Object.keys(attenuations).length}; sounds with one: ${Object.values(soundProps).filter((p) => p.a).length}`);
 console.log(`sounds with their own volume or loop: ${Object.keys(soundProps).length}`);
 console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} with layers); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
