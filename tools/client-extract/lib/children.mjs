@@ -435,6 +435,35 @@ function meshAreas(mesh, skipped) {
   return areas;
 }
 
+// the behaviours behaviorAgents.ts runs
+const AGENT_BEHAVIORS = new Set(["SpawnDrones", "ProcessLifetime", "Inertia", "DroneAvoidance"]);
+
+/** A behaviour's numbers, each with its constructor's default (Behaviors/*.cpp); its priority (IBehavior::ProcessPriority). */
+function readBehavior(b) {
+  const common = { type: b.type, id: idOf(b), enabled: b.enabled !== false, priority: b.behaviorPriority ?? 0 };
+  if (b.type === "SpawnDrones") {
+    return { ...common, addByCount: b.addByCount === true, addOnGrid: b.addOnGrid === true, seconds: b.seconds ?? -1, time: b.time ?? 0, count: b.count ?? 1, spawnPosition: b.spawnPosition ?? [0, 0, 0] };
+  }
+  if (b.type === "ProcessLifetime") {
+    return {
+      ...common, returningAge: b.returningAge ?? -1, behaviorWeight: b.behaviorWeight ?? 900, wanderAmount: b.wanderAmount ?? 0.3,
+      respawnAgentsOnDeath: b.respawnAgentsOnDeath !== false, firstSpawnAtRandomPlaces: b.firstSpawnAtRandomPlaces !== false,
+      tunnels: (b.splineTunnels ?? []).map(readTunnelGroup),
+    };
+  }
+  if (b.type === "Inertia") return { ...common, maxRotationSpeed: b.maxRotationSpeed ?? 3.14, maxAcceleration: b.maxAcceleration ?? 60 };
+  if (b.type === "DroneAvoidance") return { ...common, behaviorWeight: b.behaviorWeight ?? 300, visionRange: b.visionRange ?? 5, framesBetweenUpdates: b.framesBetweenUpdates ?? 3 };
+  return common;
+}
+
+/** A SplineTunnelGroup (its constructor's defaults): its curves (Tr2CurveVector3), sampled into tunnels by the page. */
+function readTunnelGroup(t) {
+  return {
+    type: t?.tunnelGroupType ?? 2, breakPoints: t?.breakPoints ?? 2, width: t?.tunnelWidth ?? 15, pullSize: t?.entrancePullSize ?? 50,
+    entrySize: t?.entrySize ?? 20, curves: (t?.curveSets ?? []).filter((c) => c?.type === "Tr2CurveVector3").map(curveData),
+  };
+}
+
 function readShown(o, skipped) {
   if (o.type === "EveChildQuad") {
     return {
@@ -474,16 +503,15 @@ function readShown(o, skipped) {
     };
   }
   // EveChildBehaviorSystem (Children/EveChildBehaviorSystem.cpp, Behaviors/*): groups of agents, each drawn as the
-  // group's mesh, instanced. Its still groups only - those whose behaviours are all SpawnDrones (no forces): count agents
-  // at the group's spawn position (BehaviorGroup::InitializeGeometryResource -> SetCount), or, addOnGrid, a grid of
-  // gridInfo x * y * z points from the spawn position, gridInfo.w apart (gridSpacing where not nought), each kept where
-  // a random number is at most gridFullnessFactor (-1: a random fullness per point) - SpawnDrones::UpdateGrid, its first
-  // update. The moving groups (seek, avoid, tunnels, ...) are not drawn yet.
+  // group's mesh, instanced (behaviorAgents.ts). A group is drawn where the page runs all its behaviours: SpawnDrones
+  // (count agents at the group's spawn position - BehaviorGroup::InitializeGeometryResource -> SetCount - or, addOnGrid,
+  // SpawnDrones::UpdateGrid's grid, or more on a timer), ProcessLifetime (the spline tunnels: in, about, out), Inertia
+  // and DroneAvoidance. The others (SeekTarget, CollisionAvoidance, PlayFX, ...) not yet: their groups are left out.
   if (o.type === "EveChildBehaviorSystem") {
     const groups = [];
     for (const g of o.behaviorGroups ?? []) {
       const behaviors = (g?.behaviors ?? []).filter((b) => b && typeof b === "object");
-      if (!behaviors.every((b) => b.type === "SpawnDrones")) { skipped["BehaviorGroup:moving"] = (skipped["BehaviorGroup:moving"] ?? 0) + 1; continue; }
+      if (!behaviors.every((b) => AGENT_BEHAVIORS.has(b.type))) { skipped["BehaviorGroup:behaviors"] = (skipped["BehaviorGroup:behaviors"] ?? 0) + 1; continue; }
       if (g.mesh?.type !== "Tr2Mesh" || !g.mesh.geometryResPath) continue;
       const areas = meshAreas(g.mesh, skipped);
       if (!areas.length) continue;
@@ -494,11 +522,12 @@ function readShown(o, skipped) {
         spawnPosition: g.spawnPosition ?? [0, 0, 0], boundingSphereRadius: g.boundingSphereRadius ?? 5,
         renderThreshold: g.renderThreshold ?? 1, blendMin: g.blendScreenSizeMin ?? 5, blendMax: g.blendScreenSizeMax ?? 15,
         grid: grid ? { id: idOf(grid), info: grid.gridInfo ?? [1, 1, 1, 10], spacing: grid.gridSpacing ?? [0, 0, 0], fullness: grid.gridFullnessFactor ?? 1 } : null,
+        maxVelocity: g.maxVelocity ?? 100, update: g.update !== false, behaviors: behaviors.map(readBehavior),
         mesh: { k: "mesh", name: g.name ?? null, m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], geometry: String(g.mesh.geometryResPath).toLowerCase(), meshIndex: g.mesh.meshIndex ?? 0, minScreenSize: 0, areas, modifiers: [] },
       });
     }
     if (!groups.length) return null;
-    return { k: "agents", id: idOf(o), name: o.name ?? null, m: srt(o), display: o.display !== false, groups };
+    return { k: "agents", id: idOf(o), name: o.name ?? null, m: srt(o), display: o.display !== false, groups, tunnels: (o.splineTunnels ?? []).map(readTunnelGroup) };
   }
   if (o.type === "EveChildLineSet" && o.lineSet) {
     const curves = (o.lines ?? []).filter((c) => c?.type === "EveBezierCurve" && c.display !== false).map((c) => ({
