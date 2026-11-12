@@ -41,6 +41,8 @@ export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
   radius: number; position: { x: number; y: number; z: number }; velocity: { x: number; y: number; z: number };
   isSelf: boolean; mode?: string | null; maxVelocity?: number | null; isNpc?: boolean; targetEntityID?: number | null;
+  /** Its slim item's corporation (spaceProjection), or null. */
+  corporationID?: number | null;
 }
 interface Snapshot {
   entities: Entity[];
@@ -61,6 +63,8 @@ export interface SpaceViewOptions {
   rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } };
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
+  /** Corporations' tickers (cfg.corptickernames: POST /api/corp-tickers), by corporation id; null where none. */
+  corpTickers?: (corpIDs: number[]) => Promise<Record<string, string | null>>;
   /** The reloads the server announced for the pilot's modules (OnChargeBeingLoadedToModule), by module item id. */
   reloads?: () => Readonly<Record<number, { startedAtMs: number }>>;
   /** True while the pilot is coming out of a station: the view's first sight of the ship is the undock camera's. */
@@ -242,6 +246,24 @@ export class SpaceView {
     return e.name ?? (e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] : null) ?? e.kind;
   }
   private names: { types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null = null;
+  /** Corporation tickers known (null: the corporation has none), and those being asked. */
+  private readonly tickers = new Map<number, string | null>();
+  private readonly tickersAsked = new Set<number>();
+  /**
+   * targetInBar.SetTargetLabel: its name (GetSlimItemName), with its corporation's ticker where its slim item has one
+   * (UI/Inflight/Target/TargetLabelWithTicker "{target} [{ticker}]"); the ticker asked for once, the plain name until.
+   */
+  private targetLabelOf(e: Entity): string {
+    const name = this.nameOf(e);
+    const corp = e.corporationID ?? null;
+    if (!corp) return name;
+    if (!this.tickers.has(corp) && !this.tickersAsked.has(corp) && this.options.corpTickers) {
+      this.tickersAsked.add(corp);
+      void this.options.corpTickers([corp]).then((t) => { this.tickers.set(corp, t[String(corp)] ?? null); }).catch(() => {});
+    }
+    const ticker = this.tickers.get(corp);
+    return ticker ? `${name} [${ticker}]` : name;
+  }
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
   private readonly unhold: (() => void)[] = [];
   private lastFrameAt = performance.now();
@@ -1184,7 +1206,7 @@ export class SpaceView {
       if (this.activeTarget === null) this.activeTarget = id;
       entries.push({
         // (targetInBar.SetTargetLabel: uix.GetSlimItemName - its own name, else its type's, as an NPC's)
-        itemID: id, typeID: e.typeID, name: this.nameOf(e), distance: this.distanceTo(e),
+        itemID: id, typeID: e.typeID, name: this.targetLabelOf(e), distance: this.distanceTo(e),
         shieldRatio: e.shieldRatio ?? null, armorRatio: e.armorRatio ?? null, hullRatio: e.hullRatio ?? null,
         locking: false, active: id === this.activeTarget,
       });
@@ -1193,7 +1215,7 @@ export class SpaceView {
       if (this.locked.has(id)) continue;
       const e = byID.get(id);
       entries.push({
-        itemID: id, typeID: e?.typeID ?? null, name: e ? this.nameOf(e) : null, distance: e ? this.distanceTo(e) : 0,
+        itemID: id, typeID: e?.typeID ?? null, name: e ? this.targetLabelOf(e) : null, distance: e ? this.distanceTo(e) : 0,
         shieldRatio: null, armorRatio: null, hullRatio: null, locking: true, active: false,
         lockTimeMs: null, // TODO: the lock time (bracket.GetScanSpeed) for the countdown
         lockStartedAt: startedAt,

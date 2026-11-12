@@ -7,7 +7,7 @@
   import { onDestroy } from "svelte";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
-  import { bridgeDo } from "../app/api.ts";
+  import { bridgeDo, corpTickers } from "../app/api.ts";
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
@@ -335,6 +335,7 @@
       undocking: () => performance.now() - undockedAt < 20000,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
       reloads: () => s.store.fitting.get().reloads ?? {},
+      corpTickers: (corpIDs) => corpTickers(corpIDs, false, s.flow.requestOptions()).then((r) => r.tickers),
       showInfo: (itemID, typeID) => {
         void s.flow.infoWindows.show({ kind: "spaceObject", itemID, typeID }, {}).catch((error) => {
           if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
