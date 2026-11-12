@@ -233,11 +233,20 @@
    */
   const retail = getContext("retailChrome") === true;
   /** The play page's ship view for the ring's middle (play/fittingScene.ts), where it gives one. */
-  const shipSceneOf = getContext<((host: HTMLElement) => { show(typeID: number | null): Promise<void>; close(): void }) | undefined>("fittingShipScene");
-  function shipScene(host: HTMLElement, typeID: number | null) {
+  type ShipTurretFit = { typeID: number; slot: number; count: number; moduleID: number; online: boolean };
+  const shipSceneOf = getContext<((host: HTMLElement) => { show(typeID: number | null): Promise<void>; setFit(fits: readonly ShipTurretFit[]): void; close(): void }) | undefined>("fittingShipScene");
+  /** UpdateHardpoints (not while simulating): the high and medium slots' modules, slot = the place in the rack + 1. */
+  const shipTurretFits = $derived.by<ShipTurretFit[]>(() => simulation ? [] : shownSlots
+    .filter((s) => s.module && (s.family === "high" || s.family === "mid"))
+    .map((s) => ({ typeID: s.module!.typeID, slot: s.index + 1, count: 1, moduleID: s.module!.itemID, online: s.module!.online })));
+  function shipScene(host: HTMLElement, arg: { typeID: number | null; fits: ShipTurretFit[] }) {
     const view = shipSceneOf!(host);
-    void view.show(typeID);
-    return { update: (next: number | null) => void view.show(next), destroy: () => view.close() };
+    void view.show(arg.typeID);
+    view.setFit(arg.fits);
+    return {
+      update: (next: { typeID: number | null; fits: ShipTurretFit[] }) => { void view.show(next.typeID); view.setFit(next.fits); },
+      destroy: () => view.close(),
+    };
   }
   /** The flags a group has that the hull lacks, as the client draws them (its empty slot icon, faint). */
   const absentPlaces = $derived.by(() => {
@@ -3305,7 +3314,7 @@
           <div class="fit-ring-wrap overflow-x-auto">
             <div class="fit-ring" class:retail style={retail ? `--slot-w: ${(CLIENT_SLOT_WIDTH / CLIENT_BASE) * 100}%; --slot-h: ${(CLIENT_SLOT_HEIGHT / CLIENT_BASE) * 100}%` : ""}>
               {#if retail}
-                {#if shipSceneOf}<div class="fit-ship-scene" use:shipScene={ringTypeID}></div>{/if}
+                {#if shipSceneOf}<div class="fit-ship-scene" use:shipScene={{ typeID: ringTypeID, fits: shipTurretFits }}></div>{/if}
                 <!-- fittingLayout.py's base, bottom up: fittingbase (black 0.86), fittingbase_basecircle (the theme's UI
                      base colour), [fittingbase_dotproduct - a DOT-lit sprite - and the three gauges], fittingbase_overlay
                      (white 0.39) -->

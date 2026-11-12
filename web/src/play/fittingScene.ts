@@ -13,12 +13,18 @@
 //   the entry      AnimEntry(yaw1 = 1.2 pi, pitch0 = 0.3, pitch1 = 0.5): over 2 s yaw 1.1 pi -> 1.2 pi, pitch (the
 //                  eye from straight above, pi/2 - p) 1.27 -> 1.07, the zoom from 1 (the farthest) to its own
 //   the mouse      SceneContainerBaseNavigation: a drag orbits (Orbit: 0.02 x fov a pixel, pitch half), the wheel zooms
+//   the backdrop   background.fx (REGULAR, its .sm_depth disassembled): NebulaMap at the view direction plus
+//                  StarParameters.w x the star layers (nought here: the scene's StarParameters are 0), x Tint x
+//                  NebulaIntensity (EveSpaceScene's 1, the scene sets none), the per-frame gamma 1, written sRGB-encoded;
+//                  the cube is BC6H, read as it is - three's background with intensity 1 is that
+//   the turrets    UpdateHardpoints (not simulated): TurretSet.FitTurrets on the model; PlayDeploymentAnimation - an
+//                  online module's set idle, an offline one's deactivated
 //
-// Not yet: the simulated ship's hologram look (ApplyIsisEffect) and scan grid, the fitted turrets (UpdateHardpoints),
-// background.fx's own blend of its cube (AlphaBlend / tint), the dynamic exposure.
+// Not yet: the simulated ship's hologram look (ApplyIsisEffect) and scan grid.
 
 import * as THREE from "three";
 import { typeModel, setThrust } from "../three/hullModel.ts";
+import { buildTurrets, type HullTurretData, type TurretFit, type TurretSetState } from "../three/turretModel.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 
 interface FittingSceneInfo {
@@ -50,6 +56,10 @@ export class FittingShipScene {
   private farthest = 3000;
   private entry: { at: number; distance: number } | null = null;
   private drag: { x: number; y: number } | null = null;
+  private model: THREE.Object3D | null = null;
+  private fits: (TurretFit & { online: boolean })[] = [];
+  private fitKey = "";
+  private turretSets: { state: TurretSetState; online: boolean }[] = [];
 
   constructor(private readonly host: HTMLElement) {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -102,6 +112,7 @@ export class FittingShipScene {
         if (this.closed) return;
         this.scene.background = nebula;
         this.scene.backgroundRotation.copy(halfTurn);
+        this.scene.backgroundIntensity = 1;
       }
       if (info.reflection) {
         const refl = await loadDds(info.reflection);
@@ -119,6 +130,8 @@ export class FittingShipScene {
     if (typeID === this.shown) return;
     this.shown = typeID;
     this.holder.clear();
+    this.model = null;
+    this.turretSets = [];
     if (typeID === null) return;
     const model = await typeModel(typeID).catch(() => null);
     if (!model || this.closed || this.shown !== typeID) return;
@@ -126,6 +139,8 @@ export class FittingShipScene {
     const sphere = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere());
     model.position.sub(sphere.center);
     this.holder.add(model);
+    this.model = model;
+    void this.applyFit();
     const rad = sphere.radius + sphere.center.length();
     this.nearest = rad + NEAR;
     this.farthest = Math.min(FAR - rad, (rad / Math.tan(FOV / 2)) * 2);
@@ -133,6 +148,31 @@ export class FittingShipScene {
     this.camera.near = Math.max(NEAR, rad * 0.01);
     this.camera.updateProjectionMatrix();
     this.entry = { at: performance.now(), distance: this.distance };
+  }
+
+  /** The fitted turrets (high and medium slots, slot = the place in the rack + 1), again only when they change. */
+  setFit(fits: readonly (TurretFit & { online: boolean })[]): void {
+    const key = fits.map((f) => `${f.typeID}:${f.slot}:${f.online ? 1 : 0}`).join(",");
+    if (key === this.fitKey) return;
+    this.fitKey = key;
+    this.fits = [...fits];
+    void this.applyFit();
+  }
+  private async applyFit(): Promise<void> {
+    const model = this.model;
+    if (!model) return;
+    const key = this.fitKey;
+    const data = model.userData as { turretLocators?: HullTurretData["turretLocators"]; turretPrimary?: HullTurretData["primary"]; faction?: string | null };
+    const group = await buildTurrets({ turretLocators: data.turretLocators ?? [], primary: data.turretPrimary ?? null }, this.fits, data.faction ?? null).catch(() => null);
+    if (key !== this.fitKey || model !== this.model || this.closed) return;
+    const old = model.getObjectByName("turrets");
+    if (old) model.remove(old);
+    this.turretSets = [];
+    if (!group) return;
+    model.add(group);
+    const sets = (group.userData.sets ?? []) as { state: TurretSetState; moduleID: number | null }[];
+    this.turretSets = sets.map((x) => ({ state: x.state, online: this.fits.find((f) => f.moduleID === x.moduleID)?.online ?? true }));
+    for (const s of this.turretSets) { if (s.online) s.state.enterIdle(); else s.state.enterDeactive(); }
   }
 
   private fit(): void {
@@ -156,6 +196,7 @@ export class FittingShipScene {
     // SetYaw / SetPitch: the eye at pitch from straight above, turned by yaw (OrbitControls' azimuth = -yaw, z mirrored)
     this.camera.position.setFromSpherical(new THREE.Spherical(distance, pitch, -yaw));
     this.camera.lookAt(0, 0, 0);
+    for (const s of this.turretSets) for (const r of s.state.rigs) r.update(null);
     this.renderer.render(this.scene, this.camera);
   }
 
