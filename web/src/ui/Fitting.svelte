@@ -512,7 +512,45 @@
     "UI/Fitting/FittingWindow/CapRunsOutBy": "Lasts {[timeinterval]ttl, from=hour, to=second}",
     "UI/Fitting/FittingWindow/CapacitorCapAndRechargeTime": "{capacitorCapacity} / {capacitorRechargeTime}",
     "UI/Fitting/FittingWindow/CapacityAndRechargeRate": "Capacity and recharge time",
+    // (the price label's, priceLabel.py, asked with these)
+    "UI/Fitting/FittingWindow/FmtMillionIskShort": "{[numeric]amount, decimalPlaces=2}M ISK",
+    "UI/Fitting/FittingWindow/FmtBillionIskShort": "{[numeric]amount, decimalPlaces=2}B ISK",
+    "UI/Fitting/FittingWindow/TotalEstimatedPrice": "Total estimated price",
+    "UI/Generic/NotAvailableShort": "N/A",
   };
+  /**
+   * The play page's price label (fittingScreen/priceLabel.py LabelPriceLabelCont.UpdateLabel): every type fitted to
+   * the ship (modules and their charges - the pilot left out), in its cargo and its drone bay, by quantity, times
+   * typeHelpers.GetAveragePrice (the cfg's average prices, flow.cfgAveragePrices), summed; under a million
+   * FmtISKAndRound, past a billion FmtBillionIskShort, else FmtMillionIskShort; nothing priced, NotAvailableShort.
+   */
+  let averagePrices = $state<ReadonlyMap<number, number | null> | null>(null);
+  $effect(() => {
+    if (!retail || averagePrices) return;
+    void flow.cfgAveragePrices?.().then((prices) => { if (prices) averagePrices = prices; }).catch(() => {});
+  });
+  const fitPrice = $derived.by(() => {
+    if (!retail) return null;
+    const qty = new Map<number, number>();
+    const add = (typeID: number, n: number) => qty.set(typeID, (qty.get(typeID) ?? 0) + Math.max(1, n));
+    for (const slot of shownSlots) {
+      if (!slot.module) continue;
+      add(slot.module.typeID, 1);
+      if (slot.module.charge) add(slot.module.charge.typeID, slot.module.charge.quantity);
+    }
+    if (simulation) {
+      for (const c of simulation.cargo) add(c.typeID, c.quantity);
+      for (const d of simulation.drones) add(d.typeID, d.total);
+    } else {
+      for (const row of $inventory.cargo.rows) add(row.typeID, row.quantity);
+    }
+    let total = 0;
+    for (const [typeID, n] of qty) { const p = averagePrices?.get(typeID) ?? null; if (p) total += n * p; }
+    if (!total) return capacitorWord("UI/Generic/NotAvailableShort");
+    if (total < 1_000_000) return `${Math.round(total).toLocaleString()} ISK`;
+    if (total > 1_000_000_000) return capacitorWord("UI/Fitting/FittingWindow/FmtBillionIskShort", { amount: total / 1_000_000_000 });
+    return capacitorWord("UI/Fitting/FittingWindow/FmtMillionIskShort", { amount: total / 1_000_000 });
+  });
   /**
    * The play page's capacitor menu (capacitorPanel.py): the power core - min(10, int(capacity / 50)) columns, each
    * max(12, min(16, int(192 / columns))) wide and 30 high in a 30 x 30 box at 5, 5, turned by column x 360 / columns,
@@ -3071,6 +3109,14 @@
       </div>
     </details>
     {/if}
+    {#if fitPrice !== null}
+    <!-- LabelPriceLabelCont: TOBOTTOM 40 high in the stats panel, the price (EveLabelLarge) bottom right 30 in, the
+         multibuy button (24) 4 in. -->
+    <div class="fit-price" title={capacitorWord("UI/Fitting/FittingWindow/TotalEstimatedPrice")}>
+      <span>{fitPrice}</span>
+      <img alt="" src="/client-res/ui/texture/classes/multisell/multibuy.png" />
+    </div>
+  {/if}
   </div>
 {/snippet}
 

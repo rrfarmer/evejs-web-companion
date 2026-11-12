@@ -261,6 +261,13 @@
    * (chat/client/util.py: 450 / 360 / 260 wide from 1680 / 1200 px, 350 / 320 / 260 high from 1200 / 960 px).
    */
   function flyPlace(tab: TabID): { x: number; y: number; w: number; h: number } | null {
+    // the fitting window (fittingWnd.GetWindowWidth / GetFixedWndHeight): the 640 base x GetScaleFactor + 8, the right
+    // panel's PANEL_WIDTH_RIGHT 280 (open by default), WND_NORMAL_HEIGHT 676 high; within the desktop
+    if (tab === "fitting") {
+      const scale = Math.min(1, Math.max(0.75, innerWidth / 1400));
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, Math.round(640 * scale) + 8 + 280), h: Math.min(H - 16, 676) };
+    }
     if (tab !== "chat") return null;
     const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
     const w = innerWidth >= 1680 ? 450 : innerWidth >= 1200 ? 360 : 260;
@@ -673,7 +680,7 @@
   /* The fitting window's stats column as the client's (statsPanel, expandablemenu.ExpandableMenu): PANEL_WIDTH_RIGHT
      280 at the right; each menu's header 20 high, a white 0.05 fill, the expander icon 16 at 4 in (ui_38_16_228,
      _229 once expanded), the label (EveLabelMedium 12) 22 in, the header content at the right, 4 between menus. */
-  .fly-windows :global(.fit-window .fit-stats) { flex: 0 0 280px; width: 280px; gap: 4px; }
+  .fly-windows :global(.fit-window .fit-stats) { flex: 0 0 280px; width: 280px; gap: 4px; align-self: stretch; }
   .fly-windows :global(.fit-window .fit-sec) { border: none; background: none; }
   .fly-windows :global(.fit-window .fit-sec-head) { position: relative; min-height: 20px; padding: 0 6px 0 22px; align-items: center;
     background: rgba(255, 255, 255, 0.05); gap: 6px; }
@@ -727,6 +734,9 @@
   .fly-windows :global(.fit-ghost-button:hover:not(:disabled)) { background: rgba(255, 255, 255, 0.1); }
   /* the drone menu's own simulated-bay list stays below the client's grid; the rest of its table is the client's now */
   .fly-windows :global(.fit-sec-body.hidden-by-client > table) { display: none; }
+  .fly-windows :global(.fit-price) { margin-top: auto; height: 40px; position: relative; flex: none; }
+  .fly-windows :global(.fit-price span) { position: absolute; right: 30px; bottom: 1px; font-size: 16px; color: rgba(255, 255, 255, 0.9); }
+  .fly-windows :global(.fit-price img) { position: absolute; right: 4px; bottom: 0; width: 24px; height: 24px; opacity: 0.8; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
