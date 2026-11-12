@@ -12842,6 +12842,36 @@ app.get("/api/map/graph", requireAuth, async (req, res, next) => {
   }
 });
 
+// The star map's universe (mapViewData.GetKnownUniverseSolarSystems: every known-space system, its centre, region,
+// constellation and faction, from the client's starMapCache; here the static data's): each system as
+// [systemID, x, y, z, factionID or 0, regionID, constellationID], its centre in metres as the data gives it; and each
+// pair of systems a stargate joins, once, [fromSystemID, toSystemID] (the jump lines). Read-only reference data, kept.
+let starMapPayload = null;
+app.get("/api/map/stars", requireAuth, (req, res, next) => {
+  try {
+    if (!starMapPayload) {
+      // idCheckers.IsKnownSpaceSystem: mapKnownSpaceSystemMin (30000000) to mapKnownSpaceSystemMax (30999999)
+      const systems = [];
+      for (const s of staticData.getSolarSystems()) {
+        const id = Number(s.solarSystemID);
+        if (!(id >= 30000000 && id <= 30999999) || !s.position) continue;
+        systems.push([id, Number(s.position.x), Number(s.position.y), Number(s.position.z), Number(s.factionID) || 0, Number(s.regionID) || 0, Number(s.constellationID) || 0]);
+      }
+      const seen = new Set(), jumps = [];
+      for (const [from, to] of staticData.getSolarSystemGraph().edges) {
+        const key = from < to ? `${from}:${to}` : `${to}:${from}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        jumps.push([from, to]);
+      }
+      starMapPayload = { ok: true, systems, jumps };
+    }
+    res.json(starMapPayload);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // The security of solar systems, by ID, from the static reference data: the level each system was made
 // with, which is what the retail client keeps with its own static data and shows beside a place's name.
 // An ID that is no system's is null (as is a level that is not a number, which JSON writes as null).

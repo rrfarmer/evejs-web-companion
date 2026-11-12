@@ -999,6 +999,11 @@ function getSolarSystem(solarSystemID) {
   return buildIndex("solarSystems", "solarSystems", "solarSystemID").get(Number(solarSystemID) || 0) || null;
 }
 
+/** Every solar system the static data has, in its table's order. */
+function getSolarSystems() {
+  return [...buildIndex("solarSystems", "solarSystems", "solarSystemID").values()];
+}
+
 function getSolarSystemName(solarSystemID) {
   const entry = getSolarSystem(solarSystemID);
   return entry ? String(entry.solarSystemName || `System ${solarSystemID}`) : `System ${solarSystemID}`;
@@ -2471,6 +2476,7 @@ module.exports = {
   getConstellation,
   getConstellationName,
   getSolarSystem,
+  getSolarSystems,
   getSolarSystemGraph,
   getSolarSystemName,
   getStargates,

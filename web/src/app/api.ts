@@ -2605,6 +2605,21 @@ export interface SystemGraphResult {
 }
 
 /** Fetch the system-adjacency graph for the client-side route solver. */
+/** The star map's universe (GET /api/map/stars): each known-space system and each stargate pair. */
+export interface StarMapData {
+  /** [systemID, x, y, z (metres, the data's centre), factionID (0: none), regionID, constellationID] */
+  readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number]>;
+  /** [fromSystemID, toSystemID], each pair once */
+  readonly jumps: ReadonlyArray<readonly [number, number]>;
+}
+export async function loadStarMap(options: ApiOptions = {}): Promise<StarMapData> {
+  const data = await getJson("/api/map/stars", options);
+  return {
+    systems: Array.isArray(data.systems) ? (data.systems as StarMapData["systems"]) : [],
+    jumps: Array.isArray(data.jumps) ? (data.jumps as StarMapData["jumps"]) : [],
+  };
+}
+
 export async function loadSystemGraph(options: ApiOptions = {}): Promise<SystemGraphResult> {
   const data = await getJson("/api/map/graph", options);
   return {

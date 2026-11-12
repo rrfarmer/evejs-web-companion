@@ -8,6 +8,7 @@
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers } from "../app/api.ts";
+  import { StarMap } from "../play/starMap.ts";
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
@@ -233,7 +234,7 @@
   });
   $effect(() => {
     if (!neocomHost) return;
-    const neocom = new Neocom((id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); });
+    const neocom = new Neocom(neocomOpen);
     neocomHost.appendChild(neocom.root);
     return () => neocom.root.remove();
   });
@@ -280,7 +281,45 @@
     KeyP: "scanner", KeyC: "inventory", KeyF: "fitting", KeyI: "mail", KeyR: "market", KeyW: "wallet",
     KeyA: "characterSheet", KeyX: "skills", KeyE: "locations", KeyM: "finder",
   };
+  // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
+  // view) open it over the view and close it again; Escape closes it.
+  let starMap: StarMap | null = null;
+  let mapHost = $state<HTMLDivElement | null>(null);
+  function neocomOpen(id: string) {
+    if (id === "map") { toggleStarMap(); return; }
+    const tab = NEOCOM_TABS[id];
+    if (tab) open(tab);
+  }
+  function toggleStarMap(show = !starMap) {
+    if (!show) { starMap?.dispose(); starMap = null; return; }
+    if (starMap || !session || !mapHost) return;
+    const s = session;
+    const m = new StarMap();
+    starMap = m;
+    const close = document.createElement("button");
+    close.className = "star-map-close";
+    close.title = "Close";
+    close.textContent = "✕";
+    close.onclick = () => toggleStarMap(false);
+    m.root.appendChild(close);
+    mapHost.appendChild(m.root);
+    m.start();
+    const here = s.store.station.get().online?.solarSystemID ?? live?.hello?.solarSystemID ?? null;
+    void s.flow.loadStarMap().then((data) => { if (starMap === m) m.build(data, here); }).catch((e) => {
+      notify({ kind: "danger", title: "Map", detail: e instanceof Error ? e.message : String(e) });
+    });
+    (window as unknown as { __starMap: unknown }).__starMap = m;
+  }
+  onDestroy(() => toggleStarMap(false));
+
   function onKey(e: KeyboardEvent) {
+    if (stage === "game" && !e.altKey && !e.ctrlKey && !e.metaKey && (e.code === "F10" || (e.code === "Escape" && starMap))) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      toggleStarMap(e.code === "F10" ? undefined : false);
+      return;
+    }
     if (stage !== "game" || !e.altKey || e.ctrlKey || e.metaKey) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
@@ -332,7 +371,7 @@
         return { targetIDs: [...(t.lockedTargetIDs ?? [])], targeterIDs: [...((t as { lockedByIDs?: number[] }).lockedByIDs ?? [])] };
       },
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
-      onNeocom: (id) => { const tab = NEOCOM_TABS[id]; if (tab) open(tab); },
+      onNeocom: neocomOpen,
       windowLayer: windowsEl ? windowLayer : undefined,
       undocking: () => performance.now() - undockedAt < 20000,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
@@ -503,6 +542,8 @@
   {:else}
     <div class="fly-space" bind:this={spaceHost}></div>
   {/if}
+  <!-- the star map's host, over the hangar or space and under the windows -->
+  <div class="fly-map" bind:this={mapHost}></div>
 
   <!-- The app's windows over space or the station, in front of the 3D view and under nothing else. -->
   <div class="fly-fade" bind:this={fadeEl}></div>
@@ -547,6 +588,10 @@
   .fly-hangar { position: absolute; inset: 0; }
   .fly-hangar :global(.hangar-view) { position: absolute; inset: 0; }
   .fly-neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; }
+  .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
+  .fly-map :global(.star-map) { pointer-events: auto; }
+  .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
+    color: #ccc; border: 1px solid rgba(255,255,255,0.2); width: 22px; height: 22px; cursor: pointer; }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
   .lobby-body { padding: 10px 12px 14px; }
   .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }

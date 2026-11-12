@@ -2901,6 +2901,8 @@ export interface AppFlow {
    * in its own words. A module with no overload effect is not asked of it.
    */
   setModuleOverload(itemID: number, overloaded: boolean): Promise<void>;
+  /** The star map's universe (api.loadStarMap), read once a flow. */
+  loadStarMap(): Promise<import("./api.ts").StarMapData>;
   /** A module's repair begun by this page (its bank's: the module's own, else a slave's), or null. */
   moduleRepairOf(itemID: number): { readonly startedAtMs: number; readonly durationMs: number } | null;
   /** A module type's effect of the overload category (null: it has none), asked once a type and kept. */
@@ -21393,6 +21395,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   let autopilot: AutopilotController | null = null;
 
   // Read once: those who ask while it is on its way wait for the same read, and a read that fails is not kept.
+  let starMapLoading: Promise<import("./api.ts").StarMapData> | null = null;
   function loadRouteGraph(): Promise<SystemGraph> {
     if (routeGraph) {
       return Promise.resolve(routeGraph);
@@ -30073,6 +30076,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deactivateModule,
     setModuleOverload,
     overloadEffectOf: (typeID: number) => overloadEffects.of(typeID),
+    loadStarMap: () => (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; })),
     moduleRepairOf: (itemID: number) => moduleRepairs.repairOf(itemID)
       ?? (heldWeaponBanks().get(itemID) ?? []).map((slave) => moduleRepairs.repairOf(slave)).find((r) => r !== null) ?? null,
     repairModule,

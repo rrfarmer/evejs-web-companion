@@ -180,6 +180,19 @@ function clientAssets(): Plugin {
         }
         // /client-assets/fx/<guid>.json: an effect guid's own graphic (extract.mjs --fx: the Vorton chain's stretches),
         // made on first ask
+        // /client-assets/starmap.json: the star map's textures, copied on first ask
+        if (rel === "/starmap.json") {
+          try {
+            const buildDir = path.join(root, build);
+            const file = path.join(buildDir, "starmap.json");
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"starMapBuild":1')) await extractOnce("starmap", buildDir, ["--star-map"]);
+            res.setHeader("content-type", "application/json");
+            return res.end(fs.readFileSync(file));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const fxAsk = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);
         if (fxAsk) {
           try {

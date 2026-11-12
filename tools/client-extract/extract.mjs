@@ -516,7 +516,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [], effects: [] };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [], effects: [], starMap: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -533,6 +533,7 @@ function parseArgs(argv) {
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
     else if (a === "--ammo-colors") out.ammoColors = true;
     else if (a === "--fx") out.fx.push(argv[++i]);
+    else if (a === "--star-map") out.starMap = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
@@ -658,6 +659,16 @@ async function main() {
     if (!sde) throw new Error("--effect needs the SDE (--sde, or a config.json that names it)");
     console.log(`effect ${id} -> ${path.relative(outRoot, await extractEffectGraphic(rf, sde, id, outRoot))}`);
   }
+  // starmap.json: the star map's textures (mapView.py: the star particles' TexMap, mapFilterConst's
+  // PARTICLE_SPRITE_TEXTURE; mapViewUtil.CreateLineSet's line textures), copied
+  if (args.starMap) {
+    const textures = {};
+    for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds" })) {
+      textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
+    }
+    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 1, textures }));
+    console.log("starmap.json");
+  }
   for (const guid of args.fx) {
     if (!sde) throw new Error("--fx needs the SDE (--sde, or a config.json that names it)");
     console.log(`${guid} -> ${path.relative(outRoot, await extractFxGraphic(rf, client, sde, guid, outRoot))}`);
@@ -681,7 +692,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
