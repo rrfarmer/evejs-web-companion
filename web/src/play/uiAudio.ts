@@ -31,6 +31,53 @@ function eventsMap(): Promise<Record<string, string | string[]>> {
   return events;
 }
 
+type Vec3 = { x: number; y: number; z: number };
+/** A sound's file: events.json names it with its extension (.ogg Vorbis, .wav PTADPCM); older lists without one: .ogg. */
+const soundUrl = (sound: string): string => `/client-assets/audio/${sound}${/\.(ogg|wav)$/.test(sound) ? "" : ".ogg"}`;
+/** The listener: the camera (Wwise's listener is the camera's), its place and its forward and up directions. */
+export function setListener(at: Vec3, forward: Vec3, up: Vec3): void {
+  if (!context) return;
+  const l = context.listener;
+  if (l.positionX) {
+    l.positionX.value = at.x; l.positionY.value = at.y; l.positionZ.value = at.z;
+    l.forwardX.value = forward.x; l.forwardY.value = forward.y; l.forwardZ.value = forward.z;
+    l.upX.value = up.x; l.upY.value = up.y; l.upZ.value = up.z;
+  }
+}
+
+/**
+ * An emitter's event (AudEmitter.SendEvent) in the world: its sound placed at the point (the view's frame, as the
+ * listener's), at master x World level. Its fall-off with distance is Web Audio's inverse model from 1 km (Wwise's
+ * attenuation curves are not read).
+ */
+export async function playWorldEvent(name: string, at: Vec3): Promise<void> {
+  const found = (await eventsMap())[String(wwiseId(name))] ?? null;
+  const choices = found === null ? [] : Array.isArray(found) ? found : [found];
+  const sound = choices.length ? choices[Math.floor(Math.random() * choices.length)]! : null;
+  const entry: (typeof uiAudioLog)[number] = { name, sound };
+  uiAudioLog.push(entry);
+  const settings = gfx();
+  const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
+  if (!sound || volume <= 0) return;
+  context ??= new AudioContext();
+  const ctx = context;
+  entry.state = ctx.state;
+  if (!decoded.has(sound)) {
+    decoded.set(sound, fetch(soundUrl(sound)).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => null));
+  }
+  const buffer = await decoded.get(sound)!;
+  if (!buffer) return;
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  const gain = ctx.createGain();
+  gain.gain.value = volume;
+  const panner = new PannerNode(ctx, { panningModel: "equalpower", distanceModel: "inverse", refDistance: 1000, maxDistance: 300000, rolloffFactor: 1,
+    positionX: at.x, positionY: at.y, positionZ: at.z });
+  source.connect(gain).connect(panner).connect(ctx.destination);
+  source.start();
+  entry.played = true;
+}
+
 /** SendUIEvent: the event's sound played once, now (the first call after a user gesture starts the audio). */
 export async function playUiEvent(name: string): Promise<void> {
   // "<x>_stop": the sounds "<x>_play" started, stopped (the client's stop events are Stop actions on their play's
@@ -57,7 +104,7 @@ export async function playUiEvent(name: string): Promise<void> {
   const ctx = context;
   entry.state = ctx.state;
   if (!decoded.has(sound)) {
-    decoded.set(sound, fetch(`/client-assets/audio/${sound}.ogg`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => null));
+    decoded.set(sound, fetch(soundUrl(sound)).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => null));
   }
   const buffer = await decoded.get(sound)!;
   if (!buffer) return;

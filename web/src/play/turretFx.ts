@@ -40,6 +40,9 @@ interface Firing {
 export interface TurretInfo {
   impactSize: number; useRandomFiringDelay: boolean; maxTrackingTime: number; firingPeakTime: number; firingDuration: number;
   isLoopFiring?: boolean; maxCyclingFirePos?: number; cyclingFireGroupCount?: number;
+  /** The firing's sounds (lib/turret.mjs, turretBuild 13: the firing effect's AudEventCurves - each event, its key's
+   *  time, at the muzzle or the target). */
+  sounds?: { event: string; time: number; at: "muzzle" | "target" }[];
   /** Its firing effect: a stretch per muzzle, the target's scaling (lib/turret.mjs, turretBuild 5). */
   firing?: { stretches: ({ type: string | null } | SofStretch2 | TurretStretch3)[]; scaleEffectTarget: boolean; minRadius: number; maxRadius: number; minScale: number; maxScale: number } | null;
 }
@@ -348,6 +351,8 @@ export class TurretFx {
     if (!n) return;
     const fx = this.stretches.get(f);
     if (info?.isLoopFiring && f.muzzles.some((m) => m.startedAt !== null)) return;
+    // the firing effect's start curve set played with it: its sound events (EveTurretFiringFX startCurveSet)
+    if (info?.sounds?.length) this.onSound?.(info.sounds, f.shooter, f.target, startAt);
     if (fx) for (const s of fx) s.stopFiring();
     const cycling = info?.maxCyclingFirePos ?? 1;
     // EveTurretSet::SetupFiringState / EnterStateFiring: the position steps by the group count (default 1) and wraps
@@ -551,6 +556,8 @@ export class TurretFx {
   damageLocatorOf: ((target: number, from: THREE.Vector3) => THREE.Vector3 | null) | null = null;
   /** Each shot begun (EnterStateFiring of the module's turret set): its ship, module and target. */
   onFire: ((shooter: number, moduleID: number, target: number) => void) | null = null;
+  /** A firing's sound events, the shooter and the target, and when its effect starts (performance.now ms). */
+  onSound: ((sounds: readonly { event: string; time: number; at: "muzzle" | "target" }[], shooter: number, target: number | null, startAt: number) => void) | null = null;
   private shotCount = 0;
 
   /** One frame: where things are drawn now (by itemID), and the time. */

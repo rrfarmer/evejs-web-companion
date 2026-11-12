@@ -181,7 +181,7 @@ export function readTurret(rf, graphicFile) {
   const override = fx?.firingDurationOverride ?? -1;
   const effect = set.turretEffect ?? null;
   return {
-    turretBuild: 12,
+    turretBuild: 13,
     // the aiming (EveTurretAiming: the file's sysBone numbers, its class defaults where it has none)
     aiming: {
       height: Number(set.sysBoneHeight ?? 1), pitchFactor: Number(set.sysBonePitchFactor ?? 1), pitchOffset: Number(set.sysBonePitchOffset ?? 0),
@@ -210,6 +210,13 @@ export function readTurret(rf, graphicFile) {
     firingPeakTime: Number(fx?.firingPeakTime ?? 0),
     firingDuration: fx ? (override >= 0 ? Number(override) : Math.max(0, ...(fx.stretch ?? []).map(stretchLength))) : 0,
     isLoopFiring: fx?.isLoopFiring === true,
+    // the firing's sounds (the firing effect's startCurveSet: AudEventCurves, each key an event at its time, sent from
+    // its observer - TurretFX the muzzle (sourceObserver), TurretImpact the target (destinationObserver))
+    sounds: (fx?.startCurveSet?.curves ?? []).filter((c) => c?.type === "AudEventCurve").flatMap((c) => {
+      const emitter = String(c.sourceTriObserver?.observer?.name ?? "");
+      const at = emitter === String(fx?.destinationObserver?.observer?.name ?? "TurretImpact") ? "target" : "muzzle";
+      return (c.keys ?? []).filter((k) => typeof k?.value === "string" && k.value).map((k) => ({ event: k.value, time: Number(k.time ?? 0), at }));
+    }),
     // the firing effect drawn (EveTurretFiringFX): a stretch per muzzle, the target's scaling by its radius
     // (SetScaleByRadius: scaleEffectTarget, min / max radius and scale; the class defaults where the file has none)
     firing: fx ? {

@@ -25,7 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
-import { playUiEvent } from "./uiAudio.ts";
+import { playUiEvent, playWorldEvent, setListener } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -1301,6 +1301,24 @@ export class SpaceView {
     this.turretFx.setResolution(innerWidth, innerHeight);
     this.turretFx.onShot = this.onShot;
     this.turretFx.onFire = (ship, moduleID, target) => { this.fireTurretSet(ship, moduleID, target); };
+    // a firing's sounds, each at its key's time from the effect's start, from the shooter (TurretFX) or the target
+    // (TurretImpact) - placed where they are then, in the view's frame
+    this.turretFx.onSound ??= (sounds, shooter, target, startAt) => {
+      for (const s of sounds) {
+        const id = s.at === "target" ? target : shooter;
+        if (id === null) continue;
+        window.setTimeout(() => {
+          const at = this.placeOf(id, this.lastOrigin);
+          if (at) void playWorldEvent(s.event, at);
+        }, Math.max(0, startAt - performance.now()) + s.time * 1000);
+      }
+    };
+    // the listener: the camera
+    {
+      const fwd = this.camera.getWorldDirection(new THREE.Vector3());
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      setListener(this.camera.position, fwd, up);
+    }
     this.missileFx.onLaunch = (ship, moduleID, target) => {
       const delay = this.fireTurretSet(ship, moduleID, target);
       // the launcher's firing effect (turretFx.launch): its type from the ship's slim item's modules

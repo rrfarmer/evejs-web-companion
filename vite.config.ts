@@ -140,7 +140,7 @@ function clientAssets(): Plugin {
             }
             if (!/\/turret\//i.test(String(tg?.graphicFile ?? ""))) return res.end(JSON.stringify({ typeID: Number(turretAsk[1]), turret: null }));
             const rel2 = String(tg.graphicFile).toLowerCase().slice("res:/".length).replace(/\.(red|black)$/, "") + ".turret.json";
-            const have = () => fs.existsSync(path.join(buildDir, rel2)) && fs.readFileSync(path.join(buildDir, rel2), "utf8").includes('"turretBuild": 12');
+            const have = () => fs.existsSync(path.join(buildDir, rel2)) && fs.readFileSync(path.join(buildDir, rel2), "utf8").includes('"turretBuild": 13');
             if (!have()) await extractOnce(`turret:${rel2}`, buildDir, ["--turret", tg.graphicFile]);
             return res.end(fs.readFileSync(path.join(buildDir, rel2)));
           } catch (e) {
