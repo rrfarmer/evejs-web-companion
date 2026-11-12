@@ -14,6 +14,7 @@
 // from what the hull children's tickers offered during the frame before. The IES light profiles
 // (LightProfileArray) and the second specular layer's share are not drawn.
 
+import { lodSettings } from "../play/gfxSettings.ts";
 import * as THREE from "three";
 import { activationOf } from "./activation.ts";
 
@@ -85,7 +86,7 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
 /**
  * Tr2LightManager::AddLight per light: in the view's frustum, its size across in pixels (TriFrustum::GetPixelSizeAccross:
  * radius / depth x _11 x the viewport's half width x 2; the eye inside it: no limit) above CUTOFF_PIXEL_SIZE 7 (x the
- * LOD factor, 1), dimmed over FADE_SIZE 5 pixels past it, and - scaleBrightness, Tr2Light's default - its colour x its
+ * LOD factor: the LOD quality's, AdjustLightCutoff), dimmed over FADE_SIZE 5 pixels past it, and - scaleBrightness, Tr2Light's default - its colour x its
  * radius. The MAX largest on screen kept.
  */
 function publish(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
@@ -93,14 +94,15 @@ function publish(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   const halfWidth = (camera.projectionMatrix.elements[0] ?? 1) * renderer.domElement.width * 0.5;
+  const cutoff = 7 * lodSettings().lodFactor;
   const sphere = new THREE.Sphere();
   const list = gathered
     .map((g) => {
       if (!frustum.intersectsSphere(sphere.set(g.pos, g.radius))) return null;
       const d = tmp.copy(g.pos).sub(eye);
       const size = d.lengthSq() < g.radius * g.radius ? Infinity : (g.radius / Math.max(1e-5, d.dot(ahead))) * halfWidth * 2;
-      if (!(size > 7)) return null;
-      return { g, size, dim: Math.min((size - 7) / 5, 1) * g.radius };
+      if (!(size > cutoff)) return null;
+      return { g, size, dim: Math.min((size - cutoff) / 5, 1) * g.radius };
     })
     .filter((x): x is { g: Gathered; size: number; dim: number } => !!x)
     .sort((a, b) => b.size - a.size)

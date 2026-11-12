@@ -24,7 +24,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
-import { gfx, spaceRendering } from "./gfxSettings.ts";
+import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
@@ -206,6 +206,8 @@ export class SpaceView {
    * on for the cycle's length, Stop sets it off): by the module, its ship, its name, the cycle and when it next repeats.
    */
   private readonly impactAnimations = new Map<string, { ship: number; name: string; cycle: number; next: number; until: number }>();
+  /** How many space objects the LOD quality's visibility threshold left undrawn this frame (for checks). */
+  lodCulled = 0;
   /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
   private readonly fxEmitters = new Set<string>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
@@ -1482,11 +1484,25 @@ export class SpaceView {
     this.missileFx.group.visible = settings.missilesEnabled;
     // fxSequencer: with Effects off the ship effects (not the turrets') are disabled
     this.shipFx.group.visible = settings.effectsEnabled;
-    // Drone.py IsDroneModelEnabled: a player's drone without its model (an empty ship holding its turret locator)
-    if (this.droneModels !== settings.droneModelsEnabled) {
-      this.droneModels = settings.droneModelsEnabled;
-      for (const m of this.marks.values()) if (m.userData.playerDrone) (m.userData.model as THREE.Object3D).visible = this.droneModels;
+    // Drone.py IsDroneModelEnabled: a player's drone without its model (an empty ship holding its turret locator);
+    // EveSpaceObject2::UpdateVisibility: a space object whose estimated size across (TriFrustum::GetPixelSizeAccrossEst:
+    // its radius / its distance x P[0][0] x the viewport's width) is below the LOD quality's visibility threshold is
+    // not drawn (3 / 6 / 15 px; the pilot's own ship, the celestials and the missiles not this way)
+    this.droneModels = settings.droneModelsEnabled;
+    const threshold = lodSettings(settings).visibility;
+    const eye = this.camera.getWorldPosition(new THREE.Vector3());
+    const across = (this.camera.projectionMatrix.elements[0] ?? 1) * this.renderer.domElement.width;
+    let culled = 0;
+    for (const [id, m] of this.marks) {
+      const model = m.userData.model as THREE.Object3D | undefined;
+      if (!model) continue;
+      const radius = Number(m.userData.radius) || 0;
+      const pixels = id === ego?.itemID ? Infinity : (radius / Math.max(m.position.distanceTo(eye), 1e-5)) * across;
+      const shown = pixels >= threshold && (!m.userData.playerDrone || this.droneModels);
+      if (!(pixels >= threshold)) culled++;
+      if (model.visible !== shown) model.visible = shown;
     }
+    this.lodCulled = culled;
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });
     this.bloom.render();

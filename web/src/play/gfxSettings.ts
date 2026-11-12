@@ -147,6 +147,19 @@ function applyWindowAppearance(s: Readonly<GfxSettings>): void {
   root.style.setProperty("--theme-tint", theme.tint);
 }
 
+/**
+ * The LOD quality's Trinity settings (evegraphics/settings.py LOD_SETTINGS, applied by ApplyLodSettings; EveSpaceScene
+ * passes them on divided by the camera's upscaling, 1 here): the visibility threshold (an object's estimated size across
+ * in pixels below it is not drawn), the low and medium detail thresholds, and the LOD factor (the dynamic lights' cutoff
+ * 7 px times it, Tr2LightManager::AdjustLightCutoff).
+ */
+export function lodSettings(s: Readonly<GfxSettings> = current): { visibility: number; lowDetail: number; mediumDetail: number; lodFactor: number } {
+  const q = s.lodQuality;
+  return q === 1 ? { visibility: 15, lowDetail: 140, mediumDetail: 480, lodFactor: 4 }
+    : q === 2 ? { visibility: 6, lowDetail: 70, mediumDetail: 240, lodFactor: 2 }
+    : { visibility: 3, lowDetail: 35, mediumDetail: 120, lodFactor: 1 };
+}
+
 export function onGfx(listener: Listener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
