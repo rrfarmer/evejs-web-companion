@@ -55,6 +55,7 @@ export type CoreTabID =
   | "routeWindow"
   | "missionTracker"
   | "log"
+  | "notepad"
   | "settings";
 
 /**
@@ -233,6 +234,8 @@ export const TABS: readonly CoreTabDef[] = [
   // R80 — the notice log. Launchable on purpose, unlike Show Info: "what did I
   // miss?" is a question a player asks without anything having been clicked.
   { id: "log", label: "Log", where: "both" },
+  // The client's Notepad (neocom/notepad.py): the pilot's own notes and their folders.
+  { id: "notepad", label: "Notepad", where: "both" },
   // The local client's own settings (icon cache, …) — reachable anywhere.
   { id: "settings", label: "Settings", where: "both" },
 ];

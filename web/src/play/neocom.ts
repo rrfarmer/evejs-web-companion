@@ -65,7 +65,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: null, label: "Calendar", icon: icon("calendar") },
   ] },
   { label: "Utilities", icon: icon("directoryUtilities"), items: [
-    { id: null, label: "Notepad", icon: icon("notepad") },
+    { id: "notepad", label: "Notepad", icon: icon("notepad") },
     { id: "compare", label: "Compare Tool", icon: icon("comparetool") },
     { id: "log", label: "Log", icon: icon("log") },
   ] },

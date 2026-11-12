@@ -111,6 +111,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   // The mission tracker: a list with a tick against its first line.
   missionTracker: ["M4 7l2 2 4-4", "M13 7h7M4 13h16M4 18h12"],
   log: ["M5 4h14v16H5z", "M8 9h8M8 13h8M8 17h5"],
+  notepad: ["M6 3h9l3 3v15H6z", "M9 9h6M9 13h6M9 17h4"],
   // The compare tool: two columns side by side, a line between them.
   compare: ["M4 6h6v13H4z", "M14 6h6v13h-6z", "M12 3v18"],
 };

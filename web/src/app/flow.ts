@@ -3188,6 +3188,14 @@ export interface AppFlow {
    * GetSubContentDetails) - its name, CEO, founder, headquarters, ticker, shares, members, the ISK and LP tax rates,
    * its URL; null without a pilot.
    */
+  /** The pilot's own notes by label (charMgr.GetOwnerNoteLabels): notes "N:", the notepad's settings "S:". */
+  notepadLabels(): Promise<readonly { readonly noteID: number; readonly label: string }[]>;
+  /** One of the pilot's notes (charMgr.GetOwnerNote): its label and text; null where there is none. */
+  notepadNote(noteID: number): Promise<{ readonly label: string; readonly note: string } | null>;
+  /** A new note (charMgr.AddOwnerNote): its noteID. */
+  notepadAddNote(label: string, note: string): Promise<number>;
+  /** A note written back (charMgr.EditOwnerNote). */
+  notepadEditNote(noteID: number, label: string, note: string): Promise<void>;
   ownCorporationDetails(): Promise<{ readonly corporationID: number; readonly name: string; readonly ceoID: number | null; readonly creatorID: number | null;
     readonly stationID: number | null; readonly ticker: string; readonly shares: number; readonly memberCount: number; readonly taxRate: number;
     readonly loyaltyPointTaxRate: number; readonly url: string } | null>;
@@ -28181,6 +28189,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     characterCorporation(characterID) {
       return characterCorporationOf(bridgeAsk, characterID);
+    },
+    async notepadLabels() {
+      const rows = readRowsetRows(await bridgeAsk("charMgr", "GetOwnerNoteLabels", []));
+      return rows.map((row) => ({ noteID: Number(unwrapLong(row.noteID ?? null)), label: allianceText(row.label) }))
+        .filter((row) => Number.isFinite(row.noteID) && row.noteID > 0);
+    },
+    async notepadNote(noteID) {
+      const answer = await bridgeAsk("charMgr", "GetOwnerNote", [noteID]);
+      const first = isListValue(answer) ? answer.items[0] : Array.isArray(answer) ? answer[0] : null;
+      if (first === undefined || first === null) return null;
+      return { label: allianceText(readKeyVal(first, "label")), note: allianceText(readKeyVal(first, "note")) };
+    },
+    async notepadAddNote(label, note) {
+      return Number(unwrapLong(await bridgeDo("charMgr", "AddOwnerNote", [label, note])));
+    },
+    async notepadEditNote(noteID, label, note) {
+      await bridgeDo("charMgr", "EditOwnerNote", [noteID, label, note]);
     },
     async ownCorporationDetails() {
       const corporationID = store.station.get().online?.corporationID ?? null;
