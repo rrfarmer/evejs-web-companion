@@ -120,9 +120,63 @@ function playlist(body) {
 }
 let streamedWritten = 0;
 /** The sounds an object may play: a Sound's source, a container's children's. */
+/**
+ * A container's children (CAkParentNode's Children: a u32 count and the child ids), found as the first run in its
+ * body of a count and that many ids that are all sounds or containers - the parameters before it vary in length by
+ * version and are not parsed (a switch container's switch packages come after it).
+ */
+function childrenAt(body) {
+  for (let p = 4; p + 8 <= body.length; p++) {
+    const n = u32(body, p);
+    if (n < 1 || n > 64 || p + 4 + 4 * n > body.length) continue;
+    const ids = [];
+    for (let k = 0; k < n; k++) ids.push(u32(body, p + 4 + 4 * k));
+    if (ids.every((c) => [2, 5, 6, 9].includes(objects.get(c)?.type ?? -1))) return { at: p, ids };
+  }
+  return null;
+}
+const childrenOf = (body) => childrenAt(body)?.ids ?? [];
+/**
+ * A switch container's children for its default switch (CAkSwitchCntr: eGroupType u8, ulGroupID, ulDefaultSwitch,
+ * bIsContinuousValidation u8 just before its Children; after them the switch packages - a count, then each switch
+ * id, an item count and the items). The client's SetSwitch states are not read here: the default's, or nothing.
+ */
+function switchChildren(body) {
+  const c = childrenAt(body);
+  if (!c || c.at < 10) return [];
+  const fallback = u32(body, c.at - 5);
+  let q = c.at + 4 + 4 * c.ids.length;
+  if (q + 4 > body.length) return [];
+  const groups = u32(body, q); q += 4;
+  for (let g = 0; g < groups && q + 8 <= body.length; g++) {
+    const sw = u32(body, q), n = u32(body, q + 4); q += 8;
+    const items = [];
+    for (let k = 0; k < n && q + 4 <= body.length; k++, q += 4) items.push(u32(body, q));
+    if (sw === fallback) return items;
+  }
+  return [];
+}
+/**
+ * What an object plays, as layers that sound together, each a list of alternatives: a Sound its source; a random /
+ * sequence container (5) one of its playlist's; a switch container (6) its default switch's children; a layer
+ * container (9) every child's layers at once.
+ */
+function layersOf(id, depth = 0) {
+  const o = objects.get(id);
+  if (!o || depth > 8) return [];
+  if (o.type === 9) return childrenOf(o.body).flatMap((child) => layersOf(child, depth + 1));
+  if (o.type === 6) return switchChildren(o.body).flatMap((child) => layersOf(child, depth + 1));
+  if (o.type === 5) {
+    const kids = playlist(o.body);
+    const alternatives = [...new Set(kids.flatMap((child) => layersOf(child, depth + 1).flat()))];
+    return alternatives.length ? [alternatives] : [];
+  }
+  const sources = sourcesOf(id, depth);
+  return sources.length ? [sources] : [];
+}
 function sourcesOf(id, depth = 0) {
   const o = objects.get(id);
-  if (!o || depth > 6) return [];
+  if (!o || depth > 8) return [];
   if (o.type === 5) return playlist(o.body).flatMap((child) => sourcesOf(child, depth + 1));
   if (o.type !== 2) return [];
   const stream = o.body[8], source = u32(o.body, 9);
@@ -144,18 +198,33 @@ function sourcesOf(id, depth = 0) {
   }
   return [`streamed/${source}.${ext}`];
 }
+/**
+ * An event's layers: each Play action's (0x0403) target's, and a Play Event action's (0x2103: its target another
+ * event) that event's; other actions (stop, pause, set ...) play nothing.
+ */
+function eventLayers(id, depth = 0) {
+  const o = objects.get(id);
+  if (!o || o.type !== 4 || depth > 4) return [];
+  const layers = [];
+  for (let k = 0; k < o.body[4]; k++) {
+    const action = objects.get(u32(o.body, 5 + k * 4));
+    if (!action || action.type !== 3) continue;
+    const kind = u16(action.body, 4), target = u32(action.body, 6);
+    if (kind === 0x0403) layers.push(...layersOf(target));
+    else if (kind === 0x2103) layers.push(...eventLayers(target, depth + 1));
+  }
+  return layers;
+}
+// events.json: an event's id to its layers ([[alternatives], ...]) - one alternative of each layer played together
 const events = {};
-let containers = 0;
+let layered = 0;
 for (const [id, o] of objects) {
   if (o.type !== 4) continue;
-  const n = o.body[4];
-  for (let k = 0; k < n; k++) {
-    const action = objects.get(u32(o.body, 5 + k * 4));
-    if (!action || action.type !== 3 || u16(action.body, 4) !== 0x0403) continue;
-    const target = u32(action.body, 6);
-    const sounds = [...new Set(sourcesOf(target))];
-    if (sounds.length) { events[id] = sounds; if (objects.get(target)?.type === 5) containers++; break; }
-  }
+  const layers = eventLayers(id).filter((l) => l.length);
+  if (!layers.length) continue;
+  events[id] = layers;
+  if (layers.length > 1) layered++;
 }
+const containers = layered;
 fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
-console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} through a container); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
+console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} with layers); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
