@@ -9,7 +9,7 @@
   // activityID, a status code, a blueprint typeID or a facilityID (R7d), and
   // nothing here computes a job outcome — the status a job shows, including
   // whether it is ready, is the one the SERVER returned.
-  import { onMount, untrack } from "svelte";
+  import { getContext, onMount, untrack } from "svelte";
   import { installTarget } from "../app/industryInstallTarget.ts";
   import {
     ACTIVITY_LABELS,
@@ -55,6 +55,8 @@
 
   // svelte-ignore state_referenced_locally
   const industry = store.industry;
+  // svelte-ignore state_referenced_locally
+  const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -557,6 +559,21 @@
     }, 1000);
     return () => clearInterval(timer);
   });
+  /** The play page's windows (PlayApp's "retailChrome"): the browsers under the client's tabs (industryWnd.Industry). */
+  const retail = getContext("retailChrome") === true;
+  let browserTab = $state<"blueprints" | "facilities" | "jobs" | "research">("blueprints");
+  const INDUSTRY_TABS: readonly { id: "blueprints" | "facilities" | "jobs" | "research"; label: string; own: string }[] = [
+    { id: "blueprints", label: "UI/Industry/Blueprints", own: "Blueprints" },
+    { id: "facilities", label: "UI/Industry/Facilities", own: "Facilities" },
+    { id: "jobs", label: "UI/Industry/Jobs", own: "Jobs" },
+    { id: "research", label: "UI/Journal/JournalWindow/Agents/Research", own: "Research" },
+  ];
+  const INDUSTRY_TAB_WORDS = INDUSTRY_TABS.map((t) => t.label);
+  $effect(() => { if (retail) flow.requestWords(INDUSTRY_TAB_WORDS); });
+  function industryWord(label: string): string {
+    const t = $words.templates[label];
+    return typeof t === "string" ? t : "";
+  }
 </script>
 
 <section class="panel">
@@ -581,7 +598,18 @@
 </section>
 
 {#if $industry.loaded}
-  <section>
+  <div class="ind-layout" class:retail data-tab={retail ? browserTab : undefined}>
+  {#if retail}
+    <!-- industryWnd.Industry's browser tabs (TabGroup 26 high, labels padded 12): Blueprints, Facilities, Jobs,
+         Research - one browser shown at a time; the job's view (Start a job) stays above them -->
+    <nav class="ind-tabs">
+      {#each INDUSTRY_TABS as t (t.id)}
+        <button type="button" class:active={browserTab === t.id} onclick={() => (browserTab = t.id)}>{industryWord(t.label) || t.own}</button>
+      {/each}
+    </nav>
+    {#if browserTab === "research"}<p class="note ind-research">Research agents are not in the play page yet.</p>{/if}
+  {/if}
+  <section class="ind-jobs">
     <h2>Jobs you have running</h2>
     {#if $industry.jobsError}
       <p class="error">Your jobs could not be loaded: {$industry.jobsError}</p>
@@ -676,7 +704,7 @@
   </section>
 
   {#if finishedJobs.length > 0}
-    <section>
+    <section class="ind-jobs">
       <h2>Jobs you have finished</h2>
       <div class="table-wrap overflow-x-auto">
         <table class="guests reflow">
@@ -712,7 +740,7 @@
     </section>
   {/if}
 
-  <section>
+  <section class="ind-blueprints">
     <h2>Your blueprints</h2>
     {#if $industry.blueprintsError}
       <p class="error">Your blueprints could not be loaded: {$industry.blueprintsError}</p>
@@ -794,7 +822,7 @@
   </section>
 
   {#if startingBlueprint}
-    <section class="bulk">
+    <section class="bulk ind-view">
       <h2>Start a job with {typeName(startingBlueprint.typeID)}</h2>
       {#if blueprintActivities(startingBlueprint).length === 0}
         <p class="note">
@@ -974,7 +1002,7 @@
     </section>
   {/if}
 
-  <section>
+  <section class="ind-facilities">
     <h2>Places you can work</h2>
     {#if $industry.facilitiesError}
       <p class="error">Nearby facilities could not be loaded: {$industry.facilitiesError}</p>
@@ -1013,4 +1041,5 @@
       </div>
     {/if}
   </section>
+  </div>
 {/if}

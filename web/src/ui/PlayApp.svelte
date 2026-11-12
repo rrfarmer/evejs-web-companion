@@ -281,6 +281,11 @@
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
       return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 700), h: Math.min(H - 16, 560) };
     }
+    // the industry window (industryWnd.Industry: 800 high, at least 1004 x 650), within the desktop
+    if (tab === "industry") {
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 1004), h: Math.min(H - 16, 800) };
+    }
     if (tab !== "chat") return null;
     const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
     const w = innerWidth >= 1680 ? 450 : innerWidth >= 1200 ? 360 : 260;
@@ -873,6 +878,15 @@
   .fly-windows :global(.con-my-filters select) { font-size: 12px; padding: 2px 4px; min-width: 120px; }
   .fly-windows :global(.con-my-filters button) { margin-left: auto; font-size: 12px; padding: 4px 10px; }
   .fly-windows :global(.con-my-list) { min-height: 300px; }
+  /* industryWnd's browser tabs: one browser at a time under them; the job's view stays */
+  .fly-windows :global(.ind-tabs) { display: flex; height: 26px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin: 6px 0; }
+  .fly-windows :global(.ind-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 0 12px; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.ind-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.ind-layout.retail[data-tab="blueprints"] > section:is(.ind-jobs, .ind-facilities)),
+  .fly-windows :global(.ind-layout.retail[data-tab="facilities"] > section:is(.ind-jobs, .ind-blueprints)),
+  .fly-windows :global(.ind-layout.retail[data-tab="jobs"] > section:is(.ind-blueprints, .ind-facilities)),
+  .fly-windows :global(.ind-layout.retail[data-tab="research"] > section:is(.ind-jobs, .ind-blueprints, .ind-facilities)) { display: none; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
