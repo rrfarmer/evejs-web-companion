@@ -41,8 +41,16 @@
 //   else GetMarkerBaseOpacity(camera distance, 0, 17500) = 1 - d / 17500; MarkerMyLocation ("You are here", always
 //   shown, opacity 1): MarkerIconBase's 14 px container 30 px above the point (projectBracket.offsetY -30), the
 //   focusIcon.png 16 px in it, tagBackground.png 64 px under it 12 px down.
+// - selecting (mapView.SetActiveItemID: a click on a star - here the nearest star within 8 px of the click - makes it
+//   the active item: its markers active as above, the camera's point of interest moved to it, FocusCameraOnActiveEntity,
+//   at the distance it has) and hovering (the markers handler's hilight: the label shown at full opacity with
+//   CheckConstructHiliteContainer's dashed circle, 4 dashes, radius CIRCLESIZE / 2 = 7, line 0.8);
+// - the lines' opacity by LineOpacityFinder3D: each line of each system of the active constellation (the selected
+//   system's) += OPACITY_LINES_SELECTED 1.0, and while a system is hovered += OPACITY_LINES_HOVERED 0.3 - for the same
+//   active constellation (_UpdateLineOpacitySolarSystem takes _activeConstellationID whichever system is given); a line
+//   in none keeps the default 0.2; the colour's alpha that, as a UBYTE4N colour clamps it, at most 1.
 // Not yet: the abstract layout, constellation and region markers, the my-location marker's pulse circles (three
-// circleFilled256 rings, alpha to 0.02), the selected / hovered lines' opacity, the route.
+// circleFilled256 rings, alpha to 0.02), the route.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -209,7 +217,21 @@ export class StarMap {
   private running = false;
   /** The markers' layer over the canvas, the labels of the active systems and the my-location marker. */
   private readonly markers = document.createElement("div");
-  private labels: { id: number; at: THREE.Vector3; el: HTMLDivElement; selected: boolean }[] = [];
+  private labels: { id: number; at: THREE.Vector3; el: HTMLDivElement; selected: boolean; hover?: boolean }[] = [];
+  /** What the map was built of, for selecting: the data, each system's region and constellation, each name. */
+  private data: StarMapSystems | null = null;
+  private within = new Map<number, [number, number]>();
+  private names = new Map<number, string>();
+  /** Each line's two systems, by its index, and the colour attribute its alpha goes into. */
+  private lineEnds: [number, number][] = [];
+  private lineColours: THREE.BufferAttribute | null = null;
+  /** The pilot's system (the my-location marker), the active (selected) item and the hovered system. */
+  private hereID: number | null = null;
+  selectedID: number | null = null;
+  hoverID: number | null = null;
+  private hoverLabel: { el: HTMLDivElement; at: THREE.Vector3 } | null = null;
+  /** The camera's move to a newly selected system: from where, to where, since when. */
+  private move: { from: THREE.Vector3; to: THREE.Vector3; at: number } | null = null;
   private myLocation: { at: THREE.Vector3; el: HTMLDivElement } | null = null;
   /** How many stars and jump lines are drawn (for checks). */
   stars = 0;
@@ -224,6 +246,19 @@ export class StarMap {
     this.renderer.domElement.style.cssText = "width:100%;height:100%;display:block;";
     this.markers.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;";
     this.root.appendChild(this.markers);
+    // a click (not a drag) selects the star under it; a move hovers one
+    const canvas = this.renderer.domElement;
+    let down: { x: number; y: number } | null = null;
+    canvas.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY }; });
+    canvas.addEventListener("pointerup", (e) => {
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 4) {
+        const id = this.starAt(e.clientX, e.clientY);
+        if (id !== null) this.select(id);
+      }
+      down = null;
+    });
+    canvas.addEventListener("pointermove", (e) => { if (!down) this.hover(this.starAt(e.clientX, e.clientY)); });
+    canvas.addEventListener("pointerleave", () => this.hover(null));
     this.camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(1.0), 1, 0.1, MAX_CAMERA_DISTANCE * 4);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.minDistance = MIN_CAMERA_DISTANCE;
@@ -313,6 +348,7 @@ export class StarMap {
         ovr.push(0, 0, 0, 0);
         ovl.push(...overlay);
       }
+      this.lineEnds.push([a, b]);
       count++;
     }
     const lg = new THREE.BufferGeometry();
@@ -320,7 +356,8 @@ export class StarMap {
     lg.setAttribute("lineDir", new THREE.Float32BufferAttribute(dir, 4));
     lg.setAttribute("beginEnd", new THREE.Float32BufferAttribute(be, 4));
     lg.setAttribute("animation", new THREE.Float32BufferAttribute(anim, 2));
-    lg.setAttribute("colour", new THREE.Float32BufferAttribute(col, 4));
+    this.lineColours = new THREE.Float32BufferAttribute(col, 4);
+    lg.setAttribute("colour", this.lineColours);
     lg.setAttribute("overrideColour", new THREE.Float32BufferAttribute(ovr, 4));
     lg.setAttribute("overlayColour", new THREE.Float32BufferAttribute(ovl, 4));
     const lineMat = new THREE.ShaderMaterial({ uniforms: this.lineUniforms, vertexShader: LINE_VS, fragmentShader: LINE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
@@ -330,8 +367,76 @@ export class StarMap {
     lines.renderOrder = 1;
     this.scene.add(lines);
     this.jumps = count;
+    this.data = data;
+    this.within = within;
+    this.names = names;
+    this.hereID = focusSystemID;
     this.buildMarkers(data, within, names, focusSystemID);
+    this.selectedID = focusSystemID;
+    this.updateLineOpacity();
     this.focus(focusSystemID);
+  }
+
+  /** The nearest star within 8 px of a point on the page, or null. */
+  starAt(clientX: number, clientY: number): number | null {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const x = clientX - r.left, y = clientY - r.top;
+    const v = new THREE.Vector3();
+    let best: number | null = null, bestD = 8;
+    for (const [id, p] of this.positions) {
+      v.copy(p).project(this.camera);
+      if (v.z <= -1 || v.z >= 1) continue;
+      const d = Math.hypot((v.x + 1) / 2 * r.width - x, (1 - v.y) / 2 * r.height - y);
+      if (d < bestD) { bestD = d; best = id; }
+    }
+    return best;
+  }
+
+  /** SetActiveItemID: the system selected, its markers active, the camera's point of interest moved to it. */
+  select(systemID: number): void {
+    if (!this.data || !this.positions.has(systemID)) return;
+    this.selectedID = systemID;
+    this.buildMarkers(this.data, this.within, this.names, systemID);
+    this.updateLineOpacity();
+    this.move = { from: this.controls.target.clone(), to: this.positions.get(systemID)!.clone(), at: performance.now() };
+  }
+
+  /** The hilight: the hovered system's label shown, a dashed circle on it; the active constellation's lines + 0.3. */
+  hover(systemID: number | null): void {
+    if (systemID === this.hoverID) return;
+    this.hoverID = systemID;
+    this.hoverLabel?.el.remove();
+    this.hoverLabel = null;
+    if (systemID !== null && this.positions.has(systemID)) {
+      const el = document.createElement("div");
+      el.style.cssText = "position:absolute;white-space:nowrap;";
+      // CheckConstructHiliteContainer: CIRCLESIZE 14 at the point, a DashedCircle of 4 dashes, radius 7, line 0.8
+      el.innerHTML = '<svg width="14" height="14" style="position:absolute;left:0;top:0;overflow:visible"><circle cx="7" cy="7" r="6.6" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="0.8" stroke-dasharray="5.18 5.18"/></svg>';
+      const t = document.createElement("span");
+      t.textContent = this.names.get(systemID) ?? "";
+      t.style.cssText = "position:absolute;left:22px;top:1px;font-size:10px;line-height:12px;font-weight:700;color:rgba(255,255,255,0.75);"
+        + "font-family:'EVE Sans Neue','Barlow Semi Condensed','Segoe UI',sans-serif;";
+      el.appendChild(t);
+      this.markers.appendChild(el);
+      this.hoverLabel = { el, at: this.positions.get(systemID)! };
+    }
+    this.updateLineOpacity();
+  }
+
+  /** LineOpacityFinder3D.GetLineOpacityByLineID, into each line's colour alpha (clamped as a UBYTE4N colour is). */
+  private updateLineOpacity(): void {
+    if (!this.lineColours || !this.data) return;
+    const constellation = this.selectedID !== null ? this.within.get(this.selectedID)?.[1] ?? null : null;
+    const inActive = (id: number) => constellation !== null && this.within.get(id)?.[1] === constellation;
+    const arr = this.lineColours.array as Float32Array;
+    this.lineEnds.forEach(([a, b], i) => {
+      // each of the active constellation's systems adds to each of its lines (a line between two adds twice)
+      const n = (inActive(a) ? 1 : 0) + (inActive(b) ? 1 : 0);
+      const opacity = n ? n * 1.0 + (this.hoverID !== null ? n * 0.3 : 0) : LINE_OPACITY_DEFAULT;
+      const alpha = Math.min(1, opacity);
+      for (let k = 0; k < 6; k++) arr[(i * 6 + k) * 4 + 3] = alpha;
+    });
+    this.lineColours.needsUpdate = true;
   }
 
   /** The selected system's markers: its label and its active systems' (neighbours, constellation), "You are here". */
@@ -354,6 +459,8 @@ export class StarMap {
       this.markers.appendChild(el);
       this.labels.push({ id, at, el, selected: id === systemID });
     }
+    const hereAt = this.hereID !== null ? this.positions.get(this.hereID) : this.positions.get(systemID);
+    if (!hereAt) return;
     const here = document.createElement("div");
     here.style.cssText = "position:absolute;width:14px;height:14px;";
     const bg = document.createElement("img");
@@ -365,7 +472,7 @@ export class StarMap {
     here.title = "You are here";
     here.append(bg, icon);
     this.markers.appendChild(here);
-    this.myLocation = { at: this.positions.get(systemID)!, el: here };
+    this.myLocation = { at: hereAt, el: here };
   }
 
   /** Each marker where its point projects (a bracket's place), its opacity as the client's. */
@@ -384,6 +491,11 @@ export class StarMap {
       l.el.style.opacity = String(opacity);
       // CENTERLEFT: its text LABEL_LEFT (22 px) right of the point, centred on it
       l.el.style.transform = `translate(${(p.x + 22).toFixed(1)}px, ${(p.y - 6).toFixed(1)}px)`;
+    }
+    if (this.hoverLabel) {
+      const p = project(this.hoverLabel.at);
+      this.hoverLabel.el.style.display = p ? "" : "none";
+      if (p) this.hoverLabel.el.style.transform = `translate(${(p.x - 7).toFixed(1)}px, ${(p.y - 7).toFixed(1)}px)`;
     }
     if (this.myLocation) {
       const p = project(this.myLocation.at);
@@ -415,6 +527,15 @@ export class StarMap {
     const w = this.root.clientWidth || innerWidth, h = this.root.clientHeight || innerHeight;
     const size = this.renderer.getSize(new THREE.Vector2());
     if (size.x !== w || size.y !== h) { this.renderer.setSize(w, h, false); this.camera.aspect = w / Math.max(1, h); this.camera.updateProjectionMatrix(); }
+    // the move to a newly selected system: the point of interest and the eye together, over half a second
+    if (this.move) {
+      const t = Math.min(1, (performance.now() - this.move.at) / 500);
+      const k = t * t * (3 - 2 * t);
+      const target = this.move.from.clone().lerp(this.move.to, k);
+      this.camera.position.add(target.clone().sub(this.controls.target));
+      this.controls.target.copy(target);
+      if (t >= 1) this.move = null;
+    }
     this.controls.update();
     // OnCameraUpdate: the far clip the camera's distance and the universe's size; the distance ranges
     const distance = this.camera.position.distanceTo(this.controls.target);
