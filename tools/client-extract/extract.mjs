@@ -27,7 +27,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
-import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readTrafficInstances, usedLocatorSets } from "./lib/children.mjs";
+import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
 import { readGranny } from "./lib/granny.mjs";
 import { readAnimations } from "./lib/grannyAnim.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
@@ -37,6 +37,7 @@ import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
 import { readTurret, ammoColors } from "./lib/turret.mjs";
+import { spawnSync } from "node:child_process";
 import { readMissileModel, groupGraphics, graphicIdsOfType, sdeGraphic } from "./lib/missile.mjs";
 import { readBlack } from "./lib/black.mjs";
 import { readDefaultOverviews, DEFAULT_TAB_NAMES } from "./lib/defaultOverviews.mjs";
@@ -316,6 +317,44 @@ export function extractCelestial(rf, graphicFile, outRoot) {
 }
 
 /**
+ * The client's effects table (res:/staticdata/effects.fsdbinary, read with its own loader: scripts/client-built-data.py
+ * effectsLoader) by guid - each effect's class (type), graphicID, duration and damage timings - kept as effects.json.
+ */
+function effectsTable(rf, clientDir, outRoot) {
+  const file = path.join(outRoot, "effects.json");
+  if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
+  const entry = rf.entry("res:/staticdata/effects.fsdbinary");
+  if (!entry) throw new Error("the client has no res:/staticdata/effects.fsdbinary");
+  const data = path.join(clientDir, "ResFiles", ...entry.blob.split("/"));
+  const py = spawnSync(process.env.PYTHON ?? "python", [path.join(REPO, "scripts", "client-built-data.py"), path.join(clientDir, "tq", "bin64"), "effectsLoader", data], { encoding: "utf8", maxBuffer: 64 << 20 });
+  if (py.status !== 0) throw new Error(`effects: client-built-data.py failed: ${py.stderr || py.error?.message}`);
+  fs.writeFileSync(file, py.stdout);
+  return JSON.parse(py.stdout);
+}
+
+/**
+ * An effect guid's own graphic (the effects table's graphicID, the SDE's graphicFile for it), written as fx/<guid>.json:
+ * the effect's class, duration and damage timings, and - where the graphic is EveStretch3s (the Vorton projectors'
+ * chain) - the stretches read as a turret's are (children.mjs readTurretStretch3), their assets copied.
+ */
+async function extractFxGraphic(rf, clientDir, sde, guid, outRoot) {
+  const fx = effectsTable(rf, clientDir, outRoot)[guid] ?? null;
+  const graphicFile = fx?.graphicID ? sdeGraphic(sde, fx.graphicID)?.graphicFile ?? null : null;
+  const read = graphicFile ? readTurretStretch3(rf, graphicFile) : null;
+  const stretches = (read?.stretches ?? []).filter(Boolean);
+  if (stretches.length) await copyChildGraphAssets(rf, [...stretches.map((s) => s.root), ...Object.values(read.childEffects ?? {})], outRoot);
+  const out = {
+    fxBuild: 1, guid, type: fx?.type ?? null, graphicID: fx?.graphicID ?? null, graphicFile, duration: fx?.duration ?? null,
+    sourceDamage: fx?.sourceDamage ?? null, targetDamage: fx?.targetDamage ?? null,
+    stretches: stretches.map((s) => ({ type: "EveStretch3", ...s })),
+  };
+  const file = path.join(outRoot, "fx", `${guid}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(out));
+  return file;
+}
+
+/**
  * A turret module's graphic read for its shots' impacts (lib/turret.mjs), written as <graphic stem>.turret.json (a
  * graphic that is no turret set: {turret: null}).
  */
@@ -455,7 +494,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -471,6 +510,7 @@ function parseArgs(argv) {
     else if (a === "--turret") out.turrets.push(argv[++i]);
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
     else if (a === "--ammo-colors") out.ammoColors = true;
+    else if (a === "--fx") out.fx.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
     else throw new Error(`unknown argument ${a}`);
@@ -591,6 +631,10 @@ async function main() {
     console.log(`gfxTurrets.json: ${Object.keys(map).length} types`);
   }
   // ammoColors.json: the beam colour a charge gives its turret's firing effect, by the charge's typeID
+  for (const guid of args.fx) {
+    if (!sde) throw new Error("--fx needs the SDE (--sde, or a config.json that names it)");
+    console.log(`${guid} -> ${path.relative(outRoot, await extractFxGraphic(rf, client, sde, guid, outRoot))}`);
+  }
   if (args.ammoColors) {
     if (!sde) throw new Error("--ammo-colors needs the SDE (--sde, or a config.json that names it)");
     const map = ammoColors(rf, client, sde, REPO);
@@ -610,7 +654,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

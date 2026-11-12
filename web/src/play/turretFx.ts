@@ -25,6 +25,8 @@ interface Firing {
    * cycle and its most) and the cycles fired; null for the rest.
    */
   spool: { perCycle: number; max: number; cycles: number } | null;
+  /** A Vorton projector's chain (effects.UpwellChainWeapon*: ChainWeaponEffect): its guid and the further targets. */
+  chain: { guid: string; targets: number[] } | null;
   /** Each muzzle's firing (EveTurretFiringFX per-muzzle data): when its delay is over, when it began; the cycling position. */
   muzzles: { startAt: number | null; startedAt: number | null }[]; cyclingPos: number;
   /** One shot a cycle: its length (ms) and when the next begins; whether the turret was idle (its first shot waits to track). */
@@ -90,17 +92,41 @@ function kitsOf(typeID: number, info: TurretInfo | null): Stretch2Kit[] | null {
  * and multiplierBonusMax), as a dict however the wire decoded it; noughts where it has none.
  */
 function spoolOf(raw: unknown): { perCycle: number; max: number } {
-  // a util.KeyVal comes as {type: "object", name, args: {type: "dict", entries: [[key bytes, value]]}}
+  const get = (k: string): number => Number(graphicInfoValue(raw, k) ?? 0) || 0;
+  return { perCycle: get("mulitplierBonusPerCycle") || get("multiplierBonusPerCycle"), max: get("multiplierBonusMax") };
+}
+/** One key of OnSpecialFX's graphicInfo (a util.KeyVal: {type: "object", name, args: {type: "dict", entries}}), raw. */
+function graphicInfoValue(raw: unknown, key: string): unknown {
   const o0 = raw as Record<string, unknown> | null;
   const dict = o0 && typeof o0 === "object" && o0.type === "object" && o0.args ? o0.args : raw;
-  const get = (k: string): number => {
-    if (!dict || typeof dict !== "object") return 0;
-    if (dict instanceof Map) return Number(dict.get(k) ?? 0) || 0;
-    const o = dict as Record<string, unknown>;
-    if (Array.isArray(o.entries)) { const e = (o.entries as unknown[][]).find((p) => fxGuid(p?.[0]) === k); return Number(e?.[1] ?? 0) || 0; }
-    return Number(o[k] ?? 0) || 0;
-  };
-  return { perCycle: get("mulitplierBonusPerCycle") || get("multiplierBonusPerCycle"), max: get("multiplierBonusMax") };
+  if (!dict || typeof dict !== "object") return undefined;
+  if (dict instanceof Map) return dict.get(key);
+  const o = dict as Record<string, unknown>;
+  if (Array.isArray(o.entries)) return (o.entries as unknown[][]).find((p) => fxGuid(p?.[0]) === key)?.[1];
+  return o[key];
+}
+/** ChainWeaponEffect's graphicInfo['targets']: the further targets the chain jumps to, in order. */
+function chainTargetsOf(raw: unknown): number[] {
+  const v = graphicInfoValue(raw, "targets") as { items?: unknown[] } | unknown[] | undefined;
+  const items = Array.isArray(v) ? v : Array.isArray(v?.items) ? v.items : [];
+  return items.map((x) => Number(typeof x === "bigint" ? Number(x) : x)).filter((x) => Number.isFinite(x) && x > 0);
+}
+/** An effect guid's own graphic (/client-assets/fx/<guid>.json: the Vorton chain's EveStretch3), built once. */
+const fxGraphics = new Map<string, { data: TurretStretch3; template: THREE.Object3D } | null>();
+const fxAsked = new Set<string>();
+function fxGraphicOf(guid: string): { data: TurretStretch3; template: THREE.Object3D } | null {
+  if (!fxAsked.has(guid) && typeof fetch === "function") {
+    fxAsked.add(guid);
+    void fetch(`/client-assets/fx/${guid}.json`).then((r) => r.json()).then(async (fx: { stretches?: TurretStretch3[] }) => {
+      const data = fx.stretches?.[0];
+      if (!data?.root) { fxGraphics.set(guid, null); return; }
+      const template = await hullChildren([{ res: "", root: data.root, skipped: {} }]);
+      if (!template) { fxGraphics.set(guid, null); return; }
+      template.scale.set(1, 1, 1);
+      fxGraphics.set(guid, { data, template });
+    }).catch(() => fxGraphics.set(guid, null));
+  }
+  return fxGraphics.get(guid) ?? null;
 }
 /** EveTurretFiringFX::UpdateVisibility's LOD_ANGLE_FACTOR. */
 const LOD_ANGLE_FACTOR = 0.002;
@@ -130,6 +156,10 @@ const KIND: Record<string, Firing["kind"]> = {
   // the miners (their firing effects EveStretch3s; nothing of our own drawn for them)
   "effects.Mining": "mining",
   "effects.CloudMining": "mining",
+  // the Vorton projectors (their turret's own firing effect, and the chain: chainLinks)
+  "effects.UpwellChainWeaponSmall": "laser",
+  "effects.UpwellChainWeaponMedium": "laser",
+  "effects.UpwellChainWeaponLarge": "laser",
 };
 const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c, mining: 0xff5a3c };
 /** How often a gun's pulse goes out, and how long it takes to get there (a likeness, not the cycle). */
@@ -152,6 +182,8 @@ export class TurretFx {
   private readonly stretches = new Map<Firing, Stretch2Effect[]>();
   /** A firing's EveStretch3s, one per muzzle (a clone of its template each), and whether each has been started. */
   private readonly stretch3 = new Map<Firing, { fx: THREE.Object3D; started: boolean }[]>();
+  /** A Vorton firing's chain links (ChainWeaponEffect: turret to target, then target to target), made anew each cycle. */
+  private readonly chainLinks = new Map<Firing, { fx: THREE.Object3D; from: number | null; to: number }[]>();
   private readonly blasts: Blast[] = [];
   /** The screen's size in pixels: fat lines are drawn so many pixels wide. */
   private readonly resolution = new THREE.Vector2(1, 1);
@@ -257,8 +289,10 @@ export class TurretFx {
       cycle, nextCycle: now, idle: !was, misses: was && was.target === target ? was.misses : [], shots: was?.shots ?? [],
       chargeTypeID: Number(args[4]) || 0, muzzles: was?.muzzles ?? [], cyclingPos: was?.cyclingPos ?? 0,
       spool: guid === "effects.TriglavianBeam" ? { ...spoolOf(args[13]), cycles: was?.spool?.cycles ?? 0 } : null,
+      chain: /^effects\.UpwellChainWeapon/.test(guid) ? { guid, targets: chainTargetsOf(args[13]) } : null,
     };
     this.firings.set(key, next);
+    if (next.chain) fxGraphicOf(next.chain.guid);
     // a firing begun anew keeps its turret's effect going
     const fx = was ? this.stretches.get(was) : undefined;
     if (was && fx) { this.stretches.delete(was); this.stretches.set(next, fx); }
@@ -268,6 +302,7 @@ export class TurretFx {
 
   /** EnterStateFiring and StartFireAtLocator for one shot begun at `at` (ms). */
   private startShot(f: Firing, at: number): void {
+    if (f.chain) this.shootChain(f);
     if (f.spool) f.spool.cycles++;
     this.onFire?.(f.shooter, f.moduleID, f.target);
     const info = turretInfo(f.moduleTypeID);
@@ -359,6 +394,51 @@ export class TurretFx {
   }
 
   /**
+   * ChainWeaponEffect.Shoot for a cycle (Start, and each Repeat after removing the last): the guid's graphic from the
+   * turret's first muzzle to the target, then from each target to the next of graphicInfo's targets, each with its
+   * jumpNumber (0 the turret's, then 1, 2 ...), started (StartFiring) after a delay growing by 0.3 x random a link.
+   * The damage it puts on source and target (_apply_damage) is not drawn.
+   */
+  private shootChain(f: Firing): void {
+    const g = f.chain ? fxGraphicOf(f.chain.guid) : null;
+    for (const l of this.chainLinks.get(f) ?? []) l.fx.removeFromParent();
+    this.chainLinks.delete(f);
+    if (!g || !f.chain) return;
+    const links: { fx: THREE.Object3D; from: number | null; to: number }[] = [];
+    const ends: [number | null, number][] = [[null, f.target]];
+    let last = f.target;
+    for (const t of f.chain.targets) { if (t === last) continue; ends.push([last, t]); last = t; }
+    let delay = 0;
+    ends.forEach(([from, to], i) => {
+      const fx = g.template.clone();
+      fx.name = "chain-link";
+      this.group.add(fx);
+      setVariable(fx, "jumpNumber", i);
+      setVariable(fx, "FiringDelay", delay);
+      setVariable(fx, "IsFiring", 1);
+      links.push({ fx, from, to });
+      delay += 0.3 * Math.random();
+    });
+    this.chainLinks.set(f, links);
+  }
+
+  /** Each chain link placed from its source (the turret's muzzle, or the target before) to its target. */
+  private placeChains(positionOf: (itemID: number) => THREE.Vector3 | null, renderer: THREE.WebGLRenderer | null, camera: THREE.Camera | null): void {
+    for (const [f, links] of this.chainLinks) {
+      const g = f.chain ? fxGraphicOf(f.chain.guid) : null;
+      if (!g) continue;
+      for (const l of links) {
+        const to = positionOf(l.to);
+        const from = l.from === null ? this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter) : positionOf(l.from);
+        l.fx.visible = !!(to && from);
+        if (!to || !from) continue;
+        placeStretch(l.fx, g.data, from, to);
+        if (renderer && camera) for (const part of livePartsOf(l.fx)) offerLights(renderer, camera, part);
+      }
+    }
+  }
+
+  /**
    * A firing whose shot began before its turret's graphic had come (its muzzles not prepared - a miner's next cycle may
    * be a minute off): its muzzles prepared now, to start at once.
    */
@@ -431,6 +511,8 @@ export class TurretFx {
     for (const [f, beam] of this.beams) if (!firing.has(f)) { this.group.remove(beam); beam.geometry.dispose(); this.beams.delete(f); }
     for (const [f, fx] of this.stretches) if (!firing.has(f)) { for (const s of fx) s.dispose(); this.stretches.delete(f); }
     for (const [f, fx] of this.stretch3) if (!firing.has(f)) { for (const s of fx) s.fx.removeFromParent(); this.stretch3.delete(f); }
+    for (const [f, links] of this.chainLinks) if (!firing.has(f)) { for (const l of links) l.fx.removeFromParent(); this.chainLinks.delete(f); }
+    this.placeChains(positionOf, renderer, camera);
     for (const f of this.firings.values()) {
       const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!, to = positionOf(f.target)!;
       if (this.drawStretches(f, from, to, now, radiusOf?.(f.target) ?? null, camera) || this.drawStretch3(f, from, to, now, renderer, camera)) {

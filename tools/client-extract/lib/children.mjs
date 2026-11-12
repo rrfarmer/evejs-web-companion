@@ -903,7 +903,7 @@ export function readEffectFile(rf, path) {
 }
 
 /**
- * A turret's firing effect file (an EveTurretFiringFX) read for its EveStretch3s: each stretch, by its index, as
+ * A turret's firing effect file (an EveTurretFiringFX), or a file that is one EveStretch3, read for its EveStretch3s: each stretch, by its index, as
  * readStretch3 reads it (its parts' graph, ids, destObjectScale), null for another kind; with the child effects its
  * controllers load. Null where the client has no such file.
  */
@@ -921,7 +921,9 @@ export function readTurretStretch3(rf, path) {
   const fx = find(o);
   shownBySet = findShownBySet(fx ?? o);
   actionEmitters = findActionEmitters(fx ?? o);
-  const stretches = (fx?.stretch ?? []).map((s) => (s?.type === "EveStretch3" ? readStretch3(s) : null));
+  // a file that is one EveStretch3 (an effect's own graphic: the Vorton projectors' chain) is its one stretch
+  const list = fx ? fx.stretch ?? [] : o?.type === "EveStretch3" ? [o] : [];
+  const stretches = list.map((s) => (s?.type === "EveStretch3" ? readStretch3(s) : null));
   return { res, stretches, childEffects: childEffectRoots() };
 }
 

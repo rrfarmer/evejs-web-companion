@@ -159,6 +159,21 @@ function clientAssets(): Plugin {
         }
         // /client-assets/missile/<typeID>: a missile type's graphics (lib/missile.mjs: its group's missile model, the
         // warhead's numbers, lights, trail emitters and textures; its impact file), extracted on first ask.
+        // /client-assets/fx/<guid>.json: an effect guid's own graphic (extract.mjs --fx: the Vorton chain's stretches),
+        // made on first ask
+        const fxAsk = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);
+        if (fxAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const file = path.join(buildDir, "fx", `${fxAsk[1]}.json`);
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"fxBuild":1')) await extractOnce(`fx:${fxAsk[1]}`, buildDir, ["--fx", fxAsk[1]!]);
+            res.setHeader("content-type", "application/json");
+            return res.end(fs.readFileSync(file));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const missileAsk = /^\/missile\/(\d+)$/.exec(rel);
         if (missileAsk) {
           try {
