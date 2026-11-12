@@ -950,9 +950,13 @@ export function readHullChildren(rf, sofHull, faction = null) {
  * `Name.curves["curve"]`, or a parameter's object, `PostProcess.fade`), made curve-set bindings where they can be:
  * a curve to a curve of its sets (an expression's input) joins the source's set; a curve to the PostProcess
  * parameter's attribute becomes a "PostProcessOutput" binding, its destinationAttribute the path ("fade.intensity"),
- * for the page to draw. The rest - the ship's and the hangar's objects - are counted skipped.
+ * for the page to draw. One from a parameter's inherited properties (`Hangar.inheritProperties`, its attribute a
+ * colour of the object's faction colour set: PrimaryLight) into a curve of a child effect the parameter's object holds
+ * (`ship.effectChildren["docker_lightRig"].curveSets["play_start"].curves["colorMixer"]`) is answered as an external
+ * binding for the page to apply where both are bound. The rest are counted skipped.
  */
 function joinDynamicBindings(o, skipped) {
+  const external = [];
   const sets = (o.curveSets ?? []).filter((cs) => cs?.type === "TriCurveSet");
   const curveAt = (path) => {
     const m = /^([^.]+)\.curves\["(.+)"\]$/.exec(String(path ?? ""));
@@ -975,9 +979,19 @@ function joinDynamicBindings(o, skipped) {
       });
       continue;
     }
+    const inherit = /^([^.]+)\.inheritProperties$/.exec(String(b.sourceObjectPath ?? ""));
+    const child = /^([^.]+)\.effectChildren\["(.+?)"\]\.curveSets\["(.+?)"\]\.curves\["(.+?)"\]$/.exec(String(b.destinationObjectPath ?? ""));
+    if (inherit && child) {
+      external.push({
+        name: b.name ?? null, from: inherit[1], inherit: String(b.sourceObjectAttribute ?? ""),
+        owner: child[1], child: child[2], set: child[3], curve: child[4], attribute: String(b.destinationObjectAttribute ?? ""),
+      });
+      continue;
+    }
     const key = `Tr2DynamicBinding:${String(b.destinationObjectPath ?? "?").split(/[.[]/)[0]}`;
     skipped[key] = (skipped[key] ?? 0) + 1;
   }
+  return external;
 }
 
 export function readEffectFile(rf, path) {
@@ -990,17 +1004,17 @@ export function readEffectFile(rf, path) {
   locatorSetsUsed = new Set();
   readRf = rf;
   const skipped = {};
-  let root = null, o = null;
+  let root = null, o = null, external = [];
   try {
     o = readBlack(rf.read(res), res);
     shownBySet = findShownBySet(o);
     actionEmitters = findActionEmitters(o);
-    if (o && typeof o === "object") joinDynamicBindings(o, skipped);
+    if (o && typeof o === "object") external = joinDynamicBindings(o, skipped);
     root = o && typeof o === "object" ? readNode({ ...o, type: "EveChildContainer", objects: o.effectChildren ?? [] }, skipped) : null;
   } catch (e) {
     skipped.unread = String(e.message ?? e);
   }
-  return { res, root, skipped, childEffects: childEffectRoots(), duration: o?.duration ?? -1, boundingSphereRadius: o?.boundingSphereRadius ?? 0 };
+  return { res, root, skipped, external, childEffects: childEffectRoots(), duration: o?.duration ?? -1, boundingSphereRadius: o?.boundingSphereRadius ?? 0 };
 }
 
 /**

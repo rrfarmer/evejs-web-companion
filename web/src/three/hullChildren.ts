@@ -1428,6 +1428,16 @@ export function effectOutput(object: THREE.Object3D, name: string): number | nul
   return out;
 }
 
+/** A curve of an effect object's curve sets, by the set's name and its own (a Tr2DynamicBinding's destination). */
+export function effectCurve(object: THREE.Object3D, setName: string, curveName: string): Record<string, unknown> | null {
+  let out: Record<string, unknown> | null = null;
+  object.traverse((o) => {
+    const key = o.userData.animatorKey as string | undefined;
+    if (!out && key) out = animators.get(key)?.curveNamed(setName, curveName) ?? null;
+  });
+  return out;
+}
+
 export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
   object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip); });
 }

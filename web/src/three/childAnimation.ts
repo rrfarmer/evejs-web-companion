@@ -184,6 +184,15 @@ export class ChildAnimator {
     }
   }
   get playing(): boolean { return this.sets.length > 0; }
+  /** A curve by its set's name and its own (a binding from outside names it so), or null. */
+  curveNamed(setName: string, curveName: string): Record<string, unknown> | null {
+    for (const r of this.sets) {
+      if (r.set.name !== setName) continue;
+      const c = (r.set.curves as unknown as Record<string, unknown>[]).find((x) => x?.name === curveName);
+      if (c) return c;
+    }
+    return null;
+  }
 
   /** The sets of a name under an owner: a container (by id), or HULL_OWNER - the space object, every set. */
   private under(owner: number, name: string): SetRun[] {

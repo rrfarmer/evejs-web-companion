@@ -8,7 +8,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { typeModel, graphicModel, setThrust, setDirtLevel, setControllerVariable, setActivationStrength } from "../three/hullModel.ts";
-import { effectObject, effectOutput, type SofChildNode } from "../three/hullChildren.ts";
+import { effectObject, effectOutput, effectCurve, type SofChildNode } from "../three/hullChildren.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { loadDds } from "../three/ddsTexture.ts";
@@ -26,13 +26,33 @@ interface HangarScene {
 
 /** hangarRegistry.py HANGAR_VFX_TRIGGERS_MULTIEFFECT_GID: the hangar's VFX multi-effect (me_generic_hangar_vfx_01a). */
 const HANGAR_VFX_GID = 28022;
+/**
+ * An EveMultiEffect's binding from a parameter's inherited properties (its faction colour set's colour) into a curve
+ * of a child effect another parameter's object holds (children.mjs joinDynamicBindings).
+ */
+interface ExternalBinding { from: string; inherit: string; owner: string; child: string; set: string; curve: string; attribute: string }
 let hangarVfx: Promise<THREE.Object3D | null> | null = null;
+let hangarVfxExternal: ExternalBinding[] = [];
 /** The hangar VFX built once (effects/28022.json), cloned for each ship shown. */
 function hangarVfxTemplate(): Promise<THREE.Object3D | null> {
   hangarVfx ??= fetch(`/client-assets/effect/${HANGAR_VFX_GID}.json`).then((r) => r.json())
-    .then((e: { root?: SofChildNode | null; childEffects?: Record<string, SofChildNode | null> }) => (e.root ? effectObject(e.root, e.childEffects ?? {}) : null))
+    .then((e: { root?: SofChildNode | null; external?: ExternalBinding[]; childEffects?: Record<string, SofChildNode | null> }) => {
+      hangarVfxExternal = e.external ?? [];
+      return e.root ? effectObject(e.root, e.childEffects ?? {}) : null;
+    })
     .catch(() => null);
   return hangarVfx;
+}
+/** A hangar model's faction colour set (its SOF build's colorSet: EveChildInheritProperties' colours), or null. */
+const hangarColorSets = new Map<number, Promise<Record<string, number[]> | null>>();
+function hangarColorSet(graphicID: number): Promise<Record<string, number[]> | null> {
+  if (!hangarColorSets.has(graphicID)) {
+    hangarColorSets.set(graphicID, fetch(`/client-assets/graphic/${graphicID}`).then((r) => r.json())
+      .then((g: { sof?: string | null }) => (g.sof ? fetch(g.sof).then((r) => r.json()) : null))
+      .then((s: { colorSet?: Record<string, number[]> | null } | null) => s?.colorSet ?? null)
+      .catch(() => null));
+  }
+  return hangarColorSets.get(graphicID)!;
 }
 /**
  * boarding_moment get_ship_size_group's fall-back (ShipSize: 1 small, 2 medium, 3 large, 4 titan): by the bounding
@@ -89,6 +109,8 @@ export class HangarView {
   /** A ship boarded in this hangar after the first: its VFX starts black and fades in (hangarView ship switch). */
   private switchFade = false;
   private fadeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The hangar model's faction colour set (the VFX's "Hangar" parameter's inherited properties). */
+  private hangarColors: Record<string, number[]> | null = null;
   /** The hangar's hangarType (hangarRegistry): the VFX's HangarType. */
   private hangarType = 0;
   /** The docked ship's dirt level (setDirt), kept for the next ship model shown too. */
@@ -147,6 +169,8 @@ export class HangarView {
   async show(typeID: number | null, hangarGraphics: { model: number; scene: number; swings?: readonly DockSwing[]; hangarType?: number } | null = null): Promise<void> {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
     this.hangarType = hangarGraphics?.hangarType ?? 0;
+    if (hangarGraphics) void hangarColorSet(hangarGraphics.model).then((c) => { if (this.shownHangar === `${hangarGraphics.model}:${hangarGraphics.scene}`) this.hangarColors = c; });
+    else this.hangarColors = null;
     if (typeID === this.shownType && hangarKey === this.shownHangar) return;
     // another ship boarded in the same hangar (hangarView.OnActiveShipChanged, a hangar that is not modular):
     // fadeToFromBlack(True, isQuick=True), the ship replaced 0.2 s on (REPLACE_SWITCHSHIPS)
@@ -317,6 +341,23 @@ export class HangarView {
       this.fadeToFromBlack(true, true);
       if (this.fadeTimer) clearTimeout(this.fadeTimer);
       this.fadeTimer = setTimeout(() => { this.fadeTimer = null; this.fadeToFromBlack(false, true); }, 500);
+    }
+  }
+
+  /**
+   * The VFX's Tr2DynamicBindings from the Hangar parameter's inherited properties (the hangar's faction colours:
+   * PrimaryLight) into the curves of child effects its ship parameter holds (docker_lightRig's play_start colorMixer
+   * color1), applied where the child is there.
+   */
+  private applyExternalBindings(vfx: THREE.Object3D, colors: Record<string, number[]>): void {
+    const owners = vfx.userData.otherOwners as Record<string, THREE.Object3D> | undefined;
+    for (const b of hangarVfxExternal) {
+      if (b.from !== "Hangar") continue;
+      const value = colors[b.inherit.split(".")[0] ?? ""];
+      const child = owners?.[b.owner]?.children.find((c) => c.name === b.child);
+      if (!value || !child) continue;
+      const curve = effectCurve(child, b.set, b.curve);
+      if (curve) curve[b.attribute] = value.slice(0, 4);
     }
   }
 
@@ -491,6 +532,8 @@ export class HangarView {
     if (this.renderer.domElement.width !== Math.round((this.root.clientWidth || innerWidth) * this.renderer.getPixelRatio())) this.resize();
     this.animate(performance.now());
     this.controls.update();
+    // the VFX's bindings from the hangar's colours into the ship's child effects (the light rigs' colour)
+    if (this.vfx && this.hangarColors) this.applyExternalBindings(this.vfx, this.hangarColors);
     // the VFX's fade (its PostProcess.fade.intensity binding)
     const fade = this.vfx ? effectOutput(this.vfx, "fade.intensity") : null;
     this.fade.style.opacity = String(Math.min(1, Math.max(0, fade ?? 0)));

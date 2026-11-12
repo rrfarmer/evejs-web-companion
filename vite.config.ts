@@ -166,7 +166,7 @@ function clientAssets(): Plugin {
           try {
             const buildDir = path.join(root, build);
             const file = path.join(buildDir, "effects", `${effectAsk[1]}.json`);
-            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"effectBuild":3')) await extractOnce(`effect:${effectAsk[1]}`, buildDir, ["--effect", effectAsk[1]!]);
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"effectBuild":4')) await extractOnce(`effect:${effectAsk[1]}`, buildDir, ["--effect", effectAsk[1]!]);
             res.setHeader("content-type", "application/json");
             return res.end(fs.readFileSync(file));
           } catch (e) {
