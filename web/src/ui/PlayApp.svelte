@@ -328,13 +328,18 @@
   /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
   // The probe scanner's caption (ProbeScannerWindow default_captionLabelPath UI/Inflight/Scanner/ProbeScanner), the install's words.
   let scannerTitle = $state("Probe Scanner");
+  // The Agency's caption (agencyWnd.AgencyWndNew default_captionLabelPath UI/Agency/Caption): the play page's Agent
+  // Finder is the Agency's Missions tab.
+  let agencyTitle = $state("Agency");
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords(["UI/Inflight/Scanner/ProbeScanner", ...DSCAN_WORDS]);
+    s.flow.requestWords(["UI/Inflight/Scanner/ProbeScanner", "UI/Agency/Caption", ...DSCAN_WORDS]);
     return s.store.words.subscribe((w) => {
       const t = w.templates["UI/Inflight/Scanner/ProbeScanner"];
       if (typeof t === "string" && t !== "") scannerTitle = t;
+      const a = w.templates["UI/Agency/Caption"];
+      if (typeof a === "string" && a !== "") agencyTitle = a;
     });
   });
   let dronesTitle = $state("Drones");
@@ -659,7 +664,7 @@
       <ErrorBoundary name={tabLabel(win.id)}>
         <DesktopWindow
           {win}
-          title={win.id === "drones" ? dronesTitle : win.id === "scanner" ? scannerTitle : tabLabel(win.id)}
+          title={win.id === "drones" ? dronesTitle : win.id === "scanner" ? scannerTitle : win.id === "finder" ? agencyTitle : tabLabel(win.id)}
           focused={win.id === focusedId}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => (wins = closeWindow(wins, win.id))}
@@ -1243,6 +1248,12 @@
   .fly-windows :global(.cs-left .row small) { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
   .fly-windows :global(.cs-left .bottom) { margin-top: 16px; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
   .fly-windows :global(.cs-retail > .cs-main) { flex: 1; min-width: 0; overflow: auto; }
+  /* AgencyWndNew: the header's tabs - Agency (home) and the content groups in agencyTabSortOrder */
+  .fly-windows :global(.ag-tabs) { display: flex; flex-wrap: wrap; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 8px; }
+  .fly-windows :global(.ag-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 10px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.ag-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.ag-hidden) { display: none; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }

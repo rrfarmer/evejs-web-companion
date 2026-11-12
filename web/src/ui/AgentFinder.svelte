@@ -14,7 +14,7 @@
   // lives in app/flow.ts. Mission kind + level are server-side filters (a
   // re-find); the text search + nearest-sort + render cap are client-side over
   // the returned rows (like R6's roster), so ~11k agents stay responsive.
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -34,6 +34,29 @@
   const finder = store.finder;
   // svelte-ignore state_referenced_locally
   const names = store.names;
+  /**
+   * On the play page the Agency as AgencyWndNew lays it out (agencyWnd.py: 1188 x 694 fixed, caption UI/Agency/Caption;
+   * the header's tabs - the Agency's home, then the content groups in contentGroupConst.agencyTabSortOrder: Missions,
+   * Encounters, Theaters of War, Exploration, Resource Harvesting, Corporation, Fleet Up, Help; the BookmarksBar at the
+   * bottom). The page's agent finder is the Missions tab; the others say they are not built.
+   */
+  const retail = getContext("retailChrome") === true;
+  // svelte-ignore state_referenced_locally
+  const words = store.words;
+  const AGENCY_TABS: readonly { id: string; label: string; own: string }[] = [
+    { id: "home", label: "UI/Agency/Caption", own: "Agency" },
+    { id: "missions", label: "UI/Agency/ContentGroups/ContentGroupMissions", own: "Missions" },
+    { id: "encounters", label: "UI/Agency/ContentGroups/ContentGroupEncounters", own: "Encounters" },
+    { id: "tow", label: "UI/Agency/ContentGroups/TheatersOfWar", own: "Theaters of War" },
+    { id: "exploration", label: "UI/Agency/ContentGroups/ContentGroupExploration", own: "Exploration" },
+    { id: "harvesting", label: "UI/Agency/ContentGroups/ContentGroupResourceHarvesting", own: "Resource Harvesting" },
+    { id: "corp", label: "UI/Agency/ContentGroups/ContentGroupCorp", own: "Corporation" },
+    { id: "fleetup", label: "UI/Agency/ContentGroups/ContentGroupFleetUp", own: "Fleet Up" },
+    { id: "help", label: "UI/Agency/ContentGroups/ContentGroupHelp", own: "Help" },
+  ];
+  let agencyTab = $state("missions");
+  $effect(() => { if (retail) flow.requestWords(AGENCY_TABS.map((t) => t.label)); });
+  const agencyWord = (label: string, own: string): string => { const t = $words.templates[label]; return typeof t === "string" && t !== "" ? t : own; };
 
   // R7c — the finder rows already carry server-resolved station/system names; the
   // one bare ID left is the origin system in the summary note. Resolve it.
@@ -116,11 +139,22 @@
   }
 </script>
 
+{#if retail}
+  <nav class="ag-tabs">
+    {#each AGENCY_TABS as t (t.id)}
+      <button type="button" class:active={agencyTab === t.id} onclick={() => (agencyTab = t.id)}>{agencyWord(t.label, t.own)}</button>
+    {/each}
+  </nav>
+  {#if agencyTab !== "missions"}<p class="note">This panel is not on the play page yet.</p>{/if}
+{/if}
+<div class:ag-hidden={retail && agencyTab !== "missions"}>
+{#if !retail}
 <section class="panel">
   <header class="panel-head">
     <h2 class="panel-title">Agent Finder</h2>
   </header>
 </section>
+{/if}
 
 <section>
   <h2>Filters</h2>
@@ -254,3 +288,4 @@
     {/if}
   {/if}
 </section>
+</div>
