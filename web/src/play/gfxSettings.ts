@@ -4,6 +4,8 @@
 // cameraShakeEnabled) as the play page keeps them: in the browser's storage, the system menu writing them and the views
 // reading them each frame. Defaults as a high-classification device gets them.
 
+import { colorTheme, DEFAULT_COLORTHEMEID, lighten, scaleSaturation } from "./colorThemes.ts";
+
 export interface GfxSettings {
   /** 1 low (SM_3_0_LO), 2 medium (SM_3_0_HI), 3 high (SM_3_0_DEPTH): device.GetShaderModelForShaderQuality. */
   shaderQuality: 1 | 2 | 3;
@@ -31,13 +33,15 @@ export interface GfxSettings {
   windowTransparency: number;
   /** window_transparency_noblur_setting (0 .. 1, default 0.05): without it. */
   windowTransparencyNoBlur: number;
+  /** uiColorSvc's theme (settings.char.windows wndColorThemeID; colorThemes.DEFAULT_COLORTHEMEID Photon). */
+  colorThemeID: string;
 }
 
 export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   shaderQuality: 3, postProcessingQuality: 2, textureQuality: 0, lodQuality: 3, shadowQuality: 2, aoQuality: 3,
   volumetricQuality: 3, reflectionQuality: 3, turretsEnabled: true, effectsEnabled: true, missilesEnabled: true,
   explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true,
-  windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05,
+  windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05, colorThemeID: DEFAULT_COLORTHEMEID,
 };
 
 import { setMipLevelSkipCount } from "../three/ddsTexture.ts";
@@ -84,7 +88,7 @@ export function setGfx(change: Partial<GfxSettings>): void {
 /** ResetGraphicsSettings: every setting to its default. */
 export function resetGfx(): void {
   // (the graphics only: the window appearance is the User Interface panel's)
-  const { windowBlur: _b, windowTransparency: _t, windowTransparencyNoBlur: _n, ...graphics } = GFX_DEFAULTS;
+  const { windowBlur: _b, windowTransparency: _t, windowTransparencyNoBlur: _n, colorThemeID: _c, ...graphics } = GFX_DEFAULTS;
   setGfx(graphics);
 }
 
@@ -103,9 +107,11 @@ export function windowAppearance(s: Readonly<GfxSettings> = current): { blur: bo
       backdrop: `blur(6px) brightness(${lerp(0, 0.3, t).toFixed(3)})`, backdropFocused: `blur(6px) brightness(${lerp(0, 0.2, t).toFixed(3)})` };
   }
   const t = Math.min(1, Math.max(0, s.windowTransparencyNoBlur));
-  const fill = Math.round(0.04 * 255);
+  // UpdateColor: the fill is the theme's tint, its saturation scaled by SATURATION_MULTIPLIER_MAX 0.3 (+ 0.7 x the
+  // transparency, which is 0 without the blur)
+  const [r, g, b] = scaleSaturation(colorTheme(s.colorThemeID).tint, 0.3);
   return { blur, backdrop: "none", backdropFocused: "none",
-    bg: `rgba(${fill}, ${fill}, ${fill}, ${lerp(1, 0.75, t).toFixed(3)})`, bgFocused: `rgba(${fill}, ${fill}, ${fill}, ${lerp(1, 0.95, t).toFixed(3)})` };
+    bg: `rgba(${r}, ${g}, ${b}, ${lerp(1, 0.75, t).toFixed(3)})`, bgFocused: `rgba(${r}, ${g}, ${b}, ${lerp(1, 0.95, t).toFixed(3)})` };
 }
 
 function applyWindowAppearance(s: Readonly<GfxSettings>): void {
@@ -116,6 +122,14 @@ function applyWindowAppearance(s: Readonly<GfxSettings>): void {
   root.style.setProperty("--win-bg-focused", a.bgFocused);
   root.style.setProperty("--win-backdrop", a.backdrop);
   root.style.setProperty("--win-backdrop-focused", a.backdropFocused);
+  // the theme's colours for the page's chrome (play.css: the accent is its focus, the dim its focus_dark)
+  const theme = colorTheme(s.colorThemeID);
+  root.style.setProperty("--theme-focus", theme.focus);
+  root.style.setProperty("--theme-focus-dark", theme.focusDark);
+  root.style.setProperty("--theme-focus-bright", theme.id === DEFAULT_COLORTHEMEID ? "#8fd0e6" : lighten(theme.focus, 0.4));
+  root.style.setProperty("--theme-accent", theme.accent);
+  root.style.setProperty("--theme-alert", theme.alert);
+  root.style.setProperty("--theme-tint", theme.tint);
 }
 
 export function onGfx(listener: Listener): () => void {

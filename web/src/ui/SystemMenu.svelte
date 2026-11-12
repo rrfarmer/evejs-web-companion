@@ -12,6 +12,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { gfx, setGfx, resetGfx, onGfx, type GfxSettings } from "../play/gfxSettings.ts";
   import { CLIENT_SHORTCUTS } from "../play/clientShortcuts.ts";
+  import { COLOR_THEMES } from "../play/colorThemes.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -71,6 +72,8 @@
     noShortcut: "UI/SystemMenu/Shortcuts/NoShortcut", noneFound: "UI/SystemMenu/Shortcuts/NoShortcutsFoundWithFilter",
     editShortcut: "UI/SystemMenu/Shortcuts/EditShortcut", clearShortcut: "UI/SystemMenu/Shortcuts/ClearShortcut",
     defaultShortcuts: "UI/SystemMenu/Shortcuts/DefaultShortcuts",
+    colorTheme: "UI/SystemMenu/GeneralSettings/ColorTheme", shipTheme: "UI/SystemMenu/GeneralSettings/General/ShipTheme",
+    presets: "UI/SystemMenu/GeneralSettings/ColorTheme/Presets",
   } as const;
   const word = (label: string, own: string): string => {
     const t = $words.templates[label];
@@ -82,7 +85,7 @@
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
     flow.requestWords([...Object.values(WORDS), ...PANELS.map((p) => p[1]), ...SHORTCUT_PANELS.map((p) => p[1]), ...Object.values(Q),
-      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label)]);
+      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label), ...COLOR_THEMES.map((t) => t.id)]);
     const off = onGfx((s) => { settings = { ...s }; });
     const onFull = () => { fullScreen = document.fullscreenElement !== null; };
     document.addEventListener("fullscreenchange", onFull);
@@ -109,6 +112,8 @@
       .map((c) => ({ cmd: c.cmd, description: c.label ? word(c.label, c.cmd) : c.cmd, keys: c.keys, locked: c.locked === true }))
       .filter((c) => filterText === "" || c.description.toLowerCase().includes(filterText));
   });
+  /** ColorThemeContainer._load: the presets sorted by their names (localization.util.Sort). */
+  const themes = $derived([...COLOR_THEMES].map((t) => ({ ...t, name: word(t.id, t.id.split("/").pop() ?? t.id) })).sort((a, b) => a.name.localeCompare(b.name)));
   /** OnShaderQualityCombo: at low shader quality the shadow, ambient occlusion and reflection combos are disabled. */
   const disabled = (key: Key): boolean => settings.shaderQuality === 1 && (key === "shadowQuality" || key === "aoQuality" || key === "reflectionQuality");
   function setWindowMode(mode: number): void {
@@ -182,6 +187,17 @@
               oninput={(ev) => setGfx({ [key]: Number(ev.currentTarget.value) } as Partial<GfxSettings>)} />
             <small>{word(WORDS.fullTransparency, "Full Transparency")}</small>
           </div>
+          <!-- ConstructColorThemeSection: the ship-faction checkbox, then ColorThemeContainer's presets - each entry 32
+               high, its ThemePreview (16 px tiles 2 apart: focus, accent, tint, alert) and name; a click chooses it -->
+          <h3>{word(WORDS.colorTheme, "Color Theme")}</h3>
+          <label class="sm-check" title="Not on the play page yet"><input type="checkbox" disabled /> {word(WORDS.shipTheme, "Use ship faction theme")}</label>
+          <div class="sm-theme-head">{word(WORDS.presets, "Presets")}</div>
+          {#each themes as t (t.id)}
+            <button type="button" class="sm-theme" class:sel={settings.colorThemeID === t.id} onclick={() => setGfx({ colorThemeID: t.id })}>
+              <span class="tiles">{#each [t.focus, t.accent, t.tint, t.alert] as c, i (i)}<i style={`background: ${c}`}></i>{/each}</span>
+              <span>{t.name}</span>
+            </button>
+          {/each}
         {:else if shortcutKey !== null}
           <!-- _ConstructShortcutsPanel: the filter at the top, the commands' scroll (Command, Shortcut), Edit / Clear /
                Default Shortcuts at the bottom (the play page keeps the defaults: those are not built) -->
@@ -238,6 +254,13 @@
   .sm-combo span { flex: 0 0 300px; }
   .sm-combo select { flex: 1; max-width: 300px; height: 28px; }
   .sm-check { display: flex; align-items: center; gap: 6px; height: 24px; }
+  .sm-theme-head { margin-top: 12px; opacity: 0.45; font-size: 14px; }
+  .sm-theme { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 420px; height: 32px; padding: 0 2px; text-align: left;
+    background: none; border: 0; color: inherit; font-size: 13px; cursor: pointer; }
+  .sm-theme:hover { background: rgba(255, 255, 255, 0.05); }
+  .sm-theme.sel { background: color-mix(in srgb, var(--theme-focus, #58a7bf) 25%, transparent); }
+  .sm-theme .tiles { display: flex; gap: 2px; }
+  .sm-theme .tiles i { width: 16px; height: 16px; display: block; }
   .sm-node.sub { height: 30px; padding-left: 32px; font-size: 13px; }
   .sm-shortcuts { display: flex; flex-direction: column; height: 100%; min-height: 0; }
   .sm-filter { width: 160px; margin: 0 0 8px 16px; height: 24px; }

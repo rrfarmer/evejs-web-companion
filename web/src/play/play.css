@@ -8,7 +8,7 @@
   --line-strong: rgba(255, 255, 255, 0.22);
   --text: #d7dad6;
   --text-dim: #8d918c;
-  --accent: #58a7bf;
+  --accent: var(--theme-focus, #58a7bf);
   --hostile: #d23b2f;
   --neutral: #c9c9c9;
   --friendly: #4fa3e3;
@@ -215,9 +215,10 @@ button { font: inherit; color: inherit; }
   --color-text-bright: #f0f1ee;
   --color-cell: #c8ccc8;
   --color-muted: #8d918c;
-  --color-accent: #58a7bf;
-  --color-accent-bright: #8fd0e6;
-  --color-accent-dim: #2e5f6e;
+  /* the colour theme's (gfxSettings.ts: the system menu's Color Theme) */
+  --color-accent: var(--theme-focus, #58a7bf);
+  --color-accent-bright: var(--theme-focus-bright, #8fd0e6);
+  --color-accent-dim: var(--theme-focus-dark, #2e5f6e);
   font-family: var(--font);
 }
 /* the window's background as the system menu's Window Appearance sets it (gfxSettings.ts windowAppearance); .win.win outranks the tinted copies clientTint.ts makes of the windows' own rules */
