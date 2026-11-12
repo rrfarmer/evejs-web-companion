@@ -273,8 +273,14 @@ export function setShipSpeed(model: THREE.Object3D, speed: number, maxSpeed: num
   model.userData.shipMaxSpeed = maxSpeed;
 }
 
-/** Engines burn as the ship goes: the flames' length follows speed, as a share of the ship's top speed. */
-export function setThrust(model: THREE.Object3D, share: number): void {
+/**
+ * Engines burn as the ship goes: the flames' length follows speed, as a share of the ship's top speed. With the
+ * volumetric flames, their intensity as EveBoosterSet2Renderable::CalculateIntensity has it each update: the
+ * acceleration (`accel`, three's world, m/s^2) along the ship's z x max(0.3, speed / top speed), clamped to 0..1 and
+ * eased (x 0.2 + the last x 0.8); then the last value x 0.8 + (0.8 x speed / top speed + 0.2 x that) x 0.2, at most 2.
+ * (The client starts from nought; here the first call starts at its steady value.)
+ */
+export function setThrust(model: THREE.Object3D, share: number, accel: THREE.Vector3 | null = null): void {
   // the heat glow's booster intensity (sofHullMaterial)
   model.userData.thrust = Math.max(0, Math.min(1, share));
   const boosters = model.getObjectByName("boosters");
@@ -288,9 +294,23 @@ export function setThrust(model: THREE.Object3D, share: number): void {
   // (its acceleration share, 0.2 x the thrust along the ship, not known here)
   const flames = boosters.getObjectByName("booster-volumetric");
   const warping = (model.userData.controllerVars as Record<string, number> | undefined)?.IsWarping ? 1 : 0;
-  if (flames) setBoosterIntensity(flames, 0.8 * Math.max(0, Math.min(1, share)), warping);
+  if (!flames) return;
+  const ud = model.userData;
+  const ratio = Math.max(0, share);
+  let acc = 0;
+  if (accel && flames.parent) {
+    // the ship's z (its EVE axis: the flames' group, through its mirror) in the world
+    const z = new THREE.Vector3(0, 0, 1).transformDirection(flames.parent.matrixWorld);
+    acc = Math.min(1, Math.max(0, accel.dot(z) * Math.max(0.3, ratio)));
+  }
+  acc = acc * 0.2 + ((ud.boosterLastAcc as number | undefined) ?? 0) * 0.8;
+  ud.boosterLastAcc = acc;
+  const last = (ud.boosterLastValue as number | undefined) ?? 0.8 * ratio;
+  const value = Math.min(2, last * 0.8 + (0.8 * ratio + 0.2 * acc) * 0.2);
+  ud.boosterLastValue = value;
+  setBoosterIntensity(flames, value, warping);
   const glows = boosters.getObjectByName("booster-glows");
-  if (glows) setGlowGain(glows, 0.8 * Math.max(0, Math.min(1, share)), warping);
+  if (glows) setGlowGain(glows, value, warping);
 }
 
 export interface TypeModelInfo {

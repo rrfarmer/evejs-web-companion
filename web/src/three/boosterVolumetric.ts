@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { loadDds, loadDds3D } from "./ddsTexture.ts";
 import { logDepth } from "./logDepth.ts";
 import { SOFT_DEPTH, SOFT_DEPTH_GLSL } from "./softDepth.ts";
+import { offerLights, type ChildLight } from "./dynamicLights.ts";
 
 export interface BoosterShape { noiseSpeed: number; start: number[]; end: number[]; frequency: number[]; color: number[] }
 export interface BoosterVolumetricData {
@@ -31,8 +32,43 @@ export interface BoosterVolumetricData {
   noise: string | null;
   glowMap?: string | null;
   glowNoise?: string | null;
+  light?: BoosterLightData | null;
 }
-export interface BoosterItem { transform: number[] | null; atlasIndex0?: number; atlasIndex1?: number }
+/** The race's engine light (EveSOFDataBooster: lightRadius, lightWarpRadius, colours, flicker, lightOffset). */
+export interface BoosterLightData { radius: number; warpRadius: number; color: number[]; warpColor: number[]; flickerAmplitude: number; flickerFrequency: number; offset: number }
+export interface BoosterItem { transform: number[] | null; atlasIndex0?: number; atlasIndex1?: number; lightScale?: number }
+
+// ComputeBoosterLightFlicker's noise: 128 random values, read at (phase + time) x frequency, lerped
+const LIGHT_NOISE = Array.from({ length: 128 }, () => Math.random());
+function lightFlicker(phase: number, amplitude: number, frequency: number, time: number): number {
+  const p = (phase + time) * frequency;
+  const i = Math.floor(p);
+  const t = p - i;
+  const a = LIGHT_NOISE[((i % 128) + 128) % 128]!, b = LIGHT_NOISE[(((i + 1) % 128) + 128) % 128]!;
+  return 1 + amplitude * 2 * (a * (1 - t) + b * t) - amplitude;
+}
+
+/**
+ * The engines' lights (EveBoosterSet2::GetLights / AddBoosterLights): per booster a point light at (0, 0, -lightOffset)
+ * through its transform, radius = its width x lightScale x lerp(lightRadius, lightWarpRadius, warp) x intensity, colour
+ * lerp(lightColor, lightWarpColor, warp) x its flicker; none at intensity nought. Offered each draw to the dynamic lights
+ * (dynamicLights.ts) from the drawn flames (EVE space).
+ */
+function offerBoosterLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera, object: THREE.Object3D, items: { at: number[]; radius: number; phase: number }[], light: BoosterLightData): void {
+  const intensity = (object.userData.boosterIntensity as number | undefined) ?? 0;
+  const warp = Math.min(1, Math.max(0, (object.userData.boosterWarp as number | undefined) ?? 0));
+  if (intensity <= 0 || (light.radius <= 0 && light.warpRadius <= 0)) { object.userData.lights = []; offerLights(renderer, camera, object); return; }
+  const factor = (light.radius * (1 - warp) + light.warpRadius * warp) * intensity;
+  const color = [0, 1, 2].map((i) => (light.color[i] ?? 0) * (1 - warp) + (light.warpColor[i] ?? 0) * warp);
+  const time = performance.now() / 1000;
+  const records: ChildLight[] = (object.userData.lights ??= []) as ChildLight[];
+  records.length = 0;
+  for (const it of items) {
+    const f = lightFlicker(it.phase, light.flickerAmplitude, light.flickerFrequency, time);
+    records.push({ position: it.at, radius: it.radius * factor, color: color.map((c) => c * f), brightness: 1 });
+  }
+  offerLights(renderer, camera, object);
+}
 
 const VERTEX = `
 attribute vec4 row0; attribute vec4 row1; attribute vec4 row2; attribute vec4 row3;
@@ -213,8 +249,19 @@ export async function volumetricBoosters(items: BoosterItem[], vol: BoosterVolum
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = "booster-volumetric";
   mesh.frustumCulled = false;
+  // the lights' places, sizes and phases (EveBoosterSet2::Add)
+  const lightItems = placed.map((b) => {
+    const t = b.transform!;
+    const off = -(vol.light?.offset ?? 0);
+    return {
+      at: [t[8]! * off + t[12]!, t[9]! * off + t[13]!, t[10]! * off + t[14]!],
+      radius: Math.max(Math.hypot(t[0]!, t[1]!, t[2]!), Math.hypot(t[4]!, t[5]!, t[6]!)) * (b.lightScale ?? 1),
+      phase: 128 * Math.random(),
+    };
+  });
   // (on the material: a model clone keeps its materials, not its meshes' callbacks)
-  mat.onBeforeRender = (_r, _s, camera, _g, object) => {
+  mat.onBeforeRender = (renderer, _s, camera, _g, object) => {
+    if (vol.light) offerBoosterLights(renderer, camera, object, lightItems, vol.light);
     mat.uniforms.time!.value = performance.now() / 1000;
     mat.uniforms.nearZ!.value = (camera as THREE.PerspectiveCamera).near ?? 0.1;
     // this ship's (the material is every clone's)

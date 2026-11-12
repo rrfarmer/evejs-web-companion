@@ -972,7 +972,7 @@ export class SpaceView {
       if (!mark) { mark = this.markFor(e); this.marks.set(e.itemID, mark); this.scene.add(mark); }
       mark.position.copy(rel);
       this.orient(mark, e);
-      if (e.maxVelocity) setThrust(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity);
+      if (e.maxVelocity) setThrust(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity, this.accelOf(mark, e));
       setShipSpeed(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z), e.maxVelocity ?? 0);
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
@@ -1216,6 +1216,25 @@ export class SpaceView {
   }
 
   /** Point a moving ship's holder along its velocity, easing the turn as the client's ball does not jump. */
+  /**
+   * A ball's acceleration (three's world, m/s^2) for its engines: its velocity's change over the time since it last
+   * changed, held until the next change (the space feed moves once a second).
+   */
+  private accelOf(mark: THREE.Object3D, e: Entity): THREE.Vector3 {
+    const ud = mark.userData;
+    const v = new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z);
+    const now = performance.now() / 1000;
+    const last = ud.accelLastVelocity as THREE.Vector3 | undefined;
+    if (!last) { ud.accelLastVelocity = v; ud.accelLastTime = now; ud.accel = new THREE.Vector3(); }
+    else if (!last.equals(v)) {
+      const dt = Math.max(1e-3, now - (ud.accelLastTime as number));
+      ud.accel = v.clone().sub(last).divideScalar(dt);
+      ud.accelLastVelocity = v;
+      ud.accelLastTime = now;
+    }
+    return ud.accel as THREE.Vector3;
+  }
+
   private orient(holder: THREE.Object3D, e: Entity): void {
     if (!["ship", "drone", "fighter"].includes(e.kind)) return;
     const v = new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z);

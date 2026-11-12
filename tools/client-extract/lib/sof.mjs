@@ -168,6 +168,11 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
       noise: "res:/texture/global/noise32cube_volume.dds",
       // the glow sprites' (EveSOF CreateGlow: BoosterGlowAnimated.fx's DiffuseMap and NoiseMap)
       glowMap: "res:/texture/particle/whitesharp.dds", glowNoise: "res:/texture/global/noise.dds",
+      // the engines' lights (EveBoosterSet2::SetLightData; nought where unsaid)
+      light: {
+        radius: rb.lightRadius ?? 0, warpRadius: rb.lightWarpRadius ?? 0, color: rb.lightColor ?? [0, 0, 0, 0], warpColor: rb.lightWarpColor ?? [0, 0, 0, 0],
+        flickerAmplitude: rb.lightFlickerAmplitude ?? 0, flickerFrequency: rb.lightFlickerFrequency ?? 0, offset: rb.lightOffset ?? 0,
+      },
     },
   } : null;
   // The hull's default pattern, where no DNA pattern command names one (EveSOFDNA::GetPatternLayerCount and
@@ -193,13 +198,13 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":75)
-    sofBuild: 75,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":76)
+    sofBuild: 76,
     booster,
     pattern,
     areas,
     colorSet,
-    boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null, atlasIndex0: b.atlasIndex0 ?? 0, atlasIndex1: b.atlasIndex1 ?? 0 })),
+    boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null, atlasIndex0: b.atlasIndex0 ?? 0, atlasIndex1: b.atlasIndex1 ?? 0, lightScale: b.lightScale ?? 1 })),
     boundingSphere: hull.boundingSphere ?? null,
     // Its turret locators (EveSOFDataHull.locatorTurrets, EveSOF adds each to the ship as an EveLocator2): name and
     // transform (row-major 4x4, EVE's model space); EveMobile::RebuildTurretPositions fits a turret set's turrets to
