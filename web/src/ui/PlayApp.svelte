@@ -714,6 +714,12 @@
     mix-blend-mode: plus-lighter; -webkit-mask: url('/client-res/ui/texture/classes/shipui/capacitorcell.png') center / 100% 100% no-repeat;
     mask: url('/client-res/ui/texture/classes/shipui/capacitorcell.png') center / 100% 100% no-repeat; }
   .fly-windows :global(.fit-cap-text) { margin-left: 45px; font-size: 12px; line-height: 1.25; color: rgba(255, 255, 255, 0.75); padding: 4px 0; }
+  /* attributePanel / basePanel.GetValueParentGrid: two columns of the panel's width / 2; GetValueCont - the icon 20 at
+     3, the label (EveLabelMedium) after a 7 + 20 spacer, a cell 26 high at least, 1 down */
+  .fly-windows :global(.fit-window .fit-attr-grid) { display: grid; grid-template-columns: 140px 140px; padding: 0; }
+  .fly-windows :global(.fit-attr) { position: relative; min-height: 26px; margin-top: 1px; display: flex; align-items: center; }
+  .fly-windows :global(.fit-attr img) { position: absolute; left: 3px; top: calc(50% - 10px); width: 20px; height: 20px; }
+  .fly-windows :global(.fit-attr span) { margin-left: 27px; font-size: 12px; line-height: 1.2; color: rgba(255, 255, 255, 0.75); }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

@@ -1956,6 +1956,29 @@
     const passive = d ? d.passiveShieldRecharge : shield.known && recharge.known && recharge.value > 0 ? Math.trunc((2.5 * shield.value) / recharge.value) : null;
     return { rows, passive: passive === null ? "" : defenseWord("UI/Fitting/FittingWindow/ColoredPassiveRepairRate", { hpPerSec: passive }) };
   });
+  /** targetingPanel's sensor icons (textureByAttributeID), by the strongest sensor's kind. */
+  const SENSOR_ICON: Record<string, string> = { Gravimetric: "sensorstrengthcaldari", Radar: "sensorstrengthamarr", Magnetometric: "sensorstrengthgallente", Ladar: "sensorstrengthminmatar" };
+  /**
+   * The play page's targeting and navigation menus (targetingPanel.py, navigationPanel.py on attributePanel /
+   * basePanel.GetValueParentGrid): two columns, a cell an attribute - its StatsIcons icon (20, 3 in), its value in the
+   * panel's words 7 + 20 in - targeting [sensor strength, scan resolution], [signature radius, targets at once],
+   * navigation [mass, inertia modifier], [warp speed, align time].
+   */
+  const clientTargeting = $derived.by(() => !retail ? null : [
+    { icon: SENSOR_ICON[stats.targeting.sensorName ?? ""] ?? "sensorstrengthgallente", hint: stats.targeting.sensorName ? `${stats.targeting.sensorName} sensor strength` : "Sensor strength",
+      text: knownWord(stats.targeting.sensorStrength, (v) => shipWord("UI/Fitting/FittingWindow/SensorStrength", { points: v })) },
+    { icon: "scanresolution", hint: "Scan resolution", text: knownWord(stats.targeting.scanResolution, (v) => shipWord("UI/Fitting/FittingWindow/ScanResolution", { resolution: Math.trunc(v) })) },
+    { icon: "signatureradius", hint: "Signature radius", text: knownWord(stats.navigation.signatureRadius, (v) => shipWord("UI/Fitting/FittingWindow/TargetingRange", { range: v })) },
+    { icon: "maximumlockedtargets", hint: "Maximum locked targets", text: knownWord(stats.targeting.maxLockedTargets, (v) => shipWord("UI/Fitting/FittingWindow/MaxLockedTargets", { maxTargets: Math.ceil(v) })) },
+  ]);
+  const clientNavigation = $derived.by(() => !retail ? null : [
+    { icon: "mass", hint: "Mass", text: knownWord(stats.navigation.mass, (v) => (v > 10000.0
+      ? shipWord("UI/Fitting/FittingWindow/MassTonnes", { mass: v / 1000.0 }) : shipWord("UI/Fitting/FittingWindow/MassKg", { mass: v }))) },
+    { icon: "inertiamodifier", hint: "Inertia modifier", text: knownWord(stats.navigation.inertiaModifier, (v) => shipWord("UI/Fitting/FittingWindow/InertiaModifier", { value: v })) },
+    { icon: "warpspeed", hint: "Warp speed", text: knownWord(stats.navigation.warpSpeedAuPerSecond, (v) => shipWord("UI/Fitting/FittingWindow/WarpSpeed", { distText: fmtDist(v * METRES_PER_AU, 2, say) })) },
+    { icon: "aligntime", hint: "Time to align", text: knownWord(stats.navigation.alignTimeSeconds, (v) => shipWord("UI/Fitting/FittingWindow/AlignTime", { value: v })) },
+  ]);
+
   /** defensePanel's resist icons and layer icons (StatsIcons), by damage type and layer. */
   const RESIST_ICON: Record<string, string> = { em: "emresistance", thermal: "thermalresistance", kinetic: "kineticresistance", explosive: "explosiveresistance" };
   const LAYER_ICON: Record<string, string> = { shield: "shieldhp", armor: "armorhp", structure: "structurehp" };
@@ -2571,6 +2594,15 @@
      ShipGetInfo attribute map the resource bars read; anything module-summed
      (offense, repairs, drone dps, cap stability) has no allowed read yet and
      says "Unavailable" rather than guessing. -->
+{#snippet clientAttributeCells(cells: readonly { icon: string; hint: string; text: string }[])}
+  {#each cells as cell (cell.icon)}
+    <div class="fit-attr" title={cell.hint}>
+      <img alt={cell.hint} src={`/client-res/ui/texture/classes/fitting/statsicons/${cell.icon}.png`} />
+      <span>{cell.text}</span>
+    </div>
+  {/each}
+{/snippet}
+
 {#snippet statsPanel()}
   <!-- On the play page the client's (statsPanel.GetMenuData / expandablemenu.ExpandableMenu): only the capacitor's
        menu expanded at first (expandedByDefault), each header 20 high with its expander (ui_38_16_228 collapsed, _229
@@ -2820,13 +2852,15 @@
     <details class="fit-sec" open={!retail}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Targeting</span>
-        {#if stats.defense}
+        {#if stats.defense || retail}
           <span class="fit-sec-headline">{knownWord(stats.targeting.maxTargetRange, (v) => shipWord("UI/Fitting/FittingWindow/TargetingHeader", { maxRange: v / 1000.0 }))}</span>
         {:else}
           <span class="fit-sec-headline">{@render statValue(stats.targeting.maxTargetRange, asDistance)}</span>
         {/if}
       </summary>
-      {#if stats.defense}
+      {#if clientTargeting}
+        <div class="fit-sec-body fit-attr-grid">{@render clientAttributeCells(clientTargeting)}</div>
+      {:else if stats.defense}
         <!-- targetingPanel.UpdateTargetingPanel: the strongest sensor, the scan resolution's whole part, the targets
              rounded up, the signature radius as a distance. -->
         <div class="fit-sec-body">
@@ -2865,13 +2899,15 @@
     <details class="fit-sec" open={!retail}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Navigation</span>
-        {#if stats.defense}
+        {#if stats.defense || retail}
           <span class="fit-sec-headline">{knownWord(stats.navigation.maxVelocity, (v) => shipWord("UI/Fitting/FittingWindow/ColoredMaxVelocity", { maxVelocity: v }))}</span>
         {:else}
           <span class="fit-sec-headline">{@render statValue(stats.navigation.maxVelocity, (v) => `${toFixed(v, 1)} m/s`)}</span>
         {/if}
       </summary>
-      {#if stats.defense}
+      {#if clientNavigation}
+        <div class="fit-sec-body fit-attr-grid">{@render clientAttributeCells(clientNavigation)}</div>
+      {:else if stats.defense}
         <!-- navigationPanel.UpdateNavigationPanel: the mass in tonnes past ten thousand kilograms, the inertia modifier,
              the align time, the warp speed as a distance a second (base times multiplier times an AU). -->
         <div class="fit-sec-body">
