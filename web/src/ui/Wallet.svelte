@@ -14,7 +14,7 @@
   // ⚠ empty vs failed. `journal` is null while unread OR when the
   // read FAILED (the reason is in the matching *Error); an empty list is the real
   // "no wallet activity yet" answer (worldHasNoContracts precedent).
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { formatWholeIsk } from "./isk.ts";
@@ -55,6 +55,19 @@
     return typeof template === "string" && template !== "" ? plainText(template) : own;
   }
   let tab = $state<"overview" | "transactions" | "market" | "shares" | "autoPayment" | "give">("overview");
+  /**
+   * On the play page the window as WalletWindow lays it out (walletWnd.py: 900 x 600; its header's tabs My Wallet,
+   * [Corporation Wallet,] Settings; personalWalletPanel.py: a WalletTabGroup 76 high - ISK and PLEX a third each,
+   * Loyalty Points and EverMarks stacked in the last third (TOTOP_PROP) - each a BaseWalletTab: the icon 56 in a 64
+   * column on black at 0.25, the name (EveHeaderMediumBold) and the info mark over a divider, the amount at 17 (PLEX's
+   * #FAB400); the ISK panel 16 below: its TabGroup - Overview, Transactions, Market Transactions, Shares, Auto Payment,
+   * Give ISK). The page reads the ISK balance only: the others show a dash. The corporation's tab is not built.
+   */
+  const retail = getContext("retailChrome") === true;
+  let walletTab = $state<"mine" | "settings">("mine");
+  const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
+    "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription"];
+  $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
 
   let busy = $state(false);
   let error = $state("");
@@ -94,6 +107,31 @@
        unpredictable length, which on a full read meant scrolling past
        everything to reach it. Nothing was added or taken away; the control
        moved to the band every other window keeps its controls in. -->
+  {#if retail}
+    <nav class="tabs wl-head-tabs">
+      <button type="button" class:active={walletTab === "mine"} onclick={() => (walletTab = "mine")}>{tabWord("UI/Wallet/WalletWindow/MyWallet", "My Wallet")}</button>
+      <button type="button" class:active={walletTab === "settings"} onclick={() => (walletTab = "settings")}>{tabWord("UI/Common/Settings", "Settings")}</button>
+    </nav>
+    {#if walletTab === "settings"}<p class="note">This panel is not on the play page yet.</p>{/if}
+    <div class="wl-tabs" hidden={walletTab !== "mine"}>
+      <div class="wl-tab sel">
+        <span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/wallet.png" /></span>
+        <span class="data"><span class="top"><b>{tabWord("UI/Common/ISK", "ISK")}</b><span class="info" title={tabWord("UI/Wallet/WalletWindow/ISKDescription", "")}>i</span></span>
+          <span class="amount">{$wallet.loaded ? formatWholeIsk($wallet.cashBalance, "truncate") : ""}</span></span>
+      </div>
+      <div class="wl-tab">
+        <span class="ic"><img alt="" src="/client-res/ui/texture/plex/plex_128_gradient_yellow.png" /></span>
+        <span class="data"><span class="top"><b>{tabWord("UI/Common/PLEX", "PLEX")}</b><span class="info">i</span></span><span class="amount plex">-</span></span>
+      </div>
+      <div class="wl-stack">
+        <div class="wl-tab small"><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/lpstore_24px.png" /></span>
+          <span class="data"><b>{tabWord("UI/Journal/JournalWindow/Agents/LoyaltyPoints", "Loyalty Points")}</b><span class="amount">-</span></span></div>
+        <div class="wl-tab small"><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/evermark_24px.png" /></span>
+          <span class="data"><b>{tabWord("UI/Wallet/WalletWindow/EverMarks", "EverMarks")}</b><span class="amount">-</span></span></div>
+      </div>
+    </div>
+  {/if}
+  <div class="wl-mine" hidden={retail && walletTab !== "mine"}>
   <header class="panel-head">
     <h2 class="panel-title">Wallet</h2>
     <span class="controls">
@@ -145,5 +183,6 @@
     <WalletJournal {store} {flow} />
   {/if}
 
+</div>
 </section>
 

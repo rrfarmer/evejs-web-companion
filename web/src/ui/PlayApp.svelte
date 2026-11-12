@@ -1200,6 +1200,34 @@
   .fly-windows :global(.ps-analyze) { width: 100px; margin-left: 8px; font-size: 13px; padding: 4px 0; }
   /* A client window says its caption once, in its header: the panels' own title (the companion's) is not drawn here */
   .fly-windows :global(.win .panel-head > .panel-title) { display: none; }
+  /* WalletWindow: the header's tabs; the WalletTabGroup 76 high - ISK and PLEX a third each, LP and EverMarks stacked;
+     a tab's icon 56 in a 64 column on black at 0.25, its name and info mark over a divider, the amount at 17 */
+  .fly-windows :global(.wl-head-tabs) { display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 8px; }
+  .fly-windows :global(.wl-head-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.wl-head-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.wl-tabs) { display: flex; height: 76px; gap: 0; margin-bottom: 16px; }
+  .fly-windows :global(.wl-tabs[hidden]), .fly-windows :global(.wl-mine[hidden]) { display: none; }
+  .fly-windows :global(.wl-tab) { flex: 0 0 33.333%; display: flex; background: rgba(128, 128, 128, 0.08); border: 1px solid rgba(255, 255, 255, 0.06); box-sizing: border-box; }
+  .fly-windows :global(.wl-tab.sel) { background: rgba(128, 128, 128, 0.2); border-color: rgba(255, 255, 255, 0.2); }
+  .fly-windows :global(.wl-tab .ic) { flex: 0 0 64px; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.25); margin: 4px; }
+  .fly-windows :global(.wl-tab .ic img) { width: 56px; height: 56px; }
+  .fly-windows :global(.wl-tab .data) { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .fly-windows :global(.wl-tab .top) { display: flex; align-items: center; justify-content: space-between; height: 32px; padding: 0 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .fly-windows :global(.wl-tab .top b) { font-size: 14px; }
+  .fly-windows :global(.wl-tab .info) { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.4); font-size: 10px;
+    line-height: 13px; text-align: center; color: rgba(255, 255, 255, 0.6); }
+  .fly-windows :global(.wl-tab .amount) { padding: 6px 6px 0; font-size: 17px; color: #fff; }
+  .fly-windows :global(.wl-tab .amount.plex) { color: #fab400; }
+  .fly-windows :global(.wl-stack) { flex: 0 0 33.333%; display: flex; flex-direction: column; }
+  .fly-windows :global(.wl-tab.small) { flex: 1; align-items: center; }
+  .fly-windows :global(.wl-tab.small .ic) { flex: 0 0 28px; height: 28px; margin: 4px; }
+  .fly-windows :global(.wl-tab.small .ic img) { width: 24px; height: 24px; }
+  .fly-windows :global(.wl-tab.small .data) { flex-direction: row; align-items: center; justify-content: space-between; padding-right: 6px; font-size: 12px; }
+  .fly-windows :global(.wl-tab.small .amount) { padding: 0; font-size: 13px; }
+  .fly-windows :global(.wl-mine .panel-head) { display: none; }
+  .fly-windows :global(.wl-mine > table.guests) { display: none; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
