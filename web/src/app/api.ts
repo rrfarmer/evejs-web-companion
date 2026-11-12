@@ -2611,12 +2611,18 @@ export interface StarMapData {
   readonly systems: ReadonlyArray<readonly [number, number, number, number, number, number, number, string?, (number | null)?]>;
   /** [fromSystemID, toSystemID], each pair once */
   readonly jumps: ReadonlyArray<readonly [number, number]>;
+  /** [regionID, x, y, z, name] */
+  readonly regions?: ReadonlyArray<readonly [number, number, number, number, string]>;
+  /** [constellationID, x, y, z, name, regionID] */
+  readonly constellations?: ReadonlyArray<readonly [number, number, number, number, string, number]>;
 }
 export async function loadStarMap(options: ApiOptions = {}): Promise<StarMapData> {
   const data = await getJson("/api/map/stars", options);
   return {
     systems: Array.isArray(data.systems) ? (data.systems as StarMapData["systems"]) : [],
     jumps: Array.isArray(data.jumps) ? (data.jumps as StarMapData["jumps"]) : [],
+    regions: Array.isArray(data.regions) ? (data.regions as StarMapData["regions"]) : [],
+    constellations: Array.isArray(data.constellations) ? (data.constellations as StarMapData["constellations"]) : [],
   };
 }
 

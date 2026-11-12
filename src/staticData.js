@@ -999,6 +999,14 @@ function getSolarSystem(solarSystemID) {
   return buildIndex("solarSystems", "solarSystems", "solarSystemID").get(Number(solarSystemID) || 0) || null;
 }
 
+/** Every region and every constellation the static data has (the SDE's mapRegions, mapConstellations). */
+function getRegions() {
+  return [...buildJsonlIndex("mapRegions.jsonl").values()];
+}
+function getConstellations() {
+  return [...buildJsonlIndex("mapConstellations.jsonl").values()];
+}
+
 /** Every solar system the static data has, in its table's order. */
 function getSolarSystems() {
   return [...buildIndex("solarSystems", "solarSystems", "solarSystemID").values()];
@@ -2477,6 +2485,8 @@ module.exports = {
   getConstellationName,
   getSolarSystem,
   getSolarSystems,
+  getRegions,
+  getConstellations,
   getSolarSystemGraph,
   getSolarSystemName,
   getStargates,

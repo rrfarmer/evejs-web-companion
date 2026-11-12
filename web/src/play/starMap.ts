@@ -91,6 +91,17 @@
 //   0.3 + t x 0.45 with t = (zoom - 0.71) / (0.66 - 0.71), the selected one's 0.75;
 // - in the abstract layout the lines' distance range (MAX_CAMERA_DISTANCE_2DVIEW, x 10000)
 //   (MapViewWorld._UpdateDistanceRangeValues).
+// - the region and constellation names (mapView LoadRegionMarkers / LoadConstellationMarkers; markers/mapMarkerRegion.py,
+//   mapMarkerContellation.py), at the region's / constellation's own centre, or in the abstract layout the average of
+//   its systems' abstract places on the plane (GetRegionCorrdinates' overridden region average,
+//   GetPosForConstellationMarker): a region's MarkerLabelRegion - its name in capitals, 10 px, letter spacing 3,
+//   (1, 1, 1, 0.85), 20 px above its point - at OPACITY_MARKER_SELECTED (1.3) while active (the selected system's),
+//   else GetMarkerBaseOpacity(d, MAX_MARKER_DISTANCE x 0.015, x 2) x GetNearFadeFactor (min(1, zoom distance / d)),
+//   rounded to 2; a constellation's MarkerLabelConstellation - shown only active (the selected system's region's
+//   constellations) or selected (its own): a Label at 0.95 in a box (Frame 0.3, Fill (0, 0, 0, 0.5)), 8 px above
+//   its point, "name <colour>security" (the systems' mean, FmtSystemSecStatus) unless selected; 3D: selected 1.3,
+//   active GetMarkerBaseOpacity(d, x 0.07, x 0.3) x the near factor; abstract (_GetMarkerOpacity_Abstract): 0.6
+//   between MAP2D_ZOOM_TUBE_BUBBLE 0.75 and MAP2D_ZOOM_CONSTELLATION_NAME_MAX 0.81, else nothing, 20 px lower.
 // Not yet: constellation and region markers; the my-location marker's pulse
 // circles (three circleFilled256 rings, alpha to 0.02).
 
@@ -98,7 +109,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadDds } from "../three/ddsTexture.ts";
 import { logDepth } from "../three/logDepth.ts";
-import { securityStatusRgb } from "../bridge/systemSecurity.ts";
+import { securityStatusColor, securityStatusRgb, shownSecurity } from "../bridge/systemSecurity.ts";
 
 /** mapViewConst.py */
 const UNIVERSE_SCALE = 1.5e-13;
@@ -290,6 +301,9 @@ export class StarMap {
   preview = new Set<number>();
   private zoomValue = 1;
   private bigNames = new Map<number, HTMLDivElement>();
+  /** The region and constellation names: each one's places in the two layouts and its element. */
+  private regionMarks: { id: number; own: THREE.Vector3; abstract: THREE.Vector3; el: HTMLDivElement }[] = [];
+  private constellationMarks: { id: number; regionID: number; own: THREE.Vector3; abstract: THREE.Vector3; el: HTMLDivElement; name: string; security: number | null }[] = [];
   private readonly positions = new Map<number, THREE.Vector3>();
   /** Each system's place in the two layouts, and the stars' position attribute. */
   private readonly layouts = { own: new Map<number, THREE.Vector3>(), abstract: new Map<number, THREE.Vector3>() };
@@ -494,9 +508,43 @@ export class StarMap {
     this.names = names;
     this.hereID = focusSystemID;
     this.buildMarkers(data, within, names, focusSystemID);
+    this.buildAreaMarkers(data as StarMapSystems & { regions?: readonly (readonly [number, number, number, number, string])[]; constellations?: readonly (readonly [number, number, number, number, string, number])[] });
     this.selectedID = focusSystemID;
     this.updateLineOpacity();
     this.focus(focusSystemID);
+  }
+
+  /** The region and constellation markers, their places in both layouts (the abstract one once it is read). */
+  private buildAreaMarkers(data: StarMapSystems & { regions?: readonly (readonly [number, number, number, number, string])[]; constellations?: readonly (readonly [number, number, number, number, string, number])[] }): void {
+    const style = "position:absolute;white-space:nowrap;font-family:'EVE Sans Neue','Barlow Semi Condensed','Segoe UI',sans-serif;";
+    for (const [id, x, y, z, name] of data.regions ?? []) {
+      const el = document.createElement("div");
+      el.textContent = name.toUpperCase();
+      el.style.cssText = style + "font-size:10px;line-height:12px;font-weight:700;letter-spacing:3px;color:rgba(255,255,255,0.85);";
+      this.markers.appendChild(el);
+      this.regionMarks.push({ id, own: mapPosition(x, y, z), abstract: mapPosition(x, y, z).setY(0), el });
+    }
+    const secBy = new Map<number, number[]>();
+    for (const s of data.systems) { if (typeof s[8] === "number") secBy.set(s[6], [...(secBy.get(s[6]) ?? []), s[8]]); }
+    for (const [id, x, y, z, name, regionID] of data.constellations ?? []) {
+      const el = document.createElement("div");
+      el.style.cssText = style + "font-size:12px;line-height:14px;padding:0 3px;color:rgba(255,255,255,0.95);background:rgba(0,0,0,0.5);"
+        + "outline:1px solid rgba(255,255,255,0.3);display:none;";
+      this.markers.appendChild(el);
+      const secs = secBy.get(id) ?? [];
+      this.constellationMarks.push({ id, regionID, own: mapPosition(x, y, z), abstract: mapPosition(x, y, z).setY(0), el, name, security: secs.length ? secs.reduce((a, b) => a + b, 0) / secs.length : null });
+    }
+  }
+
+  /** The abstract places of the regions and constellations: the means of their systems' abstract places. */
+  private placeAreasAbstract(): void {
+    const sums = new Map<number, [number, number, number]>();
+    const add = (key: number, p: THREE.Vector3) => { const s = sums.get(key) ?? [0, 0, 0]; s[0] += p.x; s[1] += p.z; s[2]++; sums.set(key, s); };
+    for (const [id, p] of this.layouts.abstract) { const w = this.within.get(id); if (!w) continue; add(w[0], p); add(w[1], p); }
+    for (const m of [...this.regionMarks, ...this.constellationMarks]) {
+      const s = sums.get(m.id);
+      if (s && s[2]) m.abstract.set(s[0] / s[2], 0, s[1] / s[2]);
+    }
   }
 
   /** The nearest star within 8 px of a point on the page, or null. */
@@ -557,6 +605,7 @@ export class StarMap {
         const c = coords[String(id)];
         this.layouts.abstract.set(id, c ? mapPosition(c[0], 0, c[1]) : own.clone());
       }
+      this.placeAreasAbstract();
     }
     this.abstract = abstract;
     // UpdateCameraForAbstractView: Make2DCamera / Make3DCamera
@@ -829,6 +878,49 @@ export class StarMap {
       l.el.style.opacity = String(opacity);
       // CENTERLEFT: its text LABEL_LEFT (22 px) right of the point, centred on it
       l.el.style.transform = `translate(${(p.x + 22).toFixed(1)}px, ${(p.y - 6).toFixed(1)}px)`;
+    }
+    // the region and constellation names (their marker opacities; a layout change hides them, _mapTransitioning)
+    const zoomDist = this.camera.position.distanceTo(this.controls.target);
+    const base = (d: number, near: number, far: number) => (d < near ? d / near : d < far ? Math.min(1, Math.max(0, 1 - d / far)) : 0);
+    const selRegion = this.selectedID !== null ? this.within.get(this.selectedID)?.[0] ?? null : null;
+    const selConstellation = this.selectedID !== null ? this.within.get(this.selectedID)?.[1] ?? null : null;
+    for (const r of this.regionMarks) {
+      const at = this.abstract ? r.abstract : r.own;
+      const p = this.morph ? null : project(at);
+      const d = eye.distanceTo(at);
+      const opacity = r.id === selRegion ? 1 : Math.round(base(d, 220000 * 0.015, 220000 * 2) * Math.min(1, zoomDist / d) * 100) / 100;
+      if (!p || opacity <= 0) { r.el.style.display = "none"; continue; }
+      r.el.style.display = "";
+      r.el.style.opacity = String(Math.min(1, opacity));
+      r.el.style.transform = `translate(calc(${p.x.toFixed(1)}px - 50%), ${(p.y - 12 - 20).toFixed(1)}px)`;
+    }
+    for (const c of this.constellationMarks) {
+      const selected = c.id === selConstellation, active = c.regionID === selRegion;
+      let opacity = 0;
+      if (selected || active) {
+        if (this.abstract) opacity = this.zoomValue > 0.75 && this.zoomValue <= 0.81 ? 0.6 : 0;
+        else {
+          const d = eye.distanceTo(c.own);
+          opacity = selected ? 1 : base(d, 220000 * 0.07, 220000 * 0.3) * Math.min(1, zoomDist / d);
+        }
+      }
+      const at = this.abstract ? c.abstract : c.own;
+      const p = this.morph || opacity <= 0 ? null : project(at);
+      if (!p) { c.el.style.display = "none"; continue; }
+      if (!c.el.childNodes.length || c.el.dataset.selected !== String(selected)) {
+        c.el.dataset.selected = String(selected);
+        c.el.replaceChildren(document.createTextNode(c.name));
+        if (!selected && c.security !== null) {
+          const s = document.createElement("span");
+          s.textContent = " " + shownSecurity(c.security).toFixed(1);
+          s.style.color = securityStatusColor(c.security);
+          c.el.appendChild(s);
+        }
+      }
+      c.el.style.display = "";
+      c.el.style.opacity = String(Math.min(1, opacity));
+      // offsetY: 3D -(height + 8), abstract -(height - 20)
+      c.el.style.transform = `translate(calc(${p.x.toFixed(1)}px - 50%), ${(p.y - 14 - (this.abstract ? -20 : 8)).toFixed(1)}px)`;
     }
     if (this.hoverLabel) {
       const p = project(this.hoverLabel.at);

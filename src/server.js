@@ -12864,7 +12864,19 @@ app.get("/api/map/stars", requireAuth, (req, res, next) => {
         seen.add(key);
         jumps.push([from, to]);
       }
-      starMapPayload = { ok: true, systems, jumps };
+      // the known regions (idCheckers.IsKnownSpaceRegion: 10000000 - 10999999) and constellations (20000000 -
+      // 20999999), each [id, x, y, z, name] (a constellation's region last), their centres as the data gives them
+      const named = (row) => (row && row.name && typeof row.name === "object" ? String(row.name.en || "") : String(row.name || ""));
+      const regions = [], constellations = [];
+      for (const r of staticData.getRegions()) {
+        const id = Number(r._key ?? r.regionID);
+        if (id >= 10000000 && id <= 10999999 && r.position) regions.push([id, Number(r.position.x), Number(r.position.y), Number(r.position.z), named(r)]);
+      }
+      for (const c of staticData.getConstellations()) {
+        const id = Number(c._key ?? c.constellationID);
+        if (id >= 20000000 && id <= 20999999 && c.position) constellations.push([id, Number(c.position.x), Number(c.position.y), Number(c.position.z), named(c), Number(c.regionID) || 0]);
+      }
+      starMapPayload = { ok: true, systems, jumps, regions, constellations };
     }
     res.json(starMapPayload);
   } catch (error) {
