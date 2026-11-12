@@ -95,6 +95,8 @@ export function pickExplosion(table: ExplosionSounds, typeID: number): { event: 
 }
 
 function eventsMap(): Promise<Record<string, EventSounds>> {
+  // (the sounds' own properties asked with the events, so the first sound played has them)
+  askSoundProps();
   events ??= fetch("/client-assets/audio/events.json").then((r) => (r.ok ? r.json() as Promise<Record<string, EventSounds>> : {})).catch(() => ({}));
   return events;
 }
@@ -113,6 +115,21 @@ export function setListener(at: Vec3, forward: Vec3, up: Vec3): void {
     l.forwardX.value = forward.x; l.forwardY.value = forward.y; l.forwardZ.value = forward.z;
     l.upX.value = up.x; l.upY.value = up.y; l.upZ.value = up.z;
   }
+}
+
+/** The sounds' own properties (soundProps.json: v its volume in dB, l its loop count - 0 for ever). */
+let soundProps: Record<string, { v?: number; l?: number }> = {};
+let soundPropsAsked = false;
+function askSoundProps(): void {
+  if (soundPropsAsked) return;
+  soundPropsAsked = true;
+  void fetch("/client-assets/audio/soundProps.json").then((r) => (r.ok ? r.json() : {})).then((j) => { soundProps = j as typeof soundProps; }).catch(() => {});
+}
+/** A sound's own level as a gain (its volume property in dB), and whether it loops for ever. */
+export function ownOf(sound: string): { gain: number; loop: boolean } {
+  askSoundProps();
+  const p = soundProps[sound];
+  return { gain: p?.v !== undefined ? Math.pow(10, p.v / 20) : 1, loop: p?.l === 0 };
 }
 
 /** A sound's buffer, decoded once. */
@@ -138,8 +155,11 @@ async function start(name: string, sounds: { sound: string; gain: number }[], vo
     if (!buffer) continue;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    const own = ownOf(sounds[n]!.sound);
+    // (a sound that loops for ever in Wwise loops here until its event's stop)
+    source.loop = own.loop;
     const gain = ctx.createGain();
-    gain.gain.value = volume * sounds[n]!.gain;
+    gain.gain.value = volume * sounds[n]!.gain * own.gain;
     source.connect(gain).connect(out(ctx));
     source.start();
     entry.played = true;
@@ -209,7 +229,7 @@ export async function playWorldLoop(name: string, at: Vec3): Promise<WorldLoop> 
     source.buffer = buffer;
     source.loop = true;
     const gain = ctx.createGain();
-    gain.gain.value = volume * sounds[n]!.gain;
+    gain.gain.value = volume * sounds[n]!.gain * ownOf(sounds[n]!.sound).gain;
     const panner = new PannerNode(ctx, { panningModel: "equalpower", distanceModel: "inverse", refDistance: 1000, maxDistance: 300000, rolloffFactor: 1,
       positionX: at.x, positionY: at.y, positionZ: at.z });
     source.connect(gain).connect(panner).connect(ctx.destination);

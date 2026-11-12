@@ -168,7 +168,6 @@ function switchChildren(body) {
   }
   return [];
 }
-const f32 = (b, o) => new DataView(b.buffer, b.byteOffset + o, 4).getFloat32(0, true);
 /**
  * A layer container's crossfades (CAkLayerCntr after its Children: the layer count, then each layer - its id, its RTPC
  * curves (a u16 count; each RTPC id, type, accumulation, parameter, curve id, scaling, a u16 point count and
@@ -221,11 +220,41 @@ function layersOf(id, depth = 0) {
   const sources = sourcesOf(id, depth);
   return sources.length ? [{ s: sources }] : [];
 }
+/**
+ * A sound's own properties (its NodeBaseParams' AkPropBundle: a count, the ids, then each value - found after its
+ * DirectParentID, the first u32 past its source data that names a known object, and its byBitVector). Bank version
+ * 150's ids as the bank's own values show them: 0x00 the volume in dB (-40 .. +12 over 2,028 sounds), 0x54 the loop
+ * count (0 for ever - the ships' ambient -, else 2, 6 ...); the others not settled and not read.
+ */
+const f32 = (b, o) => new DataView(b.buffer, b.byteOffset + o, 4).getFloat32(0, true);
+const soundProps = {};
+function propsOf(body) {
+  let p = 19;
+  while (p + 4 <= body.length && !objects.has(u32(body, p))) p++;
+  if (p + 6 > body.length) return {};
+  let q = p + 5;
+  const n = body[q]; q += 1;
+  const ids = Array.from(body.subarray(q, q + n)); q += n;
+  const out = {};
+  ids.forEach((id, k) => {
+    const at = q + 4 * k;
+    if (at + 4 > body.length) return;
+    if (id === 0x00) out.v = Math.round(f32(body, at) * 100) / 100;
+    if (id === 0x54) out.l = u32(body, at);
+  });
+  return out;
+}
 function sourcesOf(id, depth = 0) {
   const o = objects.get(id);
   if (!o || depth > 8) return [];
   if (o.type === 5) return playlist(o.body).flatMap((child) => sourcesOf(child, depth + 1));
   if (o.type !== 2) return [];
+  const files = soundSources(o);
+  const props = propsOf(o.body);
+  if (Object.keys(props).length) for (const f of files) soundProps[f] = props;
+  return files;
+}
+function soundSources(o) {
   const stream = o.body[8], source = u32(o.body, 9);
   if (stream === 0) { const file = sourceBank.get(source); return file ? [file] : []; }
   // prefetched or streamed: the whole sound is its own file
@@ -277,6 +306,9 @@ for (const [id, o] of objects) {
 console.log(`events whose layers fade by distance: ${faded}`);
 const containers = layered;
 fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
+// soundProps.json: a sound file's own volume (v, dB) and loop count (l: 0 for ever)
+fs.writeFileSync(path.join(root, "soundProps.json"), JSON.stringify(soundProps));
+console.log(`sounds with their own volume or loop: ${Object.keys(soundProps).length}`);
 console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} with layers); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
 
 // The effects' sounds (fxSounds.json, by guid): each effect's graphic (the effects table's graphicID - effects.json
