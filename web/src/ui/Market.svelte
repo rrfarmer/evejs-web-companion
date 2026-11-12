@@ -118,6 +118,7 @@
     "UI/Common/LocationTypes/Unreachable": "Unreachable",
     "UI/Market/MarketQuote/NumberOfJumps": "{[numeric]num} Jumps",
     "UI/Market/MarketQuote/Expired": "Expired",
+    "UI/Market/Marketbase/CommandPlaceBuyOrder": "Place Buy Order",
     "UI/Market/Marketbase/NoTypeSelected": "No type selected",
     "UI/Market/MarketData": "Market Data",
     "UI/Market/Marketbase/PriceHistory": "Price History",
@@ -452,6 +453,37 @@
 
   function typeName(typeID: number): string {
     return resolvedName($names.resolved, "type", typeID, "an unnamed item");
+  }
+
+  /**
+   * MarketData's scrolls sort by a column header (eveScroll smartSort, the sort_<header> values quote.py sets): by
+   * price at first - the sellers up, the buyers down - and a header clicked again turns its order round.
+   */
+  type QuoteKey = "jumps" | "qty" | "price" | "location" | "range" | "minvol" | "expires";
+  let sellSort = $state<{ key: QuoteKey; up: boolean }>({ key: "price", up: true });
+  let buySort = $state<{ key: QuoteKey; up: boolean }>({ key: "price", up: false });
+  function quoteSortValue(order: MarketOrderRow, key: QuoteKey): number | string {
+    switch (key) {
+      // (GetJumps: in this station -1)
+      case "jumps": return order.jumps === 0 && (order.stationID === $market.stationID || order.stationID === $market.structureID) ? -1 : order.jumps;
+      case "qty": return order.volumeRemaining;
+      case "price": return Number(order.price);
+      case "location": return stationName(order.stationID).toLowerCase();
+      // (GetRange: station 0, system 0.5, region the most, else the jumps)
+      case "range": return order.range === -1 ? 0 : order.range === 0 ? 0.5 : order.range === 32767 ? Number.MAX_SAFE_INTEGER : order.range;
+      case "minvol": return Math.min(order.volumeRemaining, order.minimumVolume);
+      case "expires": return order.issuedAt === null ? 0 : Number(order.issuedAt) + order.durationDays * 864_000_000_000;
+    }
+  }
+  function quoteSorted(list: readonly MarketOrderRow[], sort: { key: QuoteKey; up: boolean }): MarketOrderRow[] {
+    return [...list].sort((a, b) => {
+      const x = quoteSortValue(a, sort.key), y = quoteSortValue(b, sort.key);
+      const c = typeof x === "string" ? x.localeCompare(String(y)) : x - (y as number);
+      return sort.up ? c : -c;
+    });
+  }
+  function quoteHeader(sort: { key: QuoteKey; up: boolean }, key: QuoteKey): { key: QuoteKey; up: boolean } {
+    return sort.key === key ? { key, up: !sort.up } : { key, up: true };
   }
 
   /** quote.py GetJumps: in this station (the session's station or structure) Station, else at 0 System; Unreachable; the number. */
@@ -1191,11 +1223,11 @@
           <div class="mkt-quote-scroll">
             <table>
               <thead><tr>
-                <th class="r">{qbWord("UI/Market/Marketbase/Jumps")}</th><th class="r">{qbWord("UI/Common/Quantity")}</th>
-                <th class="r">{qbWord("UI/Market/Marketbase/Price")}</th><th>{qbWord("UI/Common/Location")}</th><th>{qbWord("UI/Market/Marketbase/ExpiresIn")}</th>
+                <th class="r" aria-sort={sellSort.key === "jumps" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{sellSort.key === "jumps" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" aria-sort={sellSort.key === "qty" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "qty"))}>{qbWord("UI/Common/Quantity")}{sellSort.key === "qty" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th>
+                <th class="r" aria-sort={sellSort.key === "price" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "price"))}>{qbWord("UI/Market/Marketbase/Price")}{sellSort.key === "price" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={sellSort.key === "location" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "location"))}>{qbWord("UI/Common/Location")}{sellSort.key === "location" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={sellSort.key === "expires" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "expires"))}>{qbWord("UI/Market/Marketbase/ExpiresIn")}{sellSort.key === "expires" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th>
               </tr></thead>
               <tbody>
-                {#each sells as order (order.orderID)}
+                {#each quoteSorted(sells, sellSort) as order (order.orderID)}
                   <tr title={`Use ${formatIsk(order.price)} as your buy price`} onclick={() => { if (!busy) useOrderPrice(order, "buy"); }}>
                     <td class="r">{quoteJumps(order)}</td><td class="r">{order.volumeRemaining.toLocaleString()}</td>
                     <td class="r price">{formatIsk(order.price)}</td><td>{stationName(order.stationID)}</td><td>{quoteExpires(order)}</td>
@@ -1208,12 +1240,12 @@
           <div class="mkt-quote-scroll">
             <table>
               <thead><tr>
-                <th class="r">{qbWord("UI/Market/Marketbase/Jumps")}</th><th class="r">{qbWord("UI/Common/Quantity")}</th>
-                <th class="r">{qbWord("UI/Market/Marketbase/Price")}</th><th>{qbWord("UI/Common/Location")}</th><th>{qbWord("UI/Common/Range")}</th>
-                <th class="r">{qbWord("UI/Market/MarketQuote/HeaderMinVolumn")}</th><th>{qbWord("UI/Market/Marketbase/ExpiresIn")}</th>
+                <th class="r" aria-sort={buySort.key === "jumps" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{buySort.key === "jumps" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" aria-sort={buySort.key === "qty" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "qty"))}>{qbWord("UI/Common/Quantity")}{buySort.key === "qty" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
+                <th class="r" aria-sort={buySort.key === "price" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "price"))}>{qbWord("UI/Market/Marketbase/Price")}{buySort.key === "price" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "location" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "location"))}>{qbWord("UI/Common/Location")}{buySort.key === "location" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "range" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "range"))}>{qbWord("UI/Common/Range")}{buySort.key === "range" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
+                <th class="r" aria-sort={buySort.key === "minvol" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "minvol"))}>{qbWord("UI/Market/MarketQuote/HeaderMinVolumn")}{buySort.key === "minvol" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "expires" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "expires"))}>{qbWord("UI/Market/Marketbase/ExpiresIn")}{buySort.key === "expires" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
               </tr></thead>
               <tbody>
-                {#each buys as order (order.orderID)}
+                {#each quoteSorted(buys, buySort) as order (order.orderID)}
                   <tr title={`Use ${formatIsk(order.price)} as your sell price`} onclick={() => { if (!busy) useOrderPrice(order, "sell"); }}>
                     <td class="r">{quoteJumps(order)}</td><td class="r">{order.volumeRemaining.toLocaleString()}</td>
                     <td class="r price">{formatIsk(order.price)}</td><td>{stationName(order.stationID)}</td><td>{quoteRange(order)}</td>
@@ -1223,6 +1255,17 @@
               </tbody>
             </table>
           </div>
+          <!-- MarketData's ButtonGroup (TOBOTTOM, padTop 16, at the end): Place Buy Order (PRIMARY, the ISK icon - our buy
+               draft), Find in Contracts; Export to File is not built. -->
+          {#if $market.typeID !== null}
+            {@const quotedTypeID = $market.typeID}
+            <div class="mkt-quote-buttons">
+              <button type="button" class="mkt-primary" disabled={busy} onclick={() => startDraft("buy")}>
+                <img alt="" src="/client-res/ui/texture/eveicon/category_icons/isk_16px.png" />{qbWord("UI/Market/Marketbase/CommandPlaceBuyOrder")}
+              </button>
+              <button type="button" class="mkt-ghost" onclick={() => findInContracts(quotedTypeID)}>{qbWord("UI/Inventory/ItemActions/FindInContracts")}</button>
+            </div>
+          {/if}
         </div>
       {:else}
       <h3>On sale (you can buy these)</h3>

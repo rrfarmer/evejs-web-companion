@@ -817,6 +817,13 @@
   .fly-windows :global(.mkt-quote-scroll td.price) { color: #fff; }
   .fly-windows :global(.mkt-quote-scroll tbody tr) { cursor: pointer; }
   .fly-windows :global(.mkt-quote-scroll tbody tr:hover) { background: rgba(255, 255, 255, 0.06); }
+  .fly-windows :global(.mkt-quote-scroll th button) { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+  .fly-windows :global(.mkt-quote-buttons) { display: flex; justify-content: flex-end; gap: 6px; padding-top: 16px; }
+  .fly-windows :global(.mkt-primary) { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 12px; color: #fff; cursor: pointer;
+    background: rgba(88, 168, 196, 0.35); border: 1px solid rgba(88, 168, 196, 0.8); }
+  .fly-windows :global(.mkt-primary img) { width: 16px; height: 16px; }
+  /* the page's own Offer to buy / to sell row stays (the client's sell goes from the inventory); the Place Buy Order
+     button below the lists is the client's way to the buy draft */
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
