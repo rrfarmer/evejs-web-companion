@@ -62,7 +62,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "fleet", label: "Fleet", icon: icon("fleet") },
     { id: "mail", label: "EVE Mail", icon: icon("evemail") },
     { id: "corporation", label: "Corporation", icon: icon("corporation") },
-    { id: null, label: "Calendar", icon: icon("calendar") },
+    { id: "calendar", label: "Calendar", icon: icon("calendar") },
   ] },
   { label: "Utilities", icon: icon("directoryUtilities"), items: [
     { id: "notepad", label: "Notepad", icon: icon("notepad") },

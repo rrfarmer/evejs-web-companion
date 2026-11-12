@@ -45,6 +45,7 @@
   import Settings from "./Settings.svelte";
   import NoticeLog from "./NoticeLog.svelte";
   import Notepad from "./Notepad.svelte";
+  import CalendarWindow from "./CalendarWindow.svelte";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { deriveDocked, tabLabel, type TabID } from "./tabs.ts";
   import { globalWindowView } from "./globalWindowViews.ts";
@@ -212,6 +213,8 @@
   <NoticeLog />
 {:else if tab === "notepad"}
   <Notepad {store} {flow} />
+{:else if tab === "calendar"}
+  <CalendarWindow {store} {flow} />
 {:else if tab === "chat"}
   <!-- A skill plan link in a message, followed (link.py handle_link): the Skills window opens on it. -->
   <Chat {store} {flow} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
