@@ -289,6 +289,8 @@ export class SpaceView {
   private clickMods = { ctrl: false, shift: false, alt: false, at: 0 };
   /** The combat command loaded (LoadCombatCommand): its name and the key that holds it. */
   private combat: { cmd: CombatCommand; code: string } | null = null;
+  /** bracketSettings' display override (bracketConst SHOW_DEFAULT / SHOW_NONE / SHOW_ALL): Alt+Z, Alt+Shift+Z. */
+  private bracketOverride: "default" | "none" | "all" = "default";
   private readonly indicationEl = document.createElement("div");
   private readonly unhold: (() => void)[] = [];
   private lastFrameAt = performance.now();
@@ -930,6 +932,27 @@ export class SpaceView {
     }
     if (cmd === "OpenDirectionalScanner" && this.dscan) { e.preventDefault(); this.dscan.toggle(); return; }
     if (cmd === "CmdRefreshDirectionalScan" && this.dscan) { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); return; }
+    // bracketSettings.toggle_show_no_brackets / toggle_show_all_brackets: the override to it, or back to the default
+    // (every bracket here is the overview's whole grid already: "all" draws as the default does)
+    if (cmd === "CmdToggleShowNoBrackets" || cmd === "CmdToggleShowAllBrackets") {
+      e.preventDefault();
+      const want = cmd === "CmdToggleShowNoBrackets" ? "none" : "all";
+      this.bracketOverride = this.bracketOverride === want ? "default" : want;
+      this.brackets.style.display = this.bracketOverride === "none" ? "none" : "";
+      return;
+    }
+    // targetMgr.SelectNext/PrevTarget: the active target moved along the locked targets, wrapping (FindNextTarget;
+    // an active target no longer locked: the first)
+    if (cmd === "CmdSelectNextTarget" || cmd === "CmdSelectPrevTarget") {
+      e.preventDefault();
+      const order = [...this.locked];
+      if (this.activeTarget === null || order.length === 0) return;
+      const at = order.indexOf(this.activeTarget);
+      const next = at < 0 ? order[0]! : cmd === "CmdSelectNextTarget" ? order[(at + 1) % order.length]! : order[(at - 1 + order.length) % order.length]!;
+      this.activeTarget = next;
+      this.select(next);
+      return;
+    }
     if (cmd === "CmdStopShip") { e.preventDefault(); void this.act("Stop", () => this.actions.stop()); return; }
     if (cmd === "CmdSetShipFullSpeed") { e.preventDefault(); void this.fullSpeed(); return; }
     const RACKS = { High: "high", Medium: "mid", Low: "low" } as const;

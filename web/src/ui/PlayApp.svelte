@@ -29,6 +29,7 @@
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { notify } from "./notices.ts";
+  import { orderableDroneIDs } from "./droneFlight.ts";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
@@ -436,6 +437,35 @@
   }
   onDestroy(() => toggleStarMap(false));
 
+  /**
+   * The in-space commands the session runs (in space only): CmdReloadAmmo (Ctrl+R: shipUI.OnReloadAmmo - the rack's
+   * Reload All, the modules reloading now left out); CmdDronesEngage (F: droneFunctions.PerformPrimaryAction - the drones
+   * the pilot controls at the active target, the first locked) and CmdDronesReturnToBay (Shift+R: entity.CmdReturnBay of
+   * every drone). True where the command was one of these.
+   */
+  function spaceCommand(cmd: string): boolean {
+    const s = session;
+    if (!s || docked) return false;
+    const say = (title: string) => (cause: unknown) => notify({ kind: "danger", title, detail: cause instanceof Error ? cause.message : String(cause) });
+    if (cmd === "CmdReloadAmmo") {
+      const reloading = new Set(Object.keys(s.store.fitting.get().reloads ?? {}).map(Number));
+      void s.flow.reloadAll(reloading).catch(say("Reload all"));
+      return true;
+    }
+    if (cmd === "CmdDronesEngage" || cmd === "CmdDronesReturnToBay") {
+      const snap = s.store.space.get().snapshot;
+      const ids = orderableDroneIDs(s.store.drones.get().inSpace, snap?.entities ?? null, snap?.ship?.itemID ?? null);
+      if (ids.length === 0) return true;
+      if (cmd === "CmdDronesReturnToBay") void s.flow.recallDrones(ids).catch(say("Drones"));
+      else {
+        const target = s.store.targeting.get().lockedTargetIDs?.[0] ?? 0;
+        if (target > 0) void s.flow.engageDrones(ids, target).catch(say("Drones"));
+      }
+      return true;
+    }
+    return false;
+  }
+
   /** A key press as the client's command it is the default shortcut of (the command service's accelerators). */
   function onKey(e: KeyboardEvent) {
     if (stage !== "game") return;
@@ -445,6 +475,7 @@
     if (cmd === null) return;
     // CmdToggleMap (F10): the map; OnEsc: the map closed first, else the system menu (EscapeCommand)
     if (cmd === "CmdToggleMap") { e.preventDefault(); toggleStarMap(); return; }
+    if (spaceCommand(cmd)) { e.preventDefault(); return; }
     if (cmd === "OnEsc") {
       e.preventDefault();
       if (starMap) toggleStarMap(false);
