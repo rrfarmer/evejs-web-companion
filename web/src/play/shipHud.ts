@@ -47,6 +47,7 @@ const TEX = {
   slotOverload: (state: "On" | "Off" | "Disabled") => res(`${SHIP_UI}slotOverload${state}.png`),
   overloadBtn: (key: string, on = false) => res(`${SHIP_UI}overloadBtn${key}${on ? "On" : "Off"}.png`),
   slotDamage: (i: number) => res(`${SHIP_UI}slotDamage_${i}.png`),
+  halfMask: res("res:/UI/Texture/classes/PieCircle/halfMask32.png"),
   // CheckButtonVisibility: 'ui_8_64_11', 'ui_8_64_10', 'ui_8_64_9' for empty high, medium, low slots
   emptySlotIcon: [11, 10, 9].map((n) => res(`res:/UI/Texture/Icons/8_64_${n}.png`)),
   slotGlow: res(`${SHIP_UI}slotGlow.png`),
@@ -71,6 +72,8 @@ export interface HudModule {
   overloaded?: boolean;
   /** Its damage over its hp, 0..1 - its bank's worst (GetModuleGroupDamage); 0 or left out: none. */
   damage?: number;
+  /** Its repair under way: when it began (Date.now()) and how long it runs (the damage over the repair rate). */
+  repair?: { startedAtMs: number; durationMs: number } | null;
 }
 
 /** What the rack's overload buttons do (godma ToggleOverload / Overload, OverloadRack / StopOverloadRack). */
@@ -276,6 +279,8 @@ const CSS = `
   -webkit-mask: var(--glow) center / 100% 100% no-repeat; mask: var(--glow) center / 100% 100% no-repeat;
   animation: ship-hud-slot-blink 1s ease-in-out infinite alternate; }
 @keyframes ship-hud-slot-blink { from { opacity: 0.75; } to { opacity: 0.15; } }
+.ship-hud-root .slot-glow.repairing { background-color: rgb(255, 255, 255); animation: ship-hud-repair-glow 2500ms linear infinite; }
+@keyframes ship-hud-repair-glow { 0% { opacity: 0.9; } 50% { opacity: 0; } 100% { opacity: 0.9; } }
 .ship-hud-root .slot-damage-blink { animation: ship-hud-damage-blink var(--t, 2000ms) linear 2; }
 @keyframes ship-hud-damage-blink { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
 .ship-hud-root .ol-pending-on { animation: ship-hud-ol-on 0.5s ease-in infinite; }
@@ -646,7 +651,7 @@ export class ShipHud {
     this.checkOverload(modules);
     for (const m of modules) {
       const g = this.glows.get(m.itemID);
-      if (g) g.style.display = m.active ? "" : "none";
+      if (g) g.style.display = m.active || m.repair ? "" : "none";
       // The cycle, as the client's ramps sweep round a running module (ShipModuleButtonRamps): a share of the ring.
       const sw = this.sweeps.get(m.itemID);
       if (sw) {
@@ -660,7 +665,7 @@ export class ShipHud {
   /** The slots' overload buttons and the racks' (by "Hi" / "Med" / "Lo"), with what they stand for now. */
   private readonly overloadButtons = new Map<number, { img: HTMLImageElement; module: HudModule; state: string; pending: { on: boolean; until: number } | null }>();
   /** The slots' damage states (DamageStateCont), with the damage they show. */
-  private readonly damageStates = new Map<number, { img: HTMLImageElement; damage: number }>();
+  private readonly damageStates = new Map<number, { img: HTMLImageElement; damage: number; ramps: HTMLDivElement; turns: { mask: HTMLDivElement; tex: HTMLImageElement }[]; repair: { startedAtMs: number; durationMs: number; share: number } | null }>();
   private readonly rackButtons = new Map<string, { img: HTMLImageElement; activationID: number | null; active: boolean }>();
   private overload: HudOverload | null = null;
 
@@ -713,17 +718,49 @@ export class ShipHud {
   private setDamage(m: HudModule): void {
     const d = this.damageStates.get(m.itemID);
     if (!d) return;
+    this.setRepair(m, d);
     const damage = m.damage ?? 0;
     if (damage === d.damage) return;
     d.damage = damage;
     if (!(damage >= 0.0001)) { d.img.style.display = "none"; return; }
     d.img.src = TEX.slotDamage(Math.max(1, Math.trunc(damage * 8)));
+    for (const t of d.turns) t.tex.src = d.img.src;
     d.img.style.display = "";
     d.img.title = `${(damage * 100).toFixed(1)}% damaged`;
     d.img.classList.remove("slot-damage-blink");
     void d.img.offsetWidth;
     d.img.style.setProperty("--t", `${Math.max(1, 2000 - 1000 * damage)}ms`);
     d.img.classList.add("slot-damage-blink");
+  }
+
+  /**
+   * SetRepairing and ramps.py AnimateRepair: while a repair runs the glow is white and blinks (BlinkSpriteA 0.9, 2.5 s,
+   * no end), and the damage state is drawn through its two half ramps (spriteEffect 64: the texture by halfMask32,
+   * the mask turned): hp = (hp - damage x (1 - done)) / hp; the left ramp's mask turned -0.8 pi (2 hp - 1) for hp in
+   * [0.5, 1], the right's 0.8 pi (1 - 2 hp) for hp in [0, 0.5] (carbonui's turn is anticlockwise on the screen) - the
+   * damage left shown shrinking to nothing. RemoveRepairing (OnModuleRepaired) puts it back.
+   */
+  private setRepair(m: HudModule, d: { img: HTMLImageElement; damage: number; ramps: HTMLDivElement; turns: { mask: HTMLDivElement; tex: HTMLImageElement }[]; repair: { startedAtMs: number; durationMs: number; share: number } | null }): void {
+    const r = m.repair ?? null;
+    const glow = this.glows.get(m.itemID);
+    if (!r) {
+      if (d.repair) { d.repair = null; d.ramps.style.display = "none"; d.img.style.visibility = ""; glow?.classList.remove("repairing"); if (glow && !m.active) glow.style.display = "none"; }
+      return;
+    }
+    if (!d.repair || d.repair.startedAtMs !== r.startedAtMs) d.repair = { ...r, share: m.damage ?? d.damage };
+    if (glow) { glow.classList.add("repairing"); glow.style.display = ""; }
+    if (!(d.repair.share > 0) || !(d.repair.durationMs > 0)) return;
+    const done = Math.max(0, Math.min(1, (Date.now() - d.repair.startedAtMs) / d.repair.durationMs));
+    const hp = 1 - d.repair.share * (1 - done);
+    const left = -0.8 * (2 * Math.min(1, Math.max(0.5, hp)) - 1) * Math.PI;
+    const right = 0.8 * (1 - 2 * Math.max(0, Math.min(0.5, hp))) * Math.PI;
+    [left, right].forEach((turn, i) => {
+      const t = d.turns[i]!;
+      t.mask.style.transform = `rotate(${(-turn).toFixed(4)}rad)`;
+      t.tex.style.transform = `rotate(${turn.toFixed(4)}rad)`;
+    });
+    d.img.style.visibility = "hidden";
+    d.ramps.style.display = "";
   }
 
   private buildSlots(counts: { hi: number; med: number; low: number }, modules: readonly HudModule[] = [], onModule?: (m: HudModule) => void): void {
@@ -806,7 +843,20 @@ export class ShipHud {
           const damage = sprite(slot, TEX.slotDamage(1), 0, 0, 64, 64, "damageState");
           damage.style.display = "none";
           damage.style.zIndex = "1";
-          this.damageStates.set(module.itemID, { img: damage, damage: 0 });
+          // its two half ramps (leftRampCont / rightRampCont: each half of the slot, clipped, the whole texture in it)
+          const ramps = div(slot, 0, 0, 64, 64, "damageRamps");
+          ramps.style.zIndex = "1";
+          ramps.style.display = "none";
+          const turns = [0, 32].map((x) => {
+            const half = div(ramps, x, 0, 32, 64, x === 0 ? "leftRampCont" : "rightRampCont");
+            half.style.overflow = "hidden";
+            const mask = div(half, -x, 0, 64, 64, "ramp");
+            mask.style.setProperty("-webkit-mask", `url("${TEX.halfMask}") 0 0 / 64px 64px no-repeat`);
+            mask.style.setProperty("mask", `url("${TEX.halfMask}") 0 0 / 64px 64px no-repeat`);
+            const tex = sprite(mask, TEX.slotDamage(1), 0, 0, 64, 64, "rampTexture");
+            return { mask, tex };
+          });
+          this.damageStates.set(module.itemID, { img: damage, damage: 0, ramps, turns, repair: null });
           continue;
         }
         const icon = sprite(slot, TEX.emptySlotIcon[r]!, mid(64, 24), 13, 24, 24, "emptySlotIcon");

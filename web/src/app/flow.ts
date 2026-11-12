@@ -2901,6 +2901,8 @@ export interface AppFlow {
    * in its own words. A module with no overload effect is not asked of it.
    */
   setModuleOverload(itemID: number, overloaded: boolean): Promise<void>;
+  /** A module's repair begun by this page (its bank's: the module's own, else a slave's), or null. */
+  moduleRepairOf(itemID: number): { readonly startedAtMs: number; readonly durationMs: number } | null;
   /** A module type's effect of the overload category (null: it has none), asked once a type and kept. */
   overloadEffectOf(typeID: number): Promise<number | null>;
   /**
@@ -30071,6 +30073,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deactivateModule,
     setModuleOverload,
     overloadEffectOf: (typeID: number) => overloadEffects.of(typeID),
+    moduleRepairOf: (itemID: number) => moduleRepairs.repairOf(itemID)
+      ?? (heldWeaponBanks().get(itemID) ?? []).map((slave) => moduleRepairs.repairOf(slave)).find((r) => r !== null) ?? null,
     repairModule,
     setWeaponBanks,
     loadMiningHolds,

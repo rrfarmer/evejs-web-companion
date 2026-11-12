@@ -112,6 +112,11 @@ export interface ModuleRepairs {
   /** Ends every repair begun here: godma's doing at a session's change. One that fails does not keep the rest. */
   endAll(): Promise<void>;
   beingRepaired(moduleID: number): boolean;
+  /**
+   * A repair begun here: when (Date.now()) and how long it runs before godma ends it, less the second godma adds -
+   * the module's damage over the repair rate (ShowRepairLeft's repairTime). Null for a module not being repaired.
+   */
+  repairOf(moduleID: number): { readonly startedAtMs: number; readonly durationMs: number } | null;
 }
 
 /**
@@ -124,7 +129,7 @@ export function createModuleRepairs(
 ): ModuleRepairs {
   const later = options.later ?? ((ms, run) => { setTimeout(run, ms); });
   /** Each module being repaired, with the mark of the beginning that is its own (godma keeps a time stamp). */
-  const begun = new Map<number, object>();
+  const begun = new Map<number, { readonly startedAtMs: number; readonly durationMs: number }>();
   async function end(moduleID: number): Promise<void> {
     if (!begun.has(moduleID)) return;
     try {
@@ -136,7 +141,7 @@ export function createModuleRepairs(
     }
   }
   function keep(moduleID: number, waitMs: number): void {
-    const mark = {};
+    const mark = { startedAtMs: Date.now(), durationMs: Math.max(0, waitMs - 1000) };
     begun.set(moduleID, mark);
     // RepairModule_thread (2253): when the time is up, only the beginning that is still this module's ends it.
     later(waitMs, () => {
@@ -168,6 +173,7 @@ export function createModuleRepairs(
       for (const moduleID of [...begun.keys()]) await end(moduleID).catch(() => {});
     },
     beingRepaired: (moduleID) => begun.has(moduleID),
+    repairOf: (moduleID) => begun.get(moduleID) ?? null,
   };
 }
 
