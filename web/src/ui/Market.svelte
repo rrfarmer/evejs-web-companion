@@ -44,6 +44,7 @@
   // to a name-derived tile whenever the icon cache has no entry (or no cache).
   import TypeIcon from "./TypeIcon.svelte";
   import MarketPriceHistory from "./MarketPriceHistory.svelte";
+  import { clientTexture } from "./skillGroupIcons.ts";
   import NamePopup from "./NamePopup.svelte";
   import { marketQuickbar, changeQuickbar } from "./marketQuickbar.ts";
   import {
@@ -1079,6 +1080,12 @@
       {#each groups as node (node.marketGroupID)}
         <li>
           <button type="button" class="pick-row pick-group" disabled={busy} onclick={() => enterGroup(node)}>
+            {#if retail}
+              <!-- listgroup.ListGroup (a MarketListGroup row): the expander 16 at 4 (Shared/expanderDown.png, turned while
+                   closed), the group's icon 16 at 22 (its iconID; eveicon.folder where it has none), the label 4 after -->
+              <img class="mkt-expander" alt="" src="/client-res/ui/texture/shared/expanderdown.png" />
+              <img class="mkt-group-icon" alt="" src={node.iconFile ? clientTexture(node.iconFile) : "/client-res/ui/texture/eveicon/system_icons/folder_16px.png"} />
+            {/if}
             <span class="pick-main">
               <span class="pick-name">{node.name}</span>
             </span>

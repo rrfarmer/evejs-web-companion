@@ -116,8 +116,9 @@ test("a module type's base cycle time: the page asks by typeIDs, and reads baseC
 
 test("the market's tree: the page asks a group's children by parent, the roots at nought, and reads groups", async () => {
   const { api, options, asked, paths } = await page();
-  assert.deepEqual(await api.loadMarketGroups(0, options), [{ marketGroupID: 4, name: "Ships", hasTypes: false }, { marketGroupID: 9, name: "Ship Equipment", hasTypes: true }]);
-  assert.deepEqual(await api.loadMarketGroups(4, options), [{ marketGroupID: 5, name: "Frigates", hasTypes: true }]);
+  // (a group's icon file is null where the BFF sends none, as this stub's groups have none)
+  assert.deepEqual(await api.loadMarketGroups(0, options), [{ marketGroupID: 4, name: "Ships", hasTypes: false, iconFile: null }, { marketGroupID: 9, name: "Ship Equipment", hasTypes: true, iconFile: null }]);
+  assert.deepEqual(await api.loadMarketGroups(4, options), [{ marketGroupID: 5, name: "Frigates", hasTypes: true, iconFile: null }]);
   assert.deepEqual(await api.loadMarketGroups(5, options), []);
   assert.deepEqual(paths, ["GET /api/market/groups?parent=0", "GET /api/market/groups?parent=4", "GET /api/market/groups?parent=5"]);
   assert.deepEqual(asked, [["children", 0], ["children", 4], ["children", 5]]);

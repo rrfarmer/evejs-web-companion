@@ -1875,6 +1875,13 @@ function getMarketGroupChildIndex() {
     return caches.get(cacheKey);
   }
   const index = new Map();
+  // the group's icon (marketGroups' iconID through icons.jsonl's iconFile), as the client's market tree draws it
+  let iconFiles = caches.get("icons:iconFile");
+  if (!iconFiles) {
+    iconFiles = new Map();
+    for (const row of readJsonlTable("icons.jsonl")) if (row && row.iconFile) iconFiles.set(Number(row._key), String(row.iconFile));
+    caches.set("icons:iconFile", iconFiles);
+  }
   for (const entry of buildJsonlIndex("marketGroups.jsonl").values()) {
     const id = Number(entry && entry._key) || 0;
     if (id <= 0) {
@@ -1891,6 +1898,7 @@ function getMarketGroupChildIndex() {
       // types, so this is not "is a leaf" — the panel needs to know it can show
       // items here as well as descend.
       hasTypes: entry.hasTypes === true,
+      iconFile: (entry.iconID && iconFiles.get(Number(entry.iconID))) || null,
     });
   }
   for (const children of index.values()) {

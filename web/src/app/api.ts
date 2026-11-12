@@ -1443,6 +1443,8 @@ export interface MarketGroupNode {
    * you descend.
    */
   readonly hasTypes: boolean;
+  /** The group's icon file (res: path) where it has one (marketGroups' iconID); absent from an older BFF. */
+  readonly iconFile?: string | null;
 }
 
 /**
@@ -1466,6 +1468,7 @@ export async function loadMarketGroups(
       marketGroupID: Number(entry.marketGroupID) || 0,
       name: String(entry.name ?? ""),
       hasTypes: entry.hasTypes === true,
+      iconFile: typeof entry.iconFile === "string" ? entry.iconFile : null,
     };
   });
 }

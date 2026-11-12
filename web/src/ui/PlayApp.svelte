@@ -824,6 +824,13 @@
   .fly-windows :global(.mkt-primary img) { width: 16px; height: 16px; }
   /* the page's own Offer to buy / to sell row stays (the client's sell goes from the inventory); the Place Buy Order
      button below the lists is the client's way to the buy draft */
+  /* the browse tree's group rows as listgroup.ListGroup's: 20 high, the expander 16 at 4, the icon 16 at 22, the
+     label after it; no chevron of our own */
+  .fly-windows :global(.market-layout.retail .pick-group) { position: relative; min-height: 20px; padding: 2px 4px 2px 42px; }
+  .fly-windows :global(.market-layout.retail .pick-group .pick-chevron) { display: none; }
+  .fly-windows :global(.market-layout.retail .mkt-expander) { position: absolute; left: 4px; top: calc(50% - 8px); width: 16px; height: 16px;
+    transform: rotate(-90deg); opacity: 0.8; }
+  .fly-windows :global(.market-layout.retail .mkt-group-icon) { position: absolute; left: 22px; top: calc(50% - 8px); width: 16px; height: 16px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
