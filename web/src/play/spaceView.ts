@@ -279,10 +279,11 @@ export class SpaceView {
     this.root.insertBefore(this.shipHud.root, this.modeEl);
     this.shipHud.onStop = () => void this.act("Stop", () => this.actions.stop());
     this.shipHud.onFullSpeed = () => void this.fullSpeed();
-    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", left: innerWidth - 300, top: 14, width: 280, height: 116, closable: false });
+    // (as the eve-cs mirror has it: always on screen, 464 x 135 at the top right, its icon the client's show-info one,
+    // "No object selected" while nothing is)
+    this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", icon: clientTexture("res:/UI/Texture/eveicon/control_icons/show_info_32px.png"), left: innerWidth - 480, top: 15, width: 464, height: 135, closable: false });
     this.selectedWin.body.classList.add("si");
     this.selectedEl = this.selectedWin.root;
-    this.selectedEl.style.display = "none";
     this.root.insertBefore(this.targetBar.root, this.modeEl);
     this.targetBar.onSelect = (id) => { this.activeTarget = id; this.select(id); };
     this.targetBar.onUnlock = (id) => void this.act("Unlock Target", () => this.actions.unlock(id)).then(() => this.refreshTargets());
@@ -492,15 +493,34 @@ export class SpaceView {
 
   private renderSelected(): void {
     const e = this.snapshot?.entities.find((x) => x.itemID === this.selected) ?? null;
-    if (!e || e.isSelf) { this.selectedEl.style.display = "none"; return; }
-    this.selectedEl.style.display = "";
     const body = this.selectedWin.body;
+    if (!e || e.isSelf) {
+      if (body.getAttribute("data-sig") !== "none") {
+        body.setAttribute("data-sig", "none");
+        body.innerHTML = `<div class="si-none">No object selected</div>`;
+      }
+      return;
+    }
     const dist = this.distanceTo(e);
     const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
-      body.innerHTML = `<div class="si-name"></div><div class="si-dist"></div><div class="si-actions"></div>`;
+      // its picture (the client's own, /client-res/type-picture), its name, its type (and Hostile for an NPC), how far
+      const typeName = e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] ?? null : null;
+      body.innerHTML = `<div class="si-top"><img class="si-icon" alt=""><div class="si-labels"><div class="si-name"></div><div class="si-type"></div><div class="si-dist"></div></div></div><div class="si-actions"></div>`;
+      const pic = body.querySelector(".si-icon") as HTMLImageElement;
+      if (e.typeID !== null) pic.src = `/client-res/type-picture/${e.typeID}/64.png`;
+      else pic.style.visibility = "hidden";
+      pic.onerror = () => { pic.style.visibility = "hidden"; };
       body.querySelector(".si-name")!.textContent = this.nameOf(e);
+      const typeEl = body.querySelector(".si-type")!;
+      typeEl.textContent = typeName ?? "";
+      if (e.isNpc) {
+        const hostile = document.createElement("span");
+        hostile.className = "si-hostile";
+        hostile.textContent = "Hostile";
+        typeEl.append(typeName ? " \u00b7 " : "", hostile);
+      }
       const row = body.querySelector(".si-actions")!;
       for (const a of this.actionsFor(e)) {
         const b = document.createElement("button");
@@ -1179,7 +1199,7 @@ export class SpaceView {
       });
     }
     const win = this.selectedWin.root.style;
-    this.targetBar.setAnchor({ left: parseFloat(win.left) || innerWidth - 300, top: parseFloat(win.top) || 14, width: parseFloat(win.width) || 280 });
+    this.targetBar.setAnchor({ left: parseFloat(win.left) || innerWidth - 480, top: parseFloat(win.top) || 15, width: parseFloat(win.width) || 464 });
     this.targetBar.update(entries);
     for (const id of this.lockingIDs.keys()) {
       const el = this.bracketEls.get(id), ind = this.targetBar.lockingIndicator(id);
