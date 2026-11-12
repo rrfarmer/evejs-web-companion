@@ -670,6 +670,19 @@
     width: 109%; max-width: none; height: auto; aspect-ratio: 1; transform: rotate(calc(-1 * var(--turn, 0deg))); position: relative; }
   .fly-windows :global(.fit-ring.retail .fit-socket img.fit-empty-icon), .fly-windows :global(.fit-ring.retail .fit-socket-absent img) {
     width: 109%; max-width: none; height: auto; aspect-ratio: 1; position: relative; }
+  /* The fitting window's stats column as the client's (statsPanel, expandablemenu.ExpandableMenu): PANEL_WIDTH_RIGHT
+     280 at the right; each menu's header 20 high, a white 0.05 fill, the expander icon 16 at 4 in (ui_38_16_228,
+     _229 once expanded), the label (EveLabelMedium 12) 22 in, the header content at the right, 4 between menus. */
+  .fly-windows :global(.fit-window .fit-stats) { flex: 0 0 280px; width: 280px; gap: 4px; }
+  .fly-windows :global(.fit-window .fit-sec) { border: none; background: none; }
+  .fly-windows :global(.fit-window .fit-sec-head) { position: relative; min-height: 20px; padding: 0 6px 0 22px; align-items: center;
+    background: rgba(255, 255, 255, 0.05); gap: 6px; }
+  .fly-windows :global(.fit-window .fit-sec-head::before) { content: ""; position: absolute; left: 4px; top: calc(50% - 7px); width: 16px; height: 16px;
+    opacity: 0.8; background: url('/client-res/ui/texture/icons/38_16_228.png') center / 16px 16px no-repeat; }
+  .fly-windows :global(.fit-window .fit-sec[open] > .fit-sec-head::before) { content: ""; background-image: url('/client-res/ui/texture/icons/38_16_229.png'); }
+  .fly-windows :global(.fit-window .fit-sec-name) { color: rgba(255, 255, 255, 0.75); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px; }
+  .fly-windows :global(.fit-window .fit-sec-headline) { font-size: 12px; color: rgba(255, 255, 255, 0.9); }
+  .fly-windows :global(.fit-window .fit-sec-body) { padding: 4px 6px 2px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

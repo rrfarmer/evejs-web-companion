@@ -2492,6 +2492,10 @@
      (offense, repairs, drone dps, cap stability) has no allowed read yet and
      says "Unavailable" rather than guessing. -->
 {#snippet statsPanel()}
+  <!-- On the play page the client's (statsPanel.GetMenuData / expandablemenu.ExpandableMenu): only the capacitor's
+       menu expanded at first (expandedByDefault), each header 20 high with its expander (ui_38_16_228 collapsed, _229
+       expanded), its label 22 in, a white 0.05 fill, its header content shown expanded or not
+       (hideHeaderContentOnMaximize False), 4 below each; the column PANEL_WIDTH_RIGHT 280 wide. -->
   <div class="fit-stats">
     <details class="fit-sec" open>
       <summary class="fit-sec-head">
@@ -2537,7 +2541,7 @@
       </div>
     </details>
 
-    <details class="fit-sec" open>
+    <details class="fit-sec" open={!retail}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Offense</span>
         {#if stats.firepower.simulator}
@@ -2581,7 +2585,7 @@
       </div>
     </details>
 
-    <details class="fit-sec" open>
+    <details class="fit-sec" open={!retail}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Defense</span>
         {#if stats.defense}
@@ -2687,7 +2691,7 @@
       {/if}
     </details>
 
-    <details class="fit-sec" open>
+    <details class="fit-sec" open={!retail}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Targeting</span>
         {#if stats.defense}
@@ -2732,7 +2736,7 @@
       {/if}
     </details>
 
-    <details class="fit-sec" open>
+    <details class="fit-sec" open={!retail}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Navigation</span>
         {#if stats.defense}
@@ -2778,7 +2782,7 @@
       <!-- A structure's fighter panel in the drones' place (statsPanel.GetMenuData: the drones' panel where the
            controller has one, else the fighters'; fighterPanel.UpdateFighterStats and SetFighterDpsText): the squadrons
            in the tubes' damage a second, how many are full and how many short of full. -->
-      <details class="fit-sec" open>
+      <details class="fit-sec" open={!retail}>
         <summary class="fit-sec-head">
           <span class="fit-sec-name">{offenseWord("UI/Common/Fighters")}</span>
           <span class="fit-sec-headline">{offenseWord("UI/Fitting/FittingWindow/DpsLabel", { dps: simulation.fighterDps })}</span>
@@ -2789,7 +2793,7 @@
         </div>
       </details>
     {:else}
-    <details class="fit-sec" open bind:this={dronesSection}>
+    <details class="fit-sec" open={!retail} bind:this={dronesSection}>
       <summary class="fit-sec-head">
         <span class="fit-sec-name">Drones</span>
         {#if stats.drones}
