@@ -254,6 +254,15 @@
   const NEOCOM_W = 44;
   /** The sizes the play page opens these windows at (the eve-cs mirror's, page pixels, title bar included). */
   const FLY_SIZES: Partial<Record<TabID, { w: number; h: number }>> = { drones: { w: 288, h: 218 } };
+  /**
+   * The client's default sizes of the windows the play page opens without a layout of their own: characterSheetWindow
+   * 1235 x 768, assetsWindow 550 x 450, locations/window 450 x 450, addressBookWindow 600 x 500, evemail 800 x 600,
+   * agencyWnd (AgencyWndNew) 1188 x 694, walletWnd 900 x 600, planetWindow 500 x 500, uilog (logger) 400 x 200.
+   */
+  const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
+    characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
+    mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
+  };
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
     const had = list.some((w) => w.id === tab);
@@ -282,6 +291,12 @@
     if (tab === "contracts") {
       const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
       return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, 700), h: Math.min(H - 16, 560) };
+    }
+    // The other windows at the client's own default sizes (their default_width / default_height), within the desktop.
+    const size = CLIENT_SIZES[tab];
+    if (size) {
+      const W = windowsEl?.clientWidth || innerWidth, H = windowsEl?.clientHeight || innerHeight;
+      return { x: NEOCOM_W + 8, y: 8, w: Math.min(W - NEOCOM_W - 16, size.w), h: Math.min(H - 16, size.h) };
     }
     // the probe scanner (probeScannerWindow.ProbeScannerWindow: 400 x 400), within the desktop
     if (tab === "scanner") {
@@ -1183,6 +1198,8 @@
   .fly-windows :global(.ps-slider) { flex: 1; display: flex; justify-content: flex-end; padding-left: 8px; }
   .fly-windows :global(.ps-slider input) { width: 100%; max-width: 120px; }
   .fly-windows :global(.ps-analyze) { width: 100px; margin-left: 8px; font-size: 13px; padding: 4px 0; }
+  /* A client window says its caption once, in its header: the panels' own title (the companion's) is not drawn here */
+  .fly-windows :global(.win .panel-head > .panel-title) { display: none; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }
