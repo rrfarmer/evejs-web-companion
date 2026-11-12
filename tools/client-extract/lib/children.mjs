@@ -435,6 +435,26 @@ function meshAreas(mesh, skipped) {
   return areas;
 }
 
+/**
+ * An EveStretch3 (Eve/Renderable/Stretch/EveStretch3.cpp) as the page runs it (behaviorAgents.ts): its source, stretch,
+ * move and dest objects (EveChildContainers) read as one container's children - with the stretch's own controllers and
+ * curve sets, their owner the stretch - and their ids, so each update can place them; destObjectScale. Its TriFloat
+ * length / moveProgression bindings are not followed. Null for another class or without objects.
+ */
+function readStretch3(fx) {
+  if (fx?.type !== "EveStretch3") return null;
+  const parts = { source: fx.sourceObject, stretch: fx.stretchObject, move: fx.moveObject, dest: fx.destObject };
+  const objects = Object.values(parts).filter((p) => p && typeof p === "object");
+  if (!objects.length) return null;
+  const skipped = {};
+  const root = readNode({ type: "EveChildContainer", objects, controllers: fx.controllers ?? [], curveSets: fx.curveSets ?? [] }, skipped);
+  if (!root) return null;
+  const ids = Object.fromEntries(Object.entries(parts).map(([k, p]) => [k, p && typeof p === "object" ? idOf(p) : null]));
+  // the parts are placed from outside each update (hullChildren.ts: live containers)
+  for (const o of root.objects ?? []) if (o.k === "container" && Object.values(ids).includes(o.id)) o.live = true;
+  return { root, destObjectScale: fx.destObjectScale ?? 1, ids };
+}
+
 /** A BehaviorGroupBooster flare's numbers (prefix haloFlare / ambientFlare; its constructor's defaults). */
 const flareOf = (b, k) => ({
   offset: b[`${k}Offset`] ?? [0, 0, 0], scale: b[`${k}Scale`] ?? [1, 1, 1], brightness: b[`${k}Brightness`] ?? 0, color: b[`${k}Color`] ?? [1, 1, 1, 1],
@@ -476,7 +496,7 @@ function readBehavior(b) {
   if (b.type === "CollisionAvoidance") return { ...common, avoidanceScalar: b.avoidanceScalar ?? 12, volumes: (b.exclusionVolumes ?? []).filter((v) => v?.type === "EveEllipsoidVolume").map(readVolume) };
   if (b.type === "InclusionVolume") return { ...common, behaviorWeight: b.behaviorWeight ?? 60, volumes: (b.inclusionVolumes ?? []).filter((v) => v?.type === "EveEllipsoidVolume").map(readVolume) };
   if (b.type === "Wander") return { ...common, weightWander: b.weightWander ?? 240, rand1: b.rand1 ?? 0.2, rand2: b.rand2 ?? 0.8, rand3: b.rand3 ?? 1.2, freq: b.freq ?? 2 };
-  if (b.type === "PlayFX") return { ...common, behaviorWeight: b.behaviorWeight ?? 20, sec: b.sec ?? 1, hasEffect: !!b.firingEffect };
+  if (b.type === "PlayFX") return { ...common, behaviorWeight: b.behaviorWeight ?? 20, sec: b.sec ?? 1, hasEffect: !!b.firingEffect, stretch: readStretch3(b.firingEffect) };
   return common;
 }
 

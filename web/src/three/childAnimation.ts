@@ -101,7 +101,7 @@ function onOf(src: Value, srcComponent: number | null): boolean {
   return v !== 0;
 }
 
-interface QuadTarget { kind: "quad"; index: number; color: number[]; brightness: number; display: boolean; ancestors: number[] }
+interface QuadTarget { kind: "quad"; index: number; color: number[]; brightness: number; display: boolean; ancestors: number[]; attr?: THREE.InstancedBufferAttribute }
 interface UniformTarget { kind: "uniform"; uniform: THREE.IUniform }
 interface LinesTarget { kind: "lines"; colour: THREE.IUniform; anim: THREE.IUniform; base: number[]; anim0: number[]; brightness: number; display: boolean; ancestors: number[] }
 interface ObjectTarget { kind: "object"; display: boolean; ancestors: number[] }
@@ -145,6 +145,11 @@ export class ChildAnimator {
     this.targets.set(id, { kind: "quad", index, color: color.slice(0, 4), brightness, display, ancestors });
   }
   quadAttribute(a: THREE.InstancedBufferAttribute): void { this.quadColour = a; }
+  /** A quad drawn by a live container's own quad mesh (hullChildren.ts): its colour in that mesh's attribute. */
+  quadAttributeOf(id: number, a: THREE.InstancedBufferAttribute): void {
+    const t = this.targets.get(id);
+    if (t?.kind === "quad") { t.attr = a; this.writeQuad(t); }
+  }
   uniform(id: number, uniform: THREE.IUniform | undefined): void { if (uniform) this.targets.set(id, { kind: "uniform", uniform }); }
   lines(id: number, colour: THREE.IUniform, anim: THREE.IUniform, base: number[], animColor: number[], brightness: number, ancestors: number[], display = true): void {
     this.targets.set(id, { kind: "lines", colour, anim, base: base.slice(0, 4), anim0: animColor.slice(0, 4), brightness, display, ancestors });
@@ -409,7 +414,7 @@ export class ChildAnimator {
   }
 
   private writeQuad(q: QuadTarget): void {
-    const a = this.quadColour;
+    const a = q.attr ?? this.quadColour;
     if (!a) return;
     const k = this.shown(q) ? q.brightness : 0;
     a.setXYZW(q.index, (q.color[0] ?? 1) * k, (q.color[1] ?? 1) * k, (q.color[2] ?? 1) * k, (q.color[3] ?? 1) * k);

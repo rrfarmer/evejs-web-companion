@@ -51,6 +51,11 @@ export interface SofChildContainer {
   controllers?: SofController[];
   /** Its fx attributes (EveCameraFxAttributes, EveSpaceObjectFxAttributes): values gathered each frame for its sets. */
   fxAttributes?: { id: number; type: string }[];
+  /**
+   * Placed from outside each frame (a stretch's source, stretch, move and dest objects): a group of its own (its id as
+   * childId), its quads in a quad mesh of its own and its lights kept on it (userData.lights), all in its own space.
+   */
+  live?: boolean;
 }
 export interface SofChildTraffic {
   k: "traffic";
@@ -1383,6 +1388,10 @@ export function startEffect(object: THREE.Object3D): void {
 export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = [],
   locatorSets: Record<string, number[][]> = {}, overlays: Record<string, SofOverlay | null> = {}): Promise<THREE.Object3D | null> {
   const quads: Parameters<typeof quadMesh>[0] = [];
+  // where the walk puts quads: the hull's list, or a live container's own (with the ids of the quads it holds)
+  let quadList = quads;
+  let quadIds: number[] | null = null;
+  let lightList: ChildLight[] | null = null;
   const others: THREE.Object3D[] = [];
   const animator = new ChildAnimator();
   // the containers and meshes whose transform a played curve set drives (each its own object, recomposed each frame)
@@ -1432,12 +1441,39 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
             .transformDirection(flatHere).toArray(),
           cosOuter: Math.cos((Math.PI * 2 * (l.outerAngle ?? 0)) / 360), cosInner: Math.cos((Math.PI * 2 * (l.innerAngle ?? 0)) / 360),
         } : {};
-        lights.push({ ...(l.id !== undefined ? { id: l.id, scale: k } : {}), position: at.toArray(), radius: l.radius * k, sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, ...spot });
+        (lightList ?? lights).push({ ...(l.id !== undefined ? { id: l.id, scale: k } : {}), position: at.toArray(), radius: l.radius * k, sourceRadius: (l.innerRadius ?? 0) * k, color: l.color, brightness: l.brightness, ...spot });
       }
       if (node.modifiers.includes("EveChildModifierHalo")) {
         const z = new THREE.Vector3();
         flatHere.extractBasis(new THREE.Vector3(), new THREE.Vector3(), z);
         halo = { z: z.normalize(), at: new THREE.Vector3().setFromMatrixPosition(flatHere) };
+      }
+      if (node.live) {
+        // placed from outside: its own group, quads and lights, in its own space
+        const g = new THREE.Group();
+        g.name = `child-live:${node.name ?? ""}`;
+        g.matrixAutoUpdate = false;
+        if (node.id !== undefined) g.userData.childId = node.id;
+        const saved = [quadList, quadIds, lightList] as const;
+        quadList = [];
+        quadIds = [];
+        lightList = [];
+        const mine = { quads: quadList, ids: quadIds, lights: lightList };
+        for (const l of node.lights ?? []) {
+          const at = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(m);
+          mine.lights.push({ ...(l.id !== undefined ? { id: l.id, scale: 1 } : {}), position: at.toArray(), radius: l.radius, sourceRadius: l.innerRadius ?? 0, color: l.color, brightness: l.brightness });
+        }
+        for (const o of node.objects) walk(o, m.clone(), m.clone(), (c) => g.add(c), null, ancestors);
+        [quadList, quadIds, lightList] = saved;
+        if (mine.quads.length) {
+          const qm = quadMesh(mine.quads);
+          const attr = qm.geometry.getAttribute("iColour") as THREE.InstancedBufferAttribute;
+          for (const id of mine.ids) animator.quadAttributeOf(id, attr);
+          g.add(qm);
+        }
+        g.userData.lights = mine.lights;
+        sink(g);
+        return;
       }
       const driven = node.id !== undefined && moved.has(node.id);
       if (node.modifiers.some((x) => MODIFIERS.has(x)) || driven || node.controllers?.length || node.fxAttributes?.length) {
@@ -1586,8 +1622,8 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
     const s = meanScale(parent);
     const e = local4.elements;
     const b = node.brightness;
-    if (node.id !== undefined) animator.quad(node.id, quads.length, node.color, b, ancestors, node.display !== false);
-    quads.push({
+    if (node.id !== undefined) { animator.quad(node.id, quadList.length, node.color, b, ancestors, node.display !== false); quadIds?.push(node.id); }
+    quadList.push({
       centre: new THREE.Vector3(e[12], e[13], e[14]).applyMatrix4(parent),
       ax: new THREE.Vector3(e[0], e[1], e[2]).multiplyScalar(s),
       ay: new THREE.Vector3(e[4], e[5], e[6]).multiplyScalar(s),

@@ -19,7 +19,7 @@ import * as THREE from "three";
 import type { SofChildMesh } from "./hullChildren.ts";
 import { perlinNoise1D, vector3Value } from "./curves.ts";
 import { agentBoosters, agentBoxGeometry, setAgentBooster, type AgentBoosterData, type AgentFlareData } from "./boosterVolumetric.ts";
-import { quadMesh } from "./hullChildren.ts";
+import { hullChildren, quadMesh, type SofChildNode } from "./hullChildren.ts";
 import { offerLights, type ChildLight } from "./dynamicLights.ts";
 
 export interface SofAgentGrid {
@@ -52,7 +52,10 @@ export type SofBehavior =
   | { type: "CollisionAvoidance"; id?: number; enabled: boolean; priority: number; avoidanceScalar: number; volumes: SofVolume[] }
   | { type: "InclusionVolume"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; volumes: SofVolume[] }
   | { type: "Wander"; id?: number; enabled: boolean; priority: number; weightWander: number; rand1: number; rand2: number; rand3: number; freq: number }
-  | { type: "PlayFX"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; sec: number; hasEffect: boolean };
+  | { type: "PlayFX"; id?: number; enabled: boolean; priority: number; behaviorWeight: number; sec: number; hasEffect: boolean; stretch?: SofStretch3 | null };
+
+/** An EveStretch3 (children.mjs readStretch3): its parts' graph (one container, the parts live) and their ids. */
+export interface SofStretch3 { root: SofChildNode; destObjectScale: number; ids: { source: number | null; stretch: number | null; move: number | null; dest: number | null } }
 
 /** An EveEllipsoidVolume: its centre, outer and inner radii, rotation. */
 export interface SofVolume { position: number[]; shape: number[]; innerShape: number[]; rotation: number[] }
@@ -93,6 +96,8 @@ interface BuiltGroup {
   /** its flames (agentBoosters) and flares (quadMesh), found in a clone by name */
   booster?: string | null;
   flares?: string | null;
+  /** its PlayFX's firing effect, built once (hullChildren), cloned per agent */
+  stretch?: { template: THREE.Object3D; data: SofStretch3; behavior: number } | null;
   parts: { mesh: THREE.InstancedMesh; local: THREE.Matrix4; localInv: THREE.Matrix4 }[];
 }
 
@@ -121,13 +126,21 @@ export async function buildAgents(
       values(grid.id, (attr) => { const k = key(attr); return k ? (rec[k] as number | number[]) : undefined; }, (attr, v) => { const k = key(attr); if (k) rec[k] = v; });
     }
     const flames = spec.booster ? await agentBoosters(spec.booster, Math.max(1, spec.count)).catch(() => null) : null;
-    return { spec, mesh: await childMesh(spec.mesh), flames };
+    // its PlayFX's firing effect (an EveStretch3): its graph built once, in EVE's space (no mirror: the holder is in it)
+    const play = (spec.behaviors ?? []).findIndex((b) => b.type === "PlayFX" && !!b.stretch);
+    const playSpec = play >= 0 ? (spec.behaviors![play] as Extract<SofBehavior, { type: "PlayFX" }>) : null;
+    let stretch: BuiltGroup["stretch"] = null;
+    if (playSpec?.stretch) {
+      const template = await hullChildren([{ res: "", root: playSpec.stretch.root, skipped: {} }]).catch(() => null);
+      if (template) { template.scale.set(1, 1, 1); stretch = { template, data: playSpec.stretch, behavior: play }; }
+    }
+    return { spec, mesh: await childMesh(spec.mesh), flames, stretch };
   }));
   // (in the groups' order: a group's place in the system's update and its parts' in the holder)
-  for (const { spec, mesh, flames } of made) {
+  for (const { spec, mesh, flames, stretch } of made) {
     if (!mesh) continue;
     mesh.updateMatrixWorld(true);
-    const group: BuiltGroup = { spec, parts: [] };
+    const group: BuiltGroup = { spec, parts: [], stretch };
     // room for its count, or its grid (more on its timer: AgentRun grows it)
     const grid = spec.grid;
     const capacity = Math.max(1, spec.count, grid && (spec.behaviors ?? []).some((b) => b.type === "SpawnDrones" && b.addOnGrid) ? [0, 1, 2].reduce((n, i) => n * Math.max(0, Math.trunc(grid.info[i] ?? 1)), 1) : 0);
@@ -707,7 +720,7 @@ function volumeIntensity(v: SofVolume, point: THREE.Vector3): number {
 
 /** One clone's agents: run each frame, then sized and culled for the view. */
 export class AgentRun {
-  private readonly groups: { run: GroupRun; parts: THREE.InstancedMesh[]; drawn: number; flames: THREE.Mesh | null; flares: THREE.Mesh | null }[] = [];
+  private readonly groups: { run: GroupRun; parts: THREE.InstancedMesh[]; drawn: number; flames: THREE.Mesh | null; flares: THREE.Mesh | null; stretches: Map<Agent, { fx: THREE.Object3D; playing: boolean; aimed: boolean }> }[] = [];
   private last = -1;
 
   constructor(holder: THREE.Object3D) {
@@ -730,7 +743,7 @@ export class AgentRun {
       const flames = b.booster ? (holder.getObjectByName(b.booster) as THREE.Mesh | undefined) ?? null : null;
       if (flames) flames.geometry = agentBoxGeometry(Math.max(1, b.spec.count));
       const flares = b.flares ? (holder.getObjectByName(b.flares) as THREE.Mesh | undefined) ?? null : null;
-      this.groups.push({ run, parts, drawn: -1, flames, flares });
+      this.groups.push({ run, parts, drawn: -1, flames, flares, stretches: new Map() });
     }
   }
 
@@ -855,6 +868,50 @@ export class AgentRun {
     });
   }
 
+  /**
+   * The group's firing effects (PlayFX: one per agent; EveStretch3 for each): shown once its agent has fired
+   * (droneArrived), IsFiring 1 as it starts (StartFiring, FiringDelay 0) and 0 as it stops; while firing from the agent's
+   * side (its place + its facing x the bounding sphere) to its target, afterwards to where that target was. Each update
+   * places the parts as EveStretch3::UpdateAsyncronous does: the source at the source turned so -z points from target to
+   * source (TriQuaternionArcFromForward), the stretch from source to target (EveChildModifierStretch: z scaled to the
+   * length, at the middle), the move object at the source (moveProgression nought), the dest at the target with a half
+   * turn about y x destObjectScale. The parts' lights are offered to the dynamic lights.
+   */
+  private runStretches(g: AgentRun["groups"][number], holder: THREE.Object3D, renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    const built = g.run.built.stretch!;
+    const spec = g.run.built.spec;
+    const seen = new Set<Agent>();
+    for (const a of g.run.agents) {
+      seen.add(a);
+      const data = a.scratch[built.behavior] as { droneArrived: boolean; effectPlaying: boolean; oldTarget: THREE.Vector3 } | null;
+      if (!data) continue;
+      let entry = g.stretches.get(a);
+      if (!entry && data.droneArrived) {
+        const fx = built.template.clone();
+        fx.name = "agent-stretch";
+        holder.add(fx);
+        entry = { fx, playing: false, aimed: false };
+        g.stretches.set(a, entry);
+      }
+      if (!entry) continue;
+      entry.fx.visible = data.droneArrived;
+      if (data.effectPlaying !== entry.playing) {
+        entry.playing = data.effectPlaying;
+        setVariable(entry.fx, "FiringDelay", 0);
+        setVariable(entry.fx, "IsFiring", data.effectPlaying ? 1 : 0);
+      }
+      // (while firing at its target; after, at where that was - the client's old target, unset until a first stop)
+      if (data.effectPlaying) entry.aimed = true;
+      if (!entry.aimed) continue;
+      const dest = data.effectPlaying ? a.target : data.oldTarget;
+      const source = a.position.clone().add(norm(a.targetDirection).multiplyScalar(spec.boundingSphereRadius));
+      placeStretch(entry.fx, built.data, source, dest);
+      for (const part of livePartsOf(entry.fx)) offerLights(renderer, camera, part);
+    }
+    // an agent gone: its effect with it
+    for (const [a, e] of g.stretches) if (!seen.has(a)) { e.fx.removeFromParent(); g.stretches.delete(a); }
+  }
+
   update(renderer: THREE.WebGLRenderer, camera: THREE.Camera, holder: THREE.Object3D): void {
     const now = performance.now() / 1000;
     const lights: ChildLight[] = [];
@@ -912,6 +969,7 @@ export class AgentRun {
       if (g.flames) this.writeFlames(g.flames, g.run);
       if (g.flares) this.writeFlares(g.flares, g.run);
       if (g.run.built.spec.booster) this.gatherLights(g.run, lights);
+      if (g.run.built.stretch) this.runStretches(g, holder, renderer, camera);
       if (!changed) continue;
       // the agents drawn only (the client writes a nought matrix for the others: here they are left out - a nought
       // scale gives the shader's normal transform a division by nought)
@@ -935,4 +993,42 @@ export class AgentRun {
     holder.userData.lights = lights;
     offerLights(renderer, camera, holder);
   }
+}
+
+/** A controller variable kept on an object (hullModel.ts setControllerVariable: its controllers take it). */
+function setVariable(o: THREE.Object3D, name: string, value: number): void {
+  const vars = (o.userData.controllerVars ??= {}) as Record<string, number>;
+  if (vars[name] === value) return;
+  vars[name] = value;
+  o.userData.controllerVarsVersion = ((o.userData.controllerVarsVersion as number | undefined) ?? 0) + 1;
+}
+
+const livePartsOf = (fx: THREE.Object3D) => {
+  const out: THREE.Object3D[] = [];
+  fx.traverse((o) => { if (o.name.startsWith("child-live:")) out.push(o); });
+  return out;
+};
+
+// TriQuaternionArcFromForward: the rotation taking -z to the direction
+const MINUS_Z = new THREE.Vector3(0, 0, -1);
+const arcFromForward = (v: THREE.Vector3) => (v.lengthSq() > 0 ? new THREE.Quaternion().setFromUnitVectors(MINUS_Z, v.clone().normalize()) : new THREE.Quaternion());
+const HALF_TURN_Y = new THREE.Quaternion(0, 1, 0, 0);
+
+/** EveStretch3::UpdateAsyncronous's placing of its parts (in its owner's space). */
+function placeStretch(fx: THREE.Object3D, data: SofStretch3, source: THREE.Vector3, dest: THREE.Vector3): void {
+  const q = arcFromForward(source.clone().sub(dest));
+  const diff = dest.clone().sub(source);
+  const set = (id: number | null, m: THREE.Matrix4) => {
+    if (id === null) return;
+    fx.traverse((o) => {
+      if (o.userData.childId !== id || !o.name.startsWith("child-live:")) return;
+      o.matrix.copy(m);
+      o.matrixWorldNeedsUpdate = true;
+    });
+  };
+  const one = new THREE.Vector3(1, 1, 1);
+  set(data.ids.source, new THREE.Matrix4().compose(source, q, one));
+  set(data.ids.stretch, new THREE.Matrix4().compose(source.clone().addScaledVector(diff, 0.5), arcFromForward(diff), new THREE.Vector3(1, 1, diff.length())));
+  set(data.ids.move, new THREE.Matrix4().compose(source, q, one));
+  set(data.ids.dest, new THREE.Matrix4().compose(dest, q.clone().multiply(HALF_TURN_Y), one.clone().multiplyScalar(data.destObjectScale)));
 }

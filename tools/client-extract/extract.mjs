@@ -130,6 +130,8 @@ async function copyChildGraphAssets(rf, roots, outRoot) {
     // a behaviour system's groups: each drawn as its mesh
     if (n.k === "agents") for (const g of n.groups ?? []) {
       walkChildren(g.mesh);
+      // a PlayFX's stretch (its children's assets)
+      for (const b of g.behaviors ?? []) if (b.stretch?.root) walkChildren(b.stretch.root);
       if (g.booster) for (const [name, res] of Object.entries(g.booster.textures)) g.booster.textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     }
   };
