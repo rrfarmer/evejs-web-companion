@@ -180,6 +180,33 @@ export function clientSlotPlacement(family: SlotFamily, index: number): { x: num
   return { x: CLIENT_SLOT_RADIUS * Math.cos(radians) + CLIENT_BASE / 2, y: CLIENT_SLOT_RADIUS * Math.sin(radians) + CLIENT_BASE / 2, angleDegrees };
 }
 
+// The ring's three gauges (fittingLayout.py FittingLayout: radius int(size x 0.885 / 2), BaseFittingGauge lineWidth 11;
+// GaugeCircular / DonutSegment: a point at t is centre + (r - w/2)(cos t, sin t), screen y down; anticlockwise ones use
+// -t - pi; the line is the gauge's whole circle drawn to `end`, and SetValue makes end = min(1, value) x range / 360).
+export type ClientGauge = "power" | "cpu" | "calibration";
+export const CLIENT_GAUGES: Readonly<Record<ClientGauge, { start: number; range: number; clockwise: boolean; color: string }>> = {
+  // POWER_START_ANGLE 45, POWER_RANGE 45, POWER_COLOR (0.40625, 0.078125, 0.03125, 0.8)
+  power: { start: 45, range: 45, clockwise: true, color: "rgba(104, 20, 8, 0.8)" },
+  // CPU_START_ANGLE 135, CPU_RANGE 45, anticlockwise, CPU_COLOR (0.203125, 0.3828125, 0.37890625, 0.8)
+  cpu: { start: 135, range: 45, clockwise: false, color: "rgba(52, 98, 97, 0.8)" },
+  // CALIBRATION_START_ANGLE 318, CALIBRATION_RANGE 30, anticlockwise, CALIBRATION_COLOR (0.29296875, 0.328125, 0.33984375, 0.8)
+  calibration: { start: 318, range: 30, clockwise: false, color: "rgba(75, 84, 87, 0.8)" },
+};
+export const CLIENT_GAUGE_RADIUS = Math.floor((CLIENT_BASE * 0.885) / 2), CLIENT_GAUGE_LINE = 11;
+
+/** A gauge's whole arc (its range) as an SVG path in the 640 base, drawn from where it starts filling. */
+export function clientGaugePath(gauge: ClientGauge): string {
+  const g = CLIENT_GAUGES[gauge];
+  const r = CLIENT_GAUGE_RADIUS - CLIENT_GAUGE_LINE / 2, c = CLIENT_BASE / 2;
+  const at = (degrees: number) => {
+    let t = (degrees * Math.PI) / 180;
+    if (!g.clockwise) t = -t - Math.PI;
+    return `${(c + r * Math.cos(t)).toFixed(2)} ${(c + r * Math.sin(t)).toFixed(2)}`;
+  };
+  // (clockwise on the screen for a clockwise gauge: SVG sweep 1; an anticlockwise one sweeps 0)
+  return `M ${at(g.start)} A ${r} ${r} 0 0 ${g.clockwise ? 1 : 0} ${at(g.start + g.range)}`;
+}
+
 /** Count the slots of each family present in a decoded fit. */
 export function countByFamily(
   slots: readonly { readonly family: SlotFamily }[],

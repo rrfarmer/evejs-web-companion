@@ -626,6 +626,11 @@
   .fly-windows :global(.fit-ring.retail) { width: min(100%, calc(640px * max(0.75, min(1, 100vw / 1400px)))); max-width: none; min-width: 0; aspect-ratio: 1; }
   .fly-windows :global(.fit-ring.retail .fit-base) { position: absolute; inset: 0; pointer-events: none; background: var(--tint);
     -webkit-mask: var(--tex) center / 100% 100% no-repeat; mask: var(--tex) center / 100% 100% no-repeat; }
+  .fly-windows :global(.fit-ring.retail .fit-gauges) { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  /* (GaugeCircular's UpdateThread: end moves 3 x the gap a second toward the value) */
+  .fly-windows :global(.fit-ring.retail .fit-gauge) { fill: none; stroke-linecap: butt; transition: stroke-dasharray 0.33s ease-out; }
+  .fly-windows :global(.fit-ring.retail .fit-gauge.over) { animation: fit-gauge-over 0.5s linear infinite; }
+  @keyframes -global-fit-gauge-over { from { opacity: 0.25; } to { opacity: 1; } }
   .fly-windows :global(.fit-ring.retail .fit-socket), .fly-windows :global(.fit-ring.retail .fit-socket-absent) {
     position: absolute; width: var(--slot-w); height: var(--slot-h); transform: translate(-50%, -50%) rotate(var(--turn, 0deg));
     padding: 0; border: none; background: none; overflow: visible; display: flex; align-items: center; justify-content: center; }

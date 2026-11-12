@@ -29,6 +29,7 @@
     slotFlagOf,
     slotsOfFamily,
   } from "../bridge/fitting.ts";
+  import { CLIENT_GAUGES, CLIENT_GAUGE_LINE, clientGaugePath, type ClientGauge } from "./fittingGeometry.ts";
   import { CLIENT_BASE, CLIENT_GROUP_FLAGS, CLIENT_SLOT_HEIGHT, CLIENT_SLOT_WIDTH, OUTER_RADIUS_PERCENT, clientSlotPlacement, countByFamily, placeFamily } from "./fittingGeometry.ts";
   import { getContext } from "svelte";
   import { abbreviate } from "./fittingIcons.ts";
@@ -3257,6 +3258,24 @@
                      (white 0.39) -->
                 <div class="fit-base" aria-hidden="true" style="--tex: url('/client-res/ui/texture/classes/fitting/fittingbase.png'); --tint: rgba(0,0,0,0.86)"></div>
                 <div class="fit-base" aria-hidden="true" style="--tex: url('/client-res/ui/texture/classes/fitting/fittingbase_basecircle.png'); --tint: #060a0c"></div>
+                <!-- the CPU / power grid / calibration gauges (fittingLayout.py BaseFittingGauge: the load over the output,
+                     at most 1, along the gauge's arc; over it the gauge fades 0.25 -> 1 every half second) -->
+                <svg class="fit-gauges" viewBox="0 0 640 640" aria-hidden="true">
+                  {#each ["calibration", "power", "cpu"] as const as gauge (gauge)}
+                    {@const resource = gauge === "cpu" ? resources.cpu : gauge === "power" ? resources.powergrid : resources.calibration}
+                    {@const load = resource.known && resource.total > 0 ? resource.used / resource.total : 0}
+                    <path
+                      class="fit-gauge"
+                      class:over={load > 1}
+                      data-gauge={gauge}
+                      d={clientGaugePath(gauge as ClientGauge)}
+                      pathLength="1"
+                      stroke={CLIENT_GAUGES[gauge].color}
+                      stroke-width={CLIENT_GAUGE_LINE}
+                      stroke-dasharray={`${Math.min(1, Math.max(0, load))} 2`}
+                    ><title>{`${gauge === "cpu" ? "CPU" : gauge === "power" ? "Power grid" : "Calibration"}: ${(load * 100).toFixed(2)}%`}</title></path>
+                  {/each}
+                </svg>
                 <div class="fit-base" aria-hidden="true" style="--tex: url('/client-res/ui/texture/classes/fitting/fittingbase_overlay.png'); --tint: rgba(255,255,255,0.39)"></div>
                 {#each absentPlaces as place (`${place.family}:${place.index}`)}
                   <div class="fit-socket-absent" aria-hidden="true" style={`left: ${place.x}%; top: ${place.y}%; --turn: ${place.angle}deg`}>
