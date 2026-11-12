@@ -213,6 +213,10 @@ export class SpaceView {
   lodBoostersHidden = 0;
   /** How many drawn objects' boosters were given their far effect this frame (for checks). */
   lodBoostersFar = 0;
+  /** How many child meshes their minScreenSize left undrawn this frame (for checks). */
+  lodChildMeshesHidden = 0;
+  /** Each model's child meshes with a minScreenSize (found once its children are built). */
+  private readonly sizeGated = new WeakMap<THREE.Object3D, THREE.Object3D[]>();
   /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
   private readonly fxEmitters = new Set<string>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
@@ -1497,7 +1501,7 @@ export class SpaceView {
     const threshold = lodSettings(settings).visibility;
     const eye = this.camera.getWorldPosition(new THREE.Vector3());
     const across = (this.camera.projectionMatrix.elements[0] ?? 1) * this.renderer.domElement.width;
-    let culled = 0, boostersHidden = 0, boostersFar = 0;
+    let culled = 0, boostersHidden = 0, boostersFar = 0, childMeshesHidden = 0;
     const lod = lodSettings(settings), ahead = this.camera.getWorldDirection(new THREE.Vector3()), centre = new THREE.Vector3();
     for (const [id, m] of this.marks) {
       const model = m.userData.model as THREE.Object3D | undefined;
@@ -1524,10 +1528,32 @@ export class SpaceView {
         const flames = boosters.getObjectByName("booster-volumetric");
         if (flames && useFarBoosters(flames, !(2 * size > lod.mediumDetail * 1.5))) boostersFar++;
       }
+      // its child meshes with a minScreenSize: each drawn where its sphere's size across (GetPixelSizeAccross) / the
+      // LOD factor is at least that (EveChildMesh::UpdateVisibility; their own lowestLodVisible not extracted)
+      if (shown) {
+        let gated = this.sizeGated.get(model);
+        if (!gated) {
+          gated = [];
+          model.traverse((o) => { if (o.name === "size-gated") gated!.push(o); });
+          // (the children load after the hull: looked for again until some are found, a few times)
+          if (gated.length || (model.userData.sizeGateLooks = (model.userData.sizeGateLooks ?? 0) + 1) > 20) this.sizeGated.set(model, gated);
+        }
+        for (const o of gated) {
+          const sp = o.userData.sphere as number[];
+          o.localToWorld(centre.set(sp[0]!, sp[1]!, sp[2]!));
+          const r = sp[3]! * o.getWorldScale(new THREE.Vector3()).x;
+          const rel = centre.sub(eye);
+          const size = rel.lengthSq() < r * r ? Infinity : (r / Math.max(1e-5, rel.dot(ahead))) * across;
+          const on = size / lod.lodFactor >= (o.userData.minScreenSize as number);
+          if (!on) childMeshesHidden++;
+          if (o.visible !== on) o.visible = on;
+        }
+      }
     }
     this.lodCulled = culled;
     this.lodBoostersHidden = boostersHidden;
     this.lodBoostersFar = boostersFar;
+    this.lodChildMeshesHidden = childMeshesHidden;
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });

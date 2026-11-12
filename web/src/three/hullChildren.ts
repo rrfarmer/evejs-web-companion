@@ -994,6 +994,14 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
         }
       }
     });
+    // EveChildMesh::UpdateVisibility: drawn only where its size across (its world bounding sphere's) x the inverse LOD
+    // factor is at least its minScreenSize - its sphere kept (in the holder's frame) for the view to test each frame
+    if (node.minScreenSize > 0) {
+      const sphere = new THREE.Box3().setFromObject(inner).getBoundingSphere(new THREE.Sphere());
+      inner.name = "size-gated";
+      inner.userData.minScreenSize = node.minScreenSize;
+      inner.userData.sphere = [sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius];
+    }
     holder.add(inner);
   }
   return holder;
