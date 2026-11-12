@@ -16,6 +16,7 @@ import { projectSpace } from "virtual:destiny";
 import { LivePark } from "../three/livePark.ts";
 import { typeModel, setThrust, setShipSpeed, setControllerVariable, sendControllerEvent, setActivationStrength, setDirtLevel, dirtLevelFromTime } from "../three/hullModel.ts";
 import { shiftGpuParticles } from "../three/gpuParticles.ts";
+import { useFarBoosters } from "../three/boosterVolumetric.ts";
 import { celestialModel, systemCelestials, setPlanetEnvironment, type CelestialItem } from "../three/celestialModel.ts";
 import { ShipHud, type HudModule } from "./shipHud.ts";
 import { WarpTunnel } from "./warpTunnel.ts";
@@ -210,6 +211,8 @@ export class SpaceView {
   lodCulled = 0;
   /** How many drawn objects' boosters the low detail threshold left undrawn this frame (for checks). */
   lodBoostersHidden = 0;
+  /** How many drawn objects' boosters were given their far effect this frame (for checks). */
+  lodBoostersFar = 0;
   /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
   private readonly fxEmitters = new Set<string>();
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
@@ -1494,7 +1497,7 @@ export class SpaceView {
     const threshold = lodSettings(settings).visibility;
     const eye = this.camera.getWorldPosition(new THREE.Vector3());
     const across = (this.camera.projectionMatrix.elements[0] ?? 1) * this.renderer.domElement.width;
-    let culled = 0, boostersHidden = 0;
+    let culled = 0, boostersHidden = 0, boostersFar = 0;
     const lod = lodSettings(settings), ahead = this.camera.getWorldDirection(new THREE.Vector3()), centre = new THREE.Vector3();
     for (const [id, m] of this.marks) {
       const model = m.userData.model as THREE.Object3D | undefined;
@@ -1517,10 +1520,14 @@ export class SpaceView {
         const on = 2 * size > lod.lowDetail;
         if (!on) boostersHidden++;
         if (boosters.visible !== on) boosters.visible = on;
+        // and their effect: the high LOD above the medium detail threshold x 1.5, else the far one
+        const flames = boosters.getObjectByName("booster-volumetric");
+        if (flames && useFarBoosters(flames, !(2 * size > lod.mediumDetail * 1.5))) boostersFar++;
       }
     }
     this.lodCulled = culled;
     this.lodBoostersHidden = boostersHidden;
+    this.lodBoostersFar = boostersFar;
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.fitSunShadow();
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });

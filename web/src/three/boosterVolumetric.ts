@@ -156,6 +156,17 @@ void main() {
   vec3 p = entry;
   for (int i = 0; i < 16; i++) {
     if (i >= n) break;
+#ifdef BOOSTER_LOD_LOW
+    // BOOSTER_LOD_LOW (the set's effectFar): one layer, undisplaced - GradientMap0 at (-z, the row), the shape atlas's
+    // row 0, Shape0's colour
+    vec4 g = textureLod(gradient0, vec2(-p.z, gradV), 0.0);
+    if (g.w > 0.0 && (g.x > 0.0 || g.y > 0.0 || g.z > 0.0)) {
+      vec2 uv = p.xy / g.w * 0.5 + 0.5;
+      vec4 shape = vec4(0.0);
+      if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) shape = textureLod(shapeMap, vec2(uv.x, uv.y * rowSpan + rowStart.x), 0.1 / g.w / g.w);
+      sum += g * shape * c0;
+    }
+#else
     vec3 q = p * boosterScale * f0.xyz;
     float zz = p.z * p.z;
     // layer 0
@@ -178,8 +189,14 @@ void main() {
       if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) shape = textureLod(shapeMap, vec2(uv.x, uv.y * rowSpan + rowStart.y), 0.1 / g1.w / g1.w);
       sum += g1 * shape * c1;
     }
+#endif
     p += step;
   }
+#ifdef BOOSTER_LOD_LOW
+  // and one noise read for the whole ray: at (0, 0, frequency z x BoosterScale z / 8 + NoiseSpeed x time + the wave's
+  // phase), x 1.2 + 0.3, twice
+  sum *= (texture(noiseMap, vec3(0.0, 0.0, f0.z * boosterScale.z * 0.125 + phase0)) * 1.2 + 0.3) * 2.0;
+#endif
   sum *= length(seg * boosterScale) * 0.666667 / float(n);
   float k = clamp((intensity - 0.01) * 50.0, 0.0, 1.0);
   sum *= k * k * (3.0 - 2.0 * k);
@@ -259,6 +276,16 @@ export async function volumetricBoosters(items: BoosterItem[], vol: BoosterVolum
   }));
   // the scene's opaque depth drawn for it (softDepth.ts)
   mat.userData.softDepth = true;
+  // the far effect (EveSOF: CreateBoosterEffect with BOOSTER_LOD_LOW, the set's effectFar): the same effect's other
+  // permutation, its uniforms the near one's - drawn where the boosters are small (useFarBoosters)
+  const far = logDepth(new THREE.ShaderMaterial({
+    vertexShader: VERTEX, fragmentShader: FRAGMENT, defines: { BOOSTER_LOD_LOW: "" }, uniforms: mat.uniforms,
+    side: THREE.BackSide, transparent: true, depthWrite: false, depthTest: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
+  }));
+  far.userData.softDepth = true;
+  mat.userData.far = far;
+  far.userData.near = mat;
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = "booster-volumetric";
   mesh.frustumCulled = false;
@@ -281,7 +308,21 @@ export async function volumetricBoosters(items: BoosterItem[], vol: BoosterVolum
     mat.uniforms.intensity!.value = (object.userData.boosterIntensity as number | undefined) ?? 0;
     mat.uniforms.warp!.value = (object.userData.boosterWarp as number | undefined) ?? 0;
   };
+  far.onBeforeRender = mat.onBeforeRender;
   return mesh;
+}
+
+/**
+ * EveBoosterSet2Renderable::Render: the high LOD effect where the boosters' LOD is above the medium detail threshold x
+ * 1.5, else effectFar (a flames mesh from volumetricBoosters; its clones each switch on their own).
+ */
+export function useFarBoosters(flames: THREE.Object3D, far: boolean): boolean {
+  const mesh = flames as THREE.Mesh;
+  const m = mesh.material as THREE.Material | undefined;
+  if (!m) return false;
+  const want = far ? (m.userData.far as THREE.Material | undefined) ?? m : (m.userData.near as THREE.Material | undefined) ?? m;
+  if (want !== m) mesh.material = want;
+  return !!want.userData.near;
 }
 
 /** The flames' intensity (EveBoosterSet2's overall intensity) and warp intensity. */
