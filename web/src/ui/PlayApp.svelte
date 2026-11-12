@@ -914,6 +914,19 @@
   .fly-windows :global(.ind-acts button.on:disabled) { opacity: 0.4; }
   .fly-windows :global(.ind-acts img) { width: 14px; height: 14px; display: block; }
   .fly-windows :global(.ind-scroll tr.ind-busy td) { opacity: 0.15; }
+  /* BrowserJobs: the status icon (16), the job's state over a 6-high gauge in the activity's colour
+     (COLOR_MANUFACTURING, COLOR_REACTION, COLOR_SCIENCE), the Deliver button filling a ready job's cell, the bottom row */
+  .fly-windows :global(.ind-status), .fly-windows :global(.ind-act) { width: 16px; height: 16px; vertical-align: middle; }
+  .fly-windows :global(.ind-job-state) { min-width: 90px; }
+  .fly-windows :global(.ind-job-gauge) { display: block; height: 6px; margin-top: 1px; background: rgba(255, 255, 255, 0.05); }
+  .fly-windows :global(.ind-job-gauge span) { display: block; height: 100%; }
+  .fly-windows :global(.ind-job-gauge.mfg span) { background: #ff9900; }
+  .fly-windows :global(.ind-job-gauge.rx span) { background: #12e6c9; }
+  .fly-windows :global(.ind-job-gauge.sci span) { background: #3372b6; }
+  .fly-windows :global(.ind-deliver) { width: 100%; font-size: 12px; padding: 2px 6px; }
+  .fly-windows :global(.ind-not-ready) { color: #ff4600; }
+  .fly-windows :global(.ind-jobs-bottom) { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+  .fly-windows :global(.ind-jobs-bottom button) { font-size: 12px; padding: 4px 10px; }
   .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }

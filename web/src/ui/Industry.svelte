@@ -11,6 +11,7 @@
   // whether it is ready, is the one the SERVER returned.
   import { getContext, onMount, untrack } from "svelte";
   import { securityStatusColor, shownSecurity } from "../bridge/systemSecurity.ts";
+  import { filetimeToUnixMs } from "../bridge/activity.ts";
   import { installTarget } from "../app/industryInstallTarget.ts";
   import {
     ACTIVITY_LABELS,
@@ -590,7 +591,7 @@
   let facFilter = $state("");
   let securityBySystem = $state<ReadonlyMap<number, number>>(new Map());
   $effect(() => {
-    if (!retail || browserTab !== "facilities" || securityBySystem.size) return;
+    if (!retail || (browserTab !== "facilities" && browserTab !== "jobs") || securityBySystem.size) return;
     void flow.loadStarMap().then((map) => {
       securityBySystem = new Map(map.systems.filter((s) => typeof s[8] === "number").map((s) => [s[0], s[8] as number]));
     }).catch(() => {});
@@ -651,6 +652,56 @@
     chosenActivity = activity;
     if (!cannotAsk) askToConfirm();
   }
+  /**
+   * BrowserJobs on the play page (browserJobs.py, jobEntry.py, industry/mixins.py): its top row - Owner (Owned by Me),
+   * Status (All Active Jobs, In Progress, Ready, Halted, History), Activity (All Activities and the six), Installer
+   * (personal jobs: by me) - and the scroll's columns: the status icon (industryUIConst.GetStatusIconAndColor), Status
+   * (JobStateContainer: a Deliver button on a ready job, else GetJobStateLabel - the time left over a progress gauge
+   * coloured by the activity, or Succeeded / Failed / Cancelled), Runs ("x N"), Activity (its icon), Blueprint, Jumps,
+   * Security, Facility, Output Location, Install Date, End Date; Deliver Selected / Deliver All Jobs at the bottom.
+   */
+  let jobStatus = $state<"active" | "running" | "ready" | "paused" | "history">("active");
+  let jobActivity = $state<IndustryActivity | "">("");
+  const shownJobs = $derived.by(() => $industry.jobs.filter((job) => {
+    const st = shownStatus(job);
+    if (jobActivity && job.activity !== jobActivity) return false;
+    if (jobStatus === "active") return isActiveJob(job.status);
+    if (jobStatus === "history") return !isActiveJob(job.status);
+    return st === jobStatus;
+  }).sort((a, b) => Number((a.endDate ?? 0n) - (b.endDate ?? 0n))));
+  const readyJobs = $derived(shownJobs.filter((job) => shownStatus(job) === "ready"));
+  function jobStatusIcon(job: IndustryJobRow): string {
+    const st = shownStatus(job);
+    return st === "running" ? "installed" : st === "paused" || st === "cancelled" ? "halted" : st === "ready" ? "ready" : "delivered";
+  }
+  function jobProgress(job: IndustryJobRow): number {
+    const start = filetimeToUnixMs(job.startDate);
+    const end = filetimeToUnixMs(job.endDate);
+    if (start === null || end === null || end <= start) return 0;
+    return Math.min(1, Math.max(0, (nowMs - start) / (end - start)));
+  }
+  /** GetJobStateLabel past the ready state: Succeeded, an invention's partial or failed outcome, Cancelled. */
+  function jobOutcomeText(job: IndustryJobRow): string {
+    if (job.status === "cancelled") return industryWord("UI/Industry/Cancelled") || "Cancelled";
+    if (job.activity === "invention" && job.successfulRuns === 0) return industryWord("UI/Industry/JobFailed") || "Failed";
+    if (job.activity === "invention" && job.successfulRuns < job.runs) return `${job.successfulRuns} / ${job.runs}`;
+    return industryWord("UI/Industry/Succeeded") || "Succeeded";
+  }
+  /** FmtDate(..., 'ls'): the date and the hours and minutes, as the client writes them. */
+  function jobDateText(value: bigint | null): string {
+    const ms = filetimeToUnixMs(value);
+    if (ms === null) return "";
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+  }
+  const JOB_WORDS = ["UI/Industry/StatusAllActiveJobs", "UI/Industry/StatusInProgress", "UI/Industry/StatusReady",
+    "UI/Industry/StatusHalted", "UI/Industry/StatusHistory", "UI/Industry/InstalledByMe", "UI/Generic/Status",
+    "UI/Industry/JobRuns", "UI/Industry/Activity", "UI/Industry/OutputLocation",
+    "UI/ScienceAndIndustry/ScienceAndIndustryWindow/InstallDate", "UI/ScienceAndIndustry/ScienceAndIndustryWindow/EndDate",
+    "UI/Industry/NoJobsFound", "UI/Industry/Deliver", "UI/Industry/DeliverSelectedJobs", "UI/Industry/DeliverAllJobs",
+    "UI/Industry/Cancelled", "UI/Industry/JobFailed", "UI/Industry/Succeeded"];
+  onMount(() => { if (retail) flow.requestWords(JOB_WORDS); });
   const BLUEPRINT_WORDS = ["UI/Industry/OwnedByMe", "UI/Industry/AllBlueprints", "UI/Industry/Originals", "UI/Industry/Copies",
     "UI/Industry/Blueprint", "UI/Industry/MaterialEfficiency", "UI/Industry/TimeEfficiency", "UI/Industry/RunsRemaining",
     "UI/Industry/Activities", "UI/Common/Group", "UI/ScienceAndIndustry/ScienceAndIndustryWindow/Availability",
@@ -696,6 +747,71 @@
     </nav>
     {#if browserTab === "research"}<p class="note ind-research">Research agents are not in the play page yet.</p>{/if}
   {/if}
+  {#if retail}
+  <section class="ind-jobs ind-jobs-client">
+    <div class="ind-fac-top">
+      <select><option>{industryWord("UI/Industry/OwnedByMe") || "Owned by Me"}</option></select>
+      <select bind:value={jobStatus}>
+        <option value="active">{industryWord("UI/Industry/StatusAllActiveJobs") || "All Active Jobs"}</option>
+        <option value="running">{industryWord("UI/Industry/StatusInProgress") || "In Progress"}</option>
+        <option value="ready">{industryWord("UI/Industry/StatusReady") || "Ready"}</option>
+        <option value="paused">{industryWord("UI/Industry/StatusHalted") || "Halted"}</option>
+        <option value="history">{industryWord("UI/Industry/StatusHistory") || "History"}</option>
+      </select>
+      <select bind:value={jobActivity}>
+        <option value="">{industryWord("UI/Industry/AllActivities") || "All Activities"}</option>
+        {#each CLIENT_ACTIVITIES as a (a.id)}<option value={a.id}>{industryWord(a.label) || ACTIVITY_LABELS[a.id]}</option>{/each}
+      </select>
+      <select><option>{industryWord("UI/Industry/InstalledByMe") || "Installed by Me"}</option></select>
+    </div>
+    {#if $industry.jobsError}<p class="error">{$industry.jobsError}</p>{/if}
+    <div class="ind-scroll">
+      <table>
+        <thead><tr>
+          <th></th><th>{industryWord("UI/Generic/Status") || "Status"}</th><th>{industryWord("UI/Industry/JobRuns") || "Runs"}</th>
+          <th>{industryWord("UI/Industry/Activity") || "Activity"}</th><th>{industryWord("UI/Industry/Blueprint") || "Blueprint"}</th>
+          <th class="r">{industryWord("UI/Common/Jumps") || "Jumps"}</th><th>{industryWord("UI/Common/Security") || "Security"}</th>
+          <th>{industryWord("UI/Industry/Facility") || "Facility"}</th><th>{industryWord("UI/Industry/OutputLocation") || "Output Location"}</th>
+          <th>{industryWord("UI/ScienceAndIndustry/ScienceAndIndustryWindow/InstallDate") || "Install Date"}</th>
+          <th>{industryWord("UI/ScienceAndIndustry/ScienceAndIndustryWindow/EndDate") || "End Date"}</th>
+        </tr></thead>
+        <tbody>
+          {#each shownJobs as job (job.jobID)}
+            {@const st = shownStatus(job)}
+            {@const sec = securityBySystem.get(job.solarSystemID)}
+            {@const act = CLIENT_ACTIVITIES.find((a) => a.id === job.activity)}
+            <tr>
+              <td class="ic"><img class="ind-status" alt="" src={`/client-res/ui/texture/classes/industry/status/${jobStatusIcon(job)}.png`} /></td>
+              <td class="ind-job-state">
+                {#if st === "ready"}
+                  <button type="button" class="ind-deliver" disabled={busy} onclick={() => deliver(job.jobID)}><b>{industryWord("UI/Industry/Deliver") || "Deliver"}</b></button>
+                {:else if isActiveJob(job.status)}
+                  <span>{jobTimeText(job)}</span>
+                  {#if st === "running"}<span class={`ind-job-gauge ${job.activity === "manufacturing" ? "mfg" : job.activity === "reaction" ? "rx" : "sci"}`}><span style={`width: ${jobProgress(job) * 100}%`}></span></span>{/if}
+                {:else}
+                  <span class={job.status === "cancelled" || (job.activity === "invention" && job.successfulRuns === 0) ? "ind-not-ready" : ""}>{jobOutcomeText(job)}</span>
+                {/if}
+              </td>
+              <td>x {job.runs}</td>
+              <td class="ic">{#if act}<img class="ind-act" alt="" title={industryWord(act.label) || ACTIVITY_LABELS[act.id]} src={`/client-res/ui/texture/classes/industry/${act.icon}.png`} />{/if}</td>
+              <td><span class="ind-bp-name"><TypeIcon typeID={job.blueprintTypeID} name={typeName(job.blueprintTypeID)} />{typeName(job.blueprintTypeID)}</span></td>
+              <td class="r">—</td>
+              <td>{#if sec !== undefined}<span style={`color: ${securityStatusColor(sec)}`}>{shownSecurity(sec).toFixed(1)}</span>{/if}</td>
+              <td>{facilityName(job.facilityID)}</td>
+              <td>{facilityName(job.facilityID)}</td>
+              <td>{jobDateText(job.startDate)}</td><td>{jobDateText(job.endDate)}</td>
+            </tr>
+          {:else}
+            <tr><td colspan="11" class="ind-none">{industryWord("UI/Industry/NoJobsFound") || "No jobs found"}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+    <div class="ind-jobs-bottom">
+      <button type="button" disabled={busy || readyJobs.length === 0} onclick={() => { for (const job of readyJobs) deliver(job.jobID); }}>{industryWord("UI/Industry/DeliverAllJobs") || "Deliver All Jobs"}</button>
+    </div>
+  </section>
+  {:else}
   <section class="ind-jobs">
     <h2>Jobs you have running</h2>
     {#if $industry.jobsError}
@@ -825,6 +941,7 @@
         </table>
       </div>
     </section>
+  {/if}
   {/if}
 
   {#if retail}
