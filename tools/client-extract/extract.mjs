@@ -667,7 +667,18 @@ async function main() {
       line: "res:/UI/Texture/classes/LineSet/lineSegment.dds", lineOverlay: "res:/UI/Texture/classes/MapView/lineSegmentConstellation.dds" })) {
       textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     }
-    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 2, textures }));
+    // the abstract layout's positions (evemap/map2d/overriddenCoordinates.py: the packaged
+    // bin:/packages/evemap/overriddenCoordinates.json, each system's 2D 'pos' in metres), as {systemID: [x, z]}
+    let abstract = null;
+    const coords = path.join(client, "tq", "bin64", "packages", "evemap", "overriddenCoordinates.json");
+    if (fs.existsSync(coords)) {
+      const raw = JSON.parse(fs.readFileSync(coords, "utf8"));
+      const out = {};
+      for (const [id, v] of Object.entries(raw)) if (Array.isArray(v?.pos)) out[id] = [v.pos[0], v.pos[1]];
+      fs.writeFileSync(path.join(outRoot, "starmap-abstract.json"), JSON.stringify(out));
+      abstract = "/client-assets/starmap-abstract.json";
+    }
+    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 3, textures, abstract }));
     console.log("starmap.json");
   }
   for (const guid of args.fx) {

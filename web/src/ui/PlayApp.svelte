@@ -302,6 +302,14 @@
     close.textContent = "✕";
     close.onclick = () => toggleStarMap(false);
     m.root.appendChild(close);
+    // the map's layout option (its settings' "Abstract layout": VIEWMODE_LAYOUT_SHOW_ABSTRACT_SETTINGS)
+    const layout = document.createElement("label");
+    layout.className = "star-map-layout";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.onchange = () => void m.setLayout(box.checked);
+    layout.append(box, document.createTextNode(" Abstract layout"));
+    m.root.appendChild(layout);
     mapHost.appendChild(m.root);
     m.start();
     const here = s.store.station.get().online?.solarSystemID ?? live?.hello?.solarSystemID ?? null;
@@ -607,6 +615,7 @@
   .fly-neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
+  .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
   .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
     color: #ccc; border: 1px solid rgba(255,255,255,0.2); width: 22px; height: 22px; cursor: pointer; }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }

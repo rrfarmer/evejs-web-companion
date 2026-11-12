@@ -55,8 +55,16 @@
 //   ChangeLineAnimation((0, 0, 0, 0.75), AUTOPILOT_LINE_ANIM_SPEED / scale x direction, scale = length /
 //   AUTOPILOT_LINE_TICKSIZE (AU x 10000 x UNIVERSE_SCALE)), the direction -1 where the route runs from the line's first
 //   end; set after the opacities, which it overrides.
-// Not yet: the abstract layout, constellation and region markers, the my-location marker's pulse circles (three
-// circleFilled256 rings, alpha to 0.02).
+// - the layouts (layout/mapLayoutSolarSystems.py PrimeLayout, mapViewUtil.GetSolarSystemCoordinates): the solar
+//   systems' own (WorldPosToMapPos(center)) or the abstract one, where the coordinate overrider has the system
+//   (evemap/map2d/overriddenCoordinates.py: bin:/packages/evemap/overriddenCoordinates.json's 2D pos) at
+//   WorldPosToMapPos((x, 0, z)); a change of layout moves each star linearly from where it is to where it goes over
+//   transformTime 500 ms (mapLayoutHandler: UpdateAnimPosition's Vec3Lerp into the particle's first position, each
+//   line's ends with it - UpdateLinePosition).
+// Not yet: the abstract mode's presentation (its 2D camera, LineOpacityFinderAbstract, MarkerContainerContentAdvanced
+// bubbles, the extra star particles) - the client opens in it (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True); here the
+// solar systems' layout opens until that is in; constellation and region markers; the my-location marker's pulse
+// circles (three circleFilled256 rings, alpha to 0.02).
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -222,6 +230,15 @@ export class StarMap {
     cameraDistanceScalingFactor: { value: CAMERA_DISTANCE_SCALING_FACTOR }, heat: { value: null as THREE.Texture | null }, hasHeat: { value: 0 },
   };
   private readonly positions = new Map<number, THREE.Vector3>();
+  /** Each system's place in the two layouts, and the stars' position attribute. */
+  private readonly layouts = { own: new Map<number, THREE.Vector3>(), abstract: new Map<number, THREE.Vector3>() };
+  private abstractUrl: string | null = null;
+  private starPos: THREE.InstancedBufferAttribute | null = null;
+  private starOrder: number[] = [];
+  private linePos: THREE.BufferAttribute | null = null;
+  /** The layout shown, and its change under way (from each star's place then, since when). */
+  abstract = false;
+  private morph: { from: Map<number, THREE.Vector3>; at: number } | null = null;
   private running = false;
   /** The markers' layer over the canvas, the labels of the active systems and the my-location marker. */
   private readonly markers = document.createElement("div");
@@ -286,7 +303,8 @@ export class StarMap {
       if (!t.mipmaps?.length) { t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.needsUpdate = true; }
       return t;
     };
-    void fetch("/client-assets/starmap.json").then((r) => r.json()).then(async (m: { textures?: Record<string, string | null> }) => {
+    void fetch("/client-assets/starmap.json").then((r) => r.json()).then(async (m: { textures?: Record<string, string | null>; abstract?: string | null }) => {
+      this.abstractUrl = m.abstract ?? null;
       if (m.textures?.star) { this.starUniforms.texMap.value = await level(m.textures.star); this.starUniforms.hasTex.value = 1; }
       if (m.textures?.heat) { this.bubbleUniforms.heat.value = await level(m.textures.heat); this.bubbleUniforms.hasHeat.value = 1; }
       if (m.textures?.line && m.textures?.lineOverlay) {
@@ -308,7 +326,9 @@ export class StarMap {
     for (const [id, x, y, z, factionID, regionID, constellationID] of data.systems) {
       within.set(id, [regionID, constellationID]);
       const p = mapPosition(x, y, z);
+      this.layouts.own.set(id, p.clone());
       this.positions.set(id, p);
+      this.starOrder.push(id);
       const c = starColour(factionID);
       colours.set(id, c);
       iPos.push(p.x, p.y, p.z);
@@ -320,7 +340,8 @@ export class StarMap {
     geometry.index = plane.index;
     geometry.setAttribute("position", plane.getAttribute("position"));
     geometry.setAttribute("uv", plane.getAttribute("uv"));
-    geometry.setAttribute("iPos", new THREE.InstancedBufferAttribute(new Float32Array(iPos), 3));
+    this.starPos = new THREE.InstancedBufferAttribute(new Float32Array(iPos), 3);
+    geometry.setAttribute("iPos", this.starPos);
     geometry.setAttribute("iColour", new THREE.InstancedBufferAttribute(new Float32Array(iColour), 3));
     geometry.setAttribute("iSize", new THREE.InstancedBufferAttribute(new Float32Array(iSize), 1));
     geometry.instanceCount = data.systems.length;
@@ -369,7 +390,8 @@ export class StarMap {
       count++;
     }
     const lg = new THREE.BufferGeometry();
-    lg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    this.linePos = new THREE.Float32BufferAttribute(pos, 3);
+    lg.setAttribute("position", this.linePos);
     lg.setAttribute("lineDir", new THREE.Float32BufferAttribute(dir, 4));
     lg.setAttribute("beginEnd", new THREE.Float32BufferAttribute(be, 4));
     lg.setAttribute("animation", new THREE.Float32BufferAttribute(anim, 2));
@@ -439,6 +461,49 @@ export class StarMap {
       this.hoverLabel = { el, at: this.positions.get(systemID)! };
     }
     this.updateLineOpacity();
+  }
+
+  /**
+   * The layout: the solar systems' own, or the abstract one (its positions read once); each star moved from where it
+   * is to its place in it over 500 ms, the lines with them.
+   */
+  async setLayout(abstract: boolean): Promise<void> {
+    if (abstract && this.layouts.abstract.size === 0) {
+      if (!this.abstractUrl) return;
+      const coords = await fetch(this.abstractUrl).then((r) => r.json()) as Record<string, [number, number]>;
+      for (const [id, own] of this.layouts.own) {
+        const c = coords[String(id)];
+        this.layouts.abstract.set(id, c ? mapPosition(c[0], 0, c[1]) : own.clone());
+      }
+    }
+    this.abstract = abstract;
+    const from = new Map<number, THREE.Vector3>();
+    for (const [id, p] of this.positions) from.set(id, p.clone());
+    this.morph = { from, at: performance.now() };
+  }
+
+  /** One step of a layout change: each star's place, its particle, its lines' ends. */
+  private stepLayout(now: number): void {
+    if (!this.morph || !this.starPos || !this.linePos) return;
+    const t = Math.min(1, (now - this.morph.at) / 500);
+    const target = this.abstract ? this.layouts.abstract : this.layouts.own;
+    for (const [id, p] of this.positions) p.lerpVectors(this.morph.from.get(id)!, target.get(id)!, t);
+    const sp = this.starPos.array as Float32Array;
+    this.starOrder.forEach((id, i) => { const p = this.positions.get(id)!; sp[i * 3] = p.x; sp[i * 3 + 1] = p.y; sp[i * 3 + 2] = p.z; });
+    this.starPos.needsUpdate = true;
+    const lp = this.linePos.array as Float32Array, dir = this.lineAttrs!.dir.array as Float32Array;
+    this.lineEnds.forEach(([a, b], i) => {
+      const pa = this.positions.get(a)!, pb = this.positions.get(b)!;
+      for (let k = 0; k < 6; k++) {
+        const v = i * 6 + k, end = k === 2 || k === 4 || k === 5;
+        const p = end ? pb : pa, q = end ? pa : pb;
+        lp[v * 3] = p.x; lp[v * 3 + 1] = p.y; lp[v * 3 + 2] = p.z;
+        dir[v * 4] = q.x - p.x; dir[v * 4 + 1] = q.y - p.y; dir[v * 4 + 2] = q.z - p.z;
+      }
+    });
+    this.linePos.needsUpdate = true;
+    this.lineAttrs!.dir.needsUpdate = true;
+    if (t >= 1) this.morph = null;
   }
 
   /** The destination path, the pilot's system first (UpdateAutopilotJumpRoute): its lines drawn as the route. */
@@ -587,6 +652,7 @@ export class StarMap {
     const w = this.root.clientWidth || innerWidth, h = this.root.clientHeight || innerHeight;
     const size = this.renderer.getSize(new THREE.Vector2());
     if (size.x !== w || size.y !== h) { this.renderer.setSize(w, h, false); this.camera.aspect = w / Math.max(1, h); this.camera.updateProjectionMatrix(); }
+    this.stepLayout(performance.now());
     // the move to a newly selected system: the point of interest and the eye together, over half a second
     if (this.move) {
       const t = Math.min(1, (performance.now() - this.move.at) / 500);

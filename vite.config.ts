@@ -185,7 +185,7 @@ function clientAssets(): Plugin {
           try {
             const buildDir = path.join(root, build);
             const file = path.join(buildDir, "starmap.json");
-            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"starMapBuild":2')) await extractOnce("starmap", buildDir, ["--star-map"]);
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"starMapBuild":3')) await extractOnce("starmap", buildDir, ["--star-map"]);
             res.setHeader("content-type", "application/json");
             return res.end(fs.readFileSync(file));
           } catch (e) {
