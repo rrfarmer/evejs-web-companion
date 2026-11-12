@@ -41,6 +41,8 @@ export interface GfxSettings {
   useCombatMusic: boolean;
   /** Suppress Turret Sounds (audioSvc.GetTurretSuppression: 0). */
   suppressTurret: boolean;
+  /** Override with Old Jukebox (audioSvc.GetOldJukeboxOverride: useOldJukeboxOverride 0). */
+  useOldJukeboxOverride: boolean;
   masterVolume: number;
   uiGain: number;
   eveampGain: number;
@@ -53,7 +55,7 @@ export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   volumetricQuality: 3, reflectionQuality: 3, turretsEnabled: true, effectsEnabled: true, missilesEnabled: true,
   explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true,
   windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05, colorThemeID: DEFAULT_COLORTHEMEID,
-  audioEnabled: true, useCombatMusic: true, suppressTurret: false, masterVolume: 0.8, uiGain: 0.5, eveampGain: 0.5, evevoiceGain: 0.7, worldVolume: 0.7,
+  audioEnabled: true, useCombatMusic: true, suppressTurret: false, useOldJukeboxOverride: false, masterVolume: 0.8, uiGain: 0.5, eveampGain: 0.5, evevoiceGain: 0.7, worldVolume: 0.7,
 };
 
 import { setMipLevelSkipCount } from "../three/ddsTexture.ts";

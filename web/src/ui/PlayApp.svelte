@@ -107,21 +107,24 @@
   // The music as the client's Master Music Graph (805) runs it, one subgraph at a time (exclusive "music_system":
   // the one stopping sends its stop): at login and character selection 806 (music_login_play / _stop), in the hangar
   // 808 (no music), in space 809 (music_eve_dynamic_play / _stop, then the system's security switch, again as the
-  // system changes), targeted in space with Use Combat Music on 823 (music_eve_combat_play / _stop and its switch).
+  // system changes), targeted in space with Use Combat Music on 823 (music_eve_combat_play / _stop and its switch);
+  // with Override with Old Jukebox on, after login 810 in their place (music_eve_classic_play / _stop: the classic
+  // playlist, docked and in space alike - 805 asks it before the hangar).
   let musicMode = "";
   let musicSystemID: number | null = null;
   let musicSecurity: number | null = null;
   let useCombatMusic = $state(gfx().useCombatMusic);
-  onDestroy(onGfx((g) => { useCombatMusic = g.useCombatMusic; }));
+  let oldJukebox = $state(gfx().useOldJukeboxOverride);
+  onDestroy(onGfx((g) => { useCombatMusic = g.useCombatMusic; oldJukebox = g.useOldJukeboxOverride; }));
   const targeted = $derived(($targeting?.lockedByIDs ?? []).length > 0);
-  const MUSIC_STOPS: Record<string, string> = { login: "music_login_stop", space: "music_eve_dynamic_stop", combat: "music_eve_combat_stop" };
+  const MUSIC_STOPS: Record<string, string> = { login: "music_login_stop", space: "music_eve_dynamic_stop", combat: "music_eve_combat_stop", classic: "music_eve_classic_stop" };
   function musicSwitches(mode: string) {
     if (musicSecurity === null || musicSystemID === null) return;
     const sw = mode === "combat" ? combatSwitch(musicSecurity) : mode === "space" ? securitySwitch(musicSystemID, musicSecurity) : null;
     if (sw) void sendMusicEvent(sw);
   }
   $effect(() => {
-    const mode = stage !== "game" ? "login" : docked ? "hangar" : targeted && useCombatMusic ? "combat" : "space";
+    const mode = stage !== "game" ? "login" : oldJukebox ? "classic" : docked ? "hangar" : targeted && useCombatMusic ? "combat" : "space";
     if (mode === musicMode) return;
     const was = musicMode;
     musicMode = mode;
@@ -129,6 +132,7 @@
     if (mode === "login") void sendMusicEvent("music_login_play");
     else if (mode === "space") void sendMusicEvent("music_eve_dynamic_play");
     else if (mode === "combat") void sendMusicEvent("music_eve_combat_play");
+    else if (mode === "classic") void sendMusicEvent("music_eve_classic_play");
     musicSwitches(mode);
   });
   function musicSystem(solarSystemID: number, security: number | null) {
