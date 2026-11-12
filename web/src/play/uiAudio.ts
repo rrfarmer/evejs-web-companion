@@ -18,21 +18,49 @@ export function wwiseId(name: string): number {
   return h;
 }
 
-/** events.json's entry: layers of alternatives (older lists: alternatives, or one sound). */
-type EventSounds = string | string[] | string[][];
+/** A layer: its alternatives, or {s: alternatives, d: its crossfade by distance - [distance, gain, interpolation]}. */
+type Layer = string[] | { s: string[]; d: [number, number, number][] };
+/** events.json's entry: layers (older lists: alternatives, or one sound). */
+type EventSounds = string | string[] | Layer[];
+
+/**
+ * A Wwise curve at x (its points' interpolations, AkCurveInterpolation: 9 constant, 4 linear, 5 S-curve; the others
+ * taken as linear): the first point's value before it, the last's after.
+ */
+export function curveAt(points: readonly [number, number, number][], x: number): number {
+  if (!points.length) return 1;
+  if (x <= points[0]![0]) return points[0]![1];
+  for (let i = 0; i + 1 < points.length; i++) {
+    const [x0, y0, kind] = points[i]!, [x1, y1] = points[i + 1]!;
+    if (x > x1) continue;
+    if (kind === 9 || x1 === x0) return y0;
+    let t = (x - x0) / (x1 - x0);
+    if (kind === 5) t = t * t * (3 - 2 * t);
+    return y0 + (y1 - y0) * t;
+  }
+  return points[points.length - 1]![1];
+}
 let events: Promise<Record<string, EventSounds>> | null = null;
-/** One alternative of each of an event's layers (they sound together). */
-function pick(found: EventSounds | null): string[] {
+/** One alternative of each of an event's layers (they sound together), with its gain at that distance. */
+function pick(found: EventSounds | null, distance = 0): { sound: string; gain: number }[] {
   if (found === null) return [];
-  const layers: string[][] = typeof found === "string" ? [[found]] : found.length && Array.isArray(found[0]) ? found as string[][] : [found as string[]];
-  return layers.filter((l) => l.length).map((l) => l[Math.floor(Math.random() * l.length)]!);
+  const layers: Layer[] = typeof found === "string" ? [[found]] : found.length && typeof found[0] !== "string" ? found as Layer[] : [found as string[]];
+  const out: { sound: string; gain: number }[] = [];
+  for (const l of layers) {
+    const choices = Array.isArray(l) ? l : l.s;
+    if (!choices.length) continue;
+    const gain = Array.isArray(l) ? 1 : curveAt(l.d, distance);
+    if (gain <= 0.001) continue;
+    out.push({ sound: choices[Math.floor(Math.random() * choices.length)]!, gain });
+  }
+  return out;
 }
 let context: AudioContext | null = null;
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
 /** The sounds a "<name>_play" event started and has playing (a "<name>_stop" event ends them, as its Stop action does). */
 const playing = new Map<string, Set<AudioBufferSourceNode>>();
 /** Every UI event asked to play (for checks): its name and what was found for it. */
-export const uiAudioLog: { name: string; sound: string | null; state?: AudioContextState; played?: boolean }[] = [];
+export const uiAudioLog: { name: string; sound: string | null; state?: AudioContextState; played?: boolean; distance?: number }[] = [];
 
 function eventsMap(): Promise<Record<string, EventSounds>> {
   events ??= fetch("/client-assets/audio/events.json").then((r) => (r.ok ? r.json() as Promise<Record<string, EventSounds>> : {})).catch(() => ({}));
@@ -43,7 +71,9 @@ type Vec3 = { x: number; y: number; z: number };
 /** A sound's file: events.json names it with its extension (.ogg Vorbis, .wav PTADPCM); older lists without one: .ogg. */
 const soundUrl = (sound: string): string => `/client-assets/audio/${sound}${/\.(ogg|wav)$/.test(sound) ? "" : ".ogg"}`;
 /** The listener: the camera (Wwise's listener is the camera's), its place and its forward and up directions. */
+let listenerAt: Vec3 = { x: 0, y: 0, z: 0 };
 export function setListener(at: Vec3, forward: Vec3, up: Vec3): void {
+  listenerAt = { x: at.x, y: at.y, z: at.z };
   if (!context) return;
   const l = context.listener;
   if (l.positionX) {
@@ -63,21 +93,21 @@ function bufferOf(ctx: AudioContext, sound: string): Promise<AudioBuffer | null>
  * An event's sounds started: one alternative of each layer, together, through the node given (a gain, a panner); the
  * sources kept under the event's name for its stop event.
  */
-async function start(name: string, sounds: string[], volume: number, out: (ctx: AudioContext) => AudioNode, entry: (typeof uiAudioLog)[number]): Promise<void> {
+async function start(name: string, sounds: { sound: string; gain: number }[], volume: number, out: (ctx: AudioContext) => AudioNode, entry: (typeof uiAudioLog)[number]): Promise<void> {
   context ??= new AudioContext();
   if (context.state === "suspended") await context.resume().catch(() => {});
   const ctx = context;
   entry.state = ctx.state;
-  const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s)));
+  const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s.sound)));
   const key = name.toLowerCase();
   const set = playing.get(key) ?? new Set<AudioBufferSourceNode>();
   playing.set(key, set);
-  for (const buffer of buffers) {
+  for (const [n, buffer] of buffers.entries()) {
     if (!buffer) continue;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     const gain = ctx.createGain();
-    gain.gain.value = volume;
+    gain.gain.value = volume * sounds[n]!.gain;
     source.connect(gain).connect(out(ctx));
     source.start();
     entry.played = true;
@@ -92,8 +122,10 @@ async function start(name: string, sounds: string[], volume: number, out: (ctx: 
  * attenuation curves are not read).
  */
 export async function playWorldEvent(name: string, at: Vec3): Promise<void> {
-  const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null);
-  const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.join(" + ") || null };
+  // the layers' crossfades by the emitter's distance from the listener (their RTPC bound to Distance)
+  const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
+  const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance);
+  const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => `${s.sound}@${s.gain.toFixed(2)}`).join(" + ") || null, distance };
   uiAudioLog.push(entry);
   const settings = gfx();
   const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
@@ -119,7 +151,7 @@ export async function playUiEvent(name: string): Promise<void> {
     return;
   }
   const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null);
-  const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.join(" + ") || null };
+  const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => s.sound).join(" + ") || null };
   uiAudioLog.push(entry);
   const settings = gfx();
   const volume = settings.audioEnabled ? settings.masterVolume * settings.uiGain : 0;

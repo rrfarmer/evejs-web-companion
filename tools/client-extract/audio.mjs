@@ -87,6 +87,15 @@ console.log(`embedded: written ${written}, failed ${failed}`, Object.fromEntries
 // object's end and checked against the hierarchy). events.json maps the event's hash to the sounds it may play,
 // "<bank>/<source id>" or "streamed/<source id>" (the source's own res:/audio/media or essential_media <id>.wem).
 const objects = new Map();
+// init.bnk's STMG game parameters: each RTPC id, its default, its ramp, and the built-in parameter it is bound to
+// (eBindToBuiltInParam: 1 is Distance - the emitter's from the listener)
+const stmg = (() => { const b = res.read("res:/audio/essential_media/init.bnk"); const c = readBank(b).chunks.STMG; return c ? b.subarray(c.offset, c.offset + c.size) : new Uint8Array(); })();
+function boundToDistance(rtpc) {
+  for (let p = 0; p + 21 <= stmg.length; p++) {
+    if ((stmg[p] | (stmg[p + 1] << 8) | (stmg[p + 2] << 16) | (stmg[p + 3] << 24)) >>> 0 === rtpc) return stmg[p + 20] === 1;
+  }
+  return false;
+}
 for (const res0 of res.list("res:/audio/essential_media/", /\.bnk$/)) {
   const bytes = res.read(res0);
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -156,23 +165,58 @@ function switchChildren(body) {
   }
   return [];
 }
+const f32 = (b, o) => new DataView(b.buffer, b.byteOffset + o, 4).getFloat32(0, true);
 /**
- * What an object plays, as layers that sound together, each a list of alternatives: a Sound its source; a random /
- * sequence container (5) one of its playlist's; a switch container (6) its default switch's children; a layer
- * container (9) every child's layers at once.
+ * A layer container's crossfades (CAkLayerCntr after its Children: the layer count, then each layer - its id, its RTPC
+ * curves (a u16 count; each RTPC id, type, accumulation, parameter, curve id, scaling, a u16 point count and
+ * {from, to, interpolation} points), its crossfade RTPC id and type, and its associated children (each child id, a
+ * u32 point count and its crossfade curve's points)). Kept where the crossfade's RTPC is bound to Distance: a child's
+ * points by its id.
+ */
+function layerFades(body) {
+  const c = childrenAt(body);
+  if (!c) return new Map();
+  const fades = new Map();
+  try {
+    let q = c.at + 4 + 4 * c.ids.length;
+    const layers = u32(body, q); q += 4;
+    for (let l = 0; l < layers; l++) {
+      q += 4;
+      const curves = u16(body, q); q += 2;
+      for (let k = 0; k < curves; k++) { q += 7 + 5; const n = u16(body, q); q += 2 + 12 * n; }
+      const rtpc = u32(body, q); q += 5;
+      const assoc = u32(body, q); q += 4;
+      for (let a = 0; a < assoc; a++) {
+        const child = u32(body, q), n = u32(body, q + 4); q += 8;
+        const pts = [];
+        for (let k = 0; k < n; k++, q += 12) pts.push([f32(body, q), f32(body, q + 4), u32(body, q + 8)]);
+        if (boundToDistance(rtpc)) fades.set(child, pts);
+      }
+    }
+  } catch { return new Map(); }
+  return fades;
+}
+/**
+ * What an object plays, as layers that sound together, each {s: alternatives, d?: its distance crossfade}: a Sound its
+ * source; a random / sequence container (5) one of its playlist's; a switch container (6) its default switch's
+ * children; a layer container (9) every child's layers at once, each child's with its crossfade by distance (the
+ * innermost kept where they nest).
  */
 function layersOf(id, depth = 0) {
   const o = objects.get(id);
   if (!o || depth > 8) return [];
-  if (o.type === 9) return childrenOf(o.body).flatMap((child) => layersOf(child, depth + 1));
+  if (o.type === 9) {
+    const fades = layerFades(o.body);
+    return childrenOf(o.body).flatMap((child) => layersOf(child, depth + 1).map((l) => (l.d || !fades.has(child) ? l : { ...l, d: fades.get(child) })));
+  }
   if (o.type === 6) return switchChildren(o.body).flatMap((child) => layersOf(child, depth + 1));
   if (o.type === 5) {
     const kids = playlist(o.body);
-    const alternatives = [...new Set(kids.flatMap((child) => layersOf(child, depth + 1).flat()))];
-    return alternatives.length ? [alternatives] : [];
+    const alternatives = [...new Set(kids.flatMap((child) => layersOf(child, depth + 1).flatMap((l) => l.s)))];
+    return alternatives.length ? [{ s: alternatives }] : [];
   }
   const sources = sourcesOf(id, depth);
-  return sources.length ? [sources] : [];
+  return sources.length ? [{ s: sources }] : [];
 }
 function sourcesOf(id, depth = 0) {
   const o = objects.get(id);
@@ -215,16 +259,19 @@ function eventLayers(id, depth = 0) {
   }
   return layers;
 }
-// events.json: an event's id to its layers ([[alternatives], ...]) - one alternative of each layer played together
+// events.json: an event's id to its layers - each its alternatives, or {s: alternatives, d: [[distance, gain,
+// interpolation], ...]} where it fades by distance - one alternative of each layer played together
 const events = {};
-let layered = 0;
+let layered = 0, faded = 0;
 for (const [id, o] of objects) {
   if (o.type !== 4) continue;
-  const layers = eventLayers(id).filter((l) => l.length);
+  const layers = eventLayers(id).filter((l) => l.s.length);
   if (!layers.length) continue;
-  events[id] = layers;
+  events[id] = layers.map((l) => (l.d ? { s: l.s, d: l.d.map(([x, y, i]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, i]) } : l.s));
   if (layers.length > 1) layered++;
+  if (layers.some((l) => l.d)) faded++;
 }
+console.log(`events whose layers fade by distance: ${faded}`);
 const containers = layered;
 fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
 console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} with layers); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
