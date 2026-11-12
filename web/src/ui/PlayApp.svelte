@@ -900,6 +900,20 @@
   .fly-windows :global(.ind-scroll .r) { text-align: right; }
   .fly-windows :global(.ind-scroll .ic) { text-align: center; width: 24px; }
   .fly-windows :global(.ind-scroll th.ic img) { width: 16px; height: 16px; vertical-align: middle; }
+  /* BrowserBlueprints: the facility combo wider (200), the name with its icon, the ME / TE gauges, the activities'
+     icon buttons (the blueprint's own lit, the rest at 0.05), a blueprint in a job at 0.15 */
+  .fly-windows :global(.ind-fac-top select.wide) { width: 200px; }
+  .fly-windows :global(.ind-bp-name) { display: inline-flex; align-items: center; gap: 4px; }
+  .fly-windows :global(.ind-bp-name img) { width: 20px; height: 20px; }
+  .fly-windows :global(.ind-gauge) { display: inline-block; width: 40px; height: 4px; background: rgba(255, 255, 255, 0.12); vertical-align: middle; }
+  .fly-windows :global(.ind-gauge span) { display: block; height: 100%; background: rgba(255, 255, 255, 0.7); }
+  .fly-windows :global(.ind-inf) { width: 11px; height: 6px; opacity: 0.8; margin-left: 6px; }
+  .fly-windows :global(.ind-acts) { white-space: nowrap; }
+  .fly-windows :global(.ind-acts button) { background: none; border: 0; padding: 2px; opacity: 0.05; cursor: default; }
+  .fly-windows :global(.ind-acts button.on) { opacity: 1; cursor: pointer; }
+  .fly-windows :global(.ind-acts button.on:disabled) { opacity: 0.4; }
+  .fly-windows :global(.ind-acts img) { width: 14px; height: 14px; display: block; }
+  .fly-windows :global(.ind-scroll tr.ind-busy td) { opacity: 0.15; }
   .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }

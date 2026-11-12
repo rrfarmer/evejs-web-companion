@@ -615,6 +615,48 @@
     "UI/Common/Jumps", "UI/Common/Security", "UI/Industry/Facility", "UI/Industry/Tax", "UI/Industry/FacilityType", "UI/Common/Owner",
     "UI/Industry/NoFacilitiesFound"];
   $effect(() => { if (retail) flow.requestWords(INDUSTRY_TAB_WORDS); });
+  /**
+   * BrowserBlueprints on the play page (browserBlueprints.py, blueprintEntry.py): its top row - the Owner combo (Owned
+   * by Me; the corporation's are not read), the Facility combo (All Facilities, then each facility holding blueprints
+   * with their count), the Blueprint Type combo (All Blueprints, Originals, Copies), a quick filter - and the scroll's
+   * columns Blueprint, Material Efficiency, Time Efficiency (gauges of 10 and 20), Runs Remaining (the infinity mark
+   * for an original), Activities (the six small icons, the blueprint's own lit - a click opens the job's view on that
+   * activity), Jumps and Facility (with All Facilities), Group, Availability. A blueprint in a job is dimmed (0.15).
+   */
+  let bpFacility = $state<number | null>(null);
+  let bpKind = $state<"all" | "original" | "copy">("all");
+  let bpFilter = $state("");
+  $effect(() => {
+    if (!retail || browserTab !== "blueprints") return;
+    const refs = $industry.blueprints.flatMap((b) => [{ kind: "type" as const, id: b.typeID }, { kind: "typeGroup" as const, id: b.typeID }]);
+    if (refs.length) flow.requestNames(refs);
+  });
+  const bpFacilityCounts = $derived.by(() => {
+    const counts = new Map<number, number>();
+    for (const b of $industry.blueprints) if (b.facilityID !== null) counts.set(b.facilityID, (counts.get(b.facilityID) ?? 0) + 1);
+    return [...counts].sort((x, y) => facilityName(x[0]).localeCompare(facilityName(y[0])));
+  });
+  const shownBlueprints = $derived.by(() => {
+    const q = bpFilter.trim().toLowerCase();
+    return $industry.blueprints.filter((b) => {
+      if (bpFacility !== null && b.facilityID !== bpFacility) return false;
+      if (bpKind !== "all" && b.original !== (bpKind === "original")) return false;
+      if (q && !typeName(b.typeID).toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((x, y) => typeName(x.typeID).localeCompare(typeName(y.typeID)));
+  });
+  /** An activity's icon pressed on a blueprint's row (BlueprintEntry.OnActivityBtn): the job's view on that work. */
+  function chooseBlueprintActivity(blueprint: IndustryBlueprintRow, activity: IndustryActivity): void {
+    startJobFor(blueprint);
+    chosenActivity = activity;
+    if (!cannotAsk) askToConfirm();
+  }
+  const BLUEPRINT_WORDS = ["UI/Industry/OwnedByMe", "UI/Industry/AllBlueprints", "UI/Industry/Originals", "UI/Industry/Copies",
+    "UI/Industry/Blueprint", "UI/Industry/MaterialEfficiency", "UI/Industry/TimeEfficiency", "UI/Industry/RunsRemaining",
+    "UI/Industry/Activities", "UI/Common/Group", "UI/ScienceAndIndustry/ScienceAndIndustryWindow/Availability",
+    "UI/Industry/NoBlueprintsFound", "UI/Industry/ActivityNotAvailable"];
+  onMount(() => { if (retail) flow.requestWords(BLUEPRINT_WORDS); });
+
   function industryWord(label: string): string {
     const t = $words.templates[label];
     return typeof t === "string" ? t : "";
@@ -785,6 +827,62 @@
     </section>
   {/if}
 
+  {#if retail}
+  <section class="ind-blueprints ind-bp-client">
+    <div class="ind-fac-top">
+      <select><option>{industryWord("UI/Industry/OwnedByMe") || "Owned by Me"}</option></select>
+      <select class="wide" bind:value={bpFacility}>
+        <option value={null}>{industryWord("UI/Industry/AllFacilities") || "All Facilities"}</option>
+        {#each bpFacilityCounts as [id, count] (id)}<option value={id}>{facilityName(id)} ({count})</option>{/each}
+      </select>
+      <select bind:value={bpKind}>
+        <option value="all">{industryWord("UI/Industry/AllBlueprints") || "All Blueprints"}</option>
+        <option value="original">{industryWord("UI/Industry/Originals") || "Originals"}</option>
+        <option value="copy">{industryWord("UI/Industry/Copies") || "Copies"}</option>
+      </select>
+      <input type="search" placeholder="Filter" bind:value={bpFilter} />
+    </div>
+    {#if $industry.blueprintsError}<p class="error">{$industry.blueprintsError}</p>{/if}
+    <div class="ind-scroll">
+      <table>
+        <thead><tr>
+          <th>{industryWord("UI/Industry/Blueprint") || "Blueprint"}</th>
+          <th>{industryWord("UI/Industry/MaterialEfficiency") || "Material Efficiency"}</th>
+          <th>{industryWord("UI/Industry/TimeEfficiency") || "Time Efficiency"}</th>
+          <th>{industryWord("UI/Industry/RunsRemaining") || "Runs Remaining"}</th>
+          <th>{industryWord("UI/Industry/Activities") || "Activities"}</th>
+          {#if bpFacility === null}<th class="r">{industryWord("UI/Common/Jumps") || "Jumps"}</th><th>{industryWord("UI/Industry/Facility") || "Facility"}</th>{/if}
+          <th>{industryWord("UI/Common/Group") || "Group"}</th>
+          <th>{industryWord("UI/ScienceAndIndustry/ScienceAndIndustryWindow/Availability") || "Availability"}</th>
+        </tr></thead>
+        <tbody>
+          {#each shownBlueprints as b (b.itemID)}
+            {@const acts = blueprintActivities(b)}
+            <tr class={b.jobID !== null ? "ind-busy" : ""} ondblclick={() => { if (b.jobID === null) chooseBlueprint(b); }}>
+              <td><span class="ind-bp-name"><TypeIcon typeID={b.typeID} name={typeName(b.typeID)} />{typeName(b.typeID)}</span></td>
+              <td><span class="ind-gauge" title={`${b.materialEfficiency}`}><span style={`width: ${b.materialEfficiency * 10}%`}></span></span> {b.materialEfficiency}</td>
+              <td><span class="ind-gauge" title={`${b.timeEfficiency}`}><span style={`width: ${b.timeEfficiency * 5}%`}></span></span> {b.timeEfficiency}</td>
+              <td>{#if b.original}<img class="ind-inf" alt="∞" src="/client-res/ui/texture/classes/industry/infinity.png" />{:else}{b.runs}{/if}</td>
+              <td class="ind-acts">
+                {#each CLIENT_ACTIVITIES as a (a.id)}
+                  {@const on = acts.includes(a.id)}
+                  <button type="button" class:on disabled={!on || b.jobID !== null || busy}
+                    title={on ? industryWord(a.label) || ACTIVITY_LABELS[a.id] : industryWord("UI/Industry/ActivityNotAvailable") || "Activity not available"}
+                    onclick={() => chooseBlueprintActivity(b, a.id)}><img alt="" src={`/client-res/ui/texture/classes/industry/${a.icon}.png`} /></button>
+                {/each}
+              </td>
+              {#if bpFacility === null}<td class="r">—</td><td>{b.facilityID !== null ? facilityName(b.facilityID) : "—"}</td>{/if}
+              <td>{resolvedName($names.resolved, "typeGroup", b.typeID, "")}</td>
+              <td>{b.jobID !== null ? "In use" : ""}</td>
+            </tr>
+          {:else}
+            <tr><td colspan="10" class="ind-none">{industryWord("UI/Industry/NoBlueprintsFound") || "No blueprints found"}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {:else}
   <section class="ind-blueprints">
     <h2>Your blueprints</h2>
     {#if $industry.blueprintsError}
@@ -865,6 +963,7 @@
       </div>
     {/if}
   </section>
+  {/if}
 
   {#if startingBlueprint}
     <section class="bulk ind-view">
