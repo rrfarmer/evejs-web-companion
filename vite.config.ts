@@ -185,7 +185,7 @@ function clientAssets(): Plugin {
           try {
             const buildDir = path.join(root, build);
             const file = path.join(buildDir, "fx", `${fxAsk[1]}.json`);
-            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"fxBuild":1')) await extractOnce(`fx:${fxAsk[1]}`, buildDir, ["--fx", fxAsk[1]!]);
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"fxBuild":2')) await extractOnce(`fx:${fxAsk[1]}`, buildDir, ["--fx", fxAsk[1]!]);
             res.setHeader("content-type", "application/json");
             return res.end(fs.readFileSync(file));
           } catch (e) {

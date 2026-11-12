@@ -361,7 +361,7 @@ async function extractFxGraphic(rf, clientDir, sde, guid, outRoot) {
   const stretches = (read?.stretches ?? []).filter(Boolean);
   if (stretches.length) await copyChildGraphAssets(rf, [...stretches.map((s) => s.root), ...Object.values(read.childEffects ?? {})], outRoot);
   const out = {
-    fxBuild: 1, guid, type: fx?.type ?? null, graphicID: fx?.graphicID ?? null, graphicFile, duration: fx?.duration ?? null,
+    fxBuild: 2, guid, type: fx?.type ?? null, graphicID: fx?.graphicID ?? null, graphicFile, duration: fx?.duration ?? null,
     sourceDamage: fx?.sourceDamage ?? null, targetDamage: fx?.targetDamage ?? null,
     stretches: stretches.map((s) => ({ type: "EveStretch3", ...s })),
   };

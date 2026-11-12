@@ -1036,9 +1036,13 @@ export function readTurretStretch3(rf, path) {
   const fx = find(o);
   shownBySet = findShownBySet(fx ?? o);
   actionEmitters = findActionEmitters(fx ?? o);
-  // a file that is one EveStretch3 (an effect's own graphic: the Vorton projectors' chain) is its one stretch
-  const list = fx ? fx.stretch ?? [] : o?.type === "EveStretch3" ? [o] : [];
-  const stretches = list.map((s) => (s?.type === "EveStretch3" ? readStretch3(s) : s?.type === "EveStretch" ? readEveStretch(s) : null));
+  // a file that is one EveStretch3 or EveStretch (an effect's own graphic: the Vorton projectors' chain, a warp
+  // scrambler's or a neutraliser's LocatorStretchEffect) is its one stretch; each read keeps its type
+  const list = fx ? fx.stretch ?? [] : o?.type === "EveStretch3" || o?.type === "EveStretch" ? [o] : [];
+  const stretches = list.map((s) => {
+    const r = s?.type === "EveStretch3" ? readStretch3(s) : s?.type === "EveStretch" ? readEveStretch(s) : null;
+    return r ? { type: s.type, ...r } : null;
+  });
   return { res, stretches, childEffects: childEffectRoots() };
 }
 

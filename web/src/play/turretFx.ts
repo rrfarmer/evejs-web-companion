@@ -17,7 +17,7 @@ import { livePartsOf, placeEveStretch, placeStretch, setVariable, type SofStretc
 import { offerLights } from "../three/dynamicLights.ts";
 
 interface Firing {
-  shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser" | "mining" | "launcher"; startedAt: number; until: number; lastPulse: number;
+  shooter: number; target: number; moduleID: number; moduleTypeID: number; kind: "projectile" | "hybrid" | "laser" | "mining" | "launcher" | "ewar"; startedAt: number; until: number; lastPulse: number;
   /** The charge (OnSpecialFX's otherTypeID): its beam colour (ammoColors). */
   chargeTypeID: number;
   /**
@@ -160,11 +160,25 @@ const KIND: Record<string, Firing["kind"]> = {
   "effects.TractorBeam": "mining",
   "effects.Salvaging": "mining",
   // the Vorton projectors (their turret's own firing effect, and the chain: chainLinks)
+  // the EWAR and remote-assistance modules' stretches (the effects table's LocatorStretchEffect and EveStretch3
+  // types): the guid's own graphic from the ship to the target while the module runs
+  "effects.WarpScramble": "ewar",
+  "effects.WarpDisrupt": "ewar",
+  "effects.EnergyDestabilization": "ewar",
+  "effects.EnergyVampire": "ewar",
+  "effects.SensorDampening": "ewar",
+  "effects.TrackingDisruption": "ewar",
+  "effects.RemoteECM": "ewar",
+  "effects.EnergyTransfer": "ewar",
+  "effects.RemoteArmorRepairDrone": "ewar",
+  "effects.TargetPaint": "ewar",
+  "effects.ShieldTransfer": "ewar",
+  "effects.RemoteHullRepair": "ewar",
   "effects.UpwellChainWeaponSmall": "laser",
   "effects.UpwellChainWeaponMedium": "laser",
   "effects.UpwellChainWeaponLarge": "laser",
 };
-const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c, mining: 0xff5a3c, launcher: 0xffc36a };
+const COLOUR: Record<Firing["kind"], number> = { projectile: 0xffc36a, hybrid: 0x8ff0ff, laser: 0xff5a3c, mining: 0xff5a3c, launcher: 0xffc36a, ewar: 0x8ff0ff };
 /** How often a gun's pulse goes out, and how long it takes to get there (a likeness, not the cycle). */
 const PULSE_EVERY_MS = 220, FLIGHT_MS = 260;
 
@@ -294,10 +308,13 @@ export class TurretFx {
       cycle, nextCycle: now, idle: !was, misses: was && was.target === target ? was.misses : [], shots: was?.shots ?? [],
       chargeTypeID: Number(args[4]) || 0, muzzles: was?.muzzles ?? [], cyclingPos: was?.cyclingPos ?? 0,
       spool: guid === "effects.TriglavianBeam" ? { ...spoolOf(args[13]), cycles: was?.spool?.cycles ?? 0 } : null,
-      chain: /^effects\.UpwellChainWeapon/.test(guid) ? { guid, targets: chainTargetsOf(args[13]) } : null,
+      chain: kind === "ewar" ? { guid, targets: [] } : /^effects\.UpwellChainWeapon/.test(guid) ? { guid, targets: chainTargetsOf(args[13]) } : null,
     };
     this.firings.set(key, next);
     if (next.chain) fxGraphicOf(next.chain.guid);
+    // an EWAR stretch's repeat on the same target keeps the stretch it has (the client's effect runs Start to Stop)
+    const links = was && kind === "ewar" && was.target === target ? this.chainLinks.get(was) : undefined;
+    if (was && links) { this.chainLinks.delete(was); this.chainLinks.set(next, links); }
     // a firing begun anew keeps its turret's effect going
     const fx = was ? this.stretches.get(was) : undefined;
     if (was && fx) { this.stretches.delete(was); this.stretches.set(next, fx); }
@@ -454,16 +471,25 @@ export class TurretFx {
   }
 
   /** Each chain link placed from its source (the turret's muzzle, or the target before) to its target. */
-  private placeChains(positionOf: (itemID: number) => THREE.Vector3 | null, renderer: THREE.WebGLRenderer | null, camera: THREE.Camera | null): void {
+  private placeChains(positionOf: (itemID: number) => THREE.Vector3 | null, renderer: THREE.WebGLRenderer | null, camera: THREE.Camera | null,
+    radiusOf?: (itemID: number) => number | null): void {
     for (const [f, links] of this.chainLinks) {
       const g = f.chain ? fxGraphicOf(f.chain.guid) : null;
       if (!g) continue;
       for (const l of links) {
-        const to = positionOf(l.to);
-        const from = l.from === null ? this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter) : positionOf(l.from);
+        let to = positionOf(l.to);
+        let from = l.from === null ? (f.kind === "ewar" ? null : this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target)) ?? positionOf(f.shooter) : positionOf(l.from);
+        if (f.kind === "ewar" && from && to) {
+          // LocatorStretchEffect: from the ship's bounds nearest the target (nearestBounds, its box x 1.2: its radius
+          // here) to the target's damage locator facing it
+          const dir = to.clone().sub(from).normalize();
+          from = from.clone().addScaledVector(dir, radiusOf?.(f.shooter) ?? 0);
+          to = this.damageLocatorOf?.(l.to, from) ?? to;
+        }
         l.fx.visible = !!(to && from);
         if (!to || !from) continue;
-        placeStretch(l.fx, g.data, from, to);
+        if ((g.data as { type?: string }).type === "EveStretch") placeEveStretch(l.fx, g.data, from, to);
+        else placeStretch(l.fx, g.data, from, to);
         if (renderer && camera) for (const part of livePartsOf(l.fx)) offerLights(renderer, camera, part);
       }
     }
@@ -521,6 +547,8 @@ export class TurretFx {
    * muzzles; null where the ship draws no turret for it (the ship's centre then).
    */
   muzzleOf: ((shooter: number, moduleID: number, shot: number, target: number) => THREE.Vector3 | null) | null = null;
+  /** The damage locator of a target that faces a point (EveLocalPositionBehavior.damageLocator), or null. */
+  damageLocatorOf: ((target: number, from: THREE.Vector3) => THREE.Vector3 | null) | null = null;
   /** Each shot begun (EnterStateFiring of the module's turret set): its ship, module and target. */
   onFire: ((shooter: number, moduleID: number, target: number) => void) | null = null;
   private shotCount = 0;
@@ -531,6 +559,8 @@ export class TurretFx {
     for (const [key, f] of this.firings) {
       const from = positionOf(f.shooter), to = positionOf(f.target);
       if (now > f.until || !from || !to) { this.firings.delete(key); continue; }
+      // (an EWAR module's stretch: on while it runs - LocatorStretchEffect Start to Stop - no shots, no impacts)
+      if (f.kind === "ewar") { if (!this.chainLinks.has(f)) this.shootChain(f); continue; }
       for (let n = 0; now >= f.nextCycle && n < 4; n++) { this.startShot(f, f.nextCycle); f.nextCycle += f.cycle; }
       if (now >= f.nextCycle) f.nextCycle = now + f.cycle;
       for (let i = f.shots.length - 1; i >= 0; i--) {
@@ -551,8 +581,9 @@ export class TurretFx {
     for (const [f, fx] of this.stretches) if (!firing.has(f)) { for (const s of fx) s.dispose(); this.stretches.delete(f); }
     for (const [f, fx] of this.stretch3) if (!firing.has(f)) { for (const s of fx) s.fx.removeFromParent(); this.stretch3.delete(f); }
     for (const [f, links] of this.chainLinks) if (!firing.has(f)) { for (const l of links) l.fx.removeFromParent(); this.chainLinks.delete(f); }
-    this.placeChains(positionOf, renderer, camera);
+    this.placeChains(positionOf, renderer, camera, radiusOf);
     for (const f of this.firings.values()) {
+      if (f.kind === "ewar") continue;
       const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!, to = positionOf(f.target)!;
       if (this.drawStretches(f, from, to, now, radiusOf?.(f.target) ?? null, camera) || this.drawStretch3(f, from, to, now, renderer, camera)) {
         const old = this.beams.get(f);

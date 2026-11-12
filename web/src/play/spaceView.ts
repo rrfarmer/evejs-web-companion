@@ -1143,6 +1143,10 @@ export class SpaceView {
       if (typeID) this.turretFx.launch(ship, moduleID, typeID, target, delay);
       return delay;
     };
+    this.turretFx.damageLocatorOf = (target, from) => {
+      const impact = this.marks.get(target)?.userData.impact as ImpactOverlay | undefined;
+      return impact ? impact.locatorPosition(impact.locatorFacing(from)) : null;
+    };
     this.turretFx.muzzleOf = (ship, moduleID, shot, target) => {
       const m = this.muzzleOf(ship, moduleID, shot, target, origin);
       return m ? new THREE.Vector3().setFromMatrixPosition(m) : null;
