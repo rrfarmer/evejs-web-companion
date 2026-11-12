@@ -961,6 +961,47 @@
   .fly-windows :global(.ind-cv-mat .gauge span) { display: block; height: 100%; background: #3372b6; }
   .fly-windows :global(.ind-cv-mat.short .gauge span) { background: #ff4600; }
   .fly-windows :global(.ind-cv-mat small) { position: absolute; left: 0; right: 0; bottom: 1px; text-align: center; font-size: 10px; color: rgba(255, 255, 255, 0.85); }
+  /* OutputCont: the right half's background (bg1Groups turned), the framed boxes 304 x 44, the outcome 327 x 202, the
+     duration and cost labels; all faded in with a job */
+  .fly-windows :global(.ind-cv-outputs) { position: absolute; left: 50%; right: 6px; top: 0; height: 400px; opacity: 0; transition: opacity 0.6s; }
+  .fly-windows :global(.ind-cv-outputs.on) { opacity: 1; }
+  .fly-windows :global(.ind-cv-outputs .bgflip) { position: absolute; inset: 0 0 auto 0; height: 402px; transform: rotate(180deg);
+    border-style: solid; border-width: 0 400px 0 10px; border-image: url(/client-res/ui/texture/classes/industry/input/bg1groups.png) 0 400 0 10 fill stretch; box-sizing: border-box; }
+  .fly-windows :global(.ind-cv-box) { position: absolute; right: 13px; width: 304px; height: 44px; box-sizing: border-box; background: rgba(20, 22, 25, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.12); padding: 3px 8px; }
+  .fly-windows :global(.ind-cv-box small) { display: block; font-size: 10px; text-transform: uppercase; opacity: 0.5; }
+  .fly-windows :global(.ind-cv-box .name) { display: block; margin-top: 3px; font-size: 11px; max-width: 237px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .fly-windows :global(.ind-cv-box .combo) { display: block; margin-top: 3px; height: 20px; line-height: 20px; font-size: 11px; padding: 0 6px;
+    background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .fly-windows :global(.ind-cv-box.fac) { top: 7px; }
+  .fly-windows :global(.ind-cv-box.inloc) { top: 50px; }
+  .fly-windows :global(.ind-cv-box.outloc) { bottom: 47px; }
+  .fly-windows :global(.ind-cv-box .facpic) { position: absolute; right: 1px; top: 0; width: 43px; height: 42px; }
+  .fly-windows :global(.ind-cv-box .facpic .type-icon), .fly-windows :global(.ind-cv-box .facpic img) { width: 43px; height: 42px; display: block; }
+  .fly-windows :global(.ind-cv-outcome) { position: absolute; right: 0; top: 99px; width: 327px; height: 202px; background: rgba(20, 22, 25, 0.5); overflow: hidden; }
+  .fly-windows :global(.ind-cv-outcome > span) { position: absolute; }
+  .fly-windows :global(.ind-cv-outcome .pattern) { inset: 0; background: url(/client-res/ui/texture/classes/industry/output/outputcontbg.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-outcome .pattern::after) { content: ""; position: absolute; inset: 0; background: var(--job);
+    -webkit-mask-box-image: url(/client-res/ui/texture/classes/industry/output/bgpattern.png) 12 fill / 12px; mask-border: url(/client-res/ui/texture/classes/industry/output/bgpattern.png) 12 fill / 12px; opacity: 0.6; }
+  .fly-windows :global(.ind-cv-outcome .vignette) { inset: 0; background: #141619;
+    -webkit-mask: url(/client-res/ui/texture/classes/industry/output/bgvignette.png) center / 100% 100%; mask: url(/client-res/ui/texture/classes/industry/output/bgvignette.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-outcome .itembg) { left: 63px; top: 5px; width: 201px; height: 192px; background: url(/client-res/ui/texture/classes/industry/output/itembg.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-outcome .itemcolor) { left: 63px; top: 5px; width: 201px; height: 192px; background: var(--job); opacity: 0.6;
+    -webkit-mask: url(/client-res/ui/texture/classes/industry/output/itembgcolor.png) center / 100% 100%; mask: url(/client-res/ui/texture/classes/industry/output/itembgcolor.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-outcome .cap) { position: absolute; left: 14px; top: 10px; width: 300px; z-index: 1; }
+  .fly-windows :global(.ind-cv-outcome .cap b) { display: block; font-size: 13px; font-weight: 400; color: var(--job); text-transform: uppercase; }
+  .fly-windows :global(.ind-cv-outcome .cap span) { display: block; font-size: 14px; color: rgba(255, 255, 255, 0.9); }
+  .fly-windows :global(.ind-cv-outcome .pic) { left: 131.5px; top: 69px; width: 64px; height: 64px; }
+  .fly-windows :global(.ind-cv-outcome .pic .type-icon), .fly-windows :global(.ind-cv-outcome .pic img) { width: 64px; height: 64px; display: block; }
+  .fly-windows :global(.ind-cv-outcome .qty) { position: absolute; left: 0; right: 0; top: calc(50% + 42px - 9px); text-align: center; font-size: 15px; }
+  .fly-windows :global(.ind-cv-outcome .copyinfo) { position: absolute; left: 13.5px; bottom: 8px; width: 300px; height: 32px; display: flex; justify-content: space-between;
+    align-items: center; font-size: 12px; }
+  .fly-windows :global(.ind-cv-outcome .copyinfo small) { display: block; font-size: 10px; opacity: 0.5; text-transform: uppercase; text-align: center; }
+  .fly-windows :global(.ind-cv-labels) { position: absolute; right: 13px; bottom: 7px; width: 304px; height: 32px; display: flex; gap: 2px; }
+  .fly-windows :global(.ind-cv-labels div:first-child) { flex: 0 0 45%; }
+  .fly-windows :global(.ind-cv-labels div:last-child) { flex: 1; padding-left: 4px; }
+  .fly-windows :global(.ind-cv-labels small) { display: block; font-size: 10px; text-transform: uppercase; opacity: 0.5; }
+  .fly-windows :global(.ind-cv-labels span) { display: block; font-size: 15px; }
   .fly-windows :global(.ind-cv-center) { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
   .fly-windows :global(.ind-cv-wedges) { position: absolute; left: -75px; top: -75px; width: 150px; height: 150px; }
   .fly-windows :global(.ind-cv-wedges .wedge) { position: absolute; transition: transform 0.7s; }

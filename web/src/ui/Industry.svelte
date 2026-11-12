@@ -797,7 +797,38 @@
     const value = n / (n < 100_000 ? 1e3 : n < 100_000_000 ? 1e6 : 1e9);
     return typeof template === "string" ? plainText(formatTemplate(template, { amount: value }, { nameOf: () => "" })) : `${value.toFixed(1)}${label[3]}`;
   }
-  const VIEW_WORDS = ["UI/Industry/NoBlueprintSelectedCaption", "UI/Industry/NoInputItemsRequired", "UI/Industry/JobActive",
+  /**
+   * The view's outputs (views/OutputCont.py, outputFramedContainers.py, outcomeContainer.py, outcomeItemContainer.py;
+   * mixins GetProductLabel / GetProductAmountLabel): at the top right (13, 7) the Facility box 304 x 44 (its name, the
+   * facility type's picture 43 x 42 at the right) over the Input Material Location box; the Outcome box 327 x 202 at the
+   * centre right (outputContBg, the bgPattern frame and the caption in the job's colour, the product's name, the 64
+   * picture over itemBg / itemBgColor 201 x 192, its amount 42 under the centre - "x N", "+N%" for a research; a
+   * copy's ME / TE and runs at the bottom); the Output Location box 39 up from the bottom; the Job Duration (0.45) and
+   * Job Cost (0.55) labels 304 wide, 7 up. All faded out with no job. The page reads no inventory locations: the two
+   * location boxes show the facility.
+   */
+  const outcome = $derived.by(() => {
+    if (!startingBlueprint || !chosenActivity) return null;
+    const runs = Math.max(1, chosenRuns);
+    if (chosenActivity === "research_material" || chosenActivity === "research_time") {
+      const r = researchStanding(chosenActivity, startingBlueprint, runs);
+      return { label: industryWord("UI/Industry/ResearchedBlueprint") || "Researched Blueprint", typeID: startingBlueprint.typeID,
+        amount: r ? `+${r.to - r.from}%` : "", copy: null };
+    }
+    if (chosenActivity === "copying") {
+      return { label: industryWord("UI/Industry/BlueprintCopy") || "Blueprint Copy", typeID: startingBlueprint.typeID, amount: `x ${runs}`,
+        copy: { me: startingBlueprint.materialEfficiency, te: startingBlueprint.timeEfficiency, runs: chosenLicensedRuns } };
+    }
+    const product = chosenProductTypeID !== null && productChoices.includes(chosenProductTypeID)
+      ? { typeID: chosenProductTypeID, quantity: chosenRecipe?.products.find((p) => p.typeID === chosenProductTypeID)?.quantity ?? 1 }
+      : chosenRecipe?.products[0] ?? null;
+    if (!product) return { label: industryWord("UI/Industry/NoOutcomeSelected") || "No outcome selected", typeID: null, amount: "", copy: null };
+    return { label: typeName(product.typeID), typeID: product.typeID, amount: `x ${product.quantity * runs}`, copy: null };
+  });
+  const viewFacility = $derived(chosenFacilityID !== null ? $industry.facilities.find((f) => f.facilityID === chosenFacilityID) ?? null : null);
+  const VIEW_WORDS = ["UI/Industry/Outcome", "UI/Industry/ResearchedBlueprint", "UI/Industry/BlueprintCopy", "UI/Industry/NoOutcomeSelected",
+    "UI/Industry/InputMaterialLocation", "UI/Industry/NoneSelected", "UI/Industry/JobDuration", "UI/Industry/JobCost", "UI/Industry/Runs",
+    "UI/Industry/NoBlueprintSelectedCaption", "UI/Industry/NoInputItemsRequired", "UI/Industry/JobActive",
     "/Carbon/UI/Common/Formatting/FmtThousandShort", "/Carbon/UI/Common/Formatting/FmtMillionShort", "/Carbon/UI/Common/Formatting/FmtBillionShort",
     "UI/Industry/JobRuns", "UI/Industry/MaximumRuns", "UI/Industry/RunsRemaining", "UI/Industry/LevelsRemaining"];
   onMount(() => { if (retail) flow.requestWords(VIEW_WORDS); });
@@ -860,6 +891,34 @@
               {/each}
             </div>
           {/each}
+        </div>
+        <div class="ind-cv-outputs" class:on={startingBlueprint !== null}>
+          <span class="bgflip"></span>
+          <div class="ind-cv-box fac">
+            <small>{industryWord("UI/Industry/Facility") || "Facility"}</small>
+            <span class="name">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : industryWord("UI/Industry/NoneSelected") || "None Selected"}</span>
+            {#if viewFacility}<span class="facpic"><TypeIcon typeID={viewFacility.typeID} name={typeName(viewFacility.typeID)} size="md" /></span>{/if}
+          </div>
+          <div class="ind-cv-box inloc"><small>{industryWord("UI/Industry/InputMaterialLocation") || "Input Material Location"}</small>
+            <span class="combo">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : ""}</span></div>
+          <div class="ind-cv-outcome" style={`--job: ${viewColor}`}>
+            <span class="pattern"></span><span class="vignette"></span>
+            <span class="itembg"></span><span class="itemcolor"></span>
+            <div class="cap"><b>{industryWord("UI/Industry/Outcome") || "Outcome"}</b><span>{outcome?.label ?? ""}</span></div>
+            {#if outcome?.typeID != null}<span class="pic"><TypeIcon typeID={outcome.typeID} name={outcome.label} size="lg" /></span>{/if}
+            <b class="qty">{outcome?.amount ?? ""}</b>
+            {#if outcome?.copy}
+              <div class="copyinfo">
+                <span>ME {outcome.copy.me}%</span><span><small>{industryWord("UI/Industry/Runs") || "Runs"}</small>{outcome.copy.runs}</span><span>TE {outcome.copy.te}%</span>
+              </div>
+            {/if}
+          </div>
+          <div class="ind-cv-box outloc"><small>{industryWord("UI/Industry/OutputLocation") || "Output Location"}</small>
+            <span class="combo">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : ""}</span></div>
+          <div class="ind-cv-labels">
+            <div><small>{industryWord("UI/Industry/JobDuration") || "Job Duration"}</small><span>{startingBlueprint ? formatDuration(reckonedSeconds ?? previewTime) : ""}</span></div>
+            <div><small>{industryWord("UI/Industry/JobCost") || "Job Cost"}</small><span>{startingBlueprint ? (reckonedFee !== null ? formatIsk(String(Math.round(reckonedFee.total))) : "-") : ""}</span></div>
+          </div>
         </div>
         <div class="ind-cv-circle"><span class="border"></span></div>
         <div class="ind-cv-center">
