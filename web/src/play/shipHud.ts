@@ -46,6 +46,7 @@ const TEX = {
   slotMain: res(`${SHIP_UI}slotMainCombined.png`),
   slotOverload: (state: "On" | "Off" | "Disabled") => res(`${SHIP_UI}slotOverload${state}.png`),
   overloadBtn: (key: string, on = false) => res(`${SHIP_UI}overloadBtn${key}${on ? "On" : "Off"}.png`),
+  slotDamage: (i: number) => res(`${SHIP_UI}slotDamage_${i}.png`),
   // CheckButtonVisibility: 'ui_8_64_11', 'ui_8_64_10', 'ui_8_64_9' for empty high, medium, low slots
   emptySlotIcon: [11, 10, 9].map((n) => res(`res:/UI/Texture/Icons/8_64_${n}.png`)),
   slotGlow: res(`${SHIP_UI}slotGlow.png`),
@@ -68,6 +69,8 @@ export interface HudModule {
   overloadable?: boolean | null;
   /** Its overload effect is on (the snapshot's overloadedModuleIDs). */
   overloaded?: boolean;
+  /** Its damage over its hp, 0..1 - its bank's worst (GetModuleGroupDamage); 0 or left out: none. */
+  damage?: number;
 }
 
 /** What the rack's overload buttons do (godma ToggleOverload / Overload, OverloadRack / StopOverloadRack). */
@@ -273,6 +276,12 @@ const CSS = `
   -webkit-mask: var(--glow) center / 100% 100% no-repeat; mask: var(--glow) center / 100% 100% no-repeat;
   animation: ship-hud-slot-blink 1s ease-in-out infinite alternate; }
 @keyframes ship-hud-slot-blink { from { opacity: 0.75; } to { opacity: 0.15; } }
+.ship-hud-root .slot-damage-blink { animation: ship-hud-damage-blink var(--t, 2000ms) linear 2; }
+@keyframes ship-hud-damage-blink { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+.ship-hud-root .ol-pending-on { animation: ship-hud-ol-on 0.5s ease-in infinite; }
+@keyframes ship-hud-ol-on { from { filter: brightness(1.8); } to { filter: brightness(1); } }
+.ship-hud-root .ol-pending-off { animation: ship-hud-ol-off 0.5s ease-in infinite; }
+@keyframes ship-hud-ol-off { from { opacity: 0.2; } to { opacity: 1; } }
 .ship-hud-root .slot-sweep { position: absolute; pointer-events: none; border-radius: 50%;
   background: conic-gradient(rgba(255, 255, 255, 0.22) var(--p, 0deg), transparent 0);
   -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%, #000 70%, transparent 72%);
@@ -630,6 +639,7 @@ export class ShipHud {
       this.sweeps.clear();
       this.overloadButtons.clear();
       this.rackButtons.clear();
+      this.damageStates.clear();
       this.buildSlots({ hi: 0, med: 0, low: 0 }, modules, onModule);
     }
     this.overload = overload ?? null;
@@ -648,7 +658,9 @@ export class ShipHud {
   }
 
   /** The slots' overload buttons and the racks' (by "Hi" / "Med" / "Lo"), with what they stand for now. */
-  private readonly overloadButtons = new Map<number, { img: HTMLImageElement; module: HudModule; state: string }>();
+  private readonly overloadButtons = new Map<number, { img: HTMLImageElement; module: HudModule; state: string; pending: { on: boolean; until: number } | null }>();
+  /** The slots' damage states (DamageStateCont), with the damage they show. */
+  private readonly damageStates = new Map<number, { img: HTMLImageElement; damage: number }>();
   private readonly rackButtons = new Map<string, { img: HTMLImageElement; activationID: number | null; active: boolean }>();
   private overload: HudOverload | null = null;
 
@@ -659,10 +671,17 @@ export class ShipHud {
    * (activationID), On (StopOverloadingRack) where the rack has overload effects and none is off, else Off.
    */
   private checkOverload(modules: readonly HudModule[]): void {
+    const now = performance.now();
     for (const m of modules) {
+      this.setDamage(m);
       const b = this.overloadButtons.get(m.itemID);
       if (!b) continue;
       b.module = m;
+      // UpdateOverloadState: while an overload asked for is pending, the button blinks - BlinkIn from 1.8 to 1 going
+      // on, from 0.2 to 1 going off, 0.5 s, round and round - until the server's state says it is done
+      if (b.pending && (!!m.overloaded === b.pending.on || now > b.pending.until)) b.pending = null;
+      b.img.classList.toggle("ol-pending-on", b.pending?.on === true);
+      b.img.classList.toggle("ol-pending-off", b.pending?.on === false);
       const state = m.overloadable ? (m.online ? (m.overloaded ? "On" : "Off") : "Disabled") : "Disabled";
       const key = `${state}:${m.overloadable ? 5 : 6}`;
       if (key === b.state) continue;
@@ -684,6 +703,27 @@ export class ShipHud {
       b.img.src = TEX.overloadBtn(key, active);
       b.img.title = active ? "Stop Overloading Rack" : "Overload rack";
     }
+  }
+
+  /**
+   * shipmodulebutton.py SetDamage and ramps.py DamageStateCont: no damage (under 0.0001) hides it; else
+   * slotDamage_<max(1, int(damage x 8))>.png over the whole slot, and at each new damage the sprite blinks twice
+   * (BlinkSpriteA(ramp, 1.0, 2000 - 1000 x damage, 2): its alpha 1 -> 0 -> 1 each period, ending at 1).
+   */
+  private setDamage(m: HudModule): void {
+    const d = this.damageStates.get(m.itemID);
+    if (!d) return;
+    const damage = m.damage ?? 0;
+    if (damage === d.damage) return;
+    d.damage = damage;
+    if (!(damage >= 0.0001)) { d.img.style.display = "none"; return; }
+    d.img.src = TEX.slotDamage(Math.max(1, Math.trunc(damage * 8)));
+    d.img.style.display = "";
+    d.img.title = `${(damage * 100).toFixed(1)}% damaged`;
+    d.img.classList.remove("slot-damage-blink");
+    void d.img.offsetWidth;
+    d.img.style.setProperty("--t", `${Math.max(1, 2000 - 1000 * damage)}ms`);
+    d.img.classList.add("slot-damage-blink");
   }
 
   private buildSlots(counts: { hi: number; med: number; low: number }, modules: readonly HudModule[] = [], onModule?: (m: HudModule) => void): void {
@@ -752,14 +792,21 @@ export class ShipHud {
           this.sweeps.set(module.itemID, sweep);
           slot.addEventListener("click", () => onModule?.(module));
           // its overload button (ToggleOverload), above the slot's own click
-          const entry = { img: ol, module, state: "" };
+          const entry = { img: ol, module, state: "", pending: null as { on: boolean; until: number } | null };
           this.overloadButtons.set(module.itemID, entry);
           ol.style.zIndex = "2";
           ol.addEventListener("click", (e) => {
             e.stopPropagation();
             const m = entry.module;
-            if (m.overloadable && m.online) this.overload?.module(m, !m.overloaded);
+            if (!m.overloadable || !m.online) return;
+            entry.pending = { on: !m.overloaded, until: performance.now() + 10_000 };
+            this.overload?.module(m, !m.overloaded);
           });
+          // its damage state (SetDamage: made at the first damage, under the overload button)
+          const damage = sprite(slot, TEX.slotDamage(1), 0, 0, 64, 64, "damageState");
+          damage.style.display = "none";
+          damage.style.zIndex = "1";
+          this.damageStates.set(module.itemID, { img: damage, damage: 0 });
           continue;
         }
         const icon = sprite(slot, TEX.emptySlotIcon[r]!, mid(64, 24), 13, 24, 24, "emptySlotIcon");

@@ -347,6 +347,10 @@
         modules: () => {
           const active = new Set(s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []);
           const overloaded = new Set(s.store.space.get().snapshot?.ship?.overloadedModuleIDs ?? []);
+          // each module's damage over its hp, its bank's worst (GetModuleGroupDamage: a master's button stands for the bank)
+          const damage = s.store.space.get().snapshot?.ship?.moduleDamage ?? {};
+          const banks = s.store.space.get().snapshot?.ship?.weaponBanks ?? {};
+          const damageOf = (id: number) => Math.max(damage[id] ?? 0, ...((banks[id] ?? []) as readonly number[]).map((slave) => damage[slave] ?? 0));
           const cycles = s.store.targeting.get().moduleCycles ?? {};
           const now = Date.now();
           const out: HudModule[] = [];
@@ -362,7 +366,7 @@
               void s.flow.overloadEffectOf(m.typeID).then((id) => overloadable.set(m.typeID, id !== null), () => overloadable.delete(m.typeID));
             }
             out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "", cycle: pct === null ? null : pct / 100,
-              overloadable: overloadable.get(m.typeID) ?? null, overloaded: overloaded.has(m.itemID) });
+              overloadable: overloadable.get(m.typeID) ?? null, overloaded: overloaded.has(m.itemID), damage: damageOf(m.itemID) });
           }
           return out;
         },
