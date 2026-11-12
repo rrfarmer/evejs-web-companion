@@ -198,8 +198,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":80)
-    sofBuild: 80,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":81)
+    sofBuild: 81,
     booster,
     pattern,
     areas,
@@ -209,7 +209,9 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     // Its turret locators (EveSOFDataHull.locatorTurrets, EveSOF adds each to the ship as an EveLocator2): name and
     // transform (row-major 4x4, EVE's model space); EveMobile::RebuildTurretPositions fits a turret set's turrets to
     // "<locatorName><slot>a", "...b" and on.
-    turretLocators: (hull.locatorTurrets ?? []).filter((l) => l?.name && Array.isArray(l.transform)).map((l) => ({ name: String(l.name), transform: l.transform })),
+    // A locator the file gives no transform has the class's identity (EveSOFDataHullLocator: m_transform
+    // IdentityMatrix(); the ORE hulls' - the Venture's six - all sit at the hull's origin so).
+    turretLocators: (hull.locatorTurrets ?? []).filter((l) => l?.name).map((l) => ({ name: String(l.name), transform: Array.isArray(l.transform) ? l.transform : [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] })),
     // The hull's "anchorpoint" locator (a hangar's: where its ship floats, DefaultHangarShipBehaviour.SetAnchorPoint).
     anchor: (hull.locatorSets ?? []).find((s) => String(s.name).trim() === "anchorpoint")?.locators?.[0]?.position ?? null,
     // Its "maxCameraDistance" locator (a hangar's: hangarView.LoadCamera takes the farthest zoom from its length).
