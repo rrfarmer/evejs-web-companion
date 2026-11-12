@@ -11,6 +11,7 @@
   import { onMount } from "svelte";
   import { plainText } from "../bridge/clientWords.ts";
   import { gfx, setGfx, resetGfx, onGfx, type GfxSettings } from "../play/gfxSettings.ts";
+  import { CLIENT_SHORTCUTS } from "../play/clientShortcuts.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
@@ -29,6 +30,13 @@
     ["reset settings", "UI/SystemMenu/ResetSettings/Header", "Reset Settings"],
     ["language", "UI/SystemMenu/Language/Header", "Language"],
     ["about eve", "UI/SystemMenu/AboutEve/Header", "About EVE"],
+  ] as const;
+  // systemMenuConst PANEL_IDS_SHORTCUTS: the Shortcuts node's branch (ConstructShortcutsTreeBranch)
+  const SHORTCUT_PANELS = [
+    ["window", "UI/SystemMenu/Shortcuts/WindowTab", "Window"], ["combat", "UI/SystemMenu/Shortcuts/CombatTab", "Combat"],
+    ["general", "UI/SystemMenu/Shortcuts/GeneralTab", "General"], ["navigation", "UI/SystemMenu/Shortcuts/NavigationTab", "Navigation"],
+    ["modules", "UI/SystemMenu/Shortcuts/ModulesTab", "Modules"], ["drones", "UI/SystemMenu/Shortcuts/DronesTab", "Drones"],
+    ["fighters", "UI/Common/Fighters", "Fighters"], ["charactercreator", "UI/CharacterCreation", "Character Creation"],
   ] as const;
   const Q = { low: `${P}Common/LowQuality`, medium: `${P}Common/MediumQuality`, high: `${P}Common/HighQuality`, ultra: `${P}Common/UltraQuality`, disabled: `${P}Common/Disabled` };
   type Key = keyof GfxSettings;
@@ -59,6 +67,10 @@
     windowAppearance: "UI/SystemMenu/GeneralSettings/WindowAppearance", windowBlur: "UI/SystemMenu/GeneralSettings/General/EnableWindowBlur",
     blurDisabledHint: "UI/SystemMenu/GeneralSettings/WindowBlurDisabledHint", transparency: "UI/SystemMenu/GeneralSettings/Transparency",
     off: `${P}Common/Off`, fullTransparency: "UI/SystemMenu/GeneralSettings/FullTransparency",
+    filter: "UI/Inventory/Filter", command: "UI/SystemMenu/Shortcuts/Command", shortcut: "UI/SystemMenu/Shortcuts/Shortcut",
+    noShortcut: "UI/SystemMenu/Shortcuts/NoShortcut", noneFound: "UI/SystemMenu/Shortcuts/NoShortcutsFoundWithFilter",
+    editShortcut: "UI/SystemMenu/Shortcuts/EditShortcut", clearShortcut: "UI/SystemMenu/Shortcuts/ClearShortcut",
+    defaultShortcuts: "UI/SystemMenu/Shortcuts/DefaultShortcuts",
   } as const;
   const word = (label: string, own: string): string => {
     const t = $words.templates[label];
@@ -69,11 +81,33 @@
   let settings = $state<GfxSettings>({ ...gfx() });
   let fullScreen = $state(typeof document !== "undefined" && document.fullscreenElement !== null);
   onMount(() => {
-    flow.requestWords([...Object.values(WORDS), ...PANELS.map((p) => p[1]), ...Object.values(Q), ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label)]);
+    flow.requestWords([...Object.values(WORDS), ...PANELS.map((p) => p[1]), ...SHORTCUT_PANELS.map((p) => p[1]), ...Object.values(Q),
+      ...COMBOS.map((c) => c.label), ...EFFECTS.map((e) => e.label)]);
     const off = onGfx((s) => { settings = { ...s }; });
     const onFull = () => { fullScreen = document.fullscreenElement !== null; };
     document.addEventListener("fullscreenchange", onFull);
     return () => { off(); document.removeEventListener("fullscreenchange", onFull); };
+  });
+  /** The Shortcuts panel: the Shortcuts node itself shows General (LoadPanel: LoadShortcuts(PANELID_SHORTCUTS_GENERAL)). */
+  const shortcutKey = $derived(panel === "shortcuts" ? "general" : SHORTCUT_PANELS.some((p) => p[0] === panel) ? panel : null);
+  let shortcutFilter = $state("");
+  let shortcutsAsked = false;
+  $effect(() => {
+    if (shortcutKey === null || shortcutsAsked) return;
+    shortcutsAsked = true;
+    flow.requestWords([...new Set(CLIENT_SHORTCUTS.map((c) => c.label).filter((l): l is string => l !== null))]);
+  });
+  /**
+   * _PopulateShortcutsScroll: the category's commands, or with a filter every command whose description holds it;
+   * each "description<t>shortcut" (NoShortcut where it has none). The description: the command's name label, else its
+   * function's name (FuncToDesc).
+   */
+  const shortcutRows = $derived.by(() => {
+    if (shortcutKey === null) return [];
+    const filterText = shortcutFilter.trim().toLowerCase();
+    return CLIENT_SHORTCUTS.filter((c) => filterText !== "" || c.category === shortcutKey)
+      .map((c) => ({ cmd: c.cmd, description: c.label ? word(c.label, c.cmd) : c.cmd, keys: c.keys, locked: c.locked === true }))
+      .filter((c) => filterText === "" || c.description.toLowerCase().includes(filterText));
   });
   /** OnShaderQualityCombo: at low shader quality the shadow, ambient occlusion and reflection combos are disabled. */
   const disabled = (key: Key): boolean => settings.shaderQuality === 1 && (key === "shadowQuality" || key === "aoQuality" || key === "reflectionQuality");
@@ -93,7 +127,12 @@
     <div class="sm-center">
       <nav class="sm-tree">
         {#each PANELS as [id, label, own] (id)}
-          <button type="button" class="sm-node" class:sel={panel === id} onclick={() => (panel = id)}>{word(label, own)}</button>
+          <button type="button" class="sm-node" class:sel={panel === id} onclick={() => { panel = id; shortcutFilter = ""; }}>{word(label, own)}</button>
+          {#if id === "shortcuts" && shortcutKey !== null}
+            {#each SHORTCUT_PANELS as [sub, subLabel, subOwn] (sub)}
+              <button type="button" class="sm-node sub" class:sel={shortcutKey === sub && panel !== "shortcuts"} onclick={() => { panel = sub; shortcutFilter = ""; }}>{word(subLabel, subOwn)}</button>
+            {/each}
+          {/if}
         {/each}
       </nav>
       <div class="sm-panel">
@@ -143,6 +182,25 @@
               oninput={(ev) => setGfx({ [key]: Number(ev.currentTarget.value) } as Partial<GfxSettings>)} />
             <small>{word(WORDS.fullTransparency, "Full Transparency")}</small>
           </div>
+        {:else if shortcutKey !== null}
+          <!-- _ConstructShortcutsPanel: the filter at the top, the commands' scroll (Command, Shortcut), Edit / Clear /
+               Default Shortcuts at the bottom (the play page keeps the defaults: those are not built) -->
+          <div class="sm-shortcuts">
+            <input class="sm-filter" type="search" maxlength="64" placeholder={word(WORDS.filter, "Filter")} bind:value={shortcutFilter} />
+            <div class="sm-sc-head"><span>{word(WORDS.command, "Command")}</span><span>{word(WORDS.shortcut, "Shortcut")}</span></div>
+            <div class="sm-sc-list">
+              {#each shortcutRows as row (row.cmd)}
+                <div class="sm-sc-row" class:locked={row.locked} title={row.cmd}><span>{row.description}</span><span>{row.keys || word(WORDS.noShortcut, "No shortcut")}</span></div>
+              {:else}
+                <p class="sm-desc">{shortcutFilter ? word(WORDS.noneFound, "") : ""}</p>
+              {/each}
+            </div>
+            <div class="sm-buttons sc">
+              <button type="button" disabled>{word(WORDS.editShortcut, "Edit Shortcut")}</button>
+              <button type="button" disabled>{word(WORDS.clearShortcut, "Clear Shortcut")}</button>
+              <button type="button" disabled>{word(WORDS.defaultShortcuts, "Default Shortcuts")}</button>
+            </div>
+          </div>
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check"><input type="checkbox" checked={settings.cameraShakeEnabled}
@@ -180,6 +238,15 @@
   .sm-combo span { flex: 0 0 300px; }
   .sm-combo select { flex: 1; max-width: 300px; height: 28px; }
   .sm-check { display: flex; align-items: center; gap: 6px; height: 24px; }
+  .sm-node.sub { height: 30px; padding-left: 32px; font-size: 13px; }
+  .sm-shortcuts { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .sm-filter { width: 160px; margin: 0 0 8px 16px; height: 24px; }
+  .sm-sc-head, .sm-sc-row { display: grid; grid-template-columns: 1fr 180px; padding: 0 6px; }
+  .sm-sc-head { height: 24px; align-items: center; opacity: 0.6; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .sm-sc-list { flex: 1; overflow: auto; min-height: 0; }
+  .sm-sc-row { min-height: 26px; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+  .sm-sc-row.locked { opacity: 0.55; }
+  .sm-buttons.sc { margin-top: 16px; }
   .sm-slider { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
   .sm-slider span { flex: 0 0 300px; }
   .sm-slider input { flex: 0 1 220px; }
