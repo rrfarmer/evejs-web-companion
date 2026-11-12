@@ -62,6 +62,13 @@ const playing = new Map<string, Set<AudioBufferSourceNode>>();
 /** Every UI event asked to play (for checks): its name and what was found for it. */
 export const uiAudioLog: { name: string; sound: string | null; state?: AudioContextState; played?: boolean; distance?: number }[] = [];
 
+/** The effects' sounds by guid (tools/client-extract/audio.mjs: fxSounds.json - each event, its time, source or target). */
+let fxSounds: Promise<Record<string, { event: string; time: number; at: "source" | "target" }[]>> | null = null;
+export function fxSoundsOf(): Promise<Record<string, { event: string; time: number; at: "source" | "target" }[]>> {
+  fxSounds ??= fetch("/client-assets/audio/fxSounds.json").then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  return fxSounds;
+}
+
 function eventsMap(): Promise<Record<string, EventSounds>> {
   events ??= fetch("/client-assets/audio/events.json").then((r) => (r.ok ? r.json() as Promise<Record<string, EventSounds>> : {})).catch(() => ({}));
   return events;

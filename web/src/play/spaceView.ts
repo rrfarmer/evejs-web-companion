@@ -25,7 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
-import { playUiEvent, playWorldEvent, setListener } from "./uiAudio.ts";
+import { playUiEvent, playWorldEvent, setListener, fxSoundsOf } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -207,6 +207,21 @@ export class SpaceView {
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);
     this.shipFx.hear(name, args);
+    // an effect started (OnSpecialFX's start flag): its graphic's sounds, at the ship or the target
+    if (name === "OnSpecialFX" && Number(args[7]) === 1) {
+      const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
+      const ship = Number(args[0]), target = Number(args[3]);
+      void fxSoundsOf().then((table) => {
+        for (const g of guids) for (const s of table[g] ?? []) {
+          const id = s.at === "target" ? target : ship;
+          if (!Number.isFinite(id) || id <= 0) continue;
+          window.setTimeout(() => {
+            const at = this.placeOf(id, this.lastOrigin);
+            if (at) void playWorldEvent(s.event, at);
+          }, s.time * 1000);
+        }
+      });
+    }
     if (name === "OnSpecialFX") {
       const anim = IMPACT_ANIMATIONS[fxGuid(args[5])];
       if (anim) {

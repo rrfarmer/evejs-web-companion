@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { wemToOgg, codebookLibrary, findCodebookLibrary } from "./lib/wwiseVorbis.mjs";
 import { findPtadpcmTable, decodePtadpcm, wav } from "./lib/ptadpcm.mjs";
+import { readBlack } from "./lib/black.mjs";
+import { sdeGraphic } from "./lib/missile.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
@@ -275,3 +277,45 @@ console.log(`events whose layers fade by distance: ${faded}`);
 const containers = layered;
 fs.writeFileSync(path.join(root, "events.json"), JSON.stringify(events));
 console.log(`HIRC objects ${objects.size}; events with sounds: ${Object.keys(events).length} (${containers} with layers); streamed written ${streamedWritten}; failures`, Object.fromEntries(failures));
+
+// The effects' sounds (fxSounds.json, by guid): each effect's graphic (the effects table's graphicID - effects.json
+// beside this folder -, the SDE's graphicFile) read for its AudEventCurves - each key an event at its time, sent from
+// its curve's observer - in the curve sets played as it starts (a set named for a stop or an end left out). Where it
+// sounds: its emitter's or its event's name saying source / src or dest; else the effect's own place (its
+// transformFlags: 2 POSITION_TARGET the target, else the ship).
+const buildDir = path.dirname(root);
+const effectsFile = path.join(buildDir, "effects.json");
+const config = fs.existsSync(path.join(buildDir, "config.json")) ? JSON.parse(fs.readFileSync(path.join(buildDir, "config.json"), "utf8")) : {};
+if (fs.existsSync(effectsFile) && config.sde) {
+  const table = JSON.parse(fs.readFileSync(effectsFile, "utf8"));
+  const fxSounds = {};
+  for (const [guid, e] of Object.entries(table)) {
+    const file = e.graphicID ? sdeGraphic(config.sde, e.graphicID)?.graphicFile : null;
+    if (!file) continue;
+    const black = String(file).replace(/\\/g, "/").toLowerCase().replace(/\.red$/, ".black");
+    if (!res.has(black)) continue;
+    const out = [];
+    const walk = (node, setName) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) { for (const n of node) walk(n, setName); return; }
+      const name = node.type === "TriCurveSet" ? String(node.name ?? "") : setName;
+      if (node.type === "TriCurveSet" && /stop|end/i.test(name)) return;
+      if (node.type === "AudEventCurve") {
+        const emitter = String(node.sourceTriObserver?.observer?.name ?? "");
+        for (const k of node.keys ?? []) {
+          if (typeof k?.value !== "string" || !k.value) continue;
+          const said = `${emitter} ${k.value}`;
+          const at = /dest/i.test(said) ? "target" : /source|src/i.test(said) ? "source" : (e.transformFlags ?? []).includes(2) ? "target" : "source";
+          out.push({ event: k.value, time: Number(k.time ?? 0), at });
+        }
+      }
+      for (const [k, v] of Object.entries(node)) if (k !== "keys" && v && typeof v === "object") walk(v, name);
+    };
+    try { walk(readBlack(res.read(black), black), ""); } catch { continue; }
+    const seen = new Set();
+    const unique = out.filter((o) => { const key = `${o.event}|${o.at}|${o.time}`; if (seen.has(key)) return false; seen.add(key); return true; });
+    if (unique.length) fxSounds[guid] = unique;
+  }
+  fs.writeFileSync(path.join(root, "fxSounds.json"), JSON.stringify(fxSounds));
+  console.log(`effects with sounds: ${Object.keys(fxSounds).length} of ${Object.keys(table).length}`);
+}
