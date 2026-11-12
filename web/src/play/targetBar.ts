@@ -47,8 +47,8 @@ const TEX = {
   timerLeft: res(`${T}timerLeft.png`),
   timerRight: res(`${T}timerRight.png`),
 };
-/** The BFF's type icon cache (src/server.js, /icon-cache/types/<size>/<variation>/<typeID>.png). */
-const typeIcon = (typeID: number): string => `/icon-cache/types/64/icon/${typeID}.png`;
+/** A type's picture from the client's own files (src/server.js /client-res/type-picture). */
+const typeIcon = (typeID: number): string => `/client-res/type-picture/${typeID}/64.png`;
 
 // targetMgr.py
 const MAX_TARGET_WIDTH = 110;

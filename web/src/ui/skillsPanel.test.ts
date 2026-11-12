@@ -194,7 +194,7 @@ test("every skill on screen asks for its CACHED icon, not a lettered tile", () =
   // cache — never an external host (R27's rule), and never the fallback tile.
   for (const typeID of [GUNNERY, SURGICAL, INDUSTRY]) {
     assert.ok(
-      body.includes(`/icon-cache/types/64/icon/${typeID}.png`),
+      body.includes(`/client-res/type-picture/${typeID}/64.png`),
       `the icon for type ${typeID} must come from the local cache`,
     );
   }

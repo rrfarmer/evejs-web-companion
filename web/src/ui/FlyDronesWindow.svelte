@@ -12,7 +12,7 @@
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
-  import { typePictureUrl, iconInitials } from "./typeIcons.ts";
+  import TypeIcon from "./TypeIcon.svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { SpaceEntity } from "../store/types.ts";
@@ -92,8 +92,6 @@
   });
   $effect(() => { if (!$drones.loaded) void flow.loadDrones().catch(() => {}); });
 
-  /** Type pictures that did not load (a type the client has no picture for). */
-  let missingIcons = $state<Record<number, true>>({});
   let bayOpen = $state(true);
   let spaceOpen = $state(true);
   let busy = $state(false);
@@ -133,11 +131,7 @@
 <svelte:window onclick={() => (menu = null)} />
 
 {#snippet picture(typeID: number | null, label: string)}
-  {#if typeID !== null && typePictureUrl(typeID) && !missingIcons[typeID]}
-    <img class="picture" src={typePictureUrl(typeID)} alt="" onerror={() => (missingIcons = { ...missingIcons, [typeID]: true })} />
-  {:else}
-    <span class="picture tile">{iconInitials(label)}</span>
-  {/if}
+  <span class="picture"><TypeIcon {typeID} name={label} size="sm" /></span>
 {/snippet}
 
 <div class="fly-drones">
@@ -148,7 +142,7 @@
       <span class="commands">
         <button type="button" class="command" title="Launch drones (Shift+F)" disabled={busy || !bayRows.length}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.launchDrones(bayRows.flatMap((r) => r.itemIDs))); }}>
-          <img src={ICON.launch} alt="" />
+          <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
         </button>
       </span>
     </div>
@@ -164,7 +158,7 @@
             <span class="name">{row.label} <span class="count">× {row.quantity}</span></span>
             <span class="row-buttons">
               <button type="button" class="command" title="Launch drones" disabled={busy} onclick={() => run(() => flow.launchDrones(row.itemIDs))}>
-                <img src={ICON.launch} alt="" />
+                <span class="glyph" style:background-image={`url(${ICON.launch})`}></span>
               </button>
             </span>
           </div>
@@ -180,17 +174,17 @@
       <span class="commands">
         <button type="button" class="command" title={targetUnavailable ?? "Engage target (F)"} disabled={busy || targetUnavailable !== null}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.engageDrones(allDroneIDs, autoTargetID)); }}>
-          <img src={ICON.engage} alt="" />
+          <span class="glyph" style:background-image={`url(${ICON.engage})`}></span>
         </button>
         {#if salvageIDs.length > 0}
           <button type="button" class="command" title="Salvage" disabled={busy}
             onclick={(e) => { e.stopPropagation(); void run(() => flow.salvageDrones(salvageIDs, autoTargetID > 0 ? autoTargetID : null)); }}>
-            <img src={ICON.salvage} alt="" />
+            <span class="glyph" style:background-image={`url(${ICON.salvage})`}></span>
           </button>
         {/if}
         <button type="button" class="command" title={groupUnavailable ?? "Return to drone bay (Ctrl+F)"} disabled={busy || groupUnavailable !== null || outCount === 0}
           onclick={(e) => { e.stopPropagation(); void run(() => flow.recallDrones(allDroneIDs)); }}>
-          <img src={ICON.recall} alt="" />
+          <span class="glyph" style:background-image={`url(${ICON.recall})`}></span>
         </button>
       </span>
     </div>
@@ -241,13 +235,12 @@
   .command { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; opacity: 0.85; }
   .command:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, 0.08); }
   .command:disabled { opacity: 0.3; cursor: default; }
-  .command img { width: 16px; height: 16px; }
+  .glyph { width: 16px; height: 16px; background: center / 16px 16px no-repeat; }
   .row { display: flex; align-items: center; gap: 8px; padding: 2px 8px 2px 12px; min-height: 29px; box-sizing: border-box; }
   .row:hover { background: rgba(255, 255, 255, 0.05); }
   .row.lost { opacity: 0.55; }
   .group { margin: 0; padding: 0; border: 0; background: none; }
-  .picture { width: 24px; height: 24px; flex: none; }
-  .tile { display: grid; place-items: center; font-size: 9px; color: rgb(176, 176, 169); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box; }
+  .picture { width: 24px; height: 24px; flex: none; display: grid; }
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .count { font-size: 11px; color: rgb(176, 176, 169); }
   .activity { font-size: 11px; color: rgb(176, 176, 169); white-space: nowrap; }

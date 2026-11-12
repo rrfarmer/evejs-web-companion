@@ -7,6 +7,13 @@
 // ---------------------------------------------------------------------------
 // ICONS ARE LOCAL ONLY.
 //
+// Since 2026-11-12 a type's picture is the client's own (the BFF's
+// /client-res/type-picture route: a drone's, ship's or structure's picture
+// rendered ahead and shipped with the client, any other type's icon file -
+// evePhotosvc.GetIconByType), read from the install. What follows describes the
+// downloaded icon cache, which the route replaces for the pictures shown; the
+// same rules hold: local only, a real 404 where there is none.
+//
 // `scripts/cache-icons.js` downloaded a set of type icons into
 // `data/icon-cache/`, and the BFF serves that directory at
 // `config.iconCacheUrlPath` (`/icon-cache`) with `fallthrough: false` mounted
@@ -29,8 +36,8 @@
 // below is the design's default state and the picture is the bonus — not the
 // other way around. Nothing in the UI may depend on an icon having loaded.
 
-/** Where the BFF serves the cached type icons (src/config.js). */
-const ICON_BASE = "/icon-cache/types/64/icon";
+/** Where the BFF serves a type's picture from the client's own files (src/server.js /client-res/type-picture). */
+const ICON_BASE = "/client-res/type-picture";
 
 /** Tier markers ("Damage Control II"). Dropped when picking tile initials. */
 const TIER_MARKER = /^(?:I{1,3}|IV|VI{0,3}|IX|XI{0,3}|X)$/i;
@@ -47,7 +54,7 @@ export function typeIconUrl(typeID: number | null): string | null {
   if (typeID === null || !Number.isSafeInteger(typeID) || typeID <= 0) {
     return null;
   }
-  return `${ICON_BASE}/${typeID}.png`;
+  return `${ICON_BASE}/${typeID}/64.png`;
 }
 
 /**

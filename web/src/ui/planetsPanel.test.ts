@@ -618,7 +618,7 @@ test("every picture on the page comes from the LOCAL icon cache", () => {
   assert.ok(sources.length > 0, "the panel renders no pictures at all");
   for (const source of sources) {
     assert.ok(
-      source.startsWith("/icon-cache/"),
+      source.startsWith("/client-res/type-picture/"),
       `icon must come from the local cache, got ${source}`,
     );
   }
@@ -628,7 +628,7 @@ test("the planet and its structures ask for their OWN type icons", () => {
   const { body } = scene({ open: true });
   for (const typeID of [PLANET_TYPE_ID, COMMAND_TYPE_ID, ECU_TYPE_ID, STORAGE_TYPE_ID]) {
     assert.ok(
-      body.includes(`/icon-cache/types/64/icon/${typeID}.png`),
+      body.includes(`/client-res/type-picture/${typeID}/64.png`),
       `no icon requested for type ${typeID}`,
     );
   }

@@ -52,7 +52,7 @@ function markup(props: IconProps): string {
 test("a known type renders its cached picture, labelled with the item's NAME", () => {
   const html = markup({ typeID: 587, name: "Rifter" });
   assert.match(html, /<img/);
-  assert.match(html, /src="\/icon-cache\/types\/64\/icon\/587\.png"/);
+  assert.match(html, /src="\/client-res\/type-picture\/587\/64\.png"/);
   assert.match(html, /alt="Rifter"/);
 });
 

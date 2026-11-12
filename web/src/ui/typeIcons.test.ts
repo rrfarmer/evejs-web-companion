@@ -11,7 +11,7 @@ import { iconInitials, typeIconUrl } from "./typeIcons.ts";
 
 test("icons come from the LOCAL cache and never an external host", () => {
   const url = typeIconUrl(3634)!;
-  assert.equal(url, "/icon-cache/types/64/icon/3634.png");
+  assert.equal(url, "/client-res/type-picture/3634/64.png");
   // Same-origin, relative: no scheme, no host, nothing to leak.
   assert.ok(url.startsWith("/"));
   assert.doesNotMatch(url, /^https?:|\/\/|evetech|images\./);
