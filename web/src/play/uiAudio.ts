@@ -170,6 +170,56 @@ export async function playWorldEvent(name: string, at: Vec3): Promise<void> {
   }, entry);
 }
 
+/** The types' ambient sounds (tools/client-extract/audio.mjs: typeSounds.json - typeID -> its Wwise event). */
+let typeSounds: Promise<Record<string, string>> | null = null;
+export function typeSoundsOf(): Promise<Record<string, string>> {
+  typeSounds ??= fetch("/client-assets/audio/typeSounds.json").then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  return typeSounds;
+}
+
+/** A looping sound in the world: moved with its object, stopped when it is let go. */
+export interface WorldLoop { move(at: Vec3): void; stop(): void }
+/**
+ * An ambient event at an object (SetupAmbientAudio / PlayAmbientAudio): its sounds looped (the ship sounds are
+ * loops in Wwise - the loop flag is not read from the bank here), placed and moved with the object, at master x
+ * World level, until stopped (the client's shipsounds_stop as the camera looks elsewhere).
+ */
+export async function playWorldLoop(name: string, at: Vec3): Promise<WorldLoop> {
+  const distance = Math.hypot(at.x - listenerAt.x, at.y - listenerAt.y, at.z - listenerAt.z);
+  const sounds = pick((await eventsMap())[String(wwiseId(name))] ?? null, distance);
+  const entry: (typeof uiAudioLog)[number] = { name, sound: sounds.map((s) => s.sound).join(" + ") || null, distance };
+  uiAudioLog.push(entry);
+  const settings = gfx();
+  const volume = settings.audioEnabled ? settings.masterVolume * settings.worldVolume : 0;
+  const nodes: { source: AudioBufferSourceNode; panner: PannerNode }[] = [];
+  let stopped = false;
+  const handle: WorldLoop = {
+    move(p) { for (const n of nodes) { n.panner.positionX.value = p.x; n.panner.positionY.value = p.y; n.panner.positionZ.value = p.z; } },
+    stop() { stopped = true; for (const n of nodes) { try { n.source.stop(); } catch { /* over */ } } nodes.length = 0; },
+  };
+  if (!sounds.length || volume <= 0) return handle;
+  context ??= new AudioContext();
+  const ctx = context;
+  entry.state = ctx.state;
+  const buffers = await Promise.all(sounds.map((s) => bufferOf(ctx, s.sound)));
+  if (stopped) return handle;
+  for (const [n, buffer] of buffers.entries()) {
+    if (!buffer) continue;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const gain = ctx.createGain();
+    gain.gain.value = volume * sounds[n]!.gain;
+    const panner = new PannerNode(ctx, { panningModel: "equalpower", distanceModel: "inverse", refDistance: 1000, maxDistance: 300000, rolloffFactor: 1,
+      positionX: at.x, positionY: at.y, positionZ: at.z });
+    source.connect(gain).connect(panner).connect(ctx.destination);
+    source.start();
+    entry.played = true;
+    nodes.push({ source, panner });
+  }
+  return handle;
+}
+
 /** SendUIEvent: the event's sounds played once, now (the first call after a user gesture starts the audio). */
 export async function playUiEvent(name: string): Promise<void> {
   // "<x>_stop": the sounds "<x>_play" started, stopped (the client's stop events are Stop actions on their play's

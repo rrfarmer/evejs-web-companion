@@ -25,7 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
-import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion } from "./uiAudio.ts";
+import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -453,6 +453,9 @@ export class SpaceView {
   }
 
   dispose(): void {
+    // the ambient sound let go with the view (the ship docked, the session gone)
+    void this.ambient?.loop?.then((l) => l.stop());
+    this.ambient = null;
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
     this.sceneEnv?.dispose();
@@ -930,6 +933,8 @@ export class SpaceView {
   }
   private lastOrigin = { x: 0, y: 0, z: 0 };
   private readonly gone = new Map<number, { x: number; y: number; z: number; radius: number | null; at: number }>();
+  /** The looked-at ship's ambient sound (Ship.CheckAmbientAudio): its ship and its loop. */
+  private ambient: { id: number; loop: Promise<WorldLoop> | null } | null = null;
   /** The types of the balls seen (for a ball blown up after it has left the snapshot). */
   private readonly typeOfID = new Map<number, number>();
   private stepDamageNumbers(now: number): void {
@@ -1008,6 +1013,35 @@ export class SpaceView {
     const overload = this.options.rack?.overload;
     if (!overload || m.overloadable === false) { this.toast("Disabled"); return; }
     void this.act(m.name ?? "Module", () => overload.module(m.itemID, !m.overloaded));
+  }
+
+  /**
+   * Ship.LookAtMe -> CheckAmbientAudio: the ship the camera looks at (the pilot's own where it looks at nothing else)
+   * has its type's ambient sound (its soundID's Wwise event) playing at it; looking at another ship stops it there
+   * (shipsounds_stop) and starts that one's. A non-ship has none.
+   */
+  private updateAmbient(): void {
+    const id = this.lookAt ?? this.snapshot?.ship?.itemID ?? null;
+    const e = id === null ? null : this.snapshot?.entities.find((x) => x.itemID === id) ?? (this.snapshot?.ship?.itemID === id ? this.snapshot.ship : null);
+    const want = e && (e.kind === "ship" || e.isSelf) ? e.itemID : null;
+    if (this.ambient?.id !== want) {
+      void this.ambient?.loop?.then((l) => l.stop());
+      this.ambient = null;
+      if (want !== null && e?.typeID) {
+        const typeID = e.typeID;
+        const entry = { id: want, loop: null as Promise<WorldLoop> | null };
+        this.ambient = entry;
+        void typeSoundsOf().then((table) => {
+          const event = table[String(typeID)];
+          const at = this.placeOf(want, this.lastOrigin);
+          if (event && at && this.ambient === entry) entry.loop = playWorldLoop(event, at);
+        });
+      }
+    }
+    if (this.ambient?.loop) {
+      const at = this.placeOf(this.ambient.id, this.lastOrigin);
+      if (at) void this.ambient.loop.then((l) => l.move(at));
+    }
   }
 
   /** A click's modifier-only combat command (Ctrl lock, Ctrl+Shift unlock, Alt look at), for a press just now. */
@@ -1345,6 +1379,7 @@ export class SpaceView {
         }, Math.max(0, startAt - performance.now()) + s.time * 1000);
       }
     };
+    this.updateAmbient();
     // the listener: the camera
     {
       const fwd = this.camera.getWorldDirection(new THREE.Vector3());

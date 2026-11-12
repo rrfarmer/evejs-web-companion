@@ -377,3 +377,20 @@ if (graphicIDs && buckets && explosionIDs && fs.existsSync(typeGraphicsFile)) {
   fs.writeFileSync(path.join(root, "explosionSounds.json"), JSON.stringify({ types, buckets: outBuckets }));
   console.log(`explosion buckets with sounds: ${Object.keys(outBuckets).length} of ${Object.keys(buckets).length}; types: ${Object.keys(types).length}`);
 }
+
+// The types' ambient sounds (typeSounds.json: typeID -> its Wwise event): spaceobjaudio.GetSoundUrl - the type's
+// soundID (the SDE's types) -> the client's soundIDs table (wwiseEvent), played at a ship as it is looked at
+// (Ship.CheckAmbientAudio / SetupAmbientAudio).
+const soundIDs = builtData("soundIDsLoader", "res:/staticdata/soundids.fsdbinary");
+if (soundIDs && config.sde) {
+  const typeSounds = {};
+  for (const line of fs.readFileSync(path.join(config.sde, "types.jsonl"), "utf8").split(/\r?\n/)) {
+    if (!line.includes('"soundID"')) continue;
+    const t = JSON.parse(line);
+    const event = soundIDs[String(t.soundID)]?.wwiseEvent;
+    if (event) typeSounds[t._key] = event;
+  }
+  fs.writeFileSync(path.join(root, "typeSounds.json"), JSON.stringify(typeSounds));
+  console.log(`types with an ambient sound: ${Object.keys(typeSounds).length}`);
+}
+
