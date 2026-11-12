@@ -805,6 +805,18 @@
   .fly-windows :global(.mkt-dtabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.8); }
   .fly-windows :global(.mkt-details.detail-marketdata .mkt-history) { display: none; }
   .fly-windows :global(.mkt-details.detail-pricehistory > :not(.mkt-head):not(.mkt-dtabs):not(.mkt-history)) { display: none; }
+  /* MarketData's two scrolls: a caption each, the columns' header row, rows 1 apart, numbers to the right, the price
+     white (quote.py GetPrice's 0xFFFFFFFF) */
+  .fly-windows :global(.mkt-quote-cap) { font-size: 16px; text-transform: none; letter-spacing: 0; color: #fff; margin: 6px 0 4px; }
+  .fly-windows :global(.mkt-quote-scroll) { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.mkt-quote-scroll table) { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .fly-windows :global(.mkt-quote-scroll th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6);
+    padding: 3px 6px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+  .fly-windows :global(.mkt-quote-scroll td) { padding: 2px 6px; white-space: nowrap; color: rgba(255, 255, 255, 0.75); border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
+  .fly-windows :global(.mkt-quote-scroll .r) { text-align: right; }
+  .fly-windows :global(.mkt-quote-scroll td.price) { color: #fff; }
+  .fly-windows :global(.mkt-quote-scroll tbody tr) { cursor: pointer; }
+  .fly-windows :global(.mkt-quote-scroll tbody tr:hover) { background: rgba(255, 255, 255, 0.06); }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

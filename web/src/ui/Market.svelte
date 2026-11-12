@@ -101,6 +101,23 @@
     "UI/Market/Browse": "Browse",
     // (MarketBase's right-side tab bar and the window's WalletBalance, asked with these)
     "UI/Common/Details": "Details",
+    // MarketData's lists (marketbase.MarketData, quote.py's cells)
+    "UI/Market/Marketbase/Sellers": "Sellers",
+    "UI/Market/Marketbase/Buyers": "Buyers",
+    "UI/Market/Marketbase/Jumps": "Jumps",
+    "UI/Common/Quantity": "Quantity",
+    "UI/Market/Marketbase/Price": "Price",
+    "UI/Common/Location": "Location",
+    "UI/Market/Marketbase/ExpiresIn": "Expires in",
+    "UI/Common/Range": "Range",
+    "UI/Market/MarketQuote/HeaderMinVolumn": "Min Volume",
+    "UI/Common/LocationTypes/Station": "Station",
+    "UI/Common/LocationTypes/System": "System",
+    "UI/Common/LocationTypes/SolarSystem": "Solar System",
+    "UI/Common/LocationTypes/Region": "Region",
+    "UI/Common/LocationTypes/Unreachable": "Unreachable",
+    "UI/Market/MarketQuote/NumberOfJumps": "{[numeric]num} Jumps",
+    "UI/Market/MarketQuote/Expired": "Expired",
     "UI/Market/Marketbase/NoTypeSelected": "No type selected",
     "UI/Market/MarketData": "Market Data",
     "UI/Market/Marketbase/PriceHistory": "Price History",
@@ -435,6 +452,32 @@
 
   function typeName(typeID: number): string {
     return resolvedName($names.resolved, "type", typeID, "an unnamed item");
+  }
+
+  /** quote.py GetJumps: in this station (the session's station or structure) Station, else at 0 System; Unreachable; the number. */
+  function quoteJumps(order: MarketOrderRow): string {
+    if (order.jumps === 0) return qbWord(order.stationID === $market.stationID || order.stationID === $market.structureID ? "UI/Common/LocationTypes/Station" : "UI/Common/LocationTypes/System");
+    if (order.jumps === 1000000) return qbWord("UI/Common/LocationTypes/Unreachable");
+    return String(order.jumps);
+  }
+  /** quote.py GetRange: rangeStation -1, rangeSolarSystem 0, rangeRegion 32767, else NumberOfJumps. */
+  function quoteRange(order: MarketOrderRow): string {
+    if (order.range === -1) return qbWord("UI/Common/LocationTypes/Station");
+    if (order.range === 0) return qbWord("UI/Common/LocationTypes/SolarSystem");
+    if (order.range === 32767) return qbWord("UI/Common/LocationTypes/Region");
+    return qbWord("UI/Market/MarketQuote/NumberOfJumps", { num: order.range });
+  }
+  /** quote.py GetExpiresIn: the issue date plus the duration less now, Expired below nought, else FmtDate(exp, 'ss') (days, hours, minutes, seconds). */
+  function quoteExpires(order: MarketOrderRow): string {
+    if (order.issuedAt === null) return "—";
+    const issuedMs = Number(order.issuedAt / 10000n - 11644473600000n);
+    const left = issuedMs + order.durationDays * 86_400_000 - Date.now();
+    if (!(left >= 0)) return qbWord("UI/Market/MarketQuote/Expired");
+    let sec = Math.floor(left / 1000);
+    const d = Math.floor(sec / 86400); sec -= d * 86400;
+    const h = Math.floor(sec / 3600); sec -= h * 3600;
+    const m = Math.floor(sec / 60); sec -= m * 60;
+    return [d ? `${d}d` : "", h ? `${h}h` : "", m ? `${m}m` : "", `${sec}s`].filter(Boolean).join(" ");
   }
 
   function stationName(stationID: number): string {
@@ -1139,6 +1182,49 @@
         numbers you want were already on screen; typing them again by hand was
         the only way to use them.
       -->
+      {#if retail}
+        <!-- marketbase.MarketData: Sellers over Buyers (EveCaptionMedium heads), each an eveScroll of quote.py's columns -
+             sellers Jumps, Quantity, Price, Location, Expires in (by price up); buyers Jumps, Quantity, Price, Location,
+             Range, Min Volume, Expires in (by price down); a row's price carried into the order draft as before. -->
+        <div class="mkt-quote">
+          <h3 class="mkt-quote-cap">{qbWord("UI/Market/Marketbase/Sellers")}</h3>
+          <div class="mkt-quote-scroll">
+            <table>
+              <thead><tr>
+                <th class="r">{qbWord("UI/Market/Marketbase/Jumps")}</th><th class="r">{qbWord("UI/Common/Quantity")}</th>
+                <th class="r">{qbWord("UI/Market/Marketbase/Price")}</th><th>{qbWord("UI/Common/Location")}</th><th>{qbWord("UI/Market/Marketbase/ExpiresIn")}</th>
+              </tr></thead>
+              <tbody>
+                {#each sells as order (order.orderID)}
+                  <tr title={`Use ${formatIsk(order.price)} as your buy price`} onclick={() => { if (!busy) useOrderPrice(order, "buy"); }}>
+                    <td class="r">{quoteJumps(order)}</td><td class="r">{order.volumeRemaining.toLocaleString()}</td>
+                    <td class="r price">{formatIsk(order.price)}</td><td>{stationName(order.stationID)}</td><td>{quoteExpires(order)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <h3 class="mkt-quote-cap">{qbWord("UI/Market/Marketbase/Buyers")}</h3>
+          <div class="mkt-quote-scroll">
+            <table>
+              <thead><tr>
+                <th class="r">{qbWord("UI/Market/Marketbase/Jumps")}</th><th class="r">{qbWord("UI/Common/Quantity")}</th>
+                <th class="r">{qbWord("UI/Market/Marketbase/Price")}</th><th>{qbWord("UI/Common/Location")}</th><th>{qbWord("UI/Common/Range")}</th>
+                <th class="r">{qbWord("UI/Market/MarketQuote/HeaderMinVolumn")}</th><th>{qbWord("UI/Market/Marketbase/ExpiresIn")}</th>
+              </tr></thead>
+              <tbody>
+                {#each buys as order (order.orderID)}
+                  <tr title={`Use ${formatIsk(order.price)} as your sell price`} onclick={() => { if (!busy) useOrderPrice(order, "sell"); }}>
+                    <td class="r">{quoteJumps(order)}</td><td class="r">{order.volumeRemaining.toLocaleString()}</td>
+                    <td class="r price">{formatIsk(order.price)}</td><td>{stationName(order.stationID)}</td><td>{quoteRange(order)}</td>
+                    <td class="r">{Math.min(order.volumeRemaining, order.minimumVolume).toLocaleString()}</td><td>{quoteExpires(order)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {:else}
       <h3>On sale (you can buy these)</h3>
       {#if sells.length === 0}
         <p class="empty">Nobody is selling this here right now.</p>
@@ -1201,6 +1287,8 @@
             </li>
           {/each}
         </ul>
+      {/if}
+
       {/if}
 
       {#if $market.priceHistory.length > 0}
