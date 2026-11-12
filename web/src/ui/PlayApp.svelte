@@ -780,6 +780,16 @@
   .fly-windows :global(.market-layout.retail > section.panel:first-child) { grid-column: 1; grid-row: 1 / span 40; background: rgba(255, 255, 255, 0.03);
     min-width: 0; overflow: hidden; align-self: stretch; }
   .fly-windows :global(.market-layout.retail > :not(:first-child)) { grid-column: 3; min-width: 0; }
+  .fly-windows :global(.mkt-tabbar) { display: flex; align-items: stretch; height: 32px; margin: 0; padding: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .fly-windows :global(.mkt-tabs) { display: flex; }
+  .fly-windows :global(.mkt-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 0 12px; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.mkt-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.8); }
+  .fly-windows :global(.mkt-ghosts) { display: flex; gap: 4px; margin-left: auto; padding-left: 24px; align-items: flex-end; padding-bottom: 4px; }
+  .fly-windows :global(.mkt-ghost) { background: none; border: 1px solid rgba(255, 255, 255, 0.2); padding: 1px 8px; font-size: 12px; color: rgba(255, 255, 255, 0.8); cursor: pointer; }
+  .fly-windows :global(.mkt-ghost:hover), .fly-windows :global(.mkt-ghost.active) { background: rgba(255, 255, 255, 0.1); }
+  .fly-windows :global(.mkt-wallet) { display: flex; align-items: center; gap: 4px; padding: 0 8px; font-size: 12px; color: rgba(255, 255, 255, 0.6); }
+  .fly-windows :global(.mkt-wallet img) { width: 16px; height: 16px; padding: 4px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

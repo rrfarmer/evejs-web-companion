@@ -99,6 +99,12 @@
   // 1496): Add to Market Quickbar and Show Info.
   const QUICKBAR_WORDS: Readonly<Record<string, string>> = {
     "UI/Market/Browse": "Browse",
+    // (MarketBase's right-side tab bar and the window's WalletBalance, asked with these)
+    "UI/Common/Details": "Details",
+    "Tooltips/StationServices/MarketOrders": "Market Orders",
+    "Tooltips/Market/MarketDetailsTab": "The selected item's orders",
+    "UI/Commands/OpenWallet": "Open the wallet",
+    "UI/Market/WalletBalanceUnavailable": "Unavailable",
     "UI/Market/QuickBar": "Quickbar",
     "Tooltips/Market/MarketQuickbarNewFolder": "Make a folder",
     "Tooltips/Market/MarketQuickbarReset": "Empty it",
@@ -1008,7 +1014,26 @@
   {/if}
 </section>
 
-{#if $market.loaded}
+{#if $market.loaded && retail}
+  <!-- MarketBase's tab bar (32 high): the Details tab at the left (sr.tabs, UI/Common/Details); the ghost buttons at the
+       right - Market Orders (OpenMarketOrders: our open orders here), and the page's own trades and tied-up views,
+       which the client keeps in the wallet; then the window header's WalletBalance (the ISK icon, its button the
+       wallet, and the balance, TextColor.SECONDARY). The NES and Multibuy buttons and the Groups tab are not built. -->
+  <section class="mkt-tabbar">
+    <nav class="mkt-tabs">
+      <button type="button" class:active={tab === "book"} title={qbWord("Tooltips/Market/MarketDetailsTab")} onclick={() => (tab = "book")}>{qbWord("UI/Common/Details")}</button>
+    </nav>
+    <span class="mkt-ghosts">
+      <button type="button" class="mkt-ghost" class:active={tab === "orders"} onclick={() => (tab = "orders")}>{qbWord("Tooltips/StationServices/MarketOrders")}</button>
+      <button type="button" class="mkt-ghost" class:active={tab === "trades"} onclick={() => (tab = "trades")}>Your trades</button>
+      <button type="button" class="mkt-ghost" class:active={tab === "escrow"} onclick={() => (tab = "escrow")}>What is tied up</button>
+    </span>
+    <span class="mkt-wallet">
+      <img alt="ISK" src="/client-res/ui/texture/eveicon/category_icons/isk_16px.png" />
+      <span>{$market.cashBalance === null || $market.cashBalance === undefined ? qbWord("UI/Market/WalletBalanceUnavailable") : formatIsk($market.cashBalance)}</span>
+    </span>
+  </section>
+{:else if $market.loaded}
   <section>
     <p class="controls">
       <button type="button" class:active={tab === "book"} onclick={() => (tab = "book")}>
