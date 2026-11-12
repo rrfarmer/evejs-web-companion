@@ -25,6 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
+import { playUiEvent } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -291,6 +292,8 @@ export class SpaceView {
   private combat: { cmd: CombatCommand; code: string } | null = null;
   /** bracketSettings' display override (bracketConst SHOW_DEFAULT / SHOW_NONE / SHOW_ALL): Alt+Z, Alt+Shift+Z. */
   private bracketOverride: "default" | "none" | "all" = "default";
+  /** Warp.py's sound flags for the ship's own warp: the explosion played (hasExploded), the wind playing (hasWind). */
+  private warpSound = { exploded: false, wind: false };
   private readonly indicationEl = document.createElement("div");
   private readonly unhold: (() => void)[] = [];
   private lastFrameAt = performance.now();
@@ -1268,6 +1271,18 @@ export class SpaceView {
       if (system !== null) this.seenSystem = system;
     }
     let share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed);
+    // Warp.py: once the warp's speed fraction passes 0.005, ship_warp_explosion_play and ship_warp_wind_play (sent as UI
+    // events); at its end ship_warp_wind_stop. (The tunnel's share is that binding of the ship's speed.)
+    if (ego?.mode === "WARP") {
+      if (!this.warpSound.exploded && share > 0.005) {
+        void playUiEvent("ship_warp_explosion_play");
+        void playUiEvent("ship_warp_wind_play");
+        this.warpSound = { exploded: true, wind: true };
+      }
+    } else if (this.warpSound.exploded) {
+      void playUiEvent("ship_warp_wind_stop");
+      this.warpSound = { exploded: false, wind: false };
+    }
     let tunnelWay = way;
     let flash = 0;
     if (this.jumpOrderedAt !== null) {

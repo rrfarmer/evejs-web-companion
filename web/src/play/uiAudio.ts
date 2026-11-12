@@ -21,6 +21,8 @@ export function wwiseId(name: string): number {
 let events: Promise<Record<string, string | string[]>> | null = null;
 let context: AudioContext | null = null;
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
+/** The sounds a "<name>_play" event started and has playing (a "<name>_stop" event ends them, as its Stop action does). */
+const playing = new Map<string, Set<AudioBufferSourceNode>>();
 /** Every UI event asked to play (for checks): its name and what was found for it. */
 export const uiAudioLog: { name: string; sound: string | null; state?: AudioContextState; played?: boolean }[] = [];
 
@@ -31,6 +33,16 @@ function eventsMap(): Promise<Record<string, string | string[]>> {
 
 /** SendUIEvent: the event's sound played once, now (the first call after a user gesture starts the audio). */
 export async function playUiEvent(name: string): Promise<void> {
+  // "<x>_stop": the sounds "<x>_play" started, stopped (the client's stop events are Stop actions on their play's
+  // objects; the ones with a sound of their own are not handled here)
+  const stop = /^(.*)_stop$/i.exec(name);
+  if (stop) {
+    const key = `${stop[1]!.toLowerCase()}_play`;
+    for (const s of playing.get(key) ?? []) { try { s.stop(); } catch { /* already over */ } }
+    playing.delete(key);
+    uiAudioLog.push({ name, sound: null, played: false });
+    return;
+  }
   const found = (await eventsMap())[String(wwiseId(name))] ?? null;
   // (a random / sequence container's sounds: one of them, at random)
   const choices = found === null ? [] : Array.isArray(found) ? found : [found];
@@ -56,4 +68,9 @@ export async function playUiEvent(name: string): Promise<void> {
   source.connect(gain).connect(ctx.destination);
   source.start();
   entry.played = true;
+  const key = name.toLowerCase();
+  const set = playing.get(key) ?? new Set<AudioBufferSourceNode>();
+  set.add(source);
+  playing.set(key, set);
+  source.onended = () => { set.delete(source); };
 }

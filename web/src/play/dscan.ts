@@ -4,6 +4,7 @@
 // for each thing it saw ({id, typeID, groupID}), nearest first. Opened with Alt+D, scanned with V or its button
 // (eveCommands: OpenDirectionalScanner, CmdRefreshDirectionalScan).
 
+import { playUiEvent } from "./uiAudio.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bracketIcon } from "./brackets.ts";
 
@@ -149,6 +150,8 @@ export class DScanWindow {
     try {
       this.rows = dscanRows(await this.hooks.scan(angle, range, this.hooks.direction()));
       this.draw();
+      // directionalScanSvc.PlayResultSound: results, or none
+      void playUiEvent(this.rows.length ? "msg_newscan_directional_scan_results_play" : "msg_newscan_directional_scan_noresults_play");
       // The client says nothing under its list on a scan: the line is for the scan under way and a failure only.
       this.status.textContent = "";
     } catch (e) {
