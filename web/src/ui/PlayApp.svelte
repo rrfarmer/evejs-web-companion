@@ -1254,6 +1254,17 @@
     color: rgba(255, 255, 255, 0.6); cursor: pointer; }
   .fly-windows :global(.ag-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
   .fly-windows :global(.ag-hidden) { display: none; }
+  /* MailWindow: the header's tabs (Compose at the right), the folder tree 200 wide beside the list */
+  .fly-windows :global(.mail-head-tabs) { display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 8px; }
+  .fly-windows :global(.mail-head-tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 13px;
+    color: rgba(255, 255, 255, 0.6); cursor: pointer; }
+  .fly-windows :global(.mail-head-tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.mail-head-tabs .mail-compose) { margin-left: auto; border: 1px solid rgba(255, 255, 255, 0.2); padding: 4px 12px; color: #fff; }
+  .fly-windows :global(.mail-split.on) { display: flex; gap: 4px; }
+  .fly-windows :global(.mail-split.on > .mail-folders) { flex: 0 0 200px; display: flex; flex-direction: column; align-items: stretch;
+    border-right: 1px solid rgba(255, 255, 255, 0.08); padding-right: 4px; }
+  .fly-windows :global(.mail-split.on > .mail-folders button) { text-align: left; }
+  .fly-windows :global(.mail-split.on > .mail-right) { flex: 1; min-width: 0; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }

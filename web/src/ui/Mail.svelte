@@ -14,7 +14,7 @@
   //
   // ⚠ THE INBOX IS THE WHOLE MAILBOX. The flow keeps it as the client's mail
   // service does, so there is no paging to build and no "load more".
-  import { onDestroy, onMount } from "svelte";
+  import { getContext, onDestroy, onMount } from "svelte";
   import { mailFocus, mailFocusServed } from "./mailFocus.ts";
   import {
     MAIL_MAX_BODY,
@@ -113,6 +113,13 @@
   let busy = $state(false);
   let error = $state("");
   let tab = $state<"inbox" | "compose" | "notifications">("inbox");
+  /**
+   * On the play page the window as MailWindow lays it out (evemail.py: 800 x 600; the header's tabs Mail and
+   * Notifications - Tooltips/Neocom/Mail, UI/Mail/Notifications/Notifications; MailForm: the toolbar, the folder tree
+   * leftCont 200 wide (evemail_leftContWidth) at the left, the divider, the message list beside it and the reading
+   * pane under it). A message is written from the toolbar's Compose (the client's own compose window).
+   */
+  const retail = getContext("retailChrome") === true;
   /** The window's second tab, by its label (evemail.py 103). */
   const NOTIFICATIONS_TAB = "UI/Mail/Notifications/Notifications";
 
@@ -2037,6 +2044,13 @@
     {/if}
   {/if}
 
+  {#if retail}
+  <nav class="tabs mail-head-tabs">
+    <button type="button" class:active={tab !== "notifications"} onclick={() => (tab = "inbox")}>{plainText(word("Tooltips/Neocom/Mail", "Mail"))}</button>
+    <button type="button" class:active={tab === "notifications"} onclick={() => (tab = "notifications")}>{plainText(word(NOTIFICATIONS_TAB, "Notifications"))}</button>
+    {#if tab !== "notifications"}<button type="button" class="mail-compose" onclick={() => (tab = tab === "compose" ? "inbox" : "compose")}>{tab === "compose" ? plainText(word("UI/Mail/EveMail", "Mail")) : plainText(word("UI/Mail/Compose", "Compose"))}</button>{/if}
+  </nav>
+  {:else}
   <nav class="tabs">
     <button type="button" class:active={tab === "inbox"} onclick={() => (tab = "inbox")}>
       Inbox
@@ -2049,6 +2063,7 @@
       {plainText(word(NOTIFICATIONS_TAB, "Notifications"))}
     </button>
   </nav>
+  {/if}
 
   {#if tab === "notifications"}
     <MailNotifications {store} {flow} />
@@ -2314,6 +2329,7 @@
       <p class="note">Fetching your mail…</p>
     {:else}
       <!-- The window's folders, then the pilot's labels by name (evemail.py LoadLeftSide), whatever the mailbox holds. -->
+      <div class="mail-split" class:on={retail}>
       <nav class="mail-folders">
         {#each SYSTEM_FOLDERS as [id, label, own] (label)}
           <button type="button" class:active={viewingList === null && folder === id} class:mail-bold={folderUnread(id) > 0} onclick={() => showFolder(id)}>
@@ -2340,6 +2356,7 @@
           {/each}
         {/if}
       </nav>
+      <div class="mail-right">
       <!-- The folder's own writes (evemail.py StaticMenu), each asked to be sure of in the client's words. -->
       <p class="controls mail-folder-actions">
         {#if viewingList !== null}
@@ -2510,6 +2527,8 @@
         </p>
       {/if}
       {/if}
+      </div>
+      </div>
     {/if}
 
     {#if $mail.open !== null}
