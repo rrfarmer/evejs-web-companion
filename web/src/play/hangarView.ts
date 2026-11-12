@@ -13,6 +13,7 @@ import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { impactOverlayOf, type ImpactOverlay } from "../three/impactOverlay.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
+import { gfx, spaceRendering } from "./gfxSettings.ts";
 import { DynamicExposure, type DynamicExposureParams } from "../three/exposure.ts";
 import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
 import { pickDockSwing, type DockSwing } from "./hangarRegistry.ts";
@@ -330,7 +331,8 @@ export class HangarView {
     const vfx = template.clone();
     vfx.name = "hangar-vfx";
     vfx.userData.otherOwners = { ship: eve };
-    setControllerVariable(vfx, "shaderQuality", 2);
+    // (hangarView.py: SetControllerVariable('shaderQuality', int(shaderQuality) - 1) - the system menu's shader quality)
+    setControllerVariable(vfx, "shaderQuality", gfx().shaderQuality - 1);
     setControllerVariable(vfx, "ShipSize", shipSizeGroup(radius));
     setControllerVariable(vfx, "faction", 99);
     setControllerVariable(vfx, "HangarType", this.hangarType);
@@ -538,7 +540,7 @@ export class HangarView {
     const fade = this.vfx ? effectOutput(this.vfx, "fade.intensity") : null;
     this.fade.style.opacity = String(Math.min(1, Math.max(0, fade ?? 0)));
     // a hangar scene names a dynamic exposure and no tone map: the tone map is the effect's own default, method 1
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 1 });
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 1, quality: () => spaceRendering() });
     this.bloom.render();
   }
 

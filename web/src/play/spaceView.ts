@@ -24,6 +24,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
+import { gfx, spaceRendering } from "./gfxSettings.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
@@ -708,7 +709,7 @@ export class SpaceView {
         velocity: new THREE.Vector3(e.velocity.x, e.velocity.y, -e.velocity.z),
       });
     }
-    this.missileFx.onShake = (magnitude, at) => { this.shake.shake(magnitude, at, this.camera.getWorldPosition(new THREE.Vector3())); };
+    this.missileFx.onShake = (magnitude, at) => { if (gfx().cameraShakeEnabled) this.shake.shake(magnitude, at, this.camera.getWorldPosition(new THREE.Vector3())); };
     if (!balls.length && !this.missileFx.active) return;
     const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
     this.missileFx.update({
@@ -1223,8 +1224,14 @@ export class SpaceView {
     // the shake: the point looked at moved across the view for this frame (the controls look at their target again next)
     const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);
     if (shaken) this.camera.lookAt(this.controls.target.clone().add(shaken));
+    // the system menu's settings (gfxSettings.ts): shadows, the turrets' and missiles' effects
+    const settings = gfx();
+    const rendering = spaceRendering(settings);
+    if (this.sunLight.castShadow !== rendering.shadows) this.sunLight.castShadow = rendering.shadows;
+    this.turretFx.group.visible = settings.turretsEnabled;
+    this.missileFx.group.visible = settings.missilesEnabled;
     this.fitSunShadow();
-    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0 });
+    this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering() });
     this.bloom.render();
   }
 

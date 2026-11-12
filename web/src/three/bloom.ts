@@ -50,7 +50,7 @@ function target(w: number, h: number): THREE.WebGLRenderTarget {
 
 /** A scene drawn, bloomed, exposed and tone-mapped as the client does it. */
 export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
-  post: { exposure: () => DynamicExposure | null; toneMap: ToneMapMethod }): Bloom {
+  post: { exposure: () => DynamicExposure | null; toneMap: ToneMapMethod; quality?: () => { postProcess: boolean; distortion: boolean } }): Bloom {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const drawn = new THREE.WebGLRenderTarget(Math.max(1, size.x), Math.max(1, size.y), { type: THREE.HalfFloatType, samples: 4 });
   // levels[i] is 1 / 2^(i + 1) of the frame; blurred[s] is step s's blur, at its level; spare[i] the blur's halfway
@@ -164,11 +164,16 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
       softDepth.render(renderer, scene, camera, drawn.width, drawn.height);
       renderer.setRenderTarget(drawn);
       renderer.render(scene, camera);
-      const frame = distortion.render(renderer, scene, camera, drawn);
+      // the graphics settings (gfxSettings.ts): the post-process (the bloom) off at low post-processing quality, the
+      // distortion only at high shader quality - the frame tone-mapped and exposed either way
+      const quality = post.quality?.() ?? { postProcess: true, distortion: true };
+      const frame = quality.distortion ? distortion.render(renderer, scene, camera, drawn) : drawn.texture;
       highPass.uniforms["frame"]!.value = frame;
       output.uniforms["frame"]!.value = frame;
       const e = post.exposure();
       if (e) e.measure(renderer, frame);
+      output.uniforms["brightness"]!.value = quality.postProcess ? BLOOM.brightness : 0;
+      if (quality.postProcess) {
       // the bloom
       highPass.uniforms["texel"]!.value.set(1 / drawn.width, 1 / drawn.height);
       draw(highPass, levels[0]!);
@@ -187,6 +192,7 @@ export function bloomFor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, came
         blur.uniforms["step"]!.value.set(0, 1 / level.height);
         draw(blur, blurred[i]!);
       });
+      }
       // the output
       output.uniforms["exposure"]!.value = e ? e.step() : 1;
       draw(output, null);

@@ -24,6 +24,7 @@
   import ClientDialogs from "./ClientDialogs.svelte";
   import InfoWindows from "./InfoWindows.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
+  import SystemMenu from "./SystemMenu.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { notify } from "./notices.ts";
@@ -374,6 +375,8 @@
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
   let starMap: StarMap | null = null;
+  /** The system menu (Esc: uicore.cmd.OnEsc's EscapeCommand opens it when nothing else takes the key). */
+  let systemMenu = $state(false);
   let mapHost = $state<HTMLDivElement | null>(null);
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
@@ -436,6 +439,13 @@
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       e.preventDefault();
       toggleStarMap(e.code === "F10" ? undefined : false);
+      return;
+    }
+    if (stage === "game" && e.code === "Escape" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      systemMenu = !systemMenu;
       return;
     }
     if (stage !== "game" || !e.altKey || e.ctrlKey || e.metaKey) return;
@@ -699,6 +709,9 @@
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <Toasts />
+  {#if systemMenu}
+    <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>
+  {/if}
 {/if}
 
 <style>
