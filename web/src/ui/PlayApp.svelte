@@ -236,7 +236,17 @@
     return () => neocom.root.remove();
   });
 
-  function open(tab: TabID) { wins = openWindow(wins, tab); raiseApp(tab); }
+  /** The Neocom's width: a window opens right of it, as the eve-cs mirror's windows never sit on its Neocom. */
+  const NEOCOM_W = 44;
+  /** The sizes the play page opens these windows at (the eve-cs mirror's, page pixels, title bar included). */
+  const FLY_SIZES: Partial<Record<TabID, { w: number; h: number }>> = { drones: { w: 288, h: 218 } };
+  /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
+  function openFly(list: readonly WinState[], tab: TabID): WinState[] {
+    const had = list.some((w) => w.id === tab);
+    const next = openWindow(list, tab, FLY_SIZES[tab]);
+    return had ? next : next.map((w) => (w.id === tab && w.x < NEOCOM_W + 8 ? { ...w, x: w.x + NEOCOM_W } : w));
+  }
+  function open(tab: TabID) { wins = openFly(wins, tab); raiseApp(tab); }
 
   // The client's keys for its windows (eveCommands.py): Alt and a letter. Alt+D and V (the directional scanner) are
   // the space view's own.
@@ -252,7 +262,7 @@
     if (!tab) return;
     e.preventDefault();
     const shown = wins.find((w) => w.id === tab);
-    wins = shown ? closeWindow(wins, tab) : openWindow(wins, tab);
+    wins = shown ? closeWindow(wins, tab) : openFly(wins, tab);
   }
 
   // Space: the SpaceView, made when the pilot is in space and let go when docked.
