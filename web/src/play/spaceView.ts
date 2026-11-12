@@ -25,6 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
+import { commandForKey } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
@@ -891,8 +892,10 @@ export class SpaceView {
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     if (!this.dscan) return;
-    if (e.altKey && !e.ctrlKey && e.code === "KeyD") { e.preventDefault(); this.dscan.toggle(); }
-    else if (!e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyV") { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); }
+    // the client's commands by their default shortcuts (shortcutKeys.ts): OpenDirectionalScanner, CmdRefreshDirectionalScan
+    const cmd = commandForKey(e);
+    if (cmd === "OpenDirectionalScanner") { e.preventDefault(); this.dscan.toggle(); }
+    else if (cmd === "CmdRefreshDirectionalScan") { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); }
   }
 
   /** The object in space under a point of the screen: the nearest mark the ray from the camera meets. */

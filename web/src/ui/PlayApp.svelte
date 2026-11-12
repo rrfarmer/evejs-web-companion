@@ -25,6 +25,7 @@
   import InfoWindows from "./InfoWindows.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
+  import { commandForKey } from "../play/shortcutKeys.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { notify } from "./notices.ts";
@@ -366,11 +367,13 @@
     return s.store.drones.subscribe(show);
   });
 
-  // The client's keys for its windows (eveCommands.py): Alt and a letter. Alt+D and V (the directional scanner) are
-  // the space view's own.
-  const ALT_KEYS: Record<string, TabID> = {
-    KeyP: "scanner", KeyC: "inventory", KeyF: "fitting", KeyI: "mail", KeyR: "market", KeyW: "wallet",
-    KeyA: "characterSheet", KeyX: "skills", KeyE: "locations", KeyM: "finder",
+  // The client's window commands (eveCommands.py) and the windows they open here; their keys are the client's default
+  // shortcuts (clientShortcuts.ts, matched by shortcutKeys.ts) - Alt-E People & Places, L Locations, as the client has
+  // them. OpenDirectionalScanner (Alt-D) and CmdRefreshDirectionalScan (V) are the space view's own.
+  const WINDOW_COMMANDS: Record<string, TabID> = {
+    ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market",
+    OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
+    OpenLocations: "locations", OpenAgencyNew: "finder", OpenAssets: "assets", OpenIndustry: "industry",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
@@ -433,25 +436,22 @@
   }
   onDestroy(() => toggleStarMap(false));
 
+  /** A key press as the client's command it is the default shortcut of (the command service's accelerators). */
   function onKey(e: KeyboardEvent) {
-    if (stage === "game" && !e.altKey && !e.ctrlKey && !e.metaKey && (e.code === "F10" || (e.code === "Escape" && starMap))) {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      e.preventDefault();
-      toggleStarMap(e.code === "F10" ? undefined : false);
-      return;
-    }
-    if (stage === "game" && e.code === "Escape" && !e.altKey && !e.ctrlKey && !e.metaKey) {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      e.preventDefault();
-      systemMenu = !systemMenu;
-      return;
-    }
-    if (stage !== "game" || !e.altKey || e.ctrlKey || e.metaKey) return;
+    if (stage !== "game") return;
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-    const tab = ALT_KEYS[e.code];
+    const cmd = commandForKey(e);
+    if (cmd === null) return;
+    // CmdToggleMap (F10): the map; OnEsc: the map closed first, else the system menu (EscapeCommand)
+    if (cmd === "CmdToggleMap") { e.preventDefault(); toggleStarMap(); return; }
+    if (cmd === "OnEsc") {
+      e.preventDefault();
+      if (starMap) toggleStarMap(false);
+      else systemMenu = !systemMenu;
+      return;
+    }
+    const tab = WINDOW_COMMANDS[cmd];
     if (!tab) return;
     e.preventDefault();
     const shown = wins.find((w) => w.id === tab);
