@@ -927,6 +927,61 @@
   .fly-windows :global(.ind-not-ready) { color: #ff4600; }
   .fly-windows :global(.ind-jobs-bottom) { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
   .fly-windows :global(.ind-jobs-bottom button) { font-size: 12px; padding: 4px 10px; }
+  /* BaseView / BlueprintCenter: the job's view, 418 high, over the browsers */
+  .fly-windows :global(.ind-cv) { position: relative; height: 418px; overflow: hidden; }
+  .fly-windows :global(.ind-cv-top) { position: absolute; left: 24px; top: 2px; font-size: 13px; color: rgba(255, 255, 255, 0.9); }
+  .fly-windows :global(.ind-cv-main) { position: absolute; left: 0; right: 0; top: 18px; height: 400px; }
+  .fly-windows :global(.ind-cv-circle) { position: absolute; left: 50%; bottom: 0; width: 400px; height: 400px; margin-left: -200px;
+    background: url(/client-res/ui/texture/classes/industry/center/bgcircle.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-circle .border) { position: absolute; inset: 0; background: var(--job); opacity: 0.3;
+    -webkit-mask: url(/client-res/ui/texture/classes/industry/center/bgcircleborder.png) center / 100% 100%;
+    mask: url(/client-res/ui/texture/classes/industry/center/bgcircleborder.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv:not(.job) .ind-cv-circle) { opacity: 0.55; }
+  .fly-windows :global(.ind-cv-center) { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  .fly-windows :global(.ind-cv-wedges) { position: absolute; left: -75px; top: -75px; width: 150px; height: 150px; }
+  .fly-windows :global(.ind-cv-wedges .wedge) { position: absolute; transition: transform 0.7s; }
+  .fly-windows :global(.ind-cv-wedges .wedge > span) { position: absolute; inset: 0; background-size: 100% 100%; }
+  .fly-windows :global(.ind-cv-wedges .top), .fly-windows :global(.ind-cv-wedges .bottom) { left: 33px; width: 84px; height: 60px; }
+  .fly-windows :global(.ind-cv-wedges .left), .fly-windows :global(.ind-cv-wedges .right) { top: 33px; width: 60px; height: 84px; }
+  .fly-windows :global(.ind-cv-wedges .top) { top: 0; }
+  .fly-windows :global(.ind-cv-wedges .bottom) { bottom: 0; }
+  .fly-windows :global(.ind-cv-wedges .left) { left: 0; }
+  .fly-windows :global(.ind-cv-wedges .right) { right: 0; }
+  .fly-windows :global(.ind-cv.job .ind-cv-wedges .top) { transform: translateY(15px); }
+  .fly-windows :global(.ind-cv.job .ind-cv-wedges .bottom) { transform: translateY(-15px); }
+  .fly-windows :global(.ind-cv.job .ind-cv-wedges .left) { transform: translateX(15px); }
+  .fly-windows :global(.ind-cv.job .ind-cv-wedges .right) { transform: translateX(-15px); }
+  .fly-windows :global(.ind-cv-wedges :is(.top, .bottom) .lines) { background-image: url(/client-res/ui/texture/classes/industry/center/wedgetopbottom.png); }
+  .fly-windows :global(.ind-cv-wedges :is(.top, .bottom) .dots) { background-image: url(/client-res/ui/texture/classes/industry/center/dotstopbottom.png); opacity: 0.85; }
+  .fly-windows :global(.ind-cv-wedges :is(.left, .right) .lines) { background-image: url(/client-res/ui/texture/classes/industry/center/wedgeleftright.png); }
+  .fly-windows :global(.ind-cv-wedges :is(.left, .right) .dots) { background-image: url(/client-res/ui/texture/classes/industry/center/dotsleftright.png); opacity: 0.85; }
+  .fly-windows :global(.ind-cv-wedges :is(.bottom, .right) :is(.lines, .dots)) { transform: rotate(180deg); }
+  .fly-windows :global(.ind-cv-wedges .bg) { background: var(--job); -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+  .fly-windows :global(.ind-cv-wedges .top .bg) { -webkit-mask-image: url(/client-res/ui/texture/classes/industry/center/bgtop.png); mask-image: url(/client-res/ui/texture/classes/industry/center/bgtop.png); }
+  .fly-windows :global(.ind-cv-wedges .bottom .bg) { -webkit-mask-image: url(/client-res/ui/texture/classes/industry/center/bgbottom.png); mask-image: url(/client-res/ui/texture/classes/industry/center/bgbottom.png); }
+  .fly-windows :global(.ind-cv-wedges .left .bg) { -webkit-mask-image: url(/client-res/ui/texture/classes/industry/center/bgleft.png); mask-image: url(/client-res/ui/texture/classes/industry/center/bgleft.png); }
+  .fly-windows :global(.ind-cv-wedges .right .bg) { -webkit-mask-image: url(/client-res/ui/texture/classes/industry/center/bgright.png); mask-image: url(/client-res/ui/texture/classes/industry/center/bgright.png); }
+  .fly-windows :global(.ind-cv-frame75) { position: absolute; left: -37.5px; top: -37.5px; width: 75px; height: 75px; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box; }
+  .fly-windows :global(.ind-cv-frame90) { position: absolute; left: -45px; top: -45px; width: 90px; height: 90px;
+    background: #141619; opacity: 0.5; -webkit-mask: url(/client-res/ui/texture/classes/industry/center/bgframe.png) center / 100% 100%;
+    mask: url(/client-res/ui/texture/classes/industry/center/bgframe.png) center / 100% 100%; }
+  .fly-windows :global(.ind-cv-icon) { position: absolute; left: -32px; top: -32px; width: 64px; height: 64px; }
+  .fly-windows :global(.ind-cv-icon .type-icon), .fly-windows :global(.ind-cv-icon img) { width: 64px; height: 64px; display: block; }
+  .fly-windows :global(.ind-cv-remaining) { position: absolute; top: -110px; left: -60px; width: 120px; text-align: center; }
+  .fly-windows :global(.ind-cv-remaining small), .fly-windows :global(.ind-cv-runs small) { display: block; font-size: 10px; text-transform: uppercase; opacity: 0.5; }
+  .fly-windows :global(.ind-cv-remaining span) { font-size: 13px; }
+  .fly-windows :global(.ind-cv-runs) { position: absolute; left: -38px; top: 88px; width: 76px; text-align: center; }
+  .fly-windows :global(.ind-cv-runs input) { width: 76px; box-sizing: border-box; text-align: center; font-size: 13px; padding: 2px; }
+  .fly-windows :global(.ind-cv-mete) { position: absolute; left: 73.5px; width: 79px; height: 30px; box-sizing: border-box;
+    background: url(/client-res/ui/texture/classes/industry/center/bgmete.png) center / 100% 23px no-repeat; transition: opacity 0.7s; }
+  .fly-windows :global(.ind-cv:not(.job) .ind-cv-mete) { opacity: 0; }
+  .fly-windows :global(.ind-cv-mete.me) { top: -40px; }
+  .fly-windows :global(.ind-cv-mete.te) { top: 10px; }
+  .fly-windows :global(.ind-cv-mete img) { position: absolute; left: 8px; top: 3px; width: 16px; height: 16px; opacity: 0.6; }
+  .fly-windows :global(.ind-cv-mete b) { position: absolute; right: 8px; top: 4px; font-size: 13px; color: #666666; }
+  .fly-windows :global(.ind-cv-mete b.ready) { color: #3372b6; }
+  .fly-windows :global(.ind-cv-mete .gauge) { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(255, 255, 255, 0.05); }
+  .fly-windows :global(.ind-cv-mete .gauge span) { display: block; height: 100%; background: #3372b6; }
   .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }

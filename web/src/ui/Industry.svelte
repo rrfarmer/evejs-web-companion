@@ -702,6 +702,27 @@
     "UI/Industry/NoJobsFound", "UI/Industry/Deliver", "UI/Industry/DeliverSelectedJobs", "UI/Industry/DeliverAllJobs",
     "UI/Industry/Cancelled", "UI/Industry/JobFailed", "UI/Industry/Succeeded"];
   onMount(() => { if (retail) flow.requestWords(JOB_WORDS); });
+  /**
+   * The job's view on top of the window (industryWnd VIEW_HEIGHT 418: views/baseView.py BaseView - topCont 18 high with
+   * the blueprint's name at left 24, mainCont 400 high over the 400 x 400 circle bgCircle / bgCircleBorder in the job's
+   * colour at 0.3, COLOR_FRAME with no job; views/blueprintCenter.py BlueprintCenter - the 90 frame bgFrame and a 75
+   * frame at 0.1 round the 64 icon, the four wedges (84 x 60, 60 x 84) of a 150 box, travelled in 15 with a job, their
+   * patterns in the job's colour; ContainerME / ContainerTE 79 x 30 at (113, -25) and (113, 25) - icon, value in
+   * COLOR_READY / COLOR_FRAME, a 6-high gauge of MAX 10 / 20; the runs remaining (its caption by the activity) 90 from
+   * the top and the Job Runs edit 100 below the centre).
+   */
+  const JOB_COLORS: Record<string, string> = { manufacturing: "#ff9900", reaction: "#12e6c9" };
+  const viewColor = $derived(startingBlueprint && chosenActivity ? JOB_COLORS[chosenActivity] ?? "#3372b6" : "#666666");
+  const runsRemainingCaption = $derived.by(() => {
+    if (!startingBlueprint || !chosenActivity) return "";
+    if (chosenActivity === "manufacturing" || chosenActivity === "invention")
+      return startingBlueprint.original ? industryWord("UI/Industry/MaximumRuns") || "Maximum Runs" : industryWord("UI/Industry/RunsRemaining") || "Runs Remaining";
+    if (chosenActivity === "research_material" || chosenActivity === "research_time") return industryWord("UI/Industry/LevelsRemaining") || "Levels Remaining";
+    return industryWord("UI/Industry/MaximumRuns") || "Maximum Runs";
+  });
+  const runsRemainingValue = $derived(startingBlueprint ? (startingBlueprint.original ? maxRuns : Math.min(startingBlueprint.runs, maxRuns)) : 0);
+  const VIEW_WORDS = ["UI/Industry/JobRuns", "UI/Industry/MaximumRuns", "UI/Industry/RunsRemaining", "UI/Industry/LevelsRemaining"];
+  onMount(() => { if (retail) flow.requestWords(VIEW_WORDS); });
   const BLUEPRINT_WORDS = ["UI/Industry/OwnedByMe", "UI/Industry/AllBlueprints", "UI/Industry/Originals", "UI/Industry/Copies",
     "UI/Industry/Blueprint", "UI/Industry/MaterialEfficiency", "UI/Industry/TimeEfficiency", "UI/Industry/RunsRemaining",
     "UI/Industry/Activities", "UI/Common/Group", "UI/ScienceAndIndustry/ScienceAndIndustryWindow/Availability",
@@ -740,6 +761,35 @@
   {#if retail}
     <!-- industryWnd.Industry's browser tabs (TabGroup 26 high, labels padded 12): Blueprints, Facilities, Jobs,
          Research - one browser shown at a time; the job's view (Start a job) stays above them -->
+    <div class="ind-cv" class:job={startingBlueprint !== null} style={`--job: ${viewColor}`}>
+      <div class="ind-cv-top">{startingBlueprint ? typeName(startingBlueprint.typeID) : ""}</div>
+      <div class="ind-cv-main">
+        <div class="ind-cv-circle"><span class="border"></span></div>
+        <div class="ind-cv-center">
+          <div class="ind-cv-wedges">
+            {#each ["top", "bottom", "left", "right"] as side (side)}
+              <div class={`wedge ${side}`}><span class="lines"></span><span class="dots"></span><span class="bg"></span></div>
+            {/each}
+          </div>
+          <span class="ind-cv-frame75"></span><span class="ind-cv-frame90"></span>
+          {#if startingBlueprint}
+            <span class="ind-cv-icon"><TypeIcon typeID={startingBlueprint.typeID} name={typeName(startingBlueprint.typeID)} size="lg" /></span>
+            {#if runsRemainingCaption}
+              <div class="ind-cv-remaining"><small>{runsRemainingCaption}</small><span>{runsRemainingValue}</span></div>
+            {/if}
+            <label class="ind-cv-runs"><small>{industryWord("UI/Industry/JobRuns") || "Job Runs"}</small>
+              <input type="number" min="1" max={maxRuns} bind:value={chosenRuns} disabled={busy || confirming} /></label>
+          {/if}
+          {#each [{ k: "me", v: startingBlueprint?.materialEfficiency ?? 0, max: 10 }, { k: "te", v: startingBlueprint?.timeEfficiency ?? 0, max: 20 }] as m (m.k)}
+            <div class={`ind-cv-mete ${m.k}`}>
+              <img alt="" src={`/client-res/ui/texture/classes/industry/icon${m.k}.png`} />
+              <b class:ready={m.v > 0}>{m.v}%</b>
+              <span class="gauge"><span style={`width: ${Math.max(0, m.v) / m.max * 100}%`}></span></span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    </div>
     <nav class="ind-tabs">
       {#each INDUSTRY_TABS as t (t.id)}
         <button type="button" class:active={browserTab === t.id} onclick={() => (browserTab = t.id)}>{industryWord(t.label) || t.own}</button>
