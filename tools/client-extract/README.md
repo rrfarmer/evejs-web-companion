@@ -46,6 +46,7 @@ system's scene and celestials). `web/hull-viewer.html?type=588` draws a type as 
 | File | What it reads |
 | --- | --- |
 | `resfiles.mjs` | `tq/resfileindex.txt` and `ResFiles/`: `res:` path to file |
+| `wwiseVorbis.mjs` | Wwise Vorbis `.wem` to Ogg Vorbis, the codebook library read from the client's `_audio2.dll` |
 | `granny.mjs` | Granny 3D `.gr2` version 7, in both the 32-bit and the 64-bit pointer layouts. It walks the file's own type definitions, so any Granny object comes out (meshes, skeletons, extended data). |
 | `oodle1.mjs` | Section compression 2 |
 | `bitknit.mjs` | Section compression 3 and 4. Format 4 also compresses the fixup and marshalling tables. |
@@ -59,3 +60,9 @@ ship model in client build 3396210, they decode 3,109 of 3,109 Oodle1 sections a
 
 A newer client may change a format. The reader stops with the file named when it meets a Granny
 version, compression or texture format it does not know. It does not guess.
+
+## Audio
+
+`node tools/client-extract/audio.mjs --client "<EVE install>" --bank interface` converts a soundbank's embedded
+sounds to `_local/client-assets/<build>/audio/<bank>/<id>.ogg` and writes `audio/events.json` (a Wwise event's
+FNV-1 id to the sound its Play action plays), which the play page's `play/uiAudio.ts` reads.
