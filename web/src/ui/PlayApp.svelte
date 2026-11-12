@@ -1280,6 +1280,18 @@
   .fly-windows :global(.ct-retail > nav.tabs button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 13px;
     color: rgba(255, 255, 255, 0.6); cursor: pointer; border-radius: 0; }
   .fly-windows :global(.ct-retail > nav.tabs button.active) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); background: none; }
+  /* locations/window.py: the header's tabs at the top, Add Location / Create Folder / Create Subfolder at the bottom
+     right; assetsWindow.py: Personal Assets, Search, Asset Safety as the header's tabs */
+  .fly-windows :global(.loc-retail) { display: flex; flex-direction: column; min-height: 100%; }
+  .fly-windows :global(.loc-retail > .loc-bottom) { order: 99; margin-top: auto; justify-content: flex-end; display: flex; gap: 8px; padding-top: 8px; }
+  .fly-windows :global(.loc-retail.loc-search > :not(.loc-tabs, p.note)) { display: none; }
+  .fly-windows :global(:is(.loc-tabs, .as-retail > .asset-tabs)) { display: flex; gap: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin: 0 0 8px; }
+  .fly-windows :global(:is(.loc-tabs, .as-retail > .asset-tabs) button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px;
+    font-size: 13px; color: rgba(255, 255, 255, 0.6); cursor: pointer; border-radius: 0; }
+  .fly-windows :global(.loc-tabs button.active), .fly-windows :global(.as-retail > .asset-tabs button[aria-selected="true"]) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.as-retail) { display: flex; flex-direction: column; }
+  .fly-windows :global(.as-retail > .asset-tabs) { order: -1; }
+  .fly-windows :global(.as-retail.as-safety > :not(.asset-tabs, .as-safety-note)) { display: none; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }

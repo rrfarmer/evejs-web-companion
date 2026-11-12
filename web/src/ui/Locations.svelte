@@ -55,7 +55,7 @@
   // item's place saved), and a shared bookmark shown dim before its delay has passed. Show Info shows a thing the page
   // has read in space as that thing, and any other place by its type (the info window has no station or system of its
   // own).
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import { formatTemplate, plainText, templateNameRefs, type TemplateArguments } from "../bridge/clientWords.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   import {
@@ -1017,6 +1017,10 @@
     [WORDS.label, "Label"], [WORDS.type, "Type"], [WORDS.jumps, "Jumps"], [WORDS.sol, "SOL"], [WORDS.con, "CON"],
     [WORDS.reg, "REG"], [WORDS.date, "Date"], [WORDS.expiry, "Expiry"], [WORDS.creator, "Creator"],
   ] as const;
+  /** On the play page the window as locations/window.py lays it out: the header's tabs, the buttons at the bottom right. */
+  const retail = getContext("retailChrome") === true;
+  let locTab = $state<"locations" | "search">("locations");
+  $effect(() => { if (retail) flow.requestWords(["UI/Common/Search"]); });
 </script>
 
 {#snippet places(list: readonly Bookmark[], depth: number)}
@@ -1263,7 +1267,15 @@
   </button>
 {/snippet}
 
-<section class="panel locations">
+<section class="panel locations" class:loc-retail={retail} class:loc-search={retail && locTab === "search"}>
+  {#if retail}
+    <!-- locations/window.py: the header's tabs Locations and Search -->
+    <nav class="tabs loc-tabs">
+      <button type="button" class:active={locTab === "locations"} onclick={() => (locTab = "locations")}>{word(WORDS.title, "Locations")}</button>
+      <button type="button" class:active={locTab === "search"} onclick={() => (locTab = "search")}>{word("UI/Common/Search", "Search")}</button>
+    </nav>
+    {#if locTab === "search"}<p class="note">This panel is not on the play page yet.</p>{/if}
+  {/if}
   <header class="panel-head">
     <h2 class="panel-title">{word(WORDS.title, "Locations")}</h2>
   </header>
@@ -1307,7 +1319,7 @@
     <p class="note">{notice}</p>
   {/if}
   <!-- The window's bottom (window.py 104 to 110): Add Location, Create Folder and Create Subfolder. -->
-  <p class="controls">
+  <p class="controls loc-bottom">
     <button type="button" class="minor" disabled={bookmarking !== null} onclick={addLocation}>{word(WORDS.addBookmark, "Save where I am")}</button>
     <button type="button" class="minor" disabled={folderWindow !== null || active === null} onclick={createFolder}>{word(WORDS.createFolder, "Make a folder")}</button>
     <button type="button" class="minor" disabled={subfolderWindow !== null || active === null} onclick={() => createSubfolderIn(null)}>{word(WORDS.createSubfolder, "Make a subfolder")}</button>

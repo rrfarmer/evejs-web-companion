@@ -20,7 +20,7 @@
   // READS ONLY, plus a station's route entries, as the client's assets window gives them (its location's menu,
   // assetsWindow.py GetMenuLocationMenu 851 to 862: the station's CelestialMenu): Set Destination, and Add Waypoint
   // or Remove Waypoint (menusvc.py 2002 to 2007), the flow's waypoints (nav/waypoints.ts).
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import {
     formatAssetVolume,
     formatUnits,
@@ -156,6 +156,14 @@
 
   // The window's tabs (assetsWindow._ReconstructTabs, 186 to 201): its list of where the pilot's things are, and Search.
   // (Asset Safety, the third, is not the page's.)
+  /**
+   * On the play page the window as AssetsWindow lays it out (assetsWindow.py: 550 x 450; _ReconstructTabs - the header's
+   * tabs Personal Assets (its caption), Search, Asset Safety (UI/Inventory/AssetSafety/AssetSafety)). Asset Safety is
+   * not built.
+   */
+  const retail = getContext("retailChrome") === true;
+  let safetyTab = $state(false);
+  $effect(() => { if (retail) flow.requestWords(["UI/Inventory/AssetSafety/AssetSafety"]); });
   const TAB_WORDS = {
     allitems: "Tooltips/Neocom/PersonalAssets",
     search: "UI/Common/Buttons/Search",
@@ -198,7 +206,7 @@
   });
 </script>
 
-<section class="panel">
+<section class="panel" class:as-retail={retail} class:as-safety={retail && safetyTab}>
   <header class="panel-head">
     <h2 class="panel-title">Personal Assets</h2>
     <p class="controls">
@@ -214,9 +222,11 @@
   </header>
 
   <div class="controls asset-tabs" role="tablist">
-    <button type="button" role="tab" aria-selected={tab === "allitems"} class:minor={tab !== "allitems"} onclick={() => (tab = "allitems")}>{word(TAB_WORDS.allitems, "Personal Assets")}</button>
-    <button type="button" role="tab" aria-selected={tab === "search"} class:minor={tab !== "search"} onclick={() => (tab = "search")}>{word(TAB_WORDS.search, "Search")}</button>
+    <button type="button" role="tab" aria-selected={tab === "allitems" && !safetyTab} class:minor={tab !== "allitems" || safetyTab} onclick={() => { tab = "allitems"; safetyTab = false; }}>{word(TAB_WORDS.allitems, "Personal Assets")}</button>
+    <button type="button" role="tab" aria-selected={tab === "search" && !safetyTab} class:minor={tab !== "search" || safetyTab} onclick={() => { tab = "search"; safetyTab = false; }}>{word(TAB_WORDS.search, "Search")}</button>
+    {#if retail}<button type="button" role="tab" aria-selected={safetyTab} class:minor={!safetyTab} onclick={() => (safetyTab = true)}>{word("UI/Inventory/AssetSafety/AssetSafety", "Asset Safety")}</button>{/if}
   </div>
+  {#if retail && safetyTab}<p class="note as-safety-note">This panel is not on the play page yet.</p>{/if}
 
   {#if error}
     <p class="error">{error}</p>
