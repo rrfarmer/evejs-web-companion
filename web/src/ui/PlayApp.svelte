@@ -30,6 +30,8 @@
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
   import { typeNames as typeData } from "../play/overview.ts";
@@ -314,7 +316,7 @@
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords(["UI/Inflight/Scanner/ProbeScanner"]);
+    s.flow.requestWords(["UI/Inflight/Scanner/ProbeScanner", ...DSCAN_WORDS]);
     return s.store.words.subscribe((w) => {
       const t = w.templates["UI/Inflight/Scanner/ProbeScanner"];
       if (typeof t === "string" && t !== "") scannerTitle = t;
@@ -439,6 +441,10 @@
       dock: (id) => s.flow.dockAt(id),
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
+      word: (label, args) => {
+        const t = s.store.words.get().templates[label];
+        return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args ?? {}, { nameOf: () => "" })) : null;
+      },
       openCargo: (id) => s.flow.openCargo(id),
       // The flow says a refused order as the client does (its dialog: "You are not within maximum jumping distance")
       // and does not throw; a jump it refused is one the view's gate effect must not wait on.

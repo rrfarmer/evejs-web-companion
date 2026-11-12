@@ -95,6 +95,8 @@ export interface SpaceActions {
   dock(itemID: number): Promise<void>;
   /** scanMgr.ConeScan(angle, range, x, y, z): the directional scanner's call, where the page can make it. */
   coneScan?(angle: number, range: number, x: number, y: number, z: number): Promise<unknown>;
+  /** The install's words for a label, filled with its arguments; null where they are not had yet. */
+  word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
   openCargo?(itemID: number): Promise<void>;
 }
@@ -373,6 +375,7 @@ export class SpaceView {
         },
         typeName: (typeID) => this.names?.types[String(typeID)]?.[0] ?? null,
         groupName: (groupID) => this.names?.groups[String(groupID)]?.[0] ?? null,
+        word: (label, args) => this.actions.word?.(label, args) ?? null,
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);
