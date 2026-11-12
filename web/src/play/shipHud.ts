@@ -44,8 +44,8 @@ const TEX = {
   plus: res(`${SHIP_UI}plus.png`),
   minus: res(`${SHIP_UI}minus.png`),
   slotMain: res(`${SHIP_UI}slotMainCombined.png`),
-  slotOverload: res(`${SHIP_UI}slotOverloadDisabled.png`),
-  overloadBtn: (key: string) => res(`${SHIP_UI}overloadBtn${key}Off.png`),
+  slotOverload: (state: "On" | "Off" | "Disabled") => res(`${SHIP_UI}slotOverload${state}.png`),
+  overloadBtn: (key: string, on = false) => res(`${SHIP_UI}overloadBtn${key}${on ? "On" : "Off"}.png`),
   // CheckButtonVisibility: 'ui_8_64_11', 'ui_8_64_10', 'ui_8_64_9' for empty high, medium, low slots
   emptySlotIcon: [11, 10, 9].map((n) => res(`res:/UI/Texture/Icons/8_64_${n}.png`)),
   slotGlow: res(`${SHIP_UI}slotGlow.png`),
@@ -64,6 +64,16 @@ export interface HudModule {
   icon: string;
   /** How far through its cycle a running module is, 0..1; null when not cycling or not known. */
   cycle?: number | null;
+  /** The type has an effect of the overload category (null: not known yet). */
+  overloadable?: boolean | null;
+  /** Its overload effect is on (the snapshot's overloadedModuleIDs). */
+  overloaded?: boolean;
+}
+
+/** What the rack's overload buttons do (godma ToggleOverload / Overload, OverloadRack / StopOverloadRack). */
+export interface HudOverload {
+  module(m: HudModule, on: boolean): void;
+  rack(activationID: number, on: boolean): void;
 }
 
 type RGBA = readonly [number, number, number, number];
@@ -611,15 +621,19 @@ export class ShipHud {
    * padding 2, GLOWCOLOR (0.24, 0.67, 0.16, 0.75), blinking at 0.75 over a second). Empty slots are not drawn, as with
    * the client's default. A click is the module's (onModule).
    */
-  setModules(modules: readonly HudModule[], onModule: (m: HudModule) => void): void {
+  setModules(modules: readonly HudModule[], onModule: (m: HudModule) => void, overload?: HudOverload): void {
     const sig = modules.map((m) => `${m.family}${m.index}:${m.itemID}:${m.online}`).join("|");
     if (sig !== this.modulesSig) {
       this.modulesSig = sig;
       this.slotsBox?.remove();
       this.glows.clear();
       this.sweeps.clear();
+      this.overloadButtons.clear();
+      this.rackButtons.clear();
       this.buildSlots({ hi: 0, med: 0, low: 0 }, modules, onModule);
     }
+    this.overload = overload ?? null;
+    this.checkOverload(modules);
     for (const m of modules) {
       const g = this.glows.get(m.itemID);
       if (g) g.style.display = m.active ? "" : "none";
@@ -630,6 +644,45 @@ export class ShipHud {
         sw.style.display = p === null ? "none" : "";
         if (p !== null) sw.style.setProperty("--p", `${(p * 360).toFixed(1)}deg`);
       }
+    }
+  }
+
+  /** The slots' overload buttons and the racks' (by "Hi" / "Med" / "Lo"), with what they stand for now. */
+  private readonly overloadButtons = new Map<number, { img: HTMLImageElement; module: HudModule; state: string }>();
+  private readonly rackButtons = new Map<string, { img: HTMLImageElement; activationID: number | null; active: boolean }>();
+  private overload: HudOverload | null = null;
+
+  /**
+   * shipmodulebutton.py CheckOverload: a module with an overload effect has its button 1 px higher (top 5), On where
+   * the effect is active, Off where not, Disabled while the module is offline; one with none Disabled (top 6).
+   * slotsContainer.py CheckOverloadRackBtnState: each rack's button stands for the rack's first module
+   * (activationID), On (StopOverloadingRack) where the rack has overload effects and none is off, else Off.
+   */
+  private checkOverload(modules: readonly HudModule[]): void {
+    for (const m of modules) {
+      const b = this.overloadButtons.get(m.itemID);
+      if (!b) continue;
+      b.module = m;
+      const state = m.overloadable ? (m.online ? (m.overloaded ? "On" : "Off") : "Disabled") : "Disabled";
+      const key = `${state}:${m.overloadable ? 5 : 6}`;
+      if (key === b.state) continue;
+      b.state = key;
+      b.img.src = TEX.slotOverload(state as "On" | "Off" | "Disabled");
+      b.img.style.top = `${m.overloadable ? 5 : 6}px`;
+      b.img.style.pointerEvents = state === "Disabled" ? "none" : "";
+      b.img.title = state === "On" ? "Turn off overload" : state === "Off" ? "Turn on overload" : "";
+    }
+    for (const [key, family] of [["Hi", "high"], ["Med", "mid"], ["Lo", "low"]] as const) {
+      const b = this.rackButtons.get(key);
+      if (!b) continue;
+      const rack = modules.filter((m) => m.family === family).sort((x, y) => x.index - y.index);
+      b.activationID = rack[0]?.itemID ?? null;
+      const withOverload = rack.filter((m) => m.overloadable);
+      const active = withOverload.length > 0 && withOverload.every((m) => m.overloaded);
+      if (active === b.active) continue;
+      b.active = active;
+      b.img.src = TEX.overloadBtn(key, active);
+      b.img.title = active ? "Stop Overloading Rack" : "Overload rack";
     }
   }
 
@@ -651,6 +704,12 @@ export class ShipHud {
       const b = sprite(box, TEX.overloadBtn(key), x, y, 20, 20, `overloadBtn${key}`);
       b.className = "btn";
       b.title = "Overload rack";
+      const rack = { img: b, activationID: null as number | null, active: false };
+      this.rackButtons.set(key, rack);
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (rack.activationID !== null) this.overload?.rack(rack.activationID, !rack.active);
+      });
     }
     for (let r = 0; r < 3; r++) {
       const [x, y] = grid[r]!;
@@ -661,7 +720,7 @@ export class ShipHud {
         slot.className = "btn";
         slot.title = hints[r]!;
         sprite(slot, TEX.slotMain, 0, 0, 64, 64, "mainshape");
-        sprite(slot, TEX.slotOverload, 16, 6, 32, 16, "overloadBtn");
+        const ol = sprite(slot, TEX.slotOverload("Disabled"), 16, 6, 32, 16, "overloadBtn");
         const hint = document.createElement("div");
         hint.className = "label";
         hint.textContent = `${keys[r]}${i + 1}`;
@@ -692,6 +751,15 @@ export class ShipHud {
           slot.appendChild(sweep);
           this.sweeps.set(module.itemID, sweep);
           slot.addEventListener("click", () => onModule?.(module));
+          // its overload button (ToggleOverload), above the slot's own click
+          const entry = { img: ol, module, state: "" };
+          this.overloadButtons.set(module.itemID, entry);
+          ol.style.zIndex = "2";
+          ol.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const m = entry.module;
+            if (m.overloadable && m.online) this.overload?.module(m, !m.overloaded);
+          });
           continue;
         }
         const icon = sprite(slot, TEX.emptySlotIcon[r]!, mid(64, 24), 13, 24, 24, "emptySlotIcon");

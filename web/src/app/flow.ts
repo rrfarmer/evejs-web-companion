@@ -2901,6 +2901,8 @@ export interface AppFlow {
    * in its own words. A module with no overload effect is not asked of it.
    */
   setModuleOverload(itemID: number, overloaded: boolean): Promise<void>;
+  /** A module type's effect of the overload category (null: it has none), asked once a type and kept. */
+  overloadEffectOf(typeID: number): Promise<number | null>;
   /**
    * Repair a damaged module with nanite paste — the complement to overloading,
    * without which a burnt-out module could never be brought back.
@@ -30068,6 +30070,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     activateModule,
     deactivateModule,
     setModuleOverload,
+    overloadEffectOf: (typeID: number) => overloadEffects.of(typeID),
     repairModule,
     setWeaponBanks,
     loadMiningHolds,

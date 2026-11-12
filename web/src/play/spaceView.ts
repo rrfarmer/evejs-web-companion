@@ -61,7 +61,13 @@ interface Snapshot {
  */
 export interface SpaceViewOptions {
   onNeocom?: (id: string) => void;
-  rack?: { modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null } };
+  rack?: {
+    modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null };
+    /** Each rack's heat over its capacity, 0..1 (the app's space snapshot: ship.rackHeat), or null. */
+    heat?(): Readonly<Partial<Record<"high" | "mid" | "low", number>>> | null;
+    /** Overloading: a module's (ToggleOverload) and a rack's, by its first module (OverloadRack / StopOverloadRack). */
+    overload?: { module(itemID: number, on: boolean): Promise<void>; rack(activationID: number, on: boolean): Promise<void> };
+  };
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
   /** Corporations' tickers (cfg.corptickernames: POST /api/corp-tickers), by corporation id; null where none. */
@@ -1103,6 +1109,9 @@ export class SpaceView {
         capacitorRatio: this.options.rack?.capacitor?.().ratio ?? ego.capacitorRatio ?? null,
         capacitorMax: this.options.rack?.capacitor?.().max ?? null,
         speed, maxSpeed: ego.maxVelocity ?? null, warping: ego.mode === "WARP",
+        // the racks' heat (the ship's heatLow / heatMed / heatHi over their capacities, as the BFF's dogma reckons
+        // them: the app's space snapshot, not this view's park)
+        ...(() => { const h = this.options.rack?.heat?.(); return { heatLow: h?.low, heatMed: h?.mid, heatHi: h?.high }; })(),
       });
       this.modeEl.textContent = ego.mode === "STOP" && speed < 1 ? "Stopped" : ego.mode === "WARP" ? "Warping" : ego.mode === "ORBIT" ? "Orbiting" : ego.mode === "FOLLOW" ? "Approaching" : speed > 0.5 ? "Moving" : "";
     }
@@ -1174,7 +1183,13 @@ export class SpaceView {
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
     // keeps them; often enough for the cycle sweep to move smoothly.
     const rack = this.options.rack;
-    if (rack && this.frameCount % 3 === 0) this.shipHud.setModules(rack.modules(), (m) => void this.act(m.name ?? "Module", () => rack.use(m)));
+    if (rack && this.frameCount % 3 === 0) {
+      const overload = rack.overload;
+      this.shipHud.setModules(rack.modules(), (m) => void this.act(m.name ?? "Module", () => rack.use(m)), overload ? {
+        module: (m, on) => void this.act(m.name ?? "Module", () => overload.module(m.itemID, on)),
+        rack: (id, on) => void this.act(on ? "Overload rack" : "Stop overloading rack", () => overload.rack(id, on)),
+      } : undefined);
+    }
     if (this.frameCount % 15 === 0) {
       this.renderSelected();
       this.feedEl.textContent = `${this.live.status} · tick ${park.currentTime % 100000} · ${snap?.entities.length ?? 0} on grid · ${this.live.items} updates${this.live.failures.length ? ` · ${this.live.failures.length} failed` : ""}`;

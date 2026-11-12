@@ -37,6 +37,8 @@
 
   // Type names for the rack's tooltips (the extractor's typeNames.json, from the SDE).
   let typeNames: Record<string, [string | null, number | null]> = {};
+  /** Each module type: whether it has an overload effect (null while it is asked). */
+  const overloadable = new Map<number, boolean | null>();
   void fetch("/client-assets/typeNames.json").then((r) => (r.ok ? r.json() : null)).then((n) => { if (n) typeNames = n.types; }).catch(() => {});
   import "../play/play.css";
   import { applyClientTint } from "../play/clientTint.ts";
@@ -344,6 +346,7 @@
       rack: {
         modules: () => {
           const active = new Set(s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []);
+          const overloaded = new Set(s.store.space.get().snapshot?.ship?.overloadedModuleIDs ?? []);
           const cycles = s.store.targeting.get().moduleCycles ?? {};
           const now = Date.now();
           const out: HudModule[] = [];
@@ -353,7 +356,13 @@
             // The cycle's start and length are the server's effect notice's (OnGodmaShipEffect, riding an OnMultiEvent).
             const cycle = cycles[m.itemID] ?? null;
             const pct = cycleProgressPercent(cycle, now);
-            out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "", cycle: pct === null ? null : pct / 100 });
+            // whether the type has an overload effect (its effects' categories, asked of the BFF once a type)
+            if (!overloadable.has(m.typeID)) {
+              overloadable.set(m.typeID, null);
+              void s.flow.overloadEffectOf(m.typeID).then((id) => overloadable.set(m.typeID, id !== null), () => overloadable.delete(m.typeID));
+            }
+            out.push({ family: slot.family, index: slot.index, itemID: m.itemID, typeID: m.typeID, name: typeNames[String(m.typeID)]?.[0] ?? undefined, online: m.online, active: active.has(m.itemID), icon: typeIconUrl(m.typeID) ?? "", cycle: pct === null ? null : pct / 100,
+              overloadable: overloadable.get(m.typeID) ?? null, overloaded: overloaded.has(m.itemID) });
           }
           return out;
         },
@@ -366,6 +375,11 @@
           const running = (s.store.space.get().snapshot?.ship?.activeModuleIDs ?? []).includes(m.itemID);
           if (running) await s.flow.deactivateModule(m.itemID, { typeID: m.typeID });
           else await s.flow.activateModule(m.itemID, { typeID: m.typeID, targetID: s.store.targeting.get().lockedTargetIDs?.[0] });
+        },
+        heat: () => s.store.space.get().snapshot?.ship?.rackHeat ?? null,
+        overload: {
+          module: (itemID, on) => s.flow.setModuleOverload(itemID, on),
+          rack: (activationID, on) => s.flow.setRackOverload(activationID, on),
         },
       },
     });
