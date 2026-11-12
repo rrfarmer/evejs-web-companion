@@ -7,6 +7,7 @@
   import FleetHistory from "./FleetHistory.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
+  import type { FleetAdvert } from "../bridge/fleetAds.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -31,6 +32,51 @@
        { id: "advert", label: "UI/Fleet/FleetRegistry/Advert", own: "Advert" }, { id: "find", label: "UI/Fleet/FleetRegistry/FindFleets", own: "Find Fleets" }]
     : [{ id: "form", label: "Tooltips/Neocom/Fleet", own: "Fleet" }, { id: "finder", label: "UI/Fleet/FleetWindow/FleetFinder", own: "Fleet Finder" }]);
   const fleetTab = $derived<FleetTab>(chosenFleetTab !== null && fleetTabs.some((t) => t.id === chosenFleetTab) ? chosenFleetTab : fleetTabs[0]?.id ?? "form");
+  /**
+   * PanelFleetFinder (fleetfinder.py, fleetFinderEntry.py): its filter row 22 high - the scope (My Available Fleets,
+   * My Corp Fleets, [alliance, militia,] Based On Standings), the range (Any Distance, Within 5 / 10 Jumps, Region) and
+   * the standing (Any, Good, Excellent) combos, Find Fleets at the right; the Show Group And High Standings Fleets
+   * check; the scroll - Boss, Boss Location, Fleet Name, Member Count, Description - SearchHint before a search,
+   * SearchNoResult after; a row selected opens the info under it (the fleet's name, Join Fleet or Request To Join).
+   * The range and standing filters are not applied (the page reads no jumps or standings).
+   */
+  let finderAds = $state<readonly FleetAdvert[] | null>(null);
+  let finderError = $state<string | null>(null);
+  let finderBusy = $state(false);
+  let finderScope = $state<number | null>(null);
+  let finderSelected = $state<number | null>(null);
+  async function findFleets(): Promise<void> {
+    finderBusy = true;
+    finderError = null;
+    try {
+      finderAds = await flow.loadFleetAdverts();
+      flow.requestNames(finderAds.flatMap((ad) => [
+        ...(ad.leader.charID ? [{ kind: "character" as const, id: ad.leader.charID }] : []),
+        ...(ad.solarSystemID ? [{ kind: "system" as const, id: ad.solarSystemID }] : []),
+      ]));
+    } catch (error) {
+      finderError = error instanceof Error ? error.message : String(error);
+    } finally {
+      finderBusy = false;
+      finderSelected = null;
+    }
+  }
+  const shownAds = $derived((finderAds ?? []).filter((ad) => {
+    if (finderScope === null) return true;
+    if ((ad.inviteScope & finderScope) === 0) return false;
+    if (finderScope === 1 && ad.leader.corpID !== ($station.online?.corporationID ?? null)) return false;
+    return true;
+  }));
+  const selectedAd = $derived(shownAds.find((ad) => ad.fleetID === finderSelected) ?? null);
+  $effect(() => {
+    if (retail && fleetTab === "finder" && finderAds === null && !finderBusy && finderError === null) void findFleets();
+  });
+  const FINDER_WORDS = ["UI/Fleet/FleetRegistry/MyAvailableFleets", "UI/Fleet/FleetRegistry/MyCorpFleets", "UI/Fleet/FleetRegistry/BasedOnStandings",
+    "UI/Agency/ContentOfAnyDistance", "UI/Common/LocationTypes/Region", "UI/Standings/AnyStanding", "UI/Standings/GoodStanding",
+    "UI/Standings/ExcellentStanding", "UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets", "UI/Fleet/Ranks/Boss",
+    "UI/Fleet/FleetRegistry/BossLocationHeader", "UI/Fleet/NameOfFleet", "UI/Fleet/FleetRegistry/MemberCount", "UI/Common/Description",
+    "UI/Fleet/FleetRegistry/SearchHint", "UI/Fleet/FleetRegistry/SearchNoResult", "UI/Fleet/FleetRegistry/JoinFleet",
+    "UI/Fleet/FleetRegistry/RequestJoinFleet", "UI/Fleet/FleetRegistry/UnnamedFleet", "UI/Generic/Private"];
   function fleetWord(label: string): string {
     const template = $words.templates[label];
     return typeof template === "string" ? template : "";
@@ -38,7 +84,8 @@
   onMount(() => {
     if (retail) flow.requestWords(["UI/Fleet/Fleet", "UI/Fleet/FleetWindow/Broadcasts", "UI/Fleet/Respawn/Respawn", "UI/Fleet/FleetFormations/Formations",
       "UI/Fleet/FleetRegistry/Advert", "UI/Fleet/FleetRegistry/FindFleets", "Tooltips/Neocom/Fleet", "UI/Fleet/FleetWindow/FleetFinder",
-      "UI/Fleet/FleetWindow/FormFleetHeader", "UI/Fleet/FleetWindow/FormFleetDescription", "UI/Fleet/FleetWindow/FormFleet", "UI/Fleet/FleetWindow/DefaultSetup"]);
+      "UI/Fleet/FleetWindow/FormFleetHeader", "UI/Fleet/FleetWindow/FormFleetDescription", "UI/Fleet/FleetWindow/FormFleet", "UI/Fleet/FleetWindow/DefaultSetup",
+      ...FINDER_WORDS]);
   });
   // svelte-ignore state_referenced_locally
   const names = store.names;
@@ -274,7 +321,53 @@
         <button type="button" class:active={fleetTab === t.id} onclick={() => (chosenFleetTab = t.id)}>{fleetWord(t.label) || t.own}</button>
       {/each}
     </nav>
-    {#if !["fleet", "broadcasts", "form"].includes(fleetTab)}<p class="note fl-unbuilt">This panel is not on the play page yet.</p>{/if}
+    {#if fleetTab === "finder" || fleetTab === "find"}
+      <div class="fl-finder">
+        <div class="fl-finder-filters">
+          <select bind:value={finderScope}>
+            <option value={null}>{fleetWord("UI/Fleet/FleetRegistry/MyAvailableFleets") || "My Available Fleets"}</option>
+            <option value={1}>{fleetWord("UI/Fleet/FleetRegistry/MyCorpFleets") || "My Corp Fleets"}</option>
+            <option value={24}>{fleetWord("UI/Fleet/FleetRegistry/BasedOnStandings") || "Based On Standings"}</option>
+          </select>
+          <select><option>{fleetWord("UI/Agency/ContentOfAnyDistance") || "Any Distance"}</option><option>{fleetWord("UI/Common/LocationTypes/Region") || "Region"}</option></select>
+          <select><option>{fleetWord("UI/Standings/AnyStanding") || "Any Standing"}</option><option>{fleetWord("UI/Standings/GoodStanding") || "Good Standing"}</option><option>{fleetWord("UI/Standings/ExcellentStanding") || "Excellent Standing"}</option></select>
+          <button type="button" disabled={finderBusy} onclick={() => void findFleets()}>{fleetWord("UI/Fleet/FleetRegistry/FindFleets") || "Find Fleets"}</button>
+        </div>
+        <label class="fl-finder-check"><input type="checkbox" disabled /> {fleetWord("UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets") || "Show group and high standings fleets"}</label>
+        {#if finderError}<p class="error">{finderError}</p>{/if}
+        <div class="fl-finder-scroll">
+          <table>
+            <thead><tr>
+              <th>{fleetWord("UI/Fleet/Ranks/Boss") || "Boss"}</th><th>{fleetWord("UI/Fleet/FleetRegistry/BossLocationHeader") || "Boss Location"}</th>
+              <th>{fleetWord("UI/Fleet/NameOfFleet") || "Fleet Name"}</th><th>{fleetWord("UI/Fleet/FleetRegistry/MemberCount") || "Member Count"}</th>
+              <th>{fleetWord("UI/Common/Description") || "Description"}</th>
+            </tr></thead>
+            <tbody>
+              {#each shownAds as ad (ad.fleetID)}
+                {@const priv = fleetWord("UI/Generic/Private") || "Private"}
+                <tr class:sel={finderSelected === ad.fleetID} onclick={() => (finderSelected = finderSelected === ad.fleetID ? null : ad.fleetID)}>
+                  <td>{resolvedName($names.resolved, "character", ad.leader.charID, "")}</td>
+                  <td>{#if ad.hideInfo}<span class="priv">{priv}</span>{:else}{ad.solarSystemID ? resolvedName($names.resolved, "system", ad.solarSystemID, "") : ""}{/if}</td>
+                  <td>{ad.fleetName}</td>
+                  <td>{#if ad.hideInfo}<span class="priv">{priv}</span>{:else}<span class:full={ad.advertJoinLimit !== null && ad.numMembers >= ad.advertJoinLimit}>{ad.numMembers}</span>{/if}</td>
+                  <td>{ad.description}</td>
+                </tr>
+              {:else}
+                <tr><td colspan="5" class="fl-none">{finderAds === null ? fleetWord("UI/Fleet/FleetRegistry/SearchHint") || "Search for fleets" : fleetWord("UI/Fleet/FleetRegistry/SearchNoResult") || "No fleets found"}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if selectedAd}
+          <div class="fl-finder-info">
+            <div class="top"><b>{selectedAd.fleetName || fleetWord("UI/Fleet/FleetRegistry/UnnamedFleet") || "Unnamed fleet"}</b>
+              <button type="button" disabled={busy || selectedAd.fleetID === null} onclick={() => { if (selectedAd?.fleetID) void flow.applyToJoinFleet(selectedAd.fleetID); }}>
+                {selectedAd.joinNeedsApproval ? fleetWord("UI/Fleet/FleetRegistry/RequestJoinFleet") || "Request to Join" : fleetWord("UI/Fleet/FleetRegistry/JoinFleet") || "Join Fleet"}</button></div>
+            {#if selectedAd.description}<p>{selectedAd.description}</p>{/if}
+          </div>
+        {/if}
+      </div>
+    {:else if !["fleet", "broadcasts", "form"].includes(fleetTab)}<p class="note fl-unbuilt">This panel is not on the play page yet.</p>{/if}
   {/if}
   {#if refreshError}<p class="error">{refreshError}</p>{/if}
   {#if $fleet.readError}<p class="error">{$fleet.readError}</p>{/if}

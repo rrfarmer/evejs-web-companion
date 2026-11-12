@@ -1057,6 +1057,24 @@
   .fly-windows :global(.fl-retail[data-fleet-tab="broadcasts"] > section:not(.fl-keep)),
   .fly-windows :global(.fl-retail[data-fleet-tab="fleet"] > .fl-broadcasts),
   .fly-windows :global(.fl-retail:is([data-fleet-tab="respawn"], [data-fleet-tab="formations"], [data-fleet-tab="advert"], [data-fleet-tab="find"]) > :is(section, .fl-broadcasts)) { display: none; }
+  /* PanelFleetFinder: the filter row (three combos, Find Fleets at the right), the check, the scroll, the info under it */
+  .fly-windows :global(.fl-finder) { display: flex; flex-direction: column; gap: 4px; }
+  .fly-windows :global(.fl-finder-filters) { display: flex; gap: 2px; height: 22px; margin-top: 4px; }
+  .fly-windows :global(.fl-finder-filters select) { flex: 0 1 33%; min-width: 0; max-width: 160px; font-size: 12px; padding: 1px 4px; }
+  .fly-windows :global(.fl-finder-filters button) { margin-left: auto; flex: none; white-space: nowrap; font-size: 12px; padding: 2px 10px; }
+  .fly-windows :global(.fl-finder-check) { font-size: 12px; color: rgba(255, 255, 255, 0.75); padding: 4px 2px; }
+  .fly-windows :global(.fl-finder-scroll) { min-height: 160px; max-height: 220px; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.fl-finder-scroll table) { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .fly-windows :global(.fl-finder-scroll th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 3px 6px; white-space: nowrap; }
+  .fly-windows :global(.fl-finder-scroll td) { padding: 2px 6px; color: rgba(255, 255, 255, 0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  .fly-windows :global(.fl-finder-scroll tbody tr) { cursor: pointer; }
+  .fly-windows :global(.fl-finder-scroll tr.sel td) { background: rgba(255, 255, 255, 0.1); }
+  .fly-windows :global(.fl-finder-scroll .priv) { color: rgba(136, 136, 136, 0.5); }
+  .fly-windows :global(.fl-finder-scroll .full) { color: #dd0000; }
+  .fly-windows :global(.fl-finder-scroll .fl-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 16px; white-space: normal; }
+  .fly-windows :global(.fl-finder-info) { padding-top: 4px; }
+  .fly-windows :global(.fl-finder-info .top) { display: flex; align-items: center; justify-content: space-between; height: 20px; }
+  .fly-windows :global(.fl-finder-info p) { margin: 4px 0 0; font-size: 12px; border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px; }
   .fly-windows :global(.fl-form) { display: flex; flex-direction: column; min-height: 280px; }
   .fly-windows :global(.fl-form-text) { flex: 1; }
   .fly-windows :global(.fl-form-text h3) { margin: 0 0 4px; font-size: 18px; font-weight: 400; }

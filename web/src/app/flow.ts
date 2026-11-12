@@ -706,7 +706,7 @@ import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
 import { canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
-import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert } from "../bridge/fleetAds.ts";
+import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, type FleetAdvert } from "../bridge/fleetAds.ts";
 import { readAvailableFleetAds, readFleetFinder as readFleetFinderCalls } from "../bridge/fleetFinderReads.ts";
 import { readMyLaunches } from "../bridge/launchReads.ts";
 import type { PlanetLaunchesRead } from "../bridge/planetLaunches.ts";
@@ -2239,6 +2239,12 @@ export interface AppFlow {
    * the client does not ask it (bridge/fleetFinderReads.ts).
    */
   readFleetFinder(inAFleet?: boolean | null): Promise<FleetFinderRead>;
+  /**
+   * The fleet adverts open to this session, whole (fleetProxy.GetAvailableFleetAds), for the fleet window's Fleet
+   * Finder: the boss, the boss's system, the name, the members and the description of each. A failed read throws:
+   * it is not a listing of nobody.
+   */
+  loadFleetAdverts(): Promise<readonly FleetAdvert[]>;
   /**
    * APPLY to an advertised fleet, and return WHICH HALF of the round trip the
    * server took.
@@ -29609,6 +29615,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       store.apply({ type: "fleet/broadcast-history-cleared" });
     },
     readFleetFinder,
+    async loadFleetAdverts() {
+      return decodeAvailableFleetAds(await readAvailableFleetAds(bridgeAsk)).filter((ad) => ad.fleetID !== null && ad.fleetID > 0);
+    },
     applyToJoinFleet,
     flyToPoint,
     restartExtractor,
