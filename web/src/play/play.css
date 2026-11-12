@@ -220,9 +220,11 @@ button { font: inherit; color: inherit; }
   --color-accent-dim: #2e5f6e;
   font-family: var(--font);
 }
-.fly-windows .win { background: rgba(14, 16, 18, 0.9); border: 1px solid rgba(255, 255, 255, 0.10); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px); border-radius: 0; }
-.fly-windows .win.focused { border-color: rgba(255, 255, 255, 0.18); }
+/* the window's background as the system menu's Window Appearance sets it (gfxSettings.ts windowAppearance); .win.win outranks the tinted copies clientTint.ts makes of the windows' own rules */
+.fly-windows .win.win { background: var(--win-bg, rgba(14, 16, 18, 0.9)); border: 1px solid rgba(255, 255, 255, 0.10); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  backdrop-filter: var(--win-backdrop, blur(6px)); border-radius: 0; }
+.fly-windows .win.win.focused { border-color: rgba(255, 255, 255, 0.18); background: var(--win-bg-focused, rgba(14, 16, 18, 0.9));
+  backdrop-filter: var(--win-backdrop-focused, blur(6px)); }
 .fly-windows .win-bar { height: 26px; min-height: 26px; padding: 0 4px 0 10px; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
 .fly-windows .win-title { font-family: var(--font); font-size: 13px; font-weight: 400; letter-spacing: .02em; text-transform: none; color: #c8ccc8; }
 .fly-windows .win-btn { width: 20px; height: 20px; padding: 0; border: none; background: center / 16px 16px no-repeat; color: transparent; opacity: .55; overflow: hidden; }

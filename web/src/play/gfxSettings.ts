@@ -25,12 +25,19 @@ export interface GfxSettings {
   explosionEffectsEnabled: boolean;
   droneModelsEnabled: boolean;
   cameraShakeEnabled: boolean;
+  /** uiColorSettings.show_window_bg_blur_setting (enableWindowBlur, default on). */
+  windowBlur: boolean;
+  /** window_transparency_setting (0 .. 1, default 1): with the blur. */
+  windowTransparency: number;
+  /** window_transparency_noblur_setting (0 .. 1, default 0.05): without it. */
+  windowTransparencyNoBlur: number;
 }
 
 export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   shaderQuality: 3, postProcessingQuality: 2, textureQuality: 0, lodQuality: 3, shadowQuality: 2, aoQuality: 3,
   volumetricQuality: 3, reflectionQuality: 3, turretsEnabled: true, effectsEnabled: true, missilesEnabled: true,
   explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true,
+  windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05,
 };
 
 import { setMipLevelSkipCount } from "../three/ddsTexture.ts";
@@ -58,6 +65,7 @@ function load(): GfxSettings {
 let current: GfxSettings = load();
 // device.py ApplySettings: trinity.device.mipLevelSkipCount = textureQuality (textures loaded after it take it)
 setMipLevelSkipCount(current.textureQuality);
+applyWindowAppearance(current);
 
 /** The settings now. */
 export function gfx(): Readonly<GfxSettings> {
@@ -68,13 +76,46 @@ export function gfx(): Readonly<GfxSettings> {
 export function setGfx(change: Partial<GfxSettings>): void {
   current = { ...current, ...change };
   setMipLevelSkipCount(current.textureQuality);
+  applyWindowAppearance(current);
   try { globalThis.localStorage?.setItem(KEY, JSON.stringify(current)); } catch { /* kept for this page only */ }
   for (const l of listeners) l(current);
 }
 
 /** ResetGraphicsSettings: every setting to its default. */
 export function resetGfx(): void {
-  setGfx({ ...GFX_DEFAULTS });
+  // (the graphics only: the window appearance is the User Interface panel's)
+  const { windowBlur: _b, windowTransparency: _t, windowTransparencyNoBlur: _n, ...graphics } = GFX_DEFAULTS;
+  setGfx(graphics);
+}
+
+function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
+
+/**
+ * carbonui BlurredSceneUnderlay, every window's background: with the blur (enableWindowBlur, and the shader quality
+ * above low: _IsBlurEnabled) the scene behind blurred at the brightness lerp(0, 0.2 focused / 0.3 not, transparency);
+ * without it a fill of DEFAULT_BRIGHTNESS 0.04 at the opacity lerp(1, 0.95 focused / 0.75 not, transparency).
+ */
+export function windowAppearance(s: Readonly<GfxSettings> = current): { blur: boolean; bg: string; bgFocused: string; backdrop: string; backdropFocused: string } {
+  const blur = s.windowBlur && s.shaderQuality > 1;
+  if (blur) {
+    const t = Math.min(1, Math.max(0, s.windowTransparency));
+    return { blur, bg: "transparent", bgFocused: "transparent",
+      backdrop: `blur(6px) brightness(${lerp(0, 0.3, t).toFixed(3)})`, backdropFocused: `blur(6px) brightness(${lerp(0, 0.2, t).toFixed(3)})` };
+  }
+  const t = Math.min(1, Math.max(0, s.windowTransparencyNoBlur));
+  const fill = Math.round(0.04 * 255);
+  return { blur, backdrop: "none", backdropFocused: "none",
+    bg: `rgba(${fill}, ${fill}, ${fill}, ${lerp(1, 0.75, t).toFixed(3)})`, bgFocused: `rgba(${fill}, ${fill}, ${fill}, ${lerp(1, 0.95, t).toFixed(3)})` };
+}
+
+function applyWindowAppearance(s: Readonly<GfxSettings>): void {
+  const root = globalThis.document?.documentElement;
+  if (!root) return;
+  const a = windowAppearance(s);
+  root.style.setProperty("--win-bg", a.bg);
+  root.style.setProperty("--win-bg-focused", a.bgFocused);
+  root.style.setProperty("--win-backdrop", a.backdrop);
+  root.style.setProperty("--win-backdrop-focused", a.backdropFocused);
 }
 
 export function onGfx(listener: Listener): () => void {

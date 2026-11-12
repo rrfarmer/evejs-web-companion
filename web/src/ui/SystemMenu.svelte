@@ -56,6 +56,9 @@
     fullScreen: "/Carbon/UI/Service/Device/FullScreen", contentHeader: `${G}Header`, contentDescription: `${G}Description`,
     antiAliasing: `${G}AntiAliasing`, brightness: `${G}Brightness`, optimize: `${G}OptimizeSettings`, reset: `${G}ResetGraphicSettings`,
     effects: `${P}Effects/Header`, cameraHeader: `${P}CameraSettings/InSpaceCameraSettings`, cameraShake: `${P}Effects/CameraShake`,
+    windowAppearance: "UI/SystemMenu/GeneralSettings/WindowAppearance", windowBlur: "UI/SystemMenu/GeneralSettings/General/EnableWindowBlur",
+    blurDisabledHint: "UI/SystemMenu/GeneralSettings/WindowBlurDisabledHint", transparency: "UI/SystemMenu/GeneralSettings/Transparency",
+    off: `${P}Common/Off`, fullTransparency: "UI/SystemMenu/GeneralSettings/FullTransparency",
   } as const;
   const word = (label: string, own: string): string => {
     const t = $words.templates[label];
@@ -126,6 +129,20 @@
             <label class="sm-check"><input type="checkbox" checked={settings[e.key] as boolean}
               onchange={(ev) => setGfx({ [e.key]: ev.currentTarget.checked } as Partial<GfxSettings>)} /> {word(e.label, e.own)}</label>
           {/each}
+        {:else if panel === "generic"}
+          <!-- ConstructWindowAppearanceSection: the blur (disabled at low shader quality), the transparency slider of
+               the blur's setting or the no-blur one -->
+          <h3 class="first">{word(WORDS.windowAppearance, "Window Appearance")}</h3>
+          <label class="sm-check" title={settings.shaderQuality <= 1 ? word(WORDS.blurDisabledHint, "") : ""}><input type="checkbox" disabled={settings.shaderQuality <= 1}
+            checked={settings.windowBlur} onchange={(ev) => setGfx({ windowBlur: ev.currentTarget.checked })} /> {word(WORDS.windowBlur, "Enable Window Blur")}</label>
+          {@const key = settings.windowBlur ? "windowTransparency" : "windowTransparencyNoBlur"}
+          <div class="sm-slider">
+            <span>{word(WORDS.transparency, "Transparency")}</span>
+            <small>{word(WORDS.off, "Off")}</small>
+            <input type="range" min="0" max="1" step="0.01" value={settings[key]}
+              oninput={(ev) => setGfx({ [key]: Number(ev.currentTarget.value) } as Partial<GfxSettings>)} />
+            <small>{word(WORDS.fullTransparency, "Full Transparency")}</small>
+          </div>
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
           <label class="sm-check"><input type="checkbox" checked={settings.cameraShakeEnabled}
@@ -163,6 +180,10 @@
   .sm-combo span { flex: 0 0 300px; }
   .sm-combo select { flex: 1; max-width: 300px; height: 28px; }
   .sm-check { display: flex; align-items: center; gap: 6px; height: 24px; }
+  .sm-slider { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+  .sm-slider span { flex: 0 0 300px; }
+  .sm-slider input { flex: 0 1 220px; }
+  .sm-slider small { opacity: 0.6; white-space: nowrap; }
   .sm-buttons { display: flex; gap: 8px; margin-top: 32px; }
   .sm-buttons button, .sm-bottom button { height: 32px; padding: 0 16px; font-size: 13px; }
   .sm-bottom { flex: 0 0 96px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-right: 16px; background: rgba(40, 46, 50, 0.5); }
