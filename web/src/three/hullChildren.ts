@@ -949,7 +949,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
 }
 
 /** The transform modifiers drawn so far (the rest leave the transform as it is). */
-const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT"]);
+const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT", "EveTransformLookAtCamera"]);
 
 /**
  * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
@@ -961,6 +961,9 @@ const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted
  *   (x, z its unit axes, d the way to the eye from its translation): its z axis toward the eye, its y kept;
  * - EveChildModifierBillboard2D: the halo's without its fall-off: the eye's axes, each the length of the child's own;
  * - EveChildModifierSRT: the modifier's own transform (scaling, rotation, translation) laid on in the child's space.
+ * - EveTransformLookAtCamera (an EveTransform's "Look at camera" modifier, Tr2Transform.cpp: Transpose(LookAtMatrix(eye,
+ *   pos, +y))): the translation kept; for v = normalize(pos - eye) the axes -normalize(+y x v), normalize(v x right)
+ *   and -v, each the length of the child's own.
  * - EveChildModifierHaloInverted (carbonengine/trinity EveChildModifierHaloInverted.cpp, DistanceBase in
  *   EveChildModifierTransformCommon.h): the child's frame turned to the eye in its own space - z the way to the eye
  *   in its axes (each component over its axis' squared length, normalised), y = normalize(z x the eye's right in its
@@ -992,6 +995,12 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
     } else if (mod === "EveChildModifierBillboard2D") {
       const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
       out.makeBasis(ex.clone().multiplyScalar(x.length()), ey.clone().multiplyScalar(y.length()), ez.clone().multiplyScalar(z.length()));
+      out.setPosition(t);
+    } else if (mod === "EveTransformLookAtCamera") {
+      const v = t.clone().sub(eye).normalize();
+      const right = new THREE.Vector3(0, 1, 0).cross(v).normalize();
+      const up = v.clone().cross(right).normalize();
+      out.makeBasis(right.negate().multiplyScalar(x.length()), up.multiplyScalar(y.length()), v.negate().multiplyScalar(z.length()));
       out.setPosition(t);
     } else if (mod === "EveChildModifierSRT" && srt) {
       const [tx, ty, tz] = srt.translation, [qx, qy, qz, qw] = srt.rotation, [sx, sy, sz] = srt.scaling;
@@ -1381,8 +1390,8 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
  * Start an effect object built by hullChildren (EveEffectRoot2::Start, as ExplosionManager.GetExplosion calls it): its
  * curve sets played from now. Its controllers begin as it is first drawn.
  */
-export function startEffect(object: THREE.Object3D): void {
-  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(); });
+export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
+  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip); });
 }
 
 export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = [],

@@ -500,11 +500,11 @@ export class TurretFx {
       const on = !!m && m.startedAt !== null && (!!info.isLoopFiring || (now - m.startedAt!) / 1000 < info.firingDuration);
       e.fx.visible = on;
       if (!on) return;
-      // an EveStretch's shot begun (EveStretch::StartFiring: its play_start / play_loop sets PlayFrom the start): its
-      // curve sets played from now (startEffect - the clones share their template's animator, so all of them; its
-      // play_end too, which the client leaves stopped)
+      // an EveStretch's shot begun (EveStretch::StartFiring: its play_start / play_loop sets PlayFrom the start, play_end
+      // stopped): its curve sets but play_end played from now (startEffect - the clones share their template's
+      // animator, so all of them)
       if (b.data.type === "EveStretch" && e.startedAt !== m!.startedAt) {
-        startEffect(e.fx);
+        startEffect(e.fx, (name) => name === "play_end");
         e.startedAt = m!.startedAt;
       }
       if (!e.started) { e.started = true; setVariable(e.fx, "FiringDelay", 0); setVariable(e.fx, "IsFiring", 1); }

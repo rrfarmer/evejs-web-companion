@@ -472,9 +472,9 @@ function transformAsChild(t, skipped) {
   // its modifier (Tr2Transform_Blue.cpp's chooser: 1 Billboard, 3 Look at camera, 4 Simple halo, 8 EVE simple halo)
   // as the child modifier that makes the same world transform (Tr2Transform.cpp UpdateWorldTransform): a billboard -
   // the view's axes, each the transform's own scale - is EveChildModifierBillboard2D; a halo (that x max(z . d, 0)^2)
-  // EveChildModifierHalo; look-at-camera (axes from LookAtMatrix(eye, pos, +y)) is drawn as the billboard; another
-  // counted in skipped
-  const MODIFIER = { 1: "EveChildModifierBillboard2D", 3: "EveChildModifierBillboard2D", 4: "EveChildModifierHalo", 8: "EveChildModifierHalo" };
+  // EveChildModifierHalo; look-at-camera (axes from LookAtMatrix(eye, pos, +y)) the page's EveTransformLookAtCamera;
+  // another counted in skipped
+  const MODIFIER = { 1: "EveChildModifierBillboard2D", 3: "EveTransformLookAtCamera", 4: "EveChildModifierHalo", 8: "EveChildModifierHalo" };
   const mod = t.modifier ? MODIFIER[t.modifier] : null;
   if (t.modifier && !mod) skipped[`EveTransform.modifier:${t.modifier}`] = (skipped[`EveTransform.modifier:${t.modifier}`] ?? 0) + 1;
   const c = {
