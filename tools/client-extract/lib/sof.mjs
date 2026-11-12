@@ -151,6 +151,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     trailColor: rb.trailColor ?? null, trailSize: rb.trailSize ?? null,
     shape0Color: rb.shape0?.color ?? null, shape1Color: rb.shape1?.color ?? null,
     warpShape0Color: rb.warpShape0?.color ?? null, warpGlowColor: rb.warpGlowColor ?? null,
+    // (the halo's warp colour: the SOF data's attribute is spelt warpHalpColor)
+    warpHaloColor: rb.warpHalpColor ?? rb.warpHaloColor ?? null,
     // the flame as boostervolumetric.fx draws it (EveSOF::CreateBoosterEffect): its two shapes and their warp forms
     // (EveSOFDataBoosterShape: noise speed, amplitude start / end, frequency, colour - nought where unsaid), the
     // scale, the shape atlas (its height and count) and the two gradients
@@ -164,6 +166,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
       gradient0: rb.gradient0ResPath ? String(rb.gradient0ResPath).toLowerCase() : null,
       gradient1: rb.gradient1ResPath ? String(rb.gradient1ResPath).toLowerCase() : null,
       noise: "res:/texture/global/noise32cube_volume.dds",
+      // the glow sprites' (EveSOF CreateGlow: BoosterGlowAnimated.fx's DiffuseMap and NoiseMap)
+      glowMap: "res:/texture/particle/whitesharp.dds", glowNoise: "res:/texture/global/noise.dds",
     },
   } : null;
   // The hull's default pattern, where no DNA pattern command names one (EveSOFDNA::GetPatternLayerCount and
@@ -189,8 +193,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":74)
-    sofBuild: 74,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":75)
+    sofBuild: 75,
     booster,
     pattern,
     areas,

@@ -3,7 +3,7 @@
 // first approximation of the client's quadv5 ship shader; faction colours (MaterialMap / PaintMaskMap) come with the
 // SOF reader.
 
-import { setBoosterIntensity, volumetricBoosters, type BoosterVolumetricData } from "./boosterVolumetric.ts";
+import { boosterGlows, setBoosterIntensity, setGlowGain, volumetricBoosters, type BoosterVolumetricData } from "./boosterVolumetric.ts";
 import * as THREE from "three";
 import { addDecals, type SofDecalSet } from "./hullDecals.ts";
 import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildren.ts";
@@ -26,7 +26,7 @@ export interface SofPatternLayer { texture: string | null; projectionU: number; 
 export interface SofPattern { layers: SofPatternLayer[]; pmtl1: SofMaterial | null }
 /** A pattern layer as a material draws it: its loaded mask with the hull's PMtl1. */
 export interface HullPattern { layer: SofPatternLayer; mask: THREE.Texture; pmtl1: SofMaterial | null }
-export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null; volumetric?: BoosterVolumetricData | null }
+export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null; symHaloScale?: number | null; warpGlowColor?: number[] | null; warpHaloColor?: number[] | null; volumetric?: BoosterVolumetricData | null }
 export interface SofHull {
   hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; pattern?: SofPattern | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null; atlasIndex0?: number; atlasIndex1?: number }[];
   /** The hull's "anchorpoint" locator, in EVE's model space (a hangar's: where its ship floats). */
@@ -62,7 +62,7 @@ function glowSpot(): THREE.Texture {
  * there - `flames`); else a first likeness: two crossed additive planes fading along the flame. A glow at the nozzle
  * either way. Each flame's length and strength are set by the ship's speed (setThrust).
  */
-function buildBoosters(sof: SofHull, flames: THREE.Mesh | null = null): THREE.Group | null {
+function buildBoosters(sof: SofHull, flames: THREE.Mesh | null = null, glows: THREE.Mesh | null = null): THREE.Group | null {
   const b = sof.booster;
   if (!b || !sof.boosters.length) return null;
   const hdr = (c: number[] | null | undefined, d: number[]) => { const v = c ?? d; const m = Math.max(v[0]!, v[1]!, v[2]!, 1e-6); return new THREE.Color(v[0]! / m, v[1]! / m, v[2]! / m); };
@@ -108,7 +108,8 @@ function buildBoosters(sof: SofHull, flames: THREE.Mesh | null = null): THREE.Gr
     }
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSpot(), color: flameColour, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
     glow.scale.setScalar(Math.max(w, h) * 2.4);
-    nozzle.add(glow);
+    // (the client's glow sprites where they are built: boosterGlows)
+    if (!glows) nozzle.add(glow);
     group.add(nozzle);
   }
   if (flames) {
@@ -116,6 +117,7 @@ function buildBoosters(sof: SofHull, flames: THREE.Mesh | null = null): THREE.Gr
     const eve = new THREE.Group();
     eve.scale.set(1, 1, -1);
     eve.add(flames);
+    if (glows) eve.add(glows);
     group.add(eve);
   }
   return group;
@@ -285,7 +287,10 @@ export function setThrust(model: THREE.Object3D, share: number): void {
   // the volumetric flames: EveBoosterSet2Renderable::CalculateIntensity at a steady speed - 0.8 x speed / top speed
   // (its acceleration share, 0.2 x the thrust along the ship, not known here)
   const flames = boosters.getObjectByName("booster-volumetric");
-  if (flames) setBoosterIntensity(flames, 0.8 * Math.max(0, Math.min(1, share)), (model.userData.controllerVars as Record<string, number> | undefined)?.IsWarping ? 1 : 0);
+  const warping = (model.userData.controllerVars as Record<string, number> | undefined)?.IsWarping ? 1 : 0;
+  if (flames) setBoosterIntensity(flames, 0.8 * Math.max(0, Math.min(1, share)), warping);
+  const glows = boosters.getObjectByName("booster-glows");
+  if (glows) setGlowGain(glows, 0.8 * Math.max(0, Math.min(1, share)), warping);
 }
 
 export interface TypeModelInfo {
@@ -852,7 +857,8 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
     turretPrimary: (() => { const a = sof?.areas.find((x) => x.areaType === "Primary"); return a ? { materials: a.materials, glowColor: a.glowColor ?? null } : null; })(),
     faction: info.faction ?? null };
   const flames = sof ? await volumetricBoosters(sof.boosters, sof.booster?.volumetric).catch((e) => { console.warn("booster flames", e); return null; }) : null;
-  const boosters = sof ? buildBoosters(sof, flames) : null;
+  const glows = flames && sof?.booster ? await boosterGlows(sof.boosters, sof.booster, sof.booster.volumetric).catch((e) => { console.warn("booster glows", e); return null; }) : null;
+  const boosters = sof ? buildBoosters(sof, flames, glows) : null;
   // the hull's sprite lights and plane cards (hullFx.ts)
   const fx = sof ? await hullFx(sof as { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[]; hazeSets?: SofHazeSet[] }).catch(() => null) : null;
   // the hull's children (hullChildren.ts): the static part of their graph

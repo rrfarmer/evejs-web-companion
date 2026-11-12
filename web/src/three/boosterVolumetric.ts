@@ -29,6 +29,8 @@ export interface BoosterVolumetricData {
   gradient0: string | null;
   gradient1: string | null;
   noise: string | null;
+  glowMap?: string | null;
+  glowNoise?: string | null;
 }
 export interface BoosterItem { transform: number[] | null; atlasIndex0?: number; atlasIndex1?: number }
 
@@ -211,17 +213,145 @@ export async function volumetricBoosters(items: BoosterItem[], vol: BoosterVolum
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = "booster-volumetric";
   mesh.frustumCulled = false;
-  mesh.onBeforeRender = (_r, _s, camera) => {
+  // (on the material: a model clone keeps its materials, not its meshes' callbacks)
+  mat.onBeforeRender = (_r, _s, camera, _g, object) => {
     mat.uniforms.time!.value = performance.now() / 1000;
     mat.uniforms.nearZ!.value = (camera as THREE.PerspectiveCamera).near ?? 0.1;
+    // this ship's (the material is every clone's)
+    mat.uniforms.intensity!.value = (object.userData.boosterIntensity as number | undefined) ?? 0;
+    mat.uniforms.warp!.value = (object.userData.boosterWarp as number | undefined) ?? 0;
   };
   return mesh;
 }
 
 /** The flames' intensity (EveBoosterSet2's overall intensity) and warp intensity. */
 export function setBoosterIntensity(mesh: THREE.Object3D, intensity: number, warp = 0): void {
-  const mat = (mesh as THREE.Mesh).material as THREE.ShaderMaterial | undefined;
-  if (!mat?.uniforms?.intensity) return;
-  mat.uniforms.intensity.value = intensity;
-  mat.uniforms.warp!.value = warp;
+  // (kept on the mesh, read as it is drawn)
+  mesh.userData.boosterIntensity = intensity;
+  mesh.userData.boosterWarp = warp;
+}
+
+/** The race's glow numbers (EveSOFDataBooster: the glow and the two halos, their warp colours). */
+export interface BoosterGlowData {
+  glowColor: number[] | null; warpGlowColor?: number[] | null; glowScale: number | null;
+  haloColor: number[] | null; warpHaloColor?: number[] | null; symHaloScale?: number | null; haloScaleX: number | null; haloScaleY: number | null;
+}
+
+const GLOW_VERTEX = `
+attribute vec2 corner; attribute vec3 offset; attribute vec2 size; attribute float blinkPhase;
+attribute vec3 color; attribute vec3 warpColor;
+uniform float gain; uniform float warp; uniform float time; uniform float haloFacing; uniform sampler2D glowNoise;
+uniform vec2 viewport;
+varying vec2 vUv; varying vec4 vColor; varying vec2 vCenterPx; varying float vDist;
+void main() {
+  vec4 view = modelViewMatrix * vec4(offset, 1.0);
+  vec4 centre = projectionMatrix * view;
+  vCenterPx = (centre.xy / centre.w * 0.5 + 0.5) * viewport;
+  vDist = -view.z;
+  // a quad facing the view, width x height, x the gain (at most 1)
+  view.xy += corner * size * min(gain, 1.0);
+  gl_Position = projectionMatrix * view;
+  vUv = corner + 0.5;
+  // the halos (blink phase 1 + seed) fade as the ship's z turns from the view: (-zDir . view forward)^2
+  float facing = blinkPhase < 1.0 ? 1.0 : haloFacing;
+  float flicker = textureLod(glowNoise, vec2(time * 0.5 + blinkPhase, 0.0), 0.0).x * 0.2 + 0.8;
+  vColor = vec4(mix(color, warpColor, warp), 1.0) * facing * facing * gain * flicker;
+}`;
+
+const GLOW_FRAGMENT = `
+${SOFT_DEPTH_GLSL}
+uniform sampler2D glowMap;
+varying vec2 vUv; varying vec4 vColor; varying vec2 vCenterPx; varying float vDist;
+float hidden(vec2 at) { return softSceneDepthAt(at) <= vDist ? 1.0 : 0.0; }
+void main() {
+  vec4 tex = texture2D(glowMap, vUv);
+  // how much of the sprite's centre the scene hides: the centre (x3) and four points 2 pixels off it, of 7
+  float seen = 1.0;
+  if (softDepthOn > 0.5) {
+    float n = 3.0 * hidden(vCenterPx) + hidden(vCenterPx + vec2(-2.0, -2.0)) + hidden(vCenterPx + vec2(2.0, -2.0))
+      + hidden(vCenterPx + vec2(-2.0, 2.0)) + hidden(vCenterPx + vec2(2.0, 2.0));
+    seen = 1.0 - n / 7.0;
+  }
+  vec4 c = tex * seen * vColor * 4.0;
+  gl_FragColor = vec4(max(c.xyz, vec3(0.0)), c.w);
+}`;
+
+/**
+ * The engines' glow sprites (EveSOF CreateGlow and CreateBoosterFlares, EveSpriteSet::AddBoosterGlowToQuadRenderer,
+ * BoosterGlowAnimated.fx disassembled): per booster, from its transform's position and z row (its length; shortened
+ * where its width is under 3), a glow at - 2.5 z of glowScale x width and two halos at - 3 z - one symHaloScale square,
+ * one haloScaleX by haloScaleY - each a view-facing quad of whitesharp.dds, its colour (RGBA8: 0..1) lerped to the warp
+ * colour, x the booster gain, x 0.8..1 noise flicker, x 4, the halos x (-ship z . view forward)^2, hidden as the scene
+ * depth covers its centre; added, no depth test. In EVE's space, as the flames.
+ */
+export async function boosterGlows(items: BoosterItem[], data: BoosterGlowData | null | undefined, maps: { glowMap?: string | null; glowNoise?: string | null } | null | undefined): Promise<THREE.Mesh | null> {
+  if (!data || !maps?.glowMap || !maps.glowNoise) return null;
+  const placed = items.filter((b) => b.transform && b.transform.length >= 16);
+  if (!placed.length) return null;
+  const [glowMap, glowNoise] = await Promise.all([loadDds(maps.glowMap), loadDds(maps.glowNoise)]).catch(() => [null, null]);
+  if (!glowMap || !glowNoise) return null;
+  glowMap.colorSpace = THREE.SRGBColorSpace;
+  glowMap.needsUpdate = true;
+  glowNoise.wrapS = glowNoise.wrapT = THREE.RepeatWrapping;
+  glowNoise.needsUpdate = true;
+  const c01 = (c: number[] | null | undefined) => [0, 1, 2].map((i) => Math.min(1, Math.max(0, c?.[i] ?? 0)));
+  const sprites: { at: number[]; size: number[]; phase: number; color: number[]; warp: number[] }[] = [];
+  for (const b of placed) {
+    const t = b.transform!;
+    const pos = [t[12]!, t[13]!, t[14]!];
+    let dir = [t[8]!, t[9]!, t[10]!];
+    const len = Math.hypot(...dir) || 1;
+    dir = dir.map((x) => x / len);
+    const scale = Math.max(Math.hypot(t[0]!, t[1]!, t[2]!), Math.hypot(t[4]!, t[5]!, t[6]!));
+    if (scale < 3) dir = dir.map((x) => x * scale / 3);
+    const seed = Math.random() * 0.7;
+    const along = (k: number) => pos.map((p, i) => p - k * dir[i]!);
+    sprites.push({ at: along(2.5), size: [scale * (data.glowScale ?? 1), scale * (data.glowScale ?? 1)], phase: seed, color: c01(data.glowColor), warp: c01(data.warpGlowColor) });
+    sprites.push({ at: along(3.0), size: [scale * (data.symHaloScale ?? 1), scale * (data.symHaloScale ?? 1)], phase: 1 + seed, color: c01(data.haloColor), warp: c01(data.warpHaloColor) });
+    sprites.push({ at: along(3.01), size: [scale * (data.haloScaleX ?? 1), scale * (data.haloScaleY ?? 1)], phase: 1 + seed, color: c01(data.haloColor), warp: c01(data.warpHaloColor) });
+  }
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.setAttribute("corner", new THREE.Float32BufferAttribute([-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5], 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(new Array(12).fill(0), 3));
+  const inst = (key: keyof (typeof sprites)[number], n: number) => new THREE.InstancedBufferAttribute(new Float32Array(sprites.flatMap((s) => { const v = s[key]; return Array.isArray(v) ? v : [v]; })), n);
+  geo.setAttribute("offset", inst("at", 3));
+  geo.setAttribute("size", inst("size", 2));
+  geo.setAttribute("blinkPhase", inst("phase", 1));
+  geo.setAttribute("color", inst("color", 3));
+  geo.setAttribute("warpColor", inst("warp", 3));
+  geo.instanceCount = sprites.length;
+  const mat = logDepth(new THREE.ShaderMaterial({
+    vertexShader: GLOW_VERTEX, fragmentShader: GLOW_FRAGMENT,
+    uniforms: {
+      glowMap: { value: glowMap }, glowNoise: { value: glowNoise }, gain: { value: 0 }, warp: { value: 0 }, time: { value: 0 },
+      haloFacing: { value: 0 }, viewport: { value: new THREE.Vector2(1, 1) }, ...SOFT_DEPTH,
+    },
+    transparent: true, depthWrite: false, depthTest: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation,
+  }));
+  mat.userData.softDepth = true;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = "booster-glows";
+  mesh.frustumCulled = false;
+  const shipZ = new THREE.Vector3(), forward = new THREE.Vector3(), size = new THREE.Vector2();
+  // (on the material: a model clone keeps its materials, not its meshes' callbacks; the drawn clone is the object)
+  mat.onBeforeRender = (renderer, _s, camera, _g, object) => {
+    mat.uniforms.time!.value = performance.now() / 1000;
+    mat.uniforms.viewport!.value.copy(renderer.getDrawingBufferSize(size));
+    // the ship's z (its EVE axis, through the mirror) against the view's forward
+    shipZ.set(0, 0, 1).transformDirection(object.matrixWorld);
+    mat.uniforms.gain!.value = (object.userData.glowGain as number | undefined) ?? 0;
+    mat.uniforms.warp!.value = (object.userData.glowWarp as number | undefined) ?? 0;
+    camera.getWorldDirection(forward);
+    mat.uniforms.haloFacing!.value = -shipZ.dot(forward);
+  };
+  return mesh;
+}
+
+/** The glows' gain (the booster intensity, at most 1: an 8-bit alpha) and warp. */
+export function setGlowGain(mesh: THREE.Object3D, gain: number, warp = 0): void {
+  // (kept on the mesh, read as it is drawn)
+  mesh.userData.glowGain = Math.min(1, Math.max(0, gain));
+  mesh.userData.glowWarp = Math.min(1, Math.max(0, warp));
 }

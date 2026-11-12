@@ -240,7 +240,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   for (const layer of built.pattern?.layers ?? []) layer.texture = rf.has(layer.texture) ? copyRes(rf, layer.texture, outRoot) : null;
   // the flame's textures (boostervolumetric.fx: the shape atlas, the two gradients, the noise volume)
   const vol = built.booster?.volumetric;
-  if (vol) for (const key of ["shapeMap", "gradient0", "gradient1", "noise"]) vol[key] = vol[key] && rf.has(vol[key]) ? copyRes(rf, vol[key], outRoot) : null;
+  if (vol) for (const key of ["shapeMap", "gradient0", "gradient1", "noise", "glowMap", "glowNoise"]) vol[key] = vol[key] && rf.has(vol[key]) ? copyRes(rf, vol[key], outRoot) : null;
   for (const set of built.spotlightSets ?? []) {
     for (const key of ["cone", "glow"]) {
       const res = set[key] ? String(set[key]).toLowerCase() : null;
