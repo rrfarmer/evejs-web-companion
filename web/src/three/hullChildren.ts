@@ -1233,7 +1233,16 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
     group.traverse((o) => {
       const entry = propagatorNodes.get(o.userData.propagatorKey as string);
       if (!entry) return;
-      const { node, effects, locators } = entry;
+      const { node, effects } = entry;
+      // (an effect built for another object - a child effect added to a ship - takes that object's locators: the
+      // nearest ancestor keeping locator sets)
+      let locators = entry.locators;
+      if (!locators.length && node.locatorSet) {
+        for (let up: THREE.Object3D | null = o.parent; up; up = up.parent) {
+          const sets = up.userData.locatorSets as Record<string, number[][]> | undefined;
+          if (sets?.[node.locatorSet]?.length) { locators = sets[node.locatorSet]!; break; }
+        }
+      }
       const make = () => hullChildren([{ res: "", root: structuredClone(node.source), skipped: {} }], effects);
       const run = new PropagatorRun(node, o, locators, radius, make, startEffect);
       // (a curve set's binding into its trigger reaches it here: childAnimation.ts)
@@ -1255,6 +1264,14 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
       const effects = (group.userData.childEffects ?? {}) as Record<string, SofChildNode | null>;
       const host = {
         build: (path: string) => childEffectObject(path, effects),
+        // an EveMultiEffect's parameters (the hangar's VFX: its "ship"): bound on the clone or above it (otherOwners)
+        otherOwner: (name: string) => {
+          for (let up: THREE.Object3D | null = group; up; up = up.parent) {
+            const bound = (up.userData.otherOwners as Record<string, THREE.Object3D> | undefined)?.[name];
+            if (bound) return bound;
+          }
+          return null;
+        },
         play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
         stop: (owner: number, name: string) => animator?.stop(owner, name),
         setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
@@ -1390,6 +1407,14 @@ function childEffectObject(path: string, effects: Record<string, SofChildNode | 
  * Start an effect object built by hullChildren (EveEffectRoot2::Start, as ExplosionManager.GetExplosion calls it): its
  * curve sets played from now. Its controllers begin as it is first drawn.
  */
+/**
+ * An effect file's root built (the hangar VFX, effects/<graphicID>.json): its controllers and curve sets run from its
+ * ticker, the child effects they load built from its own list.
+ */
+export async function effectObject(root: SofChildNode, effects: Record<string, SofChildNode | null>): Promise<THREE.Object3D | null> {
+  return hullChildren([{ res: "", root, skipped: {} }], effects);
+}
+
 export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
   object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip); });
 }

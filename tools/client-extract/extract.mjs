@@ -177,7 +177,8 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   }
   // the hull's locator sets its children's effect propagators name: each locator [x, y, z, qx, qy, qz, qw]
   const locatorHull = sof.hulls.get(String(hullName).toLowerCase());
-  built.locatorSets = Object.fromEntries(usedLocatorSets().map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
+  // (and its hangar_drones: the hangar VFX's drone propagators, added to the ship, take them - entry 212)
+  built.locatorSets = Object.fromEntries([...new Set([...usedLocatorSets(), "hangar_drones"])].map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
     .map((l) => [...(l.position ?? [0, 0, 0]), ...(l.rotation ?? [0, 0, 0, 1])])]));
   // the hull's impact effects as EveSOF::SetupImpactEffects (EveSOF.cpp:2652-2785) sets them up where its
   // impactEffectType is not nought (1 an ellipsoid shield, 2 none drawn): its "damage" locators [x, y, z, qx, qy, qz, qw],
@@ -330,6 +331,22 @@ function effectsTable(rf, clientDir, outRoot) {
   if (py.status !== 0) throw new Error(`effects: client-built-data.py failed: ${py.stderr || py.error?.message}`);
   fs.writeFileSync(file, py.stdout);
   return JSON.parse(py.stdout);
+}
+
+/**
+ * A graphic that is an effect file (an EveMultiEffect - the hangar's VFX, graphic 28022 - or an EveEffectRoot2), read
+ * whole (children.mjs readEffectFile: its root's controllers and curve sets, the child effects they load), its assets
+ * copied, written as effects/<graphicID>.json.
+ */
+async function extractEffectGraphic(rf, sde, graphicID, outRoot) {
+  const graphicFile = String(sdeGraphic(sde, Number(graphicID))?.graphicFile ?? "").replace(/\\/g, "/").toLowerCase() || null;
+  const read = graphicFile ? readEffectFile(rf, graphicFile) : null;
+  if (read?.root) await copyChildGraphAssets(rf, [read.root, ...Object.values(read.childEffects ?? {})], outRoot);
+  const out = { effectBuild: 1, graphicID: Number(graphicID), graphicFile, root: read?.root ?? null, childEffects: read?.childEffects ?? {}, skipped: read?.skipped ?? {} };
+  const file = path.join(outRoot, "effects", `${graphicID}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(out));
+  return file;
 }
 
 /**
@@ -494,7 +511,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [] };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [], effects: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -511,6 +528,7 @@ function parseArgs(argv) {
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
     else if (a === "--ammo-colors") out.ammoColors = true;
     else if (a === "--fx") out.fx.push(argv[++i]);
+    else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
     else throw new Error(`unknown argument ${a}`);
@@ -631,6 +649,10 @@ async function main() {
     console.log(`gfxTurrets.json: ${Object.keys(map).length} types`);
   }
   // ammoColors.json: the beam colour a charge gives its turret's firing effect, by the charge's typeID
+  for (const id of args.effects) {
+    if (!sde) throw new Error("--effect needs the SDE (--sde, or a config.json that names it)");
+    console.log(`effect ${id} -> ${path.relative(outRoot, await extractEffectGraphic(rf, sde, id, outRoot))}`);
+  }
   for (const guid of args.fx) {
     if (!sde) throw new Error("--fx needs the SDE (--sde, or a config.json that names it)");
     console.log(`${guid} -> ${path.relative(outRoot, await extractFxGraphic(rf, client, sde, guid, outRoot))}`);
@@ -654,7 +676,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

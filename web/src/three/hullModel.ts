@@ -889,6 +889,8 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   // the hull's damage impacts (impactOverlay.ts), sized by its bounding sphere
   const impactSof = (sof as { impact?: SofImpact } | null)?.impact ?? null;
   const impact = impactSof ? impactAnchor(impactSof, (sof as { boundingSphere?: number[] | null } | null)?.boundingSphere?.[3] ?? size) : null;
+  // the hull's locator sets (a child effect added to the ship from outside - the hangar VFX's drones - reads them)
+  lod.userData.locatorSets = (sof as { locatorSets?: Record<string, number[][]> } | null)?.locatorSets ?? {};
   if (!boosters && !fx && !children && !impact) return lod;
   // The engines and lights belong to the hull, not to one LOD: a holder carries them all.
   const holder = new THREE.Group();

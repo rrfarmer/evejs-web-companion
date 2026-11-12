@@ -159,6 +159,21 @@ function clientAssets(): Plugin {
         }
         // /client-assets/missile/<typeID>: a missile type's graphics (lib/missile.mjs: its group's missile model, the
         // warhead's numbers, lights, trail emitters and textures; its impact file), extracted on first ask.
+        // /client-assets/effect/<graphicID>.json: a graphic that is an effect file (extract.mjs --effect: the hangar's
+        // VFX multi-effect), made on first ask
+        const effectAsk = /^\/effect\/(\d+)\.json$/.exec(rel);
+        if (effectAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const file = path.join(buildDir, "effects", `${effectAsk[1]}.json`);
+            if (!fs.existsSync(file) || !fs.readFileSync(file, "utf8").includes('"effectBuild":1')) await extractOnce(`effect:${effectAsk[1]}`, buildDir, ["--effect", effectAsk[1]!]);
+            res.setHeader("content-type", "application/json");
+            return res.end(fs.readFileSync(file));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         // /client-assets/fx/<guid>.json: an effect guid's own graphic (extract.mjs --fx: the Vorton chain's stretches),
         // made on first ask
         const fxAsk = /^\/fx\/(effects\.[A-Za-z0-9_]+)\.json$/.exec(rel);
@@ -221,7 +236,7 @@ function clientAssets(): Plugin {
             const stem = String(g.gr2).slice("res:/".length, -".gr2".length);
             const sofName = `${stem}.${String(g.faction ?? "none").toLowerCase()}.sof.json`;
             // a SOF build from before it carried the sprite, plane, spotlight and haze sets is made again
-            if (fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":81')) {
+            if (fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":82')) {
               await extractOnce(`graphic:${graphicAsk[1]}:sets`, buildDir, ["--graphic", graphicAsk[1]!]);
             }
             const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
@@ -243,7 +258,7 @@ function clientAssets(): Plugin {
             const stem = String(tg.gr2).slice("res:/".length, -".gr2".length);
             const sofName = `${stem}.${String(tg.faction ?? "none").toLowerCase()}.sof.json`;
             // a SOF build from before it carried the sprite and plane sets is made again
-            const sofStale = fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":81');
+            const sofStale = fs.existsSync(path.join(buildDir, sofName)) && !fs.readFileSync(path.join(buildDir, sofName), "utf8").includes('"sofBuild":82');
             if (!fs.existsSync(path.join(buildDir, stem + ".glb")) || !fs.existsSync(path.join(buildDir, sofName)) || sofStale) {
               await extractOnce(`type:${typeAsk[1]}`, buildDir, ["--type", typeAsk[1]!]);
             }

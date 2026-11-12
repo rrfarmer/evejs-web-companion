@@ -286,6 +286,11 @@ export interface ChildEffectHost {
   setValue?(target: number, attribute: string, value: number): void;
   /** An object's display (a container, mesh, quad or line set, by id). */
   setDisplay?(target: number, on: boolean): void;
+  /**
+   * The object a Tr2ActionChildEffect's targetAnotherOwner names (an EveMultiEffect's parameter: "ship", "Hangar"), its
+   * child effect added there; null where none is bound.
+   */
+  otherOwner?(name: string): THREE.Object3D | null;
   /** One of the space object's own attributes (activationStrength, display, clipSphereFactor/2). */
   setOwner?(attribute: string, value: number): void;
   /** Tr2ActionOverlay: the space object's mesh overlay (by its file) added or taken off. */
@@ -522,15 +527,18 @@ export class ControllerRun {
         });
         continue;
       }
-      if (a.k !== "childEffect" || a.other) continue;
-      let child: THREE.Object3D | null = a.name ? this.owner.children.find((c) => c.name === a.name) ?? null : null;
+      if (a.k !== "childEffect") continue;
+      // (targetAnotherOwner: the parameter it names, where the host binds one)
+      const owner = a.other ? this.host.otherOwner?.(a.other) ?? null : this.owner;
+      if (!owner) continue;
+      let child: THREE.Object3D | null = a.name ? owner.children.find((c) => c.name === a.name) ?? null : null;
       let stopped = false;
       if (!child && a.add !== false && a.effect) {
         void this.host.build(a.effect).then((o) => {
           if (!o || stopped) return;
           if (a.name) o.name = a.name;
           child = o;
-          this.owner.add(o);
+          owner.add(o);
         });
       }
       run.live.push({ stop: () => { stopped = true; if (child && a.remove !== false) child.removeFromParent(); } });

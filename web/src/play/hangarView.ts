@@ -7,7 +7,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { typeModel, graphicModel, setThrust, setDirtLevel } from "../three/hullModel.ts";
+import { typeModel, graphicModel, setThrust, setDirtLevel, setControllerVariable } from "../three/hullModel.ts";
+import { effectObject, type SofChildNode } from "../three/hullChildren.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
@@ -21,6 +22,22 @@ interface HangarScene {
   /** the scene's post-process settings that are drawn (Tr2PostProcess2): its dynamic exposure's own values */
   postprocess?: { dynamicExposure: Partial<DynamicExposureParams> | null } | null;
 }
+
+/** hangarRegistry.py HANGAR_VFX_TRIGGERS_MULTIEFFECT_GID: the hangar's VFX multi-effect (me_generic_hangar_vfx_01a). */
+const HANGAR_VFX_GID = 28022;
+let hangarVfx: Promise<THREE.Object3D | null> | null = null;
+/** The hangar VFX built once (effects/28022.json), cloned for each ship shown. */
+function hangarVfxTemplate(): Promise<THREE.Object3D | null> {
+  hangarVfx ??= fetch(`/client-assets/effect/${HANGAR_VFX_GID}.json`).then((r) => r.json())
+    .then((e: { root?: SofChildNode | null; childEffects?: Record<string, SofChildNode | null> }) => (e.root ? effectObject(e.root, e.childEffects ?? {}) : null))
+    .catch(() => null);
+  return hangarVfx;
+}
+/**
+ * boarding_moment get_ship_size_group's fall-back (ShipSize: 1 small, 2 medium, 3 large, 4 titan): by the bounding
+ * radius, 234 m and 1877 m (its tables by type, hull and ship class not followed).
+ */
+const shipSizeGroup = (radius: number) => (!radius || radius <= 234 ? 1 : radius <= 1877 ? 2 : 3);
 
 /** How many of a hangar's point lights are lit (the nearest to the ship): three's forward renderer pays for each. */
 
@@ -46,6 +63,8 @@ export class HangarView {
   private zoom = { near: 10, far: 2050 };
   private swing: Swing = DEFAULT_SWING;
   private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
+  /** The hangar VFX for the ship shown (its "ship" parameter bound to the ship's EVE-space group). */
+  private vfx: THREE.Object3D | null = null;
   /** The docked ship's dirt level (setDirt), kept for the next ship model shown too. */
   private dirt: number | null = null;
   /** The docking swing (seconds since it began) and the idle turn (from where the camera was), while they run. */
@@ -141,6 +160,7 @@ export class HangarView {
     this.camera.near = Math.max(0.5, radius / 50);
     this.camera.far = hangar ? 1e5 : radius * 400;
     this.ship = { model, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
+    void this.applyVfx(model, sphere.radius);
     if (this.dirt !== null) setDirtLevel(model, this.dirt);
     // its turrets, for the fit known now
     void this.applyFit();
@@ -225,6 +245,35 @@ export class HangarView {
     if (!this.idle && now - this.lastInput > IDLE_AFTER_SECONDS * 1000) this.idle = { since: now, from: this.where() };
     if (this.idle) this.place(idleAt((now - this.idle.since) / 1000, this.idle.from, this.zoom.near, this.zoom.far));
   }
+
+  /**
+   * hangarView.py ConfigureVFXMultiEffect: the hangar VFX multi-effect in the scene, its "ship" parameter the ship (a
+   * group in the ship's EVE space, carrying the hull's locator sets: its drones' propagators take hangar_drones), its
+   * variables as the client sets them - shaderQuality (high: 2), ShipSize (shipSizeGroup), faction (99: not one of the
+   * empires' logos looked up) - and its controllers started. Its drones visit the ship on the server's 20-minute phase
+   * (RandomRepairDrone); setVfxVariable("randomRepairDroneDemo", 1) brings one at once.
+   */
+  private async applyVfx(model: THREE.Object3D, radius: number): Promise<void> {
+    this.vfx?.removeFromParent();
+    this.vfx = null;
+    const template = await hangarVfxTemplate();
+    if (!template || this.stopped || this.ship?.model !== model) return;
+    const eve = new THREE.Group();
+    eve.name = "hangar-vfx-ship";
+    eve.scale.set(1, 1, -1);
+    eve.userData.locatorSets = (model.userData as { locatorSets?: Record<string, number[][]> }).locatorSets ?? {};
+    model.add(eve);
+    const vfx = template.clone();
+    vfx.name = "hangar-vfx";
+    vfx.userData.otherOwners = { ship: eve };
+    setControllerVariable(vfx, "shaderQuality", 2);
+    setControllerVariable(vfx, "ShipSize", shipSizeGroup(radius));
+    setControllerVariable(vfx, "faction", 99);
+    this.scene.add(vfx);
+    this.vfx = vfx;
+  }
+  /** A controller variable of the hangar VFX (randomRepairDroneDemo, triggerRepairDrones ...). */
+  setVfxVariable(name: string, value: number): void { if (this.vfx) setControllerVariable(this.vfx, name, value); }
 
   /** The hangar's model in place of the last, and the studio lights dimmed where there is one. */
   private setHangar(hangar: THREE.Object3D | null): void {
