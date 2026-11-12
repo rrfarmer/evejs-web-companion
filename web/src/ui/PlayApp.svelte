@@ -308,6 +308,8 @@
     const box = document.createElement("input");
     box.type = "checkbox";
     box.onchange = () => void m.setLayout(box.checked);
+    // the client's map opens in it (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True)
+    box.checked = true;
     layout.append(box, document.createTextNode(" Abstract layout"));
     m.root.appendChild(layout);
     mapHost.appendChild(m.root);
@@ -327,6 +329,7 @@
     void s.flow.loadStarMap().then((data) => {
       if (starMap !== m) return;
       m.build(data, here);
+      void m.setLayout(true);
       route();
       const stop = s.flow.waypoints.subscribe(() => route());
       m.root.addEventListener("star-map-closed", () => stop(), { once: true });

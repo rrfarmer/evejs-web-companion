@@ -70,8 +70,21 @@
 //   lines + the default (GetBaseOpacityForHoveredLines), the selected system's + OPACITY_LINES_SELECTED 1.0; a line in
 //   none the default (GetLineColor's lineAlphaByLineID.get(lineID, baseLineAlphaModulate): its region argument is
 //   never read - the compiled code has no load of it).
-// Not yet: the abstract mode's markers (MarkerContainerContentAdvanced bubbles) and extra star particles - the client
-// opens in it (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True); here the solar systems' layout opens until they are in; constellation and region markers; the my-location marker's pulse
+// - the abstract mode's sprites by zoom value (MapViewWorld._GetSpriteEffectPathAndStaticSize): under
+//   MAP2D_ZOOM_TUBE_MARKER 0.66 SpriteValues(MARKER_BIG, disk.dds, TUBE_BUBBLE_SIZE 200, mode 1,
+//   EXTRA_BUBBLE_BIG_SIZE_FACTOR 7.6), under MAP2D_ZOOM_TUBE_BUBBLE 0.75 (MARKER_MEDIUM, ..., 4.5), else the filter's
+//   (MARKER_NONE, its texture, no static size, mode 0, 0): the bubbles at the static size, in sprite mode 1 - the
+//   IconAtlasTex (MapStaticDataCircles_01h, AtlasConfiguration 3 x 3) cell of the star's shape (_GetDataTextureShape:
+//   big 1 for the active item, else 0; medium 4 where it is no preview bubble), its rgb lerp(TexBackgroundColor (0, 0,
+//   0, 1), colour, atlas r), alpha min(2 a atlas a, 1); the extra star particles (extraStarParticles.py
+//   WorldMapExtraDataTextureController: StarmapNew.fx again, HeatTexture circleScalingOpacity25.dds, each the star's
+//   colour at sizeFactor x its star size, shown in the abstract mode) under them; the markers' abstract content
+//   (MarkerContainerContentAdvanced._GetMarkerSizeToUse: big, every system's name centred under its bubble -
+//   (size + text height) / 2 + 3 below, size GetSizeForUIElement(TUBE_BUBBLE_CONTENT_BIG 145.3, viewport height,
+//   1) = 145.3 / 5000 x it - at NAME_OPACITY_FULL 0.75; otherwise MARKER_NONE: only a selected or hilighted system's
+//   name, at LABEL_LEFT);
+// - the map opens in the abstract layout (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True).
+// Not yet: the medium zoom's preview bubbles (the systems near the mouse, PREVIEW_PICKER_SIZE); constellation and region markers; the my-location marker's pulse
 // circles (three circleFilled256 rings, alpha to 0.02).
 
 import * as THREE from "three";
@@ -153,24 +166,36 @@ const STAR_FS = `
     gl_FragColor = t * vColour;
   }`;
 const BUBBLE_VS = `
-  attribute vec3 iPos; attribute vec3 iColour; attribute float iSize;
+  attribute vec3 iPos; attribute vec3 iColour; attribute float iSize; attribute float iShape;
   uniform vec2 distanceRange; uniform vec4 sizeControls; uniform float cameraDistanceScalingFactor;
-  varying vec4 vColour; varying vec2 vUv;
+  uniform float staticSize; uniform float sizeFactor; uniform vec4 atlasConfiguration;
+  varying vec4 vColour; varying vec2 vUv; varying vec4 vAtlas;
   void main() {
     vec4 mv = modelViewMatrix * vec4(iPos, 1.0);
     float d = sqrt(dot(mv.xyz, mv.xyz) + 1.0);
     float fade = clamp(distanceRange.x / d, 0.8, 1.0);
     vColour = vec4(iColour, 1.0) * fade;
-    mv.xy += d * cameraDistanceScalingFactor * iSize * sizeControls.x * position.xy;
+    float size = staticSize > 0.0 ? staticSize : iSize * sizeFactor;
+    mv.xy += d * cameraDistanceScalingFactor * size * sizeControls.x * position.xy;
     gl_Position = projectionMatrix * mv;
     vUv = uv;
+    // the shape's cell of the atlas: (shape mod columns) / columns, floor(shape / rows) / rows
+    float cols = atlasConfiguration.x, rows = atlasConfiguration.y;
+    vAtlas = vec4(fract(iShape / cols) * cols / cols, floor(iShape / rows) / rows, cols, rows);
   }`;
 const BUBBLE_FS = `
-  uniform sampler2D heat; uniform float hasHeat;
-  varying vec4 vColour; varying vec2 vUv;
+  uniform sampler2D heat; uniform float hasHeat; uniform sampler2D iconAtlas; uniform float hasAtlas;
+  uniform float spriteMode; uniform vec4 texBackgroundColor;
+  varying vec4 vColour; varying vec2 vUv; varying vec4 vAtlas;
   void main() {
     if (hasHeat < 0.5) discard;
-    gl_FragColor = texture2D(heat, vUv) * vColour;
+    vec4 h = texture2D(heat, vUv);
+    vec4 heatPixel = h * vColour;
+    if (spriteMode < 0.5) { gl_FragColor = heatPixel; return; }
+    if (hasAtlas < 0.5) discard;
+    vec4 a = texture2D(iconAtlas, vUv / vAtlas.zw + vAtlas.xy);
+    vec4 shape = vec4(mix(texBackgroundColor.rgb, vColour.rgb, a.r), min(2.0 * vColour.a * a.a, 1.0));
+    gl_FragColor = heatPixel + spriteMode * (shape - vColour * h);
   }`;
 /** mapViewConst.py; const.AU. */
 const AU = 149597870700;
@@ -236,7 +261,24 @@ export class StarMap {
   private readonly bubbleUniforms = {
     distanceRange: this.starUniforms.distanceRange, sizeControls: { value: new THREE.Vector4(BUBBLE_BASE_SIZE_MULTIPLIER, 1, 1, 1) },
     cameraDistanceScalingFactor: { value: CAMERA_DISTANCE_SCALING_FACTOR }, heat: { value: null as THREE.Texture | null }, hasHeat: { value: 0 },
+    staticSize: { value: 0 }, sizeFactor: { value: 1 }, atlasConfiguration: { value: new THREE.Vector4(3, 3, 1, 1) },
+    iconAtlas: { value: null as THREE.Texture | null }, hasAtlas: { value: 0 }, spriteMode: { value: 0 }, texBackgroundColor: { value: new THREE.Vector4(0, 0, 0, 1) },
   };
+  /** The extra star particles' (the abstract mode's discs): the same shader in mode 0 at sizeFactor x the star size. */
+  private readonly extraUniforms = {
+    distanceRange: this.starUniforms.distanceRange, sizeControls: { value: new THREE.Vector4(BUBBLE_BASE_SIZE_MULTIPLIER, 1, 1, 1) },
+    cameraDistanceScalingFactor: { value: CAMERA_DISTANCE_SCALING_FACTOR }, heat: { value: null as THREE.Texture | null }, hasHeat: { value: 0 },
+    staticSize: { value: 0 }, sizeFactor: { value: 0 }, atlasConfiguration: { value: new THREE.Vector4(3, 3, 1, 1) },
+    iconAtlas: { value: null as THREE.Texture | null }, hasAtlas: { value: 0 }, spriteMode: { value: 0 }, texBackgroundColor: { value: new THREE.Vector4(0, 0, 0, 1) },
+  };
+  /** The filter's heat texture and the tube texture (the bubble pass's HeatTexture by the sprite values). */
+  private heatTex: THREE.Texture | null = null;
+  private tubeTex: THREE.Texture | null = null;
+  private shapes: THREE.InstancedBufferAttribute | null = null;
+  private extraMesh: THREE.Mesh | null = null;
+  /** The marker size type the abstract sprites are at (MARKER_NONE / MEDIUM / BIG), and the big markers' names. */
+  markerSize: "none" | "medium" | "big" = "none";
+  private bigNames = new Map<number, HTMLDivElement>();
   private readonly positions = new Map<number, THREE.Vector3>();
   /** Each system's place in the two layouts, and the stars' position attribute. */
   private readonly layouts = { own: new Map<number, THREE.Vector3>(), abstract: new Map<number, THREE.Vector3>() };
@@ -317,7 +359,10 @@ export class StarMap {
     void fetch("/client-assets/starmap.json").then((r) => r.json()).then(async (m: { textures?: Record<string, string | null>; abstract?: string | null }) => {
       this.abstractUrl = m.abstract ?? null;
       if (m.textures?.star) { this.starUniforms.texMap.value = await level(m.textures.star); this.starUniforms.hasTex.value = 1; }
-      if (m.textures?.heat) { this.bubbleUniforms.heat.value = await level(m.textures.heat); this.bubbleUniforms.hasHeat.value = 1; }
+      if (m.textures?.heat) { this.heatTex = await level(m.textures.heat); this.bubbleUniforms.heat.value = this.heatTex; this.bubbleUniforms.hasHeat.value = 1; }
+      if (m.textures?.tube) this.tubeTex = await level(m.textures.tube);
+      if (m.textures?.iconAtlas) { const t = await level(m.textures.iconAtlas); this.bubbleUniforms.iconAtlas.value = t; this.bubbleUniforms.hasAtlas.value = 1; }
+      if (m.textures?.extra) { this.extraUniforms.heat.value = await level(m.textures.extra); this.extraUniforms.hasHeat.value = 1; }
       if (m.textures?.line && m.textures?.lineOverlay) {
         const [line, overlay] = await Promise.all([level(m.textures.line), level(m.textures.lineOverlay)]);
         // (the samplers wrap: EveSpaceSceneEnvMapSampler's address wrap, wrap)
@@ -355,6 +400,8 @@ export class StarMap {
     geometry.setAttribute("iPos", this.starPos);
     geometry.setAttribute("iColour", new THREE.InstancedBufferAttribute(new Float32Array(iColour), 3));
     geometry.setAttribute("iSize", new THREE.InstancedBufferAttribute(new Float32Array(iSize), 1));
+    this.shapes = new THREE.InstancedBufferAttribute(new Float32Array(iSize.length), 1);
+    geometry.setAttribute("iShape", this.shapes);
     geometry.instanceCount = data.systems.length;
     const starMat = new THREE.ShaderMaterial({ uniforms: this.starUniforms, vertexShader: STAR_VS, fragmentShader: STAR_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     logDepth(starMat);
@@ -365,6 +412,15 @@ export class StarMap {
     // the second pass, after the first
     const bubbleMat = new THREE.ShaderMaterial({ uniforms: this.bubbleUniforms, vertexShader: BUBBLE_VS, fragmentShader: BUBBLE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     logDepth(bubbleMat);
+    // the extra star particles (the abstract mode's discs)
+    const extraMat = new THREE.ShaderMaterial({ uniforms: this.extraUniforms, vertexShader: BUBBLE_VS, fragmentShader: BUBBLE_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    logDepth(extraMat);
+    this.extraMesh = new THREE.Mesh(geometry, extraMat);
+    this.extraMesh.frustumCulled = false;
+    // (mapView.CreateStarParticles appends extraMapStars after mapStars: drawn after both of its passes)
+    this.extraMesh.renderOrder = 4;
+    this.extraMesh.visible = false;
+    this.scene.add(this.extraMesh);
     const bubbles = new THREE.Mesh(geometry, bubbleMat);
     bubbles.frustumCulled = false;
     bubbles.renderOrder = 3;
@@ -540,6 +596,31 @@ export class StarMap {
     if (t >= 1) this.morph = null;
   }
 
+  /** ApplyStarColors / _UpdateDataShapeAndSize with the sprite values of a marker size type (MapViewWorld's). */
+  private shapesFor: number | null = null;
+  private applySpriteValues(size: "none" | "medium" | "big"): void {
+    this.markerSize = size;
+    this.shapesFor = this.selectedID;
+    const b = this.bubbleUniforms;
+    if (size === "none") {
+      b.spriteMode.value = 0; b.staticSize.value = 0; b.sizeFactor.value = 1;
+      b.heat.value = this.heatTex; b.hasHeat.value = this.heatTex ? 1 : 0;
+      this.extraUniforms.sizeFactor.value = 0;
+      if (this.extraMesh) this.extraMesh.visible = false;
+    } else {
+      b.spriteMode.value = 1; b.staticSize.value = 200;
+      b.heat.value = this.tubeTex; b.hasHeat.value = this.tubeTex ? 1 : 0;
+      this.extraUniforms.sizeFactor.value = size === "big" ? 7.6 : 4.5;
+      if (this.extraMesh) this.extraMesh.visible = true;
+      if (this.shapes) {
+        const a = this.shapes.array as Float32Array;
+        this.starOrder.forEach((id, i) => { a[i] = size === "big" ? (id === this.selectedID ? 1 : 0) : 4; });
+        this.shapes.needsUpdate = true;
+      }
+    }
+    if (size !== "big") { for (const el of this.bigNames.values()) el.remove(); this.bigNames.clear(); }
+  }
+
   /** The destination path, the pilot's system first (UpdateAutopilotJumpRoute): its lines drawn as the route. */
   setRoute(systemIDs: readonly number[]): void {
     if (!this.lineAttrs || !this.lineColours) return;
@@ -666,8 +747,32 @@ export class StarMap {
       return v.z < 1 && v.z > -1 ? { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h } : null;
     };
     const eye = this.camera.position;
+    // the abstract markers' content: big - every on-screen system's name under its bubble; else only the selected's
+    if (this.markerSize === "big") {
+      const content = 145.3 / 5000 * h;
+      const seen = new Set<number>();
+      for (const [id, at] of this.positions) {
+        const p = project(at);
+        if (!p || p.x < -100 || p.x > w + 100 || p.y < -100 || p.y > h + 100) continue;
+        seen.add(id);
+        let el = this.bigNames.get(id);
+        if (!el) {
+          el = document.createElement("div");
+          el.textContent = this.names.get(id) ?? "";
+          el.style.cssText = "position:absolute;white-space:nowrap;font-size:10px;line-height:12px;color:rgba(255,255,255,0.75);opacity:0.75;"
+            + "font-family:'EVE Sans Neue','Barlow Semi Condensed','Segoe UI',sans-serif;transform-origin:0 0;";
+          this.markers.appendChild(el);
+          this.bigNames.set(id, el);
+        }
+        const width = el.offsetWidth;
+        el.style.transform = `translate(${(p.x - width / 2).toFixed(1)}px, ${(p.y + (content + 12) / 2 + 3 - 6).toFixed(1)}px)`;
+      }
+      for (const [id, el] of this.bigNames) if (!seen.has(id)) { el.remove(); this.bigNames.delete(id); }
+    }
     for (const l of this.labels) {
       const p = project(l.at);
+      // (abstract: MARKER_NONE content shows a name only while selected or hilighted; big shows the names above)
+      if (this.abstract && (!l.selected || this.markerSize === "big")) { l.el.style.display = "none"; continue; }
       const opacity = l.selected ? 1 : Math.max(0, Math.min(1, 1 - eye.distanceTo(l.at) / 17500));
       if (!p || opacity <= 0) { l.el.style.display = "none"; continue; }
       l.el.style.display = "";
@@ -721,13 +826,16 @@ export class StarMap {
       this.camera.position.copy(this.controls.target).add(now);
       if (t >= 1) this.turn = null;
     }
-    // the abstract default opacity by the zoom value (MAP2D_ZOOM_TUBE_BUBBLE)
-    if (this.abstract) {
+    // the abstract default opacity and the sprite values by the zoom value (MAP2D_ZOOM_TUBE_BUBBLE, _TUBE_MARKER)
+    let kind: "none" | "medium" | "big" = "none";
+    if (this.abstract && !this.morph) {
       const d = this.camera.position.distanceTo(this.controls.target);
       const zoom = Math.min(1, Math.max(0, (d - 3100) / (310000 - 3100))) ** (1 / 9);
       const def = zoom < 0.75 ? 0.4 : 0.3;
       if (def !== this.abstractDefault) { this.abstractDefault = def; this.updateLineOpacity(); }
+      kind = zoom < 0.66 ? "big" : zoom < 0.75 ? "medium" : "none";
     }
+    if (kind !== this.markerSize || (kind !== "none" && this.shapesFor !== this.selectedID)) this.applySpriteValues(kind);
     // the move to a newly selected system: the point of interest and the eye together, over half a second
     if (this.move) {
       const t = Math.min(1, (performance.now() - this.move.at) / 500);
