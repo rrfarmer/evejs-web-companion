@@ -6,7 +6,7 @@
 // delay given, stops end; StopFiring stops start and loop and plays end.
 //
 // The effects ported (res:/graphics/effect/managed/space/specialfx/stretch/*.fx, their sm_depth vertex and pixel
-// stages disassembled, client 3396210): laser.fx, projectile.fx and blast.fx. Each quad of the strip is one part, by its index:
+// stages disassembled, client 3396210): laser.fx, projectile.fx, blast.fx and artillery.fx. Each quad of the strip is one part, by its index:
 // the beam or stream of shots from source to target (a strip turned to face the camera, at least about two pixels
 // wide, its profile the FalloffMap across it), the flares at the source and target, projectile's muzzle flash, and the
 // splash at the target (a disc facing back along the beam, two CloudMap swirls). Not as the client: no fog volume (no scene sets one); the output stays linear (the client
@@ -38,7 +38,7 @@ export interface SofStretch2 {
 }
 
 /** The effects this file draws. */
-export const STRETCH2_EFFECTS = new Set(["laser", "projectile", "blast"]);
+export const STRETCH2_EFFECTS = new Set(["laser", "projectile", "blast", "artillery"]);
 
 // --- shared by the effects: the per-object data, the quads' corners, the depth pulled toward the eye, the flares,
 // the target's splash (laser.fx and projectile.fx compile the same code for them)
@@ -70,10 +70,7 @@ vec4 facingStrip(vec3 a, vec3 b, vec2 c, float halfW) {
 float pixelsAt(vec3 world) { return (projectionMatrix * viewMatrix * vec4(world, 1.0)).w / projectionMatrix[1][1] / viewport.y * 4.0; }
 // a flare at the source (k: FlareIntensity.xy) or the target (.zw), larger seen down the beam's way; sets v2, fragW
 float fragW;
-vec4 flare(vec3 S, vec3 D, bool atDest, vec2 k, vec2 c) {
-  vec3 at = atDest ? D : S;
-  vec3 way = normalize(D - S);
-  if (atDest) way = -way;
+vec4 flareAt(vec3 at, vec3 way, vec2 k, vec2 c) {
   vec3 back = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
   float lo = k.y * Intensity;
   float size = (dot(way, back) * 0.5 + 0.5) * (Intensity * k.x - lo) + lo;
@@ -83,6 +80,10 @@ vec4 flare(vec3 S, vec3 D, bool atDest, vec2 k, vec2 c) {
   fragW = max(-min(size * 16.0 + view.z, 0.0), 1e-3);
   v2 = vec4(size, view.z, 0.0, 0.0);
   return vec4(clip.xy, biasedDepth(size * 16.0 + view.z, clip.w), clip.w);
+}
+vec4 flare(vec3 S, vec3 D, bool atDest, vec2 k, vec2 c) {
+  vec3 way = normalize(D - S);
+  return flareAt(atDest ? D : S, atDest ? -way : way, k, c);
 }
 // the splash: a disc at the target across the beam (SplashIntensity.x x the target's scale), its strength the
 // effect's (weight: Intensity, or blast's bolt arrived); sets v2, fragW
@@ -378,6 +379,95 @@ void main() {
   finish(colour, Flicker.xy);
 }`;
 
+// --- artillery.fx: a shell in flight. Its progress p = (loop time - Shots.x) / (Shots.y - Shots.x): quad 0 the trail
+// from the muzzle to the shell (CloudMap's first column across it, brighter toward the shell, fading by Shots.w after
+// it lands), 1 the muzzle flash (rising over Flashes.x before the shot, falling over half Flashes.y after), 2 the
+// muzzle's flare (likewise over Flashes.x / Flashes.y), 3 the shell's flare (Shots.z growing to Flashes.w over the
+// flight) and after it lands the impact's (FlareIntensity.zw x the target's scale, over Flashes.z), the rest the
+// splash (over Flashes.z after it lands)
+
+const ARTILLERY_VERTEX = `${VS_HEAD}
+uniform vec4 FireParams; uniform vec4 Clouds; uniform vec4 Shots; uniform vec4 Flashes; uniform sampler2D NoiseMap;
+// the muzzle's flash strength: rising over Flashes.x to the shot, falling over Flashes.y / k after it
+float muzzle(float k) {
+  float lt = timing.y;
+  return Shots.x < lt ? clamp(1.0 - k * (lt - Shots.x) / Flashes.y, 0.0, 1.0) : clamp(1.0 - (Shots.x - lt) / Flashes.x, 0.0, 1.0);
+}
+// the impact's strength: from the landing, falling over Flashes.z
+float impact() { return timing.y >= Shots.y ? clamp(1.0 - (timing.y - Shots.y) / Flashes.z, 0.0, 1.0) : 0.0; }
+void main() {
+  fragW = 1.0;
+  vec3 S = (modelMatrix * vec4(srcPos.xyz, 1.0)).xyz, D = (modelMatrix * vec4(dstPos.xyz, 1.0)).xyz;
+  float q = position.x;
+  vec2 c = CORNER[int(position.y + 0.5)];
+  float p = (timing.y - Shots.x) / (Shots.y - Shots.x);
+  vec3 shell = S + clamp(p, 0.0, 1.0) * (D - S);
+  float r4z = 1.0;
+  v2 = vec4(0.0);
+  if (q == 0.0) {
+    float u = c.x + 0.5, v = c.y + 0.5;
+    float pix = pixelsAt(mix(S, shell, u));
+    float halfW = max(pix, Intensity * 16.0);
+    gl_Position = facingStrip(S, shell, c, halfW);
+    fragW = gl_Position.w;
+    r4z = pix / (Intensity * 16.0);
+    float len = length(shell - S);
+    float t = timing.w + timing.y;
+    vec2 uv = vec2(u * len, v * halfW) / Clouds.y;
+    float fade = clamp(1.0 - max(p - 1.0, 0.0) * Shots.w, 0.0, 1.0);
+    v2 = vec4(fade * fade, uv.x + t * Clouds.z, uv.y, -t * Clouds.z * 0.91 + uv.x);
+    v1.xy = c + 0.5;
+  } else if (q == 1.0) {
+    float halfW = Intensity * FireParams.y * 16.0;
+    float strength = muzzle(2.0) * FireParams.z;
+    float n = textureLod(NoiseMap, vec2(timing.y, 0.0), 0.0).x;
+    float flashLen = (FireParams.w * (n - 1.0) + 1.0) * FireParams.x;
+    vec3 way = normalize(D - S);
+    vec3 back = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+    gl_Position = facingStrip(S, S + way * flashLen, c, halfW);
+    fragW = gl_Position.w;
+    r4z = strength * (1.0 - abs(dot(way, back)));
+    v1.xy = c + 0.5;
+  } else if (q <= 3.0) {
+    vec3 way = normalize(D - S);
+    if (q == 2.0) gl_Position = flareAt(S, way, muzzle(1.0) * FlareIntensity.xy, c);
+    else {
+      float size = Shots.z + p * (Flashes.w - Shots.z);
+      vec2 k = p < 0.0 ? vec2(0.0) : p < 1.0 ? vec2(size) : impact() * FlareIntensity.zw * srcPos.w;
+      gl_Position = flareAt(shell, -way, k, c);
+    }
+    v1.xy = 2.0 * c;
+  } else {
+    gl_Position = splash(S, D, c, p < 0.0 ? 0.0 : impact() * Intensity);
+    v1.xy = c + 0.5;
+  }
+  v1.z = q;
+  v1.w = r4z;
+${VS_TAIL}
+}`;
+
+const ARTILLERY_FRAGMENT = `${FS_HEAD}
+uniform vec4 FireParams; uniform vec4 Clouds;
+void main() {
+#include <logdepthbuf_fragment>
+  vec4 colour;
+  if (v1.z == 0.0) {
+    // the trail: CloudMap's first column across it, brighter toward the shell (u squared), the clouds along it
+    float k = texture2D(CloudMap, vec2(0.0, v1.y)).x * v1.x * v1.x * v2.x;
+    float base = clamp(1.0 - Clouds.x, 0.0, 1.0);
+    float cl = texture2D(CloudMap, v2.yz).y * texture2D(CloudMap, v2.wz).y;
+    cl = cl * (1.0 - base) + base;
+    colour = k * cl * Color * Intensity * clamp(1.0 / v1.w, 0.0, 1.0);
+  } else if (v1.z < 1.5) {
+    float k = timing.w * FireParams.w + 1.0;
+    float n = texture2D(NoiseMap, v1.xy * 2.0 - vec2(timing.y * 60.0, 0.0)).x * 0.7 + 0.3;
+    float flash = texture2D(CloudMap, clamp(v1.xy, 0.0, 1.0)).z * v1.w;
+    colour = Intensity * Color * (k * n * flash);
+  } else if (v1.z < 3.5) colour = flare();
+  else colour = splash();
+  finish(colour, Flicker.xy);
+}`;
+
 /** A texture an effect reads: clamped (its sampler EveSceneFogSampler) or wrapped, and whether it is read as sRGB. */
 interface EffectTexture { clamp: boolean; srgb: boolean }
 interface EffectDef { vertex: string; fragment: string; defaults: Record<string, number | number[]>; textures: Record<string, EffectTexture> }
@@ -396,6 +486,11 @@ const EFFECTS: Record<string, EffectDef> = {
     vertex: BLAST_VERTEX, fragment: BLAST_FRAGMENT,
     textures: { NoiseMap: WRAP, FalloffMap: CLAMP, StretchFalloffMap: CLAMP, CloudMap: { clamp: false, srgb: true }, ShotsMap: { clamp: true, srgb: true } },
     defaults: { Intensity: 1, FireParams: [100, 1, 4, 0.1], FlareIntensity: [4, 4, 4, 4], Shots: [0.1, 0.7, 1000, 1], SplashIntensity: [1, 1, 0.1, 0.9], Clouds: [0, 1, 0, 0], Flicker: [0, 1, 0, 0], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
+  },
+  artillery: {
+    vertex: ARTILLERY_VERTEX, fragment: ARTILLERY_FRAGMENT,
+    textures: { NoiseMap: WRAP, FalloffMap: CLAMP, CloudMap: { clamp: false, srgb: true } },
+    defaults: { Intensity: 1, FireParams: [100, 1, 4, 0.1], FlareIntensity: [4, 4, 4, 4], Clouds: [0, 1, 0, 0], Shots: [0.1, 0.7, 50, 1], SplashIntensity: [1, 1, 0.1, 0], Flashes: [0.3, 0.3, 0.3, 0.3], Flicker: [0, 1, 0, 0], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
   },
 };
 
