@@ -10,6 +10,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadDds, compressedSupport } from "./ddsTexture";
 import { typeModel, setThrust } from "./hullModel";
 import { celestialModel, systemCelestials, setPlanetEnvironment } from "./celestialModel";
+import { SoftDepthPass } from "./softDepth";
 
 const params = new URLSearchParams(location.search);
 const typeID = Number(params.get("type") ?? 588);
@@ -100,8 +101,13 @@ async function main() {
 main().catch((e) => { say(`failed: ${e.message}`); console.error(e); });
 
 /** One frame drawn now (the hidden pane runs no animation frames). */
+// the scene's opaque depth for the materials that read it (softDepth.ts: soft areas, the volumetric boosters), as bloom.ts
+// draws it in the play views
+const softDepth = new SoftDepthPass();
 function draw(): void {
   controls.update();
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+  softDepth.render(renderer, scene, camera, size.x, size.y);
   renderer.render(scene, camera);
 }
 (window as unknown as { __draw: () => void }).__draw = draw;

@@ -151,6 +151,20 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     trailColor: rb.trailColor ?? null, trailSize: rb.trailSize ?? null,
     shape0Color: rb.shape0?.color ?? null, shape1Color: rb.shape1?.color ?? null,
     warpShape0Color: rb.warpShape0?.color ?? null, warpGlowColor: rb.warpGlowColor ?? null,
+    // the flame as boostervolumetric.fx draws it (EveSOF::CreateBoosterEffect): its two shapes and their warp forms
+    // (EveSOFDataBoosterShape: noise speed, amplitude start / end, frequency, colour - nought where unsaid), the
+    // scale, the shape atlas (its height and count) and the two gradients
+    volumetric: {
+      shapes: [rb.shape0, rb.shape1, rb.warpShape0, rb.warpShape1].map((sh) => ({
+        noiseSpeed: sh?.noiseSpeed ?? 0, start: sh?.noiseAmplitureStart ?? [0, 0, 0, 0], end: sh?.noiseAmplitureEnd ?? [0, 0, 0, 0],
+        frequency: sh?.noiseFrequency ?? [0, 0, 0, 0], color: sh?.color ?? [0, 0, 0, 0],
+      })),
+      scale: rb.scale ?? [1, 1, 1, 1], atlasHeight: rb.shapeAtlasHeight ?? 0, atlasCount: rb.shapeAtlasCount ?? 0,
+      shapeMap: rb.shapeAtlasResPath ? String(rb.shapeAtlasResPath).toLowerCase() : null,
+      gradient0: rb.gradient0ResPath ? String(rb.gradient0ResPath).toLowerCase() : null,
+      gradient1: rb.gradient1ResPath ? String(rb.gradient1ResPath).toLowerCase() : null,
+      noise: "res:/texture/global/noise32cube_volume.dds",
+    },
   } : null;
   // The hull's default pattern, where no DNA pattern command names one (EveSOFDNA::GetPatternLayerCount and
   // GetPatternApplicationData, EveSOF::SetupCustomMask): a hull of the older layout (not sof6) whose defaultPattern has a
@@ -175,13 +189,13 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":73)
-    sofBuild: 73,
+    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":74)
+    sofBuild: 74,
     booster,
     pattern,
     areas,
     colorSet,
-    boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null })),
+    boosters: (hull.booster?.items ?? []).map((b) => ({ transform: b.transform ?? null, hasTrail: b.hasTrail ?? null, atlasIndex0: b.atlasIndex0 ?? 0, atlasIndex1: b.atlasIndex1 ?? 0 })),
     boundingSphere: hull.boundingSphere ?? null,
     // Its turret locators (EveSOFDataHull.locatorTurrets, EveSOF adds each to the ship as an EveLocator2): name and
     // transform (row-major 4x4, EVE's model space); EveMobile::RebuildTurretPositions fits a turret set's turrets to

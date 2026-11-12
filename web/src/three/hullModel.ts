@@ -3,6 +3,7 @@
 // first approximation of the client's quadv5 ship shader; faction colours (MaterialMap / PaintMaskMap) come with the
 // SOF reader.
 
+import { setBoosterIntensity, volumetricBoosters, type BoosterVolumetricData } from "./boosterVolumetric.ts";
 import * as THREE from "three";
 import { addDecals, type SofDecalSet } from "./hullDecals.ts";
 import { hullChildren, type SofChildNode, type SofHullChild } from "./hullChildren.ts";
@@ -25,9 +26,9 @@ export interface SofPatternLayer { texture: string | null; projectionU: number; 
 export interface SofPattern { layers: SofPatternLayer[]; pmtl1: SofMaterial | null }
 /** A pattern layer as a material draws it: its loaded mask with the hull's PMtl1. */
 export interface HullPattern { layer: SofPatternLayer; mask: THREE.Texture; pmtl1: SofMaterial | null }
-export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null }
+export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null; volumetric?: BoosterVolumetricData | null }
 export interface SofHull {
-  hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; pattern?: SofPattern | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null }[];
+  hull: string; faction: string | null; race?: string | null; booster?: SofBooster | null; pattern?: SofPattern | null; areas: SofArea[]; colorSet: Record<string, number[]> | null; boosters: { transform: number[] | null; atlasIndex0?: number; atlasIndex1?: number }[];
   /** The hull's "anchorpoint" locator, in EVE's model space (a hangar's: where its ship floats). */
   anchor?: number[] | null;
   /** Its "maxCameraDistance" locator, in EVE's model space (a hangar's farthest camera, by its length). */
@@ -57,10 +58,11 @@ function glowSpot(): THREE.Texture {
  * The hull's engines, at the SOF booster locators (EveSOFDataHullBooster items; a row-major transform whose rows 0 and
  * 1 are the flame's width and height and row 2 its length, pointing aft, and whose last row is the nozzle), coloured
  * from the race's booster data (shape colours for the flame, glowColor * glowScale for the glow). The client's flame
- * is a noise-animated shape from an atlas (EveBoosterSet2); this is a first likeness: two crossed additive planes
- * fading along the flame, and a glow at the nozzle. Each flame's length is set by the ship's speed (setThrust).
+ * is a noise-animated shape from an atlas (EveBoosterSet2: boosterVolumetric.ts, where the race's data and textures are
+ * there - `flames`); else a first likeness: two crossed additive planes fading along the flame. A glow at the nozzle
+ * either way. Each flame's length and strength are set by the ship's speed (setThrust).
  */
-function buildBoosters(sof: SofHull): THREE.Group | null {
+function buildBoosters(sof: SofHull, flames: THREE.Mesh | null = null): THREE.Group | null {
   const b = sof.booster;
   if (!b || !sof.boosters.length) return null;
   const hdr = (c: number[] | null | undefined, d: number[]) => { const v = c ?? d; const m = Math.max(v[0]!, v[1]!, v[2]!, 1e-6); return new THREE.Color(v[0]! / m, v[1]! / m, v[2]! / m); };
@@ -92,20 +94,29 @@ function buildBoosters(sof: SofHull): THREE.Group | null {
     const w = Math.hypot(t[0]!, t[1]!, t[2]!), h = Math.hypot(t[4]!, t[5]!, t[6]!), len = Math.hypot(t[8]!, t[9]!, t[10]!);
     const nozzle = new THREE.Group();
     nozzle.position.set(t[12]!, t[13]!, -t[14]!);
-    const flame = new THREE.Group();
-    flame.name = "flame";
-    // the flame spans -1..1 across the locator's width and height rows, and 0..1 along its length row
-    for (const [sx, sy, rot] of [[2 * w, len, 0], [2 * h, len, Math.PI / 2]] as const) {
-      const m = new THREE.Mesh(plane, flameMat);
-      m.scale.set(sx, 1, sy);
-      m.rotation.z = rot;
-      flame.add(m);
+    if (!flames) {
+      const flame = new THREE.Group();
+      flame.name = "flame";
+      // the flame spans -1..1 across the locator's width and height rows, and 0..1 along its length row
+      for (const [sx, sy, rot] of [[2 * w, len, 0], [2 * h, len, Math.PI / 2]] as const) {
+        const m = new THREE.Mesh(plane, flameMat);
+        m.scale.set(sx, 1, sy);
+        m.rotation.z = rot;
+        flame.add(m);
+      }
+      nozzle.add(flame);
     }
-    nozzle.add(flame);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSpot(), color: flameColour, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
     glow.scale.setScalar(Math.max(w, h) * 2.4);
     nozzle.add(glow);
     group.add(nozzle);
+  }
+  if (flames) {
+    // the flames in EVE's space (their boxes placed by the SOF transforms as they are)
+    const eve = new THREE.Group();
+    eve.scale.set(1, 1, -1);
+    eve.add(flames);
+    group.add(eve);
   }
   return group;
 }
@@ -271,6 +282,10 @@ export function setThrust(model: THREE.Object3D, share: number): void {
     const flame = nozzle.getObjectByName("flame");
     if (flame) flame.scale.set(1, 1, k);
   }
+  // the volumetric flames: EveBoosterSet2Renderable::CalculateIntensity at a steady speed - 0.8 x speed / top speed
+  // (its acceleration share, 0.2 x the thrust along the ship, not known here)
+  const flames = boosters.getObjectByName("booster-volumetric");
+  if (flames) setBoosterIntensity(flames, 0.8 * Math.max(0, Math.min(1, share)), (model.userData.controllerVars as Record<string, number> | undefined)?.IsWarping ? 1 : 0);
 }
 
 export interface TypeModelInfo {
@@ -836,7 +851,8 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
     turretLocators: (sof as { turretLocators?: unknown[] } | null)?.turretLocators ?? [],
     turretPrimary: (() => { const a = sof?.areas.find((x) => x.areaType === "Primary"); return a ? { materials: a.materials, glowColor: a.glowColor ?? null } : null; })(),
     faction: info.faction ?? null };
-  const boosters = sof ? buildBoosters(sof) : null;
+  const flames = sof ? await volumetricBoosters(sof.boosters, sof.booster?.volumetric).catch((e) => { console.warn("booster flames", e); return null; }) : null;
+  const boosters = sof ? buildBoosters(sof, flames) : null;
   // the hull's sprite lights and plane cards (hullFx.ts)
   const fx = sof ? await hullFx(sof as { spriteSets?: SofSpriteSet[]; planeSets?: SofPlaneSet[]; spotlightSets?: SofSpotlightSet[]; hazeSets?: SofHazeSet[] }).catch(() => null) : null;
   // the hull's children (hullChildren.ts): the static part of their graph
