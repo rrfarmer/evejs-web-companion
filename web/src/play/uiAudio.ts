@@ -69,6 +69,31 @@ export function fxSoundsOf(): Promise<Record<string, { event: string; time: numb
   return fxSounds;
 }
 
+/**
+ * The explosions' sounds (tools/client-extract/audio.mjs: explosionSounds.json): by type its bucket and race; by bucket
+ * and race the explosions it may play, each with its chance weight and its sounds.
+ */
+export interface ExplosionSounds {
+  types: Record<string, [number, string | null]>;
+  buckets: Record<string, Record<string, { w: number; s: { event: string; time: number }[] }[]>>;
+}
+let explosions: Promise<ExplosionSounds> | null = null;
+export function explosionSoundsOf(): Promise<ExplosionSounds> {
+  explosions ??= fetch("/client-assets/audio/explosionSounds.json").then((r) => (r.ok ? r.json() : { types: {}, buckets: {} })).catch(() => ({ types: {}, buckets: {} }));
+  return explosions;
+}
+/** GetRandomExplosion: one of a type's bucket's explosions for its race (else the default's), by their chances. */
+export function pickExplosion(table: ExplosionSounds, typeID: number): { event: string; time: number }[] {
+  const t = table.types[String(typeID)];
+  if (!t) return [];
+  const bucket = table.buckets[String(t[0])];
+  const list = bucket?.[t[1] ?? ""] ?? bucket?.["default"] ?? Object.values(bucket ?? {})[0] ?? [];
+  const total = list.reduce((n, o) => n + o.w, 0);
+  let r = Math.random() * total;
+  for (const o of list) { r -= o.w; if (r <= 0) return o.s; }
+  return list[list.length - 1]?.s ?? [];
+}
+
 function eventsMap(): Promise<Record<string, EventSounds>> {
   events ??= fetch("/client-assets/audio/events.json").then((r) => (r.ok ? r.json() as Promise<Record<string, EventSounds>> : {})).catch(() => ({}));
   return events;

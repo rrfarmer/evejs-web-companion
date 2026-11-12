@@ -25,7 +25,7 @@ import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
-import { playUiEvent, playWorldEvent, setListener, fxSoundsOf } from "./uiAudio.ts";
+import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
 import type { DamageRouting } from "../store/types.ts";
@@ -207,6 +207,20 @@ export class SpaceView {
   private readonly hearFx = (name: string, args: readonly unknown[]) => {
     this.turretFx.hear(name, args);
     this.shipFx.hear(name, args);
+    // a ball blown up (TerminalPlayDestructionEffect -> spaceObject.Explode): with Ship Explosions on, one of its type's
+    // explosion bucket's explosions' sounds, where it was
+    if (name === "TerminalPlayDestructionEffect" && gfx().explosionEffectsEnabled) {
+      const id = Number(args[0]);
+      const typeID = this.snapshot?.entities.find((e) => e.itemID === id)?.typeID ?? this.typeOfID.get(id) ?? null;
+      if (typeID) void explosionSoundsOf().then((table) => {
+        for (const s of pickExplosion(table, typeID)) {
+          window.setTimeout(() => {
+            const at = this.placeOf(id, this.lastOrigin);
+            if (at) void playWorldEvent(s.event, at);
+          }, s.time * 1000);
+        }
+      });
+    }
     // an effect started (OnSpecialFX's start flag): its graphic's sounds, at the ship or the target
     if (name === "OnSpecialFX" && Number(args[7]) === 1) {
       const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
@@ -916,6 +930,8 @@ export class SpaceView {
   }
   private lastOrigin = { x: 0, y: 0, z: 0 };
   private readonly gone = new Map<number, { x: number; y: number; z: number; radius: number | null; at: number }>();
+  /** The types of the balls seen (for a ball blown up after it has left the snapshot). */
+  private readonly typeOfID = new Map<number, number>();
   private stepDamageNumbers(now: number): void {
     const w = innerWidth, h = innerHeight;
     for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
@@ -1186,6 +1202,7 @@ export class SpaceView {
     const w = innerWidth, h = innerHeight;
     for (const e of snap?.entities ?? []) {
       seen.add(e.itemID);
+      if (e.typeID) this.typeOfID.set(e.itemID, e.typeID);
       // relative to the ship, in doubles, then mirrored into three's handedness
       const rel = tmp.set(e.position.x - origin.x, e.position.y - origin.y, -(e.position.z - origin.z));
       let mark = this.marks.get(e.itemID);

@@ -13,6 +13,7 @@ import { wemToOgg, codebookLibrary, findCodebookLibrary } from "./lib/wwiseVorbi
 import { findPtadpcmTable, decodePtadpcm, wav } from "./lib/ptadpcm.mjs";
 import { readBlack } from "./lib/black.mjs";
 import { sdeGraphic } from "./lib/missile.mjs";
+import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
@@ -318,4 +319,61 @@ if (fs.existsSync(effectsFile) && config.sde) {
   }
   fs.writeFileSync(path.join(root, "fxSounds.json"), JSON.stringify(fxSounds));
   console.log(`effects with sounds: ${Object.keys(fxSounds).length} of ${Object.keys(table).length}`);
+}
+
+// The explosions' sounds (explosionSounds.json). A type's graphic names an explosion bucket (the client's graphicIDs
+// table: explosionBucketID); the bucket lists explosions by race ("default" where the race has none), each with its
+// chance and scales; each explosion (explosionIDs: its filePath) is a graphic whose AudEventCurves sound as it plays
+// (SpaceObjectExplosionManager: the GlobalExplosionEmitter's and the child explosions' emitters, their attenuation
+// scaled by the bucket's scales - not applied here). Read with the client's own loaders (scripts/client-built-data.py).
+function builtData(loader, resPath) {
+  const entry = res.entry(resPath);
+  if (!entry) return null;
+  const data = path.join(client, "ResFiles", ...entry.blob.split("/"));
+  const py = spawnSync(process.env.PYTHON ?? "python", [path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "client-built-data.py"), path.join(client, "tq", "bin64"), loader, data], { encoding: "utf8", maxBuffer: 256 << 20 });
+  if (py.status !== 0) { console.warn(`${loader}: ${py.stderr || py.error?.message}`); return null; }
+  return JSON.parse(py.stdout);
+}
+const graphicIDs = builtData("graphicIDsLoader", "res:/staticdata/graphicids.fsdbinary");
+const buckets = builtData("explosionBucketIDsLoader", "res:/staticdata/explosionbucketids.fsdbinary");
+const explosionIDs = builtData("explosionIDsLoader", "res:/staticdata/explosionids.fsdbinary");
+const typeGraphicsFile = path.join(buildDir, "typeGraphics.json");
+if (graphicIDs && buckets && explosionIDs && fs.existsSync(typeGraphicsFile)) {
+  const soundsOfFile = new Map();
+  const explosionSounds = (explosionID) => {
+    const file = explosionIDs[explosionID]?.filePath;
+    if (!file) return [];
+    if (soundsOfFile.has(file)) return soundsOfFile.get(file);
+    const black = String(file).toLowerCase().replace(/\.red$/, ".black");
+    const out = [];
+    if (res.has(black)) {
+      const walk = (node) => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) { for (const n of node) walk(n); return; }
+        if (node.type === "AudEventCurve") for (const k of node.keys ?? []) if (typeof k?.value === "string" && k.value) out.push({ event: k.value, time: Number(k.time ?? 0) });
+        for (const [k, v] of Object.entries(node)) if (k !== "keys" && v && typeof v === "object") walk(v);
+      };
+      try { walk(readBlack(res.read(black), black)); } catch { /* none */ }
+    }
+    const seen = new Set();
+    const unique = out.filter((o) => { const key = `${o.event}|${o.time}`; if (seen.has(key)) return false; seen.add(key); return true; });
+    soundsOfFile.set(file, unique);
+    return unique;
+  };
+  const outBuckets = {};
+  for (const [bucketID, bucket] of Object.entries(buckets)) {
+    const races = {};
+    for (const [race, list] of Object.entries(bucket.racialExplosions ?? {})) {
+      const options = (list ?? []).map((e) => ({ w: Number(e.chanceMultiplier ?? 1), s: explosionSounds(e.explosionID) })).filter((o) => o.s.length);
+      if (options.length) races[race] = options;
+    }
+    if (Object.keys(races).length) outBuckets[bucketID] = races;
+  }
+  const types = {};
+  for (const [typeID, tg] of Object.entries(JSON.parse(fs.readFileSync(typeGraphicsFile, "utf8")))) {
+    const bucket = graphicIDs[String(tg.graphicID)]?.explosionBucketID;
+    if (bucket !== undefined && outBuckets[bucket]) types[typeID] = [bucket, tg.race ?? null];
+  }
+  fs.writeFileSync(path.join(root, "explosionSounds.json"), JSON.stringify({ types, buckets: outBuckets }));
+  console.log(`explosion buckets with sounds: ${Object.keys(outBuckets).length} of ${Object.keys(buckets).length}; types: ${Object.keys(types).length}`);
 }
