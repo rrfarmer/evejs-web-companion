@@ -123,7 +123,7 @@ function fakeTransport({ handle, answers = {} }) {
 }
 
 /** A server whose pilot is on the game port (`onGamePort`), or through the gateway. The other transport is there too, and is asked nothing. */
-async function startTestServer({ onGamePort, answers }) {
+async function startTestServer({ onGamePort, answers, miningOperations }) {
   const gateway = fakeTransport({ handle: "a-handle-the-gateway-made", answers });
   const gamePort = fakeTransport({ handle: GAME_PORT_HANDLE, answers });
   const app = createApp({
@@ -132,6 +132,7 @@ async function startTestServer({ onGamePort, answers }) {
     webAuth: fakeAuth(),
     staticData: fakeStaticData(),
     gamePortPilots: gamePort,
+    miningOperations,
     pilotTransportFor: () => (onGamePort ? "gameport" : "gateway"),
     errorLogger() {},
   });
@@ -148,7 +149,7 @@ async function startTestServer({ onGamePort, answers }) {
     return { status: response.status, payload: await response.json() };
   };
   await ask("/api/bridge/select", { method: "POST", body: { characterID: 7 } });
-  return { ask, gateway, gamePort, own: onGamePort ? gamePort : gateway, other: onGamePort ? gateway : gamePort };
+  return { ask, gateway, gamePort, botHost: app.locals.botHost, own: onGamePort ? gamePort : gateway, other: onGamePort ? gateway : gamePort };
 }
 
 const askedOf = (transport, service) => transport.calls.call.filter((call) => call.service === service).map((call) => [call.method, call.args, call.kwargs]);
@@ -294,6 +295,107 @@ test("on the game port the reprocessing plant's quote has the hangar listed for 
   assert.equal(own.calls.boundCall.length, before);
   assert.deepEqual([other.calls.call, other.calls.bind, other.calls.boundCall], [[], [], []]);
 });
+
+test("an ordinary script strictly unloads ice into its Upwell corporation division without an operation", async () => {
+  const officeID = 7000001;
+  const { ask, own } = await startTestServer({ onGamePort: true, answers: {
+    "structureSettings.CharacterGetServices": services(3),
+    "officeManager.GetMyCorporationsOffices": { list: [packedRow({ officeID, stationID: STRUCTURE_ID })] },
+  } });
+  own.placement.set(102, { flag: 181, quantity: 10, typeID: 16264 });
+  const result = await ask("/api/bridge/ship/ore-hold/unload", {
+    method: "POST", body: { itemIDs: [102], division: 1, strictCorp: true, expectedDestination: { kind: "structure", id: STRUCTURE_ID } },
+  });
+  assert.equal(result.status, 200, JSON.stringify(result.payload));
+  assert.deepEqual(result.payload.movedToCorp, [102]);
+  assert.equal(result.payload.fellBack, null);
+  assert.equal(own.placement.get(102).flag, 115);
+  const adds = own.calls.boundCall.filter(call => call.method === "Add");
+  assert.deepEqual(adds.map(call => [call.args, call.kwargs, call.boundHandle]), [
+    [[102, SHIP_ID], { flag: 115 }, `handle:invbroker:GetInventoryFromId:[${officeID}]`],
+  ]);
+  const divisionReads = own.calls.boundCall.filter(call => call.method === "List" && call.args[0] === 115);
+  assert.equal(divisionReads.length, 2, "the corporation division is read before and after the move");
+});
+
+for (const expectedDestination of [undefined, { kind: "structure", id: "1030000000011" },
+  { kind: "structure", id: ANOTHER_STRUCTURE_ID }, { kind: "station", id: STRUCTURE_ID }]) {
+  test(`strict unload rejects a missing, invalid or stale destination: ${JSON.stringify(expectedDestination)}`, async () => {
+    const { ask, own } = await startTestServer({ onGamePort: true, answers: {
+      "structureSettings.CharacterGetServices": services(3),
+      "officeManager.GetMyCorporationsOffices": { list: [packedRow({ officeID: 7000001, stationID: STRUCTURE_ID })] },
+    } });
+    const result = await ask("/api/bridge/ship/ore-hold/unload", {
+      method: "POST", body: { itemIDs: [101], division: 1, strictCorp: true, expectedDestination },
+    });
+    assert.equal(result.status, !expectedDestination || typeof expectedDestination.id !== "number" ? 400 : 409);
+    assert.equal(own.calls.boundCall.some(call => call.method === "Add"), false);
+    assert.equal(own.placement.get(101).flag, FLAG_CARGO);
+  });
+}
+
+test("strict unload refuses a location change after inventory reads but before Add", async () => {
+  const { ask, own } = await startTestServer({ onGamePort: true, answers: {
+    "structureSettings.CharacterGetServices": services(3),
+    "officeManager.GetMyCorporationsOffices": { list: [packedRow({ officeID: 7000001, stationID: STRUCTURE_ID })] },
+  } });
+  let changed = false;
+  const read = own.readFlightStatus.bind(own);
+  own.readFlightStatus = async (...args) => {
+    const result = await read(...args);
+    if (changed) result.flight.structureID = ANOTHER_STRUCTURE_ID;
+    return result;
+  };
+  const call = own.callBoundMethod.bind(own);
+  own.callBoundMethod = async (service, method, args, ...rest) => {
+    const result = await call(service, method, args, ...rest);
+    if (method === "List" && args[0] === 115) changed = true;
+    return result;
+  };
+  const result = await ask("/api/bridge/ship/ore-hold/unload", { method: "POST",
+    body: { itemIDs: [101], division: 1, strictCorp: true, expectedDestination: { kind: "structure", id: STRUCTURE_ID } } });
+  assert.equal(result.status, 409, JSON.stringify(result.payload));
+  assert.equal(own.calls.boundCall.some(call => call.method === "Add"), false);
+  assert.equal(own.placement.get(101).flag, FLAG_CARGO);
+});
+
+test("an operation claim still cannot strictly unload outside its configured destination", async () => {
+  const { ask, own, botHost } = await startTestServer({ onGamePort: true,
+    miningOperations: { definition: () => ({ unloadDestination: { kind: "structure", id: ANOTHER_STRUCTURE_ID,
+      corporationDivision: 1, corporationID: 98000000 } }) }, answers: {
+    "structureSettings.CharacterGetServices": services(3),
+  } });
+  botHost.operationForClaim = () => ({ operationID: "00000000-0000-4000-8000-000000000000" });
+  const result = await ask("/api/bridge/ship/ore-hold/unload", {
+    method: "POST", body: { itemIDs: [101], division: 1, strictCorp: true, expectedDestination: { kind: "structure", id: STRUCTURE_ID } },
+  });
+  assert.deepEqual([result.status, result.payload.error], [409, "STRICT_CORP_DESTINATION_MISMATCH"]);
+  assert.equal(own.calls.boundCall.some(call => call.method === "Add"), false);
+});
+
+for (const failure of ["refused", "ignored", "missing office", "missing service"]) {
+  test(`strict Upwell unloading fails closed for ${failure} without a personal fallback`, async () => {
+    const { ask, own } = await startTestServer({ onGamePort: true, answers: {
+      "structureSettings.CharacterGetServices": services(...(failure === "missing service" ? [] : [3])),
+      "officeManager.GetMyCorporationsOffices": { list: failure === "missing office" ? [] : [packedRow({ officeID: 7000001, stationID: STRUCTURE_ID })] },
+    } });
+    own.placement.set(102, { flag: 181, quantity: 10, typeID: 16264 });
+    if (failure === "refused") own.refused.add("Add");
+    if (failure === "ignored") {
+      const call = own.callBoundMethod.bind(own);
+      own.callBoundMethod = async (service, method, ...args) => method === "Add"
+        ? { result: null, notifications: [] } : call(service, method, ...args);
+    }
+    const result = await ask("/api/bridge/ship/ore-hold/unload", {
+      method: "POST", body: { itemIDs: [102], division: 1, strictCorp: true, expectedDestination: { kind: "structure", id: STRUCTURE_ID } },
+    });
+    assert.equal(result.status, 409, JSON.stringify(result.payload));
+    assert.equal(result.payload.error, failure === "missing office" ? "CORP_OFFICE_UNAVAILABLE"
+      : failure === "missing service" ? "STRUCTURE_SERVICE_UNAVAILABLE" : "CORP_TRANSFER_UNCONFIRMED");
+    assert.equal(own.placement.get(102).flag, 181);
+    assert.equal(own.calls.boundCall.some(call => call.method === "Add" && call.kwargs.flag === FLAG_HANGAR), false);
+  });
+}
 
 test("the Market read names the structure the pilot is docked in, and on the game port its rate is the one asked for the structure", async () => {
   // The read is held to no service of the structure's: a client reads a region's market wherever it is.

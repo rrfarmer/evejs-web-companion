@@ -79,13 +79,15 @@ test("player-structure parking uses the same finite route and proves structureID
   assert.equal(decodeScriptValue(strict).ok, true);
   const corp = harness({ structure: true });
   await runFleetParking(corp.deps, { ...unload, corporationDivision: 1 }, Date.now() + 60_000, () => {});
-  assert.deepEqual(corp.actions.at(-1), { kind: "unloadOre", itemIDs: [10], division: 1, strictCorp: true });
+  assert.deepEqual(corp.actions.at(-1), { kind: "unloadOre", itemIDs: [10], division: 1, strictCorp: true,
+    expectedDestination: { kind: "structure", id: destination.id } });
 });
 
 test("return, dock, unload only existing freight, confirm empty freight, remain docked", async () => {
   const h = harness();
   await runFleetParking(h.deps, policy, Date.now() + 60_000, () => {});
-  assert.deepEqual(h.actions, [{ kind: "startRoute", stationID: 60003760 }, { kind: "unloadOre", itemIDs: [10], division: 1, strictCorp: true }]);
+  assert.deepEqual(h.actions, [{ kind: "startRoute", stationID: 60003760 }, { kind: "unloadOre", itemIDs: [10], division: 1, strictCorp: true,
+    expectedDestination: { kind: "station", id: 60003760 } }]);
   assert.equal(h.docked(), true);
   assert.deepEqual(h.currentHolds()[1]!.items?.map(row => row.itemID), [20], "cargo ammunition stays aboard a hull with ore hold");
   assert.deepEqual(h.currentHolds()[0]!.items, []);

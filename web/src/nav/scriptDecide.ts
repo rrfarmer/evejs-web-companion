@@ -151,7 +151,8 @@ export type ScriptAction =
    * and the bridge then lands the load in the pilot's own hangar and reports
    * which happened. A block that named a division still finishes its lap.
    */
-  | { readonly kind: "unloadOre"; readonly itemIDs: readonly number[]; readonly division?: number; readonly strictCorp?: boolean }
+  | { readonly kind: "unloadOre"; readonly itemIDs: readonly number[]; readonly division?: number; readonly strictCorp?: boolean;
+      readonly expectedDestination?: { readonly kind: "station" | "structure"; readonly id: number } }
   // ── Mission actions (the distribution blocks). Each is one proven mission-bot
   //    operation: a labeled button press in the agent conversation, a handoff to
   //    the shared autopilot, or a package move confirmed by re-read next tick.
