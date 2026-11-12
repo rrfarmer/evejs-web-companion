@@ -850,6 +850,23 @@
   .fly-windows :global(.con-start-entry img) { position: absolute; left: 4px; top: 8px; width: 32px; height: 32px; }
   .fly-windows :global(.con-start-head) { background: none; border: none; padding: 0; font-size: 15px; color: #8fd4ff; cursor: pointer; text-align: left; }
   .fly-windows :global(.con-start-text) { margin: 2px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+  /* ContractSearchPanel: the 200 filter column (the toggle, the type field, Search at its foot) and the result scroll */
+  .fly-windows :global(.con-search) { display: flex; gap: 8px; min-height: 380px; margin-top: 8px; }
+  .fly-windows :global(.con-search-left) { flex: 0 0 200px; display: flex; flex-direction: column; gap: 8px; padding-right: 8px; background: rgba(255, 255, 255, 0.03); }
+  .fly-windows :global(.con-toggle) { display: flex; margin: 8px 2px 0; }
+  .fly-windows :global(.con-toggle button) { flex: 1; background: none; border: 1px solid rgba(255, 255, 255, 0.2); padding: 3px 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); cursor: pointer; }
+  .fly-windows :global(.con-toggle button.active) { background: rgba(255, 255, 255, 0.15); color: #fff; }
+  .fly-windows :global(.con-search-left input) { margin: 0 2px; padding: 3px 6px; font-size: 12px; }
+  .fly-windows :global(.con-search-fill) { flex: 1; }
+  .fly-windows :global(.con-search-btn) { margin: 0 2px 2px; padding: 5px; font-size: 12px; }
+  .fly-windows :global(.con-search-right) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .fly-windows :global(.con-found) { margin: 0 0 4px 4px; font-size: 11px; color: rgba(255, 255, 255, 0.6); }
+  .fly-windows :global(.con-scroll) { flex: 1; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.con-scroll table) { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .fly-windows :global(.con-scroll th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 3px 6px; white-space: nowrap; }
+  .fly-windows :global(.con-scroll td) { padding: 2px 6px; color: rgba(255, 255, 255, 0.8); white-space: nowrap; }
+  .fly-windows :global(.con-scroll .r) { text-align: right; }
+  .fly-windows :global(.con-scroll .con-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }

@@ -140,7 +140,20 @@
   const RETAIL_TAB_WORDS = ["Tooltips/Neocom/Contracts", "UI/Contracts/ContractsWindow/MyContracts",
     // StartPagePanel's (contractPanels.py): its caption and the entries the page's counts can fill
     "UI/Contracts/ContractEntry/MyStartPage", "UI/Contracts/ContractsService/RequireAttention", "UI/Contracts/ContractsService/RequiresAttentionDesc",
-    "UI/Contracts/ContractsService/AssignedPersonal", "UI/Contracts/ContractsService/InProgress", "UI/Contracts/ContractsService/InProgressDesc"];
+    "UI/Contracts/ContractsService/AssignedPersonal", "UI/Contracts/ContractsService/InProgress", "UI/Contracts/ContractsService/InProgressDesc",
+    // ContractSearchPanel's (contractsearch.py)
+    "UI/Contracts/ContractsSearch/tabBuyAndSell", "UI/Contracts/ContractsSearch/tabCourier", "UI/Contracts/ContractsSearch/buttonSearch",
+    "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/ContractsSearch/NoSearch", "UI/Contracts/ContractsSearch/labelNumberContractsFound",
+    "UI/Contracts/ContractsSearch/labelNoContractsFound", "UI/Contracts/ContractsSearch/columnJumps", "UI/Contracts/ContractsSearch/columnTimeLeft",
+    "UI/Contracts/ContractsSearch/columnCreated"];
+  /** The time left to a date as the scroll's Time Left column has it (days and hours; hours and minutes under a day). */
+  function timeLeft(filetime: bigint | null): string {
+    if (filetime === null) return "—";
+    const ms = Number(filetime / 10000n - 11644473600000n) - Date.now();
+    if (!(ms > 0)) return titleWord("UI/Contracts/ContractsSearch/labelExpired") || "Expired";
+    const h = Math.floor(ms / 3_600_000), d = Math.floor(h / 24);
+    return d > 0 ? `${d}d ${h % 24}h` : `${h}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
+  }
   /**
    * StartPagePanel.Init's entries (ContractStartPageEntry: a 32 icon at 4, an EveLabelLarge header and an
    * EveLabelMedium text 50 in, 8 above and below), for the counts the page reads: those needing attention
@@ -504,6 +517,55 @@
         </p>
       {/if}
     {/if}
+  {:else if tab === "search" && retail}
+    <!-- ContractSearchPanel: the left column (DragResizeCont 200, 180 - 280; padded 8 at the right) - the Buy & Sell /
+         Courier toggle, the item type field (UI/Wallet/WalletWindow/ItemType), the Search button at its foot; at the
+         right the result scroll, item exchange's columns (Contract, Location, Price, Jumps, Time Left, Issuer, Created),
+         and the found line (labelNumberContractsFound; NoSearch before one). Courier is the jobs on offer here; the
+         other filters (location, category, price, availability, security) are not built. -->
+    <div class="con-search">
+      <div class="con-search-left">
+        <div class="con-toggle">
+          <button type="button" class="active">{titleWord("UI/Contracts/ContractsSearch/tabBuyAndSell") || "Buy & Sell"}</button>
+          <button type="button" onclick={() => (chosenTab = "board")}>{titleWord("UI/Contracts/ContractsSearch/tabCourier") || "Courier"}</button>
+        </div>
+        <input type="text" readonly placeholder={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item type"} value={searchedType === null ? "" : itemName(searchedType)} />
+        <span class="con-search-fill"></span>
+        <button type="button" class="con-search-btn" disabled={busy || searchedType === null} onclick={() => { if (searchedType !== null) searchType(searchedType); }}>{titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}</button>
+      </div>
+      <div class="con-search-right">
+        <p class="con-found">
+          {#if searchedType === null}{titleWord("UI/Contracts/ContractsSearch/NoSearch") || "No search made"}
+          {:else if searching || searchFound === null}Looking for contracts of {itemName(searchedType)}…
+          {:else}{titleWord("UI/Contracts/ContractsSearch/labelNumberContractsFound", { num: searchFound.numFound }) || `${searchFound.numFound} contracts found`}{/if}
+        </p>
+        <div class="con-scroll">
+          <table>
+            <thead><tr>
+              <th>{titleWord(SEARCH_WORDS.contract) || "Contract"}</th><th>{titleWord(SEARCH_WORDS.location) || "Location"}</th>
+              <th class="r">{titleWord(SEARCH_WORDS.price) || "Price"}</th><th class="r">{titleWord("UI/Contracts/ContractsSearch/columnJumps") || "Jumps"}</th>
+              <th>{titleWord("UI/Contracts/ContractsSearch/columnTimeLeft") || "Time Left"}</th><th>{titleWord(SEARCH_WORDS.issuer) || "Issuer"}</th>
+              <th>{titleWord("UI/Contracts/ContractsSearch/columnCreated") || "Created"}</th>
+            </tr></thead>
+            <tbody>
+              {#if searchFound && searchFound.entries.length > 0}
+                {#each searchFound.entries as entry (entry.contract.contractID)}
+                  <tr ondblclick={() => open(entry.contract.contractID)} title="Double-click for the contract's details">
+                    <td>{searchLabel(entry)}</td><td>{systemName(entry.contract.startSolarSystemID)}</td>
+                    <td class="r">{formatIsk(entry.contract.price)}</td><td class="r">—</td>
+                    <td>{timeLeft(entry.contract.dateExpired)}</td>
+                    <td>{entry.contract.forCorp ? ownerName(entry.contract.issuerCorpID) : personName(entry.contract.issuerID)}</td>
+                    <td>{dateText(entry.contract.dateIssued)}</td>
+                  </tr>
+                {/each}
+              {:else if searchFound}
+                <tr><td colspan="7" class="con-none">{titleWord("UI/Contracts/ContractsSearch/labelNoContractsFound") || "No contracts found"}</td></tr>
+              {/if}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   {:else if tab === "search"}
     {#if searchedType === null}
       <p class="note">A type's menu finds its contracts here (Find in Contracts).</p>
