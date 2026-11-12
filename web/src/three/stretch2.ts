@@ -5,11 +5,11 @@
 // end) drive the effect's parameters and the lights through their bindings: StartFiring plays start and loop from the
 // delay given, stops end; StopFiring stops start and loop and plays end.
 //
-// The effect ported: laser.fx (res:/graphics/effect/managed/space/specialfx/stretch/laser.fx, its sm_depth vertex and
-// pixel stages disassembled, client 3396210). Quad 0 is the beam: a strip from source to target turned to face the
-// camera, at least about two pixels wide, its profile the FalloffMap across it, two CloudMap scrolls along it; quads 1
-// and 2 the flares at the source and the target; the rest the splash at the target (a disc facing back along the
-// beam, two CloudMap swirls). Not as the client: no fog volume (no scene sets one); the output stays linear (the client
+// The effects ported (res:/graphics/effect/managed/space/specialfx/stretch/*.fx, their sm_depth vertex and pixel
+// stages disassembled, client 3396210): laser.fx and projectile.fx. Each quad of the strip is one part, by its index:
+// the beam or stream of shots from source to target (a strip turned to face the camera, at least about two pixels
+// wide, its profile the FalloffMap across it), the flares at the source and target, projectile's muzzle flash, and the
+// splash at the target (a disc facing back along the beam, two CloudMap swirls). Not as the client: no fog volume (no scene sets one); the output stays linear (the client
 // writes sRGB into an sRGB target); the scene's depth only where softDepth.ts has drawn it.
 
 import * as THREE from "three";
@@ -38,17 +38,14 @@ export interface SofStretch2 {
 }
 
 /** The effects this file draws. */
-export const STRETCH2_EFFECTS = new Set(["laser"]);
+export const STRETCH2_EFFECTS = new Set(["laser", "projectile"]);
 
-// laser.fx's constants, its defaults where the stretch's effect has none (the sm_depth record's constant table)
-const LASER_DEFAULTS: Record<string, number | number[]> = {
-  Intensity: 1, FlareIntensity: [4, 4, 4, 4], Clouds: [0, 1, 0, -0.91], SplashIntensity: [1, 1, 0.1, 1],
-  Flicker: [0, 1, 0, 1], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5],
-};
+// --- shared by the effects: the per-object data, the quads' corners, the depth pulled toward the eye, the flares,
+// the target's splash (laser.fx and projectile.fx compile the same code for them)
 
-const VERTEX = `
+const VS_HEAD = `
 uniform vec4 srcPos; uniform vec4 dstPos; uniform vec4 timing;
-uniform float Intensity; uniform vec4 FlareIntensity; uniform vec4 Clouds; uniform vec4 SplashIntensity;
+uniform float Intensity; uniform vec4 FlareIntensity; uniform vec4 SplashIntensity;
 uniform vec2 viewport;
 varying vec4 v1; varying vec4 v2;
 #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
@@ -61,29 +58,116 @@ float biasedDepth(float viewZ, float w) {
   vec4 c = projectionMatrix * vec4(0.0, 0.0, z, 1.0);
   return min(c.z / c.w, 1.0) * w;
 }
+// the strip from a to b turned to face the camera on screen, halfW wide, at corner c: its clip position
+vec4 facingStrip(vec3 a, vec3 b, vec2 c, float halfW) {
+  mat4 VP = projectionMatrix * viewMatrix;
+  vec4 P0 = VP * vec4(a, 1.0), P1 = VP * vec4(b, 1.0);
+  vec2 dir = normalize(P1.xy / P1.w - P0.xy / P0.w);
+  vec4 clip = mix(P0, P1, c.x + 0.5);
+  return vec4(clip.xy + vec2(dir.y, -dir.x) * halfW * c.y, clip.zw);
+}
+// two pixels' worth at a point's depth (tan(fov / 2) / height x 4)
+float pixelsAt(vec3 world) { return (projectionMatrix * viewMatrix * vec4(world, 1.0)).w / projectionMatrix[1][1] / viewport.y * 4.0; }
+// a flare at the source (k: FlareIntensity.xy) or the target (.zw), larger seen down the beam's way; sets v2, fragW
+float fragW;
+vec4 flare(vec3 S, vec3 D, bool atDest, vec2 k, vec2 c) {
+  vec3 at = atDest ? D : S;
+  vec3 way = normalize(D - S);
+  if (atDest) way = -way;
+  vec3 back = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  float lo = k.y * Intensity;
+  float size = (dot(way, back) * 0.5 + 0.5) * (Intensity * k.x - lo) + lo;
+  vec4 view = viewMatrix * vec4(at, 1.0);
+  view.xy += c * size * 16.0;
+  vec4 clip = projectionMatrix * vec4(view.xyz, 1.0);
+  fragW = max(-min(size * 16.0 + view.z, 0.0), 1e-3);
+  v2 = vec4(size, view.z, 0.0, 0.0);
+  return vec4(clip.xy, biasedDepth(size * 16.0 + view.z, clip.w), clip.w);
+}
+// the splash: a disc at the target across the beam (SplashIntensity.x x the target's scale); sets v2, fragW
+vec4 splash(vec3 S, vec3 D, vec2 c) {
+  vec3 way = normalize(D - S);
+  float s = SplashIntensity.x * srcPos.w;
+  vec3 up = abs(way.x) > 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+  vec3 X = normalize(cross(way, up));
+  vec3 Y = cross(way, X);
+  vec3 world = (X * c.y + Y * c.x) * s * 16.0 + D;
+  vec4 view = viewMatrix * vec4(world, 1.0);
+  vec4 clip = projectionMatrix * vec4(view.xyz, 1.0);
+  float z = s * SplashIntensity.z + view.z;
+  fragW = max(-min(z, 0.0), 1e-3);
+  vec3 toEye = normalize(cameraPosition - D);
+  float f = min(abs(dot(-way, toEye)), 1.0) * Intensity;
+  v2 = vec4(f * f, s * SplashIntensity.z, -min(z, 0.0), 1.0);
+  return vec4(clip.xy, biasedDepth(z, clip.w), clip.w);
+}`;
+const VS_TAIL = `
+#ifdef USE_LOGARITHMIC_DEPTH_BUFFER
+  vFragDepth = 1.0 + fragW; vIsPerspective = 1.0;
+#endif`;
+
+const FS_HEAD = `
+#include <logdepthbuf_pars_fragment>
+${SOFT_DEPTH_GLSL}
+uniform sampler2D NoiseMap; uniform sampler2D FalloffMap; uniform sampler2D CloudMap;
+uniform float Intensity; uniform vec4 Flicker; uniform vec4 Color; uniform vec4 SplashAnimation; uniform vec4 SplashIntensity;
+uniform vec4 timing; uniform vec4 misc;
+varying vec4 v1; varying vec4 v2;
+float sceneDistance() { return softDepthOn > 0.5 ? softSceneDepth() : 1e12; }
+// a flare: the falloff over its radius, cut where it goes behind the scene (soft over 30 sqrt(size))
+vec4 flare() {
+  float sz = sqrt(v2.x);
+  float d = length(v1.xy);
+  float g = d * 0.5 + 0.5;
+  float soft = clamp((sceneDistance() - (-v2.y - sz * 30.0)) / (sz * 30.0), 0.0, 1.0);
+  float r = 1.0 - max(1.0 - d, 0.0) * soft;
+  float f = textureGrad(FalloffMap, vec2(r * 0.5 + 0.5, 0.0), vec2(dFdx(g), 0.0), vec2(dFdy(g), 0.0)).x;
+  return f * v2.x * Color;
+}
+// the splash: two swirls of the cloud map's green by angle and radius, sharpened toward the rim, faded into the scene
+vec4 splash() {
+  vec2 p = v1.xy - 0.5;
+  float ang = atan(p.y, p.x) * 0.159155 + 0.5;
+  float rr = 1.0 - 2.0 * length(p);
+  float t = timing.w + timing.y;
+  vec2 g = vec2(dFdx(rr)), h = vec2(dFdy(rr));
+  float s1 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw, g, h).y;
+  float s2 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw * vec2(-0.97, 1.03), g, h).y;
+  float m = max(rr, 0.0);
+  float n = pow(abs(s1 * s2), (1.0 - m) * 10.0);
+  float m4 = m * m * m * m;
+  float soft = clamp((sceneDistance() - v2.z) / v2.y, 0.0, 1.0);
+  soft *= soft; soft *= soft;
+  return m4 * soft * n * v2.x * (Color * SplashIntensity.y);
+}
+// the flicker (the noise map at Flicker's rate of the loop's time), the stretch's own intensity; linear out
+void finish(vec4 colour, vec2 flick) {
+  float noise = texture2D(NoiseMap, vec2(flick.y * timing.y, 0.0)).x;
+  colour *= 1.0 - noise * flick.x;
+  colour *= misc.x;
+  gl_FragColor = vec4(max(colour.rgb, 0.0), colour.a);
+}`;
+
+// --- laser.fx: quad 0 the beam (its profile the FalloffMap across it, two CloudMap scrolls along it), 1 and 2 the
+// flares at source and target (the target's x its scale), the rest the splash
+
+const LASER_VERTEX = `${VS_HEAD}
+uniform vec4 Clouds;
 void main() {
-  float fragW = 1.0;
+  fragW = 1.0;
   if (!(Intensity > 0.0)) {
     gl_Position = vec4(0.0); v1 = vec4(0.0); v2 = vec4(0.0);
   } else {
     vec3 S = (modelMatrix * vec4(srcPos.xyz, 1.0)).xyz, D = (modelMatrix * vec4(dstPos.xyz, 1.0)).xyz;
     float q = position.x;
     vec2 c = CORNER[int(position.y + 0.5)];
-    mat4 VP = projectionMatrix * viewMatrix;
     float r2z = 1.0;
     if (q == 0.0) {
-      // the beam: from source to target, turned to face the camera on screen
-      vec4 P0 = VP * vec4(S, 1.0), P1 = VP * vec4(D, 1.0);
-      vec2 dir = normalize(P1.xy / P1.w - P0.xy / P0.w);
       float u = c.x + 0.5, v = c.y + 0.5;
-      vec4 clip = mix(P0, P1, u);
-      vec3 world = mix(S, D, u);
-      float depth = (VP * vec4(world, 1.0)).w;
-      // two pixels' worth at its depth (tan(fov / 2) / height x 4), or 16 x Intensity, whichever is wider
-      float pix = depth / projectionMatrix[1][1] / viewport.y * 4.0;
+      float pix = pixelsAt(mix(S, D, u));
       float halfW = max(pix, Intensity * 16.0);
-      gl_Position = vec4(clip.xy + vec2(dir.y, -dir.x) * halfW * c.y, clip.zw);
-      fragW = clip.w;
+      gl_Position = facingStrip(S, D, c, halfW);
+      fragW = gl_Position.w;
       r2z = pix / (Intensity * 16.0);
       float len = length(S - D);
       float t = timing.w + timing.y;
@@ -95,60 +179,23 @@ void main() {
       v2.x = len / (sqrt(Intensity) * 30.0) * 0.5;
       v1.xy = c + 0.5;
     } else if (q < 3.0) {
-      // the flares: at the source (1) and the target (2), larger seen down the beam's way
       bool atDest = q == 2.0;
-      vec3 at = atDest ? D : S;
-      vec3 way = normalize(D - S);
-      vec2 k = atDest ? FlareIntensity.zw * srcPos.w : FlareIntensity.xy;
-      if (atDest) way = -way;
-      vec3 back = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
-      float lo = k.y * Intensity;
-      float size = (dot(way, back) * 0.5 + 0.5) * (Intensity * k.x - lo) + lo;
-      vec4 view = viewMatrix * vec4(at, 1.0);
-      view.xy += c * size * 16.0;
-      vec4 clip = projectionMatrix * vec4(view.xyz, 1.0);
-      gl_Position = vec4(clip.xy, biasedDepth(size * 16.0 + view.z, clip.w), clip.w);
-      fragW = max(-min(size * 16.0 + view.z, 0.0), 1e-3);
+      gl_Position = flare(S, D, atDest, atDest ? FlareIntensity.zw * srcPos.w : FlareIntensity.xy, c);
       v1.xy = (c + 0.5) * 2.0 - 1.0;
-      v2 = vec4(size, view.z, 0.0, 0.0);
     } else {
-      // the splash: a disc at the target across the beam
-      vec3 way = normalize(D - S);
-      float s = SplashIntensity.x * srcPos.w;
-      vec3 up = abs(way.x) > 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-      vec3 X = normalize(cross(way, up));
-      vec3 Y = cross(way, X);
-      vec3 world = (X * c.y + Y * c.x) * s * 16.0 + D;
-      vec4 view = viewMatrix * vec4(world, 1.0);
-      vec4 clip = projectionMatrix * vec4(view.xyz, 1.0);
-      float z = s * SplashIntensity.z + view.z;
-      gl_Position = vec4(clip.xy, biasedDepth(z, clip.w), clip.w);
-      fragW = max(-min(z, 0.0), 1e-3);
+      gl_Position = splash(S, D, c);
       v1.xy = c + 0.5;
-      vec3 toEye = normalize(cameraPosition - D);
-      float f = min(abs(dot(-way, toEye)), 1.0) * Intensity;
-      v2 = vec4(f * f, s * SplashIntensity.z, -min(z, 0.0), 1.0);
     }
     v1.z = q;
     v1.w = r2z;
   }
-#ifdef USE_LOGARITHMIC_DEPTH_BUFFER
-  vFragDepth = 1.0 + fragW; vIsPerspective = 1.0;
-#endif
+${VS_TAIL}
 }`;
 
-const FRAGMENT = `
-#include <logdepthbuf_pars_fragment>
-${SOFT_DEPTH_GLSL}
-uniform sampler2D NoiseMap; uniform sampler2D FalloffMap; uniform sampler2D CloudMap;
-uniform float Intensity; uniform vec4 Flicker; uniform vec4 Clouds; uniform vec4 Color; uniform vec4 SplashAnimation; uniform vec4 SplashIntensity;
-uniform vec4 timing; uniform vec4 misc;
-varying vec4 v1; varying vec4 v2;
-float sceneDistance() { return softDepthOn > 0.5 ? softSceneDepth() : 1e12; }
+const LASER_FRAGMENT = `${FS_HEAD}
+uniform vec4 Clouds;
 void main() {
 #include <logdepthbuf_fragment>
-  vec4 colour;
-  vec2 flick;
   if (v1.z == 0.0) {
     // the beam: its profile across, faded where it is thinner than the pixels, and at its two ends
     float a = texture2D(FalloffMap, vec2(v1.y, 0.0)).x * clamp(1.0 / v1.w, 0.0, 1.0);
@@ -157,41 +204,93 @@ void main() {
     float n = texture2D(CloudMap, v2.yz).x * texture2D(CloudMap, v2.wz).x;
     float cloud = texture2D(CloudMap, vec2(v1.x, timing.w)).z * n;
     cloud = cloud * (1.0 - base) + base;
-    colour = ends * (cloud * a * Color * Intensity);
-    flick = Flicker.xy;
-  } else if (v1.z < 2.5) {
-    // a flare: the falloff over its radius, cut where it goes behind the scene (soft over 30 sqrt(size))
-    float sz = sqrt(v2.x);
-    float d = length(v1.xy);
-    float g = d * 0.5 + 0.5;
-    float soft = clamp((sceneDistance() - (-v2.y - sz * 30.0)) / (sz * 30.0), 0.0, 1.0);
-    float r = 1.0 - max(1.0 - d, 0.0) * soft;
-    float f = textureGrad(FalloffMap, vec2(r * 0.5 + 0.5, 0.0), vec2(dFdx(g), 0.0), vec2(dFdy(g), 0.0)).x;
-    colour = f * v2.x * Color;
-    flick = Flicker.xy;
-  } else {
-    // the splash: two swirls of the cloud map by angle and radius, sharpened toward the rim, faded into the scene
-    vec2 p = v1.xy - 0.5;
-    float ang = atan(p.y, p.x) * 0.159155 + 0.5;
-    float rad = length(p);
-    float rr = 1.0 - 2.0 * rad;
-    float t = timing.w + timing.y;
-    vec2 g = vec2(dFdx(rr)), h = vec2(dFdy(rr));
-    float s1 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw, g, h).y;
-    float s2 = textureGrad(CloudMap, vec2(ang, rr) * SplashAnimation.xy + t * SplashAnimation.zw * vec2(-0.97, 1.03), g, h).y;
-    float m = max(rr, 0.0);
-    float n = pow(abs(s1 * s2), (1.0 - m) * 10.0);
-    float m4 = m * m * m * m;
-    float soft = clamp((sceneDistance() - v2.z) / v2.y, 0.0, 1.0);
-    soft *= soft; soft *= soft;
-    colour = m4 * soft * n * v2.x * (Color * SplashIntensity.y);
-    flick = Flicker.zw;
-  }
-  float noise = texture2D(NoiseMap, vec2(flick.y * timing.y, 0.0)).x;
-  colour *= 1.0 - noise * flick.x;
-  colour *= misc.x;
-  gl_FragColor = vec4(max(colour.rgb, 0.0), colour.a);
+    finish(ends * (cloud * a * Color * Intensity), Flicker.xy);
+  } else if (v1.z < 2.5) finish(flare(), Flicker.xy);
+  else finish(splash(), Flicker.zw);
 }`;
+
+// --- projectile.fx: quad 0 the stream of shots (rows of the CloudMap's shot atlas, Shots: spacing y, speed z, offset
+// w), 1 and 3 the flares at source and target, 2 the muzzle flash (a strip FireParams.x long, its length flickering
+// by FireParams.w with the noise, its width 16 x Intensity x FireParams.y, stronger across the view by FireParams.z),
+// the rest the splash
+
+const PROJECTILE_VERTEX = `${VS_HEAD}
+uniform vec4 FireParams; uniform vec4 Shots; uniform sampler2D NoiseMap;
+void main() {
+  fragW = 1.0;
+  vec3 S = (modelMatrix * vec4(srcPos.xyz, 1.0)).xyz, D = (modelMatrix * vec4(dstPos.xyz, 1.0)).xyz;
+  float q = position.x;
+  vec2 c = CORNER[int(position.y + 0.5)];
+  float r3z = 1.0;
+  v2 = vec4(0.0);
+  if (q == 0.0) {
+    float u = c.x + 0.5;
+    float pix = pixelsAt(mix(S, D, u));
+    float halfW = max(pix, Intensity * 16.0);
+    gl_Position = facingStrip(S, D, c, halfW);
+    fragW = gl_Position.w;
+    r3z = pix / (Intensity * 16.0);
+    float len = length(S - D);
+    v2.x = len / (sqrt(Intensity) * 30.0) * 0.5;
+    v2.y = (u * len - (Shots.w + timing.y) * Shots.z) / Shots.y;
+    v1.xy = c + 0.5;
+  } else if (q == 1.0 || q == 3.0) {
+    bool atDest = q == 3.0;
+    gl_Position = flare(S, D, atDest, atDest ? FlareIntensity.zw : FlareIntensity.xy, c);
+    v1.xy = 2.0 * c;
+  } else if (q == 2.0) {
+    float halfW = Intensity * FireParams.y * 16.0;
+    float n = textureLod(NoiseMap, vec2(timing.y, 0.0), 0.0).x;
+    float len = (FireParams.w * (n - 1.0) + 1.0) * FireParams.x;
+    vec3 way = normalize(D - S);
+    vec3 back = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+    gl_Position = facingStrip(S, S + way * len, c, halfW);
+    fragW = gl_Position.w;
+    r3z = (1.0 - abs(dot(way, back))) * FireParams.z;
+    v1.xy = c + 0.5;
+  } else {
+    gl_Position = splash(S, D, c);
+    v1.xy = c + 0.5;
+  }
+  v1.z = q;
+  v1.w = r3z;
+${VS_TAIL}
+}`;
+
+const PROJECTILE_FRAGMENT = `${FS_HEAD}
+uniform vec4 FireParams;
+void main() {
+#include <logdepthbuf_fragment>
+  vec4 colour;
+  if (v1.z == 0.0) {
+    // the stream: its profile across, faded at its ends; the shots a row of the atlas each (32 rows)
+    float a = texture2D(FalloffMap, vec2(v1.y, 0.0)).x * clamp(1.0 / v1.w, 0.0, 1.0);
+    float ends = clamp(min(1.0 - v1.x, v1.x) * v2.x, 0.0, 1.0);
+    float shot = texture2D(CloudMap, vec2(v2.y, floor(v2.y) * 0.03125)).x;
+    colour = ends * (shot * a * Color * Intensity);
+  } else if (v1.z < 1.5 || (v1.z > 2.5 && v1.z < 3.5)) colour = flare();
+  else if (v1.z < 2.5) {
+    // the muzzle flash: the cloud map's blue over the strip, a scrolling noise, its random brightness
+    float k = timing.w * FireParams.w + 1.0;
+    float n = texture2D(NoiseMap, v1.xy * 2.0 - vec2(timing.y * 60.0, 0.0)).x * 0.7 + 0.3;
+    float flash = texture2D(CloudMap, clamp(v1.xy, 0.0, 1.0)).z * v1.w;
+    colour = Intensity * Color * (k * n * flash);
+  } else colour = splash();
+  finish(colour, Flicker.xy);
+}`;
+
+interface EffectDef { vertex: string; fragment: string; defaults: Record<string, number | number[]>; srgb: Set<string> }
+// each effect's shaders, its constants' defaults (the sm_depth record's constant table) and its sRGB textures
+const EFFECTS: Record<string, EffectDef> = {
+  laser: {
+    vertex: LASER_VERTEX, fragment: LASER_FRAGMENT, srgb: new Set(),
+    defaults: { Intensity: 1, FlareIntensity: [4, 4, 4, 4], Clouds: [0, 1, 0, -0.91], SplashIntensity: [1, 1, 0.1, 1], Flicker: [0, 1, 0, 1], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
+  },
+  projectile: {
+    vertex: PROJECTILE_VERTEX, fragment: PROJECTILE_FRAGMENT, srgb: new Set(["CloudMap"]),
+    defaults: { Intensity: 1, FireParams: [100, 1, 4, 0.1], FlareIntensity: [4, 4, 4, 4], Shots: [1, 1000, 1000, 0], SplashIntensity: [1, 1, 0.1, 0], Flicker: [0, 1, 0, 0], Color: [1, 1, 1, 1], SplashAnimation: [1, 0.1, 0.1, 0.5] },
+  },
+};
 
 /** The quads' vertices: (quad index, corner index), two triangles a quad. */
 function quadGeometry(count: number): THREE.BufferGeometry {
@@ -209,15 +308,16 @@ function quadGeometry(count: number): THREE.BufferGeometry {
 
 const v4 = (v: number | number[] | undefined, d: number[]) => { const a = Array.isArray(v) ? v : d; return new THREE.Vector4(a[0] ?? 0, a[1] ?? 0, a[2] ?? 0, a[3] ?? 0); };
 
-/** A stretch's textures, loaded once per file (FalloffMap clamped, as its sampler; the others wrapped). */
+/** A stretch's textures, loaded once per file and use (FalloffMap clamped, as its sampler; the others wrapped; sRGB where the effect's resource says). */
 const maps = new Map<string, Promise<THREE.Texture | null>>();
-function mapOf(url: string | null | undefined, clamp: boolean): Promise<THREE.Texture | null> {
+function mapOf(url: string | null | undefined, clamp: boolean, srgb = false): Promise<THREE.Texture | null> {
   if (!url) return Promise.resolve(null);
-  const key = `${url}|${clamp}`;
+  const key = `${url}|${clamp}|${srgb}`;
   let p = maps.get(key);
   if (!p) {
     p = loadDds(url).then((t) => {
-      const tex = clamp ? t.clone() : t;
+      const tex = clamp || srgb ? t.clone() : t;
+      if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
       tex.wrapS = tex.wrapT = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
       tex.needsUpdate = true;
       return tex as THREE.Texture;
@@ -231,7 +331,8 @@ function mapOf(url: string | null | undefined, clamp: boolean): Promise<THREE.Te
 export interface Stretch2Kit { spec: SofStretch2; noise: THREE.Texture | null; falloff: THREE.Texture | null; cloud: THREE.Texture | null }
 export async function stretch2Kit(spec: SofStretch2): Promise<Stretch2Kit | null> {
   if (!spec.effect || !STRETCH2_EFFECTS.has(spec.effect) || spec.quadCount <= 0) return null;
-  const [noise, falloff, cloud] = await Promise.all([mapOf(spec.textures.NoiseMap, false), mapOf(spec.textures.FalloffMap, true), mapOf(spec.textures.CloudMap, false)]);
+  const srgb = EFFECTS[spec.effect]!.srgb;
+  const [noise, falloff, cloud] = await Promise.all([mapOf(spec.textures.NoiseMap, false, srgb.has("NoiseMap")), mapOf(spec.textures.FalloffMap, true, srgb.has("FalloffMap")), mapOf(spec.textures.CloudMap, false, srgb.has("CloudMap"))]);
   return { spec, noise, falloff, cloud };
 }
 
@@ -270,17 +371,20 @@ export class Stretch2Effect {
 
   constructor(private readonly kit: Stretch2Kit) {
     const spec = kit.spec;
-    const p = (n: string) => spec.params[n] ?? LASER_DEFAULTS[n];
+    const def = EFFECTS[spec.effect!]!;
+    // the effect's constants: the stretch's own values, else the effect's defaults (a float, or a vector as a vec4)
+    const constants: Record<string, THREE.IUniform> = {};
+    for (const [name, d] of Object.entries(def.defaults)) {
+      const v = spec.params[name] ?? d;
+      constants[name] = { value: Array.isArray(d) ? v4(v, d) : Number(Array.isArray(v) ? v[0] : v) };
+    }
     this.material = new THREE.ShaderMaterial({
-      vertexShader: VERTEX, fragmentShader: FRAGMENT,
+      vertexShader: def.vertex, fragmentShader: def.fragment,
       uniforms: {
         srcPos: { value: new THREE.Vector4(0, 0, 0, 1) }, dstPos: { value: new THREE.Vector4(0, 0, 0, 1) },
         timing: { value: new THREE.Vector4(0, 0, 0, Math.random()) }, misc: { value: new THREE.Vector4(1, 0, 0, 0) },
         viewport: { value: new THREE.Vector2(1, 1) },
-        Intensity: { value: Number(p("Intensity") ?? 1) }, FlareIntensity: { value: v4(p("FlareIntensity"), [4, 4, 4, 4]) },
-        Clouds: { value: v4(p("Clouds"), [0, 1, 0, -0.91]) }, SplashIntensity: { value: v4(p("SplashIntensity"), [1, 1, 0.1, 1]) },
-        Flicker: { value: v4(p("Flicker"), [0, 1, 0, 1]) }, Color: { value: v4(p("Color"), [1, 1, 1, 1]) },
-        SplashAnimation: { value: v4(p("SplashAnimation"), [1, 0.1, 0.1, 0.5]) },
+        ...constants,
         NoiseMap: { value: kit.noise }, FalloffMap: { value: kit.falloff }, CloudMap: { value: kit.cloud },
         ...SOFT_DEPTH,
       },

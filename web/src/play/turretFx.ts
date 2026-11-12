@@ -1,9 +1,9 @@
 // Weapons fire, drawn from the server's own word of it: michelle.OnSpecialFX(shipID, moduleID, moduleTypeID,
 // targetID, otherTypeID, guid, isOffensive, start, active, duration, repeat, ...), the effect a turret plays as it
 // cycles (effects.ProjectileFired, effects.HybridFired, effects.Laser...: start 1 as it begins, start 0 as it stops).
-// A laser turret plays its graphic's own firing effect (EveTurretFiringFX: an EveStretch2 per muzzle, laser.fx,
-// three/stretch2.ts); the rest are our own drawing of it: tracer pulses from the shooter to its target for guns, a
-// flickering beam for a laser whose effect has not come, and a flash where the shots land.
+// A turret whose firing effect is drawn here plays it (EveTurretFiringFX: an EveStretch2 per muzzle - laser.fx,
+// projectile.fx - three/stretch2.ts); the rest are our own drawing of it: tracer pulses from the shooter to its target
+// for guns, a flickering beam for a laser whose effect has not come, and a flash where the shots land.
 
 import * as THREE from "three";
 import { Line2 } from "three/addons/lines/Line2.js";
@@ -316,21 +316,22 @@ export class TurretFx {
         const size = s.size ?? later?.impactSize ?? 0.75, life = s.life ?? (later ? Math.max(later.firingDuration - later.firingPeakTime, 0) : 1);
         if (size > 0) this.onShot?.(f.shooter, f.target, size, life);
       }
-      if (f.kind === "laser") continue;
+      if (f.kind === "laser" || this.stretches.has(f)) continue;
       if (now - f.lastPulse >= PULSE_EVERY_MS) { f.lastPulse = now; this.pulse(f, now); }
     }
-    // lasers: their turret's stretches, or until those have come one beam each while it fires, flickering
+    // the turret's own firing effect (its stretches) where it is drawn here; else for a laser one beam while it fires,
+    // flickering (a gun's pulses above)
     const firing = new Set(this.firings.values());
     for (const [f, beam] of this.beams) if (!firing.has(f)) { this.group.remove(beam); beam.geometry.dispose(); this.beams.delete(f); }
     for (const [f, fx] of this.stretches) if (!firing.has(f)) { for (const s of fx) s.dispose(); this.stretches.delete(f); }
     for (const f of this.firings.values()) {
-      if (f.kind !== "laser") continue;
       const from = this.muzzleOf?.(f.shooter, f.moduleID, 0, f.target) ?? positionOf(f.shooter)!, to = positionOf(f.target)!;
       if (this.drawStretches(f, from, to, now, radiusOf?.(f.target) ?? null, camera)) {
         const old = this.beams.get(f);
         if (old) { this.group.remove(old); old.geometry.dispose(); this.beams.delete(f); }
         continue;
       }
+      if (f.kind !== "laser") continue;
       let beam = this.beams.get(f);
       if (!beam) {
         beam = this.line(COLOUR.laser, 2.5);
