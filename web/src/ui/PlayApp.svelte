@@ -31,6 +31,7 @@
   import { notify } from "./notices.ts";
   import { orderableDroneIDs } from "./droneFlight.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
+  import { sendMusicEvent, securitySwitch } from "../play/music.ts";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { openWindow, closeWindow, focusWindow, moveWindow, resizeWindow, toggleMinimize, type WinState } from "./desktop.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
@@ -101,6 +102,27 @@
     }
   });
   const docked = $derived(stage === "game" && session ? deriveDocked($flight?.status ?? null, $station?.online ?? null) : true);
+
+  // The music as the client's Master Music Graph (805) runs it: at login and character selection 806
+  // (music_login_play; music_login_stop as it stops), in the hangar 808 (no music: 809 stopped, music_eve_dynamic_stop),
+  // in space 809 (music_eve_dynamic_play, then the system's security switch, again as the system changes).
+  let musicMode = "";
+  let musicSwitch: string | null = null;
+  $effect(() => {
+    const mode = stage !== "game" ? "login" : docked ? "hangar" : "space";
+    if (mode === musicMode) return;
+    const was = musicMode;
+    musicMode = mode;
+    if (mode === "login") { void sendMusicEvent("music_login_play"); return; }
+    if (was === "login" || was === "") void sendMusicEvent("music_login_stop");
+    if (mode === "hangar") { void sendMusicEvent("music_eve_dynamic_stop"); return; }
+    void sendMusicEvent("music_eve_dynamic_play");
+    if (musicSwitch) void sendMusicEvent(musicSwitch);
+  });
+  function musicSystem(solarSystemID: number, security: number | null) {
+    musicSwitch = security === null ? null : securitySwitch(solarSystemID, security);
+    if (musicMode === "space" && musicSwitch) void sendMusicEvent(musicSwitch);
+  }
 
   async function signIn(e: Event) {
     e.preventDefault();
@@ -569,6 +591,7 @@
       },
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
       onNeocom: neocomOpen,
+      onSystem: musicSystem,
       windowLayer: windowsEl ? windowLayer : undefined,
       undocking: () => performance.now() - undockedAt < 20000,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)

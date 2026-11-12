@@ -56,6 +56,11 @@ function pick(found: EventSounds | null, distance = 0): { sound: string; gain: n
   return out;
 }
 let context: AudioContext | null = null;
+/** The page's one audio context (the music's too). */
+export function audioContext(): AudioContext {
+  context ??= new AudioContext();
+  return context;
+}
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
 /** The sounds a "<name>_play" event started and has playing (a "<name>_stop" event ends them, as its Stop action does). */
 const playing = new Map<string, Set<AudioBufferSourceNode>>();

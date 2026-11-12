@@ -64,6 +64,8 @@ interface Snapshot {
  */
 export interface SpaceViewOptions {
   onNeocom?: (id: string) => void;
+  /** The system the view is in, with its security, as its scene is loaded (the music's switch). */
+  onSystem?: (solarSystemID: number, security: number | null) => void;
   rack?: {
     modules(): HudModule[]; use(m: HudModule): Promise<void>; capacitor?(): { max: number | null; ratio: number | null };
     /** Each rack's heat over its capacity, 0..1 (the app's space snapshot: ship.rackHeat), or null. */
@@ -1183,6 +1185,7 @@ export class SpaceView {
     this.sceneFor = solarSystemID;
     const info = await (await fetch(`/client-assets/scene/${solarSystemID}`)).json() as { name?: string; security?: number; maps?: Record<string, string> | null };
     if (this.sceneFor !== solarSystemID) return;
+    this.options.onSystem?.(solarSystemID, typeof info.security === "number" ? info.security : null);
     if (info.name) {
       this.root.querySelector(".hud-top-left .system")!.innerHTML = `${info.name}<span class="sec">${typeof info.security === "number" ? info.security.toFixed(1) : ""}</span>`;
     }

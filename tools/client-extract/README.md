@@ -66,3 +66,7 @@ version, compression or texture format it does not know. It does not guess.
 `node tools/client-extract/audio.mjs --client "<EVE install>" --bank interface` converts a soundbank's embedded
 sounds to `_local/client-assets/<build>/audio/<bank>/<id>.ogg` and writes `audio/events.json` (a Wwise event's
 FNV-1 id to the sound its Play action plays), which the play page's `play/uiAudio.ts` reads.
+
+It also writes `audio/music.json`, the music the client's Master Music Graph (node graph 805) sends:
+each music trigger's Play, Stop and Set State actions, and the switch containers, playlists and segments they
+play. `--bank all` converts their sources: 1,131 files, about 1.1 GB. The play page's `play/music.ts` reads it.

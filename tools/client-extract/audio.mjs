@@ -299,24 +299,28 @@ function sourcesOf(id, depth = 0) {
   return files;
 }
 function soundSources(o) {
-  const stream = o.body[8], source = u32(o.body, 9);
-  if (stream === 0) { const file = sourceBank.get(source); return file ? [file] : []; }
+  const file = sourceFile(o.body[8], u32(o.body, 9));
+  return file ? [file] : [];
+}
+/** A source as a file: in its bank's data (stream type 0), else - prefetched or streamed - its own .wem converted. */
+function sourceFile(stream, source) {
+  if (stream === 0) return sourceBank.get(source) ?? null;
   // prefetched or streamed: the whole sound is its own file
   const dir = path.join(root, "streamed");
   let ext = existing(dir, source);
   if (!ext) {
     // (streamed files are under res:/audio/media, prefetched ones mostly under essential_media)
     const wem = [`res:/audio/media/${source}.wem`, `res:/audio/essential_media/${source}.wem`].find((r) => res.has(r));
-    if (!wem) return [];
+    if (!wem) return null;
     try {
       fs.mkdirSync(dir, { recursive: true });
       const c = convert(res.read(wem));
       fs.writeFileSync(path.join(dir, `${source}.${c.ext}`), c.bytes);
       ext = c.ext;
       streamedWritten++;
-    } catch (e) { fail(e); return []; }
+    } catch (e) { fail(e); return null; }
   }
-  return [`streamed/${source}.${ext}`];
+  return `streamed/${source}.${ext}`;
 }
 /**
  * An event's layers: each Play action's (0x0403) target's, and a Play Event action's (0x2103: its target another
@@ -470,3 +474,162 @@ if (soundIDs && config.sde) {
   console.log(`types with an ambient sound: ${Object.keys(typeSounds).length}`);
 }
 
+// The music (music.json). The client's music is its node graph 805 "Master Music Graph" (eveaudio/eveMusicService:
+// DynamicMusicService.StartMusicNodeGraph; nodeGraphs.fsdbinary): by the view, the dungeon, the setting and the system
+// it runs a subgraph whose Trigger Music actions send music trigger events (musicTriggers.fsdbinary: a trigger's name,
+// a Wwise event) to the music player - a Play of an interactive music object, a Stop, or a Set State. The music objects:
+// a music switch container (12) picks its child by a state group's state (its decision tree after its children: the
+// tree depth, the group ids and types, the tree's size, its mode, then 12-byte nodes - the root's children index and
+// count, each leaf the state id and the child; state 0 the default); a music playlist (13) plays its segments as its
+// item tree says (at its end: a count and 30-byte items in pre-order - segment, id, child count, type 0 / 1 sequence,
+// 2 / 3 random, loop (0 for ever), weight, avoid-repeat count); a segment (10) its tracks (11: their sources and the
+// clips of each sub-track - sub-track, source, the clip's place, begin and end trims, the source's length) over its
+// duration, the next segment's entry marker at its exit marker. Written: each trigger's actions by name, the objects by
+// id, the sources converted as the sounds' are. Not read: the transition rules (fades, sync points), the stingers, a
+// track's own type (a random sub-track picked where there are several), switch trees deeper than one group.
+const f64 = (b, o) => new DataView(b.buffer, b.byteOffset + o, 8).getFloat64(0, true);
+function fnv1(name) {
+  let h = 2166136261;
+  for (const c of name.toLowerCase()) h = ((Math.imul(h, 16777619) >>> 0) ^ c.charCodeAt(0)) >>> 0;
+  return h;
+}
+const nodeGraphs = builtData("nodeGraphsLoader", "res:/staticdata/nodegraphs.fsdbinary");
+const musicTriggers = builtData("musicTriggersLoader", "res:/staticdata/musictriggers.fsdbinary");
+if (nodeGraphs && musicTriggers) {
+  const triggers = new Set();
+  const graphsSeen = new Set();
+  const walkGraph = (id) => {
+    if (graphsSeen.has(id) || !nodeGraphs[id]) return;
+    graphsSeen.add(id);
+    for (const n of Object.values(nodeGraphs[id].nodes ?? {})) {
+      const sub = n.nodeParameters?.node_graph_id?.value;
+      if (sub) walkGraph(sub);
+      const t = musicTriggers[n.atomParameters?.music_trigger_id?.value]?.trigger;
+      if (t) triggers.add(t);
+    }
+  };
+  walkGraph(805);
+  const musicEvents = {}, musicNodes = {}, musicSegments = {};
+  const kidsOf = (body, types) => {
+    for (let p = 4; p + 8 <= body.length; p++) {
+      const n = u32(body, p);
+      if (n < 1 || n > 255 || p + 4 + 4 * n > body.length) continue;
+      const ids = [];
+      for (let k = 0; k < n; k++) ids.push(u32(body, p + 4 + 4 * k));
+      if (ids.every((c) => types.includes(objects.get(c)?.type ?? -1))) return { at: p, ids };
+    }
+    return null;
+  };
+  function segment(id) {
+    if (id in musicSegments) return musicSegments[id] !== null;
+    const b = objects.get(id)?.body;
+    musicSegments[id] = null;
+    const c = b && kidsOf(b, [11]);
+    if (!c) return false;
+    let q = c.at + 4 + 4 * c.ids.length + 22 + 1;
+    q += 4 + 24 * u32(b, q);
+    const d = f64(b, q); q += 8;
+    const marks = [];
+    for (let n = u32(b, (q += 4) - 4), k = 0; k < n; k++) { marks.push(f64(b, q + 4)); q += 13 + b[q + 12]; }
+    const tracks = [];
+    for (const tid of c.ids) {
+      const t = objects.get(tid).body;
+      const sources = new Map();
+      const n = u32(t, 5);
+      for (let k = 0; k < n; k++) {
+        const at = 9 + 14 * k;
+        const file = sourceFile(t[at + 4], u32(t, at + 5));
+        if (file) sources.set(u32(t, at + 5), file);
+      }
+      let q2 = 9 + 14 * n;
+      const subs = new Map();
+      for (let cnt = u32(t, q2), k = 0, at = q2 + 4; k < cnt; k++, at += 44) {
+        const file = sources.get(u32(t, at + 4));
+        if (!file) continue;
+        const sub = u32(t, at);
+        if (!subs.has(sub)) subs.set(sub, []);
+        // [file, the clip's place, its begin trim, its end trim, the source's length] (ms)
+        subs.get(sub).push([file, f64(t, at + 12), f64(t, at + 20), f64(t, at + 28), f64(t, at + 36)].map((v) => (typeof v === "number" ? Math.round(v * 10) / 10 : v)));
+      }
+      if (subs.size) tracks.push([...subs.values()]);
+    }
+    if (!tracks.length) return false;
+    musicSegments[id] = { d: Math.round(d), e: Math.round(marks[0] ?? 0), x: Math.round(marks[marks.length - 1] ?? d), t: tracks };
+    return true;
+  }
+  function musicNode(id, depth = 0) {
+    if (id in musicNodes) return musicNodes[id] !== null;
+    const o = objects.get(id);
+    musicNodes[id] = null;
+    if (!o || depth > 6) return false;
+    const b = o.body;
+    if (o.type === 10) { const ok = segment(id); if (ok) musicNodes[id] = { seg: id }; return ok; }
+    if (o.type === 12) {
+      for (let q = 4; q + 14 <= b.length; q++) {
+        if (u32(b, q) !== 1) continue;
+        const size = u32(b, q + 9);
+        if (size % 12 || q + 14 + size !== b.length || size < 24) continue;
+        const root = u32(b, q + 18), first = root & 0xffff, count = root >>> 16;
+        if (first !== 1 || 1 + count !== size / 12) continue;
+        const states = {};
+        let fallback = 0;
+        for (let k = 1; k <= count; k++) {
+          const key = u32(b, q + 14 + 12 * k), child = u32(b, q + 18 + 12 * k);
+          if (!child || !musicNode(child, depth + 1)) continue;
+          if (key === 0) fallback = child; else states[key] = child;
+        }
+        musicNodes[id] = { g: u32(b, q + 4), d: fallback, s: states };
+        return true;
+      }
+      return false;
+    }
+    if (o.type === 13) {
+      for (let n = 1; n <= 1024; n++) {
+        const at = b.length - 4 - 30 * n;
+        if (at < 4) break;
+        if (u32(b, at) !== n) continue;
+        const items = [];
+        for (let k = 0; k < n; k++) {
+          const p = at + 4 + 30 * k;
+          items.push({ seg: u32(b, p), kids: u32(b, p + 8), type: u32(b, p + 12), loop: new DataView(b.buffer, b.byteOffset + p + 16, 2).getInt16(0, true), w: u32(b, p + 22), avoid: u16(b, p + 26) });
+        }
+        if (!items.every((it) => it.seg === 0 || objects.get(it.seg)?.type === 10)) continue;
+        let k = 0;
+        // the item tree from its pre-order: a leaf {s: segment, l: loop, w: weight}, a group {r: random, l, a: avoid
+        // repeating the last a, w, c: children}
+        const build = () => {
+          const it = items[k++];
+          if (!it) return null;
+          if (!it.kids) return it.seg && segment(it.seg) ? { s: it.seg, l: it.loop, w: it.w } : null;
+          const c = [];
+          for (let j = 0; j < it.kids; j++) { const child = build(); if (child) c.push(child); }
+          return c.length ? { r: it.type >= 2 ? 1 : 0, l: it.loop, a: it.avoid, w: it.w, c } : null;
+        };
+        const tree = build();
+        if (!tree) return false;
+        musicNodes[id] = { p: tree };
+        return true;
+      }
+    }
+    return false;
+  }
+  for (const name of triggers) {
+    const ev = objects.get(fnv1(name));
+    if (!ev || ev.type !== 4) continue;
+    const ops = [];
+    for (let k = 0; k < ev.body[4]; k++) {
+      const action = objects.get(u32(ev.body, 5 + k * 4));
+      if (!action || action.type !== 3) continue;
+      const a = action.body, kind = u16(a, 4), target = u32(a, 6);
+      // Play (0x0403) and Stop (0x0103) of a music object; Set State (0x1901): its group and state its last 8 bytes
+      if (kind === 0x0403 && [10, 12, 13].includes(objects.get(target)?.type) && musicNode(target)) ops.push(["play", target]);
+      else if (kind === 0x0103 && [10, 12, 13].includes(objects.get(target)?.type)) ops.push(["stop", target]);
+      else if (kind === 0x1901) ops.push(["state", u32(a, a.length - 8), u32(a, a.length - 4)]);
+    }
+    if (ops.length) musicEvents[name] = ops;
+  }
+  for (const k of Object.keys(musicNodes)) if (musicNodes[k] === null) delete musicNodes[k];
+  for (const k of Object.keys(musicSegments)) if (musicSegments[k] === null) delete musicSegments[k];
+  fs.writeFileSync(path.join(root, "music.json"), JSON.stringify({ events: musicEvents, nodes: musicNodes, segments: musicSegments }));
+  console.log(`music: ${triggers.size} triggers in the master graph, ${Object.keys(musicEvents).length} with music actions; ${Object.keys(musicNodes).length} music objects, ${Object.keys(musicSegments).length} segments`);
+}
