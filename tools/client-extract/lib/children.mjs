@@ -323,6 +323,12 @@ function readController(c, skipped, owner) {
       return { k: "spawnParticles", emitter: idOf(a.emitter), rate: a.rate ?? 1 };
     }
     if (a.type === "Tr2ActionPlayCurveSet") return { k: "playCurveSet", set: a.curveSetName ?? "", range: a.rangeName ?? "", sync: a.syncToRange === true };
+    // Tr2ActionSetExternalControllerVariable (Start): the variable - its value, or this controller's sourceVariable -
+    // set on the object bound to destinationOwner (an EveMultiEffect's parameter: "ship", "Hangar", "activeDock")
+    if (a.type === "Tr2ActionSetExternalControllerVariable") {
+      if (!a.destinationOwner || !a.variable) { skipped[a.type] = (skipped[a.type] ?? 0) + 1; return { k: a.type }; }
+      return { k: "setExternal", other: a.destinationOwner, variable: a.variable, number: Number(a.value ?? 0), source: a.sourceVariable || null };
+    }
     if (a.type === "Tr2ActionChildEffect") {
       return { k: "childEffect", effect: a.path ? readChildEffect(a.path, skipped) : null, name: a.childName ?? null, add: a.addOnStart !== false, remove: a.removeOnStop !== false, other: a.targetAnotherOwner || null };
     }

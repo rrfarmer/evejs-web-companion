@@ -39,6 +39,9 @@ export interface SofControllerAction {
   add?: boolean;
   remove?: boolean;
   other?: string | null;
+  /** setExternal: its value where it has no source variable (this controller's variable read on start). */
+  number?: number;
+  source?: string | null;
   /** setValue / setOwner / animateOwner: the attribute; animateOwner: its curve (Curve(x) in its value). */
   attribute?: string;
   curve?: Curve | null;
@@ -460,6 +463,21 @@ export class ControllerRun {
     for (const a of state.actions) {
       // Tr2ActionSpawnParticles (Start): the emitter spawns rate x its own rate
       if (a.k === "spawnParticles" && a.emitter !== undefined) { this.host.spawn?.(a.emitter, a.rate ?? 1); continue; }
+      // Tr2ActionSetExternalControllerVariable: onto the object its destinationOwner names (its controllers and its
+      // children's take it: EveChildContainer::SetControllerVariable passes it down)
+      if (a.k === "setExternal" && a.other && a.variable) {
+        const dest = this.host.otherOwner?.(a.other);
+        const v = a.source ? this.vars.get(a.source) : a.number;
+        if (dest && v !== undefined) {
+          // (hullModel setControllerVariable's store: the controllers under it take it, takeObjectVariables)
+          const store = (dest.userData.controllerVars ??= {}) as Record<string, number>;
+          if (store[a.variable] !== v) {
+            store[a.variable] = v;
+            dest.userData.controllerVarsVersion = ((dest.userData.controllerVarsVersion as number | undefined) ?? 0) + 1;
+          }
+        }
+        continue;
+      }
       if (a.k === "resetClipCenter") { this.host.resetClipCenter?.(a.behavior ?? 0, a.set ?? "", a.index ?? -1); continue; }
       // Tr2ActionOverlay: added on start (addOnStart), taken off on stop (removeOnStop)
       if (a.k === "overlay" && a.effect && this.host.overlay) {

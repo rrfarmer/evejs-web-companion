@@ -65,6 +65,8 @@ export class HangarView {
   private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
   /** The hangar VFX for the ship shown (its "ship" parameter bound to the ship's EVE-space group). */
   private vfx: THREE.Object3D | null = null;
+  /** The hangar's hangarType (hangarRegistry): the VFX's HangarType. */
+  private hangarType = 0;
   /** The docked ship's dirt level (setDirt), kept for the next ship model shown too. */
   private dirt: number | null = null;
   /** The docking swing (seconds since it began) and the idle turn (from where the camera was), while they run. */
@@ -115,8 +117,9 @@ export class HangarView {
     if (this.ship && level !== null) setDirtLevel(this.ship.model, level);
   }
 
-  async show(typeID: number | null, hangarGraphics: { model: number; scene: number; swings?: readonly DockSwing[] } | null = null): Promise<void> {
+  async show(typeID: number | null, hangarGraphics: { model: number; scene: number; swings?: readonly DockSwing[]; hangarType?: number } | null = null): Promise<void> {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
+    this.hangarType = hangarGraphics?.hangarType ?? 0;
     if (typeID === this.shownType && hangarKey === this.shownHangar) return;
     this.shownType = typeID;
     this.shownHangar = hangarKey;
@@ -249,7 +252,7 @@ export class HangarView {
   /**
    * hangarView.py ConfigureVFXMultiEffect: the hangar VFX multi-effect in the scene, its "ship" parameter the ship (a
    * group in the ship's EVE space, carrying the hull's locator sets: its drones' propagators take hangar_drones), its
-   * variables as the client sets them - shaderQuality (high: 2), ShipSize (shipSizeGroup), faction (99: not one of the
+   * variables as the client sets them - shaderQuality (high: 2), HangarType, ShipSize (shipSizeGroup), faction (99: not one of the
    * empires' logos looked up) - and its controllers started. Its drones visit the ship on the server's 20-minute phase
    * (RandomRepairDrone); setVfxVariable("randomRepairDroneDemo", 1) brings one at once.
    */
@@ -269,6 +272,7 @@ export class HangarView {
     setControllerVariable(vfx, "shaderQuality", 2);
     setControllerVariable(vfx, "ShipSize", shipSizeGroup(radius));
     setControllerVariable(vfx, "faction", 99);
+    setControllerVariable(vfx, "HangarType", this.hangarType);
     this.scene.add(vfx);
     this.vfx = vfx;
   }
