@@ -34,7 +34,7 @@
     "AdRecruiters", "NewPilotFriendly", "NewPilotFocused", "RoleplayingFocused2", "PrimaryTimeZone", "RecruitmentAdDuration",
     "RecruitmentAdDurationOptionWithPrice", "MinimumSPrequirement", "FilterRecruiterCandidates", "AddRecruiterToAd", "NoRecruiterAssigned",
     "AdRemove", "EditAdvert", "ExtendRecruitmentAdDuration", "NumFiltersSelected", "NoFiltersSelected", "PVE", "PVP", "Trade"].map((k) => R + k)
-    .concat(["UI/Corporations/Applications/EditWelcomeMail", "UI/Corporations/CorpDetails/MembershipApplicationEnabled", "UI/Common/Buttons/Submit", "UI/Common/Buttons/Cancel"]);
+    .concat(["UI/Corporations/Applications/CorpWelcomeMail", "UI/Corporations/Applications/WelcomeMailLastEdit", "UI/Generic/Apply", "UI/Corporations/Applications/EditWelcomeMail", "UI/Corporations/CorpDetails/MembershipApplicationEnabled", "UI/Common/Buttons/Submit", "UI/Common/Buttons/Cancel"]);
   const word = (label: string, fallback: string) => plainText($words.templates[label] ?? fallback);
   const fill = (label: string, fallback: string, values: Record<string, string | number>) =>
     plainText(formatTemplate($words.templates[label] ?? fallback, values, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") }));
@@ -47,6 +47,27 @@
   function keepExpanded(view: boolean, adID: number | null): void { try { const all = JSON.parse(localStorage.getItem("evejs.play.corpRecruitmentExpanded") ?? "{}") as Record<string, number | null>; all[String(view)] = adID; localStorage.setItem("evejs.play.corpRecruitmentExpanded", JSON.stringify(all)); } catch { /* not kept */ } }
   let expandedAd = $state<number | null>(expandedOf(true));
   let ads = $state<readonly RecruitmentAd[] | null>(null);
+  // ConstructApplicationCheckbox: checked from the corporation's isRecruiting; a change - UpdateCorporation
+  let recruiting = $state<boolean | null>(null);
+  async function setRecruiting(on: boolean): Promise<void> {
+    recruiting = on;
+    try { await flow.setCorporationRecruiting(on); recruiting = await flow.corporationIsRecruiting(); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  // WelcomeMailWindow (500 x 400, CorpWelcomeMail): the text (mailMaxTaggedBodySize 10000), WelcomeMailLastEdit under it
+  // where it has been edited, Apply (SaveWelcomeMail: SetCorpWelcomeMail where the text changed; the window stays)
+  let mail = $state<{ text: string; characterID: number | null; changeDate: bigint } | null>(null), mailSaving = $state(false);
+  async function openWelcomeMail(): Promise<void> {
+    try { const m = await flow.corporationWelcomeMail(); mail = { text: m.welcomeMail, characterID: m.characterID, changeDate: m.changeDate }; }
+    catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  async function saveWelcomeMail(): Promise<void> {
+    if (!mail || mailSaving) return;
+    mailSaving = true;
+    try {
+      if (await flow.setCorporationWelcomeMail(mail.text)) { const m = await flow.corporationWelcomeMail(); mail = { text: mail.text, characterID: m.characterID, changeDate: m.changeDate }; }
+    } catch (e) { error = e instanceof Error ? e.message : String(e); }
+    finally { mailSaving = false; }
+  }
   let data = $state<RecruitmentData | null>(null);
   let error = $state("");
   function loadAds(): void {
@@ -55,6 +76,7 @@
   onMount(() => {
     flow.requestWords(LABELS);
     loadAds();
+    if (access) void flow.corporationIsRecruiting().then((r) => { recruiting = r; }).catch(() => {});
     void flow.recruitmentData().then((d) => {
       data = d;
       if (d) flow.requestWords(Object.values(d.types).flatMap((t) => (t.nameID ? [`#${t.nameID}`] : [])).concat(Object.values(d.groups).flatMap((g) => (g.nameID ? [`#${g.nameID}`] : []))));
@@ -148,9 +170,20 @@
   {#if access}
     <div class="ca-buttons">
       <button type="button" disabled={(ads?.length ?? 0) >= MAX_CORP_ADS} onclick={startNew}>{word(R + "CreateRecruitmentAdButtonLabel", "Create Recruitment Ad")}</button>
-      <button type="button" disabled title="Not on the play page yet">{word("UI/Corporations/Applications/EditWelcomeMail", "Edit Welcome Mail")}</button>
+      <button type="button" onclick={() => void openWelcomeMail()}>{word("UI/Corporations/Applications/EditWelcomeMail", "Edit Welcome Mail")}</button>
     </div>
-    <label class="ca-apps"><input type="checkbox" disabled />{word("UI/Corporations/CorpDetails/MembershipApplicationEnabled", "Membership application enabled")}</label>
+    <label class="ca-apps"><input type="checkbox" checked={recruiting} disabled={recruiting === null} onchange={(e) => void setRecruiting((e.currentTarget as HTMLInputElement).checked)} />{word("UI/Corporations/CorpDetails/MembershipApplicationEnabled", "Membership application enabled")}</label>
+  {/if}
+  {#if mail}
+    <div class="ca-mail-back">
+      <div class="ca-mail" role="dialog" aria-modal="true" aria-label={word("UI/Corporations/Applications/CorpWelcomeMail", "Corporation Welcome Mail")}>
+        <header>{word("UI/Corporations/Applications/CorpWelcomeMail", "Corporation Welcome Mail")}<button type="button" class="ca-x" aria-label="Close" onclick={() => (mail = null)}>×</button></header>
+        <textarea bind:value={mail.text} maxlength="10000"></textarea>
+        {#if mail.characterID}<span class="ca-mail-edit">{fill("UI/Corporations/Applications/WelcomeMailLastEdit", "Last edited by {characterName} {changeDate}",
+          { characterName: resolvedName($names.resolved, "owner", mail.characterID, ""), changeDate: { type: "long", value: mail.changeDate.toString() } } as never)}</span>{/if}
+        <div class="ca-form-buttons"><button type="button" disabled={mailSaving} onclick={() => void saveWelcomeMail()}>{word("UI/Generic/Apply", "Apply")}</button></div>
+      </div>
+    </div>
   {/if}
   {#if editing}
     <section class="ca-form" aria-label={word(R + "CreateNewAdvert", "Create New Advert")} aria-busy={sending}>
@@ -256,4 +289,10 @@
   .ca-remove { background: none; border: 0; color: #e06666; cursor: pointer; }
   .ca-form-buttons { display: flex; gap: 4px; justify-content: center; padding: 4px 0; }
   .error { color: #e06666; }
+  .ca-mail-back { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, 0.35); }
+  .ca-mail { width: 500px; height: 400px; display: flex; flex-direction: column; gap: 4px; padding: 4px; background: #15181b; border: 1px solid rgba(255, 255, 255, 0.15); }
+  .ca-mail header { display: flex; justify-content: space-between; font-weight: bold; }
+  .ca-x { background: none; border: 0; color: inherit; font-size: 16px; cursor: pointer; }
+  .ca-mail textarea { flex: 1; resize: none; }
+  .ca-mail-edit { font-size: 11px; padding: 0 4px; }
 </style>

@@ -2435,6 +2435,15 @@ export interface AppFlow {
   /** base_corporation.InviteToJoinCorp: ConfirmSendInviteToJoinCorp (OK / Cancel), then corpRegistry.InsertInvitation;
    * true when sent. */
   inviteToJoinCorp(characterID: number): Promise<boolean>;
+  /** WelcomeMailWindow: corp.GetCorpWelcomeMail (corpRegistry's KeyVal - the last editor, the change date, the text). */
+  corporationWelcomeMail(): Promise<{ readonly characterID: number | null; readonly changeDate: bigint; readonly welcomeMail: string }>;
+  /** SaveWelcomeMail: corpRegistry.SetCorpWelcomeMail(text) where it changed; true when sent. */
+  setCorporationWelcomeMail(text: string): Promise<boolean>;
+  /** CorpRecruitment's applications checkbox: the corporation's row (corpRegistry.GetCorporation, read afresh) isRecruiting. */
+  corporationIsRecruiting(): Promise<boolean>;
+  /** OnCheckboxRecruitmentChange: corp.UpdateCorporation(description, url, taxRate, isRecruiting, loyaltyPointTaxRate),
+   * the row's own values but the one changed. */
+  setCorporationRecruiting(isRecruiting: boolean): Promise<void>;
   /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
   sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
   /** RecruitmentEntry's recruiters: corpRecProxy.GetRecruiters(adID), their names primed. */
@@ -16470,6 +16479,38 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return ids;
   }
+  async function corporationWelcomeMail(): Promise<{ readonly characterID: number | null; readonly changeDate: bigint; readonly welcomeMail: string }> {
+    const answer = await bridgeAsk("corpRegistry", "GetCorpWelcomeMail", []);
+    const editor = readKeyVal(answer, "characterID"), text = readKeyVal(answer, "welcomeMail");
+    const characterID = typeof editor === "number" ? editor : Number(unwrapLong(editor) ?? 0) || null;
+    if (characterID) {
+      const current = callOptions.captureRequestGuard!();
+      await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, [{ kind: "owner", id: characterID }]);
+    }
+    return { characterID, changeDate: unwrapLong(readKeyVal(answer, "changeDate")) ?? 0n,
+      welcomeMail: typeof text === "string" ? text : text && typeof text === "object" && "value" in text && typeof text.value === "string" ? text.value : "" };
+  }
+  async function setCorporationWelcomeMail(text: string): Promise<boolean> {
+    if (text === (await corporationWelcomeMail()).welcomeMail) return false;
+    try { await bridgeDo("corpRegistry", "SetCorpWelcomeMail", [text]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function ownCorporationRow(): Promise<Readonly<Record<string, JsonValue>>> {
+    const id = store.station.get().online?.corporationID;
+    if (!id) throw new Error("No corporation is selected.");
+    return (await corporationRecords.get(bridgeAsk, id, () => {}, true)).fields;
+  }
+  async function corporationIsRecruiting(): Promise<boolean> {
+    const v = (await ownCorporationRow()).isRecruiting;
+    return v === true || (typeof v === "number" && v !== 0) || Number(unwrapLong(v) ?? 0) !== 0;
+  }
+  async function setCorporationRecruiting(isRecruiting: boolean): Promise<void> {
+    const row = await ownCorporationRow();
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapReal(v) ?? unwrapLong(v) ?? 0));
+    const text = (v: JsonValue | undefined) => (typeof v === "string" ? v : v && typeof v === "object" && "value" in v && typeof v.value === "string" ? v.value : "");
+    try { await bridgeDo("corpRegistry", "UpdateCorporation", [text(row.description), text(row.url), num(row.taxRate), isRecruiting, num(row.loyaltyPointTaxRate)]); }
+    catch (error) { throwIfRequestRetired(error); if (!sayRefusalDialog(error, errorWords(error))) throw error; }
+  }
   async function inviteToJoinCorp(characterID: number): Promise<boolean> {
     const scope = captureMemberOperation();
     await memberNames(scope, [{ kind: "owner", id: characterID }]);
@@ -30071,6 +30112,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     updateRecruitmentAd,
     lookupPlayerCharacters,
     inviteToJoinCorp,
+    corporationWelcomeMail,
+    setCorporationWelcomeMail,
+    corporationIsRecruiting,
+    setCorporationRecruiting,
     recruitmentAdRecruiters,
     corporationAggressionAt,
     deleteRecruitmentAd,
