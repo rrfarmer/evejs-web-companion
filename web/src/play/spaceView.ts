@@ -209,6 +209,27 @@ export class SpaceView {
   private readonly impactAnimations = new Map<string, { ship: number; name: string; cycle: number; next: number; until: number }>();
   /** How many space objects the LOD quality's visibility threshold left undrawn this frame (for checks). */
   lodCulled = 0;
+  /** How many space objects were out of the view's frustum this frame (for checks). */
+  frustumCulled = 0;
+  /** Each model's bounding sphere with its children, in its mark's frame (looked for again every 120 frames: children load late). */
+  private readonly modelBounds = new WeakMap<THREE.Object3D, { centre: THREE.Vector3; radius: number; at: number }>();
+  /** A model's bounding sphere with children, in the world now (at least its ball's radius about the ball). */
+  private boundsOf(model: THREE.Object3D, mark: THREE.Object3D, ballRadius: number): THREE.Sphere {
+    let b = this.modelBounds.get(model);
+    if (!b || this.frameCount - b.at >= 120) {
+      const was = model.visible;
+      model.visible = true;
+      mark.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(model);
+      model.visible = was;
+      const sphere = box.isEmpty() ? new THREE.Sphere(mark.position.clone(), 0) : box.getBoundingSphere(new THREE.Sphere());
+      b = { centre: mark.worldToLocal(sphere.center.clone()), radius: sphere.radius / Math.max(1e-6, Math.abs(mark.getWorldScale(new THREE.Vector3()).x)), at: this.frameCount };
+      this.modelBounds.set(model, b);
+    }
+    const centre = mark.localToWorld(b.centre.clone());
+    const r = Math.max(b.radius * Math.abs(mark.getWorldScale(new THREE.Vector3()).x), ballRadius);
+    return new THREE.Sphere(b.radius >= ballRadius ? centre : mark.getWorldPosition(new THREE.Vector3()), r);
+  }
   /** How many drawn objects' boosters the low detail threshold left undrawn this frame (for checks). */
   lodBoostersHidden = 0;
   /** How many drawn objects' boosters were given their far effect this frame (for checks). */
@@ -1530,15 +1551,21 @@ export class SpaceView {
     const threshold = lodSettings(settings).visibility;
     const eye = this.camera.getWorldPosition(new THREE.Vector3());
     const across = (this.camera.projectionMatrix.elements[0] ?? 1) * this.renderer.domElement.width;
-    let culled = 0, boostersHidden = 0, boostersFar = 0, childMeshesHidden = 0;
+    let culled = 0, boostersHidden = 0, boostersFar = 0, childMeshesHidden = 0, outOfView = 0;
+    this.camera.updateMatrixWorld();
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     const lod = lodSettings(settings), ahead = this.camera.getWorldDirection(new THREE.Vector3()), centre = new THREE.Vector3();
     for (const [id, m] of this.marks) {
       const model = m.userData.model as THREE.Object3D | undefined;
       if (!model) continue;
       const radius = Number(m.userData.radius) || 0;
       const pixels = id === ego?.itemID ? Infinity : (radius / Math.max(m.position.distanceTo(eye), 1e-5)) * across;
-      const shown = pixels >= threshold && (!m.userData.playerDrone || this.droneModels);
+      // and only where its bounding sphere with children is in the view's frustum (m_isInFrustum: an object behind the
+      // camera or off to the side is not drawn at all - its children, effects and lights with it)
+      const inView = id === ego?.itemID || frustum.intersectsSphere(this.boundsOf(model, m, radius));
+      const shown = inView && pixels >= threshold && (!m.userData.playerDrone || this.droneModels);
       if (!(pixels >= threshold)) culled++;
+      else if (!inView) outOfView++;
       if (model.visible !== shown) model.visible = shown;
       // EveBoosterSet2Renderable::UpdateVisibility: the boosters' LOD 2 x their padded sphere's size across
       // (TriFrustum::GetPixelSizeAccross: radius / depth x P[0][0] x the width; the eye inside it: no limit) - drawn
@@ -1572,6 +1599,7 @@ export class SpaceView {
     childMeshesHidden += this.gateChildMeshes(this.missileFx.group, 2, eye, ahead, across, lod.lodFactor, 30);
     childMeshesHidden += this.gateChildMeshes(this.shipFx.group, 2, eye, ahead, across, lod.lodFactor, 30);
     this.lodCulled = culled;
+    this.frustumCulled = outOfView;
     this.lodBoostersHidden = boostersHidden;
     this.lodBoostersFar = boostersFar;
     this.lodChildMeshesHidden = childMeshesHidden;
