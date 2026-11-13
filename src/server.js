@@ -1817,6 +1817,7 @@ function buildStationStatic(stationID) {
     stationID: numericStationID,
     stationName: String(record.stationName || `Station ${numericStationID}`),
     solarSystemName: String(record.solarSystemName || ""),
+    solarSystemID: Number(record.solarSystemID) || null,
     regionName: String(record.regionName || ""),
     stationTypeID,
     stationTypeName: stationTypeID ? staticData.getTypeName(stationTypeID) : null,
@@ -14567,6 +14568,10 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.freelance.project.api.GetForManagerRequest",
   "eve_public.freelance.project.api.GetAllInactiveRequest",
   "eve_public.freelance.project.api.GetCreationLimitsRequest",
+  // CreateProjectWindow: the contribution methods (ContributionMethodsMessenger.get_latest_definitions) and the cost
+  // calculator's prices (get_creation_prices).
+  "eve_public.freelance.contributionmethod.definition.api.GetAllLatestRequest",
+  "eve_public.freelance.project.api.GetCreationPricesRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.
@@ -14577,6 +14582,8 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.goal.api.CreateRequest",
   // goalMessenger.redeem_reward: a project's Claim (ClaimableRewardButton - CorpGoalsController.redeem_reward).
   "eve_public.corporationgoal.api.RedeemMyRewardsRequest",
+  // FreelanceProjectsMessenger.create: Create Project's submit.
+  "eve_public.freelance.project.api.CreateRequest",
   "eve_public.goal.api.DeleteRequest",
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).

@@ -4342,6 +4342,122 @@
     }
    ]
   },
+  "eve_public.freelance.contributionmethod.definition.api.GetAllLatestRequest": {
+   "fields": [
+    {
+     "name": "known_version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification",
+     "oneof": "current_version"
+    },
+    {
+     "name": "no_known_version",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "current_version"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.api.GetAllLatestResponse": {
+   "fields": [
+    {
+     "name": "version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    },
+    {
+     "name": "definitions",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.definition.api.GetAllLatestResponse.Definition"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.api.GetAllLatestResponse.Definition": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.Attributes"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.api.GetAllLatestWithinMajorRequest": {
+   "fields": [
+    {
+     "name": "major",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "known_version",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification",
+     "oneof": "current_version"
+    },
+    {
+     "name": "no_known_version",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "current_version"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.api.GetAllLatestWithinMajorResponse": {
+   "fields": [
+    {
+     "name": "version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    },
+    {
+     "name": "definitions",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.definition.api.GetAllLatestWithinMajorResponse.Definition"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.api.GetAllLatestWithinMajorResponse.Definition": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.Attributes"
+    }
+   ]
+  },
   "eve_public.freelance.contributionmethod.itemdelivery.DeliveryLocation": {
    "fields": [
     {

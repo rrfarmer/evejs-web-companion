@@ -508,6 +508,33 @@ export interface CorporationGoals {
   /** contributionMethods' messages by method key. */
   readonly methods: Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string; readonly progressDescriptionID?: number; readonly rewardingDescriptionID?: number }>>;
 }
+/** A contribution method's definition (ContributionMethodDefinition.from_proto): localization message ids, the icon's
+ * name, the content tags' names, the delivery parameter's parts and the modifiers it allows (null where disabled). */
+export interface FreelanceMethod {
+  readonly name: string; readonly title: number; readonly description: number; readonly progressDescription: number; readonly targetDescription: number;
+  readonly rewardDescription: number; readonly icon: string; readonly contentTags: readonly string[];
+  readonly delivery: { readonly title: number; readonly itemTitle: number; readonly itemDescription: number; readonly itemTypes: readonly string[]; readonly locationTitle: number; readonly locationDescription: number; readonly maxLocations: number } | null;
+  readonly otherParameters: number;
+  readonly multiplier: { readonly min: number; readonly max: number; readonly default: number | null } | null;
+  readonly maxContributions: { readonly default: number | null } | null; readonly maxProgress: { readonly default: number | null } | null;
+}
+export interface FreelanceCreation {
+  readonly methods: readonly FreelanceMethod[]; readonly version: { readonly major: number; readonly minor: number; readonly patch: number } | null;
+  readonly baseFeePerDay: number | null; readonly broadcastFeePerDay: number | null;
+  readonly limits: { readonly maxBroadcastLocations: number; readonly maxCommitted: number; readonly maxAgeDays: number } | null;
+  readonly offices: readonly { readonly stationID: number; readonly name: string; readonly solarSystemID: number | null }[];
+  readonly wallet: { readonly accountKey: number; readonly name: string | null; readonly balance: number | null } | null;
+}
+/** ProjectDraft as from_form makes it (career: the career path id, 0 none; end time in ms). */
+export interface FreelanceDraft {
+  readonly name: string; readonly description: string; readonly careerPath: number; readonly target: number; readonly method: string;
+  readonly version: { readonly major: number; readonly minor: number; readonly patch: number };
+  readonly itemTypes: readonly number[]; readonly itemGroups: readonly number[]; readonly deliveryStations: readonly number[];
+  readonly endTime: number; readonly broadcastSystems: readonly number[]; readonly payoutPerUnit: number;
+  readonly expectedCost: { readonly baseFee: number; readonly broadcastingFee: number; readonly rewardDeposit: number; readonly totalCost: number };
+  readonly maxCommitted: number; readonly maxContributions: number | null; readonly maxProgress: number | null; readonly multiplier: number | null;
+  readonly minAge: number | null; readonly maxAge: number | null;
+}
 /** A freelance project as payload_parser._parse_project makes it (times in ms), with the pilot's own progress. */
 export interface FreelanceProject {
   readonly projectID: string; readonly name: string; readonly description: string; readonly state: number; readonly careerPath: number | null;
@@ -3332,6 +3359,16 @@ export interface AppFlow {
   /** CorpUIFreelanceProjects' AdminBrowserContainer: the corporation's managed projects (GetAllActiveRequest, each
    * GetForManagerRequest - _parse_project), the ended ones in a timespan (GetAllInactiveRequest, the same
    * get_timespan_by_option), and GetCreationLimitsRequest's max_active_projects_per_corporation. */
+  /** open_create_project_window's reads: the contribution methods (GetAllLatestRequest - each definition's title,
+   * descriptions, icon, content tags, parameters and the three modifiers, absent where disabled), the cost calculator's
+   * prices (GetCreationPricesRequest), GetCreationLimitsRequest, the corporation's offices with their solar systems
+   * (GetMyCorporationsOffices; the office's station's system, as GetOfficeSolarSystem) and the active wallet division
+   * (session.corpAccountKey, its name and GetCorpWealth). */
+  freelanceCreation(): Promise<FreelanceCreation>;
+  /** FreelanceProjectsMessenger.create: CreateRequest from the draft; null on success, else the error's label
+   * (error_messages.get_create_error_label: UI/Corporations/FreelanceProjects/Errors/Create/<error class>) and its
+   * arguments. */
+  createFreelanceProject(draft: FreelanceDraft): Promise<{ readonly label: string; readonly values: Record<string, unknown> } | null>;
   corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }>;
   /** get_all_goal_contributor_summaries: GetContributorSummariesForGoalRequest pages - each contributor and progress. */
   corporationGoalContributors(goalID: string): Promise<readonly { readonly characterID: number; readonly progress: number }[]>;
@@ -18774,6 +18811,93 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean> {
     return goalWrite("eve_public.goal.api.SetCurrentProgressRequest", { goal: { uuid: bytesFromUuid(goal.goalID) }, current_progress: goal.current, new_progress: Math.min(progress, goal.desired) });
   }
+  async function freelanceCreation(): Promise<FreelanceCreation> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" || typeof value === "number" ? value : 0) || 0;
+    const seq = (value: unknown) => int(record(value).sequential);
+    const isk = (value: unknown) => { const c = record(value); return int(c.units) + int(c.nanos) / 1e9; };
+    const ask = async (request: string, payload: Record<string, JsonValue>) => { const a = await api.publicGatewayRequest(request, payload, callOptions); scope.current(); return a; };
+    let methods: FreelanceMethod[] = [], version: FreelanceCreation["version"] = null;
+    const defs = await ask("eve_public.freelance.contributionmethod.definition.api.GetAllLatestRequest", { no_known_version: true }).catch(() => null);
+    if (defs && defs.statusCode === 200) {
+      const payload = record(defs.payload), v = record(payload.version);
+      version = { major: int(v.major), minor: int(v.minor), patch: int(v.patch) };
+      methods = (Array.isArray(payload.definitions) ? payload.definitions : []).map((d) => {
+        const a = record(record(d).attributes), parameters = Array.isArray(a.parameters) ? a.parameters.map(record) : [];
+        const deliveryProto = parameters.map((p) => record(p.corporation_item_delivery)).find((p) => p.key !== undefined);
+        const modifier = (key: string) => (a[`${key}_disabled`] ? null : a[key] === undefined ? null : record(a[key]));
+        const mult = modifier("contribution_multiplier"), maxC = modifier("max_contributions_per_participant"), maxP = modifier("max_progress_per_contribution");
+        const delivery = deliveryProto ? (() => { const it = record(deliveryProto.inventory_type), loc = record(deliveryProto.delivery_location); return {
+          title: seq(deliveryProto.title), itemTitle: seq(it.title), itemDescription: seq(it.description), itemTypes: (Array.isArray(it.accepted_value_types) ? it.accepted_value_types : []).map(String),
+          locationTitle: seq(loc.title), locationDescription: seq(loc.description), maxLocations: int(loc.max_entries) || 1 }; })() : null;
+        return { name: String(record(record(d).id).name ?? ""), title: seq(a.title), description: seq(a.description), progressDescription: seq(a.progress_description),
+          targetDescription: seq(a.target_description), rewardDescription: seq(a.reward_description), icon: String(record(a.icon).name ?? ""),
+          contentTags: (Array.isArray(a.content_tags) ? a.content_tags : []).map((t) => String(record(t).name ?? "")), delivery,
+          otherParameters: parameters.length - (deliveryProto ? 1 : 0),
+          multiplier: mult ? { min: Number(mult.min_value ?? 1), max: Number(mult.max_value ?? 1), default: mult.default_value === undefined ? null : Number(mult.default_value) } : null,
+          maxContributions: maxC ? { default: maxC.default_value === undefined ? null : int(maxC.default_value) } : null,
+          maxProgress: maxP ? { default: maxP.default_value === undefined ? null : int(maxP.default_value) } : null };
+      }).filter((m) => m.name);
+    }
+    let baseFeePerDay: number | null = null, broadcastFeePerDay: number | null = null, limits: FreelanceCreation["limits"] = null;
+    const prices = await ask("eve_public.freelance.project.api.GetCreationPricesRequest", {}).catch(() => null);
+    if (prices && prices.statusCode === 200) { const p = record(record(prices.payload).prices); baseFeePerDay = isk(p.base_fee_per_day); broadcastFeePerDay = isk(p.broadcasting_fee_per_day_per_location); }
+    const lim = await ask("eve_public.freelance.project.api.GetCreationLimitsRequest", {}).catch(() => null);
+    if (lim && lim.statusCode === 200) { const l = record(lim.payload); limits = { maxBroadcastLocations: int(l.max_broadcasting_locations_per_project), maxCommitted: int(l.max_committed_participants_per_project), maxAgeDays: int(l.max_character_age_days) }; }
+    const officeRows = await corporationOfficeOptions().catch(() => []);
+    const offices = await Promise.all([...new Map(officeRows.map((o) => [o.stationID, o])).values()].map(async (o) => {
+      const station = o.stationID >= 60_000_000 && o.stationID < 64_000_000 ? await api.loadStationStatic(o.stationID, callOptions).catch(() => null) : null;
+      return { stationID: o.stationID, name: o.name, solarSystemID: station?.solarSystemID ?? null };
+    }));
+    const key = store.station.get().online?.corpAccountKey ?? null;
+    let wallet: FreelanceCreation["wallet"] = null;
+    if (key !== null) {
+      const row = await bridgeAsk("corpRegistry", "GetCorporation", []).catch(() => null);
+      const balance = await corporationWealthReads.fresh(key).catch(() => null);
+      wallet = { accountKey: key, name: row === null ? null : divisionNamesOf(row)[String(key - 1000 + 1)] ?? null, balance: typeof balance === "number" ? balance : null };
+    }
+    return { methods, version, baseFeePerDay, broadcastFeePerDay, limits, offices, wallet };
+  }
+  async function createFreelanceProject(draft: FreelanceDraft): Promise<{ readonly label: string; readonly values: Record<string, unknown> } | null> {
+    // eveProto.monolith_converters split_precision / get_currency_from_value: whole units and the nanos.
+    const currency = (value: number) => { const units = Math.trunc(value); return { units, nanos: Math.round((value - units) * 1e9) }; };
+    const matcher = (entries: readonly [string, readonly number[]][]) => ({ values: entries.filter(([, ids]) => ids.length).map(([value_type, ids]) => ({ value_type, values: ids.map(String) })) });
+    // careergoals const.get_proto_id_from_career_path_id.
+    const career = ({ 4: 1, 5: 2, 6: 3, 7: 4 } as Record<number, number>)[draft.careerPath] ?? 0;
+    const payload = {
+      name: draft.name, description: draft.description, target_progress: draft.target, career,
+      deadline: { seconds: Math.floor(draft.endTime / 1000), nanos: (draft.endTime % 1000) * 1e6 },
+      configuration: { contribution_method: { name: draft.method }, version: draft.version,
+        parameters: [{ key: "corporation_item_delivery", corporation_item_delivery: {
+          item_type: matcher([["item_type", draft.itemTypes], ["item_group", draft.itemGroups]]), corporation_office_location: matcher([["station", draft.deliveryStations]]) } }] },
+      contribution_modifiers: { ...(draft.maxContributions ? { contributions_per_participant_limit: draft.maxContributions } : { contributions_per_participant_unlimited: true }),
+        ...(draft.maxProgress ? { progress_per_contribution_limit: draft.maxProgress } : { progress_per_contribution_unlimited: true }),
+        ...(draft.multiplier ? { scalar_multiplier: draft.multiplier * 0.01 } : { default_multiplier: true }) },
+      participation_restrictions: { max_committed_participants: draft.maxCommitted,
+        age_restriction: { ...(draft.maxAge === null ? { no_max_age: true } : { max_age: draft.maxAge }), ...(draft.minAge === null ? { no_min_age: true } : { min_age: draft.minAge }) } },
+      broadcast_locations: { solar_systems: draft.broadcastSystems.map((sequential) => ({ sequential })) },
+      reward: { payout_per_unit: currency(draft.payoutPerUnit) },
+      expected_cost: { base_fee: currency(draft.expectedCost.baseFee), broadcasting_fee: currency(draft.expectedCost.broadcastingFee), reward_deposit: currency(draft.expectedCost.rewardDeposit), total_cost: currency(draft.expectedCost.totalCost) },
+      no_acl: true,
+    };
+    const E = "UI/Corporations/FreelanceProjects/Errors/Create/";
+    let a: Awaited<ReturnType<typeof api.publicGatewayRequest>>;
+    try { a = await api.publicGatewayRequest("eve_public.freelance.project.api.CreateRequest", payload as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }); }
+    catch { return { label: E + "ServiceUnavailableError", values: {} }; }
+    const p = (a.payload && typeof a.payload === "object" ? a.payload : {}) as Record<string, Record<string, unknown> | undefined>;
+    if (a.statusCode === 200 && p.created) { corporationWealthReads.forget(); return null; }
+    const systems = (x: Record<string, unknown> | undefined) => (Array.isArray(x?.solar_systems) ? x.solar_systems as Record<string, unknown>[] : []).map((s) => Number(s.sequential));
+    const systemNames = async (ids: number[]) => { await memberNames(captureMemberOperation(), ids.map((id) => ({ kind: "system" as const, id }))); return ids.map((id) => resolvedName(store.names.get().resolved, "system", id, String(id))).join(", "); };
+    if (p.max_active_projects_per_corporation_reached) return { label: E + "MaxActiveProjectsPerCorpReachedError", values: { limit: Number(p.max_active_projects_per_corporation_reached.limit ?? 0) } };
+    if (p.invalid_broadcasting_locations) return { label: E + "InvalidBroadcastingLocationError", values: { solar_systems: await systemNames(systems(p.invalid_broadcasting_locations)) } };
+    if (p.cannot_manage_projects) return { label: E + "MissingRoleError", values: {} };
+    if (p.max_active_projects_broadcast_per_system_reached) return { label: E + "MaxActiveProjectsPerSystemReachedError", values: { limit: Number(p.max_active_projects_broadcast_per_system_reached.limit ?? 0), solar_systems: await systemNames(systems(p.max_active_projects_broadcast_per_system_reached)) } };
+    if (p.outdated_contribution_methods) return { label: E + "OutdatedMethodError", values: {} };
+    if (p.outdated_project_cost) return { label: E + "OutdatedProjectCostError", values: {} };
+    // _raise_generic_error by status: 400 bad request, 401 unauthorized, 500 internal, else the generic error.
+    return { label: E + (a.statusCode === 400 ? "GenericProjectBadRequestError" : a.statusCode === 401 ? "GenericProjectUnauthorizedError" : a.statusCode === 500 ? "GenericProjectInternalServerError" : "GenericProjectError"), values: {} };
+  }
   async function corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }> {
     const scope = captureMemberOperation();
     const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
@@ -32147,6 +32271,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationVoteBlueprints,
     corporationGoals,
     corporationFreelanceProjects,
+    freelanceCreation,
+    createFreelanceProject,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,

@@ -7,14 +7,15 @@
   // ActiveFreelanceProjectsSortBy, default name), Active (the managed projects of the corporation that are active, as
   // job cards) and History (Name, ContributionMethod, Created, Ended, Resolution, Progress, Creator;
   // HistoryTab/NoProjectsFound), CreateNewButton at the bottom.
-  // Not here yet: the contribution method's name (its definitions), the cards' job-board details, the admin details
-  // overlay, creating a project.
+  // Create New: CorporationFreelanceForm.svelte (open_create_project_window). Not here yet: the contribution method's
+  // name (its definitions), the cards' job-board details, the admin details overlay.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, FreelanceProject } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -48,6 +49,7 @@
     void flow.certifiedSkillPlans().then((r) => { if (r) careerNames = Object.fromEntries(r.careerPaths.filter((c) => c.nameID !== null).map((c) => [c.careerPathID, c.nameID!])); }, () => {});
   });
 
+  let creating = $state(false);
   let page = $state<"active" | "history">("active"), filterText = $state(""), monthsSince = $state<number | null>(null);
   let read = $state<Awaited<ReturnType<AppFlow["corporationFreelanceProjects"]>> | null>(null), loading = $state(true);
   let career = $state<number | null>(null), menu = $state<"filter" | "sort" | null>(null);
@@ -144,7 +146,8 @@
       {:else}<p class="fp-hint">{word(F + "HistoryTab/NoProjectsFound")}</p>{/each}
     {/if}
   </div>
-  <div class="fp-buttons"><button disabled title="project_creation.open_create_project_window">{word(F + "CreateProject/CreateNewButton")}</button></div>
+  <div class="fp-buttons"><button onclick={() => { creating = true; }}>{word(F + "CreateProject/CreateNewButton")}</button></div>
+  {#if creating}<CorporationFreelanceForm {store} {flow} onClose={(made) => { creating = false; if (made) void load(); }} />{/if}
 </div>
 
 <style>

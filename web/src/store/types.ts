@@ -85,6 +85,8 @@ export interface StationStatic {
   readonly stationID: number;
   readonly stationName: string;
   readonly solarSystemName: string;
+  /** The station's solar system (staticData's record), where known. */
+  readonly solarSystemID?: number | null;
   readonly regionName: string;
   readonly stationTypeID: number | null;
   readonly stationTypeName: string | null;
