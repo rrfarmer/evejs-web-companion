@@ -481,7 +481,10 @@ export interface CorpAssetLocation { readonly locationID: number; readonly solar
 /** What the inventory list's columns read of a type (uix.GetItemData): its charge size, implant and booster slots, the
  * power slot its effects fit (12 high, 13 medium, 11 low, 2663 rig), its volume and packaged volume, meta and tech
  * level, and the cfg's average price. */
-export interface AssetTypeFacts { readonly chargeSize: number | null; readonly implantness: number | null; readonly boosterness: number | null; readonly slotEffect: number | null; readonly volume: number | null; readonly packagedVolume: number | null; readonly metaLevel: number | null; readonly techLevel: number | null; readonly averagePrice: number | null }
+export interface AssetTypeFacts { readonly categoryID: number | null; readonly chargeSize: number | null; readonly implantness: number | null; readonly boosterness: number | null; readonly slotEffect: number | null; readonly volume: number | null; readonly packagedVolume: number | null; readonly metaLevel: number | null; readonly techLevel: number | null; readonly averagePrice: number | null }
+/** structureAssetSafety.GetItemsInSafetyForCorp's KeyVal: a wrap, its system, its eject time (FILETIME), the days until
+ * it may be delivered and until it moves itself, and the nearest NPC station's item and type. */
+export interface SafetyWrap { readonly assetWrapID: number; readonly wrapName: string; readonly solarSystemID: number; readonly ejectTime: bigint; readonly daysUntilCanDeliver: number; readonly daysUntilAutoMove: number; readonly nearestStationID: number; readonly nearestStationTypeID: number }
 /** corpmgr.GetAssetInventoryForLocation's row. */
 export interface CorpAssetItem { readonly itemID: number; readonly typeID: number; readonly flagID: number; readonly stacksize: number; readonly singleton: number; readonly groupID: number; readonly categoryID: number }
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
@@ -2705,6 +2708,11 @@ export interface AppFlow {
   corporationAssetLocations(which: string): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   corporationAssetItems(locationID: number, which: string): Promise<readonly CorpAssetItem[]>;
   assetTypeFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, AssetTypeFacts>>;
+  /** SafetyControllerCorp.GetItemsInSafety: the corporation's wraps in asset safety. */
+  corporationSafetyWraps(): Promise<readonly SafetyWrap[]>;
+  /** assetSafetySvc.MoveItemsInStructureToAssetSafetyForCorp: ConfirmAssetSafetyCorp (ConfirmAssetEjectionCorp in a
+   * wormhole or Triglavian system), Yes - MoveCorpAssetsToSafety. True where it was asked of the server. */
+  moveCorpAssetsToSafety(solarSystemID: number, structureID: number): Promise<boolean>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
@@ -18109,10 +18117,43 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const attrs = attributes[typeID] ?? {}, own = effects[typeID] ?? [], facts = meta?.types.get(typeID) ?? null;
       // GetPowerSlotSizeSymbol: the type's first effect that names a slot.
       const slotEffect = own.find(effectID => effectID === 2663 || effectID === 12 || effectID === 13 || effectID === 11) ?? null;
-      return [typeID, { chargeSize: attrs[128] ?? null, implantness: attrs[331] ?? null, boosterness: attrs[1087] ?? null, slotEffect,
+      return [typeID, { categoryID: facts?.categoryID ?? null, chargeSize: attrs[128] ?? null, implantness: attrs[331] ?? null, boosterness: attrs[1087] ?? null, slotEffect,
         volume: volumes.volumes[typeID] ?? null, packagedVolume: volumes.packaged[typeID] ?? null, metaLevel: facts?.metaLevel ?? null, techLevel: facts?.techLevel ?? null,
         averagePrice: typeID === 79785 ? 1000 : prices?.get(typeID) ?? null }] as const;
     }));
+  }
+  async function corporationSafetyWraps(): Promise<readonly SafetyWrap[]> {
+    const scope = captureMemberOperation();
+    const answer = await scope.ask("structureAssetSafety", "GetItemsInSafetyForCorp", []); scope.current();
+    const rows: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const field = (row: JsonValue, key: string): JsonValue => readKeyVal(row, key) ?? readDictPairs(row).find(([k]) => k === key)?.[1] ?? null;
+    const num = (value: JsonValue) => Number(unwrapLong(value) ?? 0n);
+    const wraps = rows.map(row => {
+      const station = field(row, "nearestNPCStationInfo");
+      const stationField = (key: string) => num(field(station, key));
+      const name = field(row, "wrapName");
+      return { assetWrapID: num(field(row, "assetWrapID")), wrapName: typeof name === "string" ? name : name && typeof name === "object" && "value" in name ? String((name as { value: unknown }).value) : "",
+        solarSystemID: num(field(row, "solarSystemID")), ejectTime: unwrapLong(field(row, "ejectTime")) ?? 0n,
+        daysUntilCanDeliver: num(field(row, "daysUntilCanDeliverConst")), daysUntilAutoMove: num(field(row, "daysUntilAutoMoveConst")),
+        nearestStationID: stationField("itemID"), nearestStationTypeID: stationField("typeID") };
+    });
+    await memberNames(scope, wraps.flatMap(wrap => [{ kind: "system" as const, id: wrap.solarSystemID }, { kind: "station" as const, id: wrap.nearestStationID }]));
+    return wraps;
+  }
+  async function moveCorpAssetsToSafety(solarSystemID: number, structureID: number): Promise<boolean> {
+    const scope = captureMemberOperation(), online = scope.online;
+    // _IsAssetSafetyDisabledInSystem: a wormhole system (31000000-31999999) or a Triglavian one (factionTriglavian 500026).
+    const map = await (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; }));
+    const faction = map.systems.find(system => system[0] === solarSystemID)?.[4] ?? 0;
+    const disabled = (solarSystemID >= 31_000_000 && solarSystemID <= 31_999_999) || faction === 500026;
+    await memberNames(scope, [{ kind: "owner", id: online.corporationID }, { kind: "structure", id: structureID }, { kind: "system", id: solarSystemID }]);
+    const corpName = resolvedName(store.names.get().resolved, "owner", online.corporationID, "");
+    const yes = await askDialog(disabled ? "ConfirmAssetEjectionCorp" : "ConfirmAssetSafetyCorp", { type: "dict", entries: [["corpName", corpName], ["structureID", structureID], ["solarsystemID", solarSystemID]] } as JsonValue,
+      "Move all of the corporation's things in this structure into asset safety?");
+    if (!yes) return false;
+    try { await scope.write("structureAssetSafety", "MoveCorpAssetsToSafety", [solarSystemID, structureID]); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+    return true;
   }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
@@ -31160,6 +31201,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationAssetLocations,
     corporationAssetItems,
     assetTypeFacts,
+    corporationSafetyWraps,
+    moveCorpAssetsToSafety,
     corporationAssetCategories,
     async marketTypeMatches(text: string) {
       const answer = await api.getMarketTypeMatches(text, callOptions);

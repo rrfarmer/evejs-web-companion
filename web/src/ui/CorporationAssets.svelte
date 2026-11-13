@@ -13,10 +13,17 @@
   // once and on Search: SearchAssets, the locations by name, each to its items that meet the search. Item Type: a
   // market type named exactly so, else DoParseItemType - under three letters ConNeedAtLeastThreeLetters, the text last
   // picked nothing, the types whose name holds it (SelectItemTypeDlg: none ConNoItemsFound, one taken, more a list of
-  // ItemTypeLine to pick from), the field then the type's name.
+  // ItemTypeLine to pick from), the field then the type's name. Safety (a director's): AssetSafetyCont over
+  // GetItemsInSafetyForCorp - Name, Solar System, Manual Delivery (Deliver To, filled as the wait passes, enabled once
+  // daysUntilCanDeliver days from the eject time are gone) and Auto Delivery (the time left until daysUntilAutoMove days,
+  // the nearest NPC station), counted each second. A location's menu (GetLocationMenu), a director's: a structure's Move
+  // Items To Safety (To Space in a wormhole system). Not yet: the CelestialMenu entries, an impounded location's Trash
+  // Items At Location, the Deliver To window.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, AssetTypeFacts, CorpAssetItem, CorpAssetLocation } from "../app/flow.ts";
+  import type { AppFlow, AssetTypeFacts, CorpAssetItem, CorpAssetLocation, SafetyWrap } from "../app/flow.ts";
+  import { shortWrittenInterval, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
+  import { onDestroy } from "svelte";
   import { formatNumeric, fmtAmt } from "../bridge/pyNumbers.ts";
   import { iskWords } from "../bridge/questions.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -31,14 +38,16 @@
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const A = "UI/Corporations/Assets/";
-  const TABS = [["offices", "UI/Corporations/Common/Offices"], ["impounded", A + "Impounded"], ["property", A + "InSpace"], ["deliveries", A + "Deliveries"], ["capsuleerdeliveries", "UI/Corporations/DeliverItem/CapsuleerDeliveries"], ["lockdown", A + "Lockdown"], ["search", "UI/Common/Search"]] as const;
+  const TABS = [["offices", "UI/Corporations/Common/Offices"], ["impounded", A + "Impounded"], ["property", A + "InSpace"], ["deliveries", A + "Deliveries"], ["capsuleerdeliveries", "UI/Corporations/DeliverItem/CapsuleerDeliveries"], ["lockdown", A + "Lockdown"], ["search", "UI/Common/Search"], ["safety", "UI/Inventory/AssetSafety/Safety"]] as const;
   const FLAG: Record<string, number> = { offices: 71, impounded: 72, property: 74, deliveries: 75, assetwraps: 76, capsuleerdeliveries: 78 };
   const WHERE = [["offices", "UI/Corporations/Common/Offices"], ["impounded", A + "Impounded"], ["property", A + "InSpace"], ["deliveries", A + "Deliveries"], ["capsuleerdeliveries", "UI/Corporations/DeliverItem/CapsuleerDeliveries"], ["assetwraps", A + "AssetSafety"]] as const;
   const CORP_SAGS = [115, 116, 117, 118, 119, 120, 121, 184];
   const DIVISION_BY_FLAG: Record<number, number> = { 115: 0, 116: 1, 117: 2, 118: 3, 119: 4, 120: 5, 121: 6, 184: 14 };
   const LABELS = [...TABS.map(([, l]) => l), "UI/Common/SortBy", "UI/Common/View", "UI/Common/Name", "UI/Common/NumberOfJumps", "UI/Common/NumberOfItems", A + "CurrentRegion", A + "AllRegions",
     A + "LocationAndJumps", A + "LocationNoRoute", "UI/Inventory/AssetsWindow/LocationDataLabel", "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute", A + "NoItemsFound", A + "UnusedCorpOffice",
-    A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", ...Object.keys(LINK_WORDS)];
+    A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Inventory/AssetSafety/Safety", "UI/Common/LocationTypes/SolarSystem", "UI/Inventory/AssetSafety/ManualDelivery", "UI/Inventory/AssetSafety/AutoDelivery",
+    "UI/Inventory/AssetSafety/DeliverTo", "UI/Inventory/AssetSafety/AutoDeliveryHint", "UI/Inventory/AssetSafety/DeliverBtnAvailableHint", "UI/Inventory/AssetSafety/DeliverBtnNotAvailableNowHint",
+    "UI/Inventory/AssetSafety/MoveItemsToSafety", "UI/Inventory/AssetSafety/MoveItemsToSpace", "UI/Corporations/Assets/TrashItemsAtLocation", ...SHORT_INTERVAL_WORD_LABELS, "UI/Common/Name", "UI/Common/Buttons/Close", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", ...Object.keys(LINK_WORDS)];
   const nameOf = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const text = (label: string, args: Record<string, unknown> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf });
   const followerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), t);
@@ -59,6 +68,22 @@
   let picking = $state<{ rows: readonly { typeID: number; name: string; category: string }[]; selected: number | null; done: (typeID: number | null) => void } | null>(null);
   // The list's answer: its resolver taken before the list is closed.
   function answerPick(typeID: number | null): void { const done = picking?.done; picking = null; done?.(typeID); }
+  // CorpAccounts.IsDirector, and the Safety tab's wraps and clock.
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const director = $derived((BigInt($station.online?.corpRole ?? "0") & 1n) !== 0n);
+  let wraps = $state<readonly SafetyWrap[] | null>(null), nowTicks = $state(BigInt(Date.now()) * 10000n + 116444736000000000n);
+  const clock = setInterval(() => { nowTicks = BigInt(Date.now()) * 10000n + 116444736000000000n; }, 1000);
+  onDestroy(() => clearInterval(clock));
+  const DAY = 864000000000n;
+  const interval = (ticks: bigint) => shortWrittenInterval(ticks < 0n ? 0n : ticks, $words.templates) ?? "";
+  let menuFor = $state<number | null>(null);
+  async function moveToSafety(row: CorpAssetLocation): Promise<void> {
+    menuFor = null;
+    try { if (await flow.moveCorpAssetsToSafety(row.solarSystemID, row.locationID)) await show(which); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  const isStructure = (row: CorpAssetLocation) => row.typeID !== null && facts.get(row.typeID)?.categoryID === 65;
+  const isWormholeOrTrig = (row: CorpAssetLocation) => row.solarSystemID >= 31_000_000 && row.solarSystemID <= 31_999_999;
   let categories = $state<readonly { id: number; name: string }[]>([]), groups = $state<readonly { id: number; name: string }[]>([]);
   let condition = $state<{ categoryID: number | null; groupID: number | null; typeID: number | null; qty: number | null; which: string } | null>(null), searching = $state(false);
   // svelte-ignore state_referenced_locally
@@ -73,6 +98,12 @@
     setSetting("corpAssetsSortKey", String(sortKey));
     regionKey = Number(setting(`corpAssetsKeyID_${tab}`) ?? "0") || 0;
     try {
+      if (tab === "safety") {
+        wraps = null;
+        wraps = await flow.corporationSafetyWraps();
+        read = null;
+        return;
+      }
       if (tab === "lockdown") {
         // ShowLockdown: the sort key and region kept; the role check before the locations are asked.
         sortKey = Number(setting("corpAssetsSortKey") ?? "0") === 1 ? 1 : 0;
@@ -84,7 +115,12 @@
         if (!categories.length) categories = await flow.corporationAssetCategories();
         if (searchCategory !== null) groups = await flow.corporationAssetGroups(searchCategory);
         await search();
-      } else read = await flow.corporationAssetLocations(tab);
+      } else {
+        read = await flow.corporationAssetLocations(tab);
+        // GetLocationMenu's IsLocationStructure: the location's type's category (categoryStructure 65).
+        const types = [...new Set(read.rows.map((r) => r.typeID).filter((id): id is number => id !== null && !facts.has(id)))];
+        if (types.length) facts = new Map([...facts, ...(await flow.assetTypeFacts(types))]);
+      }
     } catch (e) { error = e instanceof Error ? e.message : String(e); }
   }
   async function search(): Promise<void> {
@@ -249,9 +285,29 @@
 <div class="ca">
   {#if error}<p class="error">{error}</p>{/if}
   <div class="ca-tabs">
-    {#each TABS as [id, l] (id)}<button class:active={which === id} onclick={() => void show(id)}>{plainText(text(l))}</button>{/each}
+    {#each TABS.filter(([id]) => id !== "safety" || director) as [id, l] (id)}<button class:active={which === id} onclick={() => void show(id)}>{plainText(text(l))}</button>{/each}
   </div>
-  {#if which === "search"}
+  {#if which === "safety"}
+    <div class="ca-safety">
+      <div class="ca-safety-row ca-safety-head">{#each ["UI/Common/Name", "UI/Common/LocationTypes/SolarSystem", "UI/Inventory/AssetSafety/ManualDelivery", "UI/Inventory/AssetSafety/AutoDelivery"] as h (h)}<span>{plainText(text(h))}</span>{/each}</div>
+      {#each wraps ?? [] as w (w.assetWrapID)}
+        {@const manual = w.ejectTime + BigInt(w.daysUntilCanDeliver) * DAY - nowTicks}
+        {@const auto = w.ejectTime + BigInt(w.daysUntilAutoMove) * DAY - nowTicks}
+        <div class="ca-safety-row">
+          <span>{w.wrapName}</span>
+          <span><LabelText markup={`<url=showinfo:5//${w.solarSystemID}>${nameOf("system", w.solarSystemID)}</url>`} {followerOf} /></span>
+          <span><button class="ca-deliver" disabled={manual > 0n}
+            title={manual < 0n ? plainText(text("UI/Inventory/AssetSafety/DeliverBtnAvailableHint")) : plainText(text("UI/Inventory/AssetSafety/DeliverBtnNotAvailableNowHint", { timeUntil: interval(manual) }))}>
+            <span class="ca-progress" style:width={`${Math.min(1, Math.max(0, 1 - Number(manual) / (864000000000 * w.daysUntilCanDeliver))) * 100}%`}></span>
+            <span class="ca-deliver-label">{plainText(text("UI/Inventory/AssetSafety/DeliverTo"))}</span></button></span>
+          <span class="ca-auto"><span title={plainText(text("UI/Inventory/AssetSafety/AutoDeliveryHint"))}>⧗</span> <span class="ca-auto-left">{interval(auto)}</span>
+            <LabelText markup={`<url=showinfo:${w.nearestStationTypeID}//${w.nearestStationID}>${nameOf("station", w.nearestStationID)}</url>`} {followerOf} /></span>
+        </div>
+      {:else}
+        {#if wraps}<p class="ca-hint">{plainText(text(A + "NoItemsFound"))}</p>{/if}
+      {/each}
+    </div>
+  {:else if which === "search"}
     <div class="ca-search">
       <label><span>{plainText(text("UI/Common/Where"))}</span>
         <select value={searchWhich} onchange={(e) => { searchWhich = e.currentTarget.value; }}>{#each WHERE as [id, l] (id)}<option value={id}>{plainText(text(l))}</option>{/each}</select></label>
@@ -290,9 +346,17 @@
     {:else if read}
       {#each locations as loc (loc.row.locationID)}
         {@const list = items[loc.row.locationID]}
-        <button class="ca-group" onclick={() => void toggle(loc.row)}>
+        <button class="ca-group" onclick={() => void toggle(loc.row)} oncontextmenu={(e) => { e.preventDefault(); menuFor = menuFor === loc.row.locationID ? null : loc.row.locationID; }}>
           <span class="ca-arrow">{open[`l${loc.row.locationID}`] ? "▾" : "▸"}</span><LabelText markup={loc.label} {followerOf} />
         </button>
+        {#if menuFor === loc.row.locationID}
+          <div class="ca-menu" role="menu">
+            {#if director && isStructure(loc.row)}
+              <button role="menuitem" onclick={() => void moveToSafety(loc.row)}>{plainText(text(isWormholeOrTrig(loc.row) ? "UI/Inventory/AssetSafety/MoveItemsToSpace" : "UI/Inventory/AssetSafety/MoveItemsToSafety"))}</button>
+            {/if}
+            <button role="menuitem" onclick={() => { menuFor = null; }}>{plainText(text("UI/Common/Buttons/Close"))}</button>
+          </div>
+        {/if}
         {#if open[`l${loc.row.locationID}`] && list && list !== "loading"}
           {#if list.length === 0}
             <div class="ca-item ca-empty" style:padding-left="16px">{plainText(text(FLAG[which === "search" ? condition?.which ?? "" : which] === 71 ? A + "UnusedCorpOffice" : "/Carbon/UI/Controls/Common/NoItem"))}</div>
@@ -326,6 +390,17 @@
   .ca-search label { display: flex; flex-direction: column; font-size: 10px; width: 90px; }
   .ca-search .ca-qty-field { width: 60px; }
   .ca-search .ca-type-field { width: 106px; }
+  .ca-safety { flex: 1; min-height: 0; overflow: auto; }
+  .ca-safety-row { display: grid; grid-template-columns: minmax(140px, 1.5fr) 1fr 130px minmax(260px, 3fr); gap: 6px; align-items: center; min-height: 34px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding: 0 4px; }
+  .ca-safety-head { min-height: 20px; font-size: 10px; opacity: 0.7; }
+  .ca-deliver { position: relative; overflow: hidden; width: 120px; }
+  .ca-progress { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255, 255, 255, 0.18); }
+  .ca-deliver-label { position: relative; }
+  .ca-auto { display: flex; align-items: center; gap: 6px; }
+  .ca-auto-left { min-width: 120px; }
+  .ca-menu { display: flex; flex-direction: column; margin-left: 24px; background: rgba(12, 14, 16, 0.97); border: 1px solid rgba(255, 255, 255, 0.15); width: max-content; }
+  .ca-menu button { all: unset; cursor: pointer; padding: 3px 10px; }
+  .ca-menu button:hover { background: rgba(255, 255, 255, 0.1); }
   .ca-picker { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); z-index: 50; width: 320px; max-height: 360px; display: flex; flex-direction: column; background: rgba(12, 14, 16, 0.98); border: 1px solid rgba(255, 255, 255, 0.2); padding: 6px; gap: 6px; }
   .ca-picker-title { font-weight: bold; }
   .ca-picker-list { flex: 1; overflow: auto; display: flex; flex-direction: column; }
