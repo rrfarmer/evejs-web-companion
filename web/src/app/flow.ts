@@ -437,6 +437,7 @@ import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, re
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
 import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
+import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { corporationDecorationsOf, corporationMedalAwardeesOf, medalDetailsInfoOf, type CorporationDecorations, type CorporationMedalAwardee, type MedalInfo, type MedalCreationGraphic } from "../bridge/corporationDecorations.ts";
 import { CHARACTER_TYPES } from "../bridge/showInfoLink.ts";
 import { decodeNotifications, notificationRows, type Notification } from "../bridge/notifications.ts";
@@ -2377,6 +2378,8 @@ export interface AppFlow {
   requestCorporationApplications(): void;
   serveCorporationApplicationsRequest(n: number): void;
   corporationApplications(): Promise<readonly CorporationApplication[]>;
+  /** CorpKillReports: corpRegistry.GetRecentKills / GetRecentLosses(NUM_KILL_ENTRIES, offset), the names its rows show primed. */
+  corporationKillReports(kind: "kills" | "losses", count: number, offset: number | null): Promise<readonly KillReport[]>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16223,6 +16226,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await memberNames({ current, options: scoped }, [...new Set(applications.map(row => row.corporationID))].map(id => ({ kind: "owner" as const, id })));
     current(); return applications;
   }
+  async function corporationKillReports(kind: "kills" | "losses", count: number, offset: number | null): Promise<readonly KillReport[]> {
+    const current = callOptions.captureRequestGuard!();
+    const scoped = { ...callOptions, captureRequestGuard: () => current };
+    const answer = await api.bridgeAsk(scoped)("corpRegistry", kind === "kills" ? "GetRecentKills" : "GetRecentLosses", [count, offset]);
+    current();
+    const kills = decodeKillReports(answer as never);
+    // GetCombatEntries primes the owners, locations, tickers before the entries are built
+    const owners = new Set<number>(), types = new Set<number>(), systems = new Set<number>();
+    for (const k of kills) {
+      for (const id of [k.victimCharacterID, k.victimCorporationID, k.victimAllianceID, k.finalCharacterID, k.finalCorporationID, k.finalAllianceID]) if (id) owners.add(id);
+      for (const id of [k.victimShipTypeID, k.finalShipTypeID, k.finalWeaponTypeID]) if (id) types.add(id);
+      if (k.solarSystemID) systems.add(k.solarSystemID);
+    }
+    await memberNames({ current, options: scoped }, [
+      ...[...owners].map((id) => ({ kind: "owner" as const, id })),
+      ...[...types].map((id) => ({ kind: "type" as const, id })),
+      ...[...systems].map((id) => ({ kind: "system" as const, id })),
+    ]);
+    current();
+    return kills;
+  }
   let applicationWork = Promise.resolve();
   async function corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void> {
     const scope = captureMemberOperation(), pilotCurrent = callOptions.captureRequestGuard!();
@@ -29758,6 +29782,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationApplications,
     corporationApplicationDecision,
     corporationApplicationsExpanded,
+    corporationKillReports,
     openCorporationMemberDetails,
     memberDetailsPanel,
     corporationMemberDetails,
