@@ -14529,6 +14529,8 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.cosmetic.corporation.palette.api.SetRequest",
   // goalMessenger.close_goal / delete_goal / set_manual_goal_progress: a project's Close, Delete, Complete, Set Progress.
   "eve_public.goal.api.CloseRequest",
+  // goalMessenger.create_goal: Create New's form.
+  "eve_public.goal.api.CreateRequest",
   "eve_public.goal.api.DeleteRequest",
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).

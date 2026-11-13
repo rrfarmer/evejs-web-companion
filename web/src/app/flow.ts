@@ -3328,6 +3328,16 @@ export interface AppFlow {
    * CompleteCorpProject (YESNO) first; then CloseRequest, DeleteRequest, or SetCurrentProgressRequest(current, desired).
    * A failure says FailedToConnect. True when done. */
   corporationGoalAction(goal: CorporationGoal, action: "close" | "delete" | "complete"): Promise<boolean>;
+  /** CorpGoalsController.create_goal - goalMessenger.create_goal: a payment first checked against the session's wallet
+   * division (GetCorpWealth(corpAccountKey) >= per unit x target, else InsufficientFunds); the expiry, where set,
+   * between 15 minutes and the end of the day a year from now (InvalidDuration); then CreateRequest(name, description,
+   * desired_progress, the method's contribution configuration as add_contribution_method makes it with no parameter
+   * given (any), career (CAREER_PATH_RESOLVER), reward_pools [PAYMENT_PERIOD_CONTRIBUTION, the ISK split into units
+   * and nanos] where paid, timestamp or no_expiry, limit or unlimited, contribution_unlimited, default). A refusal
+   * says AtGoalsCapacity {numMax} ("at capacity of active goals"), InsufficientFunds (reserve, 400),
+   * WalletDivisionAccessDenied (reserve, 403), else FailedToConnect. True when made. */
+  createCorporationGoal(goal: { readonly name: string; readonly description: string; readonly desired: number; readonly methodID: string; readonly careerPath: number | null;
+    readonly payment: number | null; readonly expiry: number | null; readonly participationLimit: number | null; readonly capacity: number | null }): Promise<boolean>;
   /** _SetProgress - set_current_progress: SetCurrentProgressRequest(goal, current_progress, min(new, desired)). */
   setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean>;
   /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
@@ -18562,6 +18572,57 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (action === "delete") return goalWrite("eve_public.goal.api.DeleteRequest", id);
     return goalWrite("eve_public.goal.api.SetCurrentProgressRequest", { ...id, current_progress: goal.current, new_progress: goal.desired });
   }
+  // add_contribution_method with every parameter None: each method's configuration field and its "any" matchers.
+  const ANY_SYSTEM = { solar_system: { any: true } }, ANY_SHIP = { ship_type: { any: true } }, ANY_IDENTITY = { identity: { any: true } };
+  const GOAL_CONFIGURATIONS: Readonly<Record<string, readonly [string, JsonValue]>> = {
+    Manual: ["manual", {}],
+    KillNPC: ["kill_npc", { contribution_methods: [{ free_solar_system: true }] }],
+    MineOre: ["mined_ore", { solar_systems: { all: true }, ores: { all: true } }],
+    DamageShip: ["damaged_ship", { solar_systems: { all: true }, ships: { all: true }, attacked_identities: { all: true } }],
+    KillCapsuleer: ["pvp_destroyed_ship", { solar_systems: { all: true }, ships: { all: true }, destroyed_identities: { all: true } }],
+    CaptureFWComplex: ["fw_capture", { contribution_methods: [{ previous_owner: { any: true }, ...ANY_SYSTEM, archetype: { any: true } }] }],
+    DefendFWComplex: ["fw_defend", { contribution_methods: [{ owner: { any: true }, ...ANY_SYSTEM, archetype: { any: true } }] }],
+    RemoteRepairShields: ["remote_shield_repair", { contribution_methods: [{ ...ANY_SYSTEM, ...ANY_SHIP, ...ANY_IDENTITY }] }],
+    RemoteRepairArmor: ["remote_armor_repair", { contribution_methods: [{ ...ANY_SYSTEM, ...ANY_SHIP, ...ANY_IDENTITY }] }],
+    ShipLoss: ["ship_lost_pvp", { contribution_methods: [{ ...ANY_SYSTEM, ...ANY_SHIP, ...ANY_IDENTITY }] }],
+    ScanSignature: ["scan_signature", { contribution_methods: [{ ...ANY_SYSTEM, signature_type: { any: true } }] }],
+    SalvageWreck: ["salvage_wreck", { contribution_methods: [{ ...ANY_SYSTEM }] }],
+    EarnLoyaltyPoints: ["earned_loyaltypoints", { corporations: { all: true } }],
+  };
+  // goalMessenger.CAREER_PATH_RESOLVER: the career path, the request's career.
+  const GOAL_CAREERS: Readonly<Record<number, number>> = { 0: 0, 4: 1, 5: 2, 6: 3, 7: 4 };
+  async function goalMessage(label: string, values: Record<string, unknown> = {}): Promise<void> {
+    await wordsNow([label]);
+    const text = plainText(formatTemplate(store.words.get().templates[label] ?? "", values as never, { nameOf: (kind, id) => nameCache.get(nameKey(kind, id)) ?? String(id) })) || label;
+    sayDialog("CustomInfo", { type: "dict", entries: [["info", text]] } as JsonValue, text);
+  }
+  async function createCorporationGoal(goal: Parameters<AppFlow["createCorporationGoal"]>[0]): Promise<boolean> {
+    const configuration = GOAL_CONFIGURATIONS[goal.methodID];
+    if (!configuration) throw new Error(`The contribution method ${goal.methodID} needs parameters this form does not offer yet.`);
+    if (goal.payment && (await corporationWealthReads.fresh(store.station.get().online?.corpAccountKey ?? null).catch(() => 0)) < goal.payment * goal.desired) {
+      await goalMessage("UI/Corporations/Goals/InsufficientFunds"); return false;
+    }
+    if (goal.expiry !== null) {
+      const now = Date.now(), max = new Date(now); max.setFullYear(max.getFullYear() + 1); max.setHours(23, 59, 59, 999);
+      if (goal.expiry < now + 15 * 60_000 || goal.expiry > max.getTime()) { await goalMessage("UI/Corporations/Goals/InvalidDuration"); return false; }
+    }
+    const payload: Record<string, JsonValue> = {
+      name: goal.name, description: goal.description, desired_progress: goal.desired,
+      contribution_configuration: { [configuration[0]]: configuration[1] }, career: GOAL_CAREERS[goal.careerPath ?? 0] ?? 0,
+      ...(goal.payment ? { reward_pools: [{ period: 1, isk: { amount: { units: Math.trunc(goal.payment), nanos: Math.round((goal.payment - Math.trunc(goal.payment)) * 1e9) } } }] } : {}),
+      ...(goal.expiry !== null ? { timestamp: { seconds: Math.floor(goal.expiry / 1000) } } : { no_expiry: true }),
+      ...(goal.participationLimit ? { limit: goal.participationLimit } : { unlimited: true }),
+      contribution_unlimited: true, default: true,
+    };
+    const a = await api.publicGatewayRequest("eve_public.goal.api.CreateRequest", payload, { ...callOptions, confirm: true }).catch(() => null);
+    if (a && a.statusCode === 200) return true;
+    const message = a?.statusMessage ?? "";
+    if (message === "at capacity of active goals") await goalMessage("UI/Corporations/Goals/AtGoalsCapacity", { numMax: goal.capacity });
+    else if (message.includes("unable to reserve backing asset for the rewards specified") && a?.statusCode === 400) await goalMessage("UI/Corporations/Goals/InsufficientFunds");
+    else if (message.includes("unable to reserve backing asset for the rewards specified") && a?.statusCode === 403) await goalMessage("UI/Corporations/Wallet/WalletDivisionAccessDenied");
+    else await goalMessage("UI/Corporations/Goals/FailedToConnect");
+    return false;
+  }
   async function setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean> {
     return goalWrite("eve_public.goal.api.SetCurrentProgressRequest", { goal: { uuid: bytesFromUuid(goal.goalID) }, current_progress: goal.current, new_progress: Math.min(progress, goal.desired) });
   }
@@ -31892,6 +31953,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationGoals,
     corporationGoalContributors,
     corporationGoalAction,
+    createCorporationGoal,
     setCorporationGoalProgress,
     corporationMembersWithMoreThanAvgShares,
     requestCorpLogos,

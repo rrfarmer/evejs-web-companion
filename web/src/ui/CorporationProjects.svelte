@@ -20,13 +20,14 @@
   // manual). The card menu (get_menu_for_corp_job): Clone; active - manual: Set Progress, Complete Project; Close
   // Project; no progress: Delete Project. History's menu: Clone, View Participants and the creator. Set Progress:
   // SetProjectProgress's form - SetProgressLabel, ProgressValue (current + 1 to the target), Apply.
-  // Not here yet: Create New's form and Clone (its duplicate), claiming rewards, the job board's own page.
+  // Create New and Clone: CorporationGoalForm.svelte. Not here yet: claiming rewards, the job board's own page.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import CorporationGoalForm from "./CorporationGoalForm.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -160,6 +161,9 @@
   // The details overlay, its participants, the menu and the Set Progress form.
   let details = $state<CorporationGoal | null>(null), participants = $state<readonly { characterID: number; progress: number }[] | null>(null);
   let cardMenu = $state<{ goal: CorporationGoal; x: number; y: number; history: boolean } | null>(null);
+  // goalForms.OpenCreateGoalFormWindow / OpenDuplicateGoalFormWindow.
+  let goalForm = $state<{ original: CorporationGoal | null } | null>(null);
+  function clone(g: CorporationGoal): void { cardMenu = null; goalForm = { original: g }; }
   let progressForm = $state<{ goal: CorporationGoal; value: number } | null>(null);
   async function viewParticipants(g: CorporationGoal): Promise<void> {
     details = g; participants = null; cardMenu = null;
@@ -224,7 +228,7 @@
         {/if}
         {#if read?.canAuthor}
           <div class="cp-detail-buttons">
-            <button class="cp-ghost" disabled title="goalForms.OpenDuplicateGoalFormWindow">⧉ {word(G + "CloneProject")}</button>
+            <button class="cp-ghost" onclick={() => clone(g)}>⧉ {word(G + "CloneProject")}</button>
             {#if !g.current}<button class="cp-ghost" onclick={() => void act(g, "delete")}>🗑 {word(G + "DeleteProject")}</button>{/if}
             {#if g.state === 1}<button class="cp-ghost" onclick={() => void act(g, "close")}>✕ {word(G + "CloseProject")}</button>
               {#if isManual(g)}<button onclick={() => { progressForm = { goal: g, value: g.current + 1 }; }}>{word(G + "SetProgress")}</button>{/if}{/if}
@@ -237,7 +241,7 @@
     {@const m = cardMenu}
     <div class="cp-menu cp-context" style:left={`${m.x}px`} style:top={`${m.y}px`} role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
       {#if read?.canAuthor}
-        <button disabled>⧉ {word(G + "CloneProject")}</button>
+        <button onclick={() => clone(m.goal)}>⧉ {word(G + "CloneProject")}</button>
         {#if m.history}<button onclick={() => void viewParticipants(m.goal)}>{word("UI/Corporations/FreelanceProjects/ViewParticipants")}</button>
         {:else}
           {#if m.goal.state === 1}
@@ -250,6 +254,9 @@
       {/if}
       {#if m.history}<hr /><button disabled>{nameAny("owner", m.goal.creator)}</button>{/if}
     </div>
+  {/if}
+  {#if goalForm && read}
+    <CorporationGoalForm {store} {flow} methods={read.methods} capacity={read.capacity} original={goalForm.original} onClose={(made) => { goalForm = null; if (made) void load(); }} />
   {/if}
   {#if progressForm}
     {@const f = progressForm}
@@ -316,7 +323,7 @@
               </div>
               <div class="cp-card-title">{g.name}</div>
               <div class="cp-card-bottom">{#if totalIsk(g)}<span>¤ {iskShort(totalIsk(g))}</span>{/if}
-                {#if read?.canAuthor}<span class="cp-card-actions"><button disabled title={word(G + "CloneProject")}>⧉</button><button title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={() => void viewParticipants(g)}>☰</button></span>{/if}</div>
+                {#if read?.canAuthor}<span class="cp-card-actions"><button title={word(G + "CloneProject")} onclick={() => clone(g)}>⧉</button><button title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={() => void viewParticipants(g)}>☰</button></span>{/if}</div>
             </div>
           {/each}
         </div>
@@ -333,7 +340,7 @@
       {/each}
     {/if}
   </div>
-  {#if read?.canAuthor}<div class="cp-buttons"><button disabled title="goalForms.OpenCreateGoalFormWindow">{word(G + "CreateNew")}</button></div>{/if}
+  {#if read?.canAuthor}<div class="cp-buttons"><button onclick={() => { goalForm = { original: null }; }}>{word(G + "CreateNew")}</button></div>{/if}
 </div>
 
 <style>
