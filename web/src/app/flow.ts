@@ -2481,6 +2481,15 @@ export interface AppFlow {
   /** EditCorpBulletin.ClickSend for a new bulletin: CorpBulletinMustFillIn, the chat manager's role (EditBulletin),
    * CorpTooManyBulletins (MAX_NUM_BULLETINS 10), then corpRegistry.AddBulletin(title, body); true when added. */
   addCorporationBulletin(title: string, body: string, alliance?: boolean): Promise<boolean>;
+  /** EditCorpBulletin.ClickSend for a bulletin edited: CorpBulletinMustFillIn, then base_corporation.UpdateBulletin -
+   * AddBulletin(title, body, bulletinID=, editDateTime=) on the corporation registry or the alliance moniker, a refusal
+   * put up as its dialog; true when made. */
+  editCorporationBulletin(bulletin: CorpBulletin, title: string, body: string, alliance: boolean): Promise<boolean>;
+  /** base_corporation.DeleteBulletin: the chat manager's role, ConfirmDeleteBulletin (yes / no, Yes kept), then
+   * DeleteBulletin(id) on the registry or the alliance moniker; true when deleted. */
+  deleteCorporationBulletin(bulletinID: number, alliance: boolean): Promise<boolean>;
+  /** BulletinsOrder.ApplyCurrentOrder: UpdateBulletinOrder(the bulletinIDs in order), the corporation's or the alliance's. */
+  updateBulletinOrder(order: readonly number[], alliance: boolean): Promise<boolean>;
   /** evecorporation.recruitment's groups and types, read once (null where the client cannot be read). */
   recruitmentData(): Promise<api.RecruitmentData | null>;
   /** CorpRecruitmentContainerSearch.GetSearchResults: corpRecProxy.SearchCorpAds with the panel's criteria, the
@@ -17023,6 +17032,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throw error;
     }
   }
+  function sayNoChatManager(): boolean {
+    if ((BigInt(store.station.get().online?.corpRole ?? "0") & 36028797018963968n) !== 0n) return false;
+    sayDialog("CrpAccessDenied", { type: "dict", entries: [["reason", "You do not have the Communications Officer role."]] }, "You do not have the Communications Officer role.");
+    return true;
+  }
+  async function editCorporationBulletin(bulletin: CorpBulletin, title: string, body: string, alliance: boolean): Promise<boolean> {
+    if (title === "" || body.trim() === "") { sayDialog("CorpBulletinMustFillIn", null, "You must fill in both the title and the body of the bulletin."); return false; }
+    if (sayNoChatManager()) return false;
+    const editDateTime: JsonValue = bulletin.editDateTime === null ? null : { type: "long", value: bulletin.editDateTime.toString() };
+    try { await bridgeDo(alliance ? "allianceRegistry" : "corpRegistry", "AddBulletin", [title, body.trim()], { bulletinID: bulletin.bulletinID, editDateTime }); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function deleteCorporationBulletin(bulletinID: number, alliance: boolean): Promise<boolean> {
+    if (sayNoChatManager()) return false;
+    await wordsNow(["dialog:ConfirmDeleteBulletin/title", "dialog:ConfirmDeleteBulletin/body"]).catch(() => {});
+    if (!await askDialog("ConfirmDeleteBulletin", null, "Delete this bulletin?", "yesno", { suppressAnswer: "yes" })) return false;
+    try { await bridgeDo(alliance ? "allianceRegistry" : "corpRegistry", "DeleteBulletin", [bulletinID]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function updateBulletinOrder(order: readonly number[], alliance: boolean): Promise<boolean> {
+    try { await bridgeDo(alliance ? "allianceRegistry" : "corpRegistry", "UpdateBulletinOrder", [{ type: "list", items: [...order] } as JsonValue]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function corporationBulletins(alliance = false): Promise<readonly CorpBulletin[]> {
     const current = callOptions.captureRequestGuard!();
     const scoped = { ...callOptions, captureRequestGuard: () => current };
@@ -30603,6 +30635,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     updateAlliance,
     allianceMembers,
     declareExecutorSupport,
+    editCorporationBulletin,
+    deleteCorporationBulletin,
+    updateBulletinOrder,
     deleteAllianceMember,
     rankedAlliances,
     allianceApplications,
