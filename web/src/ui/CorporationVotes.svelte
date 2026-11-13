@@ -12,12 +12,13 @@
   // shares / war / lockdown / unlock / expel the label the option's number picks. OnVoteCaseChanged / OnVoteCast read
   // it again. Run For CEO: ProposeCEOVote's HybridWnd (ProposeVote; Title, VoteMemberForCEO {char} set, required, at
   // most 500; Description, at most 100; DaysToLive 1 to 5) then CreateVote.
-  // Not here yet: Propose Vote's wizard (VoteWizardDialog).
+  // Propose Vote: VoteWizardDialog (CorporationVoteWizard.svelte), modal.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationVoteCase, CorporationVoteOption, CorporationVoting } from "../app/flow.ts";
   import { DATE_LABELS, formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
+  import CorporationVoteWizard from "./CorporationVoteWizard.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -86,6 +87,7 @@
   const cases = $derived(voting ? (tab === "open" ? voting.open : voting.closed) : []);
   const hint = $derived(!voting ? "" : tab === "open" && !voting.canView ? word(P + "AccessDeniedOnlyShareholders") : tab === "open" ? word(P + "NoOpenVotes") : word(P + "NoClosedVotes"));
   // ProposeCEOVote's HybridWnd.
+  let proposing = $state(false);
   let ceoForm = $state<{ title: string; description: string; days: number } | null>(null), ceoBusy = $state(false);
   function openCeoForm(): void { ceoForm = { title: word(P + "VoteMemberForCEO", { char: $station.online?.characterID ?? 0 }), description: "", days: 1 }; }
   async function submitCeo(): Promise<void> {
@@ -137,10 +139,11 @@
   </div>
   {#if voting && (voting.canPropose || voting.canRunForCEO)}
     <div class="cv-buttons">
-      {#if voting.canPropose}<button disabled title="VoteWizardDialog">{word(P + "ProposeVote")}</button>{/if}
+      {#if voting.canPropose}<button onclick={() => { proposing = true; }}>{word(P + "ProposeVote")}</button>{/if}
       {#if voting.canRunForCEO}<button onclick={openCeoForm}>{word(P + "RunForCEO")}</button>{/if}
     </div>
   {/if}
+  {#if proposing}<CorporationVoteWizard {store} {flow} onClose={() => { proposing = false; }} />{/if}
   {#if ceoForm}
     {@const f = ceoForm}
     <div class="cv-modal-back">

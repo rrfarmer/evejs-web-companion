@@ -3268,6 +3268,14 @@ export interface AppFlow {
    * (('UI/Corporations/CorporationWindow/Politics/SomeoneForCEO', {'char': charid}),
    * ('UI/Corporations/CorporationWindow/Politics/DontChangeCEO',), charid, None, None), days). */
   runForCEO(title: string, description: string, days: number): Promise<boolean>;
+  /** VoteWizardDialog.OnOK - corpvotes.CreateVote: InsertVoteCase(title, description, voteType, options, days), the
+   * options as CreateVote makes them - shares: ((CreateShares, {shares}), (DoNotCreateShares,), shares, None, None);
+   * expel: ((ExpelFromCorporation, {char}), (DontExpelFromCorporation, {memberName}), memberID, None, None); general:
+   * the option texts. True when made. */
+  proposeCorporationVote(vote: { readonly title: string; readonly description: string; readonly days: number }
+    & ({ readonly voteType: 2; readonly shares: number } | { readonly voteType: 3; readonly memberID: number; readonly memberName: string } | { readonly voteType: 4; readonly options: readonly string[] })): Promise<boolean>;
+  /** VoteWizardDialog.PickMember: corp.GetMemberIDsWithMoreThanAvgShares() (the corporation registry's). */
+  corporationMembersWithMoreThanAvgShares(): Promise<readonly number[]>;
   readonly corpWalletShares: ReadableSignal<WalletSharesRead>;
   loadWalletShares(corporate?: boolean): Promise<void>;
   setWalletSharesVisible(visible: boolean, corporate?: boolean): void;
@@ -18369,6 +18377,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await scope.write("voteManager", "InsertVote", [online.corporationID, voteCaseID, optionID]); scope.current(); }
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
   }
+  async function proposeCorporationVote(vote: Parameters<AppFlow["proposeCorporationVote"]>[0]): Promise<boolean> {
+    const scope = captureMemberOperation();
+    const P = "UI/Corporations/CorporationWindow/Politics/";
+    const tuple = (...items: JsonValue[]): JsonValue => ({ type: "tuple", items } as JsonValue);
+    const dict = (key: string, value: JsonValue): JsonValue => ({ type: "dict", entries: [[key, value]] } as JsonValue);
+    const options: JsonValue = vote.voteType === 2 ? tuple(tuple(P + "CreateShares", dict("shares", vote.shares)), tuple(P + "DoNotCreateShares"), vote.shares, null, null)
+      : vote.voteType === 3 ? tuple(tuple(P + "ExpelFromCorporation", dict("char", vote.memberID)), tuple(P + "DontExpelFromCorporation", dict("memberName", { type: "wstring", value: vote.memberName } as JsonValue)), vote.memberID, null, null)
+      : ({ type: "list", items: vote.options.map((text) => ({ type: "wstring", value: text })) } as JsonValue);
+    try { await scope.write("voteManager", "InsertVoteCase", [{ type: "wstring", value: vote.title }, { type: "wstring", value: vote.description }, vote.voteType, options, vote.days] as JsonValue[]); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+    return true;
+  }
+  async function corporationMembersWithMoreThanAvgShares(): Promise<readonly number[]> {
+    const answer = await bridgeAsk("corpRegistry", "GetMemberIDsWithMoreThanAvgShares", []) as JsonValue;
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    return items.map((id) => Number(unwrapLong(id) ?? 0n)).filter((id) => id > 0);
+  }
   async function runForCEO(title: string, description: string, days: number): Promise<boolean> {
     const scope = captureMemberOperation(), online = scope.online;
     const options: JsonValue = { type: "tuple", items: [
@@ -31562,6 +31587,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationVoteOptions,
     castCorporationVote,
     runForCEO,
+    proposeCorporationVote,
+    corporationMembersWithMoreThanAvgShares,
     requestCorpLogos,
     loadOwnerLogos,
     addAgentToAddressBook,
