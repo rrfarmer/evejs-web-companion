@@ -14,6 +14,7 @@
   import CorporationApplications from "./CorporationApplications.svelte";
   import CorporationFindMembers from "./CorporationFindMembers.svelte";
   import CorporationKillReports from "./CorporationKillReports.svelte";
+  import CorporationBulletins from "./CorporationBulletins.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -127,7 +128,7 @@
     "UI/Corporations/CorpUIHome/URL", "UI/Common/Details", "UI/Corporations/CorpUIHome/CreateNewCorp", "UI/Corporations/CorpUIHome/QuitCorp"];
   $effect(() => { if (retail) flow.requestWords(HOME_WORDS); });
   const homeWord = (label: string, own: string): string => { const t = $words.templates[label]; return typeof t === "string" ? t : own; };
-  const NOT_BUILT = new Set(["recruitSearch", "wars", "warInfo", "bulletins", "allianceGeneral"]);
+  const NOT_BUILT = new Set(["recruitSearch", "wars", "warInfo", "allianceGeneral"]);
   type NavEntry = { readonly id: typeof panel; readonly label: string; readonly open?: () => void };
   const corpNav = $derived.by((): readonly { readonly header: string; readonly entries: readonly NavEntry[] }[] => {
     if (corpTab === "alliance") {
@@ -232,6 +233,7 @@
       {#if administrationError}<p class="error">{administrationError}</p>{/if}
       {#if NOT_BUILT.has(panel)}<p class="note corp-unbuilt">This panel is not on the play page yet.</p>{/if}
       {#if panel === "kills"}<CorporationKillReports {store} {flow} />{/if}
+      {#if panel === "bulletins"}<CorporationBulletins {store} {flow} director={administration.director} />{/if}
       {#if retail && panel === "home"}
         <div class="corp-home">
           {#if corpHomeError}<p class="error">{corpHomeError}</p>{/if}

@@ -438,6 +438,7 @@ import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from ".
 import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
+import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { corporationDecorationsOf, corporationMedalAwardeesOf, medalDetailsInfoOf, type CorporationDecorations, type CorporationMedalAwardee, type MedalInfo, type MedalCreationGraphic } from "../bridge/corporationDecorations.ts";
 import { CHARACTER_TYPES } from "../bridge/showInfoLink.ts";
 import { decodeNotifications, notificationRows, type Notification } from "../bridge/notifications.ts";
@@ -2380,6 +2381,8 @@ export interface AppFlow {
   corporationApplications(): Promise<readonly CorporationApplication[]>;
   /** CorpKillReports: corpRegistry.GetRecentKills / GetRecentLosses(NUM_KILL_ENTRIES, offset), the names its rows show primed. */
   corporationKillReports(kind: "kills" | "losses", count: number, offset: number | null): Promise<readonly KillReport[]>;
+  /** CorpUIBulletins: corpRegistry.GetBulletins(), its editors' names primed (GetBulletinEntries' BulletinPostedBy). */
+  corporationBulletins(): Promise<readonly CorpBulletin[]>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16247,6 +16250,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
     return kills;
   }
+  async function corporationBulletins(): Promise<readonly CorpBulletin[]> {
+    const current = callOptions.captureRequestGuard!();
+    const scoped = { ...callOptions, captureRequestGuard: () => current };
+    const answer = await api.bridgeAsk(scoped)("corpRegistry", "GetBulletins", []);
+    current();
+    const bulletins = decodeBulletins(answer as never);
+    await memberNames({ current, options: scoped }, [...new Set(bulletins.map((b) => b.editCharacterID).filter((id): id is number => id !== null))].map((id) => ({ kind: "owner" as const, id })));
+    current();
+    return bulletins;
+  }
   let applicationWork = Promise.resolve();
   async function corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void> {
     const scope = captureMemberOperation(), pilotCurrent = callOptions.captureRequestGuard!();
@@ -29783,6 +29796,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationApplicationDecision,
     corporationApplicationsExpanded,
     corporationKillReports,
+    corporationBulletins,
     openCorporationMemberDetails,
     memberDetailsPanel,
     corporationMemberDetails,
