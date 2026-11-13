@@ -720,6 +720,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // FormAlliancesSystems: ClaimedSystemsDashboard's sovSvc.GetAllDevelopmentIndicesMapped (devIndexManager's
   // GetAllDevelopmentIndices) and the pending capital's cancel (the moniker's CancelCapitalSystemTransition).
   "devIndexManager.GetAllDevelopmentIndices", "allianceRegistry.CancelCapitalSystemTransition",
+  // ExpandedSovHubEntry's skyhooks: SovHubEntryController.GetNumSkyhooks - sovereigntyResourceSvc
+  // GetMyCorporationSkyhooksMemoized (RemoteSvc('colonyResourcesMgr').GetMyCorporationSkyhooks()).
+  "colonyResourcesMgr.GetMyCorporationSkyhooks",
   // FormAlliancesApplications / FormAlliancesRankings: the corporation's applications to alliances (bco_alliance:
   // corpRegistry GetAllianceApplications, DeleteAllianceApplication, ApplyToJoinAlliance) and the alliance's decision
   // on one (all_cso_applications: the moniker's UpdateApplication(corpID, applicationText, state)).

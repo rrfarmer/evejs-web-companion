@@ -14582,6 +14582,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.sovereignty.hub.api.GetResourcesRequest",
   "eve_public.sovereignty.hub.fuel.api.GetRequest",
   "eve_public.sovereignty.hub.workforce.api.GetStateRequest",
+  // The expanded row's TransitCont (WorkforceController.workforceConfiguration: get_configuration).
+  "eve_public.sovereignty.hub.workforce.api.GetConfigurationRequest",
   "eve_public.sovereignty.resource.planet.api.GetAllDefinitionsRequest",
   "eve_public.sovereignty.resource.star.api.GetAllConfigurationsRequest",
 ]);

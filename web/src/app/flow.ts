@@ -544,7 +544,7 @@ export interface SovStructureRow {
   readonly vulnerability: { readonly startMs: number; readonly endMs: number } | null;
 }
 export interface MySovHub {
-  readonly hubID: number; readonly solarSystemID: number; readonly systemName: string; readonly regionName: string; readonly jumps: number | null;
+  readonly hubID: number; readonly solarSystemID: number; readonly systemName: string; readonly regionName: string; readonly constellationName: string; readonly jumps: number | null;
   readonly campaign: { readonly eventType: number; readonly startMs: number } | null;
   readonly vulnerability: { readonly startMs: number; readonly endMs: number } | null;
 }
@@ -559,6 +559,11 @@ export interface SovHubDetails {
   readonly fuel: Readonly<Record<number, { readonly amount: number; readonly perHour: number }>> | null;
   readonly workforce: { readonly mode: "inactive" | "transit" | "import_settings" | "export_settings" | null; readonly imports: readonly (readonly [number, number])[]; readonly exportTo: number | null; readonly exportAmount: number } | null;
   readonly maxPower: number; readonly maxWorkforce: number;
+}
+export interface SovHubExtras {
+  readonly configuration: { readonly mode: "inactive" | "transit" | "import_settings" | "export_settings" | null; readonly sources: readonly number[]; readonly exportTo: number | null; readonly exportAmount: number } | null;
+  readonly listsByType: Readonly<Record<number, readonly number[]>>;
+  readonly skyhooks: number | null;
 }
 export interface ClaimedSystemRow {
   readonly solarSystemID: number; readonly systemName: string; readonly security: number | null; readonly constellationName: string; readonly regionName: string;
@@ -2695,6 +2700,10 @@ export interface AppFlow {
    * workforce (GetMaxPowerAndWorkforce: the planets' and the star's resource definitions). A part is null where its
    * read failed (DATA_NOT_AVAILABLE). */
   sovHubDetails(hubID: number, solarSystemID: number): Promise<SovHubDetails>;
+  /** The expanded row's extras: the hub's workforce configuration (GetConfigurationRequest - the mode, the import
+   * sources, the export destination and amount), the upgrade type lists each installed upgrade is in (620-622,
+   * 828-830; evetypes.GetTypeIDsByListID) and the corporation's skyhooks in the system (GetMyCorporationSkyhooks). */
+  sovHubExtras(hubID: number, solarSystemID: number, upgradeTypeIDs: readonly number[]): Promise<SovHubExtras>;
   /** CapitalButton / UpdateCapitalSystem: SetCapitalSystem(solarSystemID); RemoveCapital: CancelCapitalSystemTransition. */
   allianceCapital(action: "set" | "cancel", solarSystemID?: number): Promise<boolean>;
   /** The prime-time menu's Set: the alliance moniker's SetPrimeHour(hour). */
@@ -18735,7 +18744,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const vStart = ms(readRowField(row, "vulnerableStartTime")), vEnd = ms(readRowField(row, "vulnerableEndTime"));
       const campaign = campaignStart && eventType ? { eventType, startMs: campaignStart } : null;
       return { hubID: num(readRowField(row, "structureID")) ?? 0, solarSystemID, systemName: place?.name ?? String(solarSystemID), regionName: place?.parents.find((x) => x.typeID === 3)?.name ?? "",
-        jumps: distances?.get(solarSystemID) ?? null, campaign, vulnerability: !campaign && vStart && vEnd ? { startMs: vStart, endMs: vEnd } : null };
+        constellationName: place?.parents.find((x) => x.typeID === 4)?.name ?? "", jumps: distances?.get(solarSystemID) ?? null, campaign, vulnerability: !campaign && vStart && vEnd ? { startMs: vStart, endMs: vEnd } : null };
     }));
   }
   // The sovereignty resource definitions (planets, stars) and upgrade definitions, read once (the client's static data).
@@ -18787,6 +18796,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       fuel: fuelByType, maxPower, maxWorkforce,
       workforce: workforce === null ? null : { mode, imports: list(record(state.import_state).sources).map((s) => [int(record(record(s).source).sequential), int(record(s).amount)] as const),
         exportTo: connected.destination_system !== undefined ? int(record(connected.destination_system).sequential) : null, exportAmount: connected.exported_quantity !== undefined ? int(connected.exported_quantity) : int(disconnected.local_reserve) } };
+  }
+  async function sovHubExtras(hubID: number, solarSystemID: number, upgradeTypeIDs: readonly number[]): Promise<SovHubExtras> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" || typeof value === "number" ? value : 0) || 0;
+    const [config, lists, skyhooks] = await Promise.all([
+      api.publicGatewayRequest("eve_public.sovereignty.hub.workforce.api.GetConfigurationRequest", { hub: { sequential: hubID } }, callOptions).catch(() => null),
+      upgradeTypeIDs.length ? api.loadTypeListsHolding(upgradeTypeIDs, [620, 621, 622, 828, 829, 830], callOptions).catch(() => ({})) : Promise.resolve({}),
+      scope.ask("colonyResourcesMgr", "GetMyCorporationSkyhooks", []).catch(() => null) as Promise<JsonValue | null>,
+    ]);
+    scope.current();
+    const c = config && config.statusCode === 200 ? record(record(config.payload).configuration) : null;
+    const exp = record(c?.export_settings);
+    const configuration = c === null ? null : {
+      mode: c.inactive ? "inactive" as const : c.transit ? "transit" as const : c.import_settings !== undefined ? "import_settings" as const : c.export_settings !== undefined ? "export_settings" as const : null,
+      sources: (Array.isArray(record(c.import_settings).sources) ? record(c.import_settings).sources as unknown[] : []).map((s) => int(record(record(s).source).sequential)).filter((n) => n > 0),
+      exportTo: exp.destination_system !== undefined ? int(record(exp.destination_system).sequential) || null : null, exportAmount: int(exp.amount) };
+    const rows = skyhooks === null ? null : isListValue(skyhooks) ? skyhooks.items : Array.isArray(skyhooks) ? skyhooks as JsonValue[] : null;
+    const count = rows === null ? null : rows.filter((row) => Number(unwrapLong(readRowField(row, "solarSystemID")) ?? readRowField(row, "solarSystemID")) === solarSystemID).length;
+    const listsByType: Record<number, readonly number[]> = {};
+    for (const [typeID, held] of Object.entries(lists as Record<number, readonly number[] | null>)) listsByType[Number(typeID)] = held ?? [];
+    return { configuration, listsByType, skyhooks: count };
   }
   async function allianceCapital(action: "set" | "cancel", solarSystemID = 0): Promise<boolean> {
     const scope = captureMemberOperation();
@@ -32489,6 +32520,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     allianceCapital,
     mySovHubs,
     sovHubDetails,
+    sovHubExtras,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },
