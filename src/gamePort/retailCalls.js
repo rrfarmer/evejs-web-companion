@@ -689,6 +689,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
   // the recruitment proxy. The gateway's list has nothing of it.
   "corpRecProxy.SearchCorpAds", "corpRecProxy.GetRecruitmentAdsByCorpID",
+  // The corporation's own ads and their recruiters (CorpRecruitment.GetCorpRecruitmentAds, GetRecruiters), and the ad
+  // made (CorpRecruitmentContainerCreation.UpdateAdvert: corp.CreateRecruitmentAd).
+  "corpRecProxy.GetRecruitmentAdsForCorporation", "corpRecProxy.GetRecruiters", "corpRecProxy.CreateRecruitmentAd",
   // An acceleration gate's activation, the keeper's (movementFunctions.py 553). The gateway's list has nothing of the keeper's.
   "keeper.ActivateAccelerationGate",
   // A fitting saved, and one of the same name saved over (fittingSvc.PersistFitting, 302 and 304). The gateway's list

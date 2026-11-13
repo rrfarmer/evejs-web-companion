@@ -3,7 +3,7 @@
 // (grade, advert) pairs (GetRecruitementEntryDataList: "for grade, advert in ads"), GetRecruitmentAdsByCorpID bare
 // adverts (the client pairs them with None). An advert: adID, corporationID, allianceID, channelID, typeMask,
 // langMask, description, title, createDateTime, expiryDateTime, hourMask1, minSP, otherMask, memberCount.
-import { isListValue, readRowField, unwrapLong, unwrapReal, type JsonValue } from "./wire.ts";
+import { isListValue, readDictEntry, readRowField as readPackedOrKeyVal, unwrapLong, unwrapReal, type JsonValue } from "./wire.ts";
 import { filetimeToUnixMs } from "./activity.ts";
 
 /** GetSearchResults' criteria, in SearchCorpAds' order. */
@@ -37,6 +37,18 @@ export interface RecruitmentAd {
   readonly expiryDateTimeMs: number | null;
   /** The search's match percentage, where the server grades (None: not shown). */
   readonly grade: number | null;
+}
+
+/** A row's field: a util.Row (its header and line, as corpRecProxy's buildRow sends one), a packed row or a KeyVal. */
+function readRowField(row: JsonValue, key: string): JsonValue | undefined {
+  const record = row as { type?: unknown; name?: unknown; args?: unknown } | null;
+  if (record && typeof record === "object" && record.type === "object" && record.name === "util.Row") {
+    const header = readDictEntry(record.args, "header"), line = readDictEntry(record.args, "line");
+    const columns = isListValue(header) ? header.items : [], cells = isListValue(line) ? line.items : Array.isArray(line) ? line : [];
+    const at = columns.indexOf(key);
+    return at < 0 ? undefined : (cells[at] as JsonValue | undefined);
+  }
+  return readPackedOrKeyVal(row, key);
 }
 
 const numberOf = (v: JsonValue | undefined): number => {
@@ -110,5 +122,50 @@ export const NEWPILOTFRIENDLY_TYPEID = 34, NEWPILOTFOCUSED_TYPEID = 23, ROLEPLAY
 export const EXPLORATION_TYPEID = 28, MISSIONRUNNING_TYPEID = 25;
 export const HIGHSEC_TYPEID = 12, LOWSEC_TYPEID = 37, NULLSEC_TYPEID = 38, WORMHOLESPACE_TYPEID = 39;
 export const ENGLISH_TYPEID = 7;
+/** A new ad as UpdateAdvert sends it. */
+export interface RecruitmentAdForm {
+  readonly days: number;
+  readonly typeMask: number;
+  readonly langMask: number;
+  readonly description: string;
+  readonly recruiters: readonly number[];
+  readonly title: string;
+  readonly hourMask1: number;
+  readonly minSP: number;
+  readonly otherMask: number;
+}
+
+/** The type numbers a mask holds (bits 0 to 62). */
+export function typesInMask(mask: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < 63; i++) if (Math.floor(mask / 2 ** i) % 2 === 1) out.push(i);
+  return out;
+}
+
+export const MAX_SELECTED_TYPES = 4, MAX_SELECTED_AREAS = 2, MAX_HOURS = 8;
+export const AREA_TYPEIDS = [12, 37, 38, 39] as const;
+/** COMBINED_GROUP_BY_TYPEID: each play style's group (0 PVE, 1 PVP, 2 Trade). */
+export function combinedGroupOf(typeID: number): number | null {
+  const at = PLAYSTYLE_GROUPS.findIndex((g) => (g.typeIDs as readonly number[]).includes(typeID));
+  return at < 0 ? null : at;
+}
+
+/** UpdateAdvert's refusals, in its order (recruitmentUtil IsNumPlaystyleMaskValid, IsOnlyOnePlaystyleType,
+ * IsNumAreaOfOperationsValid, IsTimezoneValid); null where the ad may be made. */
+export function recruitmentAdRefusal(form: RecruitmentAdForm): { dialog: string; values: Record<string, number>; fallback: string } | null {
+  if (!form.title.trim()) return { dialog: "CustomInfo", values: {}, fallback: "Please enter a title for your ad." };
+  const types = typesInMask(form.typeMask);
+  const playStyles = types.filter((id) => combinedGroupOf(id) !== null);
+  if (playStyles.length > MAX_SELECTED_TYPES) return { dialog: "CorpRecruitmentNumPlaystyleMaskInvalid", values: { numOptions: MAX_SELECTED_TYPES }, fallback: `Select at most ${MAX_SELECTED_TYPES} play styles.` };
+  if (new Set(playStyles.map(combinedGroupOf)).size > 1) return { dialog: "CorpRecruitmentTooManyPlaystyleTypesSelected", values: {}, fallback: "Select play styles of one kind only." };
+  if (types.filter((id) => (AREA_TYPEIDS as readonly number[]).includes(id)).length > MAX_SELECTED_AREAS) return { dialog: "CorpRecruitmentTooManyAreasSelected", values: { numOptions: MAX_SELECTED_AREAS }, fallback: `Select at most ${MAX_SELECTED_AREAS} areas.` };
+  if (typesInMask(form.hourMask1).length > MAX_HOURS) return { dialog: "CorpRecruitmentTooManyHoursSelected", values: { numHours: MAX_HOURS }, fallback: `Select at most ${MAX_HOURS} hours.` };
+  return null;
+}
+
+/** const.corporationAdvertisementFlatFee, DailyRate, corporationMaxRecruitmentAdDuration, corporationMaxRecruitmentAds,
+ * corporationRecMaxTitleLength, corporationRecMaxMessageLength. */
+export const AD_FLAT_FEE = 500000, AD_DAILY_RATE = 250000, AD_MAX_DAYS = 28, MAX_CORP_ADS = 3, AD_MAX_TITLE = 40, AD_MAX_MESSAGE = 1000;
+
 /** CorporationSize's increments; the last, infinity, const.corpMaxSize. */
 export const CORP_SIZES = [0, 10, 50, 100, 200, 500, 1000, 12600] as const;

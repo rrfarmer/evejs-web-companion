@@ -439,7 +439,7 @@ import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } 
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
-import { decodeRecruitmentAds, type RecruitmentAd, type RecruitmentSearch } from "../bridge/corpRecruitment.ts";
+import { decodeRecruitmentAds, recruitmentAdRefusal, type RecruitmentAd, type RecruitmentAdForm, type RecruitmentSearch } from "../bridge/corpRecruitment.ts";
 
 /** CreateCorp's form, as Submit reads it (the tax rates as fractions; three logo layers' shapes and colours). */
 export interface CorporationFounding {
@@ -2414,6 +2414,14 @@ export interface AppFlow {
   searchRecruitmentAds(criteria: RecruitmentSearch): Promise<readonly RecruitmentAd[]>;
   /** PopulateSearchResultsByCorpID: corpRecProxy.GetRecruitmentAdsByCorpID(corpID). */
   recruitmentAdsOf(corporationID: number): Promise<readonly RecruitmentAd[]>;
+  /** CorpRecruitment.GetCorpRecruitmentAds: corpRecProxy.GetRecruitmentAdsForCorporation(), names primed. */
+  corporationRecruitmentAds(): Promise<readonly RecruitmentAd[]>;
+  /** CorpRecruitmentContainerCreation.UpdateAdvert for a new ad: its checks (EnterTitleForAd, the play styles, areas
+   * and hours), then corpRecProxy.CreateRecruitmentAd(days, typeMask, langMask, description, recruiters, title,
+   * hourMask1, minSP, otherMask); true when made. */
+  createRecruitmentAd(form: RecruitmentAdForm): Promise<boolean>;
+  /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
+  sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16327,6 +16335,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function recruitmentAdsOf(corporationID: number): Promise<readonly RecruitmentAd[]> {
     return recruitmentAdsNamed(decodeRecruitmentAds(await bridgeAsk("corpRecProxy", "GetRecruitmentAdsByCorpID", [corporationID])));
   }
+  async function corporationRecruitmentAds(): Promise<readonly RecruitmentAd[]> {
+    return recruitmentAdsNamed(decodeRecruitmentAds(await bridgeAsk("corpRecProxy", "GetRecruitmentAdsForCorporation", [])));
+  }
+  async function createRecruitmentAd(form: RecruitmentAdForm): Promise<boolean> {
+    const why = recruitmentAdRefusal(form);
+    if (why !== null) {
+      if (why.dialog === "CustomInfo") await wordsNow(["UI/Corporations/CorporationWindow/Recruitment/EnterTitleForAd"]);
+      const info = why.dialog === "CustomInfo" ? templateWords("UI/Corporations/CorporationWindow/Recruitment/EnterTitleForAd", {}, "Please enter a title for your ad.") : null;
+      sayDialog(why.dialog, info !== null ? { type: "dict", entries: [["info", info]] } : { type: "dict", entries: Object.entries(why.values) }, info ?? why.fallback);
+      return false;
+    }
+    try {
+      await bridgeDo("corpRecProxy", "CreateRecruitmentAd", [form.days, form.typeMask, form.langMask, form.description, [...form.recruiters], form.title.trim(),
+        form.hourMask1, form.minSP, form.otherMask]);
+      return true;
+    } catch (error) {
+      throwIfRequestRetired(error);
+      if (sayRefusalDialog(error, errorWords(error))) return false;
+      throw error;
+    }
+  }
   async function addCorporationBulletin(title: string, body: string): Promise<boolean> {
     if (title === "" || body.trim() === "") { sayDialog("CorpBulletinMustFillIn", null, "You must fill in both the title and the body of the bulletin."); return false; }
     // base_corporation.EditBulletin: const.corpRoleChatManager
@@ -29896,6 +29925,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     recruitmentData,
     searchRecruitmentAds,
     recruitmentAdsOf,
+    corporationRecruitmentAds,
+    createRecruitmentAd,
+    sayDialog: (dialog: string, values: JsonValue | null, fallback: string) => sayDialog(dialog, values, fallback),
     corporationBulletins,
     openCorporationMemberDetails,
     memberDetailsPanel,

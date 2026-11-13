@@ -17,6 +17,7 @@
   import CorporationBulletins from "./CorporationBulletins.svelte";
   import CorporationCreate from "./CorporationCreate.svelte";
   import CorporationFinder from "./CorporationFinder.svelte";
+  import CorporationAdverts from "./CorporationAdverts.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -29,7 +30,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -93,6 +94,7 @@
     "UI/Corporations/Wars/Killmails/KillReports": "Kill Reports",
     "UI/Corporations/CorpUIHome/Bulletins": "Bulletins",
     "UI/Corporations/BaseCorporationUI/FindNewCorporation": "Find New Corporation",
+    "UI/Corporations/CorporationWindow/Recruitment/CorporationAds": "Advertisements",
     "UI/Corporations/BaseCorporationUI/Wars": "Wars",
     "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
     "UI/Corporations/Wars/WarInfoTab": "War Info",
@@ -149,9 +151,11 @@
       ];
     }
     if (corpTab === "admin") {
-      return administration.findMembers
-        ? [{ header: "UI/Corporations/BaseCorporationUI/Members", entries: [{ id: "find", label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }] }]
-        : [];
+      return [
+        ...(administration.findMembers ? [{ header: "UI/Corporations/BaseCorporationUI/Members", entries: [{ id: "find" as const, label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }] }] : []),
+        // construct_admin_recruitment_panels: Corporation Advertisements, for whoever sees the tab
+        { header: "UI/Corporations/BaseCorporationUI/Recruitment", entries: [{ id: "recruitAds" as const, label: "UI/Corporations/CorporationWindow/Recruitment/CorporationAds" }] },
+      ];
     }
     return [
       { header: "UI/Generic/General", entries: [
@@ -244,6 +248,7 @@
       {#if NOT_BUILT.has(panel)}<p class="note corp-unbuilt">This panel is not on the play page yet.</p>{/if}
       {#if panel === "kills"}<CorporationKillReports {store} {flow} />{/if}
       {#if panel === "recruitSearch"}<CorporationFinder {store} {flow} />{/if}
+      {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "bulletins"}<CorporationBulletins {store} {flow} director={administration.director} />{/if}
       {#if retail && panel === "home"}
         <div class="corp-home">
