@@ -598,6 +598,11 @@ export interface FreelanceProject {
   readonly broadcastSystems: readonly number[]; readonly maxProgress: number | null; readonly multiplier: number | null;
   readonly minAge: number | null; readonly maxAge: number | null; readonly maxCommitted: number | null;
 }
+/** An item the dropbox may take: an inventory row with what DropboxController.OnDropData and validate_delivery read. */
+export interface FreelanceDeliverable {
+  readonly itemID: number; readonly typeID: number; readonly groupID: number | null; readonly categoryID: number | null; readonly flagID: number; readonly locationID: number;
+  readonly ownerID: number | null; readonly quantity: number; readonly singleton: boolean;
+}
 /** The job board's FreelanceProjectJob: the project as the pilot sees it (project.api.GetRequest). */
 export interface FreelanceJob {
   readonly project: FreelanceProject;
@@ -3518,6 +3523,12 @@ export interface AppFlow {
   /** FreelanceProjectJob's Commit, Resign and Claim (repository.commit / resign / redeem_rewards): null when done, else
    * the error label (error_messages.get_commit_error_label / get_resign_error_label; a failed claim "Redeem"). */
   freelanceJobAction(kind: "commit" | "resign" | "redeem", projectID: string): Promise<{ readonly label: string } | null>;
+  /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
+   * checks them (owner, flag, type and group, stack, singleton); null where not docked or unread. */
+  freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null>;
+  /** DeliveryRepository.deliver_item_to_project: DeliverRequest (escrowed), then after WAIT_UNTIL_STATUS_CHECK (5 s)
+   * GetStatusRequest - succeeded with the delivered and returned quantities, else failed (any refusal or error). */
+  deliverToFreelanceJob(projectID: string, item: FreelanceDeliverable): Promise<{ readonly delivered: number; readonly returned: number } | null>;
   createFreelanceProject(draft: FreelanceDraft): Promise<{ readonly label: string; readonly values: Record<string, unknown> } | null>;
   corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }>;
   /** get_all_goal_contributor_summaries: GetContributorSummariesForGoalRequest pages - each contributor and progress. */
@@ -19455,6 +19466,38 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await memberNames(scope, [{ kind: "owner", id: int(record(p.owner).sequential) }, { kind: "owner", id: project.creator }]).catch(() => {});
     return { project, corporationID: int(record(p.owner).sequential), participation, unredeemed: int(payload.units_unredeemed), totalParticipants: int(p.total_participants), atMaxProjects: committedCount >= limit, ageDays };
   }
+  async function freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null> {
+    const online = store.station.get().online;
+    const stationID = online?.stationID ?? null, structureID = online?.structureID ?? null;
+    if (!stationID && !structureID) return null;
+    const shipID = store.fitting.get().activeShipID ?? null;
+    const [hangar, ship] = await Promise.all([
+      bridgeAsk("invbroker", "List", [], { flag: 4 }, THE_HANGAR).catch(() => null),
+      shipID ? bridgeAsk("invbroker", "List", [], { flag: null }, shipID).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (hangar === null && ship === null) return null;
+    const rows = [...(hangar === null ? [] : decodeInventoryRows(hangar)), ...(ship === null ? [] : decodeInventoryRows(ship).map((r) => ({ ...r, locationID: r.locationID ?? shipID! })))];
+    return { stationID, structureID, shipID, items: rows.filter((r) => r.flagID !== null).map((r) => ({ itemID: r.itemID, typeID: r.typeID, groupID: r.groupID, categoryID: r.categoryID, flagID: r.flagID!,
+      locationID: r.locationID ?? (stationID ?? structureID ?? 0), ownerID: r.ownerID ?? null, quantity: r.quantity, singleton: r.singleton })) };
+  }
+  async function deliverToFreelanceJob(projectID: string, item: FreelanceDeliverable): Promise<{ readonly delivered: number; readonly returned: number } | null> {
+    const online = store.station.get().online;
+    // deliver_item_to_project: at a station (and not a structure) the station, else the structure.
+    const atStation = online?.stationID != null && online?.structureID == null;
+    const where = atStation ? { station: { sequential: online!.stationID! } } : { structure: { sequential: online?.structureID ?? 0 } };
+    const payload = { project: { uuid: bytesFromUuid(projectID) }, delivery_location: where, item: { sequential: item.itemID }, quantity: item.quantity,
+      item_location: { item: { sequential: item.locationID }, flag: { value: item.flagID } } };
+    const a = await api.publicGatewayRequest("eve_public.freelance.contributionmethod.itemdelivery.api.DeliverRequest", payload as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const delivery = record(record(record(a?.payload).escrowed).delivery).uuid;
+    if (!a || a.statusCode !== 200 || delivery === undefined) return null;
+    await new Promise((r) => setTimeout(r, 5000));
+    const s = await api.publicGatewayRequest("eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusRequest", { delivery: { uuid: delivery as JsonValue } }, callOptions).catch(() => null);
+    const ok = record(record(s?.payload).succeeded);
+    if (!s || s.statusCode !== 200 || record(s.payload).succeeded === undefined) return null;
+    const int = (v: unknown) => Number(typeof v === "string" || typeof v === "number" ? v : 0) || 0;
+    return { delivered: int(ok.quantity_delivered), returned: int(ok.quantity_returned) };
+  }
   async function freelanceJobAction(kind: "commit" | "resign" | "redeem", projectID: string): Promise<{ readonly label: string } | null> {
     const request = `eve_public.freelance.project.api.${kind === "commit" ? "Commit" : kind === "resign" ? "Resign" : "RedeemReward"}Request`;
     const E = `UI/Corporations/FreelanceProjects/Errors/${kind === "commit" ? "Commit" : "Resign"}/`;
@@ -32889,6 +32932,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     freelanceManagerAction,
     freelanceJob,
     freelanceJobAction,
+    freelanceDeliverables,
+    deliverToFreelanceJob,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,

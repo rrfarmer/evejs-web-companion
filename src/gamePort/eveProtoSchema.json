@@ -9855,6 +9855,345 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.ContributionFailedNotice": {
+   "fields": [
+    {
+     "name": "identifier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.ContributionSucceededNotice": {
+   "fields": [
+    {
+     "name": "delivery",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.Identifier"
+    },
+    {
+     "name": "contributed",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "remainder",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "delivery_location",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.DeliveryLocation"
+    },
+    {
+     "name": "item",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitem.Identifier"
+    },
+    {
+     "name": "quantity",
+     "number": 4,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "item_location",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitem.Location"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse": {
+   "fields": [
+    {
+     "name": "escrowed",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.Escrowed",
+     "oneof": "result"
+    },
+    {
+     "name": "unspecified_error",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "result"
+    },
+    {
+     "name": "delivery_location_does_not_exist",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.DeliveryLocationDoesNotExist",
+     "oneof": "result"
+    },
+    {
+     "name": "delivery_location_not_in_full_power",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.DeliveryLocationNotInFullPower",
+     "oneof": "result"
+    },
+    {
+     "name": "character_not_docked",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.CharacterNotDocked",
+     "oneof": "result"
+    },
+    {
+     "name": "item_not_owned_by_deliverer",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ItemNotOwnedByDeliverer",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_item_location",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.InvalidItemLocation",
+     "oneof": "result"
+    },
+    {
+     "name": "item_not_found_at_location",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ItemNotFoundAtLocation",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_item_type",
+     "number": 9,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.InvalidItemType",
+     "oneof": "result"
+    },
+    {
+     "name": "quantity_too_high",
+     "number": 10,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh",
+     "oneof": "result"
+    },
+    {
+     "name": "character_not_committed",
+     "number": 11,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.CharacterNotCommitted",
+     "oneof": "result"
+    },
+    {
+     "name": "project_does_not_allow_item_delivery",
+     "number": 12,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ProjectDoesNotAllowItemDelivery",
+     "oneof": "result"
+    },
+    {
+     "name": "project_does_not_exist",
+     "number": 13,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ProjectDoesNotExist",
+     "oneof": "result"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.CharacterNotCommitted": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.CharacterNotDocked": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.DeliveryLocationDoesNotExist": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.DeliveryLocationNotInFullPower": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.Escrowed": {
+   "fields": [
+    {
+     "name": "delivery",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.InvalidItemLocation": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.InvalidItemType": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ItemNotFoundAtLocation": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ItemNotOwnedByDeliverer": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ProjectDoesNotAllowItemDelivery": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.ProjectDoesNotExist": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh": {
+   "fields": [
+    {
+     "name": "max_progress_per_contribution",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh.MaxProgressPerContributionExceeded",
+     "oneof": "condition"
+    },
+    {
+     "name": "max_remaining_participant_contributions",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh.MaxRemainingParticipantContributionsExceeded",
+     "oneof": "condition"
+    },
+    {
+     "name": "max_remaining_project_contributions",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh.MaxRemainingProjectContributionsExceeded",
+     "oneof": "condition"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh.MaxProgressPerContributionExceeded": {
+   "fields": [
+    {
+     "name": "max_quantity",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh.MaxRemainingParticipantContributionsExceeded": {
+   "fields": [
+    {
+     "name": "max_quantity",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.DeliverResponse.QuantityTooHigh.MaxRemainingProjectContributionsExceeded": {
+   "fields": [
+    {
+     "name": "max_quantity",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusRequest": {
+   "fields": [
+    {
+     "name": "delivery",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse": {
+   "fields": [
+    {
+     "name": "escrowed",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse.Escrowed",
+     "oneof": "status"
+    },
+    {
+     "name": "succeeded",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse.ContributionSucceeded",
+     "oneof": "status"
+    },
+    {
+     "name": "failed",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse.ContributionFailed",
+     "oneof": "status"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse.ContributionFailed": {
+   "fields": []
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse.ContributionSucceeded": {
+   "fields": [
+    {
+     "name": "quantity_delivered",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "quantity_returned",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse.Escrowed": {
+   "fields": []
   }
  },
  "enums": {
