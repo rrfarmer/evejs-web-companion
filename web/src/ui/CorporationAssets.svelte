@@ -16,9 +16,11 @@
   // ItemTypeLine to pick from), the field then the type's name. Safety (a director's): AssetSafetyCont over
   // GetItemsInSafetyForCorp - Name, Solar System, Manual Delivery (Deliver To, filled as the wait passes, enabled once
   // daysUntilCanDeliver days from the eject time are gone) and Auto Delivery (the time left until daysUntilAutoMove days,
-  // the nearest NPC station), counted each second. A location's menu (GetLocationMenu), a director's: a structure's Move
-  // Items To Safety (To Space in a wormhole system). Not yet: the CelestialMenu entries, an impounded location's Trash
-  // Items At Location. Deliver To opens AssetSafetyDeliverWindow: DeliverToStation, the explanation (delivery open or
+  // the nearest NPC station), counted each second. A location's menu (GetLocationMenu): a station's or structure's
+  // CelestialMenu - here its route entries (nav/waypoints celestialRouteEntries: Set Destination, Add Waypoint or
+  // Remove Waypoint), a solar system's the same - then, a director's, a structure's Move Items To Safety (To Space in
+  // a wormhole system). Not yet: the CelestialMenu's other entries, an impounded location's Trash Items At Location
+  // (Moniker('officeManager', stationID).TrashImpoundedOffice). Deliver To opens AssetSafetyDeliverWindow: DeliverToStation, the explanation (delivery open or
   // not yet, stations in the system or none), each structure then station with Deliver (disabled before the manual
   // delivery time), Cancel.
   import { onMount } from "svelte";
@@ -26,6 +28,7 @@
   import type { AppFlow, AssetTypeFacts, CorpAssetItem, CorpAssetLocation, SafetyWrap } from "../app/flow.ts";
   import { shortWrittenInterval, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { onDestroy } from "svelte";
+  import { celestialRouteEntries, isPlayerItemID, isWaypointPlace } from "../nav/waypoints.ts";
   import { formatNumeric, fmtAmt } from "../bridge/pyNumbers.ts";
   import { iskWords } from "../bridge/questions.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -49,7 +52,7 @@
     A + "LocationAndJumps", A + "LocationNoRoute", "UI/Inventory/AssetsWindow/LocationDataLabel", "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute", A + "NoItemsFound", A + "UnusedCorpOffice",
     A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Inventory/AssetSafety/Safety", "UI/Common/LocationTypes/SolarSystem", "UI/Inventory/AssetSafety/ManualDelivery", "UI/Inventory/AssetSafety/AutoDelivery",
     "UI/Inventory/AssetSafety/DeliverTo", "UI/Inventory/AssetSafety/AutoDeliveryHint", "UI/Inventory/AssetSafety/DeliverBtnAvailableHint", "UI/Inventory/AssetSafety/DeliverBtnNotAvailableNowHint",
-    "UI/Inventory/AssetSafety/MoveItemsToSafety", "UI/Inventory/AssetSafety/DeliverToStation", "UI/Inventory/AssetSafety/DeliveryExplanationText",
+    "UI/Inventory/AssetSafety/MoveItemsToSafety", "UI/Inventory/AssetSafety/DeliverToStation", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/RemoveWaypoint", "UI/Inventory/AssetSafety/DeliveryExplanationText",
     "UI/Inventory/AssetSafety/DeliveryExplanationTextNoStations", "UI/Inventory/AssetSafety/DeliveryNotAvailableNowExplanationText", "UI/Inventory/AssetSafety/DeliveryNotAvailableTextNoStations",
     "UI/Inventory/AssetSafety/DeliverBtn", "UI/Generic/Cancel", "UI/Inventory/AssetSafety/MoveItemsToSpace", "UI/Corporations/Assets/TrashItemsAtLocation", ...SHORT_INTERVAL_WORD_LABELS, "UI/Common/Name", "UI/Common/Buttons/Close", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", ...Object.keys(LINK_WORDS)];
   const nameOf = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
@@ -82,6 +85,17 @@
   const DAY = 864000000000n;
   const interval = (ticks: bigint) => shortWrittenInterval(ticks < 0n ? 0n : ticks, $words.templates) ?? "";
   let menuFor = $state<number | null>(null);
+  // svelte-ignore state_referenced_locally
+  const waypoints = flow.waypoints;
+  // GetLocationMenu: a station, a structure (its type's category 65) or a solar system gets a CelestialMenu.
+  const hasCelestialMenu = (row: CorpAssetLocation) => (row.locationID >= 60_000_000 && row.locationID < 64_000_000) || isStructure(row) || (row.locationID >= 30_000_000 && row.locationID < 33_000_000);
+  const routeOf = (row: CorpAssetLocation) => celestialRouteEntries(row.locationID, isWaypointPlace(row.locationID) || isPlayerItemID(row.locationID), $flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null, $waypoints);
+  function route(row: CorpAssetLocation, how: "destination" | "add" | "remove"): void {
+    menuFor = null;
+    if (how === "destination") flow.setDestination(row.locationID);
+    else if (how === "add") flow.addWaypoint(row.locationID);
+    else flow.clearWaypoints(row.locationID);
+  }
   let delivering = $state<{ wrap: SafetyWrap; targets: readonly { itemID: number; typeID: number; name: string }[] | null } | null>(null);
   async function openDeliver(wrap: SafetyWrap): Promise<void> {
     delivering = { wrap, targets: null };
@@ -396,6 +410,12 @@
         </button>
         {#if menuFor === loc.row.locationID}
           <div class="ca-menu" role="menu">
+            {#if hasCelestialMenu(loc.row)}
+              {@const r = routeOf(loc.row)}
+              {#if r.setDestination}<button role="menuitem" onclick={() => route(loc.row, "destination")}>{plainText(text("UI/Inflight/SetDestination"))}</button>{/if}
+              {#if r.addWaypoint}<button role="menuitem" onclick={() => route(loc.row, "add")}>{plainText(text("UI/Inflight/AddWaypoint"))}</button>
+              {:else if r.removeWaypoint}<button role="menuitem" onclick={() => route(loc.row, "remove")}>{plainText(text("UI/Inflight/RemoveWaypoint"))}</button>{/if}
+            {/if}
             {#if director && isStructure(loc.row)}
               <button role="menuitem" onclick={() => void moveToSafety(loc.row)}>{plainText(text(isWormholeOrTrig(loc.row) ? "UI/Inventory/AssetSafety/MoveItemsToSpace" : "UI/Inventory/AssetSafety/MoveItemsToSafety"))}</button>
             {/if}
