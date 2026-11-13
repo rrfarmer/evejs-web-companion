@@ -598,6 +598,20 @@ export interface FreelanceProject {
   readonly broadcastSystems: readonly number[]; readonly maxProgress: number | null; readonly multiplier: number | null;
   readonly minAge: number | null; readonly maxAge: number | null; readonly maxCommitted: number | null;
 }
+/** The job board's FreelanceProjectJob: the project as the pilot sees it (project.api.GetRequest). */
+export interface FreelanceJob {
+  readonly project: FreelanceProject;
+  readonly corporationID: number;
+  /** ParticipationState: 0 none, 1 committed, 2 kicked, 3 resigned. */
+  readonly participation: number;
+  /** units_unredeemed: the progress not yet paid out (unclaimed_rewards). */
+  readonly unredeemed: number;
+  readonly totalParticipants: number;
+  /** repository.has_max_projects_active: the committed projects (GetAllCommittedRequest) at get_my_jobs_commit_limit. */
+  readonly atMaxProjects: boolean;
+  /** cc.GetMyAgeInDays (charMgr.GetCharacterCreationDate); null where unread. */
+  readonly ageDays: number | null;
+}
 /** One row of the wizard's lockdown / unlock list: the item, its stack, and a blueprint's levels (null for another item). */
 export interface CorporationVoteBlueprint {
   readonly itemID: number; readonly typeID: number; readonly quantity: number;
@@ -3499,6 +3513,11 @@ export interface AppFlow {
   /** FreelanceProjectsMessenger.close / kick: null when done, else the error's label (get_close_error_label /
    * get_kick_error_label). */
   freelanceManagerAction(kind: "close" | "kick", projectID: string, characterID?: number): Promise<{ readonly label: string } | null>;
+  /** The job board's page of a freelance job (open_freelance_project); null where GetRequest failed. */
+  freelanceJob(projectID: string): Promise<FreelanceJob | null>;
+  /** FreelanceProjectJob's Commit, Resign and Claim (repository.commit / resign / redeem_rewards): null when done, else
+   * the error label (error_messages.get_commit_error_label / get_resign_error_label; a failed claim "Redeem"). */
+  freelanceJobAction(kind: "commit" | "resign" | "redeem", projectID: string): Promise<{ readonly label: string } | null>;
   createFreelanceProject(draft: FreelanceDraft): Promise<{ readonly label: string; readonly values: Record<string, unknown> } | null>;
   corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }>;
   /** get_all_goal_contributor_summaries: GetContributorSummariesForGoalRequest pages - each contributor and progress. */
@@ -19402,6 +19421,65 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (kind === "kick" && a.statusCode === 404) return { label: E + "GenericProjectNotFoundError" };
     return { label: E + "GenericProjectError" };
   }
+  async function freelanceJob(projectID: string): Promise<FreelanceJob | null> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" ? value : typeof value === "number" ? value : 0) || 0;
+    const time = (value: unknown) => { const t = record(value); return t.seconds === undefined && t.nanos === undefined ? null : int(t.seconds) * 1000 + Math.floor(int(t.nanos) / 1e6); };
+    const ask = (request: string, payload: Record<string, JsonValue>) => api.publicGatewayRequest(request, payload, callOptions).catch(() => null);
+    const [a, committed, created] = await Promise.all([
+      ask("eve_public.freelance.project.api.GetRequest", { project: { uuid: bytesFromUuid(projectID) } }),
+      ask("eve_public.freelance.project.api.GetAllCommittedRequest", {}),
+      scope.ask("charMgr", "GetCharacterCreationDate", []).catch(() => null) as Promise<JsonValue | null>,
+    ]);
+    scope.current();
+    if (!a || a.statusCode !== 200) return null;
+    const payload = record(a.payload), p = record(payload.project), mods = record(p.contribution_modifiers), payout = record(record(p.reward).payout_per_unit);
+    const STATES = ["STATE_UNSPECIFIED", "STATE_ACTIVE", "STATE_CLOSED", "STATE_COMPLETED", "STATE_EXPIRED"];
+    const PARTICIPATION = ["PARTICIPATION_STATE_UNSPECIFIED", "PARTICIPATION_STATE_COMMITTED", "PARTICIPATION_STATE_KICKED", "PARTICIPATION_STATE_RESIGNED"];
+    const CAREERS: Record<string, number> = { CAREER_EXPLORATION: 4, CAREER_INDUSTRIALIST: 5, CAREER_ENFORCER: 6, CAREER_SOLDIER_OF_FORTUNE: 7, 1: 4, 2: 5, 3: 6, 4: 7 };
+    const state = typeof p.state === "string" ? Math.max(0, STATES.indexOf(p.state)) : int(p.state);
+    const project: FreelanceProject = { projectID, name: String(p.name ?? ""), description: String(p.description ?? ""), state, careerPath: CAREERS[String(p.career ?? "")] ?? null,
+      target: int(p.target_progress), current: int(p.current_progress), iskPerUnit: int(payout.units) + int(payout.nanos) / 1e9,
+      created: time(p.created) ?? 0, deadline: time(p.deadline), finished: p.finish_time !== undefined ? time(p.finish_time) : null,
+      creator: int(record(p.creator).sequential), contributionLimit: mods.contributions_per_participant_limit !== undefined ? int(mods.contributions_per_participant_limit) : null,
+      myProgress: int(payload.progress), participants: int(p.committed_participants), contributors: int(p.total_contributors), ...freelanceConfiguration(p) };
+    // util.get_my_jobs_commit_limit: COMMITTED_PROJECTS_LIMIT_BASE 3, +1 a level to FREELANCING_SKILL_LEVEL_FIRST_BONUS 2, +2 a level after.
+    if (store.skills.get().skills === null) await loadSkills().catch(() => undefined);
+    const level = (store.skills.get().skills ?? []).find((s) => s.typeID === 91017)?.level ?? 0;
+    const limit = !level ? 3 : level <= 2 ? 3 + level : 3 + 2 * (level - 2) + 2;
+    const committedCount = committed && committed.statusCode === 200 && Array.isArray(record(committed.payload).projects) ? (record(committed.payload).projects as unknown[]).length : 0;
+    const createdAt = unwrapLong(created);
+    const ageDays = createdAt === null ? null : Math.floor((Date.now() - Number((createdAt - 116_444_736_000_000_000n) / 10_000n)) / 86_400_000);
+    const participation = typeof payload.state === "string" ? Math.max(0, PARTICIPATION.indexOf(payload.state)) : int(payload.state);
+    await memberNames(scope, [{ kind: "owner", id: int(record(p.owner).sequential) }, { kind: "owner", id: project.creator }]).catch(() => {});
+    return { project, corporationID: int(record(p.owner).sequential), participation, unredeemed: int(payload.units_unredeemed), totalParticipants: int(p.total_participants), atMaxProjects: committedCount >= limit, ageDays };
+  }
+  async function freelanceJobAction(kind: "commit" | "resign" | "redeem", projectID: string): Promise<{ readonly label: string } | null> {
+    const request = `eve_public.freelance.project.api.${kind === "commit" ? "Commit" : kind === "resign" ? "Resign" : "RedeemReward"}Request`;
+    const E = `UI/Corporations/FreelanceProjects/Errors/${kind === "commit" ? "Commit" : "Resign"}/`;
+    const a = await api.publicGatewayRequest(request, { project: { uuid: bytesFromUuid(projectID) } } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    if (a && a.statusCode === 200) return null;
+    if (kind === "redeem") return { label: "Redeem" };
+    if (!a) return { label: E + "GenericProjectError" };
+    const p = (a.payload && typeof a.payload === "object" ? a.payload : {}) as Record<string, unknown>;
+    // messenger.commit / resign's oneof, then _raise_generic_error by the status.
+    if (!p.unspecified_error) {
+      if (p.invalid_project_state) return { label: E + "ProjectStateError" };
+      if (p.invalid_participation_state) return { label: E + "ParticipantStateError" };
+      if (kind === "commit") {
+        if (p.max_committed_participants_per_project) return { label: E + "MaxCommittedParticipantsPerProjectError" };
+        if (p.max_projects_committed_per_participant) return { label: E + "MaxProjectsCommittedPerParticipantError" };
+        if (p.invalid_character_age) return { label: E + "InvalidCharacterAgeError" };
+        if (p.restricted) return { label: E + "GenericProjectUnauthorizedError" };
+      }
+    }
+    const byStatus: Record<number, string> = { 400: "GenericProjectBadRequestError", 401: "GenericProjectUnauthorizedError", 403: "GenericProjectForbiddenError", 404: "GenericProjectNotFoundError", 500: "GenericProjectInternalServerError" };
+    const name = byStatus[a.statusCode] ?? "GenericProjectError";
+    // get_commit_error_label has no Forbidden / NotFound; get_resign_error_label no InternalServer.
+    const known = kind === "commit" ? ["GenericProjectBadRequestError", "GenericProjectUnauthorizedError", "GenericProjectInternalServerError"] : ["GenericProjectBadRequestError", "GenericProjectUnauthorizedError", "GenericProjectForbiddenError", "GenericProjectNotFoundError"];
+    return { label: E + (known.includes(name) ? name : "GenericProjectError") };
+  }
   async function corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }> {
     const scope = captureMemberOperation();
     const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
@@ -32809,6 +32887,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     createFreelanceProject,
     freelanceParticipants,
     freelanceManagerAction,
+    freelanceJob,
+    freelanceJobAction,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,

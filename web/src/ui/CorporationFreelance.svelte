@@ -15,11 +15,26 @@
   // target times its ISK, State; a committed one's kick, KickConfirmation asked; NoParticipantsFound), the buttons
   // DuplicateProject (CloneProject) and CloseProject while active (ConfirmClosure asked). A History row's menu: Duplicate,
   // ViewAdminDetails, ViewParticipants, the creator; its double click ViewAdminDetails.
-  // Here a card's click opens the admin details (in the client it opens the job board's page, which has ViewParticipants
-  // for a manager), and ViewAdminDetails too (the client's open_freelance_project - the job board, not built).
+  // A card's click, a History row's double click and its ViewAdminDetails open the job board's page of the job
+  // (Job.on_click / open_freelance_project - jobboard features/freelance_projects/page.FreelanceProjectPage, here an
+  // overlay of this panel): the corporation, the career, the title; the top buttons for a project manager
+  // (DuplicateProject, while active ViewParticipants - the admin details - and CloseProject); the state (Resigned,
+  // Kicked, Completed where the pilot's part is done, Closed); the CTA buttons (FreelanceProjectJob.get_cta_buttons:
+  // while active Resign - ConfirmResignation asked - for a committed pilot, else Commit, enabled by can_commit -
+  // has_max_projects_active against get_my_jobs_commit_limit, the age restriction, capacity, the state, the target - its
+  // hint CommitDescription / CommittedToMaxProjects / CommittedMaxParticipants / CommitAgeRestricted; ClaimValue
+  // {rewardValue} for the unredeemed units while there are any, JumpThroughError where the redeem failed); the body -
+  // ExpiresIn / Expired and EndDate, ActiveParticipants (red at capacity, IncludingYou) and TotalParticipants, the age
+  // restrictions panel (before the progress where unmet, after the objectives where met), Progress (contributors, current
+  // / target, "n% <progress_description>"; MaxProgressPerContribution or RemainingISKinJob; the reward per unit or the
+  // multiplier), YourContribution where committed or contributed (personal progress / limit, AvailableToEarn,
+  // TotalEarned), Objectives (ContributionMethod; a delivery's item types and locations), Description, CreatedOn with
+  // the creator and the corporation. Commit / Resign / Claim errors are shown under the buttons
+  // (Errors/Commit|Resign/<error>). Not here: the job board window itself (browse, tracking), delivery (the dropbox),
+  // ViewMoreForCorporation, the closest solar system chip.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, FreelanceMethod, FreelanceProject } from "../app/flow.ts";
+  import type { AppFlow, FreelanceJob, FreelanceMethod, FreelanceProject } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -44,7 +59,15 @@
     ...["Participant", "Corporation", "Alliance", "TotalAmount", "OfTargetValue", "OfPersonalTargetValue", "ISKPayout", "State", "NoParticipantsFound", "ParticipantsKickHint",
       "KickConfirmationTitle", "KickConfirmationBody", "ParticipantHint", "CorporationHint", "AllianceHint", "TotalAmountHint", "OfTargetValueHint", "OfPersonalTargetValueHint",
       "ISKPayoutHint", "StateHint"].map((k) => `UI/Corporations/FreelanceProjects/ParticipantsTab/${k}`),
-    ...["Unspecified", "Committed", "Kicked", "Resigned"].map((k) => `UI/FreelanceProjects/ParticipantState/${k}`)];
+    ...["Unspecified", "Committed", "Kicked", "Resigned"].map((k) => `UI/FreelanceProjects/ParticipantState/${k}`),
+    "UI/FreelanceProjects/Commit", "UI/FreelanceProjects/Resign", "UI/Corporations/Goals/ClaimValue", "UI/Inflight/JumpThroughError", "UI/FreelanceProjects/Resigned", "UI/FreelanceProjects/Kicked",
+    "UI/Generic/Completed", "UI/Generic/Closed", "UI/Generic/Expired", "UI/Generic/ExpiresIn", "UI/ScienceAndIndustry/ScienceAndIndustryWindow/EndDate", "UI/FreelanceProjects/ActiveParticipants",
+    "UI/FreelanceProjects/IncludingYou", "UI/FreelanceProjects/TotalParticipants", "UI/FreelanceProjects/ParticipantsInfoTooltip", "UI/FreelanceProjects/Contributors",
+    F + "OverAllProgressTooltip", F + "MaxProgressPerContribution", F + "RemainingISKinJob", G + "YourContribution", G + "AvailableToEarn", G + "TotalEarned", G + "CreatedOn", G + "Creator",
+    G + "CloseProject", "UI/Agents/StandardMission/Objectives", "UI/Common/Description", "UI/FreelanceProjects/AgeRestrictionMetHeader", "UI/FreelanceProjects/AgeRestrictionNotMetHeader",
+    "UI/FreelanceProjects/AgeRestrictionBodyMinAndMaxAge", "UI/FreelanceProjects/AgeRestrictionBodyMinSpecified", "UI/FreelanceProjects/AgeRestrictionBodyMaxSpecified",
+    ...["ResignButtonTooltip", "CommitDescription", "CommittedToMaxProjects", "CommittedMaxParticipants", "CommitAgeRestricted", "FreelanceParticipationLimitExplanationTooltip"].map((k) => F + "DetailsWindow/" + k),
+    F + "Dialogs/ConfirmResignationHeader", F + "Dialogs/ConfirmResignationBody", F + "Dialogs/ConfirmResignationAgeRestrictionBody"];
   const K = "UI/Corporations/FreelanceProjects/ParticipantsTab/";
   // ui/const STATE_DEFINITIONS: the participation states' labels and colours.
   const PSTATES: readonly [string, string][] = [["Unspecified", "#d4534f"], ["Committed", "#5fb85f"], ["Kicked", "#d4534f"], ["Resigned", "#e0913a"]];
@@ -66,7 +89,7 @@
   let careerNames = $state<Record<number, number>>({});
   onMount(() => {
     flow.requestWords(LABELS);
-    void flow.freelanceCreation().then((d) => { methods = d.methods; flow.requestWords(d.methods.flatMap((m) => [m.title, m.progressDescription, m.rewardDescription]).filter(Boolean).map((n) => `#${n}`)); }, () => {});
+    void flow.freelanceCreation().then((d) => { methods = d.methods; flow.requestWords(d.methods.flatMap((m) => [m.title, m.description, m.progressDescription, m.rewardDescription, m.delivery?.itemTitle, m.delivery?.itemDescription, m.delivery?.locationTitle, m.delivery?.locationDescription]).filter(Boolean).map((n) => `#${n}`)); }, () => {});
     void flow.certifiedSkillPlans().then((r) => { if (r) careerNames = Object.fromEntries(r.careerPaths.filter((c) => c.nameID !== null).map((c) => [c.careerPathID, c.nameID!])); }, () => {});
   });
 
@@ -137,6 +160,69 @@
       });
     }, 500);
   });
+  // The job board's page (FreelanceProjectPage, FreelanceProjectJob).
+  let job = $state<FreelanceJob | null>(null), jobNotice = $state(""), claimFailed = $state(false);
+  async function openJob(p: FreelanceProject): Promise<void> {
+    jobNotice = ""; claimFailed = false;
+    const j = await flow.freelanceJob(p.projectID);
+    if (!j) { void openDetails(p); return; }
+    job = j;
+    flow.requestNames([...j.project.itemTypes.map((id) => ({ kind: "type" as const, id })), ...j.project.itemGroups.map((id) => ({ kind: "group" as const, id })), ...j.project.deliveryStations.map((id) => ({ kind: "station" as const, id }))]);
+  }
+  // validation.check_age_restrictions.
+  function meetsAge(j: FreelanceJob): boolean {
+    const { minAge, maxAge } = j.project;
+    if (minAge === null && maxAge === null) return true;
+    const age = j.ageDays ?? 0;
+    if (!minAge) return (maxAge ?? 0) >= age;
+    if (!maxAge) return age >= minAge;
+    return minAge <= age && age <= maxAge;
+  }
+  const atCapacity = (j: FreelanceJob) => j.project.maxCommitted !== null && j.project.participants === j.project.maxCommitted;
+  // validation.check_can_commit's order: the age, capacity, already committed, the state, the target reached.
+  function commitBlock(j: FreelanceJob): string | null {
+    if (!meetsAge(j)) return "age";
+    if (atCapacity(j)) return "capacity";
+    if (j.participation === 1 || j.project.state !== 1 || j.project.current === j.project.target) return "other";
+    return null;
+  }
+  function commitHint(j: FreelanceJob): string {
+    const D = F + "DetailsWindow/";
+    if (j.atMaxProjects) return word(D + "CommittedToMaxProjects");
+    const b = commitBlock(j);
+    return word(b === "capacity" ? D + "CommittedMaxParticipants" : b === "age" ? D + "CommitAgeRestricted" : D + "CommitDescription");
+  }
+  const personalRemaining = (j: FreelanceJob) => (j.project.contributionLimit ? Math.min(remaining(j.project), Math.max(0, j.project.contributionLimit - j.project.myProgress)) : remaining(j.project));
+  function stateInfo(j: FreelanceJob): { text: string; color: string } | null {
+    if (j.participation === 3) return { text: word("UI/FreelanceProjects/Resigned"), color: "#e0913a" };
+    if (j.participation === 2) return { text: word("UI/FreelanceProjects/Kicked"), color: "#d4534f" };
+    if (j.project.myProgress && personalRemaining(j) === 0) return { text: word("UI/Generic/Completed"), color: "#5fb85f" };
+    if (j.project.state === 2) return { text: word("UI/Generic/Closed"), color: "#e0913a" };
+    return null;
+  }
+  function ageText(j: FreelanceJob): string {
+    const { minAge, maxAge } = j.project, n = (v: number) => v.toLocaleString("en-US");
+    if (minAge && maxAge) return word("UI/FreelanceProjects/AgeRestrictionBodyMinAndMaxAge", { min_age: n(minAge), max_age: n(maxAge) });
+    if (minAge) return word("UI/FreelanceProjects/AgeRestrictionBodyMinSpecified", { min_age: n(minAge) });
+    if (maxAge) return word("UI/FreelanceProjects/AgeRestrictionBodyMaxSpecified", { max_age: n(maxAge) });
+    return "";
+  }
+  async function jobAct(kind: "commit" | "resign" | "redeem"): Promise<void> {
+    const j = job;
+    if (!j || busy) return;
+    if (kind === "resign") {
+      const body = F + "Dialogs/" + (meetsAge(j) ? "ConfirmResignationBody" : "ConfirmResignationAgeRestrictionBody");
+      if (!(await flow.askClientWarning(word(F + "Dialogs/ConfirmResignationHeader"), word(body) || "Resign?"))) return;
+    }
+    busy = true; jobNotice = "";
+    try {
+      const [e] = await Promise.all([flow.freelanceJobAction(kind, j.project.projectID), new Promise((r) => setTimeout(r, 1500))]);
+      if (e && kind === "redeem") claimFailed = true;
+      else if (e) { flow.requestWords([e.label]); jobNotice = e.label; }
+      const again = await flow.freelanceJob(j.project.projectID);
+      if (again && job?.project.projectID === again.project.projectID) job = again;
+    } finally { busy = false; }
+  }
   // Project.available_amount: remaining_personal_progress x isk_per_unit.
   const remaining = (p: FreelanceProject) => Math.max(0, p.target - p.current);
   const available = (p: FreelanceProject) => (p.contributionLimit ? Math.min(remaining(p), Math.max(0, p.contributionLimit - p.myProgress)) : remaining(p)) * p.iskPerUnit;
@@ -207,7 +293,7 @@
       {:else}
         <div class="fp-cards">
           {#each cards as p (p.projectID)}
-            <div class="fp-card" title={p.description} role="button" tabindex="-1" onclick={() => void openDetails(p)} onkeydown={() => {}}>
+            <div class="fp-card" title={p.description} role="button" tabindex="-1" onclick={() => void openJob(p)} onkeydown={() => {}}>
               <img class="fp-flair" src={flair(p.careerPath)} alt="" />
               <div class="fp-card-top"><span class="fp-dim">{p.careerPath !== null && careerNames[p.careerPath] ? word(`#${careerNames[p.careerPath]}`) : ""}</span>
                 <span class="fp-gauge" style:--outer={`${Math.min(1, ratio(p)) * 360}deg`}><span></span></span></div>
@@ -221,7 +307,7 @@
       <div class="fp-row fp-head"><span>{word("UI/Common/Name")}</span><span>{word(G + "ContributionMethod")}</span><span>{word(G + "Created")}</span><span>{word(G + "Ended")}</span>
         <span>{word(G + "Resolution")}</span><span>{word(G + "Progress")}</span><span>{word("UI/Calendar/EventWindow/Creator")}</span></div>
       {#each history as p (p.projectID)}
-        <div class="fp-row" role="row" tabindex="-1" ondblclick={() => void openDetails(p)} oncontextmenu={(e) => { e.preventDefault(); rowMenu = { p, x: e.offsetX, y: (e.currentTarget as HTMLElement).offsetTop + e.offsetY }; }}><span>{p.name}</span><span>{msg(methodOf(p)?.title) || "-"}</span><span>{date(p.created)}</span><span>{p.finished ? date(p.finished) : "-"}</span>
+        <div class="fp-row" role="row" tabindex="-1" ondblclick={() => void openJob(p)} oncontextmenu={(e) => { e.preventDefault(); rowMenu = { p, x: e.offsetX, y: (e.currentTarget as HTMLElement).offsetTop + e.offsetY }; }}><span>{p.name}</span><span>{msg(methodOf(p)?.title) || "-"}</span><span>{date(p.created)}</span><span>{p.finished ? date(p.finished) : "-"}</span>
           <span style:color={p.state === 3 ? "#5fb85f" : "#d4534f"}>{word(STATE_LABELS[p.state] ?? STATE_LABELS[0]!)}</span><span>{(ratio(p) * 100).toFixed(0)}%</span><span>{nameAny("owner", p.creator)}</span></div>
       {:else}<p class="fp-hint">{word(F + "HistoryTab/NoProjectsFound")}</p>{/each}
     {/if}
@@ -230,7 +316,7 @@
     {@const m = rowMenu}
     <div class="fp-menu fp-rowmenu" style:left={`${m.x}px`} style:top={`${m.y + 80}px`} role="menu" tabindex="-1" onmouseleave={() => { rowMenu = null; }}>
       <button title={word("UI/Corporations/FreelanceProjects/CloneProject")} onclick={() => { creating = { original: m.p }; rowMenu = null; }}>⧉ {word("UI/FreelanceProjects/DuplicateProject")}</button>
-      <button onclick={() => { void openDetails(m.p); rowMenu = null; }}>{word("UI/Corporations/Goals/ViewAdminDetails")}</button>
+      <button onclick={() => { void openJob(m.p); rowMenu = null; }}>{word("UI/Corporations/Goals/ViewAdminDetails")}</button>
       <button onclick={() => { void openDetails(m.p); rowMenu = null; }}>{word("UI/Corporations/FreelanceProjects/ViewParticipants")}</button>
       <hr /><span class="fp-dim">{nameAny("owner", m.p.creator)}</span>
     </div>
@@ -265,6 +351,71 @@
         <button class="fp-ghost" title={word("UI/Corporations/FreelanceProjects/CloneProject")} onclick={() => { creating = { original: p }; }}>⧉ {word("UI/FreelanceProjects/DuplicateProject")}</button>
         {#if p.state === 1}<button class="fp-ghost" disabled={busy} onclick={() => void closeProject(p)}>✕ {word("UI/Corporations/FreelanceProjects/CloseProject")}</button>{/if}
       </div>
+    </div>
+  {/if}
+  {#if job && !details}
+    {@const j = job}
+    {@const p = j.project}
+    {@const m = methodOf(p)}
+    {@const st = stateInfo(j)}
+    {@const mine = j.participation === 1 || p.myProgress > 0}
+    {@const ageRestricted = p.minAge !== null || p.maxAge !== null}
+    {@const personalLimit = p.contributionLimit || p.target}
+    <div class="fp-overlay fp-job">
+      <div class="fp-job-top"><button class="fp-ghost" onclick={() => { job = null; }}>{word("UI/Commands/Back")}</button>
+        <span class="fp-dim">{p.careerPath !== null && careerNames[p.careerPath] ? word(`#${careerNames[p.careerPath]}`) : ""}</span><span class="fp-gap"></span>
+        <button class="fp-ghost" title={word("UI/FreelanceProjects/DuplicateProject")} onclick={() => { creating = { original: p }; }}>⧉</button>
+        {#if p.state === 1}
+          <button class="fp-ghost" title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={() => { job = null; void openDetails(p); }}>☰</button>
+          <button class="fp-ghost" title={word(G + "CloseProject")} disabled={busy} onclick={() => void closeProject(p).then(() => { if (!details) job = null; })}>✕</button>
+        {/if}</div>
+      <div class="fp-job-head"><h2>{p.name}</h2><b>{nameAny("owner", j.corporationID)}</b></div>
+      {#if st}<div style:color={st.color}>{st.text}</div>{/if}
+      <div class="fp-buttons fp-cta">
+        {#if p.state === 1}
+          {#if j.participation === 1}<button class="fp-ghost" title={word(F + "DetailsWindow/ResignButtonTooltip")} disabled={busy} onclick={() => void jobAct("resign")}>{word("UI/FreelanceProjects/Resign")}</button>
+          {:else}<button title={commitHint(j)} disabled={busy || j.atMaxProjects || commitBlock(j) !== null} onclick={() => void jobAct("commit")}>{word("UI/FreelanceProjects/Commit")}</button>{/if}
+        {/if}
+        {#if j.unredeemed > 0}
+          <button class="fp-claim" disabled={busy || claimFailed} onclick={() => void jobAct("redeem")}>{claimFailed ? word("UI/Inflight/JumpThroughError") : word(G + "ClaimValue", { rewardValue: isk(j.unredeemed * p.iskPerUnit) })}</button>
+        {/if}
+      </div>
+      {#if jobNotice}<p class="fp-notice">{word(jobNotice) || jobNotice}</p>{/if}
+      <div class="fp-dim">{#if p.state === 1}{#if p.deadline && p.deadline > Date.now()}{word("UI/Generic/ExpiresIn", { color: "", remaining: { type: "long", value: String(BigInt(Math.max(0, p.deadline - Date.now())) * 10000n) } })}{:else}{word("UI/Generic/Expired")}{/if} | {/if}{word("UI/ScienceAndIndustry/ScienceAndIndustryWindow/EndDate")} {(p.deadline ?? p.finished) ? date((p.deadline ?? p.finished)!) : "-"}</div>
+      <div class="fp-strip" title={word("UI/FreelanceProjects/ParticipantsInfoTooltip")}>
+        <span><b style:color={atCapacity(j) ? "#d4534f" : ""}>{p.participants}</b> {word("UI/FreelanceProjects/ActiveParticipants")}{#if j.participation === 1} <small>{word("UI/FreelanceProjects/IncludingYou")}</small>{/if}</span>
+        <span><b>{j.totalParticipants}</b> {word("UI/FreelanceProjects/TotalParticipants")}</span></div>
+      {#if !meetsAge(j)}<div class="fp-age bad"><b>{word("UI/FreelanceProjects/AgeRestrictionNotMetHeader")}</b><span>{ageText(j)}</span></div>{/if}
+      <section><h3 title={word(F + "OverAllProgressTooltip", { amount_of_contributors: p.contributors.toLocaleString("en-US"), contribution_percentage: `${(ratio(p) * 100).toLocaleString("en-US", { maximumFractionDigits: 1 })}%` })}>{word(G + "Progress")}</h3>
+        <div class="fp-progress">
+          <div class="fp-overview"><span class="fp-gauge fp-gauge-big" style:--outer={`${Math.min(1, ratio(p)) * 360}deg`} title={word("UI/FreelanceProjects/Contributors")}><span>👥 {p.contributors}</span></span>
+            <div><b>{p.current.toLocaleString("en-US")}</b><small>/ {p.target.toLocaleString("en-US")}</small><small>{Math.floor(ratio(p) * 100)}% <span class="fp-dim">{msg(m?.progressDescription)}</span></small></div></div>
+          <div class="fp-reward">
+            {#if m?.maxProgress && p.maxProgress}<small>{word(F + "MaxProgressPerContribution")}</small><b>{p.maxProgress.toLocaleString("en-US")}</b>
+            {:else}<small>{word(F + "RemainingISKinJob")}</small><b>{isk(remaining(p) * p.iskPerUnit)}</b>{/if}
+            <small>{msg(m?.rewardDescription)}</small><b>{m?.multiplier && p.multiplier ? `${Math.round(p.multiplier * 100)}%` : isk(p.iskPerUnit)}</b></div>
+        </div>
+      </section>
+      {#if mine}
+        <section><h3 title={p.contributionLimit ? word(F + "DetailsWindow/FreelanceParticipationLimitExplanationTooltip") : ""}>{word(G + "YourContribution")}</h3>
+          <div class="fp-progress">
+            <div class="fp-overview"><span class="fp-gauge fp-gauge-big" style:--outer={`${Math.min(1, p.myProgress / (personalLimit || 1)) * 360}deg`}><span></span></span>
+              <div><b>{p.myProgress.toLocaleString("en-US")}</b><small>/ {personalLimit.toLocaleString("en-US")}</small><small>{Math.floor((p.myProgress / (personalLimit || 1)) * 100)}% <span class="fp-dim">{msg(m?.progressDescription)}</span></small></div></div>
+            <div class="fp-reward"><small>{word(G + "AvailableToEarn")}</small><b>{isk(personalRemaining(j) * p.iskPerUnit)}</b><small>{word(G + "TotalEarned")}</small><b>{isk(p.myProgress * p.iskPerUnit)}</b></div>
+          </div>
+        </section>
+      {/if}
+      <section><h3>{word("UI/Agents/StandardMission/Objectives")}</h3>
+        <div class="fp-attr" title={msg(m?.description)}><small>{word(G + "ContributionMethod")}</small><span>{msg(m?.title) || p.method}</span></div>
+        {#if m?.delivery}
+          <div class="fp-attr" title={msg(m.delivery.itemDescription)}><small>{msg(m.delivery.itemTitle)}</small><span>{[...p.itemTypes.map((t) => nameAny("type", t) || String(t)), ...p.itemGroups.map((g) => nameAny("group", g) || String(g))].join(", ")}</span></div>
+          <div class="fp-attr" title={msg(m.delivery.locationDescription)}><small>{msg(m.delivery.locationTitle)}</small><span>{p.deliveryStations.map((sid) => nameAny("station", sid) || String(sid)).join(", ")}</span></div>
+        {/if}
+      </section>
+      {#if meetsAge(j) && ageRestricted}<div class="fp-age"><b>{word("UI/FreelanceProjects/AgeRestrictionMetHeader")}</b><span>{ageText(j)}</span></div>{/if}
+      {#if p.description}<section><h3>{word("UI/Common/Description")}</h3><p>{p.description}</p></section>{/if}
+      <section><h3>{word(G + "CreatedOn", { dateString: date(p.created) })}</h3>
+        <div class="fp-strip"><span><small>{word(G + "Creator")}</small> {nameAny("owner", p.creator)}</span><span>{nameAny("owner", j.corporationID)}</span></div></section>
     </div>
   {/if}
   <div class="fp-buttons"><button onclick={() => { creating = { original: null }; }}>{word(F + "CreateProject/CreateNewButton")}</button></div>
@@ -319,4 +470,16 @@
   .fp-prow.limited { grid-template-columns: 1.4fr 1.4fr 1.2fr 0.8fr 0.8fr 0.8fr 1.1fr 0.9fr 24px; }
   .fp-notice { color: #d4534f; }
   .fp-end { justify-content: flex-end; gap: 8px; }
+  .fp-job-top { display: flex; align-items: center; gap: 4px; }
+  .fp-job-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .fp-cta { justify-content: flex-start; gap: 8px; }
+  .fp-claim { background: #2f5f2f; }
+  .fp-strip { display: flex; gap: 32px; padding: 12px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); }
+  .fp-age { display: flex; flex-direction: column; padding: 8px 16px; border-left: 6px solid #5fb85f; background: rgba(95, 184, 95, 0.15); }
+  .fp-age b { color: #5fb85f; }
+  .fp-age.bad { border-color: #d4534f; background: rgba(212, 83, 79, 0.15); }
+  .fp-age.bad b { color: #d4534f; }
+  .fp-attr { display: flex; flex-direction: column; padding-top: 8px; }
+  .fp-attr small { opacity: 0.65; }
+  .fp-job .fp-gauge-big span { font-size: 11px; opacity: 0.8; }
 </style>

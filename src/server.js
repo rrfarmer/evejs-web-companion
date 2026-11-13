@@ -14574,6 +14574,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.freelance.project.api.GetCreationPricesRequest",
   // AdminDetailsContainer's ParticipantsPanel (get_participants).
   "eve_public.freelance.project.api.GetParticipationDetailsRequest",
+  "eve_public.freelance.project.api.GetRequest",
+  "eve_public.freelance.project.api.GetAllCommittedRequest",
   // The alliance's Sov Hubs page (SovHubEntryController through QuasarCallWrapper): a hub's installed upgrades and the
   // upgrade definitions, its available resources, its fuel, its workforce state; the planets' and stars' resource
   // definitions for the system's max power and workforce (sovereigntyResourceSvc.GetMaxPowerAndWorkforce).
@@ -14603,6 +14605,9 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   // The admin details' Close Project and a participant's kick (FreelanceProjectsMessenger.close / kick).
   "eve_public.freelance.project.api.CloseRequest",
   "eve_public.freelance.project.api.KickRequest",
+  "eve_public.freelance.project.api.CommitRequest",
+  "eve_public.freelance.project.api.ResignRequest",
+  "eve_public.freelance.project.api.RedeemRewardRequest",
   // The Sov Hub window's Save Changes (sovHubSvc.SaveUpgradeConfiguration - ProcessConfigurationRequest) and an
   // upgrade's removal (UninstallUpgrade - UninstallRequest).
   "eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationRequest",
