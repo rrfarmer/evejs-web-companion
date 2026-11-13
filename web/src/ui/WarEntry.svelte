@@ -21,6 +21,8 @@
   import LabelText from "./LabelText.svelte";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   import WarReport from "./WarReport.svelte";
+  import WarSurrender from "./WarSurrender.svelte";
+  import type { WarNegotiation } from "../app/flow.ts";
   let { store, flow, war, myWars = false }: { store: ClientStore; flow: AppFlow; war: CorpWar; myWars?: boolean } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -39,7 +41,7 @@
   const W = "UI/Corporations/Wars/";
   const WAR_ENTRY_WORDS = ["WarNotMutual", "WarMutual", "Vs", "Offender", "Defender", "DefenderOpenForAllies", "WarStartedCanFight", "WarEndsAt", "WarStartedEndsAt",
     "WarStartedAndFinished", "WarStartedAndRetracted", "WarStarted", "OpenForAllies", "OfferAssistance", "ViewNumAllies", "ViewAllies", "RetractWar",
-    "SendSurrenderOffer", "OpenWarReport"].map((k) => W + k).concat(["UI/Common/Unknown", DATE_LABELS.sn!, DATE_LABELS.ns!, DATE_LABELS.ss!, DATE_LABELS.xn!]);
+    "SendSurrenderOffer", "ViewSurrenderOffer", "SurrenderPending", "OpenWarReport"].map((k) => W + k).concat(["UI/Common/Unknown", DATE_LABELS.sn!, DATE_LABELS.ns!, DATE_LABELS.ss!, DATE_LABELS.xn!]);
   const fill = (label: string, values: Record<string, unknown> = {}) =>
     formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") });
   const isAlliance = (id: number) => id >= 99_000_000 && id < 100_000_000;
@@ -62,7 +64,15 @@
   const me = $derived($station.online?.allianceID ?? $station.online?.corporationID ?? 0);
   const myWar = $derived([war.declaredByID, war.againstID].includes(me));
   const director = $derived((BigInt($station.online?.corpRole ?? "0") & 1n) === 1n);
-  let menu = $state(false), report = $state(false);
+  let menu = $state(false), report = $state(false), surrender = $state(false);
+  // GetSurrenderStatus (a director, in the war, not retracted): the war's surrender offers - the pending icon and the
+  // menu's View Surrender Offer for the last one
+  let surrenders = $state<readonly WarNegotiation[]>([]);
+  function loadSurrenders(): void {
+    if (director && myWar && war.retracted === null) void flow.surrenderNegotiations(war.warID).then((s) => { surrenders = s.filter((n) => n.state === 0); }).catch(() => {});
+  }
+  $effect(() => { void war; loadSurrenders(); });
+  const pendingSurrender = $derived(surrenders.length ? surrenders[surrenders.length - 1]! : null);
   $effect(() => { flow.requestWords(WAR_ENTRY_WORDS); flow.requestCorpLogos([war.declaredByID, war.againstID].filter((id) => !isAlliance(id) && !isNpcCorp(id) && !isFaction(id))); flow.loadOwnerLogos(); flow.loadImageServer(); });
   function logoOf(id: number): { kind: "corp"; logo: NonNullable<ReturnType<typeof playerLogo>> } | { kind: "img"; url: string | null } {
     const p = playerLogo(id);
@@ -77,6 +87,7 @@
 </script>
 
 {#if report}<WarReport {store} {flow} warID={war.warID} onClose={() => (report = false)} />{/if}
+{#if surrender}<WarSurrender {store} {flow} {war} negotiation={pendingSurrender} onClose={() => { surrender = false; loadSurrenders(); }} />{/if}
 <div class="war-entry" class:mine={myWars}>
   <div class="we-war">
     {#each [{ id: war.declaredByID, role: "Offender" }, null, { id: war.againstID, role: "Defender" }] as side, i (i)}
@@ -95,6 +106,7 @@
     </span>
   </div>
   <div class="we-buttons">
+    {#if pendingSurrender}<span class="we-allies" title={plainText(fill(W + "SurrenderPending"))}>🏳</span>{/if}
     {#if openForAllies}<span class="we-allies" title={plainText(fill(W + "DefenderOpenForAllies"))}>✚</span>{/if}
     <button type="button" class="we-menu-btn" aria-expanded={menu} onclick={() => (menu = !menu)}>☰</button>
     {#if menu}
@@ -105,7 +117,8 @@
           <button type="button" role="menuitem" disabled>{war.allyIDs.length ? plainText(fill(W + "ViewNumAllies", { num: war.allyIDs.length })) : plainText(fill(W + "ViewAllies"))}</button>
         {/if}
         {#if myWar && director && !finished && war.retracted === null}
-          <button type="button" role="menuitem" disabled>{plainText(fill(W + (war.mutual ? "RetractWar" : "SendSurrenderOffer")))}</button>
+          {#if war.mutual}<button type="button" role="menuitem" disabled>{plainText(fill(W + "RetractWar"))}</button>
+          {:else}<button type="button" role="menuitem" onclick={() => { menu = false; surrender = true; }}>{plainText(fill(W + (pendingSurrender ? "ViewSurrenderOffer" : "SendSurrenderOffer")))}</button>{/if}
         {/if}
         <button type="button" role="menuitem" onclick={() => { menu = false; report = true; }}>{plainText(fill(W + "OpenWarReport"))}</button>
       </div>

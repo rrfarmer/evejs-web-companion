@@ -441,6 +441,11 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** A war negotiation (GetNegotiations' KeyVal): its parties - ownerID1 the offerer, ownerID2 the other -, ISK, text, state. */
+export interface WarNegotiation {
+  readonly warNegotiationID: number; readonly warID: number; readonly typeID: number; readonly ownerID1: number; readonly ownerID2: number;
+  readonly declaredByID: number; readonly againstID: number; readonly iskValue: number; readonly description: string; readonly state: number;
+}
 /** WarReportWnd's facts (GetBaseInfo's four, the HQ's name and type). */
 export interface WarReportInfo {
   readonly war: CorpWar; readonly shipsKilled: ReadonlyMap<number, number>; readonly iskKilled: ReadonlyMap<number, number>;
@@ -2486,6 +2491,11 @@ export interface AppFlow {
   /** WarReportWnd.LoadInfo: the war's statistics object (warStatisticMgr bound for the war) GetBaseInfo - (war,
    * shipsKilled by owner, iskKilled by owner, allies) -, the structure directory's HQ info, the owners primed. */
   warReport(warID: number): Promise<WarReportInfo | null>;
+  /** war.GetSurrenderNegotiations(warID): the war moniker's GetNegotiations, the surrender offers (type 2) of that war. */
+  surrenderNegotiations(warID: number): Promise<readonly WarNegotiation[]>;
+  /** WarSurrenderWnd: _SubmitRequest - war.CreateSurrenderNegotiation(warID, isk, message); _AcceptOffer -
+   * AcceptSurrender(id); _DeclineOffer - DeclineSurrender(id). True when made. */
+  surrenderAct(act: { readonly kind: "offer"; readonly warID: number; readonly isk: number; readonly message: string } | { readonly kind: "accept" | "decline"; readonly warNegotiationID: number }): Promise<boolean>;
   /** GetKillsScrollList: the statistics object's GetKills(entityID or None, shipGroup or None), the kills' owners primed. */
   warReportKills(warID: number, entityID: number | null): Promise<readonly KillReport[]>;
   warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }>;
@@ -16575,6 +16585,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return wars;
   }
+  async function surrenderNegotiations(warID: number): Promise<readonly WarNegotiation[]> {
+    const answer = await bridgeAsk("warRegistry", "GetNegotiations", []);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapReal(v) ?? unwrapLong(v) ?? 0));
+    const text = (v: JsonValue | undefined) => (typeof v === "string" ? v : v && typeof v === "object" && "value" in v && typeof v.value === "string" ? v.value : "");
+    const rows = items.map((r) => ({ warNegotiationID: num(memberField(r, "warNegotiationID")), warID: num(memberField(r, "warID")), typeID: num(memberField(r, "warNegotiationTypeID")),
+      ownerID1: num(memberField(r, "ownerID1")), ownerID2: num(memberField(r, "ownerID2")), declaredByID: num(memberField(r, "declaredByID")), againstID: num(memberField(r, "againstID")),
+      iskValue: num(memberField(r, "iskValue")), description: text(memberField(r, "description")), state: num(memberField(r, "negotiationState")) }))
+      .filter((n) => n.typeID === 2 && n.warID === warID);
+    const ids = [...new Set(rows.flatMap((n) => [n.ownerID1, n.ownerID2]))].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return rows;
+  }
+  async function surrenderAct(act: { readonly kind: "offer"; readonly warID: number; readonly isk: number; readonly message: string } | { readonly kind: "accept" | "decline"; readonly warNegotiationID: number }): Promise<boolean> {
+    try {
+      if (act.kind === "offer") await bridgeDo("warRegistry", "CreateSurrenderNegotiation", [act.warID, act.isk, act.message]);
+      else await bridgeDo("warRegistry", act.kind === "accept" ? "AcceptSurrender" : "DeclineSurrender", [act.warNegotiationID]);
+      return true;
+    } catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function warReport(warID: number): Promise<WarReportInfo | null> {
     const answer = await bridgeAsk("warStatisticMgr", "GetBaseInfo", [], null, warID);
     const parts: readonly JsonValue[] = Array.isArray(answer) ? answer : answer && typeof answer === "object" && "items" in answer && Array.isArray(answer.items) ? answer.items : [];
@@ -30337,6 +30367,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     recentWars,
     warHistory,
     warReport,
+    surrenderNegotiations,
+    surrenderAct,
     warReportKills,
     searchWarableOwners,
     validWarHQs,
