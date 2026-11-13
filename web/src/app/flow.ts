@@ -490,6 +490,13 @@ export interface SafetyWrap { readonly assetWrapID: number; readonly wrapName: s
 export const PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS: readonly number[] = [35832, 35833, 35834, 35825, 35826, 35827, 35835, 35836, 35840, 37534, 35841];
 /** A structure with a SKINR licence, as CorpStructureDesignPanel lists it. upkeepState: 1 full power, 2 low power,
  * 3 abandoned (structures.const). */
+export interface PaintToolApplication {
+  readonly prices: Readonly<Record<number, Readonly<Record<number, number>>>>;
+  readonly durations: readonly number[];
+  readonly structures: readonly { readonly structureID: number; readonly name: string; readonly typeID: number; readonly upkeepState: number; readonly solarSystemID: number;
+    readonly licenseID: string | null; readonly remainingSeconds: number | null }[];
+  readonly evermarks: number;
+}
 export interface CorporationStructureLicense {
   readonly structureID: number; readonly name: string; readonly typeID: number; readonly upkeepState: number;
   readonly solarSystemID: number; readonly licenseID: string; readonly remainingSeconds: number;
@@ -2989,6 +2996,16 @@ export interface AppFlow {
   /** ConfirmRevokeWnd._send_revoke_request: RevokeRequest(license=LicenseIdentifier(uuid)); throws when it fails
    * (RevokeRequestErrorDescription). */
   revokeStructureLicense(licenseID: string): Promise<void>;
+  /** The paint tool's DesignApplicationPage: the licence catalogue (GetCatalogueRequest: each structure type's price in
+   * EverMarks by duration; the durations sorted), the corporation's structures (structureDirectory.
+   * GetCorporationStructures) each with its licence where it has one (GetAllOwnedByCorporationRequest), and the
+   * corporation's EverMark balance (LPSvc.GetAllMyCorporationWalletLPBalances, corpHeraldry's). Throws where the
+   * catalogue could not be read (CatalogueLoadingError). */
+  paintToolApplication(): Promise<PaintToolApplication>;
+  /** ConfirmApplyWnd._send_apply_request: IssueRequest(paintwork slot configuration, duration, structures); null when
+   * done, else the error's label (blocking_request: 401 IssueRequestRolesErrorDescription, 402
+   * IssueRequestBalanceErrorDescription, else IssueRequestErrorDescription). */
+  issueStructureLicenses(paintwork: Readonly<Record<"primary" | "secondary" | "detailing", number | null>>, durationSeconds: number, structureIDs: readonly number[]): Promise<string | null>;
   ownCorporationColors(): Promise<{ readonly primary: readonly [number, number, number]; readonly color2: readonly [number, number, number] | null; readonly color3: readonly [number, number, number] | null; readonly lastAuthoredBy: number | null; readonly lastAuthored: Date | null }>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
@@ -19833,6 +19850,59 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await memberNames(scope, PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS.map((id) => ({ kind: "type" as const, id })));
     return rows;
   }
+  async function paintToolApplication(): Promise<PaintToolApplication> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" ? value : typeof value === "number" ? value : 0) || 0;
+    const catalogue = await api.publicGatewayRequest("eve_public.cosmetic.structure.paintwork.license.api.GetCatalogueRequest", {}, callOptions); scope.current();
+    if (catalogue.statusCode !== 200) throw new Error(catalogue.statusMessage || `The catalogue could not be read (${catalogue.statusCode}).`);
+    const prices: Record<number, Record<number, number>> = {};
+    const durations = new Set<number>();
+    for (const raw of Array.isArray(record(catalogue.payload).items) ? record(catalogue.payload).items as unknown[] : []) {
+      const r = record(raw), typeID = int(record(r.structure_type).sequential), seconds = int(record(r.duration).seconds);
+      (prices[typeID] ??= {})[seconds] = int(record(r.price).amount);
+      durations.add(seconds);
+    }
+    const [structuresRaw, owned, lp] = await Promise.all([
+      scope.ask("structureDirectory", "GetCorporationStructures", []),
+      api.publicGatewayRequest("eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationRequest", {}, callOptions).catch(() => null),
+      scope.ask("LPSvc", "GetAllMyCorporationWalletLPBalances", []).catch(() => null),
+    ]);
+    scope.current();
+    const licences = new Map<number, { id: string; remaining: number }>();
+    for (const raw of owned && owned.statusCode === 200 && Array.isArray(record(owned.payload).licenses) ? record(owned.payload).licenses as unknown[] : []) {
+      const attributes = record(record(raw).attributes), issued = record(attributes.issued);
+      const id = uuidFromBytes(String(record(record(raw).identifier).uuid ?? ""));
+      const structureID = int(record(attributes.structure).sequential);
+      const elapsed = Date.now() / 1000 - (int(issued.seconds) + int(issued.nanos) / 1e9);
+      if (id && structureID) licences.set(structureID, { id, remaining: int(record(attributes.duration).seconds) - elapsed });
+    }
+    // GetCorporationWalletLPBalance(corpHeraldry 1000419): the CRowset's rows (issuerCorpID, loyaltyPoints).
+    let evermarks = 0;
+    const lpRows = lp && typeof lp === "object" && Array.isArray((lp as { list?: unknown }).list) ? (lp as { list: unknown[] }).list : [];
+    for (const row of lpRows) {
+      const issuer = readRowField(row, "issuerCorpID"), points = readRowField(row, "loyaltyPoints");
+      if (Number(unwrapLong(issuer) ?? issuer) === 1000419) evermarks = Number(unwrapLong(points) ?? points) || 0;
+    }
+    const structures = decodeCorporationStructures(structuresRaw as JsonValue).map((s) => {
+      const l = licences.get(s.structureID);
+      return { structureID: s.structureID, name: s.itemName, typeID: s.typeID, upkeepState: s.upkeepState, solarSystemID: s.solarSystemID, licenseID: l?.id ?? null, remainingSeconds: l ? l.remaining : null };
+    });
+    await memberNames(scope, [...PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS.map((id) => ({ kind: "type" as const, id })), ...structures.map((s) => ({ kind: "system" as const, id: s.solarSystemID })), ...structures.map((s) => ({ kind: "type" as const, id: s.typeID }))]);
+    return { prices, durations: [...durations].sort((a, b) => a - b), structures, evermarks };
+  }
+  async function issueStructureLicenses(paintwork: Readonly<Record<"primary" | "secondary" | "detailing", number | null>>, durationSeconds: number, structureIDs: readonly number[]): Promise<string | null> {
+    // create_proto_slot_config_from_structure_paintwork: each slot its paint, or empty.
+    const slot = (v: number | null) => (v ? { paint: v } : { empty: true });
+    const payload = { paintwork: { primary: slot(paintwork.primary), secondary: slot(paintwork.secondary), detailing: slot(paintwork.detailing) }, duration: { seconds: durationSeconds },
+      structures: structureIDs.map((sequential) => ({ sequential })) };
+    const a = await api.publicGatewayRequest("eve_public.cosmetic.structure.paintwork.license.api.IssueRequest", payload as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    const P = "UI/Personalization/PaintTool/";
+    if (a && a.statusCode === 200) return null;
+    if (a && a.statusCode === 401) return P + "IssueRequestRolesErrorDescription";
+    if (a && a.statusCode === 402) return P + "IssueRequestBalanceErrorDescription";
+    return P + "IssueRequestErrorDescription";
+  }
   async function revokeStructureLicense(licenseID: string): Promise<void> {
     const answer = await api.publicGatewayRequest("eve_public.cosmetic.structure.paintwork.license.api.RevokeRequest", { license: { uuid: bytesFromUuid(licenseID) } }, { ...callOptions, confirm: true });
     if (answer.statusCode !== 200) throw new Error(answer.statusMessage || `The licence could not be revoked (${answer.statusCode}).`);
@@ -32956,6 +33026,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ownCorporationColors,
     corporationStructureLicenses,
     revokeStructureLicense,
+    paintToolApplication,
+    issueStructureLicenses,
     async setOwnCorporationColors(primary: readonly [number, number, number], color2: readonly [number, number, number] | null, color3: readonly [number, number, number] | null) {
       const rgb = (c: readonly [number, number, number]) => ({ red: Math.round(c[0] * 255), green: Math.round(c[1] * 255), blue: Math.round(c[2] * 255) });
       const attributes: Record<string, JsonValue> = { main_color: rgb(primary) };

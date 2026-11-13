@@ -14651,6 +14651,7 @@ const PUBLIC_GATEWAY_READS = new Set([
   // cosmetics/client/messengers/entitlements/corporation/structure/requestMessenger.get_for_corporation: Brand
   // Management's Details (CorpStructureDesignPanel), the corporation's structure SKINR licences.
   "eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationRequest",
+  "eve_public.cosmetic.structure.paintwork.license.api.GetCatalogueRequest",
   // corporation/client/goals/goalMessenger.py: the Projects panel's reads (CorpGoalsController).
   "eve_public.corporationgoal.api.GetActiveRequest",
   "eve_public.corporationgoal.api.GetInactiveRequest",
@@ -14722,6 +14723,7 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).
   "eve_public.cosmetic.structure.paintwork.license.api.RevokeRequest",
+  "eve_public.cosmetic.structure.paintwork.license.api.IssueRequest",
   "eve_public.character.skill.plan.DeleteRequest",
   "eve_public.character.skill.plan.SetActiveRequest",
   "eve_public.character.skill.plan.SetSkillRequirementsRequest",
