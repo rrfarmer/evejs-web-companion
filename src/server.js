@@ -1213,6 +1213,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_PLANET", message: "A positive planetID is required." });
     return;
   }
+  // (A war's statistics object: eveMoniker.GetWarStatistic(warID), a war's number.)
+  if (objectKind === "war" && !(Number.isSafeInteger(body.of) && body.of > 0)) {
+    res.status(400).json({ ok: false, error: "INVALID_WAR", message: "A positive warID is required." });
+    return;
+  }
   // (An agent's number, as an agent's routes take one: a whole number above nought.)
   if (objectKind === "agent" && !(Number.isSafeInteger(body.of) && body.of > 0)) {
     res.status(400).json({ ok: false, error: "INVALID_AGENT", message: "A positive agentID is required." });
@@ -1334,6 +1339,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "planet"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
         heldBridgeSession, req.webSessionID, planetBindSpec(body.of), body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      // (A call on a war's statistics object goes by its bind: WarReportWnd.GetWarStatisticMoniker binds it for the
+      // war, Moniker('warStatisticMgr', warID).Bind(), and asks it.)
+      : objectKind === "war"
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
+        heldBridgeSession, req.webSessionID, { key: `warStatistic:${Number(body.of)}`, service: "warStatisticMgr", method: "MachoBindObject", args: [Number(body.of)], kwargs: null },
+        body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
       // (A call on an agent's object goes by the bind an agent's routes go by: bound for that agent, and kept.)
       : objectKind === "agent"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(

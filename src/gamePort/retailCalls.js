@@ -700,6 +700,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "peaceTreatyMgr.GetPeaceTreatiesForSession", "billMgr.GetCorporationBills",
   // WarDeclareWnd._DoDeclareMutualWar: mutualWarInvites.SendInvite.
   "mutualWarInviteMgr.SendInviteByPlayer",
+  // WarReportWnd: the war's statistics object (eveMoniker.GetWarStatistic(warID), bound) - GetBaseInfo, GetKills,
+  // GetKillsByGroup.
+  "warStatisticMgr.MachoBindObject", "warStatisticMgr.GetBaseInfo", "warStatisticMgr.GetKills", "warStatisticMgr.GetKillsByGroup",
   // An acceleration gate's activation, the keeper's (movementFunctions.py 553). The gateway's list has nothing of the keeper's.
   "keeper.ActivateAccelerationGate",
   // A fitting saved, and one of the same name saved over (fittingSvc.PersistFitting, 302 and 304). The gateway's list

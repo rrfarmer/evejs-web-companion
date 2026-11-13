@@ -441,6 +441,11 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** WarReportWnd's facts (GetBaseInfo's four, the HQ's name and type). */
+export interface WarReportInfo {
+  readonly war: CorpWar; readonly shipsKilled: ReadonlyMap<number, number>; readonly iskKilled: ReadonlyMap<number, number>;
+  readonly allies: readonly number[]; readonly warHQ: number | null; readonly hqName: string | null; readonly hqTypeID: number | null;
+}
 /** A peace treaty as war.GetPeaceTreaties answers it (the side the pilot's owner is on: outgoing or incoming). */
 export interface PeaceTreaty { readonly otherOwnerID: number; readonly peaceReason: number; readonly expiryDate: bigint; readonly warID: number | null }
 
@@ -2478,6 +2483,11 @@ export interface AppFlow {
   recentWars(maxWarID: number, cryForHelp: boolean): Promise<readonly CorpWar[]>;
   /** WarHistoryCont.LoadHistory: war.GetPeaceTreaties (peaceTreatyMgr: outgoing, incoming - otherOwnerID, peaceReason,
    * expiryDate, warID) and warsInfoMgr.GetWarsByOwnerID of the corporation and its alliance; the owners primed. */
+  /** WarReportWnd.LoadInfo: the war's statistics object (warStatisticMgr bound for the war) GetBaseInfo - (war,
+   * shipsKilled by owner, iskKilled by owner, allies) -, the structure directory's HQ info, the owners primed. */
+  warReport(warID: number): Promise<WarReportInfo | null>;
+  /** GetKillsScrollList: the statistics object's GetKills(entityID or None, shipGroup or None), the kills' owners primed. */
+  warReportKills(warID: number, entityID: number | null): Promise<readonly KillReport[]>;
   warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }>;
   /** WarDeclarePagePickTypeCorp.SearchForOwner: war.SearchForWarableEntity - lookupSvc.LookupWarableCorporationsOrAlliances
    * (text, exact) and the corporations found by name (partial_terms, or exact_phrase_only) that are not warable, not
@@ -16565,6 +16575,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return wars;
   }
+  async function warReport(warID: number): Promise<WarReportInfo | null> {
+    const answer = await bridgeAsk("warStatisticMgr", "GetBaseInfo", [], null, warID);
+    const parts: readonly JsonValue[] = Array.isArray(answer) ? answer : answer && typeof answer === "object" && "items" in answer && Array.isArray(answer.items) ? answer.items : [];
+    if (!parts.length) return null;
+    const war = decodeWars({ type: "list", items: [parts[0]!] } as never)[0];
+    if (!war) return null;
+    const byOwner = (v: JsonValue | undefined) => new Map(readDictPairs(v ?? null).map(([k, n]) => [Number(typeof k === "number" ? k : unwrapLong(k as JsonValue) ?? 0), typeof n === "number" ? n : Number(unwrapReal(n) ?? unwrapLong(n) ?? 0)]));
+    const shipsKilled = byOwner(parts[1]), iskKilled = byOwner(parts[2]);
+    const allies = readDictPairs(parts[3] ?? null).map(([k]) => Number(typeof k === "number" ? k : unwrapLong(k as JsonValue) ?? 0)).filter((id) => id > 0);
+    const warHQ = Number(unwrapLong(memberField(parts[0]!, "warHQ")) ?? memberField(parts[0]!, "warHQ") ?? 0) || null;
+    let hqName: string | null = null, hqTypeID: number | null = null;
+    if (warHQ) {
+      const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [warHQ]);
+      const name = readKeyVal(info, "itemName") ?? memberField(info, "itemName");
+      hqName = typeof name === "string" ? name : name && typeof name === "object" && "value" in name && typeof name.value === "string" ? name.value : null;
+      const t = readKeyVal(info, "typeID") ?? memberField(info, "typeID");
+      hqTypeID = typeof t === "number" ? t : Number(unwrapLong(t) ?? 0) || null;
+    }
+    await warsNamed([war]);
+    return { war, shipsKilled, iskKilled, allies, warHQ, hqName, hqTypeID };
+  }
+  async function warReportKills(warID: number, entityID: number | null): Promise<readonly KillReport[]> {
+    const kills = decodeKillReports(await bridgeAsk("warStatisticMgr", "GetKills", [entityID, null], null, warID) as never);
+    const ids = [...new Set(kills.flatMap((k) => [k.victimCharacterID, k.victimCorporationID, k.victimAllianceID, k.finalCharacterID, k.finalCorporationID, k.finalAllianceID]).filter((id): id is number => !!id))];
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return kills;
+  }
   async function warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }> {
     const online = store.station.get().online;
     const corpID = online?.corporationID ?? 0, allianceID = online?.allianceID ?? null;
@@ -30299,6 +30336,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ownerWars,
     recentWars,
     warHistory,
+    warReport,
+    warReportKills,
     searchWarableOwners,
     validWarHQs,
     declareWarAgainst,

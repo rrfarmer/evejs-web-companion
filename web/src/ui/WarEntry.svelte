@@ -20,6 +20,7 @@
   import OwnerPicture from "./OwnerPicture.svelte";
   import LabelText from "./LabelText.svelte";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
+  import WarReport from "./WarReport.svelte";
   let { store, flow, war, myWars = false }: { store: ClientStore; flow: AppFlow; war: CorpWar; myWars?: boolean } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -61,7 +62,7 @@
   const me = $derived($station.online?.allianceID ?? $station.online?.corporationID ?? 0);
   const myWar = $derived([war.declaredByID, war.againstID].includes(me));
   const director = $derived((BigInt($station.online?.corpRole ?? "0") & 1n) === 1n);
-  let menu = $state(false);
+  let menu = $state(false), report = $state(false);
   $effect(() => { flow.requestWords(WAR_ENTRY_WORDS); flow.requestCorpLogos([war.declaredByID, war.againstID].filter((id) => !isAlliance(id) && !isNpcCorp(id) && !isFaction(id))); flow.loadOwnerLogos(); flow.loadImageServer(); });
   function logoOf(id: number): { kind: "corp"; logo: NonNullable<ReturnType<typeof playerLogo>> } | { kind: "img"; url: string | null } {
     const p = playerLogo(id);
@@ -75,6 +76,7 @@
   }
 </script>
 
+{#if report}<WarReport {store} {flow} warID={war.warID} onClose={() => (report = false)} />{/if}
 <div class="war-entry" class:mine={myWars}>
   <div class="we-war">
     {#each [{ id: war.declaredByID, role: "Offender" }, null, { id: war.againstID, role: "Defender" }] as side, i (i)}
@@ -105,7 +107,7 @@
         {#if myWar && director && !finished && war.retracted === null}
           <button type="button" role="menuitem" disabled>{plainText(fill(W + (war.mutual ? "RetractWar" : "SendSurrenderOffer")))}</button>
         {/if}
-        <button type="button" role="menuitem" disabled>{plainText(fill(W + "OpenWarReport"))}</button>
+        <button type="button" role="menuitem" onclick={() => { menu = false; report = true; }}>{plainText(fill(W + "OpenWarReport"))}</button>
       </div>
     {/if}
   </div>
