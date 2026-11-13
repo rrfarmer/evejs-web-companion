@@ -18,12 +18,14 @@
   // with the lava / ice state; Power and Workforce compact (allocated / total available, the max, the gauge); the
   // workforce transport (SectionWorkforceTransport: the configured mode, WorkforceTransport* words, the import sources
   // with their amounts); the corporation's skyhooks in the system.
-  // Not here yet: the Sov Hub window (EditStructure), the gauges' tooltips, sorting by the loaded columns.
+  // EditStructure opens the Sov Hub window (SovHubWindow.svelte). Not here yet: the gauges' tooltips, sorting by the
+  // loaded columns.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
+  import SovHubWindow from "./SovHubWindow.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -46,6 +48,7 @@
   const read = (key: string, fallback: string) => { try { return localStorage.getItem(`evejs.play.${key}`) ?? fallback; } catch { return fallback; } };
   const keep = (key: string, value: string) => { try { localStorage.setItem(`evejs.play.${key}`, value); } catch { /* the session keeps it */ } };
   let hubs = $state<readonly MySovHub[] | null>(null), loading = $state(true), details = $state<Record<number, SovHubDetails>>({}), now = $state(Date.now());
+  let hubWindow = $state<MySovHub | null>(null);
   let open = $state<Record<number, boolean>>({}), extras = $state<Record<number, SovHubExtras>>({});
   function toggle(h: MySovHub): void {
     open = { ...open, [h.hubID]: !open[h.hubID] };
@@ -223,7 +226,7 @@
           <div class="sh-exp-row">
             <div class="sh-exp-top"><div><div class="sh-exp-name">{word(S + "SovHub/HubWnd/SovHubName", { solarSystemName: h.systemName })}</div>
               <small class="sh-dim">{h.regionName} &gt; {h.constellationName} &gt; {h.systemName}</small></div>
-              <button disabled title="OpenSovHubWnd">⧉ {word(H + "EditStructure")}</button></div>
+              <button onclick={() => { hubWindow = h; }}>⧉ {word(H + "EditStructure")}</button></div>
             <div class="sh-exp-body">
               <div class="sh-col" style:width="145px"><small class="sh-dim">{word(H + "Upgrades")}</small>
                 <svg width="160" height="160" viewBox="0 0 160 160">
@@ -262,6 +265,7 @@
       {:else}<p class="sh-hint">{word((hubs?.length ?? 0) > 0 ? H + "NoSovHubsFilteredOut" : H + "NoSovHubs")}</p>{/each}
     {/if}
   </div>
+  {#if hubWindow}<SovHubWindow {store} {flow} hub={hubWindow} details={details[hubWindow.hubID]} extras={extras[hubWindow.hubID]} onClose={() => { hubWindow = null; }} />{/if}
 </div>
 
 <style>

@@ -551,6 +551,7 @@ export interface MySovHub {
 export interface SovHubUpgrade {
   readonly typeID: number; readonly powerState: "POWER_STATE_OFFLINE" | "POWER_STATE_ONLINE" | "POWER_STATE_LOW" | "POWER_STATE_PENDING" | null;
   readonly powerProduced: number; readonly workforceProduced: number; readonly fuelTypeID: number; readonly fuelPerHour: number; readonly startupCost: number;
+  readonly powerRequired: number; readonly workforceRequired: number;
 }
 export interface SovHubDetails {
   readonly upgrades: readonly SovHubUpgrade[] | null;
@@ -18763,6 +18764,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         planets: new Map(list(planets?.definitions).map((d) => { const r = record(d); return [int(record(r.planet).sequential), { power: int(r.power), workforce: int(r.workforce) }] as const; })),
         stars: new Map(list(stars?.configurations).map((d) => { const r = record(d); return [int(record(r.star).sequential), int(r.power)] as const; })),
         upgrades: new Map(list(defs?.definitions).map((d) => { const r = record(d); return [int(record(r.installation_type).sequential), { powerProduced: int(r.power_produced), workforceProduced: int(r.workforce_produced),
+          powerRequired: int(r.power_required), workforceRequired: int(r.workforce_required),
           fuelTypeID: int(record(r.fuel_type).sequential), fuelPerHour: int(r.fuel_consumption_per_hour), startupCost: int(r.fuel_startup_cost) }] as const; })),
       };
     })();
@@ -18772,7 +18774,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const upgrades = installed === null ? null : list(record(installed.hub_upgrades).upgrades).map((u) => {
       const a = record(record(u).attributes), typeID = int(record(record(a.definition).installation_type).sequential);
       const state = typeof a.power_state === "string" ? (STATES as readonly string[]).includes(a.power_state) ? a.power_state as SovHubUpgrade["powerState"] : null : null;
-      const def = statics.upgrades.get(typeID) ?? { powerProduced: 0, workforceProduced: 0, fuelTypeID: 0, fuelPerHour: 0, startupCost: 0 };
+      const def = statics.upgrades.get(typeID) ?? { powerProduced: 0, workforceProduced: 0, fuelTypeID: 0, fuelPerHour: 0, startupCost: 0, powerRequired: 0, workforceRequired: 0 };
       return { typeID, powerState: state, ...def };
     });
     const power = record(resources?.power), work = record(resources?.workforce);
