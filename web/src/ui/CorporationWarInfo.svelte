@@ -11,6 +11,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import LabelText from "./LabelText.svelte";
+  import CorporationDeclareWar from "./CorporationDeclareWar.svelte";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -35,7 +36,7 @@
   const raw = (label: string, values: Record<string, unknown> = {}) =>
     formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") });
   const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), text);
-  let info = $state<WarLandingInfo | null>(null), error = $state(""), dots = $state(".");
+  let info = $state<WarLandingInfo | null>(null), error = $state(""), dots = $state("."), declaring = $state(false);
   onMount(() => {
     flow.requestWords([...SECTIONS.flatMap((s) => [W + s.head, W + s.desc, W + s.tip]), ...STATUS_LABELS.map((l) => W + l), DECLARE, ...Object.keys(LINK_WORDS)]);
     void flow.warLandingInfo().then((i) => { info = i; }).catch((e) => { error = e instanceof Error ? e.message : String(e); });
@@ -76,7 +77,8 @@
       </section>
     {/each}
   </div>
-  <div class="wi-buttons"><button type="button" disabled title="Not on the play page yet">{plainText($words.templates[DECLARE] ?? "Declare War")}</button></div>
+  <div class="wi-buttons"><button type="button" onclick={() => (declaring = true)}>{plainText($words.templates[DECLARE] ?? "Declare War")}</button></div>
+  {#if declaring}<CorporationDeclareWar {store} {flow} onClose={() => { declaring = false; void flow.warLandingInfo().then((i) => { info = i; }); }} />{/if}
 </div>
 
 <style>

@@ -35,7 +35,14 @@ const field = (keyVal, name) => {
 /** An ID off the wire as one text for its number, however it was sent; null for what is no ID. */
 const keyOf = (value) => (typeof value === "bigint" || (typeof value === "number" && Number.isSafeInteger(value)) ? String(value) : null);
 /** What a tuple or a list off the wire holds; null for anything else. */
-const membersOf = (value) => (Array.isArray(value) ? value : value && value.type === "list" && Array.isArray(value.items) ? value.items : null);
+// A list, a tuple, or a set - as the server sends OnWarChanged's owners (corporationNotifications.notifyWarChanged:
+// buildPythonSet, an objectex1 of __builtin__.set over a one-tuple of its list; structureDirectory.py reads them as a set).
+const membersOf = (value) => {
+  if (value && value.type === "objectex1" && Array.isArray(value.header) && value.header[0] && value.header[0].value === "__builtin__.set") {
+    value = Array.isArray(value.header[1]) ? value.header[1][0] : null;
+  }
+  return Array.isArray(value) ? value : value && value.type === "list" && Array.isArray(value.items) ? value.items : null;
+};
 
 function createPilotWars() {
   /** warsByWarID: each war by its ID's text, as { id, war }: the ID as the war has it, and the war as it came. */

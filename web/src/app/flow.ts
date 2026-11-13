@@ -441,6 +441,14 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** SearchForWarableEntity's answer, with what GetUnsortedScrollList greys owners by. */
+export interface WarableSearch {
+  readonly warable: readonly { readonly ownerID: number; readonly typeID: number; readonly warPermit: boolean; readonly name: string }[];
+  readonly nonWarable: readonly { readonly id: number; readonly name: string }[];
+  readonly treatyOwners: readonly number[];
+  readonly opponents: readonly number[];
+}
+
 /** WarLandingPage's facts (GetLandingPageInfo's KeyVal, the link's owner for corpOrAllianceLink). */
 export interface WarLandingInfo {
   readonly ownerID: number; readonly ownerTypeID: number; readonly ownerName: string;
@@ -2465,6 +2473,17 @@ export interface AppFlow {
   /** PopulateTop50: warsInfoMgr.GetTop50(maxWarID) (WARS_PER_PAGE 50 below that war), or GetWarsRequiringAssistance
    * (Show cry for help), the owners primed. */
   recentWars(maxWarID: number, cryForHelp: boolean): Promise<readonly CorpWar[]>;
+  /** WarDeclarePagePickTypeCorp.SearchForOwner: war.SearchForWarableEntity - lookupSvc.LookupWarableCorporationsOrAlliances
+   * (text, exact) and the corporations found by name (partial_terms, or exact_phrase_only) that are not warable, not
+   * NPCs and start with the text; with the outgoing peace treaties' owners and the attacker's ongoing opponents. */
+  searchWarableOwners(text: string, exact: boolean): Promise<WarableSearch>;
+  /** WarDeclarePagePickHQ.LoadStructureList: structureDirectory.GetValidWarHQs(alliance or corporation). */
+  validWarHQs(): Promise<readonly { readonly structureID: number; readonly typeID: number; readonly itemName: string }[]>;
+  /** _DoDeclareAggressiveWar (a corporation's: corp.DeclareWarAgainst(defenderID, warHQ)); true when declared. */
+  declareWarAgainst(defenderID: number, warHQ: number): Promise<boolean>;
+  /** _DoDeclareMutualWar: mutualWarInvites.SendInvite (mutualWarInviteMgr.SendInviteByPlayer), then CustomNotify
+   * WarInviteHasBeenSent; true when sent. */
+  sendMutualWarInvite(ownerID: number): Promise<boolean>;
   /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
   sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
   /** RecruitmentEntry's recruiters: corpRecProxy.GetRecruiters(adID), their names primed. */
@@ -16547,6 +16566,50 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const answer = cryForHelp ? await bridgeAsk("warsInfoMgr", "GetWarsRequiringAssistance", []) : await bridgeAsk("warsInfoMgr", "GetTop50", [maxWarID]);
     return warsNamed(decodeWars(answer));
   }
+  async function searchWarableOwners(text: string, exact: boolean): Promise<WarableSearch> {
+    const online = store.station.get().online;
+    const attackerID = online?.allianceID ?? online?.corporationID ?? 0;
+    const [answer, byName] = await Promise.all([
+      bridgeAsk("lookupSvc", "LookupWarableCorporationsOrAlliances", [text, exact]),
+      searchOwners(text, [3], exact ? 3 : 0),
+    ]);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    const warable = items.map((row) => ({ ownerID: num(readKeyVal(row, "ownerID")), typeID: num(readKeyVal(row, "typeID")), warPermit: readKeyVal(row, "warPermit") !== false && readKeyVal(row, "warPermit") !== 0,
+      name: String(readKeyVal(row, "ownerName") ?? "") })).filter((o) => o.ownerID > 0 && o.ownerID !== online?.corporationID && o.ownerID !== online?.allianceID);
+    const lower = text.toLowerCase();
+    const nonWarable = (byName.get(3) ?? []).filter((c) => !warable.some((w) => w.ownerID === c.id) && !(c.id >= 1_000_000 && c.id < 2_000_000) && c.name.toLowerCase().startsWith(lower));
+    // GetPeaceTreaties' outgoing owners; GetOpponentsInOngoingWars
+    const treatyAnswer = await bridgeAsk("peaceTreatyMgr", "GetPeaceTreatiesForSession", []);
+    const pair: readonly JsonValue[] = Array.isArray(treatyAnswer) ? treatyAnswer : treatyAnswer && typeof treatyAnswer === "object" && "items" in treatyAnswer && Array.isArray(treatyAnswer.items) ? treatyAnswer.items : [];
+    const outgoing = pair[0] ?? null;
+    const treatyOwners = (isListValue(outgoing) ? outgoing.items : Array.isArray(outgoing) ? outgoing : []).map((t) => num(memberField(t, "otherOwnerID"))).filter((id) => id > 0);
+    const wars = decodeWars(await bridgeAsk("warRegistry", "GetWars", [attackerID]));
+    const opponents = new Set(wars.filter((w) => w.timeFinished === null).flatMap((w) => [w.declaredByID, w.againstID]));
+    opponents.delete(attackerID);
+    await warsNamed(wars);
+    return { warable, nonWarable, treatyOwners, opponents: [...opponents] };
+  }
+  async function validWarHQs(): Promise<readonly { readonly structureID: number; readonly typeID: number; readonly itemName: string }[]> {
+    const online = store.station.get().online;
+    const answer = await bridgeAsk("structureDirectory", "GetValidWarHQs", [online?.allianceID ?? online?.corporationID ?? 0]);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    return items.map((row) => ({ structureID: num(readKeyVal(row, "structureID")), typeID: num(readKeyVal(row, "typeID")), itemName: String(readKeyVal(row, "itemName") ?? "") }))
+      .filter((s) => s.structureID > 0);
+  }
+  async function declareWarAgainst(defenderID: number, warHQ: number): Promise<boolean> {
+    try { await bridgeDo("corpRegistry", "DeclareWarAgainst", [defenderID, warHQ]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function sendMutualWarInvite(ownerID: number): Promise<boolean> {
+    try { await bridgeDo("mutualWarInviteMgr", "SendInviteByPlayer", [ownerID]); }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+    await wordsNow(["UI/Corporations/Wars/WarInviteHasBeenSent"]);
+    const notify = templateWords("UI/Corporations/Wars/WarInviteHasBeenSent", { opponentName: nameCache.get(nameKey("owner", ownerID)) ?? String(ownerID) }, "The war invitation has been sent.");
+    sayDialog("CustomNotify", { type: "dict", entries: [["notify", notify]] }, notify);
+    return true;
+  }
   async function warLandingInfo(): Promise<WarLandingInfo> {
     const online = store.station.get().online;
     if (!online?.corporationID) throw new Error("No corporation is selected.");
@@ -30207,6 +30270,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warLandingInfo,
     ownerWars,
     recentWars,
+    searchWarableOwners,
+    validWarHQs,
+    declareWarAgainst,
+    sendMutualWarInvite,
     recruitmentAdRecruiters,
     corporationAggressionAt,
     deleteRecruitmentAd,

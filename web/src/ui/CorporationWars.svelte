@@ -15,6 +15,7 @@
   import type { CorpWar } from "../bridge/corpWars.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
+  import CorporationDeclareWar from "./CorporationDeclareWar.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -34,7 +35,7 @@
   // DeclareWar's availability: a director; in an alliance, its executor corporation's (not read here: a director allowed)
   const director = $derived((BigInt(online?.corpRole ?? "0") & 1n) === 1n);
   const declareReason = $derived(director ? null : online?.allianceID ? W + "DeclareWarNotAvailableAlliance" : W + "DeclareWarNotAvailableCorp");
-  let tab = $state<"our" | "all">("our"), error = $state("");
+  let tab = $state<"our" | "all">("our"), error = $state(""), declaring = $state(false);
   let ours = $state<readonly CorpWar[] | null>(null);
   let batches = $state<(readonly CorpWar[])[]>([]), page = $state<readonly CorpWar[] | null>(null);
   const read = (k: string, d: boolean) => { try { const v = localStorage.getItem(`evejs.play.${k}`); return v === null ? d : v === "true"; } catch { return d; } };
@@ -115,8 +116,10 @@
     </div>
   {/if}
   <div class="cw-declare">
-    <button type="button" disabled title={declareReason ? fill(declareReason, "") : "Not on the play page yet"}>{fill(C + "Alliances/Rankings/DeclareWar", "Declare War")}</button>
+    <button type="button" disabled={declareReason !== null} title={declareReason ? fill(declareReason, "") : ""} onclick={() => (declaring = true)}>{fill(C + "Alliances/Rankings/DeclareWar", "Declare War")}</button>
   </div>
+  <!-- DeclareWar: GetMenuService().DeclareWar(), then ShowWars -->
+  {#if declaring}<CorporationDeclareWar {store} {flow} onClose={() => { declaring = false; void showOurs(); }} />{/if}
 </div>
 
 <style>
