@@ -439,6 +439,7 @@ import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } 
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
+import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
 /** WarLandingPage's facts (GetLandingPageInfo's KeyVal, the link's owner for corpOrAllianceLink). */
 export interface WarLandingInfo {
@@ -2459,6 +2460,11 @@ export interface AppFlow {
    * peace-treaty owners (peaceTreatyMgr.GetPeaceTreatiesForSession), and the faction wars' count (0: a warring faction
    * is not read here). */
   warLandingInfo(): Promise<WarLandingInfo>;
+  /** CorpWars.get_scroll_entries' wars: war.GetWars(ownerID) - warRegistry.GetWars -, the owners and allies primed. */
+  ownerWars(ownerID: number): Promise<readonly CorpWar[]>;
+  /** PopulateTop50: warsInfoMgr.GetTop50(maxWarID) (WARS_PER_PAGE 50 below that war), or GetWarsRequiringAssistance
+   * (Show cry for help), the owners primed. */
+  recentWars(maxWarID: number, cryForHelp: boolean): Promise<readonly CorpWar[]>;
   /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
   sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
   /** RecruitmentEntry's recruiters: corpRecProxy.GetRecruiters(adID), their names primed. */
@@ -16526,6 +16532,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await bridgeDo("corpRegistry", "UpdateCorporation", [text(row.description), text(row.url), num(row.taxRate), isRecruiting, num(row.loyaltyPointTaxRate)]); }
     catch (error) { throwIfRequestRetired(error); if (!sayRefusalDialog(error, errorWords(error))) throw error; }
   }
+  async function warsNamed(wars: readonly CorpWar[]): Promise<readonly CorpWar[]> {
+    const ids = [...new Set(wars.flatMap((w) => [w.declaredByID, w.againstID, ...w.allyIDs]))].filter((id) => id > 0);
+    if (ids.length) {
+      const current = callOptions.captureRequestGuard!();
+      await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id })));
+    }
+    return wars;
+  }
+  async function ownerWars(ownerID: number): Promise<readonly CorpWar[]> {
+    return warsNamed(decodeWars(await bridgeAsk("warRegistry", "GetWars", [ownerID])));
+  }
+  async function recentWars(maxWarID: number, cryForHelp: boolean): Promise<readonly CorpWar[]> {
+    const answer = cryForHelp ? await bridgeAsk("warsInfoMgr", "GetWarsRequiringAssistance", []) : await bridgeAsk("warsInfoMgr", "GetTop50", [maxWarID]);
+    return warsNamed(decodeWars(answer));
+  }
   async function warLandingInfo(): Promise<WarLandingInfo> {
     const online = store.station.get().online;
     if (!online?.corporationID) throw new Error("No corporation is selected.");
@@ -30184,6 +30205,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationIsRecruiting,
     setCorporationRecruiting,
     warLandingInfo,
+    ownerWars,
+    recentWars,
     recruitmentAdRecruiters,
     corporationAggressionAt,
     deleteRecruitmentAd,
