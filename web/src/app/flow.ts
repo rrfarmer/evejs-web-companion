@@ -504,6 +504,12 @@ export interface CorporationVoteBlueprints {
   /** Lockdown: no office or no hangar (NoCorpHangarAvailable). Unlock: no locked item there (HintNoLockedItemsInLocation). */
   readonly unavailable: boolean; readonly items: readonly CorporationVoteBlueprint[];
 }
+/** voteManager.GetCorpSanctionedActions' KeyVal, with its vote case's text and description. FILETIMEs. */
+export interface CorporationSanctionedAction {
+  readonly voteCaseID: number; readonly voteType: number; readonly optionID: number; readonly parameter: number; readonly parameter1: number;
+  readonly parameter2: number; readonly expires: bigint; readonly actedUpon: boolean; readonly inEffect: boolean;
+  readonly timeActedUpon: bigint | null; readonly timeRescended: bigint | null; readonly voteCaseText: string; readonly description: string;
+}
 /** voteManager.GetVoteCasesByCorporation's row (the vote case header). */
 export interface CorporationVoteCase {
   readonly voteCaseID: number; readonly voteType: number; readonly voteCaseText: string; readonly description: string;
@@ -3263,6 +3269,17 @@ export interface AppFlow {
   /** Counts OnVoteCaseChanged / OnVoteCast for the session's corporation (corpUISignals.on_vote_case_changed,
    * on_vote_cast): the Votes panel reads again on each. */
   readonly corporationVoteChanges: ReadableSignal<number>;
+  /** Counts OnSanctionedActionChanged (corpUISignals.on_sanctioned_action_changed): Sanctionable Actions reads again. */
+  readonly corporationSanctionChanges: ReadableSignal<number>;
+  /** CorpSanctionableActions: CanViewVotes; corpvotes.GetSanctionedActions(state) - GetCorpSanctionedActions' values
+   * sorted by it: not in effect (2) where inEffect 0 and expires later than now, in effect (1) where inEffect, expired
+   * (0) where expires has passed; each with its vote case (GetVoteCasesByCorporation, else GetVoteCase). The pilot is
+   * the active CEO where a director and the CEO (UserIsActiveCEO). */
+  corporationSanctionedActions(state: 0 | 1 | 2): Promise<{ readonly canView: boolean; readonly activeCEO: boolean; readonly actions: readonly CorporationSanctionedAction[] }>;
+  /** GetInEffect / GetNotInEffectSanctionedActionSubContent for a general vote: GetVoteCaseOptions(voteCaseID)[optionID]'s text. */
+  sanctionedDecision(voteCaseID: number, optionID: number): Promise<string>;
+  /** ImplementSanctionedAction: corpvotes.ApplySanctionedAction - ActivateSanctionedAction(voteCaseID). */
+  applySanctionedAction(voteCaseID: number): Promise<void>;
   /** CorpVotes.Load / ShowOpenVotes / ShowClosedVotes: CanViewVotes(corpid); where it may, GetVoteCasesByCorporation
    * (corpid) - {2: open, 1: closed} rowsets; Propose Vote for a director (corprole & corpRoleDirector), Run For CEO
    * for one not the CEO with Corporation Management (GetSkill(typeCorporationManagement)) and CanRunForCEO(). */
@@ -6445,6 +6462,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === "OnLockedItemChange") { lockedLocations = null; return; }
     // corpvotes.OnVoteCaseChanged / OnVoteCast: the panel reads again (its caches were let go for the session's corporation).
     if (method === "OnVoteCaseChanged" || method === "OnVoteCast") { corporationVoteChangesSignal.set(corporationVoteChangesSignal.get() + 1); return; }
+    // corpvotes.OnSanctionedActionChanged: the kept actions let go.
+    if (method === "OnSanctionedActionChanged") { corporationSanctionChangesSignal.set(corporationSanctionChangesSignal.get() + 1); return; }
     // PagedCorpMembers.OnCorporationMemberChanged: a member leaving is taken out of the loaded rows (or the count); one
     // joining is appended while the last page is loaded (GetMembersByIds), else counted; any other change is written
     // into the loaded row.
@@ -18484,6 +18503,53 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await memberNames(scope, [...new Set(result.items.map((i) => i.typeID))].map((id) => ({ kind: "type" as const, id })));
     return result;
   }
+  async function corporationSanctionedActions(state: 0 | 1 | 2): Promise<{ readonly canView: boolean; readonly activeCEO: boolean; readonly actions: readonly CorporationSanctionedAction[] }> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const corp = await bridgeAsk("corpRegistry", "GetCorporation", []); scope.current();
+    const activeCEO = (BigInt(online.corpRole ?? "0") & 1n) === 1n && Number(memberInteger(corp, "ceoID") ?? 0n) === online.characterID;
+    const canView = Boolean(unwrapLong(await scope.ask("voteManager", "CanViewVotes", [online.corporationID]) as JsonValue) ?? 0n); scope.current();
+    if (!canView) return { canView, activeCEO, actions: [] };
+    const casesAnswer = await scope.ask("voteManager", "GetVoteCasesByCorporation", [online.corporationID]) as JsonValue; scope.current();
+    const cases = new Map<number, { text: string; description: string }>();
+    for (const [, rowset] of readDictPairs(casesAnswer)) for (const row of crowsetRows(rowset)) {
+      cases.set(Number(memberInteger(row, "voteCaseID") ?? 0n), { text: wireText(memberField(row, "voteCaseText")), description: wireText(memberField(row, "description")) });
+    }
+    const num = (row: JsonValue, key: string) => Number(unwrapLong((readKeyVal(row, key) ?? null) as JsonValue) ?? 0n);
+    const ft = (row: JsonValue, key: string) => fileTimeOf(readKeyVal(row, key));
+    const now = BigInt(Date.now()) * 10000n + 116444736000000000n;
+    const actions: CorporationSanctionedAction[] = [];
+    for (const [, row] of readDictPairs(await scope.ask("voteManager", "GetCorpSanctionedActions", []) as JsonValue)) {
+      const inEffect = num(row, "inEffect") !== 0, expires = ft(row, "expires") ?? 0n;
+      const bucket = !inEffect && expires > now ? 2 : inEffect ? 1 : expires < now ? 0 : -1;
+      if (bucket !== state) continue;
+      const voteCaseID = num(row, "voteCaseID");
+      if (!cases.has(voteCaseID)) {
+        const vc = await scope.ask("voteManager", "GetVoteCase", [online.corporationID, voteCaseID]) as JsonValue;
+        cases.set(voteCaseID, { text: wireText(readKeyVal(vc, "voteCaseText")), description: wireText(readKeyVal(vc, "description")) });
+      }
+      const vc = cases.get(voteCaseID)!;
+      actions.push({ voteCaseID, voteType: num(row, "voteType"), optionID: num(row, "optionID"), parameter: num(row, "parameter"), parameter1: num(row, "parameter1"),
+        parameter2: num(row, "parameter2"), expires, actedUpon: num(row, "actedUpon") !== 0, inEffect, timeActedUpon: ft(row, "timeActedUpon"), timeRescended: ft(row, "timeRescended"),
+        voteCaseText: vc.text, description: vc.description });
+    }
+    scope.current();
+    // cfg.eveowners.Prime for a CEO / war / expel action's owner; the item and location names for the rest.
+    await memberNames(scope, actions.flatMap((a): NameRef[] => [0, 1, 3].includes(a.voteType) && a.parameter ? [{ kind: "owner" as const, id: a.parameter }]
+      : [5, 6].includes(a.voteType) ? [{ kind: "type" as const, id: a.parameter1 }, a.parameter2 >= 60_000_000 && a.parameter2 < 64_000_000 ? { kind: "station" as const, id: a.parameter2 } : { kind: "structure" as const, id: a.parameter2 }] : []));
+    return { canView, activeCEO, actions };
+  }
+  async function sanctionedDecision(voteCaseID: number, optionID: number): Promise<string> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const answer = await scope.ask("voteManager", "GetVoteCaseOptions", [online.corporationID, voteCaseID]) as JsonValue; scope.current();
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const option = items[optionID];
+    return option === undefined ? "" : wireText(readKeyVal(option, "optionText"));
+  }
+  async function applySanctionedAction(voteCaseID: number): Promise<void> {
+    const scope = captureMemberOperation();
+    try { await scope.write("voteManager", "ActivateSanctionedAction", [voteCaseID]); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
+  }
   async function corporationMembersWithMoreThanAvgShares(): Promise<readonly number[]> {
     const answer = await bridgeAsk("corpRegistry", "GetMemberIDsWithMoreThanAvgShares", []) as JsonValue;
     const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
@@ -19161,6 +19227,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // eveIcon.CorpIcon: the client's logo library, read once, and each player corporation's logo, asked once.
   const corpLogoLibrarySignal = createSignal<api.CorpLogoLibrary | null>(null);
   const corporationVoteChangesSignal = createSignal(0);
+  const corporationSanctionChangesSignal = createSignal(0);
   const corpLogosSignal = createSignal<Readonly<Record<string, api.CorpLogoData | null>>>({});
   let corpLogoLibraryAsked = false;
   const corpLogosAsked = new Set<number>();
@@ -31677,6 +31744,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     capturePortraits,
     corpLogos: readonlySignal(corpLogosSignal),
     corporationVoteChanges: readonlySignal(corporationVoteChangesSignal),
+    corporationSanctionChanges: readonlySignal(corporationSanctionChangesSignal),
+    corporationSanctionedActions,
+    sanctionedDecision,
+    applySanctionedAction,
     corporationVoting,
     canViewCorporationVotes,
     corporationVoteOptions,
