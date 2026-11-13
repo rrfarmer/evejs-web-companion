@@ -15,7 +15,8 @@
   // (GetMaxKills: the largest ISK rounded up to a power of ten, halved where under half, at least 10) - over a grey
   // ground with ten column lines, Legend FmtISK(0) / FmtISK(maxKills) below; a bar's tooltip each side's name,
   // WarReportNumKills and FmtISK(isk, 0); a click (or its name) selects the class (killGroupDisplayed, again to clear)
-  // and loads its kills (GetKills(entity, class); NoKillsFoundForGroup). (The buttons are shown, not acting.)
+  // and loads its kills (GetKills(entity, class); NoKillsFoundForGroup). Offer Surrender opens WarSurrenderWnd (the
+  // war's surrender offer, else a request); View Allies (disabled with none) opens AllyWnd with GetBaseInfo's allies.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, WarReportInfo } from "../app/flow.ts";
@@ -30,6 +31,9 @@
   import OwnerPicture from "./OwnerPicture.svelte";
   import LabelText from "./LabelText.svelte";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
+  import WarSurrender from "./WarSurrender.svelte";
+  import WarAllyWindow from "./WarAllyWindow.svelte";
+  import type { WarNegotiation } from "../app/flow.ts";
   let { store, flow, warID, onClose }: { store: ClientStore; flow: AppFlow; warID: number; onClose: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -53,11 +57,13 @@
   const LABELS = ["WarReport", "MutualWar", "WarHQExtraInfoWarReport", "OfferSurrenderBtn", "ViewAlliesBtn", "WarAttacker", "WarDefender", "Vs", "ShowAllKills",
     "ShowAggressorKills", "ShowDefenderKills", "ShowGraph", "NumShipsKilled", "ISKKilled", "WarHQTextWithLink", "WarReportFutureWarWithStartAndEndDate",
     "WarReportActiveWarWithStartAndEndDate", "WarReportFinishedWarWithStartAndEndDate", "WarReportWarDeclaredCanFightDetailed", "WarStarted", "NoKillsFound",
-    "KillVictim", "KillVictimInAlliance", "KillKiller", "KillKillerInAlliance", "DefenderHasNoAllies", "DefenderHasNumAllies", "OffereToSurrender", "Offender", "Defender",
+    "KillVictim", "KillVictimInAlliance", "KillKiller", "KillKillerInAlliance", "DefenderHasNoAllies", "DefenderHasNumAllies", "OffereToSurrender", "OfferedToSurrender", "Offender", "Defender",
     "NoKillsFoundForGroup", "Legend", "WarReportNumKills", ...Object.values(CLASS_LABELS).map((k) => "ShipGroups/" + k)]
     .map((k) => W + k).concat([...NUMERIC_WORD_LABELS, "UI/Corporations/CorporationWindow/Wars/DelayedKillboardDetails", "UI/Common/Unknown", DATE_LABELS.ss!, DATE_LABELS.sn!, ...Object.keys(LINK_WORDS)]);
   const fill = (label: string, values: Record<string, unknown> = {}) =>
-    formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") });
+    formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, ""),
+      // (OfferedToSurrender's {[numeric]amount.isk, decimalPlaces=0}: FmtISK)
+      writeIsk: (value, places) => iskWords(value, places, $words.templates, (kind, id) => resolvedName($names.resolved, kind, id, "")) });
   const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), text);
   const isAlliance = (id: number) => id >= 99_000_000 && id < 100_000_000;
   const isFaction = (id: number) => id >= 500_000 && id < 1_000_000;
@@ -69,6 +75,9 @@
   const read = (k: string, d: number) => { try { const v = localStorage.getItem(`evejs.play.${k}`); return v === null ? d : Number(v); } catch { return d; } };
   let combo = $state(read("killComboValue", 0)), showGraph = $state(read("killShowGraph", 0) === 1);
   let kills = $state<readonly KillReport[] | null>(null);
+  // the buttons: OpenSurrenderWnd (the war's surrender offer where there is one - the last of GetSurrenderNegotiations,
+  // whose OfferedToSurrender {amount, corpName} is the hint - else a request) and OpenAllyWnd (AllyWnd with the allies)
+  let surrenders = $state<readonly WarNegotiation[]>([]), surrenderOpen = $state(false), alliesOpen = $state(false);
   // killGroupDisplayed: the class selected on the graph (null none)
   let shownGroup = $state<number | null>((() => { const v = read("killGroupDisplayed", -1); return Number.isInteger(v) && v >= 0 ? v : null; })());
   let byClass = $state<ReadonlyMap<number, WarClassKills> | null>(null);
@@ -105,7 +114,10 @@
     flow.requestWords(LABELS); flow.loadOwnerLogos(); flow.loadImageServer();
     void flow.warReport(warID).then((i) => {
       info = i;
-      if (i) { flow.requestCorpLogos([i.war.declaredByID, i.war.againstID].filter((id) => !isAlliance(id) && !isNpcCorp(id) && !isFaction(id))); void loadKills(); if (showGraph) loadGraph(); }
+      if (i) {
+        flow.requestCorpLogos([i.war.declaredByID, i.war.againstID].filter((id) => !isAlliance(id) && !isNpcCorp(id) && !isFaction(id))); void loadKills(); if (showGraph) loadGraph();
+        if (!i.war.mutual && [i.war.declaredByID, i.war.againstID].includes(me) && i.war.retracted === null && director) void flow.surrenderNegotiations(warID).then((s) => { surrenders = s; }).catch(() => {});
+      }
     }).catch((e) => { error = e instanceof Error ? e.message : String(e); });
   });
   const nowTicks = () => BigInt(Date.now()) * 10000n + 116444736000000000n;
@@ -149,6 +161,8 @@
   const ownerLink = (id: number | null) => (id ? link(id) : "");
 </script>
 
+{#if surrenderOpen && info}<WarSurrender {store} {flow} war={info.war} negotiation={surrenders.length ? surrenders[surrenders.length - 1]! : null} onClose={() => { surrenderOpen = false; void flow.surrenderNegotiations(warID).then((s) => { surrenders = s; }).catch(() => {}); }} />{/if}
+{#if alliesOpen && info}<WarAllyWindow {store} {flow} war={{ ...info.war, allies: info.allyRows }} onClose={() => (alliesOpen = false)} />{/if}
 <div class="wr-back">
   <div class="wr" role="dialog" aria-modal="true" aria-label={plainText(fill(W + "WarReport")) || "War Report"}>
     <header>{plainText(fill(W + "WarReport")) || "War Report"}<button type="button" class="wr-x" aria-label="Close" onclick={onClose}>×</button></header>
@@ -184,8 +198,12 @@
       {/if}
       {#if !w.mutual}
         <div class="wr-buttons">
-          {#if [w.declaredByID, w.againstID].includes(me) && w.retracted === null && director}<button type="button" disabled title={plainText(fill(W + "OffereToSurrender"))}>{plainText(fill(W + "OfferSurrenderBtn"))}</button>{:else}<span></span>{/if}
-          <button type="button" disabled title={info.allies.length ? plainText(fill(W + "DefenderHasNumAllies", { num: info.allies.length })) : plainText(fill(W + "DefenderHasNoAllies"))}>{plainText(fill(W + "ViewAlliesBtn"))}</button>
+          {#if [w.declaredByID, w.againstID].includes(me) && w.retracted === null && director}
+            {@const last = surrenders.length ? surrenders[surrenders.length - 1]! : null}
+            <button type="button" title={last ? plainText(fill(W + "OfferedToSurrender", { amount: last.iskValue, corpName: nameOf(last.ownerID1) })) : plainText(fill(W + "OffereToSurrender"))} onclick={() => (surrenderOpen = true)}>🏳 {plainText(fill(W + "OfferSurrenderBtn"))}</button>
+          {:else}<span></span>{/if}
+          <!-- SetAllyBtnIcon: Mercenary_Ally with allies, Mercenary_Add where open for allies, else Mercenary -->
+          <button type="button" disabled={!info.allies.length} title={info.allies.length ? plainText(fill(W + "DefenderHasNumAllies", { num: info.allies.length })) : plainText(fill(W + "DefenderHasNoAllies"))} onclick={() => (alliesOpen = true)}>{info.allies.length ? "🛡" : w.openForAllies ? "✚" : "⚔"} {plainText(fill(W + "ViewAlliesBtn"))}</button>
         </div>
       {/if}
       {#if showGraph}

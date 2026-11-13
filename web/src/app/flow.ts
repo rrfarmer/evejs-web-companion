@@ -439,7 +439,7 @@ import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } 
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
-import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
+import { decodeWars, type CorpWar, type WarAlly } from "../bridge/corpWars.ts";
 
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
 export interface AllianceApplication { readonly allianceID: number; readonly corporationID: number; readonly applicationText: string; readonly state: number }
@@ -464,6 +464,8 @@ export interface WarNegotiation {
 export interface WarReportInfo {
   readonly war: CorpWar; readonly shipsKilled: ReadonlyMap<number, number>; readonly iskKilled: ReadonlyMap<number, number>;
   readonly allies: readonly number[]; readonly warHQ: number | null; readonly hqName: string | null; readonly hqTypeID: number | null;
+  /** GetBaseInfo's allies dict's rows (allyID, timeStarted, timeFinished) - what OpenAllyWnd hands AllyWnd. */
+  readonly allyRows: readonly WarAlly[];
 }
 /** A peace treaty as war.GetPeaceTreaties answers it (the side the pilot's owner is on: outgoing or incoming). */
 export interface PeaceTreaty { readonly otherOwnerID: number; readonly peaceReason: number; readonly expiryDate: bigint; readonly warID: number | null }
@@ -16757,6 +16759,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const byOwner = (v: JsonValue | undefined) => new Map(readDictPairs(v ?? null).map(([k, n]) => [Number(typeof k === "number" ? k : unwrapLong(k as JsonValue) ?? 0), typeof n === "number" ? n : Number(unwrapReal(n) ?? unwrapLong(n) ?? 0)]));
     const shipsKilled = byOwner(parts[1]), iskKilled = byOwner(parts[2]);
     const allies = readDictPairs(parts[3] ?? null).map(([k]) => Number(typeof k === "number" ? k : unwrapLong(k as JsonValue) ?? 0)).filter((id) => id > 0);
+    const allyRows = readDictPairs(parts[3] ?? null).map(([k, v]) => ({
+      allyID: Number(unwrapLong(memberField(v, "allyID")) ?? memberField(v, "allyID") ?? (typeof k === "number" ? k : unwrapLong(k as JsonValue) ?? 0)),
+      timeStarted: unwrapLong(memberField(v, "timeStarted")), timeFinished: unwrapLong(memberField(v, "timeFinished")),
+    })).filter((a) => a.allyID > 0);
     const warHQ = Number(unwrapLong(memberField(parts[0]!, "warHQ")) ?? memberField(parts[0]!, "warHQ") ?? 0) || null;
     let hqName: string | null = null, hqTypeID: number | null = null;
     if (warHQ) {
@@ -16767,7 +16773,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       hqTypeID = typeof t === "number" ? t : Number(unwrapLong(t) ?? 0) || null;
     }
     await warsNamed([war]);
-    return { war, shipsKilled, iskKilled, allies, warHQ, hqName, hqTypeID };
+    return { war, shipsKilled, iskKilled, allies, warHQ, hqName, hqTypeID, allyRows };
   }
   async function warReportKills(warID: number, entityID: number | null, shipGroup: number | null = null): Promise<readonly KillReport[]> {
     const kills = decodeKillReports(await bridgeAsk("warStatisticMgr", "GetKills", [entityID, shipGroup], null, warID) as never);
