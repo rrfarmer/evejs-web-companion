@@ -2713,6 +2713,11 @@ export interface AppFlow {
   saveSovHubUpgrades(hubID: number, configuration: readonly (readonly [number, boolean])[], newItemIDs?: readonly number[]): Promise<{ readonly states: readonly (readonly [number, string | null])[] } | { readonly status: number }>;
   /** HubController.DeleteUpgrade: UninstallRequest(upgrade: hub + upgrade_type); true when done. */
   uninstallSovHubUpgrade(hubID: number, upgradeKey: number): Promise<boolean>;
+  /** ReagentBayWndController's sources: the active ship's cargo (flag 5) and colony resources hold (185) stacks of
+   * the two reagents (81144 ice, 81143 lava), largest first (GetSortedItemsByTypeID); null where the ship is not read. */
+  reagentStacks(): Promise<{ readonly cargo: readonly { readonly itemID: number; readonly typeID: number; readonly quantity: number }[]; readonly resourceHold: readonly { readonly itemID: number; readonly typeID: number; readonly quantity: number }[] } | null>;
+  /** sovHubSvc.AddFuel: fuel AddRequest(fuel_item, amount, hub); the HTTP status (200 when added). */
+  addSovHubFuel(hubID: number, itemID: number, amount: number): Promise<number>;
   /** CapitalButton / UpdateCapitalSystem: SetCapitalSystem(solarSystemID); RemoveCapital: CancelCapitalSystemTransition. */
   allianceCapital(action: "set" | "cancel", solarSystemID?: number): Promise<boolean>;
   /** The prime-time menu's Set: the alliance moniker's SetPrimeHour(hour). */
@@ -18839,6 +18844,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const upgrades = record(record(a.payload).hub_upgrades).upgrades;
     return { states: (Array.isArray(upgrades) ? upgrades : []).map((u) => { const at = record(record(u).attributes); return [Number(record(record(at.definition).installation_type).sequential ?? 0), typeof at.power_state === "string" ? at.power_state : null] as const; }) };
   }
+  async function reagentStacks(): Promise<{ readonly cargo: readonly { readonly itemID: number; readonly typeID: number; readonly quantity: number }[]; readonly resourceHold: readonly { readonly itemID: number; readonly typeID: number; readonly quantity: number }[] } | null> {
+    const shipID = store.fitting.get().activeShipID ?? store.space.get().snapshot?.shipID ?? null;
+    if (!shipID) return null;
+    const items = await listShip(bridgeAsk, shipID).catch(() => null);
+    if (!items) return null;
+    const reagents = items.filter((i) => i.typeID === 81143 || i.typeID === 81144).sort((a, b) => b.quantity - a.quantity);
+    const pick = (flag: number) => reagents.filter((i) => i.flagID === flag).map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity }));
+    return { cargo: pick(5), resourceHold: pick(185) };
+  }
+  async function addSovHubFuel(hubID: number, itemID: number, amount: number): Promise<number> {
+    const a = await api.publicGatewayRequest("eve_public.sovereignty.hub.fuel.api.AddRequest", { fuel_item: { sequential: itemID }, amount, hub: { sequential: hubID } } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    return a ? a.statusCode : 0;
+  }
   async function uninstallSovHubUpgrade(hubID: number, upgradeKey: number): Promise<boolean> {
     const a = await api.publicGatewayRequest("eve_public.sovereignty.hub.upgrade.api.UninstallRequest", { upgrade: { hub: { sequential: hubID }, upgrade_type: { sequential: upgradeKey } } } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
     return Boolean(a && a.statusCode === 200);
@@ -32547,6 +32565,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sovHubExtras,
     saveSovHubUpgrades,
     uninstallSovHubUpgrade,
+    reagentStacks,
+    addSovHubFuel,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },

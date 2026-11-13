@@ -57,6 +57,9 @@
   void fetch("/client-assets/typeNames.json").then((r) => (r.ok ? r.json() : null)).then((n) => { if (n) typeNames = n.types; }).catch(() => {});
   import "../play/play.css";
   import { applyClientTint } from "../play/clientTint.ts";
+  import SovReagentBay from "./SovReagentBay.svelte";
+  import SovHubWindow from "./SovHubWindow.svelte";
+  import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
   // The app's navy panels in the client's greys, for as long as the play mode is up (play/clientTint.ts).
   $effect(() => applyClientTint(".fly-windows"));
@@ -71,6 +74,20 @@
   };
 
   let session = $state<Session | null>(null);
+  // A Sov Hub's windows from its space menu: the reagent bay (OpenSovFuelDepositWindow) and the config window
+  // (OpenSovHubWindow).
+  let reagentBay = $state<{ hubID: number; solarSystemID: number; isStationMgr: boolean } | null>(null);
+  let sovHubConfig = $state<{ hub: MySovHub; details: SovHubDetails; extras: SovHubExtras } | null>(null);
+  async function openSovHubConfig(hubID: number): Promise<void> {
+    const s = session;
+    if (!s) return;
+    const hub = (await s.flow.mySovHubs())?.find((h) => h.hubID === hubID);
+    if (!hub) return;
+    const details = await s.flow.sovHubDetails(hub.hubID, hub.solarSystemID);
+    const extras = await s.flow.sovHubExtras(hub.hubID, hub.solarSystemID, (details.upgrades ?? []).map((u) => u.typeID));
+    sovHubConfig = { hub, details, extras };
+  }
+  const stationManager = (s: Session) => (BigInt(s.store.station.get().online?.corpRole ?? "0") & 2048n) !== 0n;
   let stage = $state<"login" | "select" | "entering" | "game">("login");
   let error = $state("");
   let username = $state("");
@@ -614,6 +631,11 @@
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
       reloads: () => s.store.fitting.get().reloads ?? {},
       corpTickers: (corpIDs) => corpTickers(corpIDs, false, s.flow.requestOptions()).then((r) => r.tickers),
+      sovHub: {
+        deposit: (hubID) => { const sys = s.store.space.get().snapshot?.solarSystemID ?? s.store.station.get().online?.solarSystemID ?? 0; reagentBay = { hubID, solarSystemID: sys, isStationMgr: stationManager(s) }; },
+        configure: (hubID) => { void openSovHubConfig(hubID); },
+        configurable: (_hubID, corporationID) => corporationID !== null && corporationID === s.store.station.get().online?.corporationID && stationManager(s),
+      },
       showInfo: (itemID, typeID) => {
         void s.flow.infoWindows.show({ kind: "spaceObject", itemID, typeID }, {}).catch((error) => {
           if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
@@ -802,6 +824,11 @@
   {:else}
     <div class="fly-space" bind:this={spaceHost}></div>
   {/if}
+  {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
+  {#if session && sovHubConfig}
+    {@const cfg = sovHubConfig}
+    <div class="fly-sovhub"><SovHubWindow store={session.store} flow={session.flow} hub={cfg.hub} details={cfg.details} extras={cfg.extras} onClose={() => { sovHubConfig = null; }} onChanged={() => openSovHubConfig(cfg.hub.hubID)} /></div>
+  {/if}
   <!-- the star map's host, over the hangar or space and under the windows -->
   <div class="fly-map" bind:this={mapHost}></div>
 
@@ -844,6 +871,8 @@
 
 <style>
   .fly-space { position: fixed; inset: 0; }
+  .fly-sovhub { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+  .fly-sovhub > :global(*) { pointer-events: auto; }
   .fly-windows { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
   .fly-fade { position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 15; opacity: 0; }
   /* the layer's windows take the pointer; the info windows' own full-size layer does not (its windows do) */

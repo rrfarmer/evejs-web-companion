@@ -82,6 +82,13 @@ export interface SpaceViewOptions {
   reloads?: () => Readonly<Record<number, { startedAtMs: number }>>;
   /** True while the pilot is coming out of a station: the view's first sight of the ship is the undock camera's. */
   undocking?: () => boolean;
+  /**
+   * A Sov Hub's menu entries (celestialCheckers): Deposit Reagents (OfferOpenSovFuelDepositWindow: an infrastructure hub,
+   * the pilot in a ship in space, not warping, within transfer range - 2,500 m surface to surface) and Open Sov Hub
+   * Config Window (OfferOpenSovHubConfigWindow: the hub owned by the pilot's corporation and the pilot a station
+   * manager). `configurable` says the second's conditions for a hub.
+   */
+  sovHub?: { deposit(hubID: number): void; configure(hubID: number): void; configurable(hubID: number, corporationID: number | null): boolean };
 }
 
 export interface SpaceActions {
@@ -1245,7 +1252,7 @@ export class SpaceView {
       options = [
         primary,
         { label: "Orbit", icon: icon(21), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Orbit", () => this.actions.orbit(id, r))() },
-        { label: "More", icon: "", more: [lookAt] },
+        { label: "More", icon: "", more: [lookAt, ...this.sovHubEntries(e, dist)] },
         { label: "Keep at Range", icon: icon(22), ranges: radialRanges(500, 30000), defaultRange: 1000, run: (r) => run("Keep at Range", () => this.actions.keepAtRange(id, r))() },
         lock,
         { label: "Approach", icon: icon(23), run: run("Approach", () => this.actions.approach(id)) },
@@ -1255,6 +1262,17 @@ export class SpaceView {
       ];
     }
     this.radial.open(x, y, this.nameOf(e), options, button);
+  }
+
+  /** A Sov Hub's entries (typeInfrastructureHub 32458): Deposit Reagents within transfer range, the config window for its owner's station manager. */
+  private sovHubEntries(e: Entity, dist: number): RadialOption[] {
+    const hub = this.options.sovHub;
+    if (!hub || e.typeID !== 32458) return [];
+    const word = (label: string, fallback: string) => this.actions.word?.(label) ?? fallback;
+    const out: RadialOption[] = [];
+    if (dist < 2500 && (this.snapshot?.ship as { mode?: string } | undefined)?.mode !== "WARP") out.push({ label: word("UI/Sovereignty/SovHub/ReagentBay/DepositReagents", "Deposit Reagents"), icon: RADIAL_ICON("res:/UI/Texture/Icons/44_32_35.png"), run: () => hub.deposit(e.itemID) });
+    if (hub.configurable(e.itemID, e.corporationID ?? null)) out.push({ label: word("UI/Menusvc/OpenSovHubConfigWindow", "Open Sov Hub Config Window"), icon: RADIAL_ICON("res:/UI/Texture/Icons/44_32_7.png"), run: () => hub.configure(e.itemID) });
+    return out;
   }
 
   private distanceTo(e: Entity): number {

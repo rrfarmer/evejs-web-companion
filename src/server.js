@@ -14605,6 +14605,8 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   // upgrade's removal (UninstallUpgrade - UninstallRequest).
   "eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationRequest",
   "eve_public.sovereignty.hub.upgrade.api.UninstallRequest",
+  // The reagent bay's Deposit (ReagentBayWndController.DoDepositItems - sovHubSvc.AddFuel: fuel AddRequest).
+  "eve_public.sovereignty.hub.fuel.api.AddRequest",
   "eve_public.goal.api.DeleteRequest",
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).
