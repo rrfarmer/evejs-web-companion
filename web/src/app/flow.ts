@@ -2704,6 +2704,8 @@ export interface AppFlow {
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
   corporationAssetCategories(): Promise<readonly { readonly id: number; readonly name: string }[]>;
+  /** GetMarketTypes against the search's Item Type text: an exact name, and the names holding it with their categories. */
+  marketTypeMatches(text: string): Promise<{ readonly exact: { readonly typeID: number; readonly name: string } | null; readonly matches: readonly { readonly typeID: number; readonly name: string; readonly category: string }[] }>;
   corporationAssetGroups(categoryID: number): Promise<readonly { readonly id: number; readonly name: string }[]>;
   /** CorpAccounts.Search: SearchAssets(which, category, group, type, qty) - each set filter or None - and its locations. */
   corporationAssetSearch(which: string, categoryID: number | null, groupID: number | null, typeID: number | null, qty: number | null): Promise<readonly CorpAssetLocation[]>;
@@ -31136,6 +31138,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationAssetLocations,
     corporationAssetItems,
     corporationAssetCategories,
+    async marketTypeMatches(text: string) {
+      const answer = await api.getMarketTypeMatches(text, callOptions);
+      await wordsNow([...new Set(answer.matches.map(row => `#${row.categoryNameID}`))]);
+      const templates = store.words.get().templates;
+      return { exact: answer.exact, matches: answer.matches.map(row => ({ typeID: row.typeID, name: row.name, category: plainText(templates[`#${row.categoryNameID}`] ?? "") })) };
+    },
     corporationAssetContext: () => corporationAssetLocations(null),
     corporationAssetGroups,
     corporationAssetSearch,

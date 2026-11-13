@@ -10,7 +10,10 @@
   // NoItem. Without Accountant or Junior Accountant: NeedAccountantOrJuniorRole. Lockdown: the role check first
   // (NeedAccountantRole), then lockedItems.GetLockedItemLocations as groups, each to its locked items (one each).
   // Search: Where (the five and Asset Safety), category, group and minimum quantity (corp_assets_filter_*), searched at
-  // once and on Search: SearchAssets, the locations by name, each to its items that meet the search.
+  // once and on Search: SearchAssets, the locations by name, each to its items that meet the search. Item Type: a
+  // market type named exactly so, else DoParseItemType - under three letters ConNeedAtLeastThreeLetters, the text last
+  // picked nothing, the types whose name holds it (SelectItemTypeDlg: none ConNoItemsFound, one taken, more a list of
+  // ItemTypeLine to pick from), the field then the type's name.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorpAssetItem, CorpAssetLocation } from "../app/flow.ts";
@@ -33,7 +36,7 @@
   const DIVISION_BY_FLAG: Record<number, number> = { 115: 0, 116: 1, 117: 2, 118: 3, 119: 4, 120: 5, 121: 6, 184: 14 };
   const LABELS = [...TABS.map(([, l]) => l), "UI/Common/SortBy", "UI/Common/View", "UI/Common/Name", "UI/Common/NumberOfJumps", "UI/Common/NumberOfItems", A + "CurrentRegion", A + "AllRegions",
     A + "LocationAndJumps", A + "LocationNoRoute", "UI/Inventory/AssetsWindow/LocationDataLabel", "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute", A + "NoItemsFound", A + "UnusedCorpOffice",
-    A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Wallet/WalletWindow/MinQty", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", ...Object.keys(LINK_WORDS)];
+    A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", ...Object.keys(LINK_WORDS)];
   const nameOf = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const text = (label: string, args: Record<string, unknown> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf });
   const followerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), t);
@@ -50,8 +53,12 @@
   // open with.
   let searchWhich = $state(setting("corp_assets_filter_type") ?? "offices"), searchCategory = $state<number | null>(Number(setting("corp_assets_filter_categories")) || null);
   let searchGroup = $state<number | null>(Number(setting("corp_assets_filter_groups")) || null), searchQty = $state(setting("corp_assets_filter_quantity") ?? "");
+  let itemTypeText = $state(setting("corp_assets_filter_itemtype") ?? ""), parsingItemType: string | null = null;
+  let picking = $state<{ rows: readonly { typeID: number; name: string; category: string }[]; selected: number | null; done: (typeID: number | null) => void } | null>(null);
+  // The list's answer: its resolver taken before the list is closed.
+  function answerPick(typeID: number | null): void { const done = picking?.done; picking = null; done?.(typeID); }
   let categories = $state<readonly { id: number; name: string }[]>([]), groups = $state<readonly { id: number; name: string }[]>([]);
-  let condition = $state<{ categoryID: number | null; groupID: number | null; qty: number | null; which: string } | null>(null), searching = $state(false);
+  let condition = $state<{ categoryID: number | null; groupID: number | null; typeID: number | null; qty: number | null; which: string } | null>(null), searching = $state(false);
   // svelte-ignore state_referenced_locally
   const flight = store.flight;
 
@@ -83,12 +90,26 @@
     searching = true; open = {}; items = {};
     // Search: a group over a category; the quantity a whole number, nought at least, else None.
     const groupID = searchGroup && searchGroup > 0 ? searchGroup : null, categoryID = groupID === null && searchCategory && searchCategory > 0 ? searchCategory : null;
+    // Search: the item type - an exact market type name, else ParseItemType.
+    let itemTypeID: number | null = null;
+    const typed = itemTypeText;
+    if (typed !== "") {
+      const found = await flow.marketTypeMatches(typed);
+      if (found.exact) itemTypeID = found.exact.typeID;
+      else if (typed.length < 3) flow.sayDialog("ConNeedAtLeastThreeLetters", null, "Please type at least three letters.");
+      else if (typed !== parsingItemType) {
+        if (!found.matches.length) flow.sayDialog("ConNoItemsFound", null, "No items found.");
+        else itemTypeID = found.matches.length === 1 ? found.matches[0]!.typeID : await new Promise<number | null>((done) => { picking = { rows: found.matches, selected: null, done }; });
+        const picked = found.matches.find((row) => row.typeID === itemTypeID);
+        if (picked) { itemTypeText = picked.name; parsingItemType = picked.name; }
+      }
+    }
     let qty: number | null = /^\s*-?\d+\s*$/.test(searchQty) ? Math.max(0, Number(searchQty)) : null;
     setSetting("corp_assets_filter_type", searchWhich); setSetting("corp_assets_filter_categories", String(categoryID ?? "")); setSetting("corp_assets_filter_groups", String(groupID ?? ""));
-    setSetting("corp_assets_filter_quantity", qty === null ? "" : String(qty));
+    setSetting("corp_assets_filter_quantity", qty === null ? "" : String(qty)); setSetting("corp_assets_filter_itemtype", itemTypeText);
     try {
-      const rows = await flow.corporationAssetSearch(searchWhich, categoryID, groupID, null, qty);
-      condition = { categoryID, groupID, qty, which: searchWhich };
+      const rows = await flow.corporationAssetSearch(searchWhich, categoryID, groupID, itemTypeID, qty);
+      condition = { categoryID, groupID, typeID: itemTypeID, qty, which: searchWhich };
       read = { ...read, rows };
     } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { searching = false; }
   }
@@ -147,7 +168,7 @@
         if (which === "lockdown") list = (await flow.corporationLockedItems(row.locationID)).map((item) => ({ itemID: item.itemID, typeID: item.typeID, flagID: 4, stacksize: 1, singleton: 1, groupID: 0, categoryID: 0 }));
         else if (which === "search" && condition) {
           const c = condition;
-          list = (await flow.corporationAssetItems(row.locationID, c.which)).filter((item) => !((c.groupID !== null && c.groupID !== item.groupID) || (c.categoryID !== null && c.categoryID !== item.categoryID) || (c.qty !== null && c.qty > item.stacksize)));
+          list = (await flow.corporationAssetItems(row.locationID, c.which)).filter((item) => !((c.typeID !== null && c.typeID !== item.typeID) || (c.groupID !== null && c.groupID !== item.groupID) || (c.categoryID !== null && c.categoryID !== item.categoryID) || (c.qty !== null && c.qty > item.stacksize)));
         } else list = await flow.corporationAssetItems(row.locationID, which);
         items = { ...items, [row.locationID]: list };
       }
@@ -165,6 +186,25 @@
   </div>
 {/snippet}
 
+{#if picking}
+  {@const p = picking}
+  <!-- SelectItemTypeDlg: uix.ListWnd of ItemTypeLine rows, one to pick; OK returns it, Cancel nothing. -->
+  <div class="ca-picker" role="dialog" aria-label={plainText(text("UI/Contracts/Util/SelectItemType"))}>
+    <div class="ca-picker-title">{plainText(text("UI/Contracts/Util/SelectItemType"))}</div>
+    <div class="ca-picker-list">
+      {#each p.rows as row, i (row.typeID)}
+        <button class:selected={p.selected === i} onclick={() => { picking = { ...p, selected: i }; }} ondblclick={() => answerPick(row.typeID)}>
+          {plainText(formatTemplate($words.templates["UI/Contracts/Util/ItemTypeLine"] ?? "{[item]item.name} ({categoryName})", { item: row.typeID, categoryName: row.category } as never, { nameOf: (k, id) => (id === row.typeID ? row.name : nameOf(k, id)) }))}
+        </button>
+      {/each}
+    </div>
+    <div class="ca-picker-buttons">
+      <button disabled={p.selected === null} onclick={() => answerPick(p.selected === null ? null : p.rows[p.selected]!.typeID)}>{plainText(text("UI/Common/Buttons/OK"))}</button>
+      <button onclick={() => answerPick(null)}>{plainText(text("UI/Common/Buttons/Cancel"))}</button>
+    </div>
+  </div>
+{/if}
+
 <div class="ca">
   {#if error}<p class="error">{error}</p>{/if}
   <div class="ca-tabs">
@@ -180,6 +220,7 @@
       <label><span>&nbsp;</span>
         <select value={searchGroup ?? ""} onchange={(e) => { searchGroup = e.currentTarget.value === "" ? null : Number(e.currentTarget.value); }}>
           <option value="">{plainText(text(A + "AllGroups"))}</option>{#each groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}</select></label>
+      <label class="ca-type-field"><span>{plainText(text("UI/Wallet/WalletWindow/ItemType"))}</span><input value={itemTypeText} oninput={(e) => { itemTypeText = e.currentTarget.value; }} /></label>
       <label class="ca-qty-field"><span>{plainText(text("UI/Wallet/WalletWindow/MinQty"))}</span><input value={searchQty} oninput={(e) => { searchQty = e.currentTarget.value.replace(/[^\d-]/g, ""); }} /></label>
       <button disabled={searching} onclick={() => void search()}>{plainText(text("UI/Common/Search"))}</button>
     </div>
@@ -243,6 +284,13 @@
   .ca-filters, .ca-search { display: flex; gap: 6px; align-items: flex-end; }
   .ca-search label { display: flex; flex-direction: column; font-size: 10px; width: 90px; }
   .ca-search .ca-qty-field { width: 60px; }
+  .ca-search .ca-type-field { width: 106px; }
+  .ca-picker { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); z-index: 50; width: 320px; max-height: 360px; display: flex; flex-direction: column; background: rgba(12, 14, 16, 0.98); border: 1px solid rgba(255, 255, 255, 0.2); padding: 6px; gap: 6px; }
+  .ca-picker-title { font-weight: bold; }
+  .ca-picker-list { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+  .ca-picker-list button { all: unset; cursor: pointer; padding: 2px 4px; }
+  .ca-picker-list button.selected { background: rgba(255, 255, 255, 0.15); }
+  .ca-picker-buttons { display: flex; justify-content: center; gap: 6px; }
   .ca-filters label { display: flex; flex-direction: column; font-size: 10px; width: 140px; }
   .ca-head, .ca-item { display: grid; grid-template-columns: minmax(160px, 2fr) 80px 1fr; gap: 6px; align-items: center; }
   .ca-head { font-size: 10px; opacity: 0.7; padding: 0 4px; }

@@ -14684,6 +14684,38 @@ app.get("/api/client-data/category-groups", requireAuth, async (req, res, next) 
   }
 });
 
+// contractutils.GetMarketTypes: every type (evetypes.Iterate's order) published with its group and its category, by
+// its name (evetypes.GetName; the en-us text is the English one); made once. The corporation assets search's Item
+// Type reads it: an exact name first, else DoParseItemType's case-insensitive substring match (MatchInvTypeName), each
+// with its category's name message for SelectItemTypeDlg's ItemTypeLine.
+let marketTypeNames = null;
+app.get("/api/client-data/market-type-matches", requireAuth, async (req, res, next) => {
+  try {
+    if (!marketTypeNames) {
+      const [types, published, nameIDs, groups, categories] = await Promise.all([clientBuiltData.table("typesGroupIDsOrdered"), clientBuiltData.table("typePublished"),
+        clientBuiltData.table("typeNameIDs"), clientBuiltData.table("groupsOrdered"), clientBuiltData.table("categoriesOrdered")]);
+      if (types && published && nameIDs && groups && categories) {
+        const rows = [];
+        for (const typeID of types["#order"] || []) {
+          const group = groups[String(types[String(typeID)])];
+          const category = group ? categories[String(group.categoryID)] : null;
+          if (!published[String(typeID)] || !group || !group.published || !category || !category.published) continue;
+          rows.push({ typeID, nameID: Number(nameIDs[String(typeID)]) || 0, categoryNameID: Number(category.categoryNameID) || 0 });
+        }
+        const names = clientWords.messages(rows.map((row) => row.nameID));
+        marketTypeNames = rows.map((row) => ({ typeID: row.typeID, name: String(names[row.nameID] ?? ""), categoryNameID: row.categoryNameID }));
+      }
+    }
+    const text = String((req.query && req.query.q) || "");
+    const lower = text.toLowerCase();
+    const exact = marketTypeNames ? marketTypeNames.find((row) => row.name === text) ?? null : null;
+    const matches = marketTypeNames && text ? marketTypeNames.filter((row) => row.name.toLowerCase().includes(lower)) : [];
+    res.json({ ok: true, available: marketTypeNames !== null, exact, matches: matches.slice(0, 2000), total: matches.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/client-data/group-types", requireAuth, async (req, res, next) => {
   try {
     const asked = [];

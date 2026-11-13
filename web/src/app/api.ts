@@ -3889,6 +3889,14 @@ export async function getGroupCategories(
   return { available: data.available === true, groups };
 }
 
+/** contractutils.GetMarketTypes against a text: the type named exactly that, and those whose name holds it (any case),
+ * in the client's type order, each with its category's name message. */
+export async function getMarketTypeMatches(q: string, options: ApiOptions = {}): Promise<{ readonly exact: { readonly typeID: number; readonly name: string } | null; readonly matches: readonly { readonly typeID: number; readonly name: string; readonly categoryNameID: number }[] }> {
+  const data = await getJson(`/api/client-data/market-type-matches?q=${encodeURIComponent(q)}`, options);
+  const exact = data.exact && typeof data.exact === "object" && !Array.isArray(data.exact) ? data.exact as unknown as { typeID: number; name: string } : null;
+  return { exact, matches: Array.isArray(data.matches) ? (data.matches as unknown as { typeID: number; name: string; categoryNameID: number }[]) : [] };
+}
+
 /** evetypes.IterateCategories (above nought): each category's name message and whether it is published. */
 export async function getCategories(options: ApiOptions = {}): Promise<readonly { readonly categoryID: number; readonly nameID: number; readonly published: boolean }[]> {
   const data = await getJson("/api/client-data/categories", options);
