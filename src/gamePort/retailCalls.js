@@ -714,6 +714,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // FormAlliancesMembers: alliance.GetMembers() (all_cso_members, the alliance moniker's), its corporations with their
   // chosen executor and joining date.
   "allianceRegistry.GetMembers",
+  // FormAlliancesSovereignty's SovDashboard: sovSvc.GetSovereigntyStructuresInfoForAlliance - the alliance moniker's
+  // GetAllianceSovereigntyStructuresInfo() (its TCU and Sov Hub rows and the campaign scores).
+  "allianceRegistry.GetAllianceSovereigntyStructuresInfo",
   // FormAlliancesApplications / FormAlliancesRankings: the corporation's applications to alliances (bco_alliance:
   // corpRegistry GetAllianceApplications, DeleteAllianceApplication, ApplyToJoinAlliance) and the alliance's decision
   // on one (all_cso_applications: the moniker's UpdateApplication(corpID, applicationText, state)).

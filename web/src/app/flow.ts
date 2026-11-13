@@ -535,6 +535,19 @@ export interface FreelanceDraft {
   readonly maxCommitted: number; readonly maxContributions: number | null; readonly maxProgress: number | null; readonly multiplier: number | null;
   readonly minAge: number | null; readonly maxAge: number | null;
 }
+/** One row of the alliance's sovereignty dashboard (sovSvc's structureInfo with its place). Times in ms. */
+export interface SovStructureRow {
+  readonly itemID: number; readonly typeID: number; readonly solarSystemID: number; readonly constellationID: number | null; readonly regionID: number | null;
+  readonly systemName: string; readonly constellationName: string; readonly regionName: string; readonly security: number | null; readonly jumps: number | null;
+  readonly defenseMultiplier: number;
+  readonly campaign: { readonly eventType: number; readonly startMs: number } | null;
+  readonly vulnerability: { readonly startMs: number; readonly endMs: number } | null;
+}
+export interface AllianceSovereignty {
+  readonly prime: { readonly current: number | null; readonly next: number | null; readonly nextValidAfterMs: number | null } | null;
+  readonly canSetPrime: boolean;
+  readonly structures: readonly SovStructureRow[] | null;
+}
 /** A freelance project as payload_parser._parse_project makes it (times in ms), with the pilot's own progress. */
 export interface FreelanceProject {
   readonly projectID: string; readonly name: string; readonly description: string; readonly state: number; readonly careerPath: number | null;
@@ -2633,6 +2646,14 @@ export interface AppFlow {
   askClientWarning(header: string, warning: string): Promise<boolean>;
   /** prompt_player_fsd_dialog(dialog, values, YESNO): the install's dialog with its parameters; true on Yes. */
   askClientDialogWith(dialog: string, values: Readonly<Record<string, string>>, fallback: string): Promise<boolean>;
+  /** FormAlliancesSovereignty: the alliance's prime time (GetPrimeTimeInfo: the current hour, a pending one and when it
+   * applies), whether the pilot may set it (a director of the executor corporation, _IsDirectorInExecCorp), and the
+   * SovDashboard's structures (sovSvc.GetSovereigntyStructuresInfoForAlliance: each TCU and Sov Hub row with its
+   * campaign or vulnerability window and occupancy level; the system's constellation and region; the jumps from the
+   * pilot's system). Null where the pilot is in no alliance. */
+  allianceSovereignty(): Promise<AllianceSovereignty | null>;
+  /** The prime-time menu's Set: the alliance moniker's SetPrimeHour(hour). */
+  setAlliancePrimeHour(hour: number): Promise<boolean>;
   /** WhitelistManagement: the factions the corporation's members may enlist with directly
    * (fwEnlistmentSvc.GetCorpAllowedEnlistmentFactions(session.corpid)); null where the read failed. */
   corporationAllowedEnlistment(): Promise<readonly number[] | null>;
@@ -18544,6 +18565,67 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await scope.write("voteManager", "InsertVote", [online.corporationID, voteCaseID, optionID]); scope.current(); }
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
   }
+  async function allianceSovereignty(): Promise<AllianceSovereignty | null> {
+    const scope = captureMemberOperation();
+    const online = store.station.get().online;
+    const allianceID = online?.allianceID ?? null;
+    if (!allianceID) return null;
+    const ms = (value: JsonValue | undefined) => { const t = typeof value === "number" ? BigInt(Math.trunc(value)) : unwrapLong(value); return t !== null && t > 0n ? Number((t - 116444736000000000n) / 10000n) : null; };
+    const num = (value: JsonValue | undefined) => (typeof value === "number" ? value : value === undefined || value === null ? null : Number(unwrapLong(value) ?? unwrapReal(value) ?? NaN));
+    let prime: AllianceSovereignty["prime"] = null;
+    const p = await scope.ask("allianceRegistry", "GetPrimeTimeInfo", []).catch(() => null) as JsonValue | null;
+    scope.current();
+    if (p !== null) {
+      const current = num(readRowField(p, "currentPrimeHour")), next = num(readRowField(p, "newPrimeHour"));
+      prime = { current: current === null || Number.isNaN(current) ? null : current, next: next === null || Number.isNaN(next) ? null : next, nextValidAfterMs: ms(readRowField(p, "newPrimeHourValidAfter")) };
+    }
+    // _IsDirectorInExecCorp: an alliance, a player corporation that is the executor, the director's role.
+    const alliance = decodeAllianceInfo(await bridgeAsk("allianceRegistry", "GetAlliance", [allianceID]).catch(() => null));
+    const corporationID = online?.corporationID ?? null;
+    const canSetPrime = Boolean(alliance && corporationID && !isNpcCorporation(corporationID) && alliance.executorCorpID === corporationID && (BigInt(online?.corpRole ?? "0") & 1n) === 1n);
+    let structures: SovStructureRow[] | null = null;
+    const answer = await scope.ask("allianceRegistry", "GetAllianceSovereigntyStructuresInfo", []).catch(() => null) as JsonValue | null;
+    scope.current();
+    const parts = answer === null ? null : isListValue(answer) ? answer.items : Array.isArray(answer) ? answer as JsonValue[] : answer && typeof answer === "object" && Array.isArray((answer as { items?: unknown }).items) ? (answer as { items: JsonValue[] }).items : null;
+    if (parts) {
+      const rows = (v: JsonValue | undefined) => (v === undefined ? [] : isListValue(v) ? v.items : Array.isArray(v) ? v as JsonValue[] : []);
+      // GetSovereigntyStructuresInfoForAlliance: TCUs (typeTerritorialClaimUnit 32226) then Sov Hubs (typeInfrastructureHub 32458).
+      const out: Omit<SovStructureRow, "constellationID" | "regionID" | "systemName" | "constellationName" | "regionName" | "security" | "jumps">[] = [];
+      for (const [list, typeID] of [[rows(parts[0]), 32226], [rows(parts[1]), 32458]] as const) {
+        for (const row of list) {
+          const itemID = num(readRowField(row, "structureID")) ?? 0;
+          if (!itemID) continue;
+          const campaignStart = ms(readRowField(row, "campaignStartTime")), eventType = num(readRowField(row, "campaignEventType"));
+          const vStart = ms(readRowField(row, "vulnerableStartTime")), vEnd = ms(readRowField(row, "vulnerableEndTime"));
+          const campaign = campaignStart && eventType ? { eventType, startMs: campaignStart } : null;
+          const vulnerability = !campaign && vStart && vEnd ? { startMs: vStart, endMs: vEnd } : null;
+          const level = campaign ? num(readRowField(row, "campaignOccupancyLevel")) : vulnerability ? num(readRowField(row, "vulnerabilityOccupancyLevel")) : 1;
+          out.push({ itemID, typeID, solarSystemID: num(readRowField(row, "solarSystemID")) ?? 0, defenseMultiplier: level === null || Number.isNaN(level) ? 1 : level, campaign, vulnerability });
+        }
+      }
+      // SovDashboard.ReloadDashboard: a system's structures sorted by (itemID, -typeID), an item added once - the Sov Hub
+      // over the claim it also is.
+      out.sort((a, b) => a.itemID - b.itemID || b.typeID - a.typeID);
+      const kept = out.filter((s, i) => i === out.findIndex((x) => x.itemID === s.itemID));
+      out.length = 0; out.push(...kept);
+      const systems = [...new Set(out.map((s) => s.solarSystemID))];
+      const places = new Map(await Promise.all(systems.map(async (id) => [id, await api.getMapLocation(id, callOptions).catch(() => null)] as const)));
+      const here = store.station.get().online?.solarSystemID ?? null;
+      const distances = here ? await autopilotDistancesFrom(here).catch(() => null) : null;
+      structures = out.map((s) => {
+        const place = places.get(s.solarSystemID) ?? null;
+        const constellation = place?.parents.find((x) => x.typeID === 4) ?? null, region = place?.parents.find((x) => x.typeID === 3) ?? null;
+        return { ...s, constellationID: constellation?.itemID ?? null, regionID: region?.itemID ?? null, systemName: place?.name ?? String(s.solarSystemID),
+          constellationName: constellation?.name ?? "", regionName: region?.name ?? "", security: place?.securityStatus ?? null, jumps: distances?.get(s.solarSystemID) ?? null };
+      });
+    }
+    return { prime, canSetPrime, structures };
+  }
+  async function setAlliancePrimeHour(hour: number): Promise<boolean> {
+    const scope = captureMemberOperation();
+    try { await scope.write("allianceRegistry", "SetPrimeHour", [hour]); scope.current(); return true; }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+  }
   async function corporationAllowedEnlistment(): Promise<readonly number[] | null> {
     const scope = captureMemberOperation();
     const answer = await scope.ask("fwCharacterEnlistmentMgr", "GetCorpAllowedEnlistmentFactions", [scope.online.corporationID]).catch(() => null);
@@ -32226,6 +32308,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     corporationAllowedEnlistment,
     setCorporationAllowedEnlistment,
+    allianceSovereignty,
+    setAlliancePrimeHour,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },

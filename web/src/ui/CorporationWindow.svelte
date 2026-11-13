@@ -33,6 +33,7 @@
   import CorporationProjects from "./CorporationProjects.svelte";
   import CorporationFreelance from "./CorporationFreelance.svelte";
   import CorporationDirectEnlistment from "./CorporationDirectEnlistment.svelte";
+  import CorporationAllianceSovereignty from "./CorporationAllianceSovereignty.svelte";
   import CorporationSanctionableActions from "./CorporationSanctionableActions.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
   import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
@@ -50,7 +51,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance" | "directEnlistment">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance" | "directEnlistment" | "allianceSovereignty">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -140,6 +141,8 @@
     "UI/Corporations/CorporationWindow/Alliances/Members": "Members",
     "UI/Corporations/CorporationWindow/Alliances/Applications": "Applications",
     "UI/Corporations/CorporationWindow/Alliances/AllAlliances": "All Alliances",
+    "UI/Neocom/Sovereignty": "Sovereignty",
+    "UI/Corporations/CorporationWindow/Alliances/SovereigntyTab": "Settings and Structures",
     "UI/Corporations/BaseCorporationUI/AutoKickManagement": "Auto-Kick Management",
     "UI/Corporations/BaseCorporationUI/Auditing": "Auditing",
     "UI/Corporations/BaseCorporationUI/Voting": "Voting",
@@ -209,6 +212,8 @@
           ...(playerCorporation && allianceID !== null ? [{ id: "allianceContacts" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllianceContacts" }] : []),
           ...(playerCorporation ? [{ id: "allianceApplications" as const, label: "UI/Corporations/CorporationWindow/Alliances/Applications" }] : []),
           { id: "allianceRankings" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllAlliances" }] },
+        // construct_alliance_sovereignty (with an alliance): Sovereignty; Systems and Sov Hubs are not built yet.
+        ...(allianceID !== null ? [{ header: "UI/Neocom/Sovereignty", entries: [{ id: "allianceSovereignty" as const, label: "UI/Corporations/CorporationWindow/Alliances/SovereigntyTab" }] }] : []),
       ];
     }
     if (corpTab === "admin") {
@@ -340,6 +345,7 @@
       {#if panel === "allianceMembers"}<AllianceMembers {store} {flow} />{/if}
       {#if panel === "allianceApplications"}<AllianceApplications {store} {flow} />{/if}
       {#if panel === "allianceRankings"}<AllianceRankings {store} {flow} />{/if}
+      {#if panel === "allianceSovereignty"}<CorporationAllianceSovereignty {store} {flow} />{/if}
       {#if panel === "autoKicks"}<CorporationAutoKicks {store} {flow} />{/if}
       {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
       {#if panel === "votes"}<CorporationVotes {store} {flow} />{/if}
