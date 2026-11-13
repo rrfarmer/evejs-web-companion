@@ -19,6 +19,7 @@
   import CorporationFinder from "./CorporationFinder.svelte";
   import CorporationAdverts from "./CorporationAdverts.svelte";
   import CorporationApplicationsToCorp from "./CorporationApplicationsToCorp.svelte";
+  import CorporationWarInfo from "./CorporationWarInfo.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -141,7 +142,7 @@
     "UI/Corporations/CorpUIHome/URL", "UI/Common/Details", "UI/Corporations/CorpUIHome/CreateNewCorp", "UI/Corporations/CorpUIHome/QuitCorp"];
   $effect(() => { if (retail) flow.requestWords(HOME_WORDS); });
   const homeWord = (label: string, own: string): string => { const t = $words.templates[label]; return typeof t === "string" ? t : own; };
-  const NOT_BUILT = new Set(["wars", "warInfo", "allianceGeneral"]);
+  const NOT_BUILT = new Set(["wars", "allianceGeneral"]);
   type NavEntry = { readonly id: typeof panel; readonly label: string; readonly open?: () => void };
   const corpNav = $derived.by((): readonly { readonly header: string; readonly entries: readonly NavEntry[] }[] => {
     if (corpTab === "alliance") {
@@ -250,6 +251,7 @@
       {#if NOT_BUILT.has(panel)}<p class="note corp-unbuilt">This panel is not on the play page yet.</p>{/if}
       {#if panel === "kills"}<CorporationKillReports {store} {flow} />{/if}
       {#if panel === "recruitSearch"}<CorporationFinder {store} {flow} />{/if}
+      {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}
       {#if panel === "bulletins"}<CorporationBulletins {store} {flow} director={administration.director} />{/if}

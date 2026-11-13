@@ -440,6 +440,14 @@ import { corporationApplicationsOf, applicationEnded, applicationAcceptable, typ
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 
+/** WarLandingPage's facts (GetLandingPageInfo's KeyVal, the link's owner for corpOrAllianceLink). */
+export interface WarLandingInfo {
+  readonly ownerID: number; readonly ownerTypeID: number; readonly ownerName: string;
+  readonly currentWars: number; readonly pendingWars: number; readonly nonFinishedMutualWars: number;
+  readonly numAllyWars: number; readonly numAllies: number; readonly unpaidWarBills: number | null;
+  readonly warPermit: boolean; readonly validWarHQs: number; readonly numWarTreaties: number;
+}
+
 /** ApplyForMembership's first part: refused (a dialog said why), an active application, or the window's facts. */
 export type MembershipApplicationStart =
   | { readonly kind: "refused" }
@@ -2444,6 +2452,13 @@ export interface AppFlow {
   /** OnCheckboxRecruitmentChange: corp.UpdateCorporation(description, url, taxRate, isRecruiting, loyaltyPointTaxRate),
    * the row's own values but the one changed. */
   setCorporationRecruiting(isRecruiting: boolean): Promise<void>;
+  /** WarLandingPage.GetLandingPageInfo: the war permit (the corporation's allowWar), the wars of the alliance or
+   * corporation (warRegistry.GetWars) - hostile, spooling up, mutual and not finished, ally wars and allies -, the
+   * unpaid war bills (an accountant's, a corporation's own: billMgr.GetCorporationBills, billTypeWarBill 4; else
+   * null), the valid war HQs (structureDirectory.GetValidWarHQs, none for an NPC corporation or without a permit), the
+   * peace-treaty owners (peaceTreatyMgr.GetPeaceTreatiesForSession), and the faction wars' count (0: a warring faction
+   * is not read here). */
+  warLandingInfo(): Promise<WarLandingInfo>;
   /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
   sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
   /** RecruitmentEntry's recruiters: corpRecProxy.GetRecruiters(adID), their names primed. */
@@ -16511,6 +16526,58 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await bridgeDo("corpRegistry", "UpdateCorporation", [text(row.description), text(row.url), num(row.taxRate), isRecruiting, num(row.loyaltyPointTaxRate)]); }
     catch (error) { throwIfRequestRetired(error); if (!sayRefusalDialog(error, errorWords(error))) throw error; }
   }
+  async function warLandingInfo(): Promise<WarLandingInfo> {
+    const online = store.station.get().online;
+    if (!online?.corporationID) throw new Error("No corporation is selected.");
+    const corpID = online.corporationID, allianceID = online.allianceID ?? null, ownerID = allianceID ?? corpID;
+    const npc = corpID >= 1_000_000 && corpID < 2_000_000;
+    const roles = BigInt(online.corpRole ?? "0");
+    const nowTicks = BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n;
+    const long = (v: JsonValue | undefined): bigint | null => (typeof v === "number" ? BigInt(Math.trunc(v)) : unwrapLong(v));
+    const flag = (v: JsonValue | undefined) => v === true || (typeof v === "number" && v !== 0) || (long(v) ?? 0n) !== 0n;
+    const row = (await corporationRecords.get(bridgeAsk, corpID)).fields;
+    // DoesMyCorpHaveNegativeWarPermit: allowWar == False
+    const warPermit = !(row.allowWar === false || (row.allowWar !== null && row.allowWar !== undefined && !flag(row.allowWar)));
+    const warsAnswer = await bridgeAsk("warRegistry", "GetWars", [ownerID]);
+    const wars = readDictPairs(warsAnswer).map(([, war]) => war);
+    const at = (war: JsonValue, key: string) => long(memberField(war, key));
+    // IsWarInHostileState / IsWarInSpoolup / IsWarFinished
+    const hostile = (w: JsonValue) => { const fin = at(w, "timeFinished"), start = at(w, "timeStarted") ?? 0n; return (fin === null || nowTicks < fin) && nowTicks > start; };
+    const spoolup = (w: JsonValue) => nowTicks < (at(w, "timeStarted") ?? 0n);
+    const finished = (w: JsonValue) => { const fin = at(w, "timeFinished"); return fin !== null && fin < nowTicks; };
+    const alliesOf = (w: JsonValue) => readDictPairs(memberField(w, "allies") ?? null).map(([k]) => Number(typeof k === "number" ? k : unwrapLong(k) ?? 0));
+    let numAllyWars = 0; const allies = new Set<number>();
+    for (const w of wars) {
+      if (alliesOf(w).includes(ownerID)) numAllyWars++;
+      if ([at(w, "declaredByID"), at(w, "againstID")].some((id) => id !== null && Number(id) === ownerID)) for (const a of alliesOf(w)) allies.add(a);
+    }
+    let unpaidWarBills: number | null = null;
+    if ((roles & (256n | 4503599627370496n)) !== 0n && allianceID === null && wars.length) {
+      const bills = await bridgeAsk("billMgr", "GetCorporationBills", []);
+      const items: readonly JsonValue[] = isListValue(bills) ? bills.items : readRowsetRows(bills) as readonly JsonValue[];
+      unpaidWarBills = items.filter((b) => Number(long(memberField(b, "billTypeID")) ?? 0) === 4 && !flag(memberField(b, "paid"))).length;
+    }
+    let validWarHQs = 0;
+    if (!npc && warPermit) {
+      const hqs = await bridgeAsk("structureDirectory", "GetValidWarHQs", [ownerID]);
+      validWarHQs = isListValue(hqs) ? hqs.items.length : Array.isArray(hqs) ? hqs.length : readDictPairs(hqs).length;
+    }
+    let numWarTreaties = 0;
+    if (!npc) {
+      const answer = await bridgeAsk("peaceTreatyMgr", "GetPeaceTreatiesForSession", []);
+      const pair: readonly JsonValue[] = Array.isArray(answer) ? answer : answer && typeof answer === "object" && "items" in answer && Array.isArray(answer.items) ? answer.items : [];
+      const others = new Set<number>();
+      for (const side of pair) for (const t of (isListValue(side) ? side.items : Array.isArray(side) ? side : [])) { const id = long(memberField(t, "otherOwnerID")); if (id !== null) others.add(Number(id)); }
+      numWarTreaties = others.size;
+    }
+    await memberNames({ current: () => {}, options: callOptions } as never, [{ kind: "owner", id: ownerID }]);
+    return {
+      ownerID, ownerTypeID: allianceID !== null ? 16159 : 2, ownerName: nameCache.get(nameKey("owner", ownerID)) ?? String(ownerID),
+      currentWars: wars.filter(hostile).length, pendingWars: wars.filter(spoolup).length,
+      nonFinishedMutualWars: wars.filter((w) => !finished(w) && flag(memberField(w, "mutual"))).length,
+      numAllyWars, numAllies: allies.size, unpaidWarBills, warPermit, validWarHQs, numWarTreaties,
+    };
+  }
   async function inviteToJoinCorp(characterID: number): Promise<boolean> {
     const scope = captureMemberOperation();
     await memberNames(scope, [{ kind: "owner", id: characterID }]);
@@ -30116,6 +30183,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     setCorporationWelcomeMail,
     corporationIsRecruiting,
     setCorporationRecruiting,
+    warLandingInfo,
     recruitmentAdRecruiters,
     corporationAggressionAt,
     deleteRecruitmentAd,
