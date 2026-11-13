@@ -32,6 +32,7 @@
   import CorporationVotes from "./CorporationVotes.svelte";
   import CorporationProjects from "./CorporationProjects.svelte";
   import CorporationFreelance from "./CorporationFreelance.svelte";
+  import CorporationDirectEnlistment from "./CorporationDirectEnlistment.svelte";
   import CorporationSanctionableActions from "./CorporationSanctionableActions.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
   import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
@@ -49,7 +50,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance" | "directEnlistment">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -134,6 +135,7 @@
     "UI/Corporations/CorpApplications/ApplicationsToCorp": "Applications",
     "UI/Corporations/Wars/WarHistory": "War History",
     "UI/Corporations/Wars/MutualWarInvitesTab": "Mutual War Invites",
+    "UI/Corporations/Wars/DirectEnlistment": "Direct Faction Enlistment",
     "UI/Corporations/CorporationWindow/Alliances/Bulletins": "Bulletins",
     "UI/Corporations/CorporationWindow/Alliances/Members": "Members",
     "UI/Corporations/CorporationWindow/Alliances/Applications": "Applications",
@@ -224,7 +226,9 @@
         // construct_admin_recruitment_panels: Corporation Advertisements, for whoever sees the tab
         { header: "UI/Corporations/BaseCorporationUI/Recruitment", entries: [{ id: "recruitAds" as const, label: "UI/Corporations/CorporationWindow/Recruitment/CorporationAds" }, { id: "recruitApplications" as const, label: "UI/Corporations/CorpApplications/ApplicationsToCorp" }] },
         // construct_admin_wars_panels: a director's - Mutual War Invites
-        ...(administration.director ? [{ header: "UI/Corporations/BaseCorporationUI/Wars", entries: [{ id: "mutualWarInvites" as const, label: "UI/Corporations/Wars/MutualWarInvitesTab" }] }] : []),
+        // construct_admin_wars_panels: Mutual War Invites and Direct Enlistment, a director's (PANEL_ACCESS_ROLES).
+        ...(administration.director ? [{ header: "UI/Corporations/BaseCorporationUI/Wars", entries: [{ id: "mutualWarInvites" as const, label: "UI/Corporations/Wars/MutualWarInvitesTab" },
+          { id: "directEnlistment" as const, label: "UI/Corporations/Wars/DirectEnlistment" }] }] : []),
       ];
     }
     return [
@@ -330,6 +334,7 @@
       {#if panel === "wars"}<CorporationWars {store} {flow} />{/if}
       {#if panel === "warHistory"}<CorporationWarHistory {store} {flow} />{/if}
       {#if panel === "mutualWarInvites"}<CorporationMutualWarInvites {store} {flow} />{/if}
+      {#if panel === "directEnlistment"}<CorporationDirectEnlistment {store} {flow} canEdit={administration.director} />{/if}
       {#if panel === "allianceGeneral"}<AllianceHome {store} {flow} />{/if}
       {#if panel === "allianceBulletins"}<CorporationBulletins {store} {flow} director={administration.director} alliance />{/if}
       {#if panel === "allianceMembers"}<AllianceMembers {store} {flow} />{/if}

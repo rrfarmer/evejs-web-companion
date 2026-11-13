@@ -921,6 +921,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // (infosvc.UpdateDataCorp: fwEnlistmentSvc.GetCorpAllowedEnlistmentFactions). The gateway's list has nothing of the
   // enlistment manager's.
   "fwCharacterEnlistmentMgr.GetCorpAllowedEnlistmentFactions",
+  // The corporation window's Direct Enlistment (corp_ui_direct_enlistment_mgt.WhitelistManagement.ApplyChanges:
+  // fwEnlistmentSvc.SetCorpAllowedEnlistmentFactions - SetMyCorpAllowedEnlistmentFactions(allowedFactionIDs)).
+  "fwCharacterEnlistmentMgr.SetMyCorpAllowedEnlistmentFactions",
   // The pilot's expert systems and one of them taken out (expertSystems/client/service.py: GetMyExpertSystems,
   // RemoveMyExpertSystem, on expertSystemMgr by its name). The gateway's list has nothing of the expert systems'.
   "expertSystemMgr.GetMyExpertSystems", "expertSystemMgr.RemoveMyExpertSystem",
@@ -2371,6 +2374,7 @@ const RETAIL_CALLS = Object.freeze({
   // ── a corporation's assets ────────────────────────────────────────────────
   "corpmgr.GetPublicInfo": same("eve/client/script/ui/shared/info/corporationInfoWindow.py:49", "RemoteSvc('corpmgr').GetPublicInfo(item_id): Show Info on a corporation"),
   "corpmgr.GetAggressionSettings": same(`${CORP_SVC}/base_corporation.py:259`, "RemoteSvc('corpmgr').GetAggressionSettings(corpID): the friendly fire row of a corporation's Show Info, kept per corporation"),
+  "fwCharacterEnlistmentMgr.SetMyCorpAllowedEnlistmentFactions": same("eve/client/script/ui/services/fwEnlistmentSvc.py:107", "RemoteSvc('fwCharacterEnlistmentMgr').SetMyCorpAllowedEnlistmentFactions(allowedFactionIDs): the corporation window's Direct Enlistment, Apply"),
   "fwCharacterEnlistmentMgr.GetCorpAllowedEnlistmentFactions": same("eve/client/script/ui/services/fwEnlistmentSvc.py:104", "RemoteSvc('fwCharacterEnlistmentMgr').GetCorpAllowedEnlistmentFactions(corporationID): a player corporation's Show Info"),
   "corpmgr.GetAssetInventory": same(`${CORP_ASSETS}:100`, "RemoteSvc('corpmgr').GetAssetInventory(session.corpid, which)"),
   "corpmgr.GetAssetInventoryForLocation": same(`${CORP_ASSETS}:423`, "RemoteSvc('corpmgr').GetAssetInventoryForLocation(session.corpid, locationID, which)"),

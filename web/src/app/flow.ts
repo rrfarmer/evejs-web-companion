@@ -2631,6 +2631,13 @@ export interface AppFlow {
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** prompt_player_fsd_dialog('CustomWarning', {header, warning}, buttons=YESNO): true on Yes. */
   askClientWarning(header: string, warning: string): Promise<boolean>;
+  /** prompt_player_fsd_dialog(dialog, values, YESNO): the install's dialog with its parameters; true on Yes. */
+  askClientDialogWith(dialog: string, values: Readonly<Record<string, string>>, fallback: string): Promise<boolean>;
+  /** WhitelistManagement: the factions the corporation's members may enlist with directly
+   * (fwEnlistmentSvc.GetCorpAllowedEnlistmentFactions(session.corpid)); null where the read failed. */
+  corporationAllowedEnlistment(): Promise<readonly number[] | null>;
+  /** WhitelistManagement.ApplyChanges: SetMyCorpAllowedEnlistmentFactions(allowedFactionIDs), then the list read again. */
+  setCorporationAllowedEnlistment(factionIDs: readonly number[]): Promise<readonly number[] | null>;
   /** CorpDetails.PickTicker: corpRegistry.GetSuggestedTickerNames(name), each suggestion's tickerName; null where the
    * name is empty (EnterCorporationName) or none came (NoCorpTickerNameSuggestions), the dialog put up. */
   corporationTickerSuggestions(name: string): Promise<readonly string[] | null>;
@@ -18537,6 +18544,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await scope.write("voteManager", "InsertVote", [online.corporationID, voteCaseID, optionID]); scope.current(); }
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
   }
+  async function corporationAllowedEnlistment(): Promise<readonly number[] | null> {
+    const scope = captureMemberOperation();
+    const answer = await scope.ask("fwCharacterEnlistmentMgr", "GetCorpAllowedEnlistmentFactions", [scope.online.corporationID]).catch(() => null);
+    scope.current();
+    const ids = answer === null ? null : enlistmentFactionsOf(answer as JsonValue);
+    return ids === null ? null : [...ids];
+  }
+  async function setCorporationAllowedEnlistment(factionIDs: readonly number[]): Promise<readonly number[] | null> {
+    const scope = captureMemberOperation();
+    try { await scope.write("fwCharacterEnlistmentMgr", "SetMyCorpAllowedEnlistmentFactions", [{ type: "list", items: [...factionIDs] }] as JsonValue[]); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return null; }
+    return corporationAllowedEnlistment();
+  }
   async function proposeCorporationVote(vote: Parameters<AppFlow["proposeCorporationVote"]>[0]): Promise<boolean> {
     const scope = captureMemberOperation();
     const P = "UI/Corporations/CorporationWindow/Politics/";
@@ -32200,6 +32220,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     allianceApplications,
     allianceApplicationAct,
     allianceApplicationStandardText,
+    async askClientDialogWith(dialog: string, values: Readonly<Record<string, string>>, fallback: string) {
+      await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
+      return askDialog(dialog, { type: "dict", entries: Object.entries(values).map(([k, v]) => [k, v]) } as JsonValue, fallback, "yesno");
+    },
+    corporationAllowedEnlistment,
+    setCorporationAllowedEnlistment,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },
