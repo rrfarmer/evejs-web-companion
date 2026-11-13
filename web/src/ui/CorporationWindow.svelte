@@ -30,6 +30,7 @@
   import CorporationAutoKicks from "./CorporationAutoKicks.svelte";
   import CorporationAuditing from "./CorporationAuditing.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
+  import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -42,7 +43,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -119,6 +120,7 @@
     "UI/Corporations/BaseCorporationUI/AutoKickManagement": "Auto-Kick Management",
     "UI/Corporations/BaseCorporationUI/Auditing": "Auditing",
     "UI/Corporations/BaseCorporationUI/TitleManagement": "Titles",
+    "UI/Corporations/BaseCorporationUI/RoleManagement": "Role Management",
     "UI/Corporations/BaseCorporationUI/Wars": "Wars",
     "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
     "UI/Corporations/Wars/WarInfoTab": "War Info",
@@ -184,7 +186,7 @@
         // construct_admin_members_panels: Find Member In Role (a personnel manager's, or one with grantable roles), Auto-Kick
         // Management (a director's); construct_admin_general_panels: Auditing (an auditor's)
         ...(administration.findMembers || administration.director ? [{ header: "UI/Corporations/BaseCorporationUI/Members", entries: [
-          ...(administration.findMembers ? [{ id: "find" as const, label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }] : []),
+          ...(administration.findMembers ? [{ id: "find" as const, label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }, { id: "roleManagement" as const, label: "UI/Corporations/BaseCorporationUI/RoleManagement" }] : []),
           ...(administration.director ? [{ id: "autoKicks" as const, label: "UI/Corporations/BaseCorporationUI/AutoKickManagement" }, { id: "titles" as const, label: "UI/Corporations/BaseCorporationUI/TitleManagement" }] : [])] }] : []),
         ...(auditorRole ? [{ header: "UI/Generic/General", entries: [{ id: "auditing" as const, label: "UI/Corporations/BaseCorporationUI/Auditing" }] }] : []),
         // construct_admin_recruitment_panels: Corporation Advertisements, for whoever sees the tab
@@ -297,6 +299,7 @@
       {#if panel === "autoKicks"}<CorporationAutoKicks {store} {flow} />{/if}
       {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
       {#if panel === "titles"}<CorporationTitles {store} {flow} />{/if}
+      {#if panel === "roleManagement"}<CorporationRoleManagement {store} {flow} />{/if}
       {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}

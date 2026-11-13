@@ -4307,8 +4307,8 @@ test("an explicit corporation owner read is forwarded; unexposed administration 
   // Native bco_members.UpdateMember243 and base_corporation's KickOut397-412,
   // KickOutMultipleMembers459-476 and __ResignFromCEO780-783 have page primitives.
   // The kick/CEO mutations name their originating registry with `of`;
-  // other administration writes stay private.
-  for (const method of ["UpdateMembers", "ExecuteActions"]) {
+  // other administration writes stay private (UpdateMembers is Role Management's page write since iteration 379).
+  for (const method of ["ExecuteActions"]) {
     const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "corpRegistry", method, args: [7], kwargs: null, pilot: true, confirm: true } });
     assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REFUSED"], method);
   }

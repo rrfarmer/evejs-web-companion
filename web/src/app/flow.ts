@@ -179,8 +179,8 @@ import { locationKind } from "../bridge/clientWords.ts";
 import { resolvedName } from "../store/names.ts";
 import { labelEscaped } from "../bridge/labelMarkup.ts";
 import { corporationTrackingOf, type CorporationTracking } from "../bridge/corporationTracking.ts";
-import { corporationMemberOf, memberField, memberInteger, memberTitleOf, MEMBER_ROLE_FIELDS, type CorporationMemberDetails } from "../bridge/corporationMemberDetails.ts";
-import { memberRoleGroups, myGrantableRoles, memberTitlesOf, changeMemberTitles, roleGroupings, type RoleMasks, type CorporationTitle, type RoleGrouping } from "../bridge/corporationRoles.ts";
+import { corporationMemberOf, memberField, memberInteger, memberTitleOf, MEMBER_ROLE_FIELDS, type CorporationMember, type CorporationMemberDetails } from "../bridge/corporationMemberDetails.ts";
+import { memberRoleGroups, myGrantableRoles, memberTitlesOf, changeMemberTitles, roleGroupings, type RoleMasks, type CorporationTitle, type RoleGrouping, type GrantMasks } from "../bridge/corporationRoles.ts";
 import { addressBookOf, corporateAddressBookOf, type ContactScope, agentFoldersOf, contactLabelsOf, createdLabelOf, labelBitsSent, onlineStatesOf, type AgentFolders, type ContactLabel, type ContactWrite, type NamedAddressBook } from "../bridge/contacts.ts";
 import { sendMail as sendMailCall, type MailToSend } from "../bridge/mailWrites.ts";
 import { mailMarkupOfTyped } from "../bridge/mailMarkup.ts";
@@ -457,6 +457,24 @@ export interface CorporationTitlesView {
   readonly forTitles: readonly RoleGrouping[];
   readonly groupings: readonly RoleGrouping[];
 }
+/** CorpRolesNew's data: the corporation's CEO, whether I am its CEO / a director, GetRoleGroupings(), the division
+ * names 0-7, the titles by ID, my base, my grantable roles, the bases ('-' then the offices' stations), the members. */
+export interface RoleManagementView {
+  readonly assertCurrent: () => void;
+  readonly ceoID: number;
+  readonly iAmCEO: boolean;
+  readonly iAmDirector: boolean;
+  readonly myBaseID: number | null;
+  readonly grants: GrantMasks;
+  readonly groupings: readonly RoleGrouping[];
+  readonly divisionNames: readonly string[];
+  readonly titles: readonly CorporationTitle[];
+  readonly bases: readonly { readonly stationID: number | null; readonly name: string }[];
+  readonly totalCount: number;
+  readonly perPage: number;
+}
+/** A role entry's rec as the save reads it: the member, the eight masks, the base, the title mask and the one read. */
+export interface RoleManagementRow { readonly characterID: number; readonly masks: RoleMasks; readonly baseID: number | null; readonly titleMask: number; readonly oldTitleMask: number }
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
 export interface AllianceApplication { readonly allianceID: number; readonly corporationID: number; readonly applicationText: string; readonly state: number }
 /** An alliance member (GetMembers' row): the corporation, its chosen executor (None the client's Secret), when it joined. */
@@ -2666,6 +2684,13 @@ export interface AppFlow {
   corporationTitlesView(current?: () => void): Promise<CorporationTitlesView>;
   saveCorporationTitles(changed: readonly CorporationTitle[], current?: () => void): Promise<void>;
   membersWithTitle(titleID: number, current?: () => void): Promise<readonly number[]>;
+  roleManagementView(current?: () => void): Promise<RoleManagementView>;
+  roleManagementMembers(viewFrom: number, perView: number, current?: () => void): Promise<{ readonly members: readonly CorporationMember[]; readonly totalCount: number }>;
+  roleManagementMember(characterID: number, current?: () => void): Promise<CorporationMember | null>;
+  /** The member's row as PagedCorpMembers holds it now (OnCorporationMemberChanged writes into it), else null. */
+  loadedCorporationMember(characterID: number): CorporationMember | null;
+  searchCorporationMembers(text: string, current?: () => void): Promise<readonly { readonly id: number; readonly name: string }[]>;
+  saveRoleManagement(changed: readonly RoleManagementRow[], current?: () => void): Promise<void>;
   corporationMemberSummary(details: CorporationMemberDetails): Promise<{ readonly titles: readonly CorporationTitle[]; readonly showTitleNames: boolean }>;
   corporationSummaryGroupOpen(groupID: number, open?: boolean): boolean;
   corporationDecorationGroupOpen(medalID: number, recipients: boolean, open?: boolean): boolean;
@@ -6268,6 +6293,39 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === "OnTitleChanged") {
       const held = memberTitleReads.get(Number(unwrapLong(args[0] as JsonValue) ?? 0n));
       if (held) changeMemberTitles(held, Number(unwrapLong(args[1] as JsonValue) ?? 0n), args[2] as JsonValue);
+      return;
+    }
+    // PagedCorpMembers.OnCorporationMemberChanged: a member leaving is taken out of the loaded rows (or the count); one
+    // joining is appended while the last page is loaded (GetMembersByIds), else counted; any other change is written
+    // into the loaded row.
+    if (method === "OnCorporationMemberChanged") {
+      const held = pagedCorpMembers, memberID = Number(unwrapLong(args[1] as JsonValue) ?? 0n), corpid = store.station.get().online?.corporationID ?? null;
+      if (!held.created || Number(unwrapLong(args[0] as JsonValue) ?? 0n) !== corpid) return;
+      const changes = new Map(readDictPairs(args[2] as JsonValue).flatMap(([key, value]) => {
+        const pair = Array.isArray(value) ? value : isListValue(value) ? value.items : value && typeof value === "object" && "items" in value && Array.isArray(value.items) ? value.items as JsonValue[] : [];
+        return typeof key === "string" && pair.length === 2 ? [[key, pair as readonly JsonValue[]] as const] : [];
+      }));
+      const index = held.collection.findIndex(member => member?.characterID === memberID);
+      const corp = changes.get("corporationID");
+      if (corp) {
+        const oldCorpID = Number(unwrapLong(corp[0]!) ?? 0n), newCorpID = Number(unwrapLong(corp[1]!) ?? 0n);
+        if (oldCorpID === corpid) { if (index < 0) held.totalCount -= 1; else { held.collection.splice(index, 1); held.totalCount -= 1; } }
+        else if (newCorpID === corpid) {
+          const pageCount = held.totalCount ? Math.floor(held.totalCount / held.perPage) + 1 : 0;
+          if (held.page === pageCount) void bridgeAsk("corpRegistry", "GetMembersByIds", [{ type: "list", items: [memberID] } as JsonValue]).then(answer => {
+            const rows: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+            if (rows[0] && !held.collection.some(member => member?.characterID === memberID)) { held.collection.push(corporationMemberOf(rows[0])); held.totalCount += 1; }
+          }).catch(() => {});
+          else held.totalCount += 1;
+        }
+      } else if (index >= 0) {
+        const member = held.collection[index]!;
+        const value = (key: string) => changes.get(key)?.[1] ?? null;
+        held.collection[index] = { ...member,
+          masks: Object.fromEntries(MEMBER_ROLE_FIELDS.map(field => [field, changes.has(field) ? unwrapLong(value(field)) ?? 0n : member.masks[field]])) as CorporationMember["masks"],
+          titleMask: changes.has("titleMask") ? Number(unwrapLong(value("titleMask")) ?? 0n) : member.titleMask,
+          baseID: changes.has("baseID") ? Number(unwrapLong(value("baseID")) ?? 0n) || null : member.baseID };
+      }
       return;
     }
     // bco_corporations.OnCorporationChanged: the corporation's own row is not what was kept.
@@ -17734,15 +17792,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // bco_members.GetMember @Memoize(0.1): caching.Memoize takes minutes, so six seconds after the reply.
   const memberReads = new Map<string, { value: JsonValue; savedAt: number }>();
   const memberTitleReads = new Map<number, Map<number, CorporationTitle>>();
-  // bco_members' PagedCorpMembers: the member rows of the pages GetMembersPaged has answered (Role Management loads
-  // them); GetMembers() iterates only these.
-  const pagedCorpMembers = new Map<number, { readonly characterID: number; readonly titleMask: number }>();
+  // bco_members' PagedCorpMembers (pagedCollection.PagedCollection): the member rows of the pages GetMembersPaged has
+  // answered, placed at perPage * the answer's page; Role Management loads them, GetMembers() iterates only these.
+  const pagedCorpMembers = { page: 0, totalCount: 0, perPage: 50, collection: [] as CorporationMember[], created: false };
+  function resetPagedCorpMembers(): void { Object.assign(pagedCorpMembers, { page: 0, totalCount: 0, perPage: 50, collection: [], created: false }); }
   let memberDataCorpID: number | null = null;
   let memberDataPilotGeneration = -1, memberDataCorporationGeneration = -1;
   function memberReadKey(characterID: number): string {
     const corporationID = store.station.get().online?.corporationID ?? null;
     if (corporationID !== memberDataCorpID || memberDataPilotGeneration !== requestGeneration || memberDataCorporationGeneration !== corporationMembershipGeneration) {
-      memberReads.clear(); memberTitleReads.clear(); pagedCorpMembers.clear(); memberDataCorpID = corporationID;
+      memberReads.clear(); memberTitleReads.clear(); resetPagedCorpMembers(); memberDataCorpID = corporationID;
       memberDataPilotGeneration = requestGeneration; memberDataCorporationGeneration = corporationMembershipGeneration;
     }
     return `${corporationID}:${characterID}`;
@@ -17796,10 +17855,120 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const scope = captureMemberOperation(current);
     memberReadKey(scope.online.characterID);
     // CorpTitles.GetMemberWithTitle: GetMembers() - the pages already loaded - whose titleMask has the title, by name.
-    const ids = [...pagedCorpMembers.values()].filter(member => (member.titleMask & titleID) !== 0).map(member => member.characterID);
+    const ids = [...new Set(pagedCorpMembers.collection.filter(member => member && (member.titleMask & titleID) !== 0).map(member => member.characterID))];
     await memberNames(scope, ids.map(id => ({ kind: "owner" as const, id })));
     const names = store.names.get().resolved;
     return ids.map(id => ({ id, key: resolvedName(names, "owner", id, "").toLowerCase() })).sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0).map(entry => entry.id);
+  }
+  async function populateMemberPage(page: number, scope: MemberOperation): Promise<readonly CorporationMember[]> {
+    // PagedCorpMembers.PopulatePage: ask GetMembersPaged(page) unless a later page was already answered (self.page is
+    // the answer's own 0-based page, so page 1 is asked again), then the collection's slice for that page.
+    const held = pagedCorpMembers;
+    if (!held.page || page > held.page) {
+      const answer = await scope.ask("corpRegistry", "GetMembersPaged", [page]); scope.current();
+      const parts = answer && typeof answer === "object" && !Array.isArray(answer) && "header" in answer && Array.isArray(answer.header) && Array.isArray(answer.header[1]) ? answer.header[1] as readonly JsonValue[] : [];
+      const list = parts[0], rows: readonly JsonValue[] = isListValue(list) ? list.items : Array.isArray(list) ? list : [];
+      const totalCount = Number(unwrapLong(parts[1] ?? 0) ?? 0n), resultPage = Number(unwrapLong(parts[2] ?? 0) ?? 0n), perPage = Number(unwrapLong(parts[3] ?? 50) ?? 50n);
+      // PagedCollection.Add
+      if (held.totalCount !== totalCount) {
+        if (held.collection.length) { held.collection = []; held.page = 0; }
+        held.totalCount = totalCount; held.perPage = perPage;
+      }
+      const start = held.perPage * resultPage;
+      if (!held.page) held.page = resultPage; else if (resultPage > held.page) held.page = resultPage;
+      const members = rows.slice(0, held.perPage).map(corporationMemberOf);
+      const next = held.collection.slice(0, start);
+      while (next.length < start) next.length = start;
+      held.collection = [...next, ...members, ...held.collection.slice(start + held.perPage)];
+    }
+    const start = held.perPage * (page - 1);
+    return held.collection.slice(start, start + held.perPage);
+  }
+  async function roleManagementView(current?: () => void): Promise<RoleManagementView> {
+    const scope = captureMemberOperation(current), online = scope.online;
+    memberReadKey(online.characterID);
+    // CorpRolesNew.ApplyAttributes: GetRoleGroupings(), GetDivisionNames(), GetTitles(), my member's baseID,
+    // GetMyGrantableRoles(), the bases (GetMyCorporationsOffices' stations); Load: GetMembers() and PopulatePage(1).
+    const corporation = await scope.ask("corpRegistry", "GetCorporation", []);
+    const roleData = await api.getCorporationRoleData(scope.options); scope.current();
+    const titles = await readMemberTitles(online.corporationID, scope);
+    const mine = corporationMemberOf(await readCorporationMember(online.characterID, scope));
+    const ceoID = Number(memberInteger(corporation, "ceoID") ?? 0n);
+    const iAmCEO = ceoID === online.characterID, iAmDirector = (BigInt(online.corpRole ?? "0") & 1n) !== 0n;
+    const grantTitles = !iAmCEO && (mine.masks.roles & 1n) === 0n && mine.titleMask ? titles : new Map<number, RoleMasks>();
+    const offices = await scope.ask("officeManager", "GetMyCorporationsOffices", []);
+    const officeRows = offices && typeof offices === "object" && !Array.isArray(offices) && "list" in offices && Array.isArray(offices.list) ? offices.list : readRowsetRows(offices);
+    const stationIDs = officeRows.map(row => Number(memberInteger(row, "stationID") ?? 0n)).filter(id => id >= 60_000_000 && id < 64_000_000);
+    if (!pagedCorpMembers.created) {
+      // GetMembers: GetMemberIDs (GetEveOwners, once) for the count of a new PagedCorpMembers.
+      const ids = await api.readCorporationMemberIDs(scope.options); scope.current();
+      Object.assign(pagedCorpMembers, { created: true, totalCount: ids.memberIDs.length });
+    }
+    const first = await populateMemberPage(1, scope);
+    const queryLabel = "UI/Corporations/BaseCorporationUI/Query", takeLabel = "UI/Corporations/BaseCorporationUI/Take";
+    await wordsNow([queryLabel, takeLabel, ...ROLE_DIVISION_LABELS, ...Object.values(roleData.roles).flatMap(role => [`#${role.nameID}`, `#${role.descriptionID}`]), ...Object.values(roleData.groups).map(group => `#${group.roleGroupNameID}`)]);
+    scope.current();
+    await memberNames(scope, [...first.map(member => ({ kind: "owner" as const, id: member.characterID })), ...stationIDs.map(id => ({ kind: "station" as const, id }))]);
+    const templates = store.words.get().templates, names = store.names.get().resolved;
+    const name = (id: number) => plainText(templates[`#${id}`] ?? ""), divisionName = roleDivisionNamer(corporation, templates);
+    return { assertCurrent: scope.current, ceoID, iAmCEO, iAmDirector, myBaseID: mine.baseID,
+      grants: myGrantableRoles(mine, iAmCEO, iAmDirector, roleData, grantTitles),
+      groupings: roleGroupings(roleData, false, name, plainText(templates[queryLabel] ?? ""), plainText(templates[takeLabel] ?? ""), divisionName),
+      divisionNames: [0, 1, 2, 3, 4, 5, 6, 7].map(divisionName),
+      titles: [...titles.values()].sort((a, b) => a.titleID - b.titleID),
+      bases: [{ stationID: null, name: "-" }, ...stationIDs.map(stationID => ({ stationID, name: resolvedName(names, "station", stationID, "") }))],
+      totalCount: pagedCorpMembers.totalCount, perPage: pagedCorpMembers.perPage };
+  }
+  async function roleManagementMembers(viewFrom: number, perView: number, current?: () => void): Promise<{ readonly members: readonly CorporationMember[]; readonly totalCount: number }> {
+    const scope = captureMemberOperation(current);
+    memberReadKey(scope.online.characterID);
+    // CorpRolesNew.GetMembersToShow: min(200, totalCount - viewFrom) rows, from the server pages they fall in.
+    const held = pagedCorpMembers, count = Math.min(perView, held.totalCount - viewFrom), shown: CorporationMember[] = [];
+    let serverPage = Math.floor(viewFrom / held.perPage) + 1, rows = await populateMemberPage(serverPage, scope);
+    for (let number = 0; number < count; number++) {
+      const index = (number + viewFrom) % held.perPage, page = Math.floor((number + viewFrom) / held.perPage) + 1;
+      if (page !== serverPage) { rows = await populateMemberPage(page, scope); serverPage = page; }
+      if (rows[index]) shown.push(rows[index]!);
+    }
+    await memberNames(scope, shown.map(member => ({ kind: "owner" as const, id: member.characterID })));
+    return { members: shown, totalCount: held.totalCount };
+  }
+  async function roleManagementMember(characterID: number, current?: () => void): Promise<CorporationMember | null> {
+    const scope = captureMemberOperation(current);
+    // corp.GetMember(searchedCharID) for the one searched member.
+    const raw = await readCorporationMember(characterID, scope);
+    if (raw === null) return null;
+    await memberNames(scope, [{ kind: "owner", id: characterID }]);
+    return corporationMemberOf(raw);
+  }
+  async function searchCorporationMembers(text: string, current?: () => void): Promise<readonly { readonly id: number; readonly name: string }[]> {
+    const scope = captureMemberOperation(current);
+    // CorpRolesNew.Search: GetMemberIDs once; under three characters nothing; SearchCharactersInCorp - search.Query for
+    // characters (partial terms), only the corporation's members.
+    const ids = new Set((await api.readCorporationMemberIDs(scope.options)).memberIDs); scope.current();
+    if (text.length < 3) return [];
+    const results = await searchOwners(text, [2], 0); scope.current();
+    return (results.get(2) ?? []).filter(owner => ids.has(owner.id));
+  }
+  async function saveRoleManagement(changed: readonly RoleManagementRow[], current?: () => void): Promise<void> {
+    const scope = captureMemberOperation(current), me = scope.online.characterID;
+    if (!changed.length) return;
+    // CorpRolesNew.SaveChanges (its loop read from the compiled code): the others' rows in one Rowset to UpdateMembers,
+    // then mine in another, through a session change; each row as _CreateRowsToUpdate makes it.
+    const header = ["characterID", "title", "divisionID", "squadronID", ...MEMBER_ROLE_FIELDS, "baseID", "titleMask"];
+    const line = (row: RoleManagementRow): JsonValue => {
+      const director = (row.masks.roles & 1n) === 1n;
+      const masks = MEMBER_ROLE_FIELDS.map(field => ({ type: "long", value: (director ? (field === "roles" ? 1n : 0n) : row.masks[field]).toString() }));
+      return { type: "list", items: [row.characterID, null, null, null, ...masks, row.baseID, row.titleMask === row.oldTitleMask ? null : row.titleMask] } as JsonValue;
+    };
+    const rowset = (rows: readonly RoleManagementRow[]): JsonValue => {
+      const instance: Record<string, JsonValue> = { header: { type: "list", items: header }, lines: { type: "list", items: rows.map(line) }, RowClass: { type: "token", value: "util.Row" } } as Record<string, JsonValue>;
+      return { type: "object", name: "eve.common.script.sys.rowset.Rowset", args: { type: "dict", entries: strDictOrder(Object.keys(instance)).map(key => [key, instance[key]!]) } } as JsonValue;
+    };
+    const others = changed.filter(row => row.characterID !== me), mine = changed.filter(row => row.characterID === me);
+    if (others.length) { await scope.write("corpRegistry", "UpdateMembers", [rowset(others)]); scope.current(); }
+    if (mine.length) { await scope.write("corpRegistry", "UpdateMembers", [rowset(mine)]); scope.current(); }
+    for (const row of changed) memberReads.delete(memberReadKey(row.characterID));
   }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
@@ -30838,6 +31007,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     listGroupOpen,
     saveCorporationTitles,
     membersWithTitle,
+    roleManagementView,
+    roleManagementMembers,
+    roleManagementMember,
+    loadedCorporationMember: (characterID: number) => pagedCorpMembers.collection.find(member => member?.characterID === characterID) ?? null,
+    searchCorporationMembers,
+    saveRoleManagement,
     corporationMemberSummary,
     corporationSummaryGroupOpen,
     corporationDecorationGroupOpen,
