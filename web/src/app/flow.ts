@@ -2528,6 +2528,11 @@ export interface AppFlow {
   myAlliance(): Promise<{ readonly alliance: AllianceInfoExtra; readonly allowWar: boolean | null } | null>;
   /** EditAllianceWnd.Confirm: alliance.UpdateAlliance(description, url) on the alliance's moniker; true when made. */
   updateAlliance(description: string, url: string): Promise<boolean>;
+  /** SetShortNameWnd: corp.GetSuggestedAllianceShortNames(allianceName) - the rows' shortNames, None skipped. */
+  allianceShortNameSuggestions(allianceName: string): Promise<readonly string[]>;
+  /** CreateAllianceWnd.Confirm_thread: corp.CreateAlliance(allianceName, shortName, description, url) as entered (the
+   * session change 'alliance.addalliance'); true when made. */
+  createAlliance(form: { readonly name: string; readonly shortName: string; readonly description: string; readonly url: string }): Promise<boolean>;
   warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }>;
   /** WarDeclarePagePickTypeCorp.SearchForOwner: war.SearchForWarableEntity - lookupSvc.LookupWarableCorporationsOrAlliances
    * (text, exact) and the corporations found by name (partial_terms, or exact_phrase_only) that are not warable, not
@@ -16703,6 +16708,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
     return { alliance, allowWar: rawAllowWar === null || rawAllowWar === undefined ? null : Boolean(typeof rawAllowWar === "number" ? rawAllowWar : rawAllowWar === true) };
   }
+  async function allianceShortNameSuggestions(allianceName: string): Promise<readonly string[]> {
+    const answer = await bridgeAsk("corpRegistry", "GetSuggestedAllianceShortNames", [allianceName]);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    return items.map((row) => readKeyVal(row, "shortName") ?? readRowField(row, "shortName")).filter((t): t is string => typeof t === "string" && t.length > 0);
+  }
+  async function createAlliance(form: { readonly name: string; readonly shortName: string; readonly description: string; readonly url: string }): Promise<boolean> {
+    try { await bridgeDo("corpRegistry", "CreateAlliance", [form.name, form.shortName, form.description, form.url]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function updateAlliance(description: string, url: string): Promise<boolean> {
     try { await bridgeDo("allianceRegistry", "UpdateAlliance", [description, url]); return true; }
     catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
@@ -30476,6 +30490,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warKillsByGroup,
     myAlliance,
     updateAlliance,
+    allianceShortNameSuggestions,
+    createAlliance,
     searchWarableOwners,
     validWarHQs,
     declareWarAgainst,

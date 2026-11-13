@@ -5,7 +5,10 @@
   // Dictatorial (Yes / No), WarPermitStatus (GetLabelPathForAllowWar: Unknown / WarAllowed / WarNotAllowed, hint
   // WarPermitExplanation); the buttons at the bottom - for a director Edit Alliance (EditAllianceWnd, 420 x 300:
   // URL, Description (5000); OK - FormatUrl, alliance.UpdateAlliance(description, url)) and Declare War. Without one:
-  // CorporationNotInAlliance {corpName} and, for the CEO, Create Alliance (CreateAllianceWnd - not on the page yet).
+  // CorporationNotInAlliance {corpName} and, for the CEO, Create Alliance - CreateAllianceWnd (350 x 380, fixed): Name
+  // (allianceNameMaxLenTQ 50, set to NameAlliance {allianceName: the corporation's}), Short Name (5) with Suggest
+  // (SetShortNameWnd, 300 wide, SelectShortName: GetSuggestedAllianceShortNames' radio buttons, the first checked; OK
+  // sets it), URL, Description (5000); OK - corp.CreateAlliance(name, shortName, description, url) as entered.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -27,13 +30,26 @@
   const imageServer = flow.imageServer;
   const H = "UI/Corporations/CorporationWindow/Alliances/Home/";
   const LABELS = ["CorporationNotInAlliance", "CreateAlliance", "EditAlliance", "DeclareWar", "AllianceName", "Executor", "ShortName", "CreatedByCorporation", "CreatedBy",
-    "Dictatorial", "UpdateAlliance", "DirectorsCanEdit", "CEODeclareWarOnlyHint"].map((k) => H + k)
-    .concat(["UI/Common/Details", "UI/Common/URL", "UI/Common/Description", "UI/Common/Buttons/Yes", "UI/Common/Buttons/No", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel",
+    "Dictatorial", "UpdateAlliance", "DirectorsCanEdit", "CEODeclareWarOnlyHint", "NameAlliance", "SuggestCommand", "SelectShortName"].map((k) => H + k)
+    .concat(["UI/Common/Details", "UI/Common/Name", "UI/Common/URL", "UI/Common/Description", "UI/Common/Buttons/Yes", "UI/Common/Buttons/No", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel",
       "UI/WarPermit/WarPermitStatus", "UI/WarPermit/WarPermitExplanation", "UI/WarPermit/CorpStatusWarPermitUnknown", "UI/WarPermit/CorpStatusWarAllowed", "UI/WarPermit/CorpStatusWarNotAllowed"]);
   const fill = (label: string, values: Record<string, unknown> = {}) =>
     plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") }));
   const ownerName = (id: number | null) => (id ? resolvedName($names.resolved, "owner", id, "") || String(id) : "");
   let data = $state<{ alliance: AllianceInfoExtra; allowWar: boolean | null } | null>(null), loaded = $state(false), error = $state("");
+  let creating = $state(false), cName = $state(""), cShort = $state(""), cUrl = $state(""), cDescription = $state("");
+  let shortNames = $state<readonly string[] | null>(null), shortPick = $state("");
+  async function suggest(): Promise<void> {
+    try { const s = await flow.allianceShortNameSuggestions(cName); shortNames = s; shortPick = s[0] ?? ""; } catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  async function confirmCreate(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    try { if (await flow.createAlliance({ name: cName, shortName: cShort, description: cDescription, url: cUrl })) { creating = false; load(); } }
+    catch (e) { error = e instanceof Error ? e.message : String(e); } finally { busy = false; }
+  }
+  // the session's alliance changed (created, joined, left): read again
+  $effect(() => { void $station.online?.allianceID; if (loaded) load(); });
   let editing = $state(false), declaring = $state(false), editUrl = $state(""), editDescription = $state(""), busy = $state(false);
   const corporationID = $derived($station.online?.corporationID ?? 0);
   const director = $derived((BigInt($station.online?.corpRole ?? "0") & 1n) === 1n);
@@ -73,6 +89,37 @@
     </div>
   </div>
 {/if}
+{#if creating}
+  <div class="ah-back">
+    <div class="ah-create" role="dialog" aria-modal="true" aria-label={fill(H + "CreateAlliance")}>
+      <header>{fill(H + "CreateAlliance")}<button type="button" class="ah-x" aria-label="Close" onclick={() => (creating = false)}>×</button></header>
+      <label class="ah-field-label ah-first" for="ah-cname">{fill("UI/Common/Name")}</label>
+      <input id="ah-cname" type="text" maxlength="50" bind:value={cName} />
+      <label class="ah-field-label ah-gap" for="ah-cshort">{fill(H + "ShortName")}</label>
+      <span class="ah-short"><input id="ah-cshort" type="text" maxlength="5" bind:value={cShort} /><button type="button" onclick={() => void suggest()}>{fill(H + "SuggestCommand")}</button></span>
+      <label class="ah-field-label ah-gap" for="ah-curl">{fill("UI/Common/URL")}</label>
+      <input id="ah-curl" type="text" maxlength="2048" bind:value={cUrl} />
+      <label class="ah-field-label ah-desc-label" for="ah-cdesc">{fill("UI/Common/Description")}</label>
+      <textarea id="ah-cdesc" maxlength="5000" bind:value={cDescription}></textarea>
+      <div class="ah-edit-buttons">
+        <button type="button" disabled={busy} onclick={() => void confirmCreate()}>{fill("UI/Common/Buttons/OK")}</button>
+        <button type="button" onclick={() => (creating = false)}>{fill("UI/Common/Buttons/Cancel")}</button>
+      </div>
+    </div>
+  </div>
+{/if}
+{#if shortNames !== null}
+  <div class="ah-back ah-top-layer">
+    <div class="ah-shortnames" role="dialog" aria-modal="true" aria-label={fill(H + "SelectShortName")}>
+      <header>{fill(H + "SelectShortName")}<button type="button" class="ah-x" aria-label="Close" onclick={() => (shortNames = null)}>×</button></header>
+      {#each shortNames as s (s)}<label class="ah-radio"><input type="radio" name="ah-short" value={s} bind:group={shortPick} />{s}</label>{/each}
+      <div class="ah-edit-buttons">
+        <button type="button" onclick={() => { if (shortPick) cShort = shortPick; shortNames = null; }}>{fill("UI/Common/Buttons/OK")}</button>
+        <button type="button" onclick={() => (shortNames = null)}>{fill("UI/Common/Buttons/Cancel")}</button>
+      </div>
+    </div>
+  </div>
+{/if}
 <div class="ah">
   {#if error}<p class="error">{error}</p>{/if}
   {#if data}
@@ -104,7 +151,7 @@
   {:else if loaded}
     <p class="ah-hint">{fill(H + "CorporationNotInAlliance", { corpName: resolvedName($names.resolved, "corporation", corporationID, "") })}</p>
     {#if ceoID !== null && ceoID === $station.online?.characterID}
-      <div class="ah-buttons"><button type="button" disabled title="Not on the page yet">{fill(H + "CreateAlliance")}</button></div>
+      <div class="ah-buttons"><button type="button" onclick={() => { cName = fill(H + "NameAlliance", { allianceName: resolvedName($names.resolved, "corporation", corporationID, "") }); cShort = ""; cUrl = ""; cDescription = ""; creating = true; }}>{fill(H + "CreateAlliance")}</button></div>
     {/if}
   {/if}
 </div>
@@ -130,6 +177,15 @@
   .ah-x { background: none; border: 0; color: inherit; font-size: 16px; cursor: pointer; }
   .ah-field-label { font-size: 11px; padding-bottom: 4px; }
   .ah-desc-label { padding-top: 16px; }
-  .ah-edit textarea { flex: 1; resize: none; }
+  .ah-edit textarea, .ah-create textarea { flex: 1; resize: none; margin-bottom: 8px; }
+  .ah-create { width: 350px; height: 380px; display: flex; flex-direction: column; padding: 0 8px 8px; background: #15181b; border: 1px solid rgba(255, 255, 255, 0.15); }
+  .ah-create header, .ah-shortnames header { display: flex; justify-content: space-between; padding: 6px 0; font-weight: bold; }
+  .ah-first { padding-top: 16px; }
+  .ah-gap { padding-top: 24px; }
+  .ah-short { display: flex; gap: 4px; }
+  .ah-short input { flex: 1; }
+  .ah-top-layer { z-index: 1001; }
+  .ah-shortnames { width: 300px; display: flex; flex-direction: column; padding: 0 8px 8px; background: #15181b; border: 1px solid rgba(255, 255, 255, 0.15); }
+  .ah-radio { display: flex; align-items: center; gap: 4px; height: 19px; }
   .ah-edit-buttons { display: flex; justify-content: center; gap: 4px; padding-top: 16px; }
 </style>
