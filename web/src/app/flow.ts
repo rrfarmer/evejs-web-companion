@@ -2445,6 +2445,12 @@ export interface AppFlow {
   /** ApplyToCorpWnd.Confirm then InsertApplication: ApplicationTextTooLong over crpApplicationMaxSize 1000 (a
    * CustomInfo, the window kept), else corpRegistry.InsertApplication(corpID, text); true when made. */
   insertCorporationApplication(corporationID: number, text: string): Promise<boolean>;
+  /** ApplicationsWindow for the corporation (ownerID session.corpid): a personnel manager's (else none) - corpRegistry.
+   * GetApplications (bco_applications: a dict of each applicant's) or GetOldApplications, the applicants' names primed. */
+  corporationApplicationsToCorp(old: boolean): Promise<readonly CorporationApplication[]>;
+  /** CorpApplicationEntry.AcceptCorpApplication (6, crpApplicationAcceptedByCorporation) or RejectCorpApplicationWnd.
+   * Reject (4, with its message): corp.UpdateApplicationOffer on the corporation's registry. */
+  corporationApplicationReview(application: CorporationApplication, status: 4 | 6, customMessage: string): Promise<void>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16409,6 +16415,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await bridgeDo("corpRegistry", "InsertApplication", [corporationID, text]); return true; }
     catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
   }
+  async function corporationApplicationsToCorp(old: boolean): Promise<readonly CorporationApplication[]> {
+    const scope = captureMemberOperation();
+    if ((BigInt(scope.online.corpRole ?? "0") & 128n) === 0n) return [];
+    const answer = await scope.ask("corpRegistry", old ? "GetOldApplications" : "GetApplications", []); scope.current();
+    const applications = corporationApplicationsOf(answer, old);
+    await memberNames(scope, [...new Set(applications.map((row) => row.characterID))].map((id) => ({ kind: "owner" as const, id }))); scope.current();
+    return applications;
+  }
+  async function corporationApplicationReview(application: CorporationApplication, status: 4 | 6, customMessage: string): Promise<void> {
+    const scope = captureMemberOperation();
+    try {
+      await scope.write("corpRegistry", "UpdateApplicationOffer", [application.applicationID, application.characterID, application.corporationID, application.applicationText, status, customMessage, null], null, scope.online.corporationID);
+      scope.current();
+    } catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
+  }
   async function deleteRecruitmentAd(adID: number): Promise<boolean> {
     if (!await askDialog("CorpAdsAreYouSureYouWantToDelete", null, "Are you sure you want to delete this advert?", "yesno", { suppressAnswer: "yes" })) return false;
     try { await bridgeDo("corpRecProxy", "DeleteRecruitmentAd", [adID]); return true; }
@@ -30010,6 +30031,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationAggressionAt,
     deleteRecruitmentAd,
     applyForMembership,
+    corporationApplicationsToCorp,
+    corporationApplicationReview,
     insertCorporationApplication,
     sayDialog: (dialog: string, values: JsonValue | null, fallback: string) => sayDialog(dialog, values, fallback),
     corporationBulletins,

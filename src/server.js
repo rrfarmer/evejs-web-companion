@@ -7087,7 +7087,10 @@ async function dispatchCorporationCashWrite(req, res, next, body) {
 }
 
 // base_corporation1145-1149 / CorpApplicationEntry746-770: the recipient's target
-// corporation argument does not select its originating current registry.
+// corporation argument does not select its originating current registry. The
+// corporation's own decision (CorpApplicationEntry.AcceptCorpApplication: 6;
+// RejectCorpApplicationWnd.Reject: 4 with its message, EditPlainText 1000) names
+// an applicant and the pilot's own corporation; the server holds the role.
 async function dispatchCorporationRecruitmentWrite(req, res, next, body) {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;
@@ -7095,9 +7098,11 @@ async function dispatchCorporationRecruitmentWrite(req, res, next, body) {
   const text = args?.[3];
   const sender = body.method === "InsertInvitation";
   const validArguments = Array.isArray(args) && (sender ? args.length === 1 && strictPositiveID(args[0]) !== null :
-    args.length === 7 && strictPositiveID(args[0]) !== null && args[1] === held.characterID && strictPositiveID(args[2]) !== null &&
+    args.length === 7 && strictPositiveID(args[0]) !== null && strictPositiveID(args[1]) !== null && strictPositiveID(args[2]) !== null &&
     (typeof text === "string" || text?.type === "wstring" && typeof text.value === "string") &&
-    [2, 3, 7].includes(args[4]) && args[5] === "" && args[6] === null);
+    (args[1] === held.characterID && [2, 3, 7].includes(args[4]) && args[5] === "" ||
+      body.method === "UpdateApplicationOffer" && strictPositiveID(args[2]) === origin && (args[4] === 6 && args[5] === "" || args[4] === 4 && typeof args[5] === "string" && args[5].length <= 1000)) &&
+    args[6] === null);
   if (!validArguments || !origin || body.kwargs != null) {
     res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: sender ? "An invitation names one character." : "A recipient decision names its own application and the original seven arguments." }); return;
   }
