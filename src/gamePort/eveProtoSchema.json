@@ -430,6 +430,16 @@
     }
    ]
   },
+  "eve_public.acl.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
   "eve_public.alliance.Identifier": {
    "fields": [
     {
@@ -3549,6 +3559,2177 @@
     }
    ]
   },
+  "eve_public.freelance.contributionmethod.BooleanParameterConfiguration": {
+   "fields": [
+    {
+     "name": "value",
+     "number": 1,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.Configuration": {
+   "fields": [
+    {
+     "name": "contribution_method",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.Identifier"
+    },
+    {
+     "name": "version",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    },
+    {
+     "name": "parameters",
+     "number": 3,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.ParameterConfiguration"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.CorporationItemDeliveryConfiguration": {
+   "fields": [
+    {
+     "name": "item_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.MatcherParameterConfiguration"
+    },
+    {
+     "name": "corporation_office_location",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.MatcherParameterConfiguration"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.MatcherParameterConfiguration": {
+   "fields": [
+    {
+     "name": "values",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.MatcherParameterConfiguration.ValueEntry"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.MatcherParameterConfiguration.ValueEntry": {
+   "fields": [
+    {
+     "name": "value_type",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "values",
+     "number": 2,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.OptionsParameterConfiguration": {
+   "fields": [
+    {
+     "name": "selected",
+     "number": 1,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.ParameterConfiguration": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "matcher",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.MatcherParameterConfiguration",
+     "oneof": "class"
+    },
+    {
+     "name": "options",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.OptionsParameterConfiguration",
+     "oneof": "class"
+    },
+    {
+     "name": "boolean",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.BooleanParameterConfiguration",
+     "oneof": "class"
+    },
+    {
+     "name": "corporation_item_delivery",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.CorporationItemDeliveryConfiguration",
+     "oneof": "class"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.Attributes": {
+   "fields": [
+    {
+     "name": "title",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "progress_description",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "target_description",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "reward_description",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "icon",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "content_tags",
+     "number": 7,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.ui.contenttag.Identifier"
+    },
+    {
+     "name": "contribution_multiplier_allowed",
+     "number": 8,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "max_contributions_per_participant_allowed",
+     "number": 9,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "max_progress_per_contribution_allowed",
+     "number": 10,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "parameters",
+     "number": 11,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.definition.Parameter"
+    },
+    {
+     "name": "contribution_multiplier",
+     "number": 12,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.ContributionMultiplier",
+     "oneof": "contribution_multiplier_field_allowed"
+    },
+    {
+     "name": "contribution_multiplier_disabled",
+     "number": 13,
+     "type": 8,
+     "label": 1,
+     "oneof": "contribution_multiplier_field_allowed"
+    },
+    {
+     "name": "max_contributions_per_participant",
+     "number": 14,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.MaxContributionsPerParticipant",
+     "oneof": "max_contributions_per_participant_field_allowed"
+    },
+    {
+     "name": "max_contributions_per_participant_disabled",
+     "number": 15,
+     "type": 8,
+     "label": 1,
+     "oneof": "max_contributions_per_participant_field_allowed"
+    },
+    {
+     "name": "max_progress_per_contribution",
+     "number": 16,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.MaxProgressPerContribution",
+     "oneof": "max_progress_per_contribution_field_allowed"
+    },
+    {
+     "name": "max_progress_per_contribution_disabled",
+     "number": 17,
+     "type": 8,
+     "label": 1,
+     "oneof": "max_progress_per_contribution_field_allowed"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.BaseUIRepresentation": {
+   "fields": [
+    {
+     "name": "icon",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "title",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "unset_description",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.BooleanParameter": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "title",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "icon",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "choice_label_id",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "option_true",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.BooleanParameter.Option"
+    },
+    {
+     "name": "option_false",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.BooleanParameter.Option"
+    },
+    {
+     "name": "default",
+     "number": 8,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.BooleanParameter.Option": {
+   "fields": [
+    {
+     "name": "title_id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description_id",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.ContributionMultiplier": {
+   "fields": [
+    {
+     "name": "representation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.BaseUIRepresentation"
+    },
+    {
+     "name": "value",
+     "number": 2,
+     "type": 1,
+     "label": 1,
+     "oneof": "default_input_content"
+    },
+    {
+     "name": "no_default_value",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "default_input_content"
+    },
+    {
+     "name": "maximum_value",
+     "number": 4,
+     "type": 1,
+     "label": 1
+    },
+    {
+     "name": "minimum_value",
+     "number": 5,
+     "type": 1,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.CorporationItemDeliveryParameter": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "title",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "icon",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "inventory_type",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.CorporationItemDeliveryParameter.InventoryTypeParameter"
+    },
+    {
+     "name": "delivery_location",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.CorporationItemDeliveryParameter.CorporationOfficeLocationParameter"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.CorporationItemDeliveryParameter.CorporationOfficeLocationParameter": {
+   "fields": [
+    {
+     "name": "title",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "icon",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "unset_description",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier",
+     "oneof": "unset"
+    },
+    {
+     "name": "no_unset_description",
+     "number": 5,
+     "type": 8,
+     "label": 1,
+     "oneof": "unset"
+    },
+    {
+     "name": "max_entries",
+     "number": 6,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "accepted_value_types",
+     "number": 7,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.CorporationItemDeliveryParameter.InventoryTypeParameter": {
+   "fields": [
+    {
+     "name": "title",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "icon",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "unset_description",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier",
+     "oneof": "unset"
+    },
+    {
+     "name": "no_unset_description",
+     "number": 5,
+     "type": 8,
+     "label": 1,
+     "oneof": "unset"
+    },
+    {
+     "name": "accepted_value_types",
+     "number": 6,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.Identifier": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.MatcherParameter": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "type",
+     "number": 2,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "title",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "icon",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "unset_description",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier",
+     "oneof": "unset"
+    },
+    {
+     "name": "no_unset_description",
+     "number": 7,
+     "type": 8,
+     "label": 1,
+     "oneof": "unset"
+    },
+    {
+     "name": "optional",
+     "number": 8,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "max_entries",
+     "number": 9,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "accepted_value_types",
+     "number": 10,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.MaxContributionsPerParticipant": {
+   "fields": [
+    {
+     "name": "representation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.BaseUIRepresentation"
+    },
+    {
+     "name": "value",
+     "number": 2,
+     "type": 4,
+     "label": 1,
+     "oneof": "default_input_content"
+    },
+    {
+     "name": "no_default_value",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "default_input_content"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.MaxProgressPerContribution": {
+   "fields": [
+    {
+     "name": "representation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.BaseUIRepresentation"
+    },
+    {
+     "name": "value",
+     "number": 2,
+     "type": 4,
+     "label": 1,
+     "oneof": "default_input_content"
+    },
+    {
+     "name": "no_default_value",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "default_input_content"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.OptionsParameter": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "title",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "icon",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ui.icon.Identifier"
+    },
+    {
+     "name": "max_entries",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "options",
+     "number": 6,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.definition.OptionsParameter.Option"
+    },
+    {
+     "name": "default_option_key",
+     "number": 7,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.OptionsParameter.Option": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "title",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.definition.Parameter": {
+   "fields": [
+    {
+     "name": "matcher",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.MatcherParameter",
+     "oneof": "class"
+    },
+    {
+     "name": "options",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.OptionsParameter",
+     "oneof": "class"
+    },
+    {
+     "name": "boolean",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.BooleanParameter",
+     "oneof": "class"
+    },
+    {
+     "name": "corporation_item_delivery",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.definition.CorporationItemDeliveryParameter",
+     "oneof": "class"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.DeliveryLocation": {
+   "fields": [
+    {
+     "name": "station",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.station.Identifier",
+     "oneof": "dockable"
+    },
+    {
+     "name": "structure",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.structure.Identifier",
+     "oneof": "dockable"
+    }
+   ]
+  },
+  "eve_public.freelance.contributionmethod.itemdelivery.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.AdminDetails": {
+   "fields": [
+    {
+     "name": "no_acl",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "access"
+    },
+    {
+     "name": "acl",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.acl.Identifier",
+     "oneof": "access"
+    }
+   ]
+  },
+  "eve_public.freelance.project.Attributes": {
+   "fields": [
+    {
+     "name": "owner",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    },
+    {
+     "name": "creator",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "state",
+     "number": 3,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.State"
+    },
+    {
+     "name": "name",
+     "number": 4,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "description",
+     "number": 5,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "career",
+     "number": 6,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.career.Path"
+    },
+    {
+     "name": "deadline",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "created",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "not_finished",
+     "number": 9,
+     "type": 8,
+     "label": 1,
+     "oneof": "finished"
+    },
+    {
+     "name": "finish_time",
+     "number": 10,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "finished"
+    },
+    {
+     "name": "target_progress",
+     "number": 11,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "current_progress",
+     "number": 12,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "committed_participants",
+     "number": 13,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "total_participants",
+     "number": 14,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "total_contributors",
+     "number": 15,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "contribution_modifiers",
+     "number": 16,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.ContributionModifiers"
+    },
+    {
+     "name": "participation_restrictions",
+     "number": 17,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.ParticipationRestrictions"
+    },
+    {
+     "name": "broadcast_locations",
+     "number": 18,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.BroadcastLocations"
+    },
+    {
+     "name": "reward",
+     "number": 19,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Reward"
+    },
+    {
+     "name": "configuration",
+     "number": 20,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.Configuration"
+    }
+   ]
+  },
+  "eve_public.freelance.project.BroadcastLocations": {
+   "fields": [
+    {
+     "name": "solar_systems",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.CharacterAgeRestriction": {
+   "fields": [
+    {
+     "name": "no_max_age",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "max_restriction"
+    },
+    {
+     "name": "max_age",
+     "number": 2,
+     "type": 4,
+     "label": 1,
+     "oneof": "max_restriction"
+    },
+    {
+     "name": "no_min_age",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "min_restriction"
+    },
+    {
+     "name": "min_age",
+     "number": 4,
+     "type": 4,
+     "label": 1,
+     "oneof": "min_restriction"
+    }
+   ]
+  },
+  "eve_public.freelance.project.ContributionModifiers": {
+   "fields": [
+    {
+     "name": "contributions_per_participant_unlimited",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "max_contributions_per_participant"
+    },
+    {
+     "name": "contributions_per_participant_limit",
+     "number": 2,
+     "type": 4,
+     "label": 1,
+     "oneof": "max_contributions_per_participant"
+    },
+    {
+     "name": "progress_per_contribution_unlimited",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "max_progress_per_contribution"
+    },
+    {
+     "name": "progress_per_contribution_limit",
+     "number": 4,
+     "type": 4,
+     "label": 1,
+     "oneof": "max_progress_per_contribution"
+    },
+    {
+     "name": "default_multiplier",
+     "number": 5,
+     "type": 8,
+     "label": 1,
+     "oneof": "contribution_multiplier"
+    },
+    {
+     "name": "scalar_multiplier",
+     "number": 6,
+     "type": 1,
+     "label": 1,
+     "oneof": "contribution_multiplier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.CreationCost": {
+   "fields": [
+    {
+     "name": "base_fee",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    },
+    {
+     "name": "broadcasting_fee",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    },
+    {
+     "name": "reward_deposit",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    },
+    {
+     "name": "total_cost",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    }
+   ]
+  },
+  "eve_public.freelance.project.CreationPrices": {
+   "fields": [
+    {
+     "name": "base_fee_per_day",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    },
+    {
+     "name": "broadcasting_fee_per_day_per_location",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    }
+   ]
+  },
+  "eve_public.freelance.project.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.ParticipationRestrictions": {
+   "fields": [
+    {
+     "name": "age_restriction",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.CharacterAgeRestriction"
+    },
+    {
+     "name": "max_committed_participants",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.Reward": {
+   "fields": [
+    {
+     "name": "payout_per_unit",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CloseRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CloseResponse": {
+   "fields": [
+    {
+     "name": "closed",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CloseResponse.Closed",
+     "oneof": "result"
+    },
+    {
+     "name": "unspecified_error",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "result"
+    },
+    {
+     "name": "cannot_manage_projects",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CloseResponse.CannotManageProjects",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_project_state",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CloseResponse.InvalidProjectState",
+     "oneof": "result"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CloseResponse.CannotManageProjects": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CloseResponse.Closed": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CloseResponse.InvalidProjectState": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CommitRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CommitResponse": {
+   "fields": [
+    {
+     "name": "committed",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CommitResponse.Committed",
+     "oneof": "result"
+    },
+    {
+     "name": "unspecified_error",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_project_state",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CommitResponse.InvalidProjectState",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_participation_state",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CommitResponse.InvalidParticipationState",
+     "oneof": "result"
+    },
+    {
+     "name": "max_committed_participants_per_project",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CommitResponse.MaxCommittedParticipantsPerProject",
+     "oneof": "result"
+    },
+    {
+     "name": "max_projects_committed_per_participant",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CommitResponse.MaxProjectsCommittedPerParticipant",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_character_age",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CommitResponse.InvalidCharacterAge",
+     "oneof": "result"
+    },
+    {
+     "name": "restricted",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CommitResponse.Restricted",
+     "oneof": "result"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CommitResponse.Committed": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CommitResponse.InvalidCharacterAge": {
+   "fields": [
+    {
+     "name": "character_age_restriction",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.CharacterAgeRestriction"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CommitResponse.InvalidParticipationState": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CommitResponse.InvalidProjectState": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CommitResponse.MaxCommittedParticipantsPerProject": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CommitResponse.MaxProjectsCommittedPerParticipant": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CommitResponse.Restricted": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CreateRequest": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "description",
+     "number": 2,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "target_progress",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "career",
+     "number": 4,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.career.Path"
+    },
+    {
+     "name": "deadline",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "configuration",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.contributionmethod.Configuration"
+    },
+    {
+     "name": "contribution_modifiers",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.ContributionModifiers"
+    },
+    {
+     "name": "participation_restrictions",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.ParticipationRestrictions"
+    },
+    {
+     "name": "broadcast_locations",
+     "number": 9,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.BroadcastLocations"
+    },
+    {
+     "name": "reward",
+     "number": 10,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Reward"
+    },
+    {
+     "name": "expected_cost",
+     "number": 11,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.CreationCost"
+    },
+    {
+     "name": "acl",
+     "number": 12,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.acl.Identifier",
+     "oneof": "access"
+    },
+    {
+     "name": "no_acl",
+     "number": 13,
+     "type": 8,
+     "label": 1,
+     "oneof": "access"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CreateResponse": {
+   "fields": [
+    {
+     "name": "created",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.Created",
+     "oneof": "result"
+    },
+    {
+     "name": "unspecified_error",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "result"
+    },
+    {
+     "name": "max_active_projects_per_corporation_reached",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.MaxActiveProjectsPerCorporationReached",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_broadcasting_locations",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.InvalidBroadcastingLocations",
+     "oneof": "result"
+    },
+    {
+     "name": "cannot_manage_projects",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.CannotManageProjects",
+     "oneof": "result"
+    },
+    {
+     "name": "max_active_projects_broadcast_per_system_reached",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.MaxBroadcastProjectsPerSolarSystemReached",
+     "oneof": "result"
+    },
+    {
+     "name": "outdated_contribution_methods",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.OutdatedContributionMethodConfiguration",
+     "oneof": "result"
+    },
+    {
+     "name": "outdated_project_cost",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.OutdatedProjectCost",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_delivery_locations",
+     "number": 9,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.InvalidDeliveryLocations",
+     "oneof": "result"
+    },
+    {
+     "name": "cannot_manage_acl",
+     "number": 10,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.CreateResponse.CannotManageACL",
+     "oneof": "result"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CreateResponse.CannotManageACL": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CreateResponse.CannotManageProjects": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CreateResponse.Created": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CreateResponse.InvalidBroadcastingLocations": {
+   "fields": [
+    {
+     "name": "solar_systems",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CreateResponse.InvalidDeliveryLocations": {
+   "fields": [
+    {
+     "name": "not_found",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.DeliveryLocation"
+    },
+    {
+     "name": "no_active_office",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.DeliveryLocation"
+    },
+    {
+     "name": "not_in_full_power",
+     "number": 3,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.contributionmethod.itemdelivery.DeliveryLocation"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CreateResponse.MaxActiveProjectsPerCorporationReached": {
+   "fields": [
+    {
+     "name": "limit",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CreateResponse.MaxBroadcastProjectsPerSolarSystemReached": {
+   "fields": [
+    {
+     "name": "limit",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "solar_systems",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.CreateResponse.OutdatedContributionMethodConfiguration": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.CreateResponse.OutdatedProjectCost": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.GetAllActiveForCorporationRequest": {
+   "fields": [
+    {
+     "name": "corporation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllActiveForCorporationResponse": {
+   "fields": [
+    {
+     "name": "projects",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllActiveRequest": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.GetAllActiveResponse": {
+   "fields": [
+    {
+     "name": "projects",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllBroadcastedRequest": {
+   "fields": [
+    {
+     "name": "solar_systems",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllBroadcastedResponse": {
+   "fields": [
+    {
+     "name": "broadcasted",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.api.GetAllBroadcastedResponse.Broadcasted"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllBroadcastedResponse.Broadcasted": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "projects",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllCommittedRequest": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.GetAllCommittedResponse": {
+   "fields": [
+    {
+     "name": "projects",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllInactiveRequest": {
+   "fields": [
+    {
+     "name": "start_time",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "duration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "page",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.Page"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllInactiveResponse": {
+   "fields": [
+    {
+     "name": "projects",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "next_page",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.NextPage"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllUnredeemedRequest": {
+   "fields": [
+    {
+     "name": "page",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.Page"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetAllUnredeemedResponse": {
+   "fields": [
+    {
+     "name": "projects",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "next_page",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.NextPage"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetCommitLimitsRequest": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.GetCommitLimitsResponse": {
+   "fields": [
+    {
+     "name": "max_active_projects_per_participant",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "max_committed_participants_per_project",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetCreationLimitsRequest": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.GetCreationLimitsResponse": {
+   "fields": [
+    {
+     "name": "max_active_projects_per_corporation",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "max_active_projects_broadcast_per_system",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "max_character_age_days",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "max_broadcasting_locations_per_project",
+     "number": 4,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "max_committed_participants_per_project",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "max_contribution_multiplier",
+     "number": 6,
+     "type": 1,
+     "label": 1
+    },
+    {
+     "name": "max_project_duration",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetCreationPricesRequest": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.GetCreationPricesResponse": {
+   "fields": [
+    {
+     "name": "prices",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.CreationPrices"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetForManagerRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetForManagerResponse": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Attributes"
+    },
+    {
+     "name": "admin_project_details",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.AdminDetails"
+    },
+    {
+     "name": "state",
+     "number": 3,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.ParticipationState"
+    },
+    {
+     "name": "progress",
+     "number": 4,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "units_unredeemed",
+     "number": 5,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetParticipationDetailsRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "page",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.Page"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetParticipationDetailsResponse": {
+   "fields": [
+    {
+     "name": "participants",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.api.GetParticipationDetailsResponse.LimitedParticipantView"
+    },
+    {
+     "name": "next_page",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.NextPage"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetParticipationDetailsResponse.LimitedParticipantView": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "state",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.ParticipationState"
+    },
+    {
+     "name": "progress",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetResponse": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Attributes"
+    },
+    {
+     "name": "state",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.ParticipationState"
+    },
+    {
+     "name": "progress",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "units_unredeemed",
+     "number": 4,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetStatsRequest": {
+   "fields": [
+    {
+     "name": "projects",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetStatsResponse": {
+   "fields": [
+    {
+     "name": "project_stats",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.api.GetStatsResponse.ProjectStats"
+    },
+    {
+     "name": "redacted",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.GetStatsResponse.ProjectStats": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "current_progress",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "committed_participants",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "total_participants",
+     "number": 4,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "total_contributors",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.KickRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "participant",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.KickResponse": {
+   "fields": [
+    {
+     "name": "kicked",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.KickResponse.Kicked",
+     "oneof": "result"
+    },
+    {
+     "name": "unspecified_error",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "result"
+    },
+    {
+     "name": "cannot_manage_projects",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.KickResponse.CannotManageProjects",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_project_state",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.KickResponse.InvalidProjectState",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_participation_state",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.KickResponse.InvalidParticipationState",
+     "oneof": "result"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.KickResponse.CannotManageProjects": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.KickResponse.InvalidParticipationState": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.KickResponse.InvalidProjectState": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.KickResponse.Kicked": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.RedeemRewardRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.RedeemRewardResponse": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.ResignRequest": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ResignResponse": {
+   "fields": [
+    {
+     "name": "resigned",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.ResignResponse.Resigned",
+     "oneof": "result"
+    },
+    {
+     "name": "unspecified_error",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_project_state",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.ResignResponse.InvalidProjectState",
+     "oneof": "result"
+    },
+    {
+     "name": "invalid_participation_state",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.api.ResignResponse.InvalidParticipationState",
+     "oneof": "result"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ResignResponse.InvalidParticipationState": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.ResignResponse.InvalidProjectState": {
+   "fields": []
+  },
+  "eve_public.freelance.project.api.ResignResponse.Resigned": {
+   "fields": []
+  },
   "eve_public.goal.Attributes": {
    "fields": [
     {
@@ -5554,6 +7735,40 @@
     }
    ]
   },
+  "eve_public.semanticversion.Specification": {
+   "fields": [
+    {
+     "name": "major",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "minor",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "patch",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "prerelease_tags",
+     "number": 4,
+     "type": 9,
+     "label": 3
+    },
+    {
+     "name": "build_tags",
+     "number": 5,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
   "eve_public.ship.classification.Identifier": {
    "fields": [
     {
@@ -5988,6 +8203,26 @@
     }
    ]
   },
+  "eve_public.ui.contenttag.Identifier": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.ui.icon.Identifier": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
   "eve_public.user.Identifier": {
    "fields": [
     {
@@ -6048,6 +8283,32 @@
   }
  },
  "enums": {
+  "eve_public.career.Path": {
+   "values": {
+    "CAREER_UNSPECIFIED": 0,
+    "CAREER_EXPLORATION": 1,
+    "CAREER_INDUSTRIALIST": 2,
+    "CAREER_ENFORCER": 3,
+    "CAREER_SOLDIER_OF_FORTUNE": 4
+   }
+  },
+  "eve_public.freelance.project.ParticipationState": {
+   "values": {
+    "PARTICIPATION_STATE_UNSPECIFIED": 0,
+    "PARTICIPATION_STATE_COMMITTED": 1,
+    "PARTICIPATION_STATE_KICKED": 2,
+    "PARTICIPATION_STATE_RESIGNED": 3
+   }
+  },
+  "eve_public.freelance.project.State": {
+   "values": {
+    "STATE_UNSPECIFIED": 0,
+    "STATE_ACTIVE": 1,
+    "STATE_CLOSED": 2,
+    "STATE_COMPLETED": 3,
+    "STATE_EXPIRED": 4
+   }
+  },
   "eve_public.goal.Attributes.Career": {
    "values": {
     "CAREER_UNSPECIFIED": 0,

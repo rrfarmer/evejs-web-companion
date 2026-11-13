@@ -31,6 +31,7 @@
   import CorporationAuditing from "./CorporationAuditing.svelte";
   import CorporationVotes from "./CorporationVotes.svelte";
   import CorporationProjects from "./CorporationProjects.svelte";
+  import CorporationFreelance from "./CorporationFreelance.svelte";
   import CorporationSanctionableActions from "./CorporationSanctionableActions.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
   import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
@@ -48,7 +49,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -101,6 +102,8 @@
   // const.corpRoleAccountant
   const accountantRole = $derived((BigInt($station.online?.corpRole ?? "0") & 256n) !== 0n);
   // const.corpRoleBrandManager
+  // freelanceprojects is_project_manager: corpRoleDirector | corpRoleProjectManager (and freelance_projects_enabled, on).
+  const projectManagerRole = $derived((BigInt($station.online?.corpRole ?? "0") & (1n | 1152921504606846976n)) !== 0n);
   const brandManagerRole = $derived((BigInt($station.online?.corpRole ?? "0") & 34359738368n) !== 0n);
   $effect(() => { if (panel === "allianceContacts" && allianceID === null) panel = "contacts"; });
   // svelte-ignore state_referenced_locally
@@ -140,6 +143,7 @@
     "UI/Corporations/BaseCorporationUI/Voting": "Voting",
     "UI/Corporations/BaseCorporationUI/Votes": "Votes",
     "UI/Corporations/Goals/Projects": "Projects",
+    "UI/Corporations/FreelanceProjects/PanelTitle": "Freelance Jobs",
     "UI/Corporations/BaseCorporationUI/SanctionableActions": "Sanctionable Actions",
     "UI/Corporations/BaseCorporationUI/TitleManagement": "Titles",
     "UI/Corporations/BaseCorporationUI/RoleManagement": "Role Management",
@@ -227,6 +231,8 @@
       // construct_corporation_general_panels: Projects first, for a player corporation.
       { header: "UI/Generic/General", entries: [
         ...(playerCorporation ? [{ id: "projects" as const, label: "UI/Corporations/Goals/Projects" }] : []),
+        // construct_freelance_projects_panel: a project manager's, after Projects.
+        ...(playerCorporation && projectManagerRole ? [{ id: "freelance" as const, label: "UI/Corporations/FreelanceProjects/PanelTitle" }] : []),
         { id: "home", label: "UI/Fleet/FleetRegistry/MyCorporation" }, { id: "kills", label: "UI/Corporations/Wars/Killmails/KillReports" },
         ...(playerCorporation ? [{ id: "bulletins" as const, label: "UI/Corporations/CorpUIHome/Bulletins" }] : []),
       ] },
@@ -333,6 +339,7 @@
       {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
       {#if panel === "votes"}<CorporationVotes {store} {flow} />{/if}
       {#if panel === "projects"}<CorporationProjects {store} {flow} />{/if}
+      {#if panel === "freelance"}<CorporationFreelance {store} {flow} />{/if}
       {#if panel === "sanctionable"}<CorporationSanctionableActions {store} {flow} />{/if}
       {#if panel === "titles"}<CorporationTitles {store} {flow} />{/if}
       {#if panel === "roleManagement"}<CorporationRoleManagement {store} {flow} />{/if}

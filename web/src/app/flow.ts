@@ -508,6 +508,13 @@ export interface CorporationGoals {
   /** contributionMethods' messages by method key. */
   readonly methods: Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string; readonly progressDescriptionID?: number; readonly rewardingDescriptionID?: number }>>;
 }
+/** A freelance project as payload_parser._parse_project makes it (times in ms), with the pilot's own progress. */
+export interface FreelanceProject {
+  readonly projectID: string; readonly name: string; readonly description: string; readonly state: number; readonly careerPath: number | null;
+  readonly target: number; readonly current: number; readonly iskPerUnit: number; readonly created: number; readonly deadline: number | null;
+  readonly finished: number | null; readonly creator: number; readonly contributionLimit: number | null; readonly myProgress: number;
+  readonly participants: number; readonly contributors: number;
+}
 /** One row of the wizard's lockdown / unlock list: the item, its stack, and a blueprint's levels (null for another item). */
 export interface CorporationVoteBlueprint {
   readonly itemID: number; readonly typeID: number; readonly quantity: number;
@@ -3322,6 +3329,10 @@ export interface AppFlow {
    * the calendar month n months ago; get_timespan_by_option), and, for a project manager (corpRoleDirector |
    * corpRoleProjectManager), GetCapacityRequest's capacity. Each goal as goal_formatter makes it. */
   corporationGoals(monthsSince: number | null): Promise<CorporationGoals>;
+  /** CorpUIFreelanceProjects' AdminBrowserContainer: the corporation's managed projects (GetAllActiveRequest, each
+   * GetForManagerRequest - _parse_project), the ended ones in a timespan (GetAllInactiveRequest, the same
+   * get_timespan_by_option), and GetCreationLimitsRequest's max_active_projects_per_corporation. */
+  corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }>;
   /** get_all_goal_contributor_summaries: GetContributorSummariesForGoalRequest pages - each contributor and progress. */
   corporationGoalContributors(goalID: string): Promise<readonly { readonly characterID: number; readonly progress: number }[]>;
   /** CorpGoalsController.close_goal / delete_goal / complete_goal: CloseCorpProject / DeleteCorpProject /
@@ -18763,6 +18774,53 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean> {
     return goalWrite("eve_public.goal.api.SetCurrentProgressRequest", { goal: { uuid: bytesFromUuid(goal.goalID) }, current_progress: goal.current, new_progress: Math.min(progress, goal.desired) });
   }
+  async function corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" ? value : typeof value === "number" ? value : 0) || 0;
+    const time = (value: unknown) => { const t = record(value); return t.seconds === undefined && t.nanos === undefined ? null : int(t.seconds) * 1000 + Math.floor(int(t.nanos) / 1e6); };
+    const ask = async (request: string, payload: Record<string, JsonValue>) => { const a = await api.publicGatewayRequest(request, payload, callOptions); scope.current(); return a; };
+    const STATES = ["STATE_UNSPECIFIED", "STATE_ACTIVE", "STATE_CLOSED", "STATE_COMPLETED", "STATE_EXPIRED"];
+    // careergoals const.get_career_path_id_from_proto_id: exploration 4, industrialist 5, enforcer 6, soldier of fortune 7.
+    const CAREERS: Record<string, number> = { CAREER_EXPLORATION: 4, CAREER_INDUSTRIALIST: 5, CAREER_ENFORCER: 6, CAREER_SOLDIER_OF_FORTUNE: 7, 1: 4, 2: 5, 3: 6, 4: 7 };
+    const project = async (id: string): Promise<FreelanceProject | null> => {
+      const a = await ask("eve_public.freelance.project.api.GetForManagerRequest", { project: { uuid: bytesFromUuid(id) } });
+      if (a.statusCode !== 200) return null;
+      const payload = record(a.payload), p = record(payload.project), mods = record(p.contribution_modifiers);
+      const payout = record(record(p.reward).payout_per_unit);
+      const state = typeof p.state === "string" ? Math.max(0, STATES.indexOf(p.state)) : int(p.state);
+      return { projectID: id, name: String(p.name ?? ""), description: String(p.description ?? ""), state, careerPath: CAREERS[String(p.career ?? "")] ?? null,
+        target: int(p.target_progress), current: int(p.current_progress), iskPerUnit: int(payout.units) + int(payout.nanos) / 1e9,
+        created: time(p.created) ?? 0, deadline: time(p.deadline), finished: p.finish_time !== undefined ? time(p.finish_time) : null,
+        creator: int(record(p.creator).sequential), contributionLimit: mods.contributions_per_participant_limit !== undefined ? int(mods.contributions_per_participant_limit) : null,
+        myProgress: int(payload.progress), participants: int(p.committed_participants), contributors: int(p.total_contributors) };
+    };
+    const idsOf = (payload: unknown) => (Array.isArray(record(payload).projects) ? record(payload).projects as unknown[] : []).map((x) => uuidFromBytes(String(record(x).uuid ?? ""))).filter((x): x is string => Boolean(x));
+    let active: FreelanceProject[] | null = null, inactive: FreelanceProject[] | null = null, maxActive: number | null = null;
+    try {
+      const a = await ask("eve_public.freelance.project.api.GetAllActiveRequest", {});
+      if (a.statusCode === 200) active = (await Promise.all(idsOf(a.payload).map(project))).filter((x): x is FreelanceProject => x !== null);
+    } catch { active = null; }
+    try {
+      // get_timespan_by_option, as the Projects history.
+      const now = new Date();
+      let start: number, duration: number;
+      if (monthsSince === null) { start = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000) - 30 * 86400; duration = Math.floor(Date.now() / 1000) - start; }
+      else { const s = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsSince, 1) / 1000, e = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsSince + 1, 1) / 1000; start = s; duration = e - s; }
+      const ids: string[] = []; let token = "";
+      for (let i = 0; i < 40; i++) {
+        const a = await ask("eve_public.freelance.project.api.GetAllInactiveRequest", { start_time: { seconds: start }, duration: { seconds: duration }, page: { size: 25, ...(token ? { token } : {}) } });
+        if (a.statusCode !== 200) throw new Error(String(a.statusCode));
+        ids.push(...idsOf(a.payload)); token = String(record(record(a.payload).next_page).token ?? "");
+        if (!token) break;
+      }
+      inactive = (await Promise.all(ids.map(project))).filter((x): x is FreelanceProject => x !== null);
+    } catch { inactive = null; }
+    const limits = await ask("eve_public.freelance.project.api.GetCreationLimitsRequest", {}).catch(() => null);
+    if (limits && limits.statusCode === 200) maxActive = int(record(limits.payload).max_active_projects_per_corporation);
+    await memberNames(scope, [...new Set([...(active ?? []), ...(inactive ?? [])].map((p) => p.creator).filter((id) => id > 0))].map((id) => ({ kind: "owner" as const, id })));
+    return { active, inactive, maxActive };
+  }
   async function corporationVoteBlueprints(kind: "lockdown" | "unlock", flag: number | null): Promise<CorporationVoteBlueprints> {
     const scope = captureMemberOperation(), online = scope.online;
     const locationID = Number(online.stationID ?? online.structureID ?? 0);
@@ -32088,6 +32146,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     proposeCorporationVote,
     corporationVoteBlueprints,
     corporationGoals,
+    corporationFreelanceProjects,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,

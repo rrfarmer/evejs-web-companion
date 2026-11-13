@@ -14561,6 +14561,12 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.goal.api.GetCapacityRequest",
   // GoalDetailsCont's ParticipantsPanel (get_all_goal_contributor_summaries).
   "eve_public.corporationgoal.api.GetContributorSummariesForGoalRequest",
+  // freelanceprojects/client/messenger.py: the Freelance Projects admin browser's reads (get_all_managed,
+  // get_managed_project, get_inactive, get_creation_limits).
+  "eve_public.freelance.project.api.GetAllActiveRequest",
+  "eve_public.freelance.project.api.GetForManagerRequest",
+  "eve_public.freelance.project.api.GetAllInactiveRequest",
+  "eve_public.freelance.project.api.GetCreationLimitsRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.
