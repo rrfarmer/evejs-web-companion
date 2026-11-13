@@ -20,6 +20,8 @@
   import { showInfo } from "./showInfo.ts";
   import CorpLogo from "./CorpLogo.svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
+  import CorporationApply from "./CorporationApply.svelte";
+  import type { MembershipApplicationStart } from "../app/flow.ts";
   import {
     timeZoneFromMask, typesInMask, PLAYSTYLE_GROUPS, AREA_OF_OPERATIONS_GROUPID, LANGUAGE_GROUPID, PLAYSTYLE_GROUPID,
     NEWPILOTFRIENDLY_TYPEID, NEWPILOTFOCUSED_TYPEID, ROLEPLAY_TYPEID, type RecruitmentAd,
@@ -97,6 +99,18 @@
     return f1 < to && to < t1;
   });
   let hover = $state(false), deleting = $state(false);
+  // Apply: base_corporation.ApplyForMembership - its refusals as dialogs, an active application shown in My
+  // Applications (the client's MyCorpApplicationWnd), else ApplyToCorpWnd
+  let applying = $state<Extract<MembershipApplicationStart, { kind: "form" }> | null>(null), asking = $state(false);
+  async function apply(): Promise<void> {
+    if (asking) return;
+    asking = true;
+    try {
+      const start = await flow.applyForMembership(ad.corporationID);
+      if (start.kind === "form") applying = start;
+      else if (start.kind === "active") { flow.corporationApplicationsExpanded(start.applicationID); flow.requestCorporationApplications(); }
+    } finally { asking = false; }
+  }
   async function remove(): Promise<void> {
     if (deleting) return;
     deleting = true;
@@ -129,11 +143,12 @@
       {:else}
         {#if ad.grade !== null}<span class="rec-grade" title={fill(R + "MatchHint", "Match")}>{fill("UI/Common/Formatting/Percentage", "{percentage}%", { percentage: ad.grade })}</span>{/if}
         {#if hover && ad.corporationID !== $station.online?.corporationID}
-          <span class="rec-buttons"><button type="button" disabled title="Not on the play page yet" onclick={(e) => e.stopPropagation()}>{fill(R + "Apply", "Apply")}</button></span>
+          <span class="rec-buttons"><button type="button" disabled={asking} onclick={(e) => { e.stopPropagation(); void apply(); }}>{fill(R + "Apply", "Apply")}</button></span>
         {/if}
       {/if}
     </span>
   </div>
+  {#if applying}<CorporationApply {store} {flow} corporationID={ad.corporationID} form={applying} onClose={() => (applying = null)} />{/if}
   {#if expanded}
     <div class="rec-body">
       <div class="rec-columns">

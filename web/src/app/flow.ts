@@ -439,6 +439,13 @@ import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } 
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
+
+/** ApplyForMembership's first part: refused (a dialog said why), an active application, or the window's facts. */
+export type MembershipApplicationStart =
+  | { readonly kind: "refused" }
+  | { readonly kind: "active"; readonly applicationID: number }
+  | { readonly kind: "form"; readonly taxRate: number; readonly loyaltyPointTaxRate: number; readonly isRecruiting: boolean; readonly allowWar: boolean | null;
+      readonly aggression: { readonly settings: AggressionSettings | null; readonly readAt: bigint } };
 import { decodeRecruitmentAds, recruitmentAdRefusal, type RecruitmentAd, type RecruitmentAdForm, type RecruitmentSearch } from "../bridge/corpRecruitment.ts";
 
 /** CreateCorp's form, as Submit reads it (the tax rates as fractions; three logo layers' shapes and colours). */
@@ -2430,6 +2437,14 @@ export interface AppFlow {
   /** RecruitmentEntry.DeleteRecruitmentAd: CorpAdsAreYouSureYouWantToDelete (yes / no, Yes kept), then
    * corpRecProxy.DeleteRecruitmentAd(adID); true when deleted. */
   deleteRecruitmentAd(adID: number): Promise<boolean>;
+  /** base_corporation.ApplyForMembership up to its window: CanNotJoinCorpAlreadyAMember, CeoCanNotJoinACorp (dialogs,
+   * "refused"); an active application (crpApplicationActiveStatuses 6, 0, 8) - "active", its number; else what
+   * ApplyToCorpWnd shows: the corporation's row (corpmgr.GetCorporations: taxRate, loyaltyPointTaxRate,
+   * isRecruiting), its war permit (corpmgr.GetPublicInfo allowWar) and friendly fire (its aggression settings). */
+  applyForMembership(corporationID: number): Promise<MembershipApplicationStart>;
+  /** ApplyToCorpWnd.Confirm then InsertApplication: ApplicationTextTooLong over crpApplicationMaxSize 1000 (a
+   * CustomInfo, the window kept), else corpRegistry.InsertApplication(corpID, text); true when made. */
+  insertCorporationApplication(corporationID: number, text: string): Promise<boolean>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16358,6 +16373,42 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const readAt = BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n;
     return { settings: answer === null ? null : aggressionSettingsOf(answer, readAt), readAt };
   }
+  async function applyForMembership(corporationID: number): Promise<MembershipApplicationStart> {
+    const online = store.station.get().online;
+    const nameNow = async (id: number) => { await memberNames({ current: () => {}, options: callOptions } as never, [{ kind: "owner", id }]); return nameCache.get(nameKey("owner", id)) ?? String(id); };
+    if (!online) return { kind: "refused" };
+    if (online.corporationID === corporationID) {
+      sayDialog("CanNotJoinCorpAlreadyAMember", { type: "dict", entries: [["corpName", await nameNow(corporationID)]] }, "You are already a member of that corporation.");
+      return { kind: "refused" };
+    }
+    // UserIsCEO: the pilot's own corporation's ceoID
+    const own = online.corporationID ? await corporationRecords.get(bridgeAsk, online.corporationID) : null;
+    if (own && Number(unwrapLong(own.fields.ceoID) ?? own.fields.ceoID ?? 0) === online.characterID) {
+      sayDialog("CeoCanNotJoinACorp", { type: "dict", entries: [["CEOsCorporation", await nameNow(online.corporationID!)], ["otherCorporation", await nameNow(corporationID)]] }, "A CEO cannot join another corporation.");
+      return { kind: "refused" };
+    }
+    // GetActiveApplication: the pilot's applications to this corporation in an active status
+    const active = (await corporationApplications()).find((a) => a.corporationID === corporationID && [6, 0, 8].includes(a.status));
+    if (active) return { kind: "active", applicationID: active.applicationID };
+    const row = await corporationRecords.get(bridgeAsk, corporationID);
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapReal(v) ?? unwrapLong(v) ?? 0));
+    const info = corporationPublicInfoOf(await bridgeAsk("corpmgr", "GetPublicInfo", [corporationID]));
+    const aggression = await corporationAggressionAt(corporationID);
+    return {
+      kind: "form", taxRate: num(row.fields.taxRate), loyaltyPointTaxRate: num(row.fields.loyaltyPointTaxRate),
+      isRecruiting: num(row.fields.isRecruiting) !== 0 || row.fields.isRecruiting === true, allowWar: info?.allowWar ?? null, aggression,
+    };
+  }
+  async function insertCorporationApplication(corporationID: number, text: string): Promise<boolean> {
+    if (text.length > 1000) {
+      await wordsNow(["UI/Corporations/BaseCorporationUI/ApplicationTextTooLong"]);
+      const info = templateWords("UI/Corporations/BaseCorporationUI/ApplicationTextTooLong", { length: text.length }, `The application text is too long (${text.length} characters).`);
+      sayDialog("CustomInfo", { type: "dict", entries: [["info", info]] }, info);
+      return false;
+    }
+    try { await bridgeDo("corpRegistry", "InsertApplication", [corporationID, text]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function deleteRecruitmentAd(adID: number): Promise<boolean> {
     if (!await askDialog("CorpAdsAreYouSureYouWantToDelete", null, "Are you sure you want to delete this advert?", "yesno", { suppressAnswer: "yes" })) return false;
     try { await bridgeDo("corpRecProxy", "DeleteRecruitmentAd", [adID]); return true; }
@@ -29958,6 +30009,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     recruitmentAdRecruiters,
     corporationAggressionAt,
     deleteRecruitmentAd,
+    applyForMembership,
+    insertCorporationApplication,
     sayDialog: (dialog: string, values: JsonValue | null, fallback: string) => sayDialog(dialog, values, fallback),
     corporationBulletins,
     openCorporationMemberDetails,
