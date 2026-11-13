@@ -1218,6 +1218,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_WAR", message: "A positive warID is required." });
     return;
   }
+  // (An office's station: officeManager.TrashImpoundAtStation's Moniker('officeManager', stationID).)
+  if (objectKind === "officeAt" && !(Number.isSafeInteger(body.of) && body.of >= 60000000 && body.of <= 63999999)) {
+    res.status(400).json({ ok: false, error: "INVALID_STATION", message: "A stationID is required." });
+    return;
+  }
   // (An agent's number, as an agent's routes take one: a whole number above nought.)
   if (objectKind === "agent" && !(Number.isSafeInteger(body.of) && body.of > 0)) {
     res.status(400).json({ ok: false, error: "INVALID_AGENT", message: "A positive agentID is required." });
@@ -1344,6 +1349,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "war"
       ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
         heldBridgeSession, req.webSessionID, { key: `warStatistic:${Number(body.of)}`, service: "warStatisticMgr", method: "MachoBindObject", args: [Number(body.of)], kwargs: null },
+        body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      // (A call on an office's object for the station the call names: officeManager.TrashImpoundAtStation,
+      // Moniker('officeManager', stationID).TrashImpoundedOffice(), bound for that station.)
+      : objectKind === "officeAt"
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
+        heldBridgeSession, req.webSessionID, { key: `officeAt:${Number(body.of)}`, service: "officeManager", method: "MachoBindObject", args: [Number(body.of)], kwargs: null },
         body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
       // (A call on an agent's object goes by the bind an agent's routes go by: bound for that agent, and kept.)
       : objectKind === "agent"

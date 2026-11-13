@@ -5373,8 +5373,9 @@ function createGamePortPilots({
         return attribute(entry, "solarsystemid") ?? undefined;
       case "planetOrbitalRegistryBroker": // GetPlanetOrbitalRegistry(session.solarsystemid): in space only
         return attribute(entry, "solarsystemid") ?? undefined;
-      case OFFICE_MANAGER: // officeManager.station: Moniker('officeManager', session.stationid or session.structureid)
-        return attribute(entry, "stationid") ?? attribute(entry, "structureid") ?? undefined;
+      case OFFICE_MANAGER: // officeManager.station: Moniker('officeManager', session.stationid or session.structureid);
+        // officeManager.TrashImpoundAtStation (officeManager.py 156): Moniker('officeManager', stationID), the one named.
+        return positive(Array.isArray(given) ? given[0] : given) ?? attribute(entry, "stationid") ?? attribute(entry, "structureid") ?? undefined;
       case "repairSvc": { // repair.GetRemoteRepairMgr: Moniker('repairSvc', (the dockable place, the place, the place's group))
         const stationID = attribute(entry, "stationid");
         if (stationID !== null) return [stationID, stationID, GROUP_STATION];
@@ -6645,6 +6646,9 @@ function createGamePortPilots({
     if (mayChangeContents(service, method)) entry.listings.forget();
     forgetKeptAfter(entry, service, method);
     if (changesAColony(service, method)) forgetColonies(entry);
+    // What the client's own code names beside a call on a moniker's object, once it is done (cachedCallsNamed.js),
+    // with what the object was bound by: officeManager.TrashImpoundedOffice's station.
+    forgetNamed(entry, namedAfterCall(service, method, argumentsToWire(form.args), entry.session.attributes, object.params));
     await afterPersonalContactCall(entry, service, method, form, result);
     await afterAllianceContactCall(entry, service, method, form, allianceVersionForCall);
     if (service === "scanMgr") afterScanManagerCall(entry, method, form.args, result);

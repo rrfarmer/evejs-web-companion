@@ -115,8 +115,16 @@ test("the notices with a row are the ones read out of the client", () => {
   ]);
   assert.deepEqual(Object.keys(NAMED_AFTER_CALL).sort(), [
     "bountyProxy.AddToBounty", "bountyProxy.CancelSellKillRight", "bountyProxy.SellKillRight",
-    "calendarMgr.SendEventResponse", "calendarMgr.UpdateEventParticipants", "officeManager.UnrentOffice", "structureAssetSafety.MoveSafetyWrapToStructure",
+    "calendarMgr.SendEventResponse", "calendarMgr.UpdateEventParticipants", "officeManager.TrashImpoundedOffice", "officeManager.UnrentOffice", "structureAssetSafety.MoveSafetyWrapToStructure",
   ]);
+});
+
+test("beside an impounded office trashed: the impounded items at the station its object was bound for", () => {
+  // corp_ui_accounts.py 411: InvalidateCachedMethodCall('corpmgr', 'GetAssetInventoryForLocation', session.corpid,
+  // stationID, 'impounded'), the station of Moniker('officeManager', stationID).TrashImpoundedOffice().
+  assert.deepEqual(namedAfterCall("officeManager", "TrashImpoundedOffice", [], { corpid: 98000001 }, 60003760), [["corpmgr", "GetAssetInventoryForLocation", [98000001, 60003760, "impounded"]]]);
+  // With no station it was bound for, there is no such call to forget.
+  assert.deepEqual(namedAfterCall("officeManager", "TrashImpoundedOffice", [], { corpid: 98000001 }), []);
 });
 
 test("beside an office given up: the corporation's assets where the session is docked, in a station or a structure", () => {

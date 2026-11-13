@@ -31,8 +31,7 @@
 //
 //   Calls the BFF cannot make. The mailing lists' members (mailingListsSvc.py
 //   100 to 134), the militia's joining and leaving (facWarSvc.py 212 to 269),
-//   a character's looks (ccSvc.py 115 to 139), impounded items trashed
-//   (corp_ui_accounts.py 405), the access
+//   a character's looks (ccSvc.py 115 to 139), the access
 //   groups' (accessGroupsController.py), the development indices' (sovSvc.py
 //   131). A row for a call nothing here makes would be dead.
 //
@@ -125,8 +124,12 @@ const NAMED_ON_NOTICE = Object.freeze({
   OnFlaggedListsChange: () => [["browserLockdownSvc", "GetFlaggedSitesList", []], ["browserLockdownSvc", "GetFlaggedSitesHash", []]],
 });
 
-/** Beside one of the client's own calls, once it is done, by the call: (its arguments, the session's attributes) => the calls named. */
+/** Beside one of the client's own calls, once it is done, by the call: (its arguments, the session's attributes, what
+ * the call's object was bound by, for a call on a moniker) => the calls named. */
 const NAMED_AFTER_CALL = Object.freeze({
+  // corp_ui_accounts.py 411, TrashImpoundedItems: the impounded items at the station, named before
+  // Moniker('officeManager', stationID).TrashImpoundedOffice(). Here once it is done: a trashing refused changed nothing.
+  "officeManager.TrashImpoundedOffice": (args, session, bound) => [["corpmgr", "GetAssetInventoryForLocation", [session.corpid, Array.isArray(bound) ? bound[0] : bound ?? undefined, "impounded"]]],
   // officeManager.py 121, UnrentOffice: the corporation's assets where the session is docked, named before the
   // office is given up. Here once it is done: a giving up that was refused changed nothing.
   "officeManager.UnrentOffice": (args, session) => [["corpmgr", "GetAssetInventoryForLocation", [session.corpid, session.stationid || session.structureid || undefined, "offices"]]],
@@ -156,11 +159,11 @@ function namedOnNotice(method, args, attributes = {}) {
   return row ? withEveryArgument(row(Array.isArray(args) ? args : [], attributes || {})) : [];
 }
 
-/** What it names beside one of its own calls, once the call is done. */
-function namedAfterCall(service, method, args, attributes = {}) {
+/** What it names beside one of its own calls, once the call is done; `bound`, what a moniker's object was bound by. */
+function namedAfterCall(service, method, args, attributes = {}, bound = undefined) {
   // A pair has a dot in it, which no name an object has of its own accord does.
   const row = NAMED_AFTER_CALL[`${service}.${method}`];
-  return row ? withEveryArgument(row(Array.isArray(args) ? args : [], attributes || {})) : [];
+  return row ? withEveryArgument(row(Array.isArray(args) ? args : [], attributes || {}, bound)) : [];
 }
 
 /**

@@ -18,9 +18,10 @@
   // daysUntilCanDeliver days from the eject time are gone) and Auto Delivery (the time left until daysUntilAutoMove days,
   // the nearest NPC station), counted each second. A location's menu (GetLocationMenu): a station's or structure's
   // CelestialMenu - here its route entries (nav/waypoints celestialRouteEntries: Set Destination, Add Waypoint or
-  // Remove Waypoint), a solar system's the same - then, a director's, a structure's Move Items To Safety (To Space in
-  // a wormhole system). Not yet: the CelestialMenu's other entries, an impounded location's Trash Items At Location
-  // (Moniker('officeManager', stationID).TrashImpoundedOffice). Deliver To opens AssetSafetyDeliverWindow: DeliverToStation, the explanation (delivery open or
+  // Remove Waypoint), a solar system's the same - then, a director's: an impounded station's Trash Items At Location
+  // (TrashImpoundedItems: the items listed in ConfirmTrashingPlu / Sin, Moniker('officeManager', stationID)
+  // .TrashImpoundedOffice(), OnReloadCorpAssets), a structure's Move Items To Safety (To Space in a wormhole system).
+  // Not yet: the CelestialMenu's other entries. Deliver To opens AssetSafetyDeliverWindow: DeliverToStation, the explanation (delivery open or
   // not yet, stations in the system or none), each structure then station with Deliver (disabled before the manual
   // delivery time), Cancel.
   import { onMount } from "svelte";
@@ -90,6 +91,10 @@
   // GetLocationMenu: a station, a structure (its type's category 65) or a solar system gets a CelestialMenu.
   const hasCelestialMenu = (row: CorpAssetLocation) => (row.locationID >= 60_000_000 && row.locationID < 64_000_000) || isStructure(row) || (row.locationID >= 30_000_000 && row.locationID < 33_000_000);
   const routeOf = (row: CorpAssetLocation) => celestialRouteEntries(row.locationID, isWaypointPlace(row.locationID) || isPlayerItemID(row.locationID), $flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null, $waypoints);
+  async function trash(row: CorpAssetLocation): Promise<void> {
+    menuFor = null;
+    try { if (await flow.trashImpoundedAt(row.locationID)) await show(which); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
   function route(row: CorpAssetLocation, how: "destination" | "add" | "remove"): void {
     menuFor = null;
     if (how === "destination") flow.setDestination(row.locationID);
@@ -415,6 +420,9 @@
               {#if r.setDestination}<button role="menuitem" onclick={() => route(loc.row, "destination")}>{plainText(text("UI/Inflight/SetDestination"))}</button>{/if}
               {#if r.addWaypoint}<button role="menuitem" onclick={() => route(loc.row, "add")}>{plainText(text("UI/Inflight/AddWaypoint"))}</button>
               {:else if r.removeWaypoint}<button role="menuitem" onclick={() => route(loc.row, "remove")}>{plainText(text("UI/Inflight/RemoveWaypoint"))}</button>{/if}
+            {/if}
+            {#if director && which === "impounded" && hasCelestialMenu(loc.row) && !(loc.row.locationID >= 30_000_000 && loc.row.locationID < 33_000_000)}
+              <button role="menuitem" onclick={() => void trash(loc.row)}>{plainText(text("UI/Corporations/Assets/TrashItemsAtLocation"))}</button>
             {/if}
             {#if director && isStructure(loc.row)}
               <button role="menuitem" onclick={() => void moveToSafety(loc.row)}>{plainText(text(isWormholeOrTrig(loc.row) ? "UI/Inventory/AssetSafety/MoveItemsToSpace" : "UI/Inventory/AssetSafety/MoveItemsToSafety"))}</button>

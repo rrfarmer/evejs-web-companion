@@ -435,7 +435,7 @@ import { classifyDistributionAgentConversation, selectDistributionAgent } from "
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
-import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } from "../bridge/clientWords.ts";
+import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
@@ -2719,6 +2719,9 @@ export interface AppFlow {
   safetyDeliveryTargets(solarSystemID: number): Promise<readonly { readonly itemID: number; readonly typeID: number; readonly name: string }[]>;
   /** DoDeliver: SureYouWantToMoveAssetSafetyItemsToLocation, Yes - MoveSafetyWrapToStructure(wrap, system, destinationID=). */
   deliverSafetyWrap(assetWrapID: number, solarSystemID: number, destinationID: number): Promise<boolean>;
+  /** CorpAccounts.TrashImpoundedItems: the impounded items listed ("<t>- <qty> x <type>") in ConfirmTrashingPlu /
+   * ConfirmTrashingSin (none asked where there is nothing), Yes - Moniker('officeManager', stationID).TrashImpoundedOffice(). */
+  trashImpoundedAt(stationID: number): Promise<boolean>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
@@ -18193,6 +18196,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
     return true;
   }
+  async function trashImpoundedAt(stationID: number): Promise<boolean> {
+    const scope = captureMemberOperation();
+    const items = await corporationAssetItems(stationID, "impounded"); scope.current();
+    await wordsNow([QUANTITY_AND_ITEM]);
+    const template = store.words.get().templates[QUANTITY_AND_ITEM] ?? "{[numeric]quantity} x {[item]item.name}";
+    const nameOf = (kind: Parameters<typeof resolvedName>[1], id: number) => resolvedName(store.names.get().resolved, kind, id, "");
+    // cfg.FormatConvert(UE_TYPEIDANDQUANTITY, typeID, stacksize), each "<t>- " before it, joined by <br>.
+    const itemReport = items.map(item => `<t>- ${formatTemplate(template, { quantity: item.stacksize, item: item.typeID }, { nameOf })}`).join("<br>");
+    if (itemReport) {
+      const [dialog, key] = items.length > 1 ? ["ConfirmTrashingPlu", "items"] : ["ConfirmTrashingSin", "itemWithQuantity"];
+      if (!(await askDialog(dialog, { type: "dict", entries: [[key, itemReport]] } as JsonValue, "Are you sure you want to trash these items?"))) return false;
+    }
+    try { await scope.write("officeManager", "TrashImpoundedOffice", [], null, stationID); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+    return true;
+  }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
     memberReadKey(online.characterID);
@@ -31243,6 +31262,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     moveCorpAssetsToSafety,
     safetyDeliveryTargets,
     deliverSafetyWrap,
+    trashImpoundedAt,
     corporationAssetCategories,
     async marketTypeMatches(text: string) {
       const answer = await api.getMarketTypeMatches(text, callOptions);
