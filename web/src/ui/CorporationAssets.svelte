@@ -55,7 +55,7 @@
     "UI/Inventory/AssetSafety/DeliverTo", "UI/Inventory/AssetSafety/AutoDeliveryHint", "UI/Inventory/AssetSafety/DeliverBtnAvailableHint", "UI/Inventory/AssetSafety/DeliverBtnNotAvailableNowHint",
     "UI/Inventory/AssetSafety/MoveItemsToSafety", "UI/Inventory/AssetSafety/DeliverToStation", "UI/Inflight/SetDestination", "UI/Inflight/AddWaypoint", "UI/Inflight/RemoveWaypoint", "UI/Inventory/AssetSafety/DeliveryExplanationText",
     "UI/Inventory/AssetSafety/DeliveryExplanationTextNoStations", "UI/Inventory/AssetSafety/DeliveryNotAvailableNowExplanationText", "UI/Inventory/AssetSafety/DeliveryNotAvailableTextNoStations",
-    "UI/Inventory/AssetSafety/DeliverBtn", "UI/Generic/Cancel", "UI/Inventory/AssetSafety/MoveItemsToSpace", "UI/Corporations/Assets/TrashItemsAtLocation", ...SHORT_INTERVAL_WORD_LABELS, "UI/Common/Name", "UI/Common/Buttons/Close", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", ...Object.keys(LINK_WORDS)];
+    "UI/Inventory/AssetSafety/DeliverBtn", "UI/Generic/Cancel", "UI/Inventory/AssetSafety/MoveItemsToSpace", "UI/Corporations/Assets/TrashItemsAtLocation", ...SHORT_INTERVAL_WORD_LABELS, "UI/Common/Name", "UI/Common/Buttons/Close", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", "UI/Inventory/ItemMetaLevel", "UI/Inventory/ItemTechLevel", "/Carbon/UI/Common/Hide", "/Carbon/UI/Common/Show", ...Object.keys(LINK_WORDS)];
   const nameOf = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const text = (label: string, args: Record<string, unknown> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf });
   const followerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), t);
@@ -261,6 +261,52 @@
     }
   }
   const typeName = (id: number) => nameOf("type", id) || String(id);
+  // GetInvItemDefaultHeaders, each with its getter (_item_column_value_getter_by_column) and its sort value (GetItemData's
+  // sort_<header>, else the text); GetInvItemDefaultHiddenHeaders (Meta level, Tech level, Category) hidden at first.
+  interface Column { label: string; text: (item: CorpAssetItem) => string; sort: (item: CorpAssetItem) => number | string; right?: boolean }
+  const COLUMNS: readonly Column[] = [
+    { label: "UI/Common/Name", text: (i) => typeName(i.typeID), sort: (i) => typeName(i.typeID).toLowerCase() },
+    { label: "UI/Common/Quantity", text: (i) => qtyOf(i), sort: (i) => (i.singleton || i.typeID === 51 ? 0 : i.stacksize), right: true },
+    { label: "UI/Inventory/ItemGroup", text: (i) => nameOf("typeGroup", i.typeID), sort: (i) => nameOf("typeGroup", i.typeID).toLowerCase() },
+    { label: "UI/Inventory/ItemCategory", text: (i) => nameOf("typeCategory", i.typeID), sort: (i) => nameOf("typeCategory", i.typeID).toLowerCase() },
+    { label: "UI/Inventory/ItemSize", text: (i) => sizeOf(i), sort: (i) => sizeOf(i) },
+    { label: "UI/Inventory/ItemSlot", text: (i) => slotOf(i), sort: (i) => slotOf(i) },
+    { label: "UI/Inventory/ItemVolume", text: (i) => volumeOf(i), sort: (i) => volumeNumber(i), right: true },
+    // metaLevel: FmtAmt(GetMetaLevel), nothing where there is none (or nought); sorted by the level or nought.
+    { label: "UI/Inventory/ItemMetaLevel", text: (i) => { const m = facts.get(i.typeID)?.metaLevel ?? null; return m ? fmtAmt(m) : ""; }, sort: (i) => facts.get(i.typeID)?.metaLevel ?? 0, right: true },
+    // _get_item_tech_level: '<right>%s' % techLevel, FmtAmt where it is set - so "None" where the type has none.
+    { label: "UI/Inventory/ItemTechLevel", text: (i) => { const t = facts.get(i.typeID)?.techLevel ?? null; return t ? fmtAmt(t) : String(t === null ? "None" : t); }, sort: (i) => String(facts.get(i.typeID)?.techLevel ?? "None"), right: true },
+    { label: "UI/Contracts/ContractsWindow/EstPrice", text: (i) => priceOf(i), sort: (i) => estPriceNumber(i), right: true },
+  ];
+  // Scroll 'CorporationAssets': settings.user.ui filteredColumns / filteredColumnsByDefault and scrollsortby.
+  const DEFAULT_HIDDEN = ["UI/Inventory/ItemMetaLevel", "UI/Inventory/ItemTechLevel", "UI/Inventory/ItemCategory"];
+  const readList = (key: string, fallback: string[]) => { try { const v = JSON.parse(localStorage.getItem(`evejs.play.${key}`) ?? "null"); return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : fallback; } catch { return fallback; } };
+  let hidden = $state<string[]>(readList("filteredColumns_CorporationAssets", []));
+  let hiddenByDefault = $state<string[]>(readList("filteredColumnsByDefault_CorporationAssets", DEFAULT_HIDDEN));
+  const shownColumns = $derived(COLUMNS.filter((c) => !hidden.includes(c.label) && !hiddenByDefault.includes(c.label)));
+  const gridColumns = $derived(shownColumns.map((c) => (c.label === "UI/Common/Name" ? "minmax(160px, 2fr)" : c.label === "UI/Inventory/ItemGroup" || c.label === "UI/Inventory/ItemCategory" ? "1fr" : c.label === "UI/Contracts/ContractsWindow/EstPrice" ? "110px" : c.label === "UI/Inventory/ItemVolume" ? "90px" : "64px")).join(" "));
+  let headerMenuFor = $state<string | null>(null);
+  function keep(key: string, list: string[]): void { try { localStorage.setItem(`evejs.play.${key}`, JSON.stringify(list)); } catch { /* not kept */ } }
+  // HideColumn / ShowColumn: hidden kept; shown taken off both lists.
+  function hideColumn(label: string): void { headerMenuFor = null; if (!hidden.includes(label)) hidden = [...hidden, label]; keep("filteredColumns_CorporationAssets", hidden); }
+  function showColumn(label: string): void {
+    headerMenuFor = null;
+    hidden = hidden.filter((l) => l !== label); hiddenByDefault = hiddenByDefault.filter((l) => l !== label);
+    keep("filteredColumns_CorporationAssets", hidden); keep("filteredColumnsByDefault_CorporationAssets", hiddenByDefault);
+  }
+  // ChangeSortBy: the same column again turns the order round, another sorts forward; kept (scrollsortby).
+  const keptSort = (() => { try { return JSON.parse(localStorage.getItem("evejs.play.scrollsortby_CorporationAssets") ?? "null") as [string, boolean] | null; } catch { return null; } })();
+  let sortColumn = $state<string | null>(keptSort?.[0] ?? null), sortReversed = $state(keptSort?.[1] ?? false);
+  function sortOn(label: string): void {
+    sortReversed = sortColumn === label ? !sortReversed : false; sortColumn = label;
+    try { localStorage.setItem("evejs.play.scrollsortby_CorporationAssets", JSON.stringify([sortColumn, sortReversed])); } catch { /* not kept */ }
+  }
+  function sorted(list: readonly CorpAssetItem[]): readonly CorpAssetItem[] {
+    const col = COLUMNS.find((c) => c.label === sortColumn);
+    if (!col) return list;
+    const out = list.slice().sort((a, b) => { const x = col.sort(a), y = col.sort(b); return x < y ? -1 : x > y ? 1 : 0; });
+    return sortReversed ? out.reverse() : out;
+  }
   // uix.GetItemData and the default visible columns (GetInvItemDefaultHeaders less the hidden Meta level, Tech level
   // and Category): Name, Quantity, Group, Size, Slot, Volume, Est. Price.
   let facts = $state<ReadonlyMap<number, AssetTypeFacts>>(new Map());
@@ -289,6 +335,9 @@
     const places = Math.abs(volume - Math.trunc(volume)) > 1e-7 ? 2 : 0;
     return plainText(text("UI/InfoWindow/ValueAndUnit", { value: formatNumeric(places ? volume : Math.trunc(volume), { useGrouping: true, decimalPlaces: places }), unit: "m3" }));
   };
+  // GetItemVolume's number, for the column's sort.
+  const volumeNumber = (item: CorpAssetItem) => { const f = facts.get(item.typeID); const each = f ? (item.singleton ? f.volume : f.packagedVolume) : null; return item.typeID === 3468 || each === null ? 0 : each * (item.stacksize < 0 ? 1 : item.stacksize); };
+  const estPriceNumber = (item: CorpAssetItem) => { const price = item.singleton === 2 ? null : facts.get(item.typeID)?.averagePrice ?? null; return price && item.stacksize ? item.stacksize * price : 0; };
   // estPrice: the cfg's average price times the stack (none for a blueprint copy), FmtISK.
   const priceOf = (item: CorpAssetItem) => {
     const price = item.singleton === 2 ? null : facts.get(item.typeID)?.averagePrice ?? null;
@@ -297,14 +346,14 @@
 </script>
 
 {#snippet itemRow(item: CorpAssetItem, depth: number)}
-  <div class="ca-item" style:padding-left={`${depth * 16}px`}>
-    <span class="ca-name"><TypeIcon typeID={item.typeID} name={typeName(item.typeID)} size="sm" /> {typeName(item.typeID)}</span>
-    <span class="ca-num">{qtyOf(item)}</span>
-    <span>{nameOf("typeGroup", item.typeID)}</span>
-    <span>{sizeOf(item)}</span>
-    <span>{slotOf(item)}</span>
-    <span class="ca-num">{volumeOf(item)}</span>
-    <span class="ca-num">{priceOf(item)}</span>
+  <div class="ca-item" style:padding-left={`${depth * 16}px`} style:grid-template-columns={gridColumns}>
+    {#each shownColumns as col (col.label)}
+      {#if col.label === "UI/Common/Name"}
+        <span class="ca-name"><TypeIcon typeID={item.typeID} name={typeName(item.typeID)} size="sm" /> {typeName(item.typeID)}</span>
+      {:else}
+        <span class:ca-num={col.right}>{col.text(item)}</span>
+      {/if}
+    {/each}
   </div>
 {/snippet}
 
@@ -401,7 +450,23 @@
       </select></label>
   </div>
   {/if}
-  <div class="ca-head">{#each ["UI/Common/Name", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice"] as h (h)}<span>{plainText(text(h))}</span>{/each}</div>
+  <div class="ca-head" style:grid-template-columns={gridColumns}>
+    {#each shownColumns as col (col.label)}
+      <button class="ca-col" class:sorted={sortColumn === col.label} onclick={() => sortOn(col.label)}
+        oncontextmenu={(e) => { e.preventDefault(); headerMenuFor = headerMenuFor === col.label ? null : col.label; }}>{plainText(text(col.label))}{sortColumn === col.label ? (sortReversed ? " ▴" : " ▾") : ""}</button>
+    {/each}
+  </div>
+  {#if headerMenuFor}
+    <!-- Scroll.GetHeaderMenu (allowFilterColumns): Hide "<label>" while more than one column shows, then Show "<label>"
+         for each hidden one. -->
+    <div class="ca-menu ca-header-menu" role="menu">
+      {#if shownColumns.length > 1}<button role="menuitem" onclick={() => hideColumn(headerMenuFor!)}>{plainText(text("/Carbon/UI/Common/Hide", { label: plainText(text(headerMenuFor)) }))}</button>{/if}
+      {#each COLUMNS.filter((c) => !shownColumns.includes(c)) as c (c.label)}
+        <button role="menuitem" onclick={() => showColumn(c.label)}>{plainText(text("/Carbon/UI/Common/Show", { label: plainText(text(c.label)) }))}</button>
+      {/each}
+      <button role="menuitem" onclick={() => { headerMenuFor = null; }}>{plainText(text("UI/Common/Buttons/Close"))}</button>
+    </div>
+  {/if}
   <div class="ca-scroll">
     {#if searching}
       <p class="ca-hint">{plainText(text("UI/Common/Searching"))}</p>
@@ -440,11 +505,11 @@
                 <span class="ca-arrow">{open[key] ? "▾" : "▸"}</span>{read.divisionNames[DIVISION_BY_FLAG[flag]! + 1]}
               </button>
               {#if open[key]}
-                {#each list.filter((item) => item.flagID === flag) as item (item.itemID)}{@render itemRow(item, 2)}{/each}
+                {#each sorted(list.filter((item) => item.flagID === flag)) as item (item.itemID)}{@render itemRow(item, 2)}{/each}
               {/if}
             {/each}
           {:else}
-            {#each list as item (item.itemID)}{@render itemRow(item, 1)}{/each}
+            {#each sorted(list) as item (item.itemID)}{@render itemRow(item, 1)}{/each}
           {/if}
         {/if}
       {:else}
@@ -486,7 +551,10 @@
   .ca-picker-list button.selected { background: rgba(255, 255, 255, 0.15); }
   .ca-picker-buttons { display: flex; justify-content: center; gap: 6px; }
   .ca-filters label { display: flex; flex-direction: column; font-size: 10px; width: 140px; }
-  .ca-head, .ca-item { display: grid; grid-template-columns: minmax(160px, 2fr) 70px 1fr 60px 60px 90px 110px; gap: 6px; align-items: center; }
+  .ca-head, .ca-item { display: grid; gap: 6px; align-items: center; }
+  .ca-col { all: unset; cursor: pointer; white-space: nowrap; overflow: hidden; }
+  .ca-col.sorted { opacity: 1; font-weight: bold; }
+  .ca-header-menu { margin-left: 4px; }
   .ca-num { text-align: right; }
   .ca-head { font-size: 10px; opacity: 0.7; padding: 0 4px; }
   .ca-scroll { flex: 1; min-height: 0; overflow: auto; }
