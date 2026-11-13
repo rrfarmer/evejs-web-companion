@@ -3338,6 +3338,9 @@ export interface AppFlow {
    * WalletDivisionAccessDenied (reserve, 403), else FailedToConnect. True when made. */
   createCorporationGoal(goal: { readonly name: string; readonly description: string; readonly desired: number; readonly methodID: string; readonly careerPath: number | null;
     readonly payment: number | null; readonly expiry: number | null; readonly participationLimit: number | null; readonly capacity: number | null;
+    /** Ship Insurance's CoverageLimitPerLoss (contribution_limit, else contribution_unlimited) and coverage ratio
+     * (scalar = percent x 0.01, else default). */
+    readonly coverageLimit?: number | null; readonly multiplier?: number | null;
     /** ParametersForm.get_value: the method's parameters by key - a location, an item type, an office; a list where
      * the parameter takes several (maxEntries > 1); absent or null for any. */
     readonly parameters?: Readonly<Record<string, number | readonly number[] | null>> }): Promise<boolean>;
@@ -3350,6 +3353,9 @@ export interface AppFlow {
   /** FactionalWarfareComplexParameter._get_options: the FW complex archetypes 33-36 (Novice, Small, Medium, Large) and
    * their titles (GetArchetypeTitle), as message labels. */
   fwComplexOptions(): Promise<readonly { readonly id: number; readonly label: string }[]>;
+  /** The type filters of the parameters' searches: TYPE_LIST_ALL_MINABLE_TYPES (548, GetTypeIDsByListID) and
+   * is_manufacturable_item (manufacturableItems.fsdbinary); null where the client's data could not be read. */
+  goalTypeFilter(kind: "mineable" | "manufacturable"): Promise<ReadonlySet<number> | null>;
   /** _SetProgress - set_current_progress: SetCurrentProgressRequest(goal, current_progress, min(new, desired)). */
   setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean>;
   /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
@@ -18639,6 +18645,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         job_owner_type: owner === 2 ? { match_any_corporation: true } : { match_any_character: true },
         job_location: !place ? { any: true } : place >= 60_000_000 && place < 64_000_000 ? { station: { sequential: place } } : { structure: { sequential: place } } }] }];
     }
+    if (methodID === "ShipInsurance") {
+      // construct_ship_insurance_proto: systems, ships, killer identities; add_conflict_type_to_proto compares the
+      // boolean parameter with ConflictType (ALL 0, PVP 1, PVE 2) - True is PVP, False ALL, none sets nothing;
+      // include_implants = cover_implants.
+      const conflict = parameters["conflict_type"];
+      const coverImplants = parameters["cover_implants"];
+      return ["ship_insurance", { solar_systems: systemSets(), ships: shipSets(), killer_identities: identitySets("organization"),
+        ...(conflict === 1 ? { conflict_type: { pvp: true } } : conflict === 0 ? { conflict_type: { all: true } } : {}),
+        include_implants: coverImplants === 1 }];
+    }
     if (methodID === "DeliverItem") {
       const item = one("item_type"), office = one("office");
       if (!item) return null;
@@ -18665,6 +18681,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       for (const key of ["attacked_identities", "destroyed_identities"]) if (key in config) config[key] = identitySets("organization");
     }
     return [field, config];
+  }
+  const goalTypeFilters = new Map<string, Promise<ReadonlySet<number> | null>>();
+  function goalTypeFilter(kind: "mineable" | "manufacturable"): Promise<ReadonlySet<number> | null> {
+    let held = goalTypeFilters.get(kind);
+    if (!held) {
+      held = api.loadTypeList(kind === "mineable" ? 548 : "manufacturable", callOptions).then((ids) => (ids ? new Set(ids) : null), () => null);
+      goalTypeFilters.set(kind, held);
+    }
+    return held;
   }
   async function fwComplexOptions(): Promise<readonly { readonly id: number; readonly label: string }[]> {
     const titles = await api.loadArchetypeTitles([33, 34, 35, 36], callOptions).catch(() => ({} as Record<string, number | null>));
@@ -18716,7 +18741,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       ...(goal.payment ? { reward_pools: [{ period: 1, isk: { amount: { units: Math.trunc(goal.payment), nanos: Math.round((goal.payment - Math.trunc(goal.payment)) * 1e9) } } }] } : {}),
       ...(goal.expiry !== null ? { timestamp: { seconds: Math.floor(goal.expiry / 1000) } } : { no_expiry: true }),
       ...(goal.participationLimit ? { limit: goal.participationLimit } : { unlimited: true }),
-      contribution_unlimited: true, default: true,
+      ...(goal.coverageLimit != null ? { contribution_limit: goal.coverageLimit } : { contribution_unlimited: true }),
+      ...(goal.multiplier ? { scalar: goal.multiplier } : { default: true }),
     };
     const a = await api.publicGatewayRequest("eve_public.goal.api.CreateRequest", payload, { ...callOptions, confirm: true }).catch(() => null);
     if (a && a.statusCode === 200) return true;
@@ -32060,6 +32086,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     createCorporationGoal,
     goalLocationMatches,
     fwComplexOptions,
+    goalTypeFilter,
     corporationOfficeOptions,
     setCorporationGoalProgress,
     corporationMembersWithMoreThanAvgShares,

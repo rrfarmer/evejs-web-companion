@@ -5776,6 +5776,12 @@ export async function loadContributionMethods(options: ApiOptions = {}): Promise
   return data.available && data.methods && typeof data.methods === "object" ? data.methods as Record<string, { titleID?: number; descriptionID?: number; icon?: string; unit?: number; progressDescriptionID?: number; rewardingDescriptionID?: number }> : null;
 }
 
+/** GET /api/client-data/type-list/:listID: a type list's types (or "manufacturable"); null where unreadable. */
+export async function loadTypeList(listID: number | "manufacturable", options: ApiOptions = {}): Promise<readonly number[] | null> {
+  const data = await getJson(`/api/client-data/type-list/${listID}`, options);
+  return data.available && Array.isArray(data.typeIDs) ? (data.typeIDs as number[]) : null;
+}
+
 /** GET /api/client-data/archetype-titles: each archetype's title message id (null where none). */
 export async function loadArchetypeTitles(ids: readonly number[], options: ApiOptions = {}): Promise<Readonly<Record<string, number | null>>> {
   const data = await getJson(`/api/client-data/archetype-titles?ids=${ids.join(",")}`, options);

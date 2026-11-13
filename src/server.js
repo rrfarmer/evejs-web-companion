@@ -14007,6 +14007,32 @@ app.get("/api/client-data/contribution-methods", requireAuth, async (req, res, n
   } catch (error) { next(error); }
 });
 
+// A type list's types as evetypes.GetTypeIDsFromTypeList makes them (included categories less excluded, with included
+// groups less excluded, with included types less excluded), or ?list=manufacturable: industry's
+// is_manufacturable_item set. `available` false where the client's data could not be read.
+app.get("/api/client-data/type-list/:listID", requireAuth, async (req, res, next) => {
+  try {
+    if (req.params.listID === "manufacturable") {
+      const table = await clientBuiltData.table("manufacturableItems");
+      const items = table && (table.ManufacturableItems || table.manufacturableItems);
+      const ids = Array.isArray(items) ? items : items && typeof items === "object" ? Object.keys(items).map(Number) : [];
+      return res.json({ ok: true, available: table !== null, typeIDs: ids.map(Number).filter(Number.isSafeInteger) });
+    }
+    const listID = Number(req.params.listID);
+    const [lists, types, groups] = await Promise.all([clientBuiltData.table("typeLists"), clientBuiltData.table("typesGroupIDsOrdered"), clientBuiltData.table("groupsOrdered")]);
+    const list = lists && lists[String(listID)];
+    if (!list || !types || !groups) return res.json({ ok: true, available: false, typeIDs: [] });
+    const arr = (v) => (Array.isArray(v) ? v.map(Number) : []);
+    const byGroups = (ids) => { const set = new Set(ids); return (types["#order"] || []).filter((t) => set.has(Number(types[String(t)]))); };
+    const byCategories = (ids) => { const set = new Set(ids); return (types["#order"] || []).filter((t) => { const g = groups[String(types[String(t)])]; return g && set.has(Number(g.categoryID)); }); };
+    const minus = (a, b) => { const s = new Set(b); return new Set([...a].filter((x) => !s.has(x))); };
+    let final = minus(new Set(byCategories(arr(list.includedCategoryIDs))), byCategories(arr(list.excludedCategoryIDs)));
+    final = minus(new Set([...final, ...byGroups(arr(list.includedGroupIDs))]), byGroups(arr(list.excludedGroupIDs)));
+    final = minus(new Set([...final, ...arr(list.includedTypeIDs)]), arr(list.excludedTypeIDs));
+    res.json({ ok: true, available: true, typeIDs: [...final].map(Number) });
+  } catch (error) { next(error); }
+});
+
 // Dungeon archetypes' title messages (evearchetypes.GetArchetypeTitle), for the ids asked (?ids=33,34). `available`
 // false where the client's data could not be read.
 app.get("/api/client-data/archetype-titles", requireAuth, async (req, res, next) => {

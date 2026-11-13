@@ -53,6 +53,10 @@ const TABLES = Object.freeze({
   contributionMethods: Object.freeze({ loader: "contributionMethodsLoader", resource: "res:/staticdata/contributionmethods.fsdbinary" }),
   // Dungeon archetypes (evearchetypes: GetArchetypeTitle - the archetype's titleID), e.g. the FW complex sizes 33-36.
   archetypes: Object.freeze({ loader: "archetypesLoader", resource: "res:/staticdata/archetypes.fsdbinary" }),
+  // evetypes TypeListLoader: a type list's included / excluded type, group and category ids (GetTypeIDsFromTypeList).
+  typeLists: Object.freeze({ loader: "typeListLoader", resource: "res:/staticdata/typelist.fsdbinary" }),
+  // industry ManufacturableItemsLoader: the types a manufacturing job can make (is_manufacturable_item).
+  manufacturableItems: Object.freeze({ loader: "manufacturableItemsLoader", resource: "res:/staticdata/manufacturableitems.fsdbinary" }),
   // A ship type's group in the client's ship tree (evetypes.GetShipGroupID: the type's isisGroupID), which the Ship
   // Restrictions window groups its hulls by. Only that attribute of the types is read: the table is too big to walk.
   typeShipGroups: Object.freeze({ loader: "typesLoader", resource: "res:/staticdata/types.fsdbinary", attribute: "isisGroupID" }),

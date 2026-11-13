@@ -22,9 +22,11 @@
   // an FW complex size (archetypes 33-36 by title), a signature type (EXPLORATION_SITE_TYPES in the client's dict
   // order: Combat, Data, Gas, Relic, Ore, Wormhole), on whose behalf (RunJobOnBehalfOfCharacter, the default, or
   // ...Corp), the office's location (Any and the offices' stations).
-  // Not here yet: ship classes, ore groups, the LP corporation list and the hacking container type (left at any), the
-  // type filters are by category name only (Ship, Asteroid; a manufacturable item is any market type); Ship
-  // Insurance cannot be made yet.
+  // Ship Insurance (ShipInsurance's fields): the target in ISK (ShipInsuranceTargetValueDescription),
+  // CoverageLimitPerMemberTitle, CoverageLimitPerLoss, the coverage ratio 10-200 (100), then its parameters; no payment
+  // section - one ISK per unit; created with coverage_limit, ratio x 0.01 and the per-member limit.
+  // Not here yet: ship classes, ore groups, the LP corporation list and the hacking container type (left at any); a
+  // ship's search is by the category name "Ship".
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
@@ -48,18 +50,21 @@
       "UI/Control/Form/IllegalCharacters", "UI/Corporations/Common/CorporateDivisionMasterWallet", "UI/Corporations/Goals/TypeInName", "UI/Corporations/Goals/Optional",
       "UI/Corporations/Goals/AnyCorpOffice", "UI/Common/Any", "UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCharacter", "UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCorp",
       "UI/Inflight/Scanner/CombatSite", "UI/Inflight/Scanner/DataSite", "UI/Inflight/Scanner/GasSite", "UI/Inflight/Scanner/RelicSite", "UI/Inflight/Scanner/OreSite",
-      "UI/Inflight/Scanner/Wormhole"]);
+      "UI/Inflight/Scanner/Wormhole", "UI/Corporations/Goals/OnlyCoverLossesCausedByCapsuleers", "UI/Corporations/Goals/AnyLossesCovered", "UI/Corporations/Goals/ShipInsuranceTargetValueDescription",
+      "UI/Corporations/Goals/CoverageLimitPerMemberTitle", "UI/Corporations/Goals/ShipInsuranceLimitPerContributorTooltip", "UI/Corporations/Goals/TypeInIskOptional",
+      "UI/Corporations/Goals/CoverageLimitPerLoss", "UI/Corporations/Goals/ShipInsuranceLimitPerContributionTooltip", "UI/Corporations/Goals/CoverageRatioParamName",
+      "UI/Corporations/Goals/ShipInsuranceCoverageRatio"]);
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   // goalConst.ALLOWED_CONTRIBUTION_METHOD_TYPES.
   const ALLOWED = ["Manual", "DamageShip", "DeliverItem", "KillNPC", "MineOre", "ManufactureItem", "KillCapsuleer", "CaptureFWComplex", "DefendFWComplex",
     "RemoteRepairShields", "RemoteRepairArmor", "ScanSignature", "SalvageWreck", "EarnLoyaltyPoints", "ShipLoss", "ShipInsurance"];
-  const NOT_YET = new Set(["ShipInsurance"]);
+  const NOT_YET = new Set<string>();
   type Parameter = { readonly parameterKey: string; readonly parameterType: string; readonly isRequired?: number; readonly maxEntries?: number; readonly title?: string; readonly info?: string };
   const BUILT = new Set(["location", "inventory_type", "corporation_office", "ship_type", "mineable_ore_type", "manufacturable_item_type", "identity",
-    "empire_faction", "factional_warfare_complex_type", "signature_type", "on_behalf_of", "corporation_office_location"]);
+    "empire_faction", "factional_warfare_complex_type", "signature_type", "on_behalf_of", "corporation_office_location", "insurance_ship_type", "capsuleer_involvement"]);
   // The kinds searched by name, and their category filter.
-  const TYPE_SEARCH: Record<string, string | null> = { inventory_type: null, ship_type: "Ship", mineable_ore_type: "Asteroid", manufacturable_item_type: null };
+  const TYPE_SEARCH: Record<string, string | null> = { inventory_type: null, ship_type: "Ship", insurance_ship_type: "Ship", mineable_ore_type: null, manufacturable_item_type: null };
   // probescanning.explorationSites.EXPLORATION_SITE_TYPES, as the client's dict orders its keys (asked of its Python).
   const SIGNATURES: readonly [number, string][] = [[1136, "UI/Inflight/Scanner/CombatSite"], [208, "UI/Inflight/Scanner/DataSite"], [209, "UI/Inflight/Scanner/GasSite"],
     [210, "UI/Inflight/Scanner/RelicSite"], [211, "UI/Inflight/Scanner/OreSite"], [1908, "UI/Inflight/Scanner/Wormhole"]];
@@ -82,7 +87,9 @@
       } else if (p.parameterType in TYPE_SEARCH) {
         const r = text.trim().length < 3 ? { exact: null, matches: [] } : await flow.marketTypeMatches(text);
         const only = TYPE_SEARCH[p.parameterType];
-        found = { ...found, [p.parameterKey]: r.matches.filter((m) => !only || m.category === only).slice(0, 50).map((m) => ({ id: m.typeID, name: m.name, sub: m.category })) };
+        // MineableOreParameter / ManufacturableItemParameter type_filter: TYPE_LIST_ALL_MINABLE_TYPES, is_manufacturable_item.
+        const exact = p.parameterType === "mineable_ore_type" ? await flow.goalTypeFilter("mineable") : p.parameterType === "manufacturable_item_type" ? await flow.goalTypeFilter("manufacturable") : null;
+        found = { ...found, [p.parameterKey]: r.matches.filter((m) => (!only || m.category === only) && (!exact || exact.has(m.typeID))).slice(0, 50).map((m) => ({ id: m.typeID, name: m.name, sub: m.category })) };
       } else if (p.parameterType === "identity") {
         const r = text.trim().length < 3 ? [] : await flow.lookupPlayerOwners(text);
         // OwnerParameter.get_configuration's kinds: corporation (type 2), alliance (16159), faction (30), else character.
@@ -125,7 +132,7 @@
   let hasExpiry = $state(Boolean(o?.due)), expiry = $state(o?.due && o.created ? new Date(Date.now() + (o.due - o.created)).toISOString().slice(0, 16) : new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16));
   let name = $state(o?.name ?? ""), description = $state(o?.description ?? ""), career = $state<number>(o?.careerPath ?? 0), perUnit = $state<number>(o?.amountPerUnit ?? 0);
   let submitting = $state(false), tried = $state(false);
-  function chooseMethod(id: string): void { method = id; desired = 1; career = methodCareer(id); perUnit = 0; limit = null; params = {}; }
+  function chooseMethod(id: string): void { method = id; desired = 1; career = methodCareer(id); perUnit = id === "ShipInsurance" ? 1 : 0; limit = null; params = {}; coverage = null; ratio = 100; bools = {}; }
   function preset(span: string): void {
     const d = new Date();
     if (span === "7d") d.setDate(d.getDate() + 7); else if (span === "2w") d.setDate(d.getDate() + 14); else d.setMonth(d.getMonth() + Number(span.replace("m", "")));
@@ -140,6 +147,17 @@
   });
   const descriptionError = $derived(description.length > 1000 ? word("UI/Control/Form/LengthBelowRequired", { maxLength: 1000, length: description.length }) : "");
   const methodError = $derived(!method ? word("UI/Control/Form/InputRequired") : "");
+  // Ship Insurance: coverage per loss, the ratio (10-200, 100), and the capsuleer involvement booleans (default
+  // False); cover_implants is hidden and False while a ship is chosen, shown and True when the ships are cleared
+  // (ProjectDefinitionComponentsSubForm._on_srp_ship_value_changed).
+  let coverage = $state<number | null>(null), ratio = $state(100), bools = $state<Record<string, boolean>>({});
+  const coverHidden = $derived((params["ship"] ?? []).length > 0 && method === "ShipInsurance");
+  let lastShips = 0;
+  $effect(() => {
+    const n = (params["ship"] ?? []).length;
+    if (method === "ShipInsurance" && n !== lastShips) { bools = { ...bools, cover_implants: n === 0 }; }
+    lastShips = n;
+  });
   const missingRequired = $derived(method ? parametersOf(method).some((p) => p.isRequired && BUILT.has(p.parameterType) && p.parameterType !== "on_behalf_of" && !(params[p.parameterKey] ?? []).length) : false);
   const valid = $derived(!methodError && !nameError && !descriptionError && desired >= 1 && (!limit || limit <= desired) && !NOT_YET.has(method) && !missingRequired);
   const total = $derived((perUnit || 0) * (desired || 0));
@@ -151,7 +169,9 @@
     try {
       const made = await flow.createCorporationGoal({ name, description, desired, methodID: method, careerPath: career || null, payment: perUnit > 0 ? perUnit : null,
         expiry: hasExpiry ? new Date(expiry).getTime() : null, participationLimit: limit && limit > 0 ? limit : null, capacity,
-        parameters: { ...kinds, ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v.length ? v : null])) } });
+        ...(method === "ShipInsurance" ? { coverageLimit: coverage, multiplier: ratio * 0.01 } : {}),
+        parameters: { ...kinds, ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v.length ? v : null])),
+          ...Object.fromEntries(Object.entries(bools).map(([k, v]) => [k, v ? 1 : 0])) } });
       if (made) onClose(true);
     } finally { submitting = false; }
   }
@@ -159,6 +179,46 @@
     if (await flow.askClientDialog("CancelProjectCreation", "Discard this project?")) onClose(false);
   }
 </script>
+
+{#snippet paramRows(method: string)}
+{#each parametersOf(method) as p (p.parameterKey)}
+  {@const chosen = params[p.parameterKey] ?? []}
+  <div class="gf-field gf-indent" title={p.info ? word(p.info) : ""} hidden={p.parameterKey === "cover_implants" && coverHidden}>
+    <span>{p.title ? word(p.title) : p.parameterKey}</span>
+    {#if p.parameterType === "empire_faction" || p.parameterType === "factional_warfare_complex_type" || p.parameterType === "signature_type" || p.parameterType === "corporation_office_location" || p.parameterType === "on_behalf_of"}
+      {@const choices = p.parameterType === "empire_faction" ? FW_FACTIONS.map((id) => ({ id, label: nameAny("owner", id) || String(id) }))
+        : p.parameterType === "factional_warfare_complex_type" ? fwComplexes.map((c) => ({ id: c.id, label: c.label ? word(c.label) : String(c.id) }))
+        : p.parameterType === "signature_type" ? SIGNATURES.map(([id, l]) => ({ id, label: word(l) }))
+        : p.parameterType === "on_behalf_of" ? [{ id: 1, label: word("UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCharacter") }, { id: 2, label: word("UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCorp") }]
+        : offices.map((o) => ({ id: o.stationID, label: o.name }))}
+      <select value={chosen[0] ? String(chosen[0]) : p.parameterType === "on_behalf_of" ? "1" : ""} onchange={(e) => { const v = Number(e.currentTarget.value); params = { ...params, [p.parameterKey]: v ? [v] : [] }; }}>
+        {#if p.parameterType !== "on_behalf_of" && !p.isRequired}<option value="">{word("UI/Common/Any")}</option>{/if}
+        {#each choices as c (c.id)}<option value={String(c.id)}>{c.label}</option>{/each}
+      </select>
+    {:else if p.parameterType === "corporation_office"}
+      <select value={chosen[0] ? String(chosen[0]) : ""} onchange={(e) => { const v = Number(e.currentTarget.value); params = { ...params, [p.parameterKey]: v ? [v] : [] }; }}>
+        {#if !p.isRequired}<option value="">{word("UI/Common/Any")}</option>{/if}
+        {#each offices as o (o.officeID)}<option value={String(o.officeID)}>{o.name}</option>{/each}
+      </select>
+    {:else if p.parameterType === "capsuleer_involvement"}
+      <!-- BooleanParameter: the parameter's title as the choice, OnlyCoverLossesCausedByCapsuleers / AnyLossesCovered. -->
+      <label class="gf-check"><input type="checkbox" checked={bools[p.parameterKey] ?? false} onchange={(e) => { bools = { ...bools, [p.parameterKey]: e.currentTarget.checked }; }} />
+        {word(bools[p.parameterKey] ? "UI/Corporations/Goals/OnlyCoverLossesCausedByCapsuleers" : "UI/Corporations/Goals/AnyLossesCovered")}</label>
+    {:else if BUILT.has(p.parameterType)}
+      {#if chosen.length}<span class="gf-chips">{#each chosen as id (id)}<span class="gf-chip">{paramNames[id] ?? id}<button onclick={() => dropParam(p.parameterKey, id)}>✕</button></span>{/each}</span>{/if}
+      {#if chosen.length < (p.maxEntries ?? 1)}
+        <input placeholder={placeholder(p)} value={search[p.parameterKey] ?? ""} oninput={(e) => findFor(p, e.currentTarget.value)} />
+        {#if (found[p.parameterKey] ?? []).length}
+          <div class="gf-found">{#each found[p.parameterKey] ?? [] as m (m.id)}<button onclick={() => pickParam(p, m.id, m.name)}>{m.name} <small>{m.sub}</small></button>{/each}</div>
+        {/if}
+      {/if}
+      {#if tried && p.isRequired && !chosen.length}<small class="gf-error">{word("UI/Control/Form/InputRequired")}</small>{/if}
+    {:else}
+      <small class="gf-dim">{word("UI/Common/Any")}</small>
+    {/if}
+  </div>
+{/each}
+{/snippet}
 
 <div class="gf-back">
   <div class="gf" role="dialog" aria-label={word(G + "NewProject")}>
@@ -175,43 +235,21 @@
             {#if tried && methodError}<small class="gf-error">{methodError}</small>{/if}</label>
           {#if method}
             {#if NOT_YET.has(method)}<p class="gf-note">{methodWord(method, "descriptionID")}</p>{/if}
-            {#each parametersOf(method) as p (p.parameterKey)}
-              {@const chosen = params[p.parameterKey] ?? []}
-              <div class="gf-field gf-indent" title={p.info ? word(p.info) : ""}>
-                <span>{p.title ? word(p.title) : p.parameterKey}</span>
-                {#if p.parameterType === "empire_faction" || p.parameterType === "factional_warfare_complex_type" || p.parameterType === "signature_type" || p.parameterType === "corporation_office_location" || p.parameterType === "on_behalf_of"}
-                  {@const choices = p.parameterType === "empire_faction" ? FW_FACTIONS.map((id) => ({ id, label: nameAny("owner", id) || String(id) }))
-                    : p.parameterType === "factional_warfare_complex_type" ? fwComplexes.map((c) => ({ id: c.id, label: c.label ? word(c.label) : String(c.id) }))
-                    : p.parameterType === "signature_type" ? SIGNATURES.map(([id, l]) => ({ id, label: word(l) }))
-                    : p.parameterType === "on_behalf_of" ? [{ id: 1, label: word("UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCharacter") }, { id: 2, label: word("UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCorp") }]
-                    : offices.map((o) => ({ id: o.stationID, label: o.name }))}
-                  <select value={chosen[0] ? String(chosen[0]) : p.parameterType === "on_behalf_of" ? "1" : ""} onchange={(e) => { const v = Number(e.currentTarget.value); params = { ...params, [p.parameterKey]: v ? [v] : [] }; }}>
-                    {#if p.parameterType !== "on_behalf_of" && !p.isRequired}<option value="">{word("UI/Common/Any")}</option>{/if}
-                    {#each choices as c (c.id)}<option value={String(c.id)}>{c.label}</option>{/each}
-                  </select>
-                {:else if p.parameterType === "corporation_office"}
-                  <select value={chosen[0] ? String(chosen[0]) : ""} onchange={(e) => { const v = Number(e.currentTarget.value); params = { ...params, [p.parameterKey]: v ? [v] : [] }; }}>
-                    {#if !p.isRequired}<option value="">{word("UI/Common/Any")}</option>{/if}
-                    {#each offices as o (o.officeID)}<option value={String(o.officeID)}>{o.name}</option>{/each}
-                  </select>
-                {:else if BUILT.has(p.parameterType)}
-                  {#if chosen.length}<span class="gf-chips">{#each chosen as id (id)}<span class="gf-chip">{paramNames[id] ?? id}<button onclick={() => dropParam(p.parameterKey, id)}>✕</button></span>{/each}</span>{/if}
-                  {#if chosen.length < (p.maxEntries ?? 1)}
-                    <input placeholder={placeholder(p)} value={search[p.parameterKey] ?? ""} oninput={(e) => findFor(p, e.currentTarget.value)} />
-                    {#if (found[p.parameterKey] ?? []).length}
-                      <div class="gf-found">{#each found[p.parameterKey] ?? [] as m (m.id)}<button onclick={() => pickParam(p, m.id, m.name)}>{m.name} <small>{m.sub}</small></button>{/each}</div>
-                    {/if}
-                  {/if}
-                  {#if tried && p.isRequired && !chosen.length}<small class="gf-error">{word("UI/Control/Form/InputRequired")}</small>{/if}
-                {:else}
-                  <small class="gf-dim">{word("UI/Common/Any")}</small>
-                {/if}
-              </div>
-            {/each}
-            <label class="gf-field gf-indent">{methodWord(method, "targetValueDescriptionID") || word(G + "TargetValue")}<input type="number" min="1" bind:value={desired} /></label>
+            {#if method !== "ShipInsurance"}{@render paramRows(method)}{/if}
+            <label class="gf-field gf-indent" title={method === "ShipInsurance" ? word(G + "ShipInsuranceTargetValueDescription") : ""}>{methodWord(method, "targetValueDescriptionID") || word(G + "TargetValue")}<input type="number" min="1" bind:value={desired} /></label>
+            {#if method === "ShipInsurance"}
+              <label class="gf-field gf-indent" title={word(G + "ShipInsuranceLimitPerContributorTooltip")}>{word(G + "CoverageLimitPerMemberTitle")}
+                <input type="number" min="1" max={desired} placeholder={word(G + "TypeInIskOptional")} value={limit ?? ""} oninput={(e) => { const v = Number(e.currentTarget.value); limit = e.currentTarget.value && v > 0 ? v : null; }} /></label>
+              <label class="gf-field gf-indent" title={word(G + "ShipInsuranceLimitPerContributionTooltip")}>{word(G + "CoverageLimitPerLoss")}
+                <input type="number" min="1" max={desired} placeholder={word(G + "TypeInIskOptional")} value={coverage ?? ""} oninput={(e) => { const v = Number(e.currentTarget.value); coverage = e.currentTarget.value && v > 0 ? v : null; }} /></label>
+              <label class="gf-field gf-indent" title={word(G + "ShipInsuranceCoverageRatio")}>{word(G + "CoverageRatioParamName", { min_value: 10, max_value: 200 })}
+                <input type="number" min="10" max="200" bind:value={ratio} /></label>
+              {@render paramRows(method)}
+            {:else}
             <label class="gf-field gf-indent" title={word(G + "LimitPerContributorHint")}>{word(G + "LimitPerContributor")}
               <input type="number" min="1" max={desired} placeholder={word(G + "TypeInOptionalContributionAmount")} value={limit ?? ""} oninput={(e) => { const v = Number(e.currentTarget.value); limit = e.currentTarget.value && v > 0 ? v : null; }} />
               {#if limit}<small>{word(G + "RequiredContributors", { num: Math.ceil(desired / limit) })}</small>{/if}</label>
+            {/if}
             <label class="gf-check gf-indent" title={word(G + "ExpiredFieldInfo")}><input type="checkbox" bind:checked={hasExpiry} /> {word(G + "SetEndDate")}</label>
             {#if hasExpiry}
               <div class="gf-field gf-indent"><input type="datetime-local" bind:value={expiry} />
@@ -232,7 +270,7 @@
             </select></label>
         {/if}
       </section>
-      <section class:open={section === 3}>
+      <section class:open={section === 3} hidden={method === "ShipInsurance"}>
         <button class="gf-head" onclick={() => { section = 3; }}>3 · {word(G + "PaymentOptional")}</button>
         {#if section === 3}
           <label class="gf-field" title={word(G + "ISKPerUnitOfProgressHint", { divisionName: word("UI/Corporations/Common/CorporateDivisionMasterWallet") })}>{(method && methodWord(method, "rewardingDescriptionID")) || word(G + "ISKPerUnitOfProgress")}
