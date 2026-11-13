@@ -26,7 +26,7 @@
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, corpID, onBack }: { store: ClientStore; flow: AppFlow; corpID: number; onBack: () => void } = $props();
+  let { store, flow, corpID, onBack, openPaintTool }: { store: ClientStore; flow: AppFlow; corpID: number; onBack: () => void; openPaintTool?: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -80,7 +80,7 @@
 {#snippet skinrHeader()}
   <div class="sd-header" style:background-image={`url("${clientTexture("res:/UI/Texture/classes/StructureDesign/background/skinr_banner.png")}")`}>
     <div class="sd-header-text"><span class="sd-caption-large">{plainText(text(P + "TrySKINRTitle"))}</span><span>{plainText(text(P + "TrySKINRDescription"))}</span></div>
-    <button class="sd-primary">🖌 {plainText(text(P + "OpenSKINR"))}</button>
+    <button class="sd-primary" onclick={() => openPaintTool?.()}>🖌 {plainText(text(P + "OpenSKINR"))}</button>
   </div>
 {/snippet}
 
@@ -107,7 +107,7 @@
           <div class="sd-none-content">
             <span class="sd-caption-large">{plainText(text(P + "TrySKINRTitle"))}</span>
             <span>{plainText(text(P + "TrySKINRDescription"))}</span>
-            <button class="sd-primary">🖌 {plainText(text(P + "OpenSKINR"))}</button>
+            <button class="sd-primary" onclick={() => openPaintTool?.()}>🖌 {plainText(text(P + "OpenSKINR"))}</button>
           </div>
         </div>
       {:else}

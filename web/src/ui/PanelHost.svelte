@@ -21,6 +21,7 @@
   import AgentsMissions from "./AgentsMissions.svelte";
   import AgentFinder from "./AgentFinder.svelte";
   import JobBoardWindow from "./JobBoardWindow.svelte";
+  import PaintToolWindow from "./PaintToolWindow.svelte";
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
   import DronesPanel from "./DronesPanel.svelte";
@@ -157,6 +158,8 @@
   <PersonalAssets {store} {flow} />
 {:else if tab === "agents"}
   <AgentsMissions {store} {flow} />
+{:else if tab === "paintTool"}
+  <PaintToolWindow {store} {flow} {onClose} />
 {:else if tab === "jobBoard"}
   <JobBoardWindow {store} {flow} openCorporation={() => onOpen?.("corporation")} />
 {:else if tab === "finder"}
@@ -196,7 +199,7 @@
 {:else if tab === "characterSheet"}
   <CharacterSheet {store} {flow} />
 {:else if tab === "corporation"}
-  <CorporationWindow {store} {flow} openMail={() => onOpen?.("mail")} openWatchlist={() => onOpen?.("watchlist")} />
+  <CorporationWindow {store} {flow} openMail={() => onOpen?.("mail")} openWatchlist={() => onOpen?.("watchlist")} openPaintTool={() => onOpen?.("paintTool")} />
 {:else if tab === "memberDetails"}
   {#key $memberDetails?.characterID}<CorporationMemberDetails {store} {flow} {onClose} />{/key}
 {:else if tab === "medalDesigner"}

@@ -51,7 +51,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
 
-  let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
+  let { store, flow, openMail, openWatchlist, openPaintTool }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void; openPaintTool?: () => void } = $props();
 
   let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance" | "directEnlistment" | "allianceSovereignty" | "allianceSystems" | "allianceSovHubs">("contacts");
   /**
@@ -369,7 +369,7 @@
       {#if panel === "titles"}<CorporationTitles {store} {flow} />{/if}
       {#if panel === "roleManagement"}<CorporationRoleManagement {store} {flow} />{/if}
       {#if panel === "assets"}<CorporationAssets {store} {flow} />{/if}
-      {#if panel === "brand"}<CorporationBrand {store} {flow} />{/if}
+      {#if panel === "brand"}<CorporationBrand {store} {flow} {openPaintTool} />{/if}
       {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}

@@ -66,6 +66,12 @@ const TABLES = Object.freeze({
   objectiveChains: Object.freeze({ loader: "objectiveChainsLoader", resource: "res:/staticdata/objectivechains.fsdbinary" }),
   objectiveTypes: Object.freeze({ loader: "objectiveTypesLoader", resource: "res:/staticdata/objectivetypes.fsdbinary" }),
   objectiveTaskTypes: Object.freeze({ loader: "objectiveTaskTypesLoader", resource: "res:/staticdata/objectivetasktypes.fsdbinary" }),
+  // The structure paints and their hue categories (paints/data/dataLoader.py: a paint's paintNameID, materialName,
+  // finish, rarity and hueCategory; a hue category's hueNameID and hue), in the order the loader iterates them: the
+  // paint tool's library sorts them from that order (PaintLibraryPanel._get_sorted_paints).
+  paints: Object.freeze({ loader: "paintsLoader", resource: "res:/staticdata/paints.fsdbinary", keyOrder: true }),
+  // (keyed by name: JSON keeps that order).
+  hueCategories: Object.freeze({ loader: "hueCategoriesLoader", resource: "res:/staticdata/huecategories.fsdbinary" }),
   // The special effects that are a jump (fsdBuiltData/client/travelEffects.py, by guid): IsTravelEffect.
   travelEffects: Object.freeze({ loader: "travelEffectsLoader", resource: "res:/staticdata/traveleffects.fsdbinary" }),
   // The skills a type needs and at what level, by type (evetypes/skills.py get_dogma_required_skills), which the

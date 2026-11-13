@@ -14036,6 +14036,77 @@ app.get("/api/client-data/type-list/:listID", requireAuth, async (req, res, next
   } catch (error) { next(error); }
 });
 
+// Python 2.7's str hash (64-bit, no randomisation) and the order a dict of str keys, inserted one after another,
+// iterates in (dictobject.c: an 8-slot table, lookdict_string's probing - i = 5i + perturb + 1, perturb >>= 5 -,
+// resized to the smallest power of two above 4 x used once fill x 3 >= size x 2, the old slots re-inserted in order).
+function py2StrHash(s) {
+  if (!s.length) return 0n;
+  let x = BigInt(s.charCodeAt(0)) << 7n;
+  for (let i = 0; i < s.length; i += 1) x = BigInt.asIntN(64, BigInt.asIntN(64, 1000003n * x) ^ BigInt(s.charCodeAt(i)));
+  x = BigInt.asIntN(64, x ^ BigInt(s.length));
+  return x === -1n ? -2n : x;
+}
+function py2DictOrder(keys) {
+  const place = (table, key) => {
+    const mask = BigInt(table.length - 1), hash = py2StrHash(key);
+    let i = BigInt.asUintN(64, hash), perturb = BigInt.asUintN(64, hash);
+    while (table[Number(i & mask)] !== undefined) {
+      i = BigInt.asUintN(64, (i << 2n) + i + perturb + 1n);
+      perturb >>= 5n;
+    }
+    table[Number(i & mask)] = key;
+  };
+  let table = new Array(8).fill(undefined), used = 0;
+  for (const key of keys) {
+    place(table, key);
+    used += 1;
+    if (used * 3 >= table.length * 2) {
+      let size = 8;
+      while (size <= 4 * used) size <<= 1;
+      const old = table.filter((k) => k !== undefined);
+      table = new Array(size).fill(undefined);
+      for (const k of old) place(table, k);
+    }
+  }
+  return table.filter((k) => k !== undefined);
+}
+
+// The paint tool's paint library (PaintLibraryPanel._get_sorted_paints): the hue categories by their hue (a stable
+// sort of the loader's order), in each the paints sorted by finish (matt 1, coated 2, satin 3), grouped in a dict by
+// the last three "_" parts of their material name - the groups in that dict's order, each by finish; with each paint's
+// name message, finish, rarity and hue category, and the hue categories' names. `available` false where unread.
+app.get("/api/client-data/paints", requireAuth, async (req, res, next) => {
+  try {
+    const [paints, hues] = await Promise.all([clientBuiltData.table("paints").catch(() => null), clientBuiltData.table("hueCategories").catch(() => null)]);
+    if (!paints || !hues) return res.json({ ok: true, available: false, paints: [], hueCategories: [] });
+    const FINISH_ORDER = { matt: 1, coated: 2, satin: 3 };
+    const paintIDs = (paints["#order"] || []).map(Number);
+    const hueIDs = Object.keys(hues);
+    const byHue = hueIDs.map((hueID) => ({ hueID, hue: Number(hues[String(hueID)] && hues[String(hueID)].hue) || 0,
+      paints: paintIDs.filter((id) => paints[String(id)].hueCategory === hueID).map((id) => ({ id, material: String(paints[String(id)].materialName || ""), order: FINISH_ORDER[paints[String(id)].finish] ?? 99 }))
+        .map((p, index) => ({ ...p, index })).sort((a, b) => a.order - b.order || a.index - b.index) }))
+      .map((h, index) => ({ ...h, index })).sort((a, b) => a.hue - b.hue || a.index - b.index);
+    const sorted = [];
+    for (const h of byHue) {
+      const groups = new Map();
+      for (const p of h.paints) {
+        const key = p.material.split("_").slice(-3).join("_");
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(p);
+      }
+      for (const key of py2DictOrder([...groups.keys()])) sorted.push(...groups.get(key).map((p, index) => ({ ...p, index })).sort((a, b) => a.order - b.order || a.index - b.index).map((p) => p.id));
+    }
+    // cosmetics.common.structures.const.PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS and each one's graphicID (the paint tool's
+    // structure icons: classes/paintTool/structureIcons/<graphicID>_512_tr.png).
+    const ELIGIBLE = [35832, 35833, 35834, 35825, 35826, 35827, 35835, 35836, 35840, 37534, 35841];
+    const typeRows = typeof clientBuiltData.rows === "function" ? await clientBuiltData.rows("types", ELIGIBLE).catch(() => null) : null;
+    res.json({ ok: true, available: true,
+      structures: ELIGIBLE.map((typeID) => ({ typeID, graphicID: Number(typeRows && typeRows[String(typeID)] && typeRows[String(typeID)].graphicID) || null })),
+      paints: sorted.map((id) => { const p = paints[String(id)]; return { id, nameID: Number(p.paintNameID) || null, finish: p.finish || null, rarity: p.rarity || null, hueCategory: p.hueCategory || null, material: p.materialName || null }; }),
+      hueCategories: hueIDs.map((id) => ({ id, nameID: Number(hues[String(id)].hueNameID) || null, hue: hues[String(id)].hue })) });
+  } catch (error) { next(error); }
+});
+
 // The ship tree's classes (shipgroup.ALL_GROUPS, in its order), each with its name's message and small icon from the
 // client's infoBubbleGroups (get_ship_tree_group_name / get_ship_tree_group_icon_small), as ShipTypeParameter's
 // "ship_class" values are picked. `available` false where the client's data could not be read.

@@ -33,6 +33,7 @@ export type CoreTabID =
   | "agents"
   | "finder"
   | "jobBoard"
+  | "paintTool"
   | "skills"
   | "planets"
   | "industryManager"
@@ -196,6 +197,8 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "finder", label: "Agent Finder", where: "both" },
   // The client's job board (JobBoardWindow, "Opportunities"): here its freelance jobs.
   { id: "jobBoard", label: "Opportunities", where: "both" },
+  // The structure paint tool (PaintToolWnd, "Structure SKINR"), opened from Brand Management's Open SKINR.
+  { id: "paintTool", label: "Structure SKINR", where: "both", launchable: false },
   { id: "skills", label: "Skills", where: "both" },
   { id: "planets", label: "Planets", where: "both" },
   // R109 — a GLOBAL window: a blueprint expanded into its whole build tree,

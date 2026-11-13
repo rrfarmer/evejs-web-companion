@@ -5788,6 +5788,18 @@ export async function loadTypeListGroups(listID: number, options: ApiOptions = {
   return data.available && Array.isArray(data.groupIDs) ? (data.groupIDs as number[]) : null;
 }
 
+/** GET /api/client-data/paints: the paint tool's library in the client's order, the hue categories, and the eligible
+ * structures' graphic IDs; null where unread. */
+export interface PaintToolData {
+  readonly paints: readonly { readonly id: number; readonly nameID: number | null; readonly finish: string | null; readonly rarity: string | null; readonly hueCategory: string | null }[];
+  readonly hueCategories: readonly { readonly id: string; readonly nameID: number | null; readonly hue: number }[];
+  readonly structures: readonly { readonly typeID: number; readonly graphicID: number | null }[];
+}
+export async function loadPaintToolData(options: ApiOptions = {}): Promise<PaintToolData | null> {
+  const data = await getJson("/api/client-data/paints", options);
+  return data.available ? (data as unknown as PaintToolData) : null;
+}
+
 /** GET /api/client-data/ship-classes: the ship tree's classes (shipgroup.ALL_GROUPS) with their names' messages. */
 export async function loadShipClasses(options: ApiOptions = {}): Promise<readonly { readonly id: number; readonly nameID: number | null; readonly iconSmall: string | null }[] | null> {
   const data = await getJson("/api/client-data/ship-classes", options);

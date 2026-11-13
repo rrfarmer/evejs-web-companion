@@ -351,7 +351,7 @@
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
-    notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 },
+    notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 },
   };
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {

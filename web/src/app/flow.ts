@@ -3582,6 +3582,9 @@ export interface AppFlow {
   goalOreGroups(): Promise<readonly number[] | null>;
   /** LpNpcCorporationParameter's corporations (not Heraldry; an LP offer table or exchange rates), their names asked. */
   goalLpCorporations(): Promise<readonly number[] | null>;
+  /** The paint tool's data (paints in PaintLibraryPanel's order, hue categories, the eligible structures' graphics),
+   * the paints' and structures' names asked; null where unread. */
+  paintToolData(): Promise<import("./api.ts").PaintToolData | null>;
   /** CorpGoalsController.redeem_reward - goalMessenger.redeem_reward: RedeemMyRewardsRequest(goal_id); a failure is
    * on_goal_redeem_failed (false). */
   redeemCorporationGoalReward(goalID: string): Promise<boolean>;
@@ -19247,6 +19250,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     lpCorporationsHeld ??= api.loadLpCorporations(callOptions).then((c) => { if (c) requestNames(c.map((id) => ({ kind: "owner" as const, id }))); return c; }, () => { lpCorporationsHeld = null; return null; });
     return lpCorporationsHeld;
   }
+  let paintToolHeld: Promise<import("./api.ts").PaintToolData | null> | null = null;
+  function paintToolData(): Promise<import("./api.ts").PaintToolData | null> {
+    paintToolHeld ??= api.loadPaintToolData(callOptions).then((d) => {
+      if (d) {
+        requestWords([...d.paints.flatMap((p) => (p.nameID ? [`#${p.nameID}`] : [])), ...d.hueCategories.flatMap((h) => (h.nameID ? [`#${h.nameID}`] : []))]);
+        requestNames(d.structures.map((s) => ({ kind: "type" as const, id: s.typeID })));
+      }
+      return d;
+    }, () => { paintToolHeld = null; return null; });
+    return paintToolHeld;
+  }
   const goalTypeFilters = new Map<string, Promise<ReadonlySet<number> | null>>();
   function goalTypeFilter(kind: "mineable" | "manufacturable"): Promise<ReadonlySet<number> | null> {
     let held = goalTypeFilters.get(kind);
@@ -33038,6 +33052,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     goalShipClasses,
     goalOreGroups,
     goalLpCorporations,
+    paintToolData,
     corporationOfficeOptions,
     setCorporationGoalProgress,
     corporationMembersWithMoreThanAvgShares,
