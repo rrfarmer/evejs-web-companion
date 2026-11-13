@@ -3347,6 +3347,9 @@ export interface AppFlow {
   /** CorporationOfficeParameter._get_options: officeManager.GetMyCorporationsOffices() - each office's id and its
    * station's name. */
   corporationOfficeOptions(): Promise<readonly { readonly officeID: number; readonly stationID: number; readonly name: string }[]>;
+  /** FactionalWarfareComplexParameter._get_options: the FW complex archetypes 33-36 (Novice, Small, Medium, Large) and
+   * their titles (GetArchetypeTitle), as message labels. */
+  fwComplexOptions(): Promise<readonly { readonly id: number; readonly label: string }[]>;
   /** _SetProgress - set_current_progress: SetCurrentProgressRequest(goal, current_progress, min(new, desired)). */
   setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean>;
   /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
@@ -18611,6 +18614,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // idCheckers: regions 10000000-, constellations 20000000-, solar systems 30000000-.
       return { sets: { systems: ids.map((id) => (id >= 30_000_000 ? { solar_system: { sequential: id } } : id >= 20_000_000 ? { constellation: { sequential: id } } : { region: { sequential: id } })) } } as unknown as JsonValue;
     };
+    // An owner's kind rides beside it as "<key>:kind:<id>": 1 character, 2 corporation, 3 alliance, 4 faction
+    // (OwnerParameter.get_configuration sorts them by idCheckers).
+    const identityKind = (key: string, id: number): number => Number(parameters[`${key}:kind:${id}`] ?? 1);
+    const identityMatcher = (key: string): JsonValue => {
+      const id = one(key); if (!id) return { any: true };
+      const k = identityKind(key, id);
+      return k === 2 ? { match_corporation_value: { sequential: id } } : k === 3 ? { match_alliance_value: { sequential: id } } : k === 4 ? { match_faction_value: { sequential: id } } : { match_character_value: { sequential: id } };
+    };
+    const identitySets = (key: string): JsonValue => {
+      const ids = many(key); if (!ids.length) return { all: true };
+      return { sets: { characters: ids.map((id) => { const k = identityKind(key, id); return k === 2 ? { corporation: { sequential: id } } : k === 3 ? { alliance: { sequential: id } } : k === 4 ? { faction: { sequential: id } } : { character: { sequential: id } }; }) } } as unknown as JsonValue;
+    };
+    const shipSets = (): JsonValue => { const ids = many("ship"); return ids.length ? { sets: { ships: ids.map((id) => ({ ship_type: { sequential: id } })) } } as unknown as JsonValue : { all: true }; };
+    const oreSets = (): JsonValue => { const ids = many("ore"); return ids.length ? { sets: { ores: ids.map((id) => ({ ore_type: { sequential: id } })) } } as unknown as JsonValue : { all: true }; };
+    const match = (key: string): JsonValue => { const id = one(key); return id ? { match_value: { sequential: id } } : { any: true }; };
+    if (methodID === "ManufactureItem") {
+      // construct_manufacture_items_proto: the item, the job's owner (ON_BEHALF_OF_CHARACTER / _CORP), its location.
+      const item = one("item_type"), place = one("facility_location");
+      // on_behalf_of: 1 ON_BEHALF_OF_CHARACTER (the default), 2 ON_BEHALF_OF_CORP.
+      const owner = one("owner");
+      if (!item) return null;
+      return ["install_manufacturing_job", { contribution_methods: [{ item_type: { item_type: { sequential: item } },
+        job_owner_type: owner === 2 ? { match_any_corporation: true } : { match_any_character: true },
+        job_location: !place ? { any: true } : place >= 60_000_000 && place < 64_000_000 ? { station: { sequential: place } } : { structure: { sequential: place } } }] }];
+    }
     if (methodID === "DeliverItem") {
       const item = one("item_type"), office = one("office");
       if (!item) return null;
@@ -18624,8 +18652,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (Array.isArray(config.contribution_methods)) {
       const matcher = config.contribution_methods[0] as Record<string, JsonValue>;
       if ("solar_system" in matcher) matcher.solar_system = systemMatcher();
-    } else if ("solar_systems" in config) config.solar_systems = systemSets();
+      if ("ship_type" in matcher) matcher.ship_type = match("ship");
+      if ("identity" in matcher) matcher.identity = identityMatcher("organization");
+      if ("previous_owner" in matcher) matcher.previous_owner = match("faction");
+      if ("owner" in matcher) matcher.owner = match("faction");
+      if ("archetype" in matcher) matcher.archetype = match("complex_type");
+      if ("signature_type" in matcher) matcher.signature_type = match("signature_type");
+    } else {
+      if ("solar_systems" in config) config.solar_systems = systemSets();
+      if ("ships" in config) config.ships = shipSets();
+      if ("ores" in config) config.ores = oreSets();
+      for (const key of ["attacked_identities", "destroyed_identities"]) if (key in config) config[key] = identitySets("organization");
+    }
     return [field, config];
+  }
+  async function fwComplexOptions(): Promise<readonly { readonly id: number; readonly label: string }[]> {
+    const titles = await api.loadArchetypeTitles([33, 34, 35, 36], callOptions).catch(() => ({} as Record<string, number | null>));
+    const out = [33, 34, 35, 36].map((id) => ({ id, label: titles[String(id)] ? `#${titles[String(id)]}` : "" }));
+    requestWords(out.map((o) => o.label).filter(Boolean));
+    return out;
   }
   async function goalLocationMatches(text: string, several: boolean): Promise<readonly { readonly id: number; readonly name: string; readonly kind: "system" | "constellation" | "region"; readonly security: number | null }[]> {
     const q = text.trim().toLowerCase();
@@ -32014,6 +32059,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationGoalAction,
     createCorporationGoal,
     goalLocationMatches,
+    fwComplexOptions,
     corporationOfficeOptions,
     setCorporationGoalProgress,
     corporationMembersWithMoreThanAvgShares,

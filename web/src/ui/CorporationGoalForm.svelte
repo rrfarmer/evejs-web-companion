@@ -16,9 +16,15 @@
   // regions), an item type (InventoryTypeParameter - formComponent.EveType), a corporation office
   // (CorporationOfficeParameter - Any and the offices); the parameter's title, its info as the hint, the placeholder
   // TypeInName or the unset description with "(Optional)"; a required one InputRequired.
-  // Not here yet: the other parameter types (ship, identity, ore, manufacturable item, owner, office location,
-  // faction, complex, signature, LP corporation, insurance) - left at any; Manufacture Item and Ship Insurance cannot be
-  // made yet.
+  // Also: a ship type (ShipTypeParameter - EveType of the Ship category), an ore (MineableOreParameter), a
+  // manufacturable item (ManufacturableItemParameter), an owner (OwnerParameter - PlayerOrPlayerOrganization: the
+  // owner search; kinds by idCheckers), an empire faction (NpcFactionParameter: Any and the four occupier factions),
+  // an FW complex size (archetypes 33-36 by title), a signature type (EXPLORATION_SITE_TYPES in the client's dict
+  // order: Combat, Data, Gas, Relic, Ore, Wormhole), on whose behalf (RunJobOnBehalfOfCharacter, the default, or
+  // ...Corp), the office's location (Any and the offices' stations).
+  // Not here yet: ship classes, ore groups, the LP corporation list and the hacking container type (left at any), the
+  // type filters are by category name only (Ship, Asteroid; a manufacturable item is any market type); Ship
+  // Insurance cannot be made yet.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
@@ -40,20 +46,31 @@
     .concat(["UI/Common/Description", "UI/Common/Name", "Character/CareerPaths/CareerPath", "Character/CareerPaths/Unclassified", "UI/Common/Cancel", "UI/Common/ISK",
       "UI/Control/Form/InputRequired", "UI/Control/Form/LengthBetweenRequired", "UI/Control/Form/LengthBelowRequired", "UI/Control/Form/OnlySingleWhitespacesAllowed",
       "UI/Control/Form/IllegalCharacters", "UI/Corporations/Common/CorporateDivisionMasterWallet", "UI/Corporations/Goals/TypeInName", "UI/Corporations/Goals/Optional",
-      "UI/Corporations/Goals/AnyCorpOffice", "UI/Common/Any"]);
+      "UI/Corporations/Goals/AnyCorpOffice", "UI/Common/Any", "UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCharacter", "UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCorp",
+      "UI/Inflight/Scanner/CombatSite", "UI/Inflight/Scanner/DataSite", "UI/Inflight/Scanner/GasSite", "UI/Inflight/Scanner/RelicSite", "UI/Inflight/Scanner/OreSite",
+      "UI/Inflight/Scanner/Wormhole"]);
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   // goalConst.ALLOWED_CONTRIBUTION_METHOD_TYPES.
   const ALLOWED = ["Manual", "DamageShip", "DeliverItem", "KillNPC", "MineOre", "ManufactureItem", "KillCapsuleer", "CaptureFWComplex", "DefendFWComplex",
     "RemoteRepairShields", "RemoteRepairArmor", "ScanSignature", "SalvageWreck", "EarnLoyaltyPoints", "ShipLoss", "ShipInsurance"];
-  const NOT_YET = new Set(["ManufactureItem", "ShipInsurance"]);
+  const NOT_YET = new Set(["ShipInsurance"]);
   type Parameter = { readonly parameterKey: string; readonly parameterType: string; readonly isRequired?: number; readonly maxEntries?: number; readonly title?: string; readonly info?: string };
-  const BUILT = new Set(["location", "inventory_type", "corporation_office"]);
+  const BUILT = new Set(["location", "inventory_type", "corporation_office", "ship_type", "mineable_ore_type", "manufacturable_item_type", "identity",
+    "empire_faction", "factional_warfare_complex_type", "signature_type", "on_behalf_of", "corporation_office_location"]);
+  // The kinds searched by name, and their category filter.
+  const TYPE_SEARCH: Record<string, string | null> = { inventory_type: null, ship_type: "Ship", mineable_ore_type: "Asteroid", manufacturable_item_type: null };
+  // probescanning.explorationSites.EXPLORATION_SITE_TYPES, as the client's dict orders its keys (asked of its Python).
+  const SIGNATURES: readonly [number, string][] = [[1136, "UI/Inflight/Scanner/CombatSite"], [208, "UI/Inflight/Scanner/DataSite"], [209, "UI/Inflight/Scanner/GasSite"],
+    [210, "UI/Inflight/Scanner/RelicSite"], [211, "UI/Inflight/Scanner/OreSite"], [1908, "UI/Inflight/Scanner/Wormhole"]];
+  // IsOccupierFWFaction: Caldari, Minmatar, Amarr, Gallente.
+  const FW_FACTIONS = [500001, 500002, 500003, 500004];
+  let kinds = $state<Record<string, number>>({}), fwComplexes = $state<readonly { id: number; label: string }[]>([]);
   const parametersOf = (id: string): readonly Parameter[] => ((methods[id] as { parameters?: readonly Parameter[] } | undefined)?.parameters ?? []);
   // The values by parameter key: one id, or several where maxEntries > 1.
   let params = $state<Record<string, number[]>>({}), paramNames = $state<Record<number, string>>({});
   let search = $state<Record<string, string>>({}), found = $state<Record<string, readonly { id: number; name: string; sub: string }[]>>({});
-  let offices = $state<readonly { officeID: number; name: string }[]>([]);
+  let offices = $state<readonly { officeID: number; stationID: number; name: string }[]>([]);
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   function findFor(p: Parameter, text: string): void {
     search = { ...search, [p.parameterKey]: text };
@@ -62,9 +79,15 @@
       if (p.parameterType === "location") {
         const r = await flow.goalLocationMatches(text, (p.maxEntries ?? 1) > 1);
         found = { ...found, [p.parameterKey]: r.map((m) => ({ id: m.id, name: m.kind === "system" && m.security !== null ? `${m.name} ${m.security.toFixed(1)}` : m.name, sub: m.kind })) };
-      } else if (p.parameterType === "inventory_type") {
+      } else if (p.parameterType in TYPE_SEARCH) {
         const r = text.trim().length < 3 ? { exact: null, matches: [] } : await flow.marketTypeMatches(text);
-        found = { ...found, [p.parameterKey]: r.matches.slice(0, 50).map((m) => ({ id: m.typeID, name: m.name, sub: m.category })) };
+        const only = TYPE_SEARCH[p.parameterType];
+        found = { ...found, [p.parameterKey]: r.matches.filter((m) => !only || m.category === only).slice(0, 50).map((m) => ({ id: m.typeID, name: m.name, sub: m.category })) };
+      } else if (p.parameterType === "identity") {
+        const r = text.trim().length < 3 ? [] : await flow.lookupPlayerOwners(text);
+        // OwnerParameter.get_configuration's kinds: corporation (type 2), alliance (16159), faction (30), else character.
+        kinds = { ...kinds, ...Object.fromEntries(r.map((o) => [`${p.parameterKey}:kind:${o.ownerID}`, o.typeID === 2 ? 2 : o.typeID === 16159 ? 3 : o.typeID === 30 ? 4 : 1])) };
+        found = { ...found, [p.parameterKey]: r.slice(0, 50).map((o) => ({ id: o.ownerID, name: o.ownerName, sub: o.typeID === 2 ? "Corporation" : o.typeID === 16159 ? "Alliance" : o.typeID === 30 ? "Faction" : "Character" })) };
       }
     }, 250);
   }
@@ -90,6 +113,8 @@
     flow.requestWords(Object.values(methods).flatMap((m) => Object.entries(m).filter(([k, v]) => k.endsWith("ID") && typeof v === "number").map(([, v]) => `#${v}`)));
     flow.requestWords(Object.values(methods).flatMap((m) => ((m as { parameters?: readonly Parameter[] }).parameters ?? []).flatMap((p) => [p.title, p.info].filter((x): x is string => typeof x === "string"))));
     void flow.corporationOfficeOptions().then((o) => { offices = o; }, () => {});
+    void flow.fwComplexOptions().then((o) => { fwComplexes = o; }, () => {});
+    flow.requestNames(FW_FACTIONS.map((id) => ({ kind: "owner" as const, id })));
     void flow.certifiedSkillPlans().then((r) => { if (r) careerNames = Object.fromEntries(r.careerPaths.filter((c) => c.nameID !== null).map((c) => [c.careerPathID, c.nameID!])); }, () => {});
   });
 
@@ -115,7 +140,7 @@
   });
   const descriptionError = $derived(description.length > 1000 ? word("UI/Control/Form/LengthBelowRequired", { maxLength: 1000, length: description.length }) : "");
   const methodError = $derived(!method ? word("UI/Control/Form/InputRequired") : "");
-  const missingRequired = $derived(method ? parametersOf(method).some((p) => p.isRequired && BUILT.has(p.parameterType) && !(params[p.parameterKey] ?? []).length) : false);
+  const missingRequired = $derived(method ? parametersOf(method).some((p) => p.isRequired && BUILT.has(p.parameterType) && p.parameterType !== "on_behalf_of" && !(params[p.parameterKey] ?? []).length) : false);
   const valid = $derived(!methodError && !nameError && !descriptionError && desired >= 1 && (!limit || limit <= desired) && !NOT_YET.has(method) && !missingRequired);
   const total = $derived((perUnit || 0) * (desired || 0));
   const isk = (v: number) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${word("UI/Common/ISK") || "ISK"}`;
@@ -126,7 +151,7 @@
     try {
       const made = await flow.createCorporationGoal({ name, description, desired, methodID: method, careerPath: career || null, payment: perUnit > 0 ? perUnit : null,
         expiry: hasExpiry ? new Date(expiry).getTime() : null, participationLimit: limit && limit > 0 ? limit : null, capacity,
-        parameters: Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v.length ? v : null])) });
+        parameters: { ...kinds, ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v.length ? v : null])) } });
       if (made) onClose(true);
     } finally { submitting = false; }
   }
@@ -154,7 +179,17 @@
               {@const chosen = params[p.parameterKey] ?? []}
               <div class="gf-field gf-indent" title={p.info ? word(p.info) : ""}>
                 <span>{p.title ? word(p.title) : p.parameterKey}</span>
-                {#if p.parameterType === "corporation_office"}
+                {#if p.parameterType === "empire_faction" || p.parameterType === "factional_warfare_complex_type" || p.parameterType === "signature_type" || p.parameterType === "corporation_office_location" || p.parameterType === "on_behalf_of"}
+                  {@const choices = p.parameterType === "empire_faction" ? FW_FACTIONS.map((id) => ({ id, label: nameAny("owner", id) || String(id) }))
+                    : p.parameterType === "factional_warfare_complex_type" ? fwComplexes.map((c) => ({ id: c.id, label: c.label ? word(c.label) : String(c.id) }))
+                    : p.parameterType === "signature_type" ? SIGNATURES.map(([id, l]) => ({ id, label: word(l) }))
+                    : p.parameterType === "on_behalf_of" ? [{ id: 1, label: word("UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCharacter") }, { id: 2, label: word("UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCorp") }]
+                    : offices.map((o) => ({ id: o.stationID, label: o.name }))}
+                  <select value={chosen[0] ? String(chosen[0]) : p.parameterType === "on_behalf_of" ? "1" : ""} onchange={(e) => { const v = Number(e.currentTarget.value); params = { ...params, [p.parameterKey]: v ? [v] : [] }; }}>
+                    {#if p.parameterType !== "on_behalf_of" && !p.isRequired}<option value="">{word("UI/Common/Any")}</option>{/if}
+                    {#each choices as c (c.id)}<option value={String(c.id)}>{c.label}</option>{/each}
+                  </select>
+                {:else if p.parameterType === "corporation_office"}
                   <select value={chosen[0] ? String(chosen[0]) : ""} onchange={(e) => { const v = Number(e.currentTarget.value); params = { ...params, [p.parameterKey]: v ? [v] : [] }; }}>
                     {#if !p.isRequired}<option value="">{word("UI/Common/Any")}</option>{/if}
                     {#each offices as o (o.officeID)}<option value={String(o.officeID)}>{o.name}</option>{/each}

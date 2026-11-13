@@ -14007,6 +14007,18 @@ app.get("/api/client-data/contribution-methods", requireAuth, async (req, res, n
   } catch (error) { next(error); }
 });
 
+// Dungeon archetypes' title messages (evearchetypes.GetArchetypeTitle), for the ids asked (?ids=33,34). `available`
+// false where the client's data could not be read.
+app.get("/api/client-data/archetype-titles", requireAuth, async (req, res, next) => {
+  try {
+    const ids = String(req.query.ids || "").split(",").map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 200);
+    const table = await clientBuiltData.table("archetypes");
+    const titles = {};
+    for (const id of ids) { const row = table && table[id]; titles[id] = row && typeof row.titleID === "number" ? row.titleID : null; }
+    res.json({ ok: true, available: table !== null, titles });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/client-data/corporation-roles", requireAuth, async (req, res, next) => {
   try {
     const [roles, groups, locationalRoles] = await Promise.all([clientBuiltData.table("corporationRoles"), clientBuiltData.table("corporationRoleGroups"), clientConstants.corporationRoleLocations()]);

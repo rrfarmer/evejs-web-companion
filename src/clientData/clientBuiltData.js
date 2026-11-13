@@ -51,6 +51,8 @@ const TABLES = Object.freeze({
   // The ways a corporation project is contributed to (goals/client/contributionMethodTypeLoader.py), by
   // ContributionMethodTypes key: the title and description messages, icon, unit, parameters and content tags.
   contributionMethods: Object.freeze({ loader: "contributionMethodsLoader", resource: "res:/staticdata/contributionmethods.fsdbinary" }),
+  // Dungeon archetypes (evearchetypes: GetArchetypeTitle - the archetype's titleID), e.g. the FW complex sizes 33-36.
+  archetypes: Object.freeze({ loader: "archetypesLoader", resource: "res:/staticdata/archetypes.fsdbinary" }),
   // A ship type's group in the client's ship tree (evetypes.GetShipGroupID: the type's isisGroupID), which the Ship
   // Restrictions window groups its hulls by. Only that attribute of the types is read: the table is too big to walk.
   typeShipGroups: Object.freeze({ loader: "typesLoader", resource: "res:/staticdata/types.fsdbinary", attribute: "isisGroupID" }),

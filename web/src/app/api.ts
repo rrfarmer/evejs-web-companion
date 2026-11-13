@@ -5776,6 +5776,12 @@ export async function loadContributionMethods(options: ApiOptions = {}): Promise
   return data.available && data.methods && typeof data.methods === "object" ? data.methods as Record<string, { titleID?: number; descriptionID?: number; icon?: string; unit?: number; progressDescriptionID?: number; rewardingDescriptionID?: number }> : null;
 }
 
+/** GET /api/client-data/archetype-titles: each archetype's title message id (null where none). */
+export async function loadArchetypeTitles(ids: readonly number[], options: ApiOptions = {}): Promise<Readonly<Record<string, number | null>>> {
+  const data = await getJson(`/api/client-data/archetype-titles?ids=${ids.join(",")}`, options);
+  return data.titles && typeof data.titles === "object" ? data.titles as Record<string, number | null> : {};
+}
+
 export async function publicGatewayRequest(request: string, payload: Record<string, JsonValue>, options: ApiOptions & { confirm?: boolean } = {}): Promise<PublicGatewayAnswer> {
   const data = await postJson("/api/public-gateway/request", { request, payload, ...(options.confirm ? { confirm: true } : {}) }, options);
   return {
