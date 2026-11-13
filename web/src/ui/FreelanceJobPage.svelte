@@ -25,9 +25,11 @@
   // DragErrorCurrentShip) as CustomWarning OK; then the item primed (its name and count, DeliveryBoxTurnIn, Cancel and
   // DeliveryBoxButton); Deliver runs validate_delivery (ProjectInactive, NotCommited, QuantityTooHigh,
   // ErrorItemSingletonShip / Other, ItemMissing, StackChanged - the item read again) and deliver_item: DeliverRequest,
-  // GetStatusRequest after 5 s; a failure is GenericDeliveryError. Not here: tracking (the TrackJobButton),
-  // ViewMoreForCorporation, the closest solar system chip, the fanfare animation.
+  // GetStatusRequest after 5 s; a failure is GenericDeliveryError. ViewMoreForCorporation (get_buttons, always, last;
+  // open_corporation_window): the corporation's Show Info on its Freelance Projects tab. Not here: tracking (the
+  // TrackJobButton), the closest solar system chip, the fanfare animation.
   import { onMount } from "svelte";
+  import { showCorporationInfoTab, TAB_FREELANCE_PROJECTS } from "./showInfo.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, FreelanceDeliverable, FreelanceJob, FreelanceMethod, FreelanceProject } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -43,7 +45,7 @@
   const names = store.names;
   const F = "UI/Corporations/FreelanceProjects/", G = "UI/Corporations/Goals/";
   const DB = "UI/Corporations/DeliverItem/DeliveryBox/", DE = "UI/Corporations/DeliverItem/Errors/";
-  const LABELS = ["UI/Commands/Back", "UI/Common/ISK", "UI/FreelanceProjects/DuplicateProject", "UI/Corporations/FreelanceProjects/ViewParticipants", G + "Progress", G + "ContributionMethod",
+  const LABELS = ["UI/Commands/Back", "UI/Common/ISK", "UI/FreelanceProjects/ViewMoreForCorporation", "UI/FreelanceProjects/DuplicateProject", "UI/Corporations/FreelanceProjects/ViewParticipants", G + "Progress", G + "ContributionMethod",
     "UI/FreelanceProjects/Commit", "UI/FreelanceProjects/Resign", "UI/Corporations/Goals/ClaimValue", "UI/Inflight/JumpThroughError", "UI/FreelanceProjects/Resigned", "UI/FreelanceProjects/Kicked",
     "UI/Generic/Completed", "UI/Generic/Closed", "UI/Generic/Expired", "UI/Generic/ExpiresIn", "UI/ScienceAndIndustry/ScienceAndIndustryWindow/EndDate", "UI/FreelanceProjects/ActiveParticipants",
     "UI/FreelanceProjects/IncludingYou", "UI/FreelanceProjects/TotalParticipants", "UI/FreelanceProjects/ParticipantsInfoTooltip", "UI/FreelanceProjects/Contributors",
@@ -207,7 +209,8 @@
         <span class="fp-dim">{p.careerPath !== null && careerNames[p.careerPath] ? word(`#${careerNames[p.careerPath]}`) : ""}</span><span class="fp-gap"></span>
         {#if onDuplicate}<button class="fp-ghost" title={word("UI/FreelanceProjects/DuplicateProject")} onclick={() => onDuplicate?.(p)}>⧉</button>{/if}
         {#if p.state === 1 && onViewParticipants}<button class="fp-ghost" title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={() => onViewParticipants?.(p)}>☰</button>{/if}
-        {#if p.state === 1 && onCloseJob}<button class="fp-ghost" title={word(G + "CloseProject")} disabled={busy} onclick={() => void onCloseJob?.(p)}>✕</button>{/if}</div>
+        {#if p.state === 1 && onCloseJob}<button class="fp-ghost" title={word(G + "CloseProject")} disabled={busy} onclick={() => void onCloseJob?.(p)}>✕</button>{/if}
+        <button class="fp-ghost" title={word("UI/FreelanceProjects/ViewMoreForCorporation")} onclick={() => showCorporationInfoTab(j.corporationID, TAB_FREELANCE_PROJECTS)}>⧉↗</button></div>
       <div class="fp-job-head"><h2>{p.name}</h2><b>{nameAny("owner", j.corporationID)}</b></div>
       {#if st}<div style:color={st.color}>{st.text}</div>{/if}
       <div class="fp-buttons fp-cta">

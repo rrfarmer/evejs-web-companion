@@ -28,6 +28,7 @@
   import { commandForKey, COMBAT_WORDS } from "../play/shortcutKeys.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
+  import { jobBoardRequests } from "./jobBoardRequests.ts";
   import { notify } from "./notices.ts";
   import { orderableDroneIDs } from "./droneFlight.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
@@ -270,6 +271,10 @@
       if (error?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: "Show Info", detail: error instanceof Error ? error.message : String(error) });
     });
   }));
+
+  // The job board asked for from elsewhere (open_freelance_project, open_browse_page): its window opened, which takes
+  // the request.
+  $effect(() => jobBoardRequests.subscribe((request) => { if (request) open("jobBoard"); }));
 
   // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with
   // its window icons): those the play mode has a window for.

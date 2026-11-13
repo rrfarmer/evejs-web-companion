@@ -3551,6 +3551,10 @@ export interface AppFlow {
    * sorted into the board's pages by FreelanceProjectJob's is_available_in_browse / is_available_in_active /
    * has_claimable_rewards. */
   freelanceBoard(): Promise<{ readonly browse: readonly FreelanceJob[]; readonly active: readonly FreelanceJob[]; readonly unclaimed: readonly FreelanceJob[] } | null>;
+  /** Show Info's Freelance Projects tab (PanelFreelanceProjects): the corporation's active projects
+   * (request_projects_for_corporation - GetAllActiveForCorporationRequest), each read as the job page reads it, those
+   * of that corporation still active (_is_relevant); null where the read failed (NoCorporationJobsContainer's failure). */
+  corporationFreelanceJobs(corporationID: number): Promise<readonly FreelanceJob[] | null>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
    * checks them (owner, flag, type and group, stack, singleton); null where not docked or unread. */
   freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null>;
@@ -19587,6 +19591,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const unclaimed = jobs.filter((j) => j.unredeemed * j.project.iskPerUnit > 0);
     return { browse, active, unclaimed };
   }
+  async function corporationFreelanceJobs(corporationID: number): Promise<readonly FreelanceJob[] | null> {
+    const a = await api.publicGatewayRequest("eve_public.freelance.project.api.GetAllActiveForCorporationRequest", { corporation: { sequential: corporationID } }, callOptions).catch(() => null);
+    if (!a || a.statusCode !== 200) return null;
+    const payload = (a.payload && typeof a.payload === "object" ? a.payload : {}) as Record<string, unknown>;
+    const ids = (Array.isArray(payload.projects) ? payload.projects : [])
+      .map((x) => uuidFromBytes(String((x && typeof x === "object" ? (x as Record<string, unknown>).uuid : "") ?? ""))).filter((x): x is string => Boolean(x));
+    const jobs = (await Promise.all([...new Set(ids)].map((id) => freelanceJob(id).catch(() => null)))).filter((j): j is FreelanceJob => j !== null);
+    return jobs.filter((j) => j.corporationID === corporationID && j.project.state === 1);
+  }
   async function freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null> {
     const online = store.station.get().online;
     const stationID = online?.stationID ?? null, structureID = online?.structureID ?? null;
@@ -33114,6 +33127,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     freelanceDeliverables,
     deliverToFreelanceJob,
     freelanceBoard,
+    corporationFreelanceJobs,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,

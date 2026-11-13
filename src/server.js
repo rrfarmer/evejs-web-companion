@@ -14677,6 +14677,9 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.freelance.project.api.GetAllCommittedRequest",
   "eve_public.freelance.project.api.GetAllBroadcastedRequest",
   "eve_public.freelance.project.api.GetAllUnredeemedRequest",
+  // Show Info's Freelance Projects tab (PanelFreelanceProjects - repository.request_projects_for_corporation:
+  // messenger.get_by_corporation).
+  "eve_public.freelance.project.api.GetAllActiveForCorporationRequest",
   "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusRequest",
   // The alliance's Sov Hubs page (SovHubEntryController through QuasarCallWrapper): a hub's installed upgrades and the
   // upgrade definitions, its available resources, its fuel, its workforce state; the planets' and stars' resource

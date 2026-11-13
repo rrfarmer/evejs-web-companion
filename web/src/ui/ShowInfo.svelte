@@ -14,6 +14,7 @@
   import { onMount } from "svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import CorpLogo from "./CorpLogo.svelte";
+  import InfoFreelanceProjects from "./InfoFreelanceProjects.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MapRouteStep } from "../app/flow.ts";
@@ -1571,6 +1572,10 @@
           {/each}
         </dl>
         {@render standingsTab()}
+        {#if $subject.kind === "corporation" && !isNpcCorporation($subject.corporationID)}
+          <!-- TAB_FREELANCE_PROJECTS (infosvc.UpdateDataCorp, a player corporation's), after the Standings in INFO_TABS. -->
+          {#key $subject.corporationID}<InfoFreelanceProjects {store} {flow} corporationID={$subject.corporationID} />{/key}
+        {/if}
       {:else if ownerReadDone && $subject.kind === "alliance"}
         <!-- Said, not blanked: the server had no record to give. -->
         <p class="note">The server gave no record of this alliance.</p>

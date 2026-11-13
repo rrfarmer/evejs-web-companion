@@ -47,6 +47,21 @@ export function subjectOfShowInfoLink(url: string): InfoSubject | null {
   return { kind: "type", typeID: parsed.typeID };
 }
 
+/** infoConst.TAB_FREELANCE_PROJECTS: a player corporation's Freelance Projects tab (infosvc.UpdateDataCorp). */
+export const TAB_FREELANCE_PROJECTS = "tab_freelance_projects";
+/** ShowInfo(..., selectTabType=...): the tab a corporation's info window opens on, taken by the window that shows it. */
+export interface InfoTabRequest { readonly corporationID: number; readonly tab: string; readonly atMs: number }
+const tabRequest = createSignal<InfoTabRequest | null>(null);
+export const infoTabRequests: ReadableSignal<InfoTabRequest | null> = readonlySignal(tabRequest);
+/** ShowInfo(typeCorporation, corporationID, selectTabType=tab). */
+export function showCorporationInfoTab(corporationID: number, tab: string): void {
+  tabRequest.set({ corporationID, tab, atMs: Date.now() });
+  showInfo({ kind: "corporation", corporationID });
+}
+/** The request's window has shown the tab (the window's content can be rebuilt while it opens, so a request is taken by
+ * each build and served once the tab has settled). */
+export function serveInfoTabRequest(served: InfoTabRequest): void { if (tabRequest.get() === served) tabRequest.set(null); }
+
 /** Convenience: open Show Info on a subject. */
 export function showInfo(subject: InfoSubject, options: InfoOpenOptions = {}): void {
   request.set({ n: ++serial, subject, options: { ...options, shift: options.shift ?? shiftPressed } });
