@@ -3356,6 +3356,9 @@ export interface AppFlow {
   /** The type filters of the parameters' searches: TYPE_LIST_ALL_MINABLE_TYPES (548, GetTypeIDsByListID) and
    * is_manufacturable_item (manufacturableItems.fsdbinary); null where the client's data could not be read. */
   goalTypeFilter(kind: "mineable" | "manufacturable"): Promise<ReadonlySet<number> | null>;
+  /** CorpGoalsController.redeem_reward - goalMessenger.redeem_reward: RedeemMyRewardsRequest(goal_id); a failure is
+   * on_goal_redeem_failed (false). */
+  redeemCorporationGoalReward(goalID: string): Promise<boolean>;
   /** _SetProgress - set_current_progress: SetCurrentProgressRequest(goal, current_progress, min(new, desired)). */
   setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean>;
   /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
@@ -18753,6 +18756,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     else await goalMessage("UI/Corporations/Goals/FailedToConnect");
     return false;
   }
+  async function redeemCorporationGoalReward(goalID: string): Promise<boolean> {
+    const a = await api.publicGatewayRequest("eve_public.corporationgoal.api.RedeemMyRewardsRequest", { goal_id: { uuid: bytesFromUuid(goalID) } }, { ...callOptions, confirm: true }).catch(() => null);
+    return Boolean(a && a.statusCode === 200);
+  }
   async function setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean> {
     return goalWrite("eve_public.goal.api.SetCurrentProgressRequest", { goal: { uuid: bytesFromUuid(goal.goalID) }, current_progress: goal.current, new_progress: Math.min(progress, goal.desired) });
   }
@@ -32084,6 +32091,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,
+    redeemCorporationGoalReward,
     goalLocationMatches,
     fwComplexOptions,
     goalTypeFilter,

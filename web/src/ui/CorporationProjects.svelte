@@ -20,7 +20,14 @@
   // manual). The card menu (get_menu_for_corp_job): Clone; active - manual: Set Progress, Complete Project; Close
   // Project; no progress: Delete Project. History's menu: Clone, View Participants and the creator. Set Progress:
   // SetProjectProgress's form - SetProgressLabel, ProgressValue (current + 1 to the target), Apply.
-  // Create New and Clone: CorporationGoalForm.svelte. Not here yet: claiming rewards, the job board's own page.
+  // Create New and Clone: CorporationGoalForm.svelte. A card clicked opens its CorporationGoalPage (the job board's
+  // details page - in the client in the Opportunities window; here over the browser): the header (career, the method,
+  // the name; the Claim button - ClaimableRewardButton, ClaimValue {rewardValue}, success style once completed - where
+  // there is an unclaimed reward), Progress (the gauge, progress / target, the method's progress words; RemainingISKReward
+  // and the reward per unit), Your Contribution (yours / your total - the limit or the target; AvailableToEarn with a
+  // limit, TotalEarned), the description, CreatedOn {dateString} with the creator and the corporation. A card with an
+  // unclaimed reward shows the contribution icon (ClaimableRewardsTooltip: UnclaimedRewardShort, the ISK).
+  // Not here yet: the job board window itself, tracking, the objectives.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
@@ -33,6 +40,8 @@
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
   const G = "UI/Corporations/Goals/";
   const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m) => `/Carbon/UI/Common/MonthsWithYear/${m}`);
   const STATE_LABELS = ["StateUnspecified", "StateActive", "StateClosed", "StateCompleted", "StateExpired"].map((k) => G + k);
@@ -40,11 +49,13 @@
     "Active", "CreateNew", "CanContributeToProjectSetting", "HaveParticipatedIn", "HaveUnclaimedRewardsFor", "DateCreated", "DateCreatedReversed", "Progress",
     "ProgressReversed", "NumJumps", "NumJumpsReversed", "FailedToConnect", "NoProjectsCurrentlySet", "ContributionMethod", "Created", "Ended", "Resolution",
     "CloneProject", "SetProgress", "CompleteProject", "CloseProject", "DeleteProject", "Participants", "Contributor", "TotalAmount", "OfTargetValue", "OfPersonalTarget",
-    "ISKPayout", "NoContributionsFound", "RemainingISKReward", "SetProjectProgress", "SetProgressLabel", "ProgressValue"].map((k) => G + k)
+    "ISKPayout", "NoContributionsFound", "RemainingISKReward", "SetProjectProgress", "SetProgressLabel", "ProgressValue", "ClaimValue", "YourContribution",
+    "AvailableToEarn", "TotalEarned", "CreatedOn", "Creator", "ParticipationLimitExplanationTooltip", "ClaimedTooltipBreakdown", "UnclaimedTooltipBreakdown",
+    "TotalEarnedTooltipBreakdown"].map((k) => G + k)
     .concat(STATE_LABELS, MONTHS, ["UI/Common/History", "UI/Wallet/WalletWindow/Last30Days", "UI/Inventory/Filter", "UI/Common/SortBy", "UI/Common/Name", "UI/Inventory/NameReversed",
       "UI/Common/TimeRemainingFilter", "UI/Common/TimeRemainingReversedFilter", "UI/Common/Any", "Character/CareerPaths/CareerPath", "UI/Calendar/EventWindow/Creator", "UI/Common/ISK",
       "UI/Util/UnitPrefixThousandShort", "UI/Util/UnitPrefixMillionShort", "UI/Util/UnitPrefixBillionShort", "UI/Util/UnitPrefixTrillionShort", "UI/Generic/Unclassified",
-      "UI/Corporations/FreelanceProjects/ViewParticipants", "UI/Commands/Back", "UI/Common/Buttons/Apply"]);
+      "UI/Corporations/FreelanceProjects/ViewParticipants", "UI/Commands/Back", "UI/Common/Buttons/Apply", "UI/Common/UnclaimedRewardShort", "UI/Common/Description"]);
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   // eveformat number_readable_short (3 significant digits, K / M / B / T) with ISK.
@@ -65,6 +76,8 @@
   let careerNames = $state<Record<number, number>>({});
   onMount(() => {
     flow.requestWords(LABELS);
+    // The job page's corporation (CorpIcon and corporation_link).
+    if ($station.online?.corporationID) flow.requestNames([{ kind: "owner", id: $station.online.corporationID }]);
     void flow.certifiedSkillPlans().then((r) => { if (r) careerNames = Object.fromEntries(r.careerPaths.filter((c) => c.nameID !== null).map((c) => [c.careerPathID, c.nameID!])); }, () => {});
   });
 
@@ -161,6 +174,19 @@
   // The details overlay, its participants, the menu and the Set Progress form.
   let details = $state<CorporationGoal | null>(null), participants = $state<readonly { characterID: number; progress: number }[] | null>(null);
   let cardMenu = $state<{ goal: CorporationGoal; x: number; y: number; history: boolean } | null>(null);
+  // The job page (open_corporation_goal) and its Claim (redeem_reward; the button busy at least 1.5 s).
+  let jobPage = $state<CorporationGoal | null>(null), claiming = $state(false);
+  const unclaimedIsk = (g: CorporationGoal) => g.myUnclaimed * (g.amountPerUnit ?? 0);
+  const earnedIsk = (g: CorporationGoal) => g.myProgress * (g.amountPerUnit ?? 0);
+  async function claim(g: CorporationGoal): Promise<void> {
+    if (claiming) return;
+    claiming = true;
+    try {
+      await Promise.all([flow.redeemCorporationGoalReward(g.goalID), new Promise((r) => setTimeout(r, 1500))]);
+      await load();
+      jobPage = [...(read?.active ?? []), ...(read?.inactive ?? [])].find((x) => x.goalID === g.goalID) ?? jobPage;
+    } finally { claiming = false; }
+  }
   // goalForms.OpenCreateGoalFormWindow / OpenDuplicateGoalFormWindow.
   let goalForm = $state<{ original: CorporationGoal | null } | null>(null);
   function clone(g: CorporationGoal): void { cardMenu = null; goalForm = { original: g }; }
@@ -255,6 +281,54 @@
       {#if m.history}<hr /><button disabled>{nameAny("owner", m.goal.creator)}</button>{/if}
     </div>
   {/if}
+  {#if jobPage}
+    {@const g = jobPage}
+    <div class="cp-overlay cp-job">
+      <div class="cp-overlay-head"><button class="cp-ghost" onclick={() => { jobPage = null; }}>{word("UI/Commands/Back")}</button></div>
+      <div class="cp-details">
+        <header class="cp-job-head">
+          <img class="cp-flair" src={flair(g.careerPath)} alt="" />
+          <span class="cp-method">{methodTitle(g)}</span>
+          <h2>{g.name}</h2>
+          {#if g.myUnclaimed > 0}
+            <button class="cp-claim" class:done={g.state === 3} disabled={claiming} title={`${word(G + "ClaimedTooltipBreakdown")} ${isk(earnedIsk(g) - unclaimedIsk(g))} · ${word(G + "UnclaimedTooltipBreakdown")} ${isk(unclaimedIsk(g))} · ${word(G + "TotalEarnedTooltipBreakdown")} ${isk(earnedIsk(g))}`}
+              onclick={() => void claim(g)}>{claiming ? "…" : word(G + "ClaimValue", { rewardValue: isk(unclaimedIsk(g)) })}</button>
+          {/if}
+        </header>
+        <section><h3>{word(G + "Progress")}</h3>
+          <div class="cp-progress">
+            <div class="cp-overview">
+              <span class="cp-gauge cp-gauge-big" style:--line={lineColor(g)} style:--outer={`${Math.min(1, ratio(g)) * 360}deg`} style:--inner="0deg"><span></span></span>
+              <div><b>{g.current.toLocaleString("en-US")}</b><small>/ {g.desired.toLocaleString("en-US")}</small><small>{(ratio(g) * 100).toFixed(0)}% <span class="cp-dim">{progressDescription(g)}</span></small></div>
+            </div>
+            {#if g.amountPerUnit}
+              <div class="cp-reward"><small>{word(G + "RemainingISKReward")}</small><b>{isk(totalIsk(g))}</b><small>{rewardDescription(g)}</small><b>{isk(g.amountPerUnit)}</b></div>
+            {/if}
+          </div>
+        </section>
+        {#if g.methodID !== "Manual" || read?.canAuthor}
+          <section title={g.participationLimit ? word(G + "ParticipationLimitExplanationTooltip") : ""}><h3>{word(G + "YourContribution")}</h3>
+            <div class="cp-progress">
+              <div class="cp-overview">
+                <span class="cp-gauge cp-gauge-big" style:--line={lineColor(g)} style:--outer={`${Math.min(1, myRatio(g)) * 360}deg`} style:--inner="0deg"><span></span></span>
+                <div><b>{g.myProgress.toLocaleString("en-US")}</b><small>/ {(g.participationLimit ?? g.desired).toLocaleString("en-US")}</small><small>{(myRatio(g) * 100).toFixed(0)}% <span class="cp-dim">{progressDescription(g)}</span></small></div>
+              </div>
+              {#if g.amountPerUnit}
+                <div class="cp-reward">
+                  {#if g.participationLimit}<small>{word(G + "AvailableToEarn")}</small><b>{isk(myIsk(g))}</b>{/if}
+                  <small>{word(G + "TotalEarned")}</small><b>{isk(earnedIsk(g))}</b>
+                </div>
+              {/if}
+            </div>
+          </section>
+        {/if}
+        {#if g.description}<section><h3>{word("UI/Common/Description")}</h3><p>{g.description}</p></section>{/if}
+        <section><h3>{word(G + "CreatedOn", { dateString: date(g.created) })}</h3>
+          <div class="cp-creator"><span><small>{word(G + "Creator")}</small><b>{nameAny("owner", g.creator)}</b></span><span>{nameAny("owner", $station.online?.corporationID ?? 0)}</span></div>
+        </section>
+      </div>
+    </div>
+  {/if}
   {#if goalForm && read}
     <CorporationGoalForm {store} {flow} methods={read.methods} capacity={read.capacity} original={goalForm.original} onClose={(made) => { goalForm = null; if (made) void load(); }} />
   {/if}
@@ -315,7 +389,7 @@
       {:else}
         <div class="cp-cards">
           {#each activeCards as g (g.goalID)}
-            <div class="cp-card" style:--line={lineColor(g)} role="listitem" oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); cardMenu = { goal: g, x: e.offsetX + (e.currentTarget as HTMLElement).offsetLeft, y: e.offsetY + (e.currentTarget as HTMLElement).offsetTop + 120, history: false }; }}>
+            <div class="cp-card" style:--line={lineColor(g)} role="button" tabindex="-1" onclick={() => { jobPage = g; }} onkeydown={() => {}} oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); cardMenu = { goal: g, x: e.offsetX + (e.currentTarget as HTMLElement).offsetLeft, y: e.offsetY + (e.currentTarget as HTMLElement).offsetTop + 120, history: false }; }}>
               <img class="cp-flair" src={flair(g.careerPath)} alt="" />
               <div class="cp-card-top">
                 <span class="cp-method" title={g.description}>{methodTitle(g)}</span>
@@ -323,7 +397,8 @@
               </div>
               <div class="cp-card-title">{g.name}</div>
               <div class="cp-card-bottom">{#if totalIsk(g)}<span>¤ {iskShort(totalIsk(g))}</span>{/if}
-                {#if read?.canAuthor}<span class="cp-card-actions"><button title={word(G + "CloneProject")} onclick={() => clone(g)}>⧉</button><button title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={() => void viewParticipants(g)}>☰</button></span>{/if}</div>
+                {#if g.myUnclaimed > 0}<span class="cp-claimable" title={`${word("UI/Common/UnclaimedRewardShort")} ${isk(unclaimedIsk(g))}`}>✚</span>{/if}
+                {#if read?.canAuthor}<span class="cp-card-actions"><button title={word(G + "CloneProject")} onclick={(e) => { e.stopPropagation(); clone(g); }}>⧉</button><button title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={(e) => { e.stopPropagation(); void viewParticipants(g); }}>☰</button></span>{/if}</div>
             </div>
           {/each}
         </div>
@@ -378,6 +453,14 @@
   .cp-head { font-size: 11px; opacity: 0.65; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
   .cp-buttons { display: flex; justify-content: center; padding-top: 8px; }
   .cp-card-bottom { justify-content: space-between; }
+  .cp-card { cursor: pointer; }
+  .cp-claimable { color: #5fb85f; }
+  .cp-job-head { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 16px; background: rgba(0, 0, 0, 0.5); }
+  .cp-job-head .cp-flair { opacity: 0.25; }
+  .cp-claim { align-self: flex-start; margin-top: 16px; position: relative; }
+  .cp-claim.done { background: rgba(95, 184, 95, 0.35); border-color: #5fb85f; }
+  .cp-creator { display: flex; gap: 32px; }
+  .cp-creator span { display: flex; flex-direction: column; }
   .cp-card-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.3s; }
   .cp-card:hover .cp-card-actions { opacity: 1; }
   .cp-card-actions button { all: unset; cursor: pointer; width: 24px; text-align: center; }

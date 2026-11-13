@@ -14569,6 +14569,8 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.goal.api.CloseRequest",
   // goalMessenger.create_goal: Create New's form.
   "eve_public.goal.api.CreateRequest",
+  // goalMessenger.redeem_reward: a project's Claim (ClaimableRewardButton - CorpGoalsController.redeem_reward).
+  "eve_public.corporationgoal.api.RedeemMyRewardsRequest",
   "eve_public.goal.api.DeleteRequest",
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).
