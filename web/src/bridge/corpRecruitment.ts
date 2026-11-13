@@ -102,6 +102,24 @@ export function buildHourMask(from: number, to: number): number {
   return mask;
 }
 
+/** recruitmentUtil.GetTimeZoneFromMask: an ad's hours back as (from, to) - the first run of set bits (a wrap past
+ * midnight read as the client reads it: a second run's start becomes the from). */
+export function timeZoneFromMask(mask: number): readonly [number, number] {
+  if (mask <= 0) return [0, 24];
+  let to = 24, from: number | null = null, counter = 0, rest = mask;
+  while (rest !== 0) {
+    const bit = rest % 2;
+    rest = Math.floor(rest / 2);
+    if (bit === 1) {
+      if (from === null) from = counter;
+      else if (to < 24) { from = counter; break; }
+    } else if (from !== null && to === 24) to = counter;
+    counter++;
+  }
+  if (to === 24) to = counter;
+  return [from ?? 0, to];
+}
+
 /** A set of recruitment types as a mask (each type's bit 2 ** typeID; up to bit 44, past 32-bit operators). */
 export function typesMask(typeIDs: Iterable<number>): number {
   let mask = 0;

@@ -11,6 +11,7 @@
   // filtered, at most six added. (Here: the ads a plain list; the form a box over the panel; the welcome mail and
   // the applications checkbox shown, not acting.)
   import { onMount } from "svelte";
+  import RecruitmentEntry from "./RecruitmentEntry.svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { RecruitmentData } from "../app/api.ts";
@@ -41,6 +42,10 @@
   const access = $derived((BigInt($station.online?.corpRole ?? "0") & 128n) === 128n);
   const corpID = $derived($station.online?.corporationID ?? 0);
 
+  // corporation_recruitmentad_expanded: the expanded ad, by the view (the corporation's own or the finder)
+  function expandedOf(view: boolean): number | null { try { return (JSON.parse(localStorage.getItem("evejs.play.corpRecruitmentExpanded") ?? "{}") as Record<string, number | null>)[String(view)] ?? null; } catch { return null; } }
+  function keepExpanded(view: boolean, adID: number | null): void { try { const all = JSON.parse(localStorage.getItem("evejs.play.corpRecruitmentExpanded") ?? "{}") as Record<string, number | null>; all[String(view)] = adID; localStorage.setItem("evejs.play.corpRecruitmentExpanded", JSON.stringify(all)); } catch { /* not kept */ } }
+  let expandedAd = $state<number | null>(expandedOf(true));
   let ads = $state<readonly RecruitmentAd[] | null>(null);
   let data = $state<RecruitmentData | null>(null);
   let error = $state("");
@@ -112,10 +117,8 @@
     {#if error}<p class="error">{error}</p>{/if}
     {#if ads !== null && !ads.length}<p class="ca-note">{fill(R + "CorpHasNoRecruitmentAdvertisements", "{corpName} has no recruitment advertisements", { corpName: resolvedName($names.resolved, "corporation", corpID, "") })}</p>{/if}
     {#each ads ?? [] as ad (ad.adID)}
-      <div class="ca-ad">
-        <div class="ca-ad-title">{ad.title}</div>
-        <div class="ca-ad-sub">{typesInMask(ad.typeMask).map(typeName).join(", ")}{#if ad.expiryDateTimeMs}{" · "}{new Date(ad.expiryDateTimeMs).toISOString().slice(0, 10).replaceAll("-", ".")}{/if}</div>
-      </div>
+      <RecruitmentEntry {store} {flow} {ad} {data} corpView={true} {access} expanded={expandedAd === ad.adID}
+        onToggle={() => { expandedAd = expandedAd === ad.adID ? null : ad.adID; keepExpanded(true, expandedAd); }} onDeleted={loadAds} />
     {/each}
   </div>
   {#if access}
@@ -200,9 +203,6 @@
   .corp-adverts { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 420px; }
   .ca-scroll { flex: 1; overflow: auto; padding: 4px; }
   .ca-note { opacity: 0.7; }
-  .ca-ad { padding: 6px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-  .ca-ad-title { font-weight: bold; }
-  .ca-ad-sub { font-size: 12px; opacity: 0.7; }
   .ca-buttons { display: flex; gap: 4px; justify-content: center; padding: 4px; }
   .ca-apps { display: flex; gap: 6px; justify-content: center; padding: 8px 0; }
   .ca-form { position: absolute; inset: 0; z-index: 4; display: flex; gap: 4px; padding: 4px; background: #15181b; border: 1px solid rgba(255, 255, 255, 0.15); }

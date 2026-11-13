@@ -17,6 +17,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
+  import RecruitmentEntry, { type EntrySearch } from "./RecruitmentEntry.svelte";
   import {
     buildHourMask, typesMask, CORP_SIZES, PLAYSTYLE_GROUPS, AREA_OF_OPERATIONS_GROUPID, LANGUAGE_GROUPID, PLAYSTYLE_GROUPID,
     NEWPILOTFRIENDLY_TYPEID, NEWPILOTFOCUSED_TYPEID, ROLEPLAY_TYPEID, EXPLORATION_TYPEID, MISSIONRUNNING_TYPEID,
@@ -73,6 +74,11 @@
     };
   }
 
+  // corporation_recruitmentad_expanded: the expanded ad, by the view (the corporation's own or the finder)
+  function expandedOf(view: boolean): number | null { try { return (JSON.parse(localStorage.getItem("evejs.play.corpRecruitmentExpanded") ?? "{}") as Record<string, number | null>)[String(view)] ?? null; } catch { return null; } }
+  function keepExpanded(view: boolean, adID: number | null): void { try { const all = JSON.parse(localStorage.getItem("evejs.play.corpRecruitmentExpanded") ?? "{}") as Record<string, number | null>; all[String(view)] = adID; localStorage.setItem("evejs.play.corpRecruitmentExpanded", JSON.stringify(all)); } catch { /* not kept */ } }
+  let expandedAd = $state<number | null>(expandedOf(false));
+  let lastSearch = $state<EntrySearch | null>(null);
   let searching = 0;
   async function search(): Promise<void> {
     const s = saved;
@@ -89,6 +95,7 @@
         spRestriction: s.excludeNotEnoughSP ? Math.trunc($skills.totalSkillPoints ?? 0) : null, minMembers: s.minMembers, maxMembers: s.maxMembers,
         maxISKTaxRate: s.maxIsk / 100, maxLPTaxRate: s.maxLp / 100, searchTimeMask: buildHourMask(s.from, s.to), otherMask: typesMask(other),
       });
+      if (n === searching) lastSearch = { typeMask: typesMask(want), otherMask: typesMask(other), langMask: typesMask(langs), from: s.from, to: s.to };
       if (n === searching) { ads = [...got].sort((a, b) => (b.grade ?? -1) - (a.grade ?? -1) || (b.createDateTimeMs ?? 0) - (a.createDateTimeMs ?? 0)); error = ""; }
     } catch (e) { if (n === searching) { error = e instanceof Error ? e.message : String(e); ads = []; } }
   }
@@ -147,13 +154,9 @@
       <p class="cf-note">{word(R + "NoAdsFound", "No ads found")}</p>
     {/if}
     {#each ads ?? [] as ad (ad.adID)}
-      <div class="cf-ad">
-        <div class="cf-ad-head">
-          <span class="cf-ad-title">{ad.title}</span>
-          {#if ad.grade !== null}<span class="cf-grade" title={word(R + "MatchHint", "Match")}>{ad.grade}%</span>{/if}
-        </div>
-        <div class="cf-ad-corp">{resolvedName($names.resolved, "owner", ad.corporationID, "")}{#if ad.allianceID} · {resolvedName($names.resolved, "owner", ad.allianceID, "")}{/if} · {ad.memberCount}</div>
-      </div>
+      <!-- a corporation's own ads by its name: no search masks (PopulateSearchResultsByCorpID passes None) -->
+      <RecruitmentEntry {store} {flow} {ad} {data} corpView={false} search={searchedCorp !== null ? null : lastSearch} expanded={expandedAd === ad.adID}
+        onToggle={() => { expandedAd = expandedAd === ad.adID ? null : ad.adID; keepExpanded(false, expandedAd); }} />
     {/each}
   </div>
   <div class="cf-options">
@@ -243,9 +246,4 @@
   .cf-found { display: flex; flex-direction: column; gap: 2px; margin: -12px 0 12px; }
   .cf-note { opacity: 0.7; }
   .cf-owner { padding: 6px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); cursor: default; }
-  .cf-ad { padding: 6px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-  .cf-ad-head { display: flex; justify-content: space-between; }
-  .cf-ad-title { font-weight: bold; }
-  .cf-grade { font-size: 16px; }
-  .cf-ad-corp { opacity: 0.7; font-size: 12px; }
 </style>

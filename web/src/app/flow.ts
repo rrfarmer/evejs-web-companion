@@ -712,7 +712,7 @@ import { FittingLinkError, fittingFromString, formatFittingUrl, parseFittingUrl,
 import { fitFitting, fittedRigsByFlag, fittingForApplying, isModularShip, isRigFlag, isThereRigMismatch, itemsToFitFrom, listHangar, listShip, VISIBLE_SUBSYSTEM_FLAGS } from "../bridge/fittingLoad.ts";
 import { fittingEftString } from "../bridge/fittingExport.ts";
 import { decodeAllianceInfo, toStr as allianceText, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
-import { aggressionSettingsOf, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
+import { aggressionSettingsOf, type AggressionSettings, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
 import { toNumOrNull as corporationShareNumber } from "../bridge/allianceInfo.ts";
 import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailableAndMissing, maxShipsToFit, personalContainers, qtyInPlaceByTypeIDs } from "../bridge/multiFit.ts";
 import { readAccessGroup, readFolderInfo, readFoldersWithAdminAccess, readMyAccessGroups, readMyActiveBookmarks } from "../bridge/bookmarkReads.ts";
@@ -2422,6 +2422,14 @@ export interface AppFlow {
   createRecruitmentAd(form: RecruitmentAdForm): Promise<boolean>;
   /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
   sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
+  /** RecruitmentEntry's recruiters: corpRecProxy.GetRecruiters(adID), their names primed. */
+  recruitmentAdRecruiters(adID: number): Promise<readonly number[]>;
+  /** GetRecruitementEntryDataList's friendly fire: the corporation's aggression settings (the corp service's
+   * GetAggressionSettings, corpmgr's) with the server's time they were read at; null settings where none came. */
+  corporationAggressionAt(corporationID: number): Promise<{ readonly settings: AggressionSettings | null; readonly readAt: bigint }>;
+  /** RecruitmentEntry.DeleteRecruitmentAd: CorpAdsAreYouSureYouWantToDelete (yes / no, Yes kept), then
+   * corpRecProxy.DeleteRecruitmentAd(adID); true when deleted. */
+  deleteRecruitmentAd(adID: number): Promise<boolean>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16335,6 +16343,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function recruitmentAdsOf(corporationID: number): Promise<readonly RecruitmentAd[]> {
     return recruitmentAdsNamed(decodeRecruitmentAds(await bridgeAsk("corpRecProxy", "GetRecruitmentAdsByCorpID", [corporationID])));
   }
+  async function recruitmentAdRecruiters(adID: number): Promise<readonly number[]> {
+    const answer = await bridgeAsk("corpRecProxy", "GetRecruiters", [adID]);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const ids = items.map((v) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0))).filter((id) => id > 0);
+    if (ids.length) {
+      const current = callOptions.captureRequestGuard!();
+      await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id })));
+    }
+    return ids;
+  }
+  async function corporationAggressionAt(corporationID: number): Promise<{ readonly settings: AggressionSettings | null; readonly readAt: bigint }> {
+    const answer = await corporationAggression.get(bridgeAsk, corporationID);
+    const readAt = BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n;
+    return { settings: answer === null ? null : aggressionSettingsOf(answer, readAt), readAt };
+  }
+  async function deleteRecruitmentAd(adID: number): Promise<boolean> {
+    if (!await askDialog("CorpAdsAreYouSureYouWantToDelete", null, "Are you sure you want to delete this advert?", "yesno", { suppressAnswer: "yes" })) return false;
+    try { await bridgeDo("corpRecProxy", "DeleteRecruitmentAd", [adID]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function corporationRecruitmentAds(): Promise<readonly RecruitmentAd[]> {
     return recruitmentAdsNamed(decodeRecruitmentAds(await bridgeAsk("corpRecProxy", "GetRecruitmentAdsForCorporation", [])));
   }
@@ -29927,6 +29955,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     recruitmentAdsOf,
     corporationRecruitmentAds,
     createRecruitmentAd,
+    recruitmentAdRecruiters,
+    corporationAggressionAt,
+    deleteRecruitmentAd,
     sayDialog: (dialog: string, values: JsonValue | null, fallback: string) => sayDialog(dialog, values, fallback),
     corporationBulletins,
     openCorporationMemberDetails,
