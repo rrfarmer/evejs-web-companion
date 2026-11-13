@@ -441,6 +441,12 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar, type WarAlly } from "../bridge/corpWars.ts";
 
+/** corpmgr.AuditMember's answer: the member's log events (eventDateTime, eventTypeID, corporationID) and role
+ * changes (changeTime, oldRoles, newRoles, issuerID - -1 CONCORD -, grantable, charID, corporationID). */
+export interface CorporationAudit {
+  readonly events: readonly { readonly eventDateTime: bigint; readonly eventTypeID: number; readonly corporationID: number | null }[];
+  readonly roles: readonly { readonly changeTime: bigint; readonly oldRoles: bigint; readonly newRoles: bigint; readonly issuerID: number; readonly grantable: boolean; readonly charID: number; readonly corporationID: number }[];
+}
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
 export interface AllianceApplication { readonly allianceID: number; readonly corporationID: number; readonly applicationText: string; readonly state: number }
 /** An alliance member (GetMembers' row): the corporation, its chosen executor (None the client's Secret), when it joined. */
@@ -2625,6 +2631,11 @@ export interface AppFlow {
   corporationMemberRoleBase(current?: () => void): Promise<number | null>;
   corporationMemberIDs(): Promise<readonly number[]>;
   corporationAdministration(current?: () => void): Promise<CorporationAdministration>;
+  /** CorpAutoKicks: corp.GetPendingAutoKicks() - (characterID, kickedByCharacterID) pairs, names primed. */
+  pendingAutoKicks(): Promise<readonly { readonly characterID: number; readonly kickedByID: number }[]>;
+  /** CorpAuditing.ShowJournal: corpmgr.AuditMember(memberID, fromDate, toDate, rowsPerPage) - the member's log events
+   * and role changes, the owners named. */
+  auditMember(memberID: number, fromDate: bigint, toDate: bigint, rowsPerPage: number): Promise<CorporationAudit>;
   corporationMemberQueryContext(current?: () => void): Promise<MemberQueryContext>;
   corporationMemberQueryBases(current?: () => void): Promise<readonly { readonly stationID: number; readonly name: string }[]>;
   corporationMemberQuery(criteria: readonly MemberQueryCriterion[], current?: () => void): Promise<readonly number[]>;
@@ -17172,6 +17183,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { online: { ...online, corporationID: online.corporationID }, current, options: scoped, ask: api.bridgeAsk(scoped), write: api.bridgeDo(scoped) };
   }
   type MemberOperation = ReturnType<typeof captureMemberOperation>;
+  async function pendingAutoKicks(): Promise<readonly { readonly characterID: number; readonly kickedByID: number }[]> {
+    const answer = await bridgeAsk("corpRegistry", "GetPendingAutoKicks", []);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    const pairs = items.map((p) => { const parts: readonly JsonValue[] = isListValue(p) ? p.items : Array.isArray(p) ? p : []; return { characterID: num(parts[0]), kickedByID: num(parts[1]) }; })
+      .filter((k) => k.characterID > 0);
+    const ids = [...new Set(pairs.flatMap((k) => [k.characterID, k.kickedByID]))].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return pairs;
+  }
+  async function auditMember(memberID: number, fromDate: bigint, toDate: bigint, rowsPerPage: number): Promise<CorporationAudit> {
+    const answer = await bridgeAsk("corpmgr", "AuditMember", [memberID, { type: "long", value: fromDate.toString() } as JsonValue, { type: "long", value: toDate.toString() } as JsonValue, rowsPerPage]);
+    const parts: readonly JsonValue[] = Array.isArray(answer) ? answer : isListValue(answer) ? answer.items : [];
+    const rows = (v: JsonValue | undefined): readonly JsonValue[] => v === undefined || v === null ? [] : isListValue(v) ? v.items : Array.isArray(v) ? v
+      : (v as { list?: unknown }).list && Array.isArray((v as { list?: unknown }).list) ? (v as { list: JsonValue[] }).list : (readRowsetRows(v) as readonly JsonValue[]);
+    const field = (r: JsonValue, k: string) => readRowField(r, k) ?? memberField(r, k);
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    const big = (v: JsonValue | undefined) => (typeof v === "number" ? BigInt(Math.trunc(v)) : unwrapLong(v) ?? 0n);
+    const events = rows(parts[0]).map((r) => ({ eventDateTime: big(field(r, "eventDateTime")), eventTypeID: num(field(r, "eventTypeID")), corporationID: num(field(r, "corporationID")) || null }));
+    const roles = rows(parts[1]).map((r) => ({ changeTime: big(field(r, "changeTime")), oldRoles: big(field(r, "oldRoles")), newRoles: big(field(r, "newRoles")),
+      issuerID: num(field(r, "issuerID")), grantable: Boolean(num(field(r, "grantable"))), charID: num(field(r, "charID")), corporationID: num(field(r, "corporationID")) }));
+    const ids = [...new Set([...events.map((e) => e.corporationID ?? 0), ...roles.flatMap((r) => [r.issuerID === -1 ? 1000125 : r.issuerID, r.charID, r.corporationID])])].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return { events, roles };
+  }
   async function corporationAdministration(current?: () => void): Promise<CorporationAdministration> {
     const scope = captureMemberOperation(current), roles = BigInt(scope.online.corpRole ?? "0");
     // corporationWindow470-476, corporation.common.roles: administration is
@@ -30720,6 +30756,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationMemberRoleBase,
     corporationMemberIDs,
     corporationAdministration,
+    pendingAutoKicks,
+    auditMember,
     corporationMemberQueryContext,
     corporationMemberQueryBases,
     corporationMemberQuery,

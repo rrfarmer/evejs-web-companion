@@ -27,6 +27,8 @@
   import AllianceMembers from "./AllianceMembers.svelte";
   import AllianceApplications from "./AllianceApplications.svelte";
   import AllianceRankings from "./AllianceRankings.svelte";
+  import CorporationAutoKicks from "./CorporationAutoKicks.svelte";
+  import CorporationAuditing from "./CorporationAuditing.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -39,7 +41,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -78,6 +80,8 @@
   $effect(() => { if (panel === "find" && !administration.findMembers) panel = playerCorporation ? "contacts" : "applications"; });
   onDestroy(() => { administrationRead++; });
   const allianceID = $derived($station.online?.allianceID ?? null);
+  // const.corpRoleAuditor
+  const auditorRole = $derived((BigInt($station.online?.corpRole ?? "0") & 4096n) !== 0n);
   $effect(() => { if (panel === "allianceContacts" && allianceID === null) panel = "contacts"; });
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -111,6 +115,8 @@
     "UI/Corporations/CorporationWindow/Alliances/Members": "Members",
     "UI/Corporations/CorporationWindow/Alliances/Applications": "Applications",
     "UI/Corporations/CorporationWindow/Alliances/AllAlliances": "All Alliances",
+    "UI/Corporations/BaseCorporationUI/AutoKickManagement": "Auto-Kick Management",
+    "UI/Corporations/BaseCorporationUI/Auditing": "Auditing",
     "UI/Corporations/BaseCorporationUI/Wars": "Wars",
     "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
     "UI/Corporations/Wars/WarInfoTab": "War Info",
@@ -173,7 +179,12 @@
     }
     if (corpTab === "admin") {
       return [
-        ...(administration.findMembers ? [{ header: "UI/Corporations/BaseCorporationUI/Members", entries: [{ id: "find" as const, label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }] }] : []),
+        // construct_admin_members_panels: Find Member In Role (a personnel manager's, or one with grantable roles), Auto-Kick
+        // Management (a director's); construct_admin_general_panels: Auditing (an auditor's)
+        ...(administration.findMembers || administration.director ? [{ header: "UI/Corporations/BaseCorporationUI/Members", entries: [
+          ...(administration.findMembers ? [{ id: "find" as const, label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }] : []),
+          ...(administration.director ? [{ id: "autoKicks" as const, label: "UI/Corporations/BaseCorporationUI/AutoKickManagement" }] : [])] }] : []),
+        ...(auditorRole ? [{ header: "UI/Generic/General", entries: [{ id: "auditing" as const, label: "UI/Corporations/BaseCorporationUI/Auditing" }] }] : []),
         // construct_admin_recruitment_panels: Corporation Advertisements, for whoever sees the tab
         { header: "UI/Corporations/BaseCorporationUI/Recruitment", entries: [{ id: "recruitAds" as const, label: "UI/Corporations/CorporationWindow/Recruitment/CorporationAds" }, { id: "recruitApplications" as const, label: "UI/Corporations/CorpApplications/ApplicationsToCorp" }] },
         // construct_admin_wars_panels: a director's - Mutual War Invites
@@ -281,6 +292,8 @@
       {#if panel === "allianceMembers"}<AllianceMembers {store} {flow} />{/if}
       {#if panel === "allianceApplications"}<AllianceApplications {store} {flow} />{/if}
       {#if panel === "allianceRankings"}<AllianceRankings {store} {flow} />{/if}
+      {#if panel === "autoKicks"}<CorporationAutoKicks {store} {flow} />{/if}
+      {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
       {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}
