@@ -700,6 +700,10 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "peaceTreatyMgr.GetPeaceTreatiesForSession", "billMgr.GetCorporationBills",
   // WarDeclareWnd._DoDeclareMutualWar: mutualWarInvites.SendInvite.
   "mutualWarInviteMgr.SendInviteByPlayer",
+  // MutualWarInvites (Administration > Wars): the invites to and from the pilot's owner, withdrawing one, answering
+  // one, blocking them (svc.mutualWarInvites, each a RemoteSvc call).
+  "mutualWarInviteMgr.GetPendingInvitesForSession", "mutualWarInviteMgr.WithdrawInviteByPlayer", "mutualWarInviteMgr.RespondToInviteByPlayer",
+  "mutualWarInviteMgr.SetInvitesBlockedByPlayer", "mutualWarInviteMgr.IsCorpInvitesBlockedPlayer",
   // WarReportWnd: the war's statistics object (eveMoniker.GetWarStatistic(warID), bound) - GetBaseInfo, GetKills,
   // GetKillsByGroup.
   "warStatisticMgr.MachoBindObject", "warStatisticMgr.GetBaseInfo", "warStatisticMgr.GetKills", "warStatisticMgr.GetKillsByGroup",

@@ -441,6 +441,8 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** A mutual war invite (GetPendingInvitesForSession's KeyVal): from, to, when sent. */
+export interface MutualWarInvite { readonly fromOwnerID: number; readonly toOwnerID: number; readonly sentDate: bigint }
 /** A war negotiation (GetNegotiations' KeyVal): its parties - ownerID1 the offerer, ownerID2 the other -, ISK, text, state. */
 export interface WarNegotiation {
   readonly warNegotiationID: number; readonly warID: number; readonly typeID: number; readonly ownerID1: number; readonly ownerID2: number;
@@ -2496,6 +2498,17 @@ export interface AppFlow {
   /** WarSurrenderWnd: _SubmitRequest - war.CreateSurrenderNegotiation(warID, isk, message); _AcceptOffer -
    * AcceptSurrender(id); _DeclineOffer - DeclineSurrender(id). True when made. */
   surrenderAct(act: { readonly kind: "offer"; readonly warID: number; readonly isk: number; readonly message: string } | { readonly kind: "accept" | "decline"; readonly warNegotiationID: number }): Promise<boolean>;
+  /** MutualWarInvites.LoadScroll: mutualWarInviteMgr.GetPendingInvitesForSession (from, to, sentDate), the owners'
+   * names primed; and UpdateBlockedCheckbox's IsCorpInvitesBlockedPlayer. */
+  mutualWarInvites(): Promise<{ readonly invites: readonly MutualWarInvite[]; readonly blocked: boolean }>;
+  /** WithdrawInviteByPlayer(toOwnerID) / RespondToInviteByPlayer(fromOwnerID, accepts) / SetInvitesBlockedByPlayer(blocked). */
+  mutualWarInviteAct(act: { readonly kind: "withdraw"; readonly toOwnerID: number } | { readonly kind: "respond"; readonly fromOwnerID: number; readonly accepts: boolean } | { readonly kind: "block"; readonly blocked: boolean }): Promise<boolean>;
+  /** WarEntry.RetractMutualWarClick: CustomQuestion (RetractWar / RetractWarSure, yes / no), then war.RetractMutualWar(warID). */
+  retractMutualWar(warID: number): Promise<boolean>;
+  /** OnMutualWarsUpdated_Remote's count: MutualWarInvites reloads at each. */
+  readonly mutualWarsChanged: ReadableSignal<number>;
+  /** OnWarChanged's count (war_cso.OnWarChanged: corpUISignals.on_war_changed, CorpWars refreshing). */
+  readonly warsChanged: ReadableSignal<number>;
   /** GetKillsScrollList: the statistics object's GetKills(entityID or None, shipGroup or None), the kills' owners primed. */
   warReportKills(warID: number, entityID: number | null): Promise<readonly KillReport[]>;
   warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }>;
@@ -5895,6 +5908,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
     }
     if (method === "OnCorporationMedalAdded") corporationDecorationsChangedSignal.set(corporationDecorationsChangedSignal.get() + 1);
+    // mutualWarInvites.OnMutualWarsUpdated_Remote: ScatterEvent OnMutualWarsUpdated, MutualWarInvites reloading
+    if (method === "OnMutualWarsUpdated_Remote") mutualWarsChangedSignal.set(mutualWarsChangedSignal.get() + 1);
+    if (method === "OnWarChanged") warsChangedSignal.set(warsChangedSignal.get() + 1);
     if (method === "OnCorporationApplicationChanged" && Number(args[1]) === onlineCharacterID()) {
       corporationApplicationsChangedSignal.set(corporationApplicationsChangedSignal.get() + 1);
       // base_corporation_ui204-209: the docked station lobby reloads its
@@ -16267,6 +16283,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   let configEnabledValues: Promise<readonly string[]> | null = null;
   const corporationApplicationsChangedSignal = createSignal(0);
   const corporationDecorationsChangedSignal = createSignal(0);
+  const mutualWarsChangedSignal = createSignal(0);
+  const warsChangedSignal = createSignal(0);
   const medalDesignerSignal = createSignal<{ readonly n: number; readonly instance: number; readonly characterID: number; readonly corporationID: number } | null>(null);
   let medalDesignerRequests = 0;
   function showMedalDesigner(): void {
@@ -16604,6 +16622,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       else await bridgeDo("warRegistry", act.kind === "accept" ? "AcceptSurrender" : "DeclineSurrender", [act.warNegotiationID]);
       return true;
     } catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function mutualWarInvites(): Promise<{ readonly invites: readonly MutualWarInvite[]; readonly blocked: boolean }> {
+    const [answer, blockedAnswer] = await Promise.all([bridgeAsk("mutualWarInviteMgr", "GetPendingInvitesForSession", []), bridgeAsk("mutualWarInviteMgr", "IsCorpInvitesBlockedPlayer", [])]);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    const invites = items.map((r) => ({ fromOwnerID: num(memberField(r, "fromOwnerID")), toOwnerID: num(memberField(r, "toOwnerID")), sentDate: unwrapLong(memberField(r, "sentDate")) ?? 0n }));
+    const ids = [...new Set(invites.flatMap((n) => [n.fromOwnerID, n.toOwnerID]))].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return { invites, blocked: Boolean(typeof blockedAnswer === "number" ? blockedAnswer : blockedAnswer === true) };
+  }
+  async function mutualWarInviteAct(act: { readonly kind: "withdraw"; readonly toOwnerID: number } | { readonly kind: "respond"; readonly fromOwnerID: number; readonly accepts: boolean } | { readonly kind: "block"; readonly blocked: boolean }): Promise<boolean> {
+    try {
+      if (act.kind === "withdraw") await bridgeDo("mutualWarInviteMgr", "WithdrawInviteByPlayer", [act.toOwnerID]);
+      else if (act.kind === "respond") await bridgeDo("mutualWarInviteMgr", "RespondToInviteByPlayer", [act.fromOwnerID, act.accepts]);
+      else await bridgeDo("mutualWarInviteMgr", "SetInvitesBlockedByPlayer", [act.blocked]);
+      return true;
+    } catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function retractMutualWar(warID: number): Promise<boolean> {
+    await wordsNow(["UI/Corporations/Wars/RetractWar", "UI/Corporations/Wars/RetractWarSure"]).catch(() => {});
+    const header = templateWords("UI/Corporations/Wars/RetractWar", {}, "Retract War");
+    const question = templateWords("UI/Corporations/Wars/RetractWarSure", {}, "Are you sure you want to retract this war?");
+    if (!await askDialog("CustomQuestion", { type: "dict", entries: [["header", header], ["question", question]] }, question)) return false;
+    try { await bridgeDo("warRegistry", "RetractMutualWar", [warID]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
   }
   async function warReport(warID: number): Promise<WarReportInfo | null> {
     const answer = await bridgeAsk("warStatisticMgr", "GetBaseInfo", [], null, warID);
@@ -30369,6 +30412,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warReport,
     surrenderNegotiations,
     surrenderAct,
+    mutualWarInvites,
+    mutualWarInviteAct,
+    retractMutualWar,
+    mutualWarsChanged: readonlySignal(mutualWarsChangedSignal),
+    warsChanged: readonlySignal(warsChangedSignal),
     warReportKills,
     searchWarableOwners,
     validWarHQs,

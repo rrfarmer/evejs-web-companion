@@ -74,6 +74,17 @@
   }
   function clearSearch(): void { searchText = ""; searchOwner = null; searchWars = null; void top50(); }
   onMount(() => { flow.requestWords(LABELS); void showOurs(); });
+  // CorpWars.OnWarChanged -> Refresh: the pane shown read again (All Wars from the newest, as ShowAllWars does)
+  // svelte-ignore state_referenced_locally
+  const warsChanged = flow.warsChanged;
+  // svelte-ignore state_referenced_locally
+  let seenWarsChanged = $warsChanged;
+  $effect(() => {
+    const n = $warsChanged;
+    if (n === seenWarsChanged) return;
+    seenWarsChanged = n;
+    if (tab === "all") { if (!searchOwner) void top50(); } else void showOurs();
+  });
   $effect(() => { if (ownerID) flow.requestNames([{ kind: online?.allianceID ? "alliance" : "corporation", id: ownerID }]); });
   $effect(() => { if (tab === "all" && page === null && !searchOwner) void top50(); });
   const sorted = $derived(page ? [...page].sort((a, b) => b.warID - a.warID) : []);

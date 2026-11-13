@@ -117,7 +117,7 @@
           <button type="button" role="menuitem" disabled>{war.allyIDs.length ? plainText(fill(W + "ViewNumAllies", { num: war.allyIDs.length })) : plainText(fill(W + "ViewAllies"))}</button>
         {/if}
         {#if myWar && director && !finished && war.retracted === null}
-          {#if war.mutual}<button type="button" role="menuitem" disabled>{plainText(fill(W + "RetractWar"))}</button>
+          {#if war.mutual}<button type="button" role="menuitem" onclick={() => { menu = false; void flow.retractMutualWar(war.warID).catch(() => {}); }}>{plainText(fill(W + "RetractWar"))}</button>
           {:else}<button type="button" role="menuitem" onclick={() => { menu = false; surrender = true; }}>{plainText(fill(W + (pendingSurrender ? "ViewSurrenderOffer" : "SendSurrenderOffer")))}</button>{/if}
         {/if}
         <button type="button" role="menuitem" onclick={() => { menu = false; report = true; }}>{plainText(fill(W + "OpenWarReport"))}</button>
