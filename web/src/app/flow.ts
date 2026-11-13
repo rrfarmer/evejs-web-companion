@@ -3576,6 +3576,12 @@ export interface AppFlow {
   /** The type filters of the parameters' searches: TYPE_LIST_ALL_MINABLE_TYPES (548, GetTypeIDsByListID) and
    * is_manufacturable_item (manufacturableItems.fsdbinary); null where the client's data could not be read. */
   goalTypeFilter(kind: "mineable" | "manufacturable"): Promise<ReadonlySet<number> | null>;
+  /** ShipTypeParameter's ship classes (shipgroup.ALL_GROUPS, get_ship_tree_group_name), their names asked; null where unread. */
+  goalShipClasses(): Promise<readonly { readonly id: number; readonly nameID: number | null; readonly iconSmall: string | null }[] | null>;
+  /** MineableOreParameter's ore groups (add_ores_to_proto: the minable types' groups), their names asked. */
+  goalOreGroups(): Promise<readonly number[] | null>;
+  /** LpNpcCorporationParameter's corporations (not Heraldry; an LP offer table or exchange rates), their names asked. */
+  goalLpCorporations(): Promise<readonly number[] | null>;
   /** CorpGoalsController.redeem_reward - goalMessenger.redeem_reward: RedeemMyRewardsRequest(goal_id); a failure is
    * on_goal_redeem_failed (false). */
   redeemCorporationGoalReward(goalID: string): Promise<boolean>;
@@ -19174,8 +19180,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const ids = many(key); if (!ids.length) return { all: true };
       return { sets: { characters: ids.map((id) => { const k = identityKind(key, id); return k === 2 ? { corporation: { sequential: id } } : k === 3 ? { alliance: { sequential: id } } : k === 4 ? { faction: { sequential: id } } : { character: { sequential: id } }; }) } } as unknown as JsonValue;
     };
-    const shipSets = (): JsonValue => { const ids = many("ship"); return ids.length ? { sets: { ships: ids.map((id) => ({ ship_type: { sequential: id } })) } } as unknown as JsonValue : { all: true }; };
-    const oreSets = (): JsonValue => { const ids = many("ore"); return ids.length ? { sets: { ores: ids.map((id) => ({ ore_type: { sequential: id } })) } } as unknown as JsonValue : { all: true }; };
+    // add_ships_to_proto / add_ores_to_proto: a ship class ("ship:kind:<id>" 5) as ship_class, an ore group ("ore:kind:<id>"
+    // 6) as ore_group.
+    const shipSets = (): JsonValue => { const ids = many("ship"); return ids.length ? { sets: { ships: ids.map((id) => (Number(parameters[`ship:kind:${id}`]) === 5 ? { ship_class: { sequential: id } } : { ship_type: { sequential: id } })) } } as unknown as JsonValue : { all: true }; };
+    const oreSets = (): JsonValue => { const ids = many("ore"); return ids.length ? { sets: { ores: ids.map((id) => (Number(parameters[`ore:kind:${id}`]) === 6 ? { ore_group: { sequential: id } } : { ore_type: { sequential: id } })) } } as unknown as JsonValue : { all: true }; };
     const match = (key: string): JsonValue => { const id = one(key); return id ? { match_value: { sequential: id } } : { any: true }; };
     if (methodID === "ManufactureItem") {
       // construct_manufacture_items_proto: the item, the job's owner (ON_BEHALF_OF_CHARACTER / _CORP), its location.
@@ -19221,8 +19229,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if ("ships" in config) config.ships = shipSets();
       if ("ores" in config) config.ores = oreSets();
       for (const key of ["attacked_identities", "destroyed_identities"]) if (key in config) config[key] = identitySets("organization");
+      // add_corporations_to_proto: the corporations as set.ids, none as all.
+      if ("corporations" in config) { const ids = many("corporation_id"); config.corporations = ids.length ? { set: { ids: ids.map((sequential) => ({ sequential })) } } as unknown as JsonValue : { all: true }; }
     }
     return [field, config];
+  }
+  let shipClassesHeld: ReturnType<typeof api.loadShipClasses> | null = null, oreGroupsHeld: Promise<readonly number[] | null> | null = null, lpCorporationsHeld: Promise<readonly number[] | null> | null = null;
+  function goalShipClasses(): ReturnType<typeof api.loadShipClasses> {
+    shipClassesHeld ??= api.loadShipClasses(callOptions).then((c) => { if (c) requestWords(c.flatMap((x) => (x.nameID ? [`#${x.nameID}`] : []))); return c; }, () => { shipClassesHeld = null; return null; });
+    return shipClassesHeld;
+  }
+  function goalOreGroups(): Promise<readonly number[] | null> {
+    oreGroupsHeld ??= api.loadTypeListGroups(548, callOptions).then((g) => { if (g) requestNames(g.map((id) => ({ kind: "group" as const, id }))); return g; }, () => { oreGroupsHeld = null; return null; });
+    return oreGroupsHeld;
+  }
+  function goalLpCorporations(): Promise<readonly number[] | null> {
+    lpCorporationsHeld ??= api.loadLpCorporations(callOptions).then((c) => { if (c) requestNames(c.map((id) => ({ kind: "owner" as const, id }))); return c; }, () => { lpCorporationsHeld = null; return null; });
+    return lpCorporationsHeld;
   }
   const goalTypeFilters = new Map<string, Promise<ReadonlySet<number> | null>>();
   function goalTypeFilter(kind: "mineable" | "manufacturable"): Promise<ReadonlySet<number> | null> {
@@ -33012,6 +33035,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     goalLocationMatches,
     fwComplexOptions,
     goalTypeFilter,
+    goalShipClasses,
+    goalOreGroups,
+    goalLpCorporations,
     corporationOfficeOptions,
     setCorporationGoalProgress,
     corporationMembersWithMoreThanAvgShares,

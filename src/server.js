@@ -14030,7 +14030,34 @@ app.get("/api/client-data/type-list/:listID", requireAuth, async (req, res, next
     let final = minus(new Set(byCategories(arr(list.includedCategoryIDs))), byCategories(arr(list.excludedCategoryIDs)));
     final = minus(new Set([...final, ...byGroups(arr(list.includedGroupIDs))]), byGroups(arr(list.excludedGroupIDs)));
     final = minus(new Set([...final, ...arr(list.includedTypeIDs)]), arr(list.excludedTypeIDs));
-    res.json({ ok: true, available: true, typeIDs: [...final].map(Number) });
+    res.json({ ok: true, available: true, typeIDs: [...final].map(Number),
+      // the types' groups (goalMessengerUtil.add_ores_to_proto: allowed_group_ids = the listed types' groups).
+      groupIDs: [...new Set([...final].map((t) => Number(types[String(t)])).filter((g) => Number.isSafeInteger(g) && g > 0))] });
+  } catch (error) { next(error); }
+});
+
+// The ship tree's classes (shipgroup.ALL_GROUPS, in its order), each with its name's message and small icon from the
+// client's infoBubbleGroups (get_ship_tree_group_name / get_ship_tree_group_icon_small), as ShipTypeParameter's
+// "ship_class" values are picked. `available` false where the client's data could not be read.
+const SHIP_TREE_ALL_GROUPS = [2107, 4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 32, 33, 2113, 34, 35, 36, 37, 38, 40,
+  41, 2111, 2108, 2110, 2112, 42, 43, 44, 45, 46, 47, 48, 50, 93, 94, 96, 2101, 2102, 2104, 2109];
+app.get("/api/client-data/ship-classes", requireAuth, async (req, res, next) => {
+  try {
+    const groups = typeof clientBuiltData.infoBubbleGroups === "function" ? await clientBuiltData.infoBubbleGroups().catch(() => null) : null;
+    if (!groups) return res.json({ ok: true, available: false, classes: [] });
+    res.json({ ok: true, available: true, classes: SHIP_TREE_ALL_GROUPS.filter((id) => groups[String(id)]).map((id) => ({ id, nameID: groups[String(id)].nameID, iconSmall: groups[String(id)].iconSmall })) });
+  } catch (error) { next(error); }
+});
+
+// The NPC corporations LpNpcCorporationParameter offers (its filter: not appConst.corpHeraldry 1000419, and an LP
+// offer table or an exchange rate in the client's npccorporations data). `available` false where it could not be read.
+app.get("/api/client-data/lp-corporations", requireAuth, async (req, res, next) => {
+  try {
+    const table = await clientBuiltData.table("npcCorporations").catch(() => null);
+    if (!table) return res.json({ ok: true, available: false, corporationIDs: [] });
+    const filled = (v) => (Array.isArray(v) ? v.length > 0 : v && typeof v === "object" ? Object.keys(v).length > 0 : Boolean(v));
+    const ids = Object.entries(table).filter(([id, row]) => Number(id) > 0 && Number(id) !== 1000419 && row && typeof row === "object" && (filled(row.lpOfferTables) || filled(row.exchangeRates))).map(([id]) => Number(id));
+    res.json({ ok: true, available: true, corporationIDs: ids });
   } catch (error) { next(error); }
 });
 

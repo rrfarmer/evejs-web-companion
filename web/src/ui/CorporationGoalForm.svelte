@@ -25,8 +25,12 @@
   // Ship Insurance (ShipInsurance's fields): the target in ISK (ShipInsuranceTargetValueDescription),
   // CoverageLimitPerMemberTitle, CoverageLimitPerLoss, the coverage ratio 10-200 (100), then its parameters; no payment
   // section - one ISK per unit; created with coverage_limit, ratio x 0.01 and the per-member limit.
-  // Not here yet: ship classes, ore groups, the LP corporation list and the hacking container type (left at any); a
-  // ship's search is by the category name "Ship".
+  // With several entries: a ship type or a ship class (MultiValueShipAndShipTreeFormComponent - the ship tree's
+  // classes, shipgroup.ALL_GROUPS, by get_ship_tree_group_name, subtitled UI/Common/ShipClass), an ore type or an ore
+  // group (the minable types' groups, add_ores_to_proto's allowed_group_ids), and the LP corporations
+  // (LpNpcCorporationParameter: NPC corporations with an LP offer table or exchange rates, not Heraldry).
+  // HackContainer has no construct_* in goalMessengerUtil (only goalConst names it), so it is not offered here either.
+  // A ship's search is by the category name "Ship".
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
@@ -45,7 +49,7 @@
   const LABELS = ["NewProject", "ProjectDefinition", "ContributionMethod", "SelectContributionMethod", "TargetValue", "LimitPerContributor", "LimitPerContributorHint",
     "TypeInOptionalContributionAmount", "RequiredContributors", "SetEndDate", "ExpiredFieldInfo", "PaymentOptional", "ISKPerUnitOfProgress", "ISKPerUnitOfProgressHint",
     "RewardLimitPerContributor", "TotalProjectCost", "CreateNew"].map((k) => G + k)
-    .concat(["UI/Common/Description", "UI/Common/Name", "Character/CareerPaths/CareerPath", "Character/CareerPaths/Unclassified", "UI/Common/Cancel", "UI/Common/ISK",
+    .concat(["UI/Common/ShipClass", "UI/Common/Group", "UI/Common/Corporation", "UI/Common/Description", "UI/Common/Name", "Character/CareerPaths/CareerPath", "Character/CareerPaths/Unclassified", "UI/Common/Cancel", "UI/Common/ISK",
       "UI/Control/Form/InputRequired", "UI/Control/Form/LengthBetweenRequired", "UI/Control/Form/LengthBelowRequired", "UI/Control/Form/OnlySingleWhitespacesAllowed",
       "UI/Control/Form/IllegalCharacters", "UI/Corporations/Common/CorporateDivisionMasterWallet", "UI/Corporations/Goals/TypeInName", "UI/Corporations/Goals/Optional",
       "UI/Corporations/Goals/AnyCorpOffice", "UI/Common/Any", "UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCharacter", "UI/GameGoalConfig/Parameters/RunJobOnBehalfOfCorp",
@@ -62,7 +66,9 @@
   const NOT_YET = new Set<string>();
   type Parameter = { readonly parameterKey: string; readonly parameterType: string; readonly isRequired?: number; readonly maxEntries?: number; readonly title?: string; readonly info?: string };
   const BUILT = new Set(["location", "inventory_type", "corporation_office", "ship_type", "mineable_ore_type", "manufacturable_item_type", "identity",
-    "empire_faction", "factional_warfare_complex_type", "signature_type", "on_behalf_of", "corporation_office_location", "insurance_ship_type", "capsuleer_involvement"]);
+    "empire_faction", "factional_warfare_complex_type", "signature_type", "on_behalf_of", "corporation_office_location", "insurance_ship_type", "capsuleer_involvement",
+    "lp_npc_corporation"]);
+  let shipClasses = $state<readonly { id: number; nameID: number | null }[]>([]), oreGroups = $state<readonly number[]>([]), lpCorporations = $state<readonly number[]>([]);
   // The kinds searched by name, and their category filter.
   const TYPE_SEARCH: Record<string, string | null> = { inventory_type: null, ship_type: "Ship", insurance_ship_type: "Ship", mineable_ore_type: null, manufacturable_item_type: null };
   // probescanning.explorationSites.EXPLORATION_SITE_TYPES, as the client's dict orders its keys (asked of its Python).
@@ -89,7 +95,19 @@
         const only = TYPE_SEARCH[p.parameterType];
         // MineableOreParameter / ManufacturableItemParameter type_filter: TYPE_LIST_ALL_MINABLE_TYPES, is_manufacturable_item.
         const exact = p.parameterType === "mineable_ore_type" ? await flow.goalTypeFilter("mineable") : p.parameterType === "manufacturable_item_type" ? await flow.goalTypeFilter("manufacturable") : null;
-        found = { ...found, [p.parameterKey]: r.matches.filter((m) => (!only || m.category === only) && (!exact || exact.has(m.typeID))).slice(0, 50).map((m) => ({ id: m.typeID, name: m.name, sub: m.category })) };
+        const typeRows = r.matches.filter((m) => (!only || m.category === only) && (!exact || exact.has(m.typeID))).slice(0, 50).map((m) => ({ id: m.typeID, name: m.name, sub: m.category }));
+        // Several entries: the ship classes / ore groups whose names hold the text, after the types (ShipTypeParameter._sort_key).
+        const t = text.trim().toLowerCase(), several = (p.maxEntries ?? 1) > 1;
+        const classRows = several && (p.parameterType === "ship_type" || p.parameterType === "insurance_ship_type") && t.length >= 3
+          ? shipClasses.map((c) => ({ id: c.id, name: c.nameID ? word(`#${c.nameID}`) : String(c.id), sub: word("UI/Common/ShipClass") })).filter((c) => c.name.toLowerCase().includes(t)) : [];
+        const groupRows = several && p.parameterType === "mineable_ore_type" && t.length >= 3
+          ? oreGroups.map((g) => ({ id: g, name: nameAny("group", g) || String(g), sub: word("UI/Common/Group") })).filter((g) => g.name.toLowerCase().includes(t)) : [];
+        kinds = { ...kinds, ...Object.fromEntries([...classRows.map((c) => [`${p.parameterKey}:kind:${c.id}`, 5]), ...groupRows.map((g) => [`${p.parameterKey}:kind:${g.id}`, 6]),
+          ...typeRows.map((m) => [`${p.parameterKey}:kind:${m.id}`, 0])]) };
+        found = { ...found, [p.parameterKey]: [...typeRows, ...classRows, ...groupRows] };
+      } else if (p.parameterType === "lp_npc_corporation") {
+        const t = text.trim().toLowerCase();
+        found = { ...found, [p.parameterKey]: t.length < 3 ? [] : lpCorporations.map((id) => ({ id, name: nameAny("owner", id) || String(id), sub: word("UI/Common/Corporation") })).filter((c) => c.name.toLowerCase().includes(t)).slice(0, 50) };
       } else if (p.parameterType === "identity") {
         const r = text.trim().length < 3 ? [] : await flow.lookupPlayerOwners(text);
         // OwnerParameter.get_configuration's kinds: corporation (type 2), alliance (16159), faction (30), else character.
@@ -121,6 +139,9 @@
     flow.requestWords(Object.values(methods).flatMap((m) => ((m as { parameters?: readonly Parameter[] }).parameters ?? []).flatMap((p) => [p.title, p.info].filter((x): x is string => typeof x === "string"))));
     void flow.corporationOfficeOptions().then((o) => { offices = o; }, () => {});
     void flow.fwComplexOptions().then((o) => { fwComplexes = o; }, () => {});
+    void flow.goalShipClasses().then((c) => { shipClasses = c ?? []; }, () => {});
+    void flow.goalOreGroups().then((g) => { oreGroups = g ?? []; }, () => {});
+    void flow.goalLpCorporations().then((c) => { lpCorporations = c ?? []; }, () => {});
     flow.requestNames(FW_FACTIONS.map((id) => ({ kind: "owner" as const, id })));
     void flow.certifiedSkillPlans().then((r) => { if (r) careerNames = Object.fromEntries(r.careerPaths.filter((c) => c.nameID !== null).map((c) => [c.careerPathID, c.nameID!])); }, () => {});
   });

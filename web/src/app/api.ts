@@ -5782,6 +5782,24 @@ export async function loadTypeList(listID: number | "manufacturable", options: A
   return data.available && Array.isArray(data.typeIDs) ? (data.typeIDs as number[]) : null;
 }
 
+/** GET /api/client-data/type-list/:listID's groups: the listed types' groups; null where unread. */
+export async function loadTypeListGroups(listID: number, options: ApiOptions = {}): Promise<readonly number[] | null> {
+  const data = await getJson(`/api/client-data/type-list/${listID}`, options);
+  return data.available && Array.isArray(data.groupIDs) ? (data.groupIDs as number[]) : null;
+}
+
+/** GET /api/client-data/ship-classes: the ship tree's classes (shipgroup.ALL_GROUPS) with their names' messages. */
+export async function loadShipClasses(options: ApiOptions = {}): Promise<readonly { readonly id: number; readonly nameID: number | null; readonly iconSmall: string | null }[] | null> {
+  const data = await getJson("/api/client-data/ship-classes", options);
+  return data.available && Array.isArray(data.classes) ? (data.classes as unknown as { id: number; nameID: number | null; iconSmall: string | null }[]) : null;
+}
+
+/** GET /api/client-data/lp-corporations: the NPC corporations with an LP offer table or exchange rates. */
+export async function loadLpCorporations(options: ApiOptions = {}): Promise<readonly number[] | null> {
+  const data = await getJson("/api/client-data/lp-corporations", options);
+  return data.available && Array.isArray(data.corporationIDs) ? (data.corporationIDs as number[]) : null;
+}
+
 /** GET /api/client-data/archetype-titles: each archetype's title message id (null where none). */
 export async function loadArchetypeTitles(ids: readonly number[], options: ApiOptions = {}): Promise<Readonly<Record<string, number | null>>> {
   const data = await getJson(`/api/client-data/archetype-titles?ids=${ids.join(",")}`, options);
