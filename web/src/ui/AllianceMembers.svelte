@@ -6,7 +6,6 @@
   // Alliance (its own) or Kick Member (another's) - AllComfirmKickSelf / AllComfirmKickMember -, and Declare Support
   // (DeclareExecutorSupport(corpID)). DeclareSupportForm (DeclarationExecutorSupport, 500 wide): PledgeSupportTo, each
   // member corporation as a choice of one group (the own corporation's chosen executor checked); OK declares for it.
-  // (Quit / Kick are shown, not acting.)
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, AllianceMember } from "../app/flow.ts";
@@ -50,6 +49,11 @@
     busy = true;
     try { await flow.declareExecutorSupport(corporationID); } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { busy = false; load(); }
   }
+  async function remove(corporationID: number): Promise<void> {
+    if (busy) return;
+    busy = true;
+    try { await flow.deleteAllianceMember(corporationID); } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { busy = false; load(); }
+  }
   const joined = (t: bigint) => fill(DATE_LABELS.ll!, { datetime: { type: "long", value: t.toString() } });
   function logoOf(id: number) {
     const l = $corpLogos[String(id)] ?? null;
@@ -92,7 +96,7 @@
           {#if menuFor === m.corporationID}
             <div class="am-menu" role="menu">
               <button type="button" role="menuitem" onclick={() => { menuFor = null; showInfo({ kind: "corporation", corporationID: m.corporationID }); }}>{fill("UI/Commands/ShowInfo")}</button>
-              <button type="button" role="menuitem" disabled>{fill(M + (m.corporationID === myCorp ? "QuitAlliance" : "KickMember"))}</button>
+              <button type="button" role="menuitem" onclick={() => { menuFor = null; void remove(m.corporationID); }}>{fill(M + (m.corporationID === myCorp ? "QuitAlliance" : "KickMember"))}</button>
               <button type="button" role="menuitem" onclick={() => { menuFor = null; void declare(m.corporationID); }}>{fill(M + "DeclareSupport")}</button>
             </div>
           {/if}

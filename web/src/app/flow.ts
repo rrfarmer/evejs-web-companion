@@ -2454,6 +2454,9 @@ export interface AppFlow {
   allianceMembers(): Promise<readonly AllianceMember[]>;
   /** FormAlliancesMembers.DeclareSupport / the DeclareSupportForm: alliance.DeclareExecutorSupport(corpID). */
   declareExecutorSupport(corporationID: number): Promise<boolean>;
+  /** FormAlliancesMembers.DeleteMember: AllComfirmKickSelf (one's own corporation) or AllComfirmKickMember, yes / no,
+   * then alliance.DeleteMember(corpID); true when made. */
+  deleteAllianceMember(corporationID: number): Promise<boolean>;
   /** FormAlliancesRankings.ShowRankings(maxLen): allianceRegistry.GetRankedAlliances(maxLen), each with the
    * corporation's standing to it (standingsvc.GetStanding(corpid, allianceID): the corporate contact's, else 0). */
   rankedAlliances(maxLen: number): Promise<readonly { readonly alliance: AllianceInfo; readonly standing: number }[]>;
@@ -16753,6 +16756,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
     return members;
   }
+  async function deleteAllianceMember(corporationID: number): Promise<boolean> {
+    const self = corporationID === store.station.get().online?.corporationID;
+    const dialog = self ? "AllComfirmKickSelf" : "AllComfirmKickMember";
+    await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
+    if (!await askDialog(dialog, null, self ? "Leave the alliance?" : "Kick this corporation from the alliance?")) return false;
+    try { await bridgeDo("allianceRegistry", "DeleteMember", [corporationID]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function declareExecutorSupport(corporationID: number): Promise<boolean> {
     try { await bridgeDo("allianceRegistry", "DeclareExecutorSupport", [corporationID]); return true; }
     catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
@@ -30592,6 +30603,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     updateAlliance,
     allianceMembers,
     declareExecutorSupport,
+    deleteAllianceMember,
     rankedAlliances,
     allianceApplications,
     allianceApplicationAct,
