@@ -82,6 +82,7 @@ case "${1:-}" in
       \$env:EVEJS_ROOT = '$(win "$EVEJS_ROOT")';
       \$env:EVEJS_CLIENT_ROOT = '$(win "${EVE_CLIENT_DIR:-$HOME/Documents/EVE Online - 3396210}")';
       \$env:EVEJS_NATIVE_CLIENT = 'off';
+      \$env:EVEJS_PUBLIC_GATEWAY_URL = 'https://127.0.0.1:443';
       \$p = Start-Process node -ArgumentList '--env-file-if-exists=.env','src/server.js' -WorkingDirectory '$(win "$HERE")' -WindowStyle Hidden -RedirectStandardOutput '$(win "$STORE_DIR/bff.out.log")' -RedirectStandardError '$(win "$STORE_DIR/bff.err.log")' -PassThru;
       Set-Content -Path '$(win "$pidfile")' -Value \$p.Id -NoNewline" < /dev/null > /dev/null 2>&1
     echo "BFF started (pid $(cat "$pidfile")), logs in $STORE_DIR/bff.*.log"

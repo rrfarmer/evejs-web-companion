@@ -2722,6 +2722,10 @@ export interface AppFlow {
   /** CorpAccounts.TrashImpoundedItems: the impounded items listed ("<t>- <qty> x <type>") in ConfirmTrashingPlu /
    * ConfirmTrashingSin (none asked where there is nothing), Yes - Moniker('officeManager', stationID).TrashImpoundedOffice(). */
   trashImpoundedAt(stationID: number): Promise<boolean>;
+  /** corpColorsSvc.get_own_corp_colors: GetOwnRequest on the public gateway - the palette's colours (0..1 RGB; the second
+   * and third none where the palette says no_*_color), who last made it and when - else, where there is none (404),
+   * the logo's first colour (graphicCorpLogoLibColors[color1], else CORPLOGO_DEFAULT_COLOR) alone. */
+  ownCorporationColors(): Promise<{ readonly primary: readonly [number, number, number]; readonly color2: readonly [number, number, number] | null; readonly color3: readonly [number, number, number] | null; readonly lastAuthoredBy: number | null; readonly lastAuthored: Date | null }>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
@@ -18212,6 +18216,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
     return true;
   }
+  async function ownCorporationColors(): Promise<{ readonly primary: readonly [number, number, number]; readonly color2: readonly [number, number, number] | null; readonly color3: readonly [number, number, number] | null; readonly lastAuthoredBy: number | null; readonly lastAuthored: Date | null }> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const answer = await api.publicGatewayRequest("eve_public.cosmetic.corporation.palette.api.GetOwnRequest", {}, callOptions); scope.current();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" ? value : typeof value === "number" ? value : 0) || 0;
+    if (answer.statusCode === 404) {
+      // _get_default_corp_colors: cfg.corptickernames' color1 in the logo library, else the default colour.
+      requestCorpLogos([online.corporationID]);
+      const library = await api.loadCorpLogoLibrary(callOptions).catch(() => null); scope.current();
+      for (let i = 0; i < 20 && corpLogosSignal.get()[String(online.corporationID)] === undefined; i++) await new Promise(r => setTimeout(r, 150));
+      const color1 = corpLogosSignal.get()[String(online.corporationID)]?.colors[0] ?? null;
+      const rgba = (color1 !== null ? library?.colors[String(color1)]?.rgba : undefined) ?? library?.defaultColor.rgba ?? [1, 1, 1, 1];
+      return { primary: [rgba[0] ?? 1, rgba[1] ?? 1, rgba[2] ?? 1], color2: null, color3: null, lastAuthoredBy: null, lastAuthored: null };
+    }
+    if (answer.statusCode !== 200) throw new Error(answer.statusMessage || `The colour palette could not be read (${answer.statusCode}).`);
+    const payload = record(answer.payload), attributes = record(payload.attributes);
+    // _get_corp_color: CorpColor.from_rgba_8bit(red, green, blue).
+    const rgb = (value: unknown): [number, number, number] => { const c = record(value); return [int(c.red) / 255, int(c.green) / 255, int(c.blue) / 255]; };
+    // _get_corp_colors (read from its compiled code): a colour is none where its no_*_color is set.
+    const color2 = attributes.no_secondary_color !== undefined ? null : rgb(attributes.secondary_color);
+    const color3 = attributes.no_tertiary_color !== undefined ? null : rgb(attributes.tertiary_color);
+    const by = int(record(payload.last_modifier).sequential) || null;
+    const when = record(payload.last_modified), seconds = int(when.seconds);
+    if (by) await memberNames(scope, [{ kind: "owner", id: by }]);
+    return { primary: rgb(attributes.main_color), color2, color3, lastAuthoredBy: by, lastAuthored: payload.last_modified ? new Date(seconds * 1000) : null };
+  }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
     memberReadKey(online.characterID);
@@ -31263,6 +31293,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     safetyDeliveryTargets,
     deliverSafetyWrap,
     trashImpoundedAt,
+    ownCorporationColors,
     corporationAssetCategories,
     async marketTypeMatches(text: string) {
       const answer = await api.getMarketTypeMatches(text, callOptions);

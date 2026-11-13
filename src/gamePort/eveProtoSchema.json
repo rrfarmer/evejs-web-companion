@@ -793,6 +793,28 @@
   "eve_public.character.skill.plan.milestone.SetDescriptionResponse": {
    "fields": []
   },
+  "eve_public.color.RGB": {
+   "fields": [
+    {
+     "name": "red",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "green",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "blue",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
   "eve_public.corporation.Identifier": {
    "fields": [
     {
@@ -1334,6 +1356,135 @@
    ]
   },
   "eve_public.corporation.skill.plan.milestone.SetDescriptionResponse": {
+   "fields": []
+  },
+  "eve_public.cosmetic.corporation.palette.Attributes": {
+   "fields": [
+    {
+     "name": "main_color",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.color.RGB"
+    },
+    {
+     "name": "secondary_color",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.color.RGB",
+     "oneof": "secondary"
+    },
+    {
+     "name": "no_secondary_color",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "secondary"
+    },
+    {
+     "name": "tertiary_color",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.color.RGB",
+     "oneof": "tertiary"
+    },
+    {
+     "name": "no_tertiary_color",
+     "number": 5,
+     "type": 8,
+     "label": 1,
+     "oneof": "tertiary"
+    }
+   ]
+  },
+  "eve_public.cosmetic.corporation.palette.Identifier": {
+   "fields": [
+    {
+     "name": "corporation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.corporation.palette.api.CanEditRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.corporation.palette.api.CanEditResponse": {
+   "fields": [
+    {
+     "name": "can_edit",
+     "number": 1,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.corporation.palette.api.GetOwnRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.corporation.palette.api.GetOwnResponse": {
+   "fields": [
+    {
+     "name": "attributes",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.corporation.palette.Attributes"
+    },
+    {
+     "name": "last_modifier",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "last_modified",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.cosmetic.corporation.palette.api.GetRequest": {
+   "fields": [
+    {
+     "name": "identifier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.corporation.palette.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.corporation.palette.api.GetResponse": {
+   "fields": [
+    {
+     "name": "attributes",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.corporation.palette.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.corporation.palette.api.SetRequest": {
+   "fields": [
+    {
+     "name": "attributes",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.corporation.palette.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.corporation.palette.api.SetResponse": {
    "fields": []
   },
   "eve_public.inventory.genericitemtype.Attributes": {

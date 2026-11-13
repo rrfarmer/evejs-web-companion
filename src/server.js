@@ -14499,6 +14499,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.corporation.skill.plan.milestone.GetAllRequest",
   "eve_public.character.skill.plan.GetSharedRequest",
   "eve_public.corporation.skill.plan.GetSharedRequest",
+  // corporation/client/colors/corpColorsRequestMessenger.py: the corporation's colour palette (Brand Management).
+  "eve_public.cosmetic.corporation.palette.api.GetOwnRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.character.skill.plan.DeleteRequest",
