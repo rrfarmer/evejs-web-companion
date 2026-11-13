@@ -11,7 +11,8 @@
   // the Preview (CorpColorBannerWithLogo: banner_bg_large in the primary at 20%, one thick stripe or two / three thin ones
   // in the colours, the logo above), Update (set_colors: SetRequest; 403 UnableToSetCorpColorsRoleMissing, else
   // CannotConnectToServer) and Cancel; leaving with changes asks PromptSaveCorpColorChanges (Yes updates).
-  // Not here yet: what Edit Logo, Details and Open SKINR open.
+  // Details: CorpStructureDesignPanel in the same overlay (CorporationStructureDesign.svelte). Edit Logo:
+  // EditCorpDetails. Not here yet: Open SKINR (the paint tool).
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -22,6 +23,7 @@
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import CorporationCreate from "./CorporationCreate.svelte";
+  import CorporationStructureDesign from "./CorporationStructureDesign.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -55,6 +57,8 @@
   // EditColorsPanel: the colours being edited, from the palette as it was read.
   // LogoCard.on_edit_btn: EditCorpDetails.Open().
   let editingDetails = $state(false);
+  // on_structure_skinr_details_button: show_structure_skinr_overlay_panel.
+  let skinrDetails = $state(false);
   let editing = $state<{ primary: RGB; color2: RGB | null; color3: RGB | null } | null>(null), updating = $state(false);
   const same = (a: RGB | null, b: RGB | null) => (a === null || b === null ? a === b : a.every((c, i) => Math.round(c * 255) === Math.round(b[i]! * 255)));
   function openEdit(): void { if (colors) editing = { primary: colors.primary, color2: colors.color2, color3: colors.color3 }; }
@@ -155,6 +159,8 @@
     </div>
     <div class="bm-overlay-buttons"><button disabled={updating} onclick={() => void update()}>{plainText(text("UI/Common/Update"))}</button><button onclick={() => void leave()}>{plainText(text("UI/Common/Cancel"))}</button></div>
   </div>
+{:else if skinrDetails}
+  <CorporationStructureDesign {store} {flow} {corpID} onBack={() => { skinrDetails = false; }} />
 {:else}
 <div class="bm">
   {#if error}<p class="error">{error}</p>{/if}
@@ -194,7 +200,7 @@
       <span class="bm-skinr-icon">🖌</span>
       <span class="bm-skinr-text"><span class="bm-headline">{plainText(text("UI/Personalization/PaintTool/TrySKINRTitle"))}</span><span class="bm-body">{plainText(text(B + "StructureSKINRDescription"))}</span></span>
     </div>
-    <div class="bm-bottom"><button>{plainText(text("UI/Common/Details"))}</button><button>{plainText(text("UI/Personalization/PaintTool/OpenSKINR"))}</button></div>
+    <div class="bm-bottom"><button onclick={() => { skinrDetails = true; }}>{plainText(text("UI/Common/Details"))}</button><button>{plainText(text("UI/Personalization/PaintTool/OpenSKINR"))}</button></div>
   </div>
 </div>
 {/if}

@@ -825,6 +825,23 @@
     }
    ]
   },
+  "eve_public.corporation.loyalty.Points": {
+   "fields": [
+    {
+     "name": "amount",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "associated_corporation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    }
+   ]
+  },
   "eve_public.corporation.role.Collection": {
    "fields": [
     {
@@ -1487,6 +1504,294 @@
   "eve_public.cosmetic.corporation.palette.api.SetResponse": {
    "fields": []
   },
+  "eve_public.cosmetic.structure.paintwork.Slot": {
+   "fields": [
+    {
+     "name": "paint",
+     "number": 1,
+     "type": 13,
+     "label": 1,
+     "oneof": "value"
+    },
+    {
+     "name": "empty",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "value"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.SlotConfiguration": {
+   "fields": [
+    {
+     "name": "first",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.Slot"
+    },
+    {
+     "name": "second",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.Slot"
+    },
+    {
+     "name": "third",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.Slot"
+    },
+    {
+     "name": "fourth",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.Slot"
+    },
+    {
+     "name": "primary",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.Slot"
+    },
+    {
+     "name": "secondary",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.Slot"
+    },
+    {
+     "name": "detailing",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.Slot"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.Attributes": {
+   "fields": [
+    {
+     "name": "corporation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    },
+    {
+     "name": "activator",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "issued",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "duration",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "structure",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.structure.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationResponse": {
+   "fields": [
+    {
+     "name": "licenses",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationResponse.License"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationResponse.License": {
+   "fields": [
+    {
+     "name": "identifier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetCatalogueRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetCatalogueResponse": {
+   "fields": [
+    {
+     "name": "items",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.api.GetCatalogueResponse.Item"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetCatalogueResponse.Item": {
+   "fields": [
+    {
+     "name": "structure_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.structuretype.Identifier"
+    },
+    {
+     "name": "duration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "price",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.loyalty.Points"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetRequest": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.GetResponse": {
+   "fields": [
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.IssueRequest": {
+   "fields": [
+    {
+     "name": "paintwork",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.SlotConfiguration"
+    },
+    {
+     "name": "duration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "structures",
+     "number": 3,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.structure.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.IssueResponse": {
+   "fields": [
+    {
+     "name": "licenses",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.api.IssueResponse.LicenseStructure"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.IssueResponse.LicenseStructure": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.Attributes"
+    },
+    {
+     "name": "structure",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.structure.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.RevokeRequest": {
+   "fields": [
+    {
+     "name": "license",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.structure.paintwork.license.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.structure.paintwork.license.api.RevokeResponse": {
+   "fields": []
+  },
   "eve_public.inventory.genericitemtype.Attributes": {
    "fields": [
     {
@@ -1784,6 +2089,26 @@
     }
    ]
   },
+  "eve_public.structure.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.structuretype.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
   "eve_public.tracecontext.TraceContext": {
    "fields": [
     {
@@ -1856,6 +2181,22 @@
      "name": "value",
      "number": 2,
      "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "google.protobuf.Duration": {
+   "fields": [
+    {
+     "name": "seconds",
+     "number": 1,
+     "type": 3,
+     "label": 1
+    },
+    {
+     "name": "nanos",
+     "number": 2,
+     "type": 5,
      "label": 1
     }
    ]

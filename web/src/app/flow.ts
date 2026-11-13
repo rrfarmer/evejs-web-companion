@@ -485,6 +485,15 @@ export interface AssetTypeFacts { readonly categoryID: number | null; readonly c
 /** structureAssetSafety.GetItemsInSafetyForCorp's KeyVal: a wrap, its system, its eject time (FILETIME), the days until
  * it may be delivered and until it moves itself, and the nearest NPC station's item and type. */
 export interface SafetyWrap { readonly assetWrapID: number; readonly wrapName: string; readonly solarSystemID: number; readonly ejectTime: bigint; readonly daysUntilCanDeliver: number; readonly daysUntilAutoMove: number; readonly nearestStationID: number; readonly nearestStationTypeID: number }
+/** cosmetics.common.structures.const.PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS, in its order: Astrahus, Fortizar, Keepstar,
+ * Raitaru, Azbel, Sotiyo, Athanor, Tatara, Pharolux Cyno Beacon, Tenebrex Cyno Jammer, Ansiblex Jump Gate. */
+export const PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS: readonly number[] = [35832, 35833, 35834, 35825, 35826, 35827, 35835, 35836, 35840, 37534, 35841];
+/** A structure with a SKINR licence, as CorpStructureDesignPanel lists it. upkeepState: 1 full power, 2 low power,
+ * 3 abandoned (structures.const). */
+export interface CorporationStructureLicense {
+  readonly structureID: number; readonly name: string; readonly typeID: number; readonly upkeepState: number;
+  readonly solarSystemID: number; readonly licenseID: string; readonly remainingSeconds: number;
+}
 /** The corporation's row as the corporation details window reads it. */
 export interface CorporationDetails {
   readonly description: string; readonly url: string; readonly iskTaxRate: number; readonly lpTaxRate: number; readonly isRecruiting: boolean;
@@ -645,7 +654,7 @@ import {
 import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
-import { decodeJumpBridgesWithMyAccess, decodeStructureMapData } from "../bridge/structures.ts";
+import { decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData } from "../bridge/structures.ts";
 import {
   AVOIDING_DIALOGS,
   autopilotSettingsFrom,
@@ -2743,6 +2752,15 @@ export interface AppFlow {
    * no_*_color - as CorpColors.to_proto makes it (rgb_8bit: round(c x 255)). Answers the gateway's status: 200 done, 403
    * the role missing (UnableToSetCorpColorsRoleMissing), else it could not be done. */
   setOwnCorporationColors(primary: readonly [number, number, number], color2: readonly [number, number, number] | null, color3: readonly [number, number, number] | null): Promise<number>;
+  /** CorpStructureDesignPanel._fetch_data: structureDirectory.GetCorporationStructures and the public gateway's
+   * GetAllOwnedByCorporationRequest (licences by attributes.structure.sequential); a structure without a licence is
+   * left out. Each row as CorpStructureData and StructurePaintworkLicense have it - the remaining seconds as
+   * get_remaining_time counts them (duration - (now - issued)). The type names of PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS are
+   * asked for the filter. A failure throws (the LicenseLoadingContainer's failure state). */
+  corporationStructureLicenses(): Promise<readonly CorporationStructureLicense[]>;
+  /** ConfirmRevokeWnd._send_revoke_request: RevokeRequest(license=LicenseIdentifier(uuid)); throws when it fails
+   * (RevokeRequestErrorDescription). */
+  revokeStructureLicense(licenseID: string): Promise<void>;
   ownCorporationColors(): Promise<{ readonly primary: readonly [number, number, number]; readonly color2: readonly [number, number, number] | null; readonly color3: readonly [number, number, number] | null; readonly lastAuthoredBy: number | null; readonly lastAuthored: Date | null }>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
@@ -18260,6 +18278,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (by) await memberNames(scope, [{ kind: "owner", id: by }]);
     return { primary: rgb(attributes.main_color), color2, color3, lastAuthoredBy: by, lastAuthored: payload.last_modified ? new Date(seconds * 1000) : null };
   }
+  async function corporationStructureLicenses(): Promise<readonly CorporationStructureLicense[]> {
+    const scope = captureMemberOperation();
+    const structures = decodeCorporationStructures(await scope.ask("structureDirectory", "GetCorporationStructures", []) as JsonValue); scope.current();
+    const answer = await api.publicGatewayRequest("eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationRequest", {}, callOptions); scope.current();
+    if (answer.statusCode !== 200) throw new Error(answer.statusMessage || `The licences could not be read (${answer.statusCode}).`);
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" ? value : typeof value === "number" ? value : 0) || 0;
+    const payload = record(answer.payload);
+    const licences = new Map<number, { id: string; remaining: number }>();
+    for (const raw of Array.isArray(payload.licenses) ? payload.licenses : []) {
+      const attributes = record(record(raw).attributes), issued = record(attributes.issued);
+      const id = uuidFromBytes(String(record(record(raw).identifier).uuid ?? ""));
+      const structureID = int(record(attributes.structure).sequential);
+      // get_remaining_time: duration - (now - activation).
+      const elapsed = Date.now() / 1000 - (int(issued.seconds) + int(issued.nanos) / 1e9);
+      if (id && structureID) licences.set(structureID, { id, remaining: int(record(attributes.duration).seconds) - elapsed });
+    }
+    const rows = structures.flatMap((s) => {
+      const licence = licences.get(s.structureID);
+      return licence ? [{ structureID: s.structureID, name: s.itemName, typeID: s.typeID, upkeepState: s.upkeepState, solarSystemID: s.solarSystemID, licenseID: licence.id, remainingSeconds: licence.remaining }] : [];
+    });
+    await memberNames(scope, PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS.map((id) => ({ kind: "type" as const, id })));
+    return rows;
+  }
+  async function revokeStructureLicense(licenseID: string): Promise<void> {
+    const answer = await api.publicGatewayRequest("eve_public.cosmetic.structure.paintwork.license.api.RevokeRequest", { license: { uuid: bytesFromUuid(licenseID) } }, { ...callOptions, confirm: true });
+    if (answer.statusCode !== 200) throw new Error(answer.statusMessage || `The licence could not be revoked (${answer.statusCode}).`);
+  }
   async function corporationDetails(): Promise<CorporationDetails> {
     const row = await bridgeAsk("corpRegistry", "GetCorporation", []);
     const text = (key: string) => { const v = memberField(row, key); return typeof v === "string" ? v : v && typeof v === "object" && "value" in v ? String((v as { value: unknown }).value ?? "") : ""; };
@@ -31343,6 +31389,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     saveCorporationDetails,
     updateCorporationAbilities,
     ownCorporationColors,
+    corporationStructureLicenses,
+    revokeStructureLicense,
     async setOwnCorporationColors(primary: readonly [number, number, number], color2: readonly [number, number, number] | null, color3: readonly [number, number, number] | null) {
       const rgb = (c: readonly [number, number, number]) => ({ red: Math.round(c[0] * 255), green: Math.round(c[1] * 255), blue: Math.round(c[2] * 255) });
       const attributes: Record<string, JsonValue> = { main_color: rgb(primary) };

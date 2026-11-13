@@ -14501,10 +14501,15 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.corporation.skill.plan.GetSharedRequest",
   // corporation/client/colors/corpColorsRequestMessenger.py: the corporation's colour palette (Brand Management).
   "eve_public.cosmetic.corporation.palette.api.GetOwnRequest",
+  // cosmetics/client/messengers/entitlements/corporation/structure/requestMessenger.get_for_corporation: Brand
+  // Management's Details (CorpStructureDesignPanel), the corporation's structure SKINR licences.
+  "eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.
   "eve_public.cosmetic.corporation.palette.api.SetRequest",
+  // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).
+  "eve_public.cosmetic.structure.paintwork.license.api.RevokeRequest",
   "eve_public.character.skill.plan.DeleteRequest",
   "eve_public.character.skill.plan.SetActiveRequest",
   "eve_public.character.skill.plan.SetSkillRequirementsRequest",
