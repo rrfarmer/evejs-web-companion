@@ -180,7 +180,7 @@ import { resolvedName } from "../store/names.ts";
 import { labelEscaped } from "../bridge/labelMarkup.ts";
 import { corporationTrackingOf, type CorporationTracking } from "../bridge/corporationTracking.ts";
 import { corporationMemberOf, memberField, memberInteger, memberTitleOf, MEMBER_ROLE_FIELDS, type CorporationMemberDetails } from "../bridge/corporationMemberDetails.ts";
-import { memberRoleGroups, myGrantableRoles, memberTitlesOf, changeMemberTitles, type RoleMasks, type CorporationTitle } from "../bridge/corporationRoles.ts";
+import { memberRoleGroups, myGrantableRoles, memberTitlesOf, changeMemberTitles, roleGroupings, type RoleMasks, type CorporationTitle, type RoleGrouping } from "../bridge/corporationRoles.ts";
 import { addressBookOf, corporateAddressBookOf, type ContactScope, agentFoldersOf, contactLabelsOf, createdLabelOf, labelBitsSent, onlineStatesOf, type AgentFolders, type ContactLabel, type ContactWrite, type NamedAddressBook } from "../bridge/contacts.ts";
 import { sendMail as sendMailCall, type MailToSend } from "../bridge/mailWrites.ts";
 import { mailMarkupOfTyped } from "../bridge/mailMarkup.ts";
@@ -447,10 +447,31 @@ export interface CorporationAudit {
   readonly events: readonly { readonly eventDateTime: bigint; readonly eventTypeID: number; readonly corporationID: number | null }[];
   readonly roles: readonly { readonly changeTime: bigint; readonly oldRoles: bigint; readonly newRoles: bigint; readonly issuerID: number; readonly grantable: boolean; readonly charID: number; readonly corporationID: number }[];
 }
+/** CorpTitles' data: the titles (GetTitles, in the dict's order), GetRoleGroupings(1) for the role views and
+ * GetRoleGroupings() for the Title Summary, whether the viewer is a director, whether title names are read-only. */
+export interface CorporationTitlesView {
+  readonly assertCurrent: () => void;
+  readonly director: boolean;
+  readonly nameReadOnly: boolean;
+  readonly titles: readonly CorporationTitle[];
+  readonly forTitles: readonly RoleGrouping[];
+  readonly groupings: readonly RoleGrouping[];
+}
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
 export interface AllianceApplication { readonly allianceID: number; readonly corporationID: number; readonly applicationText: string; readonly state: number }
 /** An alliance member (GetMembers' row): the corporation, its chosen executor (None the client's Secret), when it joined. */
 export interface AllianceMember { readonly corporationID: number; readonly chosenExecutorID: number | null; readonly startDate: bigint }
+const ROLE_DIVISION_ORDINALS = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh"];
+/** GetDivisionNames' defaults: the hangar divisions 1-7, the master wallet 8, wallets 9-14; the goals hangar at 0 and 15. */
+const ROLE_DIVISION_LABELS = ROLE_DIVISION_ORDINALS.map(ordinal => `UI/Corporations/Common/CorporateDivision${ordinal}`).concat(["UI/Corporations/Common/CorporateDivisionMasterWallet"], ROLE_DIVISION_ORDINALS.slice(1).map(ordinal => `UI/Corporations/Common/CorporateDivisionWallet${ordinal}`), ["UI/Inventory/GoalDeliveriesHangar"]);
+function roleDivisionNamer(corporation: JsonValue, templates: Readonly<Record<string, string | null>>): (division: number) => string {
+  return (division: number): string => {
+    if (division === 0 || division === 15) return templates["UI/Inventory/GoalDeliveriesHangar"] ?? "";
+    const raw = division === 8 ? null : memberField(corporation, division < 8 ? `division${division}` : `walletDivision${division - 7}`);
+    const name = typeof raw === "string" ? raw : raw && typeof raw === "object" && "value" in raw && typeof raw.value === "string" ? raw.value : "";
+    return name || templates[ROLE_DIVISION_LABELS[division - 1]!] || "";
+  };
+}
 /** A ship class's kills in a war (warReport.killsByShipGroup's KeyVal). */
 export interface WarClassKills { readonly attackerKills: number; readonly defenderKills: number; readonly attackerKillsIsk: number; readonly defenderKillsIsk: number }
 /** eveCfg.GetShipGroupByClassType's ship groups (inventorycommon const), each to its class (GROUP_CAPSULES 0 ...
@@ -2642,9 +2663,14 @@ export interface AppFlow {
   corporationMemberQueryNeedsValue(current?: () => void): Promise<void>;
   memberQueryPreference(name: "FMBQincludeImplied" | "FMBQsearchTitles"): { readonly value: ReadableSignal<boolean>; set(value: boolean): void };
   corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]>;
+  corporationTitlesView(current?: () => void): Promise<CorporationTitlesView>;
+  saveCorporationTitles(changed: readonly CorporationTitle[], current?: () => void): Promise<void>;
+  membersWithTitle(titleID: number, current?: () => void): Promise<readonly number[]>;
   corporationMemberSummary(details: CorporationMemberDetails): Promise<{ readonly titles: readonly CorporationTitle[]; readonly showTitleNames: boolean }>;
   corporationSummaryGroupOpen(groupID: number, open?: boolean): boolean;
   corporationDecorationGroupOpen(medalID: number, recipients: boolean, open?: boolean): boolean;
+  /** registry.Get/SetListGroupOpenState for a (list, group) id: the character's listgroups setting, initially closed. */
+  listGroupOpen(listID: string, groupID: string, open?: boolean): boolean;
   saveCorporationMember(details: CorporationMemberDetails, title: string, baseID: number | null, masks: RoleMasks, titleMask: number): Promise<CorporationMemberDetails>;
   giveCorporationShares(characterID: number, current?: () => void): Promise<void>;
   /** The client's online status service primed, where it is not: the watched contacts' online state in the store. */
@@ -17708,12 +17734,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // bco_members.GetMember @Memoize(0.1): caching.Memoize takes minutes, so six seconds after the reply.
   const memberReads = new Map<string, { value: JsonValue; savedAt: number }>();
   const memberTitleReads = new Map<number, Map<number, CorporationTitle>>();
+  // bco_members' PagedCorpMembers: the member rows of the pages GetMembersPaged has answered (Role Management loads
+  // them); GetMembers() iterates only these.
+  const pagedCorpMembers = new Map<number, { readonly characterID: number; readonly titleMask: number }>();
   let memberDataCorpID: number | null = null;
   let memberDataPilotGeneration = -1, memberDataCorporationGeneration = -1;
   function memberReadKey(characterID: number): string {
     const corporationID = store.station.get().online?.corporationID ?? null;
     if (corporationID !== memberDataCorpID || memberDataPilotGeneration !== requestGeneration || memberDataCorporationGeneration !== corporationMembershipGeneration) {
-      memberReads.clear(); memberTitleReads.clear(); memberDataCorpID = corporationID;
+      memberReads.clear(); memberTitleReads.clear(); pagedCorpMembers.clear(); memberDataCorpID = corporationID;
       memberDataPilotGeneration = requestGeneration; memberDataCorporationGeneration = corporationMembershipGeneration;
     }
     return `${corporationID}:${characterID}`;
@@ -17730,6 +17759,47 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const rows = memberTitlesOf(answer, index => plainText(formatTemplate(template, { index }, { nameOf: () => "" })));
     memberTitleReads.set(corporationID, rows);
     return rows;
+  }
+  async function corporationTitlesView(current?: () => void): Promise<CorporationTitlesView> {
+    const scope = captureMemberOperation(current), online = scope.online;
+    memberReadKey(online.characterID);
+    // CorpTitles.ApplyAttributes: GetTitles and GetRoleGroupings(1) (its division names from the held corporation).
+    const titles = await readMemberTitles(online.corporationID, scope);
+    const corporation = await scope.ask("corpRegistry", "GetCorporation", []);
+    const roleData = await api.getCorporationRoleData(scope.options); scope.current();
+    const queryLabel = "UI/Corporations/BaseCorporationUI/Query", takeLabel = "UI/Corporations/BaseCorporationUI/Take";
+    await wordsNow([queryLabel, takeLabel, ...ROLE_DIVISION_LABELS, ...Object.values(roleData.roles).flatMap(role => [`#${role.nameID}`, `#${role.descriptionID}`]), ...Object.values(roleData.groups).map(group => `#${group.roleGroupNameID}`)]);
+    scope.current();
+    const templates = store.words.get().templates;
+    const name = (id: number) => plainText(templates[`#${id}`] ?? ""), divisionName = roleDivisionNamer(corporation, templates);
+    const config = await api.getGlobalConfig(["content_compliance_control_system_enabled"], scope.options); scope.current();
+    const raw = config.values.content_compliance_control_system_enabled;
+    const controlled = typeof raw === "number" ? Number.isFinite(raw) && Math.trunc(raw) !== 0 : typeof raw === "boolean" ? raw : typeof raw === "string" && /^[+-]?\d+$/.test(raw.trim()) && BigInt(raw.trim()) !== 0n;
+    const query = plainText(templates[queryLabel] ?? ""), take = plainText(templates[takeLabel] ?? "");
+    return { assertCurrent: scope.current, director: (BigInt(online.corpRole ?? "0") & 1n) !== 0n, nameReadOnly: controlled,
+      // self.sr.titles.iteritems(): the IndexRowset's dict, by titleID.
+      titles: intDictOrder([...titles.keys()]).map(titleID => titles.get(titleID)!),
+      forTitles: roleGroupings(roleData, true, name, query, take, divisionName), groupings: roleGroupings(roleData, false, name, query, take, divisionName) };
+  }
+  async function saveCorporationTitles(changed: readonly CorporationTitle[], current?: () => void): Promise<void> {
+    const scope = captureMemberOperation(current);
+    if (!changed.length) return;
+    // CorpTitles.SaveChanges: a Rowset of the changed titles, every mask without the Director role, to corp.UpdateTitles.
+    const header = ["titleID", "titleName", ...MEMBER_ROLE_FIELDS];
+    const lines = changed.map(title => ({ type: "list", items: [title.titleID, { type: "wstring", value: title.titleName },
+      ...MEMBER_ROLE_FIELDS.map(field => ({ type: "long", value: (title[field] & ~1n).toString() }))] }));
+    const instance: Record<string, JsonValue> = { header: { type: "list", items: header }, lines: { type: "list", items: lines }, RowClass: { type: "token", value: "util.Row" } } as Record<string, JsonValue>;
+    const rowset = { type: "object", name: "eve.common.script.sys.rowset.Rowset", args: { type: "dict", entries: strDictOrder(Object.keys(instance)).map(key => [key, instance[key]!]) } } as JsonValue;
+    await scope.write("corpRegistry", "UpdateTitles", [rowset]); scope.current();
+  }
+  async function membersWithTitle(titleID: number, current?: () => void): Promise<readonly number[]> {
+    const scope = captureMemberOperation(current);
+    memberReadKey(scope.online.characterID);
+    // CorpTitles.GetMemberWithTitle: GetMembers() - the pages already loaded - whose titleMask has the title, by name.
+    const ids = [...pagedCorpMembers.values()].filter(member => (member.titleMask & titleID) !== 0).map(member => member.characterID);
+    await memberNames(scope, ids.map(id => ({ kind: "owner" as const, id })));
+    const names = store.names.get().resolved;
+    return ids.map(id => ({ id, key: resolvedName(names, "owner", id, "").toLowerCase() })).sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0).map(entry => entry.id);
   }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
@@ -17757,6 +17827,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
   const decorationGroupMemory = new Map<number, Record<string, unknown>>();
   function corporationDecorationGroupOpen(medalID: number, recipients: boolean, open?: boolean): boolean {
+    return listGroupOpen(recipients ? "corpdecorationdetails" : "corpdecorations", String(medalID), open);
+  }
+  function listGroupOpen(listID: string, groupID: string, open?: boolean): boolean {
     // registry.Get/SetListGroupOpenState553-575: character listgroups,
     // Unicode list/group keys. Parent closure never changes the child's state.
     const characterID = store.station.get().online?.characterID ?? null;
@@ -17765,7 +17838,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     let groups = decorationGroupMemory.get(characterID) ?? {};
     const kept = charUiSetting("listgroups");
     try { if (kept !== null) groups = record(JSON.parse(kept)); } catch { /* Keep this character's in-memory state. */ }
-    const listID = recipients ? "corpdecorationdetails" : "corpdecorations", groupID = String(medalID);
     const list = record(groups[listID]), group = record(list[groupID]);
     if (open !== undefined) groups = { ...groups, [listID]: { ...list, [groupID]: { ...group, open } } };
     decorationGroupMemory.set(characterID, groups);
@@ -17827,18 +17899,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const targetIsCEO = ceoID === characterID;
     const roleData = await api.getCorporationRoleData(scope.options); scope.current();
     const queryLabel = "UI/Corporations/BaseCorporationUI/Query", takeLabel = "UI/Corporations/BaseCorporationUI/Take", combinedLabel = "UI/Corporations/EditMemberDialog/RoleNameAndRole";
-    const ordinals = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh"];
-    const divisionLabels = ordinals.map(ordinal => `UI/Corporations/Common/CorporateDivision${ordinal}`).concat(["UI/Corporations/Common/CorporateDivisionMasterWallet"], ordinals.slice(1).map(ordinal => `UI/Corporations/Common/CorporateDivisionWallet${ordinal}`));
-    const goalsHangar = "UI/Inventory/GoalDeliveriesHangar";
-    await wordsNow([queryLabel, takeLabel, combinedLabel, goalsHangar, ...divisionLabels, ...Object.values(roleData.roles).flatMap(role => [`#${role.nameID}`, `#${role.descriptionID}`]), ...Object.values(roleData.groups).map(group => `#${group.roleGroupNameID}`)]);
+    await wordsNow([queryLabel, takeLabel, combinedLabel, ...ROLE_DIVISION_LABELS, ...Object.values(roleData.roles).flatMap(role => [`#${role.nameID}`, `#${role.descriptionID}`]), ...Object.values(roleData.groups).map(group => `#${group.roleGroupNameID}`)]);
     scope.current();
     const templates = store.words.get().templates;
-    const divisionName = (division: number): string => {
-      if (division === 0 || division === 15) return templates[goalsHangar] ?? "";
-      const raw = division === 8 ? null : memberField(corporation, division < 8 ? `division${division}` : `walletDivision${division - 7}`);
-      const name = typeof raw === "string" ? raw : raw && typeof raw === "object" && "value" in raw && typeof raw.value === "string" ? raw.value : "";
-      return name || templates[divisionLabels[division - 1]!] || "";
-    };
+    const divisionName = roleDivisionNamer(corporation, templates);
     const roleGroups = memberRoleGroups(roleData, id => plainText(templates[`#${id}`] ?? ""), plainText(templates[queryLabel] ?? ""), plainText(templates[takeLabel] ?? ""), divisionName,
       (role, name) => formatTemplate(templates[combinedLabel] ?? "", { role, name }, { nameOf: () => "" }));
     // Compiled corp_util.CanEditBase: only the CEO edits the CEO; a Director may edit other members.
@@ -30770,6 +30834,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     memberQueryPreference: name => memberQuerySetting(store.session.get().accountID, name, settingsStorage),
     corporationMemberTitles,
+    corporationTitlesView,
+    listGroupOpen,
+    saveCorporationTitles,
+    membersWithTitle,
     corporationMemberSummary,
     corporationSummaryGroupOpen,
     corporationDecorationGroupOpen,

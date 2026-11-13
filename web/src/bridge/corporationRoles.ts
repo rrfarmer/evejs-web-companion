@@ -43,6 +43,55 @@ export function memberRoleGroups(data: CorporationRoleData, name: (id: number) =
   });
 }
 
+/** base_corporation.Role(roleID, roleName, shortDescription, description): its localized name and description. */
+export interface RoleGroupingRole { readonly roleID: bigint; readonly roleName: string; readonly shortDescription: string; readonly description: string }
+/** One of a role grouping's columns: its name and its (sub-column name, role) pairs. */
+export interface RoleGroupingColumn { readonly name: string; readonly subColumns: readonly { readonly name: string; readonly role: RoleGroupingRole }[] }
+export interface RoleGrouping extends CorporationRoleGroupSpec { readonly roleGroupID: number; readonly columns: readonly RoleGroupingColumn[] }
+
+/**
+ * base_corporation.GetRoleGroupings(forTitles): per role group (in the groups dict's order), a divisional group's columns
+ * are its divisions (rolesByDivisions' keys in dict order), each named from GetDivisionNames - an account group's at
+ * division + 7 - with its roles as sub-columns sorted by Take / Query (an account role's is ''); any other group's
+ * columns are its roles sorted by their localized names' upper case (the Director role left out for titles), each one
+ * sub-column named ''.
+ */
+export function roleGroupings(data: CorporationRoleData, forTitles: boolean, name: (messageID: number) => string, query: string, take: string, divisionName: (division: number) => string): readonly RoleGrouping[] {
+  const roles = intDictOrder(Object.keys(data.roles).map(Number)).map(bit => {
+    const spec = data.roles[bit]!;
+    return { roleID: 1n << BigInt(bit), roleName: spec.roleName, shortDescription: name(spec.nameID), description: name(spec.descriptionID) };
+  });
+  const upper = (text: string) => text.toUpperCase();
+  return intDictOrder(data.order).map(roleGroupID => {
+    const group = data.groups[roleGroupID]!, mask = BigInt(group.roleMask);
+    const columns: RoleGroupingColumn[] = [];
+    if (group.isDivisional) {
+      const byDivision = new Map<number, { name: string; role: RoleGroupingRole }[]>();
+      let isAccount = false;
+      for (const role of roles) {
+        if ((role.roleID & mask) !== role.roleID) continue;
+        const division = Number(role.roleName.slice(-1));
+        let desc = role.roleName.includes("CanTake") ? take : role.roleName.includes("CanQuery") ? query : "";
+        if (role.roleName.startsWith("roleAccount")) { isAccount = true; desc = ""; }
+        if (!byDivision.has(division)) byDivision.set(division, []);
+        byDivision.get(division)!.push({ name: desc, role });
+      }
+      for (const division of intDictOrder([...byDivision.keys()])) {
+        // sort(lambda a, b: -(a.upper() < b.upper())): list.sort reads only "less than", so a stable ascending sort.
+        const subColumns = byDivision.get(division)!.slice().sort((a, b) => upper(a.name) < upper(b.name) ? -1 : upper(b.name) < upper(a.name) ? 1 : 0);
+        columns.push({ name: divisionName(division + (isAccount ? 7 : 0)), subColumns });
+      }
+    } else {
+      const sorted = roles.slice().sort((a, b) => upper(a.shortDescription) < upper(b.shortDescription) ? -1 : upper(b.shortDescription) < upper(a.shortDescription) ? 1 : 0);
+      for (const role of sorted) {
+        if (forTitles && role.roleID === 1n) continue;
+        if ((role.roleID & mask) === role.roleID) columns.push({ name: role.shortDescription, subColumns: [{ name: "", role }] });
+      }
+    }
+    return { ...group, roleGroupID, columns };
+  });
+}
+
 export interface CorporationRoleSummaryRow {
   readonly name: string;
   readonly role: boolean;
