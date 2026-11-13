@@ -32,6 +32,7 @@ export type CoreTabID =
   | "compare"
   | "agents"
   | "finder"
+  | "jobBoard"
   | "skills"
   | "planets"
   | "industryManager"
@@ -193,6 +194,8 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "compare", label: "Compare Tool", where: "both" },
   { id: "agents", label: "Agents & Missions", where: "both" },
   { id: "finder", label: "Agent Finder", where: "both" },
+  // The client's job board (JobBoardWindow, "Opportunities"): here its freelance jobs.
+  { id: "jobBoard", label: "Opportunities", where: "both" },
   { id: "skills", label: "Skills", where: "both" },
   { id: "planets", label: "Planets", where: "both" },
   // R109 — a GLOBAL window: a blueprint expanded into its whole build tree,

@@ -71,6 +71,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   market: ["M12 4v16", "M6 8h12", "M6 8l-2 5h4zM18 8l-2 5h4z"],
   industry: ["M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8", "M12 2v3M12 19v3M2 12h3M19 12h3"],
   contracts: ["M6 3h8l4 4v14H6z", "M14 3v4h4", "M9 13h6M9 17h6"],
+  jobBoard: ["M4 7h16v12H4z", "M9 7V4h6v3", "M4 12h16"],
   assets: ["M4 14h7v6H4z", "M13 14h7v6h-7z", "M8.5 7h7v6h-7z"],
   wallet: ["M4 7h16v11H4z", "M4 7l12-3v3", "M17 13h.01"],
   corpWallet: ["M6 9h12v3H6z", "M6 14h12v4H6z", "M8 6h8"],

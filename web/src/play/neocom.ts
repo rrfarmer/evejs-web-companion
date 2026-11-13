@@ -8,10 +8,11 @@ export interface NeocomButton { id: string; label: string; icon: string }
 
 const icon = (name: string) => clientTexture(`res:/UI/Texture/WindowIcons/${name}.png`);
 
-// RAWDATA_NEOCOMDEFAULT, as far as the play page goes: the career program and the job board, Project Discovery and
+// RAWDATA_NEOCOMDEFAULT, as far as the play page goes: the career program, Project Discovery and
 // the like are left out until there is something behind them.
 export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
   { id: "agency", label: "Agency", icon: icon("agentfinder") },
+  { id: "jobboard", label: "Opportunities", icon: icon("opportunities") },
   { id: "mail", label: "EVE Mail", icon: icon("evemail") },
   { id: "inventory", label: "Inventory", icon: icon("items") },
   { id: "assets", label: "Assets", icon: icon("assets") },
@@ -32,6 +33,7 @@ export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
 export interface EveMenuGroup { label: string; icon: string; items: readonly { id: string | null; label: string; icon: string }[] }
 export const EVE_MENU: readonly EveMenuGroup[] = [
   { label: "Activities", icon: icon("directoryActivities"), items: [
+    { id: "jobboard", label: "Opportunities", icon: icon("opportunities") },
     { id: "agency", label: "Agency", icon: icon("theAgency") },
     { id: "map", label: "Map", icon: icon("map") },
   ] },

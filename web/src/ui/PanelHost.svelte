@@ -20,6 +20,7 @@
   import PersonalAssets from "./PersonalAssets.svelte";
   import AgentsMissions from "./AgentsMissions.svelte";
   import AgentFinder from "./AgentFinder.svelte";
+  import JobBoardWindow from "./JobBoardWindow.svelte";
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
   import DronesPanel from "./DronesPanel.svelte";
@@ -156,6 +157,8 @@
   <PersonalAssets {store} {flow} />
 {:else if tab === "agents"}
   <AgentsMissions {store} {flow} />
+{:else if tab === "jobBoard"}
+  <JobBoardWindow {store} {flow} />
 {:else if tab === "finder"}
   <AgentFinder {store} {flow} showTravel={() => onOpen?.("travel")} />
 {:else if tab === "flight"}

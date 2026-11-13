@@ -3523,6 +3523,12 @@ export interface AppFlow {
   /** FreelanceProjectJob's Commit, Resign and Claim (repository.commit / resign / redeem_rewards): null when done, else
    * the error label (error_messages.get_commit_error_label / get_resign_error_label; a failed claim "Redeem"). */
   freelanceJobAction(kind: "commit" | "resign" | "redeem", projectID: string): Promise<{ readonly label: string } | null>;
+  /** The job board's freelance jobs (FreelanceProjectsProvider): the projects broadcast in the systems within 6 jumps
+   * (GetSystemsWithinJumpRange(session.solarsystemid2, 0, 6), GetAllBroadcastedRequest), the committed ones
+   * (GetAllCommittedRequest) and the unredeemed ones (GetAllUnredeemedRequest), each read as the job page reads it;
+   * sorted into the board's pages by FreelanceProjectJob's is_available_in_browse / is_available_in_active /
+   * has_claimable_rewards. */
+  freelanceBoard(): Promise<{ readonly browse: readonly FreelanceJob[]; readonly active: readonly FreelanceJob[]; readonly unclaimed: readonly FreelanceJob[] } | null>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
    * checks them (owner, flag, type and group, stack, singleton); null where not docked or unread. */
   freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null>;
@@ -19466,6 +19472,61 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await memberNames(scope, [{ kind: "owner", id: int(record(p.owner).sequential) }, { kind: "owner", id: project.creator }]).catch(() => {});
     return { project, corporationID: int(record(p.owner).sequential), participation, unredeemed: int(payload.units_unredeemed), totalParticipants: int(p.total_participants), atMaxProjects: committedCount >= limit, ageDays };
   }
+  async function freelanceBoard(): Promise<{ readonly browse: readonly FreelanceJob[]; readonly active: readonly FreelanceJob[]; readonly unclaimed: readonly FreelanceJob[] } | null> {
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const list = (value: unknown) => (Array.isArray(value) ? value : []) as unknown[];
+    const idsOf = (projects: unknown) => list(projects).map((x) => uuidFromBytes(String(record(x).uuid ?? ""))).filter((x): x is string => Boolean(x));
+    const here = store.space.get().snapshot?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    // clientPathfinderService.GetSystemsWithinJumpRange(here, 0, 6).
+    const relevant: number[] = [];
+    if (here) {
+      const graph = await loadRouteGraph().catch(() => null);
+      const seen = new Set([here]);
+      let ring = [here];
+      relevant.push(here);
+      for (let jumps = 1; graph && jumps <= 6; jumps++) {
+        const next: number[] = [];
+        for (const s of ring) for (const e of graph.neighbors(s)) if (!seen.has(e.toSystemID)) { seen.add(e.toSystemID); next.push(e.toSystemID); }
+        relevant.push(...next); ring = next;
+      }
+    }
+    const ask = (request: string, payload: Record<string, JsonValue>) => api.publicGatewayRequest(request, payload, callOptions).catch(() => null);
+    const [broadcast, committed] = await Promise.all([
+      relevant.length ? ask("eve_public.freelance.project.api.GetAllBroadcastedRequest", { solar_systems: relevant.map((sequential) => ({ sequential })) }) : Promise.resolve(null),
+      ask("eve_public.freelance.project.api.GetAllCommittedRequest", {}),
+    ]);
+    if (!broadcast && !committed) return null;
+    const unredeemed: string[] = [];
+    let token = "";
+    for (let i = 0; i < 20; i++) {
+      const a = await ask("eve_public.freelance.project.api.GetAllUnredeemedRequest", { page: { size: 25, ...(token ? { token } : {}) } });
+      if (!a || a.statusCode !== 200) break;
+      unredeemed.push(...idsOf(record(a.payload).projects));
+      token = String(record(record(a.payload).next_page).token ?? "");
+      if (!token) break;
+    }
+    const broadcastIDs = broadcast && broadcast.statusCode === 200 ? list(record(broadcast.payload).broadcasted).flatMap((b) => idsOf(record(b).projects)) : [];
+    const committedIDs = committed && committed.statusCode === 200 ? idsOf(record(committed.payload).projects) : [];
+    const ids = [...new Set([...broadcastIDs, ...committedIDs, ...unredeemed])];
+    const jobs = (await Promise.all(ids.map((id) => freelanceJob(id).catch(() => null)))).filter((j): j is FreelanceJob => j !== null);
+    const remainingOf = (j: FreelanceJob) => { const left = Math.max(0, j.project.target - j.project.current); return j.project.contributionLimit ? Math.min(left, Math.max(0, j.project.contributionLimit - j.project.myProgress)) : left; };
+    const meetsAge = (j: FreelanceJob) => {
+      const { minAge, maxAge } = j.project, age = j.ageDays ?? 0;
+      if (minAge === null && maxAge === null) return true;
+      if (!minAge) return (maxAge ?? 0) >= age;
+      if (!maxAge) return age >= minAge;
+      return minAge <= age && age <= maxAge;
+    };
+    const broadcastSet = new Set(broadcastIDs);
+    // is_available_in_browse: one the pilot can contribute to, else one not at capacity, of the right age, not kicked,
+    // broadcast near.
+    const canContribute = (j: FreelanceJob) => j.participation === 1 && remainingOf(j) > 0 && j.project.state === 1;
+    const atCapacity = (j: FreelanceJob) => j.project.maxCommitted !== null && j.project.participants === j.project.maxCommitted;
+    const browse = jobs.filter((j) => canContribute(j) || (!atCapacity(j) && meetsAge(j) && j.participation !== 2 && broadcastSet.has(j.project.projectID)));
+    const active = jobs.filter((j) => j.project.state === 1 && j.participation === 1);
+    const unclaimed = jobs.filter((j) => j.unredeemed * j.project.iskPerUnit > 0);
+    return { browse, active, unclaimed };
+  }
   async function freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null> {
     const online = store.station.get().online;
     const stationID = online?.stationID ?? null, structureID = online?.structureID ?? null;
@@ -32934,6 +32995,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     freelanceJobAction,
     freelanceDeliverables,
     deliverToFreelanceJob,
+    freelanceBoard,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,
