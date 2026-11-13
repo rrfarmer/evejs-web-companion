@@ -21,6 +21,7 @@
   import CorpLogo from "./CorpLogo.svelte";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import CorporationCreate from "./CorporationCreate.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -52,6 +53,8 @@
   const ymd = (d: Date) => `${d.getUTCFullYear()}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${String(d.getUTCDate()).padStart(2, "0")}`;
   type RGB = readonly [number, number, number];
   // EditColorsPanel: the colours being edited, from the palette as it was read.
+  // LogoCard.on_edit_btn: EditCorpDetails.Open().
+  let editingDetails = $state(false);
   let editing = $state<{ primary: RGB; color2: RGB | null; color3: RGB | null } | null>(null), updating = $state(false);
   const same = (a: RGB | null, b: RGB | null) => (a === null || b === null ? a === b : a.every((c, i) => Math.round(c * 255) === Math.round(b[i]! * 255)));
   function openEdit(): void { if (colors) editing = { primary: colors.primary, color2: colors.color2, color3: colors.color3 }; }
@@ -119,6 +122,9 @@
   </div>
 {/snippet}
 
+{#if editingDetails}
+  <div class="bm-details"><CorporationCreate {store} {flow} edit onClose={() => { editingDetails = false; if (corpID) flow.requestCorpLogos([corpID]); }} /></div>
+{/if}
 {#if editing}
   {@const e = editing}
   {@const n = e.color2 ? (e.color3 ? 3 : 2) : 1}
@@ -158,7 +164,7 @@
       <span class="bm-logo-img">{#if $corpLogoLibrary && $corpLogos[String(corpID)]}<CorpLogo library={$corpLogoLibrary} logo={$corpLogos[String(corpID)]!} name={nameOf("owner", corpID)} />{/if}</span>
       <span class="bm-headline">{nameOf("owner", corpID)}</span>
     </div>
-    <div class="bm-bottom"><button disabled={!brandManager} title={brandManager ? "" : plainText(text("UI/Corporations/CorporationWindow/AccessibleWithRole", { role_name: "Brand Manager" }))}>✎ {plainText(text(B + "EditLogo"))}</button></div>
+    <div class="bm-bottom"><button disabled={!brandManager} onclick={() => { editingDetails = true; }} title={brandManager ? "" : plainText(text("UI/Corporations/CorporationWindow/AccessibleWithRole", { role_name: "Brand Manager" }))}>✎ {plainText(text(B + "EditLogo"))}</button></div>
   </div>
   <div class="bm-card">
     {@render card(B + "ColorPalette", "◐")}
@@ -217,6 +223,7 @@
   .bm-skinr-icon { font-size: 48px; width: 64px; text-align: center; }
   .bm-skinr-text { display: flex; flex-direction: column; gap: 4px; }
   .bm-body { opacity: 0.65; }
+  .bm-details { position: absolute; inset: 0; z-index: 6; }
   .bm-overlay { display: flex; flex-direction: column; height: 100%; padding: 0 8px 8px; box-sizing: border-box; }
   .bm-overlay-head { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-weight: bold; }
   .bm-overlay-body { flex: 1; min-height: 0; display: flex; gap: 32px; overflow: auto; background: rgba(255, 255, 255, 0.03); padding: 16px 8px 0; }

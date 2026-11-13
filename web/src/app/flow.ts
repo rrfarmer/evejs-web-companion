@@ -485,6 +485,11 @@ export interface AssetTypeFacts { readonly categoryID: number | null; readonly c
 /** structureAssetSafety.GetItemsInSafetyForCorp's KeyVal: a wrap, its system, its eject time (FILETIME), the days until
  * it may be delivered and until it moves itself, and the nearest NPC station's item and type. */
 export interface SafetyWrap { readonly assetWrapID: number; readonly wrapName: string; readonly solarSystemID: number; readonly ejectTime: bigint; readonly daysUntilCanDeliver: number; readonly daysUntilAutoMove: number; readonly nearestStationID: number; readonly nearestStationTypeID: number }
+/** The corporation's row as the corporation details window reads it. */
+export interface CorporationDetails {
+  readonly description: string; readonly url: string; readonly iskTaxRate: number; readonly lpTaxRate: number; readonly isRecruiting: boolean;
+  readonly memberLimit: number; readonly shapes: readonly (number | null)[]; readonly colors: readonly (number | null)[];
+}
 /** corpmgr.GetAssetInventoryForLocation's row. */
 export interface CorpAssetItem { readonly itemID: number; readonly typeID: number; readonly flagID: number; readonly stacksize: number; readonly singleton: number; readonly groupID: number; readonly categoryID: number }
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
@@ -2722,6 +2727,15 @@ export interface AppFlow {
   /** CorpAccounts.TrashImpoundedItems: the impounded items listed ("<t>- <qty> x <type>") in ConfirmTrashingPlu /
    * ConfirmTrashingSin (none asked where there is nothing), Yes - Moniker('officeManager', stationID).TrashImpoundedOffice(). */
   trashImpoundedAt(stationID: number): Promise<boolean>;
+  /** EditCorpDetails.ApplyAttributes: the corporation's row - description, url, the tax rates (x 100), isRecruiting,
+   * memberLimit, the logo's three shapes and colours. */
+  corporationDetails(): Promise<CorporationDetails>;
+  /** EditCorpDetails.Submit: a changed logo asks AskAcceptLogoChangeCost (cost corpLogoChangeCost 100, default No), Yes -
+   * UpdateLogo(shapes, colours, None); then, a changed description, url or rate - UpdateCorporation(description stripped,
+   * the url FormatUrl'd, ISK rate / 100, isRecruiting, LP rate / 100). */
+  saveCorporationDetails(prior: CorporationDetails, next: Omit<CorporationDetails, "memberLimit" | "isRecruiting">): Promise<void>;
+  /** CorpDetails.UpdateWithSkills: UpdateCorporationAbilities; None leaves it, else the corporation read again. */
+  updateCorporationAbilities(): Promise<number | null>;
   /** corpColorsSvc.get_own_corp_colors: GetOwnRequest on the public gateway - the palette's colours (0..1 RGB; the second
    * and third none where the palette says no_*_color), who last made it and when - else, where there is none (404),
    * the logo's first colour (graphicCorpLogoLibColors[color1], else CORPLOGO_DEFAULT_COLOR) alone. */
@@ -18246,6 +18260,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (by) await memberNames(scope, [{ kind: "owner", id: by }]);
     return { primary: rgb(attributes.main_color), color2, color3, lastAuthoredBy: by, lastAuthored: payload.last_modified ? new Date(seconds * 1000) : null };
   }
+  async function corporationDetails(): Promise<CorporationDetails> {
+    const row = await bridgeAsk("corpRegistry", "GetCorporation", []);
+    const text = (key: string) => { const v = memberField(row, key); return typeof v === "string" ? v : v && typeof v === "object" && "value" in v ? String((v as { value: unknown }).value ?? "") : ""; };
+    const real = (key: string) => { const v = memberField(row, key); return typeof v === "number" ? v : Number(unwrapReal(v as JsonValue) ?? unwrapLong(v as JsonValue) ?? 0); };
+    const maybe = (key: string) => { const v = memberInteger(row, key); return v === null ? null : Number(v); };
+    return { description: text("description"), url: text("url"), iskTaxRate: real("taxRate") * 100, lpTaxRate: real("loyaltyPointTaxRate") * 100,
+      isRecruiting: Boolean(memberInteger(row, "isRecruiting")), memberLimit: Number(memberInteger(row, "memberLimit") ?? 0n),
+      shapes: [maybe("shape1"), maybe("shape2"), maybe("shape3")], colors: [maybe("color1"), maybe("color2"), maybe("color3")] };
+  }
+  async function saveCorporationDetails(prior: CorporationDetails, next: Omit<CorporationDetails, "memberLimit" | "isRecruiting">): Promise<void> {
+    const logoChanged = [...next.shapes, ...next.colors].some((v, i) => v !== [...prior.shapes, ...prior.colors][i]);
+    if (logoChanged && await askDialog("AskAcceptLogoChangeCost", { type: "dict", entries: [["cost", 100]] } as JsonValue, "Changing the corporation's logo costs 100 ISK. Do you accept?", "yesno", { defaultAnswer: "no" })) {
+      try { await bridgeDo("corpRegistry", "UpdateLogo", [...next.shapes, ...next.colors, null]); }
+      catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
+    }
+    if (prior.description !== next.description || prior.url !== next.url || prior.iskTaxRate !== next.iskTaxRate || prior.lpTaxRate !== next.lpTaxRate) {
+      // FormatUrl: stripped, and "http://" put before one that does not start http:// or https://.
+      let url = next.url.trim();
+      if (url && !/^https?:\/\//i.test(url)) url = `http://${url}`;
+      try { await bridgeDo("corpRegistry", "UpdateCorporation", [{ type: "wstring", value: next.description.trim() }, url ? { type: "wstring", value: url } : next.url, next.iskTaxRate / 100, prior.isRecruiting, next.lpTaxRate / 100] as JsonValue[]); }
+      catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
+    }
+  }
+  async function updateCorporationAbilities(): Promise<number | null> {
+    const answer = await bridgeDo("corpRegistry", "UpdateCorporationAbilities", []);
+    if (answer === null || answer === undefined) return null;
+    return (await corporationDetails()).memberLimit;
+  }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
     memberReadKey(online.characterID);
@@ -31297,6 +31339,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     safetyDeliveryTargets,
     deliverSafetyWrap,
     trashImpoundedAt,
+    corporationDetails,
+    saveCorporationDetails,
+    updateCorporationAbilities,
     ownCorporationColors,
     async setOwnCorporationColors(primary: readonly [number, number, number], color2: readonly [number, number, number] | null, color3: readonly [number, number, number] | null) {
       const rgb = (c: readonly [number, number, number]) => ({ red: Math.round(c[0] * 255), green: Math.round(c[1] * 255), blue: Math.round(c[2] * 255) });

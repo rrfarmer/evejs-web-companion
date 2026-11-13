@@ -6,15 +6,18 @@
   // GetSuggestedTickerNames, one picked), the ISK and LP tax rates (0 to 100), the home page ("http://" to start), Allow
   // Friendly Fire, the description (4000), and Submit (Submit: corp.AddCorporation, the window closed). The first
   // layer's shape random (graphicCorpLogoLibShapes), the other two the library's no-shape, no colours. (The client's
-  // own window; here a box over the corporation window.)
+  // own window; here a box over the corporation window.) With edit: EditCorpDetails - EditCorpDetailsCaption, the name,
+  // ticker and friendly fire hidden, the member limit with Update With My Skills (UpdateCorporationAbilities), the row
+  // read (description, url, the rates x 100, the logo) and Submit as EditCorpDetails.Submit has it.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow } from "../app/flow.ts";
+  import type { AppFlow, CorporationDetails } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import CorpLogo from "./CorpLogo.svelte";
-  let { store, flow, onClose }: { store: ClientStore; flow: AppFlow; onClose: () => void } = $props();
+  let { store, flow, onClose, edit = false }: { store: ClientStore; flow: AppFlow; onClose: () => void; edit?: boolean } = $props();
+  let prior = $state<CorporationDetails | null>(null), memberLimit = $state<number | null>(null);
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -22,7 +25,7 @@
   const P = "UI/Corporations/CorpDetails/";
   const LABELS = [P + "CorpName", P + "DefaultCorpName", P + "Ticker", P + "ISKTaxRate", P + "LPTaxRate", P + "HomePage", P + "Description",
     P + "SelectTicker", "UI/Corporations/CorpUIHome/AllowFriendlyFire", "UI/Corporations/CreateCorp/EnterDescriptionHere",
-    "UI/Corporations/CreateCorp/CreateCorpCaption", "UI/Generic/Submit", "UI/Generic/Close"];
+    "UI/Corporations/CreateCorp/CreateCorpCaption", "UI/Generic/Submit", "UI/Generic/Close", "UI/Corporations/EditCorpDetails/EditCorpDetailsCaption", P + "MemberLimit", P + "UpdateWithMySkills"];
   const word = (label: string, fallback: string) => plainText($words.templates[label] ?? fallback);
   let name = $state(""), named = false, ticker = $state(""), iskTax = $state(0), lpTax = $state(0), url = $state("http://");
   let friendlyFire = $state(false), description = $state("");
@@ -34,7 +37,7 @@
   $effect(() => {
     // SetupLogo([random shape, no shape, no shape], [None] * 3), once the library is read
     const lib = $library;
-    if (lib === null || shapes[0] !== null) return;
+    if (edit || lib === null || shapes[0] !== null) return;
     const all = ids(lib.shapes);
     shapes = [all[Math.floor(Math.random() * all.length)] ?? lib.noShape, lib.noShape, lib.noShape];
   });
@@ -50,7 +53,17 @@
     name = plainText(formatTemplate(t, { player: String(me) }, { nameOf: (kind, id) => (id === me ? mine : resolvedName($names.resolved, kind, id, "")) }));
     named = true;
   });
-  onMount(() => { flow.requestWords(LABELS); flow.requestCorpLogos([]); });
+  onMount(() => {
+    flow.requestWords(LABELS); flow.requestCorpLogos([]);
+    // EditCorpDetails.ApplyAttributes: the corporation as it is.
+    if (edit) void flow.corporationDetails().then((d) => {
+      prior = d; memberLimit = d.memberLimit; description = d.description; url = d.url; iskTax = d.iskTaxRate; lpTax = d.lpTaxRate;
+      shapes = [...d.shapes]; colors = [...d.colors];
+    }, (e) => { error = e instanceof Error ? e.message : String(e); });
+  });
+  async function updateWithSkills(): Promise<void> {
+    try { const limit = await flow.updateCorporationAbilities(); if (limit !== null) memberLimit = limit; } catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
   const swatch = (colorID: number | null): string => {
     const c = colorID === null ? undefined : $library?.colors[String(colorID)];
     if (!c) return "transparent";
@@ -71,6 +84,11 @@
     if (submitting) return;
     submitting = true; error = "";
     try {
+      if (edit) {
+        if (prior) await flow.saveCorporationDetails(prior, { description, url, iskTaxRate: iskTax, lpTaxRate: lpTax, shapes: [...shapes], colors: [...colors] });
+        onClose();
+        return;
+      }
       if (await flow.createCorporation({ name, ticker, description: description.trim(), url, iskTaxRate: iskTax / 100, loyaltyPointTaxRate: lpTax / 100,
         shapes: [...shapes], colors: [...colors], applicationsEnabled: true, friendlyFireEnabled: friendlyFire })) onClose();
     } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
@@ -79,8 +97,8 @@
 </script>
 
 <div class="create-corp-back">
-  <section class="create-corp" aria-label={word("UI/Corporations/CreateCorp/CreateCorpCaption", "Create Corporation")} aria-busy={submitting}>
-    <header><span>{word("UI/Corporations/CreateCorp/CreateCorpCaption", "Create Corporation")}</span><button type="button" class="x" aria-label={word("UI/Generic/Close", "Close")} onclick={onClose}>×</button></header>
+  <section class="create-corp" aria-label={edit ? word("UI/Corporations/EditCorpDetails/EditCorpDetailsCaption", "Edit Corporation Details") : word("UI/Corporations/CreateCorp/CreateCorpCaption", "Create Corporation")} aria-busy={submitting}>
+    <header><span>{edit ? word("UI/Corporations/EditCorpDetails/EditCorpDetailsCaption", "Edit Corporation Details") : word("UI/Corporations/CreateCorp/CreateCorpCaption", "Create Corporation")}</span><button type="button" class="x" aria-label={word("UI/Generic/Close", "Close")} onclick={onClose}>×</button></header>
     <div class="logo-control">
       <div class="logo">{#if $library}<CorpLogo library={$library} logo={{ shapes, colors }} name={name} />{/if}</div>
       <div class="picker">
@@ -104,11 +122,18 @@
         </div>
       {/if}
     </div>
+    {#if !edit}
     <label>{word(P + "CorpName", "Corporation Name")}<input bind:value={name} maxlength="50" /></label>
     <div class="ticker">
       <label>{word(P + "Ticker", "Ticker")}<input bind:value={ticker} maxlength="5" /></label>
       <button type="button" onclick={pickTicker}>{word(P + "Ticker", "Ticker")}</button>
     </div>
+    {:else}
+    <div class="ticker">
+      <div class="member-limit">{word(P + "MemberLimit", "Member Limit")}<span>{memberLimit ?? ""}</span></div>
+      <button type="button" onclick={updateWithSkills}>{word(P + "UpdateWithMySkills", "Update With My Skills")}</button>
+    </div>
+    {/if}
     {#if tickers}
       <div class="tickers" role="listbox" aria-label={word(P + "SelectTicker", "Select Ticker")}>
         {#each tickers as t (t)}<button type="button" role="option" aria-selected={ticker === t} onclick={() => { ticker = t; tickers = null; }}>{t}</button>{/each}
@@ -118,7 +143,7 @@
     <label>{word(P + "LPTaxRate", "LP Tax Rate")}<input type="number" min="0" max="100" step="0.1" bind:value={lpTax} /></label>
     <label>{word(P + "HomePage", "Home Page")}<input bind:value={url} maxlength="2048" /></label>
     <label class="desc">{word(P + "Description", "Description")}<textarea bind:value={description} maxlength="4000" placeholder={word("UI/Corporations/CreateCorp/EnterDescriptionHere", "Enter description here")}></textarea></label>
-    <label class="check"><input type="checkbox" bind:checked={friendlyFire} />{word("UI/Corporations/CorpUIHome/AllowFriendlyFire", "Allow Friendly Fire")}</label>
+    <label class="check" hidden={edit}><input type="checkbox" bind:checked={friendlyFire} />{word("UI/Corporations/CorpUIHome/AllowFriendlyFire", "Allow Friendly Fire")}</label>
     {#if error}<p class="error">{error}</p>{/if}
     <div class="buttons"><button type="button" disabled={submitting} onclick={submit}>{word("UI/Generic/Submit", "Submit")}</button></div>
   </section>
@@ -146,6 +171,8 @@
   label input:not([type="checkbox"]), textarea { font-size: 13px; }
   .ticker { display: flex; align-items: flex-end; gap: 6px; }
   .ticker label { width: 240px; }
+  .member-limit { width: 240px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+  .member-limit span { font-size: 13px; }
   .tickers { display: flex; flex-wrap: wrap; gap: 4px; }
   .desc { flex: 1; }
   textarea { min-height: 120px; resize: vertical; }
