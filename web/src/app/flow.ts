@@ -506,7 +506,7 @@ export interface CorporationGoals {
   readonly active: readonly CorporationGoal[] | null; readonly inactive: readonly CorporationGoal[] | null;
   readonly unclaimed: readonly string[]; readonly capacity: number | null; readonly canAuthor: boolean;
   /** contributionMethods' messages by method key. */
-  readonly methods: Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string }>>;
+  readonly methods: Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string; readonly progressDescriptionID?: number; readonly rewardingDescriptionID?: number }>>;
 }
 /** One row of the wizard's lockdown / unlock list: the item, its stack, and a blueprint's levels (null for another item). */
 export interface CorporationVoteBlueprint {
@@ -3322,6 +3322,14 @@ export interface AppFlow {
    * the calendar month n months ago; get_timespan_by_option), and, for a project manager (corpRoleDirector |
    * corpRoleProjectManager), GetCapacityRequest's capacity. Each goal as goal_formatter makes it. */
   corporationGoals(monthsSince: number | null): Promise<CorporationGoals>;
+  /** get_all_goal_contributor_summaries: GetContributorSummariesForGoalRequest pages - each contributor and progress. */
+  corporationGoalContributors(goalID: string): Promise<readonly { readonly characterID: number; readonly progress: number }[]>;
+  /** CorpGoalsController.close_goal / delete_goal / complete_goal: CloseCorpProject / DeleteCorpProject /
+   * CompleteCorpProject (YESNO) first; then CloseRequest, DeleteRequest, or SetCurrentProgressRequest(current, desired).
+   * A failure says FailedToConnect. True when done. */
+  corporationGoalAction(goal: CorporationGoal, action: "close" | "delete" | "complete"): Promise<boolean>;
+  /** _SetProgress - set_current_progress: SetCurrentProgressRequest(goal, current_progress, min(new, desired)). */
+  setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean>;
   /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
    * GetAccessibleHangars (flagCorpSAGs whose corpHangarQueryRolesByFlag bit the pilot holds, named by GetDivisionNames
    * [division + 1]) and an office there (else NoCorpHangarAvailable); the flag asked or the first; GetBlueprints(flag) -
@@ -18516,9 +18524,46 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (canAuthor) { const c = await ask("eve_public.goal.api.GetCapacityRequest", {}); if (c.statusCode === 200) capacity = int(record(c.payload).capacity); }
     contributionMethodsHeld ??= await api.loadContributionMethods(callOptions).catch(() => null) ?? {};
     const methods = contributionMethodsHeld;
-    requestWords(Object.values(methods).flatMap((m) => [m.titleID, m.descriptionID].filter((id): id is number => typeof id === "number").map((id) => `#${id}`)));
+    requestWords(Object.values(methods).flatMap((m) => [m.titleID, m.descriptionID, m.progressDescriptionID, m.rewardingDescriptionID].filter((id): id is number => typeof id === "number").map((id) => `#${id}`)));
     await memberNames(scope, [...new Set([...(active ?? []), ...(inactive ?? [])].map((g) => g.creator).filter((id) => id > 0))].map((id) => ({ kind: "owner" as const, id })));
     return { active, inactive, unclaimed, capacity, canAuthor, methods };
+  }
+  async function corporationGoalContributors(goalID: string): Promise<readonly { readonly characterID: number; readonly progress: number }[]> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" ? value : typeof value === "number" ? value : 0) || 0;
+    const out: { characterID: number; progress: number }[] = [];
+    let token = "";
+    for (let i = 0; i < 40; i++) {
+      const a = await api.publicGatewayRequest("eve_public.corporationgoal.api.GetContributorSummariesForGoalRequest", { goal: { uuid: bytesFromUuid(goalID) }, page: { size: 25, token } }, callOptions); scope.current();
+      if (a.statusCode !== 200) throw new Error(a.statusMessage || `The participants could not be read (${a.statusCode}).`);
+      const p = record(a.payload);
+      for (const s of Array.isArray(p.summaries) ? p.summaries : []) out.push({ characterID: int(record(record(s).contributor).sequential), progress: int(record(s).progress) });
+      token = String(record(p.next_page).token ?? "");
+      if (!token) break;
+    }
+    await memberNames(scope, out.map((c) => ({ kind: "owner" as const, id: c.characterID })));
+    return out;
+  }
+  async function goalWrite(request: string, payload: Record<string, JsonValue>): Promise<boolean> {
+    const a = await api.publicGatewayRequest(request, payload, { ...callOptions, confirm: true }).catch(() => null);
+    if (a && a.statusCode === 200) return true;
+    // message_player(FailedToConnect).
+    await wordsNow(["UI/Corporations/Goals/FailedToConnect"]);
+    const text = plainText(store.words.get().templates["UI/Corporations/Goals/FailedToConnect"] ?? "") || "Could not connect to the projects service.";
+    sayDialog("CustomInfo", { type: "dict", entries: [["info", text]] } as JsonValue, text);
+    return false;
+  }
+  async function corporationGoalAction(goal: CorporationGoal, action: "close" | "delete" | "complete"): Promise<boolean> {
+    const dialog = action === "close" ? "CloseCorpProject" : action === "delete" ? "DeleteCorpProject" : "CompleteCorpProject";
+    if (!(await askDialog(dialog, null, action === "close" ? "Close this project?" : action === "delete" ? "Delete this project?" : "Complete this project?", "yesno"))) return false;
+    const id = { goal: { uuid: bytesFromUuid(goal.goalID) } };
+    if (action === "close") return goalWrite("eve_public.goal.api.CloseRequest", id);
+    if (action === "delete") return goalWrite("eve_public.goal.api.DeleteRequest", id);
+    return goalWrite("eve_public.goal.api.SetCurrentProgressRequest", { ...id, current_progress: goal.current, new_progress: goal.desired });
+  }
+  async function setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean> {
+    return goalWrite("eve_public.goal.api.SetCurrentProgressRequest", { goal: { uuid: bytesFromUuid(goal.goalID) }, current_progress: goal.current, new_progress: Math.min(progress, goal.desired) });
   }
   async function corporationVoteBlueprints(kind: "lockdown" | "unlock", flag: number | null): Promise<CorporationVoteBlueprints> {
     const scope = captureMemberOperation(), online = scope.online;
@@ -31845,6 +31890,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     proposeCorporationVote,
     corporationVoteBlueprints,
     corporationGoals,
+    corporationGoalContributors,
+    corporationGoalAction,
+    setCorporationGoalProgress,
     corporationMembersWithMoreThanAvgShares,
     requestCorpLogos,
     loadOwnerLogos,

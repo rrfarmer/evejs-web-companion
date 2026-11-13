@@ -12,7 +12,15 @@
   // the progress gauge - the corporation's on the outside, the pilot's inside -, the name, the ISK remaining),
   // NoProjectsCurrentlySet / FailedToConnect. History: GoalsHistoryPanel - Name, ContributionMethod, Created, Ended,
   // Resolution (StateCompleted green, else red), Progress (%), Creator. Create New at the bottom for a project manager.
-  // Not here yet: a card's details overlay and menu, Create New's form, claiming rewards.
+  // A card's actions for a project manager (hover): Clone, View Participants - the details overlay (PanelOverlayCont,
+  // Back): GoalDetailsCont - the name; Progress (the circular gauge with the method's icon, the progress, "/ target",
+  // "n% <progress description>"; with a reward RemainingISKReward and the reward per contribution); Participants
+  // (GetContributorSummariesForGoalRequest: Contributor, TotalAmount, OfTargetValue, OfPersonalTarget where limited,
+  // ISKPayout; NoContributionsFound); buttons Clone, Delete (no progress yet), Close (active), Set Progress (active,
+  // manual). The card menu (get_menu_for_corp_job): Clone; active - manual: Set Progress, Complete Project; Close
+  // Project; no progress: Delete Project. History's menu: Clone, View Participants and the creator. Set Progress:
+  // SetProjectProgress's form - SetProgressLabel, ProgressValue (current + 1 to the target), Apply.
+  // Not here yet: Create New's form and Clone (its duplicate), claiming rewards, the job board's own page.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
@@ -29,10 +37,13 @@
   const STATE_LABELS = ["StateUnspecified", "StateActive", "StateClosed", "StateCompleted", "StateExpired"].map((k) => G + k);
   const LABELS = ["AmountAvailableToYou", "ISKAvailableFromProjects", "ActiveProjects", "CompletedToday", "CompletedTodayHint", "CompletedThisWeek", "MaxActiveProjectsHint",
     "Active", "CreateNew", "CanContributeToProjectSetting", "HaveParticipatedIn", "HaveUnclaimedRewardsFor", "DateCreated", "DateCreatedReversed", "Progress",
-    "ProgressReversed", "NumJumps", "NumJumpsReversed", "FailedToConnect", "NoProjectsCurrentlySet", "ContributionMethod", "Created", "Ended", "Resolution"].map((k) => G + k)
+    "ProgressReversed", "NumJumps", "NumJumpsReversed", "FailedToConnect", "NoProjectsCurrentlySet", "ContributionMethod", "Created", "Ended", "Resolution",
+    "CloneProject", "SetProgress", "CompleteProject", "CloseProject", "DeleteProject", "Participants", "Contributor", "TotalAmount", "OfTargetValue", "OfPersonalTarget",
+    "ISKPayout", "NoContributionsFound", "RemainingISKReward", "SetProjectProgress", "SetProgressLabel", "ProgressValue"].map((k) => G + k)
     .concat(STATE_LABELS, MONTHS, ["UI/Common/History", "UI/Wallet/WalletWindow/Last30Days", "UI/Inventory/Filter", "UI/Common/SortBy", "UI/Common/Name", "UI/Inventory/NameReversed",
       "UI/Common/TimeRemainingFilter", "UI/Common/TimeRemainingReversedFilter", "UI/Common/Any", "Character/CareerPaths/CareerPath", "UI/Calendar/EventWindow/Creator", "UI/Common/ISK",
-      "UI/Util/UnitPrefixThousandShort", "UI/Util/UnitPrefixMillionShort", "UI/Util/UnitPrefixBillionShort", "UI/Util/UnitPrefixTrillionShort", "UI/Generic/Unclassified"]);
+      "UI/Util/UnitPrefixThousandShort", "UI/Util/UnitPrefixMillionShort", "UI/Util/UnitPrefixBillionShort", "UI/Util/UnitPrefixTrillionShort", "UI/Generic/Unclassified",
+      "UI/Corporations/FreelanceProjects/ViewParticipants", "UI/Commands/Back", "UI/Common/Buttons/Apply"]);
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   // eveformat number_readable_short (3 significant digits, K / M / B / T) with ISK.
@@ -73,6 +84,19 @@
     } finally { loading = false; }
   }
   $effect(() => { void monthsSince; void load(); });
+  // GoalMessenger._subscribe_to_notices: a goal created, closed, completed, deleted, progressed, renamed, expired,
+  // redeemed or contributed to - the controller's caches change and the panels reconstruct.
+  // svelte-ignore state_referenced_locally
+  const notices = flow.gatewayNotices;
+  const GOAL_NOTICES = /^eve_public\.(goal\.api\.(Closed|Completed|Created|Deleted|Progressed|NameChanged|DescriptionChanged)Notice|corporationgoal\.api\.(Redeemed|Expired)Notice|goal\.contribution\.api\.ContributedNotice)$/;
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const n = $notices;
+    if (!n || !GOAL_NOTICES.test(n.typeName)) return;
+    // ReconstructScrollEntries is throttled (0.5 s).
+    if (noticeTimer) clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => { noticeTimer = null; void load(); }, 500);
+  });
   const methodTitle = (g: CorporationGoal) => { const m = g.methodID ? read?.methods[g.methodID] : undefined; return m?.titleID ? word(`#${m.titleID}`) : g.methodID ?? ""; };
   // Goal.get_total_remaining_isk / get_my_remaining_isk.
   const remaining = (g: CorporationGoal) => Math.max(0, g.desired - g.current);
@@ -133,11 +157,111 @@
     [["time_remaining", "UI/Common/TimeRemainingFilter"], ["time_remaining_reversed", "UI/Common/TimeRemainingReversedFilter"]], [["progress", G + "Progress"], ["progress_reversed", G + "ProgressReversed"]],
     [["num_jumps", G + "NumJumps"], ["num_jumps_reversed", G + "NumJumpsReversed"]]];
   const filterActive = $derived(participated || unclaimedOnly || (page === "active" && canContribute) || career !== null);
+  // The details overlay, its participants, the menu and the Set Progress form.
+  let details = $state<CorporationGoal | null>(null), participants = $state<readonly { characterID: number; progress: number }[] | null>(null);
+  let cardMenu = $state<{ goal: CorporationGoal; x: number; y: number; history: boolean } | null>(null);
+  let progressForm = $state<{ goal: CorporationGoal; value: number } | null>(null);
+  async function viewParticipants(g: CorporationGoal): Promise<void> {
+    details = g; participants = null; cardMenu = null;
+    try { participants = [...await flow.corporationGoalContributors(g.goalID)]; } catch { participants = []; }
+  }
+  async function act(g: CorporationGoal, action: "close" | "delete" | "complete"): Promise<void> {
+    cardMenu = null;
+    if (await flow.corporationGoalAction(g, action)) {
+      // on_closed / on_deleted close the overlay showing it.
+      if (details?.goalID === g.goalID && action !== "complete") details = null;
+      await load();
+      if (details) details = [...(read?.active ?? []), ...(read?.inactive ?? [])].find((x) => x.goalID === details!.goalID) ?? details;
+    }
+  }
+  async function applyProgress(): Promise<void> {
+    const f = progressForm;
+    if (!f) return;
+    const value = Math.max(f.goal.current + 1, Math.min(f.goal.desired, Math.trunc(f.value) || 0));
+    if (await flow.setCorporationGoalProgress(f.goal, value)) {
+      progressForm = null;
+      await load();
+      if (details) details = [...(read?.active ?? []), ...(read?.inactive ?? [])].find((x) => x.goalID === details!.goalID) ?? details;
+    }
+  }
+  const isManual = (g: CorporationGoal) => g.methodID === "Manual";
+  const progressDescription = (g: CorporationGoal) => { const m = g.methodID ? read?.methods[g.methodID] : undefined; return m?.progressDescriptionID ? word(`#${m.progressDescriptionID}`) : ""; };
+  const rewardDescription = (g: CorporationGoal) => { const m = g.methodID ? read?.methods[g.methodID] : undefined; return m?.rewardingDescriptionID ? word(`#${m.rewardingDescriptionID}`) : ""; };
+  const isk = (v: number) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${word("UI/Common/ISK") || "ISK"}`;
   // The left line: the state's colour (Closed orange, Completed green, Expired red), else the theme's.
   const lineColor = (g: CorporationGoal) => (g.state === 2 ? "#f39058" : g.state === 3 ? "#5fb85f" : g.state === 4 ? "#d4534f" : "var(--theme-focus, #58a6dc)");
 </script>
 
+<svelte:window onclick={() => { cardMenu = null; }} />
 <div class="cp">
+  {#if details}
+    {@const g = details}
+    <div class="cp-overlay">
+      <div class="cp-overlay-head"><button class="cp-ghost" onclick={() => { details = null; }}>{word("UI/Commands/Back")}</button></div>
+      <div class="cp-details">
+        <h2>{g.name}</h2>
+        <section><h3>{word(G + "Progress")}</h3>
+          <div class="cp-progress">
+            <div class="cp-overview">
+              <span class="cp-gauge cp-gauge-big" style:--line={lineColor(g)} style:--outer={`${Math.min(1, ratio(g)) * 360}deg`} style:--inner="0deg"><span></span></span>
+              <div><b>{g.current.toLocaleString("en-US")}</b><small>/ {g.desired.toLocaleString("en-US")}</small><small>{(ratio(g) * 100).toFixed(0)}% <span class="cp-dim">{progressDescription(g)}</span></small></div>
+            </div>
+            {#if g.amountPerUnit}
+              <div class="cp-reward"><small>{word(G + "RemainingISKReward")}</small><b>{isk(totalIsk(g))}</b><small>{rewardDescription(g)}</small><b>{isk(g.amountPerUnit)}</b></div>
+            {/if}
+          </div>
+        </section>
+        <h3>{word(G + "Participants")}</h3>
+        <div class="cp-part cp-part-head" class:limited={g.participationLimit}><span>{word(G + "Contributor")}</span><span>{word(G + "TotalAmount")}</span><span>{word(G + "OfTargetValue")}</span>
+          {#if g.participationLimit}<span>{word(G + "OfPersonalTarget")}</span>{/if}<span>{word(G + "ISKPayout")}</span></div>
+        {#if participants === null}<p class="cp-hint">…</p>
+        {:else}
+          {#each participants as p (p.characterID)}
+            {@const share = g.desired ? p.progress / g.desired : 0}
+            <div class="cp-part" class:limited={g.participationLimit}><span>{nameAny("owner", p.characterID)}</span><span>{p.progress}</span><span>{(share * 100).toFixed(1)}%</span>
+              {#if g.participationLimit}<span>{((p.progress / g.participationLimit) * 100).toFixed(1)}%</span>{/if}<span>{isk(share * (g.amountPerUnit ?? 0) * g.desired)}</span></div>
+          {:else}<p class="cp-hint">{word(G + "NoContributionsFound")}</p>{/each}
+        {/if}
+        {#if read?.canAuthor}
+          <div class="cp-detail-buttons">
+            <button class="cp-ghost" disabled title="goalForms.OpenDuplicateGoalFormWindow">⧉ {word(G + "CloneProject")}</button>
+            {#if !g.current}<button class="cp-ghost" onclick={() => void act(g, "delete")}>🗑 {word(G + "DeleteProject")}</button>{/if}
+            {#if g.state === 1}<button class="cp-ghost" onclick={() => void act(g, "close")}>✕ {word(G + "CloseProject")}</button>
+              {#if isManual(g)}<button onclick={() => { progressForm = { goal: g, value: g.current + 1 }; }}>{word(G + "SetProgress")}</button>{/if}{/if}
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+  {#if cardMenu}
+    {@const m = cardMenu}
+    <div class="cp-menu cp-context" style:left={`${m.x}px`} style:top={`${m.y}px`} role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+      {#if read?.canAuthor}
+        <button disabled>⧉ {word(G + "CloneProject")}</button>
+        {#if m.history}<button onclick={() => void viewParticipants(m.goal)}>{word("UI/Corporations/FreelanceProjects/ViewParticipants")}</button>
+        {:else}
+          {#if m.goal.state === 1}
+            {#if isManual(m.goal)}<button onclick={() => { progressForm = { goal: m.goal, value: m.goal.current + 1 }; cardMenu = null; }}>{word(G + "SetProgress")}</button>
+              <button onclick={() => void act(m.goal, "complete")}>✓ {word(G + "CompleteProject")}</button>{/if}
+            <button onclick={() => void act(m.goal, "close")}>✕ {word(G + "CloseProject")}</button>
+          {/if}
+          {#if !m.goal.current}<hr /><button onclick={() => void act(m.goal, "delete")}>🗑 {word(G + "DeleteProject")}</button>{/if}
+        {/if}
+      {/if}
+      {#if m.history}<hr /><button disabled>{nameAny("owner", m.goal.creator)}</button>{/if}
+    </div>
+  {/if}
+  {#if progressForm}
+    {@const f = progressForm}
+    <div class="cp-modal-back">
+      <div class="cp-modal" role="dialog" aria-label={word(G + "SetProjectProgress")}>
+        <header>{word(G + "SetProjectProgress")}</header>
+        <p>{word(G + "SetProgressLabel", { name: f.goal.name, progress: f.goal.current, target: f.goal.desired })}</p>
+        <label>{word(G + "ProgressValue")}<input type="number" min={f.goal.current + 1} max={f.goal.desired} bind:value={f.value} /></label>
+        <footer><button onclick={() => void applyProgress()}>{word("UI/Common/Buttons/Apply")}</button><button onclick={() => { progressForm = null; }}>✕</button></footer>
+      </div>
+    </div>
+  {/if}
   <div class="cp-summary">
     <div class="cp-stat" style:--line={stats.mine ? "rgba(95, 184, 95, 0.5)" : "rgba(160, 160, 160, 0.5)"}><b>{iskShort(stats.mine)}</b><span>{word(G + "AmountAvailableToYou")}</span></div>
     <div class="cp-stat" style:--line={stats.total ? "rgba(95, 184, 95, 0.5)" : "rgba(160, 160, 160, 0.5)"}><b>{iskShort(stats.total)}</b><span>{word(G + "ISKAvailableFromProjects")}</span></div>
@@ -184,14 +308,15 @@
       {:else}
         <div class="cp-cards">
           {#each activeCards as g (g.goalID)}
-            <div class="cp-card" style:--line={lineColor(g)}>
+            <div class="cp-card" style:--line={lineColor(g)} role="listitem" oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); cardMenu = { goal: g, x: e.offsetX + (e.currentTarget as HTMLElement).offsetLeft, y: e.offsetY + (e.currentTarget as HTMLElement).offsetTop + 120, history: false }; }}>
               <img class="cp-flair" src={flair(g.careerPath)} alt="" />
               <div class="cp-card-top">
                 <span class="cp-method" title={g.description}>{methodTitle(g)}</span>
                 <span class="cp-gauge" title={`${Math.round(ratio(g) * 100)}% · ${Math.round(myRatio(g) * 100)}%`} style:--outer={`${Math.min(1, ratio(g)) * 360}deg`} style:--inner={`${Math.min(1, myRatio(g)) * 360}deg`}><span></span></span>
               </div>
               <div class="cp-card-title">{g.name}</div>
-              <div class="cp-card-bottom">{#if totalIsk(g)}<span>¤ {iskShort(totalIsk(g))}</span>{/if}</div>
+              <div class="cp-card-bottom">{#if totalIsk(g)}<span>¤ {iskShort(totalIsk(g))}</span>{/if}
+                {#if read?.canAuthor}<span class="cp-card-actions"><button disabled title={word(G + "CloneProject")}>⧉</button><button title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={() => void viewParticipants(g)}>☰</button></span>{/if}</div>
             </div>
           {/each}
         </div>
@@ -200,7 +325,8 @@
       <div class="cp-row cp-head"><span>{word("UI/Common/Name")}</span><span>{word(G + "ContributionMethod")}</span><span>{word(G + "Created")}</span><span>{word(G + "Ended")}</span>
         <span>{word(G + "Resolution")}</span><span>{word(G + "Progress")}</span><span>{word("UI/Calendar/EventWindow/Creator")}</span></div>
       {#each history as g (g.goalID)}
-        <div class="cp-row"><span>{g.name}</span><span>{methodTitle(g)}</span><span>{date(g.created)}</span><span>{g.finished ? date(g.finished) : "-"}</span>
+        <div class="cp-row" role="listitem" oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); cardMenu = { goal: g, x: 40, y: (e.currentTarget as HTMLElement).offsetTop + 120, history: true }; }}
+          ondblclick={() => { if (read?.canAuthor) void viewParticipants(g); }}><span>{g.name}</span><span>{methodTitle(g)}</span><span>{date(g.created)}</span><span>{g.finished ? date(g.finished) : "-"}</span>
           <span style:color={g.state === 3 ? "#5fb85f" : "#d4534f"}>{word(STATE_LABELS[g.state] ?? STATE_LABELS[0]!)}</span><span>{(ratio(g) * 100).toFixed(0)}%</span><span>{nameAny("owner", g.creator)}</span></div>
       {:else}
         <p class="cp-hint">{read?.inactive === null ? word(G + "FailedToConnect") : word(G + "NoProjectsCurrentlySet")}</p>
@@ -244,4 +370,30 @@
   .cp-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cp-head { font-size: 11px; opacity: 0.65; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
   .cp-buttons { display: flex; justify-content: center; padding-top: 8px; }
+  .cp-card-bottom { justify-content: space-between; }
+  .cp-card-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.3s; }
+  .cp-card:hover .cp-card-actions { opacity: 1; }
+  .cp-card-actions button { all: unset; cursor: pointer; width: 24px; text-align: center; }
+  .cp-context { position: absolute; right: auto; }
+  .cp-overlay { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; padding: 0 8px 8px; background: var(--window-bg, #15171a); }
+  .cp-overlay-head { padding-top: 8px; min-height: 32px; }
+  .cp-ghost { background: none; border: 1px solid rgba(255, 255, 255, 0.2); }
+  .cp-details { flex: 1; min-height: 0; overflow: auto; padding-top: 16px; display: flex; flex-direction: column; }
+  .cp-details h2 { margin: 24px 0 0; font-size: 20px; }
+  .cp-details h3 { margin: 16px 0 8px; font-size: 14px; }
+  .cp-progress { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 500px)); gap: 8px 16px; min-height: 100px; }
+  .cp-overview { display: flex; gap: 16px; align-items: flex-start; }
+  .cp-overview div { display: flex; flex-direction: column; gap: 2px; }
+  .cp-gauge-big { width: 80px; height: 80px; flex: none; }
+  .cp-gauge-big span { width: 64px; height: 64px; }
+  .cp-dim { opacity: 0.65; }
+  .cp-reward { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .cp-part { display: grid; grid-template-columns: 2fr 1fr 1fr 1.2fr; gap: 6px; min-height: 22px; align-items: center; padding: 0 4px; }
+  .cp-part.limited { grid-template-columns: 2fr 1fr 1fr 1fr 1.2fr; }
+  .cp-part-head { font-size: 11px; opacity: 0.65; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .cp-detail-buttons { display: flex; justify-content: flex-end; gap: 6px; padding-top: 16px; margin-top: auto; }
+  .cp-modal-back { position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.4); }
+  .cp-modal { min-width: 320px; display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #1b1d21; border: 1px solid rgba(255, 255, 255, 0.15); }
+  .cp-modal label { display: flex; flex-direction: column; gap: 2px; }
+  .cp-modal footer { display: flex; justify-content: flex-end; gap: 6px; }
 </style>

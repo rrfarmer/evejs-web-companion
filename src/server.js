@@ -14521,10 +14521,16 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.corporationgoal.api.GetMyContributorSummaryForGoalRequest",
   "eve_public.goal.api.GetRequest",
   "eve_public.goal.api.GetCapacityRequest",
+  // GoalDetailsCont's ParticipantsPanel (get_all_goal_contributor_summaries).
+  "eve_public.corporationgoal.api.GetContributorSummariesForGoalRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.
   "eve_public.cosmetic.corporation.palette.api.SetRequest",
+  // goalMessenger.close_goal / delete_goal / set_manual_goal_progress: a project's Close, Delete, Complete, Set Progress.
+  "eve_public.goal.api.CloseRequest",
+  "eve_public.goal.api.DeleteRequest",
+  "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).
   "eve_public.cosmetic.structure.paintwork.license.api.RevokeRequest",
   "eve_public.character.skill.plan.DeleteRequest",
