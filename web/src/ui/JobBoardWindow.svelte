@@ -8,7 +8,12 @@
   // ones (NoOpportunitiesFound), Unclaimed Rewards the ones with unredeemed units (ClaimAll redeeming each). A card
   // (features/freelance_projects/card): the corporation, the title, the progress % (the overall gauge, the pilot's part
   // inside), YouAreAParticipant where committed, the ISK still to earn (available_amount) or to claim, the deadline;
-  // its click opens the job page (FreelanceJobPage.svelte). Not here: the board's other features (agent missions,
+  // its click opens the job page (FreelanceJobPage.svelte), with the project manager's buttons where the job is the
+  // pilot's corporation's and the pilot a project manager (is_project_manager_for_corporation: session.corpid and
+  // corpRoleDirector | corpRoleProjectManager): DuplicateProject (open_create_project_window with the job's draft -
+  // CorporationFreelanceForm), ViewParticipants (open_participant_view - the Corporation window's Freelance Jobs on
+  // the job's admin details) and CloseProject (ConfirmClosure asked; Errors/Close on failure). Not here: the board's
+  // other features (agent missions,
   // corporation projects, the career program), its home page, filters and content tags, tracking.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -16,14 +21,16 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import FreelanceJobPage from "./FreelanceJobPage.svelte";
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
+  import type { FreelanceProject } from "../app/flow.ts";
+  let { store, flow, openCorporation }: { store: ClientStore; flow: AppFlow; openCorporation?: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
   const LABELS = [O + "WindowTitle", O + "TabNameActive", O + "TabNameUnclaimedRewards", O + "VisibilityFreelanceProjects", O + "NoOpportunitiesFound", O + "ClaimAll", O + "FailedToLoad",
-    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK"];
+    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK"];
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   const isk = (v: number) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${word("UI/Common/ISK") || "ISK"}`;
@@ -33,6 +40,18 @@
   onMount(() => { flow.requestWords(LABELS); void load(); });
   const jobs = $derived(board ? (tab === "browse" ? board.browse : tab === "active" ? board.active : board.unclaimed) : []);
   const left = (j: FreelanceJob) => { const p = j.project, r = Math.max(0, p.target - p.current); return (p.contributionLimit ? Math.min(r, Math.max(0, p.contributionLimit - p.myProgress)) : r) * p.iskPerUnit; };
+  // freelanceprojects util.is_project_manager_for_corporation.
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const managerOf = (corporationID: number) => corporationID === $station.online?.corporationID && (BigInt($station.online?.corpRole ?? "0") & (1n | 1152921504606846976n)) !== 0n;
+  let openCorp = $state<number | null>(null), duplicating = $state<FreelanceProject | null>(null), notice = $state("");
+  async function closeJob(p: FreelanceProject): Promise<void> {
+    const body = word("UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", { project_name: p.name });
+    if (!(await flow.askClientWarning(word("UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader"), body || "Close?"))) return;
+    const e = await flow.freelanceManagerAction("close", p.projectID);
+    if (e) { flow.requestWords([e.label]); notice = e.label; return; }
+    open = null; await load();
+  }
   async function claimAll(): Promise<void> {
     busy = true;
     try { for (const j of board?.unclaimed ?? []) await flow.freelanceJobAction("redeem", j.project.projectID); await load(); } finally { busy = false; }
@@ -47,7 +66,13 @@
   </div>
   <div class="jb-body">
     {#if open}
-      {#key open}<FreelanceJobPage {store} {flow} projectID={open} onBack={() => { open = null; void load(); }} />{/key}
+      {#if notice}<p class="jb-notice">{word(notice) || notice}</p>{/if}
+      {#key open}
+        {#if openCorp !== null && managerOf(openCorp)}
+          <FreelanceJobPage {store} {flow} projectID={open} onBack={() => { open = null; notice = ""; void load(); }} onDuplicate={(p) => { duplicating = p; }}
+            onViewParticipants={(p) => { flow.requestFreelanceAdminDetails(p.projectID); openCorporation?.(); }} onCloseJob={closeJob} />
+        {:else}<FreelanceJobPage {store} {flow} projectID={open} onBack={() => { open = null; notice = ""; void load(); }} />{/if}
+      {/key}
     {:else if board === undefined}<p class="jb-hint">…</p>
     {:else if board === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
@@ -61,7 +86,7 @@
           {@const p = j.project}
           {@const pct = p.target ? p.current / p.target : 0}
           {@const mine = (p.contributionLimit || p.target) ? p.myProgress / (p.contributionLimit || p.target) : 0}
-          <div class="jb-card" role="button" tabindex="-1" onclick={() => { open = p.projectID; }} onkeydown={() => {}}>
+          <div class="jb-card" role="button" tabindex="-1" onclick={() => { open = p.projectID; openCorp = j.corporationID; }} onkeydown={() => {}}>
             <div class="jb-card-top"><span class="jb-dim">{nameAny("owner", j.corporationID)}</span>
               <span class="jb-gauge" style:--outer={`${Math.min(1, pct) * 360}deg`} style:--inner={`${Math.min(1, mine) * 360}deg`}><span>{Math.floor(pct * 100)}%</span></span></div>
             <div class="jb-title">{p.name}</div>
@@ -76,6 +101,7 @@
       </div>
     {/if}
   </div>
+  {#if duplicating}<CorporationFreelanceForm {store} {flow} original={duplicating} onClose={(made) => { duplicating = null; if (made) void load(); }} />{/if}
 </div>
 
 <style>
@@ -88,6 +114,8 @@
   .gold { color: #d4aa3c; }
   .jb-body { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
   .jb-hint { text-align: center; opacity: 0.65; }
+  .jb { position: relative; }
+  .jb-notice { color: #d4534f; }
   .jb-empty { display: flex; flex-direction: column; gap: 4px; padding: 16px; border-left: 4px solid var(--theme-focus, #58a6dc); background: rgba(255, 255, 255, 0.04); }
   .jb-claim { display: flex; justify-content: flex-end; padding-bottom: 8px; }
   .jb-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }

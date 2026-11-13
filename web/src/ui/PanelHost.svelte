@@ -158,7 +158,7 @@
 {:else if tab === "agents"}
   <AgentsMissions {store} {flow} />
 {:else if tab === "jobBoard"}
-  <JobBoardWindow {store} {flow} />
+  <JobBoardWindow {store} {flow} openCorporation={() => onOpen?.("corporation")} />
 {:else if tab === "finder"}
   <AgentFinder {store} {flow} showTravel={() => onOpen?.("travel")} />
 {:else if tab === "flight"}

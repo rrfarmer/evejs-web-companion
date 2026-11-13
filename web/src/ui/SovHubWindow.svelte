@@ -41,12 +41,15 @@
   // upgrade in the new order - its old place where moved (chevron, old priority), the priority, the name, "New," and the
   // simulated state for an added one or old -> new state where it changed (Offline grey, Online plain, else red) - and
   // ColumnStartupCost with the magma and ice startup cost of the upgrades going from offline or pending to on.
+  // The Save button's tooltip (LoadSaveBtnTooltipPanel): the same changes as the confirmation's body, NoChangesToSave
+  // where there are none.
   // Not here yet: dropping an access list on the combo, Show on Map.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, MySovHub, SovHubDetails, SovHubExtras, SovHubUpgrade } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
+  import LabelText from "./LabelText.svelte";
   let { store, flow, hub, details, extras, rangeTo, onClose, onChanged }: { store: ClientStore; flow: AppFlow; hub: MySovHub; details: SovHubDetails | undefined; extras: SovHubExtras | undefined; rangeTo?: (itemID: number) => number | null; onClose: () => void; onChanged: () => Promise<void> } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -65,7 +68,7 @@
     W + "SourceSystemNotSendingWorkforce", W + "WorkforceIdle", W + "WorkforceImport", W + "WorkforceExport", W + "WorkforceTransit", "UI/Sovereignty/SovHub/UnknownWorkforceMode",
     ...["Transit", "Import", "Export", "Inactive"].flatMap((k) => [W + "WorkforceChangeFrom" + k, W + "WorkforceChangeTo" + k]),
     ...["Inactive", "Import", "Export", "ExportNoConnection", "ExportNotConfigured", "Transit"].map((k) => U + "WorkforceTransport" + k),
-    W + "SectionACL", W + "SectionACLDesc", "UI/Sovereignty/UnknownACL",
+    W + "SectionACL", W + "SectionACLDesc", "UI/Sovereignty/UnknownACL", W + "NoChangesToSave",
     ...["AlreadyInstalled", "NotInRange", "SovLevelTooLow", "NotItem", "TypeNotValid", "NotInShip"].map((k) => U + "SovHubUpgradeCannotBeAdded" + k), U + "UpgradeSlotFilled", U + "NoUpgradesInstalled", U + "DropUpgradesToAdd", U + "ExtraAmount", U + "ConsumptionPerHour", U + "PendingPowerState", U + "LowPowerState", U + "UnknownPowerState",
     "UI/Common/Online", "UI/Common/Offline", "UI/Sovereignty/Power", "UI/Sovereignty/Workforce", "Tooltips/StructureUI/SovHubRedFuelState", "Tooltips/StructureUI/SovHubRedResourceState",
     "Tooltips/StructureUI/SovHubRedPowerState", "Tooltips/StructureUI/SovHubRedWorkforceState", "Tooltips/StructureUI/SovHubOnlineUpgrade", "Tooltips/StructureUI/SovHubOfflineUpgrade",
@@ -143,6 +146,7 @@
     sim = next;
   }
   const DRAG = "application/x-sov-upgrade";
+  let saveTip = $state(false);
   function dropAt(e: DragEvent, at: number): void {
     const id = Number(e.dataTransfer?.getData(DRAG) || NaN);
     if (Number.isNaN(id)) return;
@@ -341,7 +345,9 @@
         {#if cargo?.items.length}
           <div class="hw-cargo">{#each cargo.items as item (item.itemID)}<button draggable="true" disabled={busy} ondragstart={(e) => { e.dataTransfer?.setData(DRAG, String(item.itemID)); }} onclick={() => addItem(item.itemID, -1)}>{nameAny("type", item.typeID) || item.typeID}</button>{/each}</div>
         {/if}
-        <div class="hw-buttons"><button disabled={!unsaved || busy} onclick={() => void save()}>{word(W + "SaveChanges")}</button></div>
+        <div class="hw-buttons"><span class="hw-save" role="presentation" onmouseenter={() => { saveTip = true; }} onmouseleave={() => { saveTip = false; }}>
+          <button disabled={!unsaved || busy} onclick={() => void save()}>{word(W + "SaveChanges")}</button>
+          {#if saveTip}<div class="hw-tip">{#if unsaved}<LabelText markup={changesMarkup()} />{:else}{word(W + "NoChangesToSave")}{/if}</div>{/if}</span></div>
       </div>
       <div class="hw-right">
         {#each [["UI/Sovereignty/Power", power.use, power.avail, power.max, 0], ["UI/Sovereignty/Workforce", work.use, work.avail, work.max, work.exported]] as const as [label, use, avail, max, exported] (label)}
@@ -428,6 +434,8 @@
   .hw-edit-pop label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
   .hw-edit-pop select, .hw-edit-pop input { width: 140px; }
   .hw-edit-buttons { display: flex; justify-content: center; gap: 6px; padding-top: 6px; }
+  .hw-save { position: relative; display: inline-block; }
+  .hw-tip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); z-index: 4; min-width: 240px; max-width: 600px; padding: 8px 16px; background: #23262b; border: 1px solid rgba(255, 255, 255, 0.2); white-space: nowrap; }
   .hw-cargo { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0; border-top: 1px dashed rgba(255, 255, 255, 0.15); }
   .hw-cargo button { cursor: grab; }
   .hw-buttons { display: flex; justify-content: flex-end; padding-top: 8px; }

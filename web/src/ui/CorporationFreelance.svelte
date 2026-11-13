@@ -116,6 +116,18 @@
   let sortBy = $state((() => { try { return localStorage.getItem("evejs.play.ActiveFreelanceProjectsSortBy") ?? "name"; } catch { return "name"; } })());
   function setSort(v: string): void { sortBy = v; menu = null; try { localStorage.setItem("evejs.play.ActiveFreelanceProjectsSortBy", v); } catch { /* the session keeps it */ } }
   async function load(): Promise<void> { loading = true; try { read = await flow.corporationFreelanceProjects(monthsSince); } finally { loading = false; } }
+  // CorpUIFreelanceProjects.on_view_project_details: a job's admin details asked from elsewhere (the job board's
+  // ViewParticipants) - show_selected_details over the browser.
+  // svelte-ignore state_referenced_locally
+  const adminRequested = flow.freelanceAdminDetailsRequested;
+  $effect(() => {
+    const id = $adminRequested;
+    if (!id || !read) return;
+    flow.serveFreelanceAdminDetailsRequest();
+    const p = [...(read.active ?? []), ...(read.inactive ?? [])].find((x) => x.projectID === id);
+    if (p) { job = null; void openDetails(p); }
+    else void flow.freelanceJob(id).then((j) => { if (j) { job = null; void openDetails(j.project); } });
+  });
   $effect(() => { void monthsSince; void load(); });
   // FreelanceProjectsRepository._register_to_notices: a project created, closed, completed, expired or progressed, a
   // participant added, removed, kicked, contributing or redeeming - the managed projects (and an open details'

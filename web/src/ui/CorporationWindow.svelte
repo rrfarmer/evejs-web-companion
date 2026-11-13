@@ -70,6 +70,10 @@
   // svelte-ignore state_referenced_locally
   const applicationsRequested = flow.corporationApplicationsRequested;
   $effect(() => { if ($applicationsRequested > 0) { applicationsOpened = true; panel = "applications"; flow.serveCorporationApplicationsRequest($applicationsRequested); } });
+  // freelance_signals.on_view_admin_details: the Freelance Jobs panel (which opens the details and serves the request).
+  // svelte-ignore state_referenced_locally
+  const freelanceRequested = flow.freelanceAdminDetailsRequested;
+  $effect(() => { if ($freelanceRequested) panel = "freelance"; });
   let membersOpened = $state(false);
   let decorationsOpened = $state(false);
   // svelte-ignore state_referenced_locally

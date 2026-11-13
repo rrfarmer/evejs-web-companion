@@ -2671,6 +2671,11 @@ export interface AppFlow {
   corporationMedalAwardees(medalID: number): Promise<readonly CorporationMedalAwardee[]>;
   medalShowInfo(medalID: number, reads: InfoReadScope): Promise<MedalInfo>;
   readonly corporationApplicationsRequested: ReadableSignal<number>;
+  /** freelance_signals.on_view_admin_details(job_id): a project whose admin details the Corporation window's Freelance
+   * Jobs panel is to open (FreelanceProjectJob.open_participant_view); null where none waits. */
+  readonly freelanceAdminDetailsRequested: ReadableSignal<string | null>;
+  requestFreelanceAdminDetails(projectID: string): void;
+  serveFreelanceAdminDetailsRequest(): void;
   requestCorporationApplications(): void;
   serveCorporationApplicationsRequest(n: number): void;
   corporationApplications(): Promise<readonly CorporationApplication[]>;
@@ -16982,6 +16987,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     } catch (error) { if (sayRefusalDialog(error, errorWords(error))) return "refused"; throw error; }
   }
   const corporationApplicationsRequestedSignal = createSignal(0);
+  const freelanceAdminDetailsRequestedSignal = createSignal<string | null>(null);
   function personalApplicationSetting(name: string): string {
     return `evejs.corporationApplications.${onlineCharacterID()}.${name}`;
   }
@@ -32767,6 +32773,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationMedalAwardees,
     medalShowInfo,
     corporationApplicationsRequested: readonlySignal(corporationApplicationsRequestedSignal),
+    freelanceAdminDetailsRequested: readonlySignal(freelanceAdminDetailsRequestedSignal),
+    requestFreelanceAdminDetails: (projectID: string) => freelanceAdminDetailsRequestedSignal.set(projectID),
+    serveFreelanceAdminDetailsRequest: () => freelanceAdminDetailsRequestedSignal.set(null),
     requestCorporationApplications: () => corporationApplicationsRequestedSignal.set(corporationApplicationsRequestedSignal.get() + 1),
     serveCorporationApplicationsRequest: n => { if (corporationApplicationsRequestedSignal.get() === n) corporationApplicationsRequestedSignal.set(0); },
     corporationApplications,
