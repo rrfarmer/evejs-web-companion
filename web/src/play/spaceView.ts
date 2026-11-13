@@ -215,6 +215,35 @@ export class SpaceView {
   lodBoostersFar = 0;
   /** How many child meshes their minScreenSize left undrawn this frame (for checks). */
   lodChildMeshesHidden = 0;
+  /**
+   * EveChildMesh::UpdateVisibility for an object's size-gated child meshes (hullChildren): each drawn only where its
+   * parent's LOD is at least its lowestLodVisible and its sphere's size across (GetPixelSizeAccross: radius / depth x
+   * P[0][0] x width; the eye inside it: no limit) / the LOD factor is at least its minScreenSize. The list looked for
+   * again every `refresh` frames (children load late; effects come and go). Returns how many it hid.
+   */
+  private gateChildMeshes(root: THREE.Object3D, parentLod: number, eye: THREE.Vector3, ahead: THREE.Vector3, across: number, lodFactor: number, refresh: number): number {
+    let entry = this.sizeGated.get(root);
+    if (!entry || this.frameCount - entry.at >= refresh) {
+      const list: THREE.Object3D[] = [];
+      root.traverse((o) => { if (o.name === "size-gated") list.push(o); });
+      entry = { list, at: this.frameCount };
+      this.sizeGated.set(root, entry);
+    }
+    let hidden = 0;
+    const centre = new THREE.Vector3(), scale = new THREE.Vector3();
+    for (const o of entry.list) {
+      const sp = o.userData.sphere as number[];
+      o.localToWorld(centre.set(sp[0]!, sp[1]!, sp[2]!));
+      // (a mirrored parent gives a negative scale: its size the same)
+      const r = sp[3]! * Math.abs(o.getWorldScale(scale).x);
+      const rel = centre.sub(eye);
+      const size = rel.lengthSq() < r * r ? Infinity : (r / Math.max(1e-5, rel.dot(ahead))) * across;
+      const on = parentLod >= ((o.userData.lowestLod as number | undefined) ?? 0) && size / lodFactor >= (o.userData.minScreenSize as number);
+      if (!on) hidden++;
+      if (o.visible !== on) o.visible = on;
+    }
+    return hidden;
+  }
   /** Each model's child meshes with a minScreenSize (found once its children are built). */
   private readonly sizeGated = new WeakMap<THREE.Object3D, { list: THREE.Object3D[]; at: number }>();
   /** The effects whose sounds are under way, by emitter (OnSpecialFX's guid, ship and module). */
@@ -1518,7 +1547,7 @@ export class SpaceView {
       const s = boosters?.userData.boosterSphere as { x: number; y: number; z: number; r: number } | undefined;
       if (boosters && s) {
         boosters.localToWorld(centre.set(s.x, s.y, s.z));
-        const r = s.r * boosters.getWorldScale(new THREE.Vector3()).x;
+        const r = s.r * Math.abs(boosters.getWorldScale(new THREE.Vector3()).x);
         const rel = centre.sub(eye);
         const size = rel.lengthSq() < r * r ? Infinity : (r / Math.max(1e-5, rel.dot(ahead))) * across;
         const on = 2 * size > lod.lowDetail;
@@ -1534,27 +1563,14 @@ export class SpaceView {
         // EveSpaceObject2::UpdateVisibility: its LOD with children by its size across - above the medium detail
         // threshold high (2), above the low one medium (1), else low (0)
         const parentLod = pixels > lod.mediumDetail ? 2 : pixels > lod.lowDetail ? 1 : 0;
-        // (looked for again every 120 frames: the children load after the hull, some long after - a list kept from
-        // the first find missed what came later)
-        let entry = this.sizeGated.get(model);
-        if (!entry || this.frameCount - entry.at >= 120) {
-          const list: THREE.Object3D[] = [];
-          model.traverse((o) => { if (o.name === "size-gated") list.push(o); });
-          entry = { list, at: this.frameCount };
-          this.sizeGated.set(model, entry);
-        }
-        for (const o of entry.list) {
-          const sp = o.userData.sphere as number[];
-          o.localToWorld(centre.set(sp[0]!, sp[1]!, sp[2]!));
-          const r = sp[3]! * o.getWorldScale(new THREE.Vector3()).x;
-          const rel = centre.sub(eye);
-          const size = rel.lengthSq() < r * r ? Infinity : (r / Math.max(1e-5, rel.dot(ahead))) * across;
-          const on = parentLod >= ((o.userData.lowestLod as number | undefined) ?? 0) && size / lod.lodFactor >= (o.userData.minScreenSize as number);
-          if (!on) childMeshesHidden++;
-          if (o.visible !== on) o.visible = on;
-        }
+        childMeshesHidden += this.gateChildMeshes(model, parentLod, eye, ahead, across, lod.lodFactor, 120);
       }
     }
+    // the effects' child meshes too (missiles' explosions, ship effects): EveEffectRoot2 passes its children its LOD -
+    // HIGH but where dynamicLOD (41 of 228 effect files; none of their meshes has a lowestLodVisible above low), so
+    // only their minScreenSize acts (775 of the 783 meshes under the dynamic ones have one)
+    childMeshesHidden += this.gateChildMeshes(this.missileFx.group, 2, eye, ahead, across, lod.lodFactor, 30);
+    childMeshesHidden += this.gateChildMeshes(this.shipFx.group, 2, eye, ahead, across, lod.lodFactor, 30);
     this.lodCulled = culled;
     this.lodBoostersHidden = boostersHidden;
     this.lodBoostersFar = boostersFar;
