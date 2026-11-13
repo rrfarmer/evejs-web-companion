@@ -32,7 +32,7 @@
   const FILTERS = [["mine", F + "OnlyMyActiveJobs"], ["committable", F + "OnlyProjectsICanAccept"], ["contributed", F + "FilterJobsIHaveContributedTo"], ["unclaimed", F + "HaveUnclaimedRewardsFor"]] as const;
   const LABELS = ["UI/Metadata/ContentTags/FreelanceProjects", F + "PanelTitle", "UI/Corporations/CorporationWindow/Politics/ExtraInfoWrapper", F + "NoProjectsFoundForCorpTitle",
     F + "NoProjectsFoundForCorpBody", "UI/Opportunities/OpenAIR", F + "NoJobs/FailureToLoadTitle", F + "NoJobs/FailureToLoadDescription", F + "NoJobs/FailureToLoadButton", "UI/Inventory/Filter",
-    "UI/Common/SortBy", "UI/Common/Any", "Character/CareerPaths/CareerPath", "UI/Corporations/Goals/ClaimValue", F + "YouAreAParticipant", "UI/Common/ISK",
+    "UI/Common/SortBy", "UI/Common/Any", "Character/CareerPaths/CareerPath", "UI/Corporations/Goals/ClaimValue", F + "YouAreAParticipant", "UI/Common/ISK", "UI/Common/Track", "UI/Common/Untrack",
     ...SORTS.flat().map(([, l]) => l), ...FILTERS.map(([, l]) => l)];
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));

@@ -26,10 +26,14 @@
   // DeliveryBoxButton); Deliver runs validate_delivery (ProjectInactive, NotCommited, QuantityTooHigh,
   // ErrorItemSingletonShip / Other, ItemMissing, StackChanged - the item read again) and deliver_item: DeliverRequest,
   // GetStatusRequest after 5 s; a failure is GenericDeliveryError. ViewMoreForCorporation (get_buttons, always, last;
-  // open_corporation_window): the corporation's Show Info on its Freelance Projects tab. Not here: tracking (the
-  // TrackJobButton), the closest solar system chip, the fanfare animation.
+  // open_corporation_window): the corporation's Show Info on its Freelance Projects tab. The CTA row starts with
+  // TrackJobButton (details_page._construct_cta_buttons; shown while is_trackable - active and committed - or tracked:
+  // Untrack, NORMAL, where tracked, else Track, GHOST); a commit tracks the job and a resign untracks it
+  // (_on_participation_state_changed), and one that is no longer active is untracked (_on_state_changed). Not here:
+  // the closest solar system chip, the fanfare animation.
   import { onMount } from "svelte";
   import { showCorporationInfoTab, TAB_FREELANCE_PROJECTS } from "./showInfo.ts";
+  import { isFreelanceJobTracked, toggleTrackedFreelanceJob, trackedJobsChanged, trackFreelanceJob, untrackFreelanceJob } from "./jobTracking.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, FreelanceDeliverable, FreelanceJob, FreelanceMethod, FreelanceProject } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -45,7 +49,7 @@
   const names = store.names;
   const F = "UI/Corporations/FreelanceProjects/", G = "UI/Corporations/Goals/";
   const DB = "UI/Corporations/DeliverItem/DeliveryBox/", DE = "UI/Corporations/DeliverItem/Errors/";
-  const LABELS = ["UI/Commands/Back", "UI/Common/ISK", "UI/FreelanceProjects/ViewMoreForCorporation", "UI/FreelanceProjects/DuplicateProject", "UI/Corporations/FreelanceProjects/ViewParticipants", G + "Progress", G + "ContributionMethod",
+  const LABELS = ["UI/Common/Track", "UI/Common/Untrack", "UI/Commands/Back", "UI/Common/ISK", "UI/FreelanceProjects/ViewMoreForCorporation", "UI/FreelanceProjects/DuplicateProject", "UI/Corporations/FreelanceProjects/ViewParticipants", G + "Progress", G + "ContributionMethod",
     "UI/FreelanceProjects/Commit", "UI/FreelanceProjects/Resign", "UI/Corporations/Goals/ClaimValue", "UI/Inflight/JumpThroughError", "UI/FreelanceProjects/Resigned", "UI/FreelanceProjects/Kicked",
     "UI/Generic/Completed", "UI/Generic/Closed", "UI/Generic/Expired", "UI/Generic/ExpiresIn", "UI/ScienceAndIndustry/ScienceAndIndustryWindow/EndDate", "UI/FreelanceProjects/ActiveParticipants",
     "UI/FreelanceProjects/IncludingYou", "UI/FreelanceProjects/TotalParticipants", "UI/FreelanceProjects/ParticipantsInfoTooltip", "UI/FreelanceProjects/Contributors",
@@ -191,8 +195,18 @@
       else if (e) { flow.requestWords([e.label]); jobNotice = e.label; }
       const again = await flow.freelanceJob(j.project.projectID);
       if (again && job?.project.projectID === again.project.projectID) job = again;
+      if (again && kind !== "redeem") {
+        const me = store.station.get().online?.characterID ?? null;
+        if (again.participation === 1) trackFreelanceJob(me, again.project.projectID); else untrackFreelanceJob(me, again.project.projectID);
+      }
     } finally { busy = false; }
   }
+  // svelte-ignore state_referenced_locally
+  const stationForTracking = store.station;
+  const me = $derived($stationForTracking.online?.characterID ?? null);
+  const tracked = $derived.by(() => { void $trackedJobsChanged; return job ? isFreelanceJobTracked(me, job.project.projectID) : false; });
+  // _on_state_changed: a tracked job no longer trackable is untracked.
+  $effect(() => { if (job && tracked && job.project.state !== 1) untrackFreelanceJob(me, job.project.projectID); });
 </script>
 
   {#if missing}<p class="fp-hint">…</p>
@@ -214,6 +228,9 @@
       <div class="fp-job-head"><h2>{p.name}</h2><b>{nameAny("owner", j.corporationID)}</b></div>
       {#if st}<div style:color={st.color}>{st.text}</div>{/if}
       <div class="fp-buttons fp-cta">
+        {#if (p.state === 1 && j.participation === 1) || tracked}
+          <button class:fp-ghost={!tracked} onclick={() => toggleTrackedFreelanceJob(me, p.projectID)}>{tracked ? "⊘" : "👁"} {word(tracked ? "UI/Common/Untrack" : "UI/Common/Track")}</button>
+        {/if}
         {#if p.state === 1}
           {#if j.participation === 1}<button class="fp-ghost" title={word(F + "DetailsWindow/ResignButtonTooltip")} disabled={busy} onclick={() => void jobAct("resign")}>{word("UI/FreelanceProjects/Resign")}</button>
           {:else}<button title={commitHint(j)} disabled={busy || j.atMaxProjects || commitBlock(j) !== null} onclick={() => void jobAct("commit")}>{word("UI/FreelanceProjects/Commit")}</button>{/if}

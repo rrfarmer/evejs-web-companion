@@ -2,11 +2,13 @@
   // jobboard features/freelance_projects/card - a freelance job's card, as the job board's pages and Show Info's
   // Freelance Projects tab (FreelanceJobProviderSection) draw it: the corporation, the progress % (the overall gauge,
   // the pilot's part inside), the title, the ISK still to earn (available_amount) or, on Unclaimed Rewards, ClaimValue,
-  // YouAreAParticipant where committed, the deadline. Its click opens the job's page.
+  // YouAreAParticipant where committed, the deadline; TrackJobIconButton (Track / Untrack, while trackable or tracked)
+  // shown on hover, and always while tracked. Its click opens the job's page.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { FreelanceJob } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
+  import { isFreelanceJobTracked, toggleTrackedFreelanceJob, trackedJobsChanged } from "./jobTracking.ts";
   let { store, job, claim = false, onOpen }: { store: ClientStore; job: FreelanceJob; claim?: boolean; onOpen: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -19,6 +21,11 @@
   const p = $derived(job.project);
   const pct = $derived(p.target ? p.current / p.target : 0);
   const mine = $derived((p.contributionLimit || p.target) ? p.myProgress / (p.contributionLimit || p.target) : 0);
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const me = $derived($station.online?.characterID ?? null);
+  const tracked = $derived.by(() => { void $trackedJobsChanged; return isFreelanceJobTracked(me, p.projectID); });
+  const trackable = $derived(p.state === 1 && job.participation === 1);
 </script>
 
 <div class="jb-card" role="button" tabindex="-1" onclick={onOpen} onkeydown={() => {}}>
@@ -30,6 +37,8 @@
     {:else}<span>¤ {isk(left(job))}</span>{/if}
     {#if job.participation === 1}<span class="jb-dim" title={word("UI/Corporations/FreelanceProjects/YouAreAParticipant")}>✔</span>{/if}
     {#if p.deadline}<span class="jb-dim">{new Date(p.deadline).toISOString().slice(0, 10)}</span>{/if}
+    {#if trackable || tracked}<button class="jb-track" class:on={tracked} title={word(tracked ? "UI/Common/Untrack" : "UI/Common/Track")}
+      onclick={(e) => { e.stopPropagation(); toggleTrackedFreelanceJob(me, p.projectID); }}>{tracked ? "⊘" : "👁"}</button>{/if}
   </div>
 </div>
 
@@ -41,5 +50,7 @@
   .jb-gauge { width: 40px; height: 40px; border-radius: 50%; background: conic-gradient(var(--theme-focus, #58a6dc) var(--outer), rgba(255, 255, 255, 0.1) 0); display: flex; align-items: center; justify-content: center; }
   .jb-gauge span { width: 30px; height: 30px; border-radius: 50%; background: conic-gradient(#d4aa3c var(--inner), #111 0); display: flex; align-items: center; justify-content: center; font-size: 10px; }
   .jb-title { flex: 1; font-weight: bold; padding-top: 6px; }
+  .jb-track { all: unset; cursor: pointer; opacity: 0; padding: 0 4px; }
+  .jb-card:hover .jb-track, .jb-track.on { opacity: 1; }
   .jb-bottom { display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 2px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); }
 </style>

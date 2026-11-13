@@ -12,6 +12,14 @@
   //
   // Not done: the objective's icon; untracking a mission (the job board's own window); Open Container
   // (DropItemInMissionContainer); Preparing to warp; Docking.
+  //
+  // The tracked freelance jobs (jobTracking.ts; FreelanceProjectJob.INFO_PANEL_ENTRY_CLASS FreelanceProjectInfoPanelEntry,
+  // ui/info_panel_entry.JobInfoPanelEntry's header): the feature's icon button opening the job (ViewOpportunity -
+  // the job board's page of it), the title, the progress text on the right ("n%" where the target is 100 or more, else
+  // "current/target") over a fill of the progress (the job's current / target - FreelanceProjectInfoPanelEntry has no
+  // participation_limit to read - THEME_FOCUS, SUCCESS_GREEN once full, at 0.15), the state line's colour where the job
+  // has a state (get_state_info). Its menu: ViewOpportunity and Untrack. Read as the tracker opens and as the tracked
+  // jobs change. Not here: the expanded objective chain (the freelance objective chains), the menu's other entries.
   import { onMount } from "svelte";
   import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import { questionText } from "../bridge/questions.ts";
@@ -27,6 +35,9 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { JournalMission, MissionSpot } from "../store/types.ts";
+  import type { FreelanceJob } from "../app/flow.ts";
+  import { trackedFreelanceJobs, trackedJobsChanged, untrackFreelanceJob } from "./jobTracking.ts";
+  import { openJobBoard } from "./jobBoardRequests.ts";
 
   let { store, flow, showAgents }: { store: ClientStore; flow: AppFlow; showAgents?: () => void } = $props();
   // svelte-ignore state_referenced_locally
@@ -62,6 +73,27 @@
   const locationID = $derived(stationID ?? structureID ?? solarSystemID);
   const inSpace = $derived(status?.inSpace === true);
   const warping = $derived(/warp/i.test(status?.shipMode ?? ""));
+
+  // The tracked freelance jobs, newest tracked last (get_tracked_jobs keeps the setting's order).
+  const me = $derived($station.online?.characterID ?? null);
+  let freelance = $state<readonly FreelanceJob[]>([]), jobMenu = $state<string | null>(null);
+  $effect(() => {
+    void $trackedJobsChanged;
+    const ids = Object.entries(trackedFreelanceJobs(me)).sort((a, b) => a[1] - b[1]).map(([id]) => id);
+    void Promise.all(ids.map((id) => flow.freelanceJob(id).catch(() => null))).then((jobs) => { freelance = jobs.filter((j): j is FreelanceJob => j !== null); });
+  });
+  const jobProgress = (j: FreelanceJob) => (j.project.target ? j.project.current / j.project.target : 0);
+  const jobProgressText = (j: FreelanceJob) => (!j.project.target ? "" : j.project.target >= 100 ? `${Math.floor(jobProgress(j) * 100)}%`
+    : `${j.project.current.toLocaleString("en-US")}/${j.project.target.toLocaleString("en-US")}`);
+  // FreelanceProjectJob.get_state_info's colour (DANGER_RED, WARNING_ORANGE, SUCCESS_GREEN); null for none.
+  function jobStateColor(j: FreelanceJob): string | null {
+    if (j.participation === 3) return "#e0913a";
+    if (j.participation === 2) return "#d4534f";
+    const p = j.project, left = Math.max(0, p.target - p.current), mine = p.contributionLimit ? Math.min(left, Math.max(0, p.contributionLimit - p.myProgress)) : left;
+    if (p.myProgress && mine === 0) return "#5fb85f";
+    if (p.state === 2) return "#e0913a";
+    return null;
+  }
 
   // Read again at each change of the pilot's place and each warp's end (OnSessionChanged, OnClientEvent_WarpFinished).
   let placeSeen: string | null = null;
@@ -205,7 +237,7 @@
 
   // The words, names, messages and securities the missions' objectives want.
   $effect(() => {
-    const labels = new Set<string>(["UI/Opportunities/WindowTitle", ...Object.values(BUTTON_LABELS).map((one) => one.label)]);
+    const labels = new Set<string>(["UI/Opportunities/WindowTitle", "UI/Opportunities/ViewOpportunity", "UI/Common/Untrack", ...Object.values(BUTTON_LABELS).map((one) => one.label)]);
     const refs: NameRef[] = [];
     const systems = new Set<number>();
     for (const mission of missions) {
@@ -292,7 +324,7 @@
 
 <section class="panel mission-tracker">
   <h2 class="panel-title">{word("UI/Opportunities/WindowTitle", "Tracked")}</h2>
-  {#if missions.length === 0}
+  {#if missions.length === 0 && freelance.length === 0}
     <p class="empty">{$agents.journal === null ? "Reading the journal…" : "No mission is accepted."}</p>
   {/if}
   {#each missions as mission (mission.agentID)}
@@ -321,6 +353,23 @@
       {/each}
     </article>
   {/each}
+  {#each freelance as j (j.project.projectID)}
+    {@const pct = Math.min(1, jobProgress(j))}
+    {@const stateColor = jobStateColor(j)}
+    <article class="tracked-job" style:border-left-color={stateColor ?? "transparent"}
+      oncontextmenu={(e) => { e.preventDefault(); jobMenu = jobMenu === j.project.projectID ? null : j.project.projectID; }}>
+      <span class="job-fill" style:width={`${pct * 100}%`} style:background={pct < 1 ? "var(--theme-focus, #58a6dc)" : "#5fb85f"}></span>
+      <button type="button" class="job-open" title={word("UI/Opportunities/ViewOpportunity", "View Opportunity")} onclick={() => openJobBoard(j.project.projectID, j.corporationID)}>⚒</button>
+      <strong class="job-title">{j.project.name}</strong>
+      <span class="job-progress">{jobProgressText(j)}</span>
+      {#if jobMenu === j.project.projectID}
+        <div class="job-menu" role="menu" tabindex="-1" onmouseleave={() => { jobMenu = null; }}>
+          <button type="button" onclick={() => { jobMenu = null; openJobBoard(j.project.projectID, j.corporationID); }}>{word("UI/Opportunities/ViewOpportunity", "View Opportunity")}</button>
+          <button type="button" onclick={() => { jobMenu = null; untrackFreelanceJob(me, j.project.projectID); }}>{word("UI/Common/Untrack", "Untrack")}</button>
+        </div>
+      {/if}
+    </article>
+  {/each}
   {#if error}<p class="error">{error}</p>{/if}
 </section>
 
@@ -330,4 +379,11 @@
   .mission-tracker .tracked-objective { padding: 0.4rem 0.5rem; background: rgb(0 0 0 / 0.25); margin-bottom: 2px; }
   .mission-tracker .tracked-objective.done .objective-header { text-decoration: line-through; opacity: 0.7; }
   .mission-tracker .objective-hint { margin: 0.25rem 0; white-space: pre-line; }
+  .mission-tracker .tracked-job { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px; margin-bottom: 2px; background: rgb(0 0 0 / 0.25); border-left: 2px solid transparent; overflow: visible; }
+  .mission-tracker .job-fill { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.15; pointer-events: none; }
+  .mission-tracker .job-open { all: unset; cursor: pointer; width: 16px; text-align: center; }
+  .mission-tracker .job-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mission-tracker .job-menu { position: absolute; right: 0; top: 100%; z-index: 5; display: flex; flex-direction: column; background: rgb(20 22 26 / 0.97); border: 1px solid rgb(255 255 255 / 0.15); }
+  .mission-tracker .job-menu button { all: unset; cursor: pointer; padding: 4px 10px; }
+  .mission-tracker .job-menu button:hover { background: rgb(255 255 255 / 0.08); }
 </style>
