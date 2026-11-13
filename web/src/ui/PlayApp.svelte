@@ -17,6 +17,7 @@
   setContext("fittingShipScene", (host: HTMLElement) => new FittingShipScene(host));
   import DesktopWindow from "./DesktopWindow.svelte";
   import PanelHost from "./PanelHost.svelte";
+  import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
   import NoticeBridge from "./NoticeBridge.svelte";
   import Toasts from "./Toasts.svelte";
@@ -836,6 +837,9 @@
   {/if}
   <!-- the star map's host, over the hangar or space and under the windows -->
   <div class="fly-map" bind:this={mapHost}></div>
+
+  <!-- The info panels (InfoPanelContainer) at the top of the left side, beside the Neocom, under the windows. -->
+  <ErrorBoundary name="Info panels"><PlayInfoPanels store={session.store} flow={session.flow} showAgents={() => open("agents")} /></ErrorBoundary>
 
   <!-- The app's windows over space or the station, in front of the 3D view and under nothing else. -->
   <div class="fly-fade" bind:this={fadeEl}></div>

@@ -52,7 +52,7 @@
     if (!r) return;
     serveJobBoardRequest(r.n);
     notice = "";
-    if (r.projectID) { tab = "browse"; open = r.projectID; openCorp = r.corporationID; } else { tab = "browse"; open = null; }
+    if (r.projectID) { tab = "browse"; open = r.projectID; openCorp = r.corporationID; } else { tab = r.page; open = null; }
   });
   async function closeJob(p: FreelanceProject): Promise<void> {
     const body = word("UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", { project_name: p.name });

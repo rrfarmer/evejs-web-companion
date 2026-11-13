@@ -39,7 +39,9 @@
   import { trackedFreelanceJobs, trackedJobsChanged, untrackFreelanceJob } from "./jobTracking.ts";
   import { openJobBoard } from "./jobBoardRequests.ts";
 
-  let { store, flow, showAgents }: { store: ClientStore; flow: AppFlow; showAgents?: () => void } = $props();
+  // embedded: inside the play view's info panel (PlayInfoPanels.svelte), which draws the caption and is shown only
+  // while there is something to track (onCount).
+  let { store, flow, showAgents, embedded = false, onCount }: { store: ClientStore; flow: AppFlow; showAgents?: () => void; embedded?: boolean; onCount?: (n: number) => void } = $props();
   // svelte-ignore state_referenced_locally
   const warpDistance = flow.warpDistance;
   // svelte-ignore state_referenced_locally
@@ -82,6 +84,7 @@
     const ids = Object.entries(trackedFreelanceJobs(me)).sort((a, b) => a[1] - b[1]).map(([id]) => id);
     void Promise.all(ids.map((id) => flow.freelanceJob(id).catch(() => null))).then((jobs) => { freelance = jobs.filter((j): j is FreelanceJob => j !== null); });
   });
+  $effect(() => { onCount?.(missions.length + freelance.length); });
   const jobProgress = (j: FreelanceJob) => (j.project.target ? j.project.current / j.project.target : 0);
   const jobProgressText = (j: FreelanceJob) => (!j.project.target ? "" : j.project.target >= 100 ? `${Math.floor(jobProgress(j) * 100)}%`
     : `${j.project.current.toLocaleString("en-US")}/${j.project.target.toLocaleString("en-US")}`);
@@ -322,9 +325,9 @@
   }
 </script>
 
-<section class="panel mission-tracker">
-  <h2 class="panel-title">{word("UI/Opportunities/WindowTitle", "Tracked")}</h2>
-  {#if missions.length === 0 && freelance.length === 0}
+<section class="panel mission-tracker" class:embedded>
+  {#if !embedded}<h2 class="panel-title">{word("UI/Opportunities/WindowTitle", "Tracked")}</h2>{/if}
+  {#if missions.length === 0 && freelance.length === 0 && !embedded}
     <p class="empty">{$agents.journal === null ? "Reading the journal…" : "No mission is accepted."}</p>
   {/if}
   {#each missions as mission (mission.agentID)}
@@ -374,6 +377,7 @@
 </section>
 
 <style>
+  .mission-tracker.embedded { padding: 0; background: none; border: none; }
   .mission-tracker .tracked-mission { margin-bottom: 0.75rem; }
   .mission-tracker .tracked-mission h3 { margin: 0.25rem 0; }
   .mission-tracker .tracked-objective { padding: 0.4rem 0.5rem; background: rgb(0 0 0 / 0.25); margin-bottom: 2px; }
