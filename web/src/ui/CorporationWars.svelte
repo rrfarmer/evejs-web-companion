@@ -17,6 +17,9 @@
   import { resolvedName } from "../store/names.ts";
   import CorporationDeclareWar from "./CorporationDeclareWar.svelte";
   import WarEntry from "./WarEntry.svelte";
+  import WarAllyEntry from "./WarAllyEntry.svelte";
+  import WarSurrender from "./WarSurrender.svelte";
+  import type { WarNegotiation } from "../app/flow.ts";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -42,8 +45,27 @@
   const read = (k: string, d: boolean) => { try { const v = localStorage.getItem(`evejs.play.${k}`); return v === null ? d : v === "true"; } catch { return d; } };
   let cryForHelp = $state(read("allwars_showcryforhelp", false)), searchText = $state("");
   let searchOwner = $state<{ id: number; name: string } | null>(null), searchWars = $state<readonly CorpWar[] | null>(null), picks = $state<readonly { id: number; name: string }[] | null>(null);
+  // get_scroll_entries(myWars): the ally offers of every war (GetAllyNegotiations); a war one offered help in, not one's
+  // own, added from warsInfoMgr.GetWarsByOwnerID(its defender); each war's allies and offers under it (GetAlliesSubContent:
+  // offers first, then by name; an offer only where its offerer is not already an ally)
+  let allyOffers = $state<readonly WarNegotiation[]>([]), openOffer = $state<{ war: CorpWar; negotiation: WarNegotiation } | null>(null);
   async function showOurs(): Promise<void> {
-    try { ours = [...await flow.ownerWars(ownerID)].sort((a, b) => b.warID - a.warID); } catch (e) { error = e instanceof Error ? e.message : String(e); ours = []; }
+    try {
+      const [wars, offers] = await Promise.all([flow.ownerWars(ownerID), flow.allyNegotiations().catch(() => [] as readonly WarNegotiation[])]);
+      const all = [...wars];
+      for (const o of offers) {
+        if (o.ownerID1 !== ownerID || all.some((w) => w.warID === o.warID)) continue;
+        const foreign = await flow.foreignWar(o.warID, o.againstID).catch(() => null);
+        if (foreign) all.push(foreign);
+      }
+      allyOffers = offers;
+      ours = all.sort((a, b) => b.warID - a.warID);
+    } catch (e) { error = e instanceof Error ? e.message : String(e); ours = []; }
+  }
+  function allyRows(w: CorpWar): { allyID: number; ally: CorpWar["allies"][number] | null; negotiation: WarNegotiation | null; name: string }[] {
+    const allies = w.allies.map((a) => ({ allyID: a.allyID, ally: a, negotiation: null, name: nameOf(a.allyID) }));
+    const offers = allyOffers.filter((n) => n.warID === w.warID && !w.allies.some((a) => a.allyID === n.ownerID1)).map((n) => ({ allyID: n.ownerID1, ally: null, negotiation: n, name: nameOf(n.ownerID1) }));
+    return [...offers.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())), ...allies.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))];
   }
   // PopulateTop50(browse): -1 the batch before, 1 below the last war shown, none the newest
   async function top50(browse: -1 | 0 | 1 = 0): Promise<void> {
@@ -93,14 +115,22 @@
 
 <div class="corp-wars">
   <div class="cw-tabs" role="tablist">
-    <button type="button" role="tab" aria-selected={tab === "our"} onclick={() => (tab = "our")}>{fill(C + "Wars/OurWars", "Our Wars")}</button>
-    <button type="button" role="tab" aria-selected={tab === "all"} title={fill("UI/Corporations/Common/UpdateDelay15Minutes", "")} onclick={() => (tab = "all")}>{fill(W + "AllWars", "All Wars")}</button>
+    <!-- ToggleButtonGroup(callback=self.Refresh): a tab chosen reads its pane again -->
+    <button type="button" role="tab" aria-selected={tab === "our"} onclick={() => { tab = "our"; void showOurs(); }}>{fill(C + "Wars/OurWars", "Our Wars")}</button>
+    <button type="button" role="tab" aria-selected={tab === "all"} title={fill("UI/Corporations/Common/UpdateDelay15Minutes", "")} onclick={() => { tab = "all"; if (!searchOwner) void top50(); }}>{fill(W + "AllWars", "All Wars")}</button>
   </div>
   {#if error}<p class="error">{error}</p>{/if}
+  {#if openOffer}<WarSurrender {store} {flow} war={openOffer.war} negotiation={openOffer.negotiation} kind="ally" onClose={(done) => { openOffer = null; if (done) void showOurs(); }} />{/if}
   {#if tab === "our"}
     <div class="cw-scroll">
       {#if ours !== null && !ours.length}<p class="cw-hint">{fill(C + "Wars/CorpOrAllianceNotInvolvedInWars", "{corpName} is not involved in any wars", { corpName: nameOf(ownerID) })}</p>{/if}
-      {#each ours ?? [] as w (w.warID)}<WarEntry {store} {flow} war={w} myWars />{/each}
+      {#each ours ?? [] as w (w.warID)}
+        <WarEntry {store} {flow} war={w} myWars {allyOffers} onChanged={() => void showOurs()} />
+        {#each allyRows(w) as r (r.allyID + ":" + (r.negotiation?.warNegotiationID ?? 0))}
+          <div class="cw-ally"><WarAllyEntry {store} {flow} allyID={r.allyID} ally={r.ally} negotiation={r.negotiation} warStarted={w.timeStarted} warFinished={w.timeFinished} {director}
+            onOpen={(n) => (openOffer = { war: w, negotiation: n })} /></div>
+        {/each}
+      {/each}
     </div>
   {:else}
     <div class="cw-settings">
@@ -144,6 +174,7 @@
   .cw-search input { width: 150px; }
   .cw-picks { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
   .cw-scroll { flex: 1; overflow: auto; padding-top: 4px; }
+  .cw-ally { padding-left: 20px; }
   .cw-hint { opacity: 0.7; padding: 4px; }
   .cw-header { display: block; width: 100%; text-align: left; font-weight: bold; padding: 2px 4px; background: rgba(255, 255, 255, 0.06); border: 0; color: inherit; }
   .cw-clear { cursor: pointer; }

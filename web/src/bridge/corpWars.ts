@@ -17,7 +17,12 @@ export interface CorpWar {
   readonly openForAllies: boolean;
   /** The allies' owners (a GetWars war's allies dict); none for a warsInfoMgr row. */
   readonly allyIDs: readonly number[];
+  /** The allies' rows (allyID, timeStarted, timeFinished), as the allies dict has them. */
+  readonly allies: readonly WarAlly[];
 }
+
+/** A war's ally (warPayloads buildAllyPayload: a KeyVal of allyID, timeStarted, timeFinished). */
+export interface WarAlly { readonly allyID: number; readonly timeStarted: bigint | null; readonly timeFinished: bigint | null }
 
 const long = (v: JsonValue | undefined): bigint | null => (typeof v === "number" ? BigInt(Math.trunc(v)) : unwrapLong(v));
 const flag = (v: JsonValue | undefined) => v === true || (typeof v === "number" && v !== 0) || (long(v) ?? 0n) !== 0n;
@@ -42,6 +47,10 @@ export function decodeWars(answer: JsonValue | null | undefined): CorpWar[] {
       timeDeclared: long(memberField(row, "timeDeclared")), timeStarted: long(memberField(row, "timeStarted")), timeFinished: long(memberField(row, "timeFinished")), retracted: long(memberField(row, "retracted")),
       mutual: flag(memberField(row, "mutual")), openForAllies: flag(memberField(row, "openForAllies")),
       allyIDs: allies === undefined || allies === null ? [] : readDictPairs(allies).map(([k]) => Number(typeof k === "number" ? k : long(k as JsonValue) ?? 0)).filter((id) => id > 0),
+      allies: allies === undefined || allies === null ? [] : readDictPairs(allies).map(([k, v]) => ({
+        allyID: Number(long(memberField(v, "allyID")) ?? (typeof k === "number" ? k : long(k as JsonValue) ?? 0)),
+        timeStarted: long(memberField(v, "timeStarted")), timeFinished: long(memberField(v, "timeFinished")),
+      })).filter((a) => a.allyID > 0),
     }];
   });
 }

@@ -22,8 +22,11 @@
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   import WarReport from "./WarReport.svelte";
   import WarSurrender from "./WarSurrender.svelte";
+  import WarAllyWindow from "./WarAllyWindow.svelte";
   import type { WarNegotiation } from "../app/flow.ts";
-  let { store, flow, war, myWars = false }: { store: ClientStore; flow: AppFlow; war: CorpWar; myWars?: boolean } = $props();
+  // allyOffers: war.GetAllyNegotiations(), read once by the list (IsNegotiating); onChanged: the list to read again
+  let { store, flow, war, myWars = false, allyOffers = [], onChanged }: { store: ClientStore; flow: AppFlow; war: CorpWar; myWars?: boolean;
+    allyOffers?: readonly WarNegotiation[]; onChanged?: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -41,7 +44,7 @@
   const W = "UI/Corporations/Wars/";
   const WAR_ENTRY_WORDS = ["WarNotMutual", "WarMutual", "Vs", "Offender", "Defender", "DefenderOpenForAllies", "WarStartedCanFight", "WarEndsAt", "WarStartedEndsAt",
     "WarStartedAndFinished", "WarStartedAndRetracted", "WarStarted", "OpenForAllies", "OfferAssistance", "ViewNumAllies", "ViewAllies", "RetractWar",
-    "SendSurrenderOffer", "ViewSurrenderOffer", "SurrenderPending", "OpenWarReport"].map((k) => W + k).concat(["UI/Common/Unknown", DATE_LABELS.sn!, DATE_LABELS.ns!, DATE_LABELS.ss!, DATE_LABELS.xn!]);
+    "SendSurrenderOffer", "ViewSurrenderOffer", "SurrenderPending", "OpenWarReport", "ViewAssistanceOffer", "YouOfferedHelp"].map((k) => W + k).concat(["UI/Common/Unknown", DATE_LABELS.sn!, DATE_LABELS.ns!, DATE_LABELS.ss!, DATE_LABELS.xn!]);
   const fill = (label: string, values: Record<string, unknown> = {}) =>
     formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") });
   const isAlliance = (id: number) => id >= 99_000_000 && id < 100_000_000;
@@ -64,7 +67,20 @@
   const me = $derived($station.online?.allianceID ?? $station.online?.corporationID ?? 0);
   const myWar = $derived([war.declaredByID, war.againstID].includes(me));
   const director = $derived((BigInt($station.online?.corpRole ?? "0") & 1n) === 1n);
-  let menu = $state(false), report = $state(false), surrender = $state(false);
+  let menu = $state(false), report = $state(false), surrender = $state(false), allyWindow = $state(false);
+  // the ally offer window: a request (Offer Assistance) or one's own offer (View Assistance Offer)
+  let assistance = $state<"request" | WarNegotiation | null>(null);
+  const nowT = () => BigInt(Date.now()) * 10000n + 116444736000000000n;
+  // GetAllies: the allies still fighting
+  const numAllies = $derived(war.allies.filter((a) => a.timeFinished !== null && nowT() < a.timeFinished).length);
+  // IsAlly: war_cso.IsAllyInWar - one's own row among the allies, not finished
+  const isAlly = $derived(war.allies.some((a) => a.allyID === me && (a.timeFinished === null || nowT() < a.timeFinished)));
+  // IsNegotiating: one's own ally offer in this war, not declined or retracted
+  const myOffer = $derived(allyOffers.find((n) => n.warID === war.warID && n.ownerID1 === me && n.state !== 2 && n.state !== 3) ?? null);
+  async function setOpen(open: boolean): Promise<void> {
+    menu = false;
+    if (await flow.allyAct({ kind: "open", warID: war.warID, open })) onChanged?.();
+  }
   // GetSurrenderStatus (a director, in the war, not retracted): the war's surrender offers - the pending icon and the
   // menu's View Surrender Offer for the last one
   let surrenders = $state<readonly WarNegotiation[]>([]);
@@ -88,6 +104,8 @@
 
 {#if report}<WarReport {store} {flow} warID={war.warID} onClose={() => (report = false)} />{/if}
 {#if surrender}<WarSurrender {store} {flow} {war} negotiation={pendingSurrender} onClose={() => { surrender = false; loadSurrenders(); }} />{/if}
+{#if assistance !== null}<WarSurrender {store} {flow} {war} kind="ally" negotiation={assistance === "request" ? null : assistance} onClose={(done) => { assistance = null; if (done) onChanged?.(); }} />{/if}
+{#if allyWindow}<WarAllyWindow {store} {flow} {war} onClose={() => (allyWindow = false)} />{/if}
 <div class="war-entry" class:mine={myWars}>
   <div class="we-war">
     {#each [{ id: war.declaredByID, role: "Offender" }, null, { id: war.againstID, role: "Defender" }] as side, i (i)}
@@ -108,13 +126,18 @@
   <div class="we-buttons">
     {#if pendingSurrender}<span class="we-allies" title={plainText(fill(W + "SurrenderPending"))}>🏳</span>{/if}
     {#if openForAllies}<span class="we-allies" title={plainText(fill(W + "DefenderOpenForAllies"))}>✚</span>{/if}
+    {#if !war.mutual && !myWar && director && myOffer && !isAlly}<span class="we-allies" title={plainText(fill(W + "YouOfferedHelp"))}>❗</span>{/if}
     <button type="button" class="we-menu-btn" aria-expanded={menu} onclick={() => (menu = !menu)}>☰</button>
     {#if menu}
       <div class="we-menu" role="menu">
         {#if !war.mutual}
-          {#if myWar && director && !finished && war.againstID === me}<label><input type="checkbox" checked={war.openForAllies} disabled />{plainText(fill(W + "OpenForAllies"))}</label>{/if}
-          {#if !myWar && director && !finished}<button type="button" role="menuitem" disabled>{plainText(fill(W + "OfferAssistance"))}</button>{/if}
-          <button type="button" role="menuitem" disabled>{war.allyIDs.length ? plainText(fill(W + "ViewNumAllies", { num: war.allyIDs.length })) : plainText(fill(W + "ViewAllies"))}</button>
+          {#if myWar && director && !finished && war.againstID === me}<label><input type="checkbox" checked={war.openForAllies} onchange={() => void setOpen(!war.openForAllies)} />{plainText(fill(W + "OpenForAllies"))}</label>{/if}
+          {#if !myWar && director && !isAlly && !finished}
+            {#if myOffer}<button type="button" role="menuitem" onclick={() => { menu = false; assistance = myOffer; }}>{plainText(fill(W + "ViewAssistanceOffer"))}</button>
+            {:else}<button type="button" role="menuitem" onclick={() => { menu = false; assistance = "request"; }}>{plainText(fill(W + "OfferAssistance"))}</button>{/if}
+          {/if}
+          {#if numAllies > 0}<button type="button" role="menuitem" onclick={() => { menu = false; allyWindow = true; }}>{plainText(fill(W + "ViewNumAllies", { num: numAllies }))}</button>
+          {:else}<button type="button" role="menuitem" disabled>{plainText(fill(W + "ViewAllies"))}</button>{/if}
         {/if}
         {#if myWar && director && !finished && war.retracted === null}
           {#if war.mutual}<button type="button" role="menuitem" onclick={() => { menu = false; void flow.retractMutualWar(war.warID).catch(() => {}); }}>{plainText(fill(W + "RetractWar"))}</button>

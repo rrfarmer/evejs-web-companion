@@ -2539,6 +2539,16 @@ export interface AppFlow {
   warReport(warID: number): Promise<WarReportInfo | null>;
   /** war.GetSurrenderNegotiations(warID): the war moniker's GetNegotiations, the surrender offers (type 2) of that war. */
   surrenderNegotiations(warID: number): Promise<readonly WarNegotiation[]>;
+  /** war_cso.GetAllyNegotiations: the moniker's GetNegotiations, the ally offers (type 0) of every war, names primed. */
+  allyNegotiations(): Promise<readonly WarNegotiation[]>;
+  /** WarAssistanceOfferWnd's writes: CreateWarAllyOffer(warID, isk, defenderID, message), AcceptAllyNegotiation(id),
+   * DeclineAllyOffer(id), RetractWarAllyOffer(id); WarEntry.SetOpenForAllies: SetOpenForAllies(warID, open). True when made. */
+  allyAct(act: { readonly kind: "offer"; readonly warID: number; readonly isk: number; readonly defenderID: number; readonly message: string }
+    | { readonly kind: "accept" | "decline" | "retract"; readonly warNegotiationID: number } | { readonly kind: "open"; readonly warID: number; readonly open: boolean }): Promise<boolean>;
+  /** corp.GetAllyBaseCost: corpRegistry.CharGetAllyBaseCost(). */
+  allyBaseCost(): Promise<number>;
+  /** corp_ui_wars.get_scroll_entries: a war one offered help in, not one's own - warsInfoMgr.GetWarsByOwnerID(againstID)'s row. */
+  foreignWar(warID: number, againstID: number): Promise<CorpWar | null>;
   /** WarSurrenderWnd: _SubmitRequest - war.CreateSurrenderNegotiation(warID, isk, message); _AcceptOffer -
    * AcceptSurrender(id); _DeclineOffer - DeclineSurrender(id). True when made. */
   surrenderAct(act: { readonly kind: "offer"; readonly warID: number; readonly isk: number; readonly message: string } | { readonly kind: "accept" | "decline"; readonly warNegotiationID: number }): Promise<boolean>;
@@ -16674,6 +16684,38 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
     return rows;
   }
+  async function allyNegotiations(): Promise<readonly WarNegotiation[]> {
+    const answer = await bridgeAsk("warRegistry", "GetNegotiations", []);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapReal(v) ?? unwrapLong(v) ?? 0));
+    const text = (v: JsonValue | undefined) => (typeof v === "string" ? v : v && typeof v === "object" && "value" in v && typeof v.value === "string" ? v.value : "");
+    const rows = items.map((r) => ({ warNegotiationID: num(memberField(r, "warNegotiationID")), warID: num(memberField(r, "warID")), typeID: num(memberField(r, "warNegotiationTypeID")),
+      ownerID1: num(memberField(r, "ownerID1")), ownerID2: num(memberField(r, "ownerID2")), declaredByID: num(memberField(r, "declaredByID")), againstID: num(memberField(r, "againstID")),
+      iskValue: num(memberField(r, "iskValue")), description: text(memberField(r, "description")), state: num(memberField(r, "negotiationState")) }))
+      .filter((n) => n.typeID === 0);
+    const ids = [...new Set(rows.flatMap((n) => [n.ownerID1, n.ownerID2, n.declaredByID, n.againstID]))].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return rows;
+  }
+  async function allyAct(act: { readonly kind: "offer"; readonly warID: number; readonly isk: number; readonly defenderID: number; readonly message: string }
+    | { readonly kind: "accept" | "decline" | "retract"; readonly warNegotiationID: number } | { readonly kind: "open"; readonly warID: number; readonly open: boolean }): Promise<boolean> {
+    try {
+      if (act.kind === "offer") await bridgeDo("warRegistry", "CreateWarAllyOffer", [act.warID, act.isk, act.defenderID, act.message]);
+      else if (act.kind === "open") await bridgeDo("warRegistry", "SetOpenForAllies", [act.warID, act.open]);
+      else await bridgeDo("warRegistry", act.kind === "accept" ? "AcceptAllyNegotiation" : act.kind === "decline" ? "DeclineAllyOffer" : "RetractWarAllyOffer", [act.warNegotiationID]);
+      return true;
+    } catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function allyBaseCost(): Promise<number> {
+    const answer = await bridgeAsk("corpRegistry", "CharGetAllyBaseCost", []);
+    return typeof answer === "number" ? answer : Number(unwrapReal(answer) ?? unwrapLong(answer) ?? 0);
+  }
+  async function foreignWar(warID: number, againstID: number): Promise<CorpWar | null> {
+    const wars = decodeWars(await bridgeAsk("warsInfoMgr", "GetWarsByOwnerID", [againstID]));
+    const war = wars.find((w) => w.warID === warID) ?? null;
+    if (war) await warsNamed([war]);
+    return war;
+  }
   async function surrenderAct(act: { readonly kind: "offer"; readonly warID: number; readonly isk: number; readonly message: string } | { readonly kind: "accept" | "decline"; readonly warNegotiationID: number }): Promise<boolean> {
     try {
       if (act.kind === "offer") await bridgeDo("warRegistry", "CreateSurrenderNegotiation", [act.warID, act.isk, act.message]);
@@ -30624,6 +30666,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warReport,
     surrenderNegotiations,
     surrenderAct,
+    allyNegotiations,
+    allyAct,
+    allyBaseCost,
+    foreignWar,
     mutualWarInvites,
     mutualWarInviteAct,
     retractMutualWar,
