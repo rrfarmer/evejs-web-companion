@@ -1275,6 +1275,12 @@ export class SpaceView {
     return out;
   }
 
+  /** michelle's DistanceBetween(the ship, itemID): surface to surface; null where the ball is not in the snapshot. */
+  distanceToItem(itemID: number): number | null {
+    const e = this.snapshot?.entities.find((x) => x.itemID === itemID);
+    return e ? this.distanceTo(e) : null;
+  }
+
   private distanceTo(e: Entity): number {
     const s = this.snapshot?.ship;
     if (!s) return 0;

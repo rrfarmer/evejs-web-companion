@@ -552,6 +552,8 @@ export interface SovHubUpgrade {
   readonly typeID: number; readonly powerState: "POWER_STATE_OFFLINE" | "POWER_STATE_ONLINE" | "POWER_STATE_LOW" | "POWER_STATE_PENDING" | null;
   readonly powerProduced: number; readonly workforceProduced: number; readonly fuelTypeID: number; readonly fuelPerHour: number; readonly startupCost: number;
   readonly powerRequired: number; readonly workforceRequired: number;
+  /** The definition's mutually_exclusive_group (HubController._IsInMutuallyExclusiveGroup). */
+  readonly mutuallyExclusiveGroup: string;
   /** The upgrade's key (identifier.upgrade_type, upgrade_id_key's second part) - UninstallRequest's. */
   readonly upgradeKey: number;
 }
@@ -1717,6 +1719,8 @@ export interface SaidDialog {
   readonly defaultAnswer?: "no";
   /** An explicit prompt_player_fsd_dialog suppress argument, where the dialog is suppressable. */
   readonly suppressAnswer?: "yes";
+  /** A custom message box's body (messageboxCustom.CUSTOM_MESSAGE_BOXES), as label markup, in place of the dialog's. */
+  readonly bodyMarkup?: string;
 }
 
 /**
@@ -2678,6 +2682,8 @@ export interface AppFlow {
   allianceApplicationStandardText(allianceID: number): Promise<string>;
   /** A client yes / no dialog by name (prompt_player_fsd_dialog(name, {}, YESNO[, suppress=ID_YES])); true for Yes. */
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
+  /** A dialog the client puts up with a custom box (CUSTOM_MESSAGE_BOXES): the dialog's title and buttons, this body. */
+  askClientDialogBody(dialog: string, bodyMarkup: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** prompt_player_fsd_dialog('CustomWarning', {header, warning}, buttons=YESNO): true on Yes. */
   askClientWarning(header: string, warning: string): Promise<boolean>;
   /** prompt_player_fsd_dialog(dialog, values, YESNO): the install's dialog with its parameters; true on Yes. */
@@ -2726,6 +2732,10 @@ export interface AppFlow {
   /** HubController's fuel ACL: sovMgr.GetSovHubFuelAccessGroup(solarSystemID) and accessGroupOptions
    * (orbitalConfiguration.GetAccessGroupOptions: the pilot's access lists - ownerGroupManager.GetMyGroups - each named by
    * its NPC corporation creator or its name, sorted, NoAccessList first); null where the read failed. */
+  /** HubController's drop source: the upgrade items (upgrades_const.UPGRADE_GROUP_IDS) in the active ship, each with its
+   * definition and its sovereignty requirement (attributeDevIndexSovereignty), and the system's claim time
+   * (sovMgr.GetInfrastructureHubInfo's claimTime, ms; null where none); null where the ship or the definitions are not read. */
+  sovHubUpgradeItems(solarSystemID: number): Promise<{ readonly shipID: number; readonly items: readonly { readonly itemID: number; readonly typeID: number; readonly def: Omit<SovHubUpgrade, "typeID" | "powerState" | "upgradeKey">; readonly sovLevel: number }[]; readonly claimMs: number | null } | null>;
   sovHubFuelAcl(solarSystemID: number): Promise<{ readonly current: number | null; readonly options: readonly { readonly groupID: number | null; readonly name: string }[] } | null>;
   /** SetFuelACL: sovMgr.SetSovHubFuelAccessGroup(solarSystemID, groupID); true when done. */
   setSovHubFuelAcl(solarSystemID: number, groupID: number | null): Promise<boolean>;
@@ -11176,7 +11186,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // prompt_player_fsd_dialog(..., uiconst.YESNO): the dialog put up with Yes and No, and the client waiting on the
   // answer; true on Yes. With uiconst.OKCANCEL (answers "okcancel"): OK and Cancel, true on OK.
   const dialogAnswers = new Map<number, (yes: boolean) => void>();
-  function askDialog(dialog: string, values: JsonValue | null, fallback: string, answers: "yesno" | "okcancel" = "yesno", prompt: Pick<SaidDialog, "defaultAnswer" | "suppressAnswer"> = {}): Promise<boolean> {
+  function askDialog(dialog: string, values: JsonValue | null, fallback: string, answers: "yesno" | "okcancel" = "yesno", prompt: Pick<SaidDialog, "defaultAnswer" | "suppressAnswer" | "bodyMarkup"> = {}): Promise<boolean> {
     const kept = dialogAnswerKept(dialog);
     // A question's kept answer: Yes, or OK where the question is OK and Cancel (suppress=uiconst.ID_OK).
     // dialog_handler59-64: an explicit suppress argument overrides the saved result.
@@ -18790,7 +18800,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         stars: new Map(list(stars?.configurations).map((d) => { const r = record(d); return [int(record(r.star).sequential), int(r.power)] as const; })),
         upgrades: new Map(list(defs?.definitions).map((d) => { const r = record(d); return [int(record(r.installation_type).sequential), { powerProduced: int(r.power_produced), workforceProduced: int(r.workforce_produced),
           powerRequired: int(r.power_required), workforceRequired: int(r.workforce_required),
-          fuelTypeID: int(record(r.fuel_type).sequential), fuelPerHour: int(r.fuel_consumption_per_hour), startupCost: int(r.fuel_startup_cost) }] as const; })),
+          fuelTypeID: int(record(r.fuel_type).sequential), fuelPerHour: int(r.fuel_consumption_per_hour), startupCost: int(r.fuel_startup_cost),
+          mutuallyExclusiveGroup: typeof r.mutually_exclusive_group === "string" ? r.mutually_exclusive_group : "" }] as const; })),
       };
     })();
     const [statics, installed, resources, fuel, workforce, objects] = await Promise.all([sovStatic, ask(P + "hub.upgrade.api.GetHubUpgradesRequest", hub), ask(P + "hub.api.GetResourcesRequest", hub),
@@ -18799,7 +18810,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const upgrades = installed === null ? null : list(record(installed.hub_upgrades).upgrades).map((u) => {
       const a = record(record(u).attributes), typeID = int(record(record(a.definition).installation_type).sequential);
       const state = typeof a.power_state === "string" ? (STATES as readonly string[]).includes(a.power_state) ? a.power_state as SovHubUpgrade["powerState"] : null : null;
-      const def = statics.upgrades.get(typeID) ?? { powerProduced: 0, workforceProduced: 0, fuelTypeID: 0, fuelPerHour: 0, startupCost: 0, powerRequired: 0, workforceRequired: 0 };
+      const def = statics.upgrades.get(typeID) ?? { powerProduced: 0, workforceProduced: 0, fuelTypeID: 0, fuelPerHour: 0, startupCost: 0, powerRequired: 0, workforceRequired: 0, mutuallyExclusiveGroup: "" };
       return { typeID, powerState: state, upgradeKey: int(record(record(record(u).identifier).upgrade_type).sequential) || typeID, ...def };
     });
     const power = record(resources?.power), work = record(resources?.workforce);
@@ -18879,6 +18890,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     });
     await memberNames(captureMemberOperation(), hubs.map((h) => ({ kind: "system" as const, id: h.systemID })));
     return hubs;
+  }
+  async function sovHubUpgradeItems(solarSystemID: number): Promise<{ readonly shipID: number; readonly items: readonly { readonly itemID: number; readonly typeID: number; readonly def: Omit<SovHubUpgrade, "typeID" | "powerState" | "upgradeKey">; readonly sovLevel: number }[]; readonly claimMs: number | null } | null> {
+    const shipID = store.fitting.get().activeShipID ?? store.space.get().snapshot?.shipID ?? null;
+    const statics = await (sovStatic ?? Promise.resolve(null)).catch(() => null);
+    if (!shipID || !statics) return null;
+    const shipItems = await listShip(bridgeAsk, shipID).catch(() => null);
+    if (!shipItems) return null;
+    const found = shipItems.filter((i) => statics.upgrades.has(i.typeID)); // an upgrade definition's type: UPGRADE_GROUP_IDS' types
+    const scope = captureMemberOperation();
+    const [levels, info] = await Promise.all([
+      found.length ? attributesOfTypes([...new Set(found.map((i) => i.typeID))], [1615]).catch(() => null) : Promise.resolve(null),
+      scope.ask("sovMgr", "GetInfrastructureHubInfo", [solarSystemID]).catch(() => null) as Promise<JsonValue | null>,
+    ]);
+    // SovHubInfo(hubID, corporationID, allianceID, claimTime): the FILETIME among its values.
+    const filetimes: bigint[] = [];
+    const walk = (v: unknown): void => { const l = unwrapLong(v); if (l !== null && l > 100_000_000_000_000_000n) { filetimes.push(l); return; } if (v && typeof v === "object") for (const x of Object.values(v as object)) walk(x); };
+    walk(info);
+    const claimMs = filetimes.length ? Number((filetimes[0]! - 116_444_736_000_000_000n) / 10_000n) : null;
+    if (found.length) await memberNames(scope, found.map((i) => ({ kind: "type" as const, id: i.typeID })));
+    const levelOf = (typeID: number) => Math.floor(Number((levels as Record<number, Record<number, number | null> | undefined> | null)?.[typeID]?.[1615] ?? 0));
+    return { shipID, claimMs, items: found.map((i) => ({ itemID: i.itemID, typeID: i.typeID, def: statics.upgrades.get(i.typeID)!, sovLevel: levelOf(i.typeID) })) };
   }
   async function sovHubFuelAcl(solarSystemID: number): Promise<{ readonly current: number | null; readonly options: readonly { readonly groupID: number | null; readonly name: string }[] } | null> {
     const scope = captureMemberOperation();
@@ -32625,6 +32657,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     configureSovHubWorkforce,
     sovHubFuelAcl,
     setSovHubFuelAcl,
+    sovHubUpgradeItems,
+    async askClientDialogBody(dialog: string, bodyMarkup: string, fallback: string, suppressYes = false) {
+      await wordsNow([`dialog:${dialog}/title`]).catch(() => {});
+      return askDialog(dialog, null, fallback, "yesno", { ...(suppressYes ? { suppressAnswer: "yes" as const } : {}), bodyMarkup });
+    },
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },

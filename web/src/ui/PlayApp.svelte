@@ -827,7 +827,7 @@
   {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
   {#if session && sovHubConfig}
     {@const cfg = sovHubConfig}
-    <div class="fly-sovhub"><SovHubWindow store={session.store} flow={session.flow} hub={cfg.hub} details={cfg.details} extras={cfg.extras} onClose={() => { sovHubConfig = null; }} onChanged={() => openSovHubConfig(cfg.hub.hubID)} /></div>
+    <div class="fly-sovhub"><SovHubWindow store={session.store} flow={session.flow} hub={cfg.hub} details={cfg.details} extras={cfg.extras} rangeTo={(id) => view?.distanceToItem(id) ?? null} onClose={() => { sovHubConfig = null; }} onChanged={() => openSovHubConfig(cfg.hub.hubID)} /></div>
   {/if}
   <!-- the star map's host, over the hangar or space and under the windows -->
   <div class="fly-map" bind:this={mapHost}></div>

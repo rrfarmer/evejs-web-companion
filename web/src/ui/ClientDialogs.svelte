@@ -763,6 +763,7 @@
    * has none of the client's text, its own words, written so that the label reads them as they are.
    */
   function bodyMarkup(one: SaidDialog, typed: boolean): string {
+    if (one.bodyMarkup !== undefined) return one.bodyMarkup;
     const marked = typed ? questionMarkup(partOf(one, "body"), nameOf, client) : null;
     return marked !== null && marked !== "" ? marked : labelEscaped(one.fallback);
   }

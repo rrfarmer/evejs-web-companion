@@ -31,19 +31,31 @@
   // where none, the list's, its NPC creator's, or UnknownACL - from sovMgr.GetSovHubFuelAccessGroup; for a director
   // (CanEditACL) SectionEdit swaps the name for a combo of the access group options - NoAccessList first - and
   // SectionEditApply: SetSovHubFuelAccessGroup, the name read again).
-  // Not here yet: dropping new upgrades in, dropping an access list on the combo, Show on Map.
+  // New upgrades (HubController.DoDropData): an upgrade item (UPGRADE_GROUP_IDS) from the ship, here listed under the
+  // table while the hub is in the pilot's system, dragged onto the table (at a row: before it) or clicked; GetDropError
+  // in its order - AlreadyInstalled (its type in the list), UpgradeSlotFilled (an upgrade of its mutually exclusive
+  // group in the list), NotInRange (beyond maxCargoContainerTransferDistance, 2,500 m, of the hub), SovLevelTooLow
+  // (attributeDevIndexSovereignty above GetTimeIndexLevelForDays of the days since the claim) - as CustomNotify; else
+  // the item's type is put in the list configured online, its removal drops it with no question, and Save Changes
+  // sends the items as new_upgrades. ConfirmSovHubUpgradeChanges' body is changesWarning.ConfirmSovHubChanges: each
+  // upgrade in the new order - its old place where moved (chevron, old priority), the priority, the name, "New," and the
+  // simulated state for an added one or old -> new state where it changed (Offline grey, Online plain, else red) - and
+  // ColumnStartupCost with the magma and ice startup cost of the upgrades going from offline or pending to on.
+  // Not here yet: dropping an access list on the combo, Show on Map.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, MySovHub, SovHubDetails, SovHubExtras, SovHubUpgrade } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
-  let { store, flow, hub, details, extras, onClose, onChanged }: { store: ClientStore; flow: AppFlow; hub: MySovHub; details: SovHubDetails | undefined; extras: SovHubExtras | undefined; onClose: () => void; onChanged: () => Promise<void> } = $props();
+  let { store, flow, hub, details, extras, rangeTo, onClose, onChanged }: { store: ClientStore; flow: AppFlow; hub: MySovHub; details: SovHubDetails | undefined; extras: SovHubExtras | undefined; rangeTo?: (itemID: number) => number | null; onClose: () => void; onChanged: () => Promise<void> } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  // svelte-ignore state_referenced_locally
+  const space = store.space;
   const W = "UI/Sovereignty/SovHub/HubWnd/", U = "UI/Sovereignty/SovHub/Upgrades/";
   const COLUMNS = ["ColumnPriority", "ColumnUpgrade", "ColumnPowerAllocation", "ColumnWorkforceAllocation", "ColumnUpkeep", "ColumnStartupCost", "", "ColumnState"];
   const LABELS = [...COLUMNS.filter(Boolean).map((k) => W + k), W + "SovHub", W + "SovHubName", W + "NumUpgradesOnline", W + "NumUpgradesInstalled", W + "SaveChanges", W + "FuelLevels",
@@ -53,7 +65,8 @@
     W + "SourceSystemNotSendingWorkforce", W + "WorkforceIdle", W + "WorkforceImport", W + "WorkforceExport", W + "WorkforceTransit", "UI/Sovereignty/SovHub/UnknownWorkforceMode",
     ...["Transit", "Import", "Export", "Inactive"].flatMap((k) => [W + "WorkforceChangeFrom" + k, W + "WorkforceChangeTo" + k]),
     ...["Inactive", "Import", "Export", "ExportNoConnection", "ExportNotConfigured", "Transit"].map((k) => U + "WorkforceTransport" + k),
-    W + "SectionACL", W + "SectionACLDesc", "UI/Sovereignty/UnknownACL", U + "NoUpgradesInstalled", U + "DropUpgradesToAdd", U + "ExtraAmount", U + "ConsumptionPerHour", U + "PendingPowerState", U + "LowPowerState", U + "UnknownPowerState",
+    W + "SectionACL", W + "SectionACLDesc", "UI/Sovereignty/UnknownACL",
+    ...["AlreadyInstalled", "NotInRange", "SovLevelTooLow", "NotItem", "TypeNotValid", "NotInShip"].map((k) => U + "SovHubUpgradeCannotBeAdded" + k), U + "UpgradeSlotFilled", U + "NoUpgradesInstalled", U + "DropUpgradesToAdd", U + "ExtraAmount", U + "ConsumptionPerHour", U + "PendingPowerState", U + "LowPowerState", U + "UnknownPowerState",
     "UI/Common/Online", "UI/Common/Offline", "UI/Sovereignty/Power", "UI/Sovereignty/Workforce", "Tooltips/StructureUI/SovHubRedFuelState", "Tooltips/StructureUI/SovHubRedResourceState",
     "Tooltips/StructureUI/SovHubRedPowerState", "Tooltips/StructureUI/SovHubRedWorkforceState", "Tooltips/StructureUI/SovHubOnlineUpgrade", "Tooltips/StructureUI/SovHubOfflineUpgrade",
     ...COLUMNS.filter(Boolean).map((k) => "Tooltips/StructureUI/SovHub" + ({ ColumnPriority: "Priority", ColumnUpgrade: "InstalledUpgrades", ColumnPowerAllocation: "Allocation", ColumnWorkforceAllocation: "Allocation", ColumnUpkeep: "Upkeep", ColumnStartupCost: "Startup", ColumnState: "State" } as Record<string, string>)[k])];
@@ -65,7 +78,7 @@
   });
   const n = (v: number) => v.toLocaleString("en-US");
   // The simulated list (installedUpgradesSimulated): each upgrade with its configured state, in priority order.
-  type Sim = { u: SovHubUpgrade; online: boolean };
+  type Sim = { u: SovHubUpgrade; online: boolean; itemID?: number };
   let sim = $state<Sim[]>([]), busy = $state(false);
   let seen: SovHubDetails | undefined;
   $effect(() => { if (details !== seen) { seen = details; sim = (details?.upgrades ?? []).map((u) => ({ u, online: u.powerState !== "POWER_STATE_OFFLINE" })); } });
@@ -75,6 +88,7 @@
   });
   function move(i: number, to: number): void { if (to < 0 || to >= sim.length) return; const next = [...sim]; const [x] = next.splice(i, 1); next.splice(to, 0, x!); sim = next; }
   async function remove(x: Sim): Promise<void> {
+    if (x.itemID) { sim = sim.filter((y) => y.itemID !== x.itemID); return; }
     if (busy || !(await flow.askClientDialog("ConfirmDestroyUpgrade", "Destroy this upgrade?"))) return;
     busy = true;
     try {
@@ -83,17 +97,81 @@
     } finally { busy = false; }
   }
   async function save(): Promise<void> {
-    if (busy || !unsaved || !(await flow.askClientDialog("ConfirmSovHubUpgradeChanges", "Save these changes?"))) return;
+    if (busy || !unsaved || !(await flow.askClientDialogBody("ConfirmSovHubUpgradeChanges", changesMarkup(), "Save these changes?", true))) return;
     busy = true;
     try {
       const before = effective.map((e) => `${e.u.typeID}:${e.state}`).join(",");
-      const r = await flow.saveSovHubUpgrades(hub.hubID, sim.map((x) => [x.u.typeID, x.online] as const));
+      const r = await flow.saveSovHubUpgrades(hub.hubID, sim.map((x) => [x.u.typeID, x.online] as const), sim.flatMap((x) => (x.itemID ? [x.itemID] : [])));
       if ("status" in r) { flow.sayDialog("SovHubChangeNotSaved", null, "The changes were not saved."); return; }
       const after = r.states.map(([t, st]) => `${t}:${st}`).join(",");
       if (before === after) flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", word(W + "ConfigurationSuccessfullySaved")]] } as never, word(W + "ConfigurationSuccessfullySaved"));
       else flow.sayDialog("CustomInfo", { type: "dict", entries: [["info", word(W + "ConfigurationSavedNotSame")]] } as never, word(W + "ConfigurationSavedNotSame"));
       await onChanged();
+      void loadCargo();
     } finally { busy = false; }
+  }
+  // The drop source: the ship's upgrade items, while the hub is in the pilot's system.
+  type Cargo = NonNullable<Awaited<ReturnType<AppFlow["sovHubUpgradeItems"]>>>;
+  let cargo = $state<Cargo | null>(null);
+  // session.solarsystemid: the space snapshot's system, else the station's.
+  const inSystem = $derived(hub.solarSystemID === ($space.snapshot?.solarSystemID ?? $station.online?.solarSystemID));
+  async function loadCargo(): Promise<void> { cargo = inSystem ? await flow.sovHubUpgradeItems(hub.solarSystemID) : null; }
+  onMount(() => { void loadCargo(); });
+  // devIndexUtil.timeIndexLevels: the days of held sovereignty for levels 1 - 5.
+  const TIME_INDEX_DAYS = [7, 21, 35, 65, 100];
+  function dropError(item: Cargo["items"][number]): string | null {
+    if (sim.some((x) => x.u.typeID === item.typeID)) return word(U + "SovHubUpgradeCannotBeAddedAlreadyInstalled");
+    if (sim.some((x) => x.u.mutuallyExclusiveGroup === item.def.mutuallyExclusiveGroup)) return word(U + "UpgradeSlotFilled");
+    const d = rangeTo?.(hub.hubID) ?? null;
+    if (d === null || d > 2500) return word(U + "SovHubUpgradeCannotBeAddedNotInRange");
+    if (item.sovLevel) {
+      if (cargo?.claimMs == null) return word(U + "SovHubUpgradeCannotBeAddedSovLevelTooLow");
+      const days = (Date.now() - cargo.claimMs) / 86_400_000;
+      let level = 0;
+      for (let l = 5; l >= 1; l--) if (days >= TIME_INDEX_DAYS[l - 1]!) { level = l; break; }
+      if (level < item.sovLevel) return word(U + "SovHubUpgradeCannotBeAddedSovLevelTooLow");
+    }
+    return null;
+  }
+  function addItem(itemID: number, at: number): void {
+    const item = cargo?.items.find((i) => i.itemID === itemID);
+    const err = item ? dropError(item) : word(U + "SovHubUpgradeCannotBeAddedNotItem");
+    if (err || !item) { flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", err]] } as never, err ?? ""); return; }
+    const entry: Sim = { u: { typeID: item.typeID, powerState: "POWER_STATE_OFFLINE", upgradeKey: 0, ...item.def }, online: true, itemID: item.itemID };
+    const next = [...sim];
+    if (at < 0) next.push(entry); else next.splice(at, 0, entry);
+    sim = next;
+  }
+  const DRAG = "application/x-sov-upgrade";
+  function dropAt(e: DragEvent, at: number): void {
+    const id = Number(e.dataTransfer?.getData(DRAG) || NaN);
+    if (Number.isNaN(id)) return;
+    e.preventDefault(); e.stopPropagation();
+    addItem(id, at);
+  }
+  // changesWarning._GetTooltipContent (GetChanges with getOnline False, GetPriorityChanges, GetStartupCost) as markup.
+  function changesMarkup(): string {
+    const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const before = new Map((details?.upgrades ?? []).map((u, i) => [u.typeID, { state: u.powerState, i }]));
+    const stateText = (st: SovHubUpgrade["powerState"]) => st === "POWER_STATE_ONLINE" ? esc(word("UI/Common/Online"))
+      : st === "POWER_STATE_OFFLINE" ? `<color=0xff6b7280>${esc(word("UI/Common/Offline"))}</color>`
+      : `<color=0xffd4534f>${esc(word(st === "POWER_STATE_PENDING" ? U + "PendingPowerState" : st === "POWER_STATE_LOW" ? U + "LowPowerState" : U + "UnknownPowerState"))}</color>`;
+    const lines = effective.map((e, i) => {
+      const b = before.get(e.u.typeID);
+      const text = !b ? `New, ${stateText(e.state)}` : b.state !== e.state ? `${stateText(b.state)} \u2192 ${stateText(e.state)}` : "";
+      const moved = b && b.i !== i ? `${i > b.i ? "\u25be" : "\u25b4"}${b.i + 1}` : "";
+      return `${moved}<t>${i + 1}<t>${esc(nameAny("type", e.u.typeID) || String(e.u.typeID))}<t>${text}`;
+    });
+    let first = true;
+    for (const t of [81143, 81144]) {
+      const cost = effective.filter((e) => e.u.fuelTypeID === t && e.state !== "POWER_STATE_OFFLINE" && ((p) => p === "POWER_STATE_OFFLINE" || p === "POWER_STATE_PENDING")(before.has(e.u.typeID) ? before.get(e.u.typeID)!.state : "POWER_STATE_OFFLINE"))
+        .reduce((sum, e) => sum + e.u.startupCost, 0);
+      if (!cost) continue;
+      if (first) lines.push(" ");
+      lines.push(`${first ? esc(word(W + "ColumnStartupCost")) : ""}<t><t><t>${n(cost)} ${esc(nameAny("type", t))}`);
+      first = false;
+    }
+    return lines.join("<br>");
   }
   // WorkforceController's texts for the configured mode and the state.
   const MODE_LABELS: Record<string, string> = { inactive: W + "WorkforceIdle", import_settings: W + "WorkforceImport", export_settings: W + "WorkforceExport", transit: W + "WorkforceTransit" };
@@ -178,7 +256,7 @@
   const effective = $derived.by(() => {
     let power = details?.resources?.powerAvailable ?? 0, work = details?.resources?.workforceAvailable ?? 0, pUsed = 0, wUsed = 0;
     const fuelUsed = new Map<number, number>();
-    return sim.map(({ u, online }) => {
+    return sim.map(({ u, online, itemID }) => {
       const lackP = u.powerRequired + pUsed > power, lackW = u.workforceRequired + wUsed > work;
       let cost = 0, lackS = false, lackF = false;
       if (u.fuelTypeID) {
@@ -193,7 +271,7 @@
       else if (lackF || lackP || lackW) state = unsaved ? "POWER_STATE_OFFLINE" : "POWER_STATE_LOW";
       else if (lackS) state = "POWER_STATE_PENDING";
       else { state = "POWER_STATE_ONLINE"; power += u.powerProduced; work += u.workforceProduced; }
-      return { u, online, state, lacking: [lackS ? "startup" : "", lackF ? "fuel" : "", lackP ? "power" : "", lackW ? "workforce" : ""].filter(Boolean) };
+      return { u, online, itemID, state, lacking: [lackS ? "startup" : "", lackF ? "fuel" : "", lackP ? "power" : "", lackW ? "workforce" : ""].filter(Boolean) };
     });
   });
   const lacking = $derived(new Map(effective.map((e) => [e.u.typeID, e.lacking])));
@@ -239,7 +317,7 @@
       <div class="hw-left">
         <div class="hw-name">{word(W + "SovHubName", { solarSystemName: hub.systemName })}</div>
         <div class="hw-summary"><span>{word(W + "NumUpgradesOnline", { numOnline: online })}</span><span>/</span><span class="hw-dim">{word(W + "NumUpgradesInstalled", { numInstalled: sim.length })}</span></div>
-        <div class="hw-table">
+        <div class="hw-table" role="list" ondragover={(e) => { if (e.dataTransfer?.types.includes(DRAG)) e.preventDefault(); }} ondrop={(e) => dropAt(e, -1)}>
           <div class="hw-row hw-head">{#each COLUMNS as c, i (i)}<span>{c ? word(W + c) : ""}</span>{/each}</div>
           {#if !details?.upgrades}<p class="hw-hint">{word("UI/Sovereignty/NotAvailable")}</p>
           {:else}
@@ -247,7 +325,7 @@
               {@const u = e.u}
               {@const st = stateOf(u, e.online, e.state)}
               {@const l = e.lacking}
-              <div class="hw-row" class:restricted={st.red}>
+              <div class="hw-row" class:restricted={st.red} role="listitem" ondrop={(e) => dropAt(e, i)}>
                 <span class="hw-num"><span class="hw-move" title={word(U + "MoveUpgrades")}><button disabled={busy || i === 0} onclick={() => move(i, i - 1)}>▴</button><button disabled={busy || i === effective.length - 1} onclick={() => move(i, i + 1)}>▾</button></span>{i + 1}</span>
                 <span><span class="hw-dim">{listIcon(u.typeID)}</span> {nameAny("type", u.typeID) || u.typeID}</span>
                 <span class="hw-num" class:green={u.powerProduced > 0} class:red={l.includes("power")}>{u.powerProduced > 0 ? word(U + "ExtraAmount", { amount: n(u.powerProduced) }) : n(u.powerRequired)} ⚡</span>
@@ -257,9 +335,12 @@
                 <span title={!e.online && l.length ? word(U + "LackingResourcesHint") : ""}><input type="checkbox" disabled={busy} checked={e.online} onchange={(ev) => { sim = sim.map((x) => (x.u.typeID === u.typeID ? { ...x, online: ev.currentTarget.checked } : x)); }} /></span>
                 <span class="hw-state"><span class:red={st.red} title={st.hint}>{st.text}</span><button class="hw-trash" title={word(U + "DeleteUpgrade")} disabled={busy} onclick={() => void remove(e)}>🗑</button></span>
               </div>
-            {:else}<p class="hw-hint">{word(hub.solarSystemID === $station.online?.solarSystemID ? U + "DropUpgradesToAdd" : U + "NoUpgradesInstalled")}</p>{/each}
+            {:else}<p class="hw-hint">{word(inSystem ? U + "DropUpgradesToAdd" : U + "NoUpgradesInstalled")}</p>{/each}
           {/if}
         </div>
+        {#if cargo?.items.length}
+          <div class="hw-cargo">{#each cargo.items as item (item.itemID)}<button draggable="true" disabled={busy} ondragstart={(e) => { e.dataTransfer?.setData(DRAG, String(item.itemID)); }} onclick={() => addItem(item.itemID, -1)}>{nameAny("type", item.typeID) || item.typeID}</button>{/each}</div>
+        {/if}
         <div class="hw-buttons"><button disabled={!unsaved || busy} onclick={() => void save()}>{word(W + "SaveChanges")}</button></div>
       </div>
       <div class="hw-right">
@@ -347,6 +428,8 @@
   .hw-edit-pop label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
   .hw-edit-pop select, .hw-edit-pop input { width: 140px; }
   .hw-edit-buttons { display: flex; justify-content: center; gap: 6px; padding-top: 6px; }
+  .hw-cargo { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0; border-top: 1px dashed rgba(255, 255, 255, 0.15); }
+  .hw-cargo button { cursor: grab; }
   .hw-buttons { display: flex; justify-content: flex-end; padding-top: 8px; }
   .hw-right { width: 300px; flex: none; display: flex; flex-direction: column; gap: 4px; }
   .hw-res { display: flex; justify-content: space-between; align-items: baseline; }
