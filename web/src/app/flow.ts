@@ -441,6 +441,8 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
+export interface AllianceApplication { readonly allianceID: number; readonly corporationID: number; readonly applicationText: string; readonly state: number }
 /** An alliance member (GetMembers' row): the corporation, its chosen executor (None the client's Secret), when it joined. */
 export interface AllianceMember { readonly corporationID: number; readonly chosenExecutorID: number | null; readonly startDate: bigint }
 /** A ship class's kills in a war (warReport.killsByShipGroup's KeyVal). */
@@ -760,7 +762,7 @@ import { shiftHeld } from "./keyState.ts";
 import { FittingLinkError, fittingFromString, formatFittingUrl, parseFittingUrl, simpleHtmlUnescape, typeIDsInFittingString, type FittingLinkTypeFacts } from "../bridge/fittingLink.ts";
 import { fitFitting, fittedRigsByFlag, fittingForApplying, isModularShip, isRigFlag, isThereRigMismatch, itemsToFitFrom, listHangar, listShip, VISIBLE_SUBSYSTEM_FLAGS } from "../bridge/fittingLoad.ts";
 import { fittingEftString } from "../bridge/fittingExport.ts";
-import { decodeAllianceInfo, toStr as allianceText, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
+import { decodeAllianceInfo, decodeRankedAlliances, toStr as allianceText, type AllianceInfo, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
 import { aggressionSettingsOf, type AggressionSettings, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
 import { toNumOrNull as corporationShareNumber } from "../bridge/allianceInfo.ts";
 import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailableAndMissing, maxShipsToFit, personalContainers, qtyInPlaceByTypeIDs } from "../bridge/multiFit.ts";
@@ -2452,6 +2454,21 @@ export interface AppFlow {
   allianceMembers(): Promise<readonly AllianceMember[]>;
   /** FormAlliancesMembers.DeclareSupport / the DeclareSupportForm: alliance.DeclareExecutorSupport(corpID). */
   declareExecutorSupport(corporationID: number): Promise<boolean>;
+  /** FormAlliancesRankings.ShowRankings(maxLen): allianceRegistry.GetRankedAlliances(maxLen), each with the
+   * corporation's standing to it (standingsvc.GetStanding(corpid, allianceID): the corporate contact's, else 0). */
+  rankedAlliances(maxLen: number): Promise<readonly { readonly alliance: AllianceInfo; readonly standing: number }[]>;
+  /** FormAlliancesApplications: the alliance's (alliance.GetApplications() on its moniker, rejected ones only with
+   * showRejected) or the corporation's own (corp.GetAllianceApplications()); the owners' names primed. */
+  allianceApplications(mine: boolean, showRejected?: boolean): Promise<readonly AllianceApplication[]>;
+  /** The applications' writes: corp.ApplyToJoinAlliance(allianceID, text) (base_corporation_ui.ApplyToJoinAlliance:
+   * the active CEO, CheckCanApplyToJoinAlliance), corp.DeleteAllianceApplication(allianceID), alliance.UpdateApplication(
+   * corpID, text, state) - the last answered by AcceptedApplicationsTake24HoursToBecomeEffective where accepted. */
+  allianceApplicationAct(act: { readonly kind: "apply"; readonly allianceID: number; readonly text: string } | { readonly kind: "delete"; readonly allianceID: number }
+    | { readonly kind: "decide"; readonly corporationID: number; readonly text: string; readonly state: number }): Promise<boolean>;
+  /** ApplyToAllianceWnd's standard text: AskJoinAlliance (the executor's CEO, the corporation and alliance, the sender). */
+  allianceApplicationStandardText(allianceID: number): Promise<string>;
+  /** A client yes / no dialog by name (prompt_player_fsd_dialog(name, {}, YESNO[, suppress=ID_YES])); true for Yes. */
+  askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** CorpDetails.PickTicker: corpRegistry.GetSuggestedTickerNames(name), each suggestion's tickerName; null where the
    * name is empty (EnterCorporationName) or none came (NoCorpTickerNameSuggestions), the dialog put up. */
   corporationTickerSuggestions(name: string): Promise<readonly string[] | null>;
@@ -16740,6 +16757,64 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await bridgeDo("allianceRegistry", "DeclareExecutorSupport", [corporationID]); return true; }
     catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
   }
+  async function rankedAlliances(maxLen: number): Promise<readonly { readonly alliance: AllianceInfo; readonly standing: number }[]> {
+    const online = store.station.get().online;
+    const corporationID = online?.corporationID ?? null;
+    const [answer, corporate] = await Promise.all([
+      bridgeAsk("allianceRegistry", "GetRankedAlliances", [maxLen]),
+      corporationID === null || isNpcOwnerCorporation(corporationID) ? Promise.resolve(new Map<number, number>()) : bridgeAsk("corpRegistry", "GetCorporateContacts", []).then(relationshipsOf, () => new Map<number, number>()),
+    ]);
+    const rows = decodeRankedAlliances(answer);
+    const ids = [...new Set(rows.flatMap((r) => [r.executorCorpID ?? 0]))].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return rows.map((alliance) => ({ alliance, standing: corporate.get(alliance.allianceID ?? 0) ?? 0 }));
+  }
+  async function allianceApplications(mine: boolean, showRejected = false): Promise<readonly AllianceApplication[]> {
+    const answer = await bridgeAsk(mine ? "corpRegistry" : "allianceRegistry", mine ? "GetAllianceApplications" : "GetApplications", []);
+    const pairs: readonly JsonValue[] = answer && typeof answer === "object" && !Array.isArray(answer) && "dict" in answer && Array.isArray(answer.dict) ? answer.dict as JsonValue[] : [];
+    const rowsOf: readonly JsonValue[] = pairs.length ? pairs.map((p) => (Array.isArray(p) ? p[1] : null)).filter((r): r is JsonValue => r !== null && r !== undefined)
+      : isListValue(answer) ? answer.items : (readRowsetRows(answer) as readonly JsonValue[]);
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    const text = (v: JsonValue | undefined) => (typeof v === "string" ? v : "");
+    const apps = rowsOf.map((r) => ({ allianceID: num(readRowField(r, "allianceID")), corporationID: num(readRowField(r, "corporationID")), applicationText: text(readRowField(r, "applicationText")),
+      state: num(readRowField(r, "state")) })).filter((a) => mine || showRejected || a.state !== 4);
+    const ids = [...new Set(apps.map((a) => (mine ? a.allianceID : a.corporationID)))].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return apps;
+  }
+  async function allianceApplicationAct(act: { readonly kind: "apply"; readonly allianceID: number; readonly text: string } | { readonly kind: "delete"; readonly allianceID: number }
+    | { readonly kind: "decide"; readonly corporationID: number; readonly text: string; readonly state: number }): Promise<boolean> {
+    try {
+      if (act.kind === "apply") await bridgeDo("corpRegistry", "ApplyToJoinAlliance", [act.allianceID, act.text]);
+      else if (act.kind === "delete") await bridgeDo("corpRegistry", "DeleteAllianceApplication", [act.allianceID]);
+      else {
+        await bridgeDo("allianceRegistry", "UpdateApplication", [act.corporationID, act.text, act.state]);
+        // AllianceViewApplication: raise UserError('AcceptedApplicationsTake24HoursToBecomeEffective') once accepted
+        if (act.state === 2) sayDialog("AcceptedApplicationsTake24HoursToBecomeEffective", null, "Accepted applications take 24 hours to become effective.");
+      }
+      return true;
+    } catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function allianceApplicationStandardText(allianceID: number): Promise<string> {
+    const online = store.station.get().online;
+    const alliance = decodeAllianceInfo(await bridgeAsk("allianceRegistry", "GetAlliance", [allianceID]).catch(() => null));
+    const executor = alliance?.executorCorpID ?? null;
+    const ceo = executor ? await corporationRecords.get(bridgeAsk, executor).then((row) => Number(unwrapLong(row.fields.ceoID as JsonValue) ?? row.fields.ceoID ?? 0), () => 0) : 0;
+    const myCorpID = online?.corporationID ?? 0;
+    await wordsNow(["UI/Corporations/BaseCorporationUI/AskJoinAlliance"]).catch(() => {});
+    // the letter's {[character]ceoID} and {[character]sender} (owner names), the corporation's and alliance's: named first
+    const owners = [ceo, online?.characterID ?? 0, myCorpID, allianceID].filter((id) => id > 0);
+    const current = callOptions.captureRequestGuard!();
+    await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, owners.map((id) => ({ kind: "owner" as const, id })));
+    const resolved = store.names.get().resolved;
+    const nameOf = (kind: Parameters<typeof resolvedName>[1], id: number) => resolvedName(resolved, kind, id, "") || nameCache.get(nameKey(kind, id)) || "";
+    const myCorp = nameOf("owner", myCorpID) || nameOf("corporation", myCorpID);
+    const allianceName = nameOf("owner", allianceID) || alliance?.allianceName || "";
+    const template = store.words.get().templates["UI/Corporations/BaseCorporationUI/AskJoinAlliance"];
+    if (typeof template !== "string") return "";
+    return plainText(formatTemplate(template, { ceo: "-----", ceoID: ceo, mycorp: myCorp, alliancename: allianceName, sender: online?.characterID ?? 0, mycorpname: myCorp },
+      { nameOf: (kind, id) => nameOf(kind, id) || String(id) }));
+  }
   async function updateAlliance(description: string, url: string): Promise<boolean> {
     try { await bridgeDo("allianceRegistry", "UpdateAlliance", [description, url]); return true; }
     catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
@@ -30517,6 +30592,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     updateAlliance,
     allianceMembers,
     declareExecutorSupport,
+    rankedAlliances,
+    allianceApplications,
+    allianceApplicationAct,
+    allianceApplicationStandardText,
+    async askClientDialog(dialog: string, fallback: string, suppressYes = false) {
+      await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
+      return askDialog(dialog, null, fallback, "yesno", suppressYes ? { suppressAnswer: "yes" } : {});
+    },
     allianceShortNameSuggestions,
     createAlliance,
     searchWarableOwners,

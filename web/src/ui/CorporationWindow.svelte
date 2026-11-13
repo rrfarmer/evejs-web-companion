@@ -25,6 +25,8 @@
   import CorporationMutualWarInvites from "./CorporationMutualWarInvites.svelte";
   import AllianceHome from "./AllianceHome.svelte";
   import AllianceMembers from "./AllianceMembers.svelte";
+  import AllianceApplications from "./AllianceApplications.svelte";
+  import AllianceRankings from "./AllianceRankings.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -37,7 +39,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -107,6 +109,8 @@
     "UI/Corporations/Wars/MutualWarInvitesTab": "Mutual War Invites",
     "UI/Corporations/CorporationWindow/Alliances/Bulletins": "Bulletins",
     "UI/Corporations/CorporationWindow/Alliances/Members": "Members",
+    "UI/Corporations/CorporationWindow/Alliances/Applications": "Applications",
+    "UI/Corporations/CorporationWindow/Alliances/AllAlliances": "All Alliances",
     "UI/Corporations/BaseCorporationUI/Wars": "Wars",
     "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
     "UI/Corporations/Wars/WarInfoTab": "War Info",
@@ -160,9 +164,11 @@
         { header: "UI/Generic/General", entries: [{ id: "allianceGeneral", label: "UI/Corporations/BaseCorporationUI/MyAlliance" },
           ...(allianceID !== null ? [{ id: "allianceBulletins" as const, label: "UI/Corporations/CorporationWindow/Alliances/Bulletins" },
             { id: "allianceMembers" as const, label: "UI/Corporations/CorporationWindow/Alliances/Members" }] : [])] },
-        ...(playerCorporation && allianceID !== null
-          ? [{ header: "UI/Corporations/CorporationWindow/Alliances/Relationships", entries: [{ id: "allianceContacts" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllianceContacts" }] }]
-          : []),
+        // construct_alliance_relationships: Alliance Contacts (with an alliance), Applications (a player corporation), All Alliances
+        { header: "UI/Corporations/CorporationWindow/Alliances/Relationships", entries: [
+          ...(playerCorporation && allianceID !== null ? [{ id: "allianceContacts" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllianceContacts" }] : []),
+          ...(playerCorporation ? [{ id: "allianceApplications" as const, label: "UI/Corporations/CorporationWindow/Alliances/Applications" }] : []),
+          { id: "allianceRankings" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllAlliances" }] },
       ];
     }
     if (corpTab === "admin") {
@@ -273,6 +279,8 @@
       {#if panel === "allianceGeneral"}<AllianceHome {store} {flow} />{/if}
       {#if panel === "allianceBulletins"}<CorporationBulletins {store} {flow} director={administration.director} alliance />{/if}
       {#if panel === "allianceMembers"}<AllianceMembers {store} {flow} />{/if}
+      {#if panel === "allianceApplications"}<AllianceApplications {store} {flow} />{/if}
+      {#if panel === "allianceRankings"}<AllianceRankings {store} {flow} />{/if}
       {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}

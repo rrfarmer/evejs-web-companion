@@ -707,6 +707,10 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // FormAlliancesMembers: alliance.GetMembers() (all_cso_members, the alliance moniker's), its corporations with their
   // chosen executor and joining date.
   "allianceRegistry.GetMembers",
+  // FormAlliancesApplications / FormAlliancesRankings: the corporation's applications to alliances (bco_alliance:
+  // corpRegistry GetAllianceApplications, DeleteAllianceApplication, ApplyToJoinAlliance) and the alliance's decision
+  // on one (all_cso_applications: the moniker's UpdateApplication(corpID, applicationText, state)).
+  "corpRegistry.GetAllianceApplications", "corpRegistry.DeleteAllianceApplication", "corpRegistry.ApplyToJoinAlliance", "allianceRegistry.UpdateApplication",
   // WarReportWnd: the war's statistics object (eveMoniker.GetWarStatistic(warID), bound) - GetBaseInfo, GetKills,
   // GetKillsByGroup.
   "warStatisticMgr.MachoBindObject", "warStatisticMgr.GetBaseInfo", "warStatisticMgr.GetKills", "warStatisticMgr.GetKillsByGroup",
