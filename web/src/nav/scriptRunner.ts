@@ -960,6 +960,7 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
           return;
         }
         if (result.action.kind === "haulTransfer" || (result.action.kind === "unloadOre" && result.action.strictCorp === true)) {
+          if (result.action.kind === "unloadOre") uncertainAction = result.action;
           // The result owns the exact pre-transfer manifest even when transport
           // suspension retired this tick. Its next observation reconciles it.
           memory = { ...result.memory, latched: memory?.latched ?? result.memory.latched };
@@ -987,7 +988,9 @@ export function createScriptRunner(deps: ScriptRunnerDeps): ScriptRunnerControll
             t: now(), kind: "result", run: runID, ok: false, refusal: reason,
             says: describeAction(result.action), stepPath: result.stepPath,
           });
-          pauseWith(`Corporate transfer needs reconciliation before the route continues: ${refusalWords(reason)}`, result);
+          pauseWith(result.action.kind === "unloadOre"
+            ? `Corporate unload could not be verified. Reconcile both inventories in the game, then Stop before starting a new run. ${refusalWords(reason)}`
+            : `Corporate transfer needs reconciliation before the route continues: ${refusalWords(reason)}`, result);
           return;
         }
         // ⚠ A SETTLING SESSION CHANGE IS NOT A REFUSAL, AND COUNTING IT AS ONE

@@ -876,6 +876,35 @@ test("deliver: docked with ore -> unload; docked empty -> done", () => {
   assert.equal(done.outcome.kind, "done");
 });
 
+test("deliver: a starting Upwell structure unloads ice and completes without restarting travel", () => {
+  const step: MacroStep = { ...haulStep, args: { station: { kind: "station", ref: {
+    entity: "station", id: null, name: null, systemName: null, starting: true,
+  } } } };
+  const holds: MiningHold[] = [{ key: "ore", label: "Ore Hold", items: [{ itemID: 8, typeID: 16264, groupID: 465, categoryID: 25, quantity: 10 }], capacity: null, present: true, error: null }];
+  const docked = obs({ startingStationID: 1030000000000, startingDockableKind: "structure",
+    flightStatus: flight({ docked: true, inSpace: false, structureID: 1030000000000 }), holds });
+  assert.deepEqual(deliver(step, docked, NM, {}).action, { kind: "unloadOre", itemIDs: [8] });
+  assert.equal(deliver(step, { ...docked, holds: [] }, NM, {}).outcome.kind, "done");
+  const wrongStructure = { ...docked, flightStatus: flight({ docked: true, inSpace: false, structureID: 1030000000001 }) };
+  assert.equal(deliver(step, wrongStructure, NM, {}).action.kind, "startRoute");
+  const travel = SCRIPT_MACROS["travel-to-station"]!;
+  assert.equal(travel({ ...step, macro: "travel-to-station" }, docked, NM, {}).outcome.kind, "done");
+});
+
+test("deliver: explicit and starting Upwell corporation deliveries use exact division verification", () => {
+  const docked = obs({ startingStationID: 1030000000000, startingDockableKind: "structure",
+    flightStatus: flight({ docked: true, inSpace: false, structureID: 1030000000000 }),
+    holds: [{ key: "ore", label: "Ore Hold", items: [{ itemID: 8, typeID: 16264, groupID: 465, categoryID: 25, quantity: 10 }], capacity: null, present: true, error: null }] });
+  for (const ref of [
+    { entity: "station", id: null, name: null, systemName: null, starting: true } as const,
+    { entity: "structure", id: 1030000000000, name: "Home", systemName: null } as const,
+  ]) {
+    const step: MacroStep = { ...haulStep, args: { station: { kind: "station", ref }, into: { kind: "corpDivision", division: 1, name: null } } };
+    assert.deepEqual(deliver(step, docked, NM, {}).action, { kind: "unloadOre", itemIDs: [8], division: 1, strictCorp: true,
+      expectedDestination: { kind: "structure", id: 1030000000000 } });
+  }
+});
+
 test("deliver: unreadable freight stays incomplete until an authoritative empty read", () => {
   const cargo: MiningHold = { key: "cargo", label: "Cargo Hold", items: [], capacity: { capacity: 400, used: 0 }, present: true, error: null };
   const ore: MiningHold = { key: "ore", label: "Ore Hold", items: null, capacity: { capacity: 5_000, used: 4_900 }, present: true, error: "READ_FAILED" };

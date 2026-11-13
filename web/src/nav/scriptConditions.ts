@@ -440,6 +440,7 @@ export interface ScriptObservation {
   readonly myCorporationID?: number | null;
   /** The station the bot started docked at — resolves a "starting station" ref at run time. */
   readonly startingStationID?: number | null;
+  readonly startingDockableKind?: "station" | "structure";
   /** The bot document's emergency home, resolved for THIS tick (fixed/start/board slot). */
   readonly homeStationID?: number | null;
   readonly homeDockableKind?: "station" | "structure";

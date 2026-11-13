@@ -10410,15 +10410,33 @@ app.post("/api/bridge/ship/ore-hold/unload", requireAuth, async (req, res, next)
       });
       return;
     }
+    if (strictCorp) {
+      const expected = body.expectedDestination;
+      if (!expected || !["station", "structure"].includes(expected.kind) ||
+          !Number.isSafeInteger(expected.id) || expected.id <= 0) {
+        res.status(400).json({ ok: false, error: "STRICT_CORP_DESTINATION_REQUIRED" });
+        return;
+      }
+      const actualID = expected.kind === "structure" ? before.flight.structureID : before.flight.stationID;
+      if (actualID !== expected.id) {
+        res.status(409).json({ ok: false, error: "STRICT_CORP_DESTINATION_MISMATCH" });
+        return;
+      }
+    }
     const unloadLocationID = await assertDockedInventoryAccess(held, req.webSessionID, wantsDivision ? 3 : 1);
+    if (strictCorp && (unloadLocationID !== body.expectedDestination.id ||
+        (held.structureID ? "structure" : "station") !== body.expectedDestination.kind)) {
+      res.status(409).json({ ok: false, error: "STRICT_CORP_DESTINATION_MISMATCH" });
+      return;
+    }
     if (strictCorp) {
       const association = botHost.operationForClaim?.(held.characterID, req.get(botHostModule.BOT_HEADER));
       const definition = association && miningOperations.definition(association.operationID);
       const intended = [definition?.unloadDestination, definition?.policies?.parking]
         .find(row => row && Number(row.corporationDivision) === division &&
           Number(row.kind === "structure" ? row.id : row.destination?.kind === "structure" ? row.destination.id : row.stationID ?? row.destination?.stationID) === unloadLocationID);
-      if (!intended || !Number.isSafeInteger(intended.corporationID) ||
-          intended.corporationID !== Number(held.corporationID)) {
+      if (association && (!intended || !Number.isSafeInteger(intended.corporationID) ||
+          intended.corporationID !== Number(held.corporationID))) {
         res.status(409).json({ ok: false, error: "STRICT_CORP_DESTINATION_MISMATCH",
           message: "Operation, docked location, corporation and exact division must match before delivery." });
         return;
@@ -10496,9 +10514,7 @@ app.post("/api/bridge/ship/ore-hold/unload", requireAuth, async (req, res, next)
         res.status(409).json({ ok: false, error: "CORP_OFFICE_UNAVAILABLE", message: fellBack || "Exact corporation office unavailable." });
         return;
       }
-      const officeSpec = held.structureID
-        ? { ...corpOfficeBindSpec(officeID), expectedDockedLocationID: unloadLocationID }
-        : corpOfficeBindSpec(officeID);
+      const officeSpec = { ...corpOfficeBindSpec(officeID), expectedDockedLocationID: unloadLocationID };
       const readSource = async () => {
         const rows = [];
         for (const hold of MINING_HOLDS) {
