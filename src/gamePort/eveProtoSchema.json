@@ -4822,6 +4822,24 @@
     }
    ]
   },
+  "eve_public.freelance.project.api.AclDeletedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "acl",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.acl.Identifier"
+    }
+   ]
+  },
   "eve_public.freelance.project.api.CloseRequest": {
    "fields": [
     {
@@ -4876,6 +4894,17 @@
   },
   "eve_public.freelance.project.api.CloseResponse.InvalidProjectState": {
    "fields": []
+  },
+  "eve_public.freelance.project.api.ClosedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
   },
   "eve_public.freelance.project.api.CommitRequest": {
    "fields": [
@@ -4983,6 +5012,17 @@
   },
   "eve_public.freelance.project.api.CommitResponse.Restricted": {
    "fields": []
+  },
+  "eve_public.freelance.project.api.CompletedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
   },
   "eve_public.freelance.project.api.CreateRequest": {
    "fields": [
@@ -5245,6 +5285,65 @@
   },
   "eve_public.freelance.project.api.CreateResponse.OutdatedProjectCost": {
    "fields": []
+  },
+  "eve_public.freelance.project.api.CreatedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Attributes"
+    },
+    {
+     "name": "admin_project_details",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.AdminDetails"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.DiscoveryOverflowed": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "total_received_project_amount",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "project_cap",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ExpiredNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    }
+   ]
   },
   "eve_public.freelance.project.api.GetAllActiveForCorporationRequest": {
    "fields": [
@@ -5776,6 +5875,129 @@
   },
   "eve_public.freelance.project.api.KickResponse.Kicked": {
    "fields": []
+  },
+  "eve_public.freelance.project.api.ParticipantAddedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "committed_participants",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "total_participants",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ParticipantContributedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "participant",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "total_participant_progress",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ParticipantKickedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "participant",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ParticipantRemovedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "committed_participants",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ParticipantRewardRedeemedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "participant",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    }
+   ]
+  },
+  "eve_public.freelance.project.api.ProgressedNotice": {
+   "fields": [
+    {
+     "name": "project",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.freelance.project.Identifier"
+    },
+    {
+     "name": "total_project_progress",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "total_contributors",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
   },
   "eve_public.freelance.project.api.RedeemRewardRequest": {
    "fields": [

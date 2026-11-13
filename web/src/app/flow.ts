@@ -541,6 +541,11 @@ export interface FreelanceProject {
   readonly target: number; readonly current: number; readonly iskPerUnit: number; readonly created: number; readonly deadline: number | null;
   readonly finished: number | null; readonly creator: number; readonly contributionLimit: number | null; readonly myProgress: number;
   readonly participants: number; readonly contributors: number;
+  /** The configuration and limits ProjectDraft.from_project copies: the method, the delivery's item types and groups
+   * and its stations, the broadcast solar systems, the modifiers and the participation restrictions. */
+  readonly method: string; readonly itemTypes: readonly number[]; readonly itemGroups: readonly number[]; readonly deliveryStations: readonly number[];
+  readonly broadcastSystems: readonly number[]; readonly maxProgress: number | null; readonly multiplier: number | null;
+  readonly minAge: number | null; readonly maxAge: number | null; readonly maxCommitted: number | null;
 }
 /** One row of the wizard's lockdown / unlock list: the item, its stack, and a blueprint's levels (null for another item). */
 export interface CorporationVoteBlueprint {
@@ -2624,6 +2629,8 @@ export interface AppFlow {
   allianceApplicationStandardText(allianceID: number): Promise<string>;
   /** A client yes / no dialog by name (prompt_player_fsd_dialog(name, {}, YESNO[, suppress=ID_YES])); true for Yes. */
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
+  /** prompt_player_fsd_dialog('CustomWarning', {header, warning}, buttons=YESNO): true on Yes. */
+  askClientWarning(header: string, warning: string): Promise<boolean>;
   /** CorpDetails.PickTicker: corpRegistry.GetSuggestedTickerNames(name), each suggestion's tickerName; null where the
    * name is empty (EnterCorporationName) or none came (NoCorpTickerNameSuggestions), the dialog put up. */
   corporationTickerSuggestions(name: string): Promise<readonly string[] | null>;
@@ -3368,6 +3375,12 @@ export interface AppFlow {
   /** FreelanceProjectsMessenger.create: CreateRequest from the draft; null on success, else the error's label
    * (error_messages.get_create_error_label: UI/Corporations/FreelanceProjects/Errors/Create/<error class>) and its
    * arguments. */
+  /** ParticipantsPanel: GetParticipationDetailsRequest's pages (parse_participants: each character, its progress and
+   * participation state - 0 unspecified, 1 committed, 2 kicked, 3 resigned); null where the read failed. */
+  freelanceParticipants(projectID: string): Promise<readonly { readonly characterID: number; readonly progress: number; readonly state: number }[] | null>;
+  /** FreelanceProjectsMessenger.close / kick: null when done, else the error's label (get_close_error_label /
+   * get_kick_error_label). */
+  freelanceManagerAction(kind: "close" | "kick", projectID: string, characterID?: number): Promise<{ readonly label: string } | null>;
   createFreelanceProject(draft: FreelanceDraft): Promise<{ readonly label: string; readonly values: Record<string, unknown> } | null>;
   corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }>;
   /** get_all_goal_contributor_summaries: GetContributorSummariesForGoalRequest pages - each contributor and progress. */
@@ -18898,6 +18911,61 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // _raise_generic_error by status: 400 bad request, 401 unauthorized, 500 internal, else the generic error.
     return { label: E + (a.statusCode === 400 ? "GenericProjectBadRequestError" : a.statusCode === 401 ? "GenericProjectUnauthorizedError" : a.statusCode === 500 ? "GenericProjectInternalServerError" : "GenericProjectError"), values: {} };
   }
+  /** A project's configuration and limits, as payload_parser._parse_project / ContributionMethodConfiguration read them. */
+  function freelanceConfiguration(p: Record<string, unknown>): Pick<FreelanceProject, "method" | "itemTypes" | "itemGroups" | "deliveryStations" | "broadcastSystems" | "maxProgress" | "multiplier" | "minAge" | "maxAge" | "maxCommitted"> {
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" || typeof value === "number" ? value : 0) || 0;
+    const list = (value: unknown) => (Array.isArray(value) ? value : []) as unknown[];
+    const configuration = record(p.configuration), mods = record(p.contribution_modifiers), restrictions = record(p.participation_restrictions), age = record(restrictions.age_restriction);
+    const delivery = list(configuration.parameters).map((x) => record(record(x).corporation_item_delivery)).find((x) => Object.keys(x).length) ?? {};
+    const values = (matcher: unknown, type: string) => list(record(matcher).values).map(record).filter((v) => v.value_type === type).flatMap((v) => list(v.values).map(int)).filter((n) => n > 0);
+    return { method: String(record(configuration.contribution_method).name ?? ""), itemTypes: values(delivery.item_type, "item_type"), itemGroups: values(delivery.item_type, "item_group"),
+      deliveryStations: values(delivery.corporation_office_location, "station"),
+      broadcastSystems: list(record(p.broadcast_locations).solar_systems).map((s) => int(record(s).sequential)).filter((n) => n > 0),
+      maxProgress: mods.progress_per_contribution_limit !== undefined ? int(mods.progress_per_contribution_limit) : null,
+      multiplier: mods.scalar_multiplier !== undefined ? Math.round(Number(mods.scalar_multiplier) * 100) : null,
+      minAge: age.min_age !== undefined ? int(age.min_age) : null, maxAge: age.max_age !== undefined ? int(age.max_age) : null,
+      maxCommitted: restrictions.max_committed_participants !== undefined ? int(restrictions.max_committed_participants) : null };
+  }
+  async function freelanceParticipants(projectID: string): Promise<readonly { readonly characterID: number; readonly progress: number; readonly state: number }[] | null> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const STATES = ["PARTICIPATION_STATE_UNSPECIFIED", "PARTICIPATION_STATE_COMMITTED", "PARTICIPATION_STATE_KICKED", "PARTICIPATION_STATE_RESIGNED"];
+    const out: { characterID: number; progress: number; state: number }[] = [];
+    let token = "";
+    for (let i = 0; i < 40; i++) {
+      const a = await api.publicGatewayRequest("eve_public.freelance.project.api.GetParticipationDetailsRequest", { project: { uuid: bytesFromUuid(projectID) }, page: { size: 25, ...(token ? { token } : {}) } }, callOptions).catch(() => null);
+      scope.current();
+      if (!a || a.statusCode !== 200) return null;
+      const payload = record(a.payload);
+      for (const x of Array.isArray(payload.participants) ? payload.participants : []) {
+        const r = record(x), state = typeof r.state === "string" ? Math.max(0, STATES.indexOf(r.state)) : Number(r.state ?? 0);
+        out.push({ characterID: Number(record(r.character).sequential ?? 0), progress: Number(r.progress ?? 0), state });
+      }
+      token = String(record(payload.next_page).token ?? "");
+      if (!token) break;
+    }
+    await memberNames(scope, out.map((p) => ({ kind: "owner" as const, id: p.characterID })));
+    return out;
+  }
+  async function freelanceManagerAction(kind: "close" | "kick", projectID: string, characterID = 0): Promise<{ readonly label: string } | null> {
+    const request = kind === "close" ? "eve_public.freelance.project.api.CloseRequest" : "eve_public.freelance.project.api.KickRequest";
+    const payload = { project: { uuid: bytesFromUuid(projectID) }, ...(kind === "kick" ? { participant: { sequential: characterID } } : {}) };
+    const E = `UI/Corporations/FreelanceProjects/Errors/${kind === "close" ? "Close" : "Kick"}/`;
+    const a = await api.publicGatewayRequest(request, payload as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    if (!a) return { label: E + "GenericProjectError" };
+    if (a.statusCode === 200) return null;
+    const p = (a.payload && typeof a.payload === "object" ? a.payload : {}) as Record<string, unknown>;
+    // error_messages.get_close_error_label / get_kick_error_label.
+    if (p.cannot_manage_projects) return { label: E + "MissingRoleError" };
+    if (p.invalid_project_state) return { label: E + "ProjectStateError" };
+    if (kind === "kick" && p.invalid_participation_state) return { label: E + "ParticipantStateError" };
+    if (a.statusCode === 401) return { label: E + "GenericProjectUnauthorizedError" };
+    if (kind === "kick" && a.statusCode === 400) return { label: E + "GenericProjectBadRequestError" };
+    if (kind === "kick" && a.statusCode === 403) return { label: E + "GenericProjectForbiddenError" };
+    if (kind === "kick" && a.statusCode === 404) return { label: E + "GenericProjectNotFoundError" };
+    return { label: E + "GenericProjectError" };
+  }
   async function corporationFreelanceProjects(monthsSince: number | null): Promise<{ readonly active: readonly FreelanceProject[] | null; readonly inactive: readonly FreelanceProject[] | null; readonly maxActive: number | null }> {
     const scope = captureMemberOperation();
     const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
@@ -18917,7 +18985,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         target: int(p.target_progress), current: int(p.current_progress), iskPerUnit: int(payout.units) + int(payout.nanos) / 1e9,
         created: time(p.created) ?? 0, deadline: time(p.deadline), finished: p.finish_time !== undefined ? time(p.finish_time) : null,
         creator: int(record(p.creator).sequential), contributionLimit: mods.contributions_per_participant_limit !== undefined ? int(mods.contributions_per_participant_limit) : null,
-        myProgress: int(payload.progress), participants: int(p.committed_participants), contributors: int(p.total_contributors) };
+        myProgress: int(payload.progress), participants: int(p.committed_participants), contributors: int(p.total_contributors),
+        ...freelanceConfiguration(p) };
     };
     const idsOf = (payload: unknown) => (Array.isArray(record(payload).projects) ? record(payload).projects as unknown[] : []).map((x) => uuidFromBytes(String(record(x).uuid ?? ""))).filter((x): x is string => Boolean(x));
     let active: FreelanceProject[] | null = null, inactive: FreelanceProject[] | null = null, maxActive: number | null = null;
@@ -32131,6 +32200,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     allianceApplications,
     allianceApplicationAct,
     allianceApplicationStandardText,
+    async askClientWarning(header: string, warning: string) {
+      return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
+    },
     async askClientDialog(dialog: string, fallback: string, suppressYes = false) {
       await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
       return askDialog(dialog, null, fallback, "yesno", suppressYes ? { suppressAnswer: "yes" } : {});
@@ -32273,6 +32345,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationFreelanceProjects,
     freelanceCreation,
     createFreelanceProject,
+    freelanceParticipants,
+    freelanceManagerAction,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,

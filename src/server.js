@@ -14572,6 +14572,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   // calculator's prices (get_creation_prices).
   "eve_public.freelance.contributionmethod.definition.api.GetAllLatestRequest",
   "eve_public.freelance.project.api.GetCreationPricesRequest",
+  // AdminDetailsContainer's ParticipantsPanel (get_participants).
+  "eve_public.freelance.project.api.GetParticipationDetailsRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.
@@ -14584,6 +14586,9 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.corporationgoal.api.RedeemMyRewardsRequest",
   // FreelanceProjectsMessenger.create: Create Project's submit.
   "eve_public.freelance.project.api.CreateRequest",
+  // The admin details' Close Project and a participant's kick (FreelanceProjectsMessenger.close / kick).
+  "eve_public.freelance.project.api.CloseRequest",
+  "eve_public.freelance.project.api.KickRequest",
   "eve_public.goal.api.DeleteRequest",
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).

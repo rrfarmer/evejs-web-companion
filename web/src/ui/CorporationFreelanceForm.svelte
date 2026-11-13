@@ -17,13 +17,15 @@
   // wallet and its balance (danger where short; then InsufficientFunds stops the submit). Create New: CreateRequest with
   // the expected cost; a failure's message is error_messages.get_create_error_label. Cancel asks
   // CancelFreelanceProjectCreation.
+  // Duplicate (clone_to_draft - ProjectDraft.from_project): the original's method and configuration, target, career,
+  // description, end time (now + its duration), broadcast locations, payout, limits and age restrictions; no name.
   // Not here: the access list (RestrictWithACL - EveJS refuses an ACL), item groups, methods other than a delivery.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, FreelanceCreation, FreelanceMethod } from "../app/flow.ts";
+  import type { AppFlow, FreelanceCreation, FreelanceMethod, FreelanceProject } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
-  let { store, flow, onClose }: { store: ClientStore; flow: AppFlow; onClose: (made: boolean) => void } = $props();
+  let { store, flow, onClose, original = null }: { store: ClientStore; flow: AppFlow; onClose: (made: boolean) => void; original?: FreelanceProject | null } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -51,6 +53,7 @@
     flow.requestWords(LABELS);
     void flow.freelanceCreation().then((d) => {
       data = d;
+      if (original) fromProject(original);
       flow.requestWords(d.methods.flatMap((m) => [m.title, m.description, m.progressDescription, m.targetDescription, m.rewardDescription,
         ...(m.delivery ? [m.delivery.title, m.delivery.itemTitle, m.delivery.itemDescription, m.delivery.locationTitle, m.delivery.locationDescription] : [])]).filter(Boolean).map((n) => `#${n}`));
     }, () => { data = { methods: [], version: null, baseFeePerDay: null, broadcastFeePerDay: null, limits: null, offices: [], wallet: null }; });
@@ -76,6 +79,19 @@
     multiplier = m?.multiplier?.default !== null && m?.multiplier?.default !== undefined ? Math.round(m.multiplier.default * 100) : null;
     itemTypes = []; deliveryStations = [];
   }
+  function fromProject(p: FreelanceProject): void {
+    chooseMethod(p.method);
+    target = p.target; career = p.careerPath ?? 0; description = p.description; payout = p.iskPerUnit;
+    flow.requestNames(p.itemTypes.map((id) => ({ kind: "type" as const, id })));
+    itemTypes = p.itemTypes.map((id) => ({ id, name: nameAny("type", id) || String(id) }));
+    deliveryStations = [...p.deliveryStations];
+    broadcastStations = (data?.offices ?? []).filter((o) => o.solarSystemID !== null && p.broadcastSystems.includes(o.solarSystemID)).map((o) => o.stationID);
+    if (p.deadline) { const end = new Date(Date.now() + (p.deadline - p.created)); expiry = new Date(end.getTime() - end.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+    maxContributions = p.contributionLimit; maxProgress = p.maxProgress; multiplier = p.multiplier;
+    minAge = p.minAge; maxAge = p.maxAge; maxCommitted = p.maxCommitted;
+  }
+  // The item names arrive after the names resolve.
+  $effect(() => { if (itemTypes.some((t) => t.name === String(t.id))) { const named = itemTypes.map((t) => ({ ...t, name: t.name === String(t.id) ? nameAny("type", t.id) || t.name : t.name })); if (named.some((t, i) => t.name !== itemTypes[i]!.name)) itemTypes = named; } });
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   function findTypes(text: string): void {
     typeSearch = text;
