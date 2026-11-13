@@ -2522,6 +2522,12 @@ export interface AppFlow {
   /** WarReportWnd.PrimeKillsByGroup: warStatisticMgr.GetKillsByGroup (keyed by the victims' inventory groups), each
    * classed by cfg.GetShipClassTypeByGroupID into the ten ship classes - the attacker's kills the defender's losses. */
   warKillsByGroup(warID: number): Promise<ReadonlyMap<number, WarClassKills>>;
+  /** FormAlliancesHome.ShowDetails: alliance.GetAlliance() for the session's alliance (its moniker), the owners primed
+   * (alliance, creator corporation and character, executor); allowWar as sent (None the client's Unknown). Null with no
+   * alliance. */
+  myAlliance(): Promise<{ readonly alliance: AllianceInfoExtra; readonly allowWar: boolean | null } | null>;
+  /** EditAllianceWnd.Confirm: alliance.UpdateAlliance(description, url) on the alliance's moniker; true when made. */
+  updateAlliance(description: string, url: string): Promise<boolean>;
   warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }>;
   /** WarDeclarePagePickTypeCorp.SearchForOwner: war.SearchForWarableEntity - lookupSvc.LookupWarableCorporationsOrAlliances
    * (text, exact) and the corporations found by name (partial_terms, or exact_phrase_only) that are not warable, not
@@ -16686,6 +16692,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
     return kills;
   }
+  async function myAlliance(): Promise<{ readonly alliance: AllianceInfoExtra; readonly allowWar: boolean | null } | null> {
+    const allianceID = store.station.get().online?.allianceID ?? null;
+    if (allianceID === null || !(allianceID > 0)) return null;
+    const answer = await bridgeAsk("allianceRegistry", "GetAlliance", [allianceID]);
+    const alliance = decodeAllianceInfo(answer);
+    if (alliance === null) return null;
+    const rawAllowWar = readKeyVal(answer, "allowWar");
+    const ids = [alliance.allianceID, alliance.creatorCorpID, alliance.creatorCharID, alliance.executorCorpID].filter((id): id is number => id !== null && id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return { alliance, allowWar: rawAllowWar === null || rawAllowWar === undefined ? null : Boolean(typeof rawAllowWar === "number" ? rawAllowWar : rawAllowWar === true) };
+  }
+  async function updateAlliance(description: string, url: string): Promise<boolean> {
+    try { await bridgeDo("allianceRegistry", "UpdateAlliance", [description, url]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function warKillsByGroup(warID: number): Promise<ReadonlyMap<number, WarClassKills>> {
     const answer = await bridgeAsk("warStatisticMgr", "GetKillsByGroup", [], null, warID);
     const entries: readonly (readonly [JsonValue, JsonValue])[] = answer && typeof answer === "object" && !Array.isArray(answer) && "entries" in answer && Array.isArray(answer.entries) ? answer.entries as never : [];
@@ -30453,6 +30474,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warsChanged: readonlySignal(warsChangedSignal),
     warReportKills,
     warKillsByGroup,
+    myAlliance,
+    updateAlliance,
     searchWarableOwners,
     validWarHQs,
     declareWarAgainst,
