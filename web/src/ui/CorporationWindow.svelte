@@ -15,8 +15,10 @@
   import CorporationFindMembers from "./CorporationFindMembers.svelte";
   import CorporationKillReports from "./CorporationKillReports.svelte";
   import CorporationBulletins from "./CorporationBulletins.svelte";
+  import CorporationCreate from "./CorporationCreate.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
+  import CorpLogo from "./CorpLogo.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { portraitUrl } from "./ownerImages.ts";
   import { resolvedName } from "../store/names.ts";
@@ -105,9 +107,14 @@
    */
   type CorpHome = Awaited<ReturnType<AppFlow["ownCorporationDetails"]>>;
   let corpHome = $state<CorpHome>(null);
+  // CreateCorpForm (corp_ui_home.py 318-343): the CreateCorp window - here over the corporation window
+  let creatingCorp = $state(false);
   let corpHomeError = $state("");
   const names = store.names;
   const ownerLogos = flow.ownerLogos;
+  // eveIcon.CorpIcon: a player corporation's logo, its three layers from the client's logo library
+  const corpLogos = flow.corpLogos;
+  const corpLogoLibrary = flow.corpLogoLibrary;
   const imageServer = flow.imageServer;
   $effect(() => {
     if (!retail || panel !== "home") return;
@@ -116,6 +123,7 @@
     flow.loadImageServer();
     void flow.ownCorporationDetails().then((home) => {
       corpHome = home;
+      if (home) flow.requestCorpLogos([home.corporationID]);
       if (home) flow.requestNames([
         ...(home.ceoID ? [{ kind: "character" as const, id: home.ceoID }] : []), ...(home.creatorID ? [{ kind: "character" as const, id: home.creatorID }] : []),
         ...(home.stationID ? [{ kind: "station" as const, id: home.stationID }] : []), { kind: "corporation" as const, id: home.corporationID },
@@ -195,6 +203,7 @@
   </header>
   {/if}
   <div class="corp-window">
+    {#if creatingCorp}<CorporationCreate {store} {flow} onClose={() => (creatingCorp = false)} />{/if}
     {#if retail}
     <nav class="corp-side">
       {#each corpNav as group (group.header)}
@@ -241,8 +250,13 @@
             {@const npc = !playerCorporation}
             {@const corpName = corpHome.name || resolvedName($names.resolved, "corporation", corpHome.corporationID, "")}
             {@const logo = $ownerLogos?.corporations[String(corpHome.corporationID)]}
+            {@const playerLogo = npc ? null : ($corpLogos[String(corpHome.corporationID)] ?? null)}
             <div class="corp-home-banner" class:npc>
-              <span class="logo"><OwnerPicture name={corpName} urls={logo ? [clientTexture(logo)] : []} size={72} /></span>
+              {#if playerLogo !== null && $corpLogoLibrary !== null && playerLogo.shapes.some((shape) => shape !== null)}
+                <span class="logo player-logo"><CorpLogo library={$corpLogoLibrary} logo={playerLogo} name={corpName} /></span>
+              {:else}
+                <span class="logo"><OwnerPicture name={corpName} urls={logo ? [clientTexture(logo)] : []} size={72} /></span>
+              {/if}
               <span class="name">{corpName}</span>
               {#if !npc && corpHome.ceoID}
                 {@const portrait = portraitUrl($imageServer, corpHome.ceoID, 64)}
@@ -269,7 +283,7 @@
               {#if corpHome.url}<div class="row"><span>{homeWord("UI/Corporations/CorpUIHome/URL", "URL")}</span><span>{corpHome.url}</span></div>{/if}
             </div>
             <div class="corp-home-buttons">
-              <button type="button" disabled title="Not on the play page yet">{homeWord("UI/Corporations/CorpUIHome/CreateNewCorp", "Create New Corporation")}</button>
+              {#if corpHome.ceoID !== $station.online?.characterID}<button type="button" onclick={() => (creatingCorp = true)}>{homeWord("UI/Corporations/CorpUIHome/CreateNewCorp", "Create New Corporation")}</button>{/if}
               {#if !npc}<button type="button" disabled title="Not on the play page yet">{homeWord("UI/Corporations/CorpUIHome/QuitCorp", "Quit Corporation")}</button>{/if}
             </div>
           {/if}
@@ -298,6 +312,7 @@
 
 <style>
   .corp-window {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
     gap: 0.75rem;

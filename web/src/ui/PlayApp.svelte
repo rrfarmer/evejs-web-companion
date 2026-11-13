@@ -1292,6 +1292,7 @@
   .fly-windows :global(.corp-home-banner) { position: relative; height: 136px; display: flex; align-items: center; gap: 0; padding-left: 32px;
     background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)); border-radius: 6px; }
   .fly-windows :global(.corp-home-banner.npc) { padding-left: 0; background: none; }
+  .fly-windows :global(.corp-home-banner .player-logo) { width: 72px; height: 72px; flex: none; }
   .fly-windows :global(.corp-home-banner .name) { margin-left: 48px; font-size: 20px; color: #fff; }
   .fly-windows :global(.corp-home-banner .ceo) { position: absolute; right: 37px; top: 0; bottom: 0; display: flex; align-items: center; gap: 16px; }
   .fly-windows :global(.corp-home-banner .ceo-text) { display: flex; flex-direction: column; text-align: right; }

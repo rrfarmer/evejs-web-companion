@@ -439,6 +439,20 @@ import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } 
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
+
+/** CreateCorp's form, as Submit reads it (the tax rates as fractions; three logo layers' shapes and colours). */
+export interface CorporationFounding {
+  readonly name: string;
+  readonly ticker: string;
+  readonly description: string;
+  readonly url: string;
+  readonly iskTaxRate: number;
+  readonly loyaltyPointTaxRate: number;
+  readonly shapes: readonly (number | null)[];
+  readonly colors: readonly (number | null)[];
+  readonly applicationsEnabled: boolean;
+  readonly friendlyFireEnabled: boolean;
+}
 import { corporationDecorationsOf, corporationMedalAwardeesOf, medalDetailsInfoOf, type CorporationDecorations, type CorporationMedalAwardee, type MedalInfo, type MedalCreationGraphic } from "../bridge/corporationDecorations.ts";
 import { CHARACTER_TYPES } from "../bridge/showInfoLink.ts";
 import { decodeNotifications, notificationRows, type Notification } from "../bridge/notifications.ts";
@@ -2383,6 +2397,15 @@ export interface AppFlow {
   corporationKillReports(kind: "kills" | "losses", count: number, offset: number | null): Promise<readonly KillReport[]>;
   /** CorpUIBulletins: corpRegistry.GetBulletins(), its editors' names primed (GetBulletinEntries' BulletinPostedBy). */
   corporationBulletins(): Promise<readonly CorpBulletin[]>;
+  /** CorpDetails.PickTicker: corpRegistry.GetSuggestedTickerNames(name), each suggestion's tickerName; null where the
+   * name is empty (EnterCorporationName) or none came (NoCorpTickerNameSuggestions), the dialog put up. */
+  corporationTickerSuggestions(name: string): Promise<readonly string[] | null>;
+  /** CreateCorp.Submit: the name and ticker asked for, docked, then corp.AddCorporation's call; true when made (the
+   * window closes), false where a dialog said no. */
+  createCorporation(form: CorporationFounding): Promise<boolean>;
+  /** EditCorpBulletin.ClickSend for a new bulletin: CorpBulletinMustFillIn, the chat manager's role (EditBulletin),
+   * CorpTooManyBulletins (MAX_NUM_BULLETINS 10), then corpRegistry.AddBulletin(title, body); true when added. */
+  addCorporationBulletin(title: string, body: string): Promise<boolean>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16250,6 +16273,48 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
     return kills;
   }
+  async function corporationTickerSuggestions(name: string): Promise<readonly string[] | null> {
+    if (!name.trim().length) { sayDialog("EnterCorporationName", null, "Enter a corporation name."); return null; }
+    const answer = await bridgeAsk("corpRegistry", "GetSuggestedTickerNames", [name]);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const tickers = items.map((row) => readKeyVal(row, "tickerName") ?? readRowField(row, "tickerName")).filter((t): t is string => typeof t === "string" && t.length > 0);
+    if (!tickers.length) { sayDialog("NoCorpTickerNameSuggestions", null, "No ticker names could be suggested."); return null; }
+    return tickers;
+  }
+  async function createCorporation(form: CorporationFounding): Promise<boolean> {
+    // CreateCorp.Submit 393-408: EnterCorporationName, EnterTickerName, CanOnlyCreateCorpInStation as UserErrors
+    if (!form.name.trim().length) { sayDialog("EnterCorporationName", null, "Enter a corporation name."); return false; }
+    if (!form.ticker.trim().length) { sayDialog("EnterTickerName", null, "Enter a ticker name."); return false; }
+    if (!store.station.get().online?.stationID) { sayDialog("CanOnlyCreateCorpInStation", null, "You can only create a corporation while docked in a station."); return false; }
+    const [shape1, shape2, shape3] = form.shapes, [color1, color2, color3] = form.colors;
+    try {
+      await bridgeDo("corpRegistry", "AddCorporation", [form.name, form.ticker, form.description, form.url, form.iskTaxRate,
+        shape1 ?? null, shape2 ?? null, shape3 ?? null, color1 ?? null, color2 ?? null, color3 ?? null, null,
+        form.applicationsEnabled ? 1 : 0, form.friendlyFireEnabled ? 1 : 0, form.loyaltyPointTaxRate]);
+      return true;
+    } catch (error) {
+      throwIfRequestRetired(error);
+      if (sayRefusalDialog(error, errorWords(error))) return false;
+      throw error;
+    }
+  }
+  async function addCorporationBulletin(title: string, body: string): Promise<boolean> {
+    if (title === "" || body.trim() === "") { sayDialog("CorpBulletinMustFillIn", null, "You must fill in both the title and the body of the bulletin."); return false; }
+    // base_corporation.EditBulletin: const.corpRoleChatManager
+    if ((BigInt(store.station.get().online?.corpRole ?? "0") & 36028797018963968n) === 0n) {
+      sayDialog("CrpAccessDenied", { type: "dict", entries: [["reason", "You do not have the Communications Officer role."]] }, "You do not have the Communications Officer role.");
+      return false;
+    }
+    if ((await corporationBulletins()).length >= 10) { sayDialog("CorpTooManyBulletins", null, "Your corporation has too many bulletins."); return false; }
+    try {
+      await bridgeDo("corpRegistry", "AddBulletin", [title, body.trim()]);
+      return true;
+    } catch (error) {
+      throwIfRequestRetired(error);
+      if (sayRefusalDialog(error, errorWords(error))) return false;
+      throw error;
+    }
+  }
   async function corporationBulletins(): Promise<readonly CorpBulletin[]> {
     const current = callOptions.captureRequestGuard!();
     const scoped = { ...callOptions, captureRequestGuard: () => current };
@@ -29796,6 +29861,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationApplicationDecision,
     corporationApplicationsExpanded,
     corporationKillReports,
+    corporationTickerSuggestions,
+    createCorporation,
+    addCorporationBulletin,
     corporationBulletins,
     openCorporationMemberDetails,
     memberDetailsPanel,
