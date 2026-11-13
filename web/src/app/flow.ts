@@ -2713,6 +2713,12 @@ export interface AppFlow {
   /** assetSafetySvc.MoveItemsInStructureToAssetSafetyForCorp: ConfirmAssetSafetyCorp (ConfirmAssetEjectionCorp in a
    * wormhole or Triglavian system), Yes - MoveCorpAssetsToSafety. True where it was asked of the server. */
   moveCorpAssetsToSafety(solarSystemID: number, structureID: number): Promise<boolean>;
+  /** AssetSafetyDeliverWindow.ReloadContent: GetStructuresICanDeliverTo(solarSystemID) - the structures first, in the
+   * answer's order (GetSortedStructures returns its list unsorted), named by cfg.evelocations or "<system> - <type>",
+   * then the stations by celestial index, orbit index and name. */
+  safetyDeliveryTargets(solarSystemID: number): Promise<readonly { readonly itemID: number; readonly typeID: number; readonly name: string }[]>;
+  /** DoDeliver: SureYouWantToMoveAssetSafetyItemsToLocation, Yes - MoveSafetyWrapToStructure(wrap, system, destinationID=). */
+  deliverSafetyWrap(assetWrapID: number, solarSystemID: number, destinationID: number): Promise<boolean>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
@@ -18155,6 +18161,38 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
     return true;
   }
+  async function safetyDeliveryTargets(solarSystemID: number): Promise<readonly { readonly itemID: number; readonly typeID: number; readonly name: string }[]> {
+    const scope = captureMemberOperation();
+    const answer = await scope.ask("structureAssetSafety", "GetStructuresICanDeliverTo", [solarSystemID]); scope.current();
+    const parts: readonly JsonValue[] = Array.isArray(answer) ? answer : isListValue(answer) ? answer.items : [];
+    const list = parts[0] ?? null, rows: readonly JsonValue[] = isListValue(list) ? list.items : Array.isArray(list) ? list : [];
+    const num = (row: JsonValue, key: string) => Number(unwrapLong(readKeyVal(row, key) ?? readDictPairs(row).find(([k]) => k === key)?.[1] ?? null) ?? 0n);
+    const targets = rows.map(row => ({ itemID: num(row, "itemID"), typeID: num(row, "typeID") })).filter(row => row.itemID > 0);
+    const meta = await api.getTypeMeta([...new Set(targets.map(t => t.typeID))], callOptions).catch(() => null); scope.current();
+    // evetypes.GetCategoryID(typeID) == categoryStation (3)
+    const isStation = (typeID: number) => (meta?.types.get(typeID)?.categoryID ?? null) === 3;
+    await memberNames(scope, [{ kind: "system", id: solarSystemID }, ...targets.flatMap(t => [isStation(t.typeID) ? { kind: "station" as const, id: t.itemID } : { kind: "structure" as const, id: t.itemID }, { kind: "type" as const, id: t.typeID }])]);
+    const names = store.names.get().resolved;
+    const structures = targets.filter(t => !isStation(t.typeID)).map(t => ({ ...t, name: resolvedName(names, "structure", t.itemID, "") || `${resolvedName(names, "system", solarSystemID, "")} - ${resolvedName(names, "type", t.typeID, "")}` }));
+    const stationRows = targets.filter(t => isStation(t.typeID));
+    let stations: { itemID: number; typeID: number; name: string }[] = [];
+    if (stationRows.length) {
+      // GetSortedStationList: the system's items (map.GetSolarsystemItems); a station not among them is left out.
+      const system = await api.getSystemStations(solarSystemID, callOptions).catch(() => null);
+      const byID = new Map((system?.stations ?? []).map(s => [s.stationID, s] as const));
+      stations = stationRows.flatMap(t => { const info = byID.get(t.itemID); return info ? [{ ...t, name: resolvedName(names, "station", t.itemID, ""), c: info.celestialIndex ?? 0, o: info.orbitIndex ?? 0 }] : []; })
+        .sort((a, b) => a.c - b.c || a.o - b.o || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0))
+        .map(({ itemID, typeID, name }) => ({ itemID, typeID, name }));
+    }
+    return [...structures, ...stations];
+  }
+  async function deliverSafetyWrap(assetWrapID: number, solarSystemID: number, destinationID: number): Promise<boolean> {
+    const scope = captureMemberOperation();
+    if (!(await askDialog("SureYouWantToMoveAssetSafetyItemsToLocation", { type: "dict", entries: [] }, "Are you sure you want to move the items to this location?"))) return false;
+    try { await scope.write("structureAssetSafety", "MoveSafetyWrapToStructure", [assetWrapID, solarSystemID], { destinationID }); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+    return true;
+  }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
     memberReadKey(online.characterID);
@@ -31203,6 +31241,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     assetTypeFacts,
     corporationSafetyWraps,
     moveCorpAssetsToSafety,
+    safetyDeliveryTargets,
+    deliverSafetyWrap,
     corporationAssetCategories,
     async marketTypeMatches(text: string) {
       const answer = await api.getMarketTypeMatches(text, callOptions);

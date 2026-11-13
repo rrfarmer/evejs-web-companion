@@ -18,7 +18,9 @@
   // daysUntilCanDeliver days from the eject time are gone) and Auto Delivery (the time left until daysUntilAutoMove days,
   // the nearest NPC station), counted each second. A location's menu (GetLocationMenu), a director's: a structure's Move
   // Items To Safety (To Space in a wormhole system). Not yet: the CelestialMenu entries, an impounded location's Trash
-  // Items At Location, the Deliver To window.
+  // Items At Location. Deliver To opens AssetSafetyDeliverWindow: DeliverToStation, the explanation (delivery open or
+  // not yet, stations in the system or none), each structure then station with Deliver (disabled before the manual
+  // delivery time), Cancel.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, AssetTypeFacts, CorpAssetItem, CorpAssetLocation, SafetyWrap } from "../app/flow.ts";
@@ -47,7 +49,9 @@
     A + "LocationAndJumps", A + "LocationNoRoute", "UI/Inventory/AssetsWindow/LocationDataLabel", "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute", A + "NoItemsFound", A + "UnusedCorpOffice",
     A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Inventory/AssetSafety/Safety", "UI/Common/LocationTypes/SolarSystem", "UI/Inventory/AssetSafety/ManualDelivery", "UI/Inventory/AssetSafety/AutoDelivery",
     "UI/Inventory/AssetSafety/DeliverTo", "UI/Inventory/AssetSafety/AutoDeliveryHint", "UI/Inventory/AssetSafety/DeliverBtnAvailableHint", "UI/Inventory/AssetSafety/DeliverBtnNotAvailableNowHint",
-    "UI/Inventory/AssetSafety/MoveItemsToSafety", "UI/Inventory/AssetSafety/MoveItemsToSpace", "UI/Corporations/Assets/TrashItemsAtLocation", ...SHORT_INTERVAL_WORD_LABELS, "UI/Common/Name", "UI/Common/Buttons/Close", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", ...Object.keys(LINK_WORDS)];
+    "UI/Inventory/AssetSafety/MoveItemsToSafety", "UI/Inventory/AssetSafety/DeliverToStation", "UI/Inventory/AssetSafety/DeliveryExplanationText",
+    "UI/Inventory/AssetSafety/DeliveryExplanationTextNoStations", "UI/Inventory/AssetSafety/DeliveryNotAvailableNowExplanationText", "UI/Inventory/AssetSafety/DeliveryNotAvailableTextNoStations",
+    "UI/Inventory/AssetSafety/DeliverBtn", "UI/Generic/Cancel", "UI/Inventory/AssetSafety/MoveItemsToSpace", "UI/Corporations/Assets/TrashItemsAtLocation", ...SHORT_INTERVAL_WORD_LABELS, "UI/Common/Name", "UI/Common/Buttons/Close", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", ...Object.keys(LINK_WORDS)];
   const nameOf = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const text = (label: string, args: Record<string, unknown> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf });
   const followerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), t);
@@ -78,6 +82,28 @@
   const DAY = 864000000000n;
   const interval = (ticks: bigint) => shortWrittenInterval(ticks < 0n ? 0n : ticks, $words.templates) ?? "";
   let menuFor = $state<number | null>(null);
+  let delivering = $state<{ wrap: SafetyWrap; targets: readonly { itemID: number; typeID: number; name: string }[] | null } | null>(null);
+  async function openDeliver(wrap: SafetyWrap): Promise<void> {
+    delivering = { wrap, targets: null };
+    try { const targets = await flow.safetyDeliveryTargets(wrap.solarSystemID); if (delivering?.wrap === wrap) delivering = { wrap, targets }; }
+    catch (e) { error = e instanceof Error ? e.message : String(e); delivering = null; }
+  }
+  async function deliver(wrap: SafetyWrap, destinationID: number): Promise<void> {
+    try {
+      const done = await flow.deliverSafetyWrap(wrap.assetWrapID, wrap.solarSystemID, destinationID);
+      // DoDeliver closes the window whether or not the move went through, once asked.
+      if (done) { delivering = null; wraps = await flow.corporationSafetyWraps(); }
+    } catch (e) { error = e instanceof Error ? e.message : String(e); delivering = null; }
+  }
+  function explanation(wrap: SafetyWrap, stationsInSystem: number): string {
+    const manual = wrap.ejectTime + BigInt(wrap.daysUntilCanDeliver) * DAY - nowTicks, auto = wrap.ejectTime + BigInt(wrap.daysUntilAutoMove) * DAY - nowTicks;
+    const args = { solarSystemName: `<url=showinfo:5//${wrap.solarSystemID}>${nameOf("system", wrap.solarSystemID)}</url>`,
+      npcStationName: `<url=showinfo:${wrap.nearestStationTypeID}//${wrap.nearestStationID}>${nameOf("station", wrap.nearestStationID)}</url>`,
+      timeUntil: interval(auto), timeUntilAutoDelivery: interval(auto), timUntilManualDelivery: interval(manual) };
+    const S = "UI/Inventory/AssetSafety/";
+    const label = manual < 0n ? (stationsInSystem ? S + "DeliveryExplanationText" : S + "DeliveryExplanationTextNoStations") : (stationsInSystem ? S + "DeliveryNotAvailableNowExplanationText" : S + "DeliveryNotAvailableTextNoStations");
+    return text(label, args);
+  }
   async function moveToSafety(row: CorpAssetLocation): Promise<void> {
     menuFor = null;
     try { if (await flow.moveCorpAssetsToSafety(row.solarSystemID, row.locationID)) await show(which); } catch (e) { error = e instanceof Error ? e.message : String(e); }
@@ -263,6 +289,24 @@
   </div>
 {/snippet}
 
+{#if delivering}
+  {@const d = delivering}
+  {@const manualLeft = d.wrap.ejectTime + BigInt(d.wrap.daysUntilCanDeliver) * DAY - nowTicks}
+  <div class="ca-picker ca-deliver-window" role="dialog" aria-label={plainText(text("UI/Inventory/AssetSafety/DeliverToStation"))}>
+    <div class="ca-picker-title">{plainText(text("UI/Inventory/AssetSafety/DeliverToStation"))}</div>
+    {#if d.targets}
+      <div class="ca-deliver-text"><LabelText markup={explanation(d.wrap, d.targets.length)} {followerOf} /></div>
+      <div class="ca-picker-list">
+        {#each d.targets as t (t.itemID)}
+          <div class="ca-deliver-row"><LabelText markup={`<url=showinfo:${t.typeID}//${t.itemID}>${t.name}</url>`} {followerOf} />
+            <button disabled={manualLeft > 0n} onclick={() => void deliver(d.wrap, t.itemID)}>{plainText(text("UI/Inventory/AssetSafety/DeliverBtn"))}</button></div>
+        {/each}
+      </div>
+    {/if}
+    <div class="ca-picker-buttons"><button onclick={() => { delivering = null; }}>{plainText(text("UI/Generic/Cancel"))}</button></div>
+  </div>
+{/if}
+
 {#if picking}
   {@const p = picking}
   <!-- SelectItemTypeDlg: uix.ListWnd of ItemTypeLine rows, one to pick; OK returns it, Cancel nothing. -->
@@ -296,7 +340,8 @@
         <div class="ca-safety-row">
           <span>{w.wrapName}</span>
           <span><LabelText markup={`<url=showinfo:5//${w.solarSystemID}>${nameOf("system", w.solarSystemID)}</url>`} {followerOf} /></span>
-          <span><button class="ca-deliver" disabled={manual > 0n}
+          <!-- SetDeliverBtnState: Disable(), then disabled = False - drawn disabled, still opening the window. -->
+          <span><button class="ca-deliver" class:ca-dim={manual > 0n} aria-disabled={manual > 0n} onclick={() => void openDeliver(w)}
             title={manual < 0n ? plainText(text("UI/Inventory/AssetSafety/DeliverBtnAvailableHint")) : plainText(text("UI/Inventory/AssetSafety/DeliverBtnNotAvailableNowHint", { timeUntil: interval(manual) }))}>
             <span class="ca-progress" style:width={`${Math.min(1, Math.max(0, 1 - Number(manual) / (864000000000 * w.daysUntilCanDeliver))) * 100}%`}></span>
             <span class="ca-deliver-label">{plainText(text("UI/Inventory/AssetSafety/DeliverTo"))}</span></button></span>
@@ -391,6 +436,11 @@
   .ca-search .ca-qty-field { width: 60px; }
   .ca-search .ca-type-field { width: 106px; }
   .ca-safety { flex: 1; min-height: 0; overflow: auto; }
+  .ca-dim { opacity: 0.5; }
+  .ca-deliver-window { width: 600px; max-height: 620px; }
+  .ca-deliver-text { opacity: 0.75; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.2); }
+  .ca-deliver-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 7px; background: rgba(51, 51, 51, 0.3); border-bottom: 1px solid rgba(255, 255, 255, 0.2); font-weight: bold; }
+  .ca-deliver-row button { width: 140px; }
   .ca-safety-row { display: grid; grid-template-columns: minmax(140px, 1.5fr) 1fr 130px minmax(260px, 3fr); gap: 6px; align-items: center; min-height: 34px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding: 0 4px; }
   .ca-safety-head { min-height: 20px; font-size: 10px; opacity: 0.7; }
   .ca-deliver { position: relative; overflow: hidden; width: 120px; }
