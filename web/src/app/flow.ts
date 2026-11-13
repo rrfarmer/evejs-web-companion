@@ -2427,6 +2427,14 @@ export interface AppFlow {
    * and hours), then corpRecProxy.CreateRecruitmentAd(days, typeMask, langMask, description, recruiters, title,
    * hourMask1, minSP, otherMask); true when made. */
   createRecruitmentAd(form: RecruitmentAdForm): Promise<boolean>;
+  /** UpdateAdvert for an existing ad: the same checks, then corp.UpdateRecruitmentAd(adID, typeMask, langMask,
+   * description, recruiters, title, addedDays, hourMask1, minSP=, otherMask=); true when made. */
+  updateRecruitmentAd(adID: number, form: RecruitmentAdForm): Promise<boolean>;
+  /** InviteToCorpWnd.Search: lookupSvc.LookupEvePlayerCharacters(text, 0) - the characters found, their names primed. */
+  lookupPlayerCharacters(text: string): Promise<readonly number[]>;
+  /** base_corporation.InviteToJoinCorp: ConfirmSendInviteToJoinCorp (OK / Cancel), then corpRegistry.InsertInvitation;
+   * true when sent. */
+  inviteToJoinCorp(characterID: number): Promise<boolean>;
   /** A client UserError a window raises for itself (CannotSelectMorePlaystyles ...), put up as its dialog. */
   sayDialog(dialog: string, values: JsonValue | null, fallback: string): void;
   /** RecruitmentEntry's recruiters: corpRecProxy.GetRecruiters(adID), their names primed. */
@@ -16438,6 +16446,39 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function corporationRecruitmentAds(): Promise<readonly RecruitmentAd[]> {
     return recruitmentAdsNamed(decodeRecruitmentAds(await bridgeAsk("corpRecProxy", "GetRecruitmentAdsForCorporation", [])));
   }
+  async function updateRecruitmentAd(adID: number, form: RecruitmentAdForm): Promise<boolean> {
+    const why = recruitmentAdRefusal(form);
+    if (why !== null) {
+      if (why.dialog === "CustomInfo") await wordsNow(["UI/Corporations/CorporationWindow/Recruitment/EnterTitleForAd"]);
+      const info = why.dialog === "CustomInfo" ? templateWords("UI/Corporations/CorporationWindow/Recruitment/EnterTitleForAd", {}, "Please enter a title for your ad.") : null;
+      sayDialog(why.dialog, info !== null ? { type: "dict", entries: [["info", info]] } : { type: "dict", entries: Object.entries(why.values) }, info ?? why.fallback);
+      return false;
+    }
+    try {
+      await bridgeDo("corpRecProxy", "UpdateRecruitmentAd", [adID, form.typeMask, form.langMask, form.description, [...form.recruiters], form.title.trim(), form.days, form.hourMask1],
+        { minSP: form.minSP, otherMask: form.otherMask });
+      return true;
+    } catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
+  async function lookupPlayerCharacters(text: string): Promise<readonly number[]> {
+    const answer = await bridgeAsk("lookupSvc", "LookupEvePlayerCharacters", [text, 0]);
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : (readRowsetRows(answer) as readonly JsonValue[]);
+    const ids = items.map((row) => { const v = readRowField(row, "characterID") ?? readKeyVal(row, "characterID"); return typeof v === "number" ? v : Number(unwrapLong(v) ?? 0); }).filter((id) => id > 0);
+    if (ids.length) {
+      const current = callOptions.captureRequestGuard!();
+      await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id })));
+    }
+    return ids;
+  }
+  async function inviteToJoinCorp(characterID: number): Promise<boolean> {
+    const scope = captureMemberOperation();
+    await memberNames(scope, [{ kind: "owner", id: characterID }]);
+    await wordsNow(["dialog:ConfirmSendInviteToJoinCorp/title", "dialog:ConfirmSendInviteToJoinCorp/body"]); scope.current();
+    if (!await askDialog("ConfirmSendInviteToJoinCorp", { type: "dict", entries: [["charID", characterID]] }, "Send this pilot an invitation to join your corporation?", "okcancel")) return false;
+    scope.current();
+    try { await scope.write("corpRegistry", "InsertInvitation", [characterID], null, scope.online.corporationID); scope.current(); return true; }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+  }
   async function createRecruitmentAd(form: RecruitmentAdForm): Promise<boolean> {
     const why = recruitmentAdRefusal(form);
     if (why !== null) {
@@ -30027,6 +30068,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     recruitmentAdsOf,
     corporationRecruitmentAds,
     createRecruitmentAd,
+    updateRecruitmentAd,
+    lookupPlayerCharacters,
+    inviteToJoinCorp,
     recruitmentAdRecruiters,
     corporationAggressionAt,
     deleteRecruitmentAd,

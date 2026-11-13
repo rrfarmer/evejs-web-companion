@@ -46,10 +46,25 @@
   let rows = $state<readonly CorporationApplication[] | null>(null), error = $state(""), busy = $state(false);
   let expanded = $state<number | null>(read("expanded", null));
   let rejecting = $state<CorporationApplication | null>(null), message = $state("");
+  // InviteToCorpWnd (320 x 400): "Type search string", the name (32) and Search - lookupSvc.LookupEvePlayerCharacters;
+  // the characters found (a click selects, a double click invites), Invite (disabled until one is selected) and Cancel
+  const INVITE_LABELS = ["UI/Messages/1527/SelectCharacterTitle", "UI/Shared/TypeSearchString", "UI/Wallet/WalletWindow/WalletSearch", "UI/Ship/ShipConfig/Invite",
+    "UI/Common/TypeInSearch", "UI/Shared/PleaseTypeSomething", "EVE/UI/Wallet/WalletWindow/SearchNoResults"];
+  let inviting = $state(false), lookup = $state(""), found = $state<readonly number[] | null>(null), hint = $state(""), chosen = $state<number | null>(null);
+  async function search(): Promise<void> {
+    chosen = null;
+    if (!lookup.trim()) { found = []; hint = fill("UI/Shared/PleaseTypeSomething", "Please type something"); return; }
+    try { found = await flow.lookupPlayerCharacters(lookup.trim()); hint = found.length ? "" : fill("EVE/UI/Wallet/WalletWindow/SearchNoResults", "No results"); }
+    catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  async function invite(id: number | null): Promise<void> {
+    if (id === null) return;
+    if (await flow.inviteToJoinCorp(id)) { inviting = false; void load(); }
+  }
   async function load(): Promise<void> {
     try { rows = await flow.corporationApplicationsToCorp(showOld); error = ""; } catch (e) { error = e instanceof Error ? e.message : String(e); rows = []; }
   }
-  onMount(() => { flow.requestWords([...LABELS, ...Object.values(APPLICATION_STATUS_LABELS).map((l) => P + l)]); flow.loadImageServer(); void load(); });
+  onMount(() => { flow.requestWords([...LABELS, ...INVITE_LABELS, ...Object.values(APPLICATION_STATUS_LABELS).map((l) => P + l)]); flow.loadImageServer(); void load(); });
   // GetApplications: the statuses viewed, then the name filter
   const shown = $derived((rows ?? []).filter((r) => showOld || viewing.includes(r.status))
     .filter((r) => !filter || nameOf(r.characterID).toLowerCase().includes(filter.toLowerCase())));
@@ -108,7 +123,29 @@
       </article>
     {/each}
   </div>
-  {#if manager}<div class="ca-bottom"><button type="button" disabled title="Not on the play page yet">{fill(P + "InviteToCorp", "Invite to Corporation")}</button></div>{/if}
+  {#if manager}<div class="ca-bottom"><button type="button" onclick={() => { inviting = true; lookup = ""; found = null; chosen = null; hint = fill("UI/Common/TypeInSearch", "Type in a search"); }}>{fill(P + "InviteToCorp", "Invite to Corporation")}</button></div>{/if}
+  {#if inviting}
+    <div class="ca-reject-back">
+      <div class="ca-invite" role="dialog" aria-modal="true" aria-label={fill("UI/Messages/1527/SelectCharacterTitle", "Select Character")}>
+        <header>{fill("UI/Messages/1527/SelectCharacterTitle", "Select Character")}</header>
+        <div class="ca-invite-top">
+          <span class="small">{fill("UI/Shared/TypeSearchString", "Type search string")}</span>
+          <span class="ca-invite-row"><input bind:value={lookup} maxlength="32" onkeydown={(e) => { if (e.key === "Enter") void search(); }} />
+            <button type="button" onclick={() => void search()}>{fill("UI/Wallet/WalletWindow/WalletSearch", "Search")}</button></span>
+        </div>
+        <div class="ca-invite-list" role="listbox">
+          {#if hint}<p class="ca-empty">{hint}</p>{/if}
+          {#each found ?? [] as id (id)}
+            <div role="option" tabindex="0" aria-selected={chosen === id} class:picked={chosen === id} onclick={() => (chosen = id)} ondblclick={() => void invite(id)} onkeydown={(e) => { if (e.key === "Enter") void invite(id); }}>{nameOf(id)}</div>
+          {/each}
+        </div>
+        <div class="ca-reject-buttons">
+          <button type="button" disabled={chosen === null} onclick={() => void invite(chosen)}>{fill("UI/Ship/ShipConfig/Invite", "Invite")}</button>
+          <button type="button" onclick={() => (inviting = false)}>{fill("UI/Common/Buttons/Cancel", "Cancel")}</button>
+        </div>
+      </div>
+    </div>
+  {/if}
   {#if rejecting}
     {@const row = rejecting}
     {@const url = portraitUrl($imageServer, row.characterID, 64)}
@@ -161,4 +198,13 @@
   .ca-reject-body p { margin: 0; }
   .ca-reject-body p:last-child { padding-top: 4px; }
   .ca-reject-buttons { display: flex; gap: 4px; justify-content: center; padding: 6px; }
+  .ca-invite { width: 320px; height: 400px; display: flex; flex-direction: column; background: #15181b; border: 1px solid rgba(255, 255, 255, 0.15); }
+  .ca-invite header { padding: 4px 6px; font-weight: bold; }
+  .ca-invite-top { height: 70px; display: flex; flex-direction: column; gap: 2px; padding: 16px 4px 0 70px; }
+  .ca-invite-row { display: flex; gap: 2px; }
+  .ca-invite-row input { width: 86px; }
+  .small { font-size: 11px; }
+  .ca-invite-list { flex: 1; overflow: auto; margin: 4px; border: 1px solid rgba(255, 255, 255, 0.1); }
+  .ca-invite-list div { height: 18px; padding: 0 4px; cursor: default; }
+  .ca-invite-list div.picked { background: rgba(255, 255, 255, 0.12); }
 </style>

@@ -28,9 +28,9 @@
   } from "../bridge/corpRecruitment.ts";
   /** What the search asked for (GetRecruitmenEntryData's searchMask, otherMask, searchLangMask; the playtime hours). */
   export interface EntrySearch { readonly typeMask: number; readonly otherMask: number; readonly langMask: number; readonly from: number; readonly to: number }
-  let { store, flow, ad, data, corpView, search = null, expanded, access = false, onToggle, onDeleted }: {
+  let { store, flow, ad, data, corpView, search = null, expanded, access = false, onToggle, onDeleted, onEdit }: {
     store: ClientStore; flow: AppFlow; ad: RecruitmentAd; data: RecruitmentData | null; corpView: boolean; search?: EntrySearch | null;
-    expanded: boolean; access?: boolean; onToggle: () => void; onDeleted?: () => void;
+    expanded: boolean; access?: boolean; onToggle: () => void; onDeleted?: () => void; onEdit?: () => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -136,7 +136,7 @@
         <span class="rec-expiry" class:soon={expiresIn !== null && expiresIn < 86_400_000}>{expiresIn !== null && expiresIn > 0 ? fill(R + "AdExpiresIn", "Expires in {adDuration}", { adDuration: ticks(expiresIn) }) : fill(R + "AdExpired", "Expired")}</span>
         {#if hover && access}
           <span class="rec-buttons">
-            <button type="button" disabled title="Not on the play page yet" onclick={(e) => e.stopPropagation()}>{fill(R + "AdEdit", "Edit")}</button>
+            <button type="button" onclick={(e) => { e.stopPropagation(); onEdit?.(); }}>{fill(R + "AdEdit", "Edit")}</button>
             <button type="button" disabled={deleting} onclick={(e) => { e.stopPropagation(); void remove(); }}>{fill(R + "AdRemove", "Remove")}</button>
           </span>
         {/if}

@@ -694,6 +694,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "corpRecProxy.GetRecruitmentAdsForCorporation", "corpRecProxy.GetRecruiters", "corpRecProxy.CreateRecruitmentAd",
   // RecruitmentEntry.DeleteRecruitmentAd (corp.DeleteRecruitmentAd), after CorpAdsAreYouSureYouWantToDelete.
   "corpRecProxy.DeleteRecruitmentAd",
+  // CorpRecruitmentContainerCreation.UpdateAdvert for an existing ad (corp.UpdateRecruitmentAd: minSP and otherMask named).
+  "corpRecProxy.UpdateRecruitmentAd",
   // An acceleration gate's activation, the keeper's (movementFunctions.py 553). The gateway's list has nothing of the keeper's.
   "keeper.ActivateAccelerationGate",
   // A fitting saved, and one of the same name saved over (fittingSvc.PersistFitting, 302 and 304). The gateway's list

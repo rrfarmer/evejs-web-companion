@@ -18,7 +18,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import {
-    buildHourMask, typesMask, typesInMask, combinedGroupOf, PLAYSTYLE_GROUPS, AREA_OF_OPERATIONS_GROUPID, LANGUAGE_GROUPID,
+    buildHourMask, typesMask, typesInMask, timeZoneFromMask, combinedGroupOf, PLAYSTYLE_GROUPS, AREA_OF_OPERATIONS_GROUPID, LANGUAGE_GROUPID,
     NEWPILOTFRIENDLY_TYPEID, NEWPILOTFOCUSED_TYPEID, ROLEPLAY_TYPEID, ENGLISH_TYPEID, MAX_SELECTED_TYPES, MAX_SELECTED_AREAS,
     AD_FLAT_FEE, AD_DAILY_RATE, AD_MAX_DAYS, MAX_CORP_ADS, AD_MAX_TITLE, AD_MAX_MESSAGE, type RecruitmentAd,
   } from "../bridge/corpRecruitment.ts";
@@ -33,7 +33,7 @@
   const LABELS = ["CreateRecruitmentAdButtonLabel", "CorpHasNoRecruitmentAdvertisements", "CreateNewAdvert", "AdEditTitle", "AdEditMessage", "AdEditDetails",
     "AdRecruiters", "NewPilotFriendly", "NewPilotFocused", "RoleplayingFocused2", "PrimaryTimeZone", "RecruitmentAdDuration",
     "RecruitmentAdDurationOptionWithPrice", "MinimumSPrequirement", "FilterRecruiterCandidates", "AddRecruiterToAd", "NoRecruiterAssigned",
-    "AdRemove", "NumFiltersSelected", "NoFiltersSelected", "PVE", "PVP", "Trade"].map((k) => R + k)
+    "AdRemove", "EditAdvert", "ExtendRecruitmentAdDuration", "NumFiltersSelected", "NoFiltersSelected", "PVE", "PVP", "Trade"].map((k) => R + k)
     .concat(["UI/Corporations/Applications/EditWelcomeMail", "UI/Corporations/CorpDetails/MembershipApplicationEnabled", "UI/Common/Buttons/Submit", "UI/Common/Buttons/Cancel"]);
   const word = (label: string, fallback: string) => plainText($words.templates[label] ?? fallback);
   const fill = (label: string, fallback: string, values: Record<string, string | number>) =>
@@ -70,6 +70,25 @@
   let title = $state(""), message = $state(""), kind = $state(0), types = $state<number[]>([]), langs = $state<number[]>([ENGLISH_TYPEID]);
   let friendly = $state(false), focused = $state(false), roleplay = $state(false), from = $state(0), to = $state(24), days = $state(1), minSP = $state(0);
   let members = $state<readonly number[]>([]), filter = $state(""), recruiters = $state<number[]>([]), picked = $state<number | null>(null), sending = $state(false);
+  // the ad edited (OpenEditWindow -> PopulateCorpAdvertsEdit(advertData)), and the days it may still be extended by
+  // (corporationMaxRecruitmentAdDuration less the days remaining; none - no duration shown)
+  let editingAd = $state<RecruitmentAd | null>(null), maxDays = $state(AD_MAX_DAYS);
+  function startEdit(ad: RecruitmentAd): void {
+    const remaining = Math.max(0, Math.floor(((ad.expiryDateTimeMs ?? Date.now()) - Date.now()) / 86_400_000));
+    maxDays = AD_MAX_DAYS - remaining;
+    types = typesInMask(ad.typeMask); langs = typesInMask(ad.langMask);
+    // GetGroupWithMostSelected; RemoveTypesFromOtherGroups
+    const most = [0, 1, 2].map((g) => types.filter((id) => combinedGroupOf(id) === g).length);
+    kind = most.indexOf(Math.max(...most));
+    types = types.filter((id) => combinedGroupOf(id) === null || combinedGroupOf(id) === kind);
+    const other = typesInMask(ad.otherMask);
+    friendly = other.includes(NEWPILOTFRIENDLY_TYPEID); focused = friendly && other.includes(NEWPILOTFOCUSED_TYPEID); roleplay = other.includes(ROLEPLAY_TYPEID);
+    [from, to] = timeZoneFromMask(ad.hourMask1) as [number, number];
+    title = ad.title; message = ad.description; days = 0; minSP = ad.minSP; recruiters = []; tab = "details"; open = null;
+    editingAd = ad; editing = true;
+    void flow.recruitmentAdRecruiters(ad.adID).then((ids) => { recruiters = [...ids].slice(0, 6); });
+    void flow.corporationMemberIDs().then((ids) => { members = ids; flow.requestNames(ids.map((id) => ({ kind: "character" as const, id }))); });
+  }
   function startNew(): void {
     // PopulateCorpAdvertsEdit(None): the last ad's masks (corp_recruitment_lastCreate*), else none; the session's language
     const last = (() => { try { return JSON.parse(localStorage.getItem("evejs.play.corpRecruitmentLastAd") ?? "null") as { mask: number; lang: number } | null; } catch { return null; } })();
@@ -78,6 +97,7 @@
     kind = most.indexOf(Math.max(...most));
     types = types.filter((id) => combinedGroupOf(id) === null || combinedGroupOf(id) === kind);
     title = ""; message = ""; friendly = false; focused = false; roleplay = false; from = 0; to = 24; days = 1; minSP = 0; recruiters = []; tab = "details"; open = null;
+    editingAd = null; maxDays = AD_MAX_DAYS;
     editing = true;
     void flow.corporationMemberIDs().then((ids) => { members = ids; flow.requestNames(ids.map((id) => ({ kind: "character" as const, id }))); });
   }
@@ -90,7 +110,8 @@
     if (isArea && areas.length >= MAX_SELECTED_AREAS) { flow.sayDialog("CannotSelectMoreAreas", { type: "dict", entries: [["numMaxOptions", MAX_SELECTED_TYPES]] }, `You can select at most ${MAX_SELECTED_AREAS} areas.`); return; }
     types = [...types, id];
   }
-  const price = $derived(days * AD_DAILY_RATE + AD_FLAT_FEE);
+  // AdvertPrice: the days at the daily rate, and the flat fee for a new ad
+  const price = $derived(days * AD_DAILY_RATE + (editingAd ? 0 : AD_FLAT_FEE));
   const isk = (n: number) => `${n.toLocaleString("en-US")} ISK`;
   const memberName = (id: number) => resolvedName($names.resolved, "character", id, String(id));
   const candidates = $derived(members.filter((id) => !recruiters.includes(id) && memberName(id).toLowerCase().includes(filter.toLowerCase()))
@@ -102,7 +123,10 @@
     const otherMask = typesMask([...(friendly ? [NEWPILOTFRIENDLY_TYPEID] : []), ...(friendly && focused ? [NEWPILOTFOCUSED_TYPEID] : []), ...(roleplay ? [ROLEPLAY_TYPEID] : [])]);
     const typeMask = typesMask(types), langMask = typesMask(langs);
     try {
-      if (await flow.createRecruitmentAd({ days, typeMask, langMask, description: message, recruiters, title, hourMask1: buildHourMask(from, to), minSP, otherMask })) {
+      const form = { days, typeMask, langMask, description: message, recruiters, title, hourMask1: buildHourMask(from, to), minSP, otherMask };
+      if (editingAd) {
+        if (await flow.updateRecruitmentAd(editingAd.adID, form)) { editing = false; editingAd = null; loadAds(); }
+      } else if (await flow.createRecruitmentAd(form)) {
         try { localStorage.setItem("evejs.play.corpRecruitmentLastAd", JSON.stringify({ mask: typeMask, lang: langMask })); } catch { /* not kept */ }
         editing = false; loadAds();
       }
@@ -118,7 +142,7 @@
     {#if ads !== null && !ads.length}<p class="ca-note">{fill(R + "CorpHasNoRecruitmentAdvertisements", "{corpName} has no recruitment advertisements", { corpName: resolvedName($names.resolved, "corporation", corpID, "") })}</p>{/if}
     {#each ads ?? [] as ad (ad.adID)}
       <RecruitmentEntry {store} {flow} {ad} {data} corpView={true} {access} expanded={expandedAd === ad.adID}
-        onToggle={() => { expandedAd = expandedAd === ad.adID ? null : ad.adID; keepExpanded(true, expandedAd); }} onDeleted={loadAds} />
+        onToggle={() => { expandedAd = expandedAd === ad.adID ? null : ad.adID; keepExpanded(true, expandedAd); }} onDeleted={loadAds} onEdit={() => startEdit(ad)} />
     {/each}
   </div>
   {#if access}
@@ -131,7 +155,7 @@
   {#if editing}
     <section class="ca-form" aria-label={word(R + "CreateNewAdvert", "Create New Advert")} aria-busy={sending}>
       <div class="ca-main">
-        <div class="ca-caption">{word(R + "CreateNewAdvert", "Create New Advert")}</div>
+        <div class="ca-caption">{editingAd ? fill(R + "EditAdvert", "Edit Advert: {adTitle}", { adTitle: editingAd.title }) : word(R + "CreateNewAdvert", "Create New Advert")}</div>
         <label class="ca-label">{word(R + "AdEditTitle", "Title")}<input bind:value={title} maxlength={AD_MAX_TITLE} /></label>
         <label class="ca-label ca-msg">{word(R + "AdEditMessage", "Message")}<textarea bind:value={message} maxlength={AD_MAX_MESSAGE}></textarea></label>
       </div>
@@ -169,9 +193,11 @@
               <span>–</span>
               <select aria-label="To" bind:value={to}>{#each Array.from({ length: 24 }, (_, i) => i + 1) as h (h)}<option value={h}>{hh(h)}</option>{/each}</select>
             </div>
-            <div class="ca-head">{word(R + "RecruitmentAdDuration", "Recruitment Ad Duration")}</div>
-            <input type="range" min="1" max={AD_MAX_DAYS} bind:value={days} aria-label="Days" />
-            <div class="ca-hint">{days} {days === 1 ? "day" : "days"} · {isk(price)}</div>
+            {#if maxDays > 0}
+              <div class="ca-head">{editingAd ? word(R + "ExtendRecruitmentAdDuration", "Extend Recruitment Ad Duration") : word(R + "RecruitmentAdDuration", "Recruitment Ad Duration")}</div>
+              <input type="range" min={editingAd ? 0 : 1} max={maxDays} bind:value={days} aria-label="Days" />
+              <div class="ca-hint">{days} {days === 1 ? "day" : "days"} · {isk(price)}</div>
+            {/if}
             <div class="ca-head">{word(R + "MinimumSPrequirement", "Minimum SP requirement")}</div>
             <input type="number" min="0" max="600000000" step="1" bind:value={minSP} />
           </div>
