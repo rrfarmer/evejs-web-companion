@@ -16,6 +16,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import CorporationDeclareWar from "./CorporationDeclareWar.svelte";
+  import WarEntry from "./WarEntry.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -88,7 +89,7 @@
   {#if tab === "our"}
     <div class="cw-scroll">
       {#if ours !== null && !ours.length}<p class="cw-hint">{fill(C + "Wars/CorpOrAllianceNotInvolvedInWars", "{corpName} is not involved in any wars", { corpName: nameOf(ownerID) })}</p>{/if}
-      {#each ours ?? [] as w (w.warID)}<div class="cw-war">{line(w)}</div>{/each}
+      {#each ours ?? [] as w (w.warID)}<WarEntry {store} {flow} war={w} myWars />{/each}
     </div>
   {:else}
     <div class="cw-settings">
@@ -104,10 +105,10 @@
       {#if searchOwner}
         <button type="button" class="cw-header cw-clear" onclick={clearSearch}>{fill(W + "SearchResult", "Search result: {searchResult}", { searchResult: searchText })} ×</button>
         {#if searchWars !== null && !searchWars.length}<p class="cw-hint">{fill(C + "Wars/CorpOrAllianceNotInvolvedInWars", "{corpName} is not involved in any wars", { corpName: searchOwner.name })}</p>{/if}
-        {#each searchWars ?? [] as w (w.warID)}<div class="cw-war">{line(w)}</div>{/each}
+        {#each searchWars ?? [] as w (w.warID)}<WarEntry {store} {flow} war={w} />{/each}
       {:else}
         {#if sorted.length && batches.length <= 1}<div class="cw-header">{fill(W + "NumRecentWars", "{numWars} recent wars", { numWars: sorted.length })}</div>{/if}
-        {#each sorted as w (w.warID)}<div class="cw-war">{line(w)}</div>{/each}
+        {#each sorted as w (w.warID)}<WarEntry {store} {flow} war={w} />{/each}
       {/if}
     </div>
     <div class="cw-browse">
@@ -135,7 +136,6 @@
   .cw-hint { opacity: 0.7; padding: 4px; }
   .cw-header { display: block; width: 100%; text-align: left; font-weight: bold; padding: 2px 4px; background: rgba(255, 255, 255, 0.06); border: 0; color: inherit; }
   .cw-clear { cursor: pointer; }
-  .cw-war { padding: 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
   .cw-browse { display: flex; justify-content: space-between; padding: 0 4px 4px; }
   .cw-declare { display: flex; justify-content: center; padding-top: 8px; }
   .error { color: #e06666; }
