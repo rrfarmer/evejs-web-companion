@@ -16,7 +16,9 @@
   // ItemTypeLine to pick from), the field then the type's name.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, CorpAssetItem, CorpAssetLocation } from "../app/flow.ts";
+  import type { AppFlow, AssetTypeFacts, CorpAssetItem, CorpAssetLocation } from "../app/flow.ts";
+  import { formatNumeric, fmtAmt } from "../bridge/pyNumbers.ts";
+  import { iskWords } from "../bridge/questions.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
   import { resolvedName } from "../store/names.ts";
@@ -36,7 +38,7 @@
   const DIVISION_BY_FLAG: Record<number, number> = { 115: 0, 116: 1, 117: 2, 118: 3, 119: 4, 120: 5, 121: 6, 184: 14 };
   const LABELS = [...TABS.map(([, l]) => l), "UI/Common/SortBy", "UI/Common/View", "UI/Common/Name", "UI/Common/NumberOfJumps", "UI/Common/NumberOfItems", A + "CurrentRegion", A + "AllRegions",
     A + "LocationAndJumps", A + "LocationNoRoute", "UI/Inventory/AssetsWindow/LocationDataLabel", "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute", A + "NoItemsFound", A + "UnusedCorpOffice",
-    A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", ...Object.keys(LINK_WORDS)];
+    A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Wallet/WalletWindow/MinQty", "UI/Wallet/WalletWindow/ItemType", "UI/Contracts/Util/SelectItemType", "UI/Contracts/Util/ItemTypeLine", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice", ...Object.keys(LINK_WORDS)];
   const nameOf = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const text = (label: string, args: Record<string, unknown> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf });
   const followerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), t);
@@ -171,18 +173,57 @@
           list = (await flow.corporationAssetItems(row.locationID, c.which)).filter((item) => !((c.typeID !== null && c.typeID !== item.typeID) || (c.groupID !== null && c.groupID !== item.groupID) || (c.categoryID !== null && c.categoryID !== item.categoryID) || (c.qty !== null && c.qty > item.stacksize)));
         } else list = await flow.corporationAssetItems(row.locationID, which);
         items = { ...items, [row.locationID]: list };
+        const missing = [...new Set(list.map((item) => item.typeID))].filter((id) => !facts.has(id));
+        if (missing.length) { const read = await flow.assetTypeFacts(missing); facts = new Map([...facts, ...read]); }
       }
       catch (e) { error = e instanceof Error ? e.message : String(e); items = { ...items, [row.locationID]: [] }; }
     }
   }
   const typeName = (id: number) => nameOf("type", id) || String(id);
+  // uix.GetItemData and the default visible columns (GetInvItemDefaultHeaders less the hidden Meta level, Tech level
+  // and Category): Name, Quantity, Group, Size, Slot, Volume, Est. Price.
+  let facts = $state<ReadonlyMap<number, AssetTypeFacts>>(new Map());
+  const SIZES: Record<number, string> = { 1: "UI/InfoWindow/SmallSize", 2: "UI/InfoWindow/MediumSize", 3: "UI/InfoWindow/LargeSize", 4: "UI/InfoWindow/XLargeSize" };
+  const SLOTS: Record<number, string> = { 2663: "UI/Inventory/SlotRigs", 12: "UI/Inventory/SlotHigh", 13: "UI/Inventory/SlotMedium", 11: "UI/Inventory/SlotLow" };
+  // GetItemQty: nothing for a singleton (or a bookmark), else FmtAmt of the stack.
+  const qtyOf = (item: CorpAssetItem) => (item.singleton || item.typeID === 51 ? "" : fmtAmt(item.stacksize));
+  // _get_item_size: the charge size in its size class's words.
+  const sizeOf = (item: CorpAssetItem) => { const v = facts.get(item.typeID)?.chargeSize; return v === null || v === undefined ? "" : plainText(text(SIZES[Math.trunc(v)] ?? "")); };
+  // _get_item_slot: the implant slot, else the booster slot, else the power slot its effects fit.
+  const slotOf = (item: CorpAssetItem) => {
+    const f = facts.get(item.typeID);
+    if (!f) return "";
+    if (f.implantness !== null) return String(Math.trunc(f.implantness));
+    if (f.boosterness !== null) return String(Math.trunc(f.boosterness));
+    return f.slotEffect === null ? "" : plainText(text(SLOTS[f.slotEffect] ?? ""));
+  };
+  // GetItemVolume (a singleton's type volume, else its packaged one, times the stack) as ValueAndUnit with m3 (dogma unit
+  // 9's display name), two places where it has a fraction; none for plastic wrap.
+  const volumeOf = (item: CorpAssetItem) => {
+    const f = facts.get(item.typeID);
+    if (!f || item.typeID === 3468) return "";
+    const each = item.singleton ? f.volume : f.packagedVolume;
+    if (each === null) return "";
+    const volume = each === -1 ? -1 : each * (item.stacksize < 0 ? 1 : item.stacksize);
+    const places = Math.abs(volume - Math.trunc(volume)) > 1e-7 ? 2 : 0;
+    return plainText(text("UI/InfoWindow/ValueAndUnit", { value: formatNumeric(places ? volume : Math.trunc(volume), { useGrouping: true, decimalPlaces: places }), unit: "m3" }));
+  };
+  // estPrice: the cfg's average price times the stack (none for a blueprint copy), FmtISK.
+  const priceOf = (item: CorpAssetItem) => {
+    const price = item.singleton === 2 ? null : facts.get(item.typeID)?.averagePrice ?? null;
+    return price && item.stacksize ? iskWords(item.stacksize * price, 2, $words.templates, nameOf) ?? "" : "";
+  };
 </script>
 
 {#snippet itemRow(item: CorpAssetItem, depth: number)}
   <div class="ca-item" style:padding-left={`${depth * 16}px`}>
     <span class="ca-name"><TypeIcon typeID={item.typeID} name={typeName(item.typeID)} size="sm" /> {typeName(item.typeID)}</span>
-    <span class="ca-qty">{item.stacksize.toLocaleString()}</span>
+    <span class="ca-num">{qtyOf(item)}</span>
     <span>{nameOf("typeGroup", item.typeID)}</span>
+    <span>{sizeOf(item)}</span>
+    <span>{slotOf(item)}</span>
+    <span class="ca-num">{volumeOf(item)}</span>
+    <span class="ca-num">{priceOf(item)}</span>
   </div>
 {/snippet}
 
@@ -240,7 +281,7 @@
       </select></label>
   </div>
   {/if}
-  <div class="ca-head"><span>{plainText(text("UI/Common/Name"))}</span><span>{plainText(text("UI/Common/Quantity"))}</span><span>{plainText(text("UI/Inventory/ItemGroup"))}</span></div>
+  <div class="ca-head">{#each ["UI/Common/Name", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemSize", "UI/Inventory/ItemSlot", "UI/Inventory/ItemVolume", "UI/Contracts/ContractsWindow/EstPrice"] as h (h)}<span>{plainText(text(h))}</span>{/each}</div>
   <div class="ca-scroll">
     {#if searching}
       <p class="ca-hint">{plainText(text("UI/Common/Searching"))}</p>
@@ -292,7 +333,8 @@
   .ca-picker-list button.selected { background: rgba(255, 255, 255, 0.15); }
   .ca-picker-buttons { display: flex; justify-content: center; gap: 6px; }
   .ca-filters label { display: flex; flex-direction: column; font-size: 10px; width: 140px; }
-  .ca-head, .ca-item { display: grid; grid-template-columns: minmax(160px, 2fr) 80px 1fr; gap: 6px; align-items: center; }
+  .ca-head, .ca-item { display: grid; grid-template-columns: minmax(160px, 2fr) 70px 1fr 60px 60px 90px 110px; gap: 6px; align-items: center; }
+  .ca-num { text-align: right; }
   .ca-head { font-size: 10px; opacity: 0.7; padding: 0 4px; }
   .ca-scroll { flex: 1; min-height: 0; overflow: auto; }
   .ca-group { all: unset; cursor: pointer; display: flex; align-items: center; gap: 4px; min-height: 42px; padding: 0 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); width: calc(100% - 8px); }
@@ -300,7 +342,6 @@
   .ca-arrow { width: 10px; opacity: 0.7; }
   .ca-item { min-height: 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
   .ca-name { display: flex; align-items: center; gap: 4px; }
-  .ca-qty { text-align: right; }
   .ca-empty { opacity: 0.8; }
   .ca-hint { opacity: 0.8; padding: 4px; }
 </style>

@@ -15532,6 +15532,26 @@ app.get("/api/types/passive-effects", requireAuth, async (req, res, next) => {
   }
 });
 
+// Each type's effects unfiltered (dogma.data.get_type_effects): the assets list's Slot column reads the high, medium,
+// low and rig slot effects among them (uix.GetPowerSlotSizeSymbol).
+app.get("/api/types/effects", requireAuth, async (req, res, next) => {
+  try {
+    const asked = [];
+    for (const part of String((req.query && req.query.typeIDs) || "").split(",")) {
+      const typeID = Number(part);
+      if (Number.isSafeInteger(typeID) && typeID > 0 && !asked.includes(typeID)) asked.push(typeID);
+    }
+    const effects = {};
+    for (const typeID of asked.slice(0, PASSIVE_EFFECT_TYPE_LIMIT)) {
+      const dogma = typeof staticData.getTypeDogma === "function" ? staticData.getTypeDogma(typeID) : null;
+      effects[String(typeID)] = dogma && Array.isArray(dogma.effects) ? dogma.effects.map(Number) : null;
+    }
+    res.json({ ok: true, source: "static-data", effects });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/types/overload-effects", requireAuth, async (req, res, next) => {
   try {
     const asked = [];

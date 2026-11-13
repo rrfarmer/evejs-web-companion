@@ -478,6 +478,10 @@ export interface RoleManagementRow { readonly characterID: number; readonly mask
 /** corpmgr.GetAssetInventory's row: a location holding the corporation's things, its system, its type (a structure's),
  * and for deliveries its count of items; with the region the map puts the system in. */
 export interface CorpAssetLocation { readonly locationID: number; readonly solarSystemID: number; readonly regionID: number | null; readonly typeID: number | null; readonly itemCount: number | null }
+/** What the inventory list's columns read of a type (uix.GetItemData): its charge size, implant and booster slots, the
+ * power slot its effects fit (12 high, 13 medium, 11 low, 2663 rig), its volume and packaged volume, meta and tech
+ * level, and the cfg's average price. */
+export interface AssetTypeFacts { readonly chargeSize: number | null; readonly implantness: number | null; readonly boosterness: number | null; readonly slotEffect: number | null; readonly volume: number | null; readonly packagedVolume: number | null; readonly metaLevel: number | null; readonly techLevel: number | null; readonly averagePrice: number | null }
 /** corpmgr.GetAssetInventoryForLocation's row. */
 export interface CorpAssetItem { readonly itemID: number; readonly typeID: number; readonly flagID: number; readonly stacksize: number; readonly singleton: number; readonly groupID: number; readonly categoryID: number }
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
@@ -2700,6 +2704,7 @@ export interface AppFlow {
    * Accountant), the pilot's region, the regions' names and the division names (GetDivisionNames). */
   corporationAssetLocations(which: string): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   corporationAssetItems(locationID: number, which: string): Promise<readonly CorpAssetItem[]>;
+  assetTypeFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, AssetTypeFacts>>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
@@ -18092,6 +18097,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await memberNames(scope, [...new Set(items.map(item => item.typeID))].flatMap(id => [{ kind: "type" as const, id }, { kind: "typeGroup" as const, id }]));
     return items;
   }
+  async function assetTypeFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, AssetTypeFacts>> {
+    const ids = [...new Set(typeIDs)].filter(id => id > 0);
+    if (!ids.length) return new Map();
+    // dogmaConst attributeChargeSize 128, attributeImplantness 331, attributeBoosterness 1087.
+    const [attributes, effects, volumes, meta, prices] = await Promise.all([api.fetchTypeDogma(ids, [128, 331, 1087], callOptions).catch(() => ({} as Record<number, Record<number, number>>)),
+      api.loadTypeEffects(ids, callOptions).catch(() => ({} as Record<number, readonly number[] | null>)), api.loadTypeVolumes(ids, callOptions).catch((): api.TypeVolumesResult => ({ volumes: {}, packaged: {} })),
+      api.getTypeMeta(ids.slice(0, 500), callOptions).catch(() => null), cfgAveragePrices()]);
+    await wordsNow(["UI/InfoWindow/SmallSize", "UI/InfoWindow/MediumSize", "UI/InfoWindow/LargeSize", "UI/InfoWindow/XLargeSize", "UI/Inventory/SlotRigs", "UI/Inventory/SlotHigh", "UI/Inventory/SlotMedium", "UI/Inventory/SlotLow", "UI/InfoWindow/ValueAndUnit", "UI/Util/FmtIsk", "UI/Util/FmtIskNoDecimal"]);
+    return new Map(ids.map(typeID => {
+      const attrs = attributes[typeID] ?? {}, own = effects[typeID] ?? [], facts = meta?.types.get(typeID) ?? null;
+      // GetPowerSlotSizeSymbol: the type's first effect that names a slot.
+      const slotEffect = own.find(effectID => effectID === 2663 || effectID === 12 || effectID === 13 || effectID === 11) ?? null;
+      return [typeID, { chargeSize: attrs[128] ?? null, implantness: attrs[331] ?? null, boosterness: attrs[1087] ?? null, slotEffect,
+        volume: volumes.volumes[typeID] ?? null, packagedVolume: volumes.packaged[typeID] ?? null, metaLevel: facts?.metaLevel ?? null, techLevel: facts?.techLevel ?? null,
+        averagePrice: typeID === 79785 ? 1000 : prices?.get(typeID) ?? null }] as const;
+    }));
+  }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
     memberReadKey(online.characterID);
@@ -31137,6 +31159,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     saveRoleManagement,
     corporationAssetLocations,
     corporationAssetItems,
+    assetTypeFacts,
     corporationAssetCategories,
     async marketTypeMatches(text: string) {
       const answer = await api.getMarketTypeMatches(text, callOptions);

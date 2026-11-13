@@ -4772,6 +4772,19 @@ export async function loadPassiveEffects(
   return effects;
 }
 
+/** GET /api/types/effects: each type's effects unfiltered (dogma.data.get_type_effects), null where not known. */
+export async function loadTypeEffects(typeIDs: readonly number[], options: ApiOptions = {}): Promise<Readonly<Record<number, readonly number[] | null>>> {
+  if (typeIDs.length === 0) return {};
+  const data = await getJson(`/api/types/effects?typeIDs=${encodeURIComponent(typeIDs.join(","))}`, options);
+  const raw = typeof data.effects === "object" && data.effects !== null && !Array.isArray(data.effects) ? (data.effects as Record<string, JsonValue>) : {};
+  const effects: Record<number, readonly number[] | null> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const typeID = Number(key);
+    if (Number.isSafeInteger(typeID) && typeID > 0) effects[typeID] = Array.isArray(value) ? value.map(Number).filter((id) => Number.isSafeInteger(id)) : null;
+  }
+  return effects;
+}
+
 export async function fetchTypeDogma(
   typeIDs: readonly number[],
   attributeIDs: readonly number[],
