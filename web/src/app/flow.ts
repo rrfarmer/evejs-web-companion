@@ -475,6 +475,11 @@ export interface RoleManagementView {
 }
 /** A role entry's rec as the save reads it: the member, the eight masks, the base, the title mask and the one read. */
 export interface RoleManagementRow { readonly characterID: number; readonly masks: RoleMasks; readonly baseID: number | null; readonly titleMask: number; readonly oldTitleMask: number }
+/** corpmgr.GetAssetInventory's row: a location holding the corporation's things, its system, its type (a structure's),
+ * and for deliveries its count of items; with the region the map puts the system in. */
+export interface CorpAssetLocation { readonly locationID: number; readonly solarSystemID: number; readonly regionID: number | null; readonly typeID: number | null; readonly itemCount: number | null }
+/** corpmgr.GetAssetInventoryForLocation's row. */
+export interface CorpAssetItem { readonly itemID: number; readonly typeID: number; readonly flagID: number; readonly stacksize: number; readonly singleton: number; readonly groupID: number; readonly categoryID: number }
 /** An alliance application (state: allianceApplicationNew 1, Accepted 2, Effective 3, Rejected 4). */
 export interface AllianceApplication { readonly allianceID: number; readonly corporationID: number; readonly applicationText: string; readonly state: number }
 /** An alliance member (GetMembers' row): the corporation, its chosen executor (None the client's Secret), when it joined. */
@@ -2691,6 +2696,10 @@ export interface AppFlow {
   loadedCorporationMember(characterID: number): CorporationMember | null;
   searchCorporationMembers(text: string, current?: () => void): Promise<readonly { readonly id: number; readonly name: string }[]>;
   saveRoleManagement(changed: readonly RoleManagementRow[], current?: () => void): Promise<void>;
+  /** CorpAccounts.ShowAssets: GetAssetInventory(corpid, which), whether the pilot may see it (Accountant or Junior
+   * Accountant), the pilot's region, the regions' names and the division names (GetDivisionNames). */
+  corporationAssetLocations(which: string): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
+  corporationAssetItems(locationID: number, which: string): Promise<readonly CorpAssetItem[]>;
   corporationMemberSummary(details: CorporationMemberDetails): Promise<{ readonly titles: readonly CorporationTitle[]; readonly showTitleNames: boolean }>;
   corporationSummaryGroupOpen(groupID: number, open?: boolean): boolean;
   corporationDecorationGroupOpen(medalID: number, recipients: boolean, open?: boolean): boolean;
@@ -17970,6 +17979,41 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (mine.length) { await scope.write("corpRegistry", "UpdateMembers", [rowset(mine)]); scope.current(); }
     for (const row of changed) memberReads.delete(memberReadKey(row.characterID));
   }
+  function crowsetRows(answer: JsonValue): readonly JsonValue[] {
+    return answer && typeof answer === "object" && !Array.isArray(answer) && "list" in answer && Array.isArray(answer.list) ? answer.list : readRowsetRows(answer) as readonly JsonValue[];
+  }
+  async function corporationAssetLocations(which: string): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const answer = await scope.ask("corpmgr", "GetAssetInventory", [online.corporationID, which]);
+    const map = await (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; })); scope.current();
+    const regionOf = new Map(map.systems.map(system => [system[0], system[5]] as const));
+    const regionNames = new Map((map.regions ?? []).map(region => [region[0], region[4]] as const));
+    const integer = (row: JsonValue, key: string) => { const value = memberInteger(row, key); return value === null ? null : Number(value); };
+    const rows = crowsetRows(answer).map(row => {
+      const locationID = integer(row, "locationID") ?? 0, solarSystemID = integer(row, "solarsystemID") ?? (locationID >= 30_000_000 && locationID < 33_000_000 ? locationID : 0);
+      return { locationID, solarSystemID, regionID: regionOf.get(solarSystemID) ?? null, typeID: integer(row, "typeID"), itemCount: integer(row, "itemCount") };
+    }).filter(row => row.locationID > 0);
+    // (corpRoleAccountant | corpRoleJuniorAccountant) & session.corprole
+    const roleData = await api.getCorporationRoleData(scope.options); scope.current();
+    const roleBits = Object.entries(roleData.roles).filter(([, role]) => role.roleName === "roleAccountant" || role.roleName === "roleJuniorAccountant").reduce((mask, [bit]) => mask | (1n << BigInt(bit)), 0n);
+    const allowed = (BigInt(online.corpRole ?? "0") & roleBits) !== 0n;
+    const corporation = await scope.ask("corpRegistry", "GetCorporation", []);
+    await wordsNow(ROLE_DIVISION_LABELS); scope.current();
+    const divisionName = roleDivisionNamer(corporation, store.words.get().templates);
+    await memberNames(scope, rows.flatMap(row => [row.locationID >= 60_000_000 && row.locationID < 64_000_000 ? { kind: "station" as const, id: row.locationID } : row.locationID >= 30_000_000 && row.locationID < 33_000_000 ? { kind: "system" as const, id: row.locationID } : { kind: "structure" as const, id: row.locationID }, { kind: "system" as const, id: row.solarSystemID }]));
+    const security = await api.loadSystemSecurity([...new Set(rows.map(row => row.solarSystemID).filter(id => id > 0))], callOptions); scope.current();
+    store.apply({ type: "names/system-security", security });
+    const here = store.flight.get().status?.solarSystemID ?? online.solarSystemID ?? null;
+    return { allowed, rows, regionID: here === null ? null : regionOf.get(here) ?? null, solarSystemID: here, regionNames, divisionNames: Array.from({ length: 16 }, (_, division) => divisionName(division)) };
+  }
+  async function corporationAssetItems(locationID: number, which: string): Promise<readonly CorpAssetItem[]> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const answer = await scope.ask("corpmgr", "GetAssetInventoryForLocation", [online.corporationID, locationID, which]);
+    const integer = (row: JsonValue, key: string) => Number(memberInteger(row, key) ?? 0n);
+    const items = crowsetRows(answer).map(row => ({ itemID: integer(row, "itemID"), typeID: integer(row, "typeID"), flagID: integer(row, "flagID"), stacksize: integer(row, "stacksize"), singleton: integer(row, "singleton"), groupID: integer(row, "groupID"), categoryID: integer(row, "categoryID") }));
+    await memberNames(scope, [...new Set(items.map(item => item.typeID))].flatMap(id => [{ kind: "type" as const, id }, { kind: "typeGroup" as const, id }, { kind: "typeCategory" as const, id }]));
+    return items;
+  }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
     const scope = captureMemberOperation(current), online = scope.online;
     memberReadKey(online.characterID);
@@ -31013,6 +31057,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadedCorporationMember: (characterID: number) => pagedCorpMembers.collection.find(member => member?.characterID === characterID) ?? null,
     searchCorporationMembers,
     saveRoleManagement,
+    corporationAssetLocations,
+    corporationAssetItems,
     corporationMemberSummary,
     corporationSummaryGroupOpen,
     corporationDecorationGroupOpen,

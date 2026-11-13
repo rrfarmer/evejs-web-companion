@@ -31,6 +31,7 @@
   import CorporationAuditing from "./CorporationAuditing.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
   import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
+  import CorporationAssets from "./CorporationAssets.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -43,7 +44,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -84,6 +85,8 @@
   const allianceID = $derived($station.online?.allianceID ?? null);
   // const.corpRoleAuditor
   const auditorRole = $derived((BigInt($station.online?.corpRole ?? "0") & 4096n) !== 0n);
+  // const.corpRoleAccountant
+  const accountantRole = $derived((BigInt($station.online?.corpRole ?? "0") & 256n) !== 0n);
   $effect(() => { if (panel === "allianceContacts" && allianceID === null) panel = "contacts"; });
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -121,6 +124,7 @@
     "UI/Corporations/BaseCorporationUI/Auditing": "Auditing",
     "UI/Corporations/BaseCorporationUI/TitleManagement": "Titles",
     "UI/Corporations/BaseCorporationUI/RoleManagement": "Role Management",
+    "UI/Corporations/BaseCorporationUI/Assets": "Assets",
     "UI/Corporations/BaseCorporationUI/Wars": "Wars",
     "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
     "UI/Corporations/Wars/WarInfoTab": "War Info",
@@ -188,7 +192,10 @@
         ...(administration.findMembers || administration.director ? [{ header: "UI/Corporations/BaseCorporationUI/Members", entries: [
           ...(administration.findMembers ? [{ id: "find" as const, label: "UI/Corporations/BaseCorporationUI/FindMemberInRole" }, { id: "roleManagement" as const, label: "UI/Corporations/BaseCorporationUI/RoleManagement" }] : []),
           ...(administration.director ? [{ id: "autoKicks" as const, label: "UI/Corporations/BaseCorporationUI/AutoKickManagement" }, { id: "titles" as const, label: "UI/Corporations/BaseCorporationUI/TitleManagement" }] : [])] }] : []),
-        ...(auditorRole ? [{ header: "UI/Generic/General", entries: [{ id: "auditing" as const, label: "UI/Corporations/BaseCorporationUI/Auditing" }] }] : []),
+        // construct_admin_general_panels: Auditing (an auditor's), Assets (an accountant's: CorpAccounts)
+        ...(auditorRole || accountantRole ? [{ header: "UI/Generic/General", entries: [
+          ...(auditorRole ? [{ id: "auditing" as const, label: "UI/Corporations/BaseCorporationUI/Auditing" }] : []),
+          ...(accountantRole ? [{ id: "assets" as const, label: "UI/Corporations/BaseCorporationUI/Assets" }] : [])] }] : []),
         // construct_admin_recruitment_panels: Corporation Advertisements, for whoever sees the tab
         { header: "UI/Corporations/BaseCorporationUI/Recruitment", entries: [{ id: "recruitAds" as const, label: "UI/Corporations/CorporationWindow/Recruitment/CorporationAds" }, { id: "recruitApplications" as const, label: "UI/Corporations/CorpApplications/ApplicationsToCorp" }] },
         // construct_admin_wars_panels: a director's - Mutual War Invites
@@ -300,6 +307,7 @@
       {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
       {#if panel === "titles"}<CorporationTitles {store} {flow} />{/if}
       {#if panel === "roleManagement"}<CorporationRoleManagement {store} {flow} />{/if}
+      {#if panel === "assets"}<CorporationAssets {store} {flow} />{/if}
       {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}
