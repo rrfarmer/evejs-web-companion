@@ -18,7 +18,16 @@
   // ConfigurationSavedNotSame; SovHubChangeNotSaved on failure). While editing, the states are the simulation's
   // (UpdateEffectiveStatesForUpgrades with unsaved changes: a lacking one shows Offline). Closing with unsaved changes
   // asks ConfirmCloseSovHubWnd.
-  // Not here yet: dropping new upgrades in, adding fuel, the workforce and access-list settings, Show on Map.
+  // The right's TransitCont (SectionWorkforceTransport): the configured mode's label, GetWorkforceTransportDesc, the
+  // import sources with their amounts (SourceSystemNotConnected / NotSendingWorkforce), and SectionEdit opening
+  // EditTransitCont: SectionWorkforceTransportSettings, WorceforceMode (Import, Export, Transit - the idle mode is not
+  // offered), for export WorkforceTransitAmount and WorkforceTransitReceiver, for import WorkforceTransitSenderNum 1-3
+  // (each SectionACLNotSet or a networkable hub's system - GetNetworkableHubs, less the inactive, the transiting, the
+  // importing ones for an import and the exporting for an export, one exporting elsewhere, a full importer; and less
+  // the other senders' choices); SectionEditApply (enabled where the choice differs: an export needs an amount) asks
+  // ConfirmWorkforceChanged {infoText: WorkforceChangeFrom<old>, confirmText: WorkforceChangeTo<new>} and sends
+  // ConfigureRequest.
+  // Not here yet: dropping new upgrades in, the access-list setting, Show on Map.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, MySovHub, SovHubDetails, SovHubExtras, SovHubUpgrade } from "../app/flow.ts";
@@ -35,7 +44,11 @@
   const COLUMNS = ["ColumnPriority", "ColumnUpgrade", "ColumnPowerAllocation", "ColumnWorkforceAllocation", "ColumnUpkeep", "ColumnStartupCost", "", "ColumnState"];
   const LABELS = [...COLUMNS.filter(Boolean).map((k) => W + k), W + "SovHub", W + "SovHubName", W + "NumUpgradesOnline", W + "NumUpgradesInstalled", W + "SaveChanges", W + "FuelLevels",
     W + "StartupCostHeader", W + "ProceedBtn", W + "ConfigurationSuccessfullySaved", W + "ConfigurationSavedNotSame", U + "FailedToRemoveUpgrade", U + "MoveUpgrades",
-    U + "DeleteUpgrade", U + "LackingResourcesHint", U + "NoUpgradesInstalled", U + "DropUpgradesToAdd", U + "ExtraAmount", U + "ConsumptionPerHour", U + "PendingPowerState", U + "LowPowerState", U + "UnknownPowerState",
+    U + "DeleteUpgrade", U + "LackingResourcesHint", W + "SectionWorkforceTransport", W + "SectionEdit", W + "SectionWorkforceTransportSettings", W + "WorceforceMode",
+    W + "WorkforceTransitAmount", W + "WorkforceTransitReceiver", W + "WorkforceTransitSenderNum", W + "SectionACLNotSet", W + "SectionEditApply", W + "SourceSystemNotConnected",
+    W + "SourceSystemNotSendingWorkforce", W + "WorkforceIdle", W + "WorkforceImport", W + "WorkforceExport", W + "WorkforceTransit", "UI/Sovereignty/SovHub/UnknownWorkforceMode",
+    ...["Transit", "Import", "Export", "Inactive"].flatMap((k) => [W + "WorkforceChangeFrom" + k, W + "WorkforceChangeTo" + k]),
+    ...["Inactive", "Import", "Export", "ExportNoConnection", "ExportNotConfigured", "Transit"].map((k) => U + "WorkforceTransport" + k), U + "NoUpgradesInstalled", U + "DropUpgradesToAdd", U + "ExtraAmount", U + "ConsumptionPerHour", U + "PendingPowerState", U + "LowPowerState", U + "UnknownPowerState",
     "UI/Common/Online", "UI/Common/Offline", "UI/Sovereignty/Power", "UI/Sovereignty/Workforce", "Tooltips/StructureUI/SovHubRedFuelState", "Tooltips/StructureUI/SovHubRedResourceState",
     "Tooltips/StructureUI/SovHubRedPowerState", "Tooltips/StructureUI/SovHubRedWorkforceState", "Tooltips/StructureUI/SovHubOnlineUpgrade", "Tooltips/StructureUI/SovHubOfflineUpgrade",
     ...COLUMNS.filter(Boolean).map((k) => "Tooltips/StructureUI/SovHub" + ({ ColumnPriority: "Priority", ColumnUpgrade: "InstalledUpgrades", ColumnPowerAllocation: "Allocation", ColumnWorkforceAllocation: "Allocation", ColumnUpkeep: "Upkeep", ColumnStartupCost: "Startup", ColumnState: "State" } as Record<string, string>)[k])];
@@ -75,6 +88,66 @@
       if (before === after) flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", word(W + "ConfigurationSuccessfullySaved")]] } as never, word(W + "ConfigurationSuccessfullySaved"));
       else flow.sayDialog("CustomInfo", { type: "dict", entries: [["info", word(W + "ConfigurationSavedNotSame")]] } as never, word(W + "ConfigurationSavedNotSame"));
       await onChanged();
+    } finally { busy = false; }
+  }
+  // WorkforceController's texts for the configured mode and the state.
+  const MODE_LABELS: Record<string, string> = { inactive: W + "WorkforceIdle", import_settings: W + "WorkforceImport", export_settings: W + "WorkforceExport", transit: W + "WorkforceTransit" };
+  const sysName = (id: number) => nameAny("system", id) || String(id);
+  const transport = $derived.by(() => {
+    const c = extras?.configuration, w = details?.workforce;
+    if (!c) return { mode: word("UI/Sovereignty/HubPage/NotAvailable", { color: "" }) || "N/A", desc: "", sources: [] as { name: string; amount: number | null }[] };
+    const mode = c.mode ? word(MODE_LABELS[c.mode]!) : word("UI/Sovereignty/SovHub/UnknownWorkforceMode");
+    if (!w) return { mode, desc: "", sources: [] };
+    const T = U + "WorkforceTransport";
+    if (c.mode === "inactive") return { mode, desc: word(T + "Inactive"), sources: [] };
+    if (c.mode === "transit") return { mode, desc: word(T + "Transit"), sources: [] };
+    if (c.mode === "import_settings") {
+      const got = new Map(w.imports);
+      return { mode, desc: word(T + "Import", { amount: w.imports.reduce((n, [, a]) => n + a, 0), solarSystemNames: "" }),
+        sources: [...w.imports.map(([id, a]) => ({ name: sysName(id), amount: a })), ...c.sources.filter((id) => !got.has(id)).map((id) => ({ name: sysName(id), amount: null }))] };
+    }
+    if (w.exportTo) return { mode, desc: word(T + "Export", { amount: w.exportAmount, solarSystemName: sysName(w.exportTo) }), sources: [] };
+    if (c.exportTo) return { mode, desc: word(T + "ExportNoConnection", { amount: c.exportAmount, solarSystemName: sysName(c.exportTo) }), sources: [] };
+    return { mode, desc: word(T + "ExportNotConfigured", { amount: w.exportAmount }), sources: [] };
+  });
+  // EditTransitCont.
+  type Mode = "inactive" | "transit" | "import_settings" | "export_settings";
+  let editing = $state(false), editMode = $state<Mode>("transit"), amount = $state(0), receiver = $state<number | null>(null), senders = $state<(number | null)[]>([null, null, null]);
+  let networkable = $state<Awaited<ReturnType<AppFlow["sovHubNetworkableHubs"]>>>(null);
+  async function openEdit(): Promise<void> {
+    const c = extras?.configuration;
+    editMode = c?.mode && c.mode !== "inactive" ? c.mode : c?.mode === "inactive" ? "inactive" : "transit";
+    amount = c?.mode === "export_settings" ? c.exportAmount : 0; receiver = c?.mode === "export_settings" ? c.exportTo : null;
+    senders = [0, 1, 2].map((i) => (c?.mode === "import_settings" ? c.sources[i] ?? null : null));
+    editing = true;
+    networkable = await flow.sovHubNetworkableHubs(hub.hubID);
+  }
+  // _FilterOutHub.
+  function options(importing: boolean, others: readonly (number | null)[]): number[] {
+    return (networkable ?? []).filter((h) => {
+      if (h.mode === "inactive" || h.mode === "transit") return false;
+      if (importing && h.mode === "import_settings") return false;
+      if (!importing && h.mode === "export_settings") return false;
+      if (importing && h.exportTo && h.exportTo !== hub.solarSystemID) return false;
+      if (!importing && h.importSources.length >= 3 && !h.importSources.includes(hub.solarSystemID)) return false;
+      return !others.includes(h.systemID);
+    }).map((h) => h.systemID);
+  }
+  const applyEnabled = $derived.by(() => {
+    const c = extras?.configuration;
+    if (!c) return false;
+    if (c.mode === editMode && (editMode === "inactive" || editMode === "transit")) return false;
+    if (editMode === "export_settings") { if (!amount) return false; if (c.mode === "export_settings" && amount === c.exportAmount && receiver === c.exportTo) return false; }
+    if (editMode === "import_settings" && c.mode === "import_settings") { const a = new Set(senders.filter((x): x is number => x !== null)), b = new Set(c.sources); if (a.size === b.size && [...a].every((x) => b.has(x))) return false; }
+    return true;
+  });
+  async function applyTransport(): Promise<void> {
+    const old = extras?.configuration?.mode ?? "inactive", NAMES: Record<string, string> = { transit: "Transit", import_settings: "Import", export_settings: "Export", inactive: "Inactive" };
+    const ok = await flow.askClientDialogWith("ConfirmWorkforceChanged", { infoText: word(W + "WorkforceChangeFrom" + NAMES[old], { systemName: hub.systemName }), confirmText: word(W + "WorkforceChangeTo" + NAMES[editMode], { systemName: hub.systemName }) }, "Change the workforce transport?");
+    if (!ok) return;
+    busy = true;
+    try {
+      if (await flow.configureSovHubWorkforce(hub.hubID, { mode: editMode, sources: senders.filter((x): x is number => x !== null), exportTo: receiver, amount })) { editing = false; await onChanged(); }
     } finally { busy = false; }
   }
   async function close(): Promise<void> {
@@ -180,6 +253,30 @@
           <div class="hw-res"><span><b>{n(use)}</b> <span class="hw-dim">/ {n(avail)}</span></span><span class="hw-dim">{n(max)}</span></div>
           <div class="hw-gauge"><i class="avail" style:width={`${max ? Math.min(1, (avail + exported) / max) * 100 : 0}%`}></i><i class="avail2" style:width={`${max ? Math.min(1, avail / max) * 100 : 0}%`}></i><i class="use" style:width={`${max ? Math.min(1, use / max) * 100 : 0}%`}></i></div>
         {/each}
+        <div class="hw-section">
+          <div class="hw-section-head"><small class="hw-dim">{word(W + "SectionWorkforceTransport")}</small></div>
+          <div class="hw-section-state"><span>⚇ <b>{transport.mode}</b></span><button class="hw-edit" onclick={() => void openEdit()}>{word(W + "SectionEdit")}</button></div>
+          <small class="hw-dim">{transport.desc}</small>
+          <div class="hw-sources">{#each transport.sources as src (src.name)}<span title={src.amount === null ? word(W + "SourceSystemNotConnected") : !src.amount ? word(W + "SourceSystemNotSendingWorkforce") : ""}>{src.amount ? `${src.name} (${src.amount})` : `⚠ ${src.name}`}</span>{/each}</div>
+          {#if editing}
+            <div class="hw-edit-pop" role="dialog">
+              <div>{word(W + "SectionWorkforceTransportSettings")}</div>
+              <label>{word(W + "WorceforceMode")}<select value={editMode} onchange={(e) => { editMode = e.currentTarget.value as Mode; }}>
+                {#each ["import_settings", "export_settings", "transit"] as const as m (m)}<option value={m}>{word(MODE_LABELS[m]!)}</option>{/each}</select></label>
+              {#if editMode === "export_settings"}
+                <label>{word(W + "WorkforceTransitAmount")}<input type="number" min="0" value={amount} oninput={(e) => { amount = Math.max(0, Math.floor(Number(e.currentTarget.value) || 0)); }} /></label>
+                <label>{word(W + "WorkforceTransitReceiver")}<select value={receiver === null ? "" : String(receiver)} onchange={(e) => { receiver = e.currentTarget.value ? Number(e.currentTarget.value) : null; }}>
+                  <option value="">{word(W + "SectionACLNotSet")}</option>{#each options(false, []) as id (id)}<option value={String(id)}>{sysName(id)}</option>{/each}</select></label>
+              {:else if editMode === "import_settings"}
+                {#each [0, 1, 2] as i (i)}
+                  <label>{word(W + "WorkforceTransitSenderNum", { senderNum: i + 1 })}<select value={senders[i] === null ? "" : String(senders[i])} onchange={(e) => { const next = [...senders]; next[i] = e.currentTarget.value ? Number(e.currentTarget.value) : null; senders = next; }}>
+                    <option value="">{word(W + "SectionACLNotSet")}</option>{#each [...(senders[i] !== null ? [senders[i]!] : []), ...options(true, senders.filter((x, j) => j !== i && x !== null))].filter((v, k, a) => a.indexOf(v) === k) as id (id)}<option value={String(id)}>{sysName(id)}</option>{/each}</select></label>
+                {/each}
+              {/if}
+              <div class="hw-edit-buttons"><button disabled={!applyEnabled || busy} onclick={() => void applyTransport()}>{word(W + "SectionEditApply")}</button><button onclick={() => { editing = false; }}>✕</button></div>
+            </div>
+          {/if}
+        </div>
         <small class="hw-dim">{word(W + "FuelLevels")}</small>
         <div class="hw-fuels">
           {#each [81143, 81144] as typeID (typeID)}
@@ -217,6 +314,14 @@
   .hw-move button:disabled, .hw-trash:disabled { opacity: 0.2; cursor: default; }
   .hw-state { display: flex; justify-content: space-between; }
   .hw-trash { font-size: 12px; }
+  .hw-section { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 4px 0 20px; }
+  .hw-section-state { display: flex; justify-content: space-between; align-items: center; }
+  .hw-edit { all: unset; cursor: pointer; color: #58a6dc; }
+  .hw-sources { display: flex; flex-wrap: wrap; gap: 10px; }
+  .hw-edit-pop { position: absolute; right: 0; top: 100%; z-index: 3; width: 260px; padding: 8px; display: flex; flex-direction: column; gap: 4px; background: #23262b; border: 1px solid rgba(255, 255, 255, 0.2); }
+  .hw-edit-pop label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .hw-edit-pop select, .hw-edit-pop input { width: 140px; }
+  .hw-edit-buttons { display: flex; justify-content: center; gap: 6px; padding-top: 6px; }
   .hw-buttons { display: flex; justify-content: flex-end; padding-top: 8px; }
   .hw-right { width: 300px; flex: none; display: flex; flex-direction: column; gap: 4px; }
   .hw-res { display: flex; justify-content: space-between; align-items: baseline; }

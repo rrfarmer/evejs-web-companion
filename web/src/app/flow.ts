@@ -2718,6 +2718,12 @@ export interface AppFlow {
   reagentStacks(): Promise<{ readonly cargo: readonly { readonly itemID: number; readonly typeID: number; readonly quantity: number }[]; readonly resourceHold: readonly { readonly itemID: number; readonly typeID: number; readonly quantity: number }[] } | null>;
   /** sovHubSvc.AddFuel: fuel AddRequest(fuel_item, amount, hub); the HTTP status (200 when added). */
   addSovHubFuel(hubID: number, itemID: number, amount: number): Promise<number>;
+  /** WorkforceController.GetNetworkableHubs: GetNetworkableHubsRequest's hubs - each one's system and its workforce
+   * state (the mode, the import sources' systems, the export destination); null where the read failed. */
+  sovHubNetworkableHubs(hubID: number): Promise<readonly { readonly hubID: number; readonly systemID: number; readonly mode: "inactive" | "transit" | "import_settings" | "export_settings" | null; readonly importSources: readonly number[]; readonly exportTo: number | null }[] | null>;
+  /** SetWorkforceConfiguration: ConfigureRequest(hub, configuration - inactive, transit, import_settings {sources} or
+   * export_settings {destination_system or no_destination, amount}); true when done. */
+  configureSovHubWorkforce(hubID: number, config: { readonly mode: "inactive" | "transit" | "import_settings" | "export_settings"; readonly sources?: readonly number[]; readonly exportTo?: number | null; readonly amount?: number }): Promise<boolean>;
   /** CapitalButton / UpdateCapitalSystem: SetCapitalSystem(solarSystemID); RemoveCapital: CancelCapitalSystemTransition. */
   allianceCapital(action: "set" | "cancel", solarSystemID?: number): Promise<boolean>;
   /** The prime-time menu's Set: the alliance moniker's SetPrimeHour(hour). */
@@ -18853,6 +18859,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const pick = (flag: number) => reagents.filter((i) => i.flagID === flag).map((i) => ({ itemID: i.itemID, typeID: i.typeID, quantity: i.quantity }));
     return { cargo: pick(5), resourceHold: pick(185) };
   }
+  async function sovHubNetworkableHubs(hubID: number): Promise<readonly { readonly hubID: number; readonly systemID: number; readonly mode: "inactive" | "transit" | "import_settings" | "export_settings" | null; readonly importSources: readonly number[]; readonly exportTo: number | null }[] | null> {
+    const a = await api.publicGatewayRequest("eve_public.sovereignty.hub.workforce.api.GetNetworkableHubsRequest", { hub: { sequential: hubID } }, callOptions).catch(() => null);
+    if (!a || a.statusCode !== 200) return null;
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const list = (value: unknown) => (Array.isArray(value) ? value : []) as unknown[];
+    const int = (value: unknown) => Number(typeof value === "string" || typeof value === "number" ? value : 0) || 0;
+    const hubs = list(record(a.payload).hubs).map((h) => {
+      const r = record(h), st = record(r.state), exp = record(record(st.export_state).connected);
+      const mode = st.inactive ? "inactive" as const : st.transit !== undefined ? "transit" as const : st.import_state !== undefined ? "import_settings" as const : st.export_state !== undefined ? "export_settings" as const : null;
+      return { hubID: int(record(r.hub).sequential), systemID: int(record(r.system).sequential), mode,
+        importSources: list(record(st.import_state).sources).map((s) => int(record(record(s).source).sequential)), exportTo: exp.destination_system !== undefined ? int(record(exp.destination_system).sequential) || null : null };
+    });
+    await memberNames(captureMemberOperation(), hubs.map((h) => ({ kind: "system" as const, id: h.systemID })));
+    return hubs;
+  }
+  async function configureSovHubWorkforce(hubID: number, config: { readonly mode: "inactive" | "transit" | "import_settings" | "export_settings"; readonly sources?: readonly number[]; readonly exportTo?: number | null; readonly amount?: number }): Promise<boolean> {
+    const configuration = config.mode === "inactive" ? { inactive: true } : config.mode === "transit" ? { transit: true }
+      : config.mode === "import_settings" ? { import_settings: { sources: (config.sources ?? []).map((sequential) => ({ source: { sequential } })) } }
+      : { export_settings: { ...(config.exportTo ? { destination_system: { sequential: config.exportTo } } : { no_destination: true }), amount: config.amount ?? 0 } };
+    const a = await api.publicGatewayRequest("eve_public.sovereignty.hub.workforce.api.ConfigureRequest", { hub: { sequential: hubID }, configuration } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    return Boolean(a && a.statusCode === 200);
+  }
   async function addSovHubFuel(hubID: number, itemID: number, amount: number): Promise<number> {
     const a = await api.publicGatewayRequest("eve_public.sovereignty.hub.fuel.api.AddRequest", { fuel_item: { sequential: itemID }, amount, hub: { sequential: hubID } } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
     return a ? a.statusCode : 0;
@@ -32567,6 +32595,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     uninstallSovHubUpgrade,
     reagentStacks,
     addSovHubFuel,
+    sovHubNetworkableHubs,
+    configureSovHubWorkforce,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },

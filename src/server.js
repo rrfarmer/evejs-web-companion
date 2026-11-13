@@ -14584,6 +14584,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.sovereignty.hub.workforce.api.GetStateRequest",
   // The expanded row's TransitCont (WorkforceController.workforceConfiguration: get_configuration).
   "eve_public.sovereignty.hub.workforce.api.GetConfigurationRequest",
+  // EditTransitCont's systems (WorkforceController.GetNetworkableHubs - get_networkable_hubs).
+  "eve_public.sovereignty.hub.workforce.api.GetNetworkableHubsRequest",
   "eve_public.sovereignty.resource.planet.api.GetAllDefinitionsRequest",
   "eve_public.sovereignty.resource.star.api.GetAllConfigurationsRequest",
 ]);
@@ -14607,6 +14609,8 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.sovereignty.hub.upgrade.api.UninstallRequest",
   // The reagent bay's Deposit (ReagentBayWndController.DoDepositItems - sovHubSvc.AddFuel: fuel AddRequest).
   "eve_public.sovereignty.hub.fuel.api.AddRequest",
+  // EditTransitCont's Apply (WorkforceController.SetWorkforceConfiguration - configure: ConfigureRequest).
+  "eve_public.sovereignty.hub.workforce.api.ConfigureRequest",
   "eve_public.goal.api.DeleteRequest",
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).
