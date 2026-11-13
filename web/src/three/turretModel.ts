@@ -68,6 +68,8 @@ const AXIS_X = new THREE.Vector3(1, 0, 0), AXIS_Y = new THREE.Vector3(0, 1, 0);
 export class TurretRig {
   readonly root = new THREE.Group();
   readonly bones: THREE.Object3D[] = [];
+  /** Its part meshes, in its prototype's order (each drawn through its set's instanced mesh: instanceSet). */
+  readonly parts: THREE.Mesh[] = [];
   private readonly rest: { p: THREE.Vector3; q: THREE.Quaternion }[] = [];
   readonly muzzles: THREE.Object3D[] = [];
   /** The last target aimed at (the turret's own space), kept while the influence fades out. */
@@ -285,11 +287,48 @@ function rigOf(info: TurretModelInfo, parts: TurretParts): TurretRig {
     if (inv) holder.matrix.fromArray(inv);
     const mirror = new THREE.Group();
     mirror.scale.set(1, 1, -1);
-    for (const m of meshes) mirror.add(m.clone());
+    for (const m of meshes) { const c = m.clone(); rig.parts.push(c); mirror.add(c); }
     holder.add(mirror);
     (node ?? rig.root).add(holder);
   }
   return rig;
+}
+
+/**
+ * EveTurretSet's drawing: a set's turrets instanced - one draw per part for all of them (EveTurretSet.cpp
+ * InitializeInstanceBuffer: an instance buffer of one index per turret, each turret's bones read by it). Here each part
+ * one InstancedMesh, each instance's matrix its rig's own clone of the part's world matrix (the rigs still pose and aim
+ * apart, their clones kept in the tree, not drawn), set once a frame as it is first drawn. Its holder is mirrored back
+ * (the turrets' group is mirrored in z, the clones twice: the instances' winding as the clones').
+ */
+function instanceSet(group: THREE.Group, rigs: TurretRig[]): void {
+  const count = rigs[0]!.parts.length;
+  if (!count || rigs.some((r) => r.parts.length !== count)) return;
+  const holder = new THREE.Group();
+  holder.name = "turret-instances";
+  holder.scale.set(1, 1, -1);
+  group.add(holder);
+  const inverse = new THREE.Matrix4(), m = new THREE.Matrix4();
+  for (let k = 0; k < count; k++) {
+    const proto = rigs[0]!.parts[k]!;
+    const mesh = new THREE.InstancedMesh(proto.geometry, proto.material, rigs.length);
+    mesh.frustumCulled = false;
+    mesh.castShadow = proto.castShadow;
+    mesh.receiveShadow = proto.receiveShadow;
+    mesh.renderOrder = proto.renderOrder;
+    const clones = rigs.map((r) => r.parts[k]!);
+    for (const c of clones) c.visible = false;
+    let frame = -1;
+    mesh.onBeforeRender = (renderer) => {
+      const f = renderer.info.render.frame;
+      if (f === frame) return;
+      frame = f;
+      inverse.copy(holder.matrixWorld).invert();
+      clones.forEach((c, i) => mesh.setMatrixAt(i, m.multiplyMatrices(inverse, c.matrixWorld)));
+      mesh.instanceMatrix.needsUpdate = true;
+    };
+    holder.add(mesh);
+  }
 }
 
 const LOCATOR_TURRET = "locator_turret_";
@@ -431,6 +470,7 @@ export async function buildTurrets(hull: HullTurretData, fits: readonly TurretFi
           setRigs.push(rig);
         }
         if (setRigs.length) sets.push({ state: new TurretSetState(setRigs, info.maxCyclingFirePos ?? 1, info.useRandomFiringDelay !== false, info.maxTrackingTime ?? 1), moduleID: fit.moduleID ?? null });
+        if (setRigs.length > 1) instanceSet(group, setRigs);
       }));
     }
   }
