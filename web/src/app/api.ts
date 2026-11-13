@@ -5770,6 +5770,12 @@ export interface PublicGatewayAnswer {
  * One of the client's eve_public requests made on the public gateway for the page's pilot (the BFF's
  * POST /api/public-gateway/request), as its client makes it; a write with confirm said.
  */
+/** GET /api/client-data/contribution-methods: the corporation projects' contribution methods, by key (contributionMethods.fsdbinary). */
+export async function loadContributionMethods(options: ApiOptions = {}): Promise<Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string; readonly unit?: number }>> | null> {
+  const data = await getJson("/api/client-data/contribution-methods", options);
+  return data.available && data.methods && typeof data.methods === "object" ? data.methods as Record<string, { titleID?: number; descriptionID?: number; icon?: string; unit?: number }> : null;
+}
+
 export async function publicGatewayRequest(request: string, payload: Record<string, JsonValue>, options: ApiOptions & { confirm?: boolean } = {}): Promise<PublicGatewayAnswer> {
   const data = await postJson("/api/public-gateway/request", { request, payload, ...(options.confirm ? { confirm: true } : {}) }, options);
   return {

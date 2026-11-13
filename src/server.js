@@ -13997,6 +13997,16 @@ app.get("/api/client-data/config-enabled-values", requireAuth, async (req, res, 
 });
 
 // CorpMemberTracking._GetRoleOptions / GetRoleGroupings: installed role data; bco_members also uses appConst's locational set.
+// The corporation projects' contribution methods as the client's built data has them (contributionMethods.fsdbinary,
+// goals/client/contributionMethods.py: a method's title is GetByMessageID(titleID)). `available` false where the
+// client's data could not be read. No session: they do not vary by player.
+app.get("/api/client-data/contribution-methods", requireAuth, async (req, res, next) => {
+  try {
+    const methods = await clientBuiltData.table("contributionMethods");
+    res.json({ ok: true, available: methods !== null, methods });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/client-data/corporation-roles", requireAuth, async (req, res, next) => {
   try {
     const [roles, groups, locationalRoles] = await Promise.all([clientBuiltData.table("corporationRoles"), clientBuiltData.table("corporationRoleGroups"), clientConstants.corporationRoleLocations()]);
@@ -14504,6 +14514,13 @@ const PUBLIC_GATEWAY_READS = new Set([
   // cosmetics/client/messengers/entitlements/corporation/structure/requestMessenger.get_for_corporation: Brand
   // Management's Details (CorpStructureDesignPanel), the corporation's structure SKINR licences.
   "eve_public.cosmetic.structure.paintwork.license.api.GetAllOwnedByCorporationRequest",
+  // corporation/client/goals/goalMessenger.py: the Projects panel's reads (CorpGoalsController).
+  "eve_public.corporationgoal.api.GetActiveRequest",
+  "eve_public.corporationgoal.api.GetInactiveRequest",
+  "eve_public.corporationgoal.api.GetMineWithRewardsRequest",
+  "eve_public.corporationgoal.api.GetMyContributorSummaryForGoalRequest",
+  "eve_public.goal.api.GetRequest",
+  "eve_public.goal.api.GetCapacityRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.

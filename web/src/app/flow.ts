@@ -494,6 +494,20 @@ export interface CorporationStructureLicense {
   readonly structureID: number; readonly name: string; readonly typeID: number; readonly upkeepState: number;
   readonly solarSystemID: number; readonly licenseID: string; readonly remainingSeconds: number;
 }
+/** A corporation project as goal_formatter makes it (times in ms), with the pilot's progress and unclaimed reward. */
+export interface CorporationGoal {
+  readonly goalID: string; readonly name: string; readonly description: string; readonly state: number;
+  readonly desired: number; readonly current: number; readonly creator: number; readonly created: number; readonly finished: number | null;
+  readonly due: number | null; readonly careerPath: number | null; readonly methodID: string | null;
+  readonly amountPerUnit: number | null; readonly participationLimit: number | null; readonly coverageLimit: number | null;
+  readonly myProgress: number; readonly myUnclaimed: number;
+}
+export interface CorporationGoals {
+  readonly active: readonly CorporationGoal[] | null; readonly inactive: readonly CorporationGoal[] | null;
+  readonly unclaimed: readonly string[]; readonly capacity: number | null; readonly canAuthor: boolean;
+  /** contributionMethods' messages by method key. */
+  readonly methods: Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string }>>;
+}
 /** One row of the wizard's lockdown / unlock list: the item, its stack, and a blueprint's levels (null for another item). */
 export interface CorporationVoteBlueprint {
   readonly itemID: number; readonly typeID: number; readonly quantity: number;
@@ -3302,6 +3316,12 @@ export interface AppFlow {
   proposeCorporationVote(vote: { readonly title: string; readonly description: string; readonly days: number }
     & ({ readonly voteType: 2; readonly shares: number } | { readonly voteType: 3; readonly memberID: number; readonly memberName: string } | { readonly voteType: 4; readonly options: readonly string[] }
       | { readonly voteType: 5 | 6; readonly itemID: number; readonly typeID: number; readonly locationID: number })): Promise<boolean>;
+  /** CorpUIProjects' GoalsBrowser (CorpGoalsController): the active goals (GetActiveRequest pages of 25, each goal's
+   * GetRequest and the pilot's GetMyContributorSummaryForGoalRequest), the goals the pilot has rewards on
+   * (GetMineWithRewardsRequest), the goals that ended in a timespan (GetInactiveRequest: null - the last 30 days, n -
+   * the calendar month n months ago; get_timespan_by_option), and, for a project manager (corpRoleDirector |
+   * corpRoleProjectManager), GetCapacityRequest's capacity. Each goal as goal_formatter makes it. */
+  corporationGoals(monthsSince: number | null): Promise<CorporationGoals>;
   /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
    * GetAccessibleHangars (flagCorpSAGs whose corpHangarQueryRolesByFlag bit the pilot holds, named by GetDivisionNames
    * [division + 1]) and an office there (else NoCorpHangarAvailable); the flag asked or the first; GetBlueprints(flag) -
@@ -18431,6 +18451,75 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
     return true;
   }
+  // goalMessengerUtil._find_contribution_method_id: the configuration's field, the method it is.
+  const CONTRIBUTION_FIELDS: readonly [string, string][] = [["manual", "Manual"], ["deliver_item", "DeliverItem"], ["kill_npc", "KillNPC"], ["mine_ore", "MineOre"],
+    ["mined_ore", "MineOre"], ["damage_ship", "DamageShip"], ["damaged_ship", "DamageShip"], ["destroy_player_ship", "KillCapsuleer"], ["pvp_destroyed_ship", "KillCapsuleer"],
+    ["fw_capture", "CaptureFWComplex"], ["fw_defend", "DefendFWComplex"], ["remote_shield_repair", "RemoteRepairShields"], ["remote_armor_repair", "RemoteRepairArmor"],
+    ["scan_signature", "ScanSignature"], ["install_manufacturing_job", "ManufactureItem"], ["complete_goal", "CompleteGoal"], ["salvage_wreck", "SalvageWreck"],
+    ["earn_loyalty_points", "EarnLoyaltyPoints"], ["earned_loyaltypoints", "EarnLoyaltyPoints"], ["ship_lost_pvp", "ShipLoss"], ["ship_insurance", "ShipInsurance"]];
+  // goalConst.CAREER_PATH_IDS: the proto's career, the client's career path.
+  const GOAL_CAREER_PATHS = [null, 4, 5, 6, 7];
+  let contributionMethodsHeld: CorporationGoals["methods"] | null = null;
+  async function corporationGoals(monthsSince: number | null): Promise<CorporationGoals> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (value: unknown) => Number(typeof value === "string" ? value : typeof value === "number" ? value : 0) || 0;
+    // The gateway's answer names an enum's value (eve_public.goal.State, Attributes.Career); a number is kept as it is.
+    const STATES = ["STATE_UNSPECIFIED", "STATE_ACTIVE", "STATE_CLOSED", "STATE_COMPLETED", "STATE_EXPIRED"];
+    const CAREERS = ["CAREER_UNSPECIFIED", "CAREER_EXPLORER", "CAREER_INDUSTRIALIST", "CAREER_ENFORCER", "CAREER_SOLDIER_OF_FORTUNE"];
+    const enumOf = (value: unknown, names: readonly string[]) => (typeof value === "string" && names.includes(value) ? names.indexOf(value) : int(value));
+    const time = (value: unknown) => { const t = record(value); return t.seconds === undefined && t.nanos === undefined ? null : int(t.seconds) * 1000 + Math.floor(int(t.nanos) / 1e6); };
+    const ask = async (request: string, payload: Record<string, JsonValue>) => { const a = await api.publicGatewayRequest(request, payload, callOptions); scope.current(); return a; };
+    const ids = async (request: string, payload: Record<string, JsonValue>, key: string): Promise<string[]> => {
+      const out: string[] = []; let token = "";
+      for (let i = 0; i < 40; i++) {
+        const a = await ask(request, { ...payload, page: { size: 25, token } });
+        if (a.statusCode !== 200) throw new Error(a.statusMessage || `${request} was answered ${a.statusCode}.`);
+        const p = record(a.payload);
+        for (const id of Array.isArray(p[key]) ? p[key] as unknown[] : []) { const u = uuidFromBytes(String(record(id).uuid ?? "")); if (u) out.push(u); }
+        token = String(record(p.next_page).token ?? "");
+        if (!token) break;
+      }
+      return out;
+    };
+    const goal = async (goalID: string): Promise<CorporationGoal | null> => {
+      const a = await ask("eve_public.goal.api.GetRequest", { goal: { uuid: bytesFromUuid(goalID) } });
+      if (a.statusCode !== 200) return null;
+      const g = record(record(a.payload).goal), config = record(g.contribution_config);
+      const payment = Array.isArray(g.payment) ? record(g.payment[0]) : {};
+      const amount = record(record(payment.unit).amount);
+      const summary = await ask("eve_public.corporationgoal.api.GetMyContributorSummaryForGoalRequest", { goal: { uuid: bytesFromUuid(goalID) } });
+      const s = summary.statusCode === 200 ? record(record(summary.payload).summary) : {};
+      const earnings = Array.isArray(s.earnings) ? s.earnings : [];
+      return {
+        goalID, name: String(g.user_input_name ?? ""), description: String(g.user_input_description ?? ""), state: enumOf(g.state, STATES),
+        desired: int(record(g.progress).desired), current: int(record(g.progress).current), creator: int(record(g.creator).sequential),
+        created: time(g.created) ?? 0, finished: g.finished !== undefined ? time(g.finished) : null, due: g.due !== undefined ? time(g.due) : null,
+        careerPath: GOAL_CAREER_PATHS[enumOf(g.career, CAREERS)] ?? null, methodID: CONTRIBUTION_FIELDS.find(([field]) => config[field] !== undefined)?.[1] ?? null,
+        amountPerUnit: payment.unit !== undefined ? int(amount.units) + int(amount.nanos) / 1e9 : null,
+        participationLimit: g.unlimited !== undefined || g.limit === undefined ? null : int(g.limit),
+        coverageLimit: g.contribution_unlimited !== undefined || g.contribution_limit === undefined ? null : int(g.contribution_limit),
+        myProgress: int(s.progress), myUnclaimed: earnings.length ? int(record(record(earnings[0]).quantity).total) : 0,
+      };
+    };
+    const canAuthor = (BigInt(online.corpRole ?? "0") & (1n | 1152921504606846976n)) !== 0n;
+    // get_timespan_by_option.
+    const now = new Date();
+    let start: number, duration: number;
+    if (monthsSince === null) { start = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000) - 30 * 86400; duration = Math.floor(Date.now() / 1000) - start; }
+    else { const s = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsSince, 1) / 1000, e = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsSince + 1, 1) / 1000; start = s; duration = e - s; }
+    let active: CorporationGoal[] | null = null, inactive: CorporationGoal[] | null = null;
+    try { active = (await Promise.all((await ids("eve_public.corporationgoal.api.GetActiveRequest", {}, "goal_ids")).map(goal))).filter((g): g is CorporationGoal => g !== null); } catch { active = null; }
+    try { inactive = (await Promise.all((await ids("eve_public.corporationgoal.api.GetInactiveRequest", { ended_timespan: { start_time: { seconds: start }, duration: { seconds: duration } } }, "goal_ids")).map(goal))).filter((g): g is CorporationGoal => g !== null); } catch { inactive = null; }
+    const unclaimed = await ids("eve_public.corporationgoal.api.GetMineWithRewardsRequest", {}, "identifiers").catch(() => []);
+    let capacity: number | null = null;
+    if (canAuthor) { const c = await ask("eve_public.goal.api.GetCapacityRequest", {}); if (c.statusCode === 200) capacity = int(record(c.payload).capacity); }
+    contributionMethodsHeld ??= await api.loadContributionMethods(callOptions).catch(() => null) ?? {};
+    const methods = contributionMethodsHeld;
+    requestWords(Object.values(methods).flatMap((m) => [m.titleID, m.descriptionID].filter((id): id is number => typeof id === "number").map((id) => `#${id}`)));
+    await memberNames(scope, [...new Set([...(active ?? []), ...(inactive ?? [])].map((g) => g.creator).filter((id) => id > 0))].map((id) => ({ kind: "owner" as const, id })));
+    return { active, inactive, unclaimed, capacity, canAuthor, methods };
+  }
   async function corporationVoteBlueprints(kind: "lockdown" | "unlock", flag: number | null): Promise<CorporationVoteBlueprints> {
     const scope = captureMemberOperation(), online = scope.online;
     const locationID = Number(online.stationID ?? online.structureID ?? 0);
@@ -31755,6 +31844,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     runForCEO,
     proposeCorporationVote,
     corporationVoteBlueprints,
+    corporationGoals,
     corporationMembersWithMoreThanAvgShares,
     requestCorpLogos,
     loadOwnerLogos,

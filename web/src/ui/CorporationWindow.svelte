@@ -30,6 +30,7 @@
   import CorporationAutoKicks from "./CorporationAutoKicks.svelte";
   import CorporationAuditing from "./CorporationAuditing.svelte";
   import CorporationVotes from "./CorporationVotes.svelte";
+  import CorporationProjects from "./CorporationProjects.svelte";
   import CorporationSanctionableActions from "./CorporationSanctionableActions.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
   import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
@@ -47,7 +48,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -138,6 +139,7 @@
     "UI/Corporations/BaseCorporationUI/Auditing": "Auditing",
     "UI/Corporations/BaseCorporationUI/Voting": "Voting",
     "UI/Corporations/BaseCorporationUI/Votes": "Votes",
+    "UI/Corporations/Goals/Projects": "Projects",
     "UI/Corporations/BaseCorporationUI/SanctionableActions": "Sanctionable Actions",
     "UI/Corporations/BaseCorporationUI/TitleManagement": "Titles",
     "UI/Corporations/BaseCorporationUI/RoleManagement": "Role Management",
@@ -222,7 +224,9 @@
       ];
     }
     return [
+      // construct_corporation_general_panels: Projects first, for a player corporation.
       { header: "UI/Generic/General", entries: [
+        ...(playerCorporation ? [{ id: "projects" as const, label: "UI/Corporations/Goals/Projects" }] : []),
         { id: "home", label: "UI/Fleet/FleetRegistry/MyCorporation" }, { id: "kills", label: "UI/Corporations/Wars/Killmails/KillReports" },
         ...(playerCorporation ? [{ id: "bulletins" as const, label: "UI/Corporations/CorpUIHome/Bulletins" }] : []),
       ] },
@@ -328,6 +332,7 @@
       {#if panel === "autoKicks"}<CorporationAutoKicks {store} {flow} />{/if}
       {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
       {#if panel === "votes"}<CorporationVotes {store} {flow} />{/if}
+      {#if panel === "projects"}<CorporationProjects {store} {flow} />{/if}
       {#if panel === "sanctionable"}<CorporationSanctionableActions {store} {flow} />{/if}
       {#if panel === "titles"}<CorporationTitles {store} {flow} />{/if}
       {#if panel === "roleManagement"}<CorporationRoleManagement {store} {flow} />{/if}

@@ -48,6 +48,9 @@ const TABLES = Object.freeze({
   // as messages; a type's mask bit is 2 to the power of its number.
   recruitmentGroups: Object.freeze({ loader: "recruitmentGroupsLoader", resource: "res:/staticdata/recruitmentgroups.fsdbinary" }),
   recruitmentTypes: Object.freeze({ loader: "recruitmentTypesLoader", resource: "res:/staticdata/recruitmenttypes.fsdbinary" }),
+  // The ways a corporation project is contributed to (goals/client/contributionMethodTypeLoader.py), by
+  // ContributionMethodTypes key: the title and description messages, icon, unit, parameters and content tags.
+  contributionMethods: Object.freeze({ loader: "contributionMethodsLoader", resource: "res:/staticdata/contributionmethods.fsdbinary" }),
   // A ship type's group in the client's ship tree (evetypes.GetShipGroupID: the type's isisGroupID), which the Ship
   // Restrictions window groups its hulls by. Only that attribute of the types is read: the table is too big to walk.
   typeShipGroups: Object.freeze({ loader: "typesLoader", resource: "res:/staticdata/types.fsdbinary", attribute: "isisGroupID" }),
