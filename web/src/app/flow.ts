@@ -441,6 +441,14 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** A ship class's kills in a war (warReport.killsByShipGroup's KeyVal). */
+export interface WarClassKills { readonly attackerKills: number; readonly defenderKills: number; readonly attackerKillsIsk: number; readonly defenderKillsIsk: number }
+/** eveCfg.GetShipGroupByClassType's ship groups (inventorycommon const), each to its class (GROUP_CAPSULES 0 ...
+ * GROUP_INDUSTRIALS 7); the starbase (8) and structure (9) classes go by category. */
+const SHIP_CLASS_BY_GROUP: ReadonlyMap<number, number> = new Map(Object.entries({
+  0: [29], 1: [31, 237, 25, 324, 830, 893, 1022, 831, 834, 1283, 1527], 2: [420, 541, 1305, 1534], 3: [26, 963, 906, 833, 358, 894, 832, 1972, 5087],
+  4: [27, 898, 900], 5: [419, 1201, 540, 4902], 6: [547, 5120, 883, 485, 30, 659, 1538, 4594], 7: [1202, 543, 513, 28, 941, 902, 463, 380],
+}).flatMap(([classID, groups]) => groups.map((g) => [g, Number(classID)] as const)));
 /** A mutual war invite (GetPendingInvitesForSession's KeyVal): from, to, when sent. */
 export interface MutualWarInvite { readonly fromOwnerID: number; readonly toOwnerID: number; readonly sentDate: bigint }
 /** A war negotiation (GetNegotiations' KeyVal): its parties - ownerID1 the offerer, ownerID2 the other -, ISK, text, state. */
@@ -2510,7 +2518,10 @@ export interface AppFlow {
   /** OnWarChanged's count (war_cso.OnWarChanged: corpUISignals.on_war_changed, CorpWars refreshing). */
   readonly warsChanged: ReadableSignal<number>;
   /** GetKillsScrollList: the statistics object's GetKills(entityID or None, shipGroup or None), the kills' owners primed. */
-  warReportKills(warID: number, entityID: number | null): Promise<readonly KillReport[]>;
+  warReportKills(warID: number, entityID: number | null, shipGroup?: number | null): Promise<readonly KillReport[]>;
+  /** WarReportWnd.PrimeKillsByGroup: warStatisticMgr.GetKillsByGroup (keyed by the victims' inventory groups), each
+   * classed by cfg.GetShipClassTypeByGroupID into the ten ship classes - the attacker's kills the defender's losses. */
+  warKillsByGroup(warID: number): Promise<ReadonlyMap<number, WarClassKills>>;
   warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }>;
   /** WarDeclarePagePickTypeCorp.SearchForOwner: war.SearchForWarableEntity - lookupSvc.LookupWarableCorporationsOrAlliances
    * (text, exact) and the corporations found by name (partial_terms, or exact_phrase_only) that are not warable, not
@@ -16669,11 +16680,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await warsNamed([war]);
     return { war, shipsKilled, iskKilled, allies, warHQ, hqName, hqTypeID };
   }
-  async function warReportKills(warID: number, entityID: number | null): Promise<readonly KillReport[]> {
-    const kills = decodeKillReports(await bridgeAsk("warStatisticMgr", "GetKills", [entityID, null], null, warID) as never);
+  async function warReportKills(warID: number, entityID: number | null, shipGroup: number | null = null): Promise<readonly KillReport[]> {
+    const kills = decodeKillReports(await bridgeAsk("warStatisticMgr", "GetKills", [entityID, shipGroup], null, warID) as never);
     const ids = [...new Set(kills.flatMap((k) => [k.victimCharacterID, k.victimCorporationID, k.victimAllianceID, k.finalCharacterID, k.finalCorporationID, k.finalAllianceID]).filter((id): id is number => !!id))];
     if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
     return kills;
+  }
+  async function warKillsByGroup(warID: number): Promise<ReadonlyMap<number, WarClassKills>> {
+    const answer = await bridgeAsk("warStatisticMgr", "GetKillsByGroup", [], null, warID);
+    const entries: readonly (readonly [JsonValue, JsonValue])[] = answer && typeof answer === "object" && !Array.isArray(answer) && "entries" in answer && Array.isArray(answer.entries) ? answer.entries as never : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapReal(v) ?? unwrapLong(v) ?? 0));
+    const rows = entries.map(([groupID, info]) => ({ groupID: num(groupID), info }));
+    // the starbase and structure classes go by the group's category (categoryStarbase 23, categoryStructure 65)
+    const unknown = rows.map((r) => r.groupID).filter((g) => g > 0 && SHIP_CLASS_BY_GROUP.get(g) === undefined);
+    const categories = new Map<number, number | null>();
+    for (let at = 0; at < unknown.length; at += 64) {
+      const answerCats = await api.getGroupCategories(unknown.slice(at, at + 64), callOptions);
+      for (const [g, c] of Object.entries(answerCats.groups)) categories.set(Number(g), c);
+    }
+    const out = new Map<number, WarClassKills>();
+    for (const { groupID, info } of rows) {
+      const category = categories.get(groupID);
+      const classID = SHIP_CLASS_BY_GROUP.get(groupID) ?? (category === 23 ? 8 : category === 65 ? 9 : null);
+      if (classID === null) continue;
+      const kept = out.get(classID) ?? { attackerKills: 0, defenderKills: 0, attackerKillsIsk: 0, defenderKillsIsk: 0 };
+      out.set(classID, { attackerKills: kept.attackerKills + num(readDictEntry(info, "defenderShipLoss")), defenderKills: kept.defenderKills + num(readDictEntry(info, "attackerShipLoss")),
+        attackerKillsIsk: kept.attackerKillsIsk + num(readDictEntry(info, "defenderIskLoss")), defenderKillsIsk: kept.defenderKillsIsk + num(readDictEntry(info, "attackerIskLoss")) });
+    }
+    return out;
   }
   async function warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }> {
     const online = store.station.get().online;
@@ -30418,6 +30452,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     mutualWarsChanged: readonlySignal(mutualWarsChangedSignal),
     warsChanged: readonlySignal(warsChangedSignal),
     warReportKills,
+    warKillsByGroup,
     searchWarableOwners,
     validWarHQs,
     declareWarAgainst,

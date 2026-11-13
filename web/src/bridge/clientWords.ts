@@ -314,6 +314,11 @@ function renderToken(token: TemplateToken, args: TemplateArguments, context: For
   let text: string;
   switch (token.type) {
     case "numeric": {
+      // A string given to a numeric tag is written as it is (the client's _evelocalization GetMessageByID, measured
+      // through its python27.dll: Legend's {[numeric]legend, decimalPlaces=0} with "0.00 ISK" gave "0.00 ISK", with
+      // 10.0 "10") - warReportKillGroups passes FmtISK's text. (A string of digits is the page's own way of giving a
+      // number, read below.)
+      if (typeof given === "string" && numberOf(given) === null) { text = given; break; }
       const value = numberOf(given);
       const places = (fallback: number): number => {
         const said = Number(token.settings.decimalPlaces ?? fallback);

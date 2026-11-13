@@ -8,13 +8,21 @@
   // and View Allies (disabled with DefenderHasNoAllies, else DefenderHasNumAllies). Then the kills: the combo (Show All /
   // Aggressor / Defender kills, killComboValue), Show Graph (killShowGraph), DelayedKillboardDetails; the kills
   // (warStatisticMgr.GetKills) newest first under their days' headers ('sn'), each the victim and killer
-  // (KillVictim(InAlliance), KillKiller(InAlliance)); NoKillsFound. (The kills-by-group graph is not drawn here; the
-  // buttons are shown, not acting.)
+  // (KillVictim(InAlliance), KillKiller(InAlliance)); NoKillsFound. The graph (warReportKillGroups.py
+  // WarReportKillsByGroupParent, 206 high, killShowGraph): the ten ship classes' names at the left (EveLabelSmall,
+  // right-aligned, 18 apart, half alpha with no kills), each a KillsBarContainer (18 high) - the attacker's kills' ISK
+  // a 5 high bar in ATTACKER_COLOR at the top, the defender's in DEFENDER_COLOR at the bottom, as parts of maxKills
+  // (GetMaxKills: the largest ISK rounded up to a power of ten, halved where under half, at least 10) - over a grey
+  // ground with ten column lines, Legend FmtISK(0) / FmtISK(maxKills) below; a bar's tooltip each side's name,
+  // WarReportNumKills and FmtISK(isk, 0); a click (or its name) selects the class (killGroupDisplayed, again to clear)
+  // and loads its kills (GetKills(entity, class); NoKillsFoundForGroup). (The buttons are shown, not acting.)
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, WarReportInfo } from "../app/flow.ts";
   import type { KillReport } from "../bridge/corpKillReports.ts";
   import { DATE_LABELS, formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { NUMERIC_WORD_LABELS, iskWords } from "../bridge/questions.ts";
+  import type { WarClassKills } from "../app/flow.ts";
   import { resolvedName } from "../store/names.ts";
   import { allianceLogoUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -38,11 +46,16 @@
   // svelte-ignore state_referenced_locally
   const imageServer = flow.imageServer;
   const W = "UI/Corporations/Wars/";
+  // GetShipGroupList's order and GetShipGroupNamesByGroupID's labels (GROUP_CAPSULES 0 ... GROUP_STRUCTURES 9)
+  const CLASS_ORDER = [0, 1, 2, 3, 5, 4, 7, 6, 9, 8] as const;
+  const CLASS_LABELS: Record<number, string> = { 0: "Capsules", 1: "Frigate", 2: "Destroyers", 3: "Cruisers", 5: "Battlecruisers", 4: "Battleships", 7: "IndustrialShips",
+    6: "CapitalShips", 9: "Structures", 8: "POS" };
   const LABELS = ["WarReport", "MutualWar", "WarHQExtraInfoWarReport", "OfferSurrenderBtn", "ViewAlliesBtn", "WarAttacker", "WarDefender", "Vs", "ShowAllKills",
     "ShowAggressorKills", "ShowDefenderKills", "ShowGraph", "NumShipsKilled", "ISKKilled", "WarHQTextWithLink", "WarReportFutureWarWithStartAndEndDate",
     "WarReportActiveWarWithStartAndEndDate", "WarReportFinishedWarWithStartAndEndDate", "WarReportWarDeclaredCanFightDetailed", "WarStarted", "NoKillsFound",
-    "KillVictim", "KillVictimInAlliance", "KillKiller", "KillKillerInAlliance", "DefenderHasNoAllies", "DefenderHasNumAllies", "OffereToSurrender", "Offender", "Defender"]
-    .map((k) => W + k).concat(["UI/Corporations/CorporationWindow/Wars/DelayedKillboardDetails", "UI/Common/Unknown", DATE_LABELS.ss!, DATE_LABELS.sn!, ...Object.keys(LINK_WORDS)]);
+    "KillVictim", "KillVictimInAlliance", "KillKiller", "KillKillerInAlliance", "DefenderHasNoAllies", "DefenderHasNumAllies", "OffereToSurrender", "Offender", "Defender",
+    "NoKillsFoundForGroup", "Legend", "WarReportNumKills", ...Object.values(CLASS_LABELS).map((k) => "ShipGroups/" + k)]
+    .map((k) => W + k).concat([...NUMERIC_WORD_LABELS, "UI/Corporations/CorporationWindow/Wars/DelayedKillboardDetails", "UI/Common/Unknown", DATE_LABELS.ss!, DATE_LABELS.sn!, ...Object.keys(LINK_WORDS)]);
   const fill = (label: string, values: Record<string, unknown> = {}) =>
     formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") });
   const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), text);
@@ -56,17 +69,43 @@
   const read = (k: string, d: number) => { try { const v = localStorage.getItem(`evejs.play.${k}`); return v === null ? d : Number(v); } catch { return d; } };
   let combo = $state(read("killComboValue", 0)), showGraph = $state(read("killShowGraph", 0) === 1);
   let kills = $state<readonly KillReport[] | null>(null);
+  // killGroupDisplayed: the class selected on the graph (null none)
+  let shownGroup = $state<number | null>((() => { const v = read("killGroupDisplayed", -1); return Number.isInteger(v) && v >= 0 ? v : null; })());
+  let byClass = $state<ReadonlyMap<number, WarClassKills> | null>(null);
   async function loadKills(): Promise<void> {
     if (!info) return;
-    // GetKillsScrollList: the side's ID for its combo value (None for all); then kept to that side's kills
+    // GetKillsScrollList: the side's ID for its combo value (None for all); then kept to that side's kills; with the
+    // graph shown, the class selected on it (UpdateGraphsAndKillScroll)
     const entityID = combo === 1 ? info.war.declaredByID : combo === 2 ? info.war.againstID : null;
-    try { kills = await flow.warReportKills(warID, entityID); } catch (e) { error = e instanceof Error ? e.message : String(e); kills = []; }
+    try { kills = await flow.warReportKills(warID, entityID, showGraph ? shownGroup : null); } catch (e) { error = e instanceof Error ? e.message : String(e); kills = []; }
   }
+  function loadGraph(): void {
+    if (byClass === null) void flow.warKillsByGroup(warID).then((m) => { byClass = m; }).catch((e) => { error = e instanceof Error ? e.message : String(e); });
+  }
+  const classKills = (c: number): WarClassKills => byClass?.get(c) ?? { attackerKills: 0, defenderKills: 0, attackerKillsIsk: 0, defenderKillsIsk: 0 };
+  // GetMaxKills
+  const maxKills = $derived.by(() => {
+    if (!byClass || !byClass.size) return 10;
+    const most = Math.max(...[...byClass.values()].map((k) => Math.max(k.attackerKillsIsk, k.defenderKillsIsk)));
+    if (most < 10) return 10;
+    let top = 10 ** Math.ceil(Math.log10(most));
+    if (most / top < 0.5) top *= 0.5;
+    return Math.max(10, top);
+  });
+  const isk = (amount: number, places: number) => iskWords(amount, places, $words.templates, (kind, id) => resolvedName($names.resolved, kind, id, "")) ?? `${amount.toLocaleString("en-US")} ISK`;
+  function pickClass(c: number): void {
+    // BarOnClick: the same class again clears it
+    shownGroup = shownGroup === c ? null : c;
+    try { localStorage.setItem("evejs.play.killGroupDisplayed", shownGroup === null ? "-1" : String(shownGroup)); } catch { /* not kept */ }
+    void loadKills();
+  }
+  const barHint = (k: WarClassKills) => info ? [nameOf(info.war.declaredByID), plainText(fill(W + "WarReportNumKills", { numKills: k.attackerKills })), isk(k.attackerKillsIsk, 0), "",
+    nameOf(info.war.againstID), plainText(fill(W + "WarReportNumKills", { numKills: k.defenderKills })), isk(k.defenderKillsIsk, 0)].join("\n") : "";
   onMount(() => {
     flow.requestWords(LABELS); flow.loadOwnerLogos(); flow.loadImageServer();
     void flow.warReport(warID).then((i) => {
       info = i;
-      if (i) { flow.requestCorpLogos([i.war.declaredByID, i.war.againstID].filter((id) => !isAlliance(id) && !isNpcCorp(id) && !isFaction(id))); void loadKills(); }
+      if (i) { flow.requestCorpLogos([i.war.declaredByID, i.war.againstID].filter((id) => !isAlliance(id) && !isNpcCorp(id) && !isFaction(id))); void loadKills(); if (showGraph) loadGraph(); }
     }).catch((e) => { error = e instanceof Error ? e.message : String(e); });
   });
   const nowTicks = () => BigInt(Date.now()) * 10000n + 116444736000000000n;
@@ -149,15 +188,38 @@
           <button type="button" disabled title={info.allies.length ? plainText(fill(W + "DefenderHasNumAllies", { num: info.allies.length })) : plainText(fill(W + "DefenderHasNoAllies"))}>{plainText(fill(W + "ViewAlliesBtn"))}</button>
         </div>
       {/if}
+      {#if showGraph}
+        <div class="wr-graph">
+          <div class="wr-graph-names">
+            {#each CLASS_ORDER as c (c)}
+              {@const k = classKills(c)}
+              <button type="button" class:quiet={k.attackerKills === 0 && k.defenderKills === 0} onclick={() => pickClass(c)}>{plainText(fill(W + "ShipGroups/" + CLASS_LABELS[c]))}</button>
+            {/each}
+          </div>
+          <div class="wr-graph-main">
+            <div class="wr-graph-data">
+              <div class="wr-graph-lines">{#each Array(10) as _, i (i)}<span></span>{/each}</div>
+              {#each CLASS_ORDER as c (c)}
+                {@const k = classKills(c)}
+                <button type="button" class="wr-bar" class:selected={shownGroup === c} title={barHint(k)} onclick={() => pickClass(c)}>
+                  <span class="wr-bar-att" style:width={`${Math.min(1, k.attackerKillsIsk / maxKills) * 100}%`}></span>
+                  <span class="wr-bar-def" style:width={`${Math.min(1, k.defenderKillsIsk / maxKills) * 100}%`}></span>
+                </button>
+              {/each}
+            </div>
+            <div class="wr-graph-legend"><span>{plainText(fill(W + "Legend", { legend: isk(0, 2) }))}</span><span>{plainText(fill(W + "Legend", { legend: isk(maxKills, 2) }))}</span></div>
+          </div>
+        </div>
+      {/if}
       <div class="wr-filter">
         <select value={combo} onchange={(e) => { combo = Number((e.currentTarget as HTMLSelectElement).value); try { localStorage.setItem("evejs.play.killComboValue", String(combo)); } catch { /* not kept */ } void loadKills(); }}>
           <option value={0}>{plainText(fill(W + "ShowAllKills"))}</option><option value={1}>{plainText(fill(W + "ShowAggressorKills"))}</option><option value={2}>{plainText(fill(W + "ShowDefenderKills"))}</option>
         </select>
-        <label><input type="checkbox" checked={showGraph} onchange={() => { showGraph = !showGraph; try { localStorage.setItem("evejs.play.killShowGraph", showGraph ? "1" : "0"); } catch { /* not kept */ } }} />{plainText(fill(W + "ShowGraph"))}</label>
+        <label><input type="checkbox" checked={showGraph} onchange={() => { showGraph = !showGraph; try { localStorage.setItem("evejs.play.killShowGraph", showGraph ? "1" : "0"); } catch { /* not kept */ } if (showGraph) loadGraph(); void loadKills(); }} />{plainText(fill(W + "ShowGraph"))}</label>
         <span class="wr-delay">{plainText(fill("UI/Corporations/CorporationWindow/Wars/DelayedKillboardDetails"))}</span>
       </div>
       <div class="wr-kills">
-        {#if kills !== null && !killRows.length}<p class="wr-hint">{plainText(fill(W + "NoKillsFound"))}</p>{/if}
+        {#if kills !== null && !killRows.length}<p class="wr-hint">{plainText(fill(W + (showGraph && shownGroup !== null ? "NoKillsFoundForGroup" : "NoKillsFound")))}</p>{/if}
         {#each killRows as r, i (i)}
           {#if "header" in r}<div class="wr-day">{r.header}</div>
           {:else}
@@ -195,6 +257,20 @@
   .wr-arrow { color: rgb(199, 66, 50); }
   .wr-buttons { height: 33px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px; }
   .wr-filter { display: flex; align-items: center; gap: 8px; padding-top: 8px; }
+  .wr-graph { height: 206px; display: flex; flex: none; padding-top: 8px; }
+  .wr-graph-names { display: flex; flex-direction: column; align-items: flex-end; padding: 2px 4px 0 10px; }
+  .wr-graph-names button { height: 18px; min-height: 0; padding: 0; border: 0; background: none; color: inherit; font-size: 11px; cursor: pointer; }
+  .wr-graph-names button.quiet { opacity: 0.5; }
+  .wr-graph-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .wr-graph-data { position: relative; flex: 1; margin: 0 0 4px 4px; background: rgba(102, 102, 102, 0.2); }
+  .wr-graph-lines { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(10, 1fr); pointer-events: none; }
+  .wr-graph-lines span { border-right: 1px solid rgba(255, 255, 255, 0.1); }
+  .wr-bar { box-sizing: border-box; min-height: 0; position: relative; display: flex; flex-direction: column; justify-content: space-between; width: 100%; height: 18px; padding: 4px 0; border: 0; background: none; cursor: pointer; }
+  .wr-bar:hover { background: rgba(255, 255, 255, 0.1); }
+  .wr-bar.selected { background: rgba(255, 255, 255, 0.15); }
+  .wr-bar-att { height: 5px; background: rgb(199, 66, 50); }
+  .wr-bar-def { height: 5px; background: rgb(81, 120, 182); }
+  .wr-graph-legend { height: 20px; display: flex; justify-content: space-between; font-size: 11px; padding: 0 4px 0 4px; }
   .wr-filter label { display: flex; gap: 4px; align-items: center; }
   .wr-delay { margin-left: auto; font-size: 11px; opacity: 0.7; }
   .wr-kills { flex: 1; overflow: auto; margin-top: 4px; border: 1px solid rgba(255, 255, 255, 0.08); }

@@ -14630,6 +14630,27 @@ app.get("/api/client-data/fighter-abilities", requireAuth, async (req, res, next
 // in type order: what a module's charge groups hold, which the client's used-with table is made of
 // (InfoSvc._AddUsedWithTypeIDs). The index is made once.
 let typeIDsByGroup = null;
+// Each group's category (evetypes.GetCategoryIDByGroup, the client's groupCategories), at most 64 groups an asking:
+// cfg.GetShipGroupByClassType classes starbase and structure groups by their category.
+app.get("/api/client-data/group-categories", requireAuth, async (req, res, next) => {
+  try {
+    const asked = [];
+    for (const part of String((req.query && req.query.groupIDs) || "").split(",")) {
+      const groupID = Number(part);
+      if (Number.isSafeInteger(groupID) && groupID > 0 && !asked.includes(groupID)) asked.push(groupID);
+    }
+    const table = await clientBuiltData.table("groupCategories");
+    const groups = {};
+    for (const groupID of asked.slice(0, 64)) {
+      const value = table ? table[String(groupID)] : undefined;
+      groups[groupID] = value !== undefined && value !== null && Number.isSafeInteger(Number(value)) ? Number(value) : null;
+    }
+    res.json({ ok: true, available: Boolean(table), groups });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/client-data/group-types", requireAuth, async (req, res, next) => {
   try {
     const asked = [];

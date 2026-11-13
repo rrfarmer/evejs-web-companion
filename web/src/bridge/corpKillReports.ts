@@ -2,7 +2,7 @@
 // GetRecentLosses(num, offset) - a CachedMethodCallResult of a CRowset, one packed row a kill (killID, solarSystemID,
 // victim and final blow characters, corporations, alliances, factions, ships, the final blow's weapon, killTime a
 // FILETIME, moonID, ...). The page reads what the client's KillMail entry shows.
-import { readRowField, unwrapLong, type JsonValue } from "./wire.ts";
+import { isListValue, readRowField, unwrapLong, type JsonValue } from "./wire.ts";
 import { unwrapCachedResult } from "./market.ts";
 import { filetimeToUnixMs } from "./activity.ts";
 
@@ -28,10 +28,13 @@ function idOf(value: JsonValue | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** The kills of a GetRecentKills / GetRecentLosses answer, as the server ordered them; [] for none or a malformed one. */
+/** The kills of a GetRecentKills / GetRecentLosses answer (a CRowset) or of a war's GetKills (warReport.py 395: the
+ * client reads each kill by attribute, so a list of KeyVals as EveJS sends serves it as well), as the server ordered
+ * them; [] for none or a malformed one. */
 export function decodeKillReports(result: JsonValue | null | undefined): KillReport[] {
   const rowset = unwrapCachedResult((result ?? null) as JsonValue) as { list?: unknown } | null;
-  const list = rowset && typeof rowset === "object" && !Array.isArray(rowset) && Array.isArray(rowset.list) ? (rowset.list as JsonValue[]) : [];
+  const list = isListValue(rowset) ? (rowset.items as JsonValue[])
+    : rowset && typeof rowset === "object" && !Array.isArray(rowset) && Array.isArray(rowset.list) ? (rowset.list as JsonValue[]) : [];
   const out: KillReport[] = [];
   for (const row of list) {
     const killID = idOf(readRowField(row, "killID"));

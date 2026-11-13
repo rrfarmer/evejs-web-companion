@@ -108,7 +108,10 @@ test("a number is plain unless the template asks for grouping, and takes the dec
   assert.equal(fill("{[numeric]x, decimalPlaces=1}", { x: 2.25 }), "2.3");
   // However the bridge spelled it.
   assert.equal(fill("{[numeric]a} {[numeric]b}", { a: "42", b: { type: "long", value: "9000000000" } }), "42 9000000000");
-  assert.equal(fill("{[numeric]x}", { x: "many" }), "");
+  // A string that is no number is written as given (the client's GetMessageByID, measured: Legend's numeric tag with
+  // FmtISK's "0.00 ISK" gave "0.00 ISK").
+  assert.equal(fill("{[numeric]x}", { x: "many" }), "many");
+  assert.equal(fill("{[numeric]legend, decimalPlaces=0}", { legend: "0.00 ISK" }), "0.00 ISK");
 });
 
 test("a time is the game's own form, in its own clock", () => {
