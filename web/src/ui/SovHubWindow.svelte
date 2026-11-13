@@ -27,7 +27,11 @@
   // the other senders' choices); SectionEditApply (enabled where the choice differs: an export needs an amount) asks
   // ConfirmWorkforceChanged {infoText: WorkforceChangeFrom<old>, confirmText: WorkforceChangeTo<new>} and sends
   // ConfigureRequest.
-  // Not here yet: dropping new upgrades in, the access-list setting, Show on Map.
+  // AclSectionCont (SectionACL, SectionACLDesc as the header's hint; the fuel access list's name - SectionACLNotSet
+  // where none, the list's, its NPC creator's, or UnknownACL - from sovMgr.GetSovHubFuelAccessGroup; for a director
+  // (CanEditACL) SectionEdit swaps the name for a combo of the access group options - NoAccessList first - and
+  // SectionEditApply: SetSovHubFuelAccessGroup, the name read again).
+  // Not here yet: dropping new upgrades in, dropping an access list on the combo, Show on Map.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, MySovHub, SovHubDetails, SovHubExtras, SovHubUpgrade } from "../app/flow.ts";
@@ -48,7 +52,8 @@
     W + "WorkforceTransitAmount", W + "WorkforceTransitReceiver", W + "WorkforceTransitSenderNum", W + "SectionACLNotSet", W + "SectionEditApply", W + "SourceSystemNotConnected",
     W + "SourceSystemNotSendingWorkforce", W + "WorkforceIdle", W + "WorkforceImport", W + "WorkforceExport", W + "WorkforceTransit", "UI/Sovereignty/SovHub/UnknownWorkforceMode",
     ...["Transit", "Import", "Export", "Inactive"].flatMap((k) => [W + "WorkforceChangeFrom" + k, W + "WorkforceChangeTo" + k]),
-    ...["Inactive", "Import", "Export", "ExportNoConnection", "ExportNotConfigured", "Transit"].map((k) => U + "WorkforceTransport" + k), U + "NoUpgradesInstalled", U + "DropUpgradesToAdd", U + "ExtraAmount", U + "ConsumptionPerHour", U + "PendingPowerState", U + "LowPowerState", U + "UnknownPowerState",
+    ...["Inactive", "Import", "Export", "ExportNoConnection", "ExportNotConfigured", "Transit"].map((k) => U + "WorkforceTransport" + k),
+    W + "SectionACL", W + "SectionACLDesc", "UI/Sovereignty/UnknownACL", U + "NoUpgradesInstalled", U + "DropUpgradesToAdd", U + "ExtraAmount", U + "ConsumptionPerHour", U + "PendingPowerState", U + "LowPowerState", U + "UnknownPowerState",
     "UI/Common/Online", "UI/Common/Offline", "UI/Sovereignty/Power", "UI/Sovereignty/Workforce", "Tooltips/StructureUI/SovHubRedFuelState", "Tooltips/StructureUI/SovHubRedResourceState",
     "Tooltips/StructureUI/SovHubRedPowerState", "Tooltips/StructureUI/SovHubRedWorkforceState", "Tooltips/StructureUI/SovHubOnlineUpgrade", "Tooltips/StructureUI/SovHubOfflineUpgrade",
     ...COLUMNS.filter(Boolean).map((k) => "Tooltips/StructureUI/SovHub" + ({ ColumnPriority: "Priority", ColumnUpgrade: "InstalledUpgrades", ColumnPowerAllocation: "Allocation", ColumnWorkforceAllocation: "Allocation", ColumnUpkeep: "Upkeep", ColumnStartupCost: "Startup", ColumnState: "State" } as Record<string, string>)[k])];
@@ -149,6 +154,16 @@
     try {
       if (await flow.configureSovHubWorkforce(hub.hubID, { mode: editMode, sources: senders.filter((x): x is number => x !== null), exportTo: receiver, amount })) { editing = false; await onChanged(); }
     } finally { busy = false; }
+  }
+  // HubController's fuel ACL.
+  let acl = $state<Awaited<ReturnType<AppFlow["sovHubFuelAcl"]>>>(null), aclEditing = $state(false), aclChoice = $state<number | null>(null);
+  const canEditAcl = $derived((BigInt($station.online?.corpRole ?? "0") & 1n) === 1n);
+  async function loadAcl(): Promise<void> { acl = await flow.sovHubFuelAcl(hub.solarSystemID); }
+  onMount(() => { void loadAcl(); });
+  const aclName = $derived(!acl ? "" : acl.current === null ? word(W + "SectionACLNotSet") : acl.options.find((o) => o.groupID === acl!.current)?.name ?? word("UI/Sovereignty/UnknownACL"));
+  async function applyAcl(): Promise<void> {
+    busy = true;
+    try { if (await flow.setSovHubFuelAcl(hub.solarSystemID, aclChoice)) { aclEditing = false; await loadAcl(); } else aclEditing = false; } finally { busy = false; }
   }
   async function close(): Promise<void> {
     if (unsaved && !(await flow.askClientDialog("ConfirmCloseSovHubWnd", "Close without saving?"))) return;
@@ -275,6 +290,16 @@
               {/if}
               <div class="hw-edit-buttons"><button disabled={!applyEnabled || busy} onclick={() => void applyTransport()}>{word(W + "SectionEditApply")}</button><button onclick={() => { editing = false; }}>✕</button></div>
             </div>
+          {/if}
+        </div>
+        <div class="hw-section">
+          <div class="hw-section-head"><small class="hw-dim" title={word(W + "SectionACLDesc")}>{word(W + "SectionACL")}</small></div>
+          {#if aclEditing}
+            <div class="hw-section-state"><select value={aclChoice === null ? "" : String(aclChoice)} onchange={(e) => { aclChoice = e.currentTarget.value ? Number(e.currentTarget.value) : null; }}>
+              {#each acl?.options ?? [] as o (o.groupID ?? 0)}<option value={o.groupID === null ? "" : String(o.groupID)}>{o.name}</option>{/each}</select>
+              <button disabled={busy} onclick={() => void applyAcl()}>{word(W + "SectionEditApply")}</button></div>
+          {:else}
+            <div class="hw-section-state"><span>☷ <b>{acl ? aclName : "…"}</b></span>{#if canEditAcl}<button class="hw-edit" disabled={!acl} onclick={() => { aclChoice = acl?.current ?? null; aclEditing = true; }}>{word(W + "SectionEdit")}</button>{/if}</div>
           {/if}
         </div>
         <small class="hw-dim">{word(W + "FuelLevels")}</small>

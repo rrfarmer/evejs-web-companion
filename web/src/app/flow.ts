@@ -2723,6 +2723,12 @@ export interface AppFlow {
   sovHubNetworkableHubs(hubID: number): Promise<readonly { readonly hubID: number; readonly systemID: number; readonly mode: "inactive" | "transit" | "import_settings" | "export_settings" | null; readonly importSources: readonly number[]; readonly exportTo: number | null }[] | null>;
   /** SetWorkforceConfiguration: ConfigureRequest(hub, configuration - inactive, transit, import_settings {sources} or
    * export_settings {destination_system or no_destination, amount}); true when done. */
+  /** HubController's fuel ACL: sovMgr.GetSovHubFuelAccessGroup(solarSystemID) and accessGroupOptions
+   * (orbitalConfiguration.GetAccessGroupOptions: the pilot's access lists - ownerGroupManager.GetMyGroups - each named by
+   * its NPC corporation creator or its name, sorted, NoAccessList first); null where the read failed. */
+  sovHubFuelAcl(solarSystemID: number): Promise<{ readonly current: number | null; readonly options: readonly { readonly groupID: number | null; readonly name: string }[] } | null>;
+  /** SetFuelACL: sovMgr.SetSovHubFuelAccessGroup(solarSystemID, groupID); true when done. */
+  setSovHubFuelAcl(solarSystemID: number, groupID: number | null): Promise<boolean>;
   configureSovHubWorkforce(hubID: number, config: { readonly mode: "inactive" | "transit" | "import_settings" | "export_settings"; readonly sources?: readonly number[]; readonly exportTo?: number | null; readonly amount?: number }): Promise<boolean>;
   /** CapitalButton / UpdateCapitalSystem: SetCapitalSystem(solarSystemID); RemoveCapital: CancelCapitalSystemTransition. */
   allianceCapital(action: "set" | "cancel", solarSystemID?: number): Promise<boolean>;
@@ -18874,6 +18880,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await memberNames(captureMemberOperation(), hubs.map((h) => ({ kind: "system" as const, id: h.systemID })));
     return hubs;
   }
+  async function sovHubFuelAcl(solarSystemID: number): Promise<{ readonly current: number | null; readonly options: readonly { readonly groupID: number | null; readonly name: string }[] } | null> {
+    const scope = captureMemberOperation();
+    const current = await scope.ask("sovMgr", "GetSovHubFuelAccessGroup", [solarSystemID]).catch(() => undefined) as JsonValue | undefined;
+    scope.current();
+    if (current === undefined) return null;
+    const groups = await readMyAccessGroups(bridgeAsk).catch(() => [] as readonly { groupID: number; creatorID: number | null; name: string }[]);
+    const npc = groups.filter((g) => g.creatorID !== null && isNpcCorporation(g.creatorID)).map((g) => ({ kind: "owner" as const, id: g.creatorID! }));
+    if (npc.length) await memberNames(scope, npc);
+    await wordsNow(["UI/AclBookmarks/NoAccessList"]).catch(() => {});
+    const options = groups.map((g) => ({ groupID: g.groupID as number | null, name: g.creatorID !== null && isNpcCorporation(g.creatorID) ? resolvedName(store.names.get().resolved, "owner", g.creatorID, g.name) : g.name }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const none = plainText(formatTemplate(store.words.get().templates["UI/AclBookmarks/NoAccessList"] ?? "", {}, { nameOf: () => "" })) || "No Access List";
+    const id = typeof current === "number" ? current : current === null ? null : Number(unwrapLong(current) ?? NaN);
+    return { current: id === null || Number.isNaN(id) || id === 0 ? null : id, options: [{ groupID: null, name: none }, ...options] };
+  }
+  async function setSovHubFuelAcl(solarSystemID: number, groupID: number | null): Promise<boolean> {
+    const scope = captureMemberOperation();
+    try { await scope.write("sovMgr", "SetSovHubFuelAccessGroup", [solarSystemID, groupID]); scope.current(); return true; }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+  }
   async function configureSovHubWorkforce(hubID: number, config: { readonly mode: "inactive" | "transit" | "import_settings" | "export_settings"; readonly sources?: readonly number[]; readonly exportTo?: number | null; readonly amount?: number }): Promise<boolean> {
     const configuration = config.mode === "inactive" ? { inactive: true } : config.mode === "transit" ? { transit: true }
       : config.mode === "import_settings" ? { import_settings: { sources: (config.sources ?? []).map((sequential) => ({ source: { sequential } })) } }
@@ -32597,6 +32623,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     addSovHubFuel,
     sovHubNetworkableHubs,
     configureSovHubWorkforce,
+    sovHubFuelAcl,
+    setSovHubFuelAcl,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },
