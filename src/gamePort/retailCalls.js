@@ -704,6 +704,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // one, blocking them (svc.mutualWarInvites, each a RemoteSvc call).
   "mutualWarInviteMgr.GetPendingInvitesForSession", "mutualWarInviteMgr.WithdrawInviteByPlayer", "mutualWarInviteMgr.RespondToInviteByPlayer",
   "mutualWarInviteMgr.SetInvitesBlockedByPlayer", "mutualWarInviteMgr.IsCorpInvitesBlockedPlayer",
+  // FormAlliancesMembers: alliance.GetMembers() (all_cso_members, the alliance moniker's), its corporations with their
+  // chosen executor and joining date.
+  "allianceRegistry.GetMembers",
   // WarReportWnd: the war's statistics object (eveMoniker.GetWarStatistic(warID), bound) - GetBaseInfo, GetKills,
   // GetKillsByGroup.
   "warStatisticMgr.MachoBindObject", "warStatisticMgr.GetBaseInfo", "warStatisticMgr.GetKills", "warStatisticMgr.GetKillsByGroup",

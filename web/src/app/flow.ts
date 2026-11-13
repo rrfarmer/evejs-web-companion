@@ -441,6 +441,8 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** An alliance member (GetMembers' row): the corporation, its chosen executor (None the client's Secret), when it joined. */
+export interface AllianceMember { readonly corporationID: number; readonly chosenExecutorID: number | null; readonly startDate: bigint }
 /** A ship class's kills in a war (warReport.killsByShipGroup's KeyVal). */
 export interface WarClassKills { readonly attackerKills: number; readonly defenderKills: number; readonly attackerKillsIsk: number; readonly defenderKillsIsk: number }
 /** eveCfg.GetShipGroupByClassType's ship groups (inventorycommon const), each to its class (GROUP_CAPSULES 0 ...
@@ -2444,7 +2446,12 @@ export interface AppFlow {
   /** CorpKillReports: corpRegistry.GetRecentKills / GetRecentLosses(NUM_KILL_ENTRIES, offset), the names its rows show primed. */
   corporationKillReports(kind: "kills" | "losses", count: number, offset: number | null): Promise<readonly KillReport[]>;
   /** CorpUIBulletins: corpRegistry.GetBulletins(), its editors' names primed (GetBulletinEntries' BulletinPostedBy). */
-  corporationBulletins(): Promise<readonly CorpBulletin[]>;
+  corporationBulletins(alliance?: boolean): Promise<readonly CorpBulletin[]>;
+  /** FormAlliancesMembers.ShowMembers: alliance.GetMembers() (the alliance moniker's CIndexedRowset by corporationID),
+   * each member's chosen executor and joining date, the corporations' names primed. */
+  allianceMembers(): Promise<readonly AllianceMember[]>;
+  /** FormAlliancesMembers.DeclareSupport / the DeclareSupportForm: alliance.DeclareExecutorSupport(corpID). */
+  declareExecutorSupport(corporationID: number): Promise<boolean>;
   /** CorpDetails.PickTicker: corpRegistry.GetSuggestedTickerNames(name), each suggestion's tickerName; null where the
    * name is empty (EnterCorporationName) or none came (NoCorpTickerNameSuggestions), the dialog put up. */
   corporationTickerSuggestions(name: string): Promise<readonly string[] | null>;
@@ -2453,7 +2460,7 @@ export interface AppFlow {
   createCorporation(form: CorporationFounding): Promise<boolean>;
   /** EditCorpBulletin.ClickSend for a new bulletin: CorpBulletinMustFillIn, the chat manager's role (EditBulletin),
    * CorpTooManyBulletins (MAX_NUM_BULLETINS 10), then corpRegistry.AddBulletin(title, body); true when added. */
-  addCorporationBulletin(title: string, body: string): Promise<boolean>;
+  addCorporationBulletin(title: string, body: string, alliance?: boolean): Promise<boolean>;
   /** evecorporation.recruitment's groups and types, read once (null where the client cannot be read). */
   recruitmentData(): Promise<api.RecruitmentData | null>;
   /** CorpRecruitmentContainerSearch.GetSearchResults: corpRecProxy.SearchCorpAds with the panel's criteria, the
@@ -16717,6 +16724,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { await bridgeDo("corpRegistry", "CreateAlliance", [form.name, form.shortName, form.description, form.url]); return true; }
     catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
   }
+  async function allianceMembers(): Promise<readonly AllianceMember[]> {
+    const answer = await bridgeAsk("allianceRegistry", "GetMembers", []);
+    const pairs: readonly JsonValue[] = answer && typeof answer === "object" && !Array.isArray(answer) && "dict" in answer && Array.isArray(answer.dict) ? answer.dict as JsonValue[] : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    const members = pairs.map((pair) => (Array.isArray(pair) ? pair[1] : null)).filter((row): row is JsonValue => row !== null && row !== undefined).map((row) => ({
+      corporationID: num(readRowField(row, "corporationID")), chosenExecutorID: (() => { const v = num(readRowField(row, "chosenExecutorID")); return v > 0 ? v : null; })(),
+      startDate: unwrapLong(readRowField(row, "startDate")) ?? 0n,
+    })).filter((m) => m.corporationID > 0);
+    const ids = [...new Set(members.flatMap((m) => [m.corporationID, m.chosenExecutorID ?? 0]))].filter((id) => id > 0);
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return members;
+  }
+  async function declareExecutorSupport(corporationID: number): Promise<boolean> {
+    try { await bridgeDo("allianceRegistry", "DeclareExecutorSupport", [corporationID]); return true; }
+    catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
+  }
   async function updateAlliance(description: string, url: string): Promise<boolean> {
     try { await bridgeDo("allianceRegistry", "UpdateAlliance", [description, url]); return true; }
     catch (error) { throwIfRequestRetired(error); if (sayRefusalDialog(error, errorWords(error))) return false; throw error; }
@@ -16896,16 +16919,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throw error;
     }
   }
-  async function addCorporationBulletin(title: string, body: string): Promise<boolean> {
+  async function addCorporationBulletin(title: string, body: string, alliance = false): Promise<boolean> {
     if (title === "" || body.trim() === "") { sayDialog("CorpBulletinMustFillIn", null, "You must fill in both the title and the body of the bulletin."); return false; }
     // base_corporation.EditBulletin: const.corpRoleChatManager
     if ((BigInt(store.station.get().online?.corpRole ?? "0") & 36028797018963968n) === 0n) {
       sayDialog("CrpAccessDenied", { type: "dict", entries: [["reason", "You do not have the Communications Officer role."]] }, "You do not have the Communications Officer role.");
       return false;
     }
-    if ((await corporationBulletins()).length >= 10) { sayDialog("CorpTooManyBulletins", null, "Your corporation has too many bulletins."); return false; }
+    if ((await corporationBulletins(alliance)).length >= 10) { sayDialog("CorpTooManyBulletins", null, "Your corporation has too many bulletins."); return false; }
     try {
-      await bridgeDo("corpRegistry", "AddBulletin", [title, body.trim()]);
+      // base_corporation.AddBulletin: the alliance's on its moniker (GetMoniker().AddBulletin(title, body))
+      await bridgeDo(alliance ? "allianceRegistry" : "corpRegistry", "AddBulletin", [title, body.trim()]);
       return true;
     } catch (error) {
       throwIfRequestRetired(error);
@@ -16913,10 +16937,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throw error;
     }
   }
-  async function corporationBulletins(): Promise<readonly CorpBulletin[]> {
+  async function corporationBulletins(alliance = false): Promise<readonly CorpBulletin[]> {
     const current = callOptions.captureRequestGuard!();
     const scoped = { ...callOptions, captureRequestGuard: () => current };
-    const answer = await api.bridgeAsk(scoped)("corpRegistry", "GetBulletins", []);
+    // base_corporation.GetBulletins(isAlliance): the alliance's from alliance.GetAllianceBulletins (its moniker)
+    const answer = await api.bridgeAsk(scoped)(alliance ? "allianceRegistry" : "corpRegistry", "GetBulletins", []);
     current();
     const bulletins = decodeBulletins(answer as never);
     await memberNames({ current, options: scoped }, [...new Set(bulletins.map((b) => b.editCharacterID).filter((id): id is number => id !== null))].map((id) => ({ kind: "owner" as const, id })));
@@ -30490,6 +30515,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warKillsByGroup,
     myAlliance,
     updateAlliance,
+    allianceMembers,
+    declareExecutorSupport,
     allianceShortNameSuggestions,
     createAlliance,
     searchWarableOwners,

@@ -24,6 +24,7 @@
   import CorporationWarHistory from "./CorporationWarHistory.svelte";
   import CorporationMutualWarInvites from "./CorporationMutualWarInvites.svelte";
   import AllianceHome from "./AllianceHome.svelte";
+  import AllianceMembers from "./AllianceMembers.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -36,7 +37,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -104,6 +105,8 @@
     "UI/Corporations/CorpApplications/ApplicationsToCorp": "Applications",
     "UI/Corporations/Wars/WarHistory": "War History",
     "UI/Corporations/Wars/MutualWarInvitesTab": "Mutual War Invites",
+    "UI/Corporations/CorporationWindow/Alliances/Bulletins": "Bulletins",
+    "UI/Corporations/CorporationWindow/Alliances/Members": "Members",
     "UI/Corporations/BaseCorporationUI/Wars": "Wars",
     "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
     "UI/Corporations/Wars/WarInfoTab": "War Info",
@@ -153,7 +156,10 @@
   const corpNav = $derived.by((): readonly { readonly header: string; readonly entries: readonly NavEntry[] }[] => {
     if (corpTab === "alliance") {
       return [
-        { header: "UI/Generic/General", entries: [{ id: "allianceGeneral", label: "UI/Corporations/BaseCorporationUI/MyAlliance" }] },
+        // construct_alliance_general: My Alliance; with an alliance its Bulletins and Members
+        { header: "UI/Generic/General", entries: [{ id: "allianceGeneral", label: "UI/Corporations/BaseCorporationUI/MyAlliance" },
+          ...(allianceID !== null ? [{ id: "allianceBulletins" as const, label: "UI/Corporations/CorporationWindow/Alliances/Bulletins" },
+            { id: "allianceMembers" as const, label: "UI/Corporations/CorporationWindow/Alliances/Members" }] : [])] },
         ...(playerCorporation && allianceID !== null
           ? [{ header: "UI/Corporations/CorporationWindow/Alliances/Relationships", entries: [{ id: "allianceContacts" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllianceContacts" }] }]
           : []),
@@ -265,6 +271,8 @@
       {#if panel === "warHistory"}<CorporationWarHistory {store} {flow} />{/if}
       {#if panel === "mutualWarInvites"}<CorporationMutualWarInvites {store} {flow} />{/if}
       {#if panel === "allianceGeneral"}<AllianceHome {store} {flow} />{/if}
+      {#if panel === "allianceBulletins"}<CorporationBulletins {store} {flow} director={administration.director} alliance />{/if}
+      {#if panel === "allianceMembers"}<AllianceMembers {store} {flow} />{/if}
       {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}

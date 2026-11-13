@@ -13,13 +13,15 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import LabelText from "./LabelText.svelte";
-  let { store, flow, director = false }: { store: ClientStore; flow: AppFlow; director?: boolean } = $props();
+  // alliance: Alliances/all_ui_home.py FormAlliancesBulletins - the alliance's bulletins (GetBulletinEntries(isAlliance)),
+  // a director's Add Bulletin (UI/Corporations/CorporationWindow/Alliances/Home/AddBulletin) adding to the alliance
+  let { store, flow, director = false, alliance = false }: { store: ClientStore; flow: AppFlow; director?: boolean; alliance?: boolean } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const LABELS = {
-    add: "UI/Corporations/CorpUIHome/AddBulletin", none: "UI/Corporations/BaseCorporationUI/NoBulletins",
+    add: "UI/Corporations/CorpUIHome/AddBulletin", allianceAdd: "UI/Corporations/CorporationWindow/Alliances/Home/AddBulletin", none: "UI/Corporations/BaseCorporationUI/NoBulletins",
     postedBy: "UI/Corporations/BaseCorporationUI/BulletinPostedBy", order: "UI/Corporations/CorpUIHome/BulletinDisplayOrder",
   } as const;
   const EDIT_LABELS = ["UI/Corporations/EditCorpBulletin/EditBulletinCaption", "UI/Corporations/EditCorpBulletin/BulletinTitle", "UI/Common/Buttons/Submit", "UI/Common/Buttons/Cancel"];
@@ -28,19 +30,19 @@
   let error = $state("");
   let editing = $state(false), title = $state(""), body = $state(""), sending = $state(false);
   function load(): void {
-    void flow.corporationBulletins().then((b) => { rows = b; }).catch((e) => { error = e instanceof Error ? e.message : String(e); rows = []; });
+    void flow.corporationBulletins(alliance).then((b) => { rows = b; }).catch((e) => { error = e instanceof Error ? e.message : String(e); rows = []; });
   }
   async function send(): Promise<void> {
     if (sending) return;
     sending = true;
-    try { if (await flow.addCorporationBulletin(title, body)) { editing = false; title = ""; body = ""; load(); } }
+    try { if (await flow.addCorporationBulletin(title, body, alliance)) { editing = false; title = ""; body = ""; load(); } }
     catch (e) { error = e instanceof Error ? e.message : String(e); }
     finally { sending = false; }
   }
   onMount(() => {
     flow.requestWords([...Object.values(LABELS), ...EDIT_LABELS]);
     let gone = false;
-    void flow.corporationBulletins().then((b) => { if (!gone) rows = b; }).catch((e) => { if (!gone) { error = e instanceof Error ? e.message : String(e); rows = []; } });
+    void flow.corporationBulletins(alliance).then((b) => { if (!gone) rows = b; }).catch((e) => { if (!gone) { error = e instanceof Error ? e.message : String(e); rows = []; } });
     return () => { gone = true; };
   });
   /** BulletinPostedBy (charID, its show-info link, postTime). */
@@ -54,7 +56,7 @@
 <div class="corp-bulletins">
   {#if director}
     <div class="cb-buttons">
-      <button type="button" onclick={() => (editing = true)}>{word(LABELS.add, "Add Bulletin")}</button>
+      <button type="button" onclick={() => (editing = true)}>{word(alliance ? LABELS.allianceAdd : LABELS.add, "Add Bulletin")}</button>
       {#if (rows?.length ?? 0) > 1}<button type="button" class="cb-order" disabled title={word(LABELS.order, "Bulletin Display Order")}>⇅</button>{/if}
     </div>
   {/if}
