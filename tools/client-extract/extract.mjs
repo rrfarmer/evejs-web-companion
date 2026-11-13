@@ -5,7 +5,7 @@
 //        [--sde <SDE jsonl folder>] [--type-graphics] [--hull <res path or stem> ...] [--type <typeID> ...]
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
-//        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--missile <missile typeID> ...]
+//        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--sof-materials] [--missile <missile typeID> ...]
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -34,7 +34,7 @@ import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
-import { loadSof, buildHull } from "./lib/sof.mjs";
+import { loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
 import { readTurret, ammoColors } from "./lib/turret.mjs";
 import { spawnSync } from "node:child_process";
@@ -516,7 +516,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, fx: [], effects: [], starMap: false, fittingScene: false };
+  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -532,6 +532,7 @@ function parseArgs(argv) {
     else if (a === "--turret") out.turrets.push(argv[++i]);
     else if (a === "--gfx-turrets") out.gfxTurrets = true;
     else if (a === "--ammo-colors") out.ammoColors = true;
+    else if (a === "--sof-materials") out.sofMaterials = true;
     else if (a === "--fx") out.fx.push(argv[++i]);
     else if (a === "--star-map") out.starMap = true;
     else if (a === "--fitting-scene") out.fittingScene = true;
@@ -702,6 +703,12 @@ async function main() {
   for (const guid of args.fx) {
     if (!sde) throw new Error("--fx needs the SDE (--sde, or a config.json that names it)");
     console.log(`${guid} -> ${path.relative(outRoot, await extractFxGraphic(rf, client, sde, guid, outRoot))}`);
+  }
+  // sofMaterials.json: every SOF material by name (the paint tool's preview swaps its paints' in, modify_dna)
+  if (args.sofMaterials) {
+    const map = allMaterials(loadSof(rf));
+    fs.writeFileSync(path.join(outRoot, "sofMaterials.json"), JSON.stringify(map));
+    console.log(`sofMaterials.json: ${Object.keys(map).length} materials`);
   }
   if (args.ammoColors) {
     if (!sde) throw new Error("--ammo-colors needs the SDE (--sde, or a config.json that names it)");

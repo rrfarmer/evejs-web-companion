@@ -61,6 +61,14 @@ export function loadSof(rf) {
 // GetValue() hands the effect (EveSOFData.cpp, EveSOFDataMgr::GetHullAreaData) - not the effect file's default
 const params = (list) => Object.fromEntries((list ?? []).filter((p) => p && p.name).map((p) => [p.name, p.value ?? [0, 0, 0, 0]]));
 
+/** Every SOF material by its name (data.black's material list), as an area's material1..4 reads it: the paint tool's
+ * structure paints (paints.fsdbinary materialName, "cosm_...") among them. */
+export function allMaterials(sof) {
+  const out = {};
+  for (const m of sof.data.material) if (m && m.name) out[m.name] = material(sof, m.name);
+  return out;
+}
+
 function material(sof, name) {
   if (!name) return null;
   const m = sof.materials.get(String(name).toLowerCase());

@@ -788,6 +788,17 @@ export async function typeModel(typeID: number): Promise<THREE.Object3D | null> 
   return proto ? proto.clone(true) : null;
 }
 
+/**
+ * A type's model built afresh with the SOF DNA's material overrides (EveSOFDNA "material?m1;m2;m3;m4": each area's
+ * material N is the DNA's where it names one, else the faction's), as the paint tool's preview builds a structure
+ * (spaceObject.modify_dna with isStructure: [None, primary, detailing, secondary]). Not cached: each paintwork is its
+ * own build (its materials are its own).
+ */
+export async function paintedTypeModel(typeID: number, materials: readonly (SofMaterial | null)[]): Promise<THREE.Object3D | null> {
+  const info = (await (await fetch(`/client-assets/type/${typeID}`)).json()) as TypeModelInfo;
+  return loadModel(info, typeID, materials);
+}
+
 /** A fresh instance of a SOF graphic's model that is no type's (a station hangar), or null when it has none. */
 export async function graphicModel(graphicID: number): Promise<THREE.Object3D | null> {
   if (!byGraphic.has(graphicID)) byGraphic.set(graphicID, fetch(`/client-assets/graphic/${graphicID}`).then((r) => r.json()).then((info: TypeModelInfo) => loadModel(info, null)));
@@ -801,7 +812,7 @@ async function loadType(typeID: number): Promise<THREE.Object3D | null> {
   return loadModel(info, typeID);
 }
 
-async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<THREE.Object3D | null> {
+async function loadModel(info: TypeModelInfo, typeID: number | null, materialOverrides: readonly (SofMaterial | null)[] | null = null): Promise<THREE.Object3D | null> {
   if (!info.model) return null;
   const gltf = await loader.loadAsync(info.model);
   const dir = info.model.slice(0, info.model.lastIndexOf("/") + 1);
@@ -815,6 +826,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null): Promise<TH
   // The Space Object Factory's build of this hull for the type's faction, where there is one: each mesh area takes the
   // SOF area of its index (EveSOFDataHullArea.index), with that area's own textures and the faction's materials.
   const sof = info.sof ? ((await (await fetch(info.sof)).json()) as SofHull) : null;
+  if (sof && materialOverrides) for (const area of sof.areas) area.materials = [0, 1, 2, 3].map((i) => materialOverrides[i] ?? area.materials[i] ?? null);
   const ROLE = HULL_TEXTURE_ROLES;
   const areaMaps = new Map<SofArea, Record<string, THREE.Texture | undefined>>();
   const texCache = new Map<string, Promise<THREE.Texture | undefined>>();

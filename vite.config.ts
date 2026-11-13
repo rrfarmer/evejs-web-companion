@@ -148,6 +148,39 @@ function clientAssets(): Plugin {
             return res.end(JSON.stringify({ error: (e as Error).message }));
           }
         }
+        // /client-assets/universe-scene/<name>: a scene of res:/dx9/scene/universe/<name>.red (the paint tool's preview:
+        // c05_cube), its nebula cube maps copied on first ask, as /scene/ answers
+        const universeAsk = /^\/universe-scene\/([a-z0-9_]+)$/i.exec(rel);
+        if (universeAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const red = `res:/dx9/scene/universe/${universeAsk[1]!.toLowerCase()}.red`;
+            const stem = red.replace(/\.red$/, "").slice("res:/".length);
+            if (!fs.existsSync(path.join(buildDir, stem + ".dds"))) await extractOnce(`scene:${stem}`, buildDir, ["--scene", red]);
+            const maps: Record<string, string> = {};
+            for (const [role, suffix] of [["nebula", ""], ["reflection", "_refl"], ["blur", "_blur"]] as const) {
+              if (fs.existsSync(path.join(buildDir, stem + suffix + ".dds"))) maps[role] = `/client-assets/${stem}${suffix}.dds`;
+            }
+            res.setHeader("content-type", "application/json");
+            return res.end(JSON.stringify({ scene: red, maps }));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
+        // /client-assets/sofMaterials.json: every SOF material by name (extract.mjs --sof-materials), made on first ask
+        if (rel === "/sofMaterials.json") {
+          try {
+            const buildDir = path.join(root, build);
+            const file = path.join(buildDir, "sofMaterials.json");
+            if (!fs.existsSync(file)) await extractOnce("sof-materials", buildDir, ["--sof-materials"]);
+            res.setHeader("content-type", "application/json");
+            return res.end(fs.readFileSync(file));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         // /client-assets/ammoColors.json: a charge's beam colour by its typeID (extract.mjs --ammo-colors), made on first ask
         if (rel === "/ammoColors.json") {
           try {

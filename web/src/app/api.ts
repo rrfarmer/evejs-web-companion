@@ -5791,7 +5791,7 @@ export async function loadTypeListGroups(listID: number, options: ApiOptions = {
 /** GET /api/client-data/paints: the paint tool's library in the client's order, the hue categories, and the eligible
  * structures' graphic IDs; null where unread. */
 export interface PaintToolData {
-  readonly paints: readonly { readonly id: number; readonly nameID: number | null; readonly finish: string | null; readonly rarity: string | null; readonly hueCategory: string | null }[];
+  readonly paints: readonly { readonly id: number; readonly nameID: number | null; readonly finish: string | null; readonly rarity: string | null; readonly hueCategory: string | null; readonly material: string | null }[];
   readonly hueCategories: readonly { readonly id: string; readonly nameID: number | null; readonly hue: number }[];
   readonly structures: readonly { readonly typeID: number; readonly graphicID: number | null }[];
 }

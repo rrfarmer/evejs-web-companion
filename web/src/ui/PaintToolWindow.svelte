@@ -27,7 +27,9 @@
   // ThankPurchase, ActivatedLicenseDetails {numStructures, numDays}, ActivationProcessDelay; CloseButton closes the
   // window, NewDesignButton back to the first page - the paintwork and the selected structures kept, as the
   // window's selections are).
-  // Not here yet: the 3D live preview (PreviewPanel; the structure's icon stands in), the location's security colour.
+  // The live preview (PreviewPanel, play/paintPreview.ts) on the design and summary pages: the selected structure
+  // type with the paintwork's materials, refitted to the view only when the type changes.
+  // Not here yet: the location's security colour.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -77,6 +79,15 @@
   function pick(paintID: number): void { paintwork = { ...paintwork, [targetSlot]: paintwork[targetSlot] === paintID ? null : paintID }; }
   const canApply = $derived(Object.values(paintwork).some((v) => v !== null));
   const slotWord = (slot: Slot) => word(SLOTS.find(([s]) => s === slot)![1]);
+  // PreviewPanel: the scene mounted where the page shows it; update(type) with the paintwork's material names.
+  const materialOf = (id: number | null) => (id === null ? null : data?.paints.find((p) => p.id === id)?.material ?? null);
+  // (three.js is loaded when a preview is first shown, not with the page: its modules load in the browser only)
+  function preview(node: HTMLElement, args: { typeID: number; paintwork: Record<Slot, number | null> }) {
+    let scene: import("../play/paintPreview.ts").PaintPreviewScene | null = null, last = args, gone = false;
+    const show = (a: typeof args) => { last = a; void scene?.show(a.typeID, { primary: materialOf(a.paintwork.primary), secondary: materialOf(a.paintwork.secondary), detailing: materialOf(a.paintwork.detailing) }); };
+    void import("../play/paintPreview.ts").then((m) => { if (gone) return; scene = new m.PaintPreviewScene(node); show(last); });
+    return { update: show, destroy: () => { gone = true; scene?.close(); } };
+  }
   // DesignApplicationPage.
   let app = $state<Awaited<ReturnType<AppFlow["paintToolApplication"]>> | null | undefined>(undefined);
   let duration = $state(0), chosen = $state<number[]>([]), typeFilter = $state<number | null>(null), textFilter = $state("");
@@ -145,7 +156,7 @@
     <div class="pt-design">
       <div class="pt-left">
         <button class="pt-back" onclick={() => { page = 0; }}>‹ {word("UI/Commands/Back")}</button>
-        <div class="pt-stage"><img src={structureIcon(data.structures.find((s) => s.typeID === selectedType)?.graphicID ?? null)} alt="" /></div>
+        <div class="pt-stage" use:preview={{ typeID: selectedType, paintwork }}></div>
         <div class="pt-slots">
           {#each SLOTS as [slot] (slot)}
             <button class="pt-slot" class:on={targetSlot === slot} title={paintwork[slot] !== null ? `${slotWord(slot)}: ${paintName(paintwork[slot]!)}` : slotWord(slot)} onclick={() => { targetSlot = slot; }}>
@@ -210,6 +221,7 @@
     </div>
   {:else if page === 3}
     <div class="pt-summary">
+      <div class="pt-summary-stage" use:preview={{ typeID: selectedType, paintwork }}></div>
       <img src={clientTexture("res:/UI/Texture/classes/paintTool/paragon_logo.png")} alt="" />
       <h2>{word(P + "ThankPurchase")}</h2>
       <span>{word(P + "ActivatedLicenseDetails", { numStructures: summary?.structures ?? 0, numDays: summary?.days ?? 0 })}</span>
@@ -255,7 +267,8 @@
   .pt-left { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .pt-back { all: unset; cursor: pointer; position: absolute; left: 23px; top: 23px; z-index: 2; opacity: 0.85; }
   .pt-stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
-  .pt-stage img { max-width: 70%; max-height: 80%; }
+  .pt-stage { position: relative; }
+  .pt-summary-stage { flex: 1; align-self: stretch; min-height: 0; }
   .pt-slots { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 22px; }
   .pt-slot { all: unset; cursor: pointer; width: 56px; height: 56px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .pt-slot.on { border-color: #58a6dc; box-shadow: 0 0 0 3px rgba(88, 166, 220, 0.3); }
