@@ -19,6 +19,9 @@ export interface CorpWar {
   readonly allyIDs: readonly number[];
   /** The allies' rows (allyID, timeStarted, timeFinished), as the allies dict has them. */
   readonly allies: readonly WarAlly[];
+  /** A warsInfoMgr row's noOfAllies (WarEntry.GetAllies' fallback where the war has no allies attribute); null for a
+   * GetWars war, which has its allies. */
+  readonly noOfAllies: number | null;
 }
 
 /** A war's ally (warPayloads buildAllyPayload: a KeyVal of allyID, timeStarted, timeFinished). */
@@ -51,6 +54,7 @@ export function decodeWars(answer: JsonValue | null | undefined): CorpWar[] {
         allyID: Number(long(memberField(v, "allyID")) ?? (typeof k === "number" ? k : long(k as JsonValue) ?? 0)),
         timeStarted: long(memberField(v, "timeStarted")), timeFinished: long(memberField(v, "timeFinished")),
       })).filter((a) => a.allyID > 0),
+      noOfAllies: allies === undefined || allies === null ? (() => { const n = memberField(row, "noOfAllies"); return n === undefined || n === null ? null : Number(long(n) ?? 0); })() : null,
     }];
   });
 }

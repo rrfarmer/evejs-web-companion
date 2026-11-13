@@ -1,7 +1,8 @@
 <script lang="ts">
   // corporation/war/allyWnd.py AllyWnd (350 x 282, caption Allies): the top (48) - the mercenary icon 46, Allies
   // (EveCaptionSmall), InWarAgainst {defenderName: the war's declaredByID's name} -, then the allies still fighting (an
-  // AllyListEntry each: timeFinished not passed) or NoAlliesInWar.
+  // AllyListEntry each: timeFinished not passed) or NoAlliesInWar. Without the war's allies (a warsInfoMgr row) they
+  // are read from its statistics object's GetBaseInfo (GetAllies: the last of it).
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -18,8 +19,13 @@
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const fill = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   const now = BigInt(Date.now()) * 10000n + 116444736000000000n;
-  const allies = $derived(war.allies.filter((a) => a.timeFinished === null || now <= a.timeFinished));
-  onMount(() => { flow.requestWords([W + "Allies", W + "InWarAgainst", W + "NoAlliesInWar"]); flow.requestNames(war.allies.map((a) => ({ kind: "owner" as const, id: a.allyID }))); });
+  // svelte-ignore state_referenced_locally
+  let rows = $state(war.allies);
+  const allies = $derived(rows.filter((a) => a.timeFinished === null || now <= a.timeFinished));
+  onMount(() => {
+    flow.requestWords([W + "Allies", W + "InWarAgainst", W + "NoAlliesInWar"]); flow.requestNames(war.allies.map((a) => ({ kind: "owner" as const, id: a.allyID })));
+    if (war.noOfAllies !== null) void flow.warReport(war.warID).then((info) => { if (info) rows = info.allyRows; }).catch(() => {});
+  });
 </script>
 
 <div class="aw-back">

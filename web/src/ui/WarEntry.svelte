@@ -72,7 +72,8 @@
   let assistance = $state<"request" | WarNegotiation | null>(null);
   const nowT = () => BigInt(Date.now()) * 10000n + 116444736000000000n;
   // GetAllies: the allies still fighting
-  const numAllies = $derived(war.allies.filter((a) => a.timeFinished !== null && nowT() < a.timeFinished).length);
+  // (a warsInfoMgr row has no allies attribute: its noOfAllies - GetAllies' AttributeError path)
+  const numAllies = $derived(war.noOfAllies !== null ? war.noOfAllies : war.allies.filter((a) => a.timeFinished !== null && nowT() < a.timeFinished).length);
   // IsAlly: war_cso.IsAllyInWar - one's own row among the allies, not finished
   const isAlly = $derived(war.allies.some((a) => a.allyID === me && (a.timeFinished === null || nowT() < a.timeFinished)));
   // IsNegotiating: one's own ally offer in this war, not declined or retracted
