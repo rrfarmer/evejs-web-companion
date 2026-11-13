@@ -7,7 +7,10 @@
   // the deliveries' LocationDataLabel with the item count), sorted by label and then by the sort key. A location opens
   // to GetAssetInventoryForLocation's items - an office to its eight division groups (flagCorpSAGs, named by
   // GetDivisionNames[division + 1]), each to its own flag's items; an empty one says UnusedCorpOffice (an office) or
-  // NoItem. Without Accountant or Junior Accountant: NeedAccountantOrJuniorRole.
+  // NoItem. Without Accountant or Junior Accountant: NeedAccountantOrJuniorRole. Lockdown: the role check first
+  // (NeedAccountantRole), then lockedItems.GetLockedItemLocations as groups, each to its locked items (one each).
+  // Search: Where (the five and Asset Safety), category, group and minimum quantity (corp_assets_filter_*), searched at
+  // once and on Search: SearchAssets, the locations by name, each to its items that meet the search.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorpAssetItem, CorpAssetLocation } from "../app/flow.ts";
@@ -23,13 +26,14 @@
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const A = "UI/Corporations/Assets/";
-  const TABS = [["offices", "UI/Corporations/Common/Offices"], ["impounded", A + "Impounded"], ["property", A + "InSpace"], ["deliveries", A + "Deliveries"], ["capsuleerdeliveries", "UI/Corporations/DeliverItem/CapsuleerDeliveries"]] as const;
-  const FLAG: Record<string, number> = { offices: 71, impounded: 72, property: 74, deliveries: 75, capsuleerdeliveries: 78 };
+  const TABS = [["offices", "UI/Corporations/Common/Offices"], ["impounded", A + "Impounded"], ["property", A + "InSpace"], ["deliveries", A + "Deliveries"], ["capsuleerdeliveries", "UI/Corporations/DeliverItem/CapsuleerDeliveries"], ["lockdown", A + "Lockdown"], ["search", "UI/Common/Search"]] as const;
+  const FLAG: Record<string, number> = { offices: 71, impounded: 72, property: 74, deliveries: 75, assetwraps: 76, capsuleerdeliveries: 78 };
+  const WHERE = [["offices", "UI/Corporations/Common/Offices"], ["impounded", A + "Impounded"], ["property", A + "InSpace"], ["deliveries", A + "Deliveries"], ["capsuleerdeliveries", "UI/Corporations/DeliverItem/CapsuleerDeliveries"], ["assetwraps", A + "AssetSafety"]] as const;
   const CORP_SAGS = [115, 116, 117, 118, 119, 120, 121, 184];
   const DIVISION_BY_FLAG: Record<number, number> = { 115: 0, 116: 1, 117: 2, 118: 3, 119: 4, 120: 5, 121: 6, 184: 14 };
   const LABELS = [...TABS.map(([, l]) => l), "UI/Common/SortBy", "UI/Common/View", "UI/Common/Name", "UI/Common/NumberOfJumps", "UI/Common/NumberOfItems", A + "CurrentRegion", A + "AllRegions",
     A + "LocationAndJumps", A + "LocationNoRoute", "UI/Inventory/AssetsWindow/LocationDataLabel", "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute", A + "NoItemsFound", A + "UnusedCorpOffice",
-    A + "NeedAccountantOrJuniorRole", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", ...Object.keys(LINK_WORDS)];
+    A + "NeedAccountantOrJuniorRole", A + "NeedAccountantRole", A + "AssetSafety", A + "AllCategories", A + "AllGroups", "UI/Common/Where", "UI/Wallet/WalletWindow/MinQty", "UI/Common/Searching", "/Carbon/UI/Controls/Common/NoItem", "UI/Common/Quantity", "UI/Inventory/ItemGroup", "UI/Inventory/ItemCategory", ...Object.keys(LINK_WORDS)];
   const nameOf = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const text = (label: string, args: Record<string, unknown> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf });
   const followerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), t);
@@ -42,6 +46,12 @@
   let sortKey = $state(0), regionKey = $state<number>(0);
   let open = $state<Record<string, boolean>>({});
   let items = $state<Record<number, readonly CorpAssetItem[] | "loading">>({});
+  // The search's filters as last searched (settings.user.ui corp_assets_filter_*), and the condition its locations
+  // open with.
+  let searchWhich = $state(setting("corp_assets_filter_type") ?? "offices"), searchCategory = $state<number | null>(Number(setting("corp_assets_filter_categories")) || null);
+  let searchGroup = $state<number | null>(Number(setting("corp_assets_filter_groups")) || null), searchQty = $state(setting("corp_assets_filter_quantity") ?? "");
+  let categories = $state<readonly { id: number; name: string }[]>([]), groups = $state<readonly { id: number; name: string }[]>([]);
+  let condition = $state<{ categoryID: number | null; groupID: number | null; qty: number | null; which: string } | null>(null), searching = $state(false);
   // svelte-ignore state_referenced_locally
   const flight = store.flight;
 
@@ -53,7 +63,38 @@
     sortKey = Number.isInteger(kept) && kept >= 0 && kept < options ? kept : 0;
     setSetting("corpAssetsSortKey", String(sortKey));
     regionKey = Number(setting(`corpAssetsKeyID_${tab}`) ?? "0") || 0;
-    try { read = await flow.corporationAssetLocations(tab); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+    try {
+      if (tab === "lockdown") {
+        // ShowLockdown: the sort key and region kept; the role check before the locations are asked.
+        sortKey = Number(setting("corpAssetsSortKey") ?? "0") === 1 ? 1 : 0;
+        const ctx = await flow.corporationAssetContext();
+        read = ctx.allowed ? { ...ctx, rows: await flow.corporationLockedLocations() } : ctx;
+      } else if (tab === "search") {
+        const ctx = await flow.corporationAssetContext();
+        read = { ...ctx, allowed: true };
+        if (!categories.length) categories = await flow.corporationAssetCategories();
+        if (searchCategory !== null) groups = await flow.corporationAssetGroups(searchCategory);
+        await search();
+      } else read = await flow.corporationAssetLocations(tab);
+    } catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  async function search(): Promise<void> {
+    if (!read || searching) return;
+    searching = true; open = {}; items = {};
+    // Search: a group over a category; the quantity a whole number, nought at least, else None.
+    const groupID = searchGroup && searchGroup > 0 ? searchGroup : null, categoryID = groupID === null && searchCategory && searchCategory > 0 ? searchCategory : null;
+    let qty: number | null = /^\s*-?\d+\s*$/.test(searchQty) ? Math.max(0, Number(searchQty)) : null;
+    setSetting("corp_assets_filter_type", searchWhich); setSetting("corp_assets_filter_categories", String(categoryID ?? "")); setSetting("corp_assets_filter_groups", String(groupID ?? ""));
+    setSetting("corp_assets_filter_quantity", qty === null ? "" : String(qty));
+    try {
+      const rows = await flow.corporationAssetSearch(searchWhich, categoryID, groupID, null, qty);
+      condition = { categoryID, groupID, qty, which: searchWhich };
+      read = { ...read, rows };
+    } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { searching = false; }
+  }
+  async function chooseCategory(id: number | null): Promise<void> {
+    searchCategory = id; searchGroup = null;
+    groups = id === null ? [] : await flow.corporationAssetGroups(id);
   }
   onMount(() => { flow.requestWords(LABELS); void show("offices"); });
 
@@ -90,6 +131,7 @@
   const locations = $derived.by(() => {
     if (!read) return [];
     const rows = read.rows.map((row) => ({ row, label: label(row), jumps: jumpsOf(row) ?? -1, name: plainText(text("UI/Common/LocationDynamic", { location: row.locationID })) || nameOf("station", row.locationID) }));
+    if (which === "search") return rows.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     rows.sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
     const shown = rows.filter((r) => regionKey === 1 || (regionKey === 0 ? r.row.regionID === read!.regionID : r.row.regionID === regionKey));
     const cmp = (a: number | string, b: number | string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -100,7 +142,15 @@
     open = { ...open, [key]: !open[key] };
     if (open[key] && items[row.locationID] === undefined) {
       items = { ...items, [row.locationID]: "loading" };
-      try { items = { ...items, [row.locationID]: await flow.corporationAssetItems(row.locationID, which) }; }
+      try {
+        let list: readonly CorpAssetItem[];
+        if (which === "lockdown") list = (await flow.corporationLockedItems(row.locationID)).map((item) => ({ itemID: item.itemID, typeID: item.typeID, flagID: 4, stacksize: 1, singleton: 1, groupID: 0, categoryID: 0 }));
+        else if (which === "search" && condition) {
+          const c = condition;
+          list = (await flow.corporationAssetItems(row.locationID, c.which)).filter((item) => !((c.groupID !== null && c.groupID !== item.groupID) || (c.categoryID !== null && c.categoryID !== item.categoryID) || (c.qty !== null && c.qty > item.stacksize)));
+        } else list = await flow.corporationAssetItems(row.locationID, which);
+        items = { ...items, [row.locationID]: list };
+      }
       catch (e) { error = e instanceof Error ? e.message : String(e); items = { ...items, [row.locationID]: [] }; }
     }
   }
@@ -120,6 +170,20 @@
   <div class="ca-tabs">
     {#each TABS as [id, l] (id)}<button class:active={which === id} onclick={() => void show(id)}>{plainText(text(l))}</button>{/each}
   </div>
+  {#if which === "search"}
+    <div class="ca-search">
+      <label><span>{plainText(text("UI/Common/Where"))}</span>
+        <select value={searchWhich} onchange={(e) => { searchWhich = e.currentTarget.value; }}>{#each WHERE as [id, l] (id)}<option value={id}>{plainText(text(l))}</option>{/each}</select></label>
+      <label><span>&nbsp;</span>
+        <select value={searchCategory ?? ""} onchange={(e) => void chooseCategory(e.currentTarget.value === "" ? null : Number(e.currentTarget.value))}>
+          <option value="">{plainText(text(A + "AllCategories"))}</option>{#each categories as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select></label>
+      <label><span>&nbsp;</span>
+        <select value={searchGroup ?? ""} onchange={(e) => { searchGroup = e.currentTarget.value === "" ? null : Number(e.currentTarget.value); }}>
+          <option value="">{plainText(text(A + "AllGroups"))}</option>{#each groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}</select></label>
+      <label class="ca-qty-field"><span>{plainText(text("UI/Wallet/WalletWindow/MinQty"))}</span><input value={searchQty} oninput={(e) => { searchQty = e.currentTarget.value.replace(/[^\d-]/g, ""); }} /></label>
+      <button disabled={searching} onclick={() => void search()}>{plainText(text("UI/Common/Search"))}</button>
+    </div>
+  {:else}
   <div class="ca-filters">
     <label><span>{plainText(text("UI/Common/SortBy"))}</span>
       <select value={sortKey} onchange={(e) => { sortKey = Number(e.currentTarget.value); setSetting("corpAssetsSortKey", String(sortKey)); }}>
@@ -134,10 +198,13 @@
         {#each regionOptions as o (o.key)}<option value={o.key}>{o.label}</option>{/each}
       </select></label>
   </div>
+  {/if}
   <div class="ca-head"><span>{plainText(text("UI/Common/Name"))}</span><span>{plainText(text("UI/Common/Quantity"))}</span><span>{plainText(text("UI/Inventory/ItemGroup"))}</span></div>
   <div class="ca-scroll">
-    {#if read && !read.allowed}
-      <p class="ca-hint">{plainText(text(A + "NeedAccountantOrJuniorRole"))}</p>
+    {#if searching}
+      <p class="ca-hint">{plainText(text("UI/Common/Searching"))}</p>
+    {:else if read && !read.allowed}
+      <p class="ca-hint">{plainText(text(which === "lockdown" ? A + "NeedAccountantRole" : A + "NeedAccountantOrJuniorRole"))}</p>
     {:else if read}
       {#each locations as loc (loc.row.locationID)}
         {@const list = items[loc.row.locationID]}
@@ -146,7 +213,7 @@
         </button>
         {#if open[`l${loc.row.locationID}`] && list && list !== "loading"}
           {#if list.length === 0}
-            <div class="ca-item ca-empty" style:padding-left="16px">{plainText(text(FLAG[which] === 71 ? A + "UnusedCorpOffice" : "/Carbon/UI/Controls/Common/NoItem"))}</div>
+            <div class="ca-item ca-empty" style:padding-left="16px">{plainText(text(FLAG[which === "search" ? condition?.which ?? "" : which] === 71 ? A + "UnusedCorpOffice" : "/Carbon/UI/Controls/Common/NoItem"))}</div>
           {:else if which === "offices"}
             {#each CORP_SAGS as flag (flag)}
               {@const key = `d${loc.row.locationID}:${flag}`}
@@ -173,7 +240,9 @@
   .ca-tabs { display: flex; gap: 2px; flex-wrap: wrap; }
   .ca-tabs button { padding: 2px 10px; }
   .ca-tabs button.active { background: rgba(255, 255, 255, 0.18); }
-  .ca-filters { display: flex; gap: 6px; }
+  .ca-filters, .ca-search { display: flex; gap: 6px; align-items: flex-end; }
+  .ca-search label { display: flex; flex-direction: column; font-size: 10px; width: 90px; }
+  .ca-search .ca-qty-field { width: 60px; }
   .ca-filters label { display: flex; flex-direction: column; font-size: 10px; width: 140px; }
   .ca-head, .ca-item { display: grid; grid-template-columns: minmax(160px, 2fr) 80px 1fr; gap: 6px; align-items: center; }
   .ca-head { font-size: 10px; opacity: 0.7; padding: 0 4px; }

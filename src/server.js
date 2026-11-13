@@ -14651,6 +14651,39 @@ app.get("/api/client-data/group-categories", requireAuth, async (req, res, next)
   }
 });
 
+// The categories (evetypes.IterateCategories, categoryID above nought) and one category's groups
+// (evetypes.GetGroupIDsByCategory): each one's name message and whether it is published - the corporation assets
+// search's category and group combos (corp_ui_accounts.ShowSearch, PopulateGroupCombo).
+app.get("/api/client-data/categories", requireAuth, async (req, res, next) => {
+  try {
+    const table = await clientBuiltData.table("categoriesOrdered");
+    const categories = [];
+    for (const [key, row] of Object.entries(table || {})) {
+      const categoryID = Number(key);
+      if (!Number.isSafeInteger(categoryID) || categoryID <= 0 || !row || typeof row !== "object") continue;
+      categories.push({ categoryID, nameID: Number(row.categoryNameID) || 0, published: Boolean(row.published) });
+    }
+    res.json({ ok: true, available: Boolean(table), categories });
+  } catch (error) {
+    next(error);
+  }
+});
+app.get("/api/client-data/category-groups", requireAuth, async (req, res, next) => {
+  try {
+    const categoryID = Number(req.query && req.query.categoryID);
+    const table = await clientBuiltData.table("groupsOrdered");
+    const groups = [];
+    for (const [key, row] of Object.entries(table || {})) {
+      const groupID = Number(key);
+      if (!Number.isSafeInteger(groupID) || !row || typeof row !== "object" || Number(row.categoryID) !== categoryID) continue;
+      groups.push({ groupID, nameID: Number(row.groupNameID) || 0, published: Boolean(row.published) });
+    }
+    res.json({ ok: true, available: Boolean(table), groups });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/client-data/group-types", requireAuth, async (req, res, next) => {
   try {
     const asked = [];

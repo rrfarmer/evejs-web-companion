@@ -2700,6 +2700,17 @@ export interface AppFlow {
    * Accountant), the pilot's region, the regions' names and the division names (GetDivisionNames). */
   corporationAssetLocations(which: string): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
   corporationAssetItems(locationID: number, which: string): Promise<readonly CorpAssetItem[]>;
+  /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
+  corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
+  /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
+  corporationAssetCategories(): Promise<readonly { readonly id: number; readonly name: string }[]>;
+  corporationAssetGroups(categoryID: number): Promise<readonly { readonly id: number; readonly name: string }[]>;
+  /** CorpAccounts.Search: SearchAssets(which, category, group, type, qty) - each set filter or None - and its locations. */
+  corporationAssetSearch(which: string, categoryID: number | null, groupID: number | null, typeID: number | null, qty: number | null): Promise<readonly CorpAssetLocation[]>;
+  /** lockedItems.GetLockedItemLocations (kept until OnLockedItemChange), as locations. */
+  corporationLockedLocations(): Promise<readonly CorpAssetLocation[]>;
+  /** lockedItems.GetLockedItemsByLocation: the locked items' types by itemID. */
+  corporationLockedItems(locationID: number): Promise<readonly { readonly itemID: number; readonly typeID: number }[]>;
   corporationMemberSummary(details: CorporationMemberDetails): Promise<{ readonly titles: readonly CorporationTitle[]; readonly showTitleNames: boolean }>;
   corporationSummaryGroupOpen(groupID: number, open?: boolean): boolean;
   corporationDecorationGroupOpen(medalID: number, recipients: boolean, open?: boolean): boolean;
@@ -6304,6 +6315,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (held) changeMemberTitles(held, Number(unwrapLong(args[1] as JsonValue) ?? 0n), args[2] as JsonValue);
       return;
     }
+    // lockedItems.OnLockedItemChange: the kept locations are asked again next time.
+    if (method === "OnLockedItemChange") { lockedLocations = null; return; }
     // PagedCorpMembers.OnCorporationMemberChanged: a member leaving is taken out of the loaded rows (or the count); one
     // joining is appended while the last page is loaded (GetMembersByIds), else counted; any other change is written
     // into the loaded row.
@@ -17982,9 +17995,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function crowsetRows(answer: JsonValue): readonly JsonValue[] {
     return answer && typeof answer === "object" && !Array.isArray(answer) && "list" in answer && Array.isArray(answer.list) ? answer.list : readRowsetRows(answer) as readonly JsonValue[];
   }
-  async function corporationAssetLocations(which: string): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }> {
+  async function corporationAssetLocations(which: string | null): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }> {
     const scope = captureMemberOperation(), online = scope.online;
-    const answer = await scope.ask("corpmgr", "GetAssetInventory", [online.corporationID, which]);
+    const answer: JsonValue = which === null ? [] : await scope.ask("corpmgr", "GetAssetInventory", [online.corporationID, which]);
     const map = await (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; })); scope.current();
     const regionOf = new Map(map.systems.map(system => [system[0], system[5]] as const));
     const regionNames = new Map((map.regions ?? []).map(region => [region[0], region[4]] as const));
@@ -18012,6 +18025,69 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const integer = (row: JsonValue, key: string) => Number(memberInteger(row, key) ?? 0n);
     const items = crowsetRows(answer).map(row => ({ itemID: integer(row, "itemID"), typeID: integer(row, "typeID"), flagID: integer(row, "flagID"), stacksize: integer(row, "stacksize"), singleton: integer(row, "singleton"), groupID: integer(row, "groupID"), categoryID: integer(row, "categoryID") }));
     await memberNames(scope, [...new Set(items.map(item => item.typeID))].flatMap(id => [{ kind: "type" as const, id }, { kind: "typeGroup" as const, id }, { kind: "typeCategory" as const, id }]));
+    return items;
+  }
+  // A location's system and region: a solar system is its own; a station's from its static record; anything else from
+  // the server's row where it gave one.
+  async function assetLocationsOf(locationIDs: readonly number[], given: ReadonlyMap<number, number> = new Map()): Promise<CorpAssetLocation[]> {
+    const map = await (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; }));
+    const regionOf = new Map(map.systems.map(system => [system[0], system[5]] as const));
+    const systemByName = new Map(map.systems.map(system => [system[7] ?? "", system[0]] as const));
+    const rows: CorpAssetLocation[] = [];
+    for (const locationID of locationIDs) {
+      let solarSystemID = given.get(locationID) ?? 0;
+      if (locationID >= 30_000_000 && locationID < 33_000_000) solarSystemID = locationID;
+      else if (!solarSystemID && locationID >= 60_000_000 && locationID < 64_000_000) {
+        // The static station record names its system (solarSystemName), which the star map knows by name.
+        const station = await api.loadStationStatic(locationID, callOptions).catch(() => null);
+        solarSystemID = systemByName.get(String((station as { solarSystemName?: unknown } | null)?.solarSystemName ?? "")) ?? 0;
+      }
+      rows.push({ locationID, solarSystemID, regionID: regionOf.get(solarSystemID) ?? null, typeID: null, itemCount: null });
+    }
+    const scope = captureMemberOperation();
+    await memberNames(scope, rows.flatMap(row => [row.locationID >= 60_000_000 && row.locationID < 64_000_000 ? { kind: "station" as const, id: row.locationID } : row.locationID >= 30_000_000 && row.locationID < 33_000_000 ? { kind: "system" as const, id: row.locationID } : { kind: "structure" as const, id: row.locationID }, { kind: "system" as const, id: row.solarSystemID }]));
+    const systems = [...new Set(rows.map(row => row.solarSystemID).filter(id => id > 0))];
+    if (systems.length) store.apply({ type: "names/system-security", security: await api.loadSystemSecurity(systems, callOptions) });
+    return rows;
+  }
+  async function corporationAssetCategories(): Promise<readonly { readonly id: number; readonly name: string }[]> {
+    const rows = await api.getCategories(callOptions);
+    await wordsNow(rows.map(row => `#${row.nameID}`));
+    const templates = store.words.get().templates;
+    // categories.sort() over [name, categoryID, published]; then the published ones.
+    return rows.map(row => ({ id: row.categoryID, name: plainText(templates[`#${row.nameID}`] ?? ""), published: row.published }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id)).filter(row => row.published).map(({ id, name }) => ({ id, name }));
+  }
+  async function corporationAssetGroups(categoryID: number): Promise<readonly { readonly id: number; readonly name: string }[]> {
+    const rows = (await api.getCategoryGroups(categoryID, callOptions)).filter(row => row.published);
+    await wordsNow(rows.map(row => `#${row.nameID}`));
+    const templates = store.words.get().templates;
+    // SortListOfTuples over (groupName, (groupName, groupID)).
+    return rows.map(row => ({ id: row.groupID, name: plainText(templates[`#${row.nameID}`] ?? "") })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id));
+  }
+  async function corporationAssetSearch(which: string, categoryID: number | null, groupID: number | null, typeID: number | null, qty: number | null): Promise<readonly CorpAssetLocation[]> {
+    const scope = captureMemberOperation();
+    const answer = await scope.ask("corpmgr", "SearchAssets", [which, categoryID, groupID, typeID, qty]); scope.current();
+    const ids = crowsetRows(answer).map(row => Number(memberInteger(row, "locationID") ?? 0n)).filter(id => id > 0);
+    return assetLocationsOf(ids);
+  }
+  let lockedLocations: Promise<readonly number[]> | null = null;
+  async function corporationLockedLocations(): Promise<readonly CorpAssetLocation[]> {
+    const scope = captureMemberOperation();
+    lockedLocations ??= scope.ask("itemLocking", "GetLockedItemLocations", []).then(answer => {
+      // A __builtin__.set: an objectex1 over a one-tuple of its list.
+      const header = answer && typeof answer === "object" && !Array.isArray(answer) && "header" in answer && Array.isArray(answer.header) ? answer.header as readonly JsonValue[] : [];
+      const inner = Array.isArray(header[1]) ? (header[1] as readonly JsonValue[])[0] : null;
+      const items: readonly JsonValue[] = isListValue(inner ?? null) ? (inner as { items: JsonValue[] }).items : Array.isArray(inner) ? inner : isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+      return items.map(value => Number(unwrapLong(value) ?? 0n)).filter(id => id > 0);
+    }).catch(error => { lockedLocations = null; throw error; });
+    return assetLocationsOf(await lockedLocations);
+  }
+  async function corporationLockedItems(locationID: number): Promise<readonly { readonly itemID: number; readonly typeID: number }[]> {
+    const scope = captureMemberOperation();
+    const answer = await scope.ask("itemLocking", "GetItemsByLocation", [locationID]); scope.current();
+    const items = readDictPairs(answer).map(([key, row]) => ({ itemID: Number(unwrapLong(key) ?? 0n), typeID: Number(memberInteger(row, "typeID") ?? 0n) })).filter(item => item.itemID > 0);
+    await memberNames(scope, [...new Set(items.map(item => item.typeID))].flatMap(id => [{ kind: "type" as const, id }, { kind: "typeGroup" as const, id }]));
     return items;
   }
   async function corporationMemberTitles(current?: () => void): Promise<readonly CorporationTitle[]> {
@@ -31059,6 +31135,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     saveRoleManagement,
     corporationAssetLocations,
     corporationAssetItems,
+    corporationAssetCategories,
+    corporationAssetContext: () => corporationAssetLocations(null),
+    corporationAssetGroups,
+    corporationAssetSearch,
+    corporationLockedLocations,
+    corporationLockedItems,
     corporationMemberSummary,
     corporationSummaryGroupOpen,
     corporationDecorationGroupOpen,

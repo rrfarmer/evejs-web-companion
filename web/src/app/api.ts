@@ -3889,6 +3889,18 @@ export async function getGroupCategories(
   return { available: data.available === true, groups };
 }
 
+/** evetypes.IterateCategories (above nought): each category's name message and whether it is published. */
+export async function getCategories(options: ApiOptions = {}): Promise<readonly { readonly categoryID: number; readonly nameID: number; readonly published: boolean }[]> {
+  const data = await getJson("/api/client-data/categories", options);
+  return Array.isArray(data.categories) ? (data.categories as unknown as { categoryID: number; nameID: number; published: boolean }[]).filter((row) => Number.isSafeInteger(row.categoryID)) : [];
+}
+
+/** evetypes.GetGroupIDsByCategory: a category's groups, each one's name message and whether it is published. */
+export async function getCategoryGroups(categoryID: number, options: ApiOptions = {}): Promise<readonly { readonly groupID: number; readonly nameID: number; readonly published: boolean }[]> {
+  const data = await getJson(`/api/client-data/category-groups?categoryID=${categoryID}`, options);
+  return Array.isArray(data.groups) ? (data.groups as unknown as { groupID: number; nameID: number; published: boolean }[]).filter((row) => Number.isSafeInteger(row.groupID)) : [];
+}
+
 /** The types of each group asked (evetypes.GetTypeIDsByGroup), at most 32 groups a read; null where not to be had. */
 export async function getGroupTypes(
   groupIDs: readonly number[],

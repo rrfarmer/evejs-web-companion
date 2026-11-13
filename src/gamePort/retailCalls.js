@@ -673,6 +673,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "invbroker.GetPriceForItems",
   "invbroker.GetSelfInvItem",
   "itemLocking.GetItemsByLocation",
+  "itemLocking.GetLockedItemLocations",
   // A server-returned direct-trade Moniker; the page binds it lazily with List.
   "trademgr.InitiateTrade", "trademgr.MachoBindObject", "trademgr.List", "trademgr.Abort", "trademgr.Add", "trademgr.MultiAdd", "trademgr.OfferMoney", "trademgr.MakeOffer",
   // xmppchatsvc.py 1197-1208 / 1257-1261: private allocation and elevated addition, both on the proxy.
@@ -2099,6 +2100,7 @@ const RETAIL_CALLS = Object.freeze({
   "invbroker.EnterPassword": typing(same(`${INV_CACHE}:1442-1477`, "PasswordHandlerCallWrapper sends EnterPassword(passwordType, scalar text from NamePopup) on the SAME underlying bound inventory; type1 is general, type2 configuration. The return is ignored before retrying the original operation. Nonempty edit text is Unicode. No Tranquility capture established."), [1]),
   "invbroker.GetSelfInvItem": judged(`${INV_CACHE}:966-975`, sentWithNothing, "invCacheContainer.GetItem reads its inventory's GetSelfInvItem(), as DogmaLocation.UnloadModuleToContainer1087-1088 requires before unloading to a Trade inventory."),
   "itemLocking.GetItemsByLocation": same("eve/client/script/ui/services/corporation/itemLocking.py:30-34,57-64", "GetItemsByLocation(current station or docked structure), cached per location until OnLockedItemChange. invCacheContainer.MultiAdd1044 checks every ordinary item ID before acquiring a local broker lock."),
+  "itemLocking.GetLockedItemLocations": judged("eve/client/script/ui/services/corporation/itemLocking.py:36-40", sentWithNothing, "lockedItems.GetLockedItemLocations: once, then kept and amended by OnLockedItemChange; the corporation assets' Lockdown tab (corp_ui_accounts.ShowLockdown 528)."),
   "invbroker.GetPriceForItems": reshaped(`${INV_CACHE}:769`, (args, kwargs) => ({ args: [list(args[0] ?? [])], kwargs }), "Asset Safety wrap GetPriceForItems([itemIDs]), before the recovery question and quantity popup."),
   "structureAssetSafety.GetWrapNames": reshaped("eve/client/script/ui/shared/assets/assetSafetySvc.py:79", (args, kwargs) => ({ args: [list(args[0] ?? [])], kwargs }), "GetWrapNames(wrapIDs), a list of all requested wraps when any name is uncached."),
   "invbroker.GetAvailableTurretSlots": judged("achievements/client/eventHandler.py:427", sentWithNothing, "invCache.GetInventoryFromId(shipID).GetAvailableTurretSlots(), nothing sent, on the ship's own inventory: how many of its turret hardpoints are free. The achievements' event handler asks it at every change of the session's ship to a ship (251 to 260, 419 to 429: godma's item of the ship first, and only for one of the ship category) and when what is fitted high changes (inventorysvc.py 124). Tranquility's recordings have it in 20: at a login, an ejection, a boarding."),
