@@ -13503,6 +13503,25 @@ app.get("/api/client-data/missions/:missionID", requireAuth, async (req, res, ne
 // FmtWalletEntry words a line by it, unless the kind has none or is worded by hand (walletEntryFormat.py 22 to 26).
 // `available` is false when the table could not be read (no client install, or no Python to host the client's
 // loader); `journalMessageIDs` is then empty.
+// The recruitment ads' groups and types as the client reads them (evecorporation/recruitment.py
+// get_recruitment_groups / get_recruitment_types): a group's name and description, a type's group, name and
+// description, each a message's number. `available` is false when the client cannot be read.
+app.get("/api/client-data/recruitment", requireAuth, async (req, res, next) => {
+  try {
+    const [groupTable, typeTable] = await Promise.all([clientBuiltData.table("recruitmentGroups"), clientBuiltData.table("recruitmentTypes")]);
+    const id = (value) => (Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null);
+    const groups = {};
+    for (const [groupID, row] of Object.entries(groupTable || {})) groups[groupID] = { nameID: id(row && row.nameID), descriptionID: id(row && row.descriptionID) };
+    const types = {};
+    for (const [typeID, row] of Object.entries(typeTable || {})) {
+      types[typeID] = { groupID: id(row && row.recruitmentGroupID), nameID: id(row && row.nameID), descriptionID: id(row && row.descriptionID) };
+    }
+    res.json({ ok: true, available: Boolean(groupTable && typeTable), groups, types });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/client-data/accounting-entry-types", requireAuth, async (req, res, next) => {
   try {
     const table = await clientBuiltData.table("accountingEntryTypes");

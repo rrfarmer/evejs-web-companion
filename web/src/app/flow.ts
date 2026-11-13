@@ -439,6 +439,7 @@ import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText } 
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
+import { decodeRecruitmentAds, type RecruitmentAd, type RecruitmentSearch } from "../bridge/corpRecruitment.ts";
 
 /** CreateCorp's form, as Submit reads it (the tax rates as fractions; three logo layers' shapes and colours). */
 export interface CorporationFounding {
@@ -2406,6 +2407,13 @@ export interface AppFlow {
   /** EditCorpBulletin.ClickSend for a new bulletin: CorpBulletinMustFillIn, the chat manager's role (EditBulletin),
    * CorpTooManyBulletins (MAX_NUM_BULLETINS 10), then corpRegistry.AddBulletin(title, body); true when added. */
   addCorporationBulletin(title: string, body: string): Promise<boolean>;
+  /** evecorporation.recruitment's groups and types, read once (null where the client cannot be read). */
+  recruitmentData(): Promise<api.RecruitmentData | null>;
+  /** CorpRecruitmentContainerSearch.GetSearchResults: corpRecProxy.SearchCorpAds with the panel's criteria, the
+   * corporations' and alliances' names primed. */
+  searchRecruitmentAds(criteria: RecruitmentSearch): Promise<readonly RecruitmentAd[]>;
+  /** PopulateSearchResultsByCorpID: corpRecProxy.GetRecruitmentAdsByCorpID(corpID). */
+  recruitmentAdsOf(corporationID: number): Promise<readonly RecruitmentAd[]>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
   openCorporationMemberDetails(characterID: number): Promise<void>;
@@ -16298,6 +16306,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throw error;
     }
   }
+  let recruitmentDataRead: Promise<api.RecruitmentData | null> | null = null;
+  function recruitmentData(): Promise<api.RecruitmentData | null> {
+    recruitmentDataRead ??= api.loadRecruitmentData(callOptions).catch((error) => { recruitmentDataRead = null; throw error; });
+    return recruitmentDataRead;
+  }
+  async function recruitmentAdsNamed(ads: readonly RecruitmentAd[]): Promise<readonly RecruitmentAd[]> {
+    // GetRecruitementEntryDataList: cfg.eveowners.Prime - the corporations and their alliances
+    const refs = [...new Set(ads.flatMap((ad) => [ad.corporationID, ...(ad.allianceID ? [ad.allianceID] : [])]))].map((id) => ({ kind: "owner" as const, id }));
+    if (!refs.length) return ads;
+    const current = callOptions.captureRequestGuard!();
+    await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, refs);
+    return ads;
+  }
+  async function searchRecruitmentAds(c: RecruitmentSearch): Promise<readonly RecruitmentAd[]> {
+    const answer = await bridgeAsk("corpRecProxy", "SearchCorpAds", [c.typeMask, c.langMask, c.excludeAlliances, c.excludeFriendlyFire,
+      c.spRestriction, c.minMembers, c.maxMembers, c.maxISKTaxRate, c.maxLPTaxRate, c.searchTimeMask, c.otherMask]);
+    return recruitmentAdsNamed(decodeRecruitmentAds(answer));
+  }
+  async function recruitmentAdsOf(corporationID: number): Promise<readonly RecruitmentAd[]> {
+    return recruitmentAdsNamed(decodeRecruitmentAds(await bridgeAsk("corpRecProxy", "GetRecruitmentAdsByCorpID", [corporationID])));
+  }
   async function addCorporationBulletin(title: string, body: string): Promise<boolean> {
     if (title === "" || body.trim() === "") { sayDialog("CorpBulletinMustFillIn", null, "You must fill in both the title and the body of the bulletin."); return false; }
     // base_corporation.EditBulletin: const.corpRoleChatManager
@@ -29864,6 +29893,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationTickerSuggestions,
     createCorporation,
     addCorporationBulletin,
+    recruitmentData,
+    searchRecruitmentAds,
+    recruitmentAdsOf,
     corporationBulletins,
     openCorporationMemberDetails,
     memberDetailsPanel,

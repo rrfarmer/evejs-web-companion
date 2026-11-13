@@ -44,6 +44,10 @@ const TABLES = Object.freeze({
   // The kinds of a wallet journal's entries, each with the message its line is worded by (eveaccounting/data.py
   // get_entry_format_localization_id: entryJournalMessageID), which the client's FmtWalletEntry words it with.
   accountingEntryTypes: Object.freeze({ loader: "accountingEntryTypesLoader", resource: "res:/staticdata/accountingentrytypes.fsdbinary" }),
+  // The recruitment ads' groups and types (evecorporation/recruitment.py): each type's group, its name and description
+  // as messages; a type's mask bit is 2 to the power of its number.
+  recruitmentGroups: Object.freeze({ loader: "recruitmentGroupsLoader", resource: "res:/staticdata/recruitmentgroups.fsdbinary" }),
+  recruitmentTypes: Object.freeze({ loader: "recruitmentTypesLoader", resource: "res:/staticdata/recruitmenttypes.fsdbinary" }),
   // A ship type's group in the client's ship tree (evetypes.GetShipGroupID: the type's isisGroupID), which the Ship
   // Restrictions window groups its hulls by. Only that attribute of the types is read: the table is too big to walk.
   typeShipGroups: Object.freeze({ loader: "typesLoader", resource: "res:/staticdata/types.fsdbinary", attribute: "isisGroupID" }),

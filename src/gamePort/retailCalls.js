@@ -686,6 +686,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "officeManager.GetPriceQuote", "officeManager.HasCorpImpoundedItems", "officeManager.PrimeOfficeItem", "officeManager.RentOffice", "officeManager.UnrentOffice",
   // The account's clone grade, which the client asks as it logs in. The gateway's list has nothing of the subscription manager's.
   "subscriptionMgr.GetCloneGrade",
+  // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
+  // the recruitment proxy. The gateway's list has nothing of it.
+  "corpRecProxy.SearchCorpAds", "corpRecProxy.GetRecruitmentAdsByCorpID",
   // An acceleration gate's activation, the keeper's (movementFunctions.py 553). The gateway's list has nothing of the keeper's.
   "keeper.ActivateAccelerationGate",
   // A fitting saved, and one of the same name saved over (fittingSvc.PersistFitting, 302 and 304). The gateway's list
