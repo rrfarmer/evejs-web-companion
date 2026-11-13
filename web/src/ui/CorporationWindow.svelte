@@ -21,6 +21,7 @@
   import CorporationApplicationsToCorp from "./CorporationApplicationsToCorp.svelte";
   import CorporationWarInfo from "./CorporationWarInfo.svelte";
   import CorporationWars from "./CorporationWars.svelte";
+  import CorporationWarHistory from "./CorporationWarHistory.svelte";
   import { getContext, onDestroy } from "svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
@@ -33,7 +34,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -99,6 +100,7 @@
     "UI/Corporations/BaseCorporationUI/FindNewCorporation": "Find New Corporation",
     "UI/Corporations/CorporationWindow/Recruitment/CorporationAds": "Advertisements",
     "UI/Corporations/CorpApplications/ApplicationsToCorp": "Applications",
+    "UI/Corporations/Wars/WarHistory": "War History",
     "UI/Corporations/BaseCorporationUI/Wars": "Wars",
     "UI/Corporations/BaseCorporationUI/OngoingWarsTab": "Wars",
     "UI/Corporations/Wars/WarInfoTab": "War Info",
@@ -182,6 +184,8 @@
       ] : []),
       { header: "UI/Corporations/BaseCorporationUI/Wars", entries: [
         { id: "wars", label: "UI/Corporations/BaseCorporationUI/OngoingWarsTab" }, { id: "warInfo", label: "UI/Corporations/Wars/WarInfoTab" },
+        // construct_corporation_wars_panels: War History, not for an NPC corporation
+        ...(playerCorporation ? [{ id: "warHistory" as const, label: "UI/Corporations/Wars/WarHistory" }] : []),
       ] },
     ];
   });
@@ -253,6 +257,7 @@
       {#if panel === "kills"}<CorporationKillReports {store} {flow} />{/if}
       {#if panel === "recruitSearch"}<CorporationFinder {store} {flow} />{/if}
       {#if panel === "wars"}<CorporationWars {store} {flow} />{/if}
+      {#if panel === "warHistory"}<CorporationWarHistory {store} {flow} />{/if}
       {#if panel === "warInfo"}<CorporationWarInfo {store} {flow} />{/if}
       {#if panel === "recruitAds"}<CorporationAdverts {store} {flow} />{/if}
       {#if panel === "recruitApplications"}<CorporationApplicationsToCorp {store} {flow} />{/if}

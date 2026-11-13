@@ -441,6 +441,9 @@ import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar } from "../bridge/corpWars.ts";
 
+/** A peace treaty as war.GetPeaceTreaties answers it (the side the pilot's owner is on: outgoing or incoming). */
+export interface PeaceTreaty { readonly otherOwnerID: number; readonly peaceReason: number; readonly expiryDate: bigint; readonly warID: number | null }
+
 /** SearchForWarableEntity's answer, with what GetUnsortedScrollList greys owners by. */
 export interface WarableSearch {
   readonly warable: readonly { readonly ownerID: number; readonly typeID: number; readonly warPermit: boolean; readonly name: string }[];
@@ -2473,6 +2476,9 @@ export interface AppFlow {
   /** PopulateTop50: warsInfoMgr.GetTop50(maxWarID) (WARS_PER_PAGE 50 below that war), or GetWarsRequiringAssistance
    * (Show cry for help), the owners primed. */
   recentWars(maxWarID: number, cryForHelp: boolean): Promise<readonly CorpWar[]>;
+  /** WarHistoryCont.LoadHistory: war.GetPeaceTreaties (peaceTreatyMgr: outgoing, incoming - otherOwnerID, peaceReason,
+   * expiryDate, warID) and warsInfoMgr.GetWarsByOwnerID of the corporation and its alliance; the owners primed. */
+  warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }>;
   /** WarDeclarePagePickTypeCorp.SearchForOwner: war.SearchForWarableEntity - lookupSvc.LookupWarableCorporationsOrAlliances
    * (text, exact) and the corporations found by name (partial_terms, or exact_phrase_only) that are not warable, not
    * NPCs and start with the text; with the outgoing peace treaties' owners and the attacker's ongoing opponents. */
@@ -16559,6 +16565,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return wars;
   }
+  async function warHistory(): Promise<{ readonly outgoing: readonly PeaceTreaty[]; readonly incoming: readonly PeaceTreaty[]; readonly wars: readonly CorpWar[] }> {
+    const online = store.station.get().online;
+    const corpID = online?.corporationID ?? 0, allianceID = online?.allianceID ?? null;
+    const [treatyAnswer, corpWars, allianceWars] = await Promise.all([
+      bridgeAsk("peaceTreatyMgr", "GetPeaceTreatiesForSession", []),
+      bridgeAsk("warsInfoMgr", "GetWarsByOwnerID", [corpID]),
+      allianceID ? bridgeAsk("warsInfoMgr", "GetWarsByOwnerID", [allianceID]) : Promise.resolve(null),
+    ]);
+    const pair: readonly JsonValue[] = Array.isArray(treatyAnswer) ? treatyAnswer : treatyAnswer && typeof treatyAnswer === "object" && "items" in treatyAnswer && Array.isArray(treatyAnswer.items) ? treatyAnswer.items : [];
+    const num = (v: JsonValue | undefined) => (typeof v === "number" ? v : Number(unwrapLong(v) ?? 0));
+    const rows = (side: JsonValue | undefined): readonly JsonValue[] => side === undefined || side === null ? [] : isListValue(side) ? side.items : Array.isArray(side) ? side
+      : (side as { list?: unknown }).list && Array.isArray((side as { list?: unknown }).list) ? (side as { list: JsonValue[] }).list : (readRowsetRows(side) as readonly JsonValue[]);
+    const treatiesOf = (side: JsonValue | undefined): PeaceTreaty[] => rows(side).map((t) => ({ otherOwnerID: num(memberField(t, "otherOwnerID")), peaceReason: num(memberField(t, "peaceReason")),
+      expiryDate: unwrapLong(memberField(t, "expiryDate")) ?? 0n, warID: num(memberField(t, "warID")) || null })).filter((t) => t.otherOwnerID > 0);
+    const outgoing = treatiesOf(pair[0]), incoming = treatiesOf(pair[1]);
+    const seen = new Set<number>();
+    const wars = [...decodeWars(corpWars), ...decodeWars(allianceWars)].filter((w) => !seen.has(w.warID) && (seen.add(w.warID), true));
+    await warsNamed(wars);
+    const ids = [...new Set([...outgoing, ...incoming].map((t) => t.otherOwnerID))];
+    if (ids.length) { const current = callOptions.captureRequestGuard!(); await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } }, ids.map((id) => ({ kind: "owner" as const, id }))); }
+    return { outgoing, incoming, wars };
+  }
   async function ownerWars(ownerID: number): Promise<readonly CorpWar[]> {
     return warsNamed(decodeWars(await bridgeAsk("warRegistry", "GetWars", [ownerID])));
   }
@@ -30270,6 +30298,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warLandingInfo,
     ownerWars,
     recentWars,
+    warHistory,
     searchWarableOwners,
     validWarHQs,
     declareWarAgainst,
