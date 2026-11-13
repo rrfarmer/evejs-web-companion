@@ -3337,7 +3337,16 @@ export interface AppFlow {
    * says AtGoalsCapacity {numMax} ("at capacity of active goals"), InsufficientFunds (reserve, 400),
    * WalletDivisionAccessDenied (reserve, 403), else FailedToConnect. True when made. */
   createCorporationGoal(goal: { readonly name: string; readonly description: string; readonly desired: number; readonly methodID: string; readonly careerPath: number | null;
-    readonly payment: number | null; readonly expiry: number | null; readonly participationLimit: number | null; readonly capacity: number | null }): Promise<boolean>;
+    readonly payment: number | null; readonly expiry: number | null; readonly participationLimit: number | null; readonly capacity: number | null;
+    /** ParametersForm.get_value: the method's parameters by key - a location, an item type, an office; a list where
+     * the parameter takes several (maxEntries > 1); absent or null for any. */
+    readonly parameters?: Readonly<Record<string, number | readonly number[] | null>> }): Promise<boolean>;
+  /** formComponent.SolarSystem / MultiValueLocationFormComponent's search: solar systems, and with several allowed
+   * constellations and regions, whose name holds the text (any case); systems first, then by name. */
+  goalLocationMatches(text: string, several: boolean): Promise<readonly { readonly id: number; readonly name: string; readonly kind: "system" | "constellation" | "region"; readonly security: number | null }[]>;
+  /** CorporationOfficeParameter._get_options: officeManager.GetMyCorporationsOffices() - each office's id and its
+   * station's name. */
+  corporationOfficeOptions(): Promise<readonly { readonly officeID: number; readonly stationID: number; readonly name: string }[]>;
   /** _SetProgress - set_current_progress: SetCurrentProgressRequest(goal, current_progress, min(new, desired)). */
   setCorporationGoalProgress(goal: CorporationGoal, progress: number): Promise<boolean>;
   /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
@@ -18589,6 +18598,56 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     SalvageWreck: ["salvage_wreck", { contribution_methods: [{ ...ANY_SYSTEM }] }],
     EarnLoyaltyPoints: ["earned_loyaltypoints", { corporations: { all: true } }],
   };
+  // add_contribution_method with the parameters given: each construct_* - a single location as the matcher's
+  // match_value (kill_npc: solar_system), several as SolarSystemSets (solar_system / constellation / region by the id's
+  // range), none as any / all; DeliverItem's delivered_item_type and office (free_office without one).
+  function goalConfiguration(methodID: string, parameters: Readonly<Record<string, number | readonly number[] | null>>): readonly [string, JsonValue] | null {
+    const one = (key: string): number | null => { const v = parameters[key]; return typeof v === "number" && v > 0 ? v : Array.isArray(v) && v.length ? Number(v[0]) : null; };
+    const many = (key: string): readonly number[] => { const v = parameters[key]; return typeof v === "number" ? [v] : Array.isArray(v) ? v.filter((x) => x > 0) : []; };
+    const systemMatcher = (): JsonValue => { const id = one("solar_system"); return id ? { match_value: { sequential: id } } : { any: true }; };
+    const systemSets = (): JsonValue => {
+      const ids = many("solar_system");
+      if (!ids.length) return { all: true };
+      // idCheckers: regions 10000000-, constellations 20000000-, solar systems 30000000-.
+      return { sets: { systems: ids.map((id) => (id >= 30_000_000 ? { solar_system: { sequential: id } } : id >= 20_000_000 ? { constellation: { sequential: id } } : { region: { sequential: id } })) } } as unknown as JsonValue;
+    };
+    if (methodID === "DeliverItem") {
+      const item = one("item_type"), office = one("office");
+      if (!item) return null;
+      return ["deliver_item", { contribution_methods: [{ delivered_item_type: { sequential: item }, ...(office ? { office: { sequential: office } } : { free_office: true }) }] }];
+    }
+    const base = GOAL_CONFIGURATIONS[methodID];
+    if (!base) return null;
+    const [field, any] = base;
+    const config = JSON.parse(JSON.stringify(any)) as Record<string, JsonValue>;
+    if (methodID === "KillNPC") { const id = one("solar_system"); return [field, { contribution_methods: [id ? { solar_system: { sequential: id } } : { free_solar_system: true }] }]; }
+    if (Array.isArray(config.contribution_methods)) {
+      const matcher = config.contribution_methods[0] as Record<string, JsonValue>;
+      if ("solar_system" in matcher) matcher.solar_system = systemMatcher();
+    } else if ("solar_systems" in config) config.solar_systems = systemSets();
+    return [field, config];
+  }
+  async function goalLocationMatches(text: string, several: boolean): Promise<readonly { readonly id: number; readonly name: string; readonly kind: "system" | "constellation" | "region"; readonly security: number | null }[]> {
+    const q = text.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const map = await (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; }));
+    const out: { id: number; name: string; kind: "system" | "constellation" | "region"; security: number | null }[] = [];
+    for (const s of map.systems) if ((s[7] ?? "").toLowerCase().includes(q)) out.push({ id: s[0], name: s[7] ?? "", kind: "system", security: s[8] ?? null });
+    if (several) {
+      for (const c of map.constellations ?? []) if (c[4].toLowerCase().includes(q)) out.push({ id: c[0], name: c[4], kind: "constellation", security: null });
+      for (const r of map.regions ?? []) if (r[4].toLowerCase().includes(q)) out.push({ id: r[0], name: r[4], kind: "region", security: null });
+    }
+    // LocationParameter._sort_key: solar systems, constellations, regions, each by name.
+    const rank = { system: 1, constellation: 2, region: 3 } as const;
+    return out.sort((a, b) => rank[a.kind] - rank[b.kind] || a.name.toLowerCase().localeCompare(b.name.toLowerCase())).slice(0, 50);
+  }
+  async function corporationOfficeOptions(): Promise<readonly { readonly officeID: number; readonly stationID: number; readonly name: string }[]> {
+    const scope = captureMemberOperation();
+    const offices = crowsetRows(await scope.ask("officeManager", "GetMyCorporationsOffices", []) as JsonValue); scope.current();
+    const rows = offices.map((row) => ({ officeID: Number(memberInteger(row, "officeID") ?? 0n), stationID: Number(memberInteger(row, "stationID") ?? 0n) })).filter((o) => o.officeID > 0);
+    await memberNames(scope, rows.map((o) => (o.stationID >= 60_000_000 && o.stationID < 64_000_000 ? { kind: "station" as const, id: o.stationID } : { kind: "structure" as const, id: o.stationID })));
+    return rows.map((o) => ({ ...o, name: resolvedName(store.names.get().resolved, o.stationID >= 60_000_000 && o.stationID < 64_000_000 ? "station" : "structure", o.stationID, "") }));
+  }
   // goalMessenger.CAREER_PATH_RESOLVER: the career path, the request's career.
   const GOAL_CAREERS: Readonly<Record<number, number>> = { 0: 0, 4: 1, 5: 2, 6: 3, 7: 4 };
   async function goalMessage(label: string, values: Record<string, unknown> = {}): Promise<void> {
@@ -18597,7 +18656,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sayDialog("CustomInfo", { type: "dict", entries: [["info", text]] } as JsonValue, text);
   }
   async function createCorporationGoal(goal: Parameters<AppFlow["createCorporationGoal"]>[0]): Promise<boolean> {
-    const configuration = GOAL_CONFIGURATIONS[goal.methodID];
+    const configuration = goalConfiguration(goal.methodID, goal.parameters ?? {});
     if (!configuration) throw new Error(`The contribution method ${goal.methodID} needs parameters this form does not offer yet.`);
     if (goal.payment && (await corporationWealthReads.fresh(store.station.get().online?.corpAccountKey ?? null).catch(() => 0)) < goal.payment * goal.desired) {
       await goalMessage("UI/Corporations/Goals/InsufficientFunds"); return false;
@@ -31954,6 +32013,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,
+    goalLocationMatches,
+    corporationOfficeOptions,
     setCorporationGoalProgress,
     corporationMembersWithMoreThanAvgShares,
     requestCorpLogos,

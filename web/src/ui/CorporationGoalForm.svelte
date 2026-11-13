@@ -11,8 +11,14 @@
   // (CorpGoalsController.create_goal) and Cancel (CancelProjectCreation asked). A section's header once filled: "n X
   // <method>", the name. Duplicate: the original's method, target, career, name, description, ISK per unit, limit
   // and duration.
-  // Not here yet: the methods' parameters (every one is "any"); Deliver Item, Manufacture Item and Ship Insurance,
-  // whose parameters or fields are required, are listed but cannot be made yet.
+  // The method's parameters (ParametersForm, contributionMethods' parameters): a location (LocationParameter -
+  // formComponent.SolarSystem, or with maxEntries > 1 MultiValueLocationFormComponent: solar systems, constellations,
+  // regions), an item type (InventoryTypeParameter - formComponent.EveType), a corporation office
+  // (CorporationOfficeParameter - Any and the offices); the parameter's title, its info as the hint, the placeholder
+  // TypeInName or the unset description with "(Optional)"; a required one InputRequired.
+  // Not here yet: the other parameter types (ship, identity, ore, manufacturable item, owner, office location,
+  // faction, complex, signature, LP corporation, insurance) - left at any; Manufacture Item and Ship Insurance cannot be
+  // made yet.
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
@@ -33,13 +39,43 @@
     "RewardLimitPerContributor", "TotalProjectCost", "CreateNew"].map((k) => G + k)
     .concat(["UI/Common/Description", "UI/Common/Name", "Character/CareerPaths/CareerPath", "Character/CareerPaths/Unclassified", "UI/Common/Cancel", "UI/Common/ISK",
       "UI/Control/Form/InputRequired", "UI/Control/Form/LengthBetweenRequired", "UI/Control/Form/LengthBelowRequired", "UI/Control/Form/OnlySingleWhitespacesAllowed",
-      "UI/Control/Form/IllegalCharacters", "UI/Corporations/Common/CorporateDivisionMasterWallet"]);
+      "UI/Control/Form/IllegalCharacters", "UI/Corporations/Common/CorporateDivisionMasterWallet", "UI/Corporations/Goals/TypeInName", "UI/Corporations/Goals/Optional",
+      "UI/Corporations/Goals/AnyCorpOffice", "UI/Common/Any"]);
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   // goalConst.ALLOWED_CONTRIBUTION_METHOD_TYPES.
   const ALLOWED = ["Manual", "DamageShip", "DeliverItem", "KillNPC", "MineOre", "ManufactureItem", "KillCapsuleer", "CaptureFWComplex", "DefendFWComplex",
     "RemoteRepairShields", "RemoteRepairArmor", "ScanSignature", "SalvageWreck", "EarnLoyaltyPoints", "ShipLoss", "ShipInsurance"];
-  const NOT_YET = new Set(["DeliverItem", "ManufactureItem", "ShipInsurance"]);
+  const NOT_YET = new Set(["ManufactureItem", "ShipInsurance"]);
+  type Parameter = { readonly parameterKey: string; readonly parameterType: string; readonly isRequired?: number; readonly maxEntries?: number; readonly title?: string; readonly info?: string };
+  const BUILT = new Set(["location", "inventory_type", "corporation_office"]);
+  const parametersOf = (id: string): readonly Parameter[] => ((methods[id] as { parameters?: readonly Parameter[] } | undefined)?.parameters ?? []);
+  // The values by parameter key: one id, or several where maxEntries > 1.
+  let params = $state<Record<string, number[]>>({}), paramNames = $state<Record<number, string>>({});
+  let search = $state<Record<string, string>>({}), found = $state<Record<string, readonly { id: number; name: string; sub: string }[]>>({});
+  let offices = $state<readonly { officeID: number; name: string }[]>([]);
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+  function findFor(p: Parameter, text: string): void {
+    search = { ...search, [p.parameterKey]: text };
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      if (p.parameterType === "location") {
+        const r = await flow.goalLocationMatches(text, (p.maxEntries ?? 1) > 1);
+        found = { ...found, [p.parameterKey]: r.map((m) => ({ id: m.id, name: m.kind === "system" && m.security !== null ? `${m.name} ${m.security.toFixed(1)}` : m.name, sub: m.kind })) };
+      } else if (p.parameterType === "inventory_type") {
+        const r = text.trim().length < 3 ? { exact: null, matches: [] } : await flow.marketTypeMatches(text);
+        found = { ...found, [p.parameterKey]: r.matches.slice(0, 50).map((m) => ({ id: m.typeID, name: m.name, sub: m.category })) };
+      }
+    }, 250);
+  }
+  function pickParam(p: Parameter, id: number, label: string): void {
+    const several = (p.maxEntries ?? 1) > 1, have = params[p.parameterKey] ?? [];
+    params = { ...params, [p.parameterKey]: several ? (have.includes(id) || have.length >= (p.maxEntries ?? 1) ? have : [...have, id]) : [id] };
+    paramNames = { ...paramNames, [id]: label };
+    search = { ...search, [p.parameterKey]: "" }; found = { ...found, [p.parameterKey]: [] };
+  }
+  function dropParam(key: string, id: number): void { params = { ...params, [key]: (params[key] ?? []).filter((x) => x !== id) }; }
+  const placeholder = (p: Parameter) => `${word("UI/Corporations/Goals/TypeInName")}${p.isRequired ? "" : ` (${word("UI/Corporations/Goals/Optional")})`}`;
   // metadata CONTENT_TAG_TO_CAREER_PATH.
   const TAG_CAREERS: Record<string, number> = { career_path_explorer: 4, career_path_industrialist: 5, career_path_enforcer: 6, career_path_soldier_of_fortune: 7 };
   const methodWord = (id: string, key: "titleID" | "descriptionID" | "targetValueDescriptionID" | "rewardingDescriptionID") => {
@@ -52,6 +88,8 @@
   onMount(() => {
     flow.requestWords(LABELS);
     flow.requestWords(Object.values(methods).flatMap((m) => Object.entries(m).filter(([k, v]) => k.endsWith("ID") && typeof v === "number").map(([, v]) => `#${v}`)));
+    flow.requestWords(Object.values(methods).flatMap((m) => ((m as { parameters?: readonly Parameter[] }).parameters ?? []).flatMap((p) => [p.title, p.info].filter((x): x is string => typeof x === "string"))));
+    void flow.corporationOfficeOptions().then((o) => { offices = o; }, () => {});
     void flow.certifiedSkillPlans().then((r) => { if (r) careerNames = Object.fromEntries(r.careerPaths.filter((c) => c.nameID !== null).map((c) => [c.careerPathID, c.nameID!])); }, () => {});
   });
 
@@ -62,7 +100,7 @@
   let hasExpiry = $state(Boolean(o?.due)), expiry = $state(o?.due && o.created ? new Date(Date.now() + (o.due - o.created)).toISOString().slice(0, 16) : new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16));
   let name = $state(o?.name ?? ""), description = $state(o?.description ?? ""), career = $state<number>(o?.careerPath ?? 0), perUnit = $state<number>(o?.amountPerUnit ?? 0);
   let submitting = $state(false), tried = $state(false);
-  function chooseMethod(id: string): void { method = id; desired = 1; career = methodCareer(id); perUnit = 0; limit = null; }
+  function chooseMethod(id: string): void { method = id; desired = 1; career = methodCareer(id); perUnit = 0; limit = null; params = {}; }
   function preset(span: string): void {
     const d = new Date();
     if (span === "7d") d.setDate(d.getDate() + 7); else if (span === "2w") d.setDate(d.getDate() + 14); else d.setMonth(d.getMonth() + Number(span.replace("m", "")));
@@ -77,7 +115,8 @@
   });
   const descriptionError = $derived(description.length > 1000 ? word("UI/Control/Form/LengthBelowRequired", { maxLength: 1000, length: description.length }) : "");
   const methodError = $derived(!method ? word("UI/Control/Form/InputRequired") : "");
-  const valid = $derived(!methodError && !nameError && !descriptionError && desired >= 1 && (!limit || limit <= desired) && !NOT_YET.has(method));
+  const missingRequired = $derived(method ? parametersOf(method).some((p) => p.isRequired && BUILT.has(p.parameterType) && !(params[p.parameterKey] ?? []).length) : false);
+  const valid = $derived(!methodError && !nameError && !descriptionError && desired >= 1 && (!limit || limit <= desired) && !NOT_YET.has(method) && !missingRequired);
   const total = $derived((perUnit || 0) * (desired || 0));
   const isk = (v: number) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${word("UI/Common/ISK") || "ISK"}`;
   async function create(): Promise<void> {
@@ -86,7 +125,8 @@
     submitting = true;
     try {
       const made = await flow.createCorporationGoal({ name, description, desired, methodID: method, careerPath: career || null, payment: perUnit > 0 ? perUnit : null,
-        expiry: hasExpiry ? new Date(expiry).getTime() : null, participationLimit: limit && limit > 0 ? limit : null, capacity });
+        expiry: hasExpiry ? new Date(expiry).getTime() : null, participationLimit: limit && limit > 0 ? limit : null, capacity,
+        parameters: Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v.length ? v : null])) });
       if (made) onClose(true);
     } finally { submitting = false; }
   }
@@ -110,6 +150,29 @@
             {#if tried && methodError}<small class="gf-error">{methodError}</small>{/if}</label>
           {#if method}
             {#if NOT_YET.has(method)}<p class="gf-note">{methodWord(method, "descriptionID")}</p>{/if}
+            {#each parametersOf(method) as p (p.parameterKey)}
+              {@const chosen = params[p.parameterKey] ?? []}
+              <div class="gf-field gf-indent" title={p.info ? word(p.info) : ""}>
+                <span>{p.title ? word(p.title) : p.parameterKey}</span>
+                {#if p.parameterType === "corporation_office"}
+                  <select value={chosen[0] ? String(chosen[0]) : ""} onchange={(e) => { const v = Number(e.currentTarget.value); params = { ...params, [p.parameterKey]: v ? [v] : [] }; }}>
+                    {#if !p.isRequired}<option value="">{word("UI/Common/Any")}</option>{/if}
+                    {#each offices as o (o.officeID)}<option value={String(o.officeID)}>{o.name}</option>{/each}
+                  </select>
+                {:else if BUILT.has(p.parameterType)}
+                  {#if chosen.length}<span class="gf-chips">{#each chosen as id (id)}<span class="gf-chip">{paramNames[id] ?? id}<button onclick={() => dropParam(p.parameterKey, id)}>✕</button></span>{/each}</span>{/if}
+                  {#if chosen.length < (p.maxEntries ?? 1)}
+                    <input placeholder={placeholder(p)} value={search[p.parameterKey] ?? ""} oninput={(e) => findFor(p, e.currentTarget.value)} />
+                    {#if (found[p.parameterKey] ?? []).length}
+                      <div class="gf-found">{#each found[p.parameterKey] ?? [] as m (m.id)}<button onclick={() => pickParam(p, m.id, m.name)}>{m.name} <small>{m.sub}</small></button>{/each}</div>
+                    {/if}
+                  {/if}
+                  {#if tried && p.isRequired && !chosen.length}<small class="gf-error">{word("UI/Control/Form/InputRequired")}</small>{/if}
+                {:else}
+                  <small class="gf-dim">{word("UI/Common/Any")}</small>
+                {/if}
+              </div>
+            {/each}
             <label class="gf-field gf-indent">{methodWord(method, "targetValueDescriptionID") || word(G + "TargetValue")}<input type="number" min="1" bind:value={desired} /></label>
             <label class="gf-field gf-indent" title={word(G + "LimitPerContributorHint")}>{word(G + "LimitPerContributor")}
               <input type="number" min="1" max={desired} placeholder={word(G + "TypeInOptionalContributionAmount")} value={limit ?? ""} oninput={(e) => { const v = Number(e.currentTarget.value); limit = e.currentTarget.value && v > 0 ? v : null; }} />
@@ -163,6 +226,13 @@
   .gf-presets { display: flex; gap: 4px; margin-top: 4px; }
   .gf-error { color: #d4534f; }
   .gf-note { padding: 0 8px; opacity: 0.75; }
+  .gf-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .gf-chip { display: inline-flex; gap: 4px; align-items: center; padding: 1px 6px; background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+  .gf-chip button { all: unset; cursor: pointer; opacity: 0.7; }
+  .gf-found { max-height: 160px; overflow: auto; display: flex; flex-direction: column; border: 1px solid rgba(255, 255, 255, 0.15); }
+  .gf-found button { all: unset; cursor: pointer; padding: 2px 6px; }
+  .gf-found button:hover { background: rgba(255, 255, 255, 0.08); }
+  .gf-found small, .gf-dim { opacity: 0.6; }
   .gf-total { display: flex; flex-direction: column; align-items: flex-end; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.2); }
   .gf > footer { display: flex; justify-content: flex-end; gap: 6px; padding: 8px; }
 </style>
