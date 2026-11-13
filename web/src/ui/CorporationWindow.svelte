@@ -29,6 +29,7 @@
   import AllianceRankings from "./AllianceRankings.svelte";
   import CorporationAutoKicks from "./CorporationAutoKicks.svelte";
   import CorporationAuditing from "./CorporationAuditing.svelte";
+  import CorporationVotes from "./CorporationVotes.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
   import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
   import CorporationAssets from "./CorporationAssets.svelte";
@@ -45,7 +46,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -83,6 +84,15 @@
   });
   $effect(() => { if (panel === "find" && !administration.findMembers) panel = playerCorporation ? "contacts" : "applications"; });
   onDestroy(() => { administrationRead++; });
+  // construct_corporation_panels: the Voting group where corpvotes.CanViewVotes(session.corpid).
+  let canViewVotes = $state(false);
+  $effect(() => {
+    void administrationAuthority; canViewVotes = false;
+    if (administrationCorporationID === null) return;
+    const request = administrationRead;
+    void flow.canViewCorporationVotes().then((v) => { if (request === administrationRead) canViewVotes = v; }, () => {});
+  });
+  $effect(() => { if (panel === "votes" && !canViewVotes) panel = playerCorporation ? "contacts" : "applications"; });
   const allianceID = $derived($station.online?.allianceID ?? null);
   // const.corpRoleAuditor
   const auditorRole = $derived((BigInt($station.online?.corpRole ?? "0") & 4096n) !== 0n);
@@ -125,6 +135,8 @@
     "UI/Corporations/CorporationWindow/Alliances/AllAlliances": "All Alliances",
     "UI/Corporations/BaseCorporationUI/AutoKickManagement": "Auto-Kick Management",
     "UI/Corporations/BaseCorporationUI/Auditing": "Auditing",
+    "UI/Corporations/BaseCorporationUI/Voting": "Voting",
+    "UI/Corporations/BaseCorporationUI/Votes": "Votes",
     "UI/Corporations/BaseCorporationUI/TitleManagement": "Titles",
     "UI/Corporations/BaseCorporationUI/RoleManagement": "Role Management",
     "UI/Corporations/BaseCorporationUI/Assets": "Assets",
@@ -226,6 +238,8 @@
           { id: "npc" as const, label: "UI/Corporations/CorporationWindow/Standings/NPCStandings" },
         ] },
       ] : []),
+      // construct_corporation_voting_panels: Votes
+      ...(canViewVotes ? [{ header: "UI/Corporations/BaseCorporationUI/Voting", entries: [{ id: "votes" as const, label: "UI/Corporations/BaseCorporationUI/Votes" }] }] : []),
       { header: "UI/Corporations/BaseCorporationUI/Wars", entries: [
         { id: "wars", label: "UI/Corporations/BaseCorporationUI/OngoingWarsTab" }, { id: "warInfo", label: "UI/Corporations/Wars/WarInfoTab" },
         // construct_corporation_wars_panels: War History, not for an NPC corporation
@@ -310,6 +324,7 @@
       {#if panel === "allianceRankings"}<AllianceRankings {store} {flow} />{/if}
       {#if panel === "autoKicks"}<CorporationAutoKicks {store} {flow} />{/if}
       {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
+      {#if panel === "votes"}<CorporationVotes {store} {flow} />{/if}
       {#if panel === "titles"}<CorporationTitles {store} {flow} />{/if}
       {#if panel === "roleManagement"}<CorporationRoleManagement {store} {flow} />{/if}
       {#if panel === "assets"}<CorporationAssets {store} {flow} />{/if}

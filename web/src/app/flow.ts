@@ -494,6 +494,21 @@ export interface CorporationStructureLicense {
   readonly structureID: number; readonly name: string; readonly typeID: number; readonly upkeepState: number;
   readonly solarSystemID: number; readonly licenseID: string; readonly remainingSeconds: number;
 }
+/** voteManager.GetVoteCasesByCorporation's row (the vote case header). */
+export interface CorporationVoteCase {
+  readonly voteCaseID: number; readonly voteType: number; readonly voteCaseText: string; readonly description: string;
+  /** FILETIMEs. */
+  readonly startDateTime: bigint | null; readonly endDateTime: bigint | null;
+}
+/** voteManager.GetVoteCaseOptions' KeyVal. */
+export interface CorporationVoteOption {
+  readonly optionID: number; readonly optionText: string; readonly parameter: number; readonly parameter1: number;
+  readonly parameter2: number; readonly votesFor: number;
+}
+export interface CorporationVoting {
+  readonly canView: boolean; readonly open: readonly CorporationVoteCase[]; readonly closed: readonly CorporationVoteCase[];
+  readonly canPropose: boolean; readonly canRunForCEO: boolean;
+}
 /** The corporation's row as the corporation details window reads it. */
 export interface CorporationDetails {
   readonly description: string; readonly url: string; readonly iskTaxRate: number; readonly lpTaxRate: number; readonly isRecruiting: boolean;
@@ -3235,6 +3250,24 @@ export interface AppFlow {
   readonly cargoShown: ReadableSignal<{ readonly n: number; readonly itemID: number } | null>;
   /** The wallet's Shares tab (bridge/walletShares.ts): the shares the pilot holds, read as the tab is chosen. */
   readonly walletShares: ReadableSignal<WalletSharesRead>;
+  /** Counts OnVoteCaseChanged / OnVoteCast for the session's corporation (corpUISignals.on_vote_case_changed,
+   * on_vote_cast): the Votes panel reads again on each. */
+  readonly corporationVoteChanges: ReadableSignal<number>;
+  /** CorpVotes.Load / ShowOpenVotes / ShowClosedVotes: CanViewVotes(corpid); where it may, GetVoteCasesByCorporation
+   * (corpid) - {2: open, 1: closed} rowsets; Propose Vote for a director (corprole & corpRoleDirector), Run For CEO
+   * for one not the CEO with Corporation Management (GetSkill(typeCorporationManagement)) and CanRunForCEO(). */
+  corporationVoting(): Promise<CorporationVoting>;
+  /** corporationWindow.construct_corporation_panels: the Voting group only where corpvotes.CanViewVotes(corpid). */
+  canViewCorporationVotes(): Promise<boolean>;
+  /** CorpVotes.GetOpenVoteSubContent: GetVoteCaseOptions(voteCaseID, corpid), the pilot's GetVotes(voteCaseID) (the
+   * first's optionID voted for), CanVote - the CEO, or one holding the corporation's shares (_CanVote). */
+  corporationVoteOptions(voteCaseID: number): Promise<{ readonly options: readonly CorporationVoteOption[]; readonly votedFor: number; readonly canVote: boolean }>;
+  /** CorpVotes.InsertVote: InsertVote(corpid, voteCaseID, optionID). */
+  castCorporationVote(voteCaseID: number, optionID: number): Promise<void>;
+  /** CorpVotes.ProposeCEOVote's HybridWnd, then CreateVote(voteCEO): InsertVoteCase(title, description, 0,
+   * (('UI/Corporations/CorporationWindow/Politics/SomeoneForCEO', {'char': charid}),
+   * ('UI/Corporations/CorporationWindow/Politics/DontChangeCEO',), charid, None, None), days). */
+  runForCEO(title: string, description: string, days: number): Promise<boolean>;
   readonly corpWalletShares: ReadableSignal<WalletSharesRead>;
   loadWalletShares(corporate?: boolean): Promise<void>;
   setWalletSharesVisible(visible: boolean, corporate?: boolean): void;
@@ -6381,6 +6414,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     // lockedItems.OnLockedItemChange: the kept locations are asked again next time.
     if (method === "OnLockedItemChange") { lockedLocations = null; return; }
+    // corpvotes.OnVoteCaseChanged / OnVoteCast: the panel reads again (its caches were let go for the session's corporation).
+    if (method === "OnVoteCaseChanged" || method === "OnVoteCast") { corporationVoteChangesSignal.set(corporationVoteChangesSignal.get() + 1); return; }
     // PagedCorpMembers.OnCorporationMemberChanged: a member leaving is taken out of the loaded rows (or the count); one
     // joining is appended while the last page is loaded (GetMembersByIds), else counted; any other change is written
     // into the loaded row.
@@ -18278,6 +18313,72 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (by) await memberNames(scope, [{ kind: "owner", id: by }]);
     return { primary: rgb(attributes.main_color), color2, color3, lastAuthoredBy: by, lastAuthored: payload.last_modified ? new Date(seconds * 1000) : null };
   }
+  const fileTimeOf = (value: JsonValue | undefined): bigint | null => { const ft = unwrapLong((value ?? null) as JsonValue); return ft === null || ft <= 0n ? null : ft; };
+  // A marshaled string: plain, or {type: "wstring" | ..., value}.
+  const wireText = (value: JsonValue | undefined): string => typeof value === "string" ? value : value && typeof value === "object" && "value" in value ? String((value as { value: unknown }).value ?? "") : "";
+  async function canViewCorporationVotes(): Promise<boolean> {
+    const scope = captureMemberOperation();
+    const answer = await scope.ask("voteManager", "CanViewVotes", [scope.online.corporationID]) as JsonValue; scope.current();
+    return Boolean(unwrapLong(answer) ?? 0n);
+  }
+  async function corporationVoting(): Promise<CorporationVoting> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const director = (BigInt(online.corpRole ?? "0") & 1n) === 1n;
+    const canView = Boolean(unwrapLong(await scope.ask("voteManager", "CanViewVotes", [online.corporationID]) as JsonValue) ?? 0n); scope.current();
+    const cases = (status: number, answer: JsonValue): CorporationVoteCase[] => {
+      const rowset = readDictPairs(answer).find(([key]) => Number(key) === status)?.[1] ?? null;
+      return rowset === null ? [] : crowsetRows(rowset).map((row) => ({
+        voteCaseID: Number(memberInteger(row, "voteCaseID") ?? 0n), voteType: Number(memberInteger(row, "voteType") ?? 0n),
+        voteCaseText: wireText(memberField(row, "voteCaseText")), description: wireText(memberField(row, "description")),
+        startDateTime: fileTimeOf(memberField(row, "startDateTime")), endDateTime: fileTimeOf(memberField(row, "endDateTime")) }));
+    };
+    let open: CorporationVoteCase[] = [], closed: CorporationVoteCase[] = [];
+    if (canView) {
+      const answer = await scope.ask("voteManager", "GetVoteCasesByCorporation", [online.corporationID]) as JsonValue; scope.current();
+      open = cases(2, answer); closed = cases(1, answer);
+    }
+    // CorpVotes.Load: Run For CEO where not the CEO and corpvotes.CanRunForCEO() (the skill injected, then the server's).
+    const corp = await bridgeAsk("corpRegistry", "GetCorporation", []); scope.current();
+    const ceo = Number(memberInteger(corp, "ceoID") ?? 0n);
+    let canRunForCEO = false;
+    if (ceo !== online.characterID) {
+      const skill = skillLevelsOf(await scope.ask("skillHandler", "GetSkills", [])).get(3363); scope.current();
+      if (skill) canRunForCEO = Boolean(unwrapLong(await scope.ask("voteManager", "CanRunForCEO", []) as JsonValue) ?? 0n);
+      scope.current();
+    }
+    return { canView, open, closed, canPropose: director, canRunForCEO };
+  }
+  async function corporationVoteOptions(voteCaseID: number): Promise<{ readonly options: readonly CorporationVoteOption[]; readonly votedFor: number; readonly canVote: boolean }> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const answer = await scope.ask("voteManager", "GetVoteCaseOptions", [online.corporationID, voteCaseID]) as JsonValue; scope.current();
+    const items: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const num = (row: JsonValue, key: string) => Number(unwrapLong((readKeyVal(row, key) ?? null) as JsonValue) ?? 0n);
+    const options = items.map((row) => ({ optionID: num(row, "optionID"), optionText: wireText(readKeyVal(row, "optionText")),
+      parameter: num(row, "parameter"), parameter1: num(row, "parameter1"), parameter2: num(row, "parameter2"), votesFor: num(row, "votesFor") }));
+    const votes = await scope.ask("voteManager", "GetVotes", [voteCaseID]) as JsonValue; scope.current();
+    const voteRows: readonly JsonValue[] = isListValue(votes) ? votes.items : Array.isArray(votes) ? votes : [];
+    const votedFor = voteRows.length ? num(voteRows[0]!, "optionID") : -1;
+    // _CanVote: the CEO, else a holder of the corporation's shares.
+    const corp = await bridgeAsk("corpRegistry", "GetCorporation", []); scope.current();
+    let canVote = Number(memberInteger(corp, "ceoID") ?? 0n) === online.characterID;
+    if (!canVote) { canVote = (await readMyShares(bridgeAsk)).some((s) => s.corporationID === online.corporationID); scope.current(); }
+    return { options, votedFor, canVote };
+  }
+  async function castCorporationVote(voteCaseID: number, optionID: number): Promise<void> {
+    const scope = captureMemberOperation(), online = scope.online;
+    try { await scope.write("voteManager", "InsertVote", [online.corporationID, voteCaseID, optionID]); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
+  }
+  async function runForCEO(title: string, description: string, days: number): Promise<boolean> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const options: JsonValue = { type: "tuple", items: [
+      { type: "tuple", items: ["UI/Corporations/CorporationWindow/Politics/SomeoneForCEO", { type: "dict", entries: [["char", online.characterID]] }] },
+      { type: "tuple", items: ["UI/Corporations/CorporationWindow/Politics/DontChangeCEO"] },
+      online.characterID, null, null] } as JsonValue;
+    try { await scope.write("voteManager", "InsertVoteCase", [{ type: "wstring", value: title }, { type: "wstring", value: description }, 0, options, days] as JsonValue[]); scope.current(); }
+    catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+    return true;
+  }
   async function corporationStructureLicenses(): Promise<readonly CorporationStructureLicense[]> {
     const scope = captureMemberOperation();
     const structures = decodeCorporationStructures(await scope.ask("structureDirectory", "GetCorporationStructures", []) as JsonValue); scope.current();
@@ -18939,6 +19040,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   // eveIcon.CorpIcon: the client's logo library, read once, and each player corporation's logo, asked once.
   const corpLogoLibrarySignal = createSignal<api.CorpLogoLibrary | null>(null);
+  const corporationVoteChangesSignal = createSignal(0);
   const corpLogosSignal = createSignal<Readonly<Record<string, api.CorpLogoData | null>>>({});
   let corpLogoLibraryAsked = false;
   const corpLogosAsked = new Set<number>();
@@ -31454,6 +31556,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     closeDuel,
     capturePortraits,
     corpLogos: readonlySignal(corpLogosSignal),
+    corporationVoteChanges: readonlySignal(corporationVoteChangesSignal),
+    corporationVoting,
+    canViewCorporationVotes,
+    corporationVoteOptions,
+    castCorporationVote,
+    runForCEO,
     requestCorpLogos,
     loadOwnerLogos,
     addAgentToAddressBook,
