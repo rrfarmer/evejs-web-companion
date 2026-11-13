@@ -209,6 +209,21 @@ export class SpaceView {
   private readonly impactAnimations = new Map<string, { ship: number; name: string; cycle: number; next: number; until: number }>();
   /** How many space objects the LOD quality's visibility threshold left undrawn this frame (for checks). */
   lodCulled = 0;
+  /**
+   * A named object under a model, looked up once and kept (again every 30 frames, and at once when the turrets are
+   * refitted): getObjectByName walks the whole tree, and a station's has thousands of nodes - every frame, for every
+   * ball, it cost 0.8 ms of the frame at Jita IV-4.
+   */
+  private readonly namedCache = new WeakMap<THREE.Object3D, { at: number; found: Map<string, THREE.Object3D | undefined> }>();
+  private named(root: THREE.Object3D, name: string): THREE.Object3D | undefined {
+    let c = this.namedCache.get(root);
+    if (!c || this.frameCount - c.at >= 30) { c = { at: this.frameCount, found: new Map() }; this.namedCache.set(root, c); }
+    if (!c.found.has(name)) c.found.set(name, root.getObjectByName(name));
+    const o = c.found.get(name);
+    // (one taken out of the tree since: looked for again)
+    if (o && !o.parent) { c.found.delete(name); return this.named(root, name); }
+    return o;
+  }
   /** How many space objects were out of the view's frustum this frame (for checks). */
   frustumCulled = 0;
   /** Each model's bounding sphere with its children, in its mark's frame (looked for again every 120 frames: children load late). */
@@ -903,6 +918,7 @@ export class SpaceView {
       const old = model.getObjectByName("turrets");
       if (old) model.remove(old);
       if (group) model.add(group);
+      this.namedCache.delete(model);
     })().catch((e) => console.warn("turrets", e));
   }
   /**
@@ -912,7 +928,8 @@ export class SpaceView {
   private stepTurrets(origin: { x: number; y: number; z: number }, dt: number): void {
     const byID = new Map((this.snapshot?.entities ?? []).map((e) => [e.itemID, e]));
     for (const [shipID, mark] of this.marks) {
-      const group = (mark.userData.model as THREE.Object3D | undefined)?.getObjectByName("turrets");
+      const model = mark.userData.model as THREE.Object3D | undefined;
+      const group = model ? this.named(model, "turrets") : undefined;
       const sets = group?.userData.sets as { state: TurretSetState; moduleID: number | null }[] | undefined;
       if (!sets?.length) continue;
       // turretSet.py: online at fitting (EnterStateIdle); a warp packs them (EnterWarp / ExitWarp); a target being
@@ -1570,7 +1587,7 @@ export class SpaceView {
       // EveBoosterSet2Renderable::UpdateVisibility: the boosters' LOD 2 x their padded sphere's size across
       // (TriFrustum::GetPixelSizeAccross: radius / depth x P[0][0] x the width; the eye inside it: no limit) - drawn
       // above the low detail threshold, their glows with them (flareLodEnabled)
-      const boosters = shown ? model.getObjectByName("boosters") : undefined;
+      const boosters = shown ? this.named(model, "boosters") : undefined;
       const s = boosters?.userData.boosterSphere as { x: number; y: number; z: number; r: number } | undefined;
       if (boosters && s) {
         boosters.localToWorld(centre.set(s.x, s.y, s.z));
@@ -1581,7 +1598,7 @@ export class SpaceView {
         if (!on) boostersHidden++;
         if (boosters.visible !== on) boosters.visible = on;
         // and their effect: the high LOD above the medium detail threshold x 1.5, else the far one
-        const flames = boosters.getObjectByName("booster-volumetric");
+        const flames = this.named(boosters, "booster-volumetric");
         if (flames && useFarBoosters(flames, !(2 * size > lod.mediumDetail * 1.5))) boostersFar++;
       }
       // its child meshes with a minScreenSize: each drawn where its sphere's size across (GetPixelSizeAccross) / the
