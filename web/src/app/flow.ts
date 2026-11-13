@@ -2725,6 +2725,10 @@ export interface AppFlow {
   /** corpColorsSvc.get_own_corp_colors: GetOwnRequest on the public gateway - the palette's colours (0..1 RGB; the second
    * and third none where the palette says no_*_color), who last made it and when - else, where there is none (404),
    * the logo's first colour (graphicCorpLogoLibColors[color1], else CORPLOGO_DEFAULT_COLOR) alone. */
+  /** corpColorsSvc.set_colors: SetRequest(attributes) on the public gateway - main_color, and each other colour or its
+   * no_*_color - as CorpColors.to_proto makes it (rgb_8bit: round(c x 255)). Answers the gateway's status: 200 done, 403
+   * the role missing (UnableToSetCorpColorsRoleMissing), else it could not be done. */
+  setOwnCorporationColors(primary: readonly [number, number, number], color2: readonly [number, number, number] | null, color3: readonly [number, number, number] | null): Promise<number>;
   ownCorporationColors(): Promise<{ readonly primary: readonly [number, number, number]; readonly color2: readonly [number, number, number] | null; readonly color3: readonly [number, number, number] | null; readonly lastAuthoredBy: number | null; readonly lastAuthored: Date | null }>;
   /** The same without GetAssetInventory: the role check, the pilot's region, region and division names. */
   corporationAssetContext(): Promise<{ readonly allowed: boolean; readonly rows: readonly CorpAssetLocation[]; readonly regionID: number | null; readonly solarSystemID: number | null; readonly regionNames: ReadonlyMap<number, string>; readonly divisionNames: readonly string[] }>;
@@ -31294,6 +31298,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deliverSafetyWrap,
     trashImpoundedAt,
     ownCorporationColors,
+    async setOwnCorporationColors(primary: readonly [number, number, number], color2: readonly [number, number, number] | null, color3: readonly [number, number, number] | null) {
+      const rgb = (c: readonly [number, number, number]) => ({ red: Math.round(c[0] * 255), green: Math.round(c[1] * 255), blue: Math.round(c[2] * 255) });
+      const attributes: Record<string, JsonValue> = { main_color: rgb(primary) };
+      if (color2) attributes.secondary_color = rgb(color2); else attributes.no_secondary_color = true;
+      if (color3) attributes.tertiary_color = rgb(color3); else attributes.no_tertiary_color = true;
+      const answer = await api.publicGatewayRequest("eve_public.cosmetic.corporation.palette.api.SetRequest", { attributes } as Record<string, JsonValue>, { ...callOptions, confirm: true });
+      return answer.statusCode;
+    },
     corporationAssetCategories,
     async marketTypeMatches(text: string) {
       const answer = await api.getMarketTypeMatches(text, callOptions);

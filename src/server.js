@@ -14503,6 +14503,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.cosmetic.corporation.palette.api.GetOwnRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
+  // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.
+  "eve_public.cosmetic.corporation.palette.api.SetRequest",
   "eve_public.character.skill.plan.DeleteRequest",
   "eve_public.character.skill.plan.SetActiveRequest",
   "eve_public.character.skill.plan.SetSkillRequirementsRequest",
