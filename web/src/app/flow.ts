@@ -494,6 +494,16 @@ export interface CorporationStructureLicense {
   readonly structureID: number; readonly name: string; readonly typeID: number; readonly upkeepState: number;
   readonly solarSystemID: number; readonly licenseID: string; readonly remainingSeconds: number;
 }
+/** One row of the wizard's lockdown / unlock list: the item, its stack, and a blueprint's levels (null for another item). */
+export interface CorporationVoteBlueprint {
+  readonly itemID: number; readonly typeID: number; readonly quantity: number;
+  readonly blueprint: { readonly original: boolean; readonly runs: number; readonly timeEfficiency: number; readonly materialEfficiency: number } | null;
+}
+export interface CorporationVoteBlueprints {
+  readonly locationID: number; readonly hangars: readonly { readonly flag: number; readonly name: string }[]; readonly flag: number | null;
+  /** Lockdown: no office or no hangar (NoCorpHangarAvailable). Unlock: no locked item there (HintNoLockedItemsInLocation). */
+  readonly unavailable: boolean; readonly items: readonly CorporationVoteBlueprint[];
+}
 /** voteManager.GetVoteCasesByCorporation's row (the vote case header). */
 export interface CorporationVoteCase {
   readonly voteCaseID: number; readonly voteType: number; readonly voteCaseText: string; readonly description: string;
@@ -3273,7 +3283,18 @@ export interface AppFlow {
    * expel: ((ExpelFromCorporation, {char}), (DontExpelFromCorporation, {memberName}), memberID, None, None); general:
    * the option texts. True when made. */
   proposeCorporationVote(vote: { readonly title: string; readonly description: string; readonly days: number }
-    & ({ readonly voteType: 2; readonly shares: number } | { readonly voteType: 3; readonly memberID: number; readonly memberName: string } | { readonly voteType: 4; readonly options: readonly string[] })): Promise<boolean>;
+    & ({ readonly voteType: 2; readonly shares: number } | { readonly voteType: 3; readonly memberID: number; readonly memberName: string } | { readonly voteType: 4; readonly options: readonly string[] }
+      | { readonly voteType: 5 | 6; readonly itemID: number; readonly typeID: number; readonly locationID: number })): Promise<boolean>;
+  /** VoteWizardDialog's lockdown (5) and unlock (6) steps at the station or structure docked in. Lockdown:
+   * GetAccessibleHangars (flagCorpSAGs whose corpHangarQueryRolesByFlag bit the pilot holds, named by GetDivisionNames
+   * [division + 1]) and an office there (else NoCorpHangarAvailable); the flag asked or the first; GetBlueprints(flag) -
+   * the corporation's blueprints (GetBlueprintDataByOwner) at the location (locationID or facilityID), in that flag,
+   * in an office or impounded, singleton, original (quantity != -2), not locked (itemLocking.GetItemsByLocation),
+   * not in a job. Unlock: the location's locked items (none - HintNoLockedItemsInLocation); the hangars and All
+   * (flagHangarAll 1000); GetAssetInventoryForLocation offices + impounded (in the flag, unless All) kept where locked,
+   * the subject of a lockdown action in effect (GetCorpSanctionedActions) and of no open unlock vote ending within the
+   * last day; a blueprint among them only where GetBlueprints(locked, flag) has it (so with All, none). */
+  corporationVoteBlueprints(kind: "lockdown" | "unlock", flag: number | null): Promise<CorporationVoteBlueprints>;
   /** VoteWizardDialog.PickMember: corp.GetMemberIDsWithMoreThanAvgShares() (the corporation registry's). */
   corporationMembersWithMoreThanAvgShares(): Promise<readonly number[]>;
   readonly corpWalletShares: ReadableSignal<WalletSharesRead>;
@@ -18382,12 +18403,86 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const P = "UI/Corporations/CorporationWindow/Politics/";
     const tuple = (...items: JsonValue[]): JsonValue => ({ type: "tuple", items } as JsonValue);
     const dict = (key: string, value: JsonValue): JsonValue => ({ type: "dict", entries: [[key, value]] } as JsonValue);
-    const options: JsonValue = vote.voteType === 2 ? tuple(tuple(P + "CreateShares", dict("shares", vote.shares)), tuple(P + "DoNotCreateShares"), vote.shares, null, null)
+    const options: JsonValue = vote.voteType === 5 || vote.voteType === 6
+      ? tuple(tuple(P + (vote.voteType === 5 ? "LockdownItem" : "UnlockItem"), dict("item", vote.typeID)), tuple(P + (vote.voteType === 5 ? "DontLockdownItem" : "DontUnlockItem"), dict("item", vote.typeID)), vote.itemID, vote.typeID, vote.locationID)
+      : vote.voteType === 2 ? tuple(tuple(P + "CreateShares", dict("shares", vote.shares)), tuple(P + "DoNotCreateShares"), vote.shares, null, null)
       : vote.voteType === 3 ? tuple(tuple(P + "ExpelFromCorporation", dict("char", vote.memberID)), tuple(P + "DontExpelFromCorporation", dict("memberName", { type: "wstring", value: vote.memberName } as JsonValue)), vote.memberID, null, null)
-      : ({ type: "list", items: vote.options.map((text) => ({ type: "wstring", value: text })) } as JsonValue);
+      : vote.voteType === 4 ? ({ type: "list", items: vote.options.map((text) => ({ type: "wstring", value: text })) } as JsonValue) : null;
     try { await scope.write("voteManager", "InsertVoteCase", [{ type: "wstring", value: vote.title }, { type: "wstring", value: vote.description }, vote.voteType, options, vote.days] as JsonValue[]); scope.current(); }
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
     return true;
+  }
+  async function corporationVoteBlueprints(kind: "lockdown" | "unlock", flag: number | null): Promise<CorporationVoteBlueprints> {
+    const scope = captureMemberOperation(), online = scope.online;
+    const locationID = Number(online.stationID ?? online.structureID ?? 0);
+    const role = BigInt(online.corpRole ?? "0");
+    // GetAccessibleHangars: flagCorpSAG1-7 (115-121, divisions 0-6) and flagCorpGoalDeliveries (184, division 14), each
+    // where corpHangarQueryRolesByFlag's bit is held (corpRoleHangarCanQuery1-7, corpRoleDeliveriesHangarQuery 4).
+    const corporation = await scope.ask("corpRegistry", "GetCorporation", []);
+    await wordsNow(ROLE_DIVISION_LABELS); scope.current();
+    const divisionName = roleDivisionNamer(corporation, store.words.get().templates);
+    const sags: readonly [number, number, bigint][] = [[115, 0, 1048576n], [116, 1, 2097152n], [117, 2, 4194304n], [118, 3, 8388608n], [119, 4, 16777216n], [120, 5, 33554432n], [121, 6, 67108864n], [184, 14, 4n]];
+    const hangars = sags.filter(([, , bit]) => (role & bit) !== 0n).map(([f, division]) => ({ flag: f, name: divisionName(division + 1) }));
+    const lockedAnswer = await scope.ask("itemLocking", "GetItemsByLocation", [locationID]); scope.current();
+    const locked = new Set(readDictPairs(lockedAnswer as JsonValue).map(([key]) => Number(unwrapLong(key) ?? 0n)));
+    // GetBlueprints(locked, flag).
+    const blueprintsAnswer = await scope.ask("blueprintManager", "GetBlueprintDataByOwner", [online.corporationID, null]) as JsonValue; scope.current();
+    const tupleParts = Array.isArray(blueprintsAnswer) ? blueprintsAnswer : [];
+    const blueprintRows: readonly JsonValue[] = isListValue(tupleParts[0]) ? tupleParts[0].items : Array.isArray(tupleParts[0]) ? tupleParts[0] : [];
+    const num = (row: JsonValue, key: string) => Number(unwrapLong((readKeyVal(row, key) ?? null) as JsonValue) ?? 0n);
+    const blueprints = (wantLocked: boolean, f: number | null) => new Map(blueprintRows.flatMap((row) => {
+      const quantity = num(row, "quantity"), itemID = num(row, "itemID");
+      if (locationID !== num(row, "locationID") && locationID !== num(row, "facilityID")) return [];
+      if (f && num(row, "locationFlagID") !== f) return [];
+      if (num(row, "locationTypeID") !== 27 && readKeyVal(row, "isImpounded") !== true) return [];
+      if (!(quantity < 0) || quantity === -2) return [];
+      if (locked.has(itemID) !== wantLocked || num(row, "jobID") > 0) return [];
+      return [[itemID, { itemID, typeID: num(row, "typeID"), quantity: Math.max(quantity, 1),
+        blueprint: { original: quantity !== -2, runs: num(row, "runs"), timeEfficiency: num(row, "timeEfficiency"), materialEfficiency: num(row, "materialEfficiency") } }] as const];
+    }));
+    let result: CorporationVoteBlueprints;
+    if (kind === "lockdown") {
+      const officesAnswer = await scope.ask("officeManager", "GetMyCorporationsOffices", []); scope.current();
+      const offices = crowsetRows(officesAnswer as JsonValue);
+      const office = offices.some((row) => Number(memberInteger(row, "stationID") ?? 0n) === locationID);
+      const chosen = flag !== null && hangars.some((h) => h.flag === flag) ? flag : hangars[0]?.flag ?? null;
+      result = !office || !hangars.length ? { locationID, hangars, flag: null, unavailable: true, items: [] }
+        : { locationID, hangars, flag: chosen, unavailable: false, items: [...blueprints(false, chosen).values()] };
+    } else if (!locked.size) {
+      result = { locationID, hangars, flag: null, unavailable: true, items: [] };
+    } else {
+      const all = [...hangars, { flag: 1000, name: "" }];
+      const chosen = flag !== null && all.some((h) => h.flag === flag) ? flag : all[0]!.flag;
+      const listing = [...crowsetRows(await scope.ask("corpmgr", "GetAssetInventoryForLocation", [online.corporationID, locationID, "offices"]) as JsonValue),
+        ...crowsetRows(await scope.ask("corpmgr", "GetAssetInventoryForLocation", [online.corporationID, locationID, "impounded"]) as JsonValue)];
+      scope.current();
+      const integer = (row: JsonValue, key: string) => Number(memberInteger(row, key) ?? 0n);
+      const hangarItems = chosen === 1000 ? listing : listing.filter((row) => integer(row, "flagID") === chosen);
+      // Lockdown actions in effect, by the item locked.
+      const actions = readDictPairs(await scope.ask("voteManager", "GetCorpSanctionedActions", []) as JsonValue).map(([, row]) => row);
+      const inEffect = new Set(actions.filter((a) => num(a, "voteType") === 5 && num(a, "parameter") && num(a, "inEffect")).map((a) => num(a, "parameter")));
+      // Open unlock votes ending after a day ago: their items.
+      const lastDay = BigInt(Date.now()) * 10000n + 116444736000000000n - 864000000000n;
+      const cases = readDictPairs(await scope.ask("voteManager", "GetVoteCasesByCorporation", [online.corporationID]) as JsonValue).find(([key]) => Number(key) === 2)?.[1] ?? null;
+      const pending = new Set<number>();
+      for (const row of cases === null ? [] : crowsetRows(cases)) {
+        if (Number(memberInteger(row, "voteType") ?? 0n) !== 6 || (unwrapLong((memberField(row, "endDateTime") ?? null) as JsonValue) ?? 0n) <= lastDay) continue;
+        const opts = await scope.ask("voteManager", "GetVoteCaseOptions", [online.corporationID, Number(memberInteger(row, "voteCaseID") ?? 0n)]) as JsonValue;
+        for (const o of isListValue(opts) ? opts.items : []) if (num(o, "parameter")) pending.add(num(o, "parameter"));
+      }
+      scope.current();
+      const lockedBlueprints = blueprints(true, chosen);
+      // categoryBlueprint 9.
+      const items = hangarItems.flatMap((row): CorporationVoteBlueprint[] => {
+        const itemID = integer(row, "itemID");
+        if (!locked.has(itemID) || !inEffect.has(itemID) || pending.has(itemID)) return [];
+        if (integer(row, "categoryID") === 9) { const b = lockedBlueprints.get(itemID); return b ? [b] : []; }
+        return [{ itemID, typeID: integer(row, "typeID"), quantity: integer(row, "stacksize"), blueprint: null }];
+      });
+      result = { locationID, hangars, flag: chosen, unavailable: false, items };
+    }
+    await memberNames(scope, [...new Set(result.items.map((i) => i.typeID))].map((id) => ({ kind: "type" as const, id })));
+    return result;
   }
   async function corporationMembersWithMoreThanAvgShares(): Promise<readonly number[]> {
     const answer = await bridgeAsk("corpRegistry", "GetMemberIDsWithMoreThanAvgShares", []) as JsonValue;
@@ -31588,6 +31683,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     castCorporationVote,
     runForCEO,
     proposeCorporationVote,
+    corporationVoteBlueprints,
     corporationMembersWithMoreThanAvgShares,
     requestCorpLogos,
     loadOwnerLogos,

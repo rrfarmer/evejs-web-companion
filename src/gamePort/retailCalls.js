@@ -678,6 +678,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // Votes panel's reads, a vote cast and a vote case made (Run For CEO). The gateway's list has none of them.
   "voteManager.GetVoteCasesByCorporation", "voteManager.GetVoteCaseOptions", "voteManager.GetVotes", "voteManager.CanViewVotes",
   "voteManager.CanRunForCEO", "voteManager.InsertVote", "voteManager.InsertVoteCase",
+  // corpvotes.GetSanctionedActions: the wizard's unlock step, and Sanctionable Actions.
+  "voteManager.GetCorpSanctionedActions",
   // A server-returned direct-trade Moniker; the page binds it lazily with List.
   "trademgr.InitiateTrade", "trademgr.MachoBindObject", "trademgr.List", "trademgr.Abort", "trademgr.Add", "trademgr.MultiAdd", "trademgr.OfferMoney", "trademgr.MakeOffer",
   // xmppchatsvc.py 1197-1208 / 1257-1261: private allocation and elevated addition, both on the proxy.
