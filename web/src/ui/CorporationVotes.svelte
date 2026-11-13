@@ -89,7 +89,12 @@
   // ProposeCEOVote's HybridWnd.
   let proposing = $state(false);
   let ceoForm = $state<{ title: string; description: string; days: number } | null>(null), ceoBusy = $state(false);
-  function openCeoForm(): void { ceoForm = { title: word(P + "VoteMemberForCEO", { char: $station.online?.characterID ?? 0 }), description: "", days: 1 }; }
+  // GetByLabel(VoteMemberForCEO, char=session.charid): the pilot's own name (the session's, where the names have it not yet).
+  function openCeoForm(): void {
+    const me = $station.online?.characterID ?? 0, myName = $station.online?.characterName ?? "";
+    const named = (k: Parameters<typeof resolvedName>[1], id: number) => nameAny(k, id) || (id === me ? myName : "");
+    ceoForm = { title: plainText(formatTemplate($words.templates[P + "VoteMemberForCEO"] ?? "", { char: me } as never, { nameOf: named })), description: "", days: 1 };
+  }
   async function submitCeo(): Promise<void> {
     if (!ceoForm || !ceoForm.title.trim()) return;
     ceoBusy = true;
