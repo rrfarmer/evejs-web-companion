@@ -807,6 +807,15 @@ export async function graphicModel(graphicID: number): Promise<THREE.Object3D | 
 }
 const byGraphic = new Map<number, Promise<THREE.Object3D | null>>();
 
+/** A fresh instance of a SOF DNA's model that is no graphic's ("hull:faction:race" - a structure's animation state
+ * object, graphicIDs.animationStateObjects), or null when it has none. */
+export async function dnaModel(dna: string): Promise<THREE.Object3D | null> {
+  if (!byDna.has(dna)) byDna.set(dna, fetch(`/client-assets/dna/${encodeURIComponent(dna)}`).then((r) => r.json()).then((info: TypeModelInfo) => loadModel(info, null)));
+  const proto = await byDna.get(dna)!;
+  return proto ? proto.clone(true) : null;
+}
+const byDna = new Map<string, Promise<THREE.Object3D | null>>();
+
 async function loadType(typeID: number): Promise<THREE.Object3D | null> {
   const info = (await (await fetch(`/client-assets/type/${typeID}`)).json()) as TypeModelInfo;
   return loadModel(info, typeID);

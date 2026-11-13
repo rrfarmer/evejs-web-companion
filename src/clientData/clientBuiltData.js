@@ -164,6 +164,9 @@ const TABLES = Object.freeze({
   // assets search's metagroup keyword matches (assetSearchUtil.MatchMetagroup).
   metaGroupNameIDs: Object.freeze({ loader: "metaGroupsLoader", resource: "res:/staticdata/metagroups.fsdbinary", attribute: "nameID" }),
   types: Object.freeze({ loader: "typesLoader", resource: "res:/staticdata/types.fsdbinary", rowsOnly: true }),
+  // A graphic's own record (fsdBuiltData/common/graphicIDs: graphicIDs.fsdbinary - its animationStateObjects among
+  // them, GetAnimationStateObjects), read by the rows asked for only.
+  graphicIDs: Object.freeze({ loader: "graphicIDsLoader", resource: "res:/staticdata/graphicids.fsdbinary", rowsOnly: true }),
   // The dogma effects' own records (dogma/data.py get_effect: dogmaEffects.fsdbinary), each with its category and its
   // modifierInfo: what the client's effect compiler makes a type's passive effects of (baseEffectCompiler
   // SetupDogmaEffects, dogma/effects/modifiers.py). Read by the rows asked for only.

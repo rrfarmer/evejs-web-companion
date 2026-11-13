@@ -14100,8 +14100,16 @@ app.get("/api/client-data/paints", requireAuth, async (req, res, next) => {
     // structure icons: classes/paintTool/structureIcons/<graphicID>_512_tr.png).
     const ELIGIBLE = [35832, 35833, 35834, 35825, 35826, 35827, 35835, 35836, 35840, 37534, 35841];
     const typeRows = typeof clientBuiltData.rows === "function" ? await clientBuiltData.rows("types", ELIGIBLE).catch(() => null) : null;
+    const graphicOf = (typeID) => Number(typeRows && typeRows[String(typeID)] && typeRows[String(typeID)].graphicID) || null;
+    // The preview's state object (previewScene.PreviewPanel.update: GetAnimationStateObjects(graphicID)
+    // [STATE_VULNERABLE_ACTIVE], a SOF DNA built beside the structure).
+    const graphicRows = typeof clientBuiltData.rows === "function" ? await clientBuiltData.rows("graphicIDs", ELIGIBLE.map(graphicOf).filter(Boolean)).catch(() => null) : null;
+    const stateObjectOf = (graphicID) => {
+      const states = graphicID && graphicRows && graphicRows[String(graphicID)] && graphicRows[String(graphicID)].animationStateObjects;
+      return states && typeof states === "object" && typeof states.vulnerable_active === "string" ? states.vulnerable_active : null;
+    };
     res.json({ ok: true, available: true,
-      structures: ELIGIBLE.map((typeID) => ({ typeID, graphicID: Number(typeRows && typeRows[String(typeID)] && typeRows[String(typeID)].graphicID) || null })),
+      structures: ELIGIBLE.map((typeID) => ({ typeID, graphicID: graphicOf(typeID), stateObjectDna: stateObjectOf(graphicOf(typeID)) })),
       paints: sorted.map((id) => { const p = paints[String(id)]; return { id, nameID: Number(p.paintNameID) || null, finish: p.finish || null, rarity: p.rarity || null, hueCategory: p.hueCategory || null, material: p.materialName || null }; }),
       hueCategories: hueIDs.map((id) => ({ id, nameID: Number(hues[String(id)].hueNameID) || null, hue: hues[String(id)].hue })) });
   } catch (error) { next(error); }

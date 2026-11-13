@@ -516,7 +516,7 @@ function addToManifest(outRoot, build, client, done) {
 }
 
 function parseArgs(argv) {
-  const out = { hulls: [], types: [], graphics: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
+  const out = { hulls: [], types: [], graphics: [], dnas: [], scenes: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
@@ -527,6 +527,7 @@ function parseArgs(argv) {
     else if (a === "--hull") out.hulls.push(argv[++i]);
     else if (a === "--type") out.types.push(Number(argv[++i]));
     else if (a === "--graphic") out.graphics.push(Number(argv[++i]));
+    else if (a === "--dna") out.dnas.push(String(argv[++i]));
     else if (a === "--scene") out.scenes.push(argv[++i]);
     else if (a === "--celestial") out.celestials.push(argv[++i]);
     else if (a === "--turret") out.turrets.push(argv[++i]);
@@ -637,6 +638,27 @@ async function main() {
       console.log(`graphic ${graphicID}: ${g.sofHullName} as ${g.sofFactionName ?? "none"}`);
     }
   }
+  // --dna <hull:faction:race>: a SOF DNA that is no graphic's (a structure's animation state object -
+  // graphicIDs.animationStateObjects, BuildFromDNA), its hull's model found as --graphic finds it; dna/<hull.faction.race>.json.
+  for (const dna of args.dnas) {
+    const [hullName, factionName = null, raceName = null] = dna.split(":");
+    const hull = String(hullName || "").toLowerCase();
+    if (!/^[a-z0-9_]+$/.test(hull)) throw new Error(`--dna ${dna}: not a hull name`);
+    // the hull's own geometry (EveSOFDataHull.geometryResFilePath), else a model of the hull's name
+    const sofHull = loadSof(rf).hulls.get(hull) ?? null;
+    if (!sofHull) throw new Error(`--dna ${dna}: no SOF hull ${hull}`);
+    let gr2 = String(sofHull.geometryResFilePath ?? "").replace(/\\/g, "/").toLowerCase() || null;
+    if (gr2 && !rf.has(gr2)) gr2 = null;
+    if (!gr2) for (const [key] of rf.entries) if (key.endsWith(`/${hull}.gr2`) && key.startsWith("res:/dx9/model/")) { gr2 = key; break; }
+    if (!gr2) throw new Error(`--dna ${dna}: the hull has no geometry (${String(sofHull.geometryResFilePath ?? "none")})`);
+    const stem = gr2.slice("res:/".length, -".gr2".length);
+    if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(gr2);
+    await extractSof(rf, gr2, hullName, factionName, outRoot, raceName);
+    const file = path.join(outRoot, "dna", `${dna.toLowerCase().replace(/:/g, ".")}.json`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ dna, hull: hullName, faction: factionName, race: raceName, gr2 }));
+    console.log(`dna ${dna}: ${gr2}`);
+  }
   const done = [];
   for (const spec of specs) {
     const res = hullPath(rf, spec);
@@ -729,7 +751,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

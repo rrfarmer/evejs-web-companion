@@ -12,11 +12,14 @@
 //                  bounding radius, at 0.3 of the way; SceneContainerBaseNavigation - a drag orbits (0.02 x fov a pixel),
 //                  the wheel zooms
 //
-// Not here: the structure's animation state object (GetAnimationStateObjects' STATE_VULNERABLE_ACTIVE).
+//   the state      PreviewPanel._reload_model: the structure's animation state object (GetAnimationStateObjects(its
+//                  graphicID)[STATE_VULNERABLE_ACTIVE], a SOF DNA - hullModel.dnaModel), unpainted, beside the model
+//                  with its rotation, BuildDuration 0, BuildElapsedTime 0 and IsBuilt 1; the model the same and
+//                  ActivationState 2. Their controllers run as they are drawn.
 
 import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture";
-import { paintedTypeModel, type SofMaterial } from "../three/hullModel";
+import { dnaModel, paintedTypeModel, setControllerVariable, type SofMaterial } from "../three/hullModel";
 
 const FOV = 1.0, NEAR = 1, FAR = 400000;
 const ZOOM_RANGE = [1.6, 10.0] as const, TRANSITION_ZOOM_DEFAULT = 0.3;
@@ -100,19 +103,32 @@ export class PaintPreviewScene {
 
   /** PreviewPanel.update: the type with its paints' materials (primary, secondary, detailing; null for none), the
    * view fitted only for a new type. */
-  async show(typeID: number, paints: { primary: string | null; secondary: string | null; detailing: string | null }): Promise<void> {
-    const key = `${typeID}:${paints.primary}:${paints.secondary}:${paints.detailing}`;
+  async show(typeID: number, paints: { primary: string | null; secondary: string | null; detailing: string | null }, stateObjectDna: string | null = null): Promise<void> {
+    const key = `${typeID}:${paints.primary}:${paints.secondary}:${paints.detailing}:${stateObjectDna}`;
     if (key === this.wanted) return;
     this.wanted = key;
     const mats = await sofMaterials();
     const m = (name: string | null) => (name ? mats?.[name] ?? null : null);
     // modify_dna(isStructure=True): [None, mat1 (primary), mat3 (detailing), mat2 (secondary)]
-    const model = await paintedTypeModel(typeID, [null, m(paints.primary), m(paints.detailing), m(paints.secondary)]).catch(() => null);
+    const [model, state] = await Promise.all([
+      paintedTypeModel(typeID, [null, m(paints.primary), m(paints.detailing), m(paints.secondary)]).catch(() => null),
+      stateObjectDna ? dnaModel(stateObjectDna).catch(() => null) : Promise.resolve(null),
+    ]);
     if (!model || this.closed || this.wanted !== key) return;
+    for (const [object, active] of [[model, true], [state, false]] as const) {
+      if (!object) continue;
+      setControllerVariable(object, "BuildDuration", 0);
+      setControllerVariable(object, "BuildElapsedTime", 0);
+      setControllerVariable(object, "IsBuilt", 1);
+      if (active) setControllerVariable(object, "ActivationState", 2);
+    }
     const sphere = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere());
     model.position.sub(sphere.center);
+    // the state object takes the model's rotation (stateObject.rotationCurve = model.rotationCurve), and its place
+    if (state) state.position.copy(model.position);
     this.holder.clear();
     this.holder.add(model);
+    if (state) this.holder.add(state);
     if (this.shownType !== typeID) {
       this.shownType = typeID;
       const rad = sphere.radius;

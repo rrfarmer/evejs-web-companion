@@ -298,6 +298,27 @@ function clientAssets(): Plugin {
             return res.end(JSON.stringify({ error: (e as Error).message }));
           }
         }
+        // /client-assets/dna/<hull:faction:race>: a SOF DNA that is no graphic's (a structure's animation state object),
+        // as /graphic/ answers.
+        const dnaAsk = /^\/dna\/([A-Za-z0-9_]+(?::[A-Za-z0-9_-]*){0,2})$/.exec(decodeURIComponent(rel));
+        if (dnaAsk) {
+          try {
+            const buildDir = path.join(root, build);
+            const dna = dnaAsk[1]!;
+            const infoFile = path.join(buildDir, "dna", `${dna.toLowerCase().replace(/:/g, ".")}.json`);
+            if (!fs.existsSync(infoFile)) await extractOnce(`dna:${dna}`, buildDir, ["--dna", dna]);
+            const g = JSON.parse(fs.readFileSync(infoFile, "utf8"));
+            const stem = String(g.gr2).slice("res:/".length, -".gr2".length);
+            const sofName = `${stem}.${String(g.faction ?? "none").toLowerCase()}.sof.json`;
+            const info = JSON.parse(fs.readFileSync(path.join(buildDir, stem + ".json"), "utf8"));
+            const sof = fs.existsSync(path.join(buildDir, sofName)) ? `/client-assets/${sofName}` : null;
+            res.setHeader("content-type", "application/json");
+            return res.end(JSON.stringify({ dna, model: `/client-assets/${stem}.glb`, sof, textures: info.textures, lods: info.lods.length, hull: g.hull, faction: g.faction, race: g.race }));
+          } catch (e) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: (e as Error).message }));
+          }
+        }
         const typeAsk = /^\/type\/(\d+)$/.exec(rel);
         if (typeAsk) {
           try {

@@ -84,7 +84,11 @@
   // (three.js is loaded when a preview is first shown, not with the page: its modules load in the browser only)
   function preview(node: HTMLElement, args: { typeID: number; paintwork: Record<Slot, number | null> }) {
     let scene: import("../play/paintPreview.ts").PaintPreviewScene | null = null, last = args, gone = false;
-    const show = (a: typeof args) => { last = a; void scene?.show(a.typeID, { primary: materialOf(a.paintwork.primary), secondary: materialOf(a.paintwork.secondary), detailing: materialOf(a.paintwork.detailing) }); };
+    const show = (a: typeof args) => {
+      last = a;
+      const stateObjectDna = data?.structures.find((s) => s.typeID === a.typeID)?.stateObjectDna ?? null;
+      void scene?.show(a.typeID, { primary: materialOf(a.paintwork.primary), secondary: materialOf(a.paintwork.secondary), detailing: materialOf(a.paintwork.detailing) }, stateObjectDna);
+    };
     void import("../play/paintPreview.ts").then((m) => { if (gone) return; scene = new m.PaintPreviewScene(node); show(last); });
     return { update: show, destroy: () => { gone = true; scene?.close(); } };
   }

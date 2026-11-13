@@ -5793,7 +5793,9 @@ export async function loadTypeListGroups(listID: number, options: ApiOptions = {
 export interface PaintToolData {
   readonly paints: readonly { readonly id: number; readonly nameID: number | null; readonly finish: string | null; readonly rarity: string | null; readonly hueCategory: string | null; readonly material: string | null }[];
   readonly hueCategories: readonly { readonly id: string; readonly nameID: number | null; readonly hue: number }[];
-  readonly structures: readonly { readonly typeID: number; readonly graphicID: number | null }[];
+  /** Each eligible structure's graphic, and its animation state object's SOF DNA (GetAnimationStateObjects(graphicID)
+   * [STATE_VULNERABLE_ACTIVE]; null where the client's graphic has none or was unread). */
+  readonly structures: readonly { readonly typeID: number; readonly graphicID: number | null; readonly stateObjectDna?: string | null }[];
 }
 export async function loadPaintToolData(options: ApiOptions = {}): Promise<PaintToolData | null> {
   const data = await getJson("/api/client-data/paints", options);
