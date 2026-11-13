@@ -543,6 +543,23 @@ export interface SovStructureRow {
   readonly campaign: { readonly eventType: number; readonly startMs: number } | null;
   readonly vulnerability: { readonly startMs: number; readonly endMs: number } | null;
 }
+export interface MySovHub {
+  readonly hubID: number; readonly solarSystemID: number; readonly systemName: string; readonly regionName: string; readonly jumps: number | null;
+  readonly campaign: { readonly eventType: number; readonly startMs: number } | null;
+  readonly vulnerability: { readonly startMs: number; readonly endMs: number } | null;
+}
+export interface SovHubUpgrade {
+  readonly typeID: number; readonly powerState: "POWER_STATE_OFFLINE" | "POWER_STATE_ONLINE" | "POWER_STATE_LOW" | "POWER_STATE_PENDING" | null;
+  readonly powerProduced: number; readonly workforceProduced: number; readonly fuelTypeID: number; readonly fuelPerHour: number; readonly startupCost: number;
+}
+export interface SovHubDetails {
+  readonly upgrades: readonly SovHubUpgrade[] | null;
+  readonly resources: { readonly powerAvailable: number; readonly powerAllocated: number; readonly workforceAvailable: number; readonly workforceAllocated: number; readonly workforceLocal: number } | null;
+  /** Fuel by type: the amount now (amount at last update less what burned since) and the burn per hour. */
+  readonly fuel: Readonly<Record<number, { readonly amount: number; readonly perHour: number }>> | null;
+  readonly workforce: { readonly mode: "inactive" | "transit" | "import_settings" | "export_settings" | null; readonly imports: readonly (readonly [number, number])[]; readonly exportTo: number | null; readonly exportAmount: number } | null;
+  readonly maxPower: number; readonly maxWorkforce: number;
+}
 export interface ClaimedSystemRow {
   readonly solarSystemID: number; readonly systemName: string; readonly security: number | null; readonly constellationName: string; readonly regionName: string;
   readonly jumps: number | null; readonly isCapital: boolean; readonly military: number; readonly industrial: number; readonly strategic: number; readonly multiplier: number;
@@ -2669,6 +2686,15 @@ export interface AppFlow {
    * GetAllDevelopmentIndices through sovSvc.GetIndexLevel), whether each is the capital, the occupancy multiplier
    * (1 / GetOccupancyMultiplier) and the jumps. Null where the pilot is in no alliance. */
   allianceSystems(): Promise<AllianceSystems | null>;
+  /** SovHubPage.GetMySovHubsAndSystems: the alliance's Sov Hubs of the pilot's corporation that are also claims (a TCU row
+   * of the same item), each with its system, region, jumps, campaign and vulnerability window. */
+  mySovHubs(): Promise<readonly MySovHub[] | null>;
+  /** SovHubEntryController's reads through QuasarCallWrapper for one hub: its installed upgrades with the definitions'
+   * power, workforce and fuel (GetHubUpgradesRequest, GetDefinitionsRequest), its resources (GetResourcesRequest), its
+   * fuel (fuel GetRequest, the amounts now), its workforce state (GetStateRequest), and the system's max power and
+   * workforce (GetMaxPowerAndWorkforce: the planets' and the star's resource definitions). A part is null where its
+   * read failed (DATA_NOT_AVAILABLE). */
+  sovHubDetails(hubID: number, solarSystemID: number): Promise<SovHubDetails>;
   /** CapitalButton / UpdateCapitalSystem: SetCapitalSystem(solarSystemID); RemoveCapital: CancelCapitalSystemTransition. */
   allianceCapital(action: "set" | "cancel", solarSystemID?: number): Promise<boolean>;
   /** The prime-time menu's Set: the alliance moniker's SetPrimeHour(hour). */
@@ -18687,6 +18713,81 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     for (const id of [capital?.current, capital?.next]) if (id) { const p = await placeOf(id); if (p) places[id] = p; }
     return { capital, isExecDirector, systems, places };
   }
+  async function mySovHubs(): Promise<readonly MySovHub[] | null> {
+    const scope = captureMemberOperation();
+    const online = store.station.get().online;
+    if (!online?.allianceID) return null;
+    const ms = (value: JsonValue | undefined) => { const t = typeof value === "number" ? BigInt(Math.trunc(value)) : unwrapLong(value); return t !== null && t > 0n ? Number((t - 116444736000000000n) / 10000n) : null; };
+    const num = (value: JsonValue | undefined) => { const n = typeof value === "number" ? value : value === undefined || value === null ? NaN : Number(unwrapLong(value) ?? unwrapReal(value) ?? NaN); return Number.isNaN(n) ? null : n; };
+    const answer = await scope.ask("allianceRegistry", "GetAllianceSovereigntyStructuresInfo", []).catch(() => null) as JsonValue | null;
+    scope.current();
+    const parts = answer === null ? null : isListValue(answer) ? answer.items : Array.isArray(answer) ? answer as JsonValue[] : null;
+    if (!parts) return null;
+    const rows = (v: JsonValue | undefined) => (v === undefined ? [] : isListValue(v) ? v.items : Array.isArray(v) ? v as JsonValue[] : []);
+    const claims = new Set(rows(parts[0]).map((row) => num(readRowField(row, "structureID")) ?? 0));
+    const hubs = rows(parts[1]).filter((row) => claims.has(num(readRowField(row, "structureID")) ?? 0) && num(readRowField(row, "corporationID")) === online.corporationID);
+    const here = online.solarSystemID ?? null;
+    const distances = here ? await autopilotDistancesFrom(here).catch(() => null) : null;
+    return Promise.all(hubs.map(async (row) => {
+      const solarSystemID = num(readRowField(row, "solarSystemID")) ?? 0;
+      const place = await api.getMapLocation(solarSystemID, callOptions).catch(() => null);
+      const campaignStart = ms(readRowField(row, "campaignStartTime")), eventType = num(readRowField(row, "campaignEventType"));
+      const vStart = ms(readRowField(row, "vulnerableStartTime")), vEnd = ms(readRowField(row, "vulnerableEndTime"));
+      const campaign = campaignStart && eventType ? { eventType, startMs: campaignStart } : null;
+      return { hubID: num(readRowField(row, "structureID")) ?? 0, solarSystemID, systemName: place?.name ?? String(solarSystemID), regionName: place?.parents.find((x) => x.typeID === 3)?.name ?? "",
+        jumps: distances?.get(solarSystemID) ?? null, campaign, vulnerability: !campaign && vStart && vEnd ? { startMs: vStart, endMs: vEnd } : null };
+    }));
+  }
+  // The sovereignty resource definitions (planets, stars) and upgrade definitions, read once (the client's static data).
+  let sovStatic: Promise<{ planets: Map<number, { power: number; workforce: number }>; stars: Map<number, number>; upgrades: Map<number, Omit<SovHubUpgrade, "typeID" | "powerState">> }> | null = null;
+  async function sovHubDetails(hubID: number, solarSystemID: number): Promise<SovHubDetails> {
+    const scope = captureMemberOperation();
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const list = (value: unknown) => (Array.isArray(value) ? value : []) as unknown[];
+    const int = (value: unknown) => Number(typeof value === "string" || typeof value === "number" ? value : 0) || 0;
+    const ask = async (request: string, payload: Record<string, JsonValue>) => { const a = await api.publicGatewayRequest(request, payload, callOptions).catch(() => null); scope.current(); return a && a.statusCode === 200 ? record(a.payload) : null; };
+    const P = "eve_public.sovereignty.", hub = { hub: { sequential: hubID } };
+    sovStatic ??= (async () => {
+      const [planets, stars, defs] = await Promise.all([ask(P + "resource.planet.api.GetAllDefinitionsRequest", {}), ask(P + "resource.star.api.GetAllConfigurationsRequest", {}), ask(P + "hub.upgrade.api.GetDefinitionsRequest", {})]);
+      if (!planets || !stars || !defs) { sovStatic = null; }
+      return {
+        planets: new Map(list(planets?.definitions).map((d) => { const r = record(d); return [int(record(r.planet).sequential), { power: int(r.power), workforce: int(r.workforce) }] as const; })),
+        stars: new Map(list(stars?.configurations).map((d) => { const r = record(d); return [int(record(r.star).sequential), int(r.power)] as const; })),
+        upgrades: new Map(list(defs?.definitions).map((d) => { const r = record(d); return [int(record(r.installation_type).sequential), { powerProduced: int(r.power_produced), workforceProduced: int(r.workforce_produced),
+          fuelTypeID: int(record(r.fuel_type).sequential), fuelPerHour: int(r.fuel_consumption_per_hour), startupCost: int(r.fuel_startup_cost) }] as const; })),
+      };
+    })();
+    const [statics, installed, resources, fuel, workforce, objects] = await Promise.all([sovStatic, ask(P + "hub.upgrade.api.GetHubUpgradesRequest", hub), ask(P + "hub.api.GetResourcesRequest", hub),
+      ask(P + "hub.fuel.api.GetRequest", hub), ask(P + "hub.workforce.api.GetStateRequest", hub), api.getSystemObjects(solarSystemID, callOptions).catch(() => null)]);
+    const STATES = ["POWER_STATE_OFFLINE", "POWER_STATE_ONLINE", "POWER_STATE_LOW", "POWER_STATE_PENDING"] as const;
+    const upgrades = installed === null ? null : list(record(installed.hub_upgrades).upgrades).map((u) => {
+      const a = record(record(u).attributes), typeID = int(record(record(a.definition).installation_type).sequential);
+      const state = typeof a.power_state === "string" ? (STATES as readonly string[]).includes(a.power_state) ? a.power_state as SovHubUpgrade["powerState"] : null : null;
+      const def = statics.upgrades.get(typeID) ?? { powerProduced: 0, workforceProduced: 0, fuelTypeID: 0, fuelPerHour: 0, startupCost: 0 };
+      return { typeID, powerState: state, ...def };
+    });
+    const power = record(resources?.power), work = record(resources?.workforce);
+    // Fuel.get_amount_at(now): the amount at the last update less the whole units burned since.
+    const updated = record(fuel?.last_updated), updatedMs = int(updated.seconds) * 1000 + Math.floor(int(updated.nanos) / 1e6);
+    const fuelByType = fuel === null ? null : Object.fromEntries(list(fuel.fuels).map((f) => {
+      const r = record(f), perHour = int(r.burned_per_hour), amount = int(r.amount);
+      const now = updatedMs ? Math.max(amount - Math.floor(((Date.now() - updatedMs) / 3600000) * perHour), 0) : amount;
+      return [int(record(r.fuel_type).sequential), { amount: now, perHour }];
+    }));
+    const state = record(workforce?.state);
+    const exportState = record(state.export_state), connected = record(exportState.connected), disconnected = record(exportState.disconnected);
+    const mode = workforce === null ? null : state.inactive ? "inactive" as const : state.transit !== undefined ? "transit" as const : state.import_state !== undefined ? "import_settings" as const : state.export_state !== undefined ? "export_settings" as const : null;
+    // GetMaxPowerAndWorkforce: the system's planets' power and workforce (each at least 0) and its star's power.
+    let maxPower = 0, maxWorkforce = 0;
+    for (const o of objects?.objects ?? []) {
+      if (o.groupID === 7) { const d = statics.planets.get(o.itemID); maxPower += Math.max(d?.power ?? 0, 0); maxWorkforce += Math.max(d?.workforce ?? 0, 0); }
+      if (o.groupID === 6) maxPower += Math.max(statics.stars.get(o.itemID) ?? 0, 0);
+    }
+    return { upgrades, resources: resources === null ? null : { powerAvailable: int(power.available), powerAllocated: int(power.allocated), workforceAvailable: int(work.available), workforceAllocated: int(work.allocated), workforceLocal: int(work.local_harvest) },
+      fuel: fuelByType, maxPower, maxWorkforce,
+      workforce: workforce === null ? null : { mode, imports: list(record(state.import_state).sources).map((s) => [int(record(record(s).source).sequential), int(record(s).amount)] as const),
+        exportTo: connected.destination_system !== undefined ? int(record(connected.destination_system).sequential) : null, exportAmount: connected.exported_quantity !== undefined ? int(connected.exported_quantity) : int(disconnected.local_reserve) } };
+  }
   async function allianceCapital(action: "set" | "cancel", solarSystemID = 0): Promise<boolean> {
     const scope = captureMemberOperation();
     try {
@@ -32386,6 +32487,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     setAlliancePrimeHour,
     allianceSystems,
     allianceCapital,
+    mySovHubs,
+    sovHubDetails,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },

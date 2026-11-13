@@ -35,6 +35,7 @@
   import CorporationDirectEnlistment from "./CorporationDirectEnlistment.svelte";
   import CorporationAllianceSovereignty from "./CorporationAllianceSovereignty.svelte";
   import CorporationAllianceSystems from "./CorporationAllianceSystems.svelte";
+  import CorporationAllianceSovHubs from "./CorporationAllianceSovHubs.svelte";
   import CorporationSanctionableActions from "./CorporationSanctionableActions.svelte";
   import CorporationTitles from "./CorporationTitles.svelte";
   import CorporationRoleManagement from "./CorporationRoleManagement.svelte";
@@ -52,7 +53,7 @@
 
   let { store, flow, openMail, openWatchlist }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void } = $props();
 
-  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance" | "directEnlistment" | "allianceSovereignty" | "allianceSystems">("contacts");
+  let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance" | "directEnlistment" | "allianceSovereignty" | "allianceSystems" | "allianceSovHubs">("contacts");
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -107,6 +108,7 @@
   // const.corpRoleBrandManager
   // freelanceprojects is_project_manager: corpRoleDirector | corpRoleProjectManager (and freelance_projects_enabled, on).
   const projectManagerRole = $derived((BigInt($station.online?.corpRole ?? "0") & (1n | 1152921504606846976n)) !== 0n);
+  const stationManagerRole = $derived((BigInt($station.online?.corpRole ?? "0") & 2048n) !== 0n);
   const brandManagerRole = $derived((BigInt($station.online?.corpRole ?? "0") & 34359738368n) !== 0n);
   $effect(() => { if (panel === "allianceContacts" && allianceID === null) panel = "contacts"; });
   // svelte-ignore state_referenced_locally
@@ -145,6 +147,7 @@
     "UI/Neocom/Sovereignty": "Sovereignty",
     "UI/Corporations/CorporationWindow/Alliances/SovereigntyTab": "Settings and Structures",
     "UI/Corporations/CorporationWindow/Alliances/Systems": "Claimed Systems",
+    "UI/Corporations/CorporationWindow/Alliances/SovHubs": "Sovereignty Hubs",
     "UI/Corporations/BaseCorporationUI/AutoKickManagement": "Auto-Kick Management",
     "UI/Corporations/BaseCorporationUI/Auditing": "Auditing",
     "UI/Corporations/BaseCorporationUI/Voting": "Voting",
@@ -214,9 +217,11 @@
           ...(playerCorporation && allianceID !== null ? [{ id: "allianceContacts" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllianceContacts" }] : []),
           ...(playerCorporation ? [{ id: "allianceApplications" as const, label: "UI/Corporations/CorporationWindow/Alliances/Applications" }] : []),
           { id: "allianceRankings" as const, label: "UI/Corporations/CorporationWindow/Alliances/AllAlliances" }] },
-        // construct_alliance_sovereignty (with an alliance): Settings and Structures, Systems; Sov Hubs not built yet.
+        // construct_alliance_sovereignty (with an alliance): Settings and Structures, Systems, and Sov Hubs for a station
+        // manager (HasRole(corpRoleStationManager), the bit itself).
         ...(allianceID !== null ? [{ header: "UI/Neocom/Sovereignty", entries: [{ id: "allianceSovereignty" as const, label: "UI/Corporations/CorporationWindow/Alliances/SovereigntyTab" },
-          { id: "allianceSystems" as const, label: "UI/Corporations/CorporationWindow/Alliances/Systems" }] }] : []),
+          { id: "allianceSystems" as const, label: "UI/Corporations/CorporationWindow/Alliances/Systems" },
+          ...(stationManagerRole ? [{ id: "allianceSovHubs" as const, label: "UI/Corporations/CorporationWindow/Alliances/SovHubs" }] : [])] }] : []),
       ];
     }
     if (corpTab === "admin") {
@@ -350,6 +355,7 @@
       {#if panel === "allianceRankings"}<AllianceRankings {store} {flow} />{/if}
       {#if panel === "allianceSovereignty"}<CorporationAllianceSovereignty {store} {flow} />{/if}
       {#if panel === "allianceSystems"}<CorporationAllianceSystems {store} {flow} />{/if}
+      {#if panel === "allianceSovHubs"}<CorporationAllianceSovHubs {store} {flow} />{/if}
       {#if panel === "autoKicks"}<CorporationAutoKicks {store} {flow} />{/if}
       {#if panel === "auditing"}<CorporationAuditing {store} {flow} />{/if}
       {#if panel === "votes"}<CorporationVotes {store} {flow} />{/if}

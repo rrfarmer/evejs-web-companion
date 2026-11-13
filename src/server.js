@@ -14574,6 +14574,16 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.freelance.project.api.GetCreationPricesRequest",
   // AdminDetailsContainer's ParticipantsPanel (get_participants).
   "eve_public.freelance.project.api.GetParticipationDetailsRequest",
+  // The alliance's Sov Hubs page (SovHubEntryController through QuasarCallWrapper): a hub's installed upgrades and the
+  // upgrade definitions, its available resources, its fuel, its workforce state; the planets' and stars' resource
+  // definitions for the system's max power and workforce (sovereigntyResourceSvc.GetMaxPowerAndWorkforce).
+  "eve_public.sovereignty.hub.upgrade.api.GetHubUpgradesRequest",
+  "eve_public.sovereignty.hub.upgrade.api.GetDefinitionsRequest",
+  "eve_public.sovereignty.hub.api.GetResourcesRequest",
+  "eve_public.sovereignty.hub.fuel.api.GetRequest",
+  "eve_public.sovereignty.hub.workforce.api.GetStateRequest",
+  "eve_public.sovereignty.resource.planet.api.GetAllDefinitionsRequest",
+  "eve_public.sovereignty.resource.star.api.GetAllConfigurationsRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.

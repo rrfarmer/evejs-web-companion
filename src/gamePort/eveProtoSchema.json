@@ -7948,6 +7948,44 @@
     }
    ]
   },
+  "eve_public.inventory.LocationFlag": {
+   "fields": [
+    {
+     "name": "value",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.inventory.genericitem.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.inventory.genericitem.Location": {
+   "fields": [
+    {
+     "name": "item",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitem.Identifier"
+    },
+    {
+     "name": "flag",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.LocationFlag"
+    }
+   ]
+  },
   "eve_public.inventory.genericitemtype.Attributes": {
    "fields": [
     {
@@ -8043,6 +8081,16 @@
      "name": "sequential",
      "number": 1,
      "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.planet.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
      "label": 1
     }
    ]
@@ -8425,6 +8473,1195 @@
     }
    ]
   },
+  "eve_public.sovereignty.hub.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.api.GetResourcesRequest": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.api.GetResourcesResponse": {
+   "fields": [
+    {
+     "name": "power",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.api.GetResourcesResponse.Power"
+    },
+    {
+     "name": "workforce",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.api.GetResourcesResponse.Workforce"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.api.GetResourcesResponse.Power": {
+   "fields": [
+    {
+     "name": "available",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "allocated",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "local_harvest",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.api.GetResourcesResponse.Workforce": {
+   "fields": [
+    {
+     "name": "available",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "allocated",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "local_harvest",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.fuel.api.AddRequest": {
+   "fields": [
+    {
+     "name": "fuel_item",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitem.Identifier"
+    },
+    {
+     "name": "amount",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "hub",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.fuel.api.AddResponse": {
+   "fields": []
+  },
+  "eve_public.sovereignty.hub.fuel.api.GetRequest": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.fuel.api.GetResponse": {
+   "fields": [
+    {
+     "name": "fuels",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.hub.fuel.api.GetResponse.Fuel"
+    },
+    {
+     "name": "last_updated",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.fuel.api.GetResponse.Fuel": {
+   "fields": [
+    {
+     "name": "fuel_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "amount",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "burned_per_hour",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.Attributes": {
+   "fields": [
+    {
+     "name": "definition",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.Definition"
+    },
+    {
+     "name": "power_state",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.PowerState"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.Definition": {
+   "fields": [
+    {
+     "name": "installation_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "power_required",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "workforce_required",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "fuel_type",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "fuel_consumption_per_hour",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "fuel_startup_cost",
+     "number": 6,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "mutually_exclusive_group",
+     "number": 7,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "power_produced",
+     "number": 8,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "workforce_produced",
+     "number": 9,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.HubUpgrades": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    },
+    {
+     "name": "upgrades",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.hub.upgrade.HubUpgrades.Upgrade"
+    },
+    {
+     "name": "last_updated",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.HubUpgrades.Upgrade": {
+   "fields": [
+    {
+     "name": "identifier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.Attributes"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.Identifier": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    },
+    {
+     "name": "installation_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "upgrade_type",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade_type.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.GetDefinitionsRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.hub.upgrade.api.GetDefinitionsResponse": {
+   "fields": [
+    {
+     "name": "definitions",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.hub.upgrade.Definition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.GetHubUpgradesRequest": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.GetHubUpgradesResponse": {
+   "fields": [
+    {
+     "name": "hub_upgrades",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.HubUpgrades"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.GetRequest": {
+   "fields": [
+    {
+     "name": "upgrade",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.GetResponse": {
+   "fields": [
+    {
+     "name": "attributes",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.Attributes"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationRequest": {
+   "fields": [
+    {
+     "name": "new_upgrades",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.inventory.genericitem.Identifier"
+    },
+    {
+     "name": "configuration",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationRequest.UpgradeConfiguration"
+    },
+    {
+     "name": "hub",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationRequest.UpgradeConfiguration": {
+   "fields": [
+    {
+     "name": "upgrade_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "online",
+     "number": 2,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationResponse": {
+   "fields": [
+    {
+     "name": "hub_upgrades",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.HubUpgrades"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.UninstallRequest": {
+   "fields": [
+    {
+     "name": "upgrade",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.upgrade.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.upgrade.api.UninstallResponse": {
+   "fields": []
+  },
+  "eve_public.sovereignty.hub.upgrade_type.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.Configuration": {
+   "fields": [
+    {
+     "name": "inactive",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "mode"
+    },
+    {
+     "name": "import_settings",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.ImportConfiguration",
+     "oneof": "mode"
+    },
+    {
+     "name": "export_settings",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.ExportConfiguration",
+     "oneof": "mode"
+    },
+    {
+     "name": "transit",
+     "number": 4,
+     "type": 8,
+     "label": 1,
+     "oneof": "mode"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ExportConfiguration": {
+   "fields": [
+    {
+     "name": "destination",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "amount",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "destination_system",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier",
+     "oneof": "export_destination"
+    },
+    {
+     "name": "no_destination",
+     "number": 4,
+     "type": 8,
+     "label": 1,
+     "oneof": "export_destination"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ExportState": {
+   "fields": [
+    {
+     "name": "destination",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "amount",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "destination_system",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier",
+     "oneof": "export_destination"
+    },
+    {
+     "name": "no_destination",
+     "number": 4,
+     "type": 8,
+     "label": 1,
+     "oneof": "export_destination"
+    },
+    {
+     "name": "connected",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.ExportState.Connected",
+     "oneof": "exporting"
+    },
+    {
+     "name": "disconnected",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.ExportState.Disconnected",
+     "oneof": "exporting"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ExportState.Connected": {
+   "fields": [
+    {
+     "name": "destination_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "exported_quantity",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ExportState.Disconnected": {
+   "fields": [
+    {
+     "name": "local_reserve",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ImportConfiguration": {
+   "fields": [
+    {
+     "name": "sources",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.hub.workforce.ImportConfiguration.Source"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ImportConfiguration.Source": {
+   "fields": [
+    {
+     "name": "source",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ImportState": {
+   "fields": [
+    {
+     "name": "sources",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.hub.workforce.ImportState.Source"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.ImportState.Source": {
+   "fields": [
+    {
+     "name": "source",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "amount",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.State": {
+   "fields": [
+    {
+     "name": "inactive",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "mode"
+    },
+    {
+     "name": "import_state",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.ImportState",
+     "oneof": "mode"
+    },
+    {
+     "name": "export_state",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.ExportState",
+     "oneof": "mode"
+    },
+    {
+     "name": "transit",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.Transit",
+     "oneof": "mode"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.Transit": {
+   "fields": []
+  },
+  "eve_public.sovereignty.hub.workforce.api.ConfigureRequest": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    },
+    {
+     "name": "configuration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.Configuration"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.api.ConfigureResponse": {
+   "fields": []
+  },
+  "eve_public.sovereignty.hub.workforce.api.GetConfigurationRequest": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.api.GetConfigurationResponse": {
+   "fields": [
+    {
+     "name": "configuration",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.Configuration"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.api.GetNetworkableHubsRequest": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.api.GetNetworkableHubsResponse": {
+   "fields": [
+    {
+     "name": "hubs",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.hub.workforce.api.GetNetworkableHubsResponse.NetworkedHub"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.api.GetNetworkableHubsResponse.NetworkedHub": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    },
+    {
+     "name": "system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "configuration",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.Configuration"
+    },
+    {
+     "name": "state",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.State"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.api.GetStateRequest": {
+   "fields": [
+    {
+     "name": "hub",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.hub.workforce.api.GetStateResponse": {
+   "fields": [
+    {
+     "name": "state",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.hub.workforce.State"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.Configuration": {
+   "fields": [
+    {
+     "name": "planet",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.Identifier"
+    },
+    {
+     "name": "power",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "workforce",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "reagent_configurations",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.resource.planet.Configuration.ReagentConfiguration"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.Configuration.ReagentConfiguration": {
+   "fields": [
+    {
+     "name": "type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "harvest",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.HarvestConfiguration"
+    },
+    {
+     "name": "maturation",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.MaturationConfiguration"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.Definition": {
+   "fields": [
+    {
+     "name": "planet",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.Identifier"
+    },
+    {
+     "name": "power",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "workforce",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "reagent_definitions",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.resource.planet.Definition.ReagentDefinition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.Definition.ReagentDefinition": {
+   "fields": [
+    {
+     "name": "type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "reagent_type",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier"
+    },
+    {
+     "name": "definition",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.Definition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.api.GetAllConfigurationsRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.resource.planet.api.GetAllConfigurationsResponse": {
+   "fields": [
+    {
+     "name": "configurations",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.resource.planet.Configuration"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.api.GetAllDefinitionsRequest": {
+   "fields": [
+    {
+     "name": "known_version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification",
+     "oneof": "version"
+    },
+    {
+     "name": "no_known_version",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "version"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.api.GetAllDefinitionsResponse": {
+   "fields": [
+    {
+     "name": "definitions",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.resource.planet.Definition"
+    },
+    {
+     "name": "version",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.api.GetDefinitionsVersionRequest": {
+   "fields": [
+    {
+     "name": "version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.api.GetDefinitionsVersionResponse": {
+   "fields": [
+    {
+     "name": "definitions",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.resource.planet.Definition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.reagent.Definition": {
+   "fields": [
+    {
+     "name": "amount_per_cycle",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "cycle_period",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "secured_percentage",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "secured_capacity",
+     "number": 4,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "unsecured_capacity",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.reagent.HarvestConfiguration": {
+   "fields": [
+    {
+     "name": "amount_per_cycle",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "cycle_period",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "min_stock",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "max_stock",
+     "number": 4,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.reagent.HarvestSimulation": {
+   "fields": [
+    {
+     "name": "stock",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "last_cycle",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "config",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.HarvestConfiguration"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.reagent.MaturationConfiguration": {
+   "fields": [
+    {
+     "name": "percentage",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "cycle_period",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "min",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "max",
+     "number": 4,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.reagent.MaturationSimulation": {
+   "fields": [
+    {
+     "name": "stock",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "last_cycle",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "config",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.MaturationConfiguration"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.reagent.Simulation": {
+   "fields": [
+    {
+     "name": "secured_stock",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "unsecured_stock",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "last_cycle",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.star.Configuration": {
+   "fields": [
+    {
+     "name": "star",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.star.Identifier"
+    },
+    {
+     "name": "power",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.resource.star.api.GetAllConfigurationsRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.resource.star.api.GetAllConfigurationsResponse": {
+   "fields": [
+    {
+     "name": "configurations",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.resource.star.Configuration"
+    }
+   ]
+  },
+  "eve_public.star.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
   "eve_public.station.Attributes": {
    "fields": [
     {
@@ -8679,6 +9916,15 @@
     "CAREER_INDUSTRIALIST": 2,
     "CAREER_ENFORCER": 3,
     "CAREER_SOLDIER_OF_FORTUNE": 4
+   }
+  },
+  "eve_public.sovereignty.hub.upgrade.PowerState": {
+   "values": {
+    "POWER_STATE_UNSPECIFIED": 0,
+    "POWER_STATE_OFFLINE": 1,
+    "POWER_STATE_ONLINE": 2,
+    "POWER_STATE_LOW": 3,
+    "POWER_STATE_PENDING": 4
    }
   }
  }
