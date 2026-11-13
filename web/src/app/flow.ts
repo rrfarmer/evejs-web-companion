@@ -543,6 +543,17 @@ export interface SovStructureRow {
   readonly campaign: { readonly eventType: number; readonly startMs: number } | null;
   readonly vulnerability: { readonly startMs: number; readonly endMs: number } | null;
 }
+export interface ClaimedSystemRow {
+  readonly solarSystemID: number; readonly systemName: string; readonly security: number | null; readonly constellationName: string; readonly regionName: string;
+  readonly jumps: number | null; readonly isCapital: boolean; readonly military: number; readonly industrial: number; readonly strategic: number; readonly multiplier: number;
+}
+export interface AllianceSystems {
+  readonly capital: { readonly current: number | null; readonly next: number | null; readonly nextValidAfterMs: number | null } | null;
+  readonly isExecDirector: boolean;
+  readonly systems: readonly ClaimedSystemRow[] | null;
+  /** The capital and the pending one's places, for their traces. */
+  readonly places: Readonly<Record<number, { readonly name: string; readonly security: number | null; readonly constellationName: string; readonly regionName: string }>>;
+}
 export interface AllianceSovereignty {
   readonly prime: { readonly current: number | null; readonly next: number | null; readonly nextValidAfterMs: number | null } | null;
   readonly canSetPrime: boolean;
@@ -2652,6 +2663,14 @@ export interface AppFlow {
    * campaign or vulnerability window and occupancy level; the system's constellation and region; the jumps from the
    * pilot's system). Null where the pilot is in no alliance. */
   allianceSovereignty(): Promise<AllianceSovereignty | null>;
+  /** FormAlliancesSystems: the capital (GetCapitalSystemInfo: the current one, a pending one and when it applies), whether
+   * the pilot is a director of the executor corporation, and the ClaimedSystemsDashboard - the systems with a TCU among
+   * the alliance's sovereignty structures, with their development index levels (devIndexManager
+   * GetAllDevelopmentIndices through sovSvc.GetIndexLevel), whether each is the capital, the occupancy multiplier
+   * (1 / GetOccupancyMultiplier) and the jumps. Null where the pilot is in no alliance. */
+  allianceSystems(): Promise<AllianceSystems | null>;
+  /** CapitalButton / UpdateCapitalSystem: SetCapitalSystem(solarSystemID); RemoveCapital: CancelCapitalSystemTransition. */
+  allianceCapital(action: "set" | "cancel", solarSystemID?: number): Promise<boolean>;
   /** The prime-time menu's Set: the alliance moniker's SetPrimeHour(hour). */
   setAlliancePrimeHour(hour: number): Promise<boolean>;
   /** WhitelistManagement: the factions the corporation's members may enlist with directly
@@ -18621,6 +18640,61 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return { prime, canSetPrime, structures };
   }
+  async function allianceSystems(): Promise<AllianceSystems | null> {
+    const scope = captureMemberOperation();
+    const online = store.station.get().online;
+    const allianceID = online?.allianceID ?? null;
+    if (!allianceID) return null;
+    const ms = (value: JsonValue | undefined) => { const t = typeof value === "number" ? BigInt(Math.trunc(value)) : unwrapLong(value); return t !== null && t > 0n ? Number((t - 116444736000000000n) / 10000n) : null; };
+    const num = (value: JsonValue | undefined) => { const n = typeof value === "number" ? value : value === undefined || value === null ? NaN : Number(unwrapLong(value) ?? unwrapReal(value) ?? NaN); return Number.isNaN(n) ? null : n; };
+    const c = await scope.ask("allianceRegistry", "GetCapitalSystemInfo", []).catch(() => null) as JsonValue | null;
+    scope.current();
+    const capital = c === null ? null : { current: num(readRowField(c, "currentCapitalSystem")) || null, next: num(readRowField(c, "newCapitalSystem")) || null, nextValidAfterMs: ms(readRowField(c, "newCapitalSystemValidAfter")) };
+    const alliance = decodeAllianceInfo(await bridgeAsk("allianceRegistry", "GetAlliance", [allianceID]).catch(() => null));
+    const corporationID = online?.corporationID ?? null;
+    const isExecDirector = Boolean(alliance && corporationID && !isNpcCorporation(corporationID) && alliance.executorCorpID === corporationID && (BigInt(online?.corpRole ?? "0") & 1n) === 1n);
+    const answer = await scope.ask("allianceRegistry", "GetAllianceSovereigntyStructuresInfo", []).catch(() => null) as JsonValue | null;
+    scope.current();
+    const parts = answer === null ? null : isListValue(answer) ? answer.items : Array.isArray(answer) ? answer as JsonValue[] : null;
+    const placeOf = async (id: number) => { const p = await api.getMapLocation(id, callOptions).catch(() => null); return p ? { name: p.name, security: p.securityStatus ?? null, constellationName: p.parents.find((x) => x.typeID === 4)?.name ?? "", regionName: p.parents.find((x) => x.typeID === 3)?.name ?? "" } : null; };
+    let systems: ClaimedSystemRow[] | null = null;
+    if (parts) {
+      const rows = (v: JsonValue | undefined) => (v === undefined ? [] : isListValue(v) ? v.items : Array.isArray(v) ? v as JsonValue[] : []);
+      // IncludesTCU: a system shows where one of its structures is a TCU (the claim rows).
+      const claimed = [...new Set(rows(parts[0]).map((row) => num(readRowField(row, "solarSystemID")) ?? 0).filter((id) => id > 0))];
+      const indices = await scope.ask("devIndexManager", "GetAllDevelopmentIndices", []).catch(() => null) as JsonValue | null;
+      scope.current();
+      const bySystem = new Map<number, { military: number; industrial: number; claimedFor: number }>();
+      for (const row of indices === null ? [] : rows(indices)) bySystem.set(num(readRowField(row, "solarSystemID")) ?? 0, { military: num(readRowField(row, "militaryPoints")) ?? 0, industrial: num(readRowField(row, "industrialPoints")) ?? 0, claimedFor: num(readRowField(row, "claimedFor")) ?? 0 });
+      // sovSvc.GetIndexLevel: devIndexUtil's military / industrial maxLevels (9.6M points each, six of them) and the hold
+      // time levels (7, 21, 35, 65, 100 days); at or over the last, 5; else the first level the value is under.
+      const level = (value: number, levels: readonly number[]) => (value >= levels[levels.length - 1]! ? 5 : Math.max(0, levels.findIndex((max) => value < max)));
+      const DEV = [1, 2, 3, 4, 5, 6].map((i) => i * 100000 * 96), HOLD = [7, 21, 35, 65, 100].map((d) => d * 86400);
+      // occupancyCalculator.GetOccupancyMultiplier.
+      const MIL = [0, 0.6, 1.2, 1.7, 2.1, 2.5], STRAT = [0, 0.4, 0.6, 0.8, 0.9, 1.0];
+      const here = online?.solarSystemID ?? null;
+      const distances = here ? await autopilotDistancesFrom(here).catch(() => null) : null;
+      systems = await Promise.all(claimed.map(async (id) => {
+        const i = bySystem.get(id), place = await placeOf(id);
+        const military = i ? level(i.military, DEV) : 0, industrial = i ? level(i.industrial, DEV) : 0, strategic = i ? level(i.claimedFor * 86400, HOLD) : 0;
+        const isCapital = capital?.current === id;
+        const total = 1 + MIL[military]! + MIL[industrial]! + STRAT[strategic]! + (isCapital ? 2 : 0);
+        return { solarSystemID: id, systemName: place?.name ?? String(id), security: place?.security ?? null, constellationName: place?.constellationName ?? "", regionName: place?.regionName ?? "",
+          jumps: distances?.get(id) ?? null, isCapital, military, industrial, strategic, multiplier: Math.max(1, Math.min(6, total)) };
+      }));
+    }
+    const places: Record<number, { name: string; security: number | null; constellationName: string; regionName: string }> = {};
+    for (const id of [capital?.current, capital?.next]) if (id) { const p = await placeOf(id); if (p) places[id] = p; }
+    return { capital, isExecDirector, systems, places };
+  }
+  async function allianceCapital(action: "set" | "cancel", solarSystemID = 0): Promise<boolean> {
+    const scope = captureMemberOperation();
+    try {
+      if (action === "set") await scope.write("allianceRegistry", "SetCapitalSystem", [solarSystemID]);
+      else await scope.write("allianceRegistry", "CancelCapitalSystemTransition", []);
+      scope.current(); return true;
+    } catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
+  }
   async function setAlliancePrimeHour(hour: number): Promise<boolean> {
     const scope = captureMemberOperation();
     try { await scope.write("allianceRegistry", "SetPrimeHour", [hour]); scope.current(); return true; }
@@ -32310,6 +32384,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     setCorporationAllowedEnlistment,
     allianceSovereignty,
     setAlliancePrimeHour,
+    allianceSystems,
+    allianceCapital,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },

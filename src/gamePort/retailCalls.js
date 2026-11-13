@@ -717,6 +717,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // FormAlliancesSovereignty's SovDashboard: sovSvc.GetSovereigntyStructuresInfoForAlliance - the alliance moniker's
   // GetAllianceSovereigntyStructuresInfo() (its TCU and Sov Hub rows and the campaign scores).
   "allianceRegistry.GetAllianceSovereigntyStructuresInfo",
+  // FormAlliancesSystems: ClaimedSystemsDashboard's sovSvc.GetAllDevelopmentIndicesMapped (devIndexManager's
+  // GetAllDevelopmentIndices) and the pending capital's cancel (the moniker's CancelCapitalSystemTransition).
+  "devIndexManager.GetAllDevelopmentIndices", "allianceRegistry.CancelCapitalSystemTransition",
   // FormAlliancesApplications / FormAlliancesRankings: the corporation's applications to alliances (bco_alliance:
   // corpRegistry GetAllianceApplications, DeleteAllianceApplication, ApplyToJoinAlliance) and the alliance's decision
   // on one (all_cso_applications: the moniker's UpdateApplication(corpID, applicationText, state)).
