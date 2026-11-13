@@ -839,7 +839,7 @@
   <div class="fly-map" bind:this={mapHost}></div>
 
   <!-- The info panels (InfoPanelContainer) at the top of the left side, beside the Neocom, under the windows. -->
-  <ErrorBoundary name="Info panels"><PlayInfoPanels store={session.store} flow={session.flow} showAgents={() => open("agents")} /></ErrorBoundary>
+  <ErrorBoundary name="Info panels"><PlayInfoPanels store={session.store} flow={session.flow} showAgents={() => open("agents")} openRouteWindow={() => open("routeWindow")} /></ErrorBoundary>
 
   <!-- The app's windows over space or the station, in front of the 3D view and under nothing else. -->
   <div class="fly-fade" bind:this={fadeEl}></div>
