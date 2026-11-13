@@ -14601,6 +14601,10 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   // The admin details' Close Project and a participant's kick (FreelanceProjectsMessenger.close / kick).
   "eve_public.freelance.project.api.CloseRequest",
   "eve_public.freelance.project.api.KickRequest",
+  // The Sov Hub window's Save Changes (sovHubSvc.SaveUpgradeConfiguration - ProcessConfigurationRequest) and an
+  // upgrade's removal (UninstallUpgrade - UninstallRequest).
+  "eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationRequest",
+  "eve_public.sovereignty.hub.upgrade.api.UninstallRequest",
   "eve_public.goal.api.DeleteRequest",
   "eve_public.goal.api.SetCurrentProgressRequest",
   // requestMessenger.revoke_request: CorpStructureDesignPanel's licence row, Revoke License (ConfirmRevokeWnd).

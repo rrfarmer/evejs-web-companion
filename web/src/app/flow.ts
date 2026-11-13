@@ -552,6 +552,8 @@ export interface SovHubUpgrade {
   readonly typeID: number; readonly powerState: "POWER_STATE_OFFLINE" | "POWER_STATE_ONLINE" | "POWER_STATE_LOW" | "POWER_STATE_PENDING" | null;
   readonly powerProduced: number; readonly workforceProduced: number; readonly fuelTypeID: number; readonly fuelPerHour: number; readonly startupCost: number;
   readonly powerRequired: number; readonly workforceRequired: number;
+  /** The upgrade's key (identifier.upgrade_type, upgrade_id_key's second part) - UninstallRequest's. */
+  readonly upgradeKey: number;
 }
 export interface SovHubDetails {
   readonly upgrades: readonly SovHubUpgrade[] | null;
@@ -2705,6 +2707,12 @@ export interface AppFlow {
    * sources, the export destination and amount), the upgrade type lists each installed upgrade is in (620-622,
    * 828-830; evetypes.GetTypeIDsByListID) and the corporation's skyhooks in the system (GetMyCorporationSkyhooks). */
   sovHubExtras(hubID: number, solarSystemID: number, upgradeTypeIDs: readonly number[]): Promise<SovHubExtras>;
+  /** HubController.SaveChanges: ProcessConfigurationRequest with the new upgrade items and every upgrade's (type,
+   * configured online) in priority order; the hub's power states after it (parse_hub_upgrades), or the HTTP status
+   * where it failed. */
+  saveSovHubUpgrades(hubID: number, configuration: readonly (readonly [number, boolean])[], newItemIDs?: readonly number[]): Promise<{ readonly states: readonly (readonly [number, string | null])[] } | { readonly status: number }>;
+  /** HubController.DeleteUpgrade: UninstallRequest(upgrade: hub + upgrade_type); true when done. */
+  uninstallSovHubUpgrade(hubID: number, upgradeKey: number): Promise<boolean>;
   /** CapitalButton / UpdateCapitalSystem: SetCapitalSystem(solarSystemID); RemoveCapital: CancelCapitalSystemTransition. */
   allianceCapital(action: "set" | "cancel", solarSystemID?: number): Promise<boolean>;
   /** The prime-time menu's Set: the alliance moniker's SetPrimeHour(hour). */
@@ -18749,7 +18757,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }));
   }
   // The sovereignty resource definitions (planets, stars) and upgrade definitions, read once (the client's static data).
-  let sovStatic: Promise<{ planets: Map<number, { power: number; workforce: number }>; stars: Map<number, number>; upgrades: Map<number, Omit<SovHubUpgrade, "typeID" | "powerState">> }> | null = null;
+  let sovStatic: Promise<{ planets: Map<number, { power: number; workforce: number }>; stars: Map<number, number>; upgrades: Map<number, Omit<SovHubUpgrade, "typeID" | "powerState" | "upgradeKey">> }> | null = null;
   async function sovHubDetails(hubID: number, solarSystemID: number): Promise<SovHubDetails> {
     const scope = captureMemberOperation();
     const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
@@ -18775,7 +18783,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const a = record(record(u).attributes), typeID = int(record(record(a.definition).installation_type).sequential);
       const state = typeof a.power_state === "string" ? (STATES as readonly string[]).includes(a.power_state) ? a.power_state as SovHubUpgrade["powerState"] : null : null;
       const def = statics.upgrades.get(typeID) ?? { powerProduced: 0, workforceProduced: 0, fuelTypeID: 0, fuelPerHour: 0, startupCost: 0, powerRequired: 0, workforceRequired: 0 };
-      return { typeID, powerState: state, ...def };
+      return { typeID, powerState: state, upgradeKey: int(record(record(record(u).identifier).upgrade_type).sequential) || typeID, ...def };
     });
     const power = record(resources?.power), work = record(resources?.workforce);
     // Fuel.get_amount_at(now): the amount at the last update less the whole units burned since.
@@ -18820,6 +18828,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const listsByType: Record<number, readonly number[]> = {};
     for (const [typeID, held] of Object.entries(lists as Record<number, readonly number[] | null>)) listsByType[Number(typeID)] = held ?? [];
     return { configuration, listsByType, skyhooks: count };
+  }
+  async function saveSovHubUpgrades(hubID: number, configuration: readonly (readonly [number, boolean])[], newItemIDs: readonly number[] = []): Promise<{ readonly states: readonly (readonly [number, string | null])[] } | { readonly status: number }> {
+    const payload = { hub: { sequential: hubID }, new_upgrades: newItemIDs.map((sequential) => ({ sequential })),
+      configuration: configuration.map(([typeID, online]) => ({ upgrade_type: { sequential: typeID }, online })) };
+    const a = await api.publicGatewayRequest("eve_public.sovereignty.hub.upgrade.api.ProcessConfigurationRequest", payload as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    if (!a) return { status: 0 };
+    if (a.statusCode !== 200) return { status: a.statusCode };
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const upgrades = record(record(a.payload).hub_upgrades).upgrades;
+    return { states: (Array.isArray(upgrades) ? upgrades : []).map((u) => { const at = record(record(u).attributes); return [Number(record(record(at.definition).installation_type).sequential ?? 0), typeof at.power_state === "string" ? at.power_state : null] as const; }) };
+  }
+  async function uninstallSovHubUpgrade(hubID: number, upgradeKey: number): Promise<boolean> {
+    const a = await api.publicGatewayRequest("eve_public.sovereignty.hub.upgrade.api.UninstallRequest", { upgrade: { hub: { sequential: hubID }, upgrade_type: { sequential: upgradeKey } } } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    return Boolean(a && a.statusCode === 200);
   }
   async function allianceCapital(action: "set" | "cancel", solarSystemID = 0): Promise<boolean> {
     const scope = captureMemberOperation();
@@ -32523,6 +32545,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     mySovHubs,
     sovHubDetails,
     sovHubExtras,
+    saveSovHubUpgrades,
+    uninstallSovHubUpgrade,
     async askClientWarning(header: string, warning: string) {
       return askDialog("CustomWarning", { type: "dict", entries: [["header", header], ["warning", warning]] }, warning, "yesno");
     },

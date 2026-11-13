@@ -49,6 +49,13 @@
   const keep = (key: string, value: string) => { try { localStorage.setItem(`evejs.play.${key}`, value); } catch { /* the session keeps it */ } };
   let hubs = $state<readonly MySovHub[] | null>(null), loading = $state(true), details = $state<Record<number, SovHubDetails>>({}), now = $state(Date.now());
   let hubWindow = $state<MySovHub | null>(null);
+  // After a save or a removal: the hub's details and extras read again (the window's simulation restarts from them).
+  async function reloadHub(h: MySovHub): Promise<void> {
+    const d = await flow.sovHubDetails(h.hubID, h.solarSystemID);
+    details = { ...details, [h.hubID]: d };
+    const x = await flow.sovHubExtras(h.hubID, h.solarSystemID, (d.upgrades ?? []).map((u) => u.typeID));
+    extras = { ...extras, [h.hubID]: x };
+  }
   let open = $state<Record<number, boolean>>({}), extras = $state<Record<number, SovHubExtras>>({});
   function toggle(h: MySovHub): void {
     open = { ...open, [h.hubID]: !open[h.hubID] };
@@ -265,7 +272,7 @@
       {:else}<p class="sh-hint">{word((hubs?.length ?? 0) > 0 ? H + "NoSovHubsFilteredOut" : H + "NoSovHubs")}</p>{/each}
     {/if}
   </div>
-  {#if hubWindow}<SovHubWindow {store} {flow} hub={hubWindow} details={details[hubWindow.hubID]} extras={extras[hubWindow.hubID]} onClose={() => { hubWindow = null; }} />{/if}
+  {#if hubWindow}<SovHubWindow {store} {flow} hub={hubWindow} details={details[hubWindow.hubID]} extras={extras[hubWindow.hubID]} onClose={() => { hubWindow = null; }} onChanged={() => reloadHub(hubWindow!)} />{/if}
 </div>
 
 <style>
