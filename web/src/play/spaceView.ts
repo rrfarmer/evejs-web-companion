@@ -41,6 +41,7 @@ import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure } from "../three/exposure.ts";
+import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
 
 export interface Entity {
@@ -637,6 +638,7 @@ export class SpaceView {
     this.warpTunnel.dispose();
     this.live.fxListeners.delete(this.hearFx);
     this.turretFx.dispose();
+    this.combatMessage.dispose();
     for (const off of this.unhold) off();
     // the windows in the shared layer are the view's to take away
     for (const el of [this.selectedEl, this.overview.window.root, this.dscan?.window.root, this.radial.root]) el?.remove();
@@ -874,23 +876,12 @@ export class SpaceView {
     tick();
   }
 
-  /**
-   * Damage numbers floating up as the client's damage notifications come (the damage log's entries): over the target
-   * for a shot of ours, over our own ship for one at us, rising and fading in a second and a half.
-   */
-  private readonly damageNumbers: { el: HTMLDivElement; itemID: number; bornAt: number }[] = [];
+  /** The client's in-space combat notification (message.py CombatMessage: the lines at the top of the middle). */
+  readonly combatMessage: CombatMessage = new CombatMessage(this.root);
   showDamage(entry: { direction: "dealt" | "taken"; otherPartyID: number | null; amount: number; weaponTypeID?: number | null; quality?: number | null; routing?: DamageRouting }): void {
     // the shot's hit or miss to the turret that fired it, as the client routes the message (turretFx.damageMessage)
     const own = this.snapshot?.ship?.itemID ?? null;
     if (own !== null && entry.routing) this.turretFx.damageMessage(own, entry.routing, entry.weaponTypeID ?? null, entry.quality ?? null);
-    const itemID = entry.direction === "dealt" ? entry.otherPartyID : this.snapshot?.ship?.itemID ?? null;
-    if (itemID === null) return;
-    const el = document.createElement("div");
-    el.className = `dmg-num ${entry.direction}`;
-    el.textContent = entry.amount > 0 ? String(Math.round(entry.amount)) : "miss";
-    this.brackets.appendChild(el);
-    this.damageNumbers.push({ el, itemID, bornAt: performance.now() });
-    if (this.damageNumbers.length > 40) this.damageNumbers.shift()!.el.remove();
   }
   /**
    * The balls' impact overlays (impactOverlay.ts): each one's damage state from the park's (michelle's, extrapolated:
@@ -1109,20 +1100,6 @@ export class SpaceView {
   private ambient: { id: number; loop: Promise<WorldLoop> | null } | null = null;
   /** The types of the balls seen (for a ball blown up after it has left the snapshot). */
   private readonly typeOfID = new Map<number, number>();
-  private stepDamageNumbers(now: number): void {
-    const w = innerWidth, h = innerHeight;
-    for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
-      const d = this.damageNumbers[i]!;
-      const t = (now - d.bornAt) / 1500;
-      const mark = this.marks.get(d.itemID);
-      if (t > 1 || !mark) { d.el.remove(); this.damageNumbers.splice(i, 1); continue; }
-      const p = mark.position.clone().project(this.camera);
-      if (p.z >= 1) { d.el.style.display = "none"; continue; }
-      d.el.style.display = "";
-      d.el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h - 24 - t * 40}px)`;
-      d.el.style.opacity = String(1 - t * t);
-    }
-  }
 
   /**
    * The client's in-space commands by their default shortcuts (shortcutKeys.ts commandForKey, eveCommands.py):
@@ -1628,7 +1605,6 @@ export class SpaceView {
     this.stepMissiles(origin, moved, dt);
     this.stepTurrets(origin, dt);
     this.stepImpacts(dt);
-    this.stepDamageNumbers(now);
     // The rack: the ship's fitted modules, which are running and how far through their cycles, as the app's session
     // keeps them; often enough for the cycle sweep to move smoothly.
     const rack = this.options.rack;

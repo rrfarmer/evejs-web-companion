@@ -525,11 +525,18 @@
     if (d.weaponTypeID) s.flow.requestNames([{ kind: "type", id: d.weaponTypeID }]);
     const args = { target: nameOfItem(targetID), source: nameOfItem(sourceID), owner, weapon: d.weaponTypeID ?? 0, extraNameText: "",
       strongColor: "<color=0xff00ffff>", faintColor: "<color=0x77ffffff>", fontMarkUpStart: "<font size=10>", fontMarkUpEnd: "</font>" };
-    let text = plainText(formatTemplate(template, args as never, { nameOf: (kind, id) => resolved[nameKey(kind, id)] ?? "" })).trim();
+    const markup = formatTemplate(template, args as never, { nameOf: (kind, id) => resolved[nameKey(kind, id)] ?? "" }).trim();
+    let text = plainText(markup).trim();
     if (d.weaponTypeID) text += ` - ${resolved[nameKey("type", d.weaponTypeID)] ?? ""}`;
-    if (quality >= 1 && quality <= 6) { const hq = words[`UI/Inflight/HitQuality${quality}`]; if (typeof hq === "string") text += ` - ${plainText(hq)}`; }
+    const hq = quality >= 1 && quality <= 6 ? words[`UI/Inflight/HitQuality${quality}`] : undefined;
+    if (typeof hq === "string") text += ` - ${plainText(hq)}`;
     if (quality > 0) text = `${Math.round(d.amount)} ${text}`;
     addGameLogLine(text, "combat");
+    // the in-space line (logger.Say, msgLimited): the message, " - " the hit quality (damageMessagesShowQuality, on by
+    // default; the weapon and the ticker / ship type extras are off by default), the damage before it in damage_html's
+    // colour - red for a shot at us, cyan for ours - and a miss's from one attacker once in 10 s
+    view?.combatMessage.add(typeof hq === "string" ? `${markup} - ${hq}` : markup, quality, sourceID,
+      quality > 0 ? { amount: d.amount, color: d.attackType !== "me" ? "#cc0000" : "#00ffff" } : null);
   }
 
   // The client's window commands (eveCommands.py) and the windows they open here; their keys are the client's default

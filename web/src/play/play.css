@@ -335,11 +335,14 @@ button { font: inherit; color: inherit; }
 .ov-table th.sorted::after { content: " \25B4"; font-size: 9px; }
 .ov-table th.sorted.down::after { content: " \25BE"; }
 
-/* damage numbers over a target (spaceView.showDamage): ours pale gold, theirs at us red */
-.brackets .dmg-num { position: absolute; left: 0; top: 0; margin-left: -20px; width: 40px; text-align: center; pointer-events: none;
-  font: 600 13px/1 var(--font); text-shadow: 0 1px 2px #000, 0 0 4px #000; }
-.brackets .dmg-num.dealt { color: #ffe3a0; }
-.brackets .dmg-num.taken { color: #ff6a5a; }
+/* the client's combat notification (combatMessage.ts, message.py CombatMessage): CENTERTOP at max(32 % of the height,
+   225 px), six lines 20 px apart, each 0 -> 1 -> 0 over its 5 s (fadeOutTime [0,0] [0.2|0.05,1] [1,0]) */
+.space .combat-msg { position: absolute; left: 0; right: 0; top: max(32%, 225px); height: 120px; pointer-events: none; z-index: 3; }
+.space .combat-msg-line { position: absolute; left: 0; right: 0; top: 0; text-align: center; white-space: nowrap; color: #fff;
+  font-family: var(--font); line-height: 20px; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+.space .combat-msg-text { display: inline-block; opacity: 0; animation-timing-function: linear; animation-fill-mode: forwards; }
+@keyframes combat-msg-fade { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes combat-msg-fade-busy { 0% { opacity: 0; } 5% { opacity: 1; } 100% { opacity: 0; } }
 /* the HUD's shortcut indication while a combat command is held (HudActionIndicationController.set_shortcut_indication) */
 .space .cmd-indication { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: 6px 14px; font-size: 14px;
   color: #fff; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.15); pointer-events: none; opacity: 0;
