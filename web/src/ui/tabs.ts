@@ -34,6 +34,7 @@ export type CoreTabID =
   | "finder"
   | "jobBoard"
   | "paintTool"
+  | "locationSearch"
   | "skills"
   | "planets"
   | "industryManager"
@@ -199,6 +200,8 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "jobBoard", label: "Opportunities", where: "both" },
   // The structure paint tool (PaintToolWnd, "Structure SKINR"), opened from Brand Management's Open SKINR.
   { id: "paintTool", label: "Structure SKINR", where: "both", launchable: false },
+  // searchUtil.GetResultsInNewWindow's window, from the route info panel's search box.
+  { id: "locationSearch", label: "Search Results", where: "both", launchable: false },
   { id: "skills", label: "Skills", where: "both" },
   { id: "planets", label: "Planets", where: "both" },
   // R109 — a GLOBAL window: a blueprint expanded into its whole build tree,

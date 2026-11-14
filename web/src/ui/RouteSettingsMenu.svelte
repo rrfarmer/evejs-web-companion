@@ -6,7 +6,9 @@
   // cbAvoidTriglavianTales, cbAvoidEdencomSystems, cbAdvoidSystemsOnList (each warning as it is turned on - flow's
   // clickAvoidingTick), cbDisableAtEachWaypoint, a divider, ClearAllAutopilotWaypoints (with any waypoint),
   // OptimizeRoute (with more than one), ManageRoute. The same settings as the workspace's route panel (Travel.svelte).
-  // Not here: the search box at its top (AddSearchBox), ShowRoutePathInSpace.
+  // AddSearchBox at its top: a 220-wide line (maxLength 64, hint lblSearchForLocation) and btnSearchForLocation; Return
+  // or the button opens the search results window (SearchForLocation - GetResultsInNewWindow, LocationSearchWindow) and
+  // closes the menu. Not here: ShowRoutePathInSpace.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
@@ -16,6 +18,7 @@
     penaltyOf, penaltyWords, routeSettingWords, routeTypeOf,
   } from "../nav/autopilotSettings.ts";
   import { onMount } from "svelte";
+  import { searchLocationsInWindow } from "./locationSearchRequests.ts";
   let { store, flow, openRouteWindow, onClose }: { store: ClientStore; flow: AppFlow; openRouteWindow?: () => void; onClose: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -30,7 +33,7 @@
   // svelte-ignore state_referenced_locally
   const stopEach = disableAutopilotAtEachWaypoint;
   const M = "UI/Map/MapPallet/";
-  const LABELS = [...ROUTE_SETTING_WORD_LABELS, M + "AutopilotActive", M + "cbDisableAtEachWaypoint", "UI/Neocom/ClearAllAutopilotWaypoints", M + "OptimizeRoute", M + "ManageRoute"];
+  const LABELS = [M + "lblSearchForLocation", M + "btnSearchForLocation", ...ROUTE_SETTING_WORD_LABELS, M + "AutopilotActive", M + "cbDisableAtEachWaypoint", "UI/Neocom/ClearAllAutopilotWaypoints", M + "OptimizeRoute", M + "ManageRoute"];
   onMount(() => flow.requestWords(LABELS));
   const text = (label: string): string | null => { const t = $words.templates[label]; return typeof t === "string" ? plainText(t) : null; };
   const word = (label: string, own: string) => text(label) ?? own;
@@ -39,9 +42,16 @@
   // svelte-ignore state_referenced_locally
   let penalty = $state(penaltyOf(flow.autopilotSettings()));
   $effect(() => { penalty = penaltyOf($kept); });
+  let searchText = $state("");
 </script>
 
 <div class="rs-menu" role="menu" tabindex="-1">
+  <div class="rs-search">
+    <input type="search" maxlength="64" placeholder={word(M + "lblSearchForLocation", "Search for location")} bind:value={searchText}
+      onkeydown={(e) => { if (e.key === "Enter" && searchText.trim()) { searchLocationsInWindow(searchText); onClose(); } }} />
+    <button type="button" disabled={!searchText.trim()} onclick={() => { searchLocationsInWindow(searchText); onClose(); }}>{word(M + "btnSearchForLocation", "Search")}</button>
+  </div>
+  <hr />
   <label class:disabled={docked}><input type="checkbox" checked={$autopilotOn} disabled={docked}
     onchange={(e) => { if (e.currentTarget.checked) void flow.activateAutopilot(); else flow.deactivateAutopilot(); }} /> {word(M + "AutopilotActive", "Autopilot Active")}</label>
   {#each OFFERED_ROUTE_TYPES as routeType (routeType)}
@@ -76,6 +86,9 @@
   .rs-menu label, .rs-menu button { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 3px 10px; }
   .rs-menu label.disabled { opacity: 0.5; cursor: default; }
   .rs-menu label:hover, .rs-menu button:hover { background: rgb(255 255 255 / 0.08); }
+  .rs-search { display: flex; gap: 4px; padding: 6px; }
+  .rs-search input { width: 220px; }
+  .rs-search button { all: revert; }
   .rs-slider { display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 27px; }
   .rs-slider input { width: 100px; }
   .rs-space { height: 6px; }

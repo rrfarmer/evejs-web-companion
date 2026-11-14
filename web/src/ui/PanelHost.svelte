@@ -32,6 +32,7 @@
   import Travel from "./Travel.svelte";
   import RouteWindow from "./RouteWindow.svelte";
   import MissionTracker from "./MissionTracker.svelte";
+  import LocationSearchWindow from "./LocationSearchWindow.svelte";
   import TypeCompare from "./TypeCompare.svelte";
   import Bots from "./Bots.svelte";
   import BotBuilder from "./BotBuilder.svelte";
@@ -160,6 +161,8 @@
   <AgentsMissions {store} {flow} />
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
+{:else if tab === "locationSearch"}
+  <LocationSearchWindow {store} {flow} />
 {:else if tab === "jobBoard"}
   <JobBoardWindow {store} {flow} openCorporation={() => onOpen?.("corporation")} />
 {:else if tab === "finder"}
