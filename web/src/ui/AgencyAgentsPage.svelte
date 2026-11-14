@@ -10,6 +10,10 @@
   // The first card is chosen as the page opens; double clicking a card starts the conversation.
   // The faction and corporation filters (with the pilot's standings), and the standing threshold badge where the
   // pilot cannot use the agent (its hint the standing the level asks for).
+  // The Heraldry agents (group 71): ContentPageHeraldryAgents, a SingleColumnContentPage - no filters
+  // (GetFilterContainerClass None), the cards one to a row in a scroll section scrollSectionWidth 400 wide, and beside it
+  // (padLeft 10, 400 wide) a Section headed UI/Agency/MissionDetails - the HeraldryTitle caption, the HeraldryDescription
+  // text and the chosen card's interaction button (StatefulButton), faded in over 0.3 s as a card is chosen.
   // Not here (later parts): the region distance, the activity and locator badges, the security's colour, the Omega overlay, the cards' enter animation, the filters kept with the
   // character's settings (here for the window's life).
   import type { ClientStore } from "../store/clientStore.ts";
@@ -43,7 +47,8 @@
       "UI/Common/HighSec", "UI/Common/LowSec", "UI/Common/NullSec", "UI/Agency/OnlyShowAvailableAgents", "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll",
       "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/StandingsSystem", "UI/Commands/StartConversation", "UI/Neocom/UndockBtn", "UI/Inflight/DockInStation",
       "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/AgentFinder/AgentLevel", "UI/Common/Faction", "UI/Agency/AnyFaction", "UI/Common/Corp",
-      "UI/Agency/AnyCorp", "UI/Agents/UnavailableInsufficientStandings", "UI/Agency/FactionWarfare/MissionRewards"]);
+      "UI/Agency/AnyCorp", "UI/Agents/UnavailableInsufficientStandings", "UI/Agency/FactionWarfare/MissionRewards", "UI/Agency/MissionDetails",
+      "UI/Agency/Blurbs/HeraldryTitle", "UI/Agency/Blurbs/HeraldryDescription"]);
   });
   // AgentsFiltersCont.GetFactions / GetCorpComboOptions: "name <gray>round(standing, 2)</gray>", sorted by that label,
   // after the Any choice; the corporation combo shown once a faction is chosen, its choice reset to Any where the
@@ -56,6 +61,7 @@
   // FactionalWarfareAgentsFiltersCont: the factions appConst.factionsEmpires (sorted by their labels), no corporation
   // combo, levels to GetMaxLevel 5 (1 to 4); its page's Information FactionWarfare/MissionRewards alone.
   const fw = $derived(groupID === 47);
+  const heraldry = $derived(groupID === 71);
   const EMPIRES = [500003, 500001, 500004, 500002];
   const factionOptions = $derived(ownerOptions((owners?.factions ?? []).filter((f) => !fw || EMPIRES.includes(f.id))));
   const corpOptions = $derived(filters.factionID === ANY ? [] : ownerOptions(owners?.corporations[filters.factionID]));
@@ -115,6 +121,7 @@
 </script>
 
 <div class="aap">
+  {#if !heraldry}
   <aside class="aap-left">
     <section class="aap-section">
       <h3>{word("UI/Calendar/CalendarWindow/Filters")}</h3>
@@ -141,7 +148,8 @@
       <p class="aap-info">ⓘ {word(fw ? "UI/Agency/FactionWarfare/MissionRewards" : "UI/Agency/StandingsSystem")}</p>
     </section>
   </aside>
-  <section class="aap-scroll aap-section">
+  {/if}
+  <section class="aap-scroll aap-section" class:single={heraldry}>
     <h3>{agents?.length ? word("UI/Agency/ShowingXResults", { numResults: agents.length }) : agents === undefined ? "…" : word("UI/Inflight/Scanner/FilteredResults")}</h3>
     <div class="aap-cards">
       {#each agents ?? [] as a (a.agentID)}
@@ -161,12 +169,26 @@
         </button>
       {/each}
     </div>
+    {#if !heraldry}
     <div class="aap-buttons">
       {#if chosenAgent}{@const action = actionOf(chosenAgent)}
         <button type="button" disabled={busy || action === "destinationSet"} onclick={() => void act(chosenAgent)}>{word(LABEL[action])}</button>
       {/if}
     </div>
+    {/if}
   </section>
+  {#if heraldry}
+    <section class="aap-section aap-details" class:shown={!!chosenAgent}>
+      <h3>{word("UI/Agency/MissionDetails")}</h3>
+      <h2>{word("UI/Agency/Blurbs/HeraldryTitle")}</h2>
+      <p>{word("UI/Agency/Blurbs/HeraldryDescription")}</p>
+      <div class="aap-buttons">
+        {#if chosenAgent}{@const action = actionOf(chosenAgent)}
+          <button type="button" disabled={busy || action === "destinationSet"} onclick={() => void act(chosenAgent)}>{word(LABEL[action])}</button>
+        {/if}
+      </div>
+    </section>
+  {/if}
 </div>
 
 <style>
@@ -194,4 +216,10 @@
   .aap-threshold { position: absolute; right: 5px; bottom: 5px; width: 22px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgb(153 31 36 / 0.5); }
   .aap-threshold img { width: 16px; height: 16px; filter: brightness(0) saturate(100%) invert(30%) sepia(90%) saturate(3000%) hue-rotate(345deg); }
   .aap-buttons { display: flex; justify-content: flex-end; height: 30px; padding-top: 10px; }
+  .aap-scroll.single { width: 400px; }
+  .aap-scroll.single .aap-cards { flex-direction: column; flex-wrap: nowrap; }
+  .aap-details { width: 400px; flex: none; align-self: flex-start; opacity: 0; transition: opacity 0.3s; }
+  .aap-details.shown { opacity: 1; }
+  .aap-details h2 { margin: 0; font-size: 18px; font-weight: 600; }
+  .aap-details p { margin: 10px 0 0; font-size: 12px; line-height: 1.4; white-space: pre-line; }
 </style>
