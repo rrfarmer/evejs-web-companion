@@ -38,6 +38,7 @@
   import AgencyMercDensPage from "./AgencyMercDensPage.svelte";
   import AgencyColonyResourcesPage from "./AgencyColonyResourcesPage.svelte";
   import AgencyHelpPage from "./AgencyHelpPage.svelte";
+  import AgencyGuidePage from "./AgencyGuidePage.svelte";
   import { resolvedName } from "../store/names.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
@@ -51,7 +52,7 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FW_GUIDE = 90, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -156,6 +157,8 @@
       <div class="ag-page"><AgentFinder {store} {flow} {showTravel} /></div>
     {:else if groupID === INCURSION && itemID}
       {#key itemID}<div class="ag-page"><AgencyIncursionPage {store} {flow} constellationID={itemID} /></div>{/key}
+    {:else if groupID === FW_GUIDE}
+      <div class="ag-page ag-help-page"><AgencyGuidePage {store} {flow} guide="factionWarfare" {onOpenTab} onShow={(id) => show(id)} /></div>
     {:else if groupID === HELP}
       <div class="ag-page ag-help-page"><AgencyHelpPage {store} {flow} /></div>
     {:else if groupID === COLONY_RESOURCES}
