@@ -7,7 +7,10 @@
 // - AnomaliesProvider._get_relevant_solar_systems: the pilot's system, and the systems with sites within the autopilot's
 //   jumps (GetSystemsWithinAutopilotJumpRange, 0 to JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE + 1), the walk out stopping
 //   once JUMPS_WHERE_DUNGEONS_ARE_ALWAYS_VISIBLE is reached with MAXIMUM_SOLAR_SYSTEMS_WHERE_DUNGEONS_CAN_BE_VISIBLE
-//   (20) systems found. Combat anomalies: 1 and 1, the route's systems not included.
+//   (20) systems found, and the autopilot route's systems with sites where INCLUDE_SYSTEMS_IN_ROUTE. Combat, ore
+//   anomalies and ice belts: 1 and 1, no route; Homefront operations: the defaults, 2 and 5 and the route.
+// - CosmicSignaturesProvider: hidden, nothing in Browse; the signature site the pilot is in (an entry of
+//   typeDeadspaceSignature), in Active only (CosmicSignatureJob.is_available_in_browse False).
 //
 // Not as the client: the pilot's own system's sites come from this same answer, where the client takes them from the
 // sensor suite's anomalies once its scan has updated them (with their scan result IDs).
@@ -53,9 +56,12 @@ export function decodeDungeonSites(value: JsonValue | undefined): ReadonlyMap<nu
   return out;
 }
 
-/** _get_relevant_solar_systems without the route: the systems whose sites the board shows, nearest first. */
+/**
+ * _get_relevant_solar_systems: the systems whose sites the board shows, nearest first, then those on the autopilot's
+ * route (_get_solar_systems_on_route: the route's systems with sites, where the provider includes them).
+ */
 export function relevantDungeonSystems(sites: ReadonlyMap<number, unknown>, here: number | null, jumps: ReadonlyMap<number, number> | null,
-  always: number, canBeVisible: number, maximum = 20): number[] {
+  always: number, canBeVisible: number, maximum = 20, route: readonly number[] = []): number[] {
   const found: number[] = [];
   if (jumps) {
     const byJumps = new Map<number, number[]>();
@@ -65,5 +71,6 @@ export function relevantDungeonSystems(sites: ReadonlyMap<number, unknown>, here
       if (n >= always && found.length >= maximum) break;
     }
   }
+  for (const system of route) if (sites.has(system) && !found.includes(system)) found.push(system);
   return here !== null && !found.includes(here) ? [here, ...found] : found;
 }

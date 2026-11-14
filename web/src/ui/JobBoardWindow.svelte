@@ -85,10 +85,11 @@
   });
   const shownArcs = $derived(tab === "browse" ? epicLists.browse : tab === "active" ? epicLists.active : []);
   const arcOpen = $derived(openArc === null ? null : epic?.arcs.find((a) => a.epicArcID === openArc) ?? null);
-  // The anomalies (features/dungeons: the combat anomalies', ore anomalies' and ice belts' providers, DungeonJob): in
+  // The dungeons (features/dungeons: the combat anomalies', ore anomalies', ice belts', Homefront operations' and
+  // cosmic signatures' providers, DungeonJob; a signature never in Browse): in
   // Browse those the providers list, in Active the one the pilot is in (active_dungeon; tracking is not here).
   let dungeons = $state<readonly DungeonJob[]>([]), openDungeon = $state<number | null>(null);
-  const shownDungeons = $derived(tab === "browse" ? dungeons : tab === "active" ? dungeons.filter((d) => d.active) : []);
+  const shownDungeons = $derived(tab === "browse" ? dungeons.filter((d) => d.kind !== "signature") : tab === "active" ? dungeons.filter((d) => d.active) : []);
   const dungeonOpen = $derived(openDungeon === null ? null : dungeons.find((d) => d.instanceID === openDungeon) ?? null);
   const dailyOpen = $derived(openDaily === null ? null : daily.find((d) => d.goalID === openDaily) ?? null);
   async function claimDaily(goalID: string): Promise<void> { await flow.redeemDailyGoal(goalID); daily = (await flow.dailyGoals()) ?? daily; }

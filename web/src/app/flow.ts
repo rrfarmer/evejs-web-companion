@@ -634,8 +634,8 @@ export interface DailyGoal {
 
 /** A dungeon on the job board (features/dungeons DungeonJob): the site, its system and jumps, its dungeon's data. */
 export interface DungeonJob {
-  /** The provider: combat anomalies, ore anomalies, ice belts. */
-  readonly kind: "combat" | "ore" | "ice";
+  /** The provider: combat anomalies, ore anomalies, ice belts, Homefront operations, cosmic signatures. */
+  readonly kind: "combat" | "ore" | "ice" | "homefront" | "signature";
   readonly instanceID: number; readonly dungeonID: number; readonly solarSystemID: number; readonly jumps: number | null;
   readonly data: DungeonData | null;
   /** active_dungeon: the dungeon the pilot is in is this site. */
@@ -3601,10 +3601,12 @@ export interface AppFlow {
    */
   epicArcs(): Promise<EpicArcsRead | null>;
   /**
-   * The job board's anomalies (features/dungeons: CombatAnomaliesProvider, OreAnomaliesProvider, IceBeltsProvider):
-   * the sites dungeonInstanceCacheMgr.GetCombatAnomalyInstances / GetOreAnomalyInstances / GetIceBeltInstances list in
-   * the pilot's system and the systems near it (bridge/dungeonJobs.ts), each with its dungeon's data, the jumps to it,
-   * and whether it is the dungeon the pilot is in. A provider whose sites could not be read gives none.
+   * The job board's dungeons (features/dungeons: the combat anomalies', ore anomalies', ice belts' and Homefront
+   * operations' providers): the sites dungeonInstanceCacheMgr's GetCombatAnomalyInstances / GetOreAnomalyInstances /
+   * GetIceBeltInstances / GetHomefrontSiteInstances list in the pilot's system, the systems near it and (Homefront) on
+   * the route (bridge/dungeonJobs.ts); and the cosmic signature the pilot is in (CosmicSignaturesProvider). Each with
+   * its dungeon's data, the jumps to it, and whether it is the dungeon the pilot is in. A provider whose sites could
+   * not be read gives none.
    */
   dungeonJobs(): Promise<readonly DungeonJob[]>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
@@ -19722,20 +19724,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function dungeonJobs(): Promise<readonly DungeonJob[]> {
     const here = store.station.get().online?.solarSystemID ?? null;
     askCurrentDungeon();
-    // The providers in the board's order, each tracker's call, and its JUMPS_WHERE_DUNGEONS_ARE_ALWAYS_VISIBLE and
-    // JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE (1 and 1 for all three; none includes the route's systems).
-    const PROVIDERS = [["combat", "GetCombatAnomalyInstances"], ["ore", "GetOreAnomalyInstances"], ["ice", "GetIceBeltInstances"]] as const;
-    const [answers, jumps] = await Promise.all([
+    // The providers in the board's order, each tracker's call, its JUMPS_WHERE_DUNGEONS_ARE_ALWAYS_VISIBLE,
+    // JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE and INCLUDE_SYSTEMS_IN_ROUTE (AnomaliesProvider's defaults 2, 5, True).
+    const PROVIDERS = [["combat", "GetCombatAnomalyInstances", 1, 1, false], ["ore", "GetOreAnomalyInstances", 1, 1, false],
+      ["ice", "GetIceBeltInstances", 1, 1, false], ["homefront", "GetHomefrontSiteInstances", 2, 5, true]] as const;
+    const [answers, jumps, route] = await Promise.all([
       Promise.all(PROVIDERS.map(([, method]) => bridgeAsk("dungeonInstanceCacheMgr", method, []).catch(() => null))),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      routeOfWaypoints().catch(() => null),
     ]);
-    const shown = PROVIDERS.flatMap(([kind], index) => {
+    const routeSystems = (route?.markers ?? []).map((marker) => marker.solarSystemID);
+    const shown: { solarSystemID: number; dungeonID: number; instanceID: number; kind: DungeonJob["kind"] }[] = PROVIDERS.flatMap(([kind, , always, canBe, withRoute], index) => {
       const answer = answers[index];
       if (answer === null || answer === undefined) return [];
       const sites = decodeDungeonSites(answer);
-      return relevantDungeonSystems(sites, here, jumps, 1, 1).flatMap((system) => (sites.get(system) ?? []).map((site) => ({ ...site, kind })));
+      return relevantDungeonSystems(sites, here, jumps, always, canBe, 20, withRoute ? routeSystems : []).flatMap((system) => (sites.get(system) ?? []).map((site) => ({ ...site, kind })));
     });
+    // CosmicSignaturesProvider: the dungeon the pilot is in, where its entry is a signature (its data says), and it is
+    // no site listed above.
+    const inside = currentDungeon;
+    if (inside !== null && inside.instanceID !== null && here !== null && !shown.some((s) => s.instanceID === inside.instanceID)) {
+      shown.push({ solarSystemID: here, dungeonID: inside.dungeonID, instanceID: inside.instanceID, kind: "signature" });
+    }
     const data = await api.loadDungeons([...new Set(shown.map((s) => s.dungeonID))], callOptions).catch(() => null);
+    // typeDeadspaceSignature: the signature only where its dungeon's entry is one.
+    const kept = shown.filter((s) => s.kind !== "signature" || data?.[String(s.dungeonID)]?.entryTypeID === 19728);
+    shown.length = 0; shown.push(...kept);
     const factions = [...new Set(Object.values(data ?? {}).map((d) => d?.factionID ?? 0).filter((id) => id > 0))];
     requestNames([...factions.map((id) => ({ kind: "owner" as const, id })), ...[...new Set(shown.map((s) => s.solarSystemID))].map((id) => ({ kind: "system" as const, id }))]);
     const resources = [...new Set(Object.values(data ?? {}).flatMap((d) => [...(d?.oreTypes ?? []), ...(d?.iceTypes ?? [])]))];
