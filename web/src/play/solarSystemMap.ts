@@ -22,6 +22,12 @@
 //   ToggleCameraView on a double click: below pi / 4 to the side, else the top). mapCamera's pitch runs kMinPitch 0.01
 //   (from straight above) to kMaxPitch pi / 2 (level): never under the system's plane.
 //   (The range indicator is the tactical overlay's - solarSystemViewPanel - not this window's.)
+// - The directional scan's shape (inflight/scannerFiles/directionalScanHandler DrawDirectionalScanCone): at the ship
+//   (SetupMyPositionTracker), turned as the space camera looks; under 180 degrees a cone (scancone.red scaled to
+//   range x sin(half) x 2 wide, range x cos(half) long) and rings along it every 2 AU from 1 AU (ShowCone: at
+//   d x cos(half), radius tan(half) x that); under 360 a half sphere of the range; 360 a sphere; COLOR_DSCAN (0.225,
+//   0.75, 0.5); hidden where directionalScannerShowCone is off. Our own geometry in those proportions (the .red
+//   models are not extracted).
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -57,7 +63,13 @@ export interface SolarSystemMapHooks {
   /** LoadSolarSystemMap's cfg.evelocations.Prime: the celestials' names asked for. */
   primeNames?(itemIDs: readonly number[]): void;
   word?(label: string): string | null;
+  /** The directional scan's angle and range, where its window is, the way it looks (EVE's coordinates) and whether
+   * its cone is shown; null without a scanner. */
+  dscanCone?(): { angleDeg: number; rangeMetres: number; direction: { x: number; y: number; z: number }; shown: boolean } | null;
 }
+
+const COLOR_DSCAN = new THREE.Color(0.225, 0.75, 0.5);
+const AU_M = 149_597_870_700;
 
 /** EVE's coordinates to the map's (the space view's handedness: z mirrored), scaled. */
 export function mapPoint(p: { x: number; y: number; z: number }): THREE.Vector3 {
@@ -104,6 +116,10 @@ export class SolarSystemMapWindow {
   private readonly egoMarker: THREE.Sprite;
   private readonly dot = dotTexture();
   private readonly markersLayer = document.createElement("div");
+  private readonly coneGroup = new THREE.Group();
+  private coneFor = "";
+  /** What the scan shape is now, for checks: "cone" / "half" / "sphere", its rings, and its size in map units. */
+  coneInfo = { kind: "none", rings: 0, length: 0, radius: 0 };
   private markers: { itemID: number; at: THREE.Vector3; el: HTMLDivElement }[] = [];
   private yaw = 0.6;
   /** mapCamera's pitch: 0.01 from straight above .. pi / 2 level. */
@@ -134,6 +150,7 @@ export class SolarSystemMapWindow {
     this.egoMarker.scale.setScalar(0.022);
     this.egoMarker.renderOrder = 2;
     this.scene.add(this.egoMarker);
+    this.scene.add(this.coneGroup);
     this.canvas.addEventListener("pointerdown", (e) => this.drag(e));
     this.canvas.addEventListener("dblclick", () => this.toggleView());
     const word = (label: string, own: string) => hooks.word?.(label) ?? own;
@@ -272,6 +289,7 @@ export class SolarSystemMapWindow {
     const ego = this.hooks.ego();
     this.egoMarker.visible = ego !== null;
     if (ego) this.egoMarker.position.copy(mapPoint(ego));
+    this.updateCone(ego);
     if (this.pitchTween) {
       const t = Math.min(1, (performance.now() - this.pitchTween.start) / this.pitchTween.duration);
       const eased = t * t * (3 - 2 * t);
@@ -291,6 +309,52 @@ export class SolarSystemMapWindow {
       m.el.style.display = shown ? "" : "none";
       if (shown) m.el.style.transform = `translate(${Math.round(((v.x + 1) / 2) * w) - 7}px, ${Math.round(((1 - v.y) / 2) * h) - 7}px)`;
     }
+  }
+
+  /** DrawDirectionalScanCone: the shape by the angle, rebuilt where the angle or range changes; placed at the ship and
+   * turned to the scan's direction each frame. */
+  private updateCone(ego: { x: number; y: number; z: number } | null): void {
+    const cone = this.hooks.dscanCone?.() ?? null;
+    this.coneGroup.visible = !!cone && cone.shown && ego !== null;
+    if (!cone || !ego) return;
+    const key = `${cone.angleDeg}:${Math.round(cone.rangeMetres)}`;
+    if (key !== this.coneFor) {
+      this.coneFor = key;
+      this.coneGroup.clear();
+      const range = cone.rangeMetres * SOLARSYSTEM_SCALE;
+      const surface = new THREE.MeshBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0.12, side: THREE.DoubleSide,
+        depthWrite: false, blending: THREE.AdditiveBlending });
+      const line = new THREE.LineBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending });
+      if (cone.angleDeg < 180) {
+        const half = ((cone.angleDeg * Math.PI) / 180) / 2;
+        const length = range * Math.cos(half);
+        const radius = range * Math.sin(half);
+        // a cone with its apex at the ship and its axis along +y
+        const g = new THREE.ConeGeometry(radius, length, 48, 1, true);
+        g.rotateX(Math.PI);
+        g.translate(0, length / 2, 0);
+        this.coneGroup.add(new THREE.Mesh(g, surface));
+        let rings = 0;
+        for (let d = AU_M; d < cone.rangeMetres; d += 2 * AU_M) {
+          const step = d * Math.cos(half) * SOLARSYSTEM_SCALE;
+          const r = Math.tan(half) * step;
+          const pts: THREE.Vector3[] = [];
+          for (let i = 0; i < 64; i++) { const a = (i / 64) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * r, step, Math.sin(a) * r)); }
+          this.coneGroup.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), line));
+          rings += 1;
+        }
+        this.coneInfo = { kind: "cone", rings, length, radius };
+      } else if (cone.angleDeg < 360) {
+        this.coneGroup.add(new THREE.Mesh(new THREE.SphereGeometry(range, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), surface));
+        this.coneInfo = { kind: "half", rings: 0, length: range, radius: range };
+      } else {
+        this.coneGroup.add(new THREE.Mesh(new THREE.SphereGeometry(range, 48, 32), surface));
+        this.coneInfo = { kind: "sphere", rings: 0, length: range, radius: range };
+      }
+    }
+    this.coneGroup.position.copy(mapPoint(ego));
+    const dir = mapPoint(cone.direction).normalize();
+    if (dir.lengthSq() > 0) this.coneGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   }
 
   /** The markers drawn, for checks: how many, and how many in the view. */

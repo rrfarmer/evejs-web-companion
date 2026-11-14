@@ -80,6 +80,8 @@ function readSetting(name: string): number | null {
 function writeSetting(name: string, value: number): void {
   try { localStorage.setItem(SETTING(name), String(value)); } catch { /* kept for the page's life only */ }
 }
+/** settings.char.ui directionalScannerShowCone (IsDscanConeShown, default True): the cone in the solar system map. */
+const SHOW_CONE_KEY = "evejs.play.directionalScannerShowCone";
 /** settings.user.ui scanner_presetInUse: the scanner's own preset, none for the active overview's. */
 const PRESET_KEY = "evejs.play.scanner_presetInUse";
 /** inventorycommon groupCloud: hidden from the scan's rows but for a GM / world mod (UpdateScroll). */
@@ -192,9 +194,20 @@ export class DScanWindow {
     this.window.body.querySelector(".dscan-go")!.addEventListener("click", () => void this.scan());
     this.filterBox = this.window.body.querySelector(".dscan-filter")!;
     this.word = w;
-    // MapBtnClicked: the solar system map (the other two head buttons wait on it: the cone, align with camera)
-    const mapBtn = this.window.body.querySelectorAll<HTMLButtonElement>(".dscan-ic")[2];
+    // MapBtnClicked: the solar system map; OnShowConeBtn: SetScanConeDisplayState(not IsDscanConeShown()), the button
+    // selected while it shows (UpdateShowConeButton). Align with camera waits on the map's own camera mode.
+    const heads = this.window.body.querySelectorAll<HTMLButtonElement>(".dscan-ic");
+    const mapBtn = heads[2];
     if (mapBtn && hooks.openMap) { mapBtn.disabled = false; mapBtn.addEventListener("click", () => hooks.openMap?.()); }
+    const coneBtn = heads[1];
+    if (coneBtn) {
+      coneBtn.disabled = false;
+      coneBtn.classList.toggle("on", this.coneShown());
+      coneBtn.addEventListener("click", () => {
+        try { localStorage.setItem(SHOW_CONE_KEY, this.coneShown() ? "0" : "1"); } catch { /* not kept */ }
+        coneBtn.classList.toggle("on", this.coneShown());
+      });
+    }
     // LoadFilterTooltipPanel: the box's tooltip, a list (210 wide, at most 200 high) - UseActiveOverviewSettings, then
     // the presets - each a checkbox of one group, the chosen one checked, the first ten with a shortcut hint
     // ((i + 1) % 10); a choice (OnFilterChange) kept as scanner_presetInUse and the rows filtered again, or a scan made
@@ -206,6 +219,14 @@ export class DScanWindow {
   }
 
   private showUnit: () => void = () => {};
+  /** IsDscanConeShown: kept, true by default. */
+  coneShown(): boolean { try { return localStorage.getItem(SHOW_CONE_KEY) !== "0"; } catch { return true; } }
+  /** The scan's angle (degrees) and range (metres) as the window has them now (GetScanAngle, GetScanRangeInMeters). */
+  coneState(): { angleDeg: number; rangeMetres: number; shown: boolean } {
+    const angleDeg = ANGLES[Number(this.angle.value)] ?? 90;
+    const au = Math.min(this.maxRangeAU(), Math.max(MIN_RANGE_M / AU, Number(this.rangeSlider.value) || this.maxRangeAU()));
+    return { angleDeg, rangeMetres: au * AU, shown: this.coneShown() };
+  }
   /** GetMaxRangeAU: the ship's maxDirectionalScanRange, else _MAX_RANGE_AU. */
   private maxRangeAU(): number {
     const metres = this.hooks.maxRangeMetres?.() ?? null;

@@ -528,6 +528,13 @@ export class SpaceView {
         return e ? `${this.actions.locationName?.(itemID) ?? this.nameOf(e)} ${distanceWords(this.distanceTo(e))}` : "";
       },
       primeNames: (itemIDs) => this.actions.primeLocations?.(itemIDs),
+      // the scan's shape: the d-scan window's angle and range, the way the space camera looks (GetScanDirection)
+      dscanCone: () => {
+        const state = this.dscan?.coneState() ?? null;
+        if (!state) return null;
+        const d = this.camera.getWorldDirection(new THREE.Vector3());
+        return { ...state, direction: { x: d.x, y: d.y, z: -d.z } };
+      },
     }, this.layer);
     this.layer.appendChild(this.systemMap.window.root);
     this.raiseOnClick(this.systemMap.window.root);
