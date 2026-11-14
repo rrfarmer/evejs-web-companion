@@ -3785,6 +3785,14 @@ export interface AppFlow {
    */
   agencyPirateStrongholds(filters: AgencySiteFilters): Promise<{ readonly all: number; readonly systems: readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null;
     readonly strongholds: readonly { readonly agencyContentID: number; readonly enemyOwnerID: number | null; readonly enemyFactionID: number | null; readonly titleTextID: number | null; readonly subtitleTextID: number | null }[] }[] } | null>;
+  /**
+   * The season the Agency's Seasons group stands for (SeasonsContentGroup: IsVisible / IsEnabled
+   * is_season_visible_in_agency, GetName get_navigation_season_title, GetBackgroundTexture
+   * get_navigation_card_picture_path): seasonManager.get_season_data_for_character (seasonService._fetch_season_data),
+   * asked once for the character - its title's message and navigation card picture. Null where it answers nothing (no
+   * season runs) or a list (a season to choose: its texts are the client's multiple-seasons FSD data, not read here).
+   */
+  agencySeason(): Promise<{ readonly titleID: number | null; readonly cardPicture: string | null } | null>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
@@ -20185,6 +20193,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return { ads, jumps, noRoute, nowTicks: BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n, ...fleetStanding() };
   }
+  let agencySeasonHeld: { readonly characterID: number | null; readonly season: ReturnType<AppFlow["agencySeason"]> } | null = null;
+  function agencySeason(): ReturnType<AppFlow["agencySeason"]> {
+    const characterID = store.station.get().online?.characterID ?? null;
+    if (agencySeasonHeld?.characterID === characterID) return agencySeasonHeld.season;
+    const season = (async () => {
+      const answer = await bridgeAsk("seasonManager", "get_season_data_for_character", []).catch(() => undefined);
+      const v = (answer && typeof answer === "object" && !Array.isArray(answer) && "result" in answer ? (answer as { result: unknown }).result : answer) as
+        { type?: unknown; args?: { type?: unknown; entries?: unknown } } | null | undefined;
+      // A season of the character's own is a util.KeyVal; nothing, or a list of seasons to choose, is none here.
+      if (!v || typeof v !== "object" || v.type !== "object" || !v.args || !Array.isArray(v.args.entries)) return null;
+      const fields = new Map((v.args.entries as unknown[]).filter(Array.isArray).map((e) => [String((e as unknown[])[0]), (e as unknown[])[1]]));
+      const num = (x: unknown): number | null => (typeof x === "number" ? x : x && typeof x === "object" && "value" in x && /^-?\d+$/.test(String((x as { value: unknown }).value)) ? Number((x as { value: unknown }).value) : null);
+      const picture = fields.get("navigation_card_picture_path");
+      return { titleID: num(fields.get("title")), cardPicture: typeof picture === "string" && picture ? picture : null };
+    })();
+    agencySeasonHeld = { characterID, season };
+    void season.then((s) => { if (s?.titleID) requestWords([`#${s.titleID}`]); });
+    return season;
+  }
   let corporationFactionsHeld: Readonly<Record<string, number>> | null = null;
   async function agencyPirateStrongholds(filters: AgencySiteFilters): Promise<Awaited<ReturnType<AppFlow["agencyPirateStrongholds"]>>> {
     const answer = await bridgeAsk("custom_agency_provider", "get_content_data", []).catch(() => undefined);
@@ -34252,6 +34279,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyCorpStandings,
     agencyFleetUp,
     agencyPirateStrongholds,
+    agencySeason,
     agencyAsteroidBelts,
     agencyTriglavianStandings,
     agencyFleetRegistration,

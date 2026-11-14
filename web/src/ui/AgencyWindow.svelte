@@ -90,7 +90,12 @@
   const SITE_PAGES: Record<number, SiteTrackerKind | "signature" | "escalation" | "belts"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature", [ESCALATIONS]: "escalation", [HOMEFRONT]: "homefront", [ASTEROID_BELTS]: "belts" };
   const groupID = $derived(history[at] ?? HOME);
   const itemID = $derived(items[at] ?? null);
-  const group = $derived(AGENCY_GROUPS[groupID] ?? AGENCY_GROUPS[HOME]!);
+  // SeasonsContentGroup's name and card are the season's (get_navigation_season_title, get_navigation_card_picture_path).
+  let season = $state<Awaited<ReturnType<AppFlow["agencySeason"]>>>(null);
+  $effect(() => { void flow.agencySeason().then((s) => { season = s; }); });
+  const groupOf = (id: number): AgencyGroup | undefined => (id === SEASONS && season && AGENCY_GROUPS[id]
+    ? { ...AGENCY_GROUPS[id]!, name: season.titleID ? `#${season.titleID}` : null, card: season.cardPicture } : AGENCY_GROUPS[id]);
+  const group = $derived(groupOf(groupID) ?? AGENCY_GROUPS[HOME]!);
   // IncursionContentGroup (contentGroupIncursion 50) is no group of the tree: its parent the Incursions group.
   const path = $derived(groupID === INCURSION ? [...agencyPath(INCURSIONS), INCURSION] : agencyPath(groupID));
   /** AgencyWndNew.OpenAndShowContentGroup / the history's append: forward steps dropped, the group added. */
@@ -102,7 +107,7 @@
     at = history.length - 1;
   }
   /** A crumb's name: the group's, or IncursionContentGroup.GetName (UI/Agency/IncursionIn, the constellation's). */
-  const crumbName = (id: number) => (id === INCURSION ? plainText(formatTemplate($words.templates["UI/Agency/IncursionIn"] ?? "", { constellationName: itemID ? resolvedName($names.resolved, "constellation", itemID, "") : "" } as never, { nameOf: () => "" })) : word(AGENCY_GROUPS[id]!.name));
+  const crumbName = (id: number) => (id === INCURSION ? plainText(formatTemplate($words.templates["UI/Agency/IncursionIn"] ?? "", { constellationName: itemID ? resolvedName($names.resolved, "constellation", itemID, "") : "" } as never, { nameOf: () => "" })) : word(groupOf(id)!.name));
   $effect(() => agencyRequests.subscribe((asked) => { if (asked) { serveAgencyRequest(asked.n); show(asked.contentGroupID); } }));
 
   const systemID = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
@@ -115,13 +120,13 @@
   const DISABLED_HINTS: Readonly<Record<number, string>> = { [PIRATE_STRONGHOLDS]: "UI/Agency/PirateStrongholdsDisabledHint" };
   const ownDisabled = (id: number) => id === PIRATE_STRONGHOLDS && strongholds === 0;
   const disabled = (g: AgencyGroup) => (!knownSpace && !AGENCY_WORMHOLE_GROUPS.includes(g.id)) || ownDisabled(g.id);
-  // IsVisible: the seasons group without a season (none in this build's data); HomefrontSitesContentGroup while its
+  // IsVisible: the seasons group while a season is the character's (is_season_visible_in_agency); HomefrontSitesContentGroup while its
   // provider has any site (GetAllDungeonInstances).
   let homefrontSites = $state(false);
   $effect(() => { void flow.agencyTrackerSites("homefront", DEFAULT_SITE_FILTERS).then((list) => { homefrontSites = !!list?.length; }); });
-  const visible = (id: number) => id !== SEASONS && (id !== HOMEFRONT || homefrontSites);
+  const visible = (id: number) => (id !== SEASONS || season !== null) && (id !== HOMEFRONT || homefrontSites);
   const tabs = $derived([HOME, ...AGENCY_TAB_ORDER.filter((id) => AGENCY_GROUPS[id]?.tab)]);
-  const children = $derived(group.children.filter(visible).map((id) => AGENCY_GROUPS[id]).filter((g): g is AgencyGroup => !!g));
+  const children = $derived(group.children.filter(visible).map((id) => groupOf(id)).filter((g): g is AgencyGroup => !!g));
 
   const word = (label: string | null) => (label ? plainText(formatTemplate($words.templates[label] ?? "", {} as never, { nameOf: () => "" })) : "");
   $effect(() => {
