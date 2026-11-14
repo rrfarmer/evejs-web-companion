@@ -11,9 +11,12 @@
   // opacity the view's, faded over 0.4 s (FadeIn / FadeOut).
   // `enter`, the view's coming in (Tr2DScaleTo from its scale, 0.5 s ANIM_SMOOTH; Tr2DRotateTo from its rotation; a
   // FadeIn of its own length): a CSS animation from those, the circle's end state its own.
-  // Not here: InnerCircles' ScaleUp / ScaleDown, the views fading under a hovered career node, the node hover glows.
+  // `fillIn`: the fill's FadeTo from 0 to its opacity (`fillOpacity`: the activity view's 0.25, the goal view's 0.5) over
+  // 1.5 s after 0.4 s, ANIM_OVERSHOT3 - uianimations' scalar curve: hermite keys with flat tangents at 0, at OVERSHOT_TIME
+  // 0.4 of the length the end plus GetOvershotAmount (index 2 * 0.2 + 0.1 = 0.5) of the change, and the end; each
+  // segment 3t^2 - 2t^3, which cubic-bezier(1/3, 0, 2/3, 1) draws exactly.
   import type { Snippet } from "svelte";
-  let { nodes, size, nodeSize, offset, completed, node, centre, inner, enter = null, ring = true, glow = true, ringOpacity = 0.8 }: {
+  let { nodes, size, nodeSize, offset, completed, node, centre, inner, enter = null, ring = true, glow = true, ringOpacity = 0.8, fillOpacity = 0.25, fillIn = false }: {
     nodes: readonly unknown[]; size: number; nodeSize: number; offset: number; completed: boolean;
     node: Snippet<[unknown, number]>; centre?: Snippet;
     /** `scaled`: InnerCircles.ScaleDown (to 2 and faded out over 0.5 s; ScaleUp back), under a hovered career node. */
@@ -23,6 +26,7 @@
     ring?: boolean; glow?: boolean;
     /** The ring's opacity (default_arc_opacity 0.8; the minimized activity view's 0.25, ActivityView.Minimize). */
     ringOpacity?: number;
+    fillOpacity?: number; fillIn?: boolean;
   } = $props();
   import { clientTexture } from "./skillGroupIcons.ts";
   const radius = $derived((size - nodeSize) / 2);
@@ -36,7 +40,7 @@
     const gap = Math.min(nodeSize, c / n), seg = Math.max(0, c / n - gap);
     return { seg, gap, start: radius * (offset + Math.PI / 2) - gap / 2 };
   });
-  const colour = $derived(completed ? "#6ab04c" : "#ffffff");
+  const colour = $derived(completed ? "#8dc169" : "#ffffff");
 </script>
 
 <div class="cc" class:entering={!!enter} style:width={`${size}px`} style:height={`${size}px`}
@@ -48,7 +52,7 @@
       class:scaled={inner.scaled} style:opacity={inner.scaled ? 0 : inner.opacity} style:mask-image={`url(${clientTexture(inner.mask)})`} style:-webkit-mask-image={`url(${clientTexture(inner.mask)})`}
       style:mask-size={`${100 / inner.scale}%`} style:-webkit-mask-size={`${100 / inner.scale}%`} />
   {/if}
-  {#if glow}<img class="cc-glow" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/circle_glow.png")} style:width={`${(size - nodeSize) * 1.33}px`} style:height={`${(size - nodeSize) * 1.33}px`} />{/if}
+  {#if glow}<img class="cc-glow" class:filling={fillIn} style:--fill={String(fillOpacity)} alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/circle_glow.png")} style:width={`${(size - nodeSize) * 1.33}px`} style:height={`${(size - nodeSize) * 1.33}px`} />{/if}
   {#if ring}<svg class="cc-ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
     <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={colour} stroke-opacity={ringOpacity} stroke-width="2"
       stroke-dasharray={`${dash.seg} ${dash.gap}`} stroke-dashoffset={-dash.gap / 2} transform={`rotate(${(offset * 180) / Math.PI} ${size / 2} ${size / 2})`} />
@@ -65,7 +69,9 @@
   .cc.entering { animation: cc-scale 0.5s ease-in-out, cc-fade var(--fade, 0s) ease-in-out; }
   @keyframes cc-scale { from { transform: scale(var(--from-scale)) rotate(var(--from-rotate)); } }
   @keyframes cc-fade { from { opacity: var(--from-opacity); } }
-  .cc-glow { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.25; pointer-events: none; }
+  .cc-glow { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: var(--fill); pointer-events: none; }
+  .cc-glow.filling { animation: cc-fill 1.5s cubic-bezier(0.333, 0, 0.667, 1) 0.4s backwards; }
+  @keyframes cc-fill { 0% { opacity: 0; } 40% { opacity: calc(var(--fill) * 1.5); } 100% { opacity: var(--fill); } }
   .cc-ring { position: absolute; inset: 0; pointer-events: none; }
   .cc-inner.scaled { transform: translate(-50%, -50%) scale(2); transition: opacity 0.5s, transform 0.5s ease-in-out; }
   .cc-inner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 0.4s, transform 0.5s ease-in-out;

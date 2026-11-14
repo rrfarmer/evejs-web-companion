@@ -82,6 +82,8 @@
   let careerID = $state<number | null>(null), activity = $state<string | null>(null), goalID = $state<string | null>(null);
   // CareerCircleView.OnCareerNodeHoverOn / Off: the inner circles to 0.4 while a career node is hovered, out after.
   let careerHover = $state(false);
+  // careerConst.HIGHLIGHTED_ACTIVITIES: each career's career agent missions (ActivityNode's highlight, while not done).
+  const HIGHLIGHTED_ACTIVITIES: ReadonlySet<string> = new Set(["CareerAgentMissions", "IndustrialistCareerAgentsMissions"]);
   // The views' coming in, by the view left (careerView._GoToCareerState from 0.6 and CIRCLE_ROTATION_BY_CAREER;
   // ActivityView.AnimateIn from 1.3 with a 1 s fade, Maximize from MINIMIZED_SCALE 0.65 out of the goals; GoalView.
   // AnimateIn from 1.4 with a 1 s fade). A positive rotation turns the circle anticlockwise on screen (the explorer's 45
@@ -273,10 +275,11 @@
              for those done) and, on hover, its name and ActivityProgressCount. -->
         <div class="cpw-layer cpw-front" class:dim={careerHover}>
         <CareerCircle nodes={activities} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activities.every((a) => a.goals.every((g) => g.completed))}
-          inner={{ mask: countMask(activities.length), scale: 0.91, opacity: 1, scaled: careerHover }} {enter}>
+          inner={{ mask: countMask(activities.length), scale: 0.91, opacity: 1, scaled: careerHover }} {enter} fillIn={!!enter}>
           {#snippet node(n: unknown)}
             {@const a = n as (typeof activities)[number]}
             <button type="button" class="cpw-row cpw-node cpw-activity" data-own-sound class:on={activity === a.key} class:done={a.goals.every((g) => g.completed)}
+              class:highlight={HIGHLIGHTED_ACTIVITIES.has(a.key) && !a.goals.every((g) => g.completed)}
               title={`${groupName(career, a.key)} - ${done(a.goals)} / ${a.goals.length}`} style:--done={`${(done(a.goals) / Math.max(1, a.goals.length)) * 360}deg`}
               onmouseenter={() => sound("career_portal_mission_hover_play")}
               onclick={() => { sound("career_portal_select_mission_play"); go("GOALS_VIEW", careerID, a.key, null); }}>
@@ -313,7 +316,7 @@
         <!-- GoalView: the activity's goals, each a dot (smallDot), goalCompleted where done, the open eye where tracked. -->
         <div class="cpw-layer cpw-front" class:dim={careerHover}>
         <CareerCircle nodes={activityGoals} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activityGoals.every((g) => g.completed)}
-          inner={{ mask: countMask(activityGoals.length), scale: 0.91, opacity: 1, scaled: careerHover }} {enter}>
+          inner={{ mask: countMask(activityGoals.length), scale: 0.91, opacity: 1, scaled: careerHover }} {enter} fillOpacity={0.5} fillIn={!!enter}>
           {#snippet node(n: unknown)}
             {@const g = n as CareerGoal}
             <button type="button" class="cpw-row cpw-node cpw-goalnode" data-own-sound class:on={goalID === g.goalID} class:done={g.completed}
@@ -452,21 +455,27 @@
   /* IconWithGauge.OnMouseEnter / Exit: the icon (OUTPUT_COLOR_AND_GLOW) to 1.4 and back over HOVER_ANIMATION_DURATION. */
   .cpw-career:hover img { filter: brightness(1.4); }
   .cpw-node { position: relative; width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; align-items: center; border-left: none;
-    background: radial-gradient(circle, rgb(0 0 0 / 0.85) 62%, transparent 64%), conic-gradient(#6ab04c var(--done, 0deg), rgb(255 255 255 / 0.35) 0); }
+    background: radial-gradient(circle, rgb(0 0 0 / 0.85) 62%, transparent 64%), conic-gradient(#8dc169 var(--done, 0deg), rgb(255 255 255 / 0.35) 0); }
   .cpw-node img { width: 32px; height: 32px; }
   /* ActivityNode's bgSprite (nodeBg.png): CRYO_BLUE, LEAFY_GREEN where done, 0 and HIGHLIGHT_BG_OPACITY 0.3 hovered. */
-  .cpw-activity::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; background: #6ac3ec;
+  .cpw-activity::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; background: #58a7bf;
     mask: url(/client-res/ui/texture/classes/careerportal/circleview/nodebg.png) center / 100% 100% no-repeat; }
-  .cpw-activity.done::before { background: #6ab04c; }
+  .cpw-activity.done::before { background: #8dc169; }
   .cpw-activity:hover::before { opacity: 0.3; }
   .cpw-activity img { position: relative; }
+  /* A highlighted activity (ActivityNode with highlight): its bgSprite AURA_PURPLE, and a VectorArc of radius
+     (48 + 16) / 2, lineWidth 2, AURA_PURPLE with glowBrightness 0.5, 1 hovered (SetHoverState / SetNormalState). */
+  .cpw-activity.highlight::before { background: #956bec; }
+  .cpw-activity.highlight::after { content: ""; position: absolute; inset: -9px; border-radius: 50%; border: 2px solid #956bec; pointer-events: none;
+    box-shadow: 0 0 4px rgb(149 107 236 / 0.5); }
+  .cpw-activity.highlight:hover::after { box-shadow: 0 0 8px rgb(149 107 236); }
   /* GoalNode's bgSprite (node_glow.png at the node's size): WHITE at DEFAULT_GLOW_OPACITY 0.8; CRYO_BLUE at
      HIGHLIGHT_GLOW_OPACITY 1 hovered or chosen; LEAFY_GREEN 0.8 where done (a done node's hover changes nothing). */
   .cpw-goalnode { background: none; }
   .cpw-goalnode::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.8; background: #fff;
     mask: url(/client-res/ui/texture/classes/careerportal/node_glow.png) center / 100% 100% no-repeat; }
-  .cpw-goalnode:hover::before, .cpw-goalnode.on::before { opacity: 1; background: #6ac3ec; }
-  .cpw-goalnode.done:not(.on)::before { opacity: 0.8; background: #6ab04c; }
+  .cpw-goalnode:hover::before, .cpw-goalnode.on::before { opacity: 1; background: #58a7bf; }
+  .cpw-goalnode.done:not(.on)::before { opacity: 0.8; background: #8dc169; }
   .cpw-goalnode img { position: relative; width: 20px; height: 20px; }
   .cpw-node.done img { filter: hue-rotate(60deg) saturate(2); }
   .cpw-node.on { box-shadow: 0 0 0 2px rgb(255 255 255 / 0.7); }
@@ -486,12 +495,12 @@
   .cpw-behind .cpw-chosen.arriving { animation: cpw-slide 0.5s ease-in-out; }
   @keyframes cpw-slide { from { transform: translate(var(--from-x), var(--from-y)) rotate(0deg) scale(1); } to { transform: rotate(var(--node-rotate)) scale(1.5); } }
   .cpw-minimized { transform: scale(0.65); pointer-events: none; transition: transform 0.5s ease-in-out; }
-  .cpw-asleep { display: flex; border-radius: 50%; background: rgb(127 127 127 / 0.6); transform: scale(0.35); transition: transform 0.4s, background 0.4s; }
-  .cpw-asleep.done { background: rgb(106 176 76 / 0.4); }
+  .cpw-asleep { display: flex; border-radius: 50%; background: rgb(138 138 138 / 0.6); transform: scale(0.35); transition: transform 0.4s, background 0.4s; }
+  .cpw-asleep.done { background: rgb(141 193 105 / 0.4); }
   .cpw-asleep img { opacity: 0; transition: opacity 0.4s; }
   .cpw-asleep.chosen, .cpw-asleep.peek { transform: none; background: rgb(0 0 0 / 0.5); }
-  .cpw-asleep.chosen { box-shadow: 0 0 0 2px #6ac3ec, 0 0 10px #6ac3ec; }
-  .cpw-asleep.chosen.done { box-shadow: 0 0 0 2px #6ab04c, 0 0 10px #6ab04c; }
+  .cpw-asleep.chosen { box-shadow: 0 0 0 2px #58a7bf, 0 0 10px #58a7bf; }
+  .cpw-asleep.chosen.done { box-shadow: 0 0 0 2px #8dc169, 0 0 10px #8dc169; }
   .cpw-asleep.chosen img, .cpw-asleep.peek img { opacity: 1; }
   .cpw-row { all: unset; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; background: rgb(0 0 0 / 0.3); border-left: 2px solid transparent; }
   .cpw-row:hover, .cpw-row.on { border-left-color: rgb(255 255 255 / 0.5); }
@@ -505,7 +514,7 @@
   .cpw-bottom { margin-top: 16px; }
   .cpw-bottom button { width: 100%; }
   .cpw-bottom button.primary { background: rgb(88 166 220 / 0.35); }
-  .cpw-completed { color: #6ab04c; font-weight: bold; }
+  .cpw-completed { color: #8dc169; font-weight: bold; }
   .cpw-rewards { width: 260px; flex: none; overflow: auto; padding: 12px; background: rgb(0 0 0 / 0.9); border-top: 1px solid rgb(88 166 220 / 0.6); }
   .cpw-rewards-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .cpw-rewards-head h3 { margin: 0; font-size: 16px; }
