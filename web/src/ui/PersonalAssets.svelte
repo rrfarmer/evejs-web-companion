@@ -33,6 +33,10 @@
   import { resolvedName } from "../store/names.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import AssetSafetyList from "./AssetSafetyList.svelte";
+  import LabelText from "./LabelText.svelte";
+  import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
   import { assetsSearchTarget } from "./assetsSearch.ts";
   import type { AssetSearchItem, AssetSearchLocation } from "../bridge/assetSearch.ts";
 
@@ -173,6 +177,56 @@
     nothingFound: "UI/Common/NothingFound",
   } as const;
   let tab = $state<"allitems" | "search">("allitems");
+  // assetsWindow.py's All Items list on the play page (LoadAssets / PopulateScroll / GetLocationData): the Sort By combo
+  // (SORT_BY_OPTIONS - Name, Number of Jumps, Number of Items; settings.char.ui assetsSortKey), then a locked
+  // LocationGroup per location labelled LocationDataLabel ("<sec> <location> - <n> Jumps - <n> items"; NoRoute where
+  // the autopilot has none), sorted by the key (name, jumps or the count first, then the others), each opening to the
+  // location's items (InvAssetItem rows under GetInvItemDefaultHeaders - here Name, Quantity and Volume); its menu the
+  // location's (GetMenuLocationMenu: the route entries).
+  const ASSET_WORDS = {
+    sortBy: "UI/Common/SortBy", name: "UI/Common/Name", jumps: "UI/Common/NumberOfJumps", items: "UI/Common/NumberOfItems",
+    label: "UI/Inventory/AssetsWindow/LocationDataLabel", noRoute: "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute",
+    quantity: "UI/Common/Quantity", volume: "UI/Inventory/ItemVolume", noAssets: "UI/Inventory/AssetsWindow/NoAssetsAtStation",
+    nothing: "UI/Common/NothingFound",
+  } as const;
+  const SORT_KEY = "evejs.play.assetsSortKey";
+  let assetsSortKey = $state((() => { try { const k = Number(localStorage.getItem(SORT_KEY)); return k === 1 || k === 2 ? k : 0; } catch { return 0; } })());
+  function setAssetsSort(key: number): void { assetsSortKey = key; try { localStorage.setItem(SORT_KEY, String(key)); } catch { /* not kept */ } }
+  const nameOfRef = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
+  const text = (label: string, args: Record<string, unknown> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf: nameOfRef });
+  const followerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), t);
+  /** solar_system_security_status: the rounded level in its colour. */
+  function secStatus(systemID: number): string {
+    const level = $names.systemSecurity[systemID];
+    if (level === undefined || level === null) return "";
+    const shown = shownSecurity(level), [r, g, b] = securityStatusRgb(level);
+    const hex = [r, g, b].map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
+    return `<color=0xff${hex}>${shown.toFixed(1)}</color>`;
+  }
+  function jumpsTo(row: AssetStationRow): number | null | undefined {
+    if (hereSystem === null) return undefined;
+    if (row.solarSystemID === hereSystem) return 0;
+    return $names.autopilotJumps[`${hereSystem}:${row.solarSystemID}`];
+  }
+  function locationLabel(row: AssetStationRow): string {
+    const jumps = jumpsTo(row);
+    const args = { location: row.stationID, itemCount: row.itemCount, jumps: jumps ?? 0, secStatus: secStatus(row.solarSystemID) };
+    return text(jumps === null ? ASSET_WORDS.noRoute : ASSET_WORDS.label, args);
+  }
+  const sortedStations = $derived.by(() => {
+    const rows = $assets.stations.map((row) => ({ row, name: stationName(row.stationID), jumps: jumpsTo(row) ?? Number.MAX_SAFE_INTEGER }));
+    const cmp = (a: number | string, b: number | string) => (a < b ? -1 : a > b ? 1 : 0);
+    // GetLocationData's sortVal: (name, items, jumps), (jumps, name, items) or (-items, name, jumps)
+    return rows.sort((a, b) => assetsSortKey === 1 ? cmp(a.jumps, b.jumps) || cmp(a.name, b.name) || cmp(a.row.itemCount, b.row.itemCount)
+      : assetsSortKey === 2 ? cmp(b.row.itemCount, a.row.itemCount) || cmp(a.name, b.name) || cmp(a.jumps, b.jumps)
+      : cmp(a.name, b.name) || cmp(a.row.itemCount, b.row.itemCount) || cmp(a.jumps, b.jumps));
+  });
+  $effect(() => {
+    if (!retail) return;
+    flow.requestWords([...Object.values(ASSET_WORDS), ...Object.keys(LINK_WORDS)]);
+    const systems = [...new Set($assets.stations.map((row) => row.solarSystemID).filter((id) => id > 0))];
+    if (systems.length > 0) flow.requestSystemSecurity(systems);
+  });
   // The Search tab (LoadSearch, Search_thread, _LoadSearch, GetSubContent): its text, and the stations of what matched.
   let searchText = $state("");
   let searching = $state(false);
@@ -305,6 +359,54 @@
       You have nothing stored anywhere right now. Anything you leave in a
       station hangar will show up here.
     </p>
+  {:else if retail}
+    <div class="as-filter">
+      <label>{plainText(text(ASSET_WORDS.sortBy)) || "Sort By"}
+        <select value={assetsSortKey} onchange={(e) => setAssetsSort(Number((e.currentTarget as HTMLSelectElement).value))}>
+          <option value={0}>{plainText(text(ASSET_WORDS.name)) || "Name"}</option>
+          <option value={1}>{plainText(text(ASSET_WORDS.jumps)) || "Number of Jumps"}</option>
+          <option value={2}>{plainText(text(ASSET_WORDS.items)) || "Number of Items"}</option>
+        </select>
+      </label>
+    </div>
+    <div class="as-scroll">
+      {#each sortedStations as { row } (row.stationID)}
+        <button type="button" class="as-group" aria-expanded={$assets.expandedStationID === row.stationID} onclick={() => toggle(row)}
+          oncontextmenu={(e) => { e.preventDefault(); menuFor = menuFor === row.stationID ? null : row.stationID; }}>
+          <span class="as-arrow">{$assets.expandedStationID === row.stationID ? "▾" : "▸"}</span><LabelText markup={locationLabel(row)} {followerOf} />
+        </button>
+        {#if menuFor === row.stationID}
+          <div class="as-menu" role="menu">
+            {#if destinationOffered(row.stationID)}<button type="button" role="menuitem" onclick={() => route(row, "destination")}>{word(ROUTE_WORDS.setDestination, "Set Destination")}</button>{/if}
+            {#if $waypoints.includes(row.stationID)}
+              <button type="button" role="menuitem" onclick={() => route(row, "remove")}>{word(ROUTE_WORDS.removeWaypoint, "Remove Waypoint")}</button>
+            {:else}
+              <button type="button" role="menuitem" onclick={() => route(row, "add")}>{word(ROUTE_WORDS.addWaypoint, "Add Waypoint")}</button>
+            {/if}
+          </div>
+        {/if}
+        {#if $assets.expandedStationID === row.stationID}
+          {#if openStation === null}
+            <p class="as-item as-note">…</p>
+          {:else if openStation.error}
+            <p class="as-item as-note">What's stored here could not be read just now.</p>
+          {:else if openStation.hasNoItems}
+            <p class="as-item as-note">{plainText(text(ASSET_WORDS.nothing)) || "Nothing found"}</p>
+          {:else}
+            <div class="as-item as-head"><span>{plainText(text(ASSET_WORDS.name)) || "Name"}</span><span class="num">{plainText(text(ASSET_WORDS.quantity)) || "Quantity"}</span><span class="num">{plainText(text(ASSET_WORDS.volume)) || "Volume"}</span></div>
+            {#each openStation.items as item (item.itemID)}
+              <div class="as-item">
+                <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
+                <span class="num">{formatUnits(item.units)}</span>
+                <span class="num">{formatAssetVolume(item.volume === null ? null : item.volume * item.units)}</span>
+              </div>
+            {/each}
+          {/if}
+        {/if}
+      {:else}
+        <p class="as-note">{plainText(text(ASSET_WORDS.noAssets))}</p>
+      {/each}
+    </div>
   {:else}
     <p class="note">
       Your things are spread across {stationCount === 1

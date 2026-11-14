@@ -1603,6 +1603,24 @@
   .fly-windows :global(.loc-tabs button.active), .fly-windows :global(.as-retail > .asset-tabs button[aria-selected="true"]) { color: #fff; border-bottom-color: rgba(255, 255, 255, 0.85); }
   .fly-windows :global(.as-retail) { display: flex; flex-direction: column; }
   .fly-windows :global(.as-retail > .asset-tabs) { order: -1; }
+  /* assetsWindow.py's filter row (Combo height, Sort By on the right, 115 wide) and its scroll of LocationGroups */
+  .fly-windows :global(.as-retail > .panel-head), .fly-windows :global(.as-retail > p.note) { display: none; }
+  .fly-windows :global(.as-filter) { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+  .fly-windows :global(.as-filter label) { display: flex; flex-direction: column; font-size: 10px; color: rgba(255, 255, 255, 0.6); width: 115px; }
+  .fly-windows :global(.as-scroll) { flex: 1; min-height: 0; overflow: auto; }
+  .fly-windows :global(.as-group) { all: unset; cursor: pointer; display: flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06); width: calc(100% - 8px); font-size: 12px; }
+  .fly-windows :global(.as-group:hover) { background: rgba(255, 255, 255, 0.06); }
+  .fly-windows :global(.as-arrow) { width: 10px; opacity: 0.7; }
+  .fly-windows :global(.as-item) { display: grid; grid-template-columns: 1fr 90px 100px; gap: 6px; align-items: center; min-height: 22px;
+    padding: 0 4px 0 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.03); font-size: 12px; margin: 0; }
+  .fly-windows :global(.as-item.as-head) { font-size: 10px; color: rgba(255, 255, 255, 0.6); min-height: 18px; }
+  .fly-windows :global(.as-item .num) { text-align: right; }
+  .fly-windows :global(.as-note) { opacity: 0.7; }
+  .fly-windows :global(.as-menu) { display: flex; flex-direction: column; margin-left: 24px; width: max-content; background: rgba(12, 14, 16, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.15); }
+  .fly-windows :global(.as-menu button) { all: unset; cursor: pointer; padding: 3px 10px; font-size: 12px; }
+  .fly-windows :global(.as-menu button:hover) { background: rgba(255, 255, 255, 0.1); }
   .fly-windows :global(.as-retail.as-safety > :not(.asset-tabs, .as-safety-note)) { display: none; }
   /* LoggerWindow: its scroll - Time, Type, Message - and no Clear (the client's actions are its filter and settings menus) */
   .fly-windows :global(.notice-log .panel-head) { display: none; }
