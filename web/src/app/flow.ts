@@ -3573,7 +3573,8 @@ export interface AppFlow {
    * of that corporation still active (_is_relevant); null where the read failed (NoCorporationJobsContainer's failure). */
   corporationFreelanceJobs(corporationID: number): Promise<readonly FreelanceJob[] | null>;
   /** The job board's daily goals (dailygoals.client DailyGoalsController): GetAllCurrentRequest's goals, each marked
-   * claimable where GetAllWithRewardsRequest lists it (has_unclaimed_rewards); null where the read failed. */
+   * claimable as goal.has_unclaimed_rewards has it (rewards, earnings and completed) or where GetAllWithRewardsRequest
+   * lists it; null where the read failed. */
   dailyGoals(): Promise<readonly DailyGoal[] | null>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
@@ -19645,7 +19646,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         helpTextID: int(record(a.help_text_message).sequential) || null, category: String(a.category ?? "CATEGORY_UNSPECIFIED"),
         method: Object.keys(record(a.contribution_configuration))[0] ?? null, careerPath: CAREERS[String(a.career ?? "")] ?? null, rewards,
         target: int(a.target), current: int(g.current_progress), activeUntilMs: until.seconds !== undefined ? int(until.seconds) * 1000 : null,
-        omega: a.omega === true, paidCompletion: g.paid_completion === true, claimable: claimable.has(id),
+        omega: a.omega === true, paidCompletion: g.paid_completion === true,
+        // goal.has_unclaimed_rewards: rewards, earnings and completed; or one GetAllWithRewardsRequest lists.
+        claimable: claimable.has(id) || (rewards.length > 0 && Array.isArray(g.earnings) && g.earnings.length > 0 && ((int(a.target) > 0 && int(g.current_progress) >= int(a.target)) || g.paid_completion === true)),
       };
     });
     const names = out.flatMap((g) => g.rewards.flatMap((r) => (r.kind === "lp" && r.corporationID ? [{ kind: "owner" as const, id: r.corporationID }] : [])));
