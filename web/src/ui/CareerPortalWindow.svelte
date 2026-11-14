@@ -32,10 +32,10 @@
   // activity's goals' distinct videos (AgencyHelpVideosFSDLoader by videoID; NoVideosAvailable where none has one),
   // and the freelance jobs. A goal chosen: the goal's panel and AuraGoalPanel - the Aura icon and
   // AuraAssistancePanelTitle, the goal's aura text, its video's button, its agency link (agencyLinkTextID, to
-  // agencyScreen's content group: here the Agency window), and the freelance jobs.
+  // agencyScreen's content group, AGENCY_SECTION_NAMES_TO_IDS, the home group where it has none), and the freelance jobs.
   // AuraAssistanceOpenSkillPlanButton: OpenSkillPlanWindow(careerID) - the skills window's certified plans of the career.
   // Not here (later parts): the circle view's drawing and animation, the help videos themselves (no goal of this build
-  // has a videoID), the agency's content groups, the fanfare, the background, sounds.
+  // has a videoID), the fanfare, the background, sounds.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CareerGoal } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -45,7 +45,9 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import { openJobBoard } from "./jobBoardRequests.ts";
   import { showCertifiedPlans } from "./skillPlanCareerRequests.ts";
-  let { store, flow, onOpenAgency }: { store: ClientStore; flow: AppFlow; onOpenAgency?: () => void } = $props();
+  import { openAgencyGroup } from "./agencyRequests.ts";
+  import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
+  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -292,7 +294,7 @@
       <aside class="cpw-goal cpw-aura">
         <div class="cpw-title"><img alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_icon_32x32.png")} /><h3>{word(C + "AuraAssistancePanelTitle")}</h3></div>
         {#if Number(goal.annotations.auraTextID)}<p class="cpw-aura-text">{word(`#${goal.annotations.auraTextID}`)}</p>{/if}
-        {#if Number(goal.annotations.agencyLinkTextID)}<button type="button" class="cpw-ghost" onclick={() => onOpenAgency?.()}>{word(`#${goal.annotations.agencyLinkTextID}`)}</button>{/if}
+        {#if Number(goal.annotations.agencyLinkTextID)}<button type="button" class="cpw-ghost" onclick={() => openAgencyGroup(AGENCY_SCREEN_GROUPS[goal.annotations.agencyScreen ?? ""] ?? 1)}>{word(`#${goal.annotations.agencyLinkTextID}`)}</button>{/if}
         <hr />{@render freelance(true)}
       </aside>
       </div>

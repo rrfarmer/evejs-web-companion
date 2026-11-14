@@ -31,6 +31,7 @@
   import { showInfoRequests } from "./showInfo.ts";
   import { jobBoardRequests } from "./jobBoardRequests.ts";
   import { careerPortalRequests } from "./careerPortalRequests.ts";
+  import { agencyRequests } from "./agencyRequests.ts";
   import { skillPlanCareerRequests } from "./skillPlanCareerRequests.ts";
   import { locationSearchRequests } from "./locationSearchRequests.ts";
   import { notify } from "./notices.ts";
@@ -282,6 +283,7 @@
   // The route panel's search (GetResultsInNewWindow): the search results window, which takes the request.
   $effect(() => locationSearchRequests.subscribe((request) => { if (request) open("locationSearch"); }));
   $effect(() => careerPortalRequests.subscribe((n) => { if (n) open("careerPortal"); }));
+  $effect(() => agencyRequests.subscribe((request) => { if (request) open("finder"); }));
   $effect(() => skillPlanCareerRequests.subscribe((request) => { if (request) open("skills"); }));
 
   // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with

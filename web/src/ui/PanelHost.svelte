@@ -19,7 +19,7 @@
   import Contracts from "./Contracts.svelte";
   import PersonalAssets from "./PersonalAssets.svelte";
   import AgentsMissions from "./AgentsMissions.svelte";
-  import AgentFinder from "./AgentFinder.svelte";
+  import AgencyWindow from "./AgencyWindow.svelte";
   import JobBoardWindow from "./JobBoardWindow.svelte";
   import CareerPortalWindow from "./CareerPortalWindow.svelte";
   import PaintToolWindow from "./PaintToolWindow.svelte";
@@ -163,13 +163,13 @@
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
 {:else if tab === "careerPortal"}
-  <CareerPortalWindow {store} {flow} onOpenAgency={() => onOpen?.("finder")} />
+  <CareerPortalWindow {store} {flow} />
 {:else if tab === "locationSearch"}
   <LocationSearchWindow {store} {flow} />
 {:else if tab === "jobBoard"}
   <JobBoardWindow {store} {flow} openCorporation={() => onOpen?.("corporation")} showAgents={() => onOpen?.("agents")} />
 {:else if tab === "finder"}
-  <AgentFinder {store} {flow} showTravel={() => onOpen?.("travel")} />
+  <AgencyWindow {store} {flow} showTravel={() => onOpen?.("travel")} />
 {:else if tab === "flight"}
   <Flight {store} {flow} />
 {:else if tab === "mining"}
