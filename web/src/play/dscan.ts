@@ -11,7 +11,12 @@ import { bracketIcon } from "./brackets.ts";
 const AU = 149_597_870_700;
 /** The angles the client's scanner offers, in degrees. */
 const ANGLES = [5, 15, 30, 60, 90, 180, 360] as const;
+// directionalScanUtil: MIN_RANGE_KM 10; the most GetMaxRangeM - the ship's maxDirectionalScanRange (5796, in metres;
+// a ship's 2147483647000, the range a retail 360 degree scan sends), _MAX_RANGE_AU 14.3 where it cannot be read;
+// GetScanAngle's default pi / 2 (90 degrees).
 const MAX_RANGE_AU = 14.3;
+const MIN_RANGE_M = 10_000;
+const DEFAULT_ANGLE_INDEX = ANGLES.indexOf(90);
 
 export interface DScanRow { id: number; typeID: number; groupID: number }
 
@@ -47,6 +52,8 @@ export interface DScanHooks {
   groupName(groupID: number): string | null;
   /** The active overview preset (GetActiveOverviewPresetName): its name and groups; null until the presets are read. */
   activePreset?(): { readonly name: string; readonly groups: ReadonlySet<number> } | null;
+  /** The ship's maxDirectionalScanRange in metres (GetMaxRangeM); null where it is not read. */
+  maxRangeMetres?(): number | null;
   /** The presets the filter box offers (GetPresetOptions' defaults, by category); empty until read. */
   presets?(): readonly { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number> }[];
   /** The install's words for a label, filled; null where they are not had (the window keeps its own). */
@@ -107,10 +114,10 @@ export class DScanWindow {
       <div class="ov-scroll dscan-scroll"><table class="ov-table"><thead><tr><th class="ov-icon"></th><th>${w("UI/Common/Name", "Name")}</th><th>${w("UI/Common/Type", "Type")}</th><th class="ov-dist">${w("UI/Common/Distance", "Distance")}</th></tr></thead><tbody></tbody></table></div>
       <div class="dscan-status"></div>
       <div class="dscan-bottom">
-        <div class="dscan-half"><div class="dscan-top"><span>${w("UI/Inflight/Scanner/Range", "Range")}</span><input class="dscan-range" type="number" min="0.1" step="0.1" value="${MAX_RANGE_AU}"><button type="button" class="dscan-unit"></button></div>
-          <input class="dscan-range-slider" type="range" min="0" max="${MAX_RANGE_AU}" step="0.1" value="${MAX_RANGE_AU}"></div>
+        <div class="dscan-half"><div class="dscan-top"><span>${w("UI/Inflight/Scanner/Range", "Range")}</span><input class="dscan-range" type="number" min="${MIN_RANGE_M / AU}" step="0.1" value="${MAX_RANGE_AU}"><button type="button" class="dscan-unit"></button></div>
+          <input class="dscan-range-slider" type="range" min="${MIN_RANGE_M / AU}" max="${MAX_RANGE_AU}" step="any" value="${MAX_RANGE_AU}"></div>
         <div class="dscan-half"><div class="dscan-top"><span class="dscan-angle-label"></span></div>
-          <input class="dscan-angle" type="range" min="0" max="${ANGLES.length - 1}" step="1" value="${ANGLES.length - 1}"></div>
+          <input class="dscan-angle" type="range" min="0" max="${ANGLES.length - 1}" step="1" value="${DEFAULT_ANGLE_INDEX}"></div>
         <button type="button" class="dscan-go">${w("UI/Inflight/Scanner/Scan", "Scan")}</button>
       </div>`;
     this.angle = this.window.body.querySelector(".dscan-angle")!;
@@ -127,9 +134,11 @@ export class DScanWindow {
     const showUnit = () => {
       this.unit.textContent = this.inKm ? w("UI/Inflight/Scanner/UnitKm", "km") : w("UI/Inflight/Scanner/UnitAU", "AU");
       const au = Number(this.rangeSlider.value);
-      this.range.value = this.inKm ? String(Math.round(au * AU / 1000)) : String(au);
+      // UpdateRangeInput: AU to one decimal place, km whole
+      this.range.value = this.inKm ? String(Math.round(au * AU / 1000)) : au.toFixed(1);
       this.range.step = this.inKm ? "1" : "0.1";
     };
+    this.showUnit = showUnit;
     showAngle();
     showUnit();
     this.angle.addEventListener("input", showAngle);
@@ -137,7 +146,8 @@ export class DScanWindow {
     this.range.addEventListener("change", () => {
       const n = Number(this.range.value) || 0;
       const au = this.inKm ? n * 1000 / AU : n;
-      this.rangeSlider.value = String(Math.min(MAX_RANGE_AU, Math.max(0.1, au)));
+      // SetScanRange: min(GetMaxRangeKM(), max(MIN_RANGE_KM, the value))
+      this.rangeSlider.value = String(Math.min(this.maxRangeAU(), Math.max(MIN_RANGE_M / AU, au)));
       showUnit();
     });
     this.unit.addEventListener("click", () => { this.inKm = !this.inKm; showUnit(); });
@@ -154,6 +164,20 @@ export class DScanWindow {
     this.window.root.style.display = "none";
   }
 
+  private showUnit: () => void = () => {};
+  /** GetMaxRangeAU: the ship's maxDirectionalScanRange, else _MAX_RANGE_AU. */
+  private maxRangeAU(): number {
+    const metres = this.hooks.maxRangeMetres?.() ?? null;
+    return metres !== null && metres > 0 ? metres / AU : MAX_RANGE_AU;
+  }
+  /** UpdateMaxValue: the slider's top at the ship's range, the range kept within it; a range at the old top follows it. */
+  private updateMaxValue(): void {
+    const max = this.maxRangeAU();
+    const atTop = Number(this.rangeSlider.value) >= Number(this.rangeSlider.max) - 1e-9;
+    this.rangeSlider.max = String(max);
+    if (atTop || Number(this.rangeSlider.value) > max) this.rangeSlider.value = String(max);
+    this.showUnit();
+  }
   private filterList: HTMLDivElement | null = null;
   private chosenPreset(): string | null { try { return localStorage.getItem(PRESET_KEY); } catch { return null; } }
   private showFilters(): void {
@@ -188,13 +212,19 @@ export class DScanWindow {
   open(): void {
     if (this.detached) { this.host.appendChild(this.window.root); this.detached = false; }
     this.window.root.style.display = "";
+    this.updateMaxValue();
   }
 
   async scan(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     const angle = ((ANGLES[Number(this.angle.value)] ?? 360) * Math.PI) / 180;
-    const range = Math.min(MAX_RANGE_AU, Math.max(0.1, Number(this.rangeSlider.value) || MAX_RANGE_AU)) * AU;
+    this.updateMaxValue();
+    // GetScanRangeInMeters: the range in whole metres (the client keeps km, the wire metres)
+    const chosenAU = Number(this.rangeSlider.value) || this.maxRangeAU();
+    const range = chosenAU >= this.maxRangeAU() - 1e-9
+      ? Math.round(this.hooks.maxRangeMetres?.() ?? MAX_RANGE_AU * AU)
+      : Math.round(Math.max(MIN_RANGE_M / AU, chosenAU) * AU);
     this.status.textContent = "Scanning…";
     try {
       this.rows = dscanRows(await this.hooks.scan(angle, range, this.hooks.direction()));

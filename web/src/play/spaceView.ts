@@ -110,6 +110,8 @@ export interface SpaceActions {
   coneScan?(angle: number, range: number, x: number, y: number, z: number): Promise<unknown>;
   /** The install's words for a label, filled with its arguments; null where they are not had yet. */
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
+  /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
+  shipAttribute?(attributeID: number): number | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
   openCargo?(itemID: number): Promise<void>;
 }
@@ -524,6 +526,7 @@ export class SpaceView {
         word: (label, args) => this.actions.word?.(label, args) ?? null,
         activePreset: () => this.overview?.activePreset() ?? null,
         presets: () => this.overview?.presetList() ?? [],
+        maxRangeMetres: () => this.actions.shipAttribute?.(5796) ?? null,
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);

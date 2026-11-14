@@ -632,6 +632,10 @@
       },
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
+      shipAttribute: (attributeID) => {
+        const value = s.store.fitting.get().shipAttributes?.[attributeID];
+        return typeof value === "number" && Number.isFinite(value) ? value : null;
+      },
       word: (label, args) => {
         const t = s.store.words.get().templates[label];
         return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args ?? {}, { nameOf: () => "" })) : null;
