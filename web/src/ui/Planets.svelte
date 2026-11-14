@@ -27,7 +27,7 @@
   // server actually stated — never from a null. A colony with nothing to say
   // gets no line, and that silence is the part a player has to be able to
   // trust: it is what lets them close the tab.
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import {
     attentionByColony,
     attentionSummaryWords,
@@ -49,7 +49,12 @@
   import type { Colony, ColonyPin } from "../store/types.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import PlanetLaunches from "./PlanetLaunches.svelte";
-  import { plainText } from "../bridge/clientWords.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { resolvedName } from "../store/names.ts";
+  import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
+  import { romanLevel } from "../bridge/skills.ts";
+  import LabelText from "./LabelText.svelte";
+  import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
 
@@ -193,6 +198,44 @@
     }
   }
 
+  // planet/planetsWindow/coloniesPanel.py ColoniesPanel on the play page: a ColonyEntry per colony (120 high; the
+  // planet's icon in a column as wide; a caption bar "<sec> <planet> - <type> - N installations"; No Industrial
+  // Activity where it has none), then ColonyEntryEmpty for the slots up to MAX_NUM_COLONIES 6 - an open one
+  // (slotUnlocked.png 98) under Interplanetary Consolidation's level + 1 with RequiresCommandCenter (the Barren Command
+  // Center's market group, 1322), the rest locked (slotLocked.png 68 on the hatch) with RequiresSkillLevelX - each
+  // captioned Unestablished Colony; at the bottom View / Warp To / Access, enabled by a colony chosen.
+  const retail = getContext("retailChrome") === true;
+  const MAX_NUM_COLONIES = 6;
+  const INTERPLANETARY_CONSOLIDATION = 2495;
+  const COMMAND_CENTER_MARKET_GROUP = 1322;
+  const PI_WORDS = ["UI/PI/Common/UnestablishedColony", "UI/PI/Common/RequiresCommandCenter", "UI/PI/Common/RequiresSkillLevelX", "UI/PI/Common/NumInstallations",
+    "UI/PI/Common/NoIndustrialActivity", "UI/Common/View", "UI/PI/Common/ViewInPlanetMode", "UI/Commands/WarpTo", "UI/PI/Common/Access", "UI/PI/Common/AccessCustomOffice"];
+  // svelte-ignore state_referenced_locally
+  const piWords = store.words;
+  // svelte-ignore state_referenced_locally
+  const piNames = store.names;
+  // svelte-ignore state_referenced_locally
+  const piSkills = store.skills;
+  const piText = (label: string, args: Record<string, unknown> = {}) =>
+    formatTemplate($piWords.templates[label] ?? "", args as never, { nameOf: (k, id) => resolvedName($piNames.resolved, k, id, "") });
+  const piFollowerOf = (url: string, t: string) => linkFollowerOf(url, flow, null, (label) => plainText($piWords.templates[label] ?? LINK_WORDS[label] ?? ""), t);
+  const slotsTotal = $derived((($piSkills.skills ?? []).find((s) => s.typeID === INTERPLANETARY_CONSOLIDATION)?.level ?? 0) + 1);
+  let chosenColony = $state<number | null>(null);
+  function colonySecurity(systemID: number): string {
+    const level = $piNames.systemSecurity[systemID];
+    if (level === undefined || level === null) return "";
+    const shown = shownSecurity(level), [r, g, b] = securityStatusRgb(level);
+    return `<color=0xff${[r, g, b].map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("")}>${shown.toFixed(1)}</color>`;
+  }
+  $effect(() => {
+    if (!retail) return;
+    flow.requestWords([...PI_WORDS, ...Object.keys(LINK_WORDS)]);
+    flow.requestNames([{ kind: "type", id: INTERPLANETARY_CONSOLIDATION }]);
+    const systems = [...new Set(colonies.map((c) => c.solarSystemID))];
+    if (systems.length > 0) flow.requestSystemSecurity(systems);
+    if ($piSkills.skills === null) void flow.loadSkills().catch(() => {});
+  });
+
   onMount(() => {
     void run(() => flow.loadPlanets());
     void flow.loadPlanetLaunches().catch(() => undefined);
@@ -203,7 +246,7 @@
   });
 </script>
 
-<section class="panel">
+<section class="panel" class:pl-retail={retail}>
   <header class="panel-head">
     <h2 class="panel-title">Planets</h2>
     <p class="controls">
@@ -231,6 +274,39 @@
 
   {#if shownTab === "launches"}
     <PlanetLaunches {store} {flow} {nowMs} />
+  {:else if retail && $planets.loaded && !$planets.error}
+    <div class="pc">
+      <div class="pc-scroll">
+        {#each colonies as colony (colony.planetID)}
+          <button type="button" class="pc-entry" class:pc-selected={chosenColony === colony.planetID} onclick={() => (chosenColony = colony.planetID)}>
+            <span class="pc-icon"><TypeIcon typeID={colony.planetTypeID} name={colony.planetTypeName ?? ""} size="lg" /></span>
+            <span class="pc-body">
+              <span class="pc-caption"><LabelText markup={`${colonySecurity(colony.solarSystemID)} ${colony.planetName ?? ""} - ${colony.planetTypeName ?? ""} - ${plainText(piText("UI/PI/Common/NumInstallations", { numInstallations: colony.pins.length }))}`} followerOf={piFollowerOf} /></span>
+              {#if colony.pins.length === 0}<span class="pc-text">{plainText(piText("UI/PI/Common/NoIndustrialActivity"))}</span>{/if}
+            </span>
+          </button>
+        {/each}
+        {#each Array.from({ length: Math.max(0, MAX_NUM_COLONIES - colonies.length) }, (_, i) => colonies.length + i) as slot (slot)}
+          {@const locked = slot >= slotsTotal}
+          <div class="pc-entry pc-empty">
+            <span class="pc-icon" class:pc-locked={locked}><img alt="" class:pc-slot-locked={locked}
+              src={locked ? "/client-res/ui/texture/planet/planetswnd/slotlocked.png" : "/client-res/ui/texture/planet/planetswnd/slotunlocked.png"} /></span>
+            <span class="pc-body">
+              <span class="pc-caption">{plainText(piText("UI/PI/Common/UnestablishedColony"))}</span>
+              <span class="pc-text"><LabelText followerOf={piFollowerOf} markup={locked
+                ? piText("UI/PI/Common/RequiresSkillLevelX", { typeID: INTERPLANETARY_CONSOLIDATION, skillLevel: romanLevel(slot) })
+                : piText("UI/PI/Common/RequiresCommandCenter", { marketGroupID: COMMAND_CENTER_MARKET_GROUP })} /></span>
+            </span>
+          </div>
+        {/each}
+      </div>
+      <!-- the ButtonGroup: View, Warp To, Access - disabled until a colony is chosen (Warp To and Access here stay so) -->
+      <div class="pc-buttons">
+        <button type="button" disabled={chosenColony === null} title={plainText(piText("UI/PI/Common/ViewInPlanetMode"))}>{plainText(piText("UI/Common/View")) || "View"}</button>
+        <button type="button" disabled>{plainText(piText("UI/Commands/WarpTo")) || "Warp To"}</button>
+        <button type="button" disabled title={plainText(piText("UI/PI/Common/AccessCustomOffice"))}>{plainText(piText("UI/PI/Common/Access")) || "Access"}</button>
+      </div>
+    </div>
   {:else if !$planets.loaded}
     <p class="note">Looking for your colonies…</p>
   {:else if $planets.error}

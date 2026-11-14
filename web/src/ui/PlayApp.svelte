@@ -1629,6 +1629,23 @@
   .fly-windows :global(.as-menu button) { all: unset; cursor: pointer; padding: 3px 10px; font-size: 12px; }
   .fly-windows :global(.as-menu button:hover) { background: rgba(255, 255, 255, 0.1); }
   .fly-windows :global(.as-retail.as-safety > :not(.asset-tabs, .as-safety-note)) { display: none; }
+  /* planetWindow.py ColoniesPanel: its entries (120 high, the icon column as wide, the caption bar on the highlight
+     colour, 8 in) and the bottom ButtonGroup */
+  .fly-windows :global(.pl-retail > .panel-head) { display: none; }
+  .fly-windows :global(.pl-retail) { height: 100%; display: flex; flex-direction: column; }
+  .fly-windows :global(.pc) { flex: 1; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .fly-windows :global(.pc-scroll) { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+  .fly-windows :global(.pc-entry) { all: unset; display: flex; height: 120px; min-height: 120px; background: rgba(255, 255, 255, 0.05); box-sizing: border-box; }
+  .fly-windows :global(button.pc-entry) { cursor: pointer; }
+  .fly-windows :global(.pc-entry:hover), .fly-windows :global(.pc-entry.pc-selected) { background: rgba(255, 255, 255, 0.1); }
+  .fly-windows :global(.pc-icon) { width: 116px; margin: 2px 2px 3px; display: grid; place-items: center; flex: none; }
+  .fly-windows :global(.pc-icon img) { width: 98px; height: 98px; }
+  .fly-windows :global(.pc-icon img.pc-slot-locked) { width: 68px; height: 68px; }
+  .fly-windows :global(.pc-icon.pc-locked) { background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.06) 0 4px, transparent 4px 8px); }
+  .fly-windows :global(.pc-body) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .fly-windows :global(.pc-caption) { margin: 2px 0; padding: 4px 8px; background: rgba(255, 255, 255, 0.08); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fly-windows :global(.pc-text) { padding: 6px 8px 0; font-size: 12px; color: rgba(255, 255, 255, 0.75); }
+  .fly-windows :global(.pc-buttons) { display: flex; justify-content: center; gap: 8px; padding-top: 8px; }
   /* LoggerWindow: its scroll - Time, Type, Message - and no Clear (the client's actions are its filter and settings menus) */
   .fly-windows :global(.notice-log .panel-head) { display: none; }
   .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 12px; }
