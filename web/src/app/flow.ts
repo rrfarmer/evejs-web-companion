@@ -393,7 +393,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
-import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent } from "../bridge/agencyAgents.ts";
+import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
@@ -3681,6 +3681,12 @@ export interface AppFlow {
    * its division's name and description messages and its recommended plan's name message.
    */
   agencyCareerAgents(): Promise<readonly AgencyCareerAgent[] | null>;
+  /**
+   * The Agency's Storyline Agents (ContentProviderStorylineAgents): the agents of the journal's missions
+   * (journal.GetActiveMissions, agentMgr.GetMyJournalDetails) whose agent type is a storyline one, each with its
+   * mission's state and expiry. Null where the journal or the agents table cannot be read.
+   */
+  agencyStorylineAgents(): Promise<readonly AgencyStorylineAgent[] | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19909,6 +19915,35 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  async function agencyStorylineAgents(): Promise<readonly AgencyStorylineAgent[] | null> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [table, places, jumps] = await Promise.all([
+      agentsKnown().catch(() => null),
+      agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadJournal().catch(() => undefined),
+    ]);
+    agentPlacesHeld ??= places;
+    const journal = store.agents.get().journal;
+    if (table === null || places === null || journal === null) return null;
+    const byID = new Map(table.map((row) => [row.agentID, row]));
+    const picked: AgencyStorylineAgent[] = [];
+    for (const mission of [...journal.active, ...journal.offered]) {
+      const row = mission.agentID !== null ? byID.get(mission.agentID) : undefined;
+      // CheckAgentTypeIDCriteria: agentTypeStorylineMissionAgent 7, agentTypeGenericStorylineMissionAgent 6.
+      if (!row || (row.agentTypeID !== 6 && row.agentTypeID !== 7)) continue;
+      const place = row.stationID !== null ? places.stations[String(row.stationID)] : undefined;
+      if (!place) continue;
+      const corporationID = row.corporationID ?? place[1];
+      picked.push({ agentID: row.agentID, agentTypeID: row.agentTypeID, divisionID: row.divisionID, level: row.level ?? 0, stationID: row.stationID, corporationID,
+        factionID: corporationID !== null ? places.factions[String(corporationID)] ?? null : null, solarSystemID: place[0],
+        jumps: place[0] === here ? 0 : jumps?.get(place[0]) ?? null, missionState: mission.missionState, expirationTime: mission.expirationTime });
+    }
+    requestNames(picked.flatMap((a) => [{ kind: "agent" as const, id: a.agentID }, { kind: "system" as const, id: a.solarSystemID },
+      ...(a.corporationID ? [{ kind: "owner" as const, id: a.corporationID }] : [])]));
+    requestSystemSecurity(picked.map((a) => a.solarSystemID));
+    return picked;
+  }
   async function agencyAgentOwners(): Promise<{ factions: { id: number; standing: number }[]; corporations: Record<number, { id: number; standing: number }[]> } | null> {
     const [places] = await Promise.all([
       agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
@@ -33648,6 +33683,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyAgents,
     agencyAgentOwners,
     agencyCareerAgents,
+    agencyStorylineAgents,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,

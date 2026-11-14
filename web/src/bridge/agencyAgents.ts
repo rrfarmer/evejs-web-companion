@@ -159,6 +159,13 @@ export function suggestedCareerAgents(
   return nearest === null ? [] : agents.filter((a) => a.solarSystemID === nearest.solarSystemID).sort((a, b) => place(a) - place(b));
 }
 
+/** A storyline agent of the journal's, with its mission's state and expiry (a FILETIME as a decimal string). */
+export interface AgencyStorylineAgent {
+  readonly agentID: number; readonly agentTypeID: number | null; readonly divisionID: number | null; readonly level: number;
+  readonly stationID: number | null; readonly corporationID: number | null; readonly factionID: number | null;
+  readonly solarSystemID: number; readonly jumps: number | null; readonly missionState: number | null; readonly expirationTime: string | null;
+}
+
 /** Python's comparison of two lists of numbers. */
 function compareLists(a: readonly number[], b: readonly number[]): number {
   for (let i = 0; i < Math.min(a.length, b.length); i += 1) if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1;
