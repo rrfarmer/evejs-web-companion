@@ -37,6 +37,10 @@ const TABLES = Object.freeze({
   corporationRoles: Object.freeze({ loader: "corporationRolesLoader", resource: "res:/staticdata/corporationroles.fsdbinary" }),
   corporationRoleGroups: Object.freeze({ loader: "corporationRoleGroupsLoader", resource: "res:/staticdata/corporationrolegroups.fsdbinary", keyOrder: true, longStrings: true }),
   missions: Object.freeze({ loader: "missionsLoader", resource: "res:/staticdata/missions.fsdbinary" }),
+  // evemissions/common/epic_arcs_data: each arc's name, faction, restart interval and missions (agent, next missions).
+  epicArcs: Object.freeze({ loader: "epicArcsLoader", resource: "res:/staticdata/epicarcs.fsdbinary" }),
+  // metadata/common/content_tags: each content tag's title and description messages and its eveicon.
+  contentTags: Object.freeze({ loader: "contentTagsLoader", resource: "res:/staticdata/contenttags.fsdbinary" }),
   // An NPC corporation's own record: the client takes an agent's faction from its corporation's (npcs/npccorporations.py).
   npcCorporations: Object.freeze({ loader: "npcCorporationsLoader", resource: "res:/staticdata/npccorporations.fsdbinary" }),
   // The divisions agents work in, each with the message its name is (npcs/divisions.py).

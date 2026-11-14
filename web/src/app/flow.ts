@@ -391,6 +391,8 @@ import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites
 import { acceptContract as acceptContractCall } from "../bridge/contractWrites.ts";
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
+import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
+import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
 import {
@@ -627,6 +629,9 @@ export interface DailyGoal {
   readonly activeUntilMs: number | null;
   readonly omega: boolean; readonly paidCompletion: boolean; readonly claimable: boolean;
 }
+
+/** The epic arcs (flow.epicArcs) and their feature tag's title message and eveicon. */
+export interface EpicArcsRead { readonly arcs: readonly EpicArcView[]; readonly featureTag: { readonly title: number | null; readonly icon: string | null } | null }
 
 export interface FreelanceJob {
   readonly project: FreelanceProject;
@@ -3576,6 +3581,13 @@ export interface AppFlow {
    * claimable as goal.has_unclaimed_rewards has it (rewards, earnings and completed) or where GetAllWithRewardsRequest
    * lists it; null where the read failed. */
   dailyGoals(): Promise<readonly DailyGoal[] | null>;
+  /**
+   * The epic arcs as the client's epic arc service makes them (epicArcSvc: the arcs of the client's built data, the
+   * pilot's agentMgr.GetMyEpicArcStatus, GetMessagesForEpicArcMissions' chapter titles), each arc's state going by
+   * whether the pilot may use its starting agents (the agents' records, the pilot's standings and skills). Null where
+   * the arcs could not be read.
+   */
+  epicArcs(): Promise<EpicArcsRead | null>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19658,6 +19670,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (names.length) requestNames(names);
     return out;
   }
+  let epicArcSourcesHeld: { readonly arcs: readonly EpicArcSource[]; readonly featureTag: EpicArcsRead["featureTag"] } | null = null;
+  let epicArcChaptersHeld: ReadonlyMap<number, number> | null = null;
+  async function epicArcs(): Promise<EpicArcsRead | null> {
+    epicArcSourcesHeld ??= await api.loadEpicArcs(callOptions).catch(() => null);
+    if (!epicArcSourcesHeld) return null;
+    const { arcs, featureTag } = epicArcSourcesHeld;
+    const [status, chapters] = await Promise.all([
+      bridgeAsk("agentMgr", "GetMyEpicArcStatus", []).catch(() => null),
+      epicArcChaptersHeld ? Promise.resolve(null) : bridgeAsk("agentMgr", "GetMessagesForEpicArcMissions", []).catch(() => null),
+      store.standings.get().char === null ? loadStandings().catch(() => undefined) : Promise.resolve(),
+      store.skills.get().skills === null ? loadSkills().catch(() => undefined) : Promise.resolve(),
+    ]);
+    if (status === null) return null;
+    epicArcChaptersHeld ??= chapters === null ? null : decodeEpicArcChapterTitles(chapters);
+    const agentIDs = [...new Set(arcs.flatMap((a) => Object.values(a.missions).map((m) => m.agentID ?? 0)).filter((id) => id > 0))];
+    await Promise.all(agentIDs.filter((id) => !(id in store.agents.get().agentRecords)).map(async (agentID) => {
+      const record = await api.loadAgentRecord(agentID, callOptions).catch(() => null);
+      if (record !== null) store.apply({ type: "agents/record", agentID, record: decodeAgentRecord(record) });
+    }));
+    const records = store.agents.get().agentRecords;
+    const standings = new Map((store.standings.get().char ?? []).map((row) => [row.fromID, row.standing]));
+    const levels = new Map((store.skills.get().skills ?? []).map((skill) => [skill.typeID, skill.level]));
+    const canUse = (agentID: number) => {
+      const r = records[agentID];
+      return r ? canUseAgentAtLevel(r.level, r.agentTypeID, effectiveStandingWithAgent({ agentID, corporationID: r.corporationID, factionID: r.factionID }, standings, (typeID) => levels.get(typeID) ?? 0)) : false;
+    };
+    const views = epicArcViews(arcs, decodeEpicArcStatus(status), epicArcChaptersHeld ?? new Map(), canUse, Date.now());
+    requestNames(views.flatMap((v) => [...(v.factionID ? [{ kind: "owner" as const, id: v.factionID }] : []), ...(v.activeAgentID ? [{ kind: "agent" as const, id: v.activeAgentID }] : [])]));
+    return { arcs: views, featureTag };
+  }
   async function redeemDailyGoal(goalID: string): Promise<boolean> {
     const a = await api.publicGatewayRequest("eve_public.dailygoal.api.RedeemRequest", { goal: { uuid: goalID }, redeem_current_location: false } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
     return !!a && a.statusCode === 200;
@@ -33191,6 +33233,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     freelanceBoard,
     corporationFreelanceJobs,
     dailyGoals,
+    epicArcs,
     redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,

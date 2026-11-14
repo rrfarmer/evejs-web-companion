@@ -14001,6 +14001,21 @@ app.get("/api/client-data/config-enabled-values", requireAuth, async (req, res, 
 // The corporation projects' contribution methods as the client's built data has them (contributionMethods.fsdbinary,
 // goals/client/contributionMethods.py: a method's title is GetByMessageID(titleID)). `available` false where the
 // client's data could not be read. No session: they do not vary by player.
+// The epic arcs as the client's built data has them (evemissions/common/epic_arcs_data: iter_epic_arcs, factionID,
+// arcRestartInterval in minutes, each mission's agentID and nextMissions). `available` false where unread.
+app.get("/api/client-data/epic-arcs", requireAuth, async (req, res, next) => {
+  try {
+    const [table, tags] = await Promise.all([clientBuiltData.table("epicArcs"), clientBuiltData.table("contentTags").catch(() => null)]);
+    const arcs = table ? Object.entries(table).filter(([key]) => /^\d+$/.test(key)).map(([key, arc]) => ({
+      epicArcID: Number(key), nameID: arc.epicArcNameID ?? null, factionID: arc.factionID ?? null, restartInterval: arc.arcRestartInterval ?? null,
+      missions: Object.fromEntries(Object.entries(arc.missions || {}).map(([missionID, m]) => [missionID, { agentID: m.agentID ?? null, nextMissions: Array.isArray(m.nextMissions) ? m.nextMissions : [] }])),
+    })) : [];
+    // The arcs' feature tag (ContentTags.feature_epic_arcs): its title message and eveicon.
+    const tag = tags && tags.feature_epic_arcs ? { title: tags.feature_epic_arcs.title ?? null, icon: tags.feature_epic_arcs.icon ?? null } : null;
+    res.json({ ok: true, available: table !== null, arcs, featureTag: tag });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/client-data/contribution-methods", requireAuth, async (req, res, next) => {
   try {
     const methods = await clientBuiltData.table("contributionMethods");

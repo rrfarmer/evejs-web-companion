@@ -5770,6 +5770,14 @@ export interface PublicGatewayAnswer {
  * One of the client's eve_public requests made on the public gateway for the page's pilot (the BFF's
  * POST /api/public-gateway/request), as its client makes it; a write with confirm said.
  */
+/** An epic arc as the client's built data has it (epicArcs.fsdbinary): its missions by ID, each mission's agent and next missions. */
+export interface EpicArcData { readonly epicArcID: number; readonly nameID: number | null; readonly factionID: number | null; readonly restartInterval: number | null; readonly missions: Readonly<Record<string, { readonly agentID: number | null; readonly nextMissions: readonly number[] }>> }
+/** GET /api/client-data/epic-arcs: the epic arcs and their feature tag (contentTags feature_epic_arcs); null where the client's data could not be read. */
+export async function loadEpicArcs(options: ApiOptions = {}): Promise<{ readonly arcs: readonly EpicArcData[]; readonly featureTag: { readonly title: number | null; readonly icon: string | null } | null } | null> {
+  const data = await getJson("/api/client-data/epic-arcs", options);
+  return data.available && Array.isArray(data.arcs) ? { arcs: data.arcs as EpicArcData[], featureTag: (data.featureTag ?? null) as { title: number | null; icon: string | null } | null } : null;
+}
+
 /** GET /api/client-data/contribution-methods: the corporation projects' contribution methods, by key (contributionMethods.fsdbinary). */
 export async function loadContributionMethods(options: ApiOptions = {}): Promise<Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string; readonly unit?: number; readonly progressDescriptionID?: number; readonly rewardingDescriptionID?: number }>> | null> {
   const data = await getJson("/api/client-data/contribution-methods", options);

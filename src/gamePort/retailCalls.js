@@ -693,6 +693,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "officeManager.GetPriceQuote", "officeManager.HasCorpImpoundedItems", "officeManager.PrimeOfficeItem", "officeManager.RentOffice", "officeManager.UnrentOffice",
   // The account's clone grade, which the client asks as it logs in. The gateway's list has nothing of the subscription manager's.
   "subscriptionMgr.GetCloneGrade",
+  // The epic arcs' service (epicArcSvc.ReconstructController, epicArcController._GetMissionMessageID): the pilot's arc
+  // missions' statuses and the arcs' journal messages. The gateway's list has neither.
+  "agentMgr.GetMyEpicArcStatus", "agentMgr.GetMessagesForEpicArcMissions",
   // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
   // the recruitment proxy. The gateway's list has nothing of it.
   "corpRecProxy.SearchCorpAds", "corpRecProxy.GetRecruitmentAdsByCorpID",
@@ -2667,6 +2670,8 @@ const RETAIL_CALLS = Object.freeze({
   "crimewatch.GetMySecurityStatus": same(`${CRIMEWATCH_SVC}:592`, "CharGetCrimewatchLocation().GetMySecurityStatus(), no arguments: asked once and kept. Recorded on Tranquility as the call a bind of crimewatch carried."),
   "crimewatch.GetCharacterSecurityStatus": same(`${CRIMEWATCH_SVC}:596`, "CharGetCrimewatchLocation().GetCharacterSecurityStatus(charID)"),
   "crimewatch.GetSecurityStatusTransactions": same(`${CRIMEWATCH_SVC}:603`, "CharGetCrimewatchLocation().GetSecurityStatusTransactions(), no arguments"),
+  "agentMgr.GetMyEpicArcStatus": same("eve/client/script/ui/shared/epicArcSvc.py:32", "sm.RemoteSvc('agentMgr').GetMyEpicArcStatus(), no arguments: each arc's missions' statuses (acceptedDate, completedDate, quitDate, nameID), asked as the controller is made and again on OnEpicJournalChange."),
+  "agentMgr.GetMessagesForEpicArcMissions": same("eve/client/script/ui/shared/epicArcs/epicArcController.py:68", "sm.RemoteSvc('agentMgr').GetMessagesForEpicArcMissions(), no arguments: the arcs' missions' journal messages (chapter title, in progress, completed) by message kind and mission."),
   "subscriptionMgr.GetCloneGrade": same("omega/client/clone_grade_svc.py:125", "sm.RemoteSvc('subscriptionMgr').GetCloneGrade(), no arguments: asked as the account comes onto the session (gameui.py 450) and kept; then what OnSubscriptionChangedServer says. In this server's log of a retail client's login it is the call before the character selection's."),
   "userSvc.GetMultiCharactersTrainingSlots": judged("eve/client/script/ui/services/skillQueueSvc.py:851", sentWithNothing,
     "sm.RemoteSvc('userSvc').GetMultiCharactersTrainingSlots(), no arguments: the account's extra training slots, a dict. The queue service reckons from it whether every slot is used (IsAllCharacterTrainingSlotsUsed, 859) and keeps that until OnMultipleCharactersTrainingUpdated. Recorded on Tranquility at every login, answering {}."),
