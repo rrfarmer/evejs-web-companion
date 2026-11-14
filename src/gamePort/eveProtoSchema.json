@@ -11669,6 +11669,134 @@
      "typeName": "eve_public.faction.activity.Score"
     }
    ]
+  },
+  "eve_public.math.Fraction": {
+   "fields": [
+    {
+     "name": "numerator",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "denominator",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.pirate.corruption.api.GetStageThresholdsRequest": {
+   "fields": []
+  },
+  "eve_public.pirate.corruption.api.GetStageThresholdsResponse": {
+   "fields": [
+    {
+     "name": "thresholds",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.math.Fraction"
+    }
+   ]
+  },
+  "eve_public.pirate.corruption.api.GetSystemInfoRequest": {
+   "fields": [
+    {
+     "name": "system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.pirate.corruption.api.GetSystemInfoResponse": {
+   "fields": [
+    {
+     "name": "total_progress",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Fraction"
+    },
+    {
+     "name": "eve_contribution",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Fraction"
+    },
+    {
+     "name": "vanguard_contribution",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Fraction"
+    },
+    {
+     "name": "stage",
+     "number": 4,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.pirate.suppression.api.GetStageThresholdsRequest": {
+   "fields": []
+  },
+  "eve_public.pirate.suppression.api.GetStageThresholdsResponse": {
+   "fields": [
+    {
+     "name": "thresholds",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.math.Fraction"
+    }
+   ]
+  },
+  "eve_public.pirate.suppression.api.GetSystemInfoRequest": {
+   "fields": [
+    {
+     "name": "system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.pirate.suppression.api.GetSystemInfoResponse": {
+   "fields": [
+    {
+     "name": "total_progress",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Fraction"
+    },
+    {
+     "name": "stage",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "eve_contribution",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Fraction"
+    },
+    {
+     "name": "vanguard_contribution",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Fraction"
+    }
+   ]
   }
  },
  "enums": {

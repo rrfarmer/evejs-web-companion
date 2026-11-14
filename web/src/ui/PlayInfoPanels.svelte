@@ -20,6 +20,7 @@
   import InfoPanelRoute from "./InfoPanelRoute.svelte";
   import InfoPanelFactionalWarfare from "./InfoPanelFactionalWarfare.svelte";
   import InfoPanelIncursions from "./InfoPanelIncursions.svelte";
+  import InfoPanelInsurgency from "./InfoPanelInsurgency.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
   let { store, flow, showAgents, openRouteWindow }: { store: ClientStore; flow: AppFlow; showAgents?: () => void; openRouteWindow?: () => void } = $props();
   // svelte-ignore state_referenced_locally
@@ -27,12 +28,12 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const me = $derived($station.online?.characterID ?? null);
-  // each panel's mode by its panelTypeID (PANEL_LOCATION_INFO 1, PANEL_ROUTE 2, PANEL_INCURSIONS 4, PANEL_FACTIONAL_WARFARE 5, PANEL_JOB_BOARD 24)
+  // each panel's mode by its panelTypeID (PANEL_LOCATION_INFO 1, PANEL_ROUTE 2, PANEL_INCURSIONS 4, PANEL_FACTIONAL_WARFARE 5, PANEL_JOB_BOARD 24, PANEL_INSURGENCY 25)
   const modeKey = (panel: number) => (me ? `evejs.play.${me}.infoPanelMode.${panel}` : null);
   let modes = $state<Record<number, boolean>>({}), count = $state(0);
   $effect(() => {
     const read: Record<number, boolean> = {};
-    for (const panel of [1, 2, 4, 5, 24]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
+    for (const panel of [1, 2, 4, 5, 24, 25]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
     modes = read;
   });
   function toggleMode(panel: number): void {
@@ -65,6 +66,7 @@
       <MissionTracker {store} {flow} {showAgents} embedded onCount={(n) => { count = n; }} />
     </div>
   </section>
+  <InfoPanelInsurgency {store} {flow} compact={modes[25] === true} onToggle={() => toggleMode(25)} />
 </div>
 
 <style>

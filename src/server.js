@@ -14810,6 +14810,12 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.sovereignty.resource.star.api.GetAllConfigurationsRequest",
   // The factional warfare info panel's net advantage (fwAdvantageSvc: the activity tracker's get_solar_system_scores).
   "eve_public.faction.activity.GetSolarSystemScoresRequest",
+  // The insurgency info panel's corruption and suppression (corruptionSuppressionSvc - InsurgencyMessenger: a system's
+  // info, the stages' thresholds).
+  "eve_public.pirate.corruption.api.GetSystemInfoRequest",
+  "eve_public.pirate.corruption.api.GetStageThresholdsRequest",
+  "eve_public.pirate.suppression.api.GetSystemInfoRequest",
+  "eve_public.pirate.suppression.api.GetStageThresholdsRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest).

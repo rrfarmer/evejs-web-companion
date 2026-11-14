@@ -643,6 +643,15 @@ export interface DungeonJob {
   readonly active: boolean;
 }
 
+/** A system's corruption or suppression (InsurgencyMessenger SystemData): its progress, stage, the Vanguard's share. */
+export interface InsurgencyProgress { readonly numerator: number; readonly denominator: number; readonly stage: number; readonly vanguardNumerator: number; readonly vanguardDenominator: number }
+/** flow.insurgencyLocal: the campaign covering the pilot's system, and for an active one its stages and progress. */
+export interface InsurgencyLocal {
+  readonly campaignID: number; readonly fsmState: number; readonly stateExpiryMs: number | null; readonly warzoneID: number; readonly pirateFactionID: number | null;
+  readonly corruptionStages: readonly number[] | null; readonly suppressionStages: readonly number[] | null;
+  readonly corruption: InsurgencyProgress | null; readonly suppression: InsurgencyProgress | null;
+}
+
 /** flow.factionWarfareLocal: the pilot's system's OccupationState and VictoryPointState. */
 export interface FactionWarfareLocal {
   readonly solarSystemID: number;
@@ -3640,6 +3649,13 @@ export interface AppFlow {
    * read; occupation null in no warzone.
    */
   factionWarfareLocal(): Promise<FactionWarfareLocal | null>;
+  /**
+   * The pirate insurgency of the pilot's system (infoPanelInsurgency): the campaign covering it among
+   * insurgencySolarsystem.GetAllVisibleCampaigns' snapshots, and for an active one the corruption's and suppression's
+   * stage thresholds and the system's progress (the public gateway's pirate.corruption / pirate.suppression requests).
+   * Null where no campaign covers the system or the campaigns could not be read.
+   */
+  insurgencyLocal(): Promise<InsurgencyLocal | null>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19817,6 +19833,52 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
       data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon !== null && currentDungeon.instanceID === s.instanceID }));
   }
+  async function insurgencyLocal(): Promise<InsurgencyLocal | null> {
+    const here = store.station.get().online?.solarSystemID ?? null;
+    if (here === null) return null;
+    const answer = await bridgeAsk("insurgencySolarsystem", "GetAllVisibleCampaigns", []).catch(() => null);
+    if (answer === null) return null;
+    const list = Array.isArray(answer) ? answer : answer && typeof answer === "object" && Array.isArray((answer as { items?: unknown }).items) ? (answer as { items: unknown[] }).items : [];
+    const num = (v: unknown): number => (typeof v === "number" ? v : v && typeof v === "object" && "value" in v ? Number((v as { value: unknown }).value) : NaN);
+    const itemsOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : v && typeof v === "object" ? (Array.isArray((v as { items?: unknown }).items) ? (v as { items: unknown[] }).items
+      : Array.isArray((v as { args?: unknown }).args) ? itemsOf((v as { args: unknown[] }).args[0])
+      // A Python set as an objectex1 (__builtin__.set, its one argument the list).
+      : Array.isArray((v as { header?: unknown }).header) && Array.isArray((v as { header: unknown[] }).header[1]) ? itemsOf(((v as { header: unknown[] }).header[1] as unknown[])[0]) : []) : []);
+    // A CampaignClientSnapshot (an objectex2: its state dict, the attributes named with a leading underscore).
+    const attrsOf = (snapshot: unknown): Map<string, unknown> => {
+      const header = snapshot && typeof snapshot === "object" && Array.isArray((snapshot as { header?: unknown }).header) ? (snapshot as { header: unknown[] }).header : [];
+      const dict = header.find((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "dict") as { entries?: [unknown, unknown][] } | undefined;
+      return new Map((dict?.entries ?? []).map(([k, v]) => [String(k).replace(/^_/, ""), v]));
+    };
+    // InfoPanelInsurgency: the first snapshot whose coveredSolarsystemIDs has the pilot's system.
+    const snapshot = list.map(attrsOf).find((a) => itemsOf(a.get("coveredSolarsystemIDs")).map(num).includes(here));
+    if (!snapshot) return null;
+    const expiry = snapshot.get("stateExpiryTimestamp");
+    const expiryRaw = expiry && typeof expiry === "object" && "value" in expiry ? String((expiry as { value: unknown }).value) : "";
+    const fsmState = num(snapshot.get("fsmState"));
+    const base = {
+      campaignID: num(snapshot.get("campaignID")), fsmState, warzoneID: num(snapshot.get("warzoneID")),
+      pirateFactionID: Number.isFinite(num(snapshot.get("pirateFactionID"))) ? num(snapshot.get("pirateFactionID")) : null,
+      stateExpiryMs: /^\d+$/.test(expiryRaw) ? Number((BigInt(expiryRaw) - 116_444_736_000_000_000n) / 10_000n) : null,
+    };
+    // CAMPAIGN_STATE_FORECASTING (2): the next insurgency's time only.
+    if (fsmState === 2) return { ...base, corruptionStages: null, suppressionStages: null, corruption: null, suppression: null };
+    const ask = (request: string, payload: Record<string, unknown>) => api.publicGatewayRequest(request, payload as unknown as Record<string, JsonValue>, callOptions).catch(() => null);
+    const P = "eve_public.pirate.";
+    const [cStages, sStages, cInfo, sInfo] = await Promise.all([
+      ask(P + "corruption.api.GetStageThresholdsRequest", {}), ask(P + "suppression.api.GetStageThresholdsRequest", {}),
+      ask(P + "corruption.api.GetSystemInfoRequest", { system: { sequential: here } }), ask(P + "suppression.api.GetSystemInfoRequest", { system: { sequential: here } }),
+    ]);
+    const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
+    // _BlockingRequestStageThreasholds: each threshold's numerator / denominator.
+    const stages = (a: typeof cStages) => (a && a.statusCode === 200 ? (Array.isArray(rec(a.payload).thresholds) ? rec(a.payload).thresholds as unknown[] : []).map((f) => Number(rec(f).numerator ?? 0) / Number(rec(f).denominator ?? 1)) : null);
+    const info = (a: typeof cInfo): InsurgencyProgress | null => {
+      if (!a || a.statusCode !== 200) return null;
+      const p = rec(a.payload), total = rec(p.total_progress), vanguard = rec(p.vanguard_contribution);
+      return { numerator: Number(total.numerator ?? 0), denominator: Number(total.denominator ?? 0), stage: Number(p.stage ?? 0), vanguardNumerator: Number(vanguard.numerator ?? 0), vanguardDenominator: Number(vanguard.denominator ?? 0) };
+    };
+    return { ...base, corruptionStages: stages(cStages), suppressionStages: stages(sStages), corruption: info(cInfo), suppression: info(sInfo) };
+  }
   async function factionWarfareLocal(): Promise<FactionWarfareLocal | null> {
     const here = store.station.get().online?.solarSystemID ?? null;
     const [occupation, victory, scores, raceNames] = await Promise.all([
@@ -33396,6 +33458,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     epicArcs,
     dungeonJobs,
     factionWarfareLocal,
+    insurgencyLocal,
     redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,
