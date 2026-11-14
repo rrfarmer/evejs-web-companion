@@ -14856,6 +14856,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.dailygoal.api.GetAllWithRewardsRequest",
   "eve_public.dailygoal.api.GetRequest",
   "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusRequest",
+  // The Agency's Colony Resources' skyhook filter (sovereigntyResourceSvc.GetSolarSystemsWithTheftVulnerableSkyhooks).
+  "eve_public.sovereignty.skyhook.api.GetSolarSystemsWithTheftVulnerableSkyhooksRequest",
   // The alliance's Sov Hubs page (SovHubEntryController through QuasarCallWrapper): a hub's installed upgrades and the
   // upgrade definitions, its available resources, its fuel, its workforce state; the planets' and stars' resource
   // definitions for the system's max power and workforce (sovereigntyResourceSvc.GetMaxPowerAndWorkforce).

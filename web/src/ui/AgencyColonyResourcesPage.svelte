@@ -6,8 +6,11 @@
   // grey, its hint the richness label) and amount; then the superionic ice and magmatic gas icons where the system's
   // planets give them); and the chosen system's planets (the star's power, each planet's power, workforce or reagent per
   // hour with its planet richness icon) and its primary button.
-  // Not here (later parts): the filters beyond the location (per system / per planet, power, workforce, reagents,
-  // sovereignty, skyhook theft vulnerability, region), the sovereign alliance, the skyhooks, the planets' types.
+  // ColonyResourcesAgencyFiltersCont (part 2): the location; Sovereignty (All, Claimed, Unclaimed - stationSvc
+  // GetAllianceSystems); Orbital Skyhooks (any state, theft vulnerable - the skyhook gateway's systems); Filter Colony
+  // Resources per system or per planet; the least Power Output and Workforce Output; Magmatic Gas and Superionic Ice
+  // richness (Any abundance, Modest, Average, Abundant). The card's sovereign alliance where it is held.
+  // Not here (later parts): the region distance, the skyhooks themselves, the planets' types, the star's own name.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
@@ -16,8 +19,10 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import { DISTANCE } from "../bridge/agencyAgents.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters } from "../bridge/agencySites.ts";
+  import { DEFAULT_COLONY_FILTERS, type ColonyFilters } from "../app/flow.ts";
 
   let { store, flow, filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; filters?: AgencySiteFilters } = $props();
+  let colony = $state<ColonyFilters>(DEFAULT_COLONY_FILTERS);
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -36,9 +41,9 @@
   let chosen = $state<number | null>(null);
   let asked = 0;
   $effect(() => {
-    const f = filters, n = ++asked;
+    const f = filters, c = { ...colony }, n = ++asked;
     data = undefined;
-    void flow.agencyColonyResources(f).then((d) => { if (n !== asked) return; data = d; chosen = d?.systems[0]?.solarSystemID ?? null; });
+    void flow.agencyColonyResources(f, c).then((d) => { if (n !== asked) return; data = d; chosen = d?.systems[0]?.solarSystemID ?? null; });
   });
   const system = $derived(data?.systems.find((s) => s.solarSystemID === chosen) ?? null);
 
@@ -62,7 +67,12 @@
   $effect(() => {
     flow.requestWords(["UI/Agency/ShowingXResults", "UI/Inflight/Scanner/FilteredResults", "UI/Agency/Location", "UI/Common/NumJumps", "UI/Generic/CurrentSystem", "UI/Generic/NoGateToGateRoute",
       "UI/Common/Location", "UI/Common/WithinJumps", "UI/Agency/ContentOfAnyDistance", "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll", "UI/Agency/resetAllPageFilters",
-      "UI/Agency/PlanetaryProduction/planetsInSystem", "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", ...Object.values(LABELS).flat()]);
+      "UI/Agency/PlanetaryProduction/planetsInSystem", "UI/Sovereignty/Sovereignty", "UI/Agency/ColonyResourcesAgency/All", "UI/Agency/ColonyResourcesAgency/Claimed",
+      "UI/Agency/ColonyResourcesAgency/Unclaimed", "UI/Agency/OrbitalSkyhooks", "UI/Agency/ColonyResourcesAgency/SkyhookTheftAny", "UI/Agency/ColonyResourcesAgency/SkyhookTheftVulnerable",
+      "UI/Agency/ColonyResourcesAgency/FilterColonyResources", "UI/Agency/ColonyResourcesAgency/PerSystemFilter", "UI/Agency/ColonyResourcesAgency/PerPlanetFilter",
+      "UI/Agency/ColonyResourcesAgency/PerSystemHint", "UI/Agency/ColonyResourcesAgency/PerPlanetHint", "UI/Agency/ColonyResourcesAgency/PowerOutput",
+      "UI/Agency/ColonyResourcesAgency/WorkforceOutput", "UI/Agency/ColonyResourcesAgency/MagmaticGas", "UI/Agency/ColonyResourcesAgency/SuperionicIce",
+      "UI/Agency/ColonyResourcesAgency/AnyAbundance", "UI/OrbitalSkyhook/RichnessModest", "UI/OrbitalSkyhook/RichnessAverage", "UI/OrbitalSkyhook/RichnessAbundant", "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", ...Object.values(LABELS).flat()]);
   });
   const hereStation = $derived($station.online?.stationID ?? null);
   const hereSystem = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
@@ -100,7 +110,28 @@
       <h3>{word("UI/Calendar/CalendarWindow/Filters")}</h3>
       <label><span>{word("UI/Common/Location")}</span>
         <select value={filters.distance} onchange={(e) => (filters = { ...filters, distance: Number(e.currentTarget.value) })}>{#each DISTANCES as v (v)}<option value={v}>{distanceLabel(v)}</option>{/each}</select></label>
-      <div class="acr-reset"><button type="button" title={word("UI/Agency/resetAllPageFilters")} onclick={() => (filters = DEFAULT_SITE_FILTERS)}>{word("UI/Commands/ResetAll")}</button></div>
+      <label><span>{word("UI/Sovereignty/Sovereignty")}</span>
+        <select value={colony.sovereignty} onchange={(e) => (colony = { ...colony, sovereignty: Number(e.currentTarget.value) })}>
+          <option value={0}>{word("UI/Agency/ColonyResourcesAgency/All")}</option><option value={1}>{word("UI/Agency/ColonyResourcesAgency/Claimed")}</option><option value={2}>{word("UI/Agency/ColonyResourcesAgency/Unclaimed")}</option></select></label>
+      <label><span>{word("UI/Agency/OrbitalSkyhooks")}</span>
+        <select value={colony.skyhook} onchange={(e) => (colony = { ...colony, skyhook: Number(e.currentTarget.value) })}>
+          <option value={0}>{word("UI/Agency/ColonyResourcesAgency/SkyhookTheftAny")}</option><option value={1}>{word("UI/Agency/ColonyResourcesAgency/SkyhookTheftVulnerable")}</option></select></label>
+      <div class="acr-field"><span>{word("UI/Agency/ColonyResourcesAgency/FilterColonyResources")}</span>
+        <span class="acr-radios">
+          <label title={word("UI/Agency/ColonyResourcesAgency/PerSystemHint")}><input type="radio" name="acr-per" checked={colony.perPlanet === 0} onchange={() => (colony = { ...colony, perPlanet: 0 })} />{word("UI/Agency/ColonyResourcesAgency/PerSystemFilter")}</label>
+          <label title={word("UI/Agency/ColonyResourcesAgency/PerPlanetHint")}><input type="radio" name="acr-per" checked={colony.perPlanet === 1} onchange={() => (colony = { ...colony, perPlanet: 1 })} />{word("UI/Agency/ColonyResourcesAgency/PerPlanetFilter")}</label>
+        </span></div>
+      <label class="acr-row"><span>{word("UI/Agency/ColonyResourcesAgency/PowerOutput")}</span>
+        <input type="number" min="0" value={colony.minPower} onchange={(e) => (colony = { ...colony, minPower: Math.max(0, Math.floor(Number(e.currentTarget.value) || 0)) })} /></label>
+      <label class="acr-row"><span>{word("UI/Agency/ColonyResourcesAgency/WorkforceOutput")}</span>
+        <input type="number" min="0" value={colony.minWorkforce} onchange={(e) => (colony = { ...colony, minWorkforce: Math.max(0, Math.floor(Number(e.currentTarget.value) || 0)) })} /></label>
+      {#each [["gasRichness", "UI/Agency/ColonyResourcesAgency/MagmaticGas"], ["iceRichness", "UI/Agency/ColonyResourcesAgency/SuperionicIce"]] as [key, label] (key)}
+        <label class="acr-row"><span>{word(label!)}</span>
+          <select value={colony[key as "gasRichness"]} onchange={(e) => (colony = { ...colony, [key!]: Number(e.currentTarget.value) })}>
+            <option value={1}>{word("UI/Agency/ColonyResourcesAgency/AnyAbundance")}</option><option value={2}>{word("UI/OrbitalSkyhook/RichnessModest")}</option>
+            <option value={3}>{word("UI/OrbitalSkyhook/RichnessAverage")}</option><option value={4}>{word("UI/OrbitalSkyhook/RichnessAbundant")}</option></select></label>
+      {/each}
+      <div class="acr-reset"><button type="button" title={word("UI/Agency/resetAllPageFilters")} onclick={() => { filters = DEFAULT_SITE_FILTERS; colony = DEFAULT_COLONY_FILTERS; }}>{word("UI/Commands/ResetAll")}</button></div>
     </section>
   </aside>
   <section class="acr-section acr-scroll">
@@ -109,6 +140,7 @@
       {#each data?.systems ?? [] as s (s.solarSystemID)}
         <button type="button" class="acr-card" class:on={chosen === s.solarSystemID} onclick={() => (chosen = s.solarSystemID)}>
           <b>{systemText(s)}</b><span>{jumpsText(s)}</span>
+          {#if s.allianceID}<span class="acr-alliance">{resolvedName($names.resolved, "owner", s.allianceID, "")}</span>{/if}
           <span class="acr-bottom">
             <span class="acr-cell">{@render res("power", s.power, "system", true)}</span>
             <span class="acr-cell">{#if s.workforce}{@render res("workforce", s.workforce, "system", true)}{/if}</span>
@@ -144,6 +176,14 @@
   .acr-section label { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; font-size: 12px; }
   .acr-section label span { opacity: 0.7; }
   .acr-reset { display: flex; justify-content: flex-end; }
+  .acr-row { flex-direction: row !important; justify-content: space-between; align-items: center; }
+  .acr-row input, .acr-row select { width: 140px; }
+  .acr-row input[type="number"] { width: 80px; }
+  .acr-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; font-size: 12px; }
+  .acr-field > span:first-child { opacity: 0.7; }
+  .acr-radios { display: flex; gap: 10px; }
+  .acr-radios label { flex-direction: row !important; align-items: center; gap: 4px; margin: 0 !important; }
+  .acr-alliance { opacity: 0.7; }
   .acr-scroll { width: 331px; flex: none; display: flex; flex-direction: column; min-height: 0; }
   .acr-cards { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
   .acr-card { all: unset; box-sizing: border-box; cursor: pointer; width: 300px; flex: none; display: flex; flex-direction: column; gap: 3px; padding: 8px 8px 8px 16px; font-size: 12px;

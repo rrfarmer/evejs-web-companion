@@ -694,6 +694,14 @@ export interface FactionWarfareLocal {
 
 /** The epic arcs (flow.epicArcs) and their feature tag's title message and eveicon. */
 /** An incursion as the Agency shows it (IncursionContentPiece): the report, its staging system's constellation, the jumps. */
+/**
+ * ColonyResourcesAgencyFiltersCont's own filters (agencyConst FILTER_DEFAULTS): the sovereignty (SOVEREIGNTY_ALL 0,
+ * CLAIMED 1, UNCLAIMED 2), the skyhooks (SKYHOOKS_THEFT_ANY_STATE 0, VULNERABLE 1), per system or per planet (0, 1), the
+ * least power and workforce (0), the magmatic gas and superionic ice richness (RICHNESS_NONE 1: any; 2 modest, 3
+ * average, 4 abundant).
+ */
+export interface ColonyFilters { readonly sovereignty: number; readonly skyhook: number; readonly perPlanet: number; readonly minPower: number; readonly minWorkforce: number; readonly gasRichness: number; readonly iceRichness: number }
+export const DEFAULT_COLONY_FILTERS: ColonyFilters = Object.freeze({ sovereignty: 0, skyhook: 0, perPlanet: 0, minPower: 0, minWorkforce: 0, gasRichness: 1, iceRichness: 1 });
 export interface AgencyIncursion { readonly report: IncursionReport; readonly constellationID: number | null; readonly jumps: number | null; readonly security: number | null }
 /** An epic arc as the Agency shows it (EpicArcAgentContentPiece): the arc and its active agent's place. */
 export interface AgencyEpicArc { readonly arc: EpicArcView; readonly stationID: number | null; readonly solarSystemID: number | null; readonly jumps: number | null }
@@ -3731,9 +3739,10 @@ export interface AppFlow {
    * jumps, to COLONY_RESOURCE_AGENCY_PIECES_MAX 120, each with its star's power and its planets' power, workforce and
    * reagent per hour (the sovereignty resource definitions), and the richness icons.
    */
-  agencyColonyResources(filters: AgencySiteFilters): Promise<{ readonly systems: readonly { readonly solarSystemID: number; readonly starID: number | null; readonly starPower: number; readonly jumps: number | null;
+  agencyColonyResources(filters: AgencySiteFilters, colony?: ColonyFilters): Promise<{ readonly systems: readonly { readonly solarSystemID: number; readonly starID: number | null; readonly starPower: number; readonly jumps: number | null;
     readonly planets: readonly { readonly planetID: number; readonly celestialIndex: number; readonly power: number; readonly workforce: number; readonly reagentTypeID: number | null; readonly reagentPerHour: number }[];
-    readonly power: number; readonly workforce: number; readonly magmaticGas: number; readonly superionicIce: number; readonly hasMagmaticGas: boolean; readonly hasSuperionicIce: boolean }[];
+    readonly power: number; readonly workforce: number; readonly magmaticGas: number; readonly superionicIce: number; readonly hasMagmaticGas: boolean; readonly hasSuperionicIce: boolean;
+    readonly allianceID: number | null }[];
     readonly icons: Readonly<Record<string, string | null>> } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
   /**
@@ -19131,19 +19140,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return sovStatic;
   }
   let colonySystemsHeld: Awaited<ReturnType<typeof api.loadColonySystems>> = null;
-  async function agencyColonyResources(filters: AgencySiteFilters): Promise<Awaited<ReturnType<AppFlow["agencyColonyResources"]>>> {
+  async function agencyColonyResources(filters: AgencySiteFilters, colony: ColonyFilters = DEFAULT_COLONY_FILTERS): Promise<Awaited<ReturnType<AppFlow["agencyColonyResources"]>>> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
-    const [statics, systems, jumps] = await Promise.all([
+    const [statics, systems, jumps, alliances, vulnerable] = await Promise.all([
       sovResourceStatic().catch(() => null),
       colonySystemsHeld ? Promise.resolve(colonySystemsHeld) : api.loadColonySystems(callOptions).catch(() => null),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      // PrimeAllianceSolarsystems (starMapSvc.GetAllianceSolarSystems: each row's solarSystemID to its allianceID).
+      bridgeAsk("stationSvc", "GetAllianceSystems", []).catch(() => null),
+      colony.skyhook === 1 ? api.publicGatewayRequest("eve_public.sovereignty.skyhook.api.GetSolarSystemsWithTheftVulnerableSkyhooksRequest", {}, callOptions).catch(() => null) : Promise.resolve(null),
     ]);
+    const rowsOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : v && typeof v === "object" && Array.isArray((v as { items?: unknown }).items) ? (v as { items: unknown[] }).items : readRowsetRows(v) as unknown[]);
+    const allianceOf = new Map(rowsOf(alliances).map((r) => [Number(unwrapLong(readRowField(r, "solarSystemID") ?? (r as Record<string, unknown>)?.solarSystemID as never ?? null) ?? 0), Number(unwrapLong(readRowField(r, "allianceID") ?? (r as Record<string, unknown>)?.allianceID as never ?? null) ?? 0)] as const).filter(([s, a]) => s > 0 && a > 0));
+    const theftVulnerable = new Set(((vulnerable?.payload as { solar_systems?: { sequential?: number }[] } | undefined)?.solar_systems ?? []).map((x) => Number(x.sequential ?? 0)));
     colonySystemsHeld ??= systems;
     if (!statics || !systems) return null;
     const jumpsOf = (id: number) => (id === here ? 0 : jumps?.get(id));
     const ids = (filters.distance === 1 ? (here !== null && systems.systems[String(here)] ? [here] : []) : Object.keys(systems.systems).map(Number))
       .filter((id) => filters.distance === 1000 || filters.distance === 1 || (jumpsOf(id) !== undefined && jumpsOf(id)! <= filters.distance));
-    const out = ids.map((id) => {
+    const out = ids.filter((id) => colony.skyhook !== 1 || theftVulnerable.has(id)).map((id) => {
       const [starID, , planetIDs] = systems.systems[String(id)]!;
       // GetResourceValuesForStar / GetResourceValuesForPlanet (sovereigntyResourceSvc.GetPlanetResourceInfo: a reagent's
       // planet no power nor workforce, else its power, and where none its workforce; the reagent per hour rounded to .1).
@@ -19159,9 +19174,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return { solarSystemID: id, starID, starPower, jumps: jumpsOf(id) ?? null, planets,
         power: starPower + sum((p) => p.power), workforce: sum((p) => p.workforce),
         magmaticGas: sum((p) => (p.reagentTypeID === 81143 ? p.reagentPerHour : 0)), superionicIce: sum((p) => (p.reagentTypeID === 81144 ? p.reagentPerHour : 0)),
-        hasMagmaticGas: planets.some((p) => p.reagentTypeID === 81143), hasSuperionicIce: planets.some((p) => p.reagentTypeID === 81144) };
+        hasMagmaticGas: planets.some((p) => p.reagentTypeID === 81143), hasSuperionicIce: planets.some((p) => p.reagentTypeID === 81144), allianceID: allianceOf.get(id) ?? null };
+    }).filter((s) => {
+      // CheckSystemCriteria: the sovereignty; per planet, some planet (the star with them) meeting CheckPlanetCriteria;
+      // else the system's power and workforce at least the filters', its magmatic gas and superionic ice richness the
+      // filters' - both compared by the superionic ice's (CheckSystemMagmaticGasRichness calls IsSameIceRicheness).
+      if (colony.sovereignty === 1 && !s.allianceID) return false;
+      if (colony.sovereignty === 2 && s.allianceID) return false;
+      const rich = (amount: number, avg: number, prosperous: number) => (amount <= 0 ? 1 : amount < avg ? 2 : amount < prosperous ? 3 : 4);
+      if (colony.perPlanet === 1) {
+        const entries = [{ power: s.starPower, workforce: null as number | null, gas: null as number | null, ice: null as number | null },
+          ...s.planets.map((p) => ({ power: p.power, workforce: p.workforce, gas: rich(p.reagentTypeID === 81143 ? p.reagentPerHour : 0, 763, 946), ice: rich(p.reagentTypeID === 81144 ? p.reagentPerHour : 0, 36, 40) }))];
+        return entries.some((e) => (!colony.minWorkforce || (e.workforce ?? -Infinity) >= colony.minWorkforce) && (!colony.minPower || e.power >= colony.minPower)
+          && (colony.gasRichness === 1 || e.gas === colony.gasRichness) && (colony.iceRichness === 1 || e.ice === colony.iceRichness));
+      }
+      const ice = rich(s.superionicIce, 36, 41);
+      return s.power >= colony.minPower && s.workforce >= colony.minWorkforce && (colony.gasRichness === 1 || ice === colony.gasRichness) && (colony.iceRichness === 1 || ice === colony.iceRichness);
     }).sort((a, b) => (a.jumps ?? Number.MAX_SAFE_INTEGER) - (b.jumps ?? Number.MAX_SAFE_INTEGER)).slice(0, 120);
-    requestNames(out.map((s) => ({ kind: "system" as const, id: s.solarSystemID })));
+    requestNames([...out.map((s) => ({ kind: "system" as const, id: s.solarSystemID })), ...[...new Set(out.flatMap((s) => (s.allianceID ? [s.allianceID] : [])))].map((id) => ({ kind: "owner" as const, id }))]);
     requestSystemSecurity(out.map((s) => s.solarSystemID));
     return { systems: out, icons: systems.icons };
   }

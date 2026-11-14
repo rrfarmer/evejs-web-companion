@@ -12093,6 +12093,566 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.planet.skyhook.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.TheftVulnerability": {
+   "fields": [
+    {
+     "name": "vulnerable",
+     "number": 1,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "start",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "end",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.Workforce": {
+   "fields": [
+    {
+     "name": "amount",
+     "number": 1,
+     "type": 4,
+     "label": 1,
+     "oneof": "available"
+    },
+    {
+     "name": "none",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "available"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.ActivateRequest": {
+   "fields": [
+    {
+     "name": "skyhook",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.ActivateResponse": {
+   "fields": []
+  },
+  "eve_public.sovereignty.skyhook.api.DeactivateRequest": {
+   "fields": [
+    {
+     "name": "skyhook",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.DeactivateResponse": {
+   "fields": []
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllByCorporationRequest": {
+   "fields": [
+    {
+     "name": "corporation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllByCorporationResponse": {
+   "fields": [
+    {
+     "name": "skyhooks",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetAllByCorporationResponse.Skyhook"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllByCorporationResponse.ReagentDefinition": {
+   "fields": [
+    {
+     "name": "reagent_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier"
+    },
+    {
+     "name": "definition",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.Definition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllByCorporationResponse.ReagentSimulation": {
+   "fields": [
+    {
+     "name": "reagent_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier"
+    },
+    {
+     "name": "maturation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.MaturationSimulation"
+    },
+    {
+     "name": "harvest",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.HarvestSimulation"
+    },
+    {
+     "name": "simulation",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.Simulation"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllByCorporationResponse.Skyhook": {
+   "fields": [
+    {
+     "name": "skyhook",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    },
+    {
+     "name": "reagent_simulations",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetAllByCorporationResponse.ReagentSimulation"
+    },
+    {
+     "name": "active",
+     "number": 3,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "reagent_definitions",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetAllByCorporationResponse.ReagentDefinition"
+    },
+    {
+     "name": "theft_vulnerability",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.skyhook.TheftVulnerability",
+     "oneof": "vulnerability"
+    },
+    {
+     "name": "unknown",
+     "number": 6,
+     "type": 8,
+     "label": 1,
+     "oneof": "vulnerability"
+    },
+    {
+     "name": "workforce",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.skyhook.Workforce"
+    },
+    {
+     "name": "planet_resources_definitions_version",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllLocalRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllLocalResponse": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "skyhooks",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetAllLocalResponse.Skyhook"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllLocalResponse.ReagentDefinition": {
+   "fields": [
+    {
+     "name": "reagent",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "reagent_type",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier"
+    },
+    {
+     "name": "definition",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.Definition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllLocalResponse.ReagentSimulation": {
+   "fields": [
+    {
+     "name": "reagent",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "reagent_type",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier"
+    },
+    {
+     "name": "maturation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.MaturationSimulation"
+    },
+    {
+     "name": "harvest",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.HarvestSimulation"
+    },
+    {
+     "name": "simulation",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.Simulation"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetAllLocalResponse.Skyhook": {
+   "fields": [
+    {
+     "name": "skyhook",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    },
+    {
+     "name": "reagent_simulations",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetAllLocalResponse.ReagentSimulation"
+    },
+    {
+     "name": "active",
+     "number": 3,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "reagent_definitions",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetAllLocalResponse.ReagentDefinition"
+    },
+    {
+     "name": "theft_vulnerability",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.skyhook.TheftVulnerability",
+     "oneof": "vulnerability"
+    },
+    {
+     "name": "unknown",
+     "number": 6,
+     "type": 8,
+     "label": 1,
+     "oneof": "vulnerability"
+    },
+    {
+     "name": "workforce",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.skyhook.Workforce"
+    },
+    {
+     "name": "planet_resources_definitions_version",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetRequest": {
+   "fields": [
+    {
+     "name": "skyhook",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetResponse": {
+   "fields": [
+    {
+     "name": "skyhook",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    },
+    {
+     "name": "reagent_simulations",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetResponse.ReagentSimulation"
+    },
+    {
+     "name": "active",
+     "number": 3,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "reagent_definitions",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetResponse.ReagentDefinition"
+    },
+    {
+     "name": "theft_vulnerability",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.skyhook.TheftVulnerability",
+     "oneof": "vulnerability"
+    },
+    {
+     "name": "unknown",
+     "number": 6,
+     "type": 8,
+     "label": 1,
+     "oneof": "vulnerability"
+    },
+    {
+     "name": "workforce",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.skyhook.Workforce"
+    },
+    {
+     "name": "planet_resources_definitions_version",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetResponse.ReagentDefinition": {
+   "fields": [
+    {
+     "name": "reagent",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "reagent_type",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier"
+    },
+    {
+     "name": "definition",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.Definition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetResponse.ReagentSimulation": {
+   "fields": [
+    {
+     "name": "reagent",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "reagent_type",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.itemtype.Identifier"
+    },
+    {
+     "name": "maturation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.MaturationSimulation"
+    },
+    {
+     "name": "harvest",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.HarvestSimulation"
+    },
+    {
+     "name": "simulation",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.resource.planet.reagent.Simulation"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetSolarSystemsWithTheftVulnerableSkyhooksRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.skyhook.api.GetSolarSystemsWithTheftVulnerableSkyhooksResponse": {
+   "fields": [
+    {
+     "name": "solar_systems",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetTheftVulnerableSkyhooksInSolarSystemRequest": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetTheftVulnerableSkyhooksInSolarSystemResponse": {
+   "fields": [
+    {
+     "name": "skyhooks",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.skyhook.api.GetTheftVulnerableSkyhooksInSolarSystemResponse.VulnerableSkyhook"
+    }
+   ]
+  },
+  "eve_public.sovereignty.skyhook.api.GetTheftVulnerableSkyhooksInSolarSystemResponse.VulnerableSkyhook": {
+   "fields": [
+    {
+     "name": "skyhook",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    },
+    {
+     "name": "planet",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.Identifier"
+    },
+    {
+     "name": "expiry",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "start",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
   }
  },
  "enums": {

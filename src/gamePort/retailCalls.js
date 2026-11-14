@@ -709,6 +709,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances", "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates", "fwVictoryPointMgr.GetAllVictoryPointStates",
   // And its insurgencies (PirateInsurgencySiteTracker) and ESS systems (ContentProviderESS._GetSolarSystemsWithESS).
   "dungeonInstanceCacheMgr.GetPirateInsurgencyInstances", "dynamicResourceCacheMgr.GetESSAgencyData",
+  // And Colony Resources' sovereignty (starMapSvc.GetAllianceSolarSystems).
+  "stationSvc.GetAllianceSystems",
   // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
   // the recruitment proxy. The gateway's list has nothing of it.
   "corpRecProxy.SearchCorpAds", "corpRecProxy.GetRecruitmentAdsByCorpID",
@@ -2692,6 +2694,7 @@ const RETAIL_CALLS = Object.freeze({
   "dungeonInstanceCacheMgr.GetHomefrontSiteInstances": same("evedungeons/client/anomalyTracker.py:304", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetHomefrontSiteInstances(), no arguments: by solar system the Homefront sites' KeyVals, as GetCombatAnomalyInstances (Tranquility, AIR Oportunities - Amarr, 10/30/2026: archetypeID 70, difficulty None, factionID 500021)."),
   "dungeonInstanceCacheMgr.GetCombatAnomaliesCount": same("evedungeons/client/anomalyTracker.py:238", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetCombatAnomaliesCount(), no arguments: by solar system its combat anomalies' count, every system (nought where none). Recorded on Tranquility so (Paragon - Amarr destroyer, 11/1/2026)."),
   "map.GetIncursionGlobalReport": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderIncursions.py:35", "sm.RemoteSvc('map').GetIncursionGlobalReport(), no arguments: the incursions' reports (a list of KeyVals: stagingSolarSystemID, aggressorFactionID, state, influence, hasFinalEncounter, effects, rewardGroupID ...). Recorded on Tranquility as a CachedMethodCallResult."),
+  "stationSvc.GetAllianceSystems": same("eve/client/script/ui/shared/maps/starMapSvc.py:1609", "sm.RemoteSvc('stationSvc').GetAllianceSystems(), no arguments: the alliance-held systems, each row its solarSystemID and allianceID."),
   "dungeonInstanceCacheMgr.GetPirateInsurgencyInstances": same("evedungeons/client/anomalyTracker.py:314", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetPirateInsurgencyInstances(), no arguments: by solar system the insurgency sites' KeyVals."),
   "dynamicResourceCacheMgr.GetESSAgencyData": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderESS.py:49", "sm.RemoteSvc('dynamicResourceCacheMgr').GetESSAgencyData(), no arguments: by solar system its ESS's data (currentOutput, mainValue, reserveValue, vaultOpen)."),
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances": same("evedungeons/client/anomalyTracker.py:293", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetFactionWarfareInstances(), no arguments: by solar system the factional warfare complexes' KeyVals; the tracker keeps the occupier's."),
