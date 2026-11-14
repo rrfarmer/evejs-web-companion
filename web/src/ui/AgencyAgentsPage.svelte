@@ -43,7 +43,7 @@
       "UI/Common/HighSec", "UI/Common/LowSec", "UI/Common/NullSec", "UI/Agency/OnlyShowAvailableAgents", "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll",
       "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/StandingsSystem", "UI/Commands/StartConversation", "UI/Neocom/UndockBtn", "UI/Inflight/DockInStation",
       "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/AgentFinder/AgentLevel", "UI/Common/Faction", "UI/Agency/AnyFaction", "UI/Common/Corp",
-      "UI/Agency/AnyCorp", "UI/Agents/UnavailableInsufficientStandings"]);
+      "UI/Agency/AnyCorp", "UI/Agents/UnavailableInsufficientStandings", "UI/Agency/FactionWarfare/MissionRewards"]);
   });
   // AgentsFiltersCont.GetFactions / GetCorpComboOptions: "name <gray>round(standing, 2)</gray>", sorted by that label,
   // after the Any choice; the corporation combo shown once a faction is chosen, its choice reset to Any where the
@@ -53,7 +53,11 @@
   const ownerOptions = (list: readonly { id: number; standing: number }[] | undefined) =>
     (list ?? []).map((o) => ({ id: o.id, name: resolvedName($names.resolved, "owner", o.id, ""), standing: pythonRoundedText(o.standing) }))
       .sort((a, b) => (`${a.name} ${a.standing}` < `${b.name} ${b.standing}` ? -1 : `${a.name} ${a.standing}` > `${b.name} ${b.standing}` ? 1 : 0));
-  const factionOptions = $derived(ownerOptions(owners?.factions));
+  // FactionalWarfareAgentsFiltersCont: the factions appConst.factionsEmpires (sorted by their labels), no corporation
+  // combo, levels to GetMaxLevel 5 (1 to 4); its page's Information FactionWarfare/MissionRewards alone.
+  const fw = $derived(groupID === 47);
+  const EMPIRES = [500003, 500001, 500004, 500002];
+  const factionOptions = $derived(ownerOptions((owners?.factions ?? []).filter((f) => !fw || EMPIRES.includes(f.id))));
   const corpOptions = $derived(filters.factionID === ANY ? [] : ownerOptions(owners?.corporations[filters.factionID]));
   $effect(() => {
     if (filters.corporationID !== ANY && owners && !corpOptions.some((o) => o.id === filters.corporationID)) filters = { ...filters, corporationID: ANY };
@@ -102,7 +106,7 @@
     } finally { busy = false; }
   }
   const set = (patch: Partial<AgencyAgentFilters>) => { filters = { ...filters, ...patch }; };
-  const LEVELS = [HIGHEST_AVAILABLE, ANY, 1, 2, 3, 4, 5];
+  const LEVELS = $derived(fw ? [HIGHEST_AVAILABLE, ANY, 1, 2, 3, 4] : [HIGHEST_AVAILABLE, ANY, 1, 2, 3, 4, 5]);
   const DISTANCES = [DISTANCE.currentSystem, DISTANCE.two, DISTANCE.five, DISTANCE.ten, DISTANCE.any];
   const levelLabel = (v: number) => (v === HIGHEST_AVAILABLE ? word("UI/Agency/HighestAvailable") : v === ANY ? word("UI/Agency/AnyLevel") : word("UI/Agency/LevelX", { level: v }));
   const distanceLabel = (v: number) => (v === DISTANCE.currentSystem ? word("UI/Generic/CurrentSystem") : v === DISTANCE.any ? word("UI/Agency/ContentOfAnyDistance") : word("UI/Common/WithinJumps", { numJumps: v }));
@@ -123,7 +127,7 @@
       <label><span>{word("UI/Common/Faction")}</span>
         <select value={filters.factionID} onchange={(e) => set({ factionID: Number(e.currentTarget.value) })}><option value={ANY}>{word("UI/Agency/AnyFaction")}</option>
           {#each factionOptions as o (o.id)}<option value={o.id}>{o.name} {o.standing}</option>{/each}</select></label>
-      {#if filters.factionID !== ANY}
+      {#if filters.factionID !== ANY && !fw}
         <label><span>{word("UI/Common/Corp")}</span>
           <select value={filters.corporationID} onchange={(e) => set({ corporationID: Number(e.currentTarget.value) })}><option value={ANY}>{word("UI/Agency/AnyCorp")}</option>
             {#each corpOptions as o (o.id)}<option value={o.id}>{o.name} {o.standing}</option>{/each}</select></label>
@@ -134,7 +138,7 @@
     </section>
     <section class="aap-section">
       <h3>{word("UI/Common/Information")}</h3>
-      <p class="aap-info">ⓘ {word("UI/Agency/StandingsSystem")}</p>
+      <p class="aap-info">ⓘ {word(fw ? "UI/Agency/FactionWarfare/MissionRewards" : "UI/Agency/StandingsSystem")}</p>
     </section>
   </aside>
   <section class="aap-scroll aap-section">

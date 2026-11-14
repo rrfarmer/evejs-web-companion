@@ -26,7 +26,7 @@ import { shownSecurity } from "./systemSecurity.ts";
 
 /** appConst divisions and agent types the providers go by. */
 export const DIVISION = Object.freeze({ distribution: 22, mining: 23, security: 24, heraldry: 37, rd: 18 });
-export const AGENT_TYPE = Object.freeze({ basic: 2, research: 4, heraldry: 13 });
+export const AGENT_TYPE = Object.freeze({ basic: 2, research: 4, factionalWarfare: 9, heraldry: 13 });
 /** agencyConst.AGENT_STANDARDDIVISIONIDS. */
 export const STANDARD_DIVISIONS: readonly number[] = [DIVISION.security, DIVISION.mining, DIVISION.distribution, DIVISION.rd, DIVISION.heraldry];
 /** agencyConst.MAX_CONTENT_PIECES_MAX. */
@@ -47,6 +47,8 @@ export const AGENT_PROVIDERS: Readonly<Record<number, { readonly division: numbe
   26: { division: DIVISION.rd, agentType: AGENT_TYPE.research },
   27: { division: null, agentType: null, locator: true },
   71: { division: DIVISION.heraldry, agentType: AGENT_TYPE.heraldry, everywhere: true },
+  // ContentProviderFactionWarfareAgents: any standard division (the base CheckDivisionValidCriteria), the FW agent type.
+  47: { division: null, agentType: AGENT_TYPE.factionalWarfare },
 };
 
 export interface AgencyAgentSource {
@@ -196,7 +198,7 @@ export function agencyAgents(groupID: number, table: readonly AgencyAgentSource[
     const canUse = canUseAgentAtLevel(level, row.agentTypeID, effectiveStandingWithAgent({ agentID: row.agentID, corporationID, factionID }, world.standings, world.skillLevel));
     // CheckInactiveAgentGenericCriteria: the division enabled, valid, the agent type, the distance.
     if (row.divisionID === DIVISION.heraldry && !world.heraldryAvailable) continue;
-    if (provider.locator ? !row.isLocatorAgent : row.divisionID !== provider.division) continue;
+    if (provider.locator ? !row.isLocatorAgent : provider.division !== null && row.divisionID !== provider.division) continue;
     if (row.divisionID === null || !STANDARD_DIVISIONS.includes(row.divisionID)) { if (!provider.locator) continue; }
     if (provider.agentType !== null && row.agentTypeID !== provider.agentType) continue;
     if (world.here === null) continue;
