@@ -41,6 +41,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { careerIcon } from "./skillPlanIcons.ts";
+  import CareerCircle from "./CareerCircle.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { openJobBoard } from "./jobBoardRequests.ts";
   import { showCertifiedPlans } from "./skillPlanCareerRequests.ts";
@@ -98,6 +99,19 @@
   const overallProgress = $derived(overall.at(-1)?.progress ?? 0);
   const CAREER_VIDEOS: Record<number, string> = { 6: "Enforcer_Intro", 7: "SOF_Intro", 4: "Exploration_Intro", 5: "Industry_Intro" };
   let video = $state<string | null>(null);
+  // careerConst.ICON_BY_ACTIVITY_ID, in CAREER_PATH_GROUPS' order for each career.
+  const ACTIVITY_ICONS: Record<number, readonly string[]> = {
+    4: ["explorer_agent", "scanning", "hacking", "advanced_hacking", "wormholes", "gas_sites", "combat_sites", "navigation", "advanced_navigation", "project_discovery"],
+    5: ["industrialist_agent", "market", "salvaging", "explorer_agent", "refining", "industry", "industrialist_agent", "mining_agent", "research"],
+    6: ["enforcer_agent", "enforcer_agent", "abyssal_filament", "combat", "bounties", "combat_sites", "epic_arc", "market", "standings", "loyalty_points"],
+    7: ["sof_agent", "social", "electronicwarfare", "combat", "duel_pvp", "cap_warfare", "faction_warfare", "fleet_support", "destroy", "duel_pvp"],
+  };
+  const activityIcon = (c: Career, key: string) => { const i = (c.groups as readonly string[]).indexOf(key), name = ACTIVITY_ICONS[c.id]?.[i]; return name ? clientTexture(`res:/UI/Texture/classes/careerPortal/activities/${name}_32.png`) : null; };
+  // CircleViewContainer.PrepareUI: min(MAX_CIRCLE_WIDTH, the width / 2) - here the centre column's width (its own,
+  // read on a timer: a hidden page's ResizeObserver does not run).
+  let centreEl = $state<HTMLDivElement | null>(null), centreWidth = $state(0);
+  $effect(() => { const t = setInterval(() => { if (centreEl) centreWidth = centreEl.clientWidth; }, 400); return () => clearInterval(t); });
+  const circle = $derived(Math.max(220, Math.min(800, (centreWidth || 440) - 16)));
   const done = (list: readonly CareerGoal[]) => list.filter((g) => g.completed).length;
   const byOrder = (list: readonly CareerGoal[]) => [...list].sort((a, b) => (Number(a.annotations.order) || 0) - (Number(b.annotations.order) || 0));
   const activities = $derived(career ? career.groups.map((g) => ({ key: g, goals: byOrder(careerGoals(career).filter((x) => x.annotations.group === g)) })).filter((a) => a.goals.length) : []);
@@ -173,33 +187,51 @@
         </div>
       {/each}
     </aside>
-    <div class="cpw-centre">
+    <div class="cpw-centre" bind:this={centreEl}>
       {#if goals === undefined}<p class="cpw-dim">…</p>
       {:else if goals === null}<p class="cpw-dim">{word("UI/Opportunities/FailedToLoad")}</p>
       {:else if view === "CAREERS_VIEW"}
-        <div class="cpw-careers">
-          {#each CAREERS as c (c.id)}
+        <!-- CareerView: the four careers, their 128 px icons, names and goals done (CareerPointsNumFull). -->
+        <CareerCircle nodes={CAREERS} size={circle} nodeSize={Math.min(180, circle * 0.215)} offset={-Math.PI / 4} completed={CAREERS.every((c) => careerGoals(c).every((g) => g.completed))}>
+          {#snippet node(n: unknown)}
+            {@const c = n as Career}
             {@const list = careerGoals(c)}
-            <button type="button" class="cpw-career" class:on={careerID === c.id} onclick={() => go("ACTIVITIES_VIEW", c.id, null, null)}>
+            <button type="button" class="cpw-career" class:on={careerID === c.id} title={careerName(c)} onclick={() => go("ACTIVITIES_VIEW", c.id, null, null)}>
               {#if careerIcon(c.id, 128)}<img alt="" src={careerIcon(c.id, 128)} />{/if}
               <b>{careerName(c)}</b><small>{done(list)} / {list.length}</small>
             </button>
-          {/each}
-        </div>
+          {/snippet}
+          {#snippet centre()}<b class="cpw-centre-title">{word(C + "CareerPortalWnd")}</b>{/snippet}
+        </CareerCircle>
       {:else if view === "ACTIVITIES_VIEW" && career}
-        <div class="cpw-list">
-          {#each activities as a (a.key)}
-            <button type="button" class="cpw-row" class:on={activity === a.key} onclick={() => go("GOALS_VIEW", careerID, a.key, null)}>
-              <span>{groupName(career, a.key)}</span><small>{done(a.goals)} / {a.goals.length}</small></button>
-          {/each}
-        </div>
-      {:else if view === "GOALS_VIEW"}
-        <div class="cpw-list">
-          {#each activityGoals as g (g.goalID)}
-            <button type="button" class="cpw-row" class:on={goalID === g.goalID} class:done={g.completed} onclick={() => go("GOALS_VIEW", careerID, activity, g.goalID)}>
-              <span>{#if $tracked.includes(g.goalID)}👁 {/if}{g.nameID ? word(`#${g.nameID}`) : ""}</span><small>{g.progress.toLocaleString("en-US")} / {g.target.toLocaleString("en-US")}</small></button>
-          {/each}
-        </div>
+        <!-- ActivityView: the career's activities, each its ICON_BY_ACTIVITY_ID icon in a ring of dashes (one a goal, green
+             for those done) and, on hover, its name and ActivityProgressCount. -->
+        <CareerCircle nodes={activities} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activities.every((a) => a.goals.every((g) => g.completed))}>
+          {#snippet node(n: unknown)}
+            {@const a = n as (typeof activities)[number]}
+            <button type="button" class="cpw-row cpw-node" class:on={activity === a.key} class:done={a.goals.every((g) => g.completed)}
+              title={`${groupName(career, a.key)} - ${done(a.goals)} / ${a.goals.length}`} style:--done={`${(done(a.goals) / Math.max(1, a.goals.length)) * 360}deg`}
+              onclick={() => go("GOALS_VIEW", careerID, a.key, null)}>
+              {#if activityIcon(career, a.key)}<img alt="" src={activityIcon(career, a.key)} />{/if}
+              <span class="cpw-node-label">{groupName(career, a.key)}<small>{done(a.goals)} / {a.goals.length}</small></span>
+            </button>
+          {/snippet}
+          {#snippet centre()}{#if careerIcon(career.id, 128)}<img class="cpw-centre-icon" alt="" src={careerIcon(career.id, 128)} />{/if}<b class="cpw-centre-title">{careerName(career)}</b>{/snippet}
+        </CareerCircle>
+      {:else if view === "GOALS_VIEW" && career}
+        <!-- GoalView: the activity's goals, each a dot (smallDot), goalCompleted where done, the open eye where tracked. -->
+        <CareerCircle nodes={activityGoals} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activityGoals.every((g) => g.completed)}>
+          {#snippet node(n: unknown)}
+            {@const g = n as CareerGoal}
+            <button type="button" class="cpw-row cpw-node cpw-goalnode" class:on={goalID === g.goalID} class:done={g.completed}
+              title={`${g.nameID ? word(`#${g.nameID}`) : ""} - ${g.progress.toLocaleString("en-US")} / ${g.target.toLocaleString("en-US")}`}
+              onclick={() => go("GOALS_VIEW", careerID, activity, g.goalID)}>
+              <img alt="" src={clientTexture(g.completed ? "res:/UI/Texture/classes/careerPortal/circleView/goalCompleted.png" : $tracked.includes(g.goalID) ? "res:/UI/Texture/classes/careerPortal/circleView/eye_open_32.png" : "res:/UI/Texture/Shared/smallDot.png")} />
+              <span class="cpw-node-label">{$tracked.includes(g.goalID) ? "👁 " : ""}{g.nameID ? word(`#${g.nameID}`) : ""}<small>{g.progress.toLocaleString("en-US")} / {g.target.toLocaleString("en-US")}</small></span>
+            </button>
+          {/snippet}
+          {#snippet centre()}{#if activity && activityIcon(career, activity)}<img class="cpw-centre-icon small" alt="" src={activityIcon(career, activity)} />{/if}<b class="cpw-centre-title">{activity ? groupName(career, activity) : ""}</b>{/snippet}
+        </CareerCircle>
       {/if}
     </div>
     {#snippet freelance(short: boolean)}
@@ -289,11 +321,22 @@
   .cpw-body { flex: 1; display: flex; gap: 16px; min-height: 0; }
   .cpw-centre { flex: 1; overflow: auto; }
   .cpw-dim { opacity: 0.65; }
-  .cpw-careers { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  .cpw-career { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px; background: rgb(0 0 0 / 0.35); border: 1px solid transparent; }
-  .cpw-career:hover, .cpw-career.on { border-color: rgb(255 255 255 / 0.3); }
-  .cpw-career img { width: 96px; height: 96px; }
-  .cpw-list { display: flex; flex-direction: column; gap: 4px; }
+  .cpw-career { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; font-size: 12px; }
+  .cpw-career img { width: 70%; height: auto; }
+  .cpw-career:hover img, .cpw-career.on img { filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.6)); }
+  .cpw-node { position: relative; width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; align-items: center; border-left: none;
+    background: radial-gradient(circle, rgb(0 0 0 / 0.85) 62%, transparent 64%), conic-gradient(#6ab04c var(--done, 0deg), rgb(255 255 255 / 0.35) 0); }
+  .cpw-node img { width: 32px; height: 32px; }
+  .cpw-goalnode { background: rgb(0 0 0 / 0.6); }
+  .cpw-goalnode img { width: 20px; height: 20px; }
+  .cpw-node.done img { filter: hue-rotate(60deg) saturate(2); }
+  .cpw-node.on { box-shadow: 0 0 0 2px rgb(255 255 255 / 0.7); }
+  .cpw-node-label { display: none; position: absolute; top: 52px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 6px; background: rgb(0 0 0 / 0.85); font-size: 12px; z-index: 2; }
+  .cpw-node-label small { margin-left: 6px; opacity: 0.7; }
+  .cpw-node:hover .cpw-node-label, .cpw-node.on .cpw-node-label { display: block; }
+  .cpw-centre-title { display: block; font-size: 16px; }
+  .cpw-centre-icon { width: 96px; height: 96px; opacity: 0.85; }
+  .cpw-centre-icon.small { width: 48px; height: 48px; }
   .cpw-row { all: unset; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; background: rgb(0 0 0 / 0.3); border-left: 2px solid transparent; }
   .cpw-row:hover, .cpw-row.on { border-left-color: rgb(255 255 255 / 0.5); }
   .cpw-row.done small { color: #5fb85f; }
