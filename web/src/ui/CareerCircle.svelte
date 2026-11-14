@@ -13,11 +13,13 @@
   // FadeIn of its own length): a CSS animation from those, the circle's end state its own.
   // Not here: InnerCircles' ScaleUp / ScaleDown, the views fading under a hovered career node, the node hover glows.
   import type { Snippet } from "svelte";
-  let { nodes, size, nodeSize, offset, completed, node, centre, inner, enter = null }: {
+  let { nodes, size, nodeSize, offset, completed, node, centre, inner, enter = null, ring = true, glow = true }: {
     nodes: readonly unknown[]; size: number; nodeSize: number; offset: number; completed: boolean;
     node: Snippet<[unknown, number]>; centre?: Snippet;
     inner?: { readonly mask: string; readonly scale: number; readonly opacity: number };
     enter?: { readonly scale: number; readonly rotate?: number; readonly fade?: number } | null;
+    /** The outer ring and the glow fill: faded out where the career view lies behind the others (_GoToAlternateState). */
+    ring?: boolean; glow?: boolean;
   } = $props();
   import { clientTexture } from "./skillGroupIcons.ts";
   const radius = $derived((size - nodeSize) / 2);
@@ -43,11 +45,11 @@
       style:opacity={inner.opacity} style:mask-image={`url(${clientTexture(inner.mask)})`} style:-webkit-mask-image={`url(${clientTexture(inner.mask)})`}
       style:mask-size={`${100 / inner.scale}%`} style:-webkit-mask-size={`${100 / inner.scale}%`} />
   {/if}
-  <img class="cc-glow" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/circle_glow.png")} style:width={`${(size - nodeSize) * 1.33}px`} style:height={`${(size - nodeSize) * 1.33}px`} />
-  <svg class="cc-ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+  {#if glow}<img class="cc-glow" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/circle_glow.png")} style:width={`${(size - nodeSize) * 1.33}px`} style:height={`${(size - nodeSize) * 1.33}px`} />{/if}
+  {#if ring}<svg class="cc-ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
     <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={colour} stroke-opacity="0.8" stroke-width="2"
       stroke-dasharray={`${dash.seg} ${dash.gap}`} stroke-dashoffset={-dash.gap / 2} transform={`rotate(${(offset * 180) / Math.PI} ${size / 2} ${size / 2})`} />
-  </svg>
+  </svg>{/if}
   {#if centre}<div class="cc-centre">{@render centre()}</div>{/if}
   {#each nodes as n, i (i)}
     {@const p = at(i)}
