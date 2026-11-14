@@ -1152,6 +1152,31 @@ const askingItsFleetsAdvert = (args, kwargs, context) => {
     ? { status: "differs", note: "The client asks for its fleet's advert only from a session in a fleet: in none it asks nothing." }
     : {};
 };
+/**
+ * fleetSvc.AddFleetFinderAdvert (2370 to 2372): adInfoObject.GetData(), the advert's own keys and its advanced
+ * options' (evefleet/fleetAdvertObject.py 39 to 52), one dict; asked from RegisterFleet (1863 to 1871), from a
+ * session in a fleet, as its boss. A pilot in no fleet forms one with the advert instead (Init's adInfoData, 1857).
+ */
+const ADVERT_DATA_KEYS = Object.freeze(new Set(["fleetName", "description", "inviteScope", "activityValue", "useAdvanceOptions", "newPlayerFriendly",
+  "public_minStanding", "public_minSecurity", "public_allowedEntities", "public_disallowedEntities", "membergroups_minStanding", "membergroups_minSecurity",
+  "membergroups_allowedEntities", "membergroups_disallowedEntities", "joinNeedsApproval", "hideInfo", "updateOnBossChange", "advertJoinLimit"]));
+const isAdvertData = (value) => Boolean(value) && value.type === "dict" && Array.isArray(value.entries) && value.entries.length === ADVERT_DATA_KEYS.size
+  && value.entries.every((entry) => Array.isArray(entry) && ADVERT_DATA_KEYS.has(entry[0]));
+const registeringAdvert = (args, kwargs, context) => {
+  if (!(args.length === 1 && isAdvertData(args[0]) && Object.keys(kwargs).length === 0)) {
+    return { status: "differs", note: "The client sends its advert's data alone: AddFleetFinderAdvert(adInfoData), one dict of the advert's keys." };
+  }
+  return context.fleetID === null || context.fleetID === undefined
+    ? { status: "differs", note: "The client registers an advert only from a session in a fleet: in none it forms the fleet with the advert." }
+    : {};
+};
+/** fleetSvc.RemoveFleetFinderAdvert (2386 to 2387): nothing sent, from a session in a fleet whose advert is taken down. */
+const removingAdvert = (args, kwargs, context) => {
+  if (!(args.length === 0 && Object.keys(kwargs).length === 0)) return { status: "differs", note: "The client sends nothing with this call." };
+  return context.fleetID === null || context.fleetID === undefined
+    ? { status: "differs", note: "The client takes its fleet's advert down only from a session in a fleet." }
+    : {};
+};
 const leavingByName = (args, kwargs, context) => (context.holdsFleet === false && context.fleetID !== null && context.fleetID !== undefined ? {} : {
   status: "differs",
   note: "The client asks this only where it holds no object for a fleet the session is in. With the object it asks LeaveFleet of that, and in no fleet it asks nothing.",
@@ -2569,6 +2594,10 @@ const RETAIL_CALLS = Object.freeze({
   "fleetObjectHandler.Reconnect": same(`${FLEET_SVC}:1714`, "GetFleet(fleetID).Reconnect(), no arguments, on a Moniker for the fleet the connection was lost in"),
   "fleetObjectHandler.LeaveFleet": judged(`${FLEET_SVC}:369`, leavingOnTheObject, "self.fleet.LeaveFleet(), no arguments, on the fleet's object"),
   "fleetProxy.GetAvailableFleetAds": judged(`${FLEET_SVC}:1891`, sentWithNothing, "sm.ProxySvc('fleetProxy').GetAvailableFleetAds(), nothing sent: the adverts open to the session, from the fleet finder's window, the Agency's and a fleet's link. Recorded on Tranquility so, once."),
+  "fleetProxy.AddFleetFinderAdvert": judged(`${FLEET_SVC}:2372`, registeringAdvert,
+    "sm.ProxySvc('fleetProxy').AddFleetFinderAdvert(adInfoData): the advert's data, from the Agency's Fleet Up registration and the fleet window's, by the fleet's boss. It answers the advert made. No recording has one."),
+  "fleetProxy.RemoveFleetFinderAdvert": judged(`${FLEET_SVC}:2387`, removingAdvert,
+    "sm.ProxySvc('fleetProxy').RemoveFleetFinderAdvert(), nothing sent: the fleet's advert taken down (a registration made hidden, the fleet window's Remove Advert). No recording has one."),
   "fleetProxy.GetMyFleetFinderAdvert": judged(`${FLEET_SVC}:2394`, askingItsFleetsAdvert, "sm.ProxySvc('fleetProxy').GetMyFleetFinderAdvert(), nothing sent, and only from a session in a fleet (1924). No recording has one."),
   "fleetProxy.ApplyToJoinFleet": judged(`${FLEET_SVC}:1907`, applyingToOneFleet,
     "sm.ProxySvc('fleetProxy').ApplyToJoinFleet(fleetID, autoAccept): from the fleet finder and a fleet's link with False, from the Agency's join window with True. It answers True where the boss must approve and False where an invitation was made. No recording has one."),

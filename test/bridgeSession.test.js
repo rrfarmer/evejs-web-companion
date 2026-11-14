@@ -1202,7 +1202,10 @@ test("a fleet applied to and a broadcast to the bubble are writes of the page's 
   const { baseUrl } = await startTestServer({ gateway });
   await apiRequest(baseUrl, "/api/bridge/select", { method: "POST", body: { characterID: 7 } });
   for (const [service, method, args, others] of [
-    ["fleetProxy", "ApplyToJoinFleet", [654500010000, true], ["AddFleetFinderAdvert", "RemoveFleetFinderAdvert", "UpdateAdvertInfo"]],
+    ["fleetProxy", "ApplyToJoinFleet", [654500010000, true], ["UpdateAdvertInfo"]],
+    // (The advert registered and taken down are the page's own since 2026-11-14, the Agency's Fleet Up.)
+    ["fleetProxy", "AddFleetFinderAdvert", [{ type: "dict", entries: [["fleetName", "Ore"]] }], ["UpdateAdvertInfo"]],
+    ["fleetProxy", "RemoveFleetFinderAdvert", [], ["UpdateAdvertInfo"]],
     ["fleetMgr", "BroadcastToBubble", ["Target", 3, 200001, null], ["BroadcastToSystem", "ForceLeaveFleet", "AddToWatchlist", "RemoveFromWatchlist", "RegisterForDamageUpdates"]],
   ]) {
     const call = (more) => apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service, method, args, kwargs: null, ...more } });
@@ -3843,6 +3846,14 @@ test("a fleet formed is a write the page means, made as its route made it: bound
     asked.length = 0;
     const odd = await form({ pilot: true, confirm: true, args: [7], kwargs: { now: true } });
     assert.deepEqual([odd.response.status, asked], [200, THROUGH_THE_FORMING("made 3")], transport);
+    // And an advert the page formed it with (CreateAndRegisterFleet, 1857): Init's adInfoData, a dict and nothing else.
+    asked.length = 0;
+    const advert = { type: "dict", entries: [["fleetName", "Ore"]] };
+    await form({ pilot: true, confirm: true, kwargs: { adInfoData: advert } });
+    assert.deepEqual(asked[1], ["on made 4", "fleetObjectHandler", "Init", [null, null], { adInfoData: advert }], transport);
+    asked.length = 0;
+    await form({ pilot: true, confirm: true, kwargs: { adInfoData: "Ore" } });
+    assert.deepEqual(asked, THROUGH_THE_FORMING("made 5"), transport);
   }
 });
 
@@ -4226,9 +4237,10 @@ test("the fleet finder's two reads go by the generic call as a pilot's reads: ea
     assert.deepEqual([sent.service, sent.method, sent.args, sent.kwargs, sent.bridgeSessionID, sent.sessionFields], ["fleetProxy", method, [], null, BRIDGE_SESSION_ID, { userid: 4 }]);
     assert.equal(gateway.calls.call.length, before + 1, method);
   }
-  // The finder's writes are their routes' alone, but for the one application the page makes itself.
+  // The finder's writes are their routes' alone, but for the application and the advert registered and taken down,
+  // which the page makes itself (the Agency's Fleet Up, since 2026-11-14).
   const after = gateway.calls.call.length;
-  for (const method of ["AddFleetFinderAdvert", "RemoveFleetFinderAdvert", "UpdateAdvertInfo"]) {
+  for (const method of ["UpdateAdvertInfo"]) {
     const refused = await apiRequest(baseUrl, "/api/bridge/call", { method: "POST", body: { service: "fleetProxy", method, args: [], kwargs: null, pilot: true, confirm: true } });
     assert.deepEqual([refused.response.status, refused.payload.error], [403, "BRIDGE_WRITE_REFUSED"], method);
   }

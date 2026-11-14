@@ -348,13 +348,59 @@ export async function makeFleetLeader(act: Ask, characterID: number): Promise<vo
 
 /**
  * Forms a fleet, the pilot its boss. `inAFleet` is whether the pilot is in one already, as the caller knows it:
- * from there the client asks nothing, and nor does this. Fails as the call fails.
+ * from there the client asks nothing, and nor does this. Fails as the call fails. `adInfoData`, where the Agency's
+ * Fleet Up forms the fleet with its advert (fleetSvc.CreateAndRegisterFleet, 1857), goes as Init's adInfoData.
  */
-export async function formFleet(act: Ask, inAFleet: boolean): Promise<void> {
+export async function formFleet(act: Ask, inAFleet: boolean, adInfoData: JsonValue | null = null): Promise<void> {
   if (inAFleet) {
     throw new Error("You are already in a fleet.");
   }
-  await act("fleetObjectHandler", "CreateFleet", []);
+  if (adInfoData === null) await act("fleetObjectHandler", "CreateFleet", []);
+  else await act("fleetObjectHandler", "CreateFleet", [], { adInfoData });
+}
+
+/** A fleet advert's basic options, as the Agency's Fleet Up registration (BasicOptionsCont) takes them. */
+export interface FleetAdvertBasics {
+  readonly fleetName: string;
+  readonly description: string;
+  readonly activityValue: number | null;
+  readonly newPlayerFriendly: boolean;
+}
+
+/** evefleet/const: FLEETNAME_MAXLENGTH, FLEETDESC_MAXLENGTH, INVITE_PUBLIC_OPEN, and the activities fleetActivityNames names. */
+const FLEETNAME_MAXLENGTH = 32, FLEETDESC_MAXLENGTH = 250, INVITE_PUBLIC_OPEN = 16;
+const FLEET_ACTIVITIES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+const emptySet = (): JsonValue => ({ type: "objectex1", header: [{ type: "token", value: "__builtin__.set" }, [{ type: "list", items: [] }]], list: [], dict: [] });
+
+/**
+ * FleetAdvertCreationObject(fleetName, description, activityValue, inviteScope=INVITE_PUBLIC_OPEN,
+ * newPlayerFriendly, useAdvanceOptions=False).GetData() (evefleet/fleetAdvertObject.py 39 to 52; BasicOptionsCont.
+ * RegisterFleet without the advanced options): the name to 32 letters and the description to 250, an activity the
+ * client does not name None, and the advanced options' defaults (GetDefaultAdvancedOptions), the sets empty.
+ */
+export function basicAdvertData(basics: FleetAdvertBasics): JsonValue {
+  const activity = basics.activityValue !== null && FLEET_ACTIVITIES.has(basics.activityValue) ? basics.activityValue : null;
+  const entries: [string, JsonValue][] = [
+    ["fleetName", { type: "wstring", value: basics.fleetName.slice(0, FLEETNAME_MAXLENGTH) }],
+    ["description", { type: "wstring", value: basics.description.slice(0, FLEETDESC_MAXLENGTH) }],
+    ["inviteScope", INVITE_PUBLIC_OPEN],
+    ["activityValue", activity],
+    ["useAdvanceOptions", false],
+    ["newPlayerFriendly", basics.newPlayerFriendly],
+    ["public_minStanding", null],
+    ["public_minSecurity", null],
+    ["public_allowedEntities", emptySet()],
+    ["public_disallowedEntities", emptySet()],
+    ["membergroups_minStanding", null],
+    ["membergroups_minSecurity", null],
+    ["membergroups_allowedEntities", emptySet()],
+    ["membergroups_disallowedEntities", emptySet()],
+    ["joinNeedsApproval", false],
+    ["hideInfo", false],
+    ["updateOnBossChange", true],
+    ["advertJoinLimit", null],
+  ];
+  return { type: "dict", entries };
 }
 
 // --- An invitation accepted (the plan's Phase 6b) ----------------------------

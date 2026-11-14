@@ -1131,7 +1131,7 @@ export interface WalletSharesRead {
 }
 import { readAllianceFittings, readCharacterFittings, readCorporationFittings } from "../bridge/fittingReads.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
-import { acceptFleetInvite as acceptFleetInviteCall, applyToJoinFleet as applyToJoinFleetCall, createFleetBroadcasts, declineFleetInvite as declineFleetInviteCall, formFleet as formFleetCall, inviteToFleet as inviteToFleetCall, kickFleetMember as kickFleetMemberCall, leaveFleet as leaveFleetCall, makeFleetLeader as makeFleetLeaderCall, moveFleetMember as moveFleetMemberCall, tagFleetTarget, updateFleetMemberInfo as updateFleetMemberInfoCall, addToWatchlist as addToWatchlistCall, removeFromWatchlist as removeFromWatchlistCall, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
+import { acceptFleetInvite as acceptFleetInviteCall, applyToJoinFleet as applyToJoinFleetCall, basicAdvertData, createFleetBroadcasts, declineFleetInvite as declineFleetInviteCall, formFleet as formFleetCall, inviteToFleet as inviteToFleetCall, kickFleetMember as kickFleetMemberCall, leaveFleet as leaveFleetCall, makeFleetLeader as makeFleetLeaderCall, moveFleetMember as moveFleetMemberCall, tagFleetTarget, updateFleetMemberInfo as updateFleetMemberInfoCall, addToWatchlist as addToWatchlistCall, removeFromWatchlist as removeFromWatchlistCall, type FleetAdvertBasics, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { BOOKMARK_EXPIRY, bookmarkScanResult as bookmarkScanResultCall, addFolder as addFolderCall, addToKnownFolders as addToKnownFoldersCall, copyBookmarks as copyBookmarksCall, moveBookmarks as moveBookmarksCall, removeFromKnownFolders as removeFromKnownFoldersCall, type MovedOrCopied, bookmarkLocation as bookmarkLocationCall, bookmarkStaticLocation as bookmarkStaticLocationCall, createSubfolder as createSubfolderCall, updateFolder as updateFolderCall, type FolderAccess, deleteBookmarks as deleteBookmarksCall, deleteFolder as deleteFolderCall, deleteSubfolder as deleteSubfolderCall, setFolderActive as setFolderActiveCall, updateBookmark as updateBookmarkCall, updateSubfolder as updateSubfolderCall } from "../bridge/bookmarkWrites.ts";
 import { giveIskFromWallet as giveIskFromWalletCall, giveMoney as giveMoneyCall, transferValue, transferReason } from "../bridge/giveMoney.ts";
 import { afterArriving, destinationValid, isPlayerItemID, isWaypointPlace, keepWaypoints, movedWaypoint, readWaypoints, withWaypoint, withoutWaypoint, type DestinationFacts, type PilotPlace } from "../nav/waypoints.ts";
@@ -3756,6 +3756,18 @@ export interface AppFlow {
    * pilot's fleet, whether the pilot is its boss (fleetJobCreator) and whether it is registered (options.isRegistered).
    * Null where the adverts could not be read.
    */
+  /**
+   * The Agency's Fleet Up registration (BasicOptionsCont.LoadData): whether the pilot is in a fleet, its boss, and
+   * its fleet registered, and the fleet's advert where it is (GetCurrentAdvertForMyFleet: GetMyFleetFinderAdvert).
+   */
+  agencyFleetRegistration(): Promise<{ readonly inFleet: boolean; readonly isBoss: boolean; readonly registered: boolean; readonly advert: FleetAdvert | null }>;
+  /**
+   * BasicOptionsCont.RegisterFleet and fleetSvc.CreateAndRegisterFleet (1850 to 1861): in a fleet, the advert
+   * registered (AddFleetFinderAdvert, its boss only: FleetNotCreator otherwise) or, made hidden (null), taken down
+   * where it was registered; in none, the fleet formed with the advert, or with none. A refusal is said in the
+   * client's dialog. True where it was made.
+   */
+  agencyRegisterFleet(advert: FleetAdvertBasics | null): Promise<boolean>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
@@ -20093,6 +20105,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sayDialog("CustomInfo", { type: "dict", entries: [["info", text]] } as JsonValue, text);
     return false;
   }
+  function fleetStanding(): { readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } {
+    const bound = store.fleet.get().fleet, online = store.station.get().online;
+    const fleetID = bound && !bound.sessionHasNoFleet && bound.fleetID !== null ? Number(bound.fleetID) : null;
+    const me = fleetID !== null ? bound?.initState.value?.members.find((m) => Number(m.charID) === online?.characterID) ?? null : null;
+    return { fleetID, isBoss: Boolean(me && (me.job & FLEET_JOB_CREATOR)), registered: Boolean(fleetID !== null && bound?.initState.value?.options.isRegistered) };
+  }
+  async function agencyFleetRegistration(): Promise<Awaited<ReturnType<AppFlow["agencyFleetRegistration"]>>> {
+    await loadFleet(fleetDetailViews === 0).catch(() => undefined);
+    const { fleetID, isBoss, registered } = fleetStanding();
+    const advert = registered ? await bridgeAsk("fleetProxy", "GetMyFleetFinderAdvert", []).then(decodeMyFleetFinderAdvert).catch(() => null) : null;
+    return { inFleet: fleetID !== null, isBoss, registered, advert };
+  }
+  async function agencyRegisterFleet(advert: FleetAdvertBasics | null): Promise<boolean> {
+    const { fleetID, isBoss, registered } = fleetStanding();
+    if (fleetID === null) {
+      await runFleetAction("form", () => formFleetCall(bridgeDo, false, advert ? basicAdvertData(advert) : null), "ready");
+      return store.fleet.get().actionError === null;
+    }
+    if (advert && !isBoss) {
+      // RegisterFleet: raise UserError('FleetNotCreator').
+      sayDialog("FleetNotCreator", null, "Only the fleet's boss can do that.");
+      return false;
+    }
+    try {
+      if (advert) await bridgeDo("fleetProxy", "AddFleetFinderAdvert", [basicAdvertData(advert)]);
+      else if (registered) await bridgeDo("fleetProxy", "RemoveFleetFinderAdvert", []);
+    } catch (error) {
+      sayRefusalDialog(error, `The fleet's advert was refused. ${errorWords(error)}`);
+      return false;
+    } finally {
+      await loadFleet(fleetDetailViews === 0).catch(() => undefined);
+    }
+    return true;
+  }
   async function agencyFleetUp(): Promise<Awaited<ReturnType<AppFlow["agencyFleetUp"]>>> {
     const ads = await bridgeAsk("fleetProxy", "GetAvailableFleetAds", []).then((v) => decodeAvailableFleetAds(v).filter((ad) => ad.fleetID !== null && ad.fleetID > 0)).catch(() => null);
     if (ads === null) return null;
@@ -20113,11 +20159,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (fromJita === undefined) fromJita = await autopilotDistancesFrom(30000142).catch(() => null);
       noRoute[String(id)] = id === 30000142 || fromJita?.has(id) ? "UI/Generic/NoGateToGateRoute" : "UI/Generic/Unreachable";
     }
-    const bound = store.fleet.get().fleet, online = store.station.get().online;
-    const fleetID = bound && !bound.sessionHasNoFleet && bound.fleetID !== null ? Number(bound.fleetID) : null;
-    const me = fleetID !== null ? bound?.initState.value?.members.find((m) => Number(m.charID) === online?.characterID) ?? null : null;
-    return { ads, jumps, noRoute, nowTicks: BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n, fleetID,
-      isBoss: Boolean(me && (me.job & FLEET_JOB_CREATOR)), registered: Boolean(fleetID !== null && bound?.initState.value?.options.isRegistered) };
+    return { ads, jumps, noRoute, nowTicks: BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n, ...fleetStanding() };
   }
   let systemPlanetsHeld: Awaited<ReturnType<typeof api.loadSystemPlanets>> = null;
   async function agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<Awaited<ReturnType<AppFlow["agencyPlanetaryProduction"]>>> {
@@ -34105,6 +34147,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyHelpVideos,
     agencyCorpStandings,
     agencyFleetUp,
+    agencyFleetRegistration,
+    agencyRegisterFleet,
     agencyColonyResources,
     agencyIncursion,
     factionWarfareLocal,

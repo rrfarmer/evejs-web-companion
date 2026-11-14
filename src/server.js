@@ -1392,7 +1392,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       // (Or a member kicked, or the boss handed on, on the session's own fleet's object: fleetSvc.KickMember and
       // MakeLeader, 601 to 612.)
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => (body.method === "CreateFleet"
-        ? createFleetCall(heldBridgeSession, req.webSessionID)
+        ? createFleetCall(heldBridgeSession, req.webSessionID, body.kwargs && typeof body.kwargs === "object" ? body.kwargs.adInfoData : null)
         : body.method === "LeaveFleet"
         ? leaveFleetCall(heldBridgeSession, req.webSessionID, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)
         : boundCall(heldBridgeSession, req.webSessionID, fleetBindSpec(), body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null))), service: body.service, method: body.method }
@@ -5965,7 +5965,7 @@ async function leaveFleetCall(held, webSessionID, args = [], kwargs = null) {
  * fleetInit), and through the gateway the server takes the session's. Whatever comes of it, none of the BFF's
  * handles for a fleet is kept: the pilot's fleet is another one now, or may be.
  */
-async function createFleetCall(held, webSessionID) {
+async function createFleetCall(held, webSessionID, adInfoData = null) {
   const bindSpec = {
     key: `fleet-create:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     service: "fleetObjectHandler",
@@ -5974,7 +5974,10 @@ async function createFleetCall(held, webSessionID) {
     kwargs: null,
   };
   try {
-    return await boundCall(held, webSessionID, bindSpec, "Init", [null, null], null);
+    // CreateAndRegisterFleet (1857): Init's adInfoData, the advert's data where the pilot formed the fleet with one
+    // (the Agency's Fleet Up); nothing said otherwise. Only a dict goes: anything else is none.
+    const advert = adInfoData && typeof adInfoData === "object" && adInfoData.type === "dict" ? adInfoData : null;
+    return await boundCall(held, webSessionID, bindSpec, "Init", [null, null], advert ? { adInfoData: advert } : null);
   } finally {
     invalidateFleetBoundHandles(held);
   }
