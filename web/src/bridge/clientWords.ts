@@ -337,6 +337,9 @@ function renderToken(token: TemplateToken, args: TemplateArguments, context: For
     case "npcorganization":
     case "location": {
       const id = idOf(given);
+      // A bare npcOrganization (no property) is its number: the install's English texts have it nine times, every one
+      // inside a <url=showinfo:...//{[npcOrganization]ownerID}> link whose words are its .name (529886, 530146).
+      if (token.type === "npcorganization" && !token.property) { text = id === null ? "" : String(id); break; }
       const kind = id === null ? null : nameKindOf(token, id);
       const name = id === null || kind === null ? "" : context.nameOf(kind, id);
       text = token.property === "nameWithArticle" && name !== "" ? withArticle(name) : name;

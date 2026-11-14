@@ -5,6 +5,7 @@
   // bot, and no bot is mounted. Docked, the station's Undock; in space, the SpaceView with its HUD, overview and
   // brackets. The Neocom opens the app's panels (PanelHost) in client-look windows (DesktopWindow).
   import { onDestroy } from "svelte";
+  import { marketDetailsTarget } from "./marketDetails.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers } from "../app/api.ts";
@@ -430,6 +431,17 @@
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) { wins = openFly(wins, tab); raiseApp(tab); }
+  // A type's market details asked for from outside the market window (marketDetails.ts, marketutils.ShowMarketDetails):
+  // the market window opened, as the workspace opens it; the window takes the type. Watched by the counter, so asking
+  // twice for the same type brings the window back.
+  let servedMarketRequests = marketDetailsTarget.requests.get();
+  const marketRequests = marketDetailsTarget.requests;
+  $effect(() => {
+    const count = $marketRequests;
+    if (count === servedMarketRequests) return;
+    servedMarketRequests = count;
+    open("market");
+  });
   /** The Drones window's title with how many are out of how many (the client's "Drones 0/5"). */
   /**
    * The windows' captions as the client's (each window class's default_captionLabelPath), the install's words: the probe
