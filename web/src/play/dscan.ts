@@ -82,6 +82,8 @@ function writeSetting(name: string, value: number): void {
 }
 /** settings.char.ui directionalScannerShowCone (IsDscanConeShown, default True): the cone in the solar system map. */
 const SHOW_CONE_KEY = "evejs.play.directionalScannerShowCone";
+/** settings.char.ui directionalScannerMode: SCANMODE_TARGET 1 (the default), SCANMODE_CAMERA 2 (align with camera). */
+const SCAN_MODE_KEY = "evejs.play.directionalScannerMode";
 /** settings.user.ui scanner_presetInUse: the scanner's own preset, none for the active overview's. */
 const PRESET_KEY = "evejs.play.scanner_presetInUse";
 /** inventorycommon groupCloud: hidden from the scan's rows but for a GM / world mod (UpdateScroll). */
@@ -199,6 +201,16 @@ export class DScanWindow {
     const heads = this.window.body.querySelectorAll<HTMLButtonElement>(".dscan-ic");
     const mapBtn = heads[2];
     if (mapBtn && hooks.openMap) { mapBtn.disabled = false; mapBtn.addEventListener("click", () => hooks.openMap?.()); }
+    // OnAlignWithCameraBtn: ToggleScanMode, the button selected in SCANMODE_CAMERA (UpdateAlignWithCameraBtn)
+    const alignBtn = heads[0];
+    if (alignBtn) {
+      alignBtn.disabled = false;
+      alignBtn.classList.toggle("on", this.cameraMode());
+      alignBtn.addEventListener("click", () => {
+        try { localStorage.setItem(SCAN_MODE_KEY, this.cameraMode() ? "1" : "2"); } catch { /* not kept */ }
+        alignBtn.classList.toggle("on", this.cameraMode());
+      });
+    }
     const coneBtn = heads[1];
     if (coneBtn) {
       coneBtn.disabled = false;
@@ -219,13 +231,15 @@ export class DScanWindow {
   }
 
   private showUnit: () => void = () => {};
+  /** GetActiveScanMode() == SCANMODE_CAMERA. */
+  cameraMode(): boolean { try { return localStorage.getItem(SCAN_MODE_KEY) === "2"; } catch { return false; } }
   /** IsDscanConeShown: kept, true by default. */
   coneShown(): boolean { try { return localStorage.getItem(SHOW_CONE_KEY) !== "0"; } catch { return true; } }
   /** The scan's angle (degrees) and range (metres) as the window has them now (GetScanAngle, GetScanRangeInMeters). */
-  coneState(): { angleDeg: number; rangeMetres: number; shown: boolean } {
+  coneState(): { angleDeg: number; rangeMetres: number; shown: boolean; cameraMode: boolean } {
     const angleDeg = ANGLES[Number(this.angle.value)] ?? 90;
     const au = Math.min(this.maxRangeAU(), Math.max(MIN_RANGE_M / AU, Number(this.rangeSlider.value) || this.maxRangeAU()));
-    return { angleDeg, rangeMetres: au * AU, shown: this.coneShown() };
+    return { angleDeg, rangeMetres: au * AU, shown: this.coneShown(), cameraMode: this.cameraMode() };
   }
   /** GetMaxRangeAU: the ship's maxDirectionalScanRange, else _MAX_RANGE_AU. */
   private maxRangeAU(): number {

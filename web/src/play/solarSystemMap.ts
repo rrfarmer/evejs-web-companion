@@ -28,6 +28,9 @@
 //   d x cos(half), radius tan(half) x that); under 360 a half sphere of the range; 360 a sphere; COLOR_DSCAN (0.225,
 //   0.75, 0.5); hidden where directionalScannerShowCone is off. Our own geometry in those proportions (the .red
 //   models are not extracted).
+// - Align with camera (SCANMODE_CAMERA; OnCameraUpdate): while the map is open the cone turns with the map's camera
+//   and the space camera is turned to look the same way (AlignSpaceCameraToViewVector); entering it the map's point
+//   of interest goes to the ship (LookAtEgoMarker) over GetRotationDurationFromVectors' 0.2 .. 0.5 s.
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -65,7 +68,9 @@ export interface SolarSystemMapHooks {
   word?(label: string): string | null;
   /** The directional scan's angle and range, where its window is, the way it looks (EVE's coordinates) and whether
    * its cone is shown; null without a scanner. */
-  dscanCone?(): { angleDeg: number; rangeMetres: number; direction: { x: number; y: number; z: number }; shown: boolean } | null;
+  dscanCone?(): { angleDeg: number; rangeMetres: number; direction: { x: number; y: number; z: number }; shown: boolean; cameraMode?: boolean } | null;
+  /** AlignSpaceCameraToViewVector: the space camera turned to look along the direction (the map's / space view's axes). */
+  aimSpaceCamera?(direction: THREE.Vector3): void;
 }
 
 const COLOR_DSCAN = new THREE.Color(0.225, 0.75, 0.5);
@@ -125,6 +130,10 @@ export class SolarSystemMapWindow {
   /** mapCamera's pitch: 0.01 from straight above .. pi / 2 level. */
   private pitch = 1.0;
   private pitchTween: { from: number; to: number; start: number; duration: number } | null = null;
+  /** The camera's point of interest (the sun's, the ship's in align-with-camera mode), and its move there. */
+  private readonly poi = new THREE.Vector3();
+  private poiTween: { from: THREE.Vector3; start: number; duration: number } | null = null;
+  private wasCameraMode = false;
   private distance = 100;
   private frame = 0;
   private detached = false;
@@ -289,17 +298,30 @@ export class SolarSystemMapWindow {
     const ego = this.hooks.ego();
     this.egoMarker.visible = ego !== null;
     if (ego) this.egoMarker.position.copy(mapPoint(ego));
-    this.updateCone(ego);
     if (this.pitchTween) {
       const t = Math.min(1, (performance.now() - this.pitchTween.start) / this.pitchTween.duration);
       const eased = t * t * (3 - 2 * t);
       this.pitch = this.pitchTween.from + (this.pitchTween.to - this.pitchTween.from) * eased;
       if (t >= 1) this.pitchTween = null;
     }
+    // the point of interest: the ship's in align-with-camera mode (LookAtEgoMarker), the sun's otherwise
+    const cameraMode = this.hooks.dscanCone?.()?.cameraMode === true && ego !== null;
+    const target = cameraMode && ego ? mapPoint(ego) : new THREE.Vector3();
+    if (cameraMode !== this.wasCameraMode) {
+      this.wasCameraMode = cameraMode;
+      this.poiTween = { from: this.poi.clone(), start: performance.now(), duration: 350 };
+    }
+    if (this.poiTween) {
+      const t = Math.min(1, (performance.now() - this.poiTween.start) / this.poiTween.duration);
+      this.poi.lerpVectors(this.poiTween.from, target, t * t * (3 - 2 * t));
+      if (t >= 1) this.poiTween = null;
+    } else this.poi.copy(target);
     // the pitch from straight above: the camera's height the cosine, its reach out the sine
     const out = Math.sin(this.pitch);
-    this.camera.position.set(Math.sin(this.yaw) * out * this.distance, Math.cos(this.pitch) * this.distance, Math.cos(this.yaw) * out * this.distance);
-    this.camera.lookAt(0, 0, 0);
+    this.camera.position.set(Math.sin(this.yaw) * out * this.distance, Math.cos(this.pitch) * this.distance, Math.cos(this.yaw) * out * this.distance).add(this.poi);
+    this.camera.lookAt(this.poi);
+    this.camera.updateMatrixWorld();
+    this.updateCone(ego);
     this.renderer.render(this.scene, this.camera);
     // the markers on their map points (behind the camera: hidden)
     const v = new THREE.Vector3();
@@ -353,7 +375,9 @@ export class SolarSystemMapWindow {
       }
     }
     this.coneGroup.position.copy(mapPoint(ego));
-    const dir = mapPoint(cone.direction).normalize();
+    // SCANMODE_CAMERA with the map open: the map camera's look, and the space camera turned to it
+    const dir = cone.cameraMode && this.isOpen ? this.camera.getWorldDirection(new THREE.Vector3()) : mapPoint(cone.direction).normalize();
+    if (cone.cameraMode && this.isOpen) this.hooks.aimSpaceCamera?.(dir.clone());
     if (dir.lengthSq() > 0) this.coneGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   }
 
@@ -362,6 +386,8 @@ export class SolarSystemMapWindow {
     return { all: this.markers.length, shown: this.markers.filter((m) => m.el.style.display !== "none").length };
   }
 
+  /** The camera's point of interest, for checks. */
+  get pointOfInterest(): THREE.Vector3 { return this.poi.clone(); }
   /** The camera's distance from the point of interest, in the map's units. */
   get cameraDistance(): number { return this.distance; }
 }

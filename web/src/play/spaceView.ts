@@ -528,6 +528,12 @@ export class SpaceView {
         return e ? `${this.actions.locationName?.(itemID) ?? this.nameOf(e)} ${distanceWords(this.distanceTo(e))}` : "";
       },
       primeNames: (itemIDs) => this.actions.primeLocations?.(itemIDs),
+      // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
+      aimSpaceCamera: (direction) => {
+        const dist = this.camera.position.distanceTo(this.controls.target);
+        this.camera.position.copy(this.controls.target).addScaledVector(direction.normalize(), -dist);
+        this.controls.update();
+      },
       // the scan's shape: the d-scan window's angle and range, the way the space camera looks (GetScanDirection)
       dscanCone: () => {
         const state = this.dscan?.coneState() ?? null;
