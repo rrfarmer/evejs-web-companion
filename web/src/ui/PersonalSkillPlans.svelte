@@ -107,6 +107,7 @@
   } from "../bridge/skillPlans.ts";
   import { milestoneLastSkillIndex, type MilestoneEntry } from "../bridge/skillPlanMilestones.ts";
   import { LEVEL_BUTTON_HINTS, levelButtonOff, type LevelButtonState } from "../bridge/skillPlanLevelButton.ts";
+  import { serveSkillPlanCareerRequest, skillPlanCareerRequests } from "./skillPlanCareerRequests.ts";
   import { CAREER_PATH_INDUSTRIALIST, PLAN_ID_AIR, certifiedPlanUuid, certifiedPlansShown, empireFactions } from "../bridge/certifiedSkillPlans.ts";
   import type { CertifiedPlanEntry, CorpPlanEntry, GatewayNotice, SkillPlanLinkFollowed } from "../app/flow.ts";
   import { LINK_DRAG_TYPE, skillPlanUrl } from "../bridge/skillPlanLink.ts";
@@ -273,6 +274,16 @@
     }
   }
 
+  // SkillPlanDockablePanel.ShowCertifiedPlans(careerID), asked from the Career Portal (skillPlanCareerRequests): the
+  // certified plans panel with that career path chosen.
+  $effect(() => skillPlanCareerRequests.subscribe((asked) => {
+    if (!asked) return;
+    serveSkillPlanCareerRequest(asked.n);
+    choosePanel("certified");
+    try { localStorage.setItem(CAREER_KEY, String(asked.careerPathID)); } catch { /* chosen below where it can be */ }
+    if (certified) chooseCareer(asked.careerPathID);
+    else careerPathID = null;
+  }));
   /** OnCareerPathTabGroup: the pilot's race's faction chosen with it; none for the Industrialist. */
   function chooseCareer(id: number): void {
     careerPathID = id;

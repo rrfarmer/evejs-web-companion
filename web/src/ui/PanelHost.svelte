@@ -163,7 +163,7 @@
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
 {:else if tab === "careerPortal"}
-  <CareerPortalWindow {store} {flow} />
+  <CareerPortalWindow {store} {flow} onOpenAgency={() => onOpen?.("finder")} />
 {:else if tab === "locationSearch"}
   <LocationSearchWindow {store} {flow} />
 {:else if tab === "jobBoard"}

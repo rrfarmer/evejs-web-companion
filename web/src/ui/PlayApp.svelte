@@ -31,6 +31,7 @@
   import { showInfoRequests } from "./showInfo.ts";
   import { jobBoardRequests } from "./jobBoardRequests.ts";
   import { careerPortalRequests } from "./careerPortalRequests.ts";
+  import { skillPlanCareerRequests } from "./skillPlanCareerRequests.ts";
   import { locationSearchRequests } from "./locationSearchRequests.ts";
   import { notify } from "./notices.ts";
   import { orderableDroneIDs } from "./droneFlight.ts";
@@ -281,6 +282,7 @@
   // The route panel's search (GetResultsInNewWindow): the search results window, which takes the request.
   $effect(() => locationSearchRequests.subscribe((request) => { if (request) open("locationSearch"); }));
   $effect(() => careerPortalRequests.subscribe((n) => { if (n) open("careerPortal"); }));
+  $effect(() => skillPlanCareerRequests.subscribe((request) => { if (request) open("skills"); }));
 
   // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with
   // its window icons): those the play mode has a window for.

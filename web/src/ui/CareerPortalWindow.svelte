@@ -28,8 +28,14 @@
   // The footer (globalProgress.GlobalProgress): UI/CareerPortal/OverallProgress and the progress bar - the last overall
   // goal's progress of the greatest overall target, a marker at each overall goal with rewards (its target's share),
   // its hint OverallCareerPoints {currentPoints, totalPoints}.
-  // Not here (later parts): the circle view's drawing and animation, the goal view's Aura video panel, the fanfare, the
-  // background, sounds.
+  // GOALS_VIEW with no goal of the activity chosen: AuraVideoAssistancePanel - UI/CareerPortal/HelpVideos, the
+  // activity's goals' distinct videos (AgencyHelpVideosFSDLoader by videoID; NoVideosAvailable where none has one),
+  // and the freelance jobs. A goal chosen: the goal's panel and AuraGoalPanel - the Aura icon and
+  // AuraAssistancePanelTitle, the goal's aura text, its video's button, its agency link (agencyLinkTextID, to
+  // agencyScreen's content group: here the Agency window), and the freelance jobs.
+  // AuraAssistanceOpenSkillPlanButton: OpenSkillPlanWindow(careerID) - the skills window's certified plans of the career.
+  // Not here (later parts): the circle view's drawing and animation, the help videos themselves (no goal of this build
+  // has a videoID), the agency's content groups, the fanfare, the background, sounds.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CareerGoal } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -37,7 +43,8 @@
   import { careerIcon } from "./skillPlanIcons.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { openJobBoard } from "./jobBoardRequests.ts";
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  import { showCertifiedPlans } from "./skillPlanCareerRequests.ts";
+  let { store, flow, onOpenAgency }: { store: ClientStore; flow: AppFlow; onOpenAgency?: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -100,6 +107,8 @@
     flow.requestWords([C + "CareerPortalWnd", C + "RewardsHeader", "UI/Common/Information", C + "Threat", C + "GoalDuration", C + "TrackGoal", C + "UntrackGoal", C + "GoalCompleted", "UI/Commands/Back",
       ...[0, 1, 2, 3].map((t) => `${C}Threat${t}`),
       ...CAREERS.flatMap((c) => c.groups.map((g) => `Character/CareerGoals/${c.key}/GroupNames/${g}`)),
+      C + "HelpVideos", C + "NoVideosAvailable",
+      ...(goal ? [Number(goal.annotations.auraTextID) || null, Number(goal.annotations.agencyLinkTextID) || null].filter((x): x is number => !!x).map((x) => `#${x}`) : []),
       ...Object.values(careerTexts).flatMap((t) => [t.nameID, t.descriptionID]).filter((x): x is number => !!x).map((x) => `#${x}`),
       C + "AuraAssistancePanelTitle", C + "AuraAssistanceFreelanceJobsTitle", C + "AuraAssistanceFreelanceJobsText", C + "OpenFreelanceJobs", "UI/Corporations/FreelanceProjects/FreelanceJobsAOFeatureDescription",
       C + "AuraAssistanceCareerAgentMissionsTitle", C + "AuraAssistanceCareerAgentsText", C + "AuraAssistanceSkillPlansTitle", C + "AuraAssistanceSkillPlansText", C + "AuraAssistanceOpenSkillPlanButton",
@@ -217,12 +226,19 @@
           <h3>{word(C + "AuraAssistancePanelTitle")}</h3>
           <h4>{word(C + "AuraAssistanceCareerAgentMissionsTitle")}</h4><p>{word(C + "AuraAssistanceCareerAgentsText", { careerPathName: cname })}</p><hr />
           <h4>{word(C + "AuraAssistanceSkillPlansTitle")}</h4><p>{word(C + "AuraAssistanceSkillPlansText")}</p>
-          <button type="button" class="cpw-ghost" disabled>{word(C + "AuraAssistanceOpenSkillPlanButton", { careerPathName: cname })}</button><hr />
+          <button type="button" class="cpw-ghost" onclick={() => showCertifiedPlans(career.id)}>{word(C + "AuraAssistanceOpenSkillPlanButton", { careerPathName: cname })}</button><hr />
           {@render freelance(true)}
         </aside>
       </div>
     {/if}
+    {#if view === "GOALS_VIEW" && !goal}
+      <aside class="cpw-goal cpw-aura"><h3>{word(C + "AuraAssistancePanelTitle")}</h3>
+        <h4>{word(C + "HelpVideos")}</h4>
+        {#if !activityGoals.some((g) => Number(g.annotations.videoID))}<p>{word(C + "NoVideosAvailable")}</p>{/if}<hr />
+        {@render freelance(true)}</aside>
+    {/if}
     {#if view === "GOALS_VIEW" && goal}
+      <div class="cpw-side">
       <aside class="cpw-goal">
         <h3>{goal.nameID ? word(`#${goal.nameID}`) : ""}</h3>
         <p>{goal.descriptionID ? word(`#${goal.descriptionID}`) : ""}</p>
@@ -240,6 +256,13 @@
             {$tracked.includes(goal.goalID) ? word(C + "UntrackGoal") : word(C + "TrackGoal")}</button>{/if}
         </div>
       </aside>
+      <aside class="cpw-goal cpw-aura">
+        <div class="cpw-title"><img alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_icon_32x32.png")} /><h3>{word(C + "AuraAssistancePanelTitle")}</h3></div>
+        {#if Number(goal.annotations.auraTextID)}<p class="cpw-aura-text">{word(`#${goal.annotations.auraTextID}`)}</p>{/if}
+        {#if Number(goal.annotations.agencyLinkTextID)}<button type="button" class="cpw-ghost" onclick={() => onOpenAgency?.()}>{word(`#${goal.annotations.agencyLinkTextID}`)}</button>{/if}
+        <hr />{@render freelance(true)}
+      </aside>
+      </div>
     {/if}
   </div>
   {#if goals && overallTarget > 0}
@@ -295,6 +318,7 @@
   .cpw-reward-top b { flex: 1; }
   .cpw-reward-goal { padding: 4px 8px; font-size: 12px; opacity: 0.7; background: rgb(0 0 0 / 0.5); }
   .cpw-omega { color: #e6a23c; }
+  .cpw-aura-text { font-size: 14px !important; }
   .cpw-side { display: flex; flex-direction: column; gap: 16px; width: 320px; flex: none; overflow: auto; }
   .cpw-side .cpw-goal { width: auto; }
   .cpw-aura { border-left: 2px solid rgb(166 110 224 / 0.8); }
