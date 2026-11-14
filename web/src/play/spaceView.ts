@@ -34,7 +34,7 @@ import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
 import { DScanWindow } from "./dscan.ts";
-import { SolarSystemMapWindow, MARKER_GROUPS } from "./solarSystemMap.ts";
+import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
 import { Neocom } from "./neocom.ts";
 import { bracketIcon, loadBrackets } from "./brackets.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
@@ -117,6 +117,8 @@ export interface SpaceActions {
   locationName?(itemID: number): string | null;
   /** The pilot's active probes as the scanner has them (its operations), or none. */
   probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
+  /** The probe scan's results shown in the session's system (the solar system map's UpdateScanResult). */
+  scanResults?(): readonly MapScanResult[];
   /** The solar system map's probe move (RegisterProbeMove): each probe given its destination. */
   moveProbes?(moves: readonly { probeID: number; destination?: [number, number, number]; rangeStep?: number | undefined }[]): Promise<void>;
   /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
@@ -538,6 +540,7 @@ export class SpaceView {
         return ball ? { ...p, pos: [ball.position.x, ball.position.y, ball.position.z] as const } : p;
       }),
       moveProbes: (moves) => this.actions.moveProbes?.(moves),
+      scanResults: () => this.actions.scanResults?.() ?? [],
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
       aimSpaceCamera: (direction) => {
         const dist = this.camera.position.distanceTo(this.controls.target);

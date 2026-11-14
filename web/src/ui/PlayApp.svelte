@@ -5,6 +5,7 @@
   // bot, and no bot is mounted. Docked, the station's Undock; in space, the SpaceView with its HUD, overview and
   // brackets. The Neocom opens the app's panels (PanelHost) in client-look windows (DesktopWindow).
   import { onDestroy } from "svelte";
+  import { splitResults } from "../bridge/probeResults.ts";
   import { marketDetailsTarget } from "./marketDetails.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
@@ -638,6 +639,12 @@
         return operations.status === "ready" ? operations.value.probes : [];
       },
       moveProbes: (moves) => s.flow.moveScannerProbes(moves),
+      // scanHandler.GetResults: the session's system's results less the ignored and the filtered
+      scanResults: () => {
+        const held = s.store.scanner.get().probeResults;
+        if (held === null) return [];
+        return splitResults(held.results, new Set(held.ignored.map((result) => result.id)), held.filter).shown;
+      },
       primeLocations: (itemIDs) => s.flow.requestNames(itemIDs.map((id) => ({ kind: "evelocation" as const, id }))),
       locationName: (itemID) => {
         const name = s.store.names.get().resolved[nameKey("evelocation", itemID)];

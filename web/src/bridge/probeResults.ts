@@ -4,9 +4,10 @@
 // the session's solar system (scanHandlerBySystem, one for each system the session has been in): each probe idle,
 // the scan over, the results registered in its ResultsHistory, the absent targets' results cleared
 // (probescanning/scanHandler.py 46 to 58). Each result is a KeyVal: id, scanGroupID, groupID, typeID,
-// strengthAttributeID, dungeonID, dungeonNameID, archetypeID, factionID, itemID, difficulty, certainty, data (the
-// place where it is perfect, a tuple; else a deviation, a float, with pos the guess) and pos. EveJS sends these.
-// Tranquility's recordings have no probe scan.
+// strengthAttributeID, dungeonID, dungeonNameID, archetypeID, factionID, itemID, difficulty, certainty, data and pos.
+// The data is a place (a tuple: perfect, or one probe's point), a deviation (a float, with pos the guess: one probe), a
+// circle (a KeyVal of point, radius and normal: two probes) or two places (a list: three) - Tranquility's recordings
+// (Probe scanning - 10 sites to 100%: 17 tuples, 6 floats, 6 KeyVals, 7 lists). EveJS sends the tuple and the float.
 //
 // THE HISTORY (probescanning/results.py). Each scan counts one. A result takes what an entry says, unless it is
 // cached: an exploration site (a signature or an anomaly) once perfect stays as it was. Its certainty is kept by the
@@ -129,6 +130,12 @@ export const PROBE_RESULT_WORD_LABELS: readonly string[] = [
 ];
 
 export type Vec3 = readonly [number, number, number];
+/** A result's circle (two probes): its centre, its radius and the normal of its plane. */
+export interface ResultCircle { readonly point: Vec3; readonly radius: number; readonly normal: Vec3 }
+/** The data is a place. */
+export const isPlace = (data: ProbeResultEntry["data"]): data is Vec3 => Array.isArray(data) && data.length === 3 && typeof data[0] === "number";
+/** The data is a circle. */
+export const isCircle = (data: ProbeResultEntry["data"]): data is ResultCircle => data !== null && typeof data === "object" && !Array.isArray(data);
 
 /** One result as the server sends it. */
 export interface ProbeResultEntry {
@@ -144,8 +151,8 @@ export interface ProbeResultEntry {
   readonly itemID: number | null;
   readonly difficulty: number | null;
   readonly certainty: number;
-  /** A tuple: the place; a float: the deviation; a list of places; null for anything else. */
-  readonly data: Vec3 | number | readonly Vec3[] | null;
+  /** A tuple: the place; a float: the deviation; a KeyVal: the circle; a list of places; null for anything else. */
+  readonly data: Vec3 | number | ResultCircle | readonly Vec3[] | null;
   readonly pos: Vec3 | null;
 }
 
@@ -187,6 +194,13 @@ function dataOf(value: JsonValue | undefined): ProbeResultEntry["data"] {
     const places = list.map((item) => vectorOf(item)).filter((place): place is Vec3 => place !== null);
     return places;
   }
+  // A KeyVal of point, radius and normal: a circle.
+  const point = vectorOf(readKeyVal(value ?? null, "point"));
+  if (point !== null) {
+    const radius = numberOf(readKeyVal(value ?? null, "radius"));
+    const normal = vectorOf(readKeyVal(value ?? null, "normal"));
+    return radius !== null && normal !== null ? { point, radius, normal } : null;
+  }
   return numberOf(value);
 }
 
@@ -225,7 +239,7 @@ export function decodeScanStopped(args: readonly JsonValue[]): ScanStopped {
 
 const isExplorationSite = (scanGroupID: number | null): boolean => scanGroupID !== null && EXPLORATION_SITES.includes(scanGroupID);
 /** util.IsPerfectResult: perfect, and its data a place. */
-const isPerfectEntry = (entry: ProbeResultEntry): boolean => entry.certainty >= PROBE_RESULT_PERFECT && entry.data !== null && typeof entry.data !== "number" && entry.data.length === 3 && typeof entry.data[0] === "number";
+const isPerfectEntry = (entry: ProbeResultEntry): boolean => entry.certainty >= PROBE_RESULT_PERFECT && isPlace(entry.data);
 
 /** One result as the history holds it (results.Result). */
 interface HeldResult {
@@ -250,7 +264,8 @@ function placeOf(entry: ProbeResultEntry): Vec3 | null {
   const data = entry.data;
   if (typeof data === "number") return entry.pos;
   if (data === null) return null;
-  if (data.length === 3 && typeof data[0] === "number") return data as Vec3;
+  if (isPlace(data)) return data;
+  if (isCircle(data)) return data.point;
   const places = data as readonly Vec3[];
   if (places.length === 0) return [0, 0, 0];
   const sum = places.reduce<[number, number, number]>((acc, place) => [acc[0] + place[0], acc[1] + place[1], acc[2] + place[2]], [0, 0, 0]);
