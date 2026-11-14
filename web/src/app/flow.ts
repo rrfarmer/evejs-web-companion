@@ -393,7 +393,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
-import { agencyAgents as pickAgencyAgents, type AgencyAgent, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
+import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, type AgencyAgent, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
@@ -3671,6 +3671,11 @@ export interface AppFlow {
    * Null where the table cannot be read.
    */
   agencyAgents(groupID: number, filters: AgencyAgentFilters): Promise<readonly AgencyAgent[] | null>;
+  /**
+   * AgentsFiltersCont's faction and corporation choices: the factions with agents and each faction's NPC
+   * corporations (get_corporation_ids_by_faction_id), each with the pilot's standing from it with its skill bonus.
+   */
+  agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
    * fwWarzoneSolarsystem.GetLocalOccupationState() (the system and its factionwarfare OccupationState, None outside a
@@ -19871,6 +19876,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  async function agencyAgentOwners(): Promise<{ factions: { id: number; standing: number }[]; corporations: Record<number, { id: number; standing: number }[]> } | null> {
+    const [places] = await Promise.all([
+      agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
+      store.standings.get().char === null ? loadStandings().catch(() => undefined) : Promise.resolve(),
+      store.skills.get().skills === null ? loadSkills().catch(() => undefined) : Promise.resolve(),
+    ]);
+    agentPlacesHeld ??= places;
+    if (places === null) return null;
+    const standings = new Map((store.standings.get().char ?? []).map((row) => [row.fromID, row.standing]));
+    const levels = new Map((store.skills.get().skills ?? []).map((skill) => [skill.typeID, skill.level]));
+    const raised = (id: number, factionID: number | null) => standingWithSkillBonus(id, factionID, standings, (typeID) => levels.get(typeID) ?? 0);
+    const corporations: Record<number, { id: number; standing: number }[]> = {};
+    for (const [corporationID, factionID] of Object.entries(places.factions)) {
+      (corporations[factionID] ??= []).push({ id: Number(corporationID), standing: raised(Number(corporationID), factionID) });
+    }
+    requestNames([...AGENT_FACTIONS, ...Object.keys(places.factions).map(Number)].map((id) => ({ kind: "owner" as const, id })));
+    return { factions: AGENT_FACTIONS.map((id) => ({ id, standing: raised(id, id) })), corporations };
+  }
   async function dungeonJobs(): Promise<readonly DungeonJob[]> {
     const here = store.station.get().online?.solarSystemID ?? null;
     askCurrentDungeon();
@@ -33590,6 +33613,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     epicArcs,
     dungeonJobs,
     agencyAgents,
+    agencyAgentOwners,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,

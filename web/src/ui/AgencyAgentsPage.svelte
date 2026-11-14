@@ -8,8 +8,9 @@
   // primary action button of the chosen card (AgentContentPiece._GetButtonState: Start Conversation where it is in
   // this station or the pilot cannot use it, Undock / Dock in this system, else Set Destination or Destination Set).
   // The first card is chosen as the page opens; double clicking a card starts the conversation.
-  // Not here (later parts): the faction and corporation filters, the region distance, the standing threshold badge,
-  // the activity and locator badges, the security's colour, the Omega overlay, the cards' enter animation, the filters kept with the
+  // The faction and corporation filters (with the pilot's standings), and the standing threshold badge where the
+  // pilot cannot use the agent (its hint the standing the level asks for).
+  // Not here (later parts): the region distance, the activity and locator badges, the security's colour, the Omega overlay, the cards' enter animation, the filters kept with the
   // character's settings (here for the window's life).
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -18,7 +19,7 @@
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { portraitUrl, portraitDefaultPath } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
-  import { ANY, DEFAULT_AGENT_FILTERS, DISTANCE, HIGHEST_AVAILABLE, SECURITY_FILTER, type AgencyAgent, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
+  import { ANY, DEFAULT_AGENT_FILTERS, DISTANCE, HIGHEST_AVAILABLE, SECURITY_FILTER, agentStandingThreshold, pythonRoundedText, type AgencyAgent, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
   let { store, flow, groupID, filters = $bindable(DEFAULT_AGENT_FILTERS) }: { store: ClientStore; flow: AppFlow; groupID: number; filters?: AgencyAgentFilters } = $props();
   // svelte-ignore state_referenced_locally
@@ -34,14 +35,28 @@
   // svelte-ignore state_referenced_locally
   const waypoints = flow.waypoints;
 
-  const word = (label: string, args: TemplateArguments = {}) => plainText(formatTemplate($words.templates[label] ?? "", args, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") }));
+  const word = (label: string, args: TemplateArguments = {}) => plainText(formatTemplate($words.templates[label] ?? "", args, { nameOf: (kind, id) => resolvedName($names.resolved, kind === "owner" && id >= 3_000_000 && id < 4_000_000 ? "agent" : kind, id, "") }));
   $effect(() => {
     flow.requestWords(["UI/Agency/ShowingXResults", "UI/Inflight/Scanner/FilteredResults", "UI/Agency/ContentInCurrentStation", "UI/Agency/ContentInCurrentSystem",
       "UI/Agency/LocationAndNumJumps", "UI/Agency/Location", "UI/Common/NumJumps", "UI/AgentFinder/AgentLevel", "UI/Agency/HighestAvailable", "UI/Agency/AnyLevel", "UI/Agency/LevelX",
       "UI/Common/Location", "UI/Generic/CurrentSystem", "UI/Common/WithinJumps", "UI/Agency/ContentOfAnyDistance", "Tooltips/CharacterSheet/SecurityStatus", "UI/Agency/AnySecurity",
       "UI/Common/HighSec", "UI/Common/LowSec", "UI/Common/NullSec", "UI/Agency/OnlyShowAvailableAgents", "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll",
       "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/StandingsSystem", "UI/Commands/StartConversation", "UI/Neocom/UndockBtn", "UI/Inflight/DockInStation",
-      "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/AgentFinder/AgentLevel"]);
+      "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/AgentFinder/AgentLevel", "UI/Common/Faction", "UI/Agency/AnyFaction", "UI/Common/Corp",
+      "UI/Agency/AnyCorp", "UI/Agents/UnavailableInsufficientStandings"]);
+  });
+  // AgentsFiltersCont.GetFactions / GetCorpComboOptions: "name <gray>round(standing, 2)</gray>", sorted by that label,
+  // after the Any choice; the corporation combo shown once a faction is chosen, its choice reset to Any where the
+  // faction has no such corporation.
+  let owners = $state<Awaited<ReturnType<AppFlow["agencyAgentOwners"]>>>(null);
+  $effect(() => { void flow.agencyAgentOwners().then((o) => { owners = o; }); });
+  const ownerOptions = (list: readonly { id: number; standing: number }[] | undefined) =>
+    (list ?? []).map((o) => ({ id: o.id, name: resolvedName($names.resolved, "owner", o.id, ""), standing: pythonRoundedText(o.standing) }))
+      .sort((a, b) => (`${a.name} ${a.standing}` < `${b.name} ${b.standing}` ? -1 : `${a.name} ${a.standing}` > `${b.name} ${b.standing}` ? 1 : 0));
+  const factionOptions = $derived(ownerOptions(owners?.factions));
+  const corpOptions = $derived(filters.factionID === ANY ? [] : ownerOptions(owners?.corporations[filters.factionID]));
+  $effect(() => {
+    if (filters.corporationID !== ANY && owners && !corpOptions.some((o) => o.id === filters.corporationID)) filters = { ...filters, corporationID: ANY };
   });
 
   let agents = $state<readonly AgencyAgent[] | null | undefined>(undefined);
@@ -105,6 +120,14 @@
         <select value={filters.distance} onchange={(e) => set({ distance: Number(e.currentTarget.value) })}>{#each DISTANCES as v (v)}<option value={v}>{distanceLabel(v)}</option>{/each}</select></label>
       <label><span>{word("Tooltips/CharacterSheet/SecurityStatus")}</span>
         <select value={filters.security} onchange={(e) => set({ security: Number(e.currentTarget.value) })}>{#each SECURITIES as v (v)}<option value={v}>{securityLabel(v)}</option>{/each}</select></label>
+      <label><span>{word("UI/Common/Faction")}</span>
+        <select value={filters.factionID} onchange={(e) => set({ factionID: Number(e.currentTarget.value) })}><option value={ANY}>{word("UI/Agency/AnyFaction")}</option>
+          {#each factionOptions as o (o.id)}<option value={o.id}>{o.name} {o.standing}</option>{/each}</select></label>
+      {#if filters.factionID !== ANY}
+        <label><span>{word("UI/Common/Corp")}</span>
+          <select value={filters.corporationID} onchange={(e) => set({ corporationID: Number(e.currentTarget.value) })}><option value={ANY}>{word("UI/Agency/AnyCorp")}</option>
+            {#each corpOptions as o (o.id)}<option value={o.id}>{o.name} {o.standing}</option>{/each}</select></label>
+      {/if}
       <label class="aap-check"><span>{word("UI/Agency/OnlyShowAvailableAgents")}</span>
         <input type="checkbox" checked={filters.ignoreStandings} onchange={(e) => set({ ignoreStandings: e.currentTarget.checked })} /></label>
       <div class="aap-reset"><button type="button" title={word("UI/Agency/resetAllPageFilters")} onclick={() => (filters = DEFAULT_AGENT_FILTERS)}>{word("UI/Commands/ResetAll")}</button></div>
@@ -125,6 +148,11 @@
             <span class="aap-loc">{locationText(a)}</span>
             <small>{a.corporationID ? resolvedName($names.resolved, "owner", a.corporationID, "") : ""}</small>
           </span>
+          {#if !a.canUse}
+            <!-- StandingThresholdCont: where the agent is unavailable (IsAgentAvailable), its hint GetAgentUnavailableReason. -->
+            <span class="aap-threshold" title={word("UI/Agents/UnavailableInsufficientStandings", { agent: a.agentID, requiredStanding: agentStandingThreshold(a.level) ?? 0, minStanding: -2.0 })}>
+              <img alt="" src={clientTexture("res:/UI/Texture/Shared/checkboxHalfChecked.png")} /></span>
+          {/if}
           <span class="aap-level" title={word("UI/AgentFinder/AgentLevel")} style:background-image={`url("${clientTexture("res:/UI/Texture/classes/agency/agentLevelFrame.png")}")`}>{a.level}</span>
         </button>
       {/each}
@@ -159,5 +187,7 @@
   .aap-text small { margin-top: auto; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .aap-level { position: absolute; top: 1px; right: 5px; width: 22px; height: 32px; text-align: center; font-size: 15px; line-height: 26px;
     background-position: center; background-size: contain; background-repeat: no-repeat; }
+  .aap-threshold { position: absolute; right: 5px; bottom: 5px; width: 22px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgb(153 31 36 / 0.5); }
+  .aap-threshold img { width: 16px; height: 16px; filter: brightness(0) saturate(100%) invert(30%) sepia(90%) saturate(3000%) hue-rotate(345deg); }
   .aap-buttons { display: flex; justify-content: flex-end; height: 30px; padding-top: 10px; }
 </style>

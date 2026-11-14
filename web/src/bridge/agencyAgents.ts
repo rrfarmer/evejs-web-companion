@@ -81,6 +81,30 @@ export interface AgencyAgentWorld {
   readonly heraldryAvailable: boolean;
 }
 
+/** appConst.factions less factionsWithoutAgents (a set: each once). */
+export const AGENT_FACTIONS: readonly number[] = [500003, 500007, 500011, 500001, 500004, 500010, 500013, 500008, 500002, 500018, 500014, 500019, 500020,
+  500016, 500012, 500009, 500015, 500029, 500028];
+
+/** standingSvc.GetStandingWithSkillBonus(ownerID, session.charid): the pilot's standing from an NPC owner, raised by the
+ * skill GetStandingSkillBonus picks for the owner's faction (a faction its own). */
+export function standingWithSkillBonus(ownerID: number, ownerFactionID: number | null, standings: ReadonlyMap<number, number>, skillLevel: (typeID: number) => number): number {
+  const standing = standings.get(ownerID) ?? 0;
+  const skill = standingBonusSkill(ownerFactionID, standing);
+  return applyStandingBonus(skill === null ? 0 : skillLevel(skill) * 0.4, standing);
+}
+
+/** agentUtil.GetAgentStandingThreshold: the standing a level asks for. */
+export function agentStandingThreshold(level: number): number | null {
+  return level === 1 ? -10 : level === 2 ? 1 : level === 3 ? 3 : level === 4 ? 5 : level === 5 ? 7 : null;
+}
+
+/** Python 2's str() of a float that round(x, 2) made: always with its point ("1.0", "-0.5"). */
+export function pythonRoundedText(value: number): string {
+  const r = Math.round(value * 100) / 100;
+  const text = String(r === 0 ? 0 : r);
+  return text.includes(".") ? text : `${text}.0`;
+}
+
 /** Python's comparison of two lists of numbers. */
 function compareLists(a: readonly number[], b: readonly number[]): number {
   for (let i = 0; i < Math.min(a.length, b.length); i += 1) if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1;
