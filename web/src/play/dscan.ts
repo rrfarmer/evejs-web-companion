@@ -66,6 +66,18 @@ export const DSCAN_WORDS: readonly string[] = ["UI/Inflight/Scanner/DirectionalS
   "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
   "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap",
   "UI/Inflight/Scanner/Filtered", "UI/Inflight/Scanner/DirectionalNoResult", "UI/Inflight/Scanner/UseActiveOverviewSettings"];
+/**
+ * The scanner's settings the client keeps for the user (settings.user.ui): dir_scanrange (km; SetScanRange),
+ * scan_angleSlider (radians; SetScanAngle), scanner_rangeEditMode (RANGEMODE_AU 1, RANGEMODE_KM 2). Here in the
+ * browser's storage, for the page's user.
+ */
+const SETTING = (name: string) => `evejs.play.${name}`;
+function readSetting(name: string): number | null {
+  try { const v = localStorage.getItem(SETTING(name)); return v === null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v); } catch { return null; }
+}
+function writeSetting(name: string, value: number): void {
+  try { localStorage.setItem(SETTING(name), String(value)); } catch { /* kept for the page's life only */ }
+}
 /** settings.user.ui scanner_presetInUse: the scanner's own preset, none for the active overview's. */
 const PRESET_KEY = "evejs.play.scanner_presetInUse";
 /** inventorycommon groupCloud: hidden from the scan's rows but for a GM / world mod (UpdateScroll). */
@@ -139,18 +151,42 @@ export class DScanWindow {
       this.range.step = this.inKm ? "1" : "0.1";
     };
     this.showUnit = showUnit;
+    // The kept settings, where there are any: the angle the nearest increment, the range in km, the edit mode.
+    const keptAngle = readSetting("scan_angleSlider");
+    if (keptAngle !== null) {
+      const degrees = (keptAngle * 180) / Math.PI;
+      const nearest = ANGLES.reduce((best, a, i) => (Math.abs(a - degrees) < Math.abs(ANGLES[best]! - degrees) ? i : best), 0);
+      this.angle.value = String(nearest);
+    }
+    const keptRangeKm = readSetting("dir_scanrange");
+    if (keptRangeKm !== null && keptRangeKm > 0) {
+      const au = (keptRangeKm * 1000) / AU;
+      this.rangeSlider.max = String(Math.max(MAX_RANGE_AU, au));
+      this.rangeSlider.value = String(au);
+    }
+    this.inKm = readSetting("scanner_rangeEditMode") === 2;
+    const keepRange = () => writeSetting("dir_scanrange", Math.round((Number(this.rangeSlider.value) * AU) / 1000));
     showAngle();
     showUnit();
-    this.angle.addEventListener("input", showAngle);
+    this.angle.addEventListener("input", () => {
+      showAngle();
+      writeSetting("scan_angleSlider", ((ANGLES[Number(this.angle.value)] ?? 90) * Math.PI) / 180);
+    });
     this.rangeSlider.addEventListener("input", showUnit);
+    this.rangeSlider.addEventListener("change", keepRange);
     this.range.addEventListener("change", () => {
       const n = Number(this.range.value) || 0;
       const au = this.inKm ? n * 1000 / AU : n;
       // SetScanRange: min(GetMaxRangeKM(), max(MIN_RANGE_KM, the value))
       this.rangeSlider.value = String(Math.min(this.maxRangeAU(), Math.max(MIN_RANGE_M / AU, au)));
       showUnit();
+      keepRange();
     });
-    this.unit.addEventListener("click", () => { this.inKm = !this.inKm; showUnit(); });
+    this.unit.addEventListener("click", () => {
+      this.inKm = !this.inKm;
+      writeSetting("scanner_rangeEditMode", this.inKm ? 2 : 1);
+      showUnit();
+    });
     this.window.body.querySelector(".dscan-go")!.addEventListener("click", () => void this.scan());
     this.filterBox = this.window.body.querySelector(".dscan-filter")!;
     this.word = w;
