@@ -36,8 +36,9 @@
     {#if arc.factionID}<span class="ep-caption">{resolvedName($names.resolved, "owner", arc.factionID, "")}</span>{/if}
   </header>
   <div class="ep-cta">
-    {#if arc.activeAgentID}<button onclick={() => void onTalk(arc.activeAgentID!)}>💬 {word("UI/Chat/StartConversationAgent")}</button>{/if}
+    <!-- EpicArcJob.get_cta_buttons: while active the active mission first, then the conversation. -->
     {#if arc.state === ARC_STARTED && arc.activeAgentID}<button onclick={() => onViewMission(arc.activeAgentID!)}>{word("UI/Opportunities/ViewActiveEpicArcMission")}</button>{/if}
+    {#if arc.activeAgentID}<button onclick={() => void onTalk(arc.activeAgentID!)}>💬 {word("UI/Chat/StartConversationAgent")}</button>{/if}
   </div>
   {#if look}<p class="ep-tag">{word(look.tagLine)}</p>{/if}
   <div class="ep-row">
