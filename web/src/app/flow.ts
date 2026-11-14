@@ -643,6 +643,9 @@ export interface DungeonJob {
   readonly active: boolean;
 }
 
+/** A career goal's reward (careergoals.client reward_definition). */
+export interface CareerReward { readonly kind: "isk" | "sp" | "item"; readonly quantity: number; readonly typeID: number | null; readonly label: string }
+
 /** A career goal (careergoals.client goal.Goal): its definition (GoalDefinition.from_proto) and the pilot's progress. */
 export interface CareerGoal {
   /** The goal's uuid as the gateway sends it (base64). */
@@ -653,6 +656,10 @@ export interface CareerGoal {
   readonly careerPoints: number;
   /** GoalThreat (0 none ... 3 high). */
   readonly threat: number;
+  /** RewardDefinition.from_proto: ISK, skill points, or an item (its type), each with its label (ALPHA / OMEGA). */
+  readonly rewards: readonly CareerReward[];
+  /** Goal.get_unclaimed_reward_labels: a completed goal's labels not claimed (REWARD_LABEL_ALPHA / _OMEGA). */
+  readonly unclaimedLabels: readonly string[];
   readonly progress: number; readonly completed: boolean;
   /** Goal.has_unclaimed_rewards: completed, and a reward label not claimed. */
   readonly unclaimedRewards: boolean;
@@ -3682,6 +3689,10 @@ export interface AppFlow {
    */
   readonly trackedCareerGoals: ReadableSignal<readonly string[]>;
   trackCareerGoal(goalID: string, tracked: boolean): void;
+  /** goal_data_controller.claim_reward: ClaimRewardRequest {goal, label}; whether the gateway answered 200. */
+  claimCareerReward(goalID: string, label: string): Promise<boolean>;
+  /** careerpath.get_career_path(id).nameID for each career path (the client's careerPaths data). */
+  careerPathNameIDs(): Promise<Readonly<Record<number, number | null>>>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19866,13 +19877,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       api.publicGatewayRequest("eve_public.career.goal.api.GetAllRequest", {}, callOptions).catch(() => null),
     ]);
     if (!defs || defs.statusCode !== 200) return null;
-    const progress = new Map<string, { progress: number; completed: boolean; unclaimedLabel: boolean }>();
+    const progress = new Map<string, { progress: number; completed: boolean; unclaimedLabel: boolean; unclaimed: string[] }>();
     for (const g of all && all.statusCode === 200 && Array.isArray(rec(all.payload).goals) ? rec(all.payload).goals as unknown[] : []) {
       const row = rec(g);
       // GoalProgress.from_proto: completed where completed_time is set; a label claimed where claimed_time is.
       const states = Array.isArray(row.reward_label_states) ? row.reward_label_states as unknown[] : [];
       progress.set(String(rec(row.goal).uuid ?? ""), { progress: Number(row.progress ?? 0), completed: row.completed_time !== undefined && row.completed_time !== null,
-        unclaimedLabel: states.some((x) => rec(x).claimed_time === undefined || rec(x).claimed_time === null) });
+        unclaimedLabel: states.some((x) => rec(x).claimed_time === undefined || rec(x).claimed_time === null),
+        unclaimed: states.filter((x) => rec(x).claimed_time === undefined || rec(x).claimed_time === null).map((x) => String(rec(x).label ?? "")) });
     }
     return (Array.isArray(rec(defs.payload).goals) ? rec(defs.payload).goals as unknown[] : []).map((g): CareerGoal => {
       const row = rec(g), a = rec(row.attributes), id = String(rec(row.goal).uuid ?? "");
@@ -19881,6 +19893,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const completed = (p?.completed ?? false) || (target > 0 && value >= target);
       return { goalID: id, nameID: Number(rec(a.name).sequential ?? 0) || null, descriptionID: Number(rec(a.description).sequential ?? 0) || null, target,
         career: typeof a.career === "string" ? a.career : null, annotations, careerPoints: Number(a.career_points ?? 0), threat: Number(a.threat ?? 0), progress: value, completed,
+        rewards: (Array.isArray(a.rewards) ? a.rewards as unknown[] : []).flatMap((r): CareerReward[] => {
+          const t = rec(rec(r).reward_type), label = String(rec(r).reward_label ?? "");
+          // get_single_value_from_split_precision_message: units + nanos / 1e9.
+          if (t.isk) return [{ kind: "isk", quantity: Number(rec(t.isk).units ?? 0) + Number(rec(t.isk).nanos ?? 0) / 1e9, typeID: null, label }];
+          if (t.skill_points !== undefined) return [{ kind: "sp", quantity: Number(t.skill_points), typeID: null, label }];
+          if (t.item) return [{ kind: "item", quantity: Number(rec(t.item).quantity ?? 0), typeID: Number(rec(rec(t.item).identifier).sequential ?? 0) || null, label }];
+          return [];
+        }),
+        unclaimedLabels: completed ? p?.unclaimed ?? [] : [],
         unclaimedRewards: completed && (p?.unclaimedLabel ?? false) };
     });
   }
@@ -19892,6 +19913,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     get: () => { const k = trackedCareerKey(); if (k !== trackedCareerFor) { trackedCareerFor = k; trackedCareerSignal.set(readTrackedCareer()); } return trackedCareerSignal.get(); },
     subscribe: (listener) => { trackedCareerView.get(); return trackedCareerSignal.subscribe(listener); },
   };
+  async function careerPathNameIDs(): Promise<Readonly<Record<number, number | null>>> {
+    const d = await api.getCertifiedSkillPlans(callOptions).catch(() => null);
+    return Object.fromEntries((d?.careerPaths ?? []).map((c) => [c.careerPathID, c.nameID]));
+  }
+  async function claimCareerReward(goalID: string, label: string): Promise<boolean> {
+    const a = await api.publicGatewayRequest("eve_public.career.goal.api.ClaimRewardRequest", { goal: { uuid: goalID }, label } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    return !!a && a.statusCode === 200;
+  }
   function trackCareerGoal(goalID: string, tracked: boolean): void {
     const now = trackedCareerView.get();
     const next = tracked ? (now.includes(goalID) ? now : [...now, goalID]) : now.filter((id) => id !== goalID);
@@ -33528,6 +33557,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     careerGoals,
     trackedCareerGoals: trackedCareerView,
     trackCareerGoal,
+    claimCareerReward,
+    careerPathNameIDs,
     redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,

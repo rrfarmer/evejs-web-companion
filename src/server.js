@@ -14822,6 +14822,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.career.goal.api.GetAllRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
+  // The Career Portal's Claim Reward (PublicCareerGoalRequestMessenger.claim_reward_request: a goal's reward label).
+  "eve_public.career.goal.api.ClaimRewardRequest",
   // A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest).
   "eve_public.dailygoal.api.RedeemRequest",
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.

@@ -7,17 +7,23 @@
   // - ACTIVITIES_VIEW: the career's activities in CAREER_PATH_GROUPS' order, each its name
   //   (Character/CareerGoals/<Career>/GroupNames/<key>) and its goals done of all; an activity with no goal is left out;
   // - GOALS_VIEW: the activity's goals by their order annotation, each its name and progress / target.
-  // The goal's panel (panels/goalDetailsPanel.GoalPanel): its name and description; RewardsHeader (here the career
-  // points: careerPointsLabel); Information - Threat (THREAT_NAMES) and GoalDuration (where the goal has one); and
-  // TrackGoal / UntrackGoal (track_goal / untrack_goal), or, completed, GoalCompleted.
-  // Not here (later parts): the circle view's drawing and animation, the career and activity panels, the rewards column
-  // and claiming (ClaimRewardRequest), the global progress footer, the Aura panel, the background, sounds.
+  // The goal's panel (panels/goalDetailsPanel.GoalPanel): its name and description; RewardsHeader - the omega rewards,
+  // the alpha ones (get_text_for_reward: "<amount> ISK", "<amount> Skill Points", "<amount>x <type>"), the career
+  // points; Information - Threat (THREAT_NAMES) and GoalDuration (where the goal has one); and TrackGoal / UntrackGoal
+  // (track_goal / untrack_goal), or, completed, GoalCompleted.
+  // The left column (rewards/rewardsCont.RewardsCont): UI/CareerPortal/YourRewards and ClaimAllRewards (each entry's
+  // claim); expanded where a reward is claimable, an entry (RewardEntry) for each completed goal's unclaimed label: its
+  // reward (one: its icon and text; more: the career's crate, RewardBundle, ItemsInRewardBundle {quantity}), the goal's
+  // name, ClaimReward (ClaimRewardRequest {goal, label}) - then RewardClaimed, its hint CheckRedeemingQueue. An omega
+  // label for an alpha clone (OmegaRewardEntry): Locked and UpgradeToClaim, not claimable here.
+  // Not here (later parts): the circle view's drawing and animation, the career and activity panels, the global
+  // progress footer, the Aura panel, the graduation rewards, the background, sounds.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CareerGoal } from "../app/flow.ts";
-  import * as api from "../app/api.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { careerIcon } from "./skillPlanIcons.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -40,7 +46,7 @@
   let careerNames = $state<Record<number, number | null>>({});
   $effect(() => {
     void flow.careerGoals().then((g) => { goals = g; }, () => { goals = null; });
-    void api.getCertifiedSkillPlans().then((d) => { careerNames = Object.fromEntries(d.careerPaths.map((c) => [c.careerPathID, c.nameID])); }, () => {});
+    void flow.careerPathNameIDs().then((n) => { careerNames = { ...n }; }, () => {});
   });
   // The window's state and selections, kept for the character (careerConst's CharSettingEnum / CharSettingUUID).
   const me = $derived($station.online?.characterID ?? null);
@@ -80,6 +86,29 @@
   const careerName = (c: Career) => (careerNames[c.id] ? word(`#${careerNames[c.id]}`) : c.key);
   const groupName = (c: Career, g: string) => word(`Character/CareerGoals/${c.key}/GroupNames/${g}`) || g;
   const threat = (g: CareerGoal) => word(`${C}Threat${g.threat}`);
+  // get_text_for_reward; get_texture_path_for_reward (skill points' icons by amount; ISK the Kredits' icon).
+  const rewardText = (r: CareerGoal["rewards"][number]) => (r.kind === "item" ? `${r.quantity.toLocaleString("en-US")}x ${r.typeID ? resolvedName($names.resolved, "type", r.typeID, "") : ""}`
+    : `${r.quantity.toLocaleString("en-US")} ${r.kind === "sp" ? word("UI/Common/SkillPoints") || "Skill Points" : word("UI/Common/ISK") || "ISK"}`);
+  const rewardIcon = (r: CareerGoal["rewards"][number]) => (r.kind === "sp" ? clientTexture(`res:/UI/Texture/Icons/SkillPoints/${r.quantity >= 125000 ? "150k" : r.quantity >= 100000 ? "100k" : "50k"}.png`)
+    : r.kind === "isk" ? clientTexture("res:/UI/Texture/eveicon/category_icons/isk_32px.png") : null);
+  // careerConst.CRATE_64_SIZES by career.
+  const CRATES: Record<number, string> = { 6: "enforcerCrate", 7: "sofCrate", 4: "explorerCrate", 5: "industrialistCrate" };
+  const isOmega = $derived($station.cloneGrade !== 0);
+  let claimed = $state<Record<string, "busy" | "done">>({});
+  const entries = $derived((goals ?? []).flatMap((g) => g.unclaimedLabels.map((label) => ({ goal: g, label, rewards: g.rewards.filter((r) => r.label === label) }))));
+  async function claim(goalID: string, label: string): Promise<void> {
+    const k = `${goalID}:${label}`;
+    if (claimed[k]) return;
+    claimed = { ...claimed, [k]: "busy" };
+    const ok = await flow.claimCareerReward(goalID, label);
+    claimed = ok ? { ...claimed, [k]: "done" } : Object.fromEntries(Object.entries(claimed).filter(([key]) => key !== k));
+  }
+  $effect(() => {
+    flow.requestWords([C + "YourRewards", C + "ClaimAllRewards", C + "ClaimReward", C + "RewardClaimed", C + "CheckRedeemingQueue", C + "RewardBundle", C + "ItemsInRewardBundle", C + "Locked", C + "UpgradeToClaim",
+      "UI/Common/SkillPoints", "UI/Common/ISK", ...entries.map((e) => e.goal.nameID).filter((x): x is number => !!x).map((x) => `#${x}`)]);
+    const types = [...new Set((goals ?? []).flatMap((g) => g.rewards.map((r) => r.typeID)).filter((x): x is number => !!x))];
+    if (types.length) flow.requestNames(types.map((id) => ({ kind: "type" as const, id })));
+  });
 </script>
 
 <div class="cpw">
@@ -88,6 +117,29 @@
     <h2>{view === "CAREERS_VIEW" ? word(C + "CareerPortalWnd") : career ? careerName(career) : ""}{#if view === "GOALS_VIEW" && career && activity} · {groupName(career, activity)}{/if}</h2>
   </header>
   <div class="cpw-body">
+    <aside class="cpw-rewards">
+      <div class="cpw-rewards-head"><h3>{word(C + "YourRewards")}</h3>
+        {#if entries.some((e) => !claimed[`${e.goal.goalID}:${e.label}`] && !(e.label === "REWARD_LABEL_OMEGA" && !isOmega))}
+          <button type="button" onclick={() => { for (const e of entries) if (!(e.label === "REWARD_LABEL_OMEGA" && !isOmega)) void claim(e.goal.goalID, e.label); }}>{word(C + "ClaimAllRewards")}</button>{/if}</div>
+      {#each entries as e (`${e.goal.goalID}:${e.label}`)}
+        {@const k = `${e.goal.goalID}:${e.label}`}
+        {@const locked = e.label === "REWARD_LABEL_OMEGA" && !isOmega}
+        {@const careerID = CAREERS.find((c) => c.proto === e.goal.career)?.id ?? 0}
+        <div class="cpw-reward" class:claimed={claimed[k] === "done"} title={claimed[k] === "done" ? word(C + "CheckRedeemingQueue") : ""}>
+          <div class="cpw-reward-top">
+            {#if e.rewards.length === 1}
+              {#if rewardIcon(e.rewards[0]!)}<img alt="" src={rewardIcon(e.rewards[0]!)} />{/if}<b>{rewardText(e.rewards[0]!)}</b>
+            {:else}
+              {#if CRATES[careerID]}<img alt="" src={clientTexture(`res:/UI/Texture/classes/careerPortal/crates/${CRATES[careerID]}_64.png`)} />{/if}
+              <span><b>{word(C + "RewardBundle")}</b><small>{word(C + "ItemsInRewardBundle", { quantity: e.rewards.length })}</small></span>
+            {/if}
+            {#if locked}<button type="button" disabled>{word(C + "UpgradeToClaim")}</button>
+            {:else}<button type="button" disabled={!!claimed[k]} onclick={() => void claim(e.goal.goalID, e.label)}>{claimed[k] === "done" ? word(C + "RewardClaimed") : claimed[k] === "busy" ? "…" : word(C + "ClaimReward")}</button>{/if}
+          </div>
+          <div class="cpw-reward-goal">{locked ? `${word(C + "Locked")} · ` : ""}{e.goal.nameID ? word(`#${e.goal.nameID}`) : ""}</div>
+        </div>
+      {/each}
+    </aside>
     <div class="cpw-centre">
       {#if goals === undefined}<p class="cpw-dim">…</p>
       {:else if goals === null}<p class="cpw-dim">{word("UI/Opportunities/FailedToLoad")}</p>
@@ -122,6 +174,9 @@
         <h3>{goal.nameID ? word(`#${goal.nameID}`) : ""}</h3>
         <p>{goal.descriptionID ? word(`#${goal.descriptionID}`) : ""}</p>
         <hr /><h4>{word(C + "RewardsHeader")}</h4>
+        {#each [...goal.rewards.filter((r) => r.label === "REWARD_LABEL_OMEGA"), ...goal.rewards.filter((r) => r.label !== "REWARD_LABEL_OMEGA")] as r, i (i)}
+          <div class="cpw-entry">{#if rewardIcon(r)}<img alt="" src={rewardIcon(r)} />{/if}<span>{rewardText(r)}</span>{#if r.label === "REWARD_LABEL_OMEGA"}<small class="cpw-omega">Ω</small>{/if}</div>
+        {/each}
         <div class="cpw-entry">{#if careerIcon(career?.id ?? null, 32)}<img alt="" src={careerIcon(career?.id ?? null, 32)} />{/if}<span>{goal.careerPoints.toLocaleString("en-US")}</span></div>
         <hr /><h4>{word("UI/Common/Information")}</h4>
         <div class="cpw-entry"><span>{word(C + "Threat")}</span><b>{threat(goal)}</b></div>
@@ -162,4 +217,15 @@
   .cpw-bottom button { width: 100%; }
   .cpw-bottom button.primary { background: rgb(88 166 220 / 0.35); }
   .cpw-completed { color: #6ab04c; font-weight: bold; }
+  .cpw-rewards { width: 260px; flex: none; overflow: auto; padding: 12px; background: rgb(0 0 0 / 0.9); border-top: 1px solid rgb(88 166 220 / 0.6); }
+  .cpw-rewards-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .cpw-rewards-head h3 { margin: 0; font-size: 16px; }
+  .cpw-reward { margin-bottom: 8px; background: rgb(255 255 255 / 0.05); }
+  .cpw-reward.claimed { opacity: 0.5; }
+  .cpw-reward-top { display: flex; align-items: center; gap: 8px; padding: 8px; }
+  .cpw-reward-top img { width: 48px; height: 48px; }
+  .cpw-reward-top span { display: flex; flex-direction: column; }
+  .cpw-reward-top b { flex: 1; }
+  .cpw-reward-goal { padding: 4px 8px; font-size: 12px; opacity: 0.7; background: rgb(0 0 0 / 0.5); }
+  .cpw-omega { color: #e6a23c; }
 </style>
