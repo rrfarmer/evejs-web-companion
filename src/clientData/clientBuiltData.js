@@ -46,6 +46,10 @@ const TABLES = Object.freeze({
   dungeons: Object.freeze({ loader: "dungeonsLoader", resource: "res:/staticdata/dungeons.fsdbinary", rowsOnly: true }),
   // An NPC corporation's own record: the client takes an agent's faction from its corporation's (npcs/npccorporations.py).
   npcCorporations: Object.freeze({ loader: "npcCorporationsLoader", resource: "res:/staticdata/npccorporations.fsdbinary" }),
+  // The Agency's help videos (fsdBuiltData/client/agency): each video's name and description messages and its path; the
+  // groups, each its name message and its videos, in the order the table iterates them (GetScrollEntries' iteritems).
+  agencyHelpVideos: Object.freeze({ loader: "agencyHelpVideosLoader", resource: "res:/staticdata/agencyhelpvideos.fsdbinary" }),
+  agencyHelpVideoGroups: Object.freeze({ loader: "agencyHelpVideoGroupsLoader", resource: "res:/staticdata/agencyhelpvideogroups.fsdbinary", keyOrder: true }),
   // The schools, each with its career agents (characterdata/schools.py get_school_agent_ids).
   schools: Object.freeze({ loader: "schoolsLoader", resource: "res:/staticdata/schools.fsdbinary" }),
   // The divisions agents work in, each with the message its name is (npcs/divisions.py).

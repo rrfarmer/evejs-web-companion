@@ -5809,6 +5809,13 @@ export async function loadCareerAgentData(options: ApiOptions = {}): Promise<{ r
   return data.available ? { schools: data.schools as Record<string, number[]>, divisions: data.divisions as Record<string, { nameID: number | null; descriptionID: number | null }>, plans: (data.plans ?? {}) as Record<string, number | null> } : null;
 }
 
+/** GET /api/client-data/agency-help-videos: the help video groups (in order) and the videos. */
+export async function loadAgencyHelpVideos(options: ApiOptions = {}): Promise<{ readonly groups: readonly { readonly id: number; readonly nameID: number | null; readonly videos: readonly number[] }[];
+  readonly videos: Readonly<Record<string, { readonly nameID: number | null; readonly descriptionID: number | null; readonly path: string | null }>> } | null> {
+  const data = await getJson("/api/client-data/agency-help-videos", options);
+  return data.available ? { groups: data.groups as { id: number; nameID: number | null; videos: number[] }[], videos: data.videos as Record<string, { nameID: number | null; descriptionID: number | null; path: string | null }> } : null;
+}
+
 /** GET /api/client-data/colony-systems: the null-sec systems ([starID, regionID, planetIDs]) and the richness eveicons. */
 export async function loadColonySystems(options: ApiOptions = {}): Promise<{ readonly systems: Readonly<Record<string, readonly [number | null, number | null, readonly (readonly [number, number])[]]>>; readonly icons: Readonly<Record<string, string | null>> } | null> {
   const data = await getJson("/api/client-data/colony-systems", options);

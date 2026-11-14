@@ -3744,6 +3744,8 @@ export interface AppFlow {
     readonly power: number; readonly workforce: number; readonly magmaticGas: number; readonly superionicIce: number; readonly hasMagmaticGas: boolean; readonly hasSuperionicIce: boolean;
     readonly allianceID: number | null }[];
     readonly icons: Readonly<Record<string, string | null>> } | null>;
+  /** The Agency's Help Section (ContentProviderHelp): the help video groups and videos (the client's data), kept. */
+  agencyHelpVideos(): Promise<Awaited<ReturnType<typeof api.loadAgencyHelpVideos>>>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
   /**
    * The Agency's page of one incursion (IncursionContentGroup, its constellation the item): the incursion of the
@@ -20066,6 +20068,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  let helpVideosHeld: Awaited<ReturnType<typeof api.loadAgencyHelpVideos>> = null;
+  async function agencyHelpVideos(): Promise<Awaited<ReturnType<typeof api.loadAgencyHelpVideos>>> {
+    helpVideosHeld ??= await api.loadAgencyHelpVideos(callOptions).catch(() => null);
+    return helpVideosHeld;
+  }
   let systemPlanetsHeld: Awaited<ReturnType<typeof api.loadSystemPlanets>> = null;
   async function agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<Awaited<ReturnType<AppFlow["agencyPlanetaryProduction"]>>> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
@@ -34049,6 +34056,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyEscalations,
     agencyIncursions,
     agencyPlanetaryProduction,
+    agencyHelpVideos,
     agencyColonyResources,
     agencyIncursion,
     factionWarfareLocal,

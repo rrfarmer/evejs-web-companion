@@ -14,7 +14,7 @@
   //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs;
   //   Homefront operations: ContentPageHomefrontSites; Escalations: ContentPageEscalations; Incursions: ContentPageIncursions, and an incursion's ContentPageIncursion;
   //   Planetary Production: ContentPagePlanetaryProduction; Mercenary Dens: ContentPageMercDen;
-  //   Colony Resources: ContentPageColonyResourcesAgency (part 1).
+  //   Colony Resources: ContentPageColonyResourcesAgency; Help: ContentPageHelp.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
@@ -37,6 +37,7 @@
   import AgencyPlanetaryProductionPage from "./AgencyPlanetaryProductionPage.svelte";
   import AgencyMercDensPage from "./AgencyMercDensPage.svelte";
   import AgencyColonyResourcesPage from "./AgencyColonyResourcesPage.svelte";
+  import AgencyHelpPage from "./AgencyHelpPage.svelte";
   import { resolvedName } from "../store/names.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
@@ -155,6 +156,8 @@
       <div class="ag-page"><AgentFinder {store} {flow} {showTravel} /></div>
     {:else if groupID === INCURSION && itemID}
       {#key itemID}<div class="ag-page"><AgencyIncursionPage {store} {flow} constellationID={itemID} /></div>{/key}
+    {:else if groupID === HELP}
+      <div class="ag-page ag-help-page"><AgencyHelpPage {store} {flow} /></div>
     {:else if groupID === COLONY_RESOURCES}
       <div class="ag-page"><AgencyColonyResourcesPage {store} {flow} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
     {:else if groupID === MERC_DENS}
