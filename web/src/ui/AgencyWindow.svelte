@@ -12,7 +12,7 @@
   //   Career Agents: ContentPageCareerAgents; Storyline Agents: ContentPageStorylineAgents;
   //   Combat Anomalies, Ore Anomalies, Ice Belts: ContentPageCombatAnomalies, ContentPageOreAnomalies, ContentPageIceBelts;
   //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs;
-  //   Escalations: ContentPageEscalations.
+  //   Escalations: ContentPageEscalations; Incursions: ContentPageIncursions.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
@@ -30,6 +30,7 @@
   import AgencyStorylineAgentsPage from "./AgencyStorylineAgentsPage.svelte";
   import AgencySitesPage from "./AgencySitesPage.svelte";
   import AgencyEpicArcsPage from "./AgencyEpicArcsPage.svelte";
+  import AgencyIncursionsPage from "./AgencyIncursionsPage.svelte";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
@@ -40,7 +41,7 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -133,6 +134,8 @@
       </div>
     {:else if groupID === AGENT_FINDER}
       <div class="ag-page"><AgentFinder {store} {flow} {showTravel} /></div>
+    {:else if groupID === INCURSIONS}
+      <div class="ag-page"><AgencyIncursionsPage {store} {flow} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
     {:else if groupID === EPIC_ARCS}
       <div class="ag-page"><AgencyEpicArcsPage {store} {flow} /></div>
     {:else if SITE_PAGES[groupID]}

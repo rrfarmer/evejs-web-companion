@@ -45,6 +45,33 @@ export function decodeInfluence(value: JsonValue | undefined): IncursionInfluenc
   return { influence: num(field(value, "influence")) ?? 0, lastUpdatedMs: filetimeMs(field(value, "lastUpdated")), graceTime: num(field(value, "graceTime")) ?? 0, decayRate: num(field(value, "decayRate")) ?? 0 };
 }
 
+/** One incursion of map.GetIncursionGlobalReport (a KeyVal each), as ContentProviderIncursions reads it. */
+export interface IncursionReport {
+  readonly taleID: number; readonly stagingSolarSystemID: number; readonly aggressorFactionID: number | null; readonly state: number;
+  readonly hasFinalEncounter: boolean; readonly influence: IncursionInfluence; readonly effects: readonly IncursionEffect[];
+  readonly incursedSystems: readonly number[];
+}
+export function decodeIncursionReport(value: JsonValue | undefined): IncursionReport[] {
+  return items(value).flatMap((row) => {
+    const staging = num(field(row, "stagingSolarSystemID"));
+    if (!staging) return [];
+    return [{
+      taleID: num(field(row, "taleID")) ?? 0, stagingSolarSystemID: staging, aggressorFactionID: num(field(row, "aggressorFactionID")), state: num(field(row, "state")) ?? 0,
+      hasFinalEncounter: field(row, "hasFinalEncounter") === true, influence: decodeInfluence(row),
+      effects: items(field(row, "effects")).map((e) => ({ name: String(field(e, "name") ?? ""), texturePath: String(field(e, "texturePath") ?? ""), hint: String(field(e, "hint") ?? ""), isScalable: field(e, "isScalable") === true })),
+      incursedSystems: items(field(row, "incursedSystems")).map((x) => num(x) ?? 0).filter((x) => x > 0),
+    }];
+  });
+}
+/** incursionConst: the states (appConst incursionStateEstablished 2, Mobilizing 1, Withdrawing 0) in INCURSION_STATES'
+ * order, each its name label and colour; INACTIVE_STATE's colour for the others. */
+export const INCURSION_STATES: readonly { readonly state: number; readonly name: string; readonly colour: string }[] = [
+  { state: 2, name: "UI/Incursion/Journal/Established", colour: "#39b54a" },
+  { state: 1, name: "UI/Incursion/Journal/Mobilizing", colour: "#f15a24" },
+  { state: 0, name: "UI/Incursion/Journal/Withdrawing", colour: "#be292f" },
+];
+export const INACTIVE_STATE_COLOUR = "rgb(128 128 128 / 0.2)";
+
 /** OnTaleData's tales that are incursions, in the dict's order (the client sets each in turn: the last stays). */
 export function incursionsOfTaleData(args: readonly unknown[]): IncursionData[] {
   const out: IncursionData[] = [];

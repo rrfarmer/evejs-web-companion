@@ -391,7 +391,7 @@ import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites
 import { acceptContract as acceptContractCall } from "../bridge/contractWrites.ts";
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
-import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
+import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
 import { RESOURCE_ORDER, SITE_TRACKERS, agencySiteSystems, signatureSites, trackerSites, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
@@ -693,6 +693,8 @@ export interface FactionWarfareLocal {
 }
 
 /** The epic arcs (flow.epicArcs) and their feature tag's title message and eveicon. */
+/** An incursion as the Agency shows it (IncursionContentPiece): the report, its staging system's constellation, the jumps. */
+export interface AgencyIncursion { readonly report: IncursionReport; readonly constellationID: number | null; readonly jumps: number | null; readonly security: number | null }
 /** An epic arc as the Agency shows it (EpicArcAgentContentPiece): the arc and its active agent's place. */
 export interface AgencyEpicArc { readonly arc: EpicArcView; readonly stationID: number | null; readonly solarSystemID: number | null; readonly jumps: number | null }
 export interface EpicArcsRead { readonly arcs: readonly EpicArcView[]; readonly featureTag: { readonly title: number | null; readonly icon: string | null } | null }
@@ -3714,6 +3716,11 @@ export interface AppFlow {
    * system, the systems sorted by jumps. Null where the call fails.
    */
   agencyEscalations(): Promise<readonly AgencySiteSystem[] | null>;
+  /**
+   * The Agency's Incursions (ContentProviderIncursions): map.GetIncursionGlobalReport's incursions sorted by the jumps to
+   * their staging system, the distance and security filters on it; each with its constellation and jumps.
+   */
+  agencyIncursions(filters: AgencySiteFilters): Promise<readonly AgencyIncursion[] | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19942,6 +19949,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  async function agencyIncursions(filters: AgencySiteFilters): Promise<readonly AgencyIncursion[] | null> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [answer, jumps, graph] = await Promise.all([
+      bridgeAsk("map", "GetIncursionGlobalReport", []).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+    ]);
+    if (answer === null) return null;
+    const jumpsOf = (id: number) => (id === here ? 0 : jumps?.get(id));
+    const far = (id: number) => jumpsOf(id) ?? Number.MAX_SAFE_INTEGER;
+    const out: AgencyIncursion[] = decodeIncursionReport(answer).sort((a, b) => far(a.stagingSolarSystemID) - far(b.stagingSolarSystemID)).flatMap((report) => {
+      const id = report.stagingSolarSystemID, security = graph?.security(id) ?? null, sec = security === null ? 0 : shownSecurity(security), j = jumpsOf(id);
+      // CheckAllCriteria: the distance, then the security status.
+      if (filters.distance === 1 ? id !== here : filters.distance !== 1000 && (j === undefined || j > filters.distance)) return [];
+      if (filters.security === 1 ? sec < 0.45 : filters.security === 3 ? sec > 0 : filters.security === 2 ? !(sec > 0 && sec < 0.45) : false) return [];
+      return [{ report, constellationID: graph?.parentOf?.(id) ?? null, jumps: j ?? null, security }];
+    });
+    requestNames(out.flatMap((i) => [{ kind: "system" as const, id: i.report.stagingSolarSystemID }, ...(i.constellationID ? [{ kind: "constellation" as const, id: i.constellationID }] : []),
+      ...(i.report.aggressorFactionID ? [{ kind: "owner" as const, id: i.report.aggressorFactionID }] : [])]));
+    requestSystemSecurity(out.map((i) => i.report.stagingSolarSystemID));
+    return out;
+  }
   async function agencyEscalations(): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [answer, jumps, graph] = await Promise.all([
@@ -33829,6 +33858,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencySignatures,
     agencyEpicArcs,
     agencyEscalations,
+    agencyIncursions,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,
