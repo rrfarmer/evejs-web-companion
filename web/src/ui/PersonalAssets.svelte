@@ -32,6 +32,7 @@
   import type { AssetStationRow } from "../store/types.ts";
   import { resolvedName } from "../store/names.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import AssetSafetyList from "./AssetSafetyList.svelte";
   import { assetsSearchTarget } from "./assetsSearch.ts";
   import type { AssetSearchItem, AssetSearchLocation } from "../bridge/assetSearch.ts";
 
@@ -226,7 +227,8 @@
     <button type="button" role="tab" aria-selected={tab === "search" && !safetyTab} class:minor={tab !== "search" || safetyTab} onclick={() => { tab = "search"; safetyTab = false; }}>{word(TAB_WORDS.search, "Search")}</button>
     {#if retail}<button type="button" role="tab" aria-selected={safetyTab} class:minor={!safetyTab} onclick={() => (safetyTab = true)}>{word("UI/Inventory/AssetSafety/AssetSafety", "Asset Safety")}</button>{/if}
   </div>
-  {#if retail && safetyTab}<p class="note as-safety-note">This panel is not on the play page yet.</p>{/if}
+  <!-- assetsWindow.LoadAssetSafety: AssetSafetyCont with SafetyControllerCharacter (AssetSafetyList.svelte) -->
+  {#if retail && safetyTab}<div class="as-safety-note"><AssetSafetyList {store} {flow} load={() => flow.characterSafetyWraps()} /></div>{/if}
 
   {#if error}
     <p class="error">{error}</p>

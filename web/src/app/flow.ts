@@ -3067,6 +3067,8 @@ export interface AppFlow {
   assetTypeFacts(typeIDs: readonly number[]): Promise<ReadonlyMap<number, AssetTypeFacts>>;
   /** SafetyControllerCorp.GetItemsInSafety: the corporation's wraps in asset safety. */
   corporationSafetyWraps(): Promise<readonly SafetyWrap[]>;
+  /** SafetyControllerCharacter.GetItemsInSafety: structureAssetSafety.GetItemsInSafetyForCharacter, as the corporation's. */
+  characterSafetyWraps(): Promise<readonly SafetyWrap[]>;
   /** assetSafetySvc.MoveItemsInStructureToAssetSafetyForCorp: ConfirmAssetSafetyCorp (ConfirmAssetEjectionCorp in a
    * wormhole or Triglavian system), Yes - MoveCorpAssetsToSafety. True where it was asked of the server. */
   moveCorpAssetsToSafety(solarSystemID: number, structureID: number): Promise<boolean>;
@@ -18902,9 +18904,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         averagePrice: typeID === 79785 ? 1000 : prices?.get(typeID) ?? null }] as const;
     }));
   }
-  async function corporationSafetyWraps(): Promise<readonly SafetyWrap[]> {
+  function corporationSafetyWraps(): Promise<readonly SafetyWrap[]> { return safetyWraps("GetItemsInSafetyForCorp"); }
+  function characterSafetyWraps(): Promise<readonly SafetyWrap[]> { return safetyWraps("GetItemsInSafetyForCharacter"); }
+  async function safetyWraps(method: "GetItemsInSafetyForCorp" | "GetItemsInSafetyForCharacter"): Promise<readonly SafetyWrap[]> {
     const scope = captureMemberOperation();
-    const answer = await scope.ask("structureAssetSafety", "GetItemsInSafetyForCorp", []); scope.current();
+    const answer = await scope.ask("structureAssetSafety", method, []); scope.current();
     const rows: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
     const field = (row: JsonValue, key: string): JsonValue => readKeyVal(row, key) ?? readDictPairs(row).find(([k]) => k === key)?.[1] ?? null;
     const num = (value: JsonValue) => Number(unwrapLong(value) ?? 0n);
@@ -34189,6 +34193,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationAssetItems,
     assetTypeFacts,
     corporationSafetyWraps,
+    characterSafetyWraps,
     moveCorpAssetsToSafety,
     safetyDeliveryTargets,
     deliverSafetyWrap,
