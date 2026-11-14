@@ -107,11 +107,12 @@
     7: ["sof_agent", "social", "electronicwarfare", "combat", "duel_pvp", "cap_warfare", "faction_warfare", "fleet_support", "destroy", "duel_pvp"],
   };
   const activityIcon = (c: Career, key: string) => { const i = (c.groups as readonly string[]).indexOf(key), name = ACTIVITY_ICONS[c.id]?.[i]; return name ? clientTexture(`res:/UI/Texture/classes/careerPortal/activities/${name}_32.png`) : null; };
-  // CircleViewContainer.PrepareUI: min(MAX_CIRCLE_WIDTH, the width / 2) - here the centre column's width (its own,
-  // read on a timer: a hidden page's ResizeObserver does not run).
-  let centreEl = $state<HTMLDivElement | null>(null), centreWidth = $state(0);
-  $effect(() => { const t = setInterval(() => { if (centreEl) centreWidth = centreEl.clientWidth; }, 400); return () => clearInterval(t); });
-  const circle = $derived(Math.max(220, Math.min(800, (centreWidth || 440) - 16)));
+  // CircleViewContainer.PrepareUI: min(MAX_CIRCLE_WIDTH, the window's width / 2) - the circle behind the panels, which
+  // lie over it (CareerPortal: central_container TOALL under clip_container's left and right panels, PANEL_WIDTH_RATIO
+  // 0.25). The width read on a timer: a hidden page's ResizeObserver does not run.
+  let centreEl = $state<HTMLDivElement | null>(null), centreWidth = $state(0), centreHeight = $state(0);
+  $effect(() => { const t = setInterval(() => { if (centreEl) { centreWidth = centreEl.clientWidth; centreHeight = centreEl.clientHeight; } }, 400); return () => clearInterval(t); });
+  const circle = $derived(Math.max(220, Math.min(800, (centreWidth || 900) / 2, (centreHeight || 600) - 16)));
   const done = (list: readonly CareerGoal[]) => list.filter((g) => g.completed).length;
   const byOrder = (list: readonly CareerGoal[]) => [...list].sort((a, b) => (Number(a.annotations.order) || 0) - (Number(b.annotations.order) || 0));
   const activities = $derived(career ? career.groups.map((g) => ({ key: g, goals: byOrder(careerGoals(career).filter((x) => x.annotations.group === g)) })).filter((a) => a.goals.length) : []);
@@ -318,8 +319,10 @@
   .cpw-head { display: flex; align-items: center; gap: 12px; }
   .cpw-head h2 { margin: 0; font-size: 18px; }
   .cpw-back { background: none; border: 1px solid rgb(255 255 255 / 0.2); }
-  .cpw-body { flex: 1; display: flex; gap: 16px; min-height: 0; }
-  .cpw-centre { flex: 1; overflow: auto; }
+  .cpw-body { position: relative; flex: 1; min-height: 0; }
+  .cpw-centre { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .cpw-body > .cpw-rewards { position: absolute; left: 0; top: 0; max-height: 100%; z-index: 1; }
+  .cpw-body > .cpw-goal, .cpw-body > .cpw-side { position: absolute; right: 0; top: 0; max-height: 100%; z-index: 1; }
   .cpw-dim { opacity: 0.65; }
   .cpw-career { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; font-size: 12px; }
   .cpw-career img { width: 70%; height: auto; }
