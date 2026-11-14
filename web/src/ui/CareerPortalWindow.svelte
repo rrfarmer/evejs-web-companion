@@ -78,6 +78,12 @@
   const write = (name: string, value: string | null) => { const k = key(name); try { if (k) { if (value === null) localStorage.removeItem(k); else localStorage.setItem(k, value); } } catch { /* kept for the window's life */ } };
   let view = $state<"CAREERS_VIEW" | "ACTIVITIES_VIEW" | "GOALS_VIEW">("CAREERS_VIEW");
   let careerID = $state<number | null>(null), activity = $state<string | null>(null), goalID = $state<string | null>(null);
+  // CareerCircleView.OnCareerNodeHoverOn / Off: the inner circles to 0.4 while a career node is hovered, out after.
+  let careerHover = $state(false);
+  // CareerCircleView._GetNodeMask: the inner mask down for the enforcer (6) and explorer (4), up otherwise; the other
+  // views' CircleView._GetNodeMask: the count's mask.
+  const careerMask = $derived(`res:/UI/Texture/classes/careerPortal/nodeMasks/career_inner_mask_${careerID === 6 || careerID === 4 ? "down" : "up"}.png`);
+  const countMask = (n: number) => `res:/UI/Texture/classes/careerPortal/nodeMasks/${n}_node_mask.png`;
   $effect(() => {
     if (me === null) return;
     const v = read("careerPortal_careerWindowState");
@@ -195,11 +201,13 @@
       {:else if goals === null}<p class="cpw-dim">{word("UI/Opportunities/FailedToLoad")}</p>
       {:else if view === "CAREERS_VIEW"}
         <!-- CareerView: the four careers, their 128 px icons, names and goals done (CareerPointsNumFull). -->
-        <CareerCircle nodes={CAREERS} size={circle} nodeSize={Math.min(180, circle * 0.215)} offset={-Math.PI / 4} completed={CAREERS.every((c) => careerGoals(c).every((g) => g.completed))}>
+        <CareerCircle nodes={CAREERS} size={circle} nodeSize={Math.min(180, circle * 0.215)} offset={-Math.PI / 4} completed={CAREERS.every((c) => careerGoals(c).every((g) => g.completed))}
+          inner={{ mask: careerMask, scale: 0.8, opacity: careerHover ? 0.4 : 0 }}>
           {#snippet node(n: unknown)}
             {@const c = n as Career}
             {@const list = careerGoals(c)}
-            <button type="button" class="cpw-career" class:on={careerID === c.id} title={careerName(c)} onclick={() => go("ACTIVITIES_VIEW", c.id, null, null)}>
+            <button type="button" class="cpw-career" class:on={careerID === c.id} title={careerName(c)} onclick={() => go("ACTIVITIES_VIEW", c.id, null, null)}
+              onmouseenter={() => (careerHover = true)} onmouseleave={() => (careerHover = false)}>
               {#if careerIcon(c.id, 128)}<img alt="" src={careerIcon(c.id, 128)} />{/if}
               <b>{careerName(c)}</b><small>{done(list)} / {list.length}</small>
             </button>
@@ -209,7 +217,8 @@
       {:else if view === "ACTIVITIES_VIEW" && career}
         <!-- ActivityView: the career's activities, each its ICON_BY_ACTIVITY_ID icon in a ring of dashes (one a goal, green
              for those done) and, on hover, its name and ActivityProgressCount. -->
-        <CareerCircle nodes={activities} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activities.every((a) => a.goals.every((g) => g.completed))}>
+        <CareerCircle nodes={activities} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activities.every((a) => a.goals.every((g) => g.completed))}
+          inner={{ mask: countMask(activities.length), scale: 0.91, opacity: 1 }}>
           {#snippet node(n: unknown)}
             {@const a = n as (typeof activities)[number]}
             <button type="button" class="cpw-row cpw-node" class:on={activity === a.key} class:done={a.goals.every((g) => g.completed)}
@@ -223,7 +232,8 @@
         </CareerCircle>
       {:else if view === "GOALS_VIEW" && career}
         <!-- GoalView: the activity's goals, each a dot (smallDot), goalCompleted where done, the open eye where tracked. -->
-        <CareerCircle nodes={activityGoals} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activityGoals.every((g) => g.completed)}>
+        <CareerCircle nodes={activityGoals} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activityGoals.every((g) => g.completed)}
+          inner={{ mask: countMask(activityGoals.length), scale: 0.91, opacity: 1 }}>
           {#snippet node(n: unknown)}
             {@const g = n as CareerGoal}
             <button type="button" class="cpw-row cpw-node cpw-goalnode" class:on={goalID === g.goalID} class:done={g.completed}

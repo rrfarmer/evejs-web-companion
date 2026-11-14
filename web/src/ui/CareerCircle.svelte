@@ -5,11 +5,17 @@
   // careers, -pi/2 otherwise), its centre radius * (cos, sin) from the circle's. The outer ring (DashedCircle) a dash
   // between each two nodes, its colour LEAFY_GREEN where every node is completed, else white; the glow fill
   // (circle_glow.png) at 1.33 of the diameter.
-  // Not here: the inner circles' masked texture, the animations between views, the node hover glows.
+  // The inner circles (InnerCircles: innerCircles.png, TR2_SFX_MODULATE by the view's node mask - its alpha cuts the
+  // nodes' places -, diameter - 10 square): scaleSecondary multiplies the mask's coordinates (the resize handle sets it
+  // to its size over the mask's), so 0.91 (0.8 in the career view) draws the mask 1 / 0.91 of the sprite, centred. Their
+  // opacity the view's, faded over 0.4 s (FadeIn / FadeOut).
+  // Not here: the animations between views (the career view's scale and rotation, InnerCircles' ScaleUp / ScaleDown),
+  // the node hover glows.
   import type { Snippet } from "svelte";
-  let { nodes, size, nodeSize, offset, completed, node, centre }: {
+  let { nodes, size, nodeSize, offset, completed, node, centre, inner }: {
     nodes: readonly unknown[]; size: number; nodeSize: number; offset: number; completed: boolean;
     node: Snippet<[unknown, number]>; centre?: Snippet;
+    inner?: { readonly mask: string; readonly scale: number; readonly opacity: number };
   } = $props();
   import { clientTexture } from "./skillGroupIcons.ts";
   const radius = $derived((size - nodeSize) / 2);
@@ -27,6 +33,12 @@
 </script>
 
 <div class="cc" style:width={`${size}px`} style:height={`${size}px`}>
+  {#if inner}
+    {@const d = size - nodeSize - 10}
+    <img class="cc-inner" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/innerCircles.png")} style:width={`${d}px`} style:height={`${d}px`}
+      style:opacity={inner.opacity} style:mask-image={`url(${clientTexture(inner.mask)})`} style:-webkit-mask-image={`url(${clientTexture(inner.mask)})`}
+      style:mask-size={`${100 / inner.scale}%`} style:-webkit-mask-size={`${100 / inner.scale}%`} />
+  {/if}
   <img class="cc-glow" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/circle_glow.png")} style:width={`${(size - nodeSize) * 1.33}px`} style:height={`${(size - nodeSize) * 1.33}px`} />
   <svg class="cc-ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
     <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={colour} stroke-opacity="0.8" stroke-width="2"
@@ -43,6 +55,8 @@
   .cc { position: relative; flex: none; margin: 0 auto; }
   .cc-glow { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.25; pointer-events: none; }
   .cc-ring { position: absolute; inset: 0; pointer-events: none; }
+  .cc-inner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 0.4s;
+    mask-position: center; -webkit-mask-position: center; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .cc-centre { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; max-width: 50%; }
   .cc-node { position: absolute; display: flex; align-items: center; justify-content: center; }
 </style>
