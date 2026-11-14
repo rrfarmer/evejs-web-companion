@@ -18,6 +18,9 @@
   // The escalations (ContentPageEscalations, no filters; EscalationInfoContainer 450 wide): NumberOfEscalationsInSystem,
   // the EscalationDescription warning (the system's name) over Escalations in system (100 high), Expires in (the time
   // left, short), Difficulty and the hostiles.
+  // The Homefront operations (ContentPageHomefrontSites, HomefrontSitesFiltersCont - no security filter): the card's
+  // NumberOfSitesInSystem; HomefrontSiteInfoContainer: the sites, the chosen one's gameplay description (under
+  // UI/Dungeons/GameplayDescriptionHeader) and its lore (UI/Common/Description); the Information the archetype's title.
   // Not here (later parts): the region distance, the system's other actions in it (warp to a scanned site), the enemy's
   // logo and the region's pirate faction for a belt (GetPirateFactionsOfRegion), the job's Track button, the tooltips,
   // the extra types' tooltip, the signature pages.
@@ -33,11 +36,12 @@
 
   let { store, flow, kind = "combat", filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; kind?: SiteTrackerKind | "signature" | "escalation"; filters?: AgencySiteFilters } = $props();
   const escalations = $derived(kind === "escalation");
+  const homefront = $derived(kind === "homefront");
   const belts = $derived(kind === "ore" || kind === "ice");
   const signatures = $derived(kind === "signature");
-  const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt", signature: "UI/Agency/UnknownCosmicSignature", escalation: "UI/Common/Unknown" } as const;
+  const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt", signature: "UI/Agency/UnknownCosmicSignature", escalation: "UI/Common/Unknown", homefront: "UI/Common/Unknown" } as const;
   const INFO = { combat: ["UI/Agency/CombatSiteTypes"], ore: ["UI/Agency/ProbeScanning"], ice: ["UI/Agency/IceAvailability", "UI/Agency/IceReprocessing"],
-    signature: ["UI/Agency/ProbeScanning", "UI/Agency/SignatureTypes"], escalation: [] } as const;
+    signature: ["UI/Agency/ProbeScanning", "UI/Agency/SignatureTypes"], escalation: [], homefront: [] } as const;
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -60,6 +64,8 @@
   });
   const chosenSystem = $derived(systems?.find((s) => s.solarSystemID === chosen) ?? null);
   const chosenSite = $derived(chosenSystem?.sites[site]);
+  // GetArchetype(dunArchetypeHomefrontSites).titleID: any Homefront site's dungeon's archetype title.
+  const archetypeTitle = $derived((systems ?? []).flatMap((s) => Object.values(s.siteTexts ?? {}).map((t) => t.archetypeTitleID)).find((x) => !!x) ?? null);
   $effect(() => {
     flow.requestWords(["UI/Agency/ShowingXResults", "UI/Inflight/Scanner/FilteredResults", "UI/Agency/Location", "UI/Common/NumJumps", "UI/Generic/CurrentSystem",
       "UI/Generic/NoGateToGateRoute", "UI/Agency/NumberOfAnomaliesInSystem", "UI/Agency/SitesInSystem", "UI/Agency/UnknownCombatAnomaly", "UI/Agency/ContentDifficulty",
@@ -68,7 +74,8 @@
       "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll", "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/CombatSiteTypes",
       "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Agency/NumberOfBeltsInSystem", "UI/Agency/BeltsInSystem",
       "UI/Agency/OreTypesInBelt", "UI/Agency/NumberOfSignaturesInSystem", "UI/Agency/SignaturesInSystem", "UI/Agency/SignaturesNote", "UI/Agency/NumberOfEscalationsInSystem", "UI/Agency/EscalationsInSystem",
-      "UI/Agency/EscalationDescription", "UI/Market/Marketbase/ExpiresIn", UNKNOWN[kind], ...INFO[kind],
+      "UI/Agency/EscalationDescription", "UI/Market/Marketbase/ExpiresIn", "UI/Agency/NumberOfSitesInSystem", "UI/Dungeons/GameplayDescriptionHeader", "UI/Common/Description",
+      UNKNOWN[kind], ...INFO[kind], ...(systems ?? []).flatMap((s) => Object.values(s.siteTexts ?? {}).flatMap((t) => [t.descriptionID, t.gameplayDescriptionID, t.archetypeTitleID])).filter((x): x is number => !!x).map((x) => `#${x}`),
       ...(chosenSystem?.sites ?? []).map((s) => s?.dungeonNameID).filter((x): x is number => !!x).map((x) => `#${x}`)]);
   });
 
@@ -116,11 +123,12 @@
       <h3>{word("UI/Calendar/CalendarWindow/Filters")}</h3>
       <label><span>{word("UI/Common/Location")}</span>
         <select value={filters.distance} onchange={(e) => set({ distance: Number(e.currentTarget.value) })}>{#each DISTANCES as v (v)}<option value={v}>{distanceLabel(v)}</option>{/each}</select></label>
-      <label><span>{word("Tooltips/CharacterSheet/SecurityStatus")}</span>
-        <select value={filters.security} onchange={(e) => set({ security: Number(e.currentTarget.value) })}>{#each SECURITIES as v (v)}<option value={v}>{securityLabel(v)}</option>{/each}</select></label>
+      {#if !homefront}<label><span>{word("Tooltips/CharacterSheet/SecurityStatus")}</span>
+        <select value={filters.security} onchange={(e) => set({ security: Number(e.currentTarget.value) })}>{#each SECURITIES as v (v)}<option value={v}>{securityLabel(v)}</option>{/each}</select></label>{/if}
       <div class="asi-reset"><button type="button" title={word("UI/Agency/resetAllPageFilters")} onclick={() => (filters = DEFAULT_SITE_FILTERS)}>{word("UI/Commands/ResetAll")}</button></div>
     </section>
-    <section class="asi-section"><h3>{word("UI/Common/Information")}</h3>{#each INFO[kind] as label (label)}<p class="asi-info">ⓘ {word(label)}</p>{/each}</section>
+    <section class="asi-section"><h3>{word("UI/Common/Information")}</h3>{#each INFO[kind] as label (label)}<p class="asi-info">ⓘ {word(label)}</p>{/each}
+      {#if homefront && archetypeTitle}<p class="asi-info">ⓘ {word(`#${archetypeTitle}`)}</p>{/if}</section>
   </aside>
   {/if}
   <section class="asi-section asi-scroll">
@@ -132,7 +140,7 @@
           {#if belts && s.resourceTypeIDs?.length}
             <span class="asi-types">{#each s.resourceTypeIDs.slice(0, 8) as t (t)}<img alt="" title={resolvedName($names.resolved, "type", t, "")} src={typeIconUrl(t)} />{/each}{#if s.resourceTypeIDs.length > 8}<i title={s.resourceTypeIDs.slice(8).map((t) => resolvedName($names.resolved, "type", t, "")).join(", ")}>+</i>{/if}</span>
           {/if}
-          <small>{word(escalations ? "UI/Agency/NumberOfEscalationsInSystem" : signatures ? "UI/Agency/NumberOfSignaturesInSystem" : belts ? "UI/Agency/NumberOfBeltsInSystem" : "UI/Agency/NumberOfAnomaliesInSystem", { amount: s.sites.length })}</small>
+          <small>{word(homefront ? "UI/Agency/NumberOfSitesInSystem" : escalations ? "UI/Agency/NumberOfEscalationsInSystem" : signatures ? "UI/Agency/NumberOfSignaturesInSystem" : belts ? "UI/Agency/NumberOfBeltsInSystem" : "UI/Agency/NumberOfAnomaliesInSystem", { amount: s.sites.length })}</small>
         </button>
       {/each}
     </div>
@@ -155,6 +163,10 @@
         <div class="asi-grid">{#each types as t (t)}<span><img alt="" src={typeIconUrl(t)} />{resolvedName($names.resolved, "type", t, "")}</span>{:else}<span>{word("UI/Common/Unknown")}</span>{/each}</div>
         <h4>{word("UI/Agency/RoamingEnemies")}</h4>
         <p>{chosenSite?.factionID ? resolvedName($names.resolved, "owner", chosenSite.factionID, "") : word("UI/Common/Unknown")}</p>
+      {:else if homefront && chosenSite}
+        {@const t = s.siteTexts?.[chosenSite.instanceID]}
+        {#if t?.gameplayDescriptionID}<h4 title={word(`#${t.gameplayDescriptionID}`)}>ⓘ {word("UI/Dungeons/GameplayDescriptionHeader")}</h4>{/if}
+        {#if t?.descriptionID}<h4>{word("UI/Common/Description")}</h4><p>{word(`#${t.descriptionID}`)}</p>{/if}
       {:else if chosenSite !== undefined}
         {#if escalations && chosenSite?.expiryTime}
           <h4>{word("UI/Market/Marketbase/ExpiresIn")}</h4>

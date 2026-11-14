@@ -33,12 +33,16 @@ export interface AgencySiteSystem {
   /** The ore or ice kinds: the system's resource types (GetResourceTypeIDsInSystem / GetIceTypeIDsInSystem), and each
    * known site's (its dungeon's), by instance. */
   readonly resourceTypeIDs?: readonly number[]; readonly siteResourceTypeIDs?: Readonly<Record<number, readonly number[]>>;
+  /** The Homefront kind: each known site's dungeon's description, gameplay description and archetype title messages. */
+  readonly siteTexts?: Readonly<Record<number, { readonly descriptionID: number | null; readonly gameplayDescriptionID: number | null; readonly archetypeTitleID: number | null }>>;
 }
 /** The trackers (evedungeons anomalyTracker): CombatAnomalyTracker, OreAnomalyTracker, IceBeltTracker, by their calls. */
 export const SITE_TRACKERS = Object.freeze({
   combat: { sites: "GetCombatAnomalyInstances", counts: "GetCombatAnomaliesCount" },
   ore: { sites: "GetOreAnomalyInstances", counts: "GetOreAnomaliesCount" },
   ice: { sites: "GetIceBeltInstances", counts: "GetIceBeltsCount" },
+  // HomefrontOperationTracker: a BaseCosmicAnomalyTracker, no counts (ContentProviderHomefrontSites is not WithUnknown).
+  homefront: { sites: "GetHomefrontSiteInstances", counts: null },
 } as const);
 export type SiteTrackerKind = keyof typeof SITE_TRACKERS;
 /** get_consolidated_ore_types / the ice types' order by value (as the dungeons route consolidates them). */

@@ -20126,14 +20126,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [known, counts, jumps, graph] = await Promise.all([
       bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS[kind].sites, []).catch(() => null),
-      bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS[kind].counts, []).catch(() => null),
+      SITE_TRACKERS[kind].counts ? bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS[kind].counts!, []).catch(() => null) : Promise.resolve(null),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
       loadRouteGraph().catch(() => null),
     ]);
     if (known === null && counts === null) return null;
     let systems = agencySiteSystems(trackerSites(known ?? undefined, counts ?? undefined, here), here, here === null || here < 31000000,
       (id) => jumps?.get(id), (id) => graph?.security(id) ?? null, filters);
-    if (kind !== "combat") {
+    if (kind === "homefront") {
+      // HomefrontSiteInfoContainer: each site's dungeon's lore and gameplay descriptions (GetSiteDescription,
+      // GetSiteGameplayDescription), and the archetype's title (the page's Information).
+      const dungeonIDs = [...new Set(systems.flatMap((s) => s.sites.map((site) => site?.dungeonID ?? 0)).filter((id) => id > 0))];
+      const data = await api.loadDungeons(dungeonIDs, callOptions).catch(() => null);
+      systems = systems.map((s) => ({ ...s, siteTexts: Object.fromEntries(s.sites.filter((x): x is NonNullable<typeof x> => !!x).map((x) => {
+        const d = x.dungeonID ? data?.[String(x.dungeonID)] : null;
+        return [x.instanceID, { descriptionID: d?.descriptionID ?? null, gameplayDescriptionID: d?.gameplayDescriptionID ?? null, archetypeTitleID: d?.archetypeTitleID ?? null }];
+      })) }));
+    } else if (kind !== "combat") {
       // ContentProviderOreAnomalies.GetResourceTypeIDsInSystem / ContentProviderIceBelts.GetIceTypeIDsInSystem: the sites'
       // dungeons' types (get_ore_types_in_dungeon, consolidated; get_consolidated_ice_types_in_dungeon), each once.
       const dungeonIDs = [...new Set(systems.flatMap((s) => s.sites.map((site) => site?.dungeonID ?? 0)).filter((id) => id > 0))];

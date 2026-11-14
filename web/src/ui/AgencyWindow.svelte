@@ -12,7 +12,7 @@
   //   Career Agents: ContentPageCareerAgents; Storyline Agents: ContentPageStorylineAgents;
   //   Combat Anomalies, Ore Anomalies, Ice Belts: ContentPageCombatAnomalies, ContentPageOreAnomalies, ContentPageIceBelts;
   //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs;
-  //   Escalations: ContentPageEscalations; Incursions: ContentPageIncursions, and an incursion's ContentPageIncursion;
+  //   Homefront operations: ContentPageHomefrontSites; Escalations: ContentPageEscalations; Incursions: ContentPageIncursions, and an incursion's ContentPageIncursion;
   //   Planetary Production: ContentPagePlanetaryProduction; Mercenary Dens: ContentPageMercDen.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
@@ -63,7 +63,7 @@
   // agencyFilters by content group (the character's settings in the client; the window's life here).
   let agentFilters = $state<Record<number, AgencyAgentFilters>>({});
   let siteFilters = $state<Record<number, AgencySiteFilters>>({});
-  const SITE_PAGES: Record<number, SiteTrackerKind | "signature" | "escalation"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature", [ESCALATIONS]: "escalation" };
+  const SITE_PAGES: Record<number, SiteTrackerKind | "signature" | "escalation"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature", [ESCALATIONS]: "escalation", [HOMEFRONT]: "homefront" };
   const groupID = $derived(history[at] ?? HOME);
   const itemID = $derived(items[at] ?? null);
   const group = $derived(AGENCY_GROUPS[groupID] ?? AGENCY_GROUPS[HOME]!);
@@ -85,8 +85,11 @@
   const knownSpace = $derived(systemID === null || systemID < 31000000);
   const wormhole = $derived(systemID !== null && systemID >= 31000000 && systemID < 32000000);
   const disabled = (g: AgencyGroup) => !knownSpace && !AGENCY_WORMHOLE_GROUPS.includes(g.id);
-  // IsVisible: the seasons group without a season, Homefront without its sites (neither in this build's data).
-  const visible = (id: number) => id !== SEASONS && id !== HOMEFRONT;
+  // IsVisible: the seasons group without a season (none in this build's data); HomefrontSitesContentGroup while its
+  // provider has any site (GetAllDungeonInstances).
+  let homefrontSites = $state(false);
+  $effect(() => { void flow.agencyTrackerSites("homefront", DEFAULT_SITE_FILTERS).then((list) => { homefrontSites = !!list?.length; }); });
+  const visible = (id: number) => id !== SEASONS && (id !== HOMEFRONT || homefrontSites);
   const tabs = $derived([HOME, ...AGENCY_TAB_ORDER.filter((id) => AGENCY_GROUPS[id]?.tab)]);
   const children = $derived(group.children.filter(visible).map((id) => AGENCY_GROUPS[id]).filter((g): g is AgencyGroup => !!g));
 
