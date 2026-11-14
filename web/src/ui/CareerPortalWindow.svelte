@@ -68,9 +68,13 @@
   ] as const;
   type Career = (typeof CAREERS)[number];
   let goals = $state<readonly CareerGoal[] | null | undefined>(undefined);
+  // When the goals came: the career nodes are built then (CareerNode.ApplyAttributes) and their gauges fill once; a
+  // gauge drawn later (a view's own career node, a return to the careers view) is drawn filled, as the client's nodes,
+  // built once for the window, are.
+  let gaugesAt = $state(0);
   let careerTexts = $state<Record<number, { nameID: number | null; descriptionID: number | null }>>({});
   $effect(() => {
-    void flow.careerGoals().then((g) => { goals = g; }, () => { goals = null; });
+    void flow.careerGoals().then((g) => { gaugesAt = performance.now(); goals = g; }, () => { goals = null; });
     void flow.careerPathNameIDs().then((n) => { careerTexts = { ...n }; }, () => {});
   });
   // The window's state and selections, kept for the character (careerConst's CharSettingEnum / CharSettingUUID).
@@ -422,12 +426,16 @@
 {#snippet careerGauge(c: Career)}
   <!-- IconWithGauge: GaugeCircular (lineWidth 4, from the top clockwise, glow 0.5, bgPortion 0.997, its background
        CRYO_BLUE at brightness 0.2; CRYO_BLUE, LEAFY_GREEN once full - UpdateGaugeColor) at the career path goal's
-       progress / target, the career's icon at nodeSize / 1.2 inside it. -->
+       progress / target, the career's icon at nodeSize / 1.2 inside it. Built, it fills (SetGaugeValue ->
+       SetValueWithMiddleGauge(value, lingerDurationSeconds 1.0), animationSpeedSeconds 0.75): the middle gauge
+       (LEAFY_GREEN, under the gauge) from 0 to the value, linear over 0.75 s; the gauge after it, from 1 s, over 0.75
+       s; then UpdateGaugeColor (green when full). -->
   {@const pg = careerPathGoal(c)}
   {@const frac = pg && pg.target > 0 ? Math.min(1, pg.progress / pg.target) : 0}
-  <svg class="cpw-gauge" class:full={frac >= 1} viewBox="0 0 100 100" aria-hidden="true">
+  <svg class="cpw-gauge" class:full={frac >= 1} class:filling={performance.now() - gaugesAt < 1000} viewBox="0 0 100 100" aria-hidden="true">
     <circle class="cpw-gauge-bg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray="0.997 1" transform="rotate(-90 50 50)" />
-    {#if frac > 0}<circle class="cpw-gauge-fg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />{/if}
+    {#if frac > 0}<circle class="cpw-gauge-mid" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />
+      <circle class="cpw-gauge-fg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />{/if}
   </svg>
   {#if careerIcon(c.id, 128)}<img class="cpw-career-icon" alt="" src={careerIcon(c.id, 128)} />{/if}
 {/snippet}
@@ -481,6 +489,12 @@
   .cpw-gauge-bg { stroke: rgb(24 45 51); }
   .cpw-gauge-fg { stroke: #58a7bf; filter: drop-shadow(0 0 2px rgb(88 167 191 / 0.6)); }
   .cpw-gauge.full .cpw-gauge-fg { stroke: #8dc169; filter: drop-shadow(0 0 3px #8dc169); }
+  .cpw-gauge-mid { stroke: #8dc169; }
+  .cpw-gauge.filling .cpw-gauge-mid { animation: cpw-gauge-in 0.75s linear; }
+  .cpw-gauge.filling .cpw-gauge-fg { animation: cpw-gauge-in 0.75s linear 1s backwards; }
+  .cpw-gauge.filling.full .cpw-gauge-fg { animation: cpw-gauge-in 0.75s linear 1s backwards, cpw-gauge-blue 0.01s linear 1.75s backwards; }
+  @keyframes cpw-gauge-in { from { stroke-dasharray: 0 1; } }
+  @keyframes cpw-gauge-blue { from { stroke: #58a7bf; filter: drop-shadow(0 0 2px rgb(88 167 191 / 0.6)); } }
   .cpw-careernode { position: relative; width: 100%; height: 100%; }
   .cpw-careernode > .cpw-career { width: 100%; height: 100%; }
   .cpw-career-text { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; white-space: nowrap; font-size: 12px; }
