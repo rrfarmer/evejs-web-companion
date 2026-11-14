@@ -2414,6 +2414,7 @@ export function createClientStore(): ClientStore {
               amount: event.amount,
               quality: event.quality,
               ...(event.routing ? { routing: event.routing } : {}),
+              ...(event.attackType !== undefined ? { attackType: event.attackType, banked: event.banked === true, ownerID: event.ownerID ?? null } : {}),
               atMs: event.atMs,
             },
           ].slice(-DAMAGE_LOG_LIMIT),

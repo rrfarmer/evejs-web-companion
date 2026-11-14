@@ -7629,6 +7629,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       weaponTypeID: weapon > 0 ? weapon : null,
       amount: amountValue,
       quality: Number.isFinite(quality) ? quality : null,
+      // what the client's logger words its line by (AddCombatMessageFromDict): the attack type, the bank, the owner
+      // (a (UE_OWNERID, id) pair: its id)
+      attackType: typeof attackType === "string" ? attackType : "me",
+      banked: Boolean(readDictEntry(payload, "isBanked")),
+      ownerID: (() => { const o = readDictEntry(payload, "owner"); const pair = Array.isArray(o) ? o : (o as { items?: unknown[] } | undefined)?.items; const id = Number(pair?.[1]); return Number.isFinite(id) && id > 0 ? id : null; })(),
       atMs: Date.now(),
     });
     // The bars are read, never derived from these frames.

@@ -9,6 +9,8 @@
   import { romanLevel } from "../bridge/skills.ts";
   import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
+  import { addGameLogLine } from "./gameLog.ts";
+  import type { DamageEvent } from "../store/types.ts";
   import { get as storeValue } from "svelte/store";
   import { marketDetailsTarget } from "./marketDetails.ts";
   import { createSession, type Session } from "../app/sessions.ts";
@@ -492,6 +494,44 @@
     return s.store.drones.subscribe(show);
   });
 
+  // The client's combat line in its log (uilog.Logger.AddCombatMessageFromDict / AddCombatMessage): the message by the hit -
+  // AttackMiss for quality 0, else AttackHits - and the attack type (+R for otherPlayerWeapons, +RD for otherPlayer,
+  // +Banked for a banked shot of one's own), its words filled with the names (the park's), the weapon and the client's
+  // colour and font markup; the hit's damage before it, " - weapon" and " - " the hit quality's words
+  // (UI/Inflight/HitQuality1 .. 6) after it; logged as combat.
+  const COMBAT_KEYS = ["AttackHits", "AttackMiss", "AttackHitsR", "AttackMissR", "AttackHitsRD", "AttackMissRD", "AttackHitsBanked", "AttackMissBanked"];
+  function logCombatLine(d: DamageEvent): void {
+    const s = session;
+    if (!s || d.attackType === undefined) return;
+    const quality = d.quality ?? 0;
+    const key = (quality === 0 ? "AttackMiss" : "AttackHits")
+      + (d.attackType === "otherPlayer" ? "RD" : d.attackType === "otherPlayerWeapons" ? "R" : d.banked ? "Banked" : "");
+    const words = s.store.words.get().templates;
+    const template = words[`dialog:${key}/body`];
+    if (typeof template !== "string") { s.flow.requestWords([...COMBAT_KEYS.map((k) => `dialog:${k}/body`), "UI/Inflight/HitQuality1", "UI/Inflight/HitQuality2", "UI/Inflight/HitQuality3", "UI/Inflight/HitQuality4", "UI/Inflight/HitQuality5", "UI/Inflight/HitQuality6"]); return; }
+    const entities = s.store.space.get().snapshot?.entities ?? [];
+    const own = s.store.space.get().snapshot?.ship ?? null;
+    const resolved = s.store.names.get().resolved;
+    // uix.GetSlimItemName as the space view has it (its own name, else its type's); 'Some object' where none
+    const nameOfItem = (id: number | null) => {
+      if (id === null) return "Some object";
+      const e = entities.find((x) => x.itemID === id);
+      return view?.itemName(id) || e?.name || (e?.typeID ? resolved[nameKey("type", e.typeID)] ?? "" : "") || "Some object";
+    };
+    const targetID = d.direction === "dealt" ? d.otherPartyID : own?.itemID ?? null;
+    const sourceID = d.direction === "taken" ? d.otherPartyID : own?.itemID ?? null;
+    const owner = d.ownerID ? resolved[nameKey("owner", d.ownerID)] ?? "" : "";
+    if (d.ownerID) s.flow.requestNames([{ kind: "owner", id: d.ownerID }]);
+    if (d.weaponTypeID) s.flow.requestNames([{ kind: "type", id: d.weaponTypeID }]);
+    const args = { target: nameOfItem(targetID), source: nameOfItem(sourceID), owner, weapon: d.weaponTypeID ?? 0, extraNameText: "",
+      strongColor: "<color=0xff00ffff>", faintColor: "<color=0x77ffffff>", fontMarkUpStart: "<font size=10>", fontMarkUpEnd: "</font>" };
+    let text = plainText(formatTemplate(template, args as never, { nameOf: (kind, id) => resolved[nameKey(kind, id)] ?? "" })).trim();
+    if (d.weaponTypeID) text += ` - ${resolved[nameKey("type", d.weaponTypeID)] ?? ""}`;
+    if (quality >= 1 && quality <= 6) { const hq = words[`UI/Inflight/HitQuality${quality}`]; if (typeof hq === "string") text += ` - ${plainText(hq)}`; }
+    if (quality > 0) text = `${Math.round(d.amount)} ${text}`;
+    addGameLogLine(text, "combat");
+  }
+
   // The client's window commands (eveCommands.py) and the windows they open here; their keys are the client's default
   // shortcuts (clientShortcuts.ts, matched by shortcutKeys.ts) - Alt-E People & Places, L Locations, as the client has
   // them. OpenDirectionalScanner (Alt-D) and CmdRefreshDirectionalScan (V) are the space view's own.
@@ -827,7 +867,7 @@
     // Damage numbers: each new entry of the damage log (the client's damage notifications) floats up in space.
     let lastDamageID = s.store.targeting.get().damageLog.at(-1)?.id ?? 0;
     const stopDamage = s.store.targeting.subscribe((t) => {
-      for (const d of t.damageLog) if (d.id > lastDamageID) v.showDamage(d);
+      for (const d of t.damageLog) if (d.id > lastDamageID) { v.showDamage(d); logCombatLine(d); }
       lastDamageID = t.damageLog.at(-1)?.id ?? lastDamageID;
     });
     return () => { stopCargo(); stopDamage(); v.dispose(); view = null; };

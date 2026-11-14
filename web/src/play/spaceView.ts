@@ -413,6 +413,11 @@ export class SpaceView {
     return e.name ?? (e.typeID !== null ? this.names?.types[String(e.typeID)]?.[0] : null) ?? e.kind;
   }
   private names: { types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null = null;
+  /** A thing in the park named as the client names it (GetSlimItemName), or null where the park has it not. */
+  itemName(itemID: number): string | null {
+    const e = this.snapshot?.entities.find((x) => x.itemID === itemID);
+    return e ? this.nameOf(e) : null;
+  }
   /** Corporation tickers known (null: the corporation has none), and those being asked. */
   private readonly tickers = new Map<number, string | null>();
   private readonly tickersAsked = new Set<number>();

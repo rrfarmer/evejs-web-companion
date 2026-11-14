@@ -852,6 +852,11 @@ export type FeedEvent =
       readonly atMs: number;
       /** The keys the payload carried that the client routes it by (godma.OnDamageMessage), absent where unread. */
       readonly routing?: DamageRouting;
+      /** The payload's attackType ("me", "otherPlayerWeapons", "otherPlayer"), isBanked, and the owner's id where it
+       *  names one (the "otherPlayer" drone's), as the client's logger words the line by (AddCombatMessageFromDict). */
+      readonly attackType?: string;
+      readonly banked?: boolean;
+      readonly ownerID?: number | null;
     }
   // Goal R23 slice B — the mining loop. The ship's mining holds, by NAME (the
   // retail flagIDs never reach the browser), each with its own read error so one

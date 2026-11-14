@@ -2496,6 +2496,10 @@ export interface DamageEvent {
   readonly quality: number | null;
   /** The keys the client routes the shot's hit or miss by; absent on entries made without them. */
   readonly routing?: DamageRouting;
+  /** The payload's attackType, isBanked and owner (the client's combat log line, AddCombatMessageFromDict). */
+  readonly attackType?: string;
+  readonly banked?: boolean;
+  readonly ownerID?: number | null;
   /** Browser clock reading for when the frame arrived. */
   readonly atMs: number;
 }
