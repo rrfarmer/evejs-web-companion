@@ -256,26 +256,32 @@
           {/snippet}
         </CareerCircle>
         </div>
-        <div class="cpw-layer cpw-behind" style:transform={`scale(0.6) rotate(${-angle}deg)`}>
-          <CareerCircle nodes={CAREERS} size={circle} nodeSize={careerNodeSize} offset={-Math.PI / 4} completed={false} ring={false} glow={false}
-            inner={{ mask: careerMask, scale: 0.8, opacity: careerHover ? 0.4 : 0 }}>
+        {@render careerBehind(career, angle, careerNodeSize, true)}
+        </div>
+      {:else if view === "GOALS_VIEW" && career}
+        {@const angle = CIRCLE_ROTATION_BY_CAREER[career.id] ?? 0}
+        {@const careerNodeSize = Math.min(180, circle * 0.215)}
+        <!-- The goals view stacked (CircleViewContainer): the activity view behind, minimized (ActivityView.Minimize:
+             MINIMIZED_SCALE 0.65, its ring at 0.25, its inner circles and fill faded out), its nodes disabled with their
+             words faded (ActivityNode in GOALS_VIEW: the chosen one its icon in a CRYO_BLUE frame - LEAFY_GREEN where
+             done -, the others a dot, LEAFY_GREEN 0.4 where done, LED_GREY 0.6 otherwise); the goal circle over it; the
+             career view behind both. A hovered career node fades the goals to 0.3 (GoalView.OnCareerNodeHoverOn), brings
+             the activity view's inner circles, ring and fill back (ActivityView.OnCareerNodeHoverOn in GOALS_VIEW) and
+             its other nodes' icons (ActivityNode.OnCareerNodeHoverOn). -->
+        <div class="cpw-stack" style:width={`${circle}px`} style:height={`${circle}px`}>
+        <div class="cpw-layer cpw-minimized">
+          <CareerCircle nodes={activities} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activities.every((a) => a.goals.every((g) => g.completed))}
+            ringOpacity={careerHover ? 1 : 0.25} glow={careerHover} inner={{ mask: countMask(activities.length), scale: 0.91, opacity: careerHover ? 1 : 0 }}>
             {#snippet node(n: unknown)}
-              {@const c = n as Career}
-              {#if c.id !== career.id}
-                <span class="cpw-career cpw-other" class:shown={careerHover} style:transform={`rotate(${angle}deg)`}>
-                  {#if careerIcon(c.id, 128)}<img alt="" src={careerIcon(c.id, 128)} />{/if}</span>
-              {/if}
-            {/snippet}
-            {#snippet centre()}
-              <button type="button" class="cpw-career cpw-chosen" title={careerName(career)} style:width={`${careerNodeSize}px`} style:height={`${careerNodeSize}px`}
-                style:transform={`rotate(${angle}deg) scale(1.5)`} onmouseenter={() => (careerHover = true)} onmouseleave={() => (careerHover = false)}
-                onclick={() => go("CAREERS_VIEW", careerID, null, null)}>{#if careerIcon(career.id, 128)}<img alt="" src={careerIcon(career.id, 128)} />{/if}</button>
+              {@const a = n as (typeof activities)[number]}
+              {@const finished = a.goals.every((g) => g.completed)}
+              <span class="cpw-node cpw-asleep" class:chosen={activity === a.key} class:done={finished} class:peek={careerHover}>
+                {#if activityIcon(career, a.key)}<img alt="" src={activityIcon(career, a.key)} />{/if}</span>
             {/snippet}
           </CareerCircle>
         </div>
-        </div>
-      {:else if view === "GOALS_VIEW" && career}
         <!-- GoalView: the activity's goals, each a dot (smallDot), goalCompleted where done, the open eye where tracked. -->
+        <div class="cpw-layer cpw-front" class:dim={careerHover}>
         <CareerCircle nodes={activityGoals} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activityGoals.every((g) => g.completed)}
           inner={{ mask: countMask(activityGoals.length), scale: 0.91, opacity: 1 }} {enter}>
           {#snippet node(n: unknown)}
@@ -287,8 +293,10 @@
               <span class="cpw-node-label">{$tracked.includes(g.goalID) ? "👁 " : ""}{g.nameID ? word(`#${g.nameID}`) : ""}<small>{g.progress.toLocaleString("en-US")} / {g.target.toLocaleString("en-US")}</small></span>
             </button>
           {/snippet}
-          {#snippet centre()}{#if activity && activityIcon(career, activity)}<img class="cpw-centre-icon small" alt="" src={activityIcon(career, activity)} />{/if}<b class="cpw-centre-title">{activity ? groupName(career, activity) : ""}</b>{/snippet}
         </CareerCircle>
+        </div>
+        {@render careerBehind(career, angle, careerNodeSize, false)}
+        </div>
       {/if}
     </div>
     {#snippet freelance(short: boolean)}
@@ -370,6 +378,31 @@
   {/if}
 </div>
 
+{#snippet careerBehind(career: Career, angle: number, careerNodeSize: number, previews: boolean)}
+  <!-- The career view behind (CareerCircleView in _GoToAlternateState): at 0.6 and the career's rotation, no ring or
+       fill; the chosen career's node centred at 1.5, counter-rotated (CareerNode._GoToCenter), its click back a level
+       (CareerNode.OnClick: the goals to the activities, the activities to the careers); the others disabled, shown
+       while it is hovered in the activities view alone (OnCareerNodeHoveredOn). -->
+  <div class="cpw-layer cpw-behind" style:transform={`scale(0.6) rotate(${-angle}deg)`}>
+    <CareerCircle nodes={CAREERS} size={circle} nodeSize={careerNodeSize} offset={-Math.PI / 4} completed={false} ring={false} glow={false}
+      inner={{ mask: careerMask, scale: 0.8, opacity: careerHover ? 0.4 : 0 }}>
+      {#snippet node(n: unknown)}
+        {@const c = n as Career}
+        {#if c.id !== career.id}
+          <span class="cpw-career cpw-other" class:shown={careerHover && previews} style:transform={`rotate(${angle}deg)`}>
+            {#if careerIcon(c.id, 128)}<img alt="" src={careerIcon(c.id, 128)} />{/if}</span>
+        {/if}
+      {/snippet}
+      {#snippet centre()}
+        <button type="button" class="cpw-career cpw-chosen" title={careerName(career)} style:width={`${careerNodeSize}px`} style:height={`${careerNodeSize}px`}
+          style:transform={`rotate(${angle}deg) scale(1.5)`} onmouseenter={() => (careerHover = true)} onmouseleave={() => (careerHover = false)}
+          onclick={() => (view === "GOALS_VIEW" ? go("ACTIVITIES_VIEW", careerID, activity, null) : go("CAREERS_VIEW", careerID, null, null))}>{#if careerIcon(career.id, 128)}<img alt="" src={careerIcon(career.id, 128)} />{/if}</button>
+      {/snippet}
+    </CareerCircle>
+  </div>
+
+{/snippet}
+
 <style>
   .cpw { position: relative; display: flex; flex-direction: column; height: 100%; gap: 8px; }
   .cpw-head { display: flex; align-items: center; gap: 12px; }
@@ -401,8 +434,14 @@
   .cpw-behind .cpw-chosen { pointer-events: auto; justify-content: center; }
   .cpw-behind .cpw-other { opacity: 0; transition: opacity 0.2s; }
   .cpw-behind .cpw-other.shown { opacity: 1; }
-  .cpw-centre-icon { width: 96px; height: 96px; opacity: 0.85; }
-  .cpw-centre-icon.small { width: 48px; height: 48px; }
+  .cpw-minimized { transform: scale(0.65); pointer-events: none; transition: transform 0.5s ease-in-out; }
+  .cpw-asleep { display: flex; border-radius: 50%; background: rgb(127 127 127 / 0.6); transform: scale(0.35); transition: transform 0.4s, background 0.4s; }
+  .cpw-asleep.done { background: rgb(106 176 76 / 0.4); }
+  .cpw-asleep img { opacity: 0; transition: opacity 0.4s; }
+  .cpw-asleep.chosen, .cpw-asleep.peek { transform: none; background: rgb(0 0 0 / 0.5); }
+  .cpw-asleep.chosen { box-shadow: 0 0 0 2px #6ac3ec, 0 0 10px #6ac3ec; }
+  .cpw-asleep.chosen.done { box-shadow: 0 0 0 2px #6ab04c, 0 0 10px #6ab04c; }
+  .cpw-asleep.chosen img, .cpw-asleep.peek img { opacity: 1; }
   .cpw-row { all: unset; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; background: rgb(0 0 0 / 0.3); border-left: 2px solid transparent; }
   .cpw-row:hover, .cpw-row.on { border-left-color: rgb(255 255 255 / 0.5); }
   .cpw-row.done small { color: #5fb85f; }
