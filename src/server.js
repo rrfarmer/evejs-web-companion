@@ -14101,6 +14101,14 @@ app.get("/api/client-data/epic-arcs", requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// The agents service's cfg of its agents (agents.__GetAllAgents): each station's solar system and owner, each NPC
+// corporation's faction. Static reference data, asked once and kept by the page.
+app.get("/api/client-data/agent-places", requireAuth, async (req, res, next) => {
+  try {
+    res.json({ ok: true, ...staticData.getAgentPlaces() });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/client-data/contribution-methods", requireAuth, async (req, res, next) => {
   try {
     const methods = await clientBuiltData.table("contributionMethods");

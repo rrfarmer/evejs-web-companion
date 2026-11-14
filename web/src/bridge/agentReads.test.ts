@@ -38,7 +38,8 @@ test("the table of agents is asked for by name with nothing, and each line read 
   assert.deepEqual(read, [
     // Its bloodline where the table gives one (characterInfoWindow 190: its Show Info's Description is the bloodline's).
     { agentID: 3000001, agentTypeID: 2, divisionID: 22, level: 1, stationID: 60000001, corporationID: 1000002, missionKind: "courier", missionTypeLabel: "UI/Agents/MissionTypes/Courier", bloodlineID: 1 },
-    { agentID: 3000002, agentTypeID: 2, divisionID: 24, level: 4, stationID: 60000002, corporationID: 1000003, missionKind: "encounter", missionTypeLabel: "UI/Agents/MissionTypes/Encounter", bloodlineID: 1 },
+    // And a locator agent's isLocatorAgent (the Agency's Locator Agents page goes by it).
+    { agentID: 3000002, agentTypeID: 2, divisionID: 24, level: 4, stationID: 60000002, corporationID: 1000003, missionKind: "encounter", missionTypeLabel: "UI/Agents/MissionTypes/Encounter", bloodlineID: 1, isLocatorAgent: true },
     // An agent in space: no station, and nothing where the table has nought or nothing.
     { agentID: 3000003, agentTypeID: 6, divisionID: null, level: null, stationID: null, corporationID: null, missionKind: null, missionTypeLabel: null, bloodlineID: 1 },
   ]);

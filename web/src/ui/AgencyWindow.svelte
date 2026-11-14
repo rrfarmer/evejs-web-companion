@@ -7,11 +7,12 @@
   //     every 8 s) of the Homefront, Heraldry and Corp cards and below it the Help card (632 x 132);
   //   a group (BaseContentGroupPage): its visible children's vertical cards (200 x 333: the card texture, the name,
   //     the description);
-  //   Agent Finder (contentGroupAgentFinder): the agent finder.
+  //   Agent Finder (contentGroupAgentFinder): the agent finder;
+  //   the agent groups (Security, Distribution, Mining, Research, Locator, Heraldry): ContentPageAgents.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
-  // Not here (later parts): the groups' own content pages (the agents, the sites, the systems), the new content labels,
+  // Not here (later parts): the other groups' own content pages (the career and storyline agents, the sites, the systems), the new content labels,
   // the cards' scale and fade animations, the bookmarks bar, the seasons and dynamic new-feature cards.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -20,6 +21,8 @@
   import { AGENCY_GROUPS, AGENCY_TAB_ORDER, AGENCY_WORMHOLE_GROUPS, agencyPath, type AgencyGroup } from "./agencyContentGroups.ts";
   import { agencyRequests, serveAgencyRequest } from "./agencyRequests.ts";
   import AgentFinder from "./AgentFinder.svelte";
+  import AgencyAgentsPage from "./AgencyAgentsPage.svelte";
+  import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
   let { store, flow, showTravel }: { store: ClientStore; flow: AppFlow; showTravel?: () => void } = $props();
   // svelte-ignore state_referenced_locally
@@ -38,6 +41,8 @@
   };
 
   let history = $state<number[]>([HOME]), at = $state(0);
+  // agencyFilters by content group (the character's settings in the client; the window's life here).
+  let agentFilters = $state<Record<number, AgencyAgentFilters>>({});
   const groupID = $derived(history[at] ?? HOME);
   const group = $derived(AGENCY_GROUPS[groupID] ?? AGENCY_GROUPS[HOME]!);
   const path = $derived(agencyPath(groupID));
@@ -117,6 +122,8 @@
       </div>
     {:else if groupID === AGENT_FINDER}
       <div class="ag-page"><AgentFinder {store} {flow} {showTravel} /></div>
+    {:else if AGENT_PROVIDERS[groupID]}
+      <div class="ag-page"><AgencyAgentsPage {store} {flow} {groupID} bind:filters={() => agentFilters[groupID] ?? DEFAULT_AGENT_FILTERS, (f) => (agentFilters = { ...agentFilters, [groupID]: f })} /></div>
     {:else if children.length}
       <div class="ag-cards">
         {#each children as g (g.id)}{@render card(g, "v")}{/each}

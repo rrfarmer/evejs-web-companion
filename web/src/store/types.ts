@@ -1337,6 +1337,8 @@ export interface AgentRow {
   readonly missionTypeLabel: string | null;
   /** The agent's bloodline (Tranquility's table has it), where the table gives one: its Show Info's Description is the bloodline's. */
   readonly bloodlineID?: number;
+  /** Whether it gives location services (the table's isLocatorAgent), where the table says so. */
+  readonly isLocatorAgent?: boolean;
 }
 
 /**

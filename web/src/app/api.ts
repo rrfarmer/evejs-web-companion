@@ -5801,6 +5801,12 @@ export async function loadEpicArcs(options: ApiOptions = {}): Promise<{ readonly
   return data.available && Array.isArray(data.arcs) ? { arcs: data.arcs as EpicArcData[], featureTag: (data.featureTag ?? null) as { title: number | null; icon: string | null } | null } : null;
 }
 
+/** GET /api/client-data/agent-places: each station's [solar system, owner] and each NPC corporation's faction (the client's cfg). */
+export async function loadAgentPlaces(options: ApiOptions = {}): Promise<{ readonly stations: Readonly<Record<string, readonly [number, number | null]>>; readonly factions: Readonly<Record<string, number>> } | null> {
+  const data = await getJson("/api/client-data/agent-places", options);
+  return data.stations && data.factions ? { stations: data.stations as Record<string, [number, number | null]>, factions: data.factions as Record<string, number> } : null;
+}
+
 /** GET /api/client-data/contribution-methods: the corporation projects' contribution methods, by key (contributionMethods.fsdbinary). */
 export async function loadContributionMethods(options: ApiOptions = {}): Promise<Readonly<Record<string, { readonly titleID?: number; readonly descriptionID?: number; readonly icon?: string; readonly unit?: number; readonly progressDescriptionID?: number; readonly rewardingDescriptionID?: number }>> | null> {
   const data = await getJson("/api/client-data/contribution-methods", options);

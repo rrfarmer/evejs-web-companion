@@ -964,6 +964,24 @@ function getStation(stationID) {
 }
 
 /**
+ * What the client's cfg tells its agents service of where an agent is and whom it serves (agents.__GetAllAgents):
+ * each station's solar system and owner (cfg.stations), and each NPC corporation's faction. Static reference data.
+ */
+function getAgentPlaces() {
+  const stations = {};
+  for (const [stationID, row] of buildIndex("stations", "stations", "stationID")) {
+    const systemID = Number(row && row.solarSystemID) || 0;
+    if (systemID > 0) stations[stationID] = [systemID, Number(row.corporationID) || null];
+  }
+  const factions = {};
+  for (const [corporationID, row] of buildJsonlIndex("npcCorporations.jsonl")) {
+    const factionID = Number(row && row.factionID) || 0;
+    if (factionID > 0) factions[corporationID] = factionID;
+  }
+  return { stations, factions };
+}
+
+/**
  * A solar system's NPC stations as the client's own map data has them (cfg.GetLocationsLocalBySystem, which
  * mapSvc.GetSolarsystemItems reads): each station's number, and its celestialIndex and orbitIndex (the SDE's
  * npcStations), by which the multibuy's station list sorts (buyMultiFromBase.GetStations). Static reference data.
@@ -2517,6 +2535,7 @@ module.exports = {
   getSolarSystemName,
   getStargates,
   getStation,
+  getAgentPlaces,
   getSystemStations,
   getStationName,
   getStationShortName,

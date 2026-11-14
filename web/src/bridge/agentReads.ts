@@ -49,7 +49,7 @@ function decodeAgentsTable(answered: JsonValue | undefined): readonly AgentRow[]
   const where = {
     agentID: at("agentID"), agentTypeID: at("agentTypeID"), divisionID: at("divisionID"), level: at("level"), stationID: at("stationID"),
     corporationID: at("corporationID"), missionKind: at("missionKind"), missionTypeLabel: at("missionTypeLabel"),
-    bloodlineID: at("bloodlineID"),
+    bloodlineID: at("bloodlineID"), isLocatorAgent: at("isLocatorAgent"),
   };
   const agents: AgentRow[] = [];
   for (const line of lines.items) {
@@ -69,6 +69,7 @@ function decodeAgentsTable(answered: JsonValue | undefined): readonly AgentRow[]
       missionKind: textOrNull(values[where.missionKind]),
       missionTypeLabel: textOrNull(values[where.missionTypeLabel]),
       ...(numberOrNull(values[where.bloodlineID]) === null ? {} : { bloodlineID: numberOrNull(values[where.bloodlineID]) as number }),
+      ...(where.isLocatorAgent >= 0 && values[where.isLocatorAgent] ? { isLocatorAgent: true } : {}),
     });
   }
   return agents;

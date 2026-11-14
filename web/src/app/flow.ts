@@ -393,6 +393,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
+import { agencyAgents as pickAgencyAgents, type AgencyAgent, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
@@ -3664,6 +3665,12 @@ export interface AppFlow {
    * not be read gives none.
    */
   dungeonJobs(): Promise<readonly DungeonJob[]>;
+  /**
+   * An Agency agent page's agents (ContentProviderAgents and its kinds, bridge/agencyAgents.ts): from the agents
+   * table (agentMgr.GetAgents, kept), the static places, the autopilot's jumps and the pilot's standings and skills.
+   * Null where the table cannot be read.
+   */
+  agencyAgents(groupID: number, filters: AgencyAgentFilters): Promise<readonly AgencyAgent[] | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
    * fwWarzoneSolarsystem.GetLocalOccupationState() (the system and its factionwarfare OccupationState, None outside a
@@ -19834,6 +19841,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames(views.flatMap((v) => [...(v.factionID ? [{ kind: "owner" as const, id: v.factionID }] : []), ...(v.activeAgentID ? [{ kind: "agent" as const, id: v.activeAgentID }] : [])]));
     return { arcs: views, featureTag };
   }
+  let agentPlacesHeld: Awaited<ReturnType<typeof api.loadAgentPlaces>> = null;
+  async function agencyAgents(groupID: number, filters: AgencyAgentFilters): Promise<readonly AgencyAgent[] | null> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [table, places, jumps, graph] = await Promise.all([
+      agentsKnown().catch(() => null),
+      agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+      store.standings.get().char === null ? loadStandings().catch(() => undefined) : Promise.resolve(),
+      store.skills.get().skills === null ? loadSkills().catch(() => undefined) : Promise.resolve(),
+    ]);
+    agentPlacesHeld ??= places;
+    if (table === null || places === null) return null;
+    const standings = new Map((store.standings.get().char ?? []).map((row) => [row.fromID, row.standing]));
+    const levels = new Map((store.skills.get().skills ?? []).map((skill) => [skill.typeID, skill.level]));
+    const picked = pickAgencyAgents(groupID, table, {
+      here,
+      stationPlace: (stationID) => { const p = places.stations[String(stationID)]; return p ? { solarSystemID: p[0], ownerID: p[1] } : null; },
+      factionOf: (corporationID) => places.factions[String(corporationID)] ?? null,
+      jumpsTo: (systemID) => jumps?.get(systemID),
+      securityOf: (systemID) => graph?.security(systemID) ?? null,
+      standings, skillLevel: (typeID) => levels.get(typeID) ?? 0,
+      // agents.isHeraldryAvailable: the feature flag's default, HERALDRY_ENABLED_DEFAULT (no flag is set).
+      heraldryAvailable: true,
+    }, filters);
+    requestNames(picked.flatMap((a) => [{ kind: "agent" as const, id: a.agentID }, { kind: "system" as const, id: a.solarSystemID },
+      ...(a.corporationID ? [{ kind: "owner" as const, id: a.corporationID }] : []), ...(a.stationID ? [{ kind: "station" as const, id: a.stationID }] : [])]));
+    requestSystemSecurity(picked.map((a) => a.solarSystemID));
+    return picked;
+  }
   async function dungeonJobs(): Promise<readonly DungeonJob[]> {
     const here = store.station.get().online?.solarSystemID ?? null;
     askCurrentDungeon();
@@ -33552,6 +33589,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     dailyGoals,
     epicArcs,
     dungeonJobs,
+    agencyAgents,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,
