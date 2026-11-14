@@ -3721,6 +3721,12 @@ export interface AppFlow {
    * their staging system, the distance and security filters on it; each with its constellation and jumps.
    */
   agencyIncursions(filters: AgencySiteFilters): Promise<readonly AgencyIncursion[] | null>;
+  /**
+   * The Agency's page of one incursion (IncursionContentGroup, its constellation the item): the incursion of the
+   * constellation, its systems in incursions (map.GetSystemsInIncursions, each its sceneType) by jumps, and its
+   * accumulated LP pool (rewardMgr.GetDelayedRewardsByGroupIDs, the REWARD_TYPE_LP reward's quantity; null for none).
+   */
+  agencyIncursion(constellationID: number): Promise<{ readonly incursion: AgencyIncursion; readonly systems: readonly { readonly solarSystemID: number; readonly sceneType: number | null; readonly jumps: number | null; readonly security: number | null }[]; readonly lpPool: number | null } | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19971,6 +19977,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(out.map((i) => i.report.stagingSolarSystemID));
     return out;
   }
+  async function agencyIncursion(constellationID: number): Promise<Awaited<ReturnType<AppFlow["agencyIncursion"]>>> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [all, rows, jumps, graph] = await Promise.all([
+      agencyIncursions({ distance: 1000, security: -1 }),
+      bridgeAsk("map", "GetSystemsInIncursions", []).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+    ]);
+    const incursion = all?.find((i) => i.constellationID === constellationID);
+    if (!incursion) return null;
+    // GetSystemContentPieces: the constellation's systems that are in incursions, by jumps.
+    const scene = new Map(readRowsetRows(rows).map((r) => [Number(unwrapLong(r.locationID ?? null) ?? r.locationID), Number(r.sceneType ?? 0) || null]));
+    const jumpsOf = (id: number) => (id === here ? 0 : jumps?.get(id) ?? null);
+    const systems = [...scene.keys()].filter((id) => graph?.parentOf?.(id) === constellationID)
+      .map((id) => ({ solarSystemID: id, sceneType: scene.get(id) ?? null, jumps: jumpsOf(id), security: graph?.security(id) ?? null }))
+      .sort((a, b) => (a.jumps ?? Number.MAX_SAFE_INTEGER) - (b.jumps ?? Number.MAX_SAFE_INTEGER));
+    let lpPool: number | null = null;
+    if (incursion.report.rewardGroupID) {
+      const answer = await bridgeAsk("rewardMgr", "GetDelayedRewardsByGroupIDs", [[incursion.report.rewardGroupID]]).catch(() => null);
+      const pairs = readDictPairs(answer);
+      const list = pairs.find(([k]) => Number(unwrapLong(k) ?? k) === incursion.report.rewardGroupID)?.[1];
+      const items = (list && typeof list === "object" && Array.isArray((list as { items?: unknown }).items) ? (list as { items: unknown[] }).items : []) as unknown[];
+      for (const reward of items) if (Number(readKeyVal(reward, "rewardTypeID") ?? 0) === 1) { lpPool = Number(unwrapLong(readKeyVal(reward, "rewardQuantity") ?? null) ?? readKeyVal(reward, "rewardQuantity") ?? 0); break; }
+    }
+    requestNames(systems.map((s) => ({ kind: "system" as const, id: s.solarSystemID })));
+    requestSystemSecurity(systems.map((s) => s.solarSystemID));
+    return { incursion, systems, lpPool };
+  }
   async function agencyEscalations(): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [answer, jumps, graph] = await Promise.all([
@@ -33859,6 +33893,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyEpicArcs,
     agencyEscalations,
     agencyIncursions,
+    agencyIncursion,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,

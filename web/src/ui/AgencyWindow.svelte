@@ -12,7 +12,7 @@
   //   Career Agents: ContentPageCareerAgents; Storyline Agents: ContentPageStorylineAgents;
   //   Combat Anomalies, Ore Anomalies, Ice Belts: ContentPageCombatAnomalies, ContentPageOreAnomalies, ContentPageIceBelts;
   //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs;
-  //   Escalations: ContentPageEscalations; Incursions: ContentPageIncursions.
+  //   Escalations: ContentPageEscalations; Incursions: ContentPageIncursions, and an incursion's ContentPageIncursion.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
@@ -31,6 +31,8 @@
   import AgencySitesPage from "./AgencySitesPage.svelte";
   import AgencyEpicArcsPage from "./AgencyEpicArcsPage.svelte";
   import AgencyIncursionsPage from "./AgencyIncursionsPage.svelte";
+  import AgencyIncursionPage from "./AgencyIncursionPage.svelte";
+  import { resolvedName } from "../store/names.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
@@ -38,10 +40,12 @@
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
+  const names = store.names;
+  // svelte-ignore state_referenced_locally
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -51,20 +55,27 @@
   };
 
   let history = $state<number[]>([HOME]), at = $state(0);
+  // Each history step's item (a content group's itemID: the incursion's constellation), where it has one.
+  let items = $state<(number | null)[]>([null]);
   // agencyFilters by content group (the character's settings in the client; the window's life here).
   let agentFilters = $state<Record<number, AgencyAgentFilters>>({});
   let siteFilters = $state<Record<number, AgencySiteFilters>>({});
   const SITE_PAGES: Record<number, SiteTrackerKind | "signature" | "escalation"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature", [ESCALATIONS]: "escalation" };
   const groupID = $derived(history[at] ?? HOME);
+  const itemID = $derived(items[at] ?? null);
   const group = $derived(AGENCY_GROUPS[groupID] ?? AGENCY_GROUPS[HOME]!);
-  const path = $derived(agencyPath(groupID));
+  // IncursionContentGroup (contentGroupIncursion 50) is no group of the tree: its parent the Incursions group.
+  const path = $derived(groupID === INCURSION ? [...agencyPath(INCURSIONS), INCURSION] : agencyPath(groupID));
   /** AgencyWndNew.OpenAndShowContentGroup / the history's append: forward steps dropped, the group added. */
-  function show(id: number): void {
-    if (!AGENCY_GROUPS[id]) id = HOME;
-    if (id === groupID) return;
+  function show(id: number, item: number | null = null): void {
+    if (!AGENCY_GROUPS[id] && id !== INCURSION) id = HOME;
+    if (id === groupID && item === itemID) return;
     history = [...history.slice(0, at + 1), id];
+    items = [...items.slice(0, at + 1), item];
     at = history.length - 1;
   }
+  /** A crumb's name: the group's, or IncursionContentGroup.GetName (UI/Agency/IncursionIn, the constellation's). */
+  const crumbName = (id: number) => (id === INCURSION ? plainText(formatTemplate($words.templates["UI/Agency/IncursionIn"] ?? "", { constellationName: itemID ? resolvedName($names.resolved, "constellation", itemID, "") : "" } as never, { nameOf: () => "" })) : word(AGENCY_GROUPS[id]!.name));
   $effect(() => agencyRequests.subscribe((asked) => { if (asked) { serveAgencyRequest(asked.n); show(asked.contentGroupID); } }));
 
   const systemID = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
@@ -78,7 +89,7 @@
 
   const word = (label: string | null) => (label ? plainText(formatTemplate($words.templates[label] ?? "", {} as never, { nameOf: () => "" })) : "");
   $effect(() => {
-    flow.requestWords(["UI/Agency/Caption", "UI/Agency/currentlyUnavailable", "UI/Agency/UnavailableInWormholes", "UI/Commands/Back", "UI/Commands/Forward",
+    flow.requestWords(["UI/Agency/IncursionIn", "UI/Agency/Caption", "UI/Agency/currentlyUnavailable", "UI/Agency/UnavailableInWormholes", "UI/Commands/Back", "UI/Commands/Forward",
       ...Object.values(AGENCY_GROUPS).flatMap((g) => [g.name, g.description]).filter((x): x is string => !!x)]);
   });
 
@@ -112,7 +123,7 @@
     <div class="ag-crumbs">
       {#each path as id, i (id)}
         {#if i}<span class="ag-sep">/</span>{/if}
-        {#if i < path.length - 1}<button type="button" onclick={() => show(id)}>{word(AGENCY_GROUPS[id]!.name)}</button>{:else}<b>{word(AGENCY_GROUPS[id]!.name)}</b>{/if}
+        {#if i < path.length - 1}<button type="button" onclick={() => show(id)}>{crumbName(id)}</button>{:else}<b>{crumbName(id)}</b>{/if}
       {/each}
     </div>
   {/if}
@@ -134,8 +145,10 @@
       </div>
     {:else if groupID === AGENT_FINDER}
       <div class="ag-page"><AgentFinder {store} {flow} {showTravel} /></div>
+    {:else if groupID === INCURSION && itemID}
+      {#key itemID}<div class="ag-page"><AgencyIncursionPage {store} {flow} constellationID={itemID} /></div>{/key}
     {:else if groupID === INCURSIONS}
-      <div class="ag-page"><AgencyIncursionsPage {store} {flow} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
+      <div class="ag-page"><AgencyIncursionsPage {store} {flow} onOpen={(c) => show(INCURSION, c)} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
     {:else if groupID === EPIC_ARCS}
       <div class="ag-page"><AgencyEpicArcsPage {store} {flow} /></div>
     {:else if SITE_PAGES[groupID]}

@@ -6,7 +6,8 @@
   // strip - IncursionStateCont, the three states' 17 x 8 bars 3 apart, the active one in its colour, the others
   // INACTIVE_STATE's, its name in its colour at 65 - and the SystemInfluenceBar, 8 high; the mothership icon at the top
   // right, lit where the final encounter has spawned). Its button row is hidden.
-  // Not here (later parts): a card's own page (contentGroupIncursion, which a card opens), the chat button, the tooltips.
+  // A card opens the incursion's own page (OnCardSelected: on_content_group_selected(contentGroupIncursion, its
+  // constellation)). Not here (later parts): the chat button, the tooltips.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, AgencyIncursion } from "../app/flow.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
@@ -17,7 +18,7 @@
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters } from "../bridge/agencySites.ts";
   import { INACTIVE_STATE_COLOUR, INCURSION_STATES, decayedInfluence } from "../bridge/incursion.ts";
 
-  let { store, flow, filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; filters?: AgencySiteFilters } = $props();
+  let { store, flow, filters = $bindable(DEFAULT_SITE_FILTERS), onOpen }: { store: ClientStore; flow: AppFlow; filters?: AgencySiteFilters; onOpen?: (constellationID: number) => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -81,7 +82,7 @@
       {#each incursions ?? [] as i (i.report.taleID)}
         {@const influence = decayedInfluence(i.report.influence, nowMs)}
         {@const active = INCURSION_STATES.find((s) => s.state === i.report.state)}
-        <button type="button" class="ain-card" class:on={chosen === i.report.taleID} onclick={() => (chosen = i.report.taleID)}>
+        <button type="button" class="ain-card" class:on={chosen === i.report.taleID} onclick={() => { chosen = i.report.taleID; if (i.constellationID) onOpen?.(i.constellationID); }}>
           <b>{i.constellationID ? resolvedName($names.resolved, "constellation", i.constellationID, "") : ""}</b>
           <span>{locationText(i)}</span>
           <span class="ain-states">

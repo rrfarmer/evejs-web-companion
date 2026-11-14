@@ -703,7 +703,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // And its cosmic signatures (ContentProviderSignatures._GetAllDungeonInstances), and its escalations (journal.GetEscalations).
   "dungeonInstanceCacheMgr.GetSignatureInstances", "dungeonExplorationMgr.GetMyEscalatingPathDetails",
   // And its incursions (ContentProviderIncursions.GetAllIncursions, IncursionContentPiece.GetSceneTypeBySolarSystemID).
-  "map.GetIncursionGlobalReport", "map.GetSystemsInIncursions",
+  "map.GetIncursionGlobalReport", "map.GetSystemsInIncursions", "rewardMgr.GetDelayedRewardsByGroupIDs",
   // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
   // the recruitment proxy. The gateway's list has nothing of it.
   "corpRecProxy.SearchCorpAds", "corpRecProxy.GetRecruitmentAdsByCorpID",
@@ -2687,6 +2687,7 @@ const RETAIL_CALLS = Object.freeze({
   "dungeonInstanceCacheMgr.GetHomefrontSiteInstances": same("evedungeons/client/anomalyTracker.py:304", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetHomefrontSiteInstances(), no arguments: by solar system the Homefront sites' KeyVals, as GetCombatAnomalyInstances (Tranquility, AIR Oportunities - Amarr, 10/30/2026: archetypeID 70, difficulty None, factionID 500021)."),
   "dungeonInstanceCacheMgr.GetCombatAnomaliesCount": same("evedungeons/client/anomalyTracker.py:238", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetCombatAnomaliesCount(), no arguments: by solar system its combat anomalies' count, every system (nought where none). Recorded on Tranquility so (Paragon - Amarr destroyer, 11/1/2026)."),
   "map.GetIncursionGlobalReport": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderIncursions.py:35", "sm.RemoteSvc('map').GetIncursionGlobalReport(), no arguments: the incursions' reports (a list of KeyVals: stagingSolarSystemID, aggressorFactionID, state, influence, hasFinalEncounter, effects, rewardGroupID ...). Recorded on Tranquility as a CachedMethodCallResult."),
+  "rewardMgr.GetDelayedRewardsByGroupIDs": same("eve/client/script/ui/shared/incursionSvc.py:259", "sm.RemoteSvc('rewardMgr').GetDelayedRewardsByGroupIDs(tuple(rewardGroupIDs)), the IDs sorted: by reward group, its delayed rewards (KeyVals of rewardTypeID and rewardQuantity); IncursionContentPiece.GetLPPayoutPool takes the LP one's (REWARD_TYPE_LP 1)."),
   "map.GetSystemsInIncursions": same("eve/client/script/ui/shared/agencyNew/contentPieces/incursionContentPiece.py:84", "sm.RemoteSvc('map').GetSystemsInIncursions(), no arguments: the rows of the systems in incursions, each its locationID and sceneType."),
   "dungeonExplorationMgr.GetMyEscalatingPathDetails": same("eve/client/script/ui/shared/neocom/journal.py:250", "sm.RemoteSvc('dungeonExplorationMgr').GetMyEscalatingPathDetails(), no arguments: a Rowset of the pilot's escalations, header instanceID, dungeon, srcDungeon, destDungeon, journalEntryTemplateID, expiryTime. Recorded on Tranquility with no rows (and as a CachedMethodCallResult)."),
   "dungeonInstanceCacheMgr.GetSignatureInstances": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderSignatures.py:25", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetSignatureInstances(), no arguments: by solar system its signatures' count, every system. Recorded on Tranquility so (Paragon - Amarr destroyer, 11/1/2026)."),

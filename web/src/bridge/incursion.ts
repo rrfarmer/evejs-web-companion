@@ -49,7 +49,7 @@ export function decodeInfluence(value: JsonValue | undefined): IncursionInfluenc
 export interface IncursionReport {
   readonly taleID: number; readonly stagingSolarSystemID: number; readonly aggressorFactionID: number | null; readonly state: number;
   readonly hasFinalEncounter: boolean; readonly influence: IncursionInfluence; readonly effects: readonly IncursionEffect[];
-  readonly incursedSystems: readonly number[];
+  readonly incursedSystems: readonly number[]; readonly rewardGroupID: number | null;
 }
 export function decodeIncursionReport(value: JsonValue | undefined): IncursionReport[] {
   return items(value).flatMap((row) => {
@@ -60,6 +60,7 @@ export function decodeIncursionReport(value: JsonValue | undefined): IncursionRe
       hasFinalEncounter: field(row, "hasFinalEncounter") === true, influence: decodeInfluence(row),
       effects: items(field(row, "effects")).map((e) => ({ name: String(field(e, "name") ?? ""), texturePath: String(field(e, "texturePath") ?? ""), hint: String(field(e, "hint") ?? ""), isScalable: field(e, "isScalable") === true })),
       incursedSystems: items(field(row, "incursedSystems")).map((x) => num(x) ?? 0).filter((x) => x > 0),
+      rewardGroupID: num(field(row, "rewardGroupID")),
     }];
   });
 }
@@ -71,6 +72,10 @@ export const INCURSION_STATES: readonly { readonly state: number; readonly name:
   { state: 0, name: "UI/Incursion/Journal/Withdrawing", colour: "#be292f" },
 ];
 export const INACTIVE_STATE_COLOUR = "rgb(128 128 128 / 0.2)";
+/** incursionConst.HINT_BY_INCURSION_STATE: each state's hint label, with its colour. */
+export const HINT_BY_INCURSION_STATE: Readonly<Record<number, string>> = { 2: "UI/Incursion/Journal/EstablishedHint", 1: "UI/Incursion/Journal/MobilizingHint", 0: "UI/Incursion/Journal/WithdrawingHint" };
+/** talecommon scenesTypes.headquarters. */
+export const SCENE_HEADQUARTERS = 1;
 
 /** OnTaleData's tales that are incursions, in the dict's order (the client sets each in turn: the last stays). */
 export function incursionsOfTaleData(args: readonly unknown[]): IncursionData[] {
