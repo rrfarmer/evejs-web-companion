@@ -3691,8 +3691,8 @@ export interface AppFlow {
   trackCareerGoal(goalID: string, tracked: boolean): void;
   /** goal_data_controller.claim_reward: ClaimRewardRequest {goal, label}; whether the gateway answered 200. */
   claimCareerReward(goalID: string, label: string): Promise<boolean>;
-  /** careerpath.get_career_path(id).nameID for each career path (the client's careerPaths data). */
-  careerPathNameIDs(): Promise<Readonly<Record<number, number | null>>>;
+  /** careerpath.get_career_path(id)'s nameID and descriptionID for each career path (the client's careerPaths data). */
+  careerPathNameIDs(): Promise<Readonly<Record<number, { readonly nameID: number | null; readonly descriptionID: number | null }>>>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19913,9 +19913,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     get: () => { const k = trackedCareerKey(); if (k !== trackedCareerFor) { trackedCareerFor = k; trackedCareerSignal.set(readTrackedCareer()); } return trackedCareerSignal.get(); },
     subscribe: (listener) => { trackedCareerView.get(); return trackedCareerSignal.subscribe(listener); },
   };
-  async function careerPathNameIDs(): Promise<Readonly<Record<number, number | null>>> {
+  async function careerPathNameIDs(): Promise<Readonly<Record<number, { readonly nameID: number | null; readonly descriptionID: number | null }>>> {
     const d = await api.getCertifiedSkillPlans(callOptions).catch(() => null);
-    return Object.fromEntries((d?.careerPaths ?? []).map((c) => [c.careerPathID, c.nameID]));
+    return Object.fromEntries((d?.careerPaths ?? []).map((c) => [c.careerPathID, { nameID: c.nameID, descriptionID: c.descriptionID }]));
   }
   async function claimCareerReward(goalID: string, label: string): Promise<boolean> {
     const a = await api.publicGatewayRequest("eve_public.career.goal.api.ClaimRewardRequest", { goal: { uuid: goalID }, label } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);

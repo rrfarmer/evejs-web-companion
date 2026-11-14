@@ -16,14 +16,27 @@
   // reward (one: its icon and text; more: the career's crate, RewardBundle, ItemsInRewardBundle {quantity}), the goal's
   // name, ClaimReward (ClaimRewardRequest {goal, label}) - then RewardClaimed, its hint CheckRedeemingQueue. An omega
   // label for an alpha clone (OmegaRewardEntry): Locked and UpgradeToClaim, not claimable here.
-  // Not here (later parts): the circle view's drawing and animation, the career and activity panels, the global
-  // progress footer, the Aura panel, the graduation rewards, the background, sounds.
+  // The goals (goal_data_controller._load_definitions): of no career, the overall goals; of a career with an activity
+  // group (CAREER_PATH_GROUPS), that activity's; of a career with none, the career's own (its graduation).
+  // The right side by the view (panels/panelConts): CAREERS_VIEW - the Aura panel (AuraAssistancePanelTitle) with the
+  // freelance jobs (AuraAssistanceFreelanceJobsTitle, AuraAssistanceFreelanceJobsText, OpenFreelanceJobs);
+  // ACTIVITIES_VIEW - CareerDetailsPanel (the career's 32 px icon and name, PlayVideo - CAREER_VIDEOS -, its
+  // description, GraduationReward with the career's crate and its career goal's omega then alpha rewards) and
+  // AuraCareerAssistancePanelActivity (AuraAssistanceCareerAgentMissionsTitle and AuraAssistanceCareerAgentsText
+  // {careerPathName}; AuraAssistanceSkillPlansTitle, AuraAssistanceSkillPlansText, AuraAssistanceOpenSkillPlanButton
+  // {careerPathName}; the freelance jobs with FreelanceJobsAOFeatureDescription).
+  // The footer (globalProgress.GlobalProgress): UI/CareerPortal/OverallProgress and the progress bar - the last overall
+  // goal's progress of the greatest overall target, a marker at each overall goal with rewards (its target's share),
+  // its hint OverallCareerPoints {currentPoints, totalPoints}.
+  // Not here (later parts): the circle view's drawing and animation, the goal view's Aura video panel, the fanfare, the
+  // background, sounds.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CareerGoal } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { careerIcon } from "./skillPlanIcons.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import { openJobBoard } from "./jobBoardRequests.ts";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -43,10 +56,10 @@
   ] as const;
   type Career = (typeof CAREERS)[number];
   let goals = $state<readonly CareerGoal[] | null | undefined>(undefined);
-  let careerNames = $state<Record<number, number | null>>({});
+  let careerTexts = $state<Record<number, { nameID: number | null; descriptionID: number | null }>>({});
   $effect(() => {
     void flow.careerGoals().then((g) => { goals = g; }, () => { goals = null; });
-    void flow.careerPathNameIDs().then((n) => { careerNames = { ...n }; }, () => {});
+    void flow.careerPathNameIDs().then((n) => { careerTexts = { ...n }; }, () => {});
   });
   // The window's state and selections, kept for the character (careerConst's CharSettingEnum / CharSettingUUID).
   const me = $derived($station.online?.characterID ?? null);
@@ -69,7 +82,15 @@
     write("careerPortal_selectedActivity", a); write("careerPortal_selectedGoal", g);
   }
   const career = $derived(CAREERS.find((c) => c.id === careerID) ?? null);
-  const careerGoals = (c: Career) => (goals ?? []).filter((g) => g.career === c.proto && g.annotations.subtype === "CAREER_PATH_GOAL");
+  // _load_definitions: a career's goals with an activity group of CAREER_PATH_GROUPS'; the one with none is its own.
+  const careerGoals = (c: Career) => (goals ?? []).filter((g) => g.career === c.proto && (c.groups as readonly string[]).includes(g.annotations.group ?? ""));
+  const careerPathGoal = (c: Career | null) => (c ? (goals ?? []).find((g) => g.career === c.proto && !(c.groups as readonly string[]).includes(g.annotations.group ?? "")) ?? null : null);
+  // OverallGoalGroup: the goals of no career, by target; get_overall_progress the last one's progress, get_max_target its target.
+  const overall = $derived([...(goals ?? []).filter((g) => !CAREERS.some((c) => c.proto === g.career))].sort((a, b) => a.target - b.target));
+  const overallTarget = $derived(overall.at(-1)?.target ?? 0);
+  const overallProgress = $derived(overall.at(-1)?.progress ?? 0);
+  const CAREER_VIDEOS: Record<number, string> = { 6: "Enforcer_Intro", 7: "SOF_Intro", 4: "Exploration_Intro", 5: "Industry_Intro" };
+  let video = $state<string | null>(null);
   const done = (list: readonly CareerGoal[]) => list.filter((g) => g.completed).length;
   const byOrder = (list: readonly CareerGoal[]) => [...list].sort((a, b) => (Number(a.annotations.order) || 0) - (Number(b.annotations.order) || 0));
   const activities = $derived(career ? career.groups.map((g) => ({ key: g, goals: byOrder(careerGoals(career).filter((x) => x.annotations.group === g)) })).filter((a) => a.goals.length) : []);
@@ -79,11 +100,14 @@
     flow.requestWords([C + "CareerPortalWnd", C + "RewardsHeader", "UI/Common/Information", C + "Threat", C + "GoalDuration", C + "TrackGoal", C + "UntrackGoal", C + "GoalCompleted", "UI/Commands/Back",
       ...[0, 1, 2, 3].map((t) => `${C}Threat${t}`),
       ...CAREERS.flatMap((c) => c.groups.map((g) => `Character/CareerGoals/${c.key}/GroupNames/${g}`)),
-      ...Object.values(careerNames).filter((x): x is number => !!x).map((x) => `#${x}`),
+      ...Object.values(careerTexts).flatMap((t) => [t.nameID, t.descriptionID]).filter((x): x is number => !!x).map((x) => `#${x}`),
+      C + "AuraAssistancePanelTitle", C + "AuraAssistanceFreelanceJobsTitle", C + "AuraAssistanceFreelanceJobsText", C + "OpenFreelanceJobs", "UI/Corporations/FreelanceProjects/FreelanceJobsAOFeatureDescription",
+      C + "AuraAssistanceCareerAgentMissionsTitle", C + "AuraAssistanceCareerAgentsText", C + "AuraAssistanceSkillPlansTitle", C + "AuraAssistanceSkillPlansText", C + "AuraAssistanceOpenSkillPlanButton",
+      C + "GraduationReward", C + "PlayVideo", C + "OverallProgress", C + "OverallCareerPoints",
       ...(goals ?? []).filter((g) => view === "GOALS_VIEW" ? g.annotations.group === activity : g.goalID === goalID).flatMap((g) => [g.nameID, g.descriptionID]).filter((x): x is number => !!x).map((x) => `#${x}`)]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
-  const careerName = (c: Career) => (careerNames[c.id] ? word(`#${careerNames[c.id]}`) : c.key);
+  const careerName = (c: Career) => (careerTexts[c.id]?.nameID ? word(`#${careerTexts[c.id]!.nameID}`) : c.key);
   const groupName = (c: Career, g: string) => word(`Character/CareerGoals/${c.key}/GroupNames/${g}`) || g;
   const threat = (g: CareerGoal) => word(`${C}Threat${g.threat}`);
   // get_text_for_reward; get_texture_path_for_reward (skill points' icons by amount; ISK the Kredits' icon).
@@ -169,6 +193,35 @@
         </div>
       {/if}
     </div>
+    {#snippet freelance(short: boolean)}
+      <h4>{word(C + "AuraAssistanceFreelanceJobsTitle")}</h4>
+      <p>{short ? word("UI/Corporations/FreelanceProjects/FreelanceJobsAOFeatureDescription") : word(C + "AuraAssistanceFreelanceJobsText")}</p>
+      <button type="button" class="cpw-ghost" onclick={() => openJobBoard()}>{word(C + "OpenFreelanceJobs")}</button>
+    {/snippet}
+    {#if view === "CAREERS_VIEW" && goals}
+      <aside class="cpw-goal cpw-aura"><h3>{word(C + "AuraAssistancePanelTitle")}</h3>{@render freelance(false)}</aside>
+    {:else if view === "ACTIVITIES_VIEW" && career}
+      {@const cg = careerPathGoal(career)}
+      {@const cname = careerName(career)}
+      <div class="cpw-side">
+        <aside class="cpw-goal">
+          <div class="cpw-title">{#if careerIcon(career.id, 32)}<img alt="" src={careerIcon(career.id, 32)} />{/if}<h3>{cname}</h3></div>
+          <button type="button" class="cpw-ghost" onclick={() => { video = CAREER_VIDEOS[career.id] ?? null; }}>▶ {word(C + "PlayVideo")}</button>
+          <p>{careerTexts[career.id]?.descriptionID ? word(`#${careerTexts[career.id]!.descriptionID}`) : ""}</p>
+          <div class="cpw-title"><img alt="" class="cpw-crate" src={clientTexture(`res:/UI/Texture/classes/careerPortal/crates/${CRATES[career.id]}_64.png`)} /><h4>{word(C + "GraduationReward")}</h4></div>
+          {#if cg}{#each [...cg.rewards.filter((r) => r.label === "REWARD_LABEL_OMEGA"), ...cg.rewards.filter((r) => r.label !== "REWARD_LABEL_OMEGA")] as r, i (i)}
+            <div class="cpw-entry">{#if rewardIcon(r)}<img alt="" src={rewardIcon(r)} />{/if}<span>{rewardText(r)}</span>{#if r.label === "REWARD_LABEL_OMEGA"}<small class="cpw-omega">Ω</small>{/if}</div>
+          {/each}{/if}
+        </aside>
+        <aside class="cpw-goal cpw-aura">
+          <h3>{word(C + "AuraAssistancePanelTitle")}</h3>
+          <h4>{word(C + "AuraAssistanceCareerAgentMissionsTitle")}</h4><p>{word(C + "AuraAssistanceCareerAgentsText", { careerPathName: cname })}</p><hr />
+          <h4>{word(C + "AuraAssistanceSkillPlansTitle")}</h4><p>{word(C + "AuraAssistanceSkillPlansText")}</p>
+          <button type="button" class="cpw-ghost" disabled>{word(C + "AuraAssistanceOpenSkillPlanButton", { careerPathName: cname })}</button><hr />
+          {@render freelance(true)}
+        </aside>
+      </div>
+    {/if}
     {#if view === "GOALS_VIEW" && goal}
       <aside class="cpw-goal">
         <h3>{goal.nameID ? word(`#${goal.nameID}`) : ""}</h3>
@@ -189,10 +242,24 @@
       </aside>
     {/if}
   </div>
+  {#if goals && overallTarget > 0}
+    <footer class="cpw-footer" title={word(C + "OverallCareerPoints", { currentPoints: overallProgress, totalPoints: overallTarget })}>
+      <span>{word(C + "OverallProgress")}</span>
+      <div class="cpw-bar"><span style:width={`${Math.min(1, overallProgress / overallTarget) * 100}%`}></span>
+        {#each overall.filter((g) => g.rewards.length) as g (g.goalID)}<i class:done={g.completed} style:left={`${(g.target / overallTarget) * 100}%`}></i>{/each}</div>
+      <small>{overallProgress.toLocaleString("en-US")} / {overallTarget.toLocaleString("en-US")}</small>
+    </footer>
+  {/if}
+  {#if video}
+    <div class="cpw-video" role="presentation" onclick={() => { video = null; }}>
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video autoplay controls src={clientTexture(`res:/video/AIRCareerProgram/CareerIntros/${video}.webm`)}></video>
+    </div>
+  {/if}
 </div>
 
 <style>
-  .cpw { display: flex; flex-direction: column; height: 100%; gap: 8px; }
+  .cpw { position: relative; display: flex; flex-direction: column; height: 100%; gap: 8px; }
   .cpw-head { display: flex; align-items: center; gap: 12px; }
   .cpw-head h2 { margin: 0; font-size: 18px; }
   .cpw-back { background: none; border: 1px solid rgb(255 255 255 / 0.2); }
@@ -228,4 +295,20 @@
   .cpw-reward-top b { flex: 1; }
   .cpw-reward-goal { padding: 4px 8px; font-size: 12px; opacity: 0.7; background: rgb(0 0 0 / 0.5); }
   .cpw-omega { color: #e6a23c; }
+  .cpw-side { display: flex; flex-direction: column; gap: 16px; width: 320px; flex: none; overflow: auto; }
+  .cpw-side .cpw-goal { width: auto; }
+  .cpw-aura { border-left: 2px solid rgb(166 110 224 / 0.8); }
+  .cpw-aura h3 { color: rgb(166 110 224); }
+  .cpw-goal p { font-size: 12px; color: rgb(255 255 255 / 0.8); }
+  .cpw-title { display: flex; align-items: center; gap: 8px; }
+  .cpw-title img { width: 32px; height: 32px; }
+  .cpw-title .cpw-crate { width: 64px; height: 64px; }
+  .cpw-ghost { background: none; border: 1px solid rgb(255 255 255 / 0.2); width: 100%; margin: 4px 0; }
+  .cpw-footer { display: flex; align-items: center; gap: 12px; padding: 8px 32px; }
+  .cpw-bar { position: relative; flex: 1; height: 6px; background: rgb(255 255 255 / 0.1); }
+  .cpw-bar > span { display: block; height: 100%; background: rgb(88 166 220); }
+  .cpw-bar i { position: absolute; top: -4px; width: 2px; height: 14px; background: rgb(255 255 255 / 0.5); }
+  .cpw-bar i.done { background: #5fb85f; }
+  .cpw-video { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 0.85); z-index: 5; }
+  .cpw-video video { max-width: 90%; max-height: 90%; }
 </style>

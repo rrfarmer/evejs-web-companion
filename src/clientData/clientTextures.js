@@ -27,6 +27,7 @@ const RENDER_PATH = /^res:\/dx9\/model\/[a-z0-9_./-]+\/icons\/[0-9]+_(?:64|128)\
  *
  *   available()       whether there is a client to read at all
  *   fileFor(resPath)  the file under ResFiles that holds the texture, or null
+ *   videoFor(resPath) the file under ResFiles that holds a res:/video/....webm, or null
  *   pngFor(resPath)   a supported DDS converted to PNG bytes, or null
  */
 function createClientTextures({ clientRoot = null, readFile = fs.readFileSync } = {}) {
@@ -54,7 +55,16 @@ function createClientTextures({ clientRoot = null, readFile = fs.readFileSync } 
     if (png !== null) converted.set(asked, png);
     return png;
   }
-  return { available: () => Boolean(clientRoot), fileFor, pngFor };
+  // A video of the client's by its res: path (res:/video/....webm), the file under ResFiles, or null.
+  function videoFor(resPath) {
+    if (!clientRoot) return null;
+    const asked = String(resPath || "").toLowerCase();
+    if (!/^res:\/video\/[a-z0-9_./-]+\.webm$/.test(asked) || asked.includes("..")) return null;
+    if (index === null) index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
+    const relative = index.get(asked);
+    return relative ? path.join(clientRoot, "ResFiles", relative) : null;
+  }
+  return { available: () => Boolean(clientRoot), fileFor, pngFor, videoFor };
 }
 
 module.exports = { createClientTextures };

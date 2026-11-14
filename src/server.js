@@ -18069,6 +18069,20 @@ app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|dds))$/, (req, re
   });
 });
 
+// The client's own videos by their res: path (the Career Portal's career intros, careerConst.CAREER_VIDEOS):
+// /client-res/video/....webm answers the indexed file, with ranges (sendFile), or 404. No session, as the textures.
+app.get(/^\/client-res\/(video\/[A-Za-z0-9_./-]+\.webm)$/, (req, res) => {
+  const file = (typeof clientTextures.videoFor === "function" ? clientTextures.videoFor(`res:/${req.params[0]}`) : null) || clientTextures.fileFor(`res:/${req.params[0]}`);
+  if (!file) {
+    res.status(404).end();
+    return;
+  }
+  res.set("Cache-Control", "public, max-age=2592000, immutable");
+  res.type("video/webm").sendFile(file, (error) => {
+    if (error && !res.headersSent) res.status(404).end();
+  });
+});
+
 // A type's picture from the client's own files (evePhotosvc.GetIconByType): its graphic's picture rendered ahead, or
 // its icon's file (staticData.getTypePictureResPaths), or 404. The CCP image server's cache above is another source;
 // this one needs no download. No session: the install's pictures do not vary by player.
