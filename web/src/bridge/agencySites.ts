@@ -24,6 +24,8 @@ export interface AgencySite {
   /** A signature of the pilot's own system, as the sensor suite has it (SignatureSiteData): its name the targetID, its
    * signal strength the probe results' certainty for it (nought before any). */
   readonly targetID?: string | null; readonly signalStrength?: number;
+  /** An escalation's expiry (the row's expiryTime, a FILETIME as a decimal string). */
+  readonly expiryTime?: string | null;
 }
 /** A system's sites: a known site, or null for one the count tells of (UNKNOWN_DUNGEON). */
 export interface AgencySiteSystem {

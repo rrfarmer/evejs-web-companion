@@ -11,7 +11,8 @@
   //   the agent groups (Security, Distribution, Mining, Research, Locator, Heraldry): ContentPageAgents;
   //   Career Agents: ContentPageCareerAgents; Storyline Agents: ContentPageStorylineAgents;
   //   Combat Anomalies, Ore Anomalies, Ice Belts: ContentPageCombatAnomalies, ContentPageOreAnomalies, ContentPageIceBelts;
-  //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs.
+  //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs;
+  //   Escalations: ContentPageEscalations.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
@@ -39,7 +40,7 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -52,7 +53,7 @@
   // agencyFilters by content group (the character's settings in the client; the window's life here).
   let agentFilters = $state<Record<number, AgencyAgentFilters>>({});
   let siteFilters = $state<Record<number, AgencySiteFilters>>({});
-  const SITE_PAGES: Record<number, SiteTrackerKind | "signature"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature" };
+  const SITE_PAGES: Record<number, SiteTrackerKind | "signature" | "escalation"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature", [ESCALATIONS]: "escalation" };
   const groupID = $derived(history[at] ?? HOME);
   const group = $derived(AGENCY_GROUPS[groupID] ?? AGENCY_GROUPS[HOME]!);
   const path = $derived(agencyPath(groupID));

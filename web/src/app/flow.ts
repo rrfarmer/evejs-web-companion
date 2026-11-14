@@ -3708,6 +3708,12 @@ export interface AppFlow {
    * active agent's station, system and jumps, sorted by (state, jumps).
    */
   agencyEpicArcs(): Promise<readonly AgencyEpicArc[] | null>;
+  /**
+   * The Agency's Escalations (ContentProviderEscalations): the journal's escalations
+   * (dungeonExplorationMgr.GetMyEscalatingPathDetails) with a destination dungeon and not expired, by their dungeon's
+   * system, the systems sorted by jumps. Null where the call fails.
+   */
+  agencyEscalations(): Promise<readonly AgencySiteSystem[] | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19936,6 +19942,36 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  async function agencyEscalations(): Promise<readonly AgencySiteSystem[] | null> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [answer, jumps, graph] = await Promise.all([
+      bridgeAsk("dungeonExplorationMgr", "GetMyEscalatingPathDetails", []).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+    ]);
+    if (answer === null) return null;
+    // (getattr on the row's dungeon objects: a KeyVal's field, or a row's.)
+    const attr = (o: unknown, k: string) => readRowField(o, k) ?? readKeyVal(o, k);
+    const int = (v: unknown): number | null => { const n = typeof v === "number" ? v : Number(unwrapLong(v ?? null) ?? NaN); return Number.isSafeInteger(n) ? n : null; };
+    const nowFt = BigInt(Date.now()) * 10_000n + 116_444_736_000_000_000n;
+    const bySystem = new Map<number, AgencySite[]>();
+    for (const row of readRowsetRows(answer)) {
+      const dest = row.destDungeon, dungeon = row.dungeon;
+      if (!dest || (dest as { type?: string }).type === "none") continue;
+      const solarSystemID = int(attr(dungeon, "solarSystemID"));
+      const expiry = unwrapLong(row.expiryTime ?? null);
+      // IsExpired: the time left below nought.
+      if (solarSystemID === null || (expiry !== null && expiry - nowFt < 0n)) continue;
+      bySystem.set(solarSystemID, [...(bySystem.get(solarSystemID) ?? []), {
+        instanceID: int(attr(dungeon, "instanceID")) ?? 0, dungeonID: int(attr(dest, "dungeonID")), archetypeID: null, factionID: int(attr(dest, "factionID")),
+        difficulty: int(attr(dest, "difficulty")), dungeonNameID: int(attr(dest, "dungeonNameID")), expiryTime: expiry === null ? null : expiry.toString() }]);
+    }
+    const far = (id: number) => (id === here ? 0 : jumps?.get(id) ?? Number.MAX_SAFE_INTEGER);
+    const systems = [...bySystem].sort((a, b) => far(a[0]) - far(b[0])).map(([id, sites]) => ({ solarSystemID: id, sites, jumps: id === here ? 0 : jumps?.get(id) ?? null, security: graph?.security(id) ?? null }));
+    requestNames([...systems.map((s) => ({ kind: "system" as const, id: s.solarSystemID })), ...systems.flatMap((s) => s.sites.flatMap((x) => (x.factionID ? [{ kind: "owner" as const, id: x.factionID }] : [])))]);
+    requestSystemSecurity(systems.map((s) => s.solarSystemID));
+    return systems;
+  }
   async function agencyEpicArcs(): Promise<readonly AgencyEpicArc[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [read, table, places, jumps] = await Promise.all([
@@ -33792,6 +33828,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyTrackerSites,
     agencySignatures,
     agencyEpicArcs,
+    agencyEscalations,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,
