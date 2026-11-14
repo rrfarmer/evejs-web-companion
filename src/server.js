@@ -14135,6 +14135,18 @@ app.get("/api/client-data/career-agents", requireAuth, async (req, res, next) =>
   } catch (error) { next(error); }
 });
 
+// The Agency's Colony Resources: the null-sec systems (each [starID, regionID, planetIDs]) and the richness eveicons
+// (orbitalSkyhook resourceRichness powerTextureByRichness, workforce..., superionic ice..., magmatic gas...: modest,
+// average, prosperous). Static reference data, asked once and kept.
+app.get("/api/client-data/colony-systems", requireAuth, async (req, res, next) => {
+  try {
+    const names = ["power_richenss_modest", "power_richness_average", "power_richness_prosperous", "workforce_richness_modest", "workforce_richness_average",
+      "workforce_richness_prosperous", "superionic_ice_richness_modest", "superionic_ice_richness_average", "superionic_ice_richness_prosperous",
+      "magmatic_gas_richness_modest", "magmatic_gas_richness_average", "magmatic_gas_richness_prosperous"];
+    res.json({ ok: true, systems: staticData.getColonySystems(), icons: Object.fromEntries(names.map((n) => [n, eveiconTexture(n, 32) || eveiconTexture(n, 16)])) });
+  } catch (error) { next(error); }
+});
+
 // The star map's planets of every system (starmap.GetKnownUniverseSolarSystems), for the Agency's Planetary Production:
 // by system, each planet's [itemID, typeID, celestialIndex]. Static reference data, asked once and kept.
 app.get("/api/client-data/system-planets", requireAuth, async (req, res, next) => {

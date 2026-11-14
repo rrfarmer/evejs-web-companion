@@ -3726,6 +3726,15 @@ export interface AppFlow {
    * jumps) that have a planet of a chosen type and pass the security filter, to MAX_CONTENT_PIECES_MAX; each with its
    * planets (the star map's).
    */
+  /**
+   * The Agency's Colony Resources (ContentProviderColonyResourcesAgency): the null-sec systems within the distance by
+   * jumps, to COLONY_RESOURCE_AGENCY_PIECES_MAX 120, each with its star's power and its planets' power, workforce and
+   * reagent per hour (the sovereignty resource definitions), and the richness icons.
+   */
+  agencyColonyResources(filters: AgencySiteFilters): Promise<{ readonly systems: readonly { readonly solarSystemID: number; readonly starID: number | null; readonly starPower: number; readonly jumps: number | null;
+    readonly planets: readonly { readonly planetID: number; readonly celestialIndex: number; readonly power: number; readonly workforce: number; readonly reagentTypeID: number | null; readonly reagentPerHour: number }[];
+    readonly power: number; readonly workforce: number; readonly magmaticGas: number; readonly superionicIce: number; readonly hasMagmaticGas: boolean; readonly hasSuperionicIce: boolean }[];
+    readonly icons: Readonly<Record<string, string | null>> } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
   /**
    * The Agency's page of one incursion (IncursionContentGroup, its constellation the item): the incursion of the
@@ -19095,7 +19104,67 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }));
   }
   // The sovereignty resource definitions (planets, stars) and upgrade definitions, read once (the client's static data).
-  let sovStatic: Promise<{ planets: Map<number, { power: number; workforce: number }>; stars: Map<number, number>; upgrades: Map<number, Omit<SovHubUpgrade, "typeID" | "powerState" | "upgradeKey">> }> | null = null;
+  let sovStatic: Promise<{ planets: Map<number, { power: number; workforce: number; reagent: { typeID: number; amountPerPeriod: number; periodSeconds: number } | null }>; stars: Map<number, number>; upgrades: Map<number, Omit<SovHubUpgrade, "typeID" | "powerState" | "upgradeKey">> }> | null = null;
+  /** The sovereignty resource definitions, read as sovHubDetails reads them. */
+  function sovResourceStatic(): NonNullable<typeof sovStatic> {
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const list = (value: unknown) => (Array.isArray(value) ? value : []) as unknown[];
+    const int = (value: unknown) => Number(typeof value === "string" || typeof value === "number" ? value : 0) || 0;
+    const ask = async (request: string, payload: Record<string, JsonValue>) => { const a = await api.publicGatewayRequest(request, payload, callOptions).catch(() => null); return a && a.statusCode === 200 ? record(a.payload) : null; };
+    const P = "eve_public.sovereignty.";
+    sovStatic ??= (async () => {
+      const [planets, stars, defs] = await Promise.all([ask(P + "resource.planet.api.GetAllDefinitionsRequest", {}), ask(P + "resource.star.api.GetAllConfigurationsRequest", {}), ask(P + "hub.upgrade.api.GetDefinitionsRequest", {})]);
+      if (!planets || !stars || !defs) { sovStatic = null; }
+      return {
+        planets: new Map(list(planets?.definitions).map((d) => {
+          const r = record(d), first = record(list(r.reagent_definitions)[0]), def = record(first.definition);
+          const reagent = Object.keys(first).length ? { typeID: int(record(first.reagent_type).sequential), amountPerPeriod: int(def.amount_per_cycle), periodSeconds: int(record(def.cycle_period).seconds) } : null;
+          return [int(record(r.planet).sequential), { power: int(r.power), workforce: int(r.workforce), reagent }] as const;
+        })),
+        stars: new Map(list(stars?.configurations).map((d) => { const r = record(d); return [int(record(r.star).sequential), int(r.power)] as const; })),
+        upgrades: new Map(list(defs?.definitions).map((d) => { const r = record(d); return [int(record(r.installation_type).sequential), { powerProduced: int(r.power_produced), workforceProduced: int(r.workforce_produced),
+          powerRequired: int(r.power_required), workforceRequired: int(r.workforce_required),
+          fuelTypeID: int(record(r.fuel_type).sequential), fuelPerHour: int(r.fuel_consumption_per_hour), startupCost: int(r.fuel_startup_cost),
+          mutuallyExclusiveGroup: typeof r.mutually_exclusive_group === "string" ? r.mutually_exclusive_group : "" }] as const; })),
+      };
+    })();
+    return sovStatic;
+  }
+  let colonySystemsHeld: Awaited<ReturnType<typeof api.loadColonySystems>> = null;
+  async function agencyColonyResources(filters: AgencySiteFilters): Promise<Awaited<ReturnType<AppFlow["agencyColonyResources"]>>> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [statics, systems, jumps] = await Promise.all([
+      sovResourceStatic().catch(() => null),
+      colonySystemsHeld ? Promise.resolve(colonySystemsHeld) : api.loadColonySystems(callOptions).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+    ]);
+    colonySystemsHeld ??= systems;
+    if (!statics || !systems) return null;
+    const jumpsOf = (id: number) => (id === here ? 0 : jumps?.get(id));
+    const ids = (filters.distance === 1 ? (here !== null && systems.systems[String(here)] ? [here] : []) : Object.keys(systems.systems).map(Number))
+      .filter((id) => filters.distance === 1000 || filters.distance === 1 || (jumpsOf(id) !== undefined && jumpsOf(id)! <= filters.distance));
+    const out = ids.map((id) => {
+      const [starID, , planetIDs] = systems.systems[String(id)]!;
+      // GetResourceValuesForStar / GetResourceValuesForPlanet (sovereigntyResourceSvc.GetPlanetResourceInfo: a reagent's
+      // planet no power nor workforce, else its power, and where none its workforce; the reagent per hour rounded to .1).
+      const starPower = starID ? Math.max(statics.stars.get(starID) ?? 0, 0) : 0;
+      const planets = planetIDs.map(([planetID, celestialIndex]) => {
+        const d = statics.planets.get(planetID);
+        const reagent = d?.reagent && d.reagent.typeID ? d.reagent : null;
+        const power = reagent ? 0 : d?.power ?? 0, workforce = reagent || power ? 0 : d?.workforce ?? 0;
+        const perHour = reagent && reagent.periodSeconds ? Math.round((reagent.amountPerPeriod / (reagent.periodSeconds / 3600)) * 10) / 10 : 0;
+        return { planetID, celestialIndex, power, workforce, reagentTypeID: reagent?.typeID ?? null, reagentPerHour: perHour };
+      });
+      const sum = (f: (p: (typeof planets)[number]) => number) => planets.reduce((t, p) => t + f(p), 0);
+      return { solarSystemID: id, starID, starPower, jumps: jumpsOf(id) ?? null, planets,
+        power: starPower + sum((p) => p.power), workforce: sum((p) => p.workforce),
+        magmaticGas: sum((p) => (p.reagentTypeID === 81143 ? p.reagentPerHour : 0)), superionicIce: sum((p) => (p.reagentTypeID === 81144 ? p.reagentPerHour : 0)),
+        hasMagmaticGas: planets.some((p) => p.reagentTypeID === 81143), hasSuperionicIce: planets.some((p) => p.reagentTypeID === 81144) };
+    }).sort((a, b) => (a.jumps ?? Number.MAX_SAFE_INTEGER) - (b.jumps ?? Number.MAX_SAFE_INTEGER)).slice(0, 120);
+    requestNames(out.map((s) => ({ kind: "system" as const, id: s.solarSystemID })));
+    requestSystemSecurity(out.map((s) => s.solarSystemID));
+    return { systems: out, icons: systems.icons };
+  }
   async function sovHubDetails(hubID: number, solarSystemID: number): Promise<SovHubDetails> {
     const scope = captureMemberOperation();
     const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
@@ -19107,7 +19176,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const [planets, stars, defs] = await Promise.all([ask(P + "resource.planet.api.GetAllDefinitionsRequest", {}), ask(P + "resource.star.api.GetAllConfigurationsRequest", {}), ask(P + "hub.upgrade.api.GetDefinitionsRequest", {})]);
       if (!planets || !stars || !defs) { sovStatic = null; }
       return {
-        planets: new Map(list(planets?.definitions).map((d) => { const r = record(d); return [int(record(r.planet).sequential), { power: int(r.power), workforce: int(r.workforce) }] as const; })),
+        // (And get_first_reagent_definition: the first of its reagent definitions - its reagent type, amount_per_cycle and
+        // cycle_period's seconds.)
+        planets: new Map(list(planets?.definitions).map((d) => {
+          const r = record(d), first = record(list(r.reagent_definitions)[0]), def = record(first.definition);
+          const reagent = Object.keys(first).length ? { typeID: int(record(first.reagent_type).sequential), amountPerPeriod: int(def.amount_per_cycle), periodSeconds: int(record(def.cycle_period).seconds) } : null;
+          return [int(record(r.planet).sequential), { power: int(r.power), workforce: int(r.workforce), reagent }] as const;
+        })),
         stars: new Map(list(stars?.configurations).map((d) => { const r = record(d); return [int(record(r.star).sequential), int(r.power)] as const; })),
         upgrades: new Map(list(defs?.definitions).map((d) => { const r = record(d); return [int(record(r.installation_type).sequential), { powerProduced: int(r.power_produced), workforceProduced: int(r.workforce_produced),
           powerRequired: int(r.power_required), workforceRequired: int(r.workforce_required),
@@ -33944,6 +34019,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyEscalations,
     agencyIncursions,
     agencyPlanetaryProduction,
+    agencyColonyResources,
     agencyIncursion,
     factionWarfareLocal,
     insurgencyLocal,

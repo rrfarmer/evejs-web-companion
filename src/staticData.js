@@ -1060,6 +1060,28 @@ function getSystemPlanets() {
   return out;
 }
 
+/**
+ * The Agency's Colony Resources systems (ContentProviderColonyResourcesAgency.PrimeNullSecSystems): known space systems
+ * of no faction (faction.GetFactionOfSolarSystem None), each [starID, regionID, its planets' [ID, celestialIndex]] (cfg.mapSystemCache
+ * planetItemIDs, mapSolarSystemContentCache's star). Static reference data.
+ */
+function getColonySystems() {
+  const stars = {};
+  for (const star of buildJsonlIndex("mapStars.jsonl", "_key").values()) stars[Number(star.solarSystemID)] = Number(star._key);
+  const out = {};
+  for (const system of buildJsonlIndex("mapSolarSystems.jsonl", "_key").values()) {
+    const id = Number(system._key) || 0;
+    // (The faction as the server's solar system table has it: the SDE's own leaves many empire systems without one.)
+    const row = getSolarSystem(id);
+    if (id <= 0 || id >= 31000000 || !row || Number(row.factionID) > 0) continue;
+    const regionID = Number(row.regionID) || null;
+    // Each planet [itemID, celestialIndex]: its name is the system's with the index in Roman numerals.
+    const planets = buildJsonlIndex("mapPlanets.jsonl", "_key");
+    out[id] = [stars[id] || null, regionID, (Array.isArray(system.planetIDs) ? system.planetIDs : []).map((p) => [Number(p), Number((planets.get(Number(p)) || {}).celestialIndex) || 0])];
+  }
+  return out;
+}
+
 function getPlanetCelestial(planetID) {
   return buildJsonlIndex("mapPlanets.jsonl", "_key").get(Number(planetID) || 0) || null;
 }
@@ -2550,6 +2572,7 @@ module.exports = {
   getStation,
   getAgentPlaces,
   getSystemPlanets,
+  getColonySystems,
   getSystemStations,
   getStationName,
   getStationShortName,
