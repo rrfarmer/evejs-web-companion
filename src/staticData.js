@@ -2424,6 +2424,36 @@ function getClientDungeonResourceTypes(dungeonID) {
   return { ore: list(held.ore[String(dungeonID)]), ice: list(held.ice[String(dungeonID)]) };
 }
 
+/**
+ * The systems with asteroid belts, as the Agency's Asteroid Belts has them: each system's asteroid types
+ * (evedungeons/client/oreTypesInDungeons/data get_asteroid_types_by_solar_system: asteroidTypesBySolarSystemID.pickle,
+ * as EveJS's table of it holds it) and its belts (cfg.GetLocationsLocalBySystem's celestials of groupAsteroidBelt,
+ * sorted by their celestial and orbit index: EveJS's asteroidBelts table, from the SDE), [itemID, celestialIndex,
+ * orbitIndex] each. Only the systems the types table has.
+ */
+function getAsteroidBeltSystems() {
+  const cacheKey = "asteroidBeltSystems";
+  if (!caches.has(cacheKey)) {
+    const types = (readStaticTable("asteroidTypesBySolarSystemID") || {}).systems || {};
+    const beltRows = (readStaticTable("asteroidBelts") || {}).belts || [];
+    const belts = new Map();
+    for (const belt of Array.isArray(beltRows) ? beltRows : []) {
+      const systemID = Number(belt && belt.solarSystemID) || 0;
+      if (!systemID) continue;
+      belts.set(systemID, [...(belts.get(systemID) || []), [Number(belt.itemID), Number(belt.celestialIndex) || 0, Number(belt.orbitIndex) || 0]]);
+    }
+    const out = new Map();
+    for (const [key, list] of Object.entries(types)) {
+      const systemID = Number(key);
+      if (!Number.isSafeInteger(systemID) || !Array.isArray(list) || list.length === 0) continue;
+      const own = (belts.get(systemID) || []).slice().sort((a, b) => a[1] - b[1] || a[2] - b[2]);
+      out.set(systemID, { types: list.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0), belts: own });
+    }
+    caches.set(cacheKey, out);
+  }
+  return caches.get(cacheKey);
+}
+
 /** evedungeons.common.constants.ACCELERATION_GATE_BLACKLISTED_GROUPS, read through the client's Python. */
 const ACCELERATION_GATE_BLACKLISTED_GROUPS = Object.freeze([29, 485, 659, 30, 513, 547, 4594, 1538, 902, 883, 5120]);
 
@@ -2523,6 +2553,7 @@ module.exports = {
   getTypeIDsByListID,
   getClientDungeon,
   getClientDungeonResourceTypes,
+  getAsteroidBeltSystems,
   getDungeonShipRestrictions,
   resolveNames,
   getMarketGroup,

@@ -26,6 +26,8 @@ export interface AgencySite {
   readonly targetID?: string | null; readonly signalStrength?: number;
   /** An escalation's expiry (the row's expiryTime, a FILETIME as a decimal string). */
   readonly expiryTime?: string | null;
+  /** An asteroid belt (the Agency's Asteroid Belts): its celestial and orbit index, for its name (LocationAsteroidBeltFormatter). */
+  readonly celestialIndex?: number; readonly orbitIndex?: number;
 }
 /** A system's sites: a known site, or null for one the count tells of (UNKNOWN_DUNGEON). */
 export interface AgencySiteSystem {

@@ -5822,6 +5822,12 @@ export async function loadColonySystems(options: ApiOptions = {}): Promise<{ rea
   return data.systems && typeof data.systems === "object" ? { systems: data.systems as Record<string, [number | null, number | null, [number, number][]]>, icons: (data.icons ?? {}) as Record<string, string | null> } : null;
 }
 
+/** GET /api/client-data/asteroid-belts: by system with belts, its consolidated ore types and its belts [itemID, celestialIndex, orbitIndex]. */
+export async function loadAsteroidBelts(options: ApiOptions = {}): Promise<Readonly<Record<string, { readonly oreTypes: readonly number[]; readonly belts: readonly (readonly [number, number, number])[] }>> | null> {
+  const data = await getJson("/api/client-data/asteroid-belts", options);
+  return data.available && data.systems && typeof data.systems === "object" ? data.systems as Record<string, { oreTypes: number[]; belts: [number, number, number][] }> : null;
+}
+
 /** GET /api/client-data/system-planets: by system, each planet's [itemID, typeID, celestialIndex]. */
 export async function loadSystemPlanets(options: ApiOptions = {}): Promise<Readonly<Record<string, readonly (readonly [number, number, number])[]>> | null> {
   const data = await getJson("/api/client-data/system-planets", options);

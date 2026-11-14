@@ -3709,6 +3709,13 @@ export interface AppFlow {
   /** The same for a tracker's kind: the combat anomalies, the ore anomalies or the ice belts (with their resource types). */
   agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
   /**
+   * The Agency's Asteroid Belts (ContentProviderAsteroidBelts): the systems within the filters' distance
+   * (GetAllSolarSystemIDsWithinJumpRange) with belts (CheckSystemHasBelts: asteroid types) and of the filters' security,
+   * the first MAX_CONTENT_PIECES_MAX (30), then sorted as their cards (GetCardSortValue: the pilot's system first, then
+   * the higher security, then the fewer jumps); each its ore types and its belts as sites.
+   */
+  agencyAsteroidBelts(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
+  /**
    * The Agency's Cosmic Signatures (ContentProviderSignatures): the systems' counts (GetSignatureInstances) and the
    * pilot's system's own signatures (scanMgr.GetFullState's, the sensor suite's), picked as the other site pages.
    */
@@ -20206,6 +20213,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }).sort((a, b) => (a.jumps ?? 1e9) - (b.jumps ?? 1e9));
     return { all: content.length, systems };
   }
+  let asteroidBeltsHeld: Awaited<ReturnType<typeof api.loadAsteroidBelts>> = null;
+  async function agencyAsteroidBelts(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [belts, jumps, graph] = await Promise.all([
+      asteroidBeltsHeld ? Promise.resolve(asteroidBeltsHeld) : api.loadAsteroidBelts(callOptions).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+    ]);
+    asteroidBeltsHeld ??= belts;
+    if (belts === null || here === null) return null;
+    const inRange: [number, number][] = [[here, 0]];
+    for (const [id, n] of jumps ?? []) if (id !== here && (filters.distance === 1000 || n <= (filters.distance === 1 ? 0 : filters.distance))) inRange.push([id, n]);
+    inRange.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    const out: AgencySiteSystem[] = [];
+    for (const [id, n] of inRange) {
+      if (out.length >= 30) break;
+      const entry = belts[String(id)];
+      if (!entry) continue;
+      const security = graph?.security(id) ?? null, sec = security === null ? 0 : shownSecurity(security);
+      if (filters.security === 1 ? sec < 0.45 : filters.security === 3 ? sec > 0 : filters.security === 2 ? !(sec > 0 && sec < 0.45) : false) continue;
+      out.push({ solarSystemID: id, jumps: n, security, resourceTypeIDs: entry.oreTypes,
+        sites: entry.belts.map(([itemID, celestialIndex, orbitIndex]) => ({ instanceID: itemID, dungeonID: null, archetypeID: null, factionID: null, difficulty: null, dungeonNameID: null, celestialIndex, orbitIndex })) });
+    }
+    // The cards' and the belts' names: the systems, the ore types and the belt's own type (typeAsteroidBelt, 15).
+    requestNames([...out.map((s) => ({ kind: "system" as const, id: s.solarSystemID })), { kind: "type" as const, id: 15 },
+      ...[...new Set(out.flatMap((s) => s.resourceTypeIDs ?? []))].map((id) => ({ kind: "type" as const, id }))]);
+    return out.sort((a, b) => Number(b.solarSystemID === here) - Number(a.solarSystemID === here) || (b.security ?? 0) - (a.security ?? 0) || (a.jumps ?? 0) - (b.jumps ?? 0));
+  }
   let systemPlanetsHeld: Awaited<ReturnType<typeof api.loadSystemPlanets>> = null;
   async function agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<Awaited<ReturnType<AppFlow["agencyPlanetaryProduction"]>>> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
@@ -34193,6 +34228,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyCorpStandings,
     agencyFleetUp,
     agencyPirateStrongholds,
+    agencyAsteroidBelts,
     agencyFleetRegistration,
     agencyRegisterFleet,
     agencyColonyResources,

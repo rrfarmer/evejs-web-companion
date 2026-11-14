@@ -14107,6 +14107,35 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
 
 // The epic arcs as the client's built data has them (evemissions/common/epic_arcs_data: iter_epic_arcs, factionID,
 // arcRestartInterval in minutes, each mission's agentID and nextMissions). `available` false where unread.
+// The Agency's Asteroid Belts (ContentProviderAsteroidBelts, AsteroidBeltSystemContentPiece): each system with belts,
+// its ore types as get_consolidated_ore_types_in_system makes them (extract_lowest_type_id_for_group, then
+// sort_types_by_value by ORE_TYPES_BY_VALUE; a list, not a set) and its belts [itemID, celestialIndex, orbitIndex] in
+// their order. `available` false where the tables are not read.
+let asteroidBeltsHeld = null;
+app.get("/api/client-data/asteroid-belts", requireAuth, async (req, res, next) => {
+  try {
+    if (!asteroidBeltsHeld) {
+      const systems = staticData.getAsteroidBeltSystems ? staticData.getAsteroidBeltSystems() : new Map();
+      const typeGroups = await clientBuiltData.table("typeGroups").catch(() => null);
+      if (!systems.size || !typeGroups) { res.json({ ok: true, available: false }); return; }
+      const ORE_TYPES_BY_VALUE = [1230, 1228, 1224, 18, 1227, 20, 1226, 1231, 21, 1229, 1232, 1225, 19, 1223, 22, 11396];
+      const key = (typeID) => Math.max(0, ORE_TYPES_BY_VALUE.indexOf(typeID));
+      const out = {};
+      for (const [systemID, entry] of systems) {
+        const byGroup = new Map();
+        for (const typeID of entry.types) {
+          const groupID = typeGroups[typeID] != null ? Number(typeGroups[typeID]) : 0;
+          byGroup.set(groupID, [...(byGroup.get(groupID) || []), typeID]);
+        }
+        const lowest = py27HashOrder([...byGroup.keys()]).map((groupID) => Math.min(...byGroup.get(groupID)));
+        out[systemID] = { oreTypes: lowest.slice().sort((a, b) => key(b) - key(a)), belts: entry.belts };
+      }
+      asteroidBeltsHeld = out;
+    }
+    res.json({ ok: true, available: true, systems: asteroidBeltsHeld });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/client-data/epic-arcs", requireAuth, async (req, res, next) => {
   try {
     const [table, tags] = await Promise.all([clientBuiltData.table("epicArcs"), clientBuiltData.table("contentTags").catch(() => null)]);

@@ -34,14 +34,17 @@
   import { resultColor } from "../bridge/probeResults.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, kind = "combat", filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; kind?: SiteTrackerKind | "signature" | "escalation"; filters?: AgencySiteFilters } = $props();
+  let { store, flow, kind = "combat", filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; kind?: SiteTrackerKind | "signature" | "escalation" | "belts"; filters?: AgencySiteFilters } = $props();
   const escalations = $derived(kind === "escalation");
   const homefront = $derived(kind === "homefront");
-  const belts = $derived(kind === "ore" || kind === "ice");
+  const belts = $derived(kind === "ore" || kind === "ice" || kind === "belts");
+  // ContentPageAsteroidBelts: the belts are the system's own celestials, each named by LocationAsteroidBeltFormatter.
+  const asteroidBelts = $derived(kind === "belts");
+  const roman = (n: number): string => { let out = "", left = n; for (const [v, r] of [[1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"], [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]] as const) while (left >= v) { out += r; left -= v; } return out; };
   const signatures = $derived(kind === "signature");
-  const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt", signature: "UI/Agency/UnknownCosmicSignature", escalation: "UI/Common/Unknown", homefront: "UI/Common/Unknown" } as const;
+  const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt", signature: "UI/Agency/UnknownCosmicSignature", escalation: "UI/Common/Unknown", homefront: "UI/Common/Unknown", belts: "UI/Common/Unknown" } as const;
   const INFO = { combat: ["UI/Agency/CombatSiteTypes"], ore: ["UI/Agency/ProbeScanning"], ice: ["UI/Agency/IceAvailability", "UI/Agency/IceReprocessing"],
-    signature: ["UI/Agency/ProbeScanning", "UI/Agency/SignatureTypes"], escalation: [], homefront: [] } as const;
+    signature: ["UI/Agency/ProbeScanning", "UI/Agency/SignatureTypes"], escalation: [], homefront: [], belts: ["UI/Agency/OreAvailability", "UI/Common/ItemTypes/Minerals"] } as const;
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -60,7 +63,7 @@
   $effect(() => {
     const f = filters, k = kind, n = ++asked;
     systems = undefined;
-    void (k === "signature" ? flow.agencySignatures(f) : k === "escalation" ? flow.agencyEscalations() : flow.agencyTrackerSites(k, f)).then((list) => { if (n !== asked) return; systems = list; chosen = list?.[0]?.solarSystemID ?? null; site = 0; });
+    void (k === "signature" ? flow.agencySignatures(f) : k === "escalation" ? flow.agencyEscalations() : k === "belts" ? flow.agencyAsteroidBelts(f) : flow.agencyTrackerSites(k, f)).then((list) => { if (n !== asked) return; systems = list; chosen = list?.[0]?.solarSystemID ?? null; site = 0; });
   });
   const chosenSystem = $derived(systems?.find((s) => s.solarSystemID === chosen) ?? null);
   const chosenSite = $derived(chosenSystem?.sites[site]);
@@ -74,7 +77,7 @@
       "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll", "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/CombatSiteTypes",
       "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Agency/NumberOfBeltsInSystem", "UI/Agency/BeltsInSystem",
       "UI/Agency/OreTypesInBelt", "UI/Agency/NumberOfSignaturesInSystem", "UI/Agency/SignaturesInSystem", "UI/Agency/SignaturesNote", "UI/Agency/NumberOfEscalationsInSystem", "UI/Agency/EscalationsInSystem",
-      "UI/Agency/EscalationDescription", "UI/Market/Marketbase/ExpiresIn", "UI/Agency/NumberOfSitesInSystem", "UI/Dungeons/GameplayDescriptionHeader", "UI/Common/Description",
+      "UI/Locations/LocationAsteroidBeltFormatter", "UI/Agency/EscalationDescription", "UI/Market/Marketbase/ExpiresIn", "UI/Agency/NumberOfSitesInSystem", "UI/Dungeons/GameplayDescriptionHeader", "UI/Common/Description",
       UNKNOWN[kind], ...INFO[kind], ...(systems ?? []).flatMap((s) => Object.values(s.siteTexts ?? {}).flatMap((t) => [t.descriptionID, t.gameplayDescriptionID, t.archetypeTitleID])).filter((x): x is number => !!x).map((x) => `#${x}`),
       ...(chosenSystem?.sites ?? []).map((s) => s?.dungeonNameID).filter((x): x is number => !!x).map((x) => `#${x}`)]);
   });
@@ -152,7 +155,7 @@
       <div class="asi-system">{systemText(s)}</div>
       <div class="asi-list" class:short={belts || escalations}>
         {#each s.sites as entry, i (i)}
-          <button type="button" class="asi-entry" class:on={site === i} onclick={() => (site = i)}>{#if signatures && entry}<i class="asi-dot" style:background={resultColor(entry.signalStrength ?? 0)}></i>{entry.targetID ?? ""}{:else}{entry ? (entry.dungeonNameID ? word(`#${entry.dungeonNameID}`) : "") : word(UNKNOWN[kind])}{/if}</button>
+          <button type="button" class="asi-entry" class:on={site === i} onclick={() => (site = i)}>{#if signatures && entry}<i class="asi-dot" style:background={resultColor(entry.signalStrength ?? 0)}></i>{entry.targetID ?? ""}{:else if asteroidBelts && entry}{word("UI/Locations/LocationAsteroidBeltFormatter", { solarSystemID: s.solarSystemID, romanCelestialIndex: roman(entry.celestialIndex ?? 0), typeID: 15, orbitIndex: entry.orbitIndex ?? 0 })}{:else}{entry ? (entry.dungeonNameID ? word(`#${entry.dungeonNameID}`) : "") : word(UNKNOWN[kind])}{/if}</button>
         {:else}<p class="asi-none">{word("UI/Common/NothingFound")}</p>{/each}
       </div>
       {#if signatures}
