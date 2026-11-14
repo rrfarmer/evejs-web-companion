@@ -2503,7 +2503,7 @@ export interface AppFlow {
   /** Reconnect the session character's lost probes, then refresh scanner state. */
   reconnectScannerProbes(): Promise<void>;
   /** The solar system map's probe move (RegisterProbeMove): each idle probe given its destination, then the scanner read again. */
-  moveScannerProbes(moves: readonly { probeID: number; destination: readonly [number, number, number] }[]): Promise<void>;
+  moveScannerProbes(moves: readonly { probeID: number; destination?: readonly [number, number, number]; rangeStep?: number | undefined }[]): Promise<void>;
   /** The probe menu's Scan Range: the chosen probes given a range step (1 to 8), then the scanner read again. */
   setProbeRangeStep(probeIDs: readonly number[], rangeStep: number): Promise<void>;
   /** The probe menu's Recover Probe: the chosen probes recalled, then the scanner read again. */
@@ -11311,12 +11311,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return runScannerAction(async () => scannerWrites.reconnect(await api.loadScannerOperations(callOptions), scannerShip()));
   }
 
-  function moveScannerProbes(moves: readonly { probeID: number; destination: readonly [number, number, number] }[]): Promise<void> {
+  function moveScannerProbes(moves: readonly { probeID: number; destination?: readonly [number, number, number]; rangeStep?: number | undefined }[]): Promise<void> {
     return runScannerAction(async () => {
       const read = await api.loadScannerOperations(callOptions);
       for (const move of moves) {
         const probe = read.probes.find((candidate) => candidate.probeID === move.probeID);
-        if (probe !== undefined) await scannerWrites.moveTo(probe, move.destination);
+        if (probe === undefined) continue;
+        if (move.destination !== undefined) await scannerWrites.moveTo(probe, move.destination);
+        if (move.rangeStep !== undefined) await scannerWrites.stepTo(probe, move.rangeStep);
       }
     });
   }

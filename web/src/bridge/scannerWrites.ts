@@ -319,6 +319,12 @@ export function createScannerWrites(act: Ask, now: () => number = Date.now) {
       await act("scanMgr", "SetProbeDestination", [probe.probeID, [...destination]]);
     },
 
+    /** probeTracker.SetProbeRangeStep (92 to 101), from the map's RegisterProbeScale / ScaleAllProbes: an idle probe's step. */
+    async stepTo(probe: ScannerProbeOperation, rangeStep: number): Promise<void> {
+      if (probe.state !== PROBE_STATE.IDLE || rangeStep === probe.rangeStep) return;
+      await act("scanMgr", "SetProbeRangeStep", [probe.probeID, rangeStep]);
+    },
+
     async sendToPlace(probe: ScannerProbeOperation, placement: Placement): Promise<void> {
       if (probe.state !== PROBE_STATE.IDLE) return;
       await act("scanMgr", "SetProbeDestination", [probe.probeID, [...placement.destination]]);

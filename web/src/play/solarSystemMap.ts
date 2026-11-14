@@ -46,8 +46,18 @@
 //   OnMouseDown): the drag's plane by GetAxisTargetPlaneNormal (axis x: Y, Z, X; y: Z, X, Y; z: Y, X, Z - the first
 //   the mouse ray meets at |dot| >= 0.15); moved (MoveProbe): the mouse's move in that plane, ClampVector'd to the
 //   axis; let go (RegisterProbeMove): SetProbeDestination for each idle probe moved; the right button while dragging
-//   (CancelProbeMoveOrScaling) puts them back. Not yet the range and spread cursors (Alt, Ctrl), the modify hint,
-//   the move sounds, the centroid lines and intersection highlights.
+//   (CancelProbeMoveOrScaling) puts them back.
+// - The spread and range cursors (CheckKeyState: Ctrl MODIFY_SPREAD, Alt MODIFY_RANGE; SetEditMode shows each idle
+//   probe's probeSpreadCursor - two arrows turned to the formation's centre, SetFormationCenter - or its
+//   probeRangeCursor - a flattened sphere on the sphere's edge, SetRange). A spread drag (MoveProbe MODIFY_SPREAD)
+//   scales the places about the centre by the mouse's distance from it in the axis plane, Shift the pressed one
+//   alone; let go, RegisterProbeMove. A range drag (ScaleProbe, the camera-facing plane; also a sphere's edge pressed
+//   within ten pixels without a key, PickProbes(pickBorder=True)): Shift the pressed probe's range by the mouse's
+//   distance from it, else every place and range about the centre; its eight steps drawn as rings (ShowScanRanges);
+//   let go (RegisterProbeScale), the step nearest (GetRangeStepForType) - Shift SetProbeRangeStep for the one, else
+//   ScaleAllProbes(that step's range / the range): each place about the centre and each range the step nearest.
+//   In both modes a line from the centre to each probe (ShowCentroidLines, CENTROID_LINE_COLOR). Not here: the
+//   modify hint, the move sounds, the intersection highlights.
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -89,9 +99,24 @@ export interface SolarSystemMapHooks {
   /** AlignSpaceCameraToViewVector: the space camera turned to look along the direction (the map's / space view's axes). */
   aimSpaceCamera?(direction: THREE.Vector3): void;
   /** The pilot's active probes (the scanner's operations): place and destination (EVE's coordinates), range in metres. */
-  probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number }[];
+  probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
   /** RegisterProbeMove: the moved idle probes given their new destinations (EVE's coordinates). */
-  moveProbes?(moves: readonly { probeID: number; destination: [number, number, number] }[]): Promise<void> | void;
+  moveProbes?(moves: readonly ProbeMove[]): Promise<void> | void;
+}
+
+/** A probe as the map takes it. */
+type MapProbe = ReturnType<NonNullable<SolarSystemMapHooks["probes"]>>[number];
+/** A probe given a new destination, a new range step, or both. */
+export type ProbeMove = { probeID: number; destination?: [number, number, number]; rangeStep?: number | undefined };
+/** MODIFY_POSITION, MODIFY_SPREAD, MODIFY_RANGE. */
+type CursorKind = "position" | "spread" | "range";
+type Picked = { id: number; axis: Axis; kind: CursorKind };
+
+/** GetRangeStepForType: the step (1 .. 8) whose range is nearest, and that range. */
+export function nearestRangeStep(steps: readonly number[], range: number): [number, number] {
+  let best: [number, number] = [1, steps[0] ?? range];
+  for (let i = 0; i < steps.length; i++) if (Math.abs(steps[i]! - range) < Math.abs(best[1] - range)) best = [i + 1, steps[i]!];
+  return best;
 }
 
 type Axis = "x" | "y" | "z";
@@ -187,15 +212,28 @@ export class SolarSystemMapWindow {
   private probeObjects = new Map<number, { sphere: THREE.Mesh; marker: THREE.Sprite; line: THREE.Line; range: number }>();
   private readonly cursorGroup = new THREE.Group();
   private cursors = new Map<number, THREE.Group>();
+  private spreadCursors = new Map<number, THREE.Group>();
+  private rangeCursors = new Map<number, THREE.Mesh>();
+  private readonly centroidLines = new THREE.LineSegments(new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({ color: PROBE_COLOR.clone().multiplyScalar(0.3), depthTest: false, transparent: true }));
+  private readonly rangeRings = new THREE.Group();
+  private readonly ringMaterial = new THREE.LineBasicMaterial({ color: PROBE_COLOR, transparent: true, opacity: 0.5, depthTest: false });
   private shiftHeld = false;
-  private hover: { id: number; axis: Axis } | null = null;
-  /** A move under way: the cursor and axis pressed, its plane, where the mouse met it, and the destinations it gives. */
-  private moving: { id: number; axis: Axis; normal: THREE.Vector3; at: THREE.Vector3; mouse: THREE.Vector3; shift: boolean } | null = null;
-  /** The destinations a move gives (EVE's coordinates), until the scanner has them. */
+  private ctrlHeld = false;
+  private altHeld = false;
+  private hover: Picked | null = null;
+  /** A move or scaling under way: what was pressed, its plane, where the mouse met it at the probe and at the centre,
+   * and the idle probes as they were. */
+  private moving: { mode: CursorKind; id: number; axis: Axis; normal: THREE.Vector3; at: THREE.Vector3; center: THREE.Vector3;
+    centerEve: [number, number, number]; mouse: THREE.Vector3; mouseC: THREE.Vector3; shift: boolean;
+    base: Map<number, { dest: [number, number, number]; range: number; steps: readonly number[] }> } | null = null;
+  /** The destinations and ranges a drag gives (EVE's coordinates, metres), until the scanner has them. */
   private preview = new Map<number, [number, number, number]>();
+  private previewRange = new Map<number, number>();
   private readonly raycaster = new THREE.Raycaster();
   /** The cursors shown, for checks: the centre's, the probes' with theirs, and the arrows lit. */
-  cursorInfo: { center: boolean; probes: number; lit: number; at: [number, number, number] | null } = { center: false, probes: 0, lit: 0, at: null };
+  cursorInfo: { mode: CursorKind; center: boolean; probes: number; spread: number; range: number; centroid: number; lit: number;
+    at: [number, number, number] | null; rings: number } = { mode: "position", center: false, probes: 0, spread: 0, range: 0, centroid: 0, lit: 0, at: null, rings: 0 };
   /** The probes drawn, for checks: id, map place, sphere radius, whether its line shows. */
   probeInfo: { probeID: number; at: [number, number, number]; to: [number, number, number]; radius: number; moving: boolean }[] = [];
   private coneFor = "";
@@ -245,14 +283,23 @@ export class SolarSystemMapWindow {
     this.scene.add(this.coneGroup);
     this.scene.add(this.probeGroup);
     this.scene.add(this.cursorGroup);
+    this.centroidLines.renderOrder = 2;
+    this.scene.add(this.centroidLines);
+    this.rangeRings.visible = false;
+    this.scene.add(this.rangeRings);
     this.canvas.addEventListener("pointerdown", (e) => {
       if (e.button === 2 && this.moving) { this.cancelMove(); return; }
       if (e.button === 0 && this.pressCursor(e)) return;
       this.drag(e);
     });
     this.canvas.addEventListener("contextmenu", (e) => { if (this.moving) e.preventDefault(); });
-    this.canvas.addEventListener("pointermove", (e) => { if (!this.moving) this.hover = this.pickCursor(e); });
-    const keys = (e: KeyboardEvent) => { this.shiftHeld = e.shiftKey; };
+    this.canvas.addEventListener("pointermove", (e) => {
+      if (this.moving) return;
+      this.hover = this.pickCursor(e);
+      // HighlightProbeBorder: a sphere's edge under the mouse, moving the probes
+      if (!this.hover && this.editMode() === "position") { const id = this.pickBorder(e); if (id !== null) this.hover = { id, axis: "z", kind: "range" }; }
+    });
+    const keys = (e: KeyboardEvent) => { this.shiftHeld = e.shiftKey; this.ctrlHeld = e.ctrlKey; this.altHeld = e.altKey; };
     addEventListener("keydown", keys);
     addEventListener("keyup", keys);
     this.canvas.addEventListener("dblclick", () => this.toggleView());
@@ -518,7 +565,9 @@ export class SolarSystemMapWindow {
       const at = mapPoint({ x: p.pos[0], y: p.pos[1], z: p.pos[2] });
       const dest = this.preview.get(p.probeID) ?? p.destination;
       const to = mapPoint({ x: dest[0], y: dest[1], z: dest[2] });
-      const radius = p.scanRange * SOLARSYSTEM_SCALE;
+      const radius = (this.previewRange.get(p.probeID) ?? p.scanRange) * SOLARSYSTEM_SCALE;
+      const edge = this.hover?.kind === "range" && this.hover.id === p.probeID;
+      ((o.sphere.children[0] as THREE.LineSegments).material as THREE.LineBasicMaterial).opacity = edge || this.moving?.id === p.probeID ? 0.6 : 0.25;
       o.sphere.position.copy(to);
       o.sphere.scale.setScalar(Math.max(radius, 1e-6));
       o.marker.position.copy(at);
@@ -536,19 +585,25 @@ export class SolarSystemMapWindow {
     this.updateCursors(probes);
   }
 
-  /** probeCursor.red in our own shapes: a shaft and head each way along x, y and z, named by the cursor and axis. */
+  /** An arrow in our own shape (probeCursor.red's cursorzshape): a shaft and a head along +y, tagged for picking. */
+  private makeArrow(id: number, axis: Axis, kind: CursorKind): THREE.Group {
+    const arrow = new THREE.Group();
+    const material = new THREE.MeshBasicMaterial({ color: PROBE_COLOR, depthTest: false, transparent: true });
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.7, 8), material);
+    shaft.position.y = 0.45;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 12), material);
+    head.position.y = 0.95;
+    for (const m of [shaft, head]) { m.userData = { cursor: id, axis, kind }; m.renderOrder = 3; }
+    arrow.add(shaft, head);
+    return arrow;
+  }
+
+  /** probeCursor.red: an arrow each way along x, y and z. */
   private makeCursor(id: number): THREE.Group {
     const group = new THREE.Group();
     for (const axis of AXES) {
       for (const sign of [1, -1]) {
-        const arrow = new THREE.Group();
-        const material = new THREE.MeshBasicMaterial({ color: PROBE_COLOR, depthTest: false, transparent: true });
-        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.7, 8), material);
-        shaft.position.y = 0.45;
-        const head = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 12), material);
-        head.position.y = 0.95;
-        for (const m of [shaft, head]) { m.userData = { cursor: id, axis }; m.renderOrder = 3; }
-        arrow.add(shaft, head);
+        const arrow = this.makeArrow(id, axis, "position");
         arrow.userData = { axis, dir: AXIS_VECTOR[axis].clone().multiplyScalar(sign) };
         arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), arrow.userData.dir as THREE.Vector3);
         group.add(arrow);
@@ -558,42 +613,113 @@ export class SolarSystemMapWindow {
     return group;
   }
 
-  /** UpdateProbeControlDisplay / HighlightCursors / UpdateArrowVisibility, each frame. */
-  private updateCursors(probes: readonly { readonly probeID: number; readonly destination: readonly [number, number, number]; readonly state?: number }[]): void {
+  /** probeSpreadCursor.red: cursorZ_1 and cursorZ_0, one toward the formation's centre and one away (SetFormationCenter). */
+  private makeSpreadCursor(id: number): THREE.Group {
+    const group = new THREE.Group();
+    for (const sign of [1, -1]) {
+      const arrow = this.makeArrow(id, "z", "spread");
+      if (sign < 0) arrow.rotation.x = Math.PI;
+      group.add(arrow);
+    }
+    this.cursorGroup.add(group);
+    return group;
+  }
+
+  /** probeRangeCursor.red: a flattened sphere (400 x 400 x 50) on the range sphere's edge. */
+  private makeRangeCursor(id: number): THREE.Mesh {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 8), new THREE.MeshBasicMaterial({ color: PROBE_COLOR, depthTest: false, transparent: true }));
+    mesh.scale.set(1, 1, 0.125);
+    mesh.userData = { cursor: id, axis: "z", kind: "range" };
+    mesh.renderOrder = 3;
+    this.cursorGroup.add(mesh);
+    return mesh;
+  }
+
+  /** CheckKeyState: Ctrl the spread, Alt the range, else the position. */
+  private editMode(): CursorKind { return this.ctrlHeld ? "spread" : this.altHeld ? "range" : "position"; }
+
+  /** UpdateProbeControlDisplay / HighlightCursors / UpdateArrowVisibility / ShowCentroidLines, each frame. */
+  private updateCursors(probes: readonly MapProbe[]): void {
     const idle = probes.filter((p) => p.state === PROBE_IDLE);
-    const shift = this.moving ? this.moving.shift : this.shiftHeld;
+    const mode = this.moving ? this.moving.mode : this.editMode();
+    const shift = this.moving?.mode === "position" ? this.moving.shift : this.shiftHeld;
     const places = new Map<number, THREE.Vector3>();
+    const radii = new Map<number, number>();
     for (const p of idle) {
       const d = this.preview.get(p.probeID) ?? p.destination;
       places.set(p.probeID, mapPoint({ x: d[0], y: d[1], z: d[2] }));
+      radii.set(p.probeID, (this.previewRange.get(p.probeID) ?? p.scanRange) * SOLARSYSTEM_SCALE);
     }
+    const center = new THREE.Vector3();
     if (idle.length > 0) {
-      const center = new THREE.Vector3();
       for (const v of places.values()) center.add(v);
-      places.set(CENTER_CURSOR, center.divideScalar(idle.length));
+      center.divideScalar(idle.length);
+      places.set(CENTER_CURSOR, center.clone());
     }
     const away = this.camera.getWorldDirection(new THREE.Vector3()).negate();
-    const active = this.moving ?? this.hover;
+    const active: Picked | null = this.moving ? { id: this.moving.id, axis: this.moving.axis, kind: this.moving.mode } : this.hover;
+    const screen = (at: THREE.Vector3) => this.camera.position.distanceTo(at) * CURSOR_SCREEN;
+    const colour = (mesh: THREE.Object3D, lit: boolean) => ((mesh as THREE.Mesh).material as THREE.MeshBasicMaterial).color.copy(lit ? CURSOR_ACTIVE_COLOR : PROBE_COLOR);
     let lit = 0;
     for (const [id, group] of this.cursors) if (!places.has(id)) { this.cursorGroup.remove(group); this.cursors.delete(id); }
+    for (const [id, group] of this.spreadCursors) if (!radii.has(id)) { this.cursorGroup.remove(group); this.spreadCursors.delete(id); }
+    for (const [id, mesh] of this.rangeCursors) if (!radii.has(id)) { this.cursorGroup.remove(mesh); this.rangeCursors.delete(id); }
     for (const [id, at] of places) {
       let group = this.cursors.get(id);
       if (!group) { group = this.makeCursor(id); this.cursors.set(id, group); }
-      group.visible = id === CENTER_CURSOR ? !shift : shift;
+      group.visible = mode === "position" && (id === CENTER_CURSOR ? !shift : shift);
       group.position.copy(at);
-      group.scale.setScalar(this.camera.position.distanceTo(at) * CURSOR_SCREEN);
+      group.scale.setScalar(screen(at));
       // HighlightCursors: the cursor pressed (or every one without Shift) lit on the axis
-      const on = active !== null && (active.id === id || (!shift && id === CENTER_CURSOR));
+      const on = active !== null && active.kind === "position" && (active.id === id || (!shift && id === CENTER_CURSOR));
       for (const arrow of group.children) {
         const dir = arrow.userData.dir as THREE.Vector3;
         arrow.visible = Math.acos(Math.max(-1, Math.min(1, dir.dot(away)))) < 2.9;
         const lightUp = on && active!.axis === arrow.userData.axis;
         if (lightUp && group.visible && arrow.visible) lit += 1;
-        for (const m of arrow.children) ((m as THREE.Mesh).material as THREE.MeshBasicMaterial).color.copy(lightUp ? CURSOR_ACTIVE_COLOR : PROBE_COLOR);
+        for (const m of arrow.children) colour(m, lightUp);
       }
+      if (id === CENTER_CURSOR) continue;
+      const radius = radii.get(id)!;
+      // the spread cursor turned to the formation's centre
+      let spread = this.spreadCursors.get(id);
+      if (!spread) { spread = this.makeSpreadCursor(id); this.spreadCursors.set(id, spread); }
+      spread.visible = mode === "spread";
+      spread.position.copy(at);
+      spread.scale.setScalar(screen(at));
+      const toCenter = center.clone().sub(at);
+      if (toCenter.lengthSq() > 0) spread.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toCenter.normalize());
+      const spreadLit = active !== null && active.kind === "spread" && (active.id === id || !this.shiftHeld);
+      for (const arrow of spread.children) for (const m of arrow.children) colour(m, spreadLit);
+      if (spreadLit && spread.visible) lit += 1;
+      // the range cursor on the sphere's edge (SetRange: -range along the cursor's turned z, the map's -x)
+      let range = this.rangeCursors.get(id);
+      if (!range) { range = this.makeRangeCursor(id); this.rangeCursors.set(id, range); }
+      range.visible = mode === "range";
+      range.position.copy(at).add(new THREE.Vector3(-radius, 0, 0));
+      range.scale.set(screen(range.position), screen(range.position), screen(range.position) * 0.125);
+      range.quaternion.copy(this.camera.quaternion);
+      const rangeLit = active !== null && active.kind === "range" && active.id === id;
+      colour(range, rangeLit);
+      if (rangeLit && range.visible) lit += 1;
+    }
+    // ShowCentroidLines: in the spread and range modes, a line from the centre to each idle probe
+    const centroid: THREE.Vector3[] = [];
+    if ((mode === "spread" || mode === "range") && idle.length > 0) for (const p of idle) centroid.push(center, places.get(p.probeID)!);
+    this.centroidLines.geometry.setFromPoints(centroid);
+    this.centroidLines.visible = centroid.length > 0;
+    // ShowScanRanges: the dragged probe's eight range steps, facing the camera
+    const scaling = this.moving?.mode === "range" ? this.moving : null;
+    this.rangeRings.visible = scaling !== null;
+    if (scaling) {
+      const at = places.get(scaling.id);
+      if (at) this.rangeRings.position.copy(at);
+      this.rangeRings.quaternion.copy(this.camera.quaternion);
     }
     const c = places.get(CENTER_CURSOR);
-    this.cursorInfo = { center: !!c && !shift, probes: shift ? idle.length : 0, lit, at: c ? [c.x, c.y, c.z] : null };
+    this.cursorInfo = { mode, center: !!c && mode === "position" && !shift, probes: mode === "position" && shift ? idle.length : 0,
+      spread: mode === "spread" ? idle.length : 0, range: mode === "range" ? idle.length : 0, centroid: centroid.length / 2, lit,
+      at: c ? [c.x, c.y, c.z] : null, rings: this.rangeRings.visible ? this.rangeRings.children.length : 0 };
   }
 
   /** The mouse ray in the map, from a pointer event. */
@@ -604,36 +730,83 @@ export class SolarSystemMapWindow {
     return this.raycaster.ray.clone();
   }
 
-  /** PickScene: the shown cursor arrow under the mouse. */
-  private pickCursor(e: { clientX: number; clientY: number }): { id: number; axis: Axis } | null {
+  /** PickScene: the shown cursor under the mouse. */
+  private pickCursor(e: { clientX: number; clientY: number }): Picked | null {
     this.rayFrom(e);
     const shown: THREE.Object3D[] = [];
-    for (const group of this.cursors.values()) {
+    for (const group of [...this.cursors.values(), ...this.spreadCursors.values()]) {
       if (!group.visible) continue;
       for (const arrow of group.children) if (arrow.visible) shown.push(...arrow.children);
     }
+    for (const mesh of this.rangeCursors.values()) if (mesh.visible) shown.push(mesh);
     const hit = this.raycaster.intersectObjects(shown, false)[0];
-    return hit ? { id: hit.object.userData.cursor as number, axis: hit.object.userData.axis as Axis } : null;
+    return hit ? { id: hit.object.userData.cursor as number, axis: hit.object.userData.axis as Axis, kind: hit.object.userData.kind as CursorKind } : null;
   }
 
-  /** OnMouseDown on a cursor: the move begun (InitProbeMove). False where no cursor was pressed. */
-  private pressCursor(e: PointerEvent): boolean {
-    const picked = this.pickCursor(e);
-    const group = picked ? this.cursors.get(picked.id) : undefined;
-    if (!picked || !group) return false;
+  /** PickProbes(pickBorder=True): the idle probe whose sphere's edge is within ten pixels of the mouse, nearest the edge. */
+  private pickBorder(e: { clientX: number; clientY: number }): number | null {
     const ray = this.rayFrom(e);
-    const normal = axisTargetPlaneNormal(picked.axis, ray.direction);
-    const at = group.position.clone();
-    const mouse = ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, at), new THREE.Vector3());
-    if (!mouse) return false;
-    this.moving = { id: picked.id, axis: picked.axis, normal, at, mouse, shift: picked.id !== CENTER_CURSOR };
-    const base = new Map((this.hooks.probes?.() ?? []).filter((p) => p.state === PROBE_IDLE).map((p) => [p.probeID, [...p.destination] as [number, number, number]]));
-    const move = (m: PointerEvent) => this.moveTo(m, base);
+    const aside = this.rayFrom({ clientX: e.clientX - 10, clientY: e.clientY });
+    const normal = this.camera.getWorldDirection(new THREE.Vector3());
+    let best: { id: number; off: number } | null = null;
+    for (const p of this.hooks.probes?.() ?? []) {
+      if (p.state !== PROBE_IDLE) continue;
+      const o = this.probeObjects.get(p.probeID);
+      if (!o) continue;
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, o.sphere.position);
+      const mouse = ray.intersectPlane(plane, new THREE.Vector3());
+      const side = aside.intersectPlane(plane, new THREE.Vector3());
+      if (!mouse || !side) continue;
+      const rad = o.sphere.scale.x;
+      const fromCenter = mouse.distanceTo(o.sphere.position);
+      const pick = side.distanceTo(mouse);
+      if (rad + pick > fromCenter && fromCenter > rad - pick) {
+        const off = Math.abs(rad - fromCenter);
+        if (!best || off < best.off) best = { id: p.probeID, off };
+      }
+    }
+    return best?.id ?? null;
+  }
+
+  /** OnMouseDown: a cursor (or, moving the probes, a sphere's edge) pressed begins a move or a scaling. False where none was. */
+  private pressCursor(e: PointerEvent): boolean {
+    let picked = this.pickCursor(e);
+    if (!picked && this.editMode() === "position") {
+      const border = this.pickBorder(e);
+      if (border !== null) picked = { id: border, axis: "z", kind: "range" };
+    }
+    if (!picked) return false;
+    const ray = this.rayFrom(e);
+    const probes = (this.hooks.probes?.() ?? []).filter((p) => p.state === PROBE_IDLE);
+    if (probes.length === 0) return false;
+    const base = new Map(probes.map((p) => [p.probeID, { dest: [...p.destination] as [number, number, number], range: p.scanRange, steps: p.rangeSteps ?? [] }]));
+    const centerEve: [number, number, number] = [0, 0, 0];
+    for (const b of base.values()) for (let i = 0; i < 3; i++) centerEve[i]! += b.dest[i]! / base.size;
+    const centerMap = mapPoint({ x: centerEve[0], y: centerEve[1], z: centerEve[2] });
+    const probeMap = picked.id === CENTER_CURSOR ? centerMap : (() => { const d = base.get(picked!.id)?.dest; return d ? mapPoint({ x: d[0], y: d[1], z: d[2] }) : centerMap; })();
+    // the plane: along an axis for a move or a spread (GetAxisTargetPlaneNormal), facing the camera for a scaling
+    const normal = picked.kind === "range" ? this.camera.getWorldDirection(new THREE.Vector3()) : axisTargetPlaneNormal(picked.axis, ray.direction);
+    const meet = (at: THREE.Vector3) => ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, at), new THREE.Vector3());
+    const mouseP = meet(probeMap), mouseC = meet(centerMap);
+    if (!mouseP || !mouseC) return false;
+    this.moving = { mode: picked.kind, id: picked.id, axis: picked.axis, normal, at: probeMap, center: centerMap, centerEve, mouse: mouseP, mouseC,
+      shift: picked.id !== CENTER_CURSOR, base };
+    if (picked.kind === "range") {
+      // ShowScanRanges: rings at the probe's eight range steps
+      this.rangeRings.clear();
+      for (const step of base.get(picked.id)?.steps ?? []) {
+        const pts: THREE.Vector3[] = [];
+        const r = step * SOLARSYSTEM_SCALE;
+        for (let i = 0; i < 96; i++) { const a = (i / 96) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0)); }
+        this.rangeRings.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), this.ringMaterial));
+      }
+    }
+    const move = (m: PointerEvent) => this.moveTo(m);
     const up = (u: PointerEvent) => {
       if (u.button !== 0) return;
       removeEventListener("pointermove", move);
       removeEventListener("pointerup", up);
-      if (this.moving) this.registerMove(base);
+      if (this.moving) this.registerMove();
     };
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
@@ -642,37 +815,90 @@ export class SolarSystemMapWindow {
   }
   private cancelHandlers: (() => void) | null = null;
 
-  /** MoveProbe: the mouse's move in the plane, along the axis, given to all the idle probes or the pressed one. */
-  private moveTo(e: { clientX: number; clientY: number }, base: ReadonlyMap<number, [number, number, number]>): void {
+  /** MoveProbe (the position and the spread) and ScaleProbe (the range): the destinations and ranges a drag gives. */
+  private moveTo(e: { clientX: number; clientY: number }): void {
     const mv = this.moving;
     if (!mv) return;
     const ray = this.rayFrom(e);
-    const now = ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(mv.normal, mv.at), new THREE.Vector3());
-    if (!now) return;
-    // ClampVector: the move's part along the axis, in metres (the map's z is EVE's -z)
-    const along = AXIS_VECTOR[mv.axis].clone().multiplyScalar(now.clone().sub(mv.mouse).dot(AXIS_VECTOR[mv.axis]));
-    const diff: [number, number, number] = [along.x / SOLARSYSTEM_SCALE, along.y / SOLARSYSTEM_SCALE, -along.z / SOLARSYSTEM_SCALE];
-    this.preview = new Map();
-    for (const [probeID, d] of base) {
-      if (mv.shift && probeID !== mv.id) continue;
-      this.preview.set(probeID, [d[0] + diff[0], d[1] + diff[1], d[2] + diff[2]]);
+    const meet = (at: THREE.Vector3) => ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(mv.normal, at), new THREE.Vector3());
+    const nowP = meet(mv.at), nowC = meet(mv.center);
+    if (!nowP || !nowC) return;
+    const preview = new Map<number, [number, number, number]>();
+    const ranges = new Map<number, number>();
+    const scaled = (d: readonly number[], scale: number): [number, number, number] =>
+      [0, 1, 2].map((i) => mv.centerEve[i]! + (d[i]! - mv.centerEve[i]!) * scale) as [number, number, number];
+    const centerScale = () => {
+      const init = mv.mouseC.distanceTo(mv.center);
+      return init > 0 ? nowC.distanceTo(mv.center) / init : 1;
+    };
+    if (mv.mode === "position") {
+      // ClampVector: the move's part along the axis, in metres (the map's z is EVE's -z)
+      const along = AXIS_VECTOR[mv.axis].clone().multiplyScalar(nowP.clone().sub(mv.mouse).dot(AXIS_VECTOR[mv.axis]));
+      const diff = [along.x / SOLARSYSTEM_SCALE, along.y / SOLARSYSTEM_SCALE, -along.z / SOLARSYSTEM_SCALE];
+      for (const [probeID, b] of mv.base) {
+        if (mv.shift && probeID !== mv.id) continue;
+        preview.set(probeID, [b.dest[0] + diff[0]!, b.dest[1] + diff[1]!, b.dest[2] + diff[2]!]);
+      }
+    } else if (mv.mode === "spread") {
+      // the probes' places scaled about the centre by the mouse's distance from it (Shift: the pressed one alone)
+      const scale = centerScale();
+      for (const [probeID, b] of mv.base) {
+        if (this.shiftHeld && probeID !== mv.id) continue;
+        preview.set(probeID, scaled(b.dest, scale));
+      }
+    } else {
+      // Shift: the pressed probe's range by the mouse's distance from it; else every probe's place and range about the centre
+      if (this.shiftHeld) {
+        const init = mv.mouse.distanceTo(mv.at);
+        const b = mv.base.get(mv.id);
+        if (b && init > 0) ranges.set(mv.id, b.range * (nowP.distanceTo(mv.at) / init));
+      } else {
+        const scale = centerScale();
+        for (const [probeID, b] of mv.base) {
+          preview.set(probeID, scaled(b.dest, scale));
+          ranges.set(probeID, b.range * scale);
+        }
+      }
     }
+    this.preview = preview;
+    this.previewRange = ranges;
   }
 
-  /** RegisterProbeMove: each idle probe moved given its destination. */
-  private registerMove(base: ReadonlyMap<number, [number, number, number]>): void {
+  /** RegisterProbeMove (each idle probe moved given its destination) and RegisterProbeScale (the range step nearest). */
+  private registerMove(): void {
+    const mv = this.moving!;
     this.moving = null;
     this.cancelHandlers = null;
-    const moves = [...this.preview].filter(([id, d]) => {
-      const b = base.get(id);
-      return b !== undefined && (b[0] !== d[0] || b[1] !== d[1] || b[2] !== d[2]);
-    }).map(([probeID, destination]) => ({ probeID, destination }));
+    let moves: ProbeMove[] = [];
+    if (mv.mode === "range") {
+      const b = mv.base.get(mv.id);
+      const desired = this.previewRange.get(mv.id);
+      if (b && desired !== undefined && b.steps.length > 0) {
+        const [step, size] = nearestRangeStep(b.steps, desired);
+        if (this.shiftHeld) {
+          // SetProbeRangeStep for the one
+          moves = [{ probeID: mv.id, rangeStep: step }];
+        } else {
+          // ScaleAllProbes(size / current): each place about the centre, each range the step nearest its own scaled
+          const scale = size / b.range;
+          moves = [...mv.base].map(([probeID, o]) => ({ probeID,
+            destination: [0, 1, 2].map((i) => mv.centerEve[i]! + (o.dest[i]! - mv.centerEve[i]!) * scale) as [number, number, number],
+            rangeStep: o.steps.length > 0 ? nearestRangeStep(o.steps, o.range * scale)[0] : undefined }));
+        }
+      }
+    } else {
+      moves = [...this.preview].filter(([id, d]) => {
+        const b = mv.base.get(id)?.dest;
+        return b !== undefined && (b[0] !== d[0] || b[1] !== d[1] || b[2] !== d[2]);
+      }).map(([probeID, destination]) => ({ probeID, destination }));
+    }
     this.lastMoves = moves;
-    if (moves.length === 0) { this.preview = new Map(); return; }
-    void Promise.resolve(this.hooks.moveProbes?.(moves)).catch(() => {}).finally(() => { this.preview = new Map(); });
+    this.rangeRings.visible = false;
+    if (moves.length === 0) { this.preview = new Map(); this.previewRange = new Map(); return; }
+    void Promise.resolve(this.hooks.moveProbes?.(moves)).catch(() => {}).finally(() => { this.preview = new Map(); this.previewRange = new Map(); });
   }
-  /** The last move given, for checks. */
-  lastMoves: { probeID: number; destination: [number, number, number] }[] = [];
+  /** The last move or scaling given, for checks. */
+  lastMoves: ProbeMove[] = [];
 
   /** CancelProbeMoveOrScaling: the probes put back. */
   private cancelMove(): void {
@@ -680,6 +906,8 @@ export class SolarSystemMapWindow {
     this.cancelHandlers = null;
     this.moving = null;
     this.preview = new Map();
+    this.previewRange = new Map();
+    this.rangeRings.visible = false;
   }
 
   /** OnDirectionalScanComplete -> ScanEffect: ScanPart_01, then ScanPart_02 when it ends. */

@@ -116,9 +116,9 @@ export interface SpaceActions {
   /** cfg.evelocations.Get(itemID).name where it is known; null until it is. */
   locationName?(itemID: number): string | null;
   /** The pilot's active probes as the scanner has them (its operations), or none. */
-  probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number }[];
+  probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
   /** The solar system map's probe move (RegisterProbeMove): each probe given its destination. */
-  moveProbes?(moves: readonly { probeID: number; destination: [number, number, number] }[]): Promise<void>;
+  moveProbes?(moves: readonly { probeID: number; destination?: [number, number, number]; rangeStep?: number | undefined }[]): Promise<void>;
   /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
   shipAttribute?(attributeID: number): number | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
