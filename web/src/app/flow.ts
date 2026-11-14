@@ -1102,7 +1102,7 @@ import { splitNeverFits } from "../bridge/bayRouting.ts";
 import type { AccessGroup, ActiveBookmarks, BookmarkFolder } from "../bridge/bookmarks.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
-import { canTagInFleet } from "../bridge/fleetCommand.ts";
+import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, type FleetAdvert } from "../bridge/fleetAds.ts";
 import { readAvailableFleetAds, readFleetFinder as readFleetFinderCalls } from "../bridge/fleetFinderReads.ts";
@@ -3749,6 +3749,15 @@ export interface AppFlow {
   /** EnlistmentPanel.OpenCorpStandings: true where the pilot's corporation is a player one (the caller opens its NPC
    *  standings); in an NPC corporation message_player(UI/Standings/npcCorpStandingsError) and false. */
   agencyCorpStandings(): Promise<boolean>;
+  /**
+   * The Agency's Fleet Up (FleetupSearchCont): the adverts open to the session (fleetService.GetFleetAdsForChar), each
+   * one's jumps from the pilot's system (GetNumberOfJumps: the autopilot's count; null for no route) and, where there is
+   * no route, its words' label (_GetNoRouteFoundText with the autopilot's settings); the server's clock in ticks; the
+   * pilot's fleet, whether the pilot is its boss (fleetJobCreator) and whether it is registered (options.isRegistered).
+   * Null where the adverts could not be read.
+   */
+  agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
+    readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
   /**
    * The Agency's page of one incursion (IncursionContentGroup, its constellation the item): the incursion of the
@@ -20084,6 +20093,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sayDialog("CustomInfo", { type: "dict", entries: [["info", text]] } as JsonValue, text);
     return false;
   }
+  async function agencyFleetUp(): Promise<Awaited<ReturnType<AppFlow["agencyFleetUp"]>>> {
+    const ads = await bridgeAsk("fleetProxy", "GetAvailableFleetAds", []).then((v) => decodeAvailableFleetAds(v).filter((ad) => ad.fleetID !== null && ad.fleetID > 0)).catch(() => null);
+    if (ads === null) return null;
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const distances = here ? await autopilotDistancesFrom(here).catch(() => null) : null;
+    const jumps: Record<string, number | null> = {}, noRoute: Record<string, string> = {};
+    let fromJita: Map<number, number> | null | undefined, graph: Awaited<ReturnType<typeof loadRouteGraph>> | null = null;
+    for (const ad of ads) {
+      const id = ad.solarSystemID;
+      if (id === null || String(id) in jumps) continue;
+      const n = id === here ? 0 : distances?.get(id) ?? null;
+      jumps[String(id)] = n;
+      if (n !== null) continue;
+      // _GetNoRouteFoundText: a Triglavian or wormhole system, or one the autopilot reaches from Jita, has no gate route;
+      // any other is unreachable.
+      graph ??= await loadRouteGraph().catch(() => null);
+      if (id >= 31000000 || graph?.isTriglavian?.(id)) { noRoute[String(id)] = "UI/Generic/NoGateToGateRoute"; continue; }
+      if (fromJita === undefined) fromJita = await autopilotDistancesFrom(30000142).catch(() => null);
+      noRoute[String(id)] = id === 30000142 || fromJita?.has(id) ? "UI/Generic/NoGateToGateRoute" : "UI/Generic/Unreachable";
+    }
+    const bound = store.fleet.get().fleet, online = store.station.get().online;
+    const fleetID = bound && !bound.sessionHasNoFleet && bound.fleetID !== null ? Number(bound.fleetID) : null;
+    const me = fleetID !== null ? bound?.initState.value?.members.find((m) => Number(m.charID) === online?.characterID) ?? null : null;
+    return { ads, jumps, noRoute, nowTicks: BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n, fleetID,
+      isBoss: Boolean(me && (me.job & FLEET_JOB_CREATOR)), registered: Boolean(fleetID !== null && bound?.initState.value?.options.isRegistered) };
+  }
   let systemPlanetsHeld: Awaited<ReturnType<typeof api.loadSystemPlanets>> = null;
   async function agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<Awaited<ReturnType<AppFlow["agencyPlanetaryProduction"]>>> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
@@ -34069,6 +34104,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyPlanetaryProduction,
     agencyHelpVideos,
     agencyCorpStandings,
+    agencyFleetUp,
     agencyColonyResources,
     agencyIncursion,
     factionWarfareLocal,
