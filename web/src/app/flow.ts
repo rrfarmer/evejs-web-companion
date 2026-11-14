@@ -2502,6 +2502,8 @@ export interface AppFlow {
   recoverScannerProbes(): Promise<void>;
   /** Reconnect the session character's lost probes, then refresh scanner state. */
   reconnectScannerProbes(): Promise<void>;
+  /** The solar system map's probe move (RegisterProbeMove): each idle probe given its destination, then the scanner read again. */
+  moveScannerProbes(moves: readonly { probeID: number; destination: readonly [number, number, number] }[]): Promise<void>;
   /** The probe menu's Scan Range: the chosen probes given a range step (1 to 8), then the scanner read again. */
   setProbeRangeStep(probeIDs: readonly number[], rangeStep: number): Promise<void>;
   /** The probe menu's Recover Probe: the chosen probes recalled, then the scanner read again. */
@@ -11307,6 +11309,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   function reconnectScannerProbes(): Promise<void> {
     return runScannerAction(async () => scannerWrites.reconnect(await api.loadScannerOperations(callOptions), scannerShip()));
+  }
+
+  function moveScannerProbes(moves: readonly { probeID: number; destination: readonly [number, number, number] }[]): Promise<void> {
+    return runScannerAction(async () => {
+      const read = await api.loadScannerOperations(callOptions);
+      for (const move of moves) {
+        const probe = read.probes.find((candidate) => candidate.probeID === move.probeID);
+        if (probe !== undefined) await scannerWrites.moveTo(probe, move.destination);
+      }
+    });
   }
 
   // The probe menu's two (scanSvc.GetProbeMenu): a range step for the chosen probes, and their recall.
@@ -33891,6 +33903,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     analyzeScannerSignatures,
     recoverScannerProbes,
     reconnectScannerProbes,
+    moveScannerProbes,
     setProbeRangeStep,
     recoverChosenProbes,
     launchProbeFormation,

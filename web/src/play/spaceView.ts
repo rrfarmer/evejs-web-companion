@@ -117,6 +117,8 @@ export interface SpaceActions {
   locationName?(itemID: number): string | null;
   /** The pilot's active probes as the scanner has them (its operations), or none. */
   probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number }[];
+  /** The solar system map's probe move (RegisterProbeMove): each probe given its destination. */
+  moveProbes?(moves: readonly { probeID: number; destination: [number, number, number] }[]): Promise<void>;
   /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
   shipAttribute?(attributeID: number): number | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
@@ -535,6 +537,7 @@ export class SpaceView {
         const ball = this.snapshot?.entities.find((e) => e.itemID === p.probeID);
         return ball ? { ...p, pos: [ball.position.x, ball.position.y, ball.position.z] as const } : p;
       }),
+      moveProbes: (moves) => this.actions.moveProbes?.(moves),
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
       aimSpaceCamera: (direction) => {
         const dist = this.camera.position.distanceTo(this.controls.target);

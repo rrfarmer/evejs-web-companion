@@ -637,6 +637,7 @@
         const operations = s.store.scanner.get().operations;
         return operations.status === "ready" ? operations.value.probes : [];
       },
+      moveProbes: (moves) => s.flow.moveScannerProbes(moves),
       primeLocations: (itemIDs) => s.flow.requestNames(itemIDs.map((id) => ({ kind: "evelocation" as const, id }))),
       locationName: (itemID) => {
         const name = s.store.names.get().resolved[nameKey("evelocation", itemID)];

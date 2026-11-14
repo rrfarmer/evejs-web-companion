@@ -313,6 +313,12 @@ export function createScannerWrites(act: Ask, now: () => number = Date.now) {
      * them and sends nothing. (The client sets the step on the probe itself; SetProbeRangeStep also makes it the
      * step a new probe starts on, which the next placement overrides.)
      */
+    /** probeTracker.SetProbeDestination (88 to 90), from the map's RegisterProbeMove: an idle probe given its destination. */
+    async moveTo(probe: ScannerProbeOperation, destination: readonly [number, number, number]): Promise<void> {
+      if (probe.state !== PROBE_STATE.IDLE) return;
+      await act("scanMgr", "SetProbeDestination", [probe.probeID, [...destination]]);
+    },
+
     async sendToPlace(probe: ScannerProbeOperation, placement: Placement): Promise<void> {
       if (probe.state !== PROBE_STATE.IDLE) return;
       await act("scanMgr", "SetProbeDestination", [probe.probeID, [...placement.destination]]);
