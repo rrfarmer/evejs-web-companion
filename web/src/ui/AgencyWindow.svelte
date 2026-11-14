@@ -13,7 +13,7 @@
   //   Combat Anomalies, Ore Anomalies, Ice Belts: ContentPageCombatAnomalies, ContentPageOreAnomalies, ContentPageIceBelts;
   //   Cosmic Signatures: ContentPageSignatures; Epic Arcs: ContentPageEpicArcs;
   //   Escalations: ContentPageEscalations; Incursions: ContentPageIncursions, and an incursion's ContentPageIncursion;
-  //   Planetary Production: ContentPagePlanetaryProduction.
+  //   Planetary Production: ContentPagePlanetaryProduction; Mercenary Dens: ContentPageMercDen.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
@@ -34,11 +34,12 @@
   import AgencyIncursionsPage from "./AgencyIncursionsPage.svelte";
   import AgencyIncursionPage from "./AgencyIncursionPage.svelte";
   import AgencyPlanetaryProductionPage from "./AgencyPlanetaryProductionPage.svelte";
+  import AgencyMercDensPage from "./AgencyMercDensPage.svelte";
   import { resolvedName } from "../store/names.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
-  let { store, flow, showTravel }: { store: ClientStore; flow: AppFlow; showTravel?: () => void } = $props();
+  let { store, flow, showTravel, onOpenTab }: { store: ClientStore; flow: AppFlow; showTravel?: () => void; onOpenTab?: (tab: string) => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -47,7 +48,7 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -149,6 +150,8 @@
       <div class="ag-page"><AgentFinder {store} {flow} {showTravel} /></div>
     {:else if groupID === INCURSION && itemID}
       {#key itemID}<div class="ag-page"><AgencyIncursionPage {store} {flow} constellationID={itemID} /></div>{/key}
+    {:else if groupID === MERC_DENS}
+      <div class="ag-page"><AgencyMercDensPage {store} {flow} {onOpenTab} /></div>
     {:else if groupID === PLANETARY_PRODUCTION}
       <div class="ag-page"><AgencyPlanetaryProductionPage {store} {flow} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
     {:else if groupID === INCURSIONS}
