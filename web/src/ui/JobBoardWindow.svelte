@@ -85,8 +85,8 @@
   });
   const shownArcs = $derived(tab === "browse" ? epicLists.browse : tab === "active" ? epicLists.active : []);
   const arcOpen = $derived(openArc === null ? null : epic?.arcs.find((a) => a.epicArcID === openArc) ?? null);
-  // The combat anomalies (features/dungeons: CombatAnomaliesProvider, DungeonJob): in Browse those the provider
-  // lists, in Active the one the pilot is in (active_dungeon; tracking is not here).
+  // The anomalies (features/dungeons: the combat anomalies', ore anomalies' and ice belts' providers, DungeonJob): in
+  // Browse those the providers list, in Active the one the pilot is in (active_dungeon; tracking is not here).
   let dungeons = $state<readonly DungeonJob[]>([]), openDungeon = $state<number | null>(null);
   const shownDungeons = $derived(tab === "browse" ? dungeons : tab === "active" ? dungeons.filter((d) => d.active) : []);
   const dungeonOpen = $derived(openDungeon === null ? null : dungeons.find((d) => d.instanceID === openDungeon) ?? null);
@@ -102,7 +102,7 @@
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
     void flow.dailyGoals().then((d) => { daily = d ?? []; }, () => { daily = []; });
     void flow.epicArcs().then((e) => { epic = e; }, () => { epic = null; });
-    void flow.combatAnomalies().then((d) => { dungeons = d ?? []; }, () => { dungeons = []; });
+    void flow.dungeonJobs().then((d) => { dungeons = d; }, () => { dungeons = []; });
     board = await flow.freelanceBoard();
   }
   const goalRemaining = (g: CorporationGoal) => { const left = Math.max(0, g.desired - g.current); return g.participationLimit ? Math.min(left, Math.max(0, g.participationLimit - g.myProgress)) : left; };

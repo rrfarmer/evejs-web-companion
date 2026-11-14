@@ -697,7 +697,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // missions' statuses and the arcs' journal messages. The gateway's list has neither.
   "agentMgr.GetMyEpicArcStatus", "agentMgr.GetMessagesForEpicArcMissions",
   // The job board's combat anomalies (evedungeons anomalyTracker CombatAnomalyTracker). The gateway's list has nothing of it.
-  "dungeonInstanceCacheMgr.GetCombatAnomalyInstances",
+  "dungeonInstanceCacheMgr.GetCombatAnomalyInstances", "dungeonInstanceCacheMgr.GetOreAnomalyInstances", "dungeonInstanceCacheMgr.GetIceBeltInstances",
   // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
   // the recruitment proxy. The gateway's list has nothing of it.
   "corpRecProxy.SearchCorpAds", "corpRecProxy.GetRecruitmentAdsByCorpID",
@@ -2674,6 +2674,8 @@ const RETAIL_CALLS = Object.freeze({
   "crimewatch.GetSecurityStatusTransactions": same(`${CRIMEWATCH_SVC}:603`, "CharGetCrimewatchLocation().GetSecurityStatusTransactions(), no arguments"),
   "agentMgr.GetMyEpicArcStatus": same("eve/client/script/ui/shared/epicArcSvc.py:32", "sm.RemoteSvc('agentMgr').GetMyEpicArcStatus(), no arguments: each arc's missions' statuses (acceptedDate, completedDate, quitDate, nameID), asked as the controller is made and again on OnEpicJournalChange."),
   "agentMgr.GetMessagesForEpicArcMissions": same("eve/client/script/ui/shared/epicArcs/epicArcController.py:68", "sm.RemoteSvc('agentMgr').GetMessagesForEpicArcMissions(), no arguments: the arcs' missions' journal messages (chapter title, in progress, completed) by message kind and mission."),
+  "dungeonInstanceCacheMgr.GetOreAnomalyInstances": same("evedungeons/client/anomalyTracker.py:257", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetOreAnomalyInstances(), no arguments: by solar system the ore anomalies' KeyVals, as GetCombatAnomalyInstances (Tranquility, AIR Oportunities - Amarr, 10/30/2026: archetypeID 27)."),
+  "dungeonInstanceCacheMgr.GetIceBeltInstances": same("evedungeons/client/anomalyTracker.py:246", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetIceBeltInstances(), no arguments: by solar system the ice belts' KeyVals, as GetCombatAnomalyInstances (Tranquility, AIR Oportunities - Amarr, 10/30/2026: archetypeID 28)."),
   "dungeonInstanceCacheMgr.GetCombatAnomalyInstances": same("evedungeons/client/anomalyTracker.py:235", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetCombatAnomalyInstances(), no arguments: by solar system, each combat anomaly's KeyVal (dungeonID, instanceID, siteID, archetypeID, factionID, difficulty, entryObjectTypeID, dungeonNameID, position). Recorded on Tranquility so (AIR Oportunities - Amarr, 10/30/2026)."),
   "subscriptionMgr.GetCloneGrade": same("omega/client/clone_grade_svc.py:125", "sm.RemoteSvc('subscriptionMgr').GetCloneGrade(), no arguments: asked as the account comes onto the session (gameui.py 450) and kept; then what OnSubscriptionChangedServer says. In this server's log of a retail client's login it is the call before the character selection's."),
   "userSvc.GetMultiCharactersTrainingSlots": judged("eve/client/script/ui/services/skillQueueSvc.py:851", sentWithNothing,

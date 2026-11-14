@@ -15,6 +15,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
+const { py27HashOrder } = require("./clientData/py27HashOrder");
 const { createSdeBuiltData } = require("./clientData/sdeBuiltData");
 const { hullBrowserData } = require("./clientData/hullBrowser");
 const { readFitting } = require("./clientData/importFitting");
@@ -14001,6 +14002,26 @@ app.get("/api/client-data/config-enabled-values", requireAuth, async (req, res, 
 // The corporation projects' contribution methods as the client's built data has them (contributionMethods.fsdbinary,
 // goals/client/contributionMethods.py: a method's title is GetByMessageID(titleID)). `available` false where the
 // client's data could not be read. No session: they do not vary by player.
+// An eveicon's texture as the client resolves it (eveicon IconData: res:/UI/Texture/eveicon/<group_id>/<icon_id>_<size>px.png):
+// the group is found in the client's own resource index, for the icon and size asked. Null where it has none.
+let eveiconIndex = null;
+function eveiconTexture(iconID, size = 16) {
+  if (typeof iconID !== "string" || !/^[a-z0-9_]+$/.test(iconID) || !config.clientRoot) return null;
+  if (eveiconIndex === null) {
+    eveiconIndex = new Map();
+    try {
+      const text = fs.readFileSync(path.join(config.clientRoot, "tq", "resfileindex.txt"), "utf8");
+      for (const line of text.split(/\r?\n/)) {
+        const m = /^res:\/ui\/texture\/eveicon\/([a-z0-9_]+)\/([a-z0-9_]+)_(\d+)px\.png,/i.exec(line);
+        // Where two groups hold one name (epic_arc: category_icons and system_icons), the index's first is kept;
+        // for epic_arc that is eveicon's own group_id (category_icons).
+        if (m && !eveiconIndex.has(`${m[2].toLowerCase()}:${m[3]}`)) eveiconIndex.set(`${m[2].toLowerCase()}:${m[3]}`, `res:/UI/Texture/eveicon/${m[1].toLowerCase()}/${m[2].toLowerCase()}_${m[3]}px.png`);
+      }
+    } catch { /* no index: no icons */ }
+  }
+  return eveiconIndex.get(`${iconID}:${size}`) ?? null;
+}
+
 // Dungeons as the client's built data has them (evedungeons/client/data GetDungeon): name, description, gameplay
 // description, archetype (its title and description, evearchetypes), faction, difficulty, entry type, and the content
 // tags GetDungeonContentTags makes (the dungeon's, its archetype's, feature_cosmic_signatures for a signature's entry,
@@ -14008,9 +14029,25 @@ app.get("/api/client-data/config-enabled-values", requireAuth, async (req, res, 
 app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
   try {
     const ids = String(req.query.ids || "").split(",").map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 200);
-    const [rows, archetypes, tags] = await Promise.all([
+    const [rows, archetypes, tags, typeGroups] = await Promise.all([
       typeof clientBuiltData.rows === "function" ? clientBuiltData.rows("dungeons", ids).catch(() => null) : null,
-      clientBuiltData.table("archetypes").catch(() => null), clientBuiltData.table("contentTags").catch(() => null)]);
+      clientBuiltData.table("archetypes").catch(() => null), clientBuiltData.table("contentTags").catch(() => null),
+      clientBuiltData.table("typeGroups").catch(() => null)]);
+    // get_consolidated_ore_types / get_consolidated_ice_types: the lowest type of each group (extract_lowest_type_id_for_group,
+    // its groups in a dict's order), sorted by ORE_TYPES_BY_VALUE / ICE_TYPES_BY_VALUE descending (a type not listed
+    // counts 0), then made a set (DungeonJob.resources) - shown in the set's order.
+    const consolidated = (typeIDs, byValue) => {
+      const byGroup = new Map();
+      for (const typeID of typeIDs) {
+        const groupID = typeGroups && typeGroups[typeID] != null ? Number(typeGroups[typeID]) : 0;
+        byGroup.set(groupID, [...(byGroup.get(groupID) || []), typeID]);
+      }
+      const lowest = py27HashOrder([...byGroup.keys()]).map((groupID) => Math.min(...byGroup.get(groupID)));
+      const key = (typeID) => Math.max(0, byValue.indexOf(typeID));
+      return py27HashOrder(lowest.slice().sort((a, b) => key(b) - key(a)));
+    };
+    const ORE_TYPES_BY_VALUE = [1230, 1228, 1224, 18, 1227, 20, 1226, 1231, 21, 1229, 1232, 1225, 19, 1223, 22, 11396];
+    const ICE_TYPES_BY_VALUE = [16269, 16266, 16267, 16268, 17975, 17976, 17977, 17978, 16264, 16265, 16263, 16262];
     const TYPE_DEADSPACE_SIGNATURE = 19728; // inventorycommon.const.typeDeadspaceSignature
     const dungeons = {};
     for (const id of ids) {
@@ -14023,7 +14060,9 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
         nameID: d.dungeonNameID ?? null, descriptionID: d.descriptionID ?? null, gameplayDescriptionID: d.gameplayDescriptionID ?? null,
         archetypeID: d.archetypeID ?? null, archetypeTitleID: arche ? arche.titleID ?? null : null, archetypeDescriptionID: arche ? arche.descriptionID ?? null : null,
         factionID: d.factionID ?? null, difficulty: d.difficulty ?? null, entryTypeID: d.entryTypeID ?? null,
-        contentTags: tagIDs.filter((t) => tags && tags[t]).map((t) => ({ id: t, type: tags[t].contentTagType ?? null, title: tags[t].title ?? null, icon: tags[t].icon ?? null })),
+        oreTypes: consolidated(staticData.getClientDungeonResourceTypes ? staticData.getClientDungeonResourceTypes(id).ore : [], ORE_TYPES_BY_VALUE),
+        iceTypes: consolidated(staticData.getClientDungeonResourceTypes ? staticData.getClientDungeonResourceTypes(id).ice : [], ICE_TYPES_BY_VALUE),
+        contentTags: tagIDs.filter((t) => tags && tags[t]).map((t) => ({ id: t, type: tags[t].contentTagType ?? null, title: tags[t].title ?? null, icon: eveiconTexture(tags[t].icon) })),
       };
     }
     res.json({ ok: true, available: rows !== null, dungeons });
@@ -14039,8 +14078,8 @@ app.get("/api/client-data/epic-arcs", requireAuth, async (req, res, next) => {
       epicArcID: Number(key), nameID: arc.epicArcNameID ?? null, factionID: arc.factionID ?? null, restartInterval: arc.arcRestartInterval ?? null,
       missions: Object.fromEntries(Object.entries(arc.missions || {}).map(([missionID, m]) => [missionID, { agentID: m.agentID ?? null, nextMissions: Array.isArray(m.nextMissions) ? m.nextMissions : [] }])),
     })) : [];
-    // The arcs' feature tag (ContentTags.feature_epic_arcs): its title message and eveicon.
-    const tag = tags && tags.feature_epic_arcs ? { title: tags.feature_epic_arcs.title ?? null, icon: tags.feature_epic_arcs.icon ?? null } : null;
+    // The arcs' feature tag (ContentTags.feature_epic_arcs): its title message and its eveicon's texture (16 px).
+    const tag = tags && tags.feature_epic_arcs ? { title: tags.feature_epic_arcs.title ?? null, icon: eveiconTexture(tags.feature_epic_arcs.icon) } : null;
     res.json({ ok: true, available: table !== null, arcs, featureTag: tag });
   } catch (error) { next(error); }
 });

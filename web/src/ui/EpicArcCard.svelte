@@ -47,7 +47,7 @@
   <div class="ea-gradient"></div>
   {#if look}<img class="ea-logo" alt="" src={clientTexture(`res:/UI/Texture/eveicon/faction_logos/${look.logo}_64px.png`)} />{/if}
   <div class="ea-top">
-    {#if featureTag?.icon}<img class="ea-tag" alt="" src={clientTexture(`res:/UI/Texture/eveicon/category_icons/${featureTag.icon}_16px.png`)} />{/if}
+    {#if featureTag?.icon}<img class="ea-tag" alt="" src={clientTexture(featureTag.icon)} />{/if}
     <span class="ea-dim">{featureTag?.title ? word(`#${featureTag.title}`) : ""}</span>
     {#if arc.state === ARC_STARTED}<span class="ea-gauge" style:--outer={`${ratio * 360}deg`}><span>{Math.floor(ratio * 100)}%</span></span>{/if}
   </div>

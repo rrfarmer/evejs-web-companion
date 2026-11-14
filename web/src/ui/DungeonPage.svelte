@@ -3,7 +3,8 @@
   // the subtitle, the solar system); UI/Common/Description (the dungeon's description); UI/Dungeons/
   // GameplayDescriptionHeader, the operational intel: the gameplay description, then the parameters - the difficulty
   // (UI/Agency/ContentDifficulty: UI/Agency/LevelX, its hint ContentDifficultyTooltip) and the roaming enemies
-  // (UI/Agency/RoamingEnemies: the faction where it is one and not factionUnknown, its hint RoamingEnemiesTooltip);
+  // (UI/Agency/RoamingEnemies: the faction where it is one and not factionUnknown, its hint RoamingEnemiesTooltip), the
+  // resources (UI/Agency/OreTypesInBelt: the ore or ice types, in the set's order; the types' icons not here);
   // then the archetype's section (its title and description). Not here: the ship restrictions, the scan result's ID,
   // the call to action (the travel objective chain's enter_dungeon tasks: set destination, warp to).
   import type { ClientStore } from "../store/clientStore.ts";
@@ -20,32 +21,36 @@
   const feature = $derived(d?.contentTags.find((t) => t.type === "feature") ?? null);
   const A = "UI/Agency/";
   $effect(() => {
-    flow.requestWords(["UI/Commands/Back", "UI/Common/Description", "UI/Dungeons/GameplayDescriptionHeader", A + "ContentDifficulty", A + "ContentDifficultyTooltip", A + "LevelX", A + "RoamingEnemies", A + "RoamingEnemiesTooltip",
+    flow.requestWords(["UI/Commands/Back", "UI/Common/Description", "UI/Dungeons/GameplayDescriptionHeader", A + "ContentDifficulty", A + "ContentDifficultyTooltip", A + "LevelX", A + "RoamingEnemies", A + "RoamingEnemiesTooltip", A + "OreTypesInBelt", A + "OreTypesInBeltTooltip",
       ...[d?.nameID, d?.descriptionID, d?.gameplayDescriptionID, d?.archetypeTitleID, d?.archetypeDescriptionID, feature?.title].filter((x): x is number => typeof x === "number").map((x) => `#${x}`)]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
   // appConst.factionUnknown.
   const enemy = $derived(d?.factionID && d.factionID !== 500021 ? d.factionID : null);
   const faction = $derived(d?.factionID ? resolvedName($names.resolved, "owner", d.factionID, "") : "");
-  const subtitle = $derived(d?.difficulty ? (faction ? `${faction} - ${word(A + "LevelX", { level: d.difficulty })}` : word(A + "LevelX", { level: d.difficulty })) : faction);
+  // DungeonJob.resources: the ore anomaly's ore types, the ice belt's ice types; none for a combat anomaly.
+  const resources = $derived(job.kind === "ore" ? d?.oreTypes ?? [] : job.kind === "ice" ? d?.iceTypes ?? [] : []);
+  const subtitle = $derived(job.kind !== "combat" ? "" : d?.difficulty ? (faction ? `${faction} - ${word(A + "LevelX", { level: d.difficulty })}` : word(A + "LevelX", { level: d.difficulty })) : faction);
 </script>
 
 <div class="dp">
   <div><button class="dp-ghost" onclick={onBack}>{word("UI/Commands/Back") || "Back"}</button></div>
   <header class="dp-head">
-    <span class="dp-caption">{#if feature?.icon}<img alt="" src={clientTexture(`res:/UI/Texture/eveicon/category_icons/${feature.icon}_16px.png`)} />{/if}{feature?.title ? word(`#${feature.title}`) : ""}</span>
+    <span class="dp-caption">{#if feature?.icon}<img alt="" src={clientTexture(feature.icon)} />{/if}{feature?.title ? word(`#${feature.title}`) : ""}</span>
     <h2>{d?.nameID ? word(`#${d.nameID}`) : ""}</h2>
     <span class="dp-caption">{subtitle}</span>
     <span class="dp-caption">{resolvedName($names.resolved, "system", job.solarSystemID, "")}</span>
   </header>
   {#if d?.descriptionID}<section><h3>{word("UI/Common/Description")}</h3><p>{word(`#${d.descriptionID}`)}</p></section>{/if}
-  {#if d?.gameplayDescriptionID || d?.difficulty || enemy}
+  {#if d?.gameplayDescriptionID || d?.difficulty || enemy || resources.length}
     <section><h3>{word("UI/Dungeons/GameplayDescriptionHeader")}</h3>
       {#if d?.gameplayDescriptionID}<p>{word(`#${d.gameplayDescriptionID}`)}</p>{/if}
       <div class="dp-params">
         {#if d?.difficulty}<div title={word(A + "ContentDifficultyTooltip")}><small>{word(A + "ContentDifficulty")}</small><b>{word(A + "LevelX", { level: d.difficulty })}</b></div>{/if}
         {#if enemy}<div title={word(A + "RoamingEnemiesTooltip")}><small>{word(A + "RoamingEnemies")}</small><b>{faction}</b></div>{/if}
       </div>
+      {#if resources.length}<div class="dp-res" title={word(A + "OreTypesInBeltTooltip")}><small>{word(A + "OreTypesInBelt")}</small>
+        <div>{#each resources as typeID (typeID)}<span>{resolvedName($names.resolved, "type", typeID, "")}</span>{/each}</div></div>{/if}
     </section>
   {/if}
   {#if d?.archetypeTitleID && d.archetypeDescriptionID}<section><h3>{word(`#${d.archetypeTitleID}`)}</h3><p>{word(`#${d.archetypeDescriptionID}`)}</p></section>{/if}
@@ -61,5 +66,8 @@
   .dp h3 { margin: 12px 0 8px; font-size: 14px; }
   .dp-params { display: flex; gap: 24px; margin-top: 12px; }
   .dp-params div { display: flex; flex-direction: column; }
-  .dp-params small { opacity: 0.65; }
+  .dp-params small, .dp-res small { opacity: 0.65; }
+  .dp-res { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .dp-res div { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  .dp-res span { padding: 2px 6px; background: rgba(255, 255, 255, 0.05); }
 </style>

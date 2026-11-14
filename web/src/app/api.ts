@@ -5775,6 +5775,9 @@ export interface DungeonData {
   readonly nameID: number | null; readonly descriptionID: number | null; readonly gameplayDescriptionID: number | null;
   readonly archetypeID: number | null; readonly archetypeTitleID: number | null; readonly archetypeDescriptionID: number | null;
   readonly factionID: number | null; readonly difficulty: number | null; readonly entryTypeID: number | null;
+  /** DungeonJob.resources: the ore (OreAnomalyJob) and ice (IceBeltJob) types, consolidated, in the set's order. */
+  readonly oreTypes: readonly number[]; readonly iceTypes: readonly number[];
+  /** Each tag with its title message and its eveicon's texture (res: path, 16 px), null where the client has none. */
   readonly contentTags: readonly { readonly id: string; readonly type: string | null; readonly title: number | null; readonly icon: string | null }[];
 }
 /** GET /api/client-data/dungeons?ids=: the dungeons by ID (null for one not found); null where unreadable. */

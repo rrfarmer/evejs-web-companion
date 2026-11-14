@@ -634,6 +634,8 @@ export interface DailyGoal {
 
 /** A dungeon on the job board (features/dungeons DungeonJob): the site, its system and jumps, its dungeon's data. */
 export interface DungeonJob {
+  /** The provider: combat anomalies, ore anomalies, ice belts. */
+  readonly kind: "combat" | "ore" | "ice";
   readonly instanceID: number; readonly dungeonID: number; readonly solarSystemID: number; readonly jumps: number | null;
   readonly data: DungeonData | null;
   /** active_dungeon: the dungeon the pilot is in is this site. */
@@ -3599,12 +3601,12 @@ export interface AppFlow {
    */
   epicArcs(): Promise<EpicArcsRead | null>;
   /**
-   * The job board's combat anomalies (features/dungeons/combat_anomalies: CombatAnomaliesProvider): the sites
-   * dungeonInstanceCacheMgr.GetCombatAnomalyInstances lists in the pilot's system and the systems near it
-   * (bridge/dungeonJobs.ts), each with its dungeon's data, the jumps to it, and whether it is the dungeon the pilot is
-   * in. Null where the sites could not be read.
+   * The job board's anomalies (features/dungeons: CombatAnomaliesProvider, OreAnomaliesProvider, IceBeltsProvider):
+   * the sites dungeonInstanceCacheMgr.GetCombatAnomalyInstances / GetOreAnomalyInstances / GetIceBeltInstances list in
+   * the pilot's system and the systems near it (bridge/dungeonJobs.ts), each with its dungeon's data, the jumps to it,
+   * and whether it is the dungeon the pilot is in. A provider whose sites could not be read gives none.
    */
-  combatAnomalies(): Promise<readonly DungeonJob[] | null>;
+  dungeonJobs(): Promise<readonly DungeonJob[]>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19717,19 +19719,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames(views.flatMap((v) => [...(v.factionID ? [{ kind: "owner" as const, id: v.factionID }] : []), ...(v.activeAgentID ? [{ kind: "agent" as const, id: v.activeAgentID }] : [])]));
     return { arcs: views, featureTag };
   }
-  async function combatAnomalies(): Promise<readonly DungeonJob[] | null> {
+  async function dungeonJobs(): Promise<readonly DungeonJob[]> {
     const here = store.station.get().online?.solarSystemID ?? null;
     askCurrentDungeon();
-    const answer = await bridgeAsk("dungeonInstanceCacheMgr", "GetCombatAnomalyInstances", []).catch(() => null);
-    if (answer === null) return null;
-    const sites = decodeDungeonSites(answer);
-    const jumps = here ? await autopilotDistancesFrom(here).catch(() => null) : null;
-    // CombatAnomaliesProvider: JUMPS_WHERE_DUNGEONS_ARE_ALWAYS_VISIBLE 1, JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE 1.
-    const shown = relevantDungeonSystems(sites, here, jumps, 1, 1).flatMap((system) => sites.get(system) ?? []);
+    // The providers in the board's order, each tracker's call, and its JUMPS_WHERE_DUNGEONS_ARE_ALWAYS_VISIBLE and
+    // JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE (1 and 1 for all three; none includes the route's systems).
+    const PROVIDERS = [["combat", "GetCombatAnomalyInstances"], ["ore", "GetOreAnomalyInstances"], ["ice", "GetIceBeltInstances"]] as const;
+    const [answers, jumps] = await Promise.all([
+      Promise.all(PROVIDERS.map(([, method]) => bridgeAsk("dungeonInstanceCacheMgr", method, []).catch(() => null))),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+    ]);
+    const shown = PROVIDERS.flatMap(([kind], index) => {
+      const answer = answers[index];
+      if (answer === null || answer === undefined) return [];
+      const sites = decodeDungeonSites(answer);
+      return relevantDungeonSystems(sites, here, jumps, 1, 1).flatMap((system) => (sites.get(system) ?? []).map((site) => ({ ...site, kind })));
+    });
     const data = await api.loadDungeons([...new Set(shown.map((s) => s.dungeonID))], callOptions).catch(() => null);
     const factions = [...new Set(Object.values(data ?? {}).map((d) => d?.factionID ?? 0).filter((id) => id > 0))];
     requestNames([...factions.map((id) => ({ kind: "owner" as const, id })), ...[...new Set(shown.map((s) => s.solarSystemID))].map((id) => ({ kind: "system" as const, id }))]);
-    return shown.map((s) => ({ instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
+    const resources = [...new Set(Object.values(data ?? {}).flatMap((d) => [...(d?.oreTypes ?? []), ...(d?.iceTypes ?? [])]))];
+    if (resources.length) requestNames(resources.map((id) => ({ kind: "type" as const, id })));
+    return shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
       data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon !== null && currentDungeon.instanceID === s.instanceID }));
   }
   async function redeemDailyGoal(goalID: string): Promise<boolean> {
@@ -33266,7 +33277,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationFreelanceJobs,
     dailyGoals,
     epicArcs,
-    combatAnomalies,
+    dungeonJobs,
     redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,

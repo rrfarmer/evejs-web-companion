@@ -22,7 +22,9 @@
     flow.requestSystemSecurity([job.solarSystemID]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
+  // CombatAnomalyJob's subtitle; the ore anomalies' and ice belts' jobs have none (BaseJob.subtitle '').
   const subtitle = $derived.by(() => {
+    if (job.kind !== "combat") return "";
     const faction = job.data?.factionID ? resolvedName($names.resolved, "owner", job.data.factionID, "") : "";
     const level = job.data?.difficulty ? word("UI/Agency/LevelX", { level: job.data.difficulty }) : "";
     return level ? (faction ? `${faction} - ${level}` : level) : faction;
@@ -32,7 +34,7 @@
 
 <div class="dj-card" role="button" tabindex="-1" style:border-left-color={job.active ? "#57b8d6" : "var(--theme-focus, #58a6dc)"} onclick={onOpen} onkeydown={() => {}}>
   <div class="dj-top">
-    {#if feature?.icon}<img alt="" src={clientTexture(`res:/UI/Texture/eveicon/category_icons/${feature.icon}_16px.png`)} />{/if}
+    {#if feature?.icon}<img alt="" src={clientTexture(feature.icon)} />{/if}
     <span class="dj-dim">{feature?.title ? word(`#${feature.title}`) : ""}</span>
     {#if job.active}<span class="dj-state" title={word("UI/Generic/CurrentLocation")}>📍</span>{/if}
   </div>

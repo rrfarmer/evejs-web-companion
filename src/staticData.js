@@ -2354,6 +2354,23 @@ function getClientDungeon(dungeonID) {
   return caches.get(cacheKey).get(Number(dungeonID) || 0) || null;
 }
 
+/**
+ * The ore and ice types in a dungeon as the client has them (evedungeons/client/oreTypesInDungeons/data
+ * get_ore_types_in_dungeon: oreTypesByDungeonID.static; iceTypesInDungeon: iceTypesByDungeonID.static), as EveJS's
+ * dungeon table holds them (dungeonAuthority clientData.tables). Empty lists for a dungeon with none.
+ */
+function getClientDungeonResourceTypes(dungeonID) {
+  const cacheKey = "dungeonAuthority:resourceTypes";
+  if (!caches.has(cacheKey)) {
+    const table = readStaticTable("dungeonAuthority");
+    const tables = (table && table.clientData && table.clientData.tables) || {};
+    caches.set(cacheKey, { ore: tables.oreTypesByDungeonID || {}, ice: tables.iceTypesByDungeonID || {} });
+  }
+  const held = caches.get(cacheKey);
+  const list = (value) => (Array.isArray(value) ? value.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0) : []);
+  return { ore: list(held.ore[String(dungeonID)]), ice: list(held.ice[String(dungeonID)]) };
+}
+
 /** evedungeons.common.constants.ACCELERATION_GATE_BLACKLISTED_GROUPS, read through the client's Python. */
 const ACCELERATION_GATE_BLACKLISTED_GROUPS = Object.freeze([29, 485, 659, 30, 513, 547, 4594, 1538, 902, 883, 5120]);
 
@@ -2452,6 +2469,7 @@ module.exports = {
   getTypeListsHolding,
   getTypeIDsByListID,
   getClientDungeon,
+  getClientDungeonResourceTypes,
   getDungeonShipRestrictions,
   resolveNames,
   getMarketGroup,

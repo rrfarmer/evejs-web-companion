@@ -31,7 +31,7 @@
   <header class="ep-head">
     {#if look}<img class="ep-bg" alt="" src={clientTexture(`res:/UI/Texture/classes/Opportunities/${look.background}.png`)} />{/if}
     <div class="ep-gradient"></div>
-    <span class="ep-caption">{#if featureTag?.icon}<img alt="" src={clientTexture(`res:/UI/Texture/eveicon/category_icons/${featureTag.icon}_16px.png`)} />{/if}{featureTag?.title ? word(`#${featureTag.title}`) : ""}</span>
+    <span class="ep-caption">{#if featureTag?.icon}<img alt="" src={clientTexture(featureTag.icon)} />{/if}{featureTag?.title ? word(`#${featureTag.title}`) : ""}</span>
     <h2>{arc.nameID ? word(`#${arc.nameID}`) : ""}</h2>
     {#if arc.factionID}<span class="ep-caption">{resolvedName($names.resolved, "owner", arc.factionID, "")}</span>{/if}
   </header>
