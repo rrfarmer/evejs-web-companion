@@ -13,12 +13,19 @@
   // corpRoleDirector | corpRoleProjectManager): DuplicateProject (open_create_project_window with the job's draft -
   // CorporationFreelanceForm), ViewParticipants (open_participant_view - the Corporation window's Freelance Jobs on
   // the job's admin details) and CloseProject (ConfirmClosure asked; Errors/Close on failure). Not here: the board's
-  // other features (agent missions,
-  // corporation projects, the career program), its home page, filters and content tags, tracking.
+  // other features (corporation projects, the career program), its home page, filters and content tags.
+  // The agent missions' feature (features/agent_missions: AgentMissionsJobProvider - the journal,
+  // GetMyAgentJournalDetails, each mission an AgentMissionJob): in Browse the active ones not expired
+  // (is_available_in_browse), in Active the accepted ones (is_available_in_active - accepted or tracked, and the
+  // provider tracks every accepted one), as AgentMissionCard (MissionJobCard.svelte) before the freelance jobs; a card
+  // opens the mission's page (AgentMissionPage - MissionJobPage.svelte) with the board's Back.
   // Asked from elsewhere (jobBoardRequests: open_freelance_project from Show Info's Freelance Projects tab, its OpenAIR
   // the browse page) the window shows that job's page, or the browse page.
   import { onMount } from "svelte";
   import FreelanceJobCard from "./FreelanceJobCard.svelte";
+  import MissionJobCard from "./MissionJobCard.svelte";
+  import MissionJobPage from "./MissionJobPage.svelte";
+  import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, FreelanceJob } from "../app/flow.ts";
@@ -39,7 +46,19 @@
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   let tab = $state<"browse" | "active" | "unclaimed">("browse"), open = $state<string | null>(null), busy = $state(false);
   let board = $state<Awaited<ReturnType<AppFlow["freelanceBoard"]>> | undefined>(undefined);
-  async function load(): Promise<void> { board = await flow.freelanceBoard(); }
+  async function load(): Promise<void> { void flow.loadJournal().catch(() => {}); board = await flow.freelanceBoard(); }
+  // svelte-ignore state_referenced_locally
+  const agentsStore = store.agents;
+  let openMission = $state<number | null>(null);
+  const missionExpired = (m: JournalMission) => !!m.expirationTime && /^\d+$/.test(m.expirationTime) && BigInt(m.expirationTime) <= BigInt(Date.now()) * 10_000n + 116_444_736_000_000_000n;
+  const missions = $derived.by(() => {
+    const j = $agentsStore.journal;
+    if (!j) return { browse: [] as JournalMission[], active: [] as JournalMission[] };
+    const all = [...j.active, ...j.offered].filter((m) => m.agentID !== null);
+    return { browse: all.filter((m) => (m.missionState === 1 || m.missionState === 2) && !missionExpired(m)), active: j.active.filter((m) => m.missionState === 2 && m.agentID !== null) };
+  });
+  const shownMissions = $derived(tab === "browse" ? missions.browse : tab === "active" ? missions.active : []);
+  async function openMissionPage(agentID: number): Promise<void> { openMission = agentID; open = null; await flow.openMissionDetails(agentID); }
   onMount(() => { flow.requestWords(LABELS); void load(); });
   const jobs = $derived(board ? (tab === "browse" ? board.browse : tab === "active" ? board.active : board.unclaimed) : []);
   // freelanceprojects util.is_project_manager_for_corporation.
@@ -69,12 +88,14 @@
 
 <div class="jb">
   <div class="jb-tabs">
-    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; }}>{word(O + "WindowTitle")}</button>
-    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; }}>{word(O + "TabNameActive")}{#if board?.active.length}<span class="jb-count">{board.active.length}</span>{/if}</button>
-    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if board?.unclaimed.length}<span class="jb-count gold">{board.unclaimed.length}</span>{/if}</button>
+    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; }}>{word(O + "WindowTitle")}</button>
+    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length}</span>{/if}</button>
+    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if board?.unclaimed.length}<span class="jb-count gold">{board.unclaimed.length}</span>{/if}</button>
   </div>
   <div class="jb-body">
-    {#if open}
+    {#if openMission !== null}
+      <MissionJobPage {store} {flow} onBack={() => { openMission = null; }} />
+    {:else if open}
       {#if notice}<p class="jb-notice">{word(notice) || notice}</p>{/if}
       {#key open}
         {#if openCorp !== null && managerOf(openCorp)}
@@ -86,11 +107,14 @@
     {:else if board === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
       {#if tab === "unclaimed" && jobs.length}<div class="jb-claim"><button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button></div>{/if}
-      {#if !jobs.length}
+      {#if !jobs.length && !shownMissions.length}
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
       <div class="jb-cards" title={tab === "browse" ? word(O + "VisibilityFreelanceProjects") : ""}>
+        {#each shownMissions as m (m.agentID)}
+          <MissionJobCard {store} {flow} mission={m} onOpen={() => void openMissionPage(m.agentID!)} />
+        {/each}
         {#each jobs as j (j.project.projectID)}
           <FreelanceJobCard {store} job={j} claim={tab === "unclaimed"} onOpen={() => { open = j.project.projectID; openCorp = j.corporationID; }} />
         {/each}
