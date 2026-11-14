@@ -40,6 +40,10 @@
   const belts = $derived(kind === "ore" || kind === "ice" || kind === "belts");
   // ContentPageAsteroidBelts: the belts are the system's own celestials, each named by LocationAsteroidBeltFormatter.
   const asteroidBelts = $derived(kind === "belts");
+  // AsteroidBeltFiltersCont._GetOreTypeOptions: Any, then ORE_TYPES_BY_VALUE's types sorted by name.
+  const ORE_TYPES_BY_VALUE = [1230, 1228, 1224, 18, 1227, 20, 1226, 1231, 21, 1229, 1232, 1225, 19, 1223, 22, 11396];
+  $effect(() => { if (asteroidBelts) flow.requestNames(ORE_TYPES_BY_VALUE.map((id) => ({ kind: "type" as const, id }))); });
+  const oreOptions = $derived([...ORE_TYPES_BY_VALUE].sort((a, b) => resolvedName($names.resolved, "type", a, "").localeCompare(resolvedName($names.resolved, "type", b, ""))));
   const roman = (n: number): string => { let out = "", left = n; for (const [v, r] of [[1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"], [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]] as const) while (left >= v) { out += r; left -= v; } return out; };
   const signatures = $derived(kind === "signature");
   const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt", signature: "UI/Agency/UnknownCosmicSignature", escalation: "UI/Common/Unknown", homefront: "UI/Common/Unknown", belts: "UI/Common/Unknown" } as const;
@@ -77,7 +81,7 @@
       "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll", "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/CombatSiteTypes",
       "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Agency/NumberOfBeltsInSystem", "UI/Agency/BeltsInSystem",
       "UI/Agency/OreTypesInBelt", "UI/Agency/NumberOfSignaturesInSystem", "UI/Agency/SignaturesInSystem", "UI/Agency/SignaturesNote", "UI/Agency/NumberOfEscalationsInSystem", "UI/Agency/EscalationsInSystem",
-      "UI/Locations/LocationAsteroidBeltFormatter", "UI/Agency/EscalationDescription", "UI/Market/Marketbase/ExpiresIn", "UI/Agency/NumberOfSitesInSystem", "UI/Dungeons/GameplayDescriptionHeader", "UI/Common/Description",
+      "UI/Locations/LocationAsteroidBeltFormatter", "UI/Ledger/OreTypeFilter", "UI/Generic/Any", "UI/Agency/EscalationDescription", "UI/Market/Marketbase/ExpiresIn", "UI/Agency/NumberOfSitesInSystem", "UI/Dungeons/GameplayDescriptionHeader", "UI/Common/Description",
       UNKNOWN[kind], ...INFO[kind], ...(systems ?? []).flatMap((s) => Object.values(s.siteTexts ?? {}).flatMap((t) => [t.descriptionID, t.gameplayDescriptionID, t.archetypeTitleID])).filter((x): x is number => !!x).map((x) => `#${x}`),
       ...(chosenSystem?.sites ?? []).map((s) => s?.dungeonNameID).filter((x): x is number => !!x).map((x) => `#${x}`)]);
   });
@@ -126,6 +130,9 @@
       <h3>{word("UI/Calendar/CalendarWindow/Filters")}</h3>
       <label><span>{word("UI/Common/Location")}</span>
         <select value={filters.distance} onchange={(e) => set({ distance: Number(e.currentTarget.value) })}>{#each DISTANCES as v (v)}<option value={v}>{distanceLabel(v)}</option>{/each}</select></label>
+      {#if asteroidBelts}<label><span>{word("UI/Ledger/OreTypeFilter")}</span>
+        <select value={filters.oreType ?? ANY} onchange={(e) => set({ oreType: Number(e.currentTarget.value) })}><option value={ANY}>{word("UI/Generic/Any")}</option>
+          {#each oreOptions as t (t)}<option value={t}>{resolvedName($names.resolved, "type", t, "")}</option>{/each}</select></label>{/if}
       {#if !homefront}<label><span>{word("Tooltips/CharacterSheet/SecurityStatus")}</span>
         <select value={filters.security} onchange={(e) => set({ security: Number(e.currentTarget.value) })}>{#each SECURITIES as v (v)}<option value={v}>{securityLabel(v)}</option>{/each}</select></label>{/if}
       <div class="asi-reset"><button type="button" title={word("UI/Agency/resetAllPageFilters")} onclick={() => (filters = DEFAULT_SITE_FILTERS)}>{word("UI/Commands/ResetAll")}</button></div>

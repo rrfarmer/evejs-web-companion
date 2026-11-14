@@ -20237,6 +20237,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (out.length >= 30) break;
       const entry = belts[String(id)];
       if (!entry) continue;
+      // CheckOreTypeCriteria: the type chosen among the system's consolidated ore types.
+      if (filters.oreType !== undefined && filters.oreType !== -1 && !entry.oreTypes.includes(filters.oreType)) continue;
       const security = graph?.security(id) ?? null, sec = security === null ? 0 : shownSecurity(security);
       if (filters.security === 1 ? sec < 0.45 : filters.security === 3 ? sec > 0 : filters.security === 2 ? !(sec > 0 && sec < 0.45) : false) continue;
       out.push({ solarSystemID: id, jumps: n, security, resourceTypeIDs: entry.oreTypes,

@@ -52,7 +52,11 @@ export const RESOURCE_ORDER: Readonly<Record<"ore" | "ice", readonly number[]>> 
   ore: [1230, 1228, 1224, 18, 1227, 20, 1226, 1231, 21, 1229, 1232, 1225, 19, 1223, 22, 11396],
   ice: [16269, 16266, 16267, 16268, 17975, 17976, 17977, 17978, 16264, 16265, 16263, 16262],
 };
-export interface AgencySiteFilters { readonly distance: number; readonly security: number }
+export interface AgencySiteFilters {
+  readonly distance: number; readonly security: number;
+  /** The Asteroid Belts' ore type (AsteroidBeltFiltersCont, FILTERTYPE_ORETYPE): ANY, or a type of ORE_TYPES_BY_VALUE. */
+  readonly oreType?: number;
+}
 export const DEFAULT_SITE_FILTERS: AgencySiteFilters = Object.freeze({ distance: DISTANCE.any, security: ANY });
 /** agencyConst.SECURITY_THRESHOLDS. */
 const SECURITY_THRESHOLDS = [0.9, 0.7, 0.4, 0.2, 0.0];
