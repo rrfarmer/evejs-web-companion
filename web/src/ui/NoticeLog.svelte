@@ -8,10 +8,27 @@
   // Newest first, because the question is almost always "what just happened".
   import { getContext } from "svelte";
   import { noticeBoard } from "./notices.ts";
+  import { gameLog, logCount, logFilters, logShows, setLogCount, setLogFilter, LOG_COUNTS, LOG_FILTERS, LOG_TYPE_COLOURS, LOG_TYPE_LABELS } from "./gameLog.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import type { ClientStore } from "../store/clientStore.ts";
+  import type { AppFlow } from "../app/flow.ts";
+  let { store = null, flow = null }: { store?: ClientStore | null; flow?: AppFlow | null } = $props();
   /** On the play page the log as LoggerWindow lists it (uilog.py: its scroll's headers Time, Type, Message). */
   const retail = getContext("retailChrome") === true;
 
   const notices = noticeBoard.notices;
+  // LoggerWindow.LoadAllMessages: the logger's lines (gameLog.ts) its filter shows, the last of the view's count,
+  // newest first; Time (MessageOutput's logtime, time=medium), Type (LABEL_BY_MESSAGE_TYPE, in COLORS_BY_TYPE, a
+  // type with none its own name), Message. Its actions: the filter menu (MenuButtonIcon eveicon.filter, Filters) -
+  // MessageTypesToLog's checkboxes, NumMessagesInLogView's 100 / 1000.
+  const LOG_WORDS = ["UI/Common/DateWords/Time", "UI/Accessories/Log/Type", "UI/Accessories/Log/Message", "UI/Generic/Filters",
+    "UI/Accessories/Log/MessageTypesToLog", "UI/Accessories/Log/NumMessagesInLogView", ...LOG_FILTERS.map((f) => f.label), ...Object.values(LOG_TYPE_LABELS)];
+  // svelte-ignore state_referenced_locally
+  const logWords = store?.words ?? null;
+  $effect(() => { if (retail) flow?.requestWords(LOG_WORDS); });
+  const w = (label: string, own: string) => { const t = logWords ? $logWords?.templates[label] : undefined; return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, {}, { nameOf: () => "" })) : own; };
+  const logLines = $derived([...$gameLog].filter((line) => { void $logFilters; return logShows(line.type); }).slice(-$logCount).reverse());
+  let filterOpen = $state(false);
 
   const newestFirst = $derived([...$notices].reverse());
 
@@ -49,18 +66,34 @@
     </span>
   </div>
 
-  {#if newestFirst.length === 0}
-    <p class="empty">Nothing has happened yet.</p>
-  {:else if retail}
+  {#if retail}
+    <div class="log-actions">
+      <button type="button" class="log-filter" title={w("UI/Generic/Filters", "Filters")} aria-expanded={filterOpen} onclick={() => (filterOpen = !filterOpen)}>
+        <img alt="" src="/client-res/ui/texture/eveicon/system_icons/filter_16px.png" /></button>
+      {#if filterOpen}
+        <div class="log-menu" role="menu">
+          <span class="caption">{w("UI/Accessories/Log/MessageTypesToLog", "Message Types To Log")}</span>
+          {#each LOG_FILTERS as f (f.type)}
+            <button type="button" role="menuitemcheckbox" aria-checked={$logFilters[f.type] !== false} onclick={() => setLogFilter(f.type, $logFilters[f.type] === false)}>{w(f.label, f.type)}</button>
+          {/each}
+          <span class="caption">{w("UI/Accessories/Log/NumMessagesInLogView", "Messages in Log View")}</span>
+          {#each LOG_COUNTS as count (count)}
+            <button type="button" role="menuitemradio" aria-checked={$logCount === count} onclick={() => setLogCount(count)}>{count}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <table class="log-table">
-      <thead><tr><th>Time</th><th>Type</th><th>Message</th></tr></thead>
+      <thead><tr><th>{w("UI/Common/DateWords/Time", "Time")}</th><th>{w("UI/Accessories/Log/Type", "Type")}</th><th>{w("UI/Accessories/Log/Message", "Message")}</th></tr></thead>
       <tbody>
-        {#each newestFirst as notice (notice.id)}
-          <tr class={`notice ${notice.kind}`}><td>{at(notice.atMs)}</td><td>{kindWord(notice.kind)}</td>
-            <td>{notice.title}{#if notice.detail}: {notice.detail}{/if}</td></tr>
+        {#each logLines as line (line.n)}
+          <tr><td>{at(line.atMs)}</td><td style:color={LOG_TYPE_COLOURS[line.type] ?? "#ffffff"}>{LOG_TYPE_LABELS[line.type] ? w(LOG_TYPE_LABELS[line.type]!, line.type) : line.type}</td>
+            <td>{line.text}</td></tr>
         {/each}
       </tbody>
     </table>
+  {:else if newestFirst.length === 0}
+    <p class="empty">Nothing has happened yet.</p>
   {:else}
     <ul class="notice-list">
       {#each newestFirst as notice (notice.id)}

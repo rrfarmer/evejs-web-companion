@@ -1648,6 +1648,15 @@
   .fly-windows :global(.pc-buttons) { display: flex; justify-content: center; gap: 8px; padding-top: 8px; }
   /* LoggerWindow: its scroll - Time, Type, Message - and no Clear (the client's actions are its filter and settings menus) */
   .fly-windows :global(.notice-log .panel-head) { display: none; }
+  .fly-windows :global(.log-actions) { position: relative; display: flex; margin-bottom: 4px; }
+  .fly-windows :global(.log-filter) { all: unset; width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; opacity: 0.8; }
+  .fly-windows :global(.log-filter img) { width: 16px; height: 16px; }
+  .fly-windows :global(.log-menu) { position: absolute; left: 0; top: 24px; z-index: 5; display: flex; flex-direction: column; min-width: 180px; padding: 4px 0;
+    background: rgba(20, 22, 24, 0.97); border: 1px solid rgba(255, 255, 255, 0.15); }
+  .fly-windows :global(.log-menu .caption) { padding: 4px 10px 2px; font-size: 11px; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; }
+  .fly-windows :global(.log-menu button) { all: unset; position: relative; padding: 3px 10px 3px 24px; font-size: 12px; cursor: default; }
+  .fly-windows :global(.log-menu button[aria-checked="true"])::before { content: "✓"; position: absolute; left: 8px; font-size: 11px; }
+  .fly-windows :global(.log-menu button:hover) { background: rgba(255, 255, 255, 0.1); }
   .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 12px; }
   .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; }
   .fly-windows :global(.log-table td) { padding: 1px 6px; vertical-align: top; color: rgba(255, 255, 255, 0.85); }

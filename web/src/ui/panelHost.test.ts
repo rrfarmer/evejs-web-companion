@@ -46,7 +46,8 @@ test("every core global window has a view, and the host draws it before any bran
 });
 
 test("the log tab opens the log, which is the half of the notice system you can go back to", () => {
-  assert.match(CHAIN, /\{:else if tab === "log"\}[\s\S]{0,900}<NoticeLog \/>/);
+  // (the play page's Log reads the store's words and asks for them: it is handed the store and flow)
+  assert.match(CHAIN, /\{:else if tab === "log"\}[\s\S]{0,900}<NoticeLog( \{store\} \{flow\})? \/>/);
   assert.ok(TABS.some((tab) => tab.id === "log"), "there is no log tab to open");
 });
 

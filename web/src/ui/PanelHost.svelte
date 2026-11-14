@@ -222,7 +222,7 @@
     now walks every tab in `tabs.ts` against this chain so the next one cannot
     hide the same way.
   -->
-  <NoticeLog />
+  <NoticeLog {store} {flow} />
 {:else if tab === "notepad"}
   <Notepad {store} {flow} />
 {:else if tab === "calendar"}

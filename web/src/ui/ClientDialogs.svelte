@@ -21,11 +21,14 @@
   // where the dialog lets that answer be kept, and the dialog is not put up again (dialog_handler.py, 59 to 64 and
   // _persist_prompt_suppress_choice, 126 to 132; bridge/dialogSuppression.ts).
   //
-  // Not done: the dialog's icon, its sound (audio.AudioMessage), its line in the client's log (logger.AddMessage), the
+  // Its line in the client's log: hint, notify, warning, question, infomodal and info logged with their type
+  // (logger.AddMessage; gameLog.ts, the play page's Log window).
+  // Not done: the dialog's icon, its sound (audio.AudioMessage), the
   // strip's place with the HUD at the top and its being dragged, and the box's holding the rest of the client still
   // (is_modal) for a pilot not in front.
   import { onDestroy, tick, untrack } from "svelte";
   import { DO_NOT_ASK_AGAIN_LABEL, DO_NOT_SHOW_AGAIN_LABEL, answerKept, suppressKey } from "../bridge/dialogSuppression.ts";
+  import { addGameLogLine, LOGGED_DIALOG_TYPES } from "./gameLog.ts";
 
   function focusDefault(node: HTMLButtonElement, question: number | null) {
     if (question !== null) node.focus();
@@ -710,6 +713,18 @@
     if (type === null) return { said: one, kind: "box", type: null };
     return { said: one, kind: BOX_TYPES.has(type) ? "box" : STRIP_TYPES.has(type) ? "strip" : "none", type };
   }));
+
+  // dialog_handler.handle_player_fsd_dialog: the dialog logged once, as it is put up, where its type is logged.
+  const loggedDialogs = new Set<number>();
+  $effect(() => {
+    for (const one of shown) {
+      if (one.kind === "pending" || loggedDialogs.has(one.said.n)) continue;
+      loggedDialogs.add(one.said.n);
+      if (one.type !== null && LOGGED_DIALOG_TYPES.has(one.type)) {
+        addGameLogLine(plainText(questionText(partOf(one.said, "body"), nameOf, client) || one.said.fallback), one.type);
+      }
+    }
+  });
 
   // What the client shows nothing of is taken down at once; of the strip's, only the newest stays (ShowMsg puts a
   // newer text in the one strip).
