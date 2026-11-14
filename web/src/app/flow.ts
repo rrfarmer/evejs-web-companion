@@ -391,8 +391,10 @@ import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites
 import { acceptContract as acceptContractCall } from "../bridge/contractWrites.ts";
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
+import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
+import type { DungeonData } from "./api.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
 import {
@@ -628,6 +630,14 @@ export interface DailyGoal {
   readonly target: number; readonly current: number;
   readonly activeUntilMs: number | null;
   readonly omega: boolean; readonly paidCompletion: boolean; readonly claimable: boolean;
+}
+
+/** A dungeon on the job board (features/dungeons DungeonJob): the site, its system and jumps, its dungeon's data. */
+export interface DungeonJob {
+  readonly instanceID: number; readonly dungeonID: number; readonly solarSystemID: number; readonly jumps: number | null;
+  readonly data: DungeonData | null;
+  /** active_dungeon: the dungeon the pilot is in is this site. */
+  readonly active: boolean;
 }
 
 /** The epic arcs (flow.epicArcs) and their feature tag's title message and eveicon. */
@@ -3588,6 +3598,13 @@ export interface AppFlow {
    * the arcs could not be read.
    */
   epicArcs(): Promise<EpicArcsRead | null>;
+  /**
+   * The job board's combat anomalies (features/dungeons/combat_anomalies: CombatAnomaliesProvider): the sites
+   * dungeonInstanceCacheMgr.GetCombatAnomalyInstances lists in the pilot's system and the systems near it
+   * (bridge/dungeonJobs.ts), each with its dungeon's data, the jumps to it, and whether it is the dungeon the pilot is
+   * in. Null where the sites could not be read.
+   */
+  combatAnomalies(): Promise<readonly DungeonJob[] | null>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19700,6 +19717,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames(views.flatMap((v) => [...(v.factionID ? [{ kind: "owner" as const, id: v.factionID }] : []), ...(v.activeAgentID ? [{ kind: "agent" as const, id: v.activeAgentID }] : [])]));
     return { arcs: views, featureTag };
   }
+  async function combatAnomalies(): Promise<readonly DungeonJob[] | null> {
+    const here = store.station.get().online?.solarSystemID ?? null;
+    askCurrentDungeon();
+    const answer = await bridgeAsk("dungeonInstanceCacheMgr", "GetCombatAnomalyInstances", []).catch(() => null);
+    if (answer === null) return null;
+    const sites = decodeDungeonSites(answer);
+    const jumps = here ? await autopilotDistancesFrom(here).catch(() => null) : null;
+    // CombatAnomaliesProvider: JUMPS_WHERE_DUNGEONS_ARE_ALWAYS_VISIBLE 1, JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE 1.
+    const shown = relevantDungeonSystems(sites, here, jumps, 1, 1).flatMap((system) => sites.get(system) ?? []);
+    const data = await api.loadDungeons([...new Set(shown.map((s) => s.dungeonID))], callOptions).catch(() => null);
+    const factions = [...new Set(Object.values(data ?? {}).map((d) => d?.factionID ?? 0).filter((id) => id > 0))];
+    requestNames([...factions.map((id) => ({ kind: "owner" as const, id })), ...[...new Set(shown.map((s) => s.solarSystemID))].map((id) => ({ kind: "system" as const, id }))]);
+    return shown.map((s) => ({ instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
+      data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon !== null && currentDungeon.instanceID === s.instanceID }));
+  }
   async function redeemDailyGoal(goalID: string): Promise<boolean> {
     const a = await api.publicGatewayRequest("eve_public.dailygoal.api.RedeemRequest", { goal: { uuid: goalID }, redeem_current_location: false } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
     return !!a && a.statusCode === 200;
@@ -33234,6 +33266,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationFreelanceJobs,
     dailyGoals,
     epicArcs,
+    combatAnomalies,
     redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,

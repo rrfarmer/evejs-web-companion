@@ -14001,6 +14001,35 @@ app.get("/api/client-data/config-enabled-values", requireAuth, async (req, res, 
 // The corporation projects' contribution methods as the client's built data has them (contributionMethods.fsdbinary,
 // goals/client/contributionMethods.py: a method's title is GetByMessageID(titleID)). `available` false where the
 // client's data could not be read. No session: they do not vary by player.
+// Dungeons as the client's built data has them (evedungeons/client/data GetDungeon): name, description, gameplay
+// description, archetype (its title and description, evearchetypes), faction, difficulty, entry type, and the content
+// tags GetDungeonContentTags makes (the dungeon's, its archetype's, feature_cosmic_signatures for a signature's entry,
+// feature_dungeons), each with its title message, eveicon and type. ?ids= up to 200.
+app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
+  try {
+    const ids = String(req.query.ids || "").split(",").map(Number).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 200);
+    const [rows, archetypes, tags] = await Promise.all([
+      typeof clientBuiltData.rows === "function" ? clientBuiltData.rows("dungeons", ids).catch(() => null) : null,
+      clientBuiltData.table("archetypes").catch(() => null), clientBuiltData.table("contentTags").catch(() => null)]);
+    const TYPE_DEADSPACE_SIGNATURE = 19728; // inventorycommon.const.typeDeadspaceSignature
+    const dungeons = {};
+    for (const id of ids) {
+      const d = rows && rows[id];
+      if (!d) { dungeons[id] = null; continue; }
+      const arche = archetypes && archetypes[d.archetypeID];
+      const tagIDs = [...(Array.isArray(d.contentTags) ? d.contentTags : []), ...(arche && Array.isArray(arche.contentTags) ? arche.contentTags : []),
+        ...(d.entryTypeID === TYPE_DEADSPACE_SIGNATURE ? ["feature_cosmic_signatures"] : []), "feature_dungeons"];
+      dungeons[id] = {
+        nameID: d.dungeonNameID ?? null, descriptionID: d.descriptionID ?? null, gameplayDescriptionID: d.gameplayDescriptionID ?? null,
+        archetypeID: d.archetypeID ?? null, archetypeTitleID: arche ? arche.titleID ?? null : null, archetypeDescriptionID: arche ? arche.descriptionID ?? null : null,
+        factionID: d.factionID ?? null, difficulty: d.difficulty ?? null, entryTypeID: d.entryTypeID ?? null,
+        contentTags: tagIDs.filter((t) => tags && tags[t]).map((t) => ({ id: t, type: tags[t].contentTagType ?? null, title: tags[t].title ?? null, icon: tags[t].icon ?? null })),
+      };
+    }
+    res.json({ ok: true, available: rows !== null, dungeons });
+  } catch (error) { next(error); }
+});
+
 // The epic arcs as the client's built data has them (evemissions/common/epic_arcs_data: iter_epic_arcs, factionID,
 // arcRestartInterval in minutes, each mission's agentID and nextMissions). `available` false where unread.
 app.get("/api/client-data/epic-arcs", requireAuth, async (req, res, next) => {

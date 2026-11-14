@@ -5770,6 +5770,20 @@ export interface PublicGatewayAnswer {
  * One of the client's eve_public requests made on the public gateway for the page's pilot (the BFF's
  * POST /api/public-gateway/request), as its client makes it; a write with confirm said.
  */
+/** A dungeon as the client's built data has it (GetDungeon, its archetype, GetDungeonContentTags). */
+export interface DungeonData {
+  readonly nameID: number | null; readonly descriptionID: number | null; readonly gameplayDescriptionID: number | null;
+  readonly archetypeID: number | null; readonly archetypeTitleID: number | null; readonly archetypeDescriptionID: number | null;
+  readonly factionID: number | null; readonly difficulty: number | null; readonly entryTypeID: number | null;
+  readonly contentTags: readonly { readonly id: string; readonly type: string | null; readonly title: number | null; readonly icon: string | null }[];
+}
+/** GET /api/client-data/dungeons?ids=: the dungeons by ID (null for one not found); null where unreadable. */
+export async function loadDungeons(dungeonIDs: readonly number[], options: ApiOptions = {}): Promise<Readonly<Record<string, DungeonData | null>> | null> {
+  if (!dungeonIDs.length) return {};
+  const data = await getJson(`/api/client-data/dungeons?ids=${dungeonIDs.join(",")}`, options);
+  return data.available && data.dungeons && typeof data.dungeons === "object" ? data.dungeons as Record<string, DungeonData | null> : null;
+}
+
 /** An epic arc as the client's built data has it (epicArcs.fsdbinary): its missions by ID, each mission's agent and next missions. */
 export interface EpicArcData { readonly epicArcID: number; readonly nameID: number | null; readonly factionID: number | null; readonly restartInterval: number | null; readonly missions: Readonly<Record<string, { readonly agentID: number | null; readonly nextMissions: readonly number[] }>> }
 /** GET /api/client-data/epic-arcs: the epic arcs and their feature tag (contentTags feature_epic_arcs); null where the client's data could not be read. */

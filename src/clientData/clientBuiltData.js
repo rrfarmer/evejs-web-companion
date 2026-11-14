@@ -41,6 +41,9 @@ const TABLES = Object.freeze({
   epicArcs: Object.freeze({ loader: "epicArcsLoader", resource: "res:/staticdata/epicarcs.fsdbinary" }),
   // metadata/common/content_tags: each content tag's title and description messages and its eveicon.
   contentTags: Object.freeze({ loader: "contentTagsLoader", resource: "res:/staticdata/contenttags.fsdbinary" }),
+  // evedungeons/client/data GetDungeon: a dungeon's name, description, gameplay description, archetype, faction,
+  // difficulty, entry type, content tags. Read by the dungeons asked.
+  dungeons: Object.freeze({ loader: "dungeonsLoader", resource: "res:/staticdata/dungeons.fsdbinary", rowsOnly: true }),
   // An NPC corporation's own record: the client takes an agent's faction from its corporation's (npcs/npccorporations.py).
   npcCorporations: Object.freeze({ loader: "npcCorporationsLoader", resource: "res:/staticdata/npccorporations.fsdbinary" }),
   // The divisions agents work in, each with the message its name is (npcs/divisions.py).

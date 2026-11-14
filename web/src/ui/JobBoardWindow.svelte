@@ -37,12 +37,14 @@
   import MissionJobPage from "./MissionJobPage.svelte";
   import CorporationGoalCard from "./CorporationGoalCard.svelte";
   import CorporationGoalPage from "./CorporationGoalPage.svelte";
-  import type { CorporationGoal, CorporationGoals, DailyGoal, EpicArcsRead } from "../app/flow.ts";
+  import type { CorporationGoal, CorporationGoals, DailyGoal, DungeonJob, EpicArcsRead } from "../app/flow.ts";
   import DailyGoalCard from "./DailyGoalCard.svelte";
   import DailyGoalPage from "./DailyGoalPage.svelte";
   import DailyRewardTrack from "./DailyRewardTrack.svelte";
   import EpicArcCard from "./EpicArcCard.svelte";
   import EpicArcPage from "./EpicArcPage.svelte";
+  import DungeonCard from "./DungeonCard.svelte";
+  import DungeonPage from "./DungeonPage.svelte";
   import { ARC_AVAILABLE, ARC_STARTED } from "../bridge/epicArcs.ts";
   import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
@@ -83,6 +85,11 @@
   });
   const shownArcs = $derived(tab === "browse" ? epicLists.browse : tab === "active" ? epicLists.active : []);
   const arcOpen = $derived(openArc === null ? null : epic?.arcs.find((a) => a.epicArcID === openArc) ?? null);
+  // The combat anomalies (features/dungeons: CombatAnomaliesProvider, DungeonJob): in Browse those the provider
+  // lists, in Active the one the pilot is in (active_dungeon; tracking is not here).
+  let dungeons = $state<readonly DungeonJob[]>([]), openDungeon = $state<number | null>(null);
+  const shownDungeons = $derived(tab === "browse" ? dungeons : tab === "active" ? dungeons.filter((d) => d.active) : []);
+  const dungeonOpen = $derived(openDungeon === null ? null : dungeons.find((d) => d.instanceID === openDungeon) ?? null);
   const dailyOpen = $derived(openDaily === null ? null : daily.find((d) => d.goalID === openDaily) ?? null);
   async function claimDaily(goalID: string): Promise<void> { await flow.redeemDailyGoal(goalID); daily = (await flow.dailyGoals()) ?? daily; }
   // The reward track's Claim All (DailyGoalsFeaturePage._claim_all): every daily goal's claimable reward.
@@ -95,6 +102,7 @@
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
     void flow.dailyGoals().then((d) => { daily = d ?? []; }, () => { daily = []; });
     void flow.epicArcs().then((e) => { epic = e; }, () => { epic = null; });
+    void flow.combatAnomalies().then((d) => { dungeons = d ?? []; }, () => { dungeons = []; });
     board = await flow.freelanceBoard();
   }
   const goalRemaining = (g: CorporationGoal) => { const left = Math.max(0, g.desired - g.current); return g.participationLimit ? Math.min(left, Math.max(0, g.participationLimit - g.myProgress)) : left; };
@@ -152,12 +160,14 @@
 
 <div class="jb">
   <div class="jb-tabs">
-    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }}>{word(O + "WindowTitle")}</button>
-    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length}</span>{/if}</button>
-    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if (board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}<span class="jb-count gold">{(board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}</span>{/if}</button>
+    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "WindowTitle")}</button>
+    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length}</span>{/if}</button>
+    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if (board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}<span class="jb-count gold">{(board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}</span>{/if}</button>
   </div>
   <div class="jb-body">
-    {#if arcOpen}
+    {#if dungeonOpen}
+      <DungeonPage {store} {flow} job={dungeonOpen} onBack={() => { openDungeon = null; }} />
+    {:else if arcOpen}
       <EpicArcPage {store} {flow} arc={arcOpen} featureTag={epic?.featureTag ?? null} onBack={() => { openArc = null; }} onViewMission={(agentID) => { openArc = null; void openMissionPage(agentID); }} onTalk={async (agentID) => { await flow.openConversation(agentID); showAgents?.(); }} />
     {:else if dailyOpen}
       <DailyGoalPage {store} {flow} goal={dailyOpen} onBack={() => { openDaily = null; }} onClaim={() => claimDaily(dailyOpen!.goalID)} />
@@ -177,7 +187,7 @@
     {:else if board === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
       {#if tab === "unclaimed" && (jobs.length || goalLists.unclaimed.length || dailyLists.unclaimed.length)}<div class="jb-claim"><button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button></div>{/if}
-      {#if !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length && !shownArcs.length}
+      {#if !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length && !shownArcs.length && !shownDungeons.length}
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
@@ -191,6 +201,9 @@
         {/each}
         {#each shownDaily as d (d.goalID)}
           <DailyGoalCard {store} {flow} goal={d} onOpen={() => { openDaily = d.goalID; open = null; openMission = null; openGoal = null; }} onClaim={() => claimDaily(d.goalID)} />
+        {/each}
+        {#each shownDungeons as d (d.instanceID)}
+          <DungeonCard {store} {flow} job={d} onOpen={() => { openDungeon = d.instanceID; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }} />
         {/each}
         {#each shownGoals as g (g.goalID)}
           <CorporationGoalCard {store} {flow} goal={g} methods={goals?.methods ?? {}} onOpen={() => { openGoal = g.goalID; open = null; openMission = null; }} />
