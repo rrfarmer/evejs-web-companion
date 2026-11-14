@@ -803,6 +803,32 @@ for (const applied of [true, false]) {
   });
 }
 
+test("an unconfirmed strict unload cannot finish or replay after Resume even when the hold empties", async () => {
+  let emptied = false;
+  let writes = 0;
+  const location = 1030000000000;
+  const runner = createScriptRunner({ observe: async () => calm({ docked: true, inSpace: false,
+    flightStatus: { docked: true, inSpace: false, stationID: null, structureID: location } as FlightStatus,
+    holds: [{ key: "ore", label: "Ore", present: true, error: null, capacity: null,
+      items: emptied ? [] : [{ itemID: 10, typeID: 16264, groupID: 465, categoryID: 25, quantity: 10 }] }] }),
+    issue: async () => { writes += 1; emptied = true;
+      throw Object.assign(new Error("Destination reread failed"), { code: "CORP_TRANSFER_UNCONFIRMED" }); },
+    registry: SCRIPT_MACROS, travelHome: home, sleep: async () => {}, onProgress: () => {},
+    isSessionLost: () => false, refusalReason: String });
+  runner.start(script([{ id: "deliver", kind: "macro", macro: "deliver-ore", args: {
+    station: { kind: "station", ref: { entity: "structure", id: location, name: "Home", systemName: null } },
+    into: { kind: "corpDivision", division: 1, name: null },
+  } }]));
+  await runner.tick();
+  assert.equal(runner.getStatus(), "paused");
+  runner.resume();
+  await runner.tick();
+  assert.equal(runner.getStatus(), "paused");
+  assert.equal(writes, 1);
+  assert.equal(runner.resumeHeadHome("Stop"), false);
+  runner.stop();
+});
+
 test("a suspended strict corporate unload retains unverified state and cannot bypass recovery", async () => {
   const manifest = { itemIDs: [10], destination: 2 };
   let entered!: () => void, fail!: (error: unknown) => void;
@@ -821,7 +847,7 @@ test("a suspended strict corporate unload retains unverified state and cannot by
   fail(Object.assign(new Error("EVE_GATEWAY_TIMEOUT"), { code: "EVE_GATEWAY_TIMEOUT" }));
   await ticking;
   await suspension;
-  assert.throws(() => runner.resumeTransport(), /cannot be reset safely/);
+  assert.throws(() => runner.resumeTransport(), /unresolved work/);
   runner.resume();
   assert.equal(runner.getStatus(), "paused");
   assert.equal(runner.resumeHeadHome("Stop"), false);

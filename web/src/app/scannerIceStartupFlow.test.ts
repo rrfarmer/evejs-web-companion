@@ -13,13 +13,14 @@ const mine = (id: string, mode: "site" | "ice-site"): MacroStep =>
 const script = (program: BotScript["program"]): BotScript =>
   ({ format: "evejs-bot-script", version: 1, name: "Scanner tour", notes: "", home: HOME, interrupts: [], program });
 
-function fixture(module: "none" | "gas" | "ice" = "none", miningOperationID?: string) {
+function fixture(module: "none" | "gas" | "ice" = "none", miningOperationID?: string, structureID?: number) {
   // Synthetic high-slot additions leave the shared captured fit untouched.
   const extraModules = module === "none" ? [] : [{ itemID: 7002, typeID: module === "ice" ? 16278 : 25266,
     flagID: 29, groupID: module === "ice" ? 464 : 737,
     name: module === "ice" ? "Ice Harvester I" : "Gas Cloud Scoop I",
     groupName: module === "ice" ? "Strip Miner" : "Gas Cloud Scoops" }];
   const paths: string[] = [];
+  const unloads: Record<string, unknown>[] = [];
   const store = createClientStore();
   const keyVal = (entries: unknown[][]) => ({ type: "object", args: { type: "dict", entries } });
   const flow = createAppFlow(store, { livePush: false, miningOperationID, fetch: async (input, init) => {
@@ -30,7 +31,17 @@ function fixture(module: "none" | "gas" | "ice" = "none", miningOperationID?: st
     let result: unknown = { ok: true };
     if (path === "/api/bridge/select") result = { ok: true, character: { characterID: 42, characterName: "Test", stationID: HOME.id },
       station: null, droneRecoveryCheckID: "current-check" };
-    if (path === "/api/bridge/flight/status") result = flightBody(true);
+    if (path === "/api/bridge/flight/status") {
+      const status = flightBody(true) as { flight: Record<string, unknown> };
+      result = structureID === undefined ? status : { ...status, flight: { ...status.flight, stationID: null, structureID } };
+    }
+    if (path === "/api/bridge/ship/ore-hold") result = { ok: true, holds: [{ key: "ore", label: "Ore Hold", present: true,
+      capacity: { capacity: 1000, used: unloads.length === 0 ? 100 : 0 }, error: null,
+      items: unloads.length === 0 ? [{ itemID: 8001, typeID: 16264, groupID: 465, categoryID: 25, quantity: 10 }] : [] }] };
+    if (path === "/api/bridge/ship/ore-hold/unload") {
+      unloads.push(body);
+      result = { ok: true, moved: [8001], remaining: [], movedToCorp: [8001], fellBack: null };
+    }
     if (path === "/api/bridge/drones") result = { ok: true, inSpace: [], bay: [] };
     if (path === "/api/bridge/space/snapshot") result = { ok: true, space: { inSpace: false, shipID: SHIP_ID, sampledAtMs: 400,
       ship: { itemID: SHIP_ID, characterID: 42, position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, radius: 50, geometryAvailable: true } } };
@@ -49,8 +60,27 @@ function fixture(module: "none" | "gas" | "ice" = "none", miningOperationID?: st
     if (path === "/api/bridge/call") result = { ok: true, service: body.service, method: body.method, result: [], notifications: [] };
     return new Response(JSON.stringify(result));
   } });
-  return { store, flow, paths };
+  return { store, flow, paths, unloads };
 }
+
+test("an ice script started inside an Upwell unloads at its starting structure rather than its configured home", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = fixture("ice", undefined, 1030000000000);
+  await f.flow.selectCharacter(42);
+  try {
+    await f.flow.startCustomBot(script([{ id: "haul", kind: "macro", macro: "deliver-ore", args: {
+      station: { kind: "station", ref: { entity: "station", id: null, name: null, systemName: null, starting: true } },
+      into: { kind: "corpDivision", division: 1, name: null },
+    } }]));
+    for (let look = 0; look < 10 && f.unloads.length === 0; look += 1) {
+      context.mock.timers.tick(2000);
+      for (let turn = 0; turn < 20; turn += 1) await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    assert.deepEqual(f.unloads, [{ itemIDs: [8001], division: 1, strictCorp: true,
+      expectedDestination: { kind: "structure", id: 1030000000000 } }]);
+    assert.equal(f.paths.some(path => path.includes("/route")), false);
+  } finally { f.flow.stopCustomBot(); }
+});
 
 test("mixed plain ore/ice Start validates the later Ice Harvester before undocking", async () => {
   for (const module of ["none", "gas"] as const) {

@@ -507,6 +507,15 @@ export function resolveStationRef(
   return ref.id;
 }
 
+export function resolveDockableKind(ref: WorldRef, startingKind: DockableKind = "station"): DockableKind {
+  return ref.starting === true && ref.slot === undefined ? startingKind : ref.entity === "structure" ? "structure" : "station";
+}
+
+function stationTargetKind(step: MacroStep, obs: ScriptObservation): DockableKind {
+  const arg = step.args["station"];
+  return arg?.kind === "station" ? resolveDockableKind(arg.ref, obs.startingDockableKind) : "station";
+}
+
 function stationTarget(step: MacroStep, obs: ScriptObservation, board: ScriptBoard = {}): number | null {
   const arg = step.args["station"];
   if (arg === undefined || arg.kind !== "station") {
@@ -2043,17 +2052,11 @@ function mineWithRocks(
 // the office, at the moment of the move.
 const deliverOre: MacroDecider = (step, obs, mem, board) => {
   const target = stationTarget(step, obs, board);
-  const targetKind: DockableKind = step.args["station"]?.kind === "station" &&
-    step.args["station"].ref.entity === "structure" ? "structure" : "station";
+  const targetKind = stationTargetKind(step, obs);
   if (target === null) {
     return tick(WAIT, "No station picked to unload at.", "Hauling", {
       kind: "blocked",
       reason: "This step needs a station to unload at.",
-    });
-  }
-  if (targetKind === "structure" && step.args["into"]?.kind === "corpDivision" && !obs.miningOperation && !obs.strictCorpDelivery) {
-    return tick(WAIT, "Use the strict corporate route for structure division delivery.", "Hauling", {
-      kind: "blocked", reason: "Generic ore delivery cannot prove an exact structure corporation division deposit.",
     });
   }
   const operation = obs.miningOperation ?? null;
@@ -2084,7 +2087,8 @@ const deliverOre: MacroDecider = (step, obs, mem, board) => {
         division === null
           ? { kind: "unloadOre", itemIDs: items }
           : { kind: "unloadOre", itemIDs: items, division,
-              ...(obs.miningOperation || obs.strictCorpDelivery ? { strictCorp: true } : {}) },
+              ...(targetKind === "structure" || obs.miningOperation || obs.strictCorpDelivery
+                ? { strictCorp: true, expectedDestination: { kind: targetKind, id: target } } : {}) },
         division === null
           ? "Unloading the ore into the hangar."
           : "Unloading the ore into the corporation hangar.",
@@ -2125,8 +2129,7 @@ const deliverOre: MacroDecider = (step, obs, mem, board) => {
 // block is a destination plus the never-abandon-drones send-off.
 const travelToStation: MacroDecider = (step, obs, mem, board) => {
   const target = stationTarget(step, obs, board);
-  const stationArg = step.args["station"];
-  const targetKind: DockableKind = stationArg?.kind === "station" && stationArg.ref.entity === "structure" ? "structure" : "station";
+  const targetKind = stationTargetKind(step, obs);
   if (target === null) {
     return tick(WAIT, "No station picked.", "Travelling", { kind: "blocked", reason: "This step needs a station to go to." });
   }

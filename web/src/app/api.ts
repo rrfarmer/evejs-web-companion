@@ -2557,12 +2557,14 @@ export async function unloadMiningHolds(
   options: ApiOptions = {},
   division: number | null = null,
   strictCorp = false,
+  expectedDestination?: { readonly kind: "station" | "structure"; readonly id: number },
 ): Promise<UnloadResult> {
   const body: Record<string, JsonValue> = { itemIDs: [...itemIDs] };
   if (division !== null) {
     body.division = division;
   }
   if (strictCorp) body.strictCorp = true;
+  if (expectedDestination) body.expectedDestination = { ...expectedDestination };
   const data = await postJson("/api/bridge/ship/ore-hold/unload", body, options);
   return {
     requested: readIDArray(data.requested) ?? [],

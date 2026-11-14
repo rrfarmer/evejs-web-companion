@@ -1015,7 +1015,7 @@ import { decideSupportTractor, freshSupportTractorMemory, type SupportTractorMem
 import { decideSupportCollection, freshSupportCollectionMemory, recordSupportCollectionReceipt, type SupportCollectionMemory, type SupportCollectionPolicy,
   type SupportCollectionResult, type SupportCollectionInput } from "../nav/miningSupportCollection.ts";
 import { SUPPORT_FLEET_READ_MAX_AGE_MS, decideMiningSupportFleet, freshMiningSupportFleetMemory, miningSupportFleetDiagnostic, type MiningSupportFleetCallDiagnostic, type MiningSupportFleetDiagnostic, type MiningSupportFleetFeedback, type MiningSupportFleetObservation, type MiningSupportFleetResult, type SupportFleetJoinAuthority } from "../nav/miningSupportFleet.ts";
-import { SCRIPT_MACROS, resolveStationRef, scriptTravelHome } from "../nav/scriptMacros.ts";
+import { SCRIPT_MACROS, resolveDockableKind, resolveStationRef, scriptTravelHome } from "../nav/scriptMacros.ts";
 import { pluginDeciders } from "../bots/pluginMacros.ts";
 import { macroReads } from "../bots/macroReads.ts";
 import {
@@ -29487,6 +29487,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     home: WorldRef,
     watchedKinds: ReadonlySet<string> = new Set<string>(),
     parking = false,
+    startingDockableKind: "station" | "structure" = "station",
   ): ScriptRunnerDeps {
     const walletWatched = watchedKinds.has("wallet-below") || watchedKinds.has("wallet-above");
     const cargoWatched = watchedKinds.has("cargo-full");
@@ -30552,8 +30553,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           capacitorRatio: ship?.capacitorRatio ?? null,
           walletBalance,
           startingStationID,
+          startingDockableKind,
           homeStationID: resolveStationRef(home, startingStationID, hint.board),
-          homeDockableKind: home.entity === "structure" ? "structure" : "station",
+          homeDockableKind: resolveDockableKind(home, startingDockableKind),
           myCharacterID: store.station.get().online?.characterID ?? null,
           myCorporationID: store.station.get().online?.corporationID ?? null,
         };
@@ -30740,6 +30742,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
                   callOptions,
                   action.division ?? null,
                   action.strictCorp === true,
+                  action.expectedDestination,
                 );
               const moved = result.moved ?? null;
               if (moved !== null && moved.length === 0) {
@@ -31320,10 +31323,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (gen !== customBotGeneration) {
       return;
     }
-    let startingStationID = startStatus !== null && startStatus.docked ? startStatus.stationID : null;
+    let startingStationID = startStatus?.docked ? startStatus.structureID ?? startStatus.stationID : null;
+    let startingDockableKind: "station" | "structure" = startStatus?.docked && startStatus.structureID !== null ? "structure" : "station";
     if (startingStationID === null && startStatus !== null) {
       startingStationID = resolveStationRef(doc.home, null);
+      startingDockableKind = resolveDockableKind(doc.home);
       if (startingStationID === null) {
+        startingDockableKind = "station";
         try {
           // The character sheet's own read of it (bridge/characterSheetReads.ts).
           startingStationID = decodeHomeStationID(await bridgeAsk("charMgr", "GetHomeStationRow", []));
@@ -31344,7 +31350,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     fleetApplication = null;
     store.apply({ type: "custom-bot/started", name: doc.name });
     scriptRunner = createScriptRunner(
-      { ...makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds), startup: options.hostedStartup },
+      { ...makeScriptRunnerDeps(initialCapabilities, startingStationID, doc.home, watchedKinds, false, startingDockableKind), startup: options.hostedStartup },
     );
     scriptRunner.start(doc);
     void scriptRunner.run();
