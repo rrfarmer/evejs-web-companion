@@ -26,7 +26,9 @@
 
   type Block =
     | { readonly h: string }
-    | { readonly t: string; readonly scroll?: number; readonly pad?: number }
+    | { readonly t: string; readonly scroll?: number; readonly pad?: number; readonly args?: Readonly<Record<string, unknown>> }
+    | { readonly grid: readonly (readonly Block[])[]; readonly gap: number }
+    | { readonly destination: number }
     | { readonly img: string; readonly w: number; readonly hgt: number; readonly top?: number; readonly stretch?: boolean }
     | { readonly sec: string; readonly padTop?: number; readonly body: readonly Block[] }
     | { readonly corruption: true }
@@ -39,13 +41,13 @@
   interface Activity { readonly name: string; readonly howTo: string; readonly where: string; readonly rewards: string | null; readonly header: string; readonly scale: string; readonly rewardType: string }
   interface Topic { readonly id: string; readonly label: string; readonly indent?: boolean; readonly header: string | null; readonly blocks: readonly Block[]; readonly strings: readonly string[] | null }
 
-  let { store, flow, guide, onOpenTab, onShow }: { store: ClientStore; flow: AppFlow; guide: "factionWarfare" | "pirateInsurgencies"; onOpenTab?: (tab: string) => void; onShow?: (groupID: number) => void } = $props();
+  let { store, flow, guide, onOpenTab, onShow }: { store: ClientStore; flow: AppFlow; guide: "factionWarfare" | "pirateInsurgencies" | "zarzakh"; onOpenTab?: (tab: string) => void; onShow?: (groupID: number) => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
-  const markup = (label: string) => formatTemplate($words.templates[label] ?? "", {} as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") });
-  const word = (label: string) => plainText(markup(label));
+  const markup = (label: string, args: Readonly<Record<string, unknown>> = {}) => formatTemplate($words.templates[label] ?? "", args as never, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") });
+  const word = (label: string, args: Readonly<Record<string, unknown>> = {}) => plainText(markup(label, args));
   const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, (label) => word(label), text);
   const F = "UI/Agency/FactionWarfare/", G = `${F}Guides/`;
 
@@ -122,7 +124,55 @@
       ...activities.map(([id, a]): Topic => ({ id, label: a.name, indent: true, header: null, strings: [a.name], blocks: [{ activity: a }] })),
     ];
   }
-  const topics = $derived(guide === "factionWarfare" ? factionWarfare() : pirateInsurgencies());
+  // contentPageZarzakh (a BaseContentGroupPage, 20 padding; its topic browser 0.3 wide): Topics overview, rules, HQ,
+  // zones, Jovian, shipcaster; the panels contentPagesUI/zarzakh/panels.
+  const Z = "UI/Agency/Zarzakh/", ZG = "UI/Agency/Zarzakh/Guides/";
+  const ZARZAKH = 30100000, GATE_LOCK_MAX_TIMER_HOURS = 6;
+  function zarzakh(): readonly Topic[] {
+    const sec = (title: string, text: string, padTop = 0, more: readonly Block[] = []): Block => ({ sec: title, padTop, body: [{ t: text, pad: 5 }, ...more] });
+    return [
+      // OverviewPanel: the banner (241 high, pad 5) and the text.
+      { id: "overview", label: `${Z}TopicOverview`, header: null, strings: [`${ZG}Overview/OverviewSectionTitle`, `${ZG}Overview/OverviewSectionText`], blocks: [
+        { sec: `${ZG}Overview/OverviewSectionTitle`, body: [{ img: "res:/UI/Texture/classes/agency/zarzakh/overview/banner.png", w: 739, hgt: 241, top: 5, stretch: true }, { t: `${ZG}Overview/OverviewSectionText`, pad: 5 }] }] },
+      // RulesPanel: Zarzakh and the regulations (20 apart).
+      { id: "rules", label: `${Z}TopicRules`, header: null,
+        strings: [`${ZG}Rules/ZarzakhSectionTitle`, `${ZG}Rules/ZarzakhSectionText`, `${ZG}Rules/RegulationsSectionTitle`, `${ZG}Rules/RegulationsSectionText`], blocks: [
+        sec(`${ZG}Rules/ZarzakhSectionTitle`, `${ZG}Rules/ZarzakhSectionText`), sec(`${ZG}Rules/RegulationsSectionTitle`, `${ZG}Rules/RegulationsSectionText`, 20)] },
+      // HQPanel: the station (its text, then the docking rules and the services side by side, padded 10) and the benefits.
+      { id: "hq", label: `${Z}TopicHQ`, header: null,
+        strings: [`${ZG}HQ/StationSectionTitle`, `${ZG}HQ/StationSectionText`, `${ZG}HQ/StationSectionDockingRules`, `${ZG}HQ/StationSectionAvailableServices`, `${ZG}HQ/BenefitsSectionTitle`, `${ZG}HQ/BenefitsSectionText`],
+        blocks: [sec(`${ZG}HQ/StationSectionTitle`, `${ZG}HQ/StationSectionText`, 0, [{ grid: [[{ t: `${ZG}HQ/StationSectionDockingRules`, pad: 10 }], [{ t: `${ZG}HQ/StationSectionAvailableServices`, pad: 10 }]], gap: 0 }]),
+          sec(`${ZG}HQ/BenefitsSectionTitle`, `${ZG}HQ/BenefitsSectionText`, 20)] },
+      // ZonesPanel: the banner and the text.
+      { id: "zones", label: `${Z}TopicZones`, header: null, strings: [`${ZG}Zones/ZonesSectionTitle`, `${ZG}Zones/ZonesSectionText`], blocks: [
+        { sec: `${ZG}Zones/ZonesSectionTitle`, body: [{ img: "res:/UI/Texture/classes/agency/zarzakh/zones/banner.png", w: 739, hgt: 241, top: 5, stretch: true }, { t: `${ZG}Zones/ZonesSectionText`, pad: 5 }] }] },
+      // JovianPanel: the gates; then, 20 apart, the tolls beside the access (SetDestinationCard of Zarzakh) and the
+      // Emanation gate lock (its hours GATE_LOCK_MAX_TIMER_HOURS). Its strings leave the gate lock out.
+      { id: "jovian", label: `${Z}TopicJovian`, header: null,
+        strings: [`${ZG}Jovian/GatesSectionTitle`, `${ZG}Jovian/GatesSectionText`, `${ZG}Jovian/TollsSectionTitle`, `${ZG}Jovian/TollsSectionText`, `${ZG}Jovian/AccessSectionTitle`], blocks: [
+        sec(`${ZG}Jovian/GatesSectionTitle`, `${ZG}Jovian/GatesSectionText`),
+        { grid: [[sec(`${ZG}Jovian/TollsSectionTitle`, `${ZG}Jovian/TollsSectionText`)],
+          [{ sec: `${ZG}Jovian/AccessSectionTitle`, body: [{ destination: ZARZAKH }] },
+            { sec: `${ZG}Jovian/EmanationGateLockTitle`, body: [{ t: `${ZG}Jovian/EmanationGateLockText`, pad: 5, args: { hours: GATE_LOCK_MAX_TIMER_HOURS } }] }]], gap: 20 }] },
+      // ShipcasterPanel: the shipcaster; then, 20 apart, the goals beside the incursions (its text, the Pirate
+      // Insurgencies card, the Faction Warfare window's button 15 below).
+      { id: "shipcaster", label: `${Z}TopicShipcaster`, header: null,
+        strings: [`${ZG}Shipcaster/ShipcasterSectionTitle`, `${ZG}Shipcaster/ShipcasterSectionText`, `${ZG}Shipcaster/GoalsSectionTitle`, `${ZG}Shipcaster/GoalsSectionText`, `${ZG}Shipcaster/IncursionsSectionTitle`, `${ZG}Shipcaster/IncursionsSectionText`], blocks: [
+        sec(`${ZG}Shipcaster/ShipcasterSectionTitle`, `${ZG}Shipcaster/ShipcasterSectionText`),
+        { grid: [[sec(`${ZG}Shipcaster/GoalsSectionTitle`, `${ZG}Shipcaster/GoalsSectionText`)],
+          [sec(`${ZG}Shipcaster/IncursionsSectionTitle`, `${ZG}Shipcaster/IncursionsSectionText`, 0, [{ card: 81 },
+            { btn: `${F}openFactionWarfareWindow`, icon: "res:/UI/Texture/WindowIcons/factionalwarfare.png", open: null, top: 15 }])]], gap: 20 }] },
+    ];
+  }
+  const topics = $derived(guide === "factionWarfare" ? factionWarfare() : guide === "zarzakh" ? zarzakh() : pirateInsurgencies());
+  // SetDestinationCard: the system's name (DestinationCardTitle), its security and jumps (numberOfJumps), and Set
+  // Destination (DestinationCardAlreadyInSystem in the system itself).
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  // svelte-ignore state_referenced_locally
+  const flight = store.flight;
+  const hereSystem = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
+  $effect(() => { if (guide === "zarzakh" && hereSystem !== null) { flow.requestAutopilotJumps(hereSystem, [ZARZAKH]); flow.requestNames([{ kind: "system", id: ZARZAKH }]); } });
   /** The topic's label as Topics.LABELS has it (the activities' four spaces before the name). */
   const topicLabel = (t: Topic) => (t.indent ? "    " : "") + word(t.label);
   const STAGES = [1, 2, 3, 4, 5];
@@ -133,6 +183,8 @@
   }
   let chosen = $state("overview"), search = $state("");
   const labelsOf = (b: Block): string[] => ("h" in b ? [b.h] : "t" in b ? [b.t] : "btn" in b ? [b.btn] : "sec" in b ? [b.sec, ...b.body.flatMap(labelsOf)]
+    : "grid" in b ? b.grid.flat().flatMap(labelsOf)
+    : "destination" in b ? ["UI/Agency/Common/DestinationCardTitle", "UI/Common/numberOfJumps", "UI/Commands/SetDestination", "UI/Agency/Common/DestinationCardAlreadyInSystem"]
     : "card" in b ? [AGENCY_GROUPS[b.card]?.name ?? "", AGENCY_GROUPS[b.card]?.description ?? ""]
     : "activity" in b ? [b.activity.name, b.activity.howTo, b.activity.where, b.activity.rewards ?? "", b.activity.scale, b.activity.rewardType]
     : "corruption" in b ? STAGES.flatMap((n) => [`${P}Corruption/stageNumber0${n}`, `${P}Corruption/CorruptionBonusStage0${n}`, `${P}Corruption/SuppressionBonusStage0${n}`]) : []);
@@ -166,7 +218,7 @@
 </script>
 
 <div class="agp">
-  <section class="agp-section agp-topics">
+  <section class="agp-section agp-topics" class:wide={guide === "zarzakh"}>
     <h3>{word("UI/Agency/PirateIncursions/Guides/GuideBrowserSectionTitle")}</h3>
     <input class="agp-search" type="search" value={search} oninput={(e) => (search = e.currentTarget.value)} />
     <div class="agp-scroll">
@@ -186,7 +238,7 @@
 {#snippet body(list: readonly Block[])}
         {#each list as b, n (n)}
           {#if "h" in b}<h3 class="agp-header agp-sub">{word(b.h)}</h3>
-          {:else if "t" in b}<div class="agp-text" class:scrolled={b.scroll !== undefined} style:height={b.scroll === undefined ? undefined : `${b.scroll}px`} style:padding={b.pad === undefined ? undefined : `${b.pad}px`}><LabelText markup={markup(b.t)} {followerOf} /></div>
+          {:else if "t" in b}<div class="agp-text" class:scrolled={b.scroll !== undefined} style:height={b.scroll === undefined ? undefined : `${b.scroll}px`} style:padding={b.pad === undefined ? undefined : `${b.pad}px`}><LabelText markup={markup(b.t, b.args)} {followerOf} /></div>
           {:else if "img" in b}
             {#if b.stretch}<img class="agp-stretch" alt="" src={clientTexture(b.img)} style:height={`${b.hgt}px`} style:margin-top={`${b.top ?? 0}px`} />
             {:else}<div class="agp-img" style:margin-top={`${b.top ?? 8}px`}><img alt="" src={clientTexture(b.img)} style:width={`${b.w}px`} style:height={`${b.hgt}px`} /></div>{/if}
@@ -255,6 +307,15 @@
               <div class="agp-cell"><p>{word(`${G}EnlistmentEnlistingCorpTitle`)}</p><div><LabelText markup={markup(`${G}EnlistmentEnlistingCorpText`)} {followerOf} /></div>
                 <button type="button" onclick={async () => { if (await flow.agencyCorpStandings()) onOpenTab?.("corporation"); }}><img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/corporation.png")} />{word(`${G}EnlistmentCorporationStandings`)}</button></div>
             </div>
+          {:else if "grid" in b}
+            <div class="agp-grid2" style:gap={`${b.gap}px`}>{#each b.grid as column, c (c)}<div class="agp-col">{@render body(column)}</div>{/each}</div>
+          {:else if "destination" in b}
+            {@const jumps = hereSystem === null ? null : $names.autopilotJumps?.[`${hereSystem}:${b.destination}`] ?? null}
+            <div class="agp-dest">
+              <b>{word("UI/Agency/Common/DestinationCardTitle", { solar_system_name: resolvedName($names.resolved, "system", b.destination, "") })}</b>
+              <span>{resolvedName($names.resolved, "system", b.destination, "")}{jumps !== null ? ` - ${word("UI/Common/numberOfJumps", { numJumps: jumps })}` : ""}</span>
+              <button type="button" disabled={hereSystem === b.destination} onclick={() => flow.setDestination(b.destination)}>{word(hereSystem === b.destination ? "UI/Agency/Common/DestinationCardAlreadyInSystem" : "UI/Commands/SetDestination")}</button>
+            </div>
           {:else if "card" in b}
             {@const g = AGENCY_GROUPS[b.card]}
             {#if g}
@@ -272,6 +333,10 @@
   .agp-section { background: rgb(0 0 0 / 0.3); border: 1px solid rgb(255 255 255 / 0.08); padding: 8px 10px; display: flex; flex-direction: column; min-height: 0; }
   .agp-section h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; }
   .agp-topics { width: 25%; flex: none; box-sizing: border-box; }
+  .agp-topics.wide { width: 30%; }
+  .agp-grid2 { display: grid; grid-template-columns: 1fr 1fr; margin-top: 20px; }
+  .agp-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .agp-dest { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: 8px; margin: 4px 0; background: rgb(0 0 0 / 0.5); border: 1px solid rgb(255 255 255 / 0.1); }
   .agp-search { height: 24px; box-sizing: border-box; margin-top: 5px; }
   .agp-scroll { flex: 1; min-height: 0; overflow: auto; margin-top: 5px; }
   .agp-topic { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; width: 100%; height: 30px; padding: 5px; font-size: 13px; white-space: pre; }
