@@ -642,6 +642,15 @@ export interface DungeonJob {
   readonly active: boolean;
 }
 
+/** flow.factionWarfareLocal: the pilot's system's OccupationState and VictoryPointState. */
+export interface FactionWarfareLocal {
+  readonly solarSystemID: number;
+  /** OccupationState(occupierID, adjacencyState FL / SL / BL, potentialOccupierIDs, pirateFactionID, dateTaken). */
+  readonly occupation: { readonly occupierID: number; readonly attackerID: number | null; readonly adjacency: string; readonly pirateFactionID: number | null } | null;
+  /** VictoryPointState(vpScore, vpThreshold). */
+  readonly victory: { readonly score: number; readonly threshold: number } | null;
+}
+
 /** The epic arcs (flow.epicArcs) and their feature tag's title message and eveicon. */
 export interface EpicArcsRead { readonly arcs: readonly EpicArcView[]; readonly featureTag: { readonly title: number | null; readonly icon: string | null } | null }
 
@@ -3609,6 +3618,13 @@ export interface AppFlow {
    * not be read gives none.
    */
   dungeonJobs(): Promise<readonly DungeonJob[]>;
+  /**
+   * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
+   * fwWarzoneSolarsystem.GetLocalOccupationState() (the system and its factionwarfare OccupationState, None outside a
+   * warzone) and fwVictoryPointMgr.GetLocalVictoryPointState() (its VictoryPointState). Null where either could not be
+   * read; occupation null in no warzone.
+   */
+  factionWarfareLocal(): Promise<FactionWarfareLocal | null>;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19757,6 +19773,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
       data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon !== null && currentDungeon.instanceID === s.instanceID }));
   }
+  async function factionWarfareLocal(): Promise<FactionWarfareLocal | null> {
+    const [occupation, victory] = await Promise.all([
+      bridgeAsk("fwWarzoneSolarsystem", "GetLocalOccupationState", []).catch(() => null),
+      bridgeAsk("fwVictoryPointMgr", "GetLocalVictoryPointState", []).catch(() => null),
+    ]);
+    if (!Array.isArray(occupation) || !Array.isArray(victory)) return null;
+    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : v && typeof v === "object" && "value" in v ? Number((v as { value: unknown }).value) : null);
+    // An objectex1 (a class instance): its header's second item is the constructor's arguments.
+    const argsOf = (v: unknown): unknown[] | null => {
+      const header = v && typeof v === "object" && Array.isArray((v as { header?: unknown }).header) ? (v as { header: unknown[] }).header : null;
+      return header && Array.isArray(header[1]) ? header[1] as unknown[] : null;
+    };
+    const o = argsOf(occupation[1]), vp = argsOf(victory[1]);
+    const potential = o ? (Array.isArray(o[2]) ? o[2] : o[2] && typeof o[2] === "object" && Array.isArray((o[2] as { items?: unknown }).items) ? (o[2] as { items: unknown[] }).items : []) : [];
+    const occupierID = o ? num(o[0]) : null;
+    const attackerID = (potential.map(num).find((id) => id !== null && id !== occupierID) ?? null) as number | null;
+    return {
+      solarSystemID: num(occupation[0]) ?? 0,
+      occupation: o && occupierID !== null ? { occupierID, attackerID, adjacency: String(o[1] ?? ""), pirateFactionID: num(o[3]) } : null,
+      victory: vp && num(vp[0]) !== null && num(vp[1]) ? { score: num(vp[0])!, threshold: num(vp[1])! } : null,
+    };
+  }
   async function redeemDailyGoal(goalID: string): Promise<boolean> {
     const a = await api.publicGatewayRequest("eve_public.dailygoal.api.RedeemRequest", { goal: { uuid: goalID }, redeem_current_location: false } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
     return !!a && a.statusCode === 200;
@@ -33292,6 +33330,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     dailyGoals,
     epicArcs,
     dungeonJobs,
+    factionWarfareLocal,
     redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,
