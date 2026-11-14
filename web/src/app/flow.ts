@@ -3768,6 +3768,16 @@ export interface AppFlow {
    * client's dialog. True where it was made.
    */
   agencyRegisterFleet(advert: FleetAdvertBasics | null, options?: { readonly inviteScope: number; readonly advanced: FleetAdvertAdvanced } | null): Promise<boolean>;
+  /**
+   * The Agency's Pirate Strongholds (ContentProviderPirateStronghold): custom_agency_provider.get_content_data's
+   * content of type CONTENTTYPE_PIRATE_STRONGHOLD (15), by system (GetContentDataBySolarSystemID), the systems within
+   * the filters' distance and security (CheckDistanceCriteria, CheckSecurityStatusFilterCriteria) and sorted by their
+   * jumps; each stronghold its enemy owner and that owner's faction (GetOwnerFactionID) and its texts' messages.
+   * `all` is how many strongholds there are before the filters (PirateStrongholdsContentGroup.IsEnabled). Null where
+   * the content could not be read.
+   */
+  agencyPirateStrongholds(filters: AgencySiteFilters): Promise<{ readonly all: number; readonly systems: readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null;
+    readonly strongholds: readonly { readonly agencyContentID: number; readonly enemyOwnerID: number | null; readonly enemyFactionID: number | null; readonly titleTextID: number | null; readonly subtitleTextID: number | null }[] }[] } | null>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
@@ -20162,6 +20172,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return { ads, jumps, noRoute, nowTicks: BigInt(Math.trunc(serverNow())) * 10000n + 116444736000000000n, ...fleetStanding() };
   }
+  let corporationFactionsHeld: Readonly<Record<string, number>> | null = null;
+  async function agencyPirateStrongholds(filters: AgencySiteFilters): Promise<Awaited<ReturnType<AppFlow["agencyPirateStrongholds"]>>> {
+    const answer = await bridgeAsk("custom_agency_provider", "get_content_data", []).catch(() => undefined);
+    if (answer === undefined) return null;
+    // CustomContentData: an objectex1 of its seven constructor arguments, its extra data in its state.
+    const num = (v: unknown): number | null => (typeof v === "number" ? v : v && typeof v === "object" && "value" in v && /^-?\d+$/.test(String((v as { value: unknown }).value)) ? Number((v as { value: unknown }).value) : null);
+    const items = (v: unknown): unknown[] => (Array.isArray(v) ? v : v && typeof v === "object" && Array.isArray((v as { items?: unknown }).items) ? (v as { items: unknown[] }).items : []);
+    const list = items(answer && typeof answer === "object" && "result" in (answer as object) ? (answer as { result: unknown }).result : answer);
+    const content = list.flatMap((entry) => {
+      const o = entry as { type?: string; header?: unknown[]; dict?: unknown[] } | null;
+      if (!o || o.type !== "objectex1" || !Array.isArray(o.header)) return [];
+      const args = items(o.header[1]);
+      const state = new Map<string, unknown>();
+      for (const pair of Array.isArray(o.dict) ? o.dict : []) if (Array.isArray(pair)) state.set(String(pair[0]), pair[1]);
+      return [{ agencyContentID: num(args[0]) ?? 0, contentType: num(args[3]), solarSystemID: num(args[4]), enemyOwnerID: num(state.get("enemy_owner_id")),
+        titleTextID: num(state.get("title_text_id")), subtitleTextID: num(state.get("subtitle_text_id")) }];
+    }).filter((c) => c.contentType === 15 && c.solarSystemID !== null);
+    if (content.length) corporationFactionsHeld ??= await api.loadCorporationFactions(callOptions).then((r) => (r.available ? r.factions : {})).catch(() => ({}));
+    // GetOwnerFactionID: an NPC corporation's faction, a faction itself, else none.
+    const factionOf = (owner: number | null) => (owner === null ? null : owner >= 1000000 && owner < 2000000 ? corporationFactionsHeld?.[String(owner)] ?? null : owner >= 500000 && owner < 1000000 ? owner : null);
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [jumps, graph] = content.length ? await Promise.all([here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null), loadRouteGraph().catch(() => null)]) : [null, null];
+    const bySystem = new Map<number, typeof content>();
+    for (const c of content) bySystem.set(c.solarSystemID!, [...(bySystem.get(c.solarSystemID!) ?? []), c]);
+    const systems = [...bySystem].flatMap(([solarSystemID, list]) => {
+      const n = solarSystemID === here ? 0 : jumps?.get(solarSystemID) ?? null;
+      if (filters.distance !== 1000 && (n === null || n > (filters.distance === 1 ? 0 : filters.distance))) return [];
+      const security = graph?.security(solarSystemID) ?? null, sec = security === null ? 0 : shownSecurity(security);
+      if (filters.security === 1 ? sec < 0.45 : filters.security === 3 ? sec > 0 : filters.security === 2 ? !(sec > 0 && sec < 0.45) : false) return [];
+      return [{ solarSystemID, jumps: n, security, strongholds: list.map((c) => ({ agencyContentID: c.agencyContentID, enemyOwnerID: c.enemyOwnerID, enemyFactionID: factionOf(c.enemyOwnerID),
+        titleTextID: c.titleTextID, subtitleTextID: c.subtitleTextID })) }];
+    }).sort((a, b) => (a.jumps ?? 1e9) - (b.jumps ?? 1e9));
+    return { all: content.length, systems };
+  }
   let systemPlanetsHeld: Awaited<ReturnType<typeof api.loadSystemPlanets>> = null;
   async function agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<Awaited<ReturnType<AppFlow["agencyPlanetaryProduction"]>>> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
@@ -34148,6 +34192,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyHelpVideos,
     agencyCorpStandings,
     agencyFleetUp,
+    agencyPirateStrongholds,
     agencyFleetRegistration,
     agencyRegisterFleet,
     agencyColonyResources,

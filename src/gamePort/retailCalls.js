@@ -709,6 +709,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances", "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates", "fwVictoryPointMgr.GetAllVictoryPointStates",
   // And its insurgencies (PirateInsurgencySiteTracker) and ESS systems (ContentProviderESS._GetSolarSystemsWithESS).
   "dungeonInstanceCacheMgr.GetPirateInsurgencyInstances", "dynamicResourceCacheMgr.GetESSAgencyData",
+  // And its custom content, the pirate strongholds among it (agency/client/custom_content.get_custom_content).
+  "custom_agency_provider.get_content_data",
   // And Colony Resources' sovereignty (starMapSvc.GetAllianceSolarSystems).
   "stationSvc.GetAllianceSystems",
   // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
@@ -2730,6 +2732,7 @@ const RETAIL_CALLS = Object.freeze({
   "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates": same("eve/client/script/ui/services/fwWarzoneSvc.py:73", "sm.RemoteSvc('fwWarzoneSolarsystem').GetAllWarzonesOccupationStates(), no arguments: by warzone, by solar system, its OccupationState."),
   "fwVictoryPointMgr.GetAllVictoryPointStates": same("eve/client/script/ui/services/fwVictoryPointSvc.py:47", "sm.RemoteSvc('fwVictoryPointMgr').GetAllVictoryPointStates(), no arguments: by solar system its VictoryPointState; GetVictoryPointState of a system not the session's takes that system's."),
   "rewardMgr.GetDelayedRewardsByGroupIDs": same("eve/client/script/ui/shared/incursionSvc.py:259", "sm.RemoteSvc('rewardMgr').GetDelayedRewardsByGroupIDs(tuple(rewardGroupIDs)), the IDs sorted: by reward group, its delayed rewards (KeyVals of rewardTypeID and rewardQuantity); IncursionContentPiece.GetLPPayoutPool takes the LP one's (REWARD_TYPE_LP 1)."),
+  "custom_agency_provider.get_content_data": same("agency/client/custom_content.py:13", "sm.RemoteSvc('custom_agency_provider').get_content_data(), no arguments: the Agency's custom content, a list of agency.common.contentdata.CustomContentData, filtered by its content_type on the client (the pirate strongholds' is 15). Recorded on Tranquility (\"Agency - Opening Resource Harvesting Planets Colony Resources\", 2026-09-10) answering [], as a cached method call."),
   "map.GetSystemsInIncursions": same("eve/client/script/ui/shared/agencyNew/contentPieces/incursionContentPiece.py:84", "sm.RemoteSvc('map').GetSystemsInIncursions(), no arguments: the rows of the systems in incursions, each its locationID and sceneType."),
   "dungeonExplorationMgr.GetMyEscalatingPathDetails": same("eve/client/script/ui/shared/neocom/journal.py:250", "sm.RemoteSvc('dungeonExplorationMgr').GetMyEscalatingPathDetails(), no arguments: a Rowset of the pilot's escalations, header instanceID, dungeon, srcDungeon, destDungeon, journalEntryTemplateID, expiryTime. Recorded on Tranquility with no rows (and as a CachedMethodCallResult)."),
   "dungeonInstanceCacheMgr.GetSignatureInstances": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderSignatures.py:25", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetSignatureInstances(), no arguments: by solar system its signatures' count, every system. Recorded on Tranquility so (Paragon - Amarr destroyer, 11/1/2026)."),

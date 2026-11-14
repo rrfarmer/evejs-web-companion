@@ -41,6 +41,7 @@
   import AgencyGuidePage from "./AgencyGuidePage.svelte";
   import AgencyFleetUpPage from "./AgencyFleetUpPage.svelte";
   import AgencyCampaignsPage from "./AgencyCampaignsPage.svelte";
+  import AgencyPirateStrongholdsPage from "./AgencyPirateStrongholdsPage.svelte";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
@@ -55,7 +56,7 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, PIRATE_STRONGHOLDS = 73, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -91,7 +92,13 @@
   const systemID = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
   const knownSpace = $derived(systemID === null || systemID < 31000000);
   const wormhole = $derived(systemID !== null && systemID >= 31000000 && systemID < 32000000);
-  const disabled = (g: AgencyGroup) => !knownSpace && !AGENCY_WORMHOLE_GROUPS.includes(g.id);
+  // BaseContentGroup.IsEnabled, and the groups' own: PirateStrongholdsContentGroup while its provider has any
+  // stronghold (GetPirateStrongholds), its card's hint PirateStrongholdsDisabledHint otherwise (GetDisabledHint).
+  let strongholds = $state(0);
+  $effect(() => { void flow.agencyPirateStrongholds(DEFAULT_SITE_FILTERS).then((d) => { strongholds = d?.all ?? 0; }); });
+  const DISABLED_HINTS: Readonly<Record<number, string>> = { [PIRATE_STRONGHOLDS]: "UI/Agency/PirateStrongholdsDisabledHint" };
+  const ownDisabled = (id: number) => id === PIRATE_STRONGHOLDS && strongholds === 0;
+  const disabled = (g: AgencyGroup) => (!knownSpace && !AGENCY_WORMHOLE_GROUPS.includes(g.id)) || ownDisabled(g.id);
   // IsVisible: the seasons group without a season (none in this build's data); HomefrontSitesContentGroup while its
   // provider has any site (GetAllDungeonInstances).
   let homefrontSites = $state(false);
@@ -102,7 +109,7 @@
 
   const word = (label: string | null) => (label ? plainText(formatTemplate($words.templates[label] ?? "", {} as never, { nameOf: () => "" })) : "");
   $effect(() => {
-    flow.requestWords(["UI/Agency/IncursionIn", "UI/Agency/Caption", "UI/Agency/currentlyUnavailable", "UI/Agency/UnavailableInWormholes", "UI/Commands/Back", "UI/Commands/Forward",
+    flow.requestWords(["UI/Agency/PirateStrongholdsDisabledHint", "UI/Agency/IncursionIn", "UI/Agency/Caption", "UI/Agency/currentlyUnavailable", "UI/Agency/UnavailableInWormholes", "UI/Commands/Back", "UI/Commands/Forward",
       ...Object.values(AGENCY_GROUPS).flatMap((g) => [g.name, g.description]).filter((x): x is string => !!x)]);
   });
 
@@ -114,7 +121,7 @@
 
 {#snippet card(g: AgencyGroup, kind: "h" | "v" | "home-v", texture: string | null = null)}
   {@const off = disabled(g)}
-  <button type="button" class={`ag-card ag-${kind}`} class:off disabled={off} onclick={() => show(g.id)} title={word(g.name)}>
+  <button type="button" class={`ag-card ag-${kind}`} class:off disabled={off} onclick={() => show(g.id)} title={ownDisabled(g.id) ? word(DISABLED_HINTS[g.id] ?? null) : word(g.name)}>
     {#if texture ?? g.card}<img class="ag-bg" alt="" src={clientTexture((texture ?? g.card)!)} />{/if}
     <span class="ag-title">{word(g.name)}</span>
     {#if g.description}<span class="ag-desc">{word(g.description)}</span>{/if}
@@ -162,6 +169,8 @@
       {#key itemID}<div class="ag-page"><AgencyIncursionPage {store} {flow} constellationID={itemID} /></div>{/key}
     {:else if groupID === FW_GUIDE}
       <div class="ag-page ag-help-page"><AgencyGuidePage {store} {flow} guide="factionWarfare" {onOpenTab} onShow={(id) => show(id)} /></div>
+    {:else if groupID === PIRATE_STRONGHOLDS}
+      <div class="ag-page"><AgencyPirateStrongholdsPage {store} {flow} filters={siteFilters[groupID] ?? DEFAULT_SITE_FILTERS} /></div>
     {:else if groupID === CAMPAIGNS}
       <div class="ag-page"><AgencyCampaignsPage {store} {flow} {onOpenTab} /></div>
     {:else if groupID === FLEET_UP_REGISTER}
