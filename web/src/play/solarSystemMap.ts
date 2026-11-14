@@ -74,6 +74,23 @@ export interface SolarSystemMapHooks {
 }
 
 const COLOR_DSCAN = new THREE.Color(0.225, 0.75, 0.5);
+// ScanEffect (OnDirectionalScanComplete): the cone model's curve sets, read from res:/dx9/model/ui/scancone.black -
+// ScanPart_01 (1 s): FresnelFactors.y x 0.6 by the keys 0, 0.1 -> 1, 0.5 -> 1, 0.75 -> 0.1, 1 -> 0; then ScanPart_02 (1 s):
+// FresnelFactors.y x 0.66 by 0, 0.25 -> 1, 0.7516 -> 0.1, 1 -> 0; translateUVcurve 0, 0.8866 -> 0.95, 1 -> 1 (the
+// texture moved along the cone: the sweep); staticBrightness 1, 0.66 -> 1, 0.8684 -> 0.1, 1 -> 0. Linear keys.
+type Keys = readonly (readonly [number, number])[];
+const PART1_FRESNEL: Keys = [[0, 0], [0.1, 1], [0.5, 1], [0.75, 0.1], [1, 0]];
+const PART2_FRESNEL: Keys = [[0, 0], [0.25, 1], [0.7516, 0.1], [1, 0]];
+const PART2_TRANSLATE: Keys = [[0, 0], [0.8866, 0.95], [1, 1]];
+const PART2_STATIC: Keys = [[0, 1], [0.66, 1], [0.8684, 0.1], [1, 0]];
+export function keysAt(keys: Keys, t: number): number {
+  if (t <= keys[0]![0]) return keys[0]![1];
+  for (let i = 0; i + 1 < keys.length; i++) {
+    const [t0, v0] = keys[i]!, [t1, v1] = keys[i + 1]!;
+    if (t <= t1) return v0 + ((v1 - v0) * (t - t0)) / (t1 - t0);
+  }
+  return keys[keys.length - 1]![1];
+}
 const AU_M = 149_597_870_700;
 
 /** EVE's coordinates to the map's (the space view's handedness: z mirrored), scaled. */
@@ -123,6 +140,13 @@ export class SolarSystemMapWindow {
   private readonly markersLayer = document.createElement("div");
   private readonly coneGroup = new THREE.Group();
   private coneFor = "";
+  private scanEffectAt = 0;
+  private coneSurface: THREE.MeshBasicMaterial | null = null;
+  private sweepRing: THREE.LineLoop | null = null;
+  private coneLength = 0;
+  private coneHalfAngle = 0;
+  /** The scan effect's state now, for checks: its phase (0 none, 1, 2), the flash and the sweep's place (0 .. 1). */
+  scanEffectInfo = { phase: 0, flash: 0, sweep: 0, brightness: 0 };
   /** What the scan shape is now, for checks: "cone" / "half" / "sphere", its rings, and its size in map units. */
   coneInfo = { kind: "none", rings: 0, length: 0, radius: 0 };
   private markers: { itemID: number; at: THREE.Vector3; el: HTMLDivElement }[] = [];
@@ -346,6 +370,8 @@ export class SolarSystemMapWindow {
       const range = cone.rangeMetres * SOLARSYSTEM_SCALE;
       const surface = new THREE.MeshBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0.12, side: THREE.DoubleSide,
         depthWrite: false, blending: THREE.AdditiveBlending });
+      this.coneSurface = surface;
+      this.sweepRing = null;
       const line = new THREE.LineBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending });
       if (cone.angleDeg < 180) {
         const half = ((cone.angleDeg * Math.PI) / 180) / 2;
@@ -366,6 +392,15 @@ export class SolarSystemMapWindow {
           rings += 1;
         }
         this.coneInfo = { kind: "cone", rings, length, radius };
+        this.coneLength = length;
+        this.coneHalfAngle = half;
+        // the sweep's ring, moved along the cone by ScanPart_02
+        const sweepPts: THREE.Vector3[] = [];
+        for (let i = 0; i < 64; i++) { const a = (i / 64) * Math.PI * 2; sweepPts.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a))); }
+        this.sweepRing = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(sweepPts),
+          new THREE.LineBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+        this.sweepRing.visible = false;
+        this.coneGroup.add(this.sweepRing);
       } else if (cone.angleDeg < 360) {
         this.coneGroup.add(new THREE.Mesh(new THREE.SphereGeometry(range, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), surface));
         this.coneInfo = { kind: "half", rings: 0, length: range, radius: range };
@@ -374,6 +409,7 @@ export class SolarSystemMapWindow {
         this.coneInfo = { kind: "sphere", rings: 0, length: range, radius: range };
       }
     }
+    this.stepScanEffect();
     this.coneGroup.position.copy(mapPoint(ego));
     // SCANMODE_CAMERA with the map open: the map camera's look, and the space camera turned to it
     const dir = cone.cameraMode && this.isOpen ? this.camera.getWorldDirection(new THREE.Vector3()) : mapPoint(cone.direction).normalize();
@@ -384,6 +420,32 @@ export class SolarSystemMapWindow {
   /** The markers drawn, for checks: how many, and how many in the view. */
   markerCounts(): { all: number; shown: number } {
     return { all: this.markers.length, shown: this.markers.filter((m) => m.el.style.display !== "none").length };
+  }
+
+  /** OnDirectionalScanComplete -> ScanEffect: ScanPart_01, then ScanPart_02 when it ends. */
+  scanEffect(): void { this.scanEffectAt = performance.now(); }
+
+  private stepScanEffect(): void {
+    const elapsed = this.scanEffectAt ? (performance.now() - this.scanEffectAt) / 1000 : Infinity;
+    let flash = 0, sweep = 0, brightness = 0, phase = 0;
+    if (elapsed < 1) { phase = 1; flash = keysAt(PART1_FRESNEL, elapsed) * 0.6; }
+    else if (elapsed < 2) {
+      phase = 2;
+      const t = elapsed - 1;
+      flash = keysAt(PART2_FRESNEL, t) * 0.66;
+      sweep = keysAt(PART2_TRANSLATE, t);
+      brightness = keysAt(PART2_STATIC, t);
+    }
+    this.scanEffectInfo = { phase, flash, sweep, brightness };
+    if (this.coneSurface) this.coneSurface.opacity = 0.12 + flash * 0.5;
+    if (this.sweepRing) {
+      this.sweepRing.visible = phase === 2 && brightness > 0;
+      const along = sweep * this.coneLength;
+      const r = Math.tan(this.coneHalfAngle) * along;
+      this.sweepRing.position.set(0, along, 0);
+      this.sweepRing.scale.set(Math.max(r, 1e-6), 1, Math.max(r, 1e-6));
+      (this.sweepRing.material as THREE.LineBasicMaterial).opacity = brightness;
+    }
   }
 
   /** The camera's point of interest, for checks. */

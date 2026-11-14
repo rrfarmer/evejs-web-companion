@@ -562,6 +562,7 @@ export class SpaceView {
         presets: () => this.overview?.presetList() ?? [],
         maxRangeMetres: () => this.actions.shipAttribute?.(5796) ?? null,
         openMap: () => this.systemMap?.open(),
+        scanned: () => this.systemMap?.scanEffect(),
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);

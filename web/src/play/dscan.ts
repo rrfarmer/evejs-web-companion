@@ -52,6 +52,8 @@ export interface DScanHooks {
   groupName(groupID: number): string | null;
   /** The active overview preset (GetActiveOverviewPresetName): its name and groups; null until the presets are read. */
   activePreset?(): { readonly name: string; readonly groups: ReadonlySet<number> } | null;
+  /** OnDirectionalScanComplete: a scan answered (the map's scan effect). */
+  scanned?(): void;
   /** MapBtnClicked: the solar system map opened. */
   openMap?(): void;
   /** The ship's maxDirectionalScanRange in metres (GetMaxRangeM); null where it is not read. */
@@ -305,6 +307,7 @@ export class DScanWindow {
     try {
       this.rows = dscanRows(await this.hooks.scan(angle, range, this.hooks.direction()));
       this.draw();
+      this.hooks.scanned?.();
       // directionalScanSvc.PlayResultSound: results, or none
       void playUiEvent(this.rows.length ? "msg_newscan_directional_scan_results_play" : "msg_newscan_directional_scan_noresults_play");
       // The client says nothing under its list on a scan: the line is for the scan under way and a failure only.
