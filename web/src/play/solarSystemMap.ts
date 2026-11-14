@@ -11,11 +11,17 @@
 //   (-1, 0, 0) -> the direction), white at 0.1; the sun its own sprite (CreateSun - its flare not drawn here).
 // - ShowMyLocation: the ego marker at the ship.
 // Opened by CmdToggleSolarSystemMap (F9) and the directional scanner's map button.
-// Not here: the markers and their labels, the bookmarks, the scan panels docked in it, the range indicator, the probe
+// - LoadMarkers: a MarkerSpaceObject for each celestial of the markers setting's groups (VIEWMODE_MARKERS_OPTIONS_DEFAULT:
+//   planet, moon, station, asteroid belt, beacon, cynosural beacon, stargate, sun, citadel, industrial array, drilling
+//   platform), the ballpark's first: a 14 x 14 marker, the type's bracket icon (16) at its middle (MarkerIconBase.Load;
+//   no background for a space object), on the map point (projectBracket offsetY 0); hovered, the selection circle (30,
+//   0.5) and its label (BracketShadowLabel at 26, 2: GetLabelText, the name and FmtDist of its distance).
+// Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
 import * as THREE from "three";
 import { PlayWindow, clientTexture } from "./window.ts";
+import { bracketIcon } from "./brackets.ts";
 
 export const SOLARSYSTEM_SCALE = 1e-10;
 const MIN_DISTANCE = 0.5;
@@ -25,14 +31,21 @@ const GROUP_SUN = 6;
 const GROUP_PLANET = 7;
 const GROUP_MOON = 8;
 const GROUP_STARGATE = 10;
+/** mapViewConst.VIEWMODE_MARKERS_OPTIONS_DEFAULT (inventorycommon const). */
+export const MARKER_GROUPS: ReadonlySet<number> = new Set([7, 8, 15, 9, 310, 2020, 10, 6, 1657, 1404, 1406]);
 
-export interface MapCelestial { readonly itemID: number; readonly groupID: number | null; readonly position: { x: number; y: number; z: number } }
+export interface MapCelestial {
+  readonly itemID: number; readonly typeID: number | null; readonly groupID: number | null; readonly categoryID: number | null;
+  readonly position: { x: number; y: number; z: number };
+}
 
 export interface SolarSystemMapHooks {
   /** The system's celestials as the park has them (EVE's own coordinates, metres). */
   celestials(): readonly MapCelestial[];
   /** The ship's position (EVE's coordinates), or null. */
   ego(): { x: number; y: number; z: number } | null;
+  /** A marker's label: its name and distance (GetLabelText). */
+  label?(itemID: number): string;
   word?(label: string): string | null;
 }
 
@@ -80,6 +93,8 @@ export class SolarSystemMapWindow {
   private readonly root = new THREE.Group();
   private readonly egoMarker: THREE.Sprite;
   private readonly dot = dotTexture();
+  private readonly markersLayer = document.createElement("div");
+  private markers: { itemID: number; at: THREE.Vector3; el: HTMLDivElement }[] = [];
   private yaw = 0.6;
   private pitch = 0.5;
   private distance = 100;
@@ -99,6 +114,8 @@ export class SolarSystemMapWindow {
     this.window.body.classList.add("ssm");
     this.canvas.className = "ssm-canvas";
     this.window.body.appendChild(this.canvas);
+    this.markersLayer.className = "ssm-markers";
+    this.window.body.appendChild(this.markersLayer);
     this.scene.background = new THREE.Color(0x000000);
     this.scene.add(this.root);
     this.egoMarker = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dot, color: 0x58a7bf, sizeAttenuation: false, depthTest: false }));
@@ -132,6 +149,8 @@ export class SolarSystemMapWindow {
     this.builtFor = key;
     this.root.clear();
     this.counts = { planets: 0, moons: 0, orbits: 0, stargates: 0 };
+    this.markersLayer.innerHTML = "";
+    this.markers = [];
     const sun = all.find((c) => c.groupID === GROUP_SUN);
     const sunAt = sun ? mapPoint(sun.position) : new THREE.Vector3();
     const planets = all.filter((c) => c.groupID === GROUP_PLANET).map((c) => ({ id: c.itemID, at: mapPoint(c.position) }));
@@ -167,6 +186,21 @@ export class SolarSystemMapWindow {
         sprite(at, 0.008, 0x9fd3e8);
         this.counts.stargates += 1;
       }
+    }
+    // LoadMarkers: the markers setting's groups
+    for (const c of all) {
+      if (c.groupID === null || !MARKER_GROUPS.has(c.groupID)) continue;
+      const el = document.createElement("div");
+      el.className = "ssm-marker";
+      const icon = bracketIcon({ typeID: c.typeID, groupID: c.groupID, categoryID: c.categoryID });
+      el.innerHTML = `<img class="ssm-frame" alt="" src="${clientTexture("res:/UI/Texture/classes/Bracket/selectionCircle.png")}">${icon ? `<img class="ssm-icon" alt="" src="${icon}">` : ""}<span class="ssm-label"></span>`;
+      el.addEventListener("mouseenter", () => {
+        el.classList.add("hover");
+        (el.querySelector(".ssm-label") as HTMLElement).textContent = this.hooks.label?.(c.itemID) ?? "";
+      });
+      el.addEventListener("mouseleave", () => el.classList.remove("hover"));
+      this.markersLayer.appendChild(el);
+      this.markers.push({ itemID: c.itemID, at: mapPoint(c.position), el });
     }
     this.radius = radius;
     // FrameSolarSystem: GetTranslationFromParentWithRadius - the distance at which the radius fills the view - times 1.3
@@ -207,6 +241,19 @@ export class SolarSystemMapWindow {
     this.camera.position.set(Math.sin(this.yaw) * c * this.distance, Math.sin(this.pitch) * this.distance, Math.cos(this.yaw) * c * this.distance);
     this.camera.lookAt(0, 0, 0);
     this.renderer.render(this.scene, this.camera);
+    // the markers on their map points (behind the camera: hidden)
+    const v = new THREE.Vector3();
+    for (const m of this.markers) {
+      v.copy(m.at).project(this.camera);
+      const shown = v.z < 1 && v.z > -1 && Math.abs(v.x) <= 1.05 && Math.abs(v.y) <= 1.05;
+      m.el.style.display = shown ? "" : "none";
+      if (shown) m.el.style.transform = `translate(${Math.round(((v.x + 1) / 2) * w) - 7}px, ${Math.round(((1 - v.y) / 2) * h) - 7}px)`;
+    }
+  }
+
+  /** The markers drawn, for checks: how many, and how many in the view. */
+  markerCounts(): { all: number; shown: number } {
+    return { all: this.markers.length, shown: this.markers.filter((m) => m.el.style.display !== "none").length };
   }
 
   /** The camera's distance from the point of interest, in the map's units. */

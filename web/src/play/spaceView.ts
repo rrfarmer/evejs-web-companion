@@ -34,7 +34,7 @@ import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
 import { DScanWindow } from "./dscan.ts";
-import { SolarSystemMapWindow } from "./solarSystemMap.ts";
+import { SolarSystemMapWindow, MARKER_GROUPS } from "./solarSystemMap.ts";
 import { Neocom } from "./neocom.ts";
 import { bracketIcon, loadBrackets } from "./brackets.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
@@ -514,9 +514,13 @@ export class SpaceView {
     const rowID = (_x: number, _y: number, e: Event) => Number((e.target as HTMLElement).closest?.("[data-id]")?.getAttribute("data-id")) || null;
     // The solar system map (CmdToggleSolarSystemMap, F9; the directional scanner's map button), over the park's celestials.
     this.systemMap = new SolarSystemMapWindow({
-      celestials: () => (this.snapshot?.entities ?? []).filter((e) => e.groupID === 6 || e.groupID === 7 || e.groupID === 8 || e.groupID === 10),
+      celestials: () => (this.snapshot?.entities ?? []).filter((e) => e.groupID !== null && (MARKER_GROUPS.has(e.groupID))),
       ego: () => this.snapshot?.ship?.position ?? null,
       word: (label) => this.actions.word?.(label) ?? null,
+      label: (itemID) => {
+        const e = this.snapshot?.entities.find((each) => each.itemID === itemID);
+        return e ? `${this.nameOf(e)} ${distanceWords(this.distanceTo(e))}` : "";
+      },
     }, this.layer);
     this.layer.appendChild(this.systemMap.window.root);
     this.raiseOnClick(this.systemMap.window.root);
