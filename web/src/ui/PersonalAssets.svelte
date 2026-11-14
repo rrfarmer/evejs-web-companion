@@ -190,7 +190,43 @@
     label: "UI/Inventory/AssetsWindow/LocationDataLabel", noRoute: "UI/Inventory/AssetsWindow/LocationDataLabelNoRoute",
     quantity: "UI/Common/Quantity", volume: "UI/Inventory/ItemVolume", noAssets: "UI/Inventory/AssetsWindow/NoAssetsAtStation",
     nothing: "UI/Common/NothingFound",
+    allItems: "UI/Inventory/AssetsWindow/AllItems", region: "UI/Common/LocationTypes/Region", constellation: "UI/Common/LocationTypes/Constellation",
+    system: "UI/Common/LocationTypes/SolarSystem", current: "UI/Common/Current", noInRegion: "UI/Inventory/AssetsWindow/NoAssetsInRegion",
+    noInConstellation: "UI/Inventory/AssetsWindow/NoAssetsInConstellation", noInSystem: "UI/Inventory/AssetsWindow/NoAssetsInSolarSystem",
+    pin: "UI/Inventory/AssetsWindow/PinPersonalAssets", unpin: "UI/Inventory/AssetsWindow/UnpinPersonalAssets",
+    hide: "UI/Inventory/AssetsWindow/HidePersonalAssets", unhide: "UI/Inventory/AssetsWindow/UnhidePersonalAssets",
+    pinned: "UI/Inventory/AssetsWindow/PersonalAssetLocationPinned", unpinned: "UI/Inventory/AssetsWindow/PersonalAssetLocationUnpinned",
+    hidden: "UI/Inventory/AssetsWindow/PersonalAssetLocationHidden", unhidden: "UI/Inventory/AssetsWindow/PersonalAssetLocationUnhidden",
+    pinnedHint: "UI/Inventory/AssetsWindow/PinnedLocation",
   } as const;
+  // ConstructFilterCont's filter type (FILTER_TYPE_OPTIONS; assets_window_filter_type) and its value (GetFilterValueComboOptions:
+  // Current, then each region / constellation / system the assets lie in by name; assetsKeyID_<key>), the places from the
+  // star map; and the locations' importance (assets_window_importance: pinned 1 first with the pin, hidden -1 under the
+  // Hidden group) - each kept in this browser as the client keeps them in settings.char.ui.
+  type FilterType = "allitems" | "regitems" | "conitems" | "sysitems";
+  const FILTER_TYPES: readonly [FilterType, string, string][] = [["allitems", ASSET_WORDS.allItems, "All Items"], ["regitems", ASSET_WORDS.region, "Region"],
+    ["conitems", ASSET_WORDS.constellation, "Constellation"], ["sysitems", ASSET_WORDS.system, "Solar System"]];
+  const keptJSON = <T,>(key: string, fallback: T): T => { try { const v = localStorage.getItem(`evejs.play.${key}`); return v === null ? fallback : JSON.parse(v) as T; } catch { return fallback; } };
+  const keepJSON = (key: string, value: unknown) => { try { localStorage.setItem(`evejs.play.${key}`, JSON.stringify(value)); } catch { /* not kept */ } };
+  let filterType = $state<FilterType>((() => { const k = keptJSON<string>("assets_window_filter_type", "allitems"); return FILTER_TYPES.some(([id]) => id === k) ? k as FilterType : "allitems"; })());
+  // svelte-ignore state_referenced_locally
+  let filterKeyID = $state<number>(keptJSON<number>(`assetsKeyID_${filterType}`, 0) || 0);
+  function chooseFilterType(type: FilterType): void { filterType = type; keepJSON("assets_window_filter_type", type); filterKeyID = keptJSON<number>(`assetsKeyID_${type}`, 0) || 0; }
+  function chooseFilterKey(id: number): void { filterKeyID = id; keepJSON(`assetsKeyID_${filterType}`, id); }
+  let importance = $state<Record<string, number>>(keptJSON<Record<string, number>>("assets_window_importance", {}));
+  /** _SetLocationImportance, and its message (Pin / Unpin / Hide / Unhide). */
+  function setImportance(locationID: number, value: 0 | 1 | -1, said: string): void {
+    menuFor = null;
+    const next = { ...importance };
+    if (value === 0) delete next[String(locationID)]; else next[String(locationID)] = value;
+    importance = next;
+    keepJSON("assets_window_importance", next);
+    const t = plainText(text(said));
+    if (t) flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", t]] }, t);
+  }
+  let hiddenOpen = $state(false);
+  /** The star map's places for the filter: each system's constellation and region, and their names. */
+  let mapPlaces = $state.raw<{ systems: Map<number, { region: number; constellation: number }>; names: Map<number, string> } | null>(null);
   const SORT_KEY = "evejs.play.assetsSortKey";
   let assetsSortKey = $state((() => { try { const k = Number(localStorage.getItem(SORT_KEY)); return k === 1 || k === 2 ? k : 0; } catch { return 0; } })());
   function setAssetsSort(key: number): void { assetsSortKey = key; try { localStorage.setItem(SORT_KEY, String(key)); } catch { /* not kept */ } }
@@ -260,19 +296,51 @@
     const missing = types.filter((id) => !typeFacts.has(id));
     if (missing.length > 0) void flow.assetTypeFacts(missing).then((read) => { typeFacts = new Map([...typeFacts, ...read]); }).catch(() => {});
   });
+  /** The place a station's system is in for the filter type: the region, the constellation or the system. */
+  function placeOf(solarSystemID: number, type: FilterType): number | null {
+    if (type === "sysitems") return solarSystemID;
+    const sys = mapPlaces?.systems.get(solarSystemID);
+    return sys ? (type === "regitems" ? sys.region : sys.constellation) : null;
+  }
+  /** GetFilterValueComboOptions: Current, then the places the assets lie in by name. */
+  const filterOptions = $derived.by(() => {
+    if (filterType === "allitems") return [] as { id: number; name: string }[];
+    const ids = [...new Set($assets.stations.map((row) => placeOf(row.solarSystemID, filterType)).filter((id): id is number => id !== null))];
+    const name = (id: number) => (filterType === "sysitems" ? systemName(id) : mapPlaces?.names.get(id) ?? String(id));
+    return ids.map((id) => ({ id, name: name(id) })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  });
+  /** assets.GetAll(key, keyID): the stations in the chosen place, the session's own for Current (keyID 0). */
+  const filteredStations = $derived.by(() => {
+    if (filterType === "allitems") return $assets.stations;
+    const want = filterKeyID || (hereSystem === null ? null : placeOf(hereSystem, filterType));
+    return $assets.stations.filter((row) => want !== null && placeOf(row.solarSystemID, filterType) === want);
+  });
+  const noContentWord = $derived(filterType === "regitems" ? ASSET_WORDS.noInRegion : filterType === "conitems" ? ASSET_WORDS.noInConstellation
+    : filterType === "sysitems" ? ASSET_WORDS.noInSystem : ASSET_WORDS.noAssets);
   const sortedStations = $derived.by(() => {
-    const rows = $assets.stations.map((row) => ({ row, name: stationName(row.stationID), jumps: jumpsTo(row) ?? Number.MAX_SAFE_INTEGER }));
+    const rows = filteredStations.map((row) => ({ row, name: stationName(row.stationID), jumps: jumpsTo(row) ?? Number.MAX_SAFE_INTEGER, pinned: importance[String(row.stationID)] === 1 ? 1 : 0 }));
     const cmp = (a: number | string, b: number | string) => (a < b ? -1 : a > b ? 1 : 0);
     // GetLocationData's sortVal: (name, items, jumps), (jumps, name, items) or (-items, name, jumps)
-    return rows.sort((a, b) => assetsSortKey === 1 ? cmp(a.jumps, b.jumps) || cmp(a.name, b.name) || cmp(a.row.itemCount, b.row.itemCount)
+    // sortVal's first: -isPinned
+    return rows.sort((a, b) => cmp(b.pinned, a.pinned) || (assetsSortKey === 1 ? cmp(a.jumps, b.jumps) || cmp(a.name, b.name) || cmp(a.row.itemCount, b.row.itemCount)
       : assetsSortKey === 2 ? cmp(b.row.itemCount, a.row.itemCount) || cmp(a.name, b.name) || cmp(a.jumps, b.jumps)
-      : cmp(a.name, b.name) || cmp(a.row.itemCount, b.row.itemCount) || cmp(a.jumps, b.jumps));
+      : cmp(a.name, b.name) || cmp(a.row.itemCount, b.row.itemCount) || cmp(a.jumps, b.jumps)));
   });
+  const shownStations = $derived(sortedStations.filter((s) => importance[String(s.row.stationID)] !== -1));
+  const hiddenStations = $derived(sortedStations.filter((s) => importance[String(s.row.stationID)] === -1));
   $effect(() => {
     if (!retail) return;
     flow.requestWords([...Object.values(ASSET_WORDS), ...Object.keys(LINK_WORDS)]);
     const systems = [...new Set($assets.stations.map((row) => row.solarSystemID).filter((id) => id > 0))];
     if (systems.length > 0) flow.requestSystemSecurity(systems);
+  });
+  onMount(() => {
+    if (!retail) return;
+    void flow.loadStarMap().then((map) => {
+      const systems = new Map(map.systems.map((s) => [s[0], { region: s[5], constellation: s[6] }] as const));
+      const names = new Map<number, string>([...(map.regions ?? []).map((r) => [r[0], r[4]] as const), ...(map.constellations ?? []).map((c) => [c[0], c[4]] as const)]);
+      mapPlaces = { systems, names };
+    }).catch(() => {});
   });
   // The Search tab (LoadSearch, Search_thread, _LoadSearch, GetSubContent): its text, and the stations of what matched.
   let searchText = $state("");
@@ -307,6 +375,63 @@
     void run(() => flow.loadPersonalAssets());
   });
 </script>
+
+{#snippet locationBody(row: AssetStationRow)}
+        {#if menuFor === row.stationID}
+          <div class="as-menu" role="menu">
+            {#if destinationOffered(row.stationID)}<button type="button" role="menuitem" onclick={() => route(row, "destination")}>{word(ROUTE_WORDS.setDestination, "Set Destination")}</button>{/if}
+            {#if $waypoints.includes(row.stationID)}
+              <button type="button" role="menuitem" onclick={() => route(row, "remove")}>{word(ROUTE_WORDS.removeWaypoint, "Remove Waypoint")}</button>
+            {:else}
+              <button type="button" role="menuitem" onclick={() => route(row, "add")}>{word(ROUTE_WORDS.addWaypoint, "Add Waypoint")}</button>
+            {/if}
+            <!-- _GetImportanceMenu -->
+            {#if importance[String(row.stationID)] === 1}
+              <button type="button" role="menuitem" onclick={() => setImportance(row.stationID, 0, ASSET_WORDS.unpinned)}>{plainText(text(ASSET_WORDS.unpin)) || "Unpin"}</button>
+            {:else if importance[String(row.stationID)] === -1}
+              <button type="button" role="menuitem" onclick={() => setImportance(row.stationID, 0, ASSET_WORDS.unhidden)}>{plainText(text(ASSET_WORDS.unhide)) || "Unhide"}</button>
+            {:else}
+              <button type="button" role="menuitem" onclick={() => setImportance(row.stationID, 1, ASSET_WORDS.pinned)}>{plainText(text(ASSET_WORDS.pin)) || "Pin"}</button>
+              <button type="button" role="menuitem" onclick={() => setImportance(row.stationID, -1, ASSET_WORDS.hidden)}>{plainText(text(ASSET_WORDS.hide)) || "Hide"}</button>
+            {/if}
+          </div>
+        {/if}
+        {#if $assets.expandedStationID === row.stationID}
+          {#if openStation === null}
+            <p class="as-item as-note">…</p>
+          {:else if openStation.error}
+            <p class="as-item as-note">What's stored here could not be read just now.</p>
+          {:else if openStation.hasNoItems}
+            <p class="as-item as-note">{plainText(text(ASSET_WORDS.nothing)) || "Nothing found"}</p>
+          {:else}
+            <div class="as-item as-head" style:grid-template-columns={itemGrid}>
+              {#each shownColumns as col (col.label)}
+                <button type="button" class="as-col" class:num={col.right} onclick={() => sortOn(col.label)}
+                  oncontextmenu={(e) => { e.preventDefault(); headerMenuFor = headerMenuFor === col.label ? null : col.label; }}>{plainText(text(col.label))}{sortColumn === col.label ? (sortReversed ? " ▴" : " ▾") : ""}</button>
+              {/each}
+            </div>
+            {#if headerMenuFor}
+              <div class="as-menu" role="menu">
+                {#if shownColumns.length > 1}<button type="button" role="menuitem" onclick={() => hideColumn(headerMenuFor!)}>{plainText(text("/Carbon/UI/Common/Hide", { label: plainText(text(headerMenuFor)) }))}</button>{/if}
+                {#each COLUMNS.filter((c) => !shownColumns.includes(c)) as c (c.label)}
+                  <button type="button" role="menuitem" onclick={() => showColumn(c.label)}>{plainText(text("/Carbon/UI/Common/Show", { label: plainText(text(c.label)) }))}</button>
+                {/each}
+              </div>
+            {/if}
+            {#each openItems as item (item.itemID)}
+              <div class="as-item" style:grid-template-columns={itemGrid}>
+                {#each shownColumns as col (col.label)}
+                  {#if col.label === "UI/Common/Name"}
+                    <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
+                  {:else}
+                    <span class:num={col.right}>{col.text(item)}</span>
+                  {/if}
+                {/each}
+              </div>
+            {/each}
+          {/if}
+        {/if}
+{/snippet}
 
 <section class="panel" class:as-retail={retail} class:as-safety={retail && safetyTab}>
   <header class="panel-head">
@@ -408,6 +533,20 @@
     </p>
   {:else if retail}
     <div class="as-filter">
+      <label class="as-filter-type">&nbsp;
+        <select value={filterType} onchange={(e) => chooseFilterType((e.currentTarget as HTMLSelectElement).value as FilterType)}>
+          {#each FILTER_TYPES as [id, label, own] (id)}<option value={id}>{plainText(text(label)) || own}</option>{/each}
+        </select>
+      </label>
+      {#if filterType !== "allitems"}
+        <label class="as-filter-type">&nbsp;
+          <select value={filterKeyID} onchange={(e) => chooseFilterKey(Number((e.currentTarget as HTMLSelectElement).value))}>
+            <option value={0}>{plainText(text(ASSET_WORDS.current)) || "Current"}</option>
+            {#each filterOptions as o (o.id)}<option value={o.id}>{o.name}</option>{/each}
+          </select>
+        </label>
+      {/if}
+      <span class="as-filter-gap"></span>
       <label>{plainText(text(ASSET_WORDS.sortBy)) || "Sort By"}
         <select value={assetsSortKey} onchange={(e) => setAssetsSort(Number((e.currentTarget as HTMLSelectElement).value))}>
           <option value={0}>{plainText(text(ASSET_WORDS.name)) || "Name"}</option>
@@ -417,63 +556,33 @@
       </label>
     </div>
     <div class="as-scroll">
-      {#each sortedStations as { row } (row.stationID)}
-        <button type="button" class="as-group" aria-expanded={$assets.expandedStationID === row.stationID} onclick={() => toggle(row)}
+      {#snippet locationGroup(row: AssetStationRow, sub: boolean)}
+        <button type="button" class="as-group" class:as-sub={sub} aria-expanded={$assets.expandedStationID === row.stationID} onclick={() => toggle(row)}
           oncontextmenu={(e) => { e.preventDefault(); menuFor = menuFor === row.stationID ? null : row.stationID; }}>
           <span class="as-arrow">{$assets.expandedStationID === row.stationID ? "▾" : "▸"}</span><LabelText markup={locationLabel(row)} {followerOf} />
+          {#if importance[String(row.stationID)] === 1}<img class="as-pin" alt="" title={plainText(text(ASSET_WORDS.pinnedHint))} src="/client-res/ui/texture/eveicon/system_icons/pinned_16px.png" />{/if}
         </button>
-        {#if menuFor === row.stationID}
-          <div class="as-menu" role="menu">
-            {#if destinationOffered(row.stationID)}<button type="button" role="menuitem" onclick={() => route(row, "destination")}>{word(ROUTE_WORDS.setDestination, "Set Destination")}</button>{/if}
-            {#if $waypoints.includes(row.stationID)}
-              <button type="button" role="menuitem" onclick={() => route(row, "remove")}>{word(ROUTE_WORDS.removeWaypoint, "Remove Waypoint")}</button>
-            {:else}
-              <button type="button" role="menuitem" onclick={() => route(row, "add")}>{word(ROUTE_WORDS.addWaypoint, "Add Waypoint")}</button>
-            {/if}
-          </div>
-        {/if}
-        {#if $assets.expandedStationID === row.stationID}
-          {#if openStation === null}
-            <p class="as-item as-note">…</p>
-          {:else if openStation.error}
-            <p class="as-item as-note">What's stored here could not be read just now.</p>
-          {:else if openStation.hasNoItems}
-            <p class="as-item as-note">{plainText(text(ASSET_WORDS.nothing)) || "Nothing found"}</p>
-          {:else}
-            <div class="as-item as-head" style:grid-template-columns={itemGrid}>
-              {#each shownColumns as col (col.label)}
-                <button type="button" class="as-col" class:num={col.right} onclick={() => sortOn(col.label)}
-                  oncontextmenu={(e) => { e.preventDefault(); headerMenuFor = headerMenuFor === col.label ? null : col.label; }}>{plainText(text(col.label))}{sortColumn === col.label ? (sortReversed ? " ▴" : " ▾") : ""}</button>
-              {/each}
-            </div>
-            {#if headerMenuFor}
-              <div class="as-menu" role="menu">
-                {#if shownColumns.length > 1}<button type="button" role="menuitem" onclick={() => hideColumn(headerMenuFor!)}>{plainText(text("/Carbon/UI/Common/Hide", { label: plainText(text(headerMenuFor)) }))}</button>{/if}
-                {#each COLUMNS.filter((c) => !shownColumns.includes(c)) as c (c.label)}
-                  <button type="button" role="menuitem" onclick={() => showColumn(c.label)}>{plainText(text("/Carbon/UI/Common/Show", { label: plainText(text(c.label)) }))}</button>
-                {/each}
-              </div>
-            {/if}
-            {#each openItems as item (item.itemID)}
-              <div class="as-item" style:grid-template-columns={itemGrid}>
-                {#each shownColumns as col (col.label)}
-                  {#if col.label === "UI/Common/Name"}
-                    <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
-                  {:else}
-                    <span class:num={col.right}>{col.text(item)}</span>
-                  {/if}
-                {/each}
-              </div>
-            {/each}
-          {/if}
-        {/if}
+        {@render locationBody(row)}
+      {/snippet}
+      {#each shownStations as { row } (row.stationID)}
+        {@render locationGroup(row, false)}
       {:else}
-        <p class="as-note">{plainText(text(ASSET_WORDS.noAssets))}</p>
+        {#if hiddenStations.length === 0}<p class="as-note">{plainText(text(noContentWord))}</p>{/if}
       {/each}
+      {#if hiddenStations.length > 0}
+        <!-- GetHiddenEntry: a locked ListGroup 'Hidden' (the client's own word, not localised), the hidden icon, its count -->
+        <button type="button" class="as-group" aria-expanded={hiddenOpen} onclick={() => (hiddenOpen = !hiddenOpen)}>
+          <span class="as-arrow">{hiddenOpen ? "▾" : "▸"}</span><img class="as-hidden-icon" alt="" src="/client-res/ui/texture/eveicon/system_icons/hidden_16px.png" />Hidden <span class="as-count">[{hiddenStations.length}]</span>
+        </button>
+        {#if hiddenOpen}
+          {#each hiddenStations as { row } (row.stationID)}{@render locationGroup(row, true)}{/each}
+        {/if}
+      {/if}
     </div>
   {:else}
     <p class="note">
-      Your things are spread across {stationCount === 1
+      Your things are spread across
+ {stationCount === 1
         ? "one place"
         : `${stationCount} places`}.
     </p>

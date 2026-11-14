@@ -1605,7 +1605,12 @@
   .fly-windows :global(.as-retail > .asset-tabs) { order: -1; }
   /* assetsWindow.py's filter row (Combo height, Sort By on the right, 115 wide) and its scroll of LocationGroups */
   .fly-windows :global(.as-retail > .panel-head), .fly-windows :global(.as-retail > p.note) { display: none; }
-  .fly-windows :global(.as-filter) { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+  .fly-windows :global(.as-filter) { display: flex; gap: 4px; margin-bottom: 6px; }
+  .fly-windows :global(.as-filter-gap) { flex: 1; }
+  .fly-windows :global(.as-group.as-sub) { padding-left: 20px; width: calc(100% - 24px); }
+  .fly-windows :global(.as-pin) { margin-left: auto; width: 16px; height: 16px; opacity: 0.8; }
+  .fly-windows :global(.as-hidden-icon) { width: 16px; height: 16px; opacity: 0.8; }
+  .fly-windows :global(.as-count) { opacity: 0.6; }
   .fly-windows :global(.as-filter label) { display: flex; flex-direction: column; font-size: 10px; color: rgba(255, 255, 255, 0.6); width: 115px; }
   .fly-windows :global(.as-scroll) { flex: 1; min-height: 0; overflow: auto; }
   .fly-windows :global(.as-group) { all: unset; cursor: pointer; display: flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 4px;
