@@ -9,13 +9,15 @@
   // nodes' places -, diameter - 10 square): scaleSecondary multiplies the mask's coordinates (the resize handle sets it
   // to its size over the mask's), so 0.91 (0.8 in the career view) draws the mask 1 / 0.91 of the sprite, centred. Their
   // opacity the view's, faded over 0.4 s (FadeIn / FadeOut).
-  // Not here: the animations between views (the career view's scale and rotation, InnerCircles' ScaleUp / ScaleDown),
-  // the node hover glows.
+  // `enter`, the view's coming in (Tr2DScaleTo from its scale, 0.5 s ANIM_SMOOTH; Tr2DRotateTo from its rotation; a
+  // FadeIn of its own length): a CSS animation from those, the circle's end state its own.
+  // Not here: InnerCircles' ScaleUp / ScaleDown, the views fading under a hovered career node, the node hover glows.
   import type { Snippet } from "svelte";
-  let { nodes, size, nodeSize, offset, completed, node, centre, inner }: {
+  let { nodes, size, nodeSize, offset, completed, node, centre, inner, enter = null }: {
     nodes: readonly unknown[]; size: number; nodeSize: number; offset: number; completed: boolean;
     node: Snippet<[unknown, number]>; centre?: Snippet;
     inner?: { readonly mask: string; readonly scale: number; readonly opacity: number };
+    enter?: { readonly scale: number; readonly rotate?: number; readonly fade?: number } | null;
   } = $props();
   import { clientTexture } from "./skillGroupIcons.ts";
   const radius = $derived((size - nodeSize) / 2);
@@ -32,7 +34,9 @@
   const colour = $derived(completed ? "#6ab04c" : "#ffffff");
 </script>
 
-<div class="cc" style:width={`${size}px`} style:height={`${size}px`}>
+<div class="cc" class:entering={!!enter} style:width={`${size}px`} style:height={`${size}px`}
+  style:--from-scale={enter ? String(enter.scale) : undefined} style:--from-rotate={enter ? `${enter.rotate ?? 0}deg` : undefined}
+  style:--fade={enter?.fade ? `${enter.fade}s` : undefined} style:--from-opacity={enter?.fade ? "0" : "1"}>
   {#if inner}
     {@const d = size - nodeSize - 10}
     <img class="cc-inner" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/innerCircles.png")} style:width={`${d}px`} style:height={`${d}px`}
@@ -53,6 +57,9 @@
 
 <style>
   .cc { position: relative; flex: none; margin: 0 auto; }
+  .cc.entering { animation: cc-scale 0.5s ease-in-out, cc-fade var(--fade, 0s) ease-in-out; }
+  @keyframes cc-scale { from { transform: scale(var(--from-scale)) rotate(var(--from-rotate)); } }
+  @keyframes cc-fade { from { opacity: var(--from-opacity); } }
   .cc-glow { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.25; pointer-events: none; }
   .cc-ring { position: absolute; inset: 0; pointer-events: none; }
   .cc-inner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 0.4s;

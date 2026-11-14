@@ -42,6 +42,7 @@
   import { resolvedName } from "../store/names.ts";
   import { careerIcon } from "./skillPlanIcons.ts";
   import CareerCircle from "./CareerCircle.svelte";
+  import { untrack } from "svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { openJobBoard } from "./jobBoardRequests.ts";
   import { showCertifiedPlans } from "./skillPlanCareerRequests.ts";
@@ -80,6 +81,22 @@
   let careerID = $state<number | null>(null), activity = $state<string | null>(null), goalID = $state<string | null>(null);
   // CareerCircleView.OnCareerNodeHoverOn / Off: the inner circles to 0.4 while a career node is hovered, out after.
   let careerHover = $state(false);
+  // The views' coming in, by the view left (careerView._GoToCareerState from 0.6 and CIRCLE_ROTATION_BY_CAREER;
+  // ActivityView.AnimateIn from 1.3 with a 1 s fade, Maximize from MINIMIZED_SCALE 0.65 out of the goals; GoalView.
+  // AnimateIn from 1.4 with a 1 s fade). A positive rotation turns the circle anticlockwise on screen (the explorer's 45
+  // and the enforcer's -45 both bring the chosen career's node to the top), so its CSS angle is negated.
+  const CIRCLE_ROTATION_BY_CAREER: Readonly<Record<number, number>> = { 6: -45, 7: -45, 4: 45, 5: 45 };
+  let previousView = $state<string | null>(null), enter = $state<{ scale: number; rotate?: number; fade?: number } | null>(null);
+  $effect(() => {
+    const now = view;
+    const from = untrack(() => previousView);
+    if (from === now) return;
+    enter = from === null ? null
+      : now === "ACTIVITIES_VIEW" ? (from === "GOALS_VIEW" ? { scale: 0.65 } : { scale: 1.3, fade: 1 })
+      : now === "GOALS_VIEW" ? { scale: 1.4, fade: 1 }
+      : { scale: 0.6, rotate: -(CIRCLE_ROTATION_BY_CAREER[untrack(() => careerID) ?? 0] ?? 0) };
+    previousView = now;
+  });
   // CareerCircleView._GetNodeMask: the inner mask down for the enforcer (6) and explorer (4), up otherwise; the other
   // views' CircleView._GetNodeMask: the count's mask.
   const careerMask = $derived(`res:/UI/Texture/classes/careerPortal/nodeMasks/career_inner_mask_${careerID === 6 || careerID === 4 ? "down" : "up"}.png`);
@@ -202,7 +219,7 @@
       {:else if view === "CAREERS_VIEW"}
         <!-- CareerView: the four careers, their 128 px icons, names and goals done (CareerPointsNumFull). -->
         <CareerCircle nodes={CAREERS} size={circle} nodeSize={Math.min(180, circle * 0.215)} offset={-Math.PI / 4} completed={CAREERS.every((c) => careerGoals(c).every((g) => g.completed))}
-          inner={{ mask: careerMask, scale: 0.8, opacity: careerHover ? 0.4 : 0 }}>
+          inner={{ mask: careerMask, scale: 0.8, opacity: careerHover ? 0.4 : 0 }} {enter}>
           {#snippet node(n: unknown)}
             {@const c = n as Career}
             {@const list = careerGoals(c)}
@@ -218,7 +235,7 @@
         <!-- ActivityView: the career's activities, each its ICON_BY_ACTIVITY_ID icon in a ring of dashes (one a goal, green
              for those done) and, on hover, its name and ActivityProgressCount. -->
         <CareerCircle nodes={activities} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activities.every((a) => a.goals.every((g) => g.completed))}
-          inner={{ mask: countMask(activities.length), scale: 0.91, opacity: 1 }}>
+          inner={{ mask: countMask(activities.length), scale: 0.91, opacity: 1 }} {enter}>
           {#snippet node(n: unknown)}
             {@const a = n as (typeof activities)[number]}
             <button type="button" class="cpw-row cpw-node" class:on={activity === a.key} class:done={a.goals.every((g) => g.completed)}
@@ -233,7 +250,7 @@
       {:else if view === "GOALS_VIEW" && career}
         <!-- GoalView: the activity's goals, each a dot (smallDot), goalCompleted where done, the open eye where tracked. -->
         <CareerCircle nodes={activityGoals} size={circle} nodeSize={48} offset={-Math.PI / 2} completed={activityGoals.every((g) => g.completed)}
-          inner={{ mask: countMask(activityGoals.length), scale: 0.91, opacity: 1 }}>
+          inner={{ mask: countMask(activityGoals.length), scale: 0.91, opacity: 1 }} {enter}>
           {#snippet node(n: unknown)}
             {@const g = n as CareerGoal}
             <button type="button" class="cpw-row cpw-node cpw-goalnode" class:on={goalID === g.goalID} class:done={g.completed}
