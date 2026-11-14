@@ -5801,6 +5801,12 @@ export async function loadEpicArcs(options: ApiOptions = {}): Promise<{ readonly
   return data.available && Array.isArray(data.arcs) ? { arcs: data.arcs as EpicArcData[], featureTag: (data.featureTag ?? null) as { title: number | null; icon: string | null } | null } : null;
 }
 
+/** GET /api/client-data/career-agents: the schools' career agents, the career divisions' messages, the career plans' names. */
+export async function loadCareerAgentData(options: ApiOptions = {}): Promise<{ readonly schools: Readonly<Record<string, readonly number[]>>; readonly divisions: Readonly<Record<string, { readonly nameID: number | null; readonly descriptionID: number | null }>>; readonly plans: Readonly<Record<string, number | null>> } | null> {
+  const data = await getJson("/api/client-data/career-agents", options);
+  return data.available ? { schools: data.schools as Record<string, number[]>, divisions: data.divisions as Record<string, { nameID: number | null; descriptionID: number | null }>, plans: (data.plans ?? {}) as Record<string, number | null> } : null;
+}
+
 /** GET /api/client-data/agent-places: each station's [solar system, owner] and each NPC corporation's faction (the client's cfg). */
 export async function loadAgentPlaces(options: ApiOptions = {}): Promise<{ readonly stations: Readonly<Record<string, readonly [number, number | null]>>; readonly factions: Readonly<Record<string, number>> } | null> {
   const data = await getJson("/api/client-data/agent-places", options);

@@ -46,6 +46,8 @@ const TABLES = Object.freeze({
   dungeons: Object.freeze({ loader: "dungeonsLoader", resource: "res:/staticdata/dungeons.fsdbinary", rowsOnly: true }),
   // An NPC corporation's own record: the client takes an agent's faction from its corporation's (npcs/npccorporations.py).
   npcCorporations: Object.freeze({ loader: "npcCorporationsLoader", resource: "res:/staticdata/npccorporations.fsdbinary" }),
+  // The schools, each with its career agents (characterdata/schools.py get_school_agent_ids).
+  schools: Object.freeze({ loader: "schoolsLoader", resource: "res:/staticdata/schools.fsdbinary" }),
   // The divisions agents work in, each with the message its name is (npcs/divisions.py).
   npcCorporationDivisions: Object.freeze({ loader: "npcCorporationDivisionsLoader", resource: "res:/staticdata/npccorporationdivisions.fsdbinary" }),
   // The kinds of a wallet journal's entries, each with the message its line is worded by (eveaccounting/data.py

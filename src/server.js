@@ -14101,6 +14101,24 @@ app.get("/api/client-data/epic-arcs", requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// What the Agency's Career Agents page reads of the client's data: each school's career agents (schools.fsdbinary
+// careerAgents), the career divisions' name and description messages (npcs/divisions get_division_name /
+// get_division_description), and the certified skill plans careerAgentContentPiece.skillPlansByRaceAndDivision names
+// (their name messages). `available` false where the client's data could not be read.
+app.get("/api/client-data/career-agents", requireAuth, async (req, res, next) => {
+  try {
+    const [schools, divisions, plans] = await Promise.all([clientBuiltData.table("schools"), clientBuiltData.table("npcCorporationDivisions"), clientBuiltData.table("skillPlans")]);
+    if (!schools || !divisions) { res.json({ ok: true, available: false }); return; }
+    const num = (v) => (Number.isSafeInteger(Number(v)) && v !== null && v !== undefined ? Number(v) : null);
+    res.json({
+      ok: true, available: true,
+      schools: Object.fromEntries(Object.entries(schools).filter(([k]) => /^\d+$/.test(k)).map(([k, s]) => [k, (Array.isArray(s && s.careerAgents) ? s.careerAgents : []).map(Number)])),
+      divisions: Object.fromEntries([25, 26, 27, 28, 29].map((id) => [id, { nameID: num(divisions[id] && divisions[id].nameID), descriptionID: num(divisions[id] && divisions[id].descriptionID) }])),
+      plans: Object.fromEntries([34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47].map((id) => [id, num(plans && plans[String(id)] && plans[String(id)].nameID)])),
+    });
+  } catch (error) { next(error); }
+});
+
 // The agents service's cfg of its agents (agents.__GetAllAgents): each station's solar system and owner, each NPC
 // corporation's faction. Static reference data, asked once and kept by the page.
 app.get("/api/client-data/agent-places", requireAuth, async (req, res, next) => {

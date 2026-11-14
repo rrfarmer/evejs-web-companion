@@ -393,7 +393,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
-import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, type AgencyAgent, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
+import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
@@ -3675,6 +3675,12 @@ export interface AppFlow {
    * AgentsFiltersCont's faction and corporation choices: the factions with agents and each faction's NPC
    * corporations (get_corporation_ids_by_faction_id), each with the pilot's standing from it with its skill bonus.
    */
+  /**
+   * The Agency's Career Agents (ContentProviderCareerAgents, agents.GetMySuggestedCareerAgents): the pilot's school's
+   * career agents (charMgr.GetPublicInfo's schoolID) of the system nearest, in the career divisions' order; each with
+   * its division's name and description messages and its recommended plan's name message.
+   */
+  agencyCareerAgents(): Promise<readonly AgencyCareerAgent[] | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19876,6 +19882,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  let careerAgentDataHeld: Awaited<ReturnType<typeof api.loadCareerAgentData>> = null;
+  async function agencyCareerAgents(): Promise<readonly AgencyCareerAgent[] | null> {
+    const characterID = store.station.get().online?.characterID ?? null;
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    if (characterID === null) return null;
+    const [table, places, data, info, jumps] = await Promise.all([
+      agentsKnown().catch(() => null),
+      agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
+      careerAgentDataHeld ? Promise.resolve(careerAgentDataHeld) : api.loadCareerAgentData(callOptions).catch(() => null),
+      bridgeAsk("charMgr", "GetPublicInfo", [characterID]).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+    ]);
+    agentPlacesHeld ??= places;
+    careerAgentDataHeld ??= data;
+    const schoolID = Number(unwrapLong(readKeyVal(info, "schoolID") ?? null) ?? 0);
+    if (table === null || places === null || data === null || !schoolID) return null;
+    const picked = suggestedCareerAgents(table, data.schools[String(schoolID)] ?? [], {
+      here,
+      stationPlace: (stationID) => { const p = places.stations[String(stationID)]; return p ? { solarSystemID: p[0], ownerID: p[1] } : null; },
+      factionOf: (corporationID) => places.factions[String(corporationID)] ?? null,
+      jumpsTo: (systemID) => jumps?.get(systemID),
+    }, data.divisions, data.plans);
+    requestNames(picked.flatMap((a) => [{ kind: "agent" as const, id: a.agentID }, { kind: "system" as const, id: a.solarSystemID },
+      ...(a.corporationID ? [{ kind: "owner" as const, id: a.corporationID }] : [])]));
+    requestSystemSecurity(picked.map((a) => a.solarSystemID));
+    return picked;
+  }
   async function agencyAgentOwners(): Promise<{ factions: { id: number; standing: number }[]; corporations: Record<number, { id: number; standing: number }[]> } | null> {
     const [places] = await Promise.all([
       agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
@@ -33614,6 +33647,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     dungeonJobs,
     agencyAgents,
     agencyAgentOwners,
+    agencyCareerAgents,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,

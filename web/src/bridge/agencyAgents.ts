@@ -105,6 +105,60 @@ export function pythonRoundedText(value: number): string {
   return text.includes(".") ? text : `${text}.0`;
 }
 
+/** careerAgentContentPiece.sortOrder: Military, Industry, Exploration, Advanced Military, Business. */
+export const CAREER_DIVISION_ORDER: readonly number[] = [28, 27, 26, 29, 25];
+/** evemissions CAREER_PATH_BY_DIVISION: the career path of a career division (careerpathconst). */
+export const CAREER_PATH_BY_DIVISION: Readonly<Record<number, number>> = { 25: 5, 26: 4, 27: 5, 28: 6, 29: 7 };
+/** appConst.raceByFaction for the four empires. */
+const RACE_BY_FACTION: Readonly<Record<number, number>> = { 500001: 1, 500002: 2, 500003: 4, 500004: 8 };
+/** careerAgentContentPiece.skillPlansByRaceAndDivision: the certified plan (its UUID's int) by race and division. */
+const CAREER_PLANS: Readonly<Record<string, number>> = {
+  "4:25": 47, "4:26": 42, "4:27": 46, "4:28": 34, "4:29": 38, "1:25": 47, "1:26": 43, "1:27": 46, "1:28": 35, "1:29": 39,
+  "8:25": 47, "8:26": 44, "8:27": 46, "8:28": 36, "8:29": 40, "2:25": 47, "2:26": 45, "2:27": 46, "2:28": 37, "2:29": 41,
+};
+
+export interface AgencyCareerAgent {
+  readonly agentID: number; readonly divisionID: number | null; readonly level: number; readonly stationID: number | null;
+  readonly corporationID: number | null; readonly factionID: number | null; readonly solarSystemID: number; readonly jumps: number | null;
+  /** The division's name and description messages (GetCareerAgentPathName / GetCareerAgentDescription). */
+  readonly divisionNameID: number | null; readonly divisionDescriptionID: number | null;
+  /** CAREER_PATH_BY_DIVISION's career path (its 32 px icon, careerConst.CAREERS_32_SIZES). */
+  readonly careerPathID: number | null;
+  /** SkillPlanLink's plan: its id and its name message. */
+  readonly planID: number | null; readonly planNameID: number | null;
+}
+
+/**
+ * agents.GetMySuggestedCareerAgents: the school's career agents (in agentID order), by solar system; the system the
+ * fewest jumps away (GetJumpCountFromCurrent; the first such where several are as near); its agents, then sorted by
+ * the division's place in CAREER_DIVISION_ORDER (ContentProviderCareerAgents._GetSortKey, a stable sort). Distance Any
+ * (ApplyDefaultFilters) keeps each.
+ */
+export function suggestedCareerAgents(
+  table: readonly AgencyAgentSource[], schoolAgentIDs: readonly number[], world: Pick<AgencyAgentWorld, "here" | "stationPlace" | "factionOf" | "jumpsTo">,
+  divisions: Readonly<Record<string, { readonly nameID: number | null; readonly descriptionID: number | null }>>, plans: Readonly<Record<string, number | null>>,
+): AgencyCareerAgent[] {
+  const wanted = new Set(schoolAgentIDs);
+  const agents = table.filter((row) => wanted.has(row.agentID)).sort((a, b) => a.agentID - b.agentID).flatMap((row) => {
+    const place = row.stationID !== null ? world.stationPlace(row.stationID) : null;
+    if (!place) return [];
+    const corporationID = row.corporationID ?? place.ownerID;
+    const factionID = corporationID !== null ? world.factionOf(corporationID) : null;
+    const system = place.solarSystemID;
+    const jumps = system === world.here ? 0 : world.jumpsTo(system) ?? null;
+    const race = factionID !== null ? RACE_BY_FACTION[factionID] : undefined;
+    const planID = race !== undefined && row.divisionID !== null ? CAREER_PLANS[`${race}:${row.divisionID}`] ?? null : null;
+    return [{ agentID: row.agentID, divisionID: row.divisionID, level: row.level ?? 0, stationID: row.stationID, corporationID, factionID, solarSystemID: system, jumps,
+      divisionNameID: divisions[String(row.divisionID)]?.nameID ?? null, divisionDescriptionID: divisions[String(row.divisionID)]?.descriptionID ?? null,
+      careerPathID: row.divisionID !== null ? CAREER_PATH_BY_DIVISION[row.divisionID] ?? null : null, planID, planNameID: planID !== null ? plans[String(planID)] ?? null : null }];
+  });
+  // (An unreachable system the pathfinder counts as a very long way.)
+  const far = (a: AgencyCareerAgent) => a.jumps ?? Number.MAX_SAFE_INTEGER;
+  const nearest = agents.reduce<AgencyCareerAgent | null>((best, a) => (best === null || far(a) < far(best) ? a : best), null);
+  const place = (a: AgencyCareerAgent) => { const i = CAREER_DIVISION_ORDER.indexOf(a.divisionID ?? -1); return i < 0 ? CAREER_DIVISION_ORDER.length : i; };
+  return nearest === null ? [] : agents.filter((a) => a.solarSystemID === nearest.solarSystemID).sort((a, b) => place(a) - place(b));
+}
+
 /** Python's comparison of two lists of numbers. */
 function compareLists(a: readonly number[], b: readonly number[]): number {
   for (let i = 0; i < Math.min(a.length, b.length); i += 1) if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1;
