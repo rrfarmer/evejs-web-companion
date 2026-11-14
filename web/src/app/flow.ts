@@ -1212,6 +1212,11 @@ const ROUTE_SEARCH_KINDS = [7, 6, 8, 9, 13] as const;
  * (MatchBy: partial terms 0, exact terms 1, exact phrase 2, only the exact phrase 3) - the Locations window's Search
  * tab (neocom/locations/search.py) sets both; the route panel's search is every kind by partial terms.
  */
+/** A logger action message's facts (uilog.AddMiningMessage / AddBountyMessage). */
+export type ActionMessage =
+  | { readonly kind: "mining"; readonly oreTypeID: number; readonly mined: number; readonly hasRewards: boolean; readonly wasted: number; readonly critBonus: number }
+  | { readonly kind: "bounty"; readonly amount: number; readonly isModified: boolean };
+
 export interface LocationSearchOptions {
   readonly kinds?: readonly number[];
   readonly matchBy?: number;
@@ -4811,6 +4816,9 @@ export interface AppFlow {
    * the search names them by, each kind sorted by name; null where the text was refused before asking (said).
    */
   searchLocations(text: string, options?: LocationSearchOptions): Promise<ReadonlyMap<number, readonly LocationFound[]> | null>;
+  /** The logger's action messages as the server's notifications bring them (OreMinedNotificationAdapter.OnOreMined,
+   *  BountyNotificationAdapter.OnBountyAddedToPayout); returns how to stop listening. */
+  onActionMessage(listener: (message: ActionMessage) => void): () => void;
   // --- R26: the mining bot -----------------------------------------------
   //
   // A SECOND browser decide-loop, built from the same parts as the autopilot
@@ -7578,6 +7586,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === "OnDamageMessage") {
       applyDamageNotification(args);
     }
+    if (method === "OnOreMined" || method === "OnBountyAddedToPayout") {
+      const message = actionMessageOf(method, args);
+      if (message) for (const listener of [...actionListeners]) callPluginCode("An action message listener threw:", () => listener(message));
+    }
+  }
+
+  // The adapters' reads (notifications/client): OnOreMined's dict - oreType, quantity_removed (the mined), hasRewards,
+  // amountWasted, amountCritBonus; OnBountyAddedToPayout's KeyVal - amount, isModified (payoutTime, enemyTypeID unused
+  // by the logger's line).
+  const actionListeners = new Set<(message: ActionMessage) => void>();
+  function onActionMessage(listener: (message: ActionMessage) => void): () => void {
+    actionListeners.add(listener);
+    return () => { actionListeners.delete(listener); };
+  }
+  function actionMessageOf(method: string, args: readonly unknown[]): ActionMessage | null {
+    const payload = args[0];
+    const field = (key: string) => readDictEntry(payload, key) ?? readKeyVal(payload, key);
+    const num = (key: string) => { const v = Number(unwrapLong(field(key) as JsonValue) ?? field(key)); return Number.isFinite(v) ? v : 0; };
+    if (method === "OnOreMined") {
+      const oreTypeID = num("oreType");
+      if (!oreTypeID) return null;
+      return { kind: "mining", oreTypeID, mined: num("quantity_removed"), hasRewards: Boolean(field("hasRewards")), wasted: num("amountWasted"), critBonus: num("amountCritBonus") };
+    }
+    return { kind: "bounty", amount: num("amount"), isModified: Boolean(field("isModified")) };
   }
 
   // `OnDamageMessage` (R29). One shot. The payload is a BARE marshaled dict —
@@ -34760,6 +34792,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     searchDestinations,
     searchLocations,
+    onActionMessage,
 
     startMiningBot,
 

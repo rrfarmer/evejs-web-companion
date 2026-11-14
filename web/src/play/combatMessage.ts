@@ -26,7 +26,10 @@ const STEP_PX = 20;
 const NO_DAMAGE_MS = 10_000;
 const MIN_TOP = -40;
 
-interface Queued { readonly at: number; readonly markup: string; readonly damage: { readonly amount: number; readonly color: string } | null }
+/** An icon drawn before the text (apply_message_to_container: Sprites in the icon container, the label's height
+ *  square, in the message's icon_color). */
+export interface CombatMessageIcon { readonly src: string; readonly color: string | null }
+interface Queued { readonly at: number; readonly markup: string; readonly damage: { readonly amount: number; readonly color: string } | null; readonly icons: readonly CombatMessageIcon[] }
 
 /** Client markup as spans: each run's text in its colour, weight and (where it names one) size. */
 export function markupToElement(markup: string): HTMLElement {
@@ -99,7 +102,12 @@ export class CombatMessage {
       this.noDamage.set(attackerID, now);
       damage = null;
     } else if (attackerID) this.noDamage.delete(attackerID);
-    this.queue.push({ at: now, markup, damage });
+    this.queue.push({ at: now, markup, damage, icons: [] });
+  }
+
+  /** AddActionMessage: a mining / bounty line (logger.SayMessage), its icons before it. */
+  addAction(markup: string, icons: readonly CombatMessageIcon[] = []): void {
+    this.queue.push({ at: performance.now(), markup, damage: null, icons });
   }
 
   /** The in-space notifications turned off (_on_show_inflight_messages_setting_changed: the box closed). */
@@ -146,7 +154,15 @@ export class CombatMessage {
       n.style.color = message.damage.color;
       inner.appendChild(n);
     }
-    inner.appendChild(markupToElement(message.markup));
+    for (const icon of message.icons) {
+      const i = document.createElement("span");
+      i.className = "combat-msg-icon";
+      i.style.setProperty("--icon", `url("${icon.src}")`);
+      if (icon.color) i.style.backgroundColor = icon.color;
+      inner.appendChild(i);
+    }
+    // a line with icons has a space before its text
+    inner.appendChild(markupToElement(message.icons.length ? ` ${message.markup}` : message.markup));
     line.appendChild(inner);
     line.style.bottom = "5px";
     this.root.appendChild(line);

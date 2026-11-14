@@ -11,6 +11,9 @@
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { addGameLogLine } from "./gameLog.ts";
   import { combatFlag, combatFontSize, damageMessageShown } from "./combatSettings.ts";
+  import type { CombatMessageIcon } from "../play/combatMessage.ts";
+  import type { ActionMessage } from "../app/flow.ts";
+  import { iskWords } from "../bridge/questions.ts";
   import type { DamageEvent } from "../store/types.ts";
   import { get as storeValue } from "svelte/store";
   import { marketDetailsTarget } from "./marketDetails.ts";
@@ -207,6 +210,10 @@
       // not read it, and nothing else does until the session changes - the probe results are published by its system
       // (publishProbeResults), and a pilot logged in to space had none until then.
       void session.flow.loadFlightStatus().catch(() => {});
+      // the logger's mining and bounty lines (OreMinedNotificationAdapter, BountyNotificationAdapter)
+      offActionMessages?.();
+      session.flow.requestWords(ACTION_WORDS);
+      offActionMessages = session.flow.onActionMessage((m) => void sayActionMessage(m));
       session.flow.startSpacePolling();
       spaceClaimed = session;
       // A few older calls read the tab's token (App.svelte does the same for its pilot in front).
@@ -546,6 +553,58 @@
     if (typeof hq === "string" && combatFlag("damageMessagesShowQuality")) post += ` - ${hq}`;
     view?.combatMessage.add(markup + post, quality, sourceID,
       quality > 0 ? { amount: d.amount, color: d.attackType !== "me" ? "#cc0000" : "#00ffff" } : null);
+  }
+
+  // The logger's action messages (uilog.AddMiningMessage / AddBountyMessage, their words from actionLog/client/
+  // formatters.py), each said in space and logged (SayMessage: AddActionMessage, AddText by its type):
+  //  - mining (OnOreMined), where actionMessagesMining is on: the mined (OreMined, or VariableRewardMined with rewards)
+  //    where some was, the wasted (OreWasted for an asteroid's ore, else GroupWasted) and the critical bonus
+  //    (MiningCriticalHit, eveicon.crit_success in CRIT_BONUS's colour);
+  //  - bounty (OnBountyAddedToPayout), where actionMessagesBounty is on and the payout is above nothing, a second
+  //    later: BountyAddedToPayoutMessage1, or ModifiedBountyAddedToPayoutMessage1.
+  //  Their markup: the normal font the notification's size, the small two less; FAINT 0x77ffffff, NORMAL 0xffffffff,
+  //  the bounty's 0xff00aa00, the mining amount's MiningQuantityColor (YIELD SUCCESS_GREEN #8DC169, WASTE DANGER_RED
+  //  #FF454B, CRIT_BONUS DESTINATION_YELLOW #F0FF45), the reward's 0xffaaaa00 / 0xffdddd1c.
+  const AL = "UI/Inflight/ActivityLog/";
+  // (the bounty's {[numeric]bounty.isk} written by FmtISK: UI/Util/FmtIsk)
+  const ACTION_WORDS = [...["OreMined", "VariableRewardMined", "OreWasted", "GroupWasted", "MiningCriticalHit", "BountyAddedToPayoutMessage1", "ModifiedBountyAddedToPayoutMessage1"].map((k) => AL + k),
+    "UI/Util/FmtIsk", "UI/Util/FmtIskNoDecimal"];
+  const CATEGORY_ASTEROID = 25;
+  let offActionMessages: (() => void) | null = null;
+  async function sayActionMessage(m: ActionMessage): Promise<void> {
+    const s = session;
+    if (!s) return;
+    if (m.kind === "mining" && !combatFlag("actionMessagesMining")) return;
+    if (m.kind === "bounty" && (!(m.amount > 0) || !combatFlag("actionMessagesBounty"))) return;
+    if (m.kind === "bounty") await new Promise((r) => setTimeout(r, 1000));
+    else await s.flow.flying.resolveNamesNow([{ kind: "type", id: m.oreTypeID }, { kind: "typeGroup", id: m.oreTypeID }, { kind: "typeCategory", id: m.oreTypeID }, { kind: "category", id: CATEGORY_ASTEROID }]).catch(() => {});
+    const words = s.store.words.get().templates;
+    const resolved = s.store.names.get().resolved;
+    const size = storeValue(combatFontSize);
+    const fonts = { normalFont: `<font size=${size}>`, smallFont: `<font size=${size - 2}>`, faintColor: "<color=0x77ffffff>", normalColor: "<color=0xffffffff>" };
+    const say = (key: string, args: Record<string, unknown>, type: string, icons: readonly CombatMessageIcon[] = []) => {
+      const template = words[AL + key];
+      if (typeof template !== "string") { s.flow.requestWords(ACTION_WORDS); return; }
+      const nameOf = (kind: Parameters<typeof nameKey>[0], id: number) => resolved[nameKey(kind, id)] ?? "";
+      const markup = formatTemplate(template, { ...fonts, ...args } as never, { nameOf, writeIsk: (amount, places) => iskWords(amount, places, words, nameOf) });
+      view?.combatMessage.addAction(markup, icons);
+      addGameLogLine(plainText(markup).trim(), type);
+    };
+    if (m.kind === "bounty") {
+      say(m.isModified ? "ModifiedBountyAddedToPayoutMessage1" : "BountyAddedToPayoutMessage1", { bountyPayoutColor: "<color=0xff00aa00>", bounty: m.amount }, "bounty");
+      return;
+    }
+    if (m.mined > 0) {
+      if (m.hasRewards) say("VariableRewardMined", { textColor: "<color=0xffaaaa00>", highlightedTextColor: "<color=0xffdddd1c>", amount: m.mined, oreTypeID: m.oreTypeID }, "mining");
+      else say("OreMined", { amountMinedColor: "<color=0xff8dc169>", amount: m.mined, oreTypeID: m.oreTypeID }, "mining");
+    }
+    if (m.wasted) {
+      const category = resolved[nameKey("typeCategory", m.oreTypeID)];
+      const asteroid = typeof category === "string" && category === resolved[nameKey("category", CATEGORY_ASTEROID)];
+      say(asteroid ? "OreWasted" : "GroupWasted", { groupName: resolved[nameKey("typeGroup", m.oreTypeID)] ?? "", amountWasted: m.wasted, amountWastedColor: "<color=0xffff454b>" }, "mining");
+    }
+    if (m.critBonus) say("MiningCriticalHit", { critColor: "<color=0xfff0ff45>", amount: m.critBonus, oreTypeID: m.oreTypeID }, "mining",
+      [{ src: "/client-res/ui/texture/eveicon/category_icons/crit_success_16px.png", color: "#f0ff45" }]);
   }
 
   // The client's window commands (eveCommands.py) and the windows they open here; their keys are the client's default

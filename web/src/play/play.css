@@ -344,6 +344,8 @@ button { font: inherit; color: inherit; }
 .space .combat-msg[data-text-align="left"] .combat-msg-line { text-align: left; }
 .space .combat-msg[data-text-align="right"] .combat-msg-line { text-align: right; }
 .space .combat-msg-text { display: inline-block; opacity: 0; animation-timing-function: linear; animation-fill-mode: forwards; }
+.space .combat-msg-icon { display: inline-block; width: 1.3em; height: 1.3em; vertical-align: -0.3em; background-color: #fff;
+  -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
 @keyframes combat-msg-fade { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes combat-msg-fade-busy { 0% { opacity: 0; } 5% { opacity: 1; } 100% { opacity: 0; } }
 /* moving mode (EnterDragMode): the box takes the mouse; a white 0.25 frame with 5 px corners (FRAME_BORDER1_CORNER5,
