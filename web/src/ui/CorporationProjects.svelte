@@ -33,8 +33,9 @@
   import type { AppFlow, CorporationGoal, CorporationGoals } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
-  import { clientTexture } from "./skillGroupIcons.ts";
   import CorporationGoalForm from "./CorporationGoalForm.svelte";
+  import CorporationGoalCard from "./CorporationGoalCard.svelte";
+  import CorporationGoalPage from "./CorporationGoalPage.svelte";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -71,7 +72,6 @@
   }
   // careerConst.CAREERS_BG_FLAIR.
   const FLAIR: Record<number, string> = { 4: "explorer", 5: "industrialist", 6: "enforcer", 7: "sof" };
-  const flair = (careerPath: number | null) => clientTexture(`res:/UI/Texture/Shared/CareerPaths/${(careerPath !== null && FLAIR[careerPath]) || "unclassified"}_flair.png`);
   // careerpath.get_career_paths(): each career path's name (the certified plans' read has them).
   let careerNames = $state<Record<number, number>>({});
   onMount(() => {
@@ -118,7 +118,6 @@
   const totalIsk = (g: CorporationGoal) => (g.amountPerUnit ?? 0) * remaining(g);
   const myIsk = (g: CorporationGoal) => (g.amountPerUnit ?? 0) * (g.participationLimit ? myRemaining(g) : remaining(g));
   const ratio = (g: CorporationGoal) => (g.desired ? g.current / g.desired : 0);
-  const myRatio = (g: CorporationGoal) => (!g.myProgress ? 0 : g.participationLimit ? g.myProgress / g.participationLimit : g.desired ? g.myProgress / g.desired : 0);
   const stats = $derived.by(() => {
     const active = read?.active ?? [];
     const now = Date.now();
@@ -174,19 +173,8 @@
   // The details overlay, its participants, the menu and the Set Progress form.
   let details = $state<CorporationGoal | null>(null), participants = $state<readonly { characterID: number; progress: number }[] | null>(null);
   let cardMenu = $state<{ goal: CorporationGoal; x: number; y: number; history: boolean } | null>(null);
-  // The job page (open_corporation_goal) and its Claim (redeem_reward; the button busy at least 1.5 s).
-  let jobPage = $state<CorporationGoal | null>(null), claiming = $state(false);
-  const unclaimedIsk = (g: CorporationGoal) => g.myUnclaimed * (g.amountPerUnit ?? 0);
-  const earnedIsk = (g: CorporationGoal) => g.myProgress * (g.amountPerUnit ?? 0);
-  async function claim(g: CorporationGoal): Promise<void> {
-    if (claiming) return;
-    claiming = true;
-    try {
-      await Promise.all([flow.redeemCorporationGoalReward(g.goalID), new Promise((r) => setTimeout(r, 1500))]);
-      await load();
-      jobPage = [...(read?.active ?? []), ...(read?.inactive ?? [])].find((x) => x.goalID === g.goalID) ?? jobPage;
-    } finally { claiming = false; }
-  }
+  // The job page (open_corporation_goal - CorporationGoalPage.svelte, with its Claim).
+  let jobPage = $state<CorporationGoal | null>(null);
   // goalForms.OpenCreateGoalFormWindow / OpenDuplicateGoalFormWindow.
   let goalForm = $state<{ original: CorporationGoal | null } | null>(null);
   function clone(g: CorporationGoal): void { cardMenu = null; goalForm = { original: g }; }
@@ -284,49 +272,8 @@
   {#if jobPage}
     {@const g = jobPage}
     <div class="cp-overlay cp-job">
-      <div class="cp-overlay-head"><button class="cp-ghost" onclick={() => { jobPage = null; }}>{word("UI/Commands/Back")}</button></div>
-      <div class="cp-details">
-        <header class="cp-job-head">
-          <img class="cp-flair" src={flair(g.careerPath)} alt="" />
-          <span class="cp-method">{methodTitle(g)}</span>
-          <h2>{g.name}</h2>
-          {#if g.myUnclaimed > 0}
-            <button class="cp-claim" class:done={g.state === 3} disabled={claiming} title={`${word(G + "ClaimedTooltipBreakdown")} ${isk(earnedIsk(g) - unclaimedIsk(g))} · ${word(G + "UnclaimedTooltipBreakdown")} ${isk(unclaimedIsk(g))} · ${word(G + "TotalEarnedTooltipBreakdown")} ${isk(earnedIsk(g))}`}
-              onclick={() => void claim(g)}>{claiming ? "…" : word(G + "ClaimValue", { rewardValue: isk(unclaimedIsk(g)) })}</button>
-          {/if}
-        </header>
-        <section><h3>{word(G + "Progress")}</h3>
-          <div class="cp-progress">
-            <div class="cp-overview">
-              <span class="cp-gauge cp-gauge-big" style:--line={lineColor(g)} style:--outer={`${Math.min(1, ratio(g)) * 360}deg`} style:--inner="0deg"><span></span></span>
-              <div><b>{g.current.toLocaleString("en-US")}</b><small>/ {g.desired.toLocaleString("en-US")}</small><small>{(ratio(g) * 100).toFixed(0)}% <span class="cp-dim">{progressDescription(g)}</span></small></div>
-            </div>
-            {#if g.amountPerUnit}
-              <div class="cp-reward"><small>{word(G + "RemainingISKReward")}</small><b>{isk(totalIsk(g))}</b><small>{rewardDescription(g)}</small><b>{isk(g.amountPerUnit)}</b></div>
-            {/if}
-          </div>
-        </section>
-        {#if g.methodID !== "Manual" || read?.canAuthor}
-          <section title={g.participationLimit ? word(G + "ParticipationLimitExplanationTooltip") : ""}><h3>{word(G + "YourContribution")}</h3>
-            <div class="cp-progress">
-              <div class="cp-overview">
-                <span class="cp-gauge cp-gauge-big" style:--line={lineColor(g)} style:--outer={`${Math.min(1, myRatio(g)) * 360}deg`} style:--inner="0deg"><span></span></span>
-                <div><b>{g.myProgress.toLocaleString("en-US")}</b><small>/ {(g.participationLimit ?? g.desired).toLocaleString("en-US")}</small><small>{(myRatio(g) * 100).toFixed(0)}% <span class="cp-dim">{progressDescription(g)}</span></small></div>
-              </div>
-              {#if g.amountPerUnit}
-                <div class="cp-reward">
-                  {#if g.participationLimit}<small>{word(G + "AvailableToEarn")}</small><b>{isk(myIsk(g))}</b>{/if}
-                  <small>{word(G + "TotalEarned")}</small><b>{isk(earnedIsk(g))}</b>
-                </div>
-              {/if}
-            </div>
-          </section>
-        {/if}
-        {#if g.description}<section><h3>{word("UI/Common/Description")}</h3><p>{g.description}</p></section>{/if}
-        <section><h3>{word(G + "CreatedOn", { dateString: date(g.created) })}</h3>
-          <div class="cp-creator"><span><small>{word(G + "Creator")}</small><b>{nameAny("owner", g.creator)}</b></span><span>{nameAny("owner", $station.online?.corporationID ?? 0)}</span></div>
-        </section>
-      </div>
+      <CorporationGoalPage {store} {flow} goal={g} methods={read?.methods ?? {}} canAuthor={read?.canAuthor ?? false} onBack={() => { jobPage = null; }}
+        onClaimed={async () => { await load(); jobPage = [...(read?.active ?? []), ...(read?.inactive ?? [])].find((x) => x.goalID === g.goalID) ?? jobPage; }} />
     </div>
   {/if}
   {#if goalForm && read}
@@ -389,17 +336,9 @@
       {:else}
         <div class="cp-cards">
           {#each activeCards as g (g.goalID)}
-            <div class="cp-card" style:--line={lineColor(g)} role="button" tabindex="-1" onclick={() => { jobPage = g; }} onkeydown={() => {}} oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); cardMenu = { goal: g, x: e.offsetX + (e.currentTarget as HTMLElement).offsetLeft, y: e.offsetY + (e.currentTarget as HTMLElement).offsetTop + 120, history: false }; }}>
-              <img class="cp-flair" src={flair(g.careerPath)} alt="" />
-              <div class="cp-card-top">
-                <span class="cp-method" title={g.description}>{methodTitle(g)}</span>
-                <span class="cp-gauge" title={`${Math.round(ratio(g) * 100)}% · ${Math.round(myRatio(g) * 100)}%`} style:--outer={`${Math.min(1, ratio(g)) * 360}deg`} style:--inner={`${Math.min(1, myRatio(g)) * 360}deg`}><span></span></span>
-              </div>
-              <div class="cp-card-title">{g.name}</div>
-              <div class="cp-card-bottom">{#if totalIsk(g)}<span>¤ {iskShort(totalIsk(g))}</span>{/if}
-                {#if g.myUnclaimed > 0}<span class="cp-claimable" title={`${word("UI/Common/UnclaimedRewardShort")} ${isk(unclaimedIsk(g))}`}>✚</span>{/if}
-                {#if read?.canAuthor}<span class="cp-card-actions"><button title={word(G + "CloneProject")} onclick={(e) => { e.stopPropagation(); clone(g); }}>⧉</button><button title={word("UI/Corporations/FreelanceProjects/ViewParticipants")} onclick={(e) => { e.stopPropagation(); void viewParticipants(g); }}>☰</button></span>{/if}</div>
-            </div>
+            <CorporationGoalCard {store} {flow} goal={g} methods={read?.methods ?? {}} onOpen={() => { jobPage = g; }}
+              onMenu={(e) => { cardMenu = { goal: g, x: e.offsetX + (e.currentTarget as HTMLElement).offsetLeft, y: e.offsetY + (e.currentTarget as HTMLElement).offsetTop + 120, history: false }; }}
+              onClone={read?.canAuthor ? () => clone(g) : undefined} onViewParticipants={read?.canAuthor ? () => void viewParticipants(g) : undefined} />
           {/each}
         </div>
       {/if}
@@ -440,30 +379,12 @@
   .cp-panels { flex: 1; min-height: 0; overflow: auto; margin-top: 16px; }
   .cp-hint { text-align: center; opacity: 0.65; }
   .cp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 550px)); gap: 16px; }
-  .cp-card { position: relative; height: 186px; display: flex; flex-direction: column; padding: 16px; box-sizing: border-box; overflow: hidden; border-left: 2px solid var(--line); background: rgba(0, 0, 0, 0.6); border-radius: 0 8px 8px 0; }
-  .cp-flair { position: absolute; left: -175px; top: -175px; width: 400px; height: 400px; opacity: 0.35; pointer-events: none; }
-  .cp-card-top { position: relative; display: flex; justify-content: space-between; align-items: flex-start; height: 50px; }
-  .cp-method { opacity: 0.65; }
   .cp-gauge { width: 50px; height: 50px; border-radius: 50%; background: conic-gradient(var(--line) var(--outer), rgba(255, 255, 255, 0.1) 0); display: flex; align-items: center; justify-content: center; }
   .cp-gauge span { width: 38px; height: 38px; border-radius: 50%; background: radial-gradient(#111 55%, transparent 56%), conic-gradient(#fff var(--inner), rgba(255, 255, 255, 0.05) 0); }
-  .cp-card-title { position: relative; flex: 1; font-size: 16px; font-weight: bold; padding-top: 8px; overflow: hidden; }
-  .cp-card-bottom { position: relative; height: 24px; display: flex; align-items: center; border-radius: 8px; background: rgba(255, 255, 255, 0.05); padding: 0 8px; }
   .cp-row { display: grid; grid-template-columns: 2fr 1.4fr 1fr 1fr 1fr 0.7fr 1.2fr; gap: 6px; min-height: 24px; align-items: center; padding: 0 4px; }
   .cp-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cp-head { font-size: 11px; opacity: 0.65; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
   .cp-buttons { display: flex; justify-content: center; padding-top: 8px; }
-  .cp-card-bottom { justify-content: space-between; }
-  .cp-card { cursor: pointer; }
-  .cp-claimable { color: #5fb85f; }
-  .cp-job-head { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 16px; background: rgba(0, 0, 0, 0.5); }
-  .cp-job-head .cp-flair { opacity: 0.25; }
-  .cp-claim { align-self: flex-start; margin-top: 16px; position: relative; }
-  .cp-claim.done { background: rgba(95, 184, 95, 0.35); border-color: #5fb85f; }
-  .cp-creator { display: flex; gap: 32px; }
-  .cp-creator span { display: flex; flex-direction: column; }
-  .cp-card-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.3s; }
-  .cp-card:hover .cp-card-actions { opacity: 1; }
-  .cp-card-actions button { all: unset; cursor: pointer; width: 24px; text-align: center; }
   .cp-context { position: absolute; right: auto; }
   .cp-overlay { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; padding: 0 8px 8px; background: var(--window-bg, #15171a); }
   .cp-overlay-head { padding-top: 8px; min-height: 32px; }

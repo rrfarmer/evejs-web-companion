@@ -19,12 +19,20 @@
   // (is_available_in_browse), in Active the accepted ones (is_available_in_active - accepted or tracked, and the
   // provider tracks every accepted one), as AgentMissionCard (MissionJobCard.svelte) before the freelance jobs; a card
   // opens the mission's page (AgentMissionPage - MissionJobPage.svelte) with the board's Back.
+  // The corporation goals' feature (features/corporation_goals: CorporationGoalsProvider - the active goals and the
+  // unclaimed ones, CorporationGoalJob): in Browse the ones the pilot can contribute to (can_contribute_to: active and
+  // its share not done), in Active the active ones the pilot has progress in and can still contribute to, in Unclaimed
+  // Rewards those with unclaimed rewards (Claim All redeems them too); CorporationGoalCard, its page
+  // CorporationGoalPage with the board's Back.
   // Asked from elsewhere (jobBoardRequests: open_freelance_project from Show Info's Freelance Projects tab, its OpenAIR
   // the browse page) the window shows that job's page, or the browse page.
   import { onMount } from "svelte";
   import FreelanceJobCard from "./FreelanceJobCard.svelte";
   import MissionJobCard from "./MissionJobCard.svelte";
   import MissionJobPage from "./MissionJobPage.svelte";
+  import CorporationGoalCard from "./CorporationGoalCard.svelte";
+  import CorporationGoalPage from "./CorporationGoalPage.svelte";
+  import type { CorporationGoal, CorporationGoals } from "../app/flow.ts";
   import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -46,7 +54,21 @@
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   let tab = $state<"browse" | "active" | "unclaimed">("browse"), open = $state<string | null>(null), busy = $state(false);
   let board = $state<Awaited<ReturnType<AppFlow["freelanceBoard"]>> | undefined>(undefined);
-  async function load(): Promise<void> { void flow.loadJournal().catch(() => {}); board = await flow.freelanceBoard(); }
+  let goals = $state<CorporationGoals | null>(null), openGoal = $state<string | null>(null);
+  async function load(): Promise<void> {
+    void flow.loadJournal().catch(() => {});
+    void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
+    board = await flow.freelanceBoard();
+  }
+  const goalRemaining = (g: CorporationGoal) => { const left = Math.max(0, g.desired - g.current); return g.participationLimit ? Math.min(left, Math.max(0, g.participationLimit - g.myProgress)) : left; };
+  const canContribute = (g: CorporationGoal) => g.state === 1 && goalRemaining(g) > 0;
+  const goalLists = $derived.by(() => {
+    const active = goals?.active ?? [];
+    const all = [...active, ...(goals?.inactive ?? [])];
+    return { browse: active.filter(canContribute), active: active.filter((g) => g.myProgress > 0 && canContribute(g)), unclaimed: all.filter((g) => g.myUnclaimed > 0) };
+  });
+  const shownGoals = $derived(tab === "browse" ? goalLists.browse : tab === "active" ? goalLists.active : goalLists.unclaimed);
+  const goalOpen = $derived(openGoal === null ? null : [...(goals?.active ?? []), ...(goals?.inactive ?? [])].find((g) => g.goalID === openGoal) ?? null);
   // svelte-ignore state_referenced_locally
   const agentsStore = store.agents;
   let openMission = $state<number | null>(null);
@@ -82,18 +104,24 @@
   }
   async function claimAll(): Promise<void> {
     busy = true;
-    try { for (const j of board?.unclaimed ?? []) await flow.freelanceJobAction("redeem", j.project.projectID); await load(); } finally { busy = false; }
+    try {
+      for (const j of board?.unclaimed ?? []) await flow.freelanceJobAction("redeem", j.project.projectID);
+      for (const g of goalLists.unclaimed) await flow.redeemCorporationGoalReward(g.goalID);
+      await load();
+    } finally { busy = false; }
   }
 </script>
 
 <div class="jb">
   <div class="jb-tabs">
-    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; }}>{word(O + "WindowTitle")}</button>
-    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length}</span>{/if}</button>
-    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if board?.unclaimed.length}<span class="jb-count gold">{board.unclaimed.length}</span>{/if}</button>
+    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; }}>{word(O + "WindowTitle")}</button>
+    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length + goalLists.active.length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length + goalLists.active.length}</span>{/if}</button>
+    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if (board?.unclaimed.length ?? 0) + goalLists.unclaimed.length}<span class="jb-count gold">{(board?.unclaimed.length ?? 0) + goalLists.unclaimed.length}</span>{/if}</button>
   </div>
   <div class="jb-body">
-    {#if openMission !== null}
+    {#if goalOpen}
+      <div class="jb-goal"><CorporationGoalPage {store} {flow} goal={goalOpen} methods={goals?.methods ?? {}} canAuthor={goals?.canAuthor ?? false} onBack={() => { openGoal = null; }} onClaimed={load} /></div>
+    {:else if openMission !== null}
       <MissionJobPage {store} {flow} onBack={() => { openMission = null; }} />
     {:else if open}
       {#if notice}<p class="jb-notice">{word(notice) || notice}</p>{/if}
@@ -106,14 +134,17 @@
     {:else if board === undefined}<p class="jb-hint">…</p>
     {:else if board === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
-      {#if tab === "unclaimed" && jobs.length}<div class="jb-claim"><button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button></div>{/if}
-      {#if !jobs.length && !shownMissions.length}
+      {#if tab === "unclaimed" && (jobs.length || goalLists.unclaimed.length)}<div class="jb-claim"><button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button></div>{/if}
+      {#if !jobs.length && !shownMissions.length && !shownGoals.length}
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
       <div class="jb-cards" title={tab === "browse" ? word(O + "VisibilityFreelanceProjects") : ""}>
         {#each shownMissions as m (m.agentID)}
           <MissionJobCard {store} {flow} mission={m} onOpen={() => void openMissionPage(m.agentID!)} />
+        {/each}
+        {#each shownGoals as g (g.goalID)}
+          <CorporationGoalCard {store} {flow} goal={g} methods={goals?.methods ?? {}} onOpen={() => { openGoal = g.goalID; open = null; openMission = null; }} />
         {/each}
         {#each jobs as j (j.project.projectID)}
           <FreelanceJobCard {store} job={j} claim={tab === "unclaimed"} onOpen={() => { open = j.project.projectID; openCorp = j.corporationID; }} />
@@ -132,6 +163,7 @@
   .jb-count { margin-left: 6px; padding: 0 5px; border-radius: 8px; background: rgba(88, 166, 220, 0.4); font-size: 11px; }
   .jb-count.gold { background: rgba(212, 170, 60, 0.5); }
   .gold { color: #d4aa3c; }
+  .jb-goal { display: flex; flex-direction: column; height: 100%; }
   .jb-body { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
   .jb-hint { text-align: center; opacity: 0.65; }
   .jb { position: relative; }
