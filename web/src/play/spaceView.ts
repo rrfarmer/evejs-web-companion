@@ -125,6 +125,8 @@ export interface SpaceActions {
   selectSite?(siteID: string, multiSelect: boolean): void;
   /** A probe result marker's label in the solar system map (GetLabelText, the difficulty line). */
   resultLabel?(siteID: string): string;
+  /** A probe result marker's menu in the solar system map (GetScanResultMenuWithIgnore). */
+  resultMenu?(siteID: string): readonly { label: string; run: () => void }[];
   /** The solar system map's probe move (RegisterProbeMove): each probe given its destination. */
   moveProbes?(moves: readonly { probeID: number; destination?: [number, number, number]; rangeStep?: number | undefined }[]): Promise<void>;
   /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
@@ -550,6 +552,7 @@ export class SpaceView {
       selectedSites: () => this.actions.selectedSites?.() ?? new Set(),
       selectSite: (siteID, multiSelect) => this.actions.selectSite?.(siteID, multiSelect),
       resultLabel: (siteID) => this.actions.resultLabel?.(siteID) ?? siteID,
+      resultMenu: (siteID) => this.actions.resultMenu?.(siteID) ?? [],
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
       aimSpaceCamera: (direction) => {
         const dist = this.camera.position.distanceTo(this.controls.target);

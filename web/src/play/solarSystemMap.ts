@@ -82,7 +82,10 @@
 //   (AnimPerfectResult): the gauge blinked in four times, two circles of radius 40 (0.4, 1, 0.4) grown to 1.4 and
 //   faded from 0.3 over 0.8 s, 0.25 s and 0.65 s on. Its label (GetLabelText): the id, the display name and the
 //   distance, and below a partial result's the difficulty (GetBracketLabelText: ScanningDifficulty, by
-//   GetScanDifficultyText - Level in Roman or DifficultyUnknown). Not yet the radial menu.
+//   GetScanDifficultyText - Level in Roman or DifficultyUnknown). Its menu on the right button (GetMenu:
+//   GetScanResultMenuWithIgnore - an accurate result's warp within the default distance where out of warp range's
+//   minimum, Align To, then Ignore Result and Ignore Other Results). Not here: the radial menu on the left button
+//   (TryExpandActionMenu), the menu's Bookmark Location and its warp-within submenu.
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -133,6 +136,8 @@ export interface SolarSystemMapHooks {
   selectSite?(siteID: string, multiSelect: boolean): void;
   /** A result marker's label: GetLabelText, and the difficulty line for a partial result. */
   resultLabel?(siteID: string): string;
+  /** A result marker's menu (GetScanResultMenuWithIgnore): each entry's words and what it does. */
+  resultMenu?(siteID: string): readonly { label: string; run: () => void }[];
   /** RegisterProbeMove: the moved idle probes given their new destinations (EVE's coordinates). */
   moveProbes?(moves: readonly ProbeMove[]): Promise<void> | void;
 }
@@ -739,6 +744,7 @@ export class SolarSystemMapWindow {
         }
       }
       el.addEventListener("click", (e) => this.hooks.selectSite?.(r.id, e.shiftKey || e.ctrlKey));
+      el.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); this.openResultMenu(r.id, e.clientX, e.clientY); });
       el.addEventListener("mouseenter", () => {
         el.classList.add("hover");
         (el.querySelector(".ssm-label") as HTMLElement).textContent = this.hooks.resultLabel?.(r.id) ?? r.id;
@@ -1153,6 +1159,33 @@ export class SolarSystemMapWindow {
     if (moves.length === 0) { this.preview = new Map(); this.previewRange = new Map(); return; }
     void Promise.resolve(this.hooks.moveProbes?.(moves)).catch(() => {}).finally(() => { this.preview = new Map(); this.previewRange = new Map(); });
   }
+  private resultMenuEl: HTMLDivElement | null = null;
+  /** GetMenu: the result's entries at the mouse, closed by a choice or a click elsewhere. */
+  openResultMenu(siteID: string, x: number, y: number): void {
+    this.closeResultMenu();
+    const entries = this.hooks.resultMenu?.(siteID) ?? [];
+    if (entries.length === 0) return;
+    const menu = document.createElement("div");
+    menu.className = "ssm-menu";
+    const box = this.window.body.getBoundingClientRect();
+    menu.style.left = `${Math.round(x - box.left)}px`;
+    menu.style.top = `${Math.round(y - box.top)}px`;
+    for (const entry of entries) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = entry.label;
+      b.addEventListener("click", () => { this.closeResultMenu(); entry.run(); });
+      menu.appendChild(b);
+    }
+    this.window.body.appendChild(menu);
+    this.resultMenuEl = menu;
+    const away = (e: PointerEvent) => { if (!menu.contains(e.target as Node)) { this.closeResultMenu(); removeEventListener("pointerdown", away, true); } };
+    addEventListener("pointerdown", away, true);
+  }
+  closeResultMenu(): void { this.resultMenuEl?.remove(); this.resultMenuEl = null; }
+  /** The open menu's entries, for checks. */
+  get resultMenuEntries(): string[] { return [...(this.resultMenuEl?.querySelectorAll("button") ?? [])].map((b) => b.textContent ?? ""); }
+
   /** The last move or scaling given, for checks. */
   lastMoves: ProbeMove[] = [];
 

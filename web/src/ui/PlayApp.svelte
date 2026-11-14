@@ -5,7 +5,7 @@
   // bot, and no bot is mounted. Docked, the station's Undock; in space, the SpaceView with its HUD, overview and
   // brackets. The Neocom opens the app's panels (PanelHost) in client-look windows (DesktopWindow).
   import { onDestroy } from "svelte";
-  import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS } from "../bridge/probeResults.ts";
+  import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS, PROBE_RESULT_LABELS, MIN_WARP_DISTANCE, isAccurate } from "../bridge/probeResults.ts";
   import { romanLevel } from "../bridge/skills.ts";
   import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
@@ -648,6 +648,30 @@
       },
       moveProbes: (moves) => s.flow.moveScannerProbes(moves),
       selectedSites: () => storeValue(probeSitesSelected),
+      // MarkerScanResult.GetMenu: scanSvc.GetScanResultMenuWithIgnore, by the rules the scanner's list menu goes by
+      resultMenu: (siteID) => {
+        const result = s.store.scanner.get().probeResults?.results.find((each) => each.id === siteID);
+        if (!result) return [];
+        const templates = s.store.words.get().templates;
+        const word = (label: string, args: Record<string, string | number> = {}): string | null => {
+          const t = templates[label];
+          return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: () => "" })).trim() : null;
+        };
+        const own = s.store.space.get().snapshot?.ship?.position ?? null;
+        const distance = own === null || result.pos === null ? null : Math.hypot(result.pos[0] - own.x, result.pos[1] - own.y, result.pos[2] - own.z);
+        const entries: { label: string; run: () => void }[] = [];
+        if (isAccurate(result)) {
+          if (distance !== null && distance > MIN_WARP_DISTANCE) {
+            const within = storeValue(s.flow.warpDistance) || 0;
+            entries.push({ label: word(PROBE_RESULT_LABELS.warpToWithinDistance, { distance: fmtDist(within) }) ?? `Warp to Within ${fmtDist(within)}`,
+              run: () => { void s.flow.warpToProbeResult(siteID, within).catch(() => {}); } });
+          }
+          entries.push({ label: word(PROBE_RESULT_LABELS.alignTo) ?? "Align To", run: () => { void s.flow.alignToProbeResult(siteID).catch(() => {}); } });
+        }
+        entries.push({ label: word(PROBE_RESULT_LABELS.ignoreResult) ?? "Ignore Result", run: () => s.flow.ignoreProbeResults([siteID]) });
+        entries.push({ label: word(PROBE_RESULT_LABELS.ignoreOtherResults) ?? "Ignore Other Results", run: () => s.flow.ignoreOtherProbeResults([siteID]) });
+        return entries;
+      },
       // MarkerScanResult.GetLabelText (id, scanSvc.GetDisplayName, distance) and GetBracketLabelText's difficulty line
       resultLabel: (siteID) => {
         const held = s.store.scanner.get().probeResults;
