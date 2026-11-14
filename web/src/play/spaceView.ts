@@ -34,6 +34,7 @@ import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
 import { DScanWindow } from "./dscan.ts";
+import { SolarSystemMapWindow } from "./solarSystemMap.ts";
 import { Neocom } from "./neocom.ts";
 import { bracketIcon, loadBrackets } from "./brackets.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
@@ -385,6 +386,7 @@ export class SpaceView {
     if (raise) el.addEventListener("pointerdown", () => raise(el), true);
   }
   private dscan: DScanWindow | null = null;
+  private systemMap: SolarSystemMapWindow | null = null;
   /**
    * A thing's name as the client gives it (uix.GetSlimItemName): its own name where it has one (a pilot's, a
    * station's, a celestial's), else its type's (an NPC hull, a wreck, a container, an asteroid).
@@ -510,6 +512,14 @@ export class SpaceView {
     for (const el of [this.selectedEl, this.overview.window.root]) this.raiseOnClick(el);
     const openRadial = (id: number, x: number, y: number, button: number) => this.openRadial(id, x, y, button);
     const rowID = (_x: number, _y: number, e: Event) => Number((e.target as HTMLElement).closest?.("[data-id]")?.getAttribute("data-id")) || null;
+    // The solar system map (CmdToggleSolarSystemMap, F9; the directional scanner's map button), over the park's celestials.
+    this.systemMap = new SolarSystemMapWindow({
+      celestials: () => (this.snapshot?.entities ?? []).filter((e) => e.groupID === 6 || e.groupID === 7 || e.groupID === 8 || e.groupID === 10),
+      ego: () => this.snapshot?.ship?.position ?? null,
+      word: (label) => this.actions.word?.(label) ?? null,
+    }, this.layer);
+    this.layer.appendChild(this.systemMap.window.root);
+    this.raiseOnClick(this.systemMap.window.root);
     // The directional scanner (Alt+D, V), where the page can make the call.
     void typeNames().then((n) => { this.names = n; });
     if (this.actions.coneScan) {
@@ -527,6 +537,7 @@ export class SpaceView {
         activePreset: () => this.overview?.activePreset() ?? null,
         presets: () => this.overview?.presetList() ?? [],
         maxRangeMetres: () => this.actions.shipAttribute?.(5796) ?? null,
+        openMap: () => this.systemMap?.open(),
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);
@@ -1076,6 +1087,7 @@ export class SpaceView {
       return;
     }
     if (cmd === "OpenDirectionalScanner" && this.dscan) { e.preventDefault(); this.dscan.toggle(); return; }
+    if (cmd === "CmdToggleSolarSystemMap" && this.systemMap) { e.preventDefault(); this.systemMap.toggle(); return; }
     if (cmd === "CmdRefreshDirectionalScan" && this.dscan) { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); return; }
     // bracketSettings.toggle_show_no_brackets / toggle_show_all_brackets: the override to it, or back to the default
     // (every bracket here is the overview's whole grid already: "all" draws as the default does)

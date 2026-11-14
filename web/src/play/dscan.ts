@@ -52,6 +52,8 @@ export interface DScanHooks {
   groupName(groupID: number): string | null;
   /** The active overview preset (GetActiveOverviewPresetName): its name and groups; null until the presets are read. */
   activePreset?(): { readonly name: string; readonly groups: ReadonlySet<number> } | null;
+  /** MapBtnClicked: the solar system map opened. */
+  openMap?(): void;
   /** The ship's maxDirectionalScanRange in metres (GetMaxRangeM); null where it is not read. */
   maxRangeMetres?(): number | null;
   /** The presets the filter box offers (GetPresetOptions' defaults, by category); empty until read. */
@@ -190,6 +192,9 @@ export class DScanWindow {
     this.window.body.querySelector(".dscan-go")!.addEventListener("click", () => void this.scan());
     this.filterBox = this.window.body.querySelector(".dscan-filter")!;
     this.word = w;
+    // MapBtnClicked: the solar system map (the other two head buttons wait on it: the cone, align with camera)
+    const mapBtn = this.window.body.querySelectorAll<HTMLButtonElement>(".dscan-ic")[2];
+    if (mapBtn && hooks.openMap) { mapBtn.disabled = false; mapBtn.addEventListener("click", () => hooks.openMap?.()); }
     // LoadFilterTooltipPanel: the box's tooltip, a list (210 wide, at most 200 high) - UseActiveOverviewSettings, then
     // the presets - each a checkbox of one group, the chosen one checked, the first ten with a shortcut hint
     // ((i + 1) % 10); a choice (OnFilterChange) kept as scanner_presetInUse and the rows filtered again, or a scan made
