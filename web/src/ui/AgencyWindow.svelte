@@ -10,7 +10,7 @@
   //   Agent Finder (contentGroupAgentFinder): the agent finder;
   //   the agent groups (Security, Distribution, Mining, Research, Locator, Heraldry): ContentPageAgents;
   //   Career Agents: ContentPageCareerAgents; Storyline Agents: ContentPageStorylineAgents;
-  //   Combat Anomalies: ContentPageCombatAnomalies.
+  //   Combat Anomalies, Ore Anomalies, Ice Belts: ContentPageCombatAnomalies, ContentPageOreAnomalies, ContentPageIceBelts.
   // A card is disabled (UI/Agency/currentlyUnavailable, UnavailableInWormholes outside known space) where the group is
   // not in contentGroupsEnabledInWormholes and the pilot is not in known space.
   // OpenAndShowContentGroup (agencyRequests): the window on the asked group.
@@ -27,7 +27,7 @@
   import AgencyCareerAgentsPage from "./AgencyCareerAgentsPage.svelte";
   import AgencyStorylineAgentsPage from "./AgencyStorylineAgentsPage.svelte";
   import AgencySitesPage from "./AgencySitesPage.svelte";
-  import { DEFAULT_SITE_FILTERS, type AgencySiteFilters } from "../bridge/agencySites.ts";
+  import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
   let { store, flow, showTravel }: { store: ClientStore; flow: AppFlow; showTravel?: () => void } = $props();
@@ -37,7 +37,7 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, HELP = 69, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -50,6 +50,7 @@
   // agencyFilters by content group (the character's settings in the client; the window's life here).
   let agentFilters = $state<Record<number, AgencyAgentFilters>>({});
   let siteFilters = $state<Record<number, AgencySiteFilters>>({});
+  const SITE_PAGES: Record<number, SiteTrackerKind> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice" };
   const groupID = $derived(history[at] ?? HOME);
   const group = $derived(AGENCY_GROUPS[groupID] ?? AGENCY_GROUPS[HOME]!);
   const path = $derived(agencyPath(groupID));
@@ -129,8 +130,8 @@
       </div>
     {:else if groupID === AGENT_FINDER}
       <div class="ag-page"><AgentFinder {store} {flow} {showTravel} /></div>
-    {:else if groupID === COMBAT_ANOMALIES}
-      <div class="ag-page"><AgencySitesPage {store} {flow} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
+    {:else if SITE_PAGES[groupID]}
+      <div class="ag-page"><AgencySitesPage {store} {flow} kind={SITE_PAGES[groupID]} bind:filters={() => siteFilters[groupID] ?? DEFAULT_SITE_FILTERS, (f) => (siteFilters = { ...siteFilters, [groupID]: f })} /></div>
     {:else if groupID === STORYLINE_AGENTS}
       <div class="ag-page"><AgencyStorylineAgentsPage {store} {flow} /></div>
     {:else if groupID === CAREER_AGENTS}

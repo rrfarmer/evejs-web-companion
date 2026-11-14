@@ -7,17 +7,27 @@
   // site's name, UnknownCombatAnomaly for one only counted), the first chosen; the chosen site's Difficulty
   // (UI/Agency/ContentDifficulty: LevelX, or Unknown) and Roaming Enemies (its faction, or Unknown), and the system's
   // primary button (Set Destination / Destination Set elsewhere, Undock in a station of the system).
+  // The ore anomalies and ice belts (ContentPageOreAnomalies / ContentPageIceBelts, ContentPageResourceHarvesting): the
+  // card's bottom NumberOfBeltsInSystem and the system's resource types' 20 px icons (eight, then a plus); the info
+  // container ResourceHarvestingInfoContainer (Belts in system, 100 high, UnknownOreAnomaly / UnknownIceBelt), the chosen
+  // belt's types (Ore types in belt: a two-column grid, each its icon and name; Unknown for none) and the enemies; the
+  // Information section ProbeScanning, or IceAvailability and IceReprocessing.
   // Not here (later parts): the region distance, the system's other actions in it (warp to a scanned site), the enemy's
-  // logo, the job's Track button, the CombatSiteTypes tooltip, the ore and ice and signature pages.
+  // logo and the region's pirate faction for a belt (GetPirateFactionsOfRegion), the job's Track button, the tooltips,
+  // the extra types' tooltip, the signature pages.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { DISTANCE, ANY, SECURITY_FILTER } from "../bridge/agencyAgents.ts";
-  import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type AgencySiteSystem } from "../bridge/agencySites.ts";
+  import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
+  import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; filters?: AgencySiteFilters } = $props();
+  let { store, flow, kind = "combat", filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; kind?: SiteTrackerKind; filters?: AgencySiteFilters } = $props();
+  const belts = $derived(kind !== "combat");
+  const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt" } as const;
+  const INFO = { combat: ["UI/Agency/CombatSiteTypes"], ore: ["UI/Agency/ProbeScanning"], ice: ["UI/Agency/IceAvailability", "UI/Agency/IceReprocessing"] } as const;
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -34,9 +44,9 @@
   let chosen = $state<number | null>(null), site = $state(0);
   let asked = 0;
   $effect(() => {
-    const f = filters, n = ++asked;
+    const f = filters, k = kind, n = ++asked;
     systems = undefined;
-    void flow.agencyCombatAnomalies(f).then((list) => { if (n !== asked) return; systems = list; chosen = list?.[0]?.solarSystemID ?? null; site = 0; });
+    void flow.agencyTrackerSites(k, f).then((list) => { if (n !== asked) return; systems = list; chosen = list?.[0]?.solarSystemID ?? null; site = 0; });
   });
   const chosenSystem = $derived(systems?.find((s) => s.solarSystemID === chosen) ?? null);
   const chosenSite = $derived(chosenSystem?.sites[site]);
@@ -46,7 +56,8 @@
       "UI/Agency/LevelX", "UI/Common/Unknown", "UI/Agency/RoamingEnemies", "UI/Common/NothingFound", "UI/Common/Location", "UI/Generic/CurrentSystem", "UI/Common/WithinJumps",
       "UI/Agency/ContentOfAnyDistance", "Tooltips/CharacterSheet/SecurityStatus", "UI/Agency/AnySecurity", "UI/Common/HighSec", "UI/Common/LowSec", "UI/Common/NullSec",
       "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll", "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/CombatSiteTypes",
-      "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet",
+      "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Agency/NumberOfBeltsInSystem", "UI/Agency/BeltsInSystem",
+      "UI/Agency/OreTypesInBelt", UNKNOWN[kind], ...INFO[kind],
       ...(chosenSystem?.sites ?? []).map((s) => s?.dungeonNameID).filter((x): x is number => !!x).map((x) => `#${x}`)]);
   });
 
@@ -89,28 +100,38 @@
         <select value={filters.security} onchange={(e) => set({ security: Number(e.currentTarget.value) })}>{#each SECURITIES as v (v)}<option value={v}>{securityLabel(v)}</option>{/each}</select></label>
       <div class="asi-reset"><button type="button" title={word("UI/Agency/resetAllPageFilters")} onclick={() => (filters = DEFAULT_SITE_FILTERS)}>{word("UI/Commands/ResetAll")}</button></div>
     </section>
-    <section class="asi-section"><h3>{word("UI/Common/Information")}</h3><p class="asi-info">ⓘ {word("UI/Agency/CombatSiteTypes")}</p></section>
+    <section class="asi-section"><h3>{word("UI/Common/Information")}</h3>{#each INFO[kind] as label (label)}<p class="asi-info">ⓘ {word(label)}</p>{/each}</section>
   </aside>
   <section class="asi-section asi-scroll">
     <h3>{systems?.length ? word("UI/Agency/ShowingXResults", { numResults: systems.length }) : systems === undefined ? "…" : word("UI/Inflight/Scanner/FilteredResults")}</h3>
     <div class="asi-cards">
       {#each systems ?? [] as s (s.solarSystemID)}
         <button type="button" class="asi-card" class:on={chosen === s.solarSystemID} onclick={() => { chosen = s.solarSystemID; site = 0; }}>
-          <b>{systemText(s)}</b><span>{jumpsText(s)}</span><small>{word("UI/Agency/NumberOfAnomaliesInSystem", { amount: s.sites.length })}</small>
+          <b>{systemText(s)}</b><span>{jumpsText(s)}</span>
+          {#if belts && s.resourceTypeIDs?.length}
+            <span class="asi-types">{#each s.resourceTypeIDs.slice(0, 8) as t (t)}<img alt="" title={resolvedName($names.resolved, "type", t, "")} src={typeIconUrl(t)} />{/each}{#if s.resourceTypeIDs.length > 8}<i title={s.resourceTypeIDs.slice(8).map((t) => resolvedName($names.resolved, "type", t, "")).join(", ")}>+</i>{/if}</span>
+          {/if}
+          <small>{word(belts ? "UI/Agency/NumberOfBeltsInSystem" : "UI/Agency/NumberOfAnomaliesInSystem", { amount: s.sites.length })}</small>
         </button>
       {/each}
     </div>
   </section>
   <section class="asi-section asi-details">
-    <h3>{word("UI/Agency/SitesInSystem")}</h3>
+    <h3>{word(belts ? "UI/Agency/BeltsInSystem" : "UI/Agency/SitesInSystem")}</h3>
     {#if chosenSystem}{@const s = chosenSystem}{@const action = actionOf(s)}
       <div class="asi-system">{systemText(s)}</div>
-      <div class="asi-list">
+      <div class="asi-list" class:short={belts}>
         {#each s.sites as entry, i (i)}
-          <button type="button" class="asi-entry" class:on={site === i} onclick={() => (site = i)}>{entry ? (entry.dungeonNameID ? word(`#${entry.dungeonNameID}`) : "") : word("UI/Agency/UnknownCombatAnomaly")}</button>
+          <button type="button" class="asi-entry" class:on={site === i} onclick={() => (site = i)}>{entry ? (entry.dungeonNameID ? word(`#${entry.dungeonNameID}`) : "") : word(UNKNOWN[kind])}</button>
         {:else}<p class="asi-none">{word("UI/Common/NothingFound")}</p>{/each}
       </div>
-      {#if chosenSite !== undefined}
+      {#if chosenSite !== undefined && belts}
+        {@const types = chosenSite ? s.siteResourceTypeIDs?.[chosenSite.instanceID] ?? [] : []}
+        <h4>{word("UI/Agency/OreTypesInBelt")}</h4>
+        <div class="asi-grid">{#each types as t (t)}<span><img alt="" src={typeIconUrl(t)} />{resolvedName($names.resolved, "type", t, "")}</span>{:else}<span>{word("UI/Common/Unknown")}</span>{/each}</div>
+        <h4>{word("UI/Agency/RoamingEnemies")}</h4>
+        <p>{chosenSite?.factionID ? resolvedName($names.resolved, "owner", chosenSite.factionID, "") : word("UI/Common/Unknown")}</p>
+      {:else if chosenSite !== undefined}
         <h4>{word("UI/Agency/ContentDifficulty")}</h4>
         <p>{chosenSite && chosenSite.difficulty !== null ? word("UI/Agency/LevelX", { level: chosenSite.difficulty }) : word("UI/Common/Unknown")}</p>
         <h4>{word("UI/Agency/RoamingEnemies")}</h4>
@@ -144,6 +165,13 @@
   .asi-entry { all: unset; box-sizing: border-box; cursor: pointer; display: block; width: 100%; padding: 4px 8px; font-size: 12px; }
   .asi-entry:hover { background: rgb(255 255 255 / 0.06); }
   .asi-entry.on { background: rgb(255 255 255 / 0.14); }
+  .asi-list.short { height: 100px; }
+  .asi-types { display: flex; gap: 0; height: 20px; margin: -2px 0 0 2px; }
+  .asi-types img { width: 20px; height: 20px; }
+  .asi-types i { width: 20px; text-align: center; font-style: normal; opacity: 0.7; }
+  .asi-grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 10px 60px; padding: 5px 0; font-size: 12px; }
+  .asi-grid span { display: flex; align-items: center; gap: 6px; }
+  .asi-grid img { width: 32px; height: 32px; }
   .asi-none { text-align: center; opacity: 0.6; font-size: 12px; }
   .asi-details h4 { margin: 12px 0 2px; font-size: 12px; font-weight: 400; opacity: 0.7; }
   .asi-details p { margin: 0; font-size: 13px; }

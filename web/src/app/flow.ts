@@ -393,7 +393,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
-import { agencySiteSystems, trackerSites, type AgencySiteFilters, type AgencySiteSystem } from "../bridge/agencySites.ts";
+import { RESOURCE_ORDER, SITE_TRACKERS, agencySiteSystems, trackerSites, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
@@ -3694,6 +3694,8 @@ export interface AppFlow {
    * where neither could be read.
    */
   agencyCombatAnomalies(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
+  /** The same for a tracker's kind: the combat anomalies, the ore anomalies or the ice belts (with their resource types). */
+  agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19922,17 +19924,35 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
-  async function agencyCombatAnomalies(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
+  function agencyCombatAnomalies(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
+    return agencyTrackerSites("combat", filters);
+  }
+  async function agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [known, counts, jumps, graph] = await Promise.all([
-      bridgeAsk("dungeonInstanceCacheMgr", "GetCombatAnomalyInstances", []).catch(() => null),
-      bridgeAsk("dungeonInstanceCacheMgr", "GetCombatAnomaliesCount", []).catch(() => null),
+      bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS[kind].sites, []).catch(() => null),
+      bridgeAsk("dungeonInstanceCacheMgr", SITE_TRACKERS[kind].counts, []).catch(() => null),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
       loadRouteGraph().catch(() => null),
     ]);
     if (known === null && counts === null) return null;
-    const systems = agencySiteSystems(trackerSites(known ?? undefined, counts ?? undefined, here), here, here === null || here < 31000000,
+    let systems = agencySiteSystems(trackerSites(known ?? undefined, counts ?? undefined, here), here, here === null || here < 31000000,
       (id) => jumps?.get(id), (id) => graph?.security(id) ?? null, filters);
+    if (kind !== "combat") {
+      // ContentProviderOreAnomalies.GetResourceTypeIDsInSystem / ContentProviderIceBelts.GetIceTypeIDsInSystem: the sites'
+      // dungeons' types (get_ore_types_in_dungeon, consolidated; get_consolidated_ice_types_in_dungeon), each once.
+      const dungeonIDs = [...new Set(systems.flatMap((s) => s.sites.map((site) => site?.dungeonID ?? 0)).filter((id) => id > 0))];
+      const data = await api.loadDungeons(dungeonIDs, callOptions).catch(() => null);
+      const typesOf = (dungeonID: number | null) => (dungeonID ? (kind === "ore" ? data?.[String(dungeonID)]?.oreTypes : data?.[String(dungeonID)]?.iceTypes) ?? [] : []);
+      systems = systems.map((s) => {
+        const per: Record<number, readonly number[]> = {};
+        for (const site of s.sites) if (site) per[site.instanceID] = typesOf(site.dungeonID);
+        const order = RESOURCE_ORDER[kind], at = (t: number) => (order.indexOf(t) < 0 ? order.length : order.indexOf(t));
+        return { ...s, resourceTypeIDs: [...new Set(Object.values(per).flat())].sort((a, b) => at(a) - at(b)), siteResourceTypeIDs: per };
+      });
+      const types = [...new Set(systems.flatMap((s) => s.resourceTypeIDs ?? []))];
+      if (types.length) requestNames(types.map((id) => ({ kind: "type" as const, id })));
+    }
     const factions = [...new Set(systems.flatMap((s) => s.sites.map((site) => site?.factionID ?? 0)).filter((id) => id > 0))];
     requestNames([...systems.map((s) => ({ kind: "system" as const, id: s.solarSystemID })), ...factions.map((id) => ({ kind: "owner" as const, id }))]);
     requestSystemSecurity(systems.map((s) => s.solarSystemID));
@@ -33708,6 +33728,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyCareerAgents,
     agencyStorylineAgents,
     agencyCombatAnomalies,
+    agencyTrackerSites,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,

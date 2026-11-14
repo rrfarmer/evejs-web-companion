@@ -23,7 +23,24 @@ export interface AgencySite {
   readonly difficulty: number | null; readonly dungeonNameID: number | null;
 }
 /** A system's sites: a known site, or null for one the count tells of (UNKNOWN_DUNGEON). */
-export interface AgencySiteSystem { readonly solarSystemID: number; readonly sites: readonly (AgencySite | null)[]; readonly jumps: number | null; readonly security: number | null }
+export interface AgencySiteSystem {
+  readonly solarSystemID: number; readonly sites: readonly (AgencySite | null)[]; readonly jumps: number | null; readonly security: number | null;
+  /** The ore or ice kinds: the system's resource types (GetResourceTypeIDsInSystem / GetIceTypeIDsInSystem), and each
+   * known site's (its dungeon's), by instance. */
+  readonly resourceTypeIDs?: readonly number[]; readonly siteResourceTypeIDs?: Readonly<Record<number, readonly number[]>>;
+}
+/** The trackers (evedungeons anomalyTracker): CombatAnomalyTracker, OreAnomalyTracker, IceBeltTracker, by their calls. */
+export const SITE_TRACKERS = Object.freeze({
+  combat: { sites: "GetCombatAnomalyInstances", counts: "GetCombatAnomaliesCount" },
+  ore: { sites: "GetOreAnomalyInstances", counts: "GetOreAnomaliesCount" },
+  ice: { sites: "GetIceBeltInstances", counts: "GetIceBeltsCount" },
+} as const);
+export type SiteTrackerKind = keyof typeof SITE_TRACKERS;
+/** get_consolidated_ore_types / the ice types' order by value (as the dungeons route consolidates them). */
+export const RESOURCE_ORDER: Readonly<Record<"ore" | "ice", readonly number[]>> = {
+  ore: [1230, 1228, 1224, 18, 1227, 20, 1226, 1231, 21, 1229, 1232, 1225, 19, 1223, 22, 11396],
+  ice: [16269, 16266, 16267, 16268, 17975, 17976, 17977, 17978, 16264, 16265, 16263, 16262],
+};
 export interface AgencySiteFilters { readonly distance: number; readonly security: number }
 export const DEFAULT_SITE_FILTERS: AgencySiteFilters = Object.freeze({ distance: DISTANCE.any, security: ANY });
 /** agencyConst.SECURITY_THRESHOLDS. */
