@@ -50,6 +50,7 @@
   import type { CorporationAdministration } from "../bridge/corporationMemberQuery.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { corporationPanelTarget } from "./corporationPanel.ts";
 
   let { store, flow, openMail, openWatchlist, openPaintTool }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void; openPaintTool?: () => void } = $props();
 
@@ -74,6 +75,13 @@
   // svelte-ignore state_referenced_locally
   const freelanceRequested = flow.freelanceAdminDetailsRequested;
   $effect(() => { if ($freelanceRequested) panel = "freelance"; });
+  // corpui.Show(panel) from another window (corporationPanel.ts): the panel asked for, on the corporation's tab.
+  const corporationPanelRequests = corporationPanelTarget.requests;
+  $effect(() => {
+    void $corporationPanelRequests;
+    const wanted = corporationPanelTarget.take();
+    if (wanted) { corpTab = "corp"; panel = wanted; }
+  });
   let membersOpened = $state(false);
   let decorationsOpened = $state(false);
   // svelte-ignore state_referenced_locally

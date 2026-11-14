@@ -23,6 +23,7 @@
   import { AGENCY_GROUPS } from "./agencyContentGroups.ts";
   import { LINK_WORDS, linkFollowerOf } from "./linkFollowers.ts";
   import LabelText from "./LabelText.svelte";
+  import { corporationPanelTarget } from "./corporationPanel.ts";
 
   type Block =
     | { readonly h: string }
@@ -305,7 +306,7 @@
               <div class="agp-cell"><p>{word(`${G}EnlistmentEnlistingSoloTitle`)}</p><div><LabelText markup={markup(`${G}EnlistmentEnlistingSoloText`)} {followerOf} /></div>
                 <button type="button" onclick={() => onOpenTab?.("characterSheet")}><img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/charactersheet.png")} />{word(`${G}EnlistmentOpenCharacterStandings`)}</button></div>
               <div class="agp-cell"><p>{word(`${G}EnlistmentEnlistingCorpTitle`)}</p><div><LabelText markup={markup(`${G}EnlistmentEnlistingCorpText`)} {followerOf} /></div>
-                <button type="button" onclick={async () => { if (await flow.agencyCorpStandings()) onOpenTab?.("corporation"); }}><img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/corporation.png")} />{word(`${G}EnlistmentCorporationStandings`)}</button></div>
+                <button type="button" onclick={async () => { if (await flow.agencyCorpStandings()) { corporationPanelTarget.ask("npc"); onOpenTab?.("corporation"); } }}><img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/corporation.png")} />{word(`${G}EnlistmentCorporationStandings`)}</button></div>
             </div>
           {:else if "grid" in b}
             <div class="agp-grid2" style:gap={`${b.gap}px`}>{#each b.grid as column, c (c)}<div class="agp-col">{@render body(column)}</div>{/each}</div>

@@ -46,6 +46,7 @@
   import AgencyProjectDiscoveryPage from "./AgencyProjectDiscoveryPage.svelte";
   import AgencyTriglavianPage from "./AgencyTriglavianPage.svelte";
   import AgencyPhasedFieldsPage from "./AgencyPhasedFieldsPage.svelte";
+  import { corporationPanelTarget } from "./corporationPanel.ts";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
@@ -63,6 +64,17 @@
   const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, PROJECT_DISCOVERY = 52, PHASED_FIELDS = 87, TRIGLAVIAN_SPACE = 63, TRIGLAVIAN_FILAMENTS = 64, ASTEROID_BELTS = 40, PIRATE_STRONGHOLDS = 73, ABYSSAL_DEADSPACE = 37, ABYSSAL_FILAMENTS = 44, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, ZARZAKH = 83, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
+  // CorpContentGroup (an ExternalContentGroup): its name and description the player corporation's ((contentGroupCorp, 1):
+  // ContentGroupCorp2, Descriptions/Corp2) where the pilot's corporation is not an NPC's; its card opens the
+  // Corporation window (CallExternalFunc: corpui.Show(), on RECRUITMENT_SEARCH in an NPC corporation).
+  const playerCorporation = $derived.by(() => { const id = $station.online?.corporationID ?? null; return id !== null && !(id >= 1000000 && id < 2000000); });
+  const groupName = (g: AgencyGroup) => (g.id === CORP && playerCorporation ? "UI/Agency/ContentGroups/ContentGroupCorp2" : g.name);
+  const groupDescription = (g: AgencyGroup) => (g.id === CORP && playerCorporation ? "UI/Agency/ContentGroups/Descriptions/Corp2" : g.description);
+  function openGroup(g: AgencyGroup): void {
+    if (g.id !== CORP) { show(g.id); return; }
+    if (!playerCorporation) corporationPanelTarget.ask("recruitSearch");
+    onOpenTab?.("corporation");
+  }
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
   const CAROUSEL_CARDS: Record<number, string> = {
     [HOMEFRONT]: "res:/UI/Texture/Classes/Agency/navigationCards/carousel_homefront_operations.png",
@@ -114,7 +126,8 @@
   const word = (label: string | null) => (label ? plainText(formatTemplate($words.templates[label] ?? "", {} as never, { nameOf: () => "" })) : "");
   $effect(() => {
     flow.requestWords(["UI/Agency/PirateStrongholdsDisabledHint", "UI/Agency/IncursionIn", "UI/Agency/Caption", "UI/Agency/currentlyUnavailable", "UI/Agency/UnavailableInWormholes", "UI/Commands/Back", "UI/Commands/Forward",
-      ...Object.values(AGENCY_GROUPS).flatMap((g) => [g.name, g.description]).filter((x): x is string => !!x)]);
+      ...Object.values(AGENCY_GROUPS).flatMap((g) => [g.name, g.description]).filter((x): x is string => !!x),
+      "UI/Agency/ContentGroups/ContentGroupCorp2", "UI/Agency/ContentGroups/Descriptions/Corp2"]);
   });
 
   // Carousel: every 8 s to the next card (paused while the pointer is on it).
@@ -125,10 +138,10 @@
 
 {#snippet card(g: AgencyGroup, kind: "h" | "v" | "home-v", texture: string | null = null)}
   {@const off = disabled(g)}
-  <button type="button" class={`ag-card ag-${kind}`} class:off disabled={off} onclick={() => show(g.id)} title={ownDisabled(g.id) ? word(DISABLED_HINTS[g.id] ?? null) : word(g.name)}>
+  <button type="button" class={`ag-card ag-${kind}`} class:off disabled={off} onclick={() => openGroup(g)} title={ownDisabled(g.id) ? word(DISABLED_HINTS[g.id] ?? null) : word(groupName(g))}>
     {#if texture ?? g.card}<img class="ag-bg" alt="" src={clientTexture((texture ?? g.card)!)} />{/if}
-    <span class="ag-title">{word(g.name)}</span>
-    {#if g.description}<span class="ag-desc">{word(g.description)}</span>{/if}
+    <span class="ag-title">{word(groupName(g))}</span>
+    {#if groupDescription(g)}<span class="ag-desc">{word(groupDescription(g))}</span>{/if}
     {#if off}<span class="ag-unavailable">⚠ {word(wormhole ? "UI/Agency/UnavailableInWormholes" : "UI/Agency/currentlyUnavailable")}</span>{/if}
   </button>
 {/snippet}
