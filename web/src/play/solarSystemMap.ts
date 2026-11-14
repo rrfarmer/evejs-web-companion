@@ -16,6 +16,12 @@
 //   platform), the ballpark's first: a 14 x 14 marker, the type's bracket icon (16) at its middle (MarkerIconBase.Load;
 //   no background for a space object), on the map point (projectBracket offsetY 0); hovered, the selection circle (30,
 //   0.5) and its label (BracketShadowLabel at 26, 2: GetLabelText, the name and FmtDist of its distance).
+// - The view buttons (ConstructViewButtonCont: centred at the bottom, 12 up, 46 x 46 icons topView.png at 0 and
+//   sideView.png at 45; tooltips ViewFromTop / ViewFromSide with ToggleView - DoubleClickScene): the camera's pitch
+//   (solarSystemMapCameraController SetTopView to kMinPitch, SetSideView to pi / 2, over max(0.1, |change| x 0.2) s;
+//   ToggleCameraView on a double click: below pi / 4 to the side, else the top). mapCamera's pitch runs kMinPitch 0.01
+//   (from straight above) to kMaxPitch pi / 2 (level): never under the system's plane.
+//   (The range indicator is the tactical overlay's - solarSystemViewPanel - not this window's.)
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -27,6 +33,8 @@ export const SOLARSYSTEM_SCALE = 1e-10;
 const MIN_DISTANCE = 0.5;
 const MAX_DISTANCE = 9000;
 const FOV_RADIANS = 0.7;
+const K_MIN_PITCH = 0.01;
+const K_MAX_PITCH = Math.PI / 2;
 const GROUP_SUN = 6;
 const GROUP_PLANET = 7;
 const GROUP_MOON = 8;
@@ -98,7 +106,9 @@ export class SolarSystemMapWindow {
   private readonly markersLayer = document.createElement("div");
   private markers: { itemID: number; at: THREE.Vector3; el: HTMLDivElement }[] = [];
   private yaw = 0.6;
-  private pitch = 0.5;
+  /** mapCamera's pitch: 0.01 from straight above .. pi / 2 level. */
+  private pitch = 1.0;
+  private pitchTween: { from: number; to: number; start: number; duration: number } | null = null;
   private distance = 100;
   private frame = 0;
   private detached = false;
@@ -125,6 +135,16 @@ export class SolarSystemMapWindow {
     this.egoMarker.renderOrder = 2;
     this.scene.add(this.egoMarker);
     this.canvas.addEventListener("pointerdown", (e) => this.drag(e));
+    this.canvas.addEventListener("dblclick", () => this.toggleView());
+    const word = (label: string, own: string) => hooks.word?.(label) ?? own;
+    const views = document.createElement("div");
+    views.className = "ssm-views";
+    const toggleHint = `${word("UI/Inflight/Scanner/ToggleView", "Toggle View")}: ${word("UI/Inflight/Scanner/DoubleClickScene", "Double Click Scene")}`;
+    views.innerHTML = `<button type="button" class="ssm-view ssm-top" title="${word("UI/Inflight/Scanner/ViewFromTop", "View from Top")}\n${toggleHint}"><img alt="" src="${clientTexture("res:/UI/Texture/Classes/MapView/topView.png")}"></button>`
+      + `<button type="button" class="ssm-view ssm-side" title="${word("UI/Inflight/Scanner/ViewFromSide", "View from Side")}\n${toggleHint}"><img alt="" src="${clientTexture("res:/UI/Texture/Classes/MapView/sideView.png")}"></button>`;
+    views.querySelector(".ssm-top")!.addEventListener("click", () => this.setTopView());
+    views.querySelector(".ssm-side")!.addEventListener("click", () => this.setSideView());
+    this.window.body.appendChild(views);
     this.canvas.addEventListener("wheel", (e) => {
       e.preventDefault();
       this.distance = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE, this.distance * Math.pow(1.0015, e.deltaY)));
@@ -211,11 +231,23 @@ export class SolarSystemMapWindow {
     this.distance = Math.min(MAX_DISTANCE, Math.max(MIN_DISTANCE, 1.3 * fit));
   }
 
+  /** SetTopView / SetSideView: the pitch eased there over max(0.1, |change| x 0.2) seconds. */
+  private tweenPitch(to: number): void {
+    this.pitchTween = { from: this.pitch, to, start: performance.now(), duration: Math.max(0.1, Math.abs(this.pitch - to) * 0.2) * 1000 };
+  }
+  setTopView(): void { this.tweenPitch(K_MIN_PITCH); }
+  setSideView(): void { this.tweenPitch(K_MAX_PITCH); }
+  /** ToggleCameraView: below pi / 4 to the side, else to the top. */
+  toggleView(): void { if (this.pitch < Math.PI / 4) this.setSideView(); else this.setTopView(); }
+  /** The camera's pitch, for checks (0.01 above .. pi / 2 level). */
+  get cameraPitch(): number { return this.pitch; }
+
   private drag(e: PointerEvent): void {
     const x0 = e.clientX, y0 = e.clientY, yaw0 = this.yaw, pitch0 = this.pitch;
+    this.pitchTween = null;
     const move = (m: PointerEvent) => {
       this.yaw = yaw0 - (m.clientX - x0) * 0.005;
-      this.pitch = Math.min(1.5, Math.max(-1.5, pitch0 + (m.clientY - y0) * 0.005));
+      this.pitch = Math.min(K_MAX_PITCH, Math.max(K_MIN_PITCH, pitch0 - (m.clientY - y0) * 0.005));
     };
     const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
     addEventListener("pointermove", move);
@@ -240,8 +272,15 @@ export class SolarSystemMapWindow {
     const ego = this.hooks.ego();
     this.egoMarker.visible = ego !== null;
     if (ego) this.egoMarker.position.copy(mapPoint(ego));
-    const c = Math.cos(this.pitch);
-    this.camera.position.set(Math.sin(this.yaw) * c * this.distance, Math.sin(this.pitch) * this.distance, Math.cos(this.yaw) * c * this.distance);
+    if (this.pitchTween) {
+      const t = Math.min(1, (performance.now() - this.pitchTween.start) / this.pitchTween.duration);
+      const eased = t * t * (3 - 2 * t);
+      this.pitch = this.pitchTween.from + (this.pitchTween.to - this.pitchTween.from) * eased;
+      if (t >= 1) this.pitchTween = null;
+    }
+    // the pitch from straight above: the camera's height the cosine, its reach out the sine
+    const out = Math.sin(this.pitch);
+    this.camera.position.set(Math.sin(this.yaw) * out * this.distance, Math.cos(this.pitch) * this.distance, Math.cos(this.yaw) * out * this.distance);
     this.camera.lookAt(0, 0, 0);
     this.renderer.render(this.scene, this.camera);
     // the markers on their map points (behind the camera: hidden)
