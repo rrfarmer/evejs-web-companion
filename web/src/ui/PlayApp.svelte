@@ -217,7 +217,8 @@
   /**
    * The windows' sounds as carbonui makes them (uiconst SOUND_*): Window.CloseByUser SOUND_CLOSE, the collapse
    * SOUND_COLLAPSE, a Button's or Tab's click SOUND_BUTTON_CLICK and hover SOUND_BUTTON_HOVER, a Checkbox
-   * SOUND_SETSELECTED / SOUND_SETDESELECTED.
+   * SOUND_SETSELECTED / SOUND_SETDESELECTED. A button standing for a control that is no Button in the client and plays
+   * its own sounds (data-own-sound: the Career Portal's nodes) gets none of these.
    */
   $effect(() => {
     const el = windowsEl;
@@ -228,7 +229,7 @@
       const box = t?.closest("input[type=checkbox]") as HTMLInputElement | null;
       if (box) { void playUiEvent(box.checked ? "ui_button_soft4_play" : "msg_DiodeDeselect_play"); return; }
       const button = t?.closest("button");
-      if (!button || (button as HTMLButtonElement).disabled) return;
+      if (!button || (button as HTMLButtonElement).disabled || button.hasAttribute("data-own-sound")) return;
       if (button.classList.contains("win-close")) void playUiEvent("ui_object_close_play");
       else if (button.classList.contains("win-btn")) void playUiEvent("ui_collapse_play");
       else void playUiEvent("ui_button_soft4_play");
@@ -237,7 +238,7 @@
       const button = (e.target as HTMLElement | null)?.closest("button") ?? null;
       if (button === hovered) return;
       hovered = button;
-      if (button && !(button as HTMLButtonElement).disabled) void playUiEvent("ui_button_soft1_play");
+      if (button && !(button as HTMLButtonElement).disabled && !button.hasAttribute("data-own-sound")) void playUiEvent("ui_button_soft1_play");
     };
     el.addEventListener("click", onClick, true);
     el.addEventListener("mouseover", onOver);

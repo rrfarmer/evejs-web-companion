@@ -48,6 +48,7 @@
   import { showCertifiedPlans } from "./skillPlanCareerRequests.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
   import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
+  import { playUiEvent } from "../play/uiAudio.ts";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -90,7 +91,7 @@
   // Out of the careers view into the activities: the career view going to its alternate state (Tr2DScaleTo 0.6,
   // Tr2DRotateTo its rotation, 0.5 s) while the chosen node slides to the centre (CareerNode._GoToCenter: MoveTo 0.5 s,
   // its icon to 1.5).
-  let arriving = $state(false);
+  let arriving = $state(false), movedAt = 0;
   $effect(() => {
     const now = view;
     const from = untrack(() => previousView);
@@ -100,6 +101,7 @@
       : now === "GOALS_VIEW" ? { scale: 1.4, fade: 1 }
       : { scale: 0.6, rotate: -(CIRCLE_ROTATION_BY_CAREER[untrack(() => careerID) ?? 0] ?? 0) };
     arriving = from === "CAREERS_VIEW" && now === "ACTIVITIES_VIEW";
+    if (arriving) movedAt = performance.now();
     previousView = now;
   });
   // CareerCircleView._GetNodeMask: the inner mask down for the enforcer (6) and explorer (4), up otherwise; the other
@@ -181,6 +183,28 @@
     const ok = await flow.claimCareerReward(goalID, label);
     claimed = ok ? { ...claimed, [k]: "done" } : Object.fromEntries(Object.entries(claimed).filter(([key]) => key !== k));
   }
+  // The window's sounds (careerPortalWnd: SOUND_OPEN_PLAY and SOUND_BACKGROUND_LOOP_PLAY on opening, the loop's stop
+  // on closing), and GoalPanel.LoadGoal's career_portal_aura_assistance_play as a goal's panel loads.
+  const sound = (name: string) => void playUiEvent(name);
+  $effect(() => {
+    sound("career_portal_open_play"); sound("career_portal_background_loop_play");
+    return () => sound("career_portal_background_loop_stop");
+  });
+  let auraFor: string | null = null;
+  $effect(() => {
+    const id = view === "GOALS_VIEW" ? goal?.goalID ?? null : null;
+    if (id !== null && id !== auraFor) sound("career_portal_aura_assistance_play");
+    auraFor = id;
+  });
+  // CareerNode.OnMouseEnter: career_portal_hover_profession_play and the hover signal, neither while the node is still
+  // moving (IsAnimating: its MoveTo to the centre); CareerView.OnCareerNodeHoverOn in the activities view:
+  // career_portal_go_to_activities_play.
+  function careerEnter() {
+    if (arriving && performance.now() - movedAt < 500) return;
+    sound("career_portal_hover_profession_play");
+    if (view === "ACTIVITIES_VIEW") sound("career_portal_go_to_activities_play");
+    careerHover = true;
+  }
   $effect(() => {
     flow.requestWords([C + "YourRewards", C + "ClaimAllRewards", C + "ClaimReward", C + "RewardClaimed", C + "CheckRedeemingQueue", C + "RewardBundle", C + "ItemsInRewardBundle", C + "Locked", C + "UpgradeToClaim",
       "UI/Common/SkillPoints", "UI/Common/ISK", ...entries.map((e) => e.goal.nameID).filter((x): x is number => !!x).map((x) => `#${x}`)]);
@@ -228,8 +252,8 @@
           {#snippet node(n: unknown)}
             {@const c = n as Career}
             {@const list = careerGoals(c)}
-            <button type="button" class="cpw-career" class:on={careerID === c.id} title={careerName(c)} onclick={() => go("ACTIVITIES_VIEW", c.id, null, null)}
-              onmouseenter={() => (careerHover = true)} onmouseleave={() => (careerHover = false)}>
+            <button type="button" class="cpw-career" data-own-sound class:on={careerID === c.id} title={careerName(c)} onclick={() => { sound("career_portal_select_profession_play"); go("ACTIVITIES_VIEW", c.id, null, null); }}
+              onmouseenter={careerEnter} onmouseleave={() => (careerHover = false)}>
               {#if careerIcon(c.id, 128)}<img alt="" src={careerIcon(c.id, 128)} />{/if}
               <b>{careerName(c)}</b><small>{done(list)} / {list.length}</small>
             </button>
@@ -252,9 +276,10 @@
           inner={{ mask: countMask(activities.length), scale: 0.91, opacity: 1, scaled: careerHover }} {enter}>
           {#snippet node(n: unknown)}
             {@const a = n as (typeof activities)[number]}
-            <button type="button" class="cpw-row cpw-node" class:on={activity === a.key} class:done={a.goals.every((g) => g.completed)}
+            <button type="button" class="cpw-row cpw-node cpw-activity" data-own-sound class:on={activity === a.key} class:done={a.goals.every((g) => g.completed)}
               title={`${groupName(career, a.key)} - ${done(a.goals)} / ${a.goals.length}`} style:--done={`${(done(a.goals) / Math.max(1, a.goals.length)) * 360}deg`}
-              onclick={() => go("GOALS_VIEW", careerID, a.key, null)}>
+              onmouseenter={() => sound("career_portal_mission_hover_play")}
+              onclick={() => { sound("career_portal_select_mission_play"); go("GOALS_VIEW", careerID, a.key, null); }}>
               {#if activityIcon(career, a.key)}<img alt="" src={activityIcon(career, a.key)} />{/if}
               <span class="cpw-node-label">{groupName(career, a.key)}<small>{done(a.goals)} / {a.goals.length}</small></span>
             </button>
@@ -291,9 +316,9 @@
           inner={{ mask: countMask(activityGoals.length), scale: 0.91, opacity: 1, scaled: careerHover }} {enter}>
           {#snippet node(n: unknown)}
             {@const g = n as CareerGoal}
-            <button type="button" class="cpw-row cpw-node cpw-goalnode" class:on={goalID === g.goalID} class:done={g.completed}
+            <button type="button" class="cpw-row cpw-node cpw-goalnode" data-own-sound class:on={goalID === g.goalID} class:done={g.completed}
               title={`${g.nameID ? word(`#${g.nameID}`) : ""} - ${g.progress.toLocaleString("en-US")} / ${g.target.toLocaleString("en-US")}`}
-              onclick={() => go("GOALS_VIEW", careerID, activity, g.goalID)}>
+              onmouseenter={() => sound("career_portal_mission_hover_play")} onclick={() => go("GOALS_VIEW", careerID, activity, g.goalID)}>
               <img alt="" src={clientTexture(g.completed ? "res:/UI/Texture/classes/careerPortal/circleView/goalCompleted.png" : $tracked.includes(g.goalID) ? "res:/UI/Texture/classes/careerPortal/circleView/eye_open_32.png" : "res:/UI/Texture/Shared/smallDot.png")} />
               <span class="cpw-node-label">{$tracked.includes(g.goalID) ? "👁 " : ""}{g.nameID ? word(`#${g.nameID}`) : ""}<small>{g.progress.toLocaleString("en-US")} / {g.target.toLocaleString("en-US")}</small></span>
             </button>
@@ -354,14 +379,14 @@
         {#if Number(goal.annotations.duration)}<div class="cpw-entry"><span>{word(C + "GoalDuration")}</span><b>{goal.annotations.duration} min</b></div>{/if}
         <div class="cpw-bottom">
           {#if goal.completed}<span class="cpw-completed">{word(C + "GoalCompleted")}</span>
-          {:else}<button type="button" class:primary={!$tracked.includes(goal.goalID)} onclick={() => flow.trackCareerGoal(goal.goalID, !$tracked.includes(goal.goalID))}>
+          {:else}<button type="button" class:primary={!$tracked.includes(goal.goalID)} onclick={() => { const on = !$tracked.includes(goal.goalID); if (on) sound("career_portal_mission_view_play"); void flow.trackCareerGoal(goal.goalID, on); }}>
             {$tracked.includes(goal.goalID) ? word(C + "UntrackGoal") : word(C + "TrackGoal")}</button>{/if}
         </div>
       </aside>
       <aside class="cpw-goal cpw-aura">
         <div class="cpw-title"><img alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_icon_32x32.png")} /><h3>{word(C + "AuraAssistancePanelTitle")}</h3></div>
         {#if Number(goal.annotations.auraTextID)}<p class="cpw-aura-text">{word(`#${goal.annotations.auraTextID}`)}</p>{/if}
-        {#if Number(goal.annotations.agencyLinkTextID)}<button type="button" class="cpw-ghost" onclick={() => openAgencyGroup(AGENCY_SCREEN_GROUPS[goal.annotations.agencyScreen ?? ""] ?? 1)}>{word(`#${goal.annotations.agencyLinkTextID}`)}</button>{/if}
+        {#if Number(goal.annotations.agencyLinkTextID)}<button type="button" class="cpw-ghost" onclick={() => { sound("career_portal_career_agents_play"); openAgencyGroup(AGENCY_SCREEN_GROUPS[goal.annotations.agencyScreen ?? ""] ?? 1); }}>{word(`#${goal.annotations.agencyLinkTextID}`)}</button>{/if}
         <hr />{@render freelance(true)}
       </aside>
       </div>
@@ -402,10 +427,10 @@
         {/if}
       {/snippet}
       {#snippet centre()}
-        <button type="button" class="cpw-career cpw-chosen" class:arriving title={careerName(career)}
+        <button type="button" class="cpw-career cpw-chosen" data-own-sound class:arriving title={careerName(career)}
           style:--from-x={`${ringRadius * Math.cos(ringAngle)}px`} style:--from-y={`${ringRadius * Math.sin(ringAngle)}px`} style:--node-rotate={`${angle}deg`} style:width={`${careerNodeSize}px`} style:height={`${careerNodeSize}px`}
-          style:transform={`rotate(${angle}deg) scale(1.5)`} onmouseenter={() => (careerHover = true)} onmouseleave={() => (careerHover = false)}
-          onclick={() => (view === "GOALS_VIEW" ? go("ACTIVITIES_VIEW", careerID, activity, null) : go("CAREERS_VIEW", careerID, null, null))}>{#if careerIcon(career.id, 128)}<img alt="" src={careerIcon(career.id, 128)} />{/if}</button>
+          style:transform={`rotate(${angle}deg) scale(1.5)`} onmouseenter={careerEnter} onmouseleave={() => (careerHover = false)}
+          onclick={() => (sound("career_portal_select_profession_play"), view === "GOALS_VIEW" ? go("ACTIVITIES_VIEW", careerID, activity, null) : go("CAREERS_VIEW", careerID, null, null))}>{#if careerIcon(career.id, 128)}<img alt="" src={careerIcon(career.id, 128)} />{/if}</button>
       {/snippet}
     </CareerCircle>
   </div>
@@ -423,13 +448,26 @@
   .cpw-body > .cpw-goal, .cpw-body > .cpw-side { position: absolute; right: 0; top: 0; max-height: 100%; z-index: 1; }
   .cpw-dim { opacity: 0.65; }
   .cpw-career { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; font-size: 12px; }
-  .cpw-career img { width: 70%; height: auto; }
-  .cpw-career:hover img, .cpw-career.on img { filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.6)); }
+  .cpw-career img { width: 70%; height: auto; transition: filter 0.2s; }
+  /* IconWithGauge.OnMouseEnter / Exit: the icon (OUTPUT_COLOR_AND_GLOW) to 1.4 and back over HOVER_ANIMATION_DURATION. */
+  .cpw-career:hover img { filter: brightness(1.4); }
   .cpw-node { position: relative; width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; align-items: center; border-left: none;
     background: radial-gradient(circle, rgb(0 0 0 / 0.85) 62%, transparent 64%), conic-gradient(#6ab04c var(--done, 0deg), rgb(255 255 255 / 0.35) 0); }
   .cpw-node img { width: 32px; height: 32px; }
-  .cpw-goalnode { background: rgb(0 0 0 / 0.6); }
-  .cpw-goalnode img { width: 20px; height: 20px; }
+  /* ActivityNode's bgSprite (nodeBg.png): CRYO_BLUE, LEAFY_GREEN where done, 0 and HIGHLIGHT_BG_OPACITY 0.3 hovered. */
+  .cpw-activity::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; background: #6ac3ec;
+    mask: url(/client-res/ui/texture/classes/careerportal/circleview/nodebg.png) center / 100% 100% no-repeat; }
+  .cpw-activity.done::before { background: #6ab04c; }
+  .cpw-activity:hover::before { opacity: 0.3; }
+  .cpw-activity img { position: relative; }
+  /* GoalNode's bgSprite (node_glow.png at the node's size): WHITE at DEFAULT_GLOW_OPACITY 0.8; CRYO_BLUE at
+     HIGHLIGHT_GLOW_OPACITY 1 hovered or chosen; LEAFY_GREEN 0.8 where done (a done node's hover changes nothing). */
+  .cpw-goalnode { background: none; }
+  .cpw-goalnode::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.8; background: #fff;
+    mask: url(/client-res/ui/texture/classes/careerportal/node_glow.png) center / 100% 100% no-repeat; }
+  .cpw-goalnode:hover::before, .cpw-goalnode.on::before { opacity: 1; background: #6ac3ec; }
+  .cpw-goalnode.done:not(.on)::before { opacity: 0.8; background: #6ab04c; }
+  .cpw-goalnode img { position: relative; width: 20px; height: 20px; }
   .cpw-node.done img { filter: hue-rotate(60deg) saturate(2); }
   .cpw-node.on { box-shadow: 0 0 0 2px rgb(255 255 255 / 0.7); }
   .cpw-node-label { display: none; position: absolute; top: 52px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 2px 6px; background: rgb(0 0 0 / 0.85); font-size: 12px; z-index: 2; }
