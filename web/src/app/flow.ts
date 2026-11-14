@@ -4273,7 +4273,9 @@ export interface AppFlow {
   /** A new note (charMgr.AddOwnerNote): its noteID. */
   notepadAddNote(label: string, note: string): Promise<number>;
   /** A note written back (charMgr.EditOwnerNote). */
-  notepadEditNote(noteID: number, label: string, note: string): Promise<void>;
+  notepadEditNote(noteID: number, label: string, note?: string): Promise<void>;
+  /** charMgr.RemoveOwnerNote(noteID): a note of the pilot's own gone (DeleteNote, a setting's spare part, a bad note). */
+  notepadRemoveNote(noteID: number): Promise<void>;
   ownCorporationDetails(): Promise<{ readonly corporationID: number; readonly name: string; readonly ceoID: number | null; readonly creatorID: number | null;
     readonly stationID: number | null; readonly ticker: string; readonly shares: number; readonly memberCount: number; readonly taxRate: number;
     readonly loyaltyPointTaxRate: number; readonly url: string } | null>;
@@ -32545,7 +32547,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return Number(unwrapLong(await bridgeDo("charMgr", "AddOwnerNote", [label, note])));
     },
     async notepadEditNote(noteID, label, note) {
-      await bridgeDo("charMgr", "EditOwnerNote", [noteID, label, note]);
+      // RenameNote sends the label alone (EditOwnerNote(noteID, "N:" + name)), the text left as it is
+      await bridgeDo("charMgr", "EditOwnerNote", note === undefined ? [noteID, label] : [noteID, label, note]);
+    },
+    async notepadRemoveNote(noteID) {
+      await bridgeDo("charMgr", "RemoveOwnerNote", [noteID]);
     },
     async ownCorporationDetails() {
       const corporationID = store.station.get().online?.corporationID ?? null;
