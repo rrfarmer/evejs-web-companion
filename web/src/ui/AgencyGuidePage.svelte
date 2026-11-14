@@ -8,10 +8,13 @@
   // get_searchable_strings, holds the text. EnlistmentPanel's strings name _label2 and _extraHeader1, which it never sets,
   // so a search its label does not match raises there and the scroll stays flushed: the page shows no topics then.
   // The guides: contentPageFactionWarfareGuide (Topics: overview, war zones, enlistment, advantage, system capture, loyalty
-  // points, missions; the panels contentPagesUI/factionWarfare/panels).
+  // points, missions; the panels contentPagesUI/factionWarfare/panels) and contentPagePirateIncursionsGuide (Topics:
+  // overview, factions, insurgencies, FOB and LP, corruption, ambition, activities and the five activities, indented four
+  // spaces; the panels contentPagesUI/pirateIncursions/panels: plain containers of SectionAutoSize sections, a text's
+  // ScrollContainer its fixed height, a TOTOP Sprite stretched across at its height).
   // Not here (later parts): the Faction Warfare window (cmd.OpenMilitia) and the war zones map (OpenMap STARMODE_MILITIA
   // on the faction's HQ system), whose windows the page has not; the nearest militia office (facwar
-  // GetNearestFactionWarfareStationData over map.GetStationInfo).
+  // GetNearestFactionWarfareStationData over map.GetStationInfo); the pirate enlistment window (cmd.OpenFwEnlistment).
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -23,15 +26,20 @@
 
   type Block =
     | { readonly h: string }
-    | { readonly t: string }
-    | { readonly img: string; readonly w: number; readonly hgt: number; readonly top?: number }
+    | { readonly t: string; readonly scroll?: number; readonly pad?: number }
+    | { readonly img: string; readonly w: number; readonly hgt: number; readonly top?: number; readonly stretch?: boolean }
+    | { readonly sec: string; readonly padTop?: number; readonly body: readonly Block[] }
+    | { readonly corruption: true }
+    | { readonly activity: Activity }
     | { readonly btn: string; readonly icon: string; readonly open: (() => void) | null; readonly top: number }
     | { readonly advantage: true }
     | { readonly enlist: true }
     | { readonly card: number };
-  interface Topic { readonly id: string; readonly label: string; readonly header: string; readonly blocks: readonly Block[]; readonly strings: readonly string[] | null }
+  /** ActivityPanel's arguments (the guide's _create_panels) and activityConst's labels. */
+  interface Activity { readonly name: string; readonly howTo: string; readonly where: string; readonly rewards: string | null; readonly header: string; readonly scale: string; readonly rewardType: string }
+  interface Topic { readonly id: string; readonly label: string; readonly indent?: boolean; readonly header: string | null; readonly blocks: readonly Block[]; readonly strings: readonly string[] | null }
 
-  let { store, flow, guide, onOpenTab, onShow }: { store: ClientStore; flow: AppFlow; guide: "factionWarfare"; onOpenTab?: (tab: string) => void; onShow?: (groupID: number) => void } = $props();
+  let { store, flow, guide, onOpenTab, onShow }: { store: ClientStore; flow: AppFlow; guide: "factionWarfare" | "pirateInsurgencies"; onOpenTab?: (tab: string) => void; onShow?: (groupID: number) => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -69,16 +77,73 @@
         blocks: [{ img: "res:/UI/Texture/classes/agency/factionWarfare/missions.png", w: 807, hgt: 185, top: 0 }, { t: `${G}MissionsText` }, { card: 47 }] },
     ];
   }
-  const topics = $derived(guide === "factionWarfare" ? factionWarfare() : []);
+  const P = "UI/Agency/PirateIncursions/Guides/", A = `${P}Activities/`;
+  const ACTIVITY_ART = "res:/UI/Texture/classes/agency/pirateIncursions/";
+  /** contentPagePirateIncursionsGuide.Topics.ORDERED and its panels. */
+  function pirateInsurgencies(): readonly Topic[] {
+    const sec = (title: string, text: string, scroll: number, padTop = 0): Block => ({ sec: title, padTop, body: [{ t: text, scroll, pad: 5 }] });
+    // ActivityPanel: (activity, constructRewards, headerTexturePath, ACTIVITY_SCALE_LABELS, ACTIVITY_REWARD_TYPE).
+    const shared = `${A}ActivityRewardTypeShared`, individual = `${A}ActivityRewardTypeIndividual`;
+    const activities: readonly [string, Activity][] = [
+      ["activity1", { name: `${A}ActivityNameOutpost`, howTo: `${A}OutpostHowTo`, where: `${A}OutpostWhere`, rewards: `${A}OutpostRewards`, header: `${ACTIVITY_ART}CorporateOutpostRaid.png`, scale: `${A}corporateOutpostRaidActivityScaling`, rewardType: shared }],
+      ["activity2", { name: `${A}MiningFleetName`, howTo: `${A}MiningFleetHowTo`, where: `${A}MiningFleetWhere`, rewards: `${A}MiningFleetRewards`, header: `${ACTIVITY_ART}MiningFleetAmbush.png`, scale: `${A}MiningOpAmbushActivityScaling`, rewardType: shared }],
+      ["activity3", { name: `${A}LaunderingCenterName`, howTo: `${A}LaunderingCenterHowTo`, where: `${A}LaunderingCenterWhere`, rewards: null, header: `${ACTIVITY_ART}LaunderingCenter.png`, scale: `${A}PirateLaunderingFacilitiesActivityScaling`, rewardType: individual }],
+      ["activity4", { name: `${A}SecurityPostName`, howTo: `${A}SecurityPostHowTo`, where: `${A}SecurityPostWhere`, rewards: null, header: `${ACTIVITY_ART}SecurityPost.png`, scale: `${A}CounterInsurgencyOutpostActivityScaling`, rewardType: individual }],
+      ["activity5", { name: `${A}IceRefineryHeistName`, howTo: `${A}IceRefineryHeistHowTo`, where: `${A}IceRefineryHeistWhere`, rewards: `${A}IceRefineryHeistRewards`, header: `${ACTIVITY_ART}IceRefineryHeist.png`, scale: `${A}IceRefineryHeistActivityScaling`, rewardType: shared }],
+    ];
+    return [
+      // OverviewPanel: the image (258 high, padBottom 5), the section's text in a scroll 180 high.
+      { id: "overview", label: `${P}TopicOverview`, header: null, strings: [`${P}Overview/OverviewSectionTitle`, `${P}Overview/OverviewSectionText`], blocks: [
+        { img: `${ACTIVITY_ART}PirateInsurgencyGuideOverview.png`, w: 790, hgt: 258, top: 0, stretch: true }, sec(`${P}Overview/OverviewSectionTitle`, `${P}Overview/OverviewSectionText`, 180)] },
+      // FactionsPanel: the pirates (130), Zarzakh (130, padTop 20) and the pirate enlistment button.
+      { id: "factions", label: `${P}TopicFactions`, header: null,
+        strings: [`${P}Factions/PiratesSectionTitle`, `${P}Factions/PirateSectionText`, `${P}Factions/ZarzakhSectionTitle`, `${P}Factions/ZarzakhSectionText`], blocks: [
+        sec(`${P}Factions/PiratesSectionTitle`, `${P}Factions/PirateSectionText`, 130),
+        { sec: `${P}Factions/ZarzakhSectionTitle`, padTop: 20, body: [{ t: `${P}Factions/ZarzakhSectionText`, scroll: 130, pad: 5 },
+          { btn: "UI/Agency/PirateIncursions/openPirateEnlistmentWindow", icon: "res:/UI/Texture/eveicon/system_icons/open_window_16px.png", open: null, top: 30 }] }] },
+      // InsurgenciesPanel: the section (240), the image (233 high, pad 5).
+      { id: "incursions", label: `${P}TopicIncursions`, header: null, strings: [`${P}Insurgencies/InsurgenciesSectionTitle`, `${P}Insurgencies/InsurgenciesSectionText`], blocks: [
+        sec(`${P}Insurgencies/InsurgenciesSectionTitle`, `${P}Insurgencies/InsurgenciesSectionText`, 240),
+        { img: `${ACTIVITY_ART}Insurgencies.png`, w: 790, hgt: 233, top: 5, stretch: true }] },
+      // FOBPanel: the FOB section (its image 166 high, then the text) and the LP stores section.
+      { id: "fob_and_lp", label: `${P}TopicFOBandLP`, header: null,
+        strings: [`${P}FOBandLP/FOBSectionTitle`, `${P}FOBandLP/FOBSectionText`, `${P}FOBandLP/LPSectionTitle`, `${P}FOBandLP/LPSectionText`], blocks: [
+        { sec: `${P}FOBandLP/FOBSectionTitle`, body: [{ img: `${ACTIVITY_ART}PirateFOB.png`, w: 790, hgt: 166, top: 5, stretch: true }, { t: `${P}FOBandLP/FOBSectionText`, pad: 5 }] },
+        { sec: `${P}FOBandLP/LPSectionTitle`, body: [{ t: `${P}FOBandLP/LPSectionText`, pad: 5 }] }] },
+      // CorruptionSuppressionPanel: the text (90), the stages table.
+      { id: "corruption", label: `${P}TopicCorruption`, header: null, strings: [`${P}Corruption/CorruptionSectionTitle`, `${P}Corruption/CorruptionSectionText`], blocks: [
+        { sec: `${P}Corruption/CorruptionSectionTitle`, body: [{ t: `${P}Corruption/CorruptionSectionText`, scroll: 90, pad: 5 }, { corruption: true }] }] },
+      { id: "ambition", label: `${P}TopicAmbition`, header: null, strings: [`${P}Ambition/AmbitionSectionTitle`, `${P}Ambition/AmbitionSectionText`], blocks: [
+        sec(`${P}Ambition/AmbitionSectionTitle`, `${P}Ambition/AmbitionSectionText`, 180)] },
+      { id: "activities", label: `${P}TopicActivities`, header: null,
+        strings: [`${P}ActivityOverview/InsurgenceActivitiesSectionTitle`, `${P}ActivityOverview/InsurgenceActivitiesSectionText`], blocks: [
+        sec(`${P}ActivityOverview/InsurgenceActivitiesSectionTitle`, `${P}ActivityOverview/InsurgenceActivitiesSectionText`, 160)] },
+      // ActivityPanel.get_searchable_strings: the activity's name alone.
+      ...activities.map(([id, a]): Topic => ({ id, label: a.name, indent: true, header: null, strings: [a.name], blocks: [{ activity: a }] })),
+    ];
+  }
+  const topics = $derived(guide === "factionWarfare" ? factionWarfare() : pirateInsurgencies());
+  /** The topic's label as Topics.LABELS has it (the activities' four spaces before the name). */
+  const topicLabel = (t: Topic) => (t.indent ? "    " : "") + word(t.label);
+  const STAGES = [1, 2, 3, 4, 5];
+  /** TableRow: a bonus of more than one line is drawn as its first and third, each after a dash. */
+  function bonus(label: string): string {
+    const text = word(label), lines = text.split(/\r\n|\r|\n/);
+    return lines.length > 1 ? `-${lines[0]}\n-${lines[2] ?? ""}` : text;
+  }
   let chosen = $state("overview"), search = $state("");
-  const labelsOf = (b: Block): string[] => ("h" in b ? [b.h] : "t" in b ? [b.t] : "btn" in b ? [b.btn] : "card" in b ? [AGENCY_GROUPS[b.card]?.name ?? "", AGENCY_GROUPS[b.card]?.description ?? ""] : []);
+  const labelsOf = (b: Block): string[] => ("h" in b ? [b.h] : "t" in b ? [b.t] : "btn" in b ? [b.btn] : "sec" in b ? [b.sec, ...b.body.flatMap(labelsOf)]
+    : "card" in b ? [AGENCY_GROUPS[b.card]?.name ?? "", AGENCY_GROUPS[b.card]?.description ?? ""]
+    : "activity" in b ? [b.activity.name, b.activity.howTo, b.activity.where, b.activity.rewards ?? "", b.activity.scale, b.activity.rewardType]
+    : "corruption" in b ? STAGES.flatMap((n) => [`${P}Corruption/stageNumber0${n}`, `${P}Corruption/CorruptionBonusStage0${n}`, `${P}Corruption/SuppressionBonusStage0${n}`]) : []);
   $effect(() => {
     flow.requestWords(["UI/Agency/PirateIncursions/Guides/GuideBrowserSectionTitle", ...Object.keys(LINK_WORDS),
-      ...topics.flatMap((t) => [t.label, t.header, ...(t.strings ?? []), ...t.blocks.flatMap(labelsOf)]),
+      ...topics.flatMap((t) => [t.label, t.header ?? "", ...(t.strings ?? []), ...t.blocks.flatMap(labelsOf)]),
       `${G}EnlistmentWarningsText`, `${G}EnlistSoloAlliance`, `${G}EnlistmentEnlistingSoloTitle`, `${G}EnlistmentEnlistingCorpTitle`,
       `${G}EnlistmentEnlistingSoloText`, `${G}EnlistmentEnlistingCorpText`, `${G}EnlistmentOpenCharacterStandings`, `${G}EnlistmentCorporationStandings`,
       "UI/FactionWarfare/frontlinesDashboard/advantageTitleLabel", "UI/FactionWarfare/frontlinesDashboard/objectives/advantageTrackerDescription",
-      "UI/FactionWarfare/OneSideHasAdvantageBonus"].filter(Boolean));
+      "UI/FactionWarfare/OneSideHasAdvantageBonus", `${P}Corruption/StageHeader`, `${P}Corruption/CorruptionHeader`, `${P}Corruption/SuppressionHeader`,
+      `${A}ActivityShipTypeT1`, `${A}HeaderHowTo`, `${A}HeaderWhere`, `${A}HeaderRewards`].filter(Boolean));
   });
   /** _get_filtered_topics, the enlistment panel's raise included (an empty list). */
   const shown = $derived.by(() => {
@@ -106,18 +171,58 @@
     <input class="agp-search" type="search" value={search} oninput={(e) => (search = e.currentTarget.value)} />
     <div class="agp-scroll">
       {#each shown as t (t.id)}
-        <button type="button" class="agp-topic" class:on={chosen === t.id} onclick={() => (chosen = t.id)}>{word(t.label)}</button>
+        <button type="button" class="agp-topic" class:on={chosen === t.id} onclick={() => (chosen = t.id)}>{topicLabel(t)}</button>
       {/each}
     </div>
   </section>
   {#if topic}
-    <section class="agp-guide">
-      <h3 class="agp-header">{word(topic.header)}</h3>
-      <div class="agp-main">
-        {#each topic.blocks as b, n (n)}
+    <section class="agp-guide" class:plain={topic.header === null}>
+      {#if topic.header !== null}<h3 class="agp-header">{word(topic.header)}</h3>{/if}
+      <div class="agp-main">{@render body(topic.blocks)}</div>
+    </section>
+  {/if}
+</div>
+
+{#snippet body(list: readonly Block[])}
+        {#each list as b, n (n)}
           {#if "h" in b}<h3 class="agp-header agp-sub">{word(b.h)}</h3>
-          {:else if "t" in b}<div class="agp-text"><LabelText markup={markup(b.t)} {followerOf} /></div>
-          {:else if "img" in b}<div class="agp-img" style:margin-top={`${b.top ?? 8}px`}><img alt="" src={clientTexture(b.img)} style:width={`${b.w}px`} style:height={`${b.hgt}px`} /></div>
+          {:else if "t" in b}<div class="agp-text" class:scrolled={b.scroll !== undefined} style:height={b.scroll === undefined ? undefined : `${b.scroll}px`} style:padding={b.pad === undefined ? undefined : `${b.pad}px`}><LabelText markup={markup(b.t)} {followerOf} /></div>
+          {:else if "img" in b}
+            {#if b.stretch}<img class="agp-stretch" alt="" src={clientTexture(b.img)} style:height={`${b.hgt}px`} style:margin-top={`${b.top ?? 0}px`} />
+            {:else}<div class="agp-img" style:margin-top={`${b.top ?? 8}px`}><img alt="" src={clientTexture(b.img)} style:width={`${b.w}px`} style:height={`${b.hgt}px`} /></div>{/if}
+          {:else if "sec" in b}
+            <section class="agp-sec" style:margin-top={`${b.padTop ?? 0}px`}><h4>{word(b.sec)}</h4>{@render body(b.body)}</section>
+          {:else if "corruption" in b}
+            <div class="agp-table">
+              <div class="agp-thead"><b style:width="10%">{word(`${P}Corruption/StageHeader`)}</b><b style:width="45%">{word(`${P}Corruption/CorruptionHeader`)}</b><b style:width="45%">{word(`${P}Corruption/SuppressionHeader`)}</b></div>
+              <div class="agp-rows">
+                {#each STAGES as n (n)}
+                  <div class="agp-row">
+                    <span class="agp-stage">{word(`${P}Corruption/stageNumber0${n}`)}</span>
+                    <span class="agp-ico"><img alt="" class="corr" src={clientTexture(`res:/UI/Texture/classes/pirateinsurgencies/widgets/corr_${n}.png`)} /></span>
+                    <span class="agp-bonus">{bonus(`${P}Corruption/CorruptionBonusStage0${n}`)}</span>
+                    <span class="agp-ico"><img alt="" class="supp" src={clientTexture(`res:/UI/Texture/classes/pirateinsurgencies/widgets/supp_${n}.png`)} /></span>
+                    <span class="agp-bonus">{bonus(`${P}Corruption/SuppressionBonusStage0${n}`)}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {:else if "activity" in b}
+            {@const a = b.activity}
+            <section class="agp-sec agp-activity"><h4>Details</h4>
+              <div class="agp-act-head" style:background-image={`url(${clientTexture(a.header)})`}>
+                <p class="agp-act-name">{word(a.name)}</p>
+                <div class="agp-act-line"><img alt="" src={clientTexture("res:/UI/Texture/eveicon/system_icons/person_16px.png")} /><b>{word(a.scale)}</b>
+                  <img alt="" src={clientTexture("res:/UI/Texture/eveicon/category_icons/spaceship_command_16px.png")} /><b>{word(`${A}ActivityShipTypeT1`)}</b></div>
+                <div class="agp-act-line"><img alt="" src={clientTexture(`${ACTIVITY_ART}cup.png`)} /><b>{word(a.rewardType)}</b>
+                  <img alt="" src={clientTexture("res:/UI/Texture/classes/frontlines/battlefield.png")} /><b>PvE &amp; PvP</b></div>
+              </div>
+              <div class="agp-act-body">
+                <p class="agp-act-h" style:margin-top="12px">{word(`${A}HeaderHowTo`)}</p><div class="agp-act-t"><LabelText markup={markup(a.howTo)} {followerOf} /></div>
+                <p class="agp-act-h" style:margin-top="24px">{word(`${A}HeaderWhere`)}</p><div class="agp-act-t"><LabelText markup={markup(a.where)} {followerOf} /></div>
+                {#if a.rewards}<p class="agp-act-h" style:margin-top="24px">{word(`${A}HeaderRewards`)}</p><div class="agp-act-t"><LabelText markup={markup(a.rewards)} {followerOf} /></div>{/if}
+              </div>
+            </section>
           {:else if "btn" in b}
             <div class="agp-btn" style:margin-top={`${b.top}px`}><button type="button" disabled={!b.open} onclick={() => b.open?.()}><img alt="" src={clientTexture(b.icon)} />{word(b.btn)}</button></div>
           {:else if "advantage" in b}
@@ -160,10 +265,7 @@
             {/if}
           {/if}
         {/each}
-      </div>
-    </section>
-  {/if}
-</div>
+{/snippet}
 
 <style>
   .agp { display: flex; gap: 20px; height: 100%; min-height: 0; box-sizing: border-box; }
@@ -179,6 +281,28 @@
   .agp-header { margin: 0 0 8px; padding: 6px 0; text-align: center; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid rgb(255 255 255 / 0.12); }
   .agp-sub { margin-top: 16px; }
   .agp-main { flex: 1; min-height: 0; overflow: auto; }
+  .agp-guide.plain { background: none; }
+  .agp-text.scrolled { overflow: auto; box-sizing: border-box; flex: none; }
+  .agp-stretch { display: block; width: 100%; object-fit: cover; margin-bottom: 5px; }
+  .agp-sec { background: rgb(0 0 0 / 0.3); border: 1px solid rgb(255 255 255 / 0.08); padding: 6px 8px; font-size: 13px; }
+  .agp-sec h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; }
+  .agp-thead { display: flex; height: 40px; align-items: flex-end; padding-bottom: 0; }
+  .agp-rows { height: 300px; overflow: auto; }
+  .agp-row { display: flex; align-items: center; height: 50px; margin-top: 20px; }
+  .agp-stage { width: 5%; font-size: 30px; color: #6ac3ec; }
+  .agp-ico { width: 5%; display: flex; justify-content: center; }
+  .agp-ico .corr { width: 40px; height: 40px; align-self: flex-end; }
+  .agp-ico .supp { width: 32px; height: 32px; }
+  .agp-bonus { width: 42.5%; box-sizing: border-box; padding-left: 10px; max-width: 310px; white-space: pre-line; }
+  .agp-activity { height: 100%; box-sizing: border-box; }
+  .agp-act-head { height: 112px; background-size: 100% 100%; padding: 0 0 0 10px; box-sizing: border-box; }
+  .agp-act-name { margin: 0; padding: 10px 10px 10px 0; font-size: 25px; font-weight: 700; }
+  .agp-act-line { display: flex; align-items: center; height: 20px; margin-bottom: 5px; }
+  .agp-act-line img { width: 16px; height: 16px; margin-right: 8px; }
+  .agp-act-line b { width: 15%; margin-right: 12px; white-space: nowrap; }
+  .agp-act-body { height: 250px; overflow: auto; }
+  .agp-act-h { margin: 0; font-weight: 700; }
+  .agp-act-t { margin-top: 6px; }
   .agp-text { padding: 0 8px; font-size: 13px; line-height: 1.35; }
   .agp-img { display: flex; justify-content: center; margin-bottom: 8px; }
   .agp-img img { max-width: 100%; height: auto !important; object-fit: contain; }
