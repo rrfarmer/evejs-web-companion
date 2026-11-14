@@ -14688,6 +14688,11 @@ const PUBLIC_GATEWAY_READS = new Set([
   // Show Info's Freelance Projects tab (PanelFreelanceProjects - repository.request_projects_for_corporation:
   // messenger.get_by_corporation).
   "eve_public.freelance.project.api.GetAllActiveForCorporationRequest",
+  // The job board's daily goals (dailygoals.client goalsController - DailyGoalsMessenger: get_all_current,
+  // get_all_with_rewards, get).
+  "eve_public.dailygoal.api.GetAllCurrentRequest",
+  "eve_public.dailygoal.api.GetAllWithRewardsRequest",
+  "eve_public.dailygoal.api.GetRequest",
   "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusRequest",
   // The alliance's Sov Hubs page (SovHubEntryController through QuasarCallWrapper): a hub's installed upgrades and the
   // upgrade definitions, its available resources, its fuel, its workforce state; the planets' and stars' resource
@@ -14705,6 +14710,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.sovereignty.resource.star.api.GetAllConfigurationsRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
+  // A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest).
+  "eve_public.dailygoal.api.RedeemRequest",
   // corpColorsRequestMessenger.set_corp_colors_request: Brand Management's Edit Colors, Update.
   "eve_public.cosmetic.corporation.palette.api.SetRequest",
   // goalMessenger.close_goal / delete_goal / set_manual_goal_progress: a project's Close, Delete, Complete, Set Progress.

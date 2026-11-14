@@ -611,6 +611,23 @@ export interface FreelanceDeliverable {
   readonly ownerID: number | null; readonly quantity: number; readonly singleton: boolean;
 }
 /** The job board's FreelanceProjectJob: the project as the pilot sees it (project.api.GetRequest). */
+/** A daily goal as GetAllCurrentRequest answers it (dailygoal.Attributes and the pilot's progress). */
+export interface DailyGoal {
+  /** The goal's uuid as the gateway sends it (base64). */
+  readonly goalID: string;
+  readonly nameID: number | null; readonly descriptionID: number | null; readonly helpTextID: number | null;
+  /** Category: CATEGORY_DAILY, CATEGORY_DAILY_BONUS, CATEGORY_MONTHLY_BONUS. */
+  readonly category: string;
+  /** The contribution configuration's kind (scan_signature, mine_ore, ...). */
+  readonly method: string | null;
+  /** The career path (careerConst: 4 explorer, 5 industrialist, 6 enforcer, 7 soldier of fortune), null where none. */
+  readonly careerPath: number | null;
+  readonly rewards: readonly ({ readonly kind: "isk"; readonly amount: number } | { readonly kind: "lp"; readonly amount: number; readonly corporationID: number | null })[];
+  readonly target: number; readonly current: number;
+  readonly activeUntilMs: number | null;
+  readonly omega: boolean; readonly paidCompletion: boolean; readonly claimable: boolean;
+}
+
 export interface FreelanceJob {
   readonly project: FreelanceProject;
   readonly corporationID: number;
@@ -3555,6 +3572,11 @@ export interface AppFlow {
    * (request_projects_for_corporation - GetAllActiveForCorporationRequest), each read as the job page reads it, those
    * of that corporation still active (_is_relevant); null where the read failed (NoCorporationJobsContainer's failure). */
   corporationFreelanceJobs(corporationID: number): Promise<readonly FreelanceJob[] | null>;
+  /** The job board's daily goals (dailygoals.client DailyGoalsController): GetAllCurrentRequest's goals, each marked
+   * claimable where GetAllWithRewardsRequest lists it (has_unclaimed_rewards); null where the read failed. */
+  dailyGoals(): Promise<readonly DailyGoal[] | null>;
+  /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
+  redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
    * checks them (owner, flag, type and group, stack, singleton); null where not docked or unread. */
   freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null>;
@@ -19600,6 +19622,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const jobs = (await Promise.all([...new Set(ids)].map((id) => freelanceJob(id).catch(() => null)))).filter((j): j is FreelanceJob => j !== null);
     return jobs.filter((j) => j.corporationID === corporationID && j.project.state === 1);
   }
+  async function dailyGoals(): Promise<readonly DailyGoal[] | null> {
+    const record = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    const int = (v: unknown) => Number(typeof v === "string" || typeof v === "number" ? v : 0) || 0;
+    const ask = (request: string) => api.publicGatewayRequest(request, {}, callOptions).catch(() => null);
+    const [current, withRewards] = await Promise.all([ask("eve_public.dailygoal.api.GetAllCurrentRequest"), ask("eve_public.dailygoal.api.GetAllWithRewardsRequest")]);
+    if (!current || current.statusCode !== 200) return null;
+    const claimable = new Set((Array.isArray(record(withRewards?.payload).ids) ? record(withRewards?.payload).ids as unknown[] : []).map((x) => String(record(x).uuid ?? "")));
+    const CAREERS: Record<string, number> = { CAREER_EXPLORATION: 4, CAREER_EXPLORER: 4, CAREER_INDUSTRIALIST: 5, CAREER_ENFORCER: 6, CAREER_SOLDIER_OF_FORTUNE: 7 };
+    const goals = Array.isArray(record(current.payload).goals) ? record(current.payload).goals as unknown[] : [];
+    const out = goals.map((raw): DailyGoal => {
+      const g = record(raw), a = record(g.goal), id = String(record(g.id).uuid ?? "");
+      const rewards: DailyGoal["rewards"][number][] = [];
+      for (const pay of Array.isArray(a.payment) ? a.payment as unknown[] : []) {
+        const unit = record(record(pay).unit);
+        if (unit.isk) rewards.push({ kind: "isk", amount: int(record(record(unit.isk).amount).units) });
+        else if (unit.lp) { const lp = record(record(unit.lp).amount); rewards.push({ kind: "lp", amount: int(lp.amount), corporationID: int(record(lp.associated_corporation).sequential) || null }); }
+      }
+      const until = record(a.active_until);
+      return {
+        goalID: id, nameID: int(record(a.name_message).sequential) || null, descriptionID: int(record(a.description_message).sequential) || null,
+        helpTextID: int(record(a.help_text_message).sequential) || null, category: String(a.category ?? "CATEGORY_UNSPECIFIED"),
+        method: Object.keys(record(a.contribution_configuration))[0] ?? null, careerPath: CAREERS[String(a.career ?? "")] ?? null, rewards,
+        target: int(a.target), current: int(g.current_progress), activeUntilMs: until.seconds !== undefined ? int(until.seconds) * 1000 : null,
+        omega: a.omega === true, paidCompletion: g.paid_completion === true, claimable: claimable.has(id),
+      };
+    });
+    const names = out.flatMap((g) => g.rewards.flatMap((r) => (r.kind === "lp" && r.corporationID ? [{ kind: "owner" as const, id: r.corporationID }] : [])));
+    if (names.length) requestNames(names);
+    return out;
+  }
+  async function redeemDailyGoal(goalID: string): Promise<boolean> {
+    const a = await api.publicGatewayRequest("eve_public.dailygoal.api.RedeemRequest", { goal: { uuid: goalID }, redeem_current_location: false } as unknown as Record<string, JsonValue>, { ...callOptions, confirm: true }).catch(() => null);
+    return !!a && a.statusCode === 200;
+  }
   async function freelanceDeliverables(): Promise<{ readonly stationID: number | null; readonly structureID: number | null; readonly shipID: number | null; readonly items: readonly FreelanceDeliverable[] } | null> {
     const online = store.station.get().online;
     const stationID = online?.stationID ?? null, structureID = online?.structureID ?? null;
@@ -33128,6 +33184,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deliverToFreelanceJob,
     freelanceBoard,
     corporationFreelanceJobs,
+    dailyGoals,
+    redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,
     createCorporationGoal,

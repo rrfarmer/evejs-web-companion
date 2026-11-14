@@ -10194,6 +10194,1380 @@
   },
   "eve_public.freelance.contributionmethod.itemdelivery.api.GetStatusResponse.Escrowed": {
    "fields": []
+  },
+  "eve_public.dailygoal.AllianceMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_alliance"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.alliance.Identifier",
+     "oneof": "match_alliance"
+    }
+   ]
+  },
+  "eve_public.dailygoal.Attributes": {
+   "fields": [
+    {
+     "name": "name_message",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description_message",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "help_text_message",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "assigner",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    },
+    {
+     "name": "category",
+     "number": 5,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Category"
+    },
+    {
+     "name": "contribution_configuration",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration"
+    },
+    {
+     "name": "career",
+     "number": 7,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.career.Path"
+    },
+    {
+     "name": "payment",
+     "number": 8,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.Payment"
+    },
+    {
+     "name": "target",
+     "number": 9,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "active_after",
+     "number": 10,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "active_until",
+     "number": 11,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "omega",
+     "number": 12,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.dailygoal.CharacterMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_character"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier",
+     "oneof": "match_character"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration": {
+   "fields": [
+    {
+     "name": "kill_npc",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.KillNPC",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "damage_ship",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.DamageShip",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "mine_ore",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.MineOre",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "fw_capture",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.CaptureFacWarComplex",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "fw_defend",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.DefendFacWarComplex",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "remote_armor_repair",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.RemoteArmorRepair",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "remote_shield_repair",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.RemoteShieldRepair",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "scan_signature",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.ScanSignature",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "install_manufacturing_job",
+     "number": 9,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.InstallManufacturingJob",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "complete_daily_goal",
+     "number": 10,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.CompleteDailyGoal",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "salvage_wreck",
+     "number": 11,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.SalvageWreck",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "earn_loyalty_points",
+     "number": 12,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.EarnLoyaltyPoints",
+     "oneof": "contribution_configuration"
+    },
+    {
+     "name": "space_jump",
+     "number": 13,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.SpaceJump",
+     "oneof": "contribution_configuration"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.CaptureFacWarComplex": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.CaptureFacWarComplex.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.CaptureFacWarComplex.Method": {
+   "fields": [
+    {
+     "name": "previous_owner",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.FactionMatcher"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    },
+    {
+     "name": "archetype",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.DeadspaceArchetypeMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.CompleteDailyGoal": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.CompleteDailyGoal.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.CompleteDailyGoal.Method": {
+   "fields": [
+    {
+     "name": "daily_goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.DailyGoalMatcher"
+    },
+    {
+     "name": "daily_goal_category",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.DailyGoalCategoryMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.DamageShip": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.DamageShip.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.DamageShip.Method": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    },
+    {
+     "name": "ship_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ShipTypeMatcher"
+    },
+    {
+     "name": "identity",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.IdentityMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.DefendFacWarComplex": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.DefendFacWarComplex.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.DefendFacWarComplex.Method": {
+   "fields": [
+    {
+     "name": "owner",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.FactionMatcher"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    },
+    {
+     "name": "archetype",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.DeadspaceArchetypeMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.EarnLoyaltyPoints": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.EarnLoyaltyPoints.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.EarnLoyaltyPoints.Method": {
+   "fields": [
+    {
+     "name": "corporation",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.CorporationMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.InstallManufacturingJob": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.InstallManufacturingJob.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.InstallManufacturingJob.Method": {
+   "fields": [
+    {
+     "name": "job_owner_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.OwnerTypeMatcher"
+    },
+    {
+     "name": "job_location",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.JobLocationMatcher"
+    },
+    {
+     "name": "item_type",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ItemTypeMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.KillNPC": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.KillNPC.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.KillNPC.Method": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.MineOre": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.MineOre.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.MineOre.Method": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    },
+    {
+     "name": "ore",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.OreTypeMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.RemoteArmorRepair": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.RemoteArmorRepair.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.RemoteArmorRepair.Method": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    },
+    {
+     "name": "ship_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ShipTypeMatcher"
+    },
+    {
+     "name": "identity",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.IdentityMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.RemoteShieldRepair": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.RemoteShieldRepair.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.RemoteShieldRepair.Method": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    },
+    {
+     "name": "ship_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.ShipTypeMatcher"
+    },
+    {
+     "name": "identity",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.IdentityMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.SalvageWreck": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.SalvageWreck.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.SalvageWreck.Method": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.ScanSignature": {
+   "fields": [
+    {
+     "name": "contribution_methods",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.ContributionConfiguration.ScanSignature.Method"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.ScanSignature.Method": {
+   "fields": [
+    {
+     "name": "signature_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SignatureTypeMatcher"
+    },
+    {
+     "name": "solar_system",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SolarSystemMatcher"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ContributionConfiguration.SpaceJump": {
+   "fields": []
+  },
+  "eve_public.dailygoal.CorporationMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_corporation"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier",
+     "oneof": "match_corporation"
+    }
+   ]
+  },
+  "eve_public.dailygoal.DailyGoalCategoryMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_daily_goal_category"
+    },
+    {
+     "name": "category",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Category",
+     "oneof": "match_daily_goal_category"
+    }
+   ]
+  },
+  "eve_public.dailygoal.DailyGoalMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_daily_goal"
+    },
+    {
+     "name": "goal",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier",
+     "oneof": "match_daily_goal"
+    }
+   ]
+  },
+  "eve_public.dailygoal.DeadspaceArchetypeMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_archetype"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.deadspace.archetype.Identifier",
+     "oneof": "match_archetype"
+    }
+   ]
+  },
+  "eve_public.dailygoal.FactionMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_faction"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.faction.Identifier",
+     "oneof": "match_faction"
+    }
+   ]
+  },
+  "eve_public.dailygoal.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.dailygoal.IdentityMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "identity"
+    },
+    {
+     "name": "match_character_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier",
+     "oneof": "identity"
+    },
+    {
+     "name": "match_corporation_value",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier",
+     "oneof": "identity"
+    },
+    {
+     "name": "match_alliance_value",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.alliance.Identifier",
+     "oneof": "identity"
+    },
+    {
+     "name": "match_faction_value",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.faction.Identifier",
+     "oneof": "identity"
+    }
+   ]
+  },
+  "eve_public.dailygoal.InterStellarKredits": {
+   "fields": [
+    {
+     "name": "amount",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    }
+   ]
+  },
+  "eve_public.dailygoal.Item": {
+   "fields": [
+    {
+     "name": "amount",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ItemTypeMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_item_type"
+    },
+    {
+     "name": "item_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier",
+     "oneof": "match_item_type"
+    }
+   ]
+  },
+  "eve_public.dailygoal.JobLocationMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_job_location"
+    },
+    {
+     "name": "station",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.station.Identifier",
+     "oneof": "match_job_location"
+    },
+    {
+     "name": "structure",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.structure.Identifier",
+     "oneof": "match_job_location"
+    }
+   ]
+  },
+  "eve_public.dailygoal.LoyaltyPoints": {
+   "fields": [
+    {
+     "name": "amount",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.loyaltypoints.Currency"
+    }
+   ]
+  },
+  "eve_public.dailygoal.OfficeMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_office"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.office.Identifier",
+     "oneof": "match_office"
+    }
+   ]
+  },
+  "eve_public.dailygoal.OreTypeMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_ore_type"
+    },
+    {
+     "name": "ore",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ore.oretype.Identifier",
+     "oneof": "match_ore_type"
+    }
+   ]
+  },
+  "eve_public.dailygoal.OwnerTypeMatcher": {
+   "fields": [
+    {
+     "name": "match_any_character",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_owner_type"
+    },
+    {
+     "name": "match_any_corporation",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_owner_type"
+    },
+    {
+     "name": "any",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_owner_type"
+    }
+   ]
+  },
+  "eve_public.dailygoal.Payment": {
+   "fields": [
+    {
+     "name": "asset",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.assetholding.asset.Identifier"
+    },
+    {
+     "name": "period",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.PaymentPeriod"
+    },
+    {
+     "name": "unit",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Unit"
+    }
+   ]
+  },
+  "eve_public.dailygoal.Plex": {
+   "fields": [
+    {
+     "name": "amount",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency"
+    }
+   ]
+  },
+  "eve_public.dailygoal.ShipTypeMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_ship_type"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.shiptype.Identifier",
+     "oneof": "match_ship_type"
+    }
+   ]
+  },
+  "eve_public.dailygoal.SignatureTypeMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_signature_type"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.deadspace.signaturetype.Identifier",
+     "oneof": "match_signature_type"
+    }
+   ]
+  },
+  "eve_public.dailygoal.SkillPoints": {
+   "fields": [
+    {
+     "name": "amount",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.dailygoal.SolarSystemMatcher": {
+   "fields": [
+    {
+     "name": "any",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "match_solar_system"
+    },
+    {
+     "name": "match_value",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier",
+     "oneof": "match_solar_system"
+    }
+   ]
+  },
+  "eve_public.dailygoal.Unit": {
+   "fields": [
+    {
+     "name": "isk",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.InterStellarKredits",
+     "oneof": "definition"
+    },
+    {
+     "name": "lp",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.LoyaltyPoints",
+     "oneof": "definition"
+    },
+    {
+     "name": "sp",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.SkillPoints",
+     "oneof": "definition"
+    },
+    {
+     "name": "item",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Item",
+     "oneof": "definition"
+    },
+    {
+     "name": "plex",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Plex",
+     "oneof": "definition"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.CompletedNotice": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.CurrentGoalsNotice": {
+   "fields": [
+    {
+     "name": "goals",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.api.CurrentGoalsNotice.Goal"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.CurrentGoalsNotice.Earning": {
+   "fields": [
+    {
+     "name": "unit",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Unit"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.CurrentGoalsNotice.Goal": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    },
+    {
+     "name": "goal",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Attributes"
+    },
+    {
+     "name": "current_progress",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "entitlements",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.assetholding.entitlement.Identifier"
+    },
+    {
+     "name": "earnings",
+     "number": 5,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.api.CurrentGoalsNotice.Earning"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.Earning": {
+   "fields": [
+    {
+     "name": "unit",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Unit"
+    },
+    {
+     "name": "omega_required",
+     "number": 2,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetAllCompletedWithEntitlementsRequest": {
+   "fields": []
+  },
+  "eve_public.dailygoal.api.GetAllCompletedWithEntitlementsResponse": {
+   "fields": [
+    {
+     "name": "goals",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.api.GetAllCompletedWithEntitlementsResponse.Goal"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetAllCompletedWithEntitlementsResponse.Goal": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    },
+    {
+     "name": "entitlements",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.assetholding.entitlement.Identifier"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetAllCurrentRequest": {
+   "fields": []
+  },
+  "eve_public.dailygoal.api.GetAllCurrentResponse": {
+   "fields": [
+    {
+     "name": "goals",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.api.GetAllCurrentResponse.Goal"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetAllCurrentResponse.Goal": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    },
+    {
+     "name": "goal",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Attributes"
+    },
+    {
+     "name": "current_progress",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "entitlements",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.assetholding.entitlement.Identifier"
+    },
+    {
+     "name": "earnings",
+     "number": 5,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.api.Earning"
+    },
+    {
+     "name": "paid_completion",
+     "number": 6,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetAllWithRewardsRequest": {
+   "fields": [
+    {
+     "name": "page",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.Page"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetAllWithRewardsResponse": {
+   "fields": [
+    {
+     "name": "ids",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.Identifier"
+    },
+    {
+     "name": "next_page",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.NextPage"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetRequest": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.GetResponse": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Attributes"
+    },
+    {
+     "name": "progress",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "entitlements",
+     "number": 3,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.assetholding.entitlement.Identifier"
+    },
+    {
+     "name": "earnings",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.dailygoal.api.Earning"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.PayForCompletionRequest": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.PayForCompletionResponse": {
+   "fields": []
+  },
+  "eve_public.dailygoal.api.ProgressedNotice": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    },
+    {
+     "name": "current_progress",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.RedeemAllRequest": {
+   "fields": []
+  },
+  "eve_public.dailygoal.api.RedeemAllResponse": {
+   "fields": []
+  },
+  "eve_public.dailygoal.api.RedeemRequest": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    },
+    {
+     "name": "redeem_current_location",
+     "number": 2,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.dailygoal.api.RedeemResponse": {
+   "fields": []
+  },
+  "eve_public.dailygoal.api.RedeemedNotice": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dailygoal.Identifier"
+    }
+   ]
+  },
+  "eve_public.plex.Currency": {
+   "fields": [
+    {
+     "name": "total_in_cents",
+     "number": 1,
+     "type": 18,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {
@@ -10264,6 +11638,20 @@
     "POWER_STATE_ONLINE": 2,
     "POWER_STATE_LOW": 3,
     "POWER_STATE_PENDING": 4
+   }
+  },
+  "eve_public.dailygoal.Category": {
+   "values": {
+    "CATEGORY_UNSPECIFIED": 0,
+    "CATEGORY_DAILY": 1,
+    "CATEGORY_DAILY_BONUS": 2,
+    "CATEGORY_MONTHLY_BONUS": 3
+   }
+  },
+  "eve_public.dailygoal.PaymentPeriod": {
+   "values": {
+    "PAYMENT_PERIOD_UNSPECIFIED": 0,
+    "PAYMENT_PERIOD_COMPLETION": 1
    }
   }
  }

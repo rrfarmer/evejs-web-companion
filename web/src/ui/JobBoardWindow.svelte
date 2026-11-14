@@ -24,6 +24,10 @@
   // its share not done), in Active the active ones the pilot has progress in and can still contribute to, in Unclaimed
   // Rewards those with unclaimed rewards (Claim All redeems them too); CorporationGoalCard, its page
   // CorporationGoalPage with the board's Back.
+  // The daily goals' feature (features/daily_goals: DailyGoalsProvider - GetAllCurrentRequest, DailyGoalJob): in Browse
+  // the daily ones (CATEGORY_DAILY) not expired and not completed unless a reward is claimable, in Active the started
+  // and not completed ones, in Unclaimed Rewards the claimable ones (Claim All redeems them); DailyGoalCard, its page
+  // DailyGoalPage with the board's Back.
   // Asked from elsewhere (jobBoardRequests: open_freelance_project from Show Info's Freelance Projects tab, its OpenAIR
   // the browse page) the window shows that job's page, or the browse page.
   import { onMount } from "svelte";
@@ -32,7 +36,9 @@
   import MissionJobPage from "./MissionJobPage.svelte";
   import CorporationGoalCard from "./CorporationGoalCard.svelte";
   import CorporationGoalPage from "./CorporationGoalPage.svelte";
-  import type { CorporationGoal, CorporationGoals } from "../app/flow.ts";
+  import type { CorporationGoal, CorporationGoals, DailyGoal } from "../app/flow.ts";
+  import DailyGoalCard from "./DailyGoalCard.svelte";
+  import DailyGoalPage from "./DailyGoalPage.svelte";
   import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -55,9 +61,20 @@
   let tab = $state<"browse" | "active" | "unclaimed">("browse"), open = $state<string | null>(null), busy = $state(false);
   let board = $state<Awaited<ReturnType<AppFlow["freelanceBoard"]>> | undefined>(undefined);
   let goals = $state<CorporationGoals | null>(null), openGoal = $state<string | null>(null);
+  let daily = $state<readonly DailyGoal[]>([]), openDaily = $state<string | null>(null);
+  const dailyDone = (d: DailyGoal) => d.target > 0 && d.current >= d.target;
+  const dailyExpired = (d: DailyGoal) => d.activeUntilMs !== null && d.activeUntilMs <= Date.now();
+  const dailyLists = $derived.by(() => {
+    const own = daily.filter((d) => d.category === "CATEGORY_DAILY");
+    return { browse: own.filter((d) => !dailyExpired(d) && (!dailyDone(d) || d.claimable)), active: own.filter((d) => d.current > 0 && !dailyDone(d)), unclaimed: own.filter((d) => d.claimable) };
+  });
+  const shownDaily = $derived(tab === "browse" ? dailyLists.browse : tab === "active" ? dailyLists.active : dailyLists.unclaimed);
+  const dailyOpen = $derived(openDaily === null ? null : daily.find((d) => d.goalID === openDaily) ?? null);
+  async function claimDaily(goalID: string): Promise<void> { await flow.redeemDailyGoal(goalID); daily = (await flow.dailyGoals()) ?? daily; }
   async function load(): Promise<void> {
     void flow.loadJournal().catch(() => {});
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
+    void flow.dailyGoals().then((d) => { daily = d ?? []; }, () => { daily = []; });
     board = await flow.freelanceBoard();
   }
   const goalRemaining = (g: CorporationGoal) => { const left = Math.max(0, g.desired - g.current); return g.participationLimit ? Math.min(left, Math.max(0, g.participationLimit - g.myProgress)) : left; };
@@ -107,6 +124,7 @@
     try {
       for (const j of board?.unclaimed ?? []) await flow.freelanceJobAction("redeem", j.project.projectID);
       for (const g of goalLists.unclaimed) await flow.redeemCorporationGoalReward(g.goalID);
+      for (const d of dailyLists.unclaimed) await flow.redeemDailyGoal(d.goalID);
       await load();
     } finally { busy = false; }
   }
@@ -114,12 +132,14 @@
 
 <div class="jb">
   <div class="jb-tabs">
-    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; }}>{word(O + "WindowTitle")}</button>
-    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length + goalLists.active.length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length + goalLists.active.length}</span>{/if}</button>
-    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if (board?.unclaimed.length ?? 0) + goalLists.unclaimed.length}<span class="jb-count gold">{(board?.unclaimed.length ?? 0) + goalLists.unclaimed.length}</span>{/if}</button>
+    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; openDaily = null; }}>{word(O + "WindowTitle")}</button>
+    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length}</span>{/if}</button>
+    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if (board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}<span class="jb-count gold">{(board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}</span>{/if}</button>
   </div>
   <div class="jb-body">
-    {#if goalOpen}
+    {#if dailyOpen}
+      <DailyGoalPage {store} {flow} goal={dailyOpen} onBack={() => { openDaily = null; }} onClaim={() => claimDaily(dailyOpen!.goalID)} />
+    {:else if goalOpen}
       <div class="jb-goal"><CorporationGoalPage {store} {flow} goal={goalOpen} methods={goals?.methods ?? {}} canAuthor={goals?.canAuthor ?? false} onBack={() => { openGoal = null; }} onClaimed={load} /></div>
     {:else if openMission !== null}
       <MissionJobPage {store} {flow} onBack={() => { openMission = null; }} />
@@ -134,14 +154,17 @@
     {:else if board === undefined}<p class="jb-hint">…</p>
     {:else if board === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
-      {#if tab === "unclaimed" && (jobs.length || goalLists.unclaimed.length)}<div class="jb-claim"><button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button></div>{/if}
-      {#if !jobs.length && !shownMissions.length && !shownGoals.length}
+      {#if tab === "unclaimed" && (jobs.length || goalLists.unclaimed.length || dailyLists.unclaimed.length)}<div class="jb-claim"><button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button></div>{/if}
+      {#if !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length}
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
       <div class="jb-cards" title={tab === "browse" ? word(O + "VisibilityFreelanceProjects") : ""}>
         {#each shownMissions as m (m.agentID)}
           <MissionJobCard {store} {flow} mission={m} onOpen={() => void openMissionPage(m.agentID!)} />
+        {/each}
+        {#each shownDaily as d (d.goalID)}
+          <DailyGoalCard {store} {flow} goal={d} onOpen={() => { openDaily = d.goalID; open = null; openMission = null; openGoal = null; }} onClaim={() => claimDaily(d.goalID)} />
         {/each}
         {#each shownGoals as g (g.goalID)}
           <CorporationGoalCard {store} {flow} goal={g} methods={goals?.methods ?? {}} onOpen={() => { openGoal = g.goalID; open = null; openMission = null; }} />
