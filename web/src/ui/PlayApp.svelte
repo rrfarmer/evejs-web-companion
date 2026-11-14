@@ -1585,7 +1585,18 @@
      right; assetsWindow.py: Personal Assets, Search, Asset Safety as the header's tabs */
   .fly-windows :global(.loc-retail) { display: flex; flex-direction: column; min-height: 100%; }
   .fly-windows :global(.loc-retail > .loc-bottom) { order: 99; margin-top: auto; justify-content: flex-end; display: flex; gap: 8px; padding-top: 8px; }
-  .fly-windows :global(.loc-retail.loc-search > :not(.loc-tabs, p.note)) { display: none; }
+  .fly-windows :global(.loc-retail.loc-search > :not(.loc-tabs, .loc-search-panel)) { display: none; }
+  /* LocationSearchPanel: the search line (32 high, 16 below) with its settings button on the right, then the results */
+  .fly-windows :global(.loc-search-line) { position: relative; display: flex; gap: 8px; height: 32px; margin-bottom: 16px; }
+  .fly-windows :global(.loc-search-line input) { flex: 1; }
+  .fly-windows :global(.loc-search-settings) { all: unset; width: 24px; display: grid; place-items: center; cursor: pointer; opacity: 0.8; }
+  .fly-windows :global(.loc-search-settings img) { width: 16px; height: 16px; }
+  .fly-windows :global(.loc-search-menu) { position: absolute; right: 0; top: 32px; z-index: 5; display: flex; flex-direction: column; min-width: 180px;
+    padding: 4px 0; background: rgba(20, 22, 24, 0.97); border: 1px solid rgba(255, 255, 255, 0.15); }
+  .fly-windows :global(.loc-search-menu .caption) { padding: 4px 10px 2px; font-size: 11px; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; }
+  .fly-windows :global(.loc-search-menu button) { all: unset; padding: 3px 10px 3px 24px; font-size: 12px; cursor: default; position: relative; }
+  .fly-windows :global(.loc-search-menu button[aria-checked="true"])::before { content: "●"; position: absolute; left: 9px; font-size: 9px; top: 5px; }
+  .fly-windows :global(.loc-search-menu button:hover) { background: rgba(255, 255, 255, 0.1); }
   .fly-windows :global(:is(.loc-tabs, .as-retail > .asset-tabs)) { display: flex; gap: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin: 0 0 8px; }
   .fly-windows :global(:is(.loc-tabs, .as-retail > .asset-tabs) button) { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px;
     font-size: 13px; color: rgba(255, 255, 255, 0.6); cursor: pointer; border-radius: 0; }

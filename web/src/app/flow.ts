@@ -1206,6 +1206,16 @@ export interface LocationFound {
  * its data inlined.
  */
 const ROUTE_SEARCH_KINDS = [7, 6, 8, 9, 13] as const;
+/**
+ * What a location search asks for (searchUtil.GetResultsByGroupID): the result kinds (search_const.ResultType: solar
+ * system 7, constellation 6, region 8, station 9, structure with inlined data 13) and how the words match
+ * (MatchBy: partial terms 0, exact terms 1, exact phrase 2, only the exact phrase 3) - the Locations window's Search
+ * tab (neocom/locations/search.py) sets both; the route panel's search is every kind by partial terms.
+ */
+export interface LocationSearchOptions {
+  readonly kinds?: readonly number[];
+  readonly matchBy?: number;
+}
 const STRUCTURE_WITH_INLINED_DATA = 13;
 /** The types the client's map gives a solar system, a constellation and a region (const.typeSolarSystem etc.). */
 const TYPE_SOLAR_SYSTEM = 5;
@@ -4798,7 +4808,7 @@ export interface AppFlow {
    * The route panel's search, as the client's (infoPanelRoute.py SearchForLocation): the places found by the kind
    * the search names them by, each kind sorted by name; null where the text was refused before asking (said).
    */
-  searchLocations(text: string): Promise<ReadonlyMap<number, readonly LocationFound[]> | null>;
+  searchLocations(text: string, options?: LocationSearchOptions): Promise<ReadonlyMap<number, readonly LocationFound[]> | null>;
   // --- R26: the mining bot -----------------------------------------------
   //
   // A SECOND browser decide-loop, built from the same parts as the autopilot
@@ -31968,7 +31978,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * structures with their data), and partial terms as `exact`. Refused before asking as _ValidateSearchInput refuses
    * (310 to 319), said as the client says it; then null. The places found by kind, each kind sorted by name.
    */
-  async function searchLocations(text: string): Promise<ReadonlyMap<number, readonly LocationFound[]> | null> {
+  async function searchLocations(text: string, options: LocationSearchOptions = {}): Promise<ReadonlyMap<number, readonly LocationFound[]> | null> {
+    const matchBy = options.matchBy ?? 0;
     const searchStr = text.replace(/\*/g, "").trim();
     if (searchStr.length < 1) {
       sayDialog("LookupStringMinimum", { type: "dict", entries: [["minimum", 1]] }, "Type something to search for.");
@@ -31978,11 +31989,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       sayDialog("CustomInfo", { type: "dict", entries: [["info", [UE_LOC, "UI/Common/SearchStringTooLong"]]] }, "That is too long to search for.");
       return null;
     }
-    if (!searchStr.split(/\s+/).some((term) => term.length >= 3)) {
+    // (_ValidateSearchInput: a word of min_wildcard_length 3 only where partial terms are matched.)
+    if (matchBy === 0 && !searchStr.split(/\s+/).some((term) => term.length >= 3)) {
       sayDialog("PartialSearchLessThanMinLength", { type: "dict", entries: [["minChars", 3]] }, "A word of three letters or more is needed.");
       return null;
     }
-    const answer = await bridgeAsk("search", "Query", [searchStr, [...ROUTE_SEARCH_KINDS]], { exact: 0 });
+    const answer = await bridgeAsk("search", "Query", [searchStr, [...(options.kinds ?? ROUTE_SEARCH_KINDS)]], { exact: matchBy });
     const found = new Map<number, LocationFound[]>();
     const refs: NameRef[] = [];
     for (const [key, value] of readDictPairs(answer)) {

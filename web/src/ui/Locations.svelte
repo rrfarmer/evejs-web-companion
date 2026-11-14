@@ -80,6 +80,8 @@
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MovedOrCopied } from "../bridge/bookmarkWrites.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
+  import LocationSearchResults from "./LocationSearchResults.svelte";
+  import type { LocationFound } from "../app/flow.ts";
   import SubfolderWindow from "./SubfolderWindow.svelte";
   import FolderWindow from "./FolderWindow.svelte";
   import FolderInfoWindow from "./FolderInfoWindow.svelte";
@@ -1020,6 +1022,57 @@
   /** On the play page the window as locations/window.py lays it out: the header's tabs, the buttons at the bottom right. */
   const retail = getContext("retailChrome") === true;
   let locTab = $state<"locations" | "search">("locations");
+  // The Search tab (neocom/locations/search.py LocationSearchPanel): the search line, searched on Return, its settings
+  // menu beside it (SearchType then SearchBy, each a char setting - locations_window_search_type / _search_by, kept here
+  // in this browser), the results as searchUtil.GetResultsScrollList lists them.
+  const SEARCH_TYPES: readonly { readonly id: number; readonly label: string; readonly own: string; readonly kinds: readonly number[] }[] = [
+    // SORT_KEY_BY_SEARCH_TYPE's order: Any, solar system, constellation, region, station, structure
+    { id: 0, label: "UI/Common/Any", own: "Any", kinds: [8, 6, 7, 9, 13] },
+    { id: 2, label: "UI/Common/LocationTypes/SolarSystem", own: "Solar System", kinds: [7] },
+    { id: 3, label: "UI/Common/LocationTypes/Constellation", own: "Constellation", kinds: [6] },
+    { id: 4, label: "UI/Common/LocationTypes/Region", own: "Region", kinds: [8] },
+    { id: 1, label: "UI/Common/LocationTypes/Station", own: "Station", kinds: [9] },
+    { id: 5, label: "UI/Common/LocationTypes/Structures", own: "Structures", kinds: [13] },
+  ];
+  /** searchUtil.SEARCHBY_OPTIONS. */
+  const SEARCH_BY: readonly { readonly id: number; readonly label: string; readonly own: string }[] = [
+    { id: 0, label: "UI/Search/UniversalSearch/PartialTerms", own: "Partial terms" },
+    { id: 1, label: "UI/Search/UniversalSearch/ExactTerms", own: "Exact terms" },
+    { id: 2, label: "UI/Search/UniversalSearch/ExactPhrase", own: "Exact phrase" },
+    { id: 3, label: "UI/Search/UniversalSearch/OnlyExactPhrase", own: "Only exact phrase" },
+  ];
+  const SEARCH_TYPE_KEY = "evejs.play.locations_window_search_type";
+  const SEARCH_BY_KEY = "evejs.play.locations_window_search_by";
+  const keptChoice = (key: string, choices: readonly { id: number }[]): number => {
+    try { const kept = Number(localStorage.getItem(key)); return choices.some((c) => c.id === kept) && localStorage.getItem(key) !== null ? kept : 0; } catch { return 0; }
+  };
+  let searchType = $state(keptChoice(SEARCH_TYPE_KEY, SEARCH_TYPES));
+  let searchBy = $state(keptChoice(SEARCH_BY_KEY, SEARCH_BY));
+  let searchText = $state("");
+  let searchMenuOpen = $state(false);
+  let searchBusy = $state(false);
+  let searchFound = $state.raw<ReadonlyMap<number, readonly LocationFound[]> | null>(null);
+  let searchedFor = $state("");
+  $effect(() => {
+    flow.requestWords(["UI/Common/Search", "UI/Common/Settings", "UI/Common/SearchType", "UI/Common/SearchBy",
+      ...SEARCH_TYPES.map((t) => t.label), ...SEARCH_BY.map((b) => b.label)]);
+  });
+  async function runLocationSearch(): Promise<void> {
+    if (!searchText.trim()) return;
+    searchBusy = true;
+    try {
+      const kinds = SEARCH_TYPES.find((t) => t.id === searchType)?.kinds ?? SEARCH_TYPES[0]!.kinds;
+      const result = await flow.searchLocations(searchText, { kinds, matchBy: searchBy });
+      if (result !== null) { searchFound = result; searchedFor = searchText.replace(/\*/g, "").trim(); }
+    } finally { searchBusy = false; }
+  }
+  /** A setting changed: kept, and the search run again (_on_search_type_setting_changed / _search_by). */
+  function chooseSearch(kind: "type" | "by", id: number): void {
+    if (kind === "type") searchType = id; else searchBy = id;
+    try { localStorage.setItem(kind === "type" ? SEARCH_TYPE_KEY : SEARCH_BY_KEY, String(id)); } catch { /* not kept */ }
+    searchMenuOpen = false;
+    void runLocationSearch();
+  }
   $effect(() => { if (retail) flow.requestWords(["UI/Common/Search"]); });
 </script>
 
@@ -1274,7 +1327,32 @@
       <button type="button" class:active={locTab === "locations"} onclick={() => (locTab = "locations")}>{word(WORDS.title, "Locations")}</button>
       <button type="button" class:active={locTab === "search"} onclick={() => (locTab = "search")}>{word("UI/Common/Search", "Search")}</button>
     </nav>
-    {#if locTab === "search"}<p class="note">This panel is not on the play page yet.</p>{/if}
+    {#if locTab === "search"}
+      <div class="loc-search-panel">
+        <div class="loc-search-line">
+          <input type="search" placeholder={word("UI/Common/Search", "Search")} bind:value={searchText}
+            onkeydown={(e) => { if (e.key === "Enter") void runLocationSearch(); }} />
+          <button type="button" class="loc-search-settings" title={word("UI/Common/Settings", "Settings")} aria-expanded={searchMenuOpen}
+            onclick={() => (searchMenuOpen = !searchMenuOpen)}><img alt="" src="/client-res/ui/texture/eveicon/system_icons/tune_16px.png" /></button>
+          {#if searchMenuOpen}
+            <div class="loc-search-menu" role="menu">
+              <span class="caption">{word("UI/Common/SearchType", "Search Type")}</span>
+              {#each SEARCH_TYPES as t (t.id)}
+                <button type="button" role="menuitemradio" aria-checked={searchType === t.id} onclick={() => chooseSearch("type", t.id)}>{word(t.label, t.own)}</button>
+              {/each}
+              <span class="caption">{word("UI/Common/SearchBy", "Search By")}</span>
+              {#each SEARCH_BY as b (b.id)}
+                <button type="button" role="menuitemradio" aria-checked={searchBy === b.id} onclick={() => chooseSearch("by", b.id)}>{word(b.label, b.own)}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        {#if searchBusy}<p class="note">…</p>{/if}
+        {#if searchFound !== null}
+          <LocationSearchResults {store} {flow} found={searchFound} {searchedFor} />
+        {/if}
+      </div>
+    {/if}
   {/if}
   <header class="panel-head">
     <h2 class="panel-title">{word(WORDS.title, "Locations")}</h2>
