@@ -12,6 +12,9 @@
   // container ResourceHarvestingInfoContainer (Belts in system, 100 high, UnknownOreAnomaly / UnknownIceBelt), the chosen
   // belt's types (Ore types in belt: a two-column grid, each its icon and name; Unknown for none) and the enemies; the
   // Information section ProbeScanning, or IceAvailability and IceReprocessing.
+  // The cosmic signatures (ContentPageSignatures, SignatureInfoContainer): NumberOfSignaturesInSystem, Signatures in
+  // system (each the signature's targetID, its icon in GetResultColor of its signal strength; UnknownCosmicSignature for
+  // one only counted) and the SignaturesNote warning in WARNING_ORANGE; Information ProbeScanning and SignatureTypes.
   // Not here (later parts): the region distance, the system's other actions in it (warp to a scanned site), the enemy's
   // logo and the region's pirate faction for a belt (GetPirateFactionsOfRegion), the job's Track button, the tooltips,
   // the extra types' tooltip, the signature pages.
@@ -22,12 +25,15 @@
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { DISTANCE, ANY, SECURITY_FILTER } from "../bridge/agencyAgents.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
+  import { resultColor } from "../bridge/probeResults.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, kind = "combat", filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; kind?: SiteTrackerKind; filters?: AgencySiteFilters } = $props();
-  const belts = $derived(kind !== "combat");
-  const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt" } as const;
-  const INFO = { combat: ["UI/Agency/CombatSiteTypes"], ore: ["UI/Agency/ProbeScanning"], ice: ["UI/Agency/IceAvailability", "UI/Agency/IceReprocessing"] } as const;
+  let { store, flow, kind = "combat", filters = $bindable(DEFAULT_SITE_FILTERS) }: { store: ClientStore; flow: AppFlow; kind?: SiteTrackerKind | "signature"; filters?: AgencySiteFilters } = $props();
+  const belts = $derived(kind === "ore" || kind === "ice");
+  const signatures = $derived(kind === "signature");
+  const UNKNOWN = { combat: "UI/Agency/UnknownCombatAnomaly", ore: "UI/Agency/UnknownOreAnomaly", ice: "UI/Agency/UnknownIceBelt", signature: "UI/Agency/UnknownCosmicSignature" } as const;
+  const INFO = { combat: ["UI/Agency/CombatSiteTypes"], ore: ["UI/Agency/ProbeScanning"], ice: ["UI/Agency/IceAvailability", "UI/Agency/IceReprocessing"],
+    signature: ["UI/Agency/ProbeScanning", "UI/Agency/SignatureTypes"] } as const;
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -46,7 +52,7 @@
   $effect(() => {
     const f = filters, k = kind, n = ++asked;
     systems = undefined;
-    void flow.agencyTrackerSites(k, f).then((list) => { if (n !== asked) return; systems = list; chosen = list?.[0]?.solarSystemID ?? null; site = 0; });
+    void (k === "signature" ? flow.agencySignatures(f) : flow.agencyTrackerSites(k, f)).then((list) => { if (n !== asked) return; systems = list; chosen = list?.[0]?.solarSystemID ?? null; site = 0; });
   });
   const chosenSystem = $derived(systems?.find((s) => s.solarSystemID === chosen) ?? null);
   const chosenSite = $derived(chosenSystem?.sites[site]);
@@ -57,7 +63,7 @@
       "UI/Agency/ContentOfAnyDistance", "Tooltips/CharacterSheet/SecurityStatus", "UI/Agency/AnySecurity", "UI/Common/HighSec", "UI/Common/LowSec", "UI/Common/NullSec",
       "UI/Calendar/CalendarWindow/Filters", "UI/Commands/ResetAll", "UI/Agency/resetAllPageFilters", "UI/Common/Information", "UI/Agency/CombatSiteTypes",
       "UI/Neocom/UndockBtn", "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Agency/NumberOfBeltsInSystem", "UI/Agency/BeltsInSystem",
-      "UI/Agency/OreTypesInBelt", UNKNOWN[kind], ...INFO[kind],
+      "UI/Agency/OreTypesInBelt", "UI/Agency/NumberOfSignaturesInSystem", "UI/Agency/SignaturesInSystem", "UI/Agency/SignaturesNote", UNKNOWN[kind], ...INFO[kind],
       ...(chosenSystem?.sites ?? []).map((s) => s?.dungeonNameID).filter((x): x is number => !!x).map((x) => `#${x}`)]);
   });
 
@@ -111,21 +117,23 @@
           {#if belts && s.resourceTypeIDs?.length}
             <span class="asi-types">{#each s.resourceTypeIDs.slice(0, 8) as t (t)}<img alt="" title={resolvedName($names.resolved, "type", t, "")} src={typeIconUrl(t)} />{/each}{#if s.resourceTypeIDs.length > 8}<i title={s.resourceTypeIDs.slice(8).map((t) => resolvedName($names.resolved, "type", t, "")).join(", ")}>+</i>{/if}</span>
           {/if}
-          <small>{word(belts ? "UI/Agency/NumberOfBeltsInSystem" : "UI/Agency/NumberOfAnomaliesInSystem", { amount: s.sites.length })}</small>
+          <small>{word(signatures ? "UI/Agency/NumberOfSignaturesInSystem" : belts ? "UI/Agency/NumberOfBeltsInSystem" : "UI/Agency/NumberOfAnomaliesInSystem", { amount: s.sites.length })}</small>
         </button>
       {/each}
     </div>
   </section>
   <section class="asi-section asi-details">
-    <h3>{word(belts ? "UI/Agency/BeltsInSystem" : "UI/Agency/SitesInSystem")}</h3>
+    <h3>{word(signatures ? "UI/Agency/SignaturesInSystem" : belts ? "UI/Agency/BeltsInSystem" : "UI/Agency/SitesInSystem")}</h3>
     {#if chosenSystem}{@const s = chosenSystem}{@const action = actionOf(s)}
       <div class="asi-system">{systemText(s)}</div>
       <div class="asi-list" class:short={belts}>
         {#each s.sites as entry, i (i)}
-          <button type="button" class="asi-entry" class:on={site === i} onclick={() => (site = i)}>{entry ? (entry.dungeonNameID ? word(`#${entry.dungeonNameID}`) : "") : word(UNKNOWN[kind])}</button>
+          <button type="button" class="asi-entry" class:on={site === i} onclick={() => (site = i)}>{#if signatures && entry}<i class="asi-dot" style:background={resultColor(entry.signalStrength ?? 0)}></i>{entry.targetID ?? ""}{:else}{entry ? (entry.dungeonNameID ? word(`#${entry.dungeonNameID}`) : "") : word(UNKNOWN[kind])}{/if}</button>
         {:else}<p class="asi-none">{word("UI/Common/NothingFound")}</p>{/each}
       </div>
-      {#if chosenSite !== undefined && belts}
+      {#if signatures}
+        <p class="asi-warning">⚠ {word("UI/Agency/SignaturesNote")}</p>
+      {:else if chosenSite !== undefined && belts}
         {@const types = chosenSite ? s.siteResourceTypeIDs?.[chosenSite.instanceID] ?? [] : []}
         <h4>{word("UI/Agency/OreTypesInBelt")}</h4>
         <div class="asi-grid">{#each types as t (t)}<span><img alt="" src={typeIconUrl(t)} />{resolvedName($names.resolved, "type", t, "")}</span>{:else}<span>{word("UI/Common/Unknown")}</span>{/each}</div>
@@ -166,6 +174,8 @@
   .asi-entry:hover { background: rgb(255 255 255 / 0.06); }
   .asi-entry.on { background: rgb(255 255 255 / 0.14); }
   .asi-list.short { height: 100px; }
+  .asi-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; transform: rotate(45deg); }
+  .asi-warning { margin-top: 10px !important; padding: 6px 8px; color: #f39058; border: 1px solid rgb(243 144 88 / 0.5); font-size: 12px !important; }
   .asi-types { display: flex; gap: 0; height: 20px; margin: -2px 0 0 2px; }
   .asi-types img { width: 20px; height: 20px; }
   .asi-types i { width: 20px; text-align: center; font-style: normal; opacity: 0.7; }

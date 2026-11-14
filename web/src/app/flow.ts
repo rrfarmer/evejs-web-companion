@@ -393,7 +393,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
-import { RESOURCE_ORDER, SITE_TRACKERS, agencySiteSystems, trackerSites, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
+import { RESOURCE_ORDER, SITE_TRACKERS, agencySiteSystems, signatureSites, trackerSites, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
@@ -3696,6 +3696,11 @@ export interface AppFlow {
   agencyCombatAnomalies(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
   /** The same for a tracker's kind: the combat anomalies, the ore anomalies or the ice belts (with their resource types). */
   agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
+  /**
+   * The Agency's Cosmic Signatures (ContentProviderSignatures): the systems' counts (GetSignatureInstances) and the
+   * pilot's system's own signatures (scanMgr.GetFullState's, the sensor suite's), picked as the other site pages.
+   */
+  agencySignatures(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19924,6 +19929,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  async function agencySignatures(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const online = store.station.get().online;
+    const inSpace = online != null && online.stationID == null && online.structureID == null;
+    const [counts, full, jumps, graph] = await Promise.all([
+      bridgeAsk("dungeonInstanceCacheMgr", "GetSignatureInstances", []).catch(() => null),
+      inSpace ? readScanFullState(bridgeAsk).catch(() => null) : Promise.resolve(null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+    ]);
+    if (counts === null) return null;
+    // SignatureSiteData.signalStrength: the sensor suite's, from the probe results of the system (each by its targetID).
+    const held = store.scanner.get().probeResults;
+    const certainty = new Map((held && held.solarSystemID === here ? held.results : []).map((r) => [r.id, r.certainty]));
+    const field = (f: unknown): number | null => { const v = f && typeof f === "object" && "value" in (f as object) ? (f as { value: unknown }).value : f; return typeof v === "number" ? v : null; };
+    const local: AgencySite[] = (full?.signatures ?? []).map((site) => ({
+      instanceID: typeof site.siteID === "number" ? site.siteID : 0, dungeonID: field(site.fields.dungeonID), archetypeID: field(site.fields.archetypeID), factionID: null,
+      difficulty: field(site.fields.difficulty), dungeonNameID: field(site.fields.dungeonNameID), targetID: site.targetID, signalStrength: site.targetID ? certainty.get(site.targetID) ?? 0 : 0,
+    }));
+    const systems = agencySiteSystems(signatureSites(counts ?? undefined, here, local), here, here === null || here < 31000000,
+      (id) => jumps?.get(id), (id) => graph?.security(id) ?? null, filters);
+    requestNames(systems.map((s) => ({ kind: "system" as const, id: s.solarSystemID })));
+    requestSystemSecurity(systems.map((s) => s.solarSystemID));
+    return systems;
+  }
   function agencyCombatAnomalies(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     return agencyTrackerSites("combat", filters);
   }
@@ -33729,6 +33759,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyStorylineAgents,
     agencyCombatAnomalies,
     agencyTrackerSites,
+    agencySignatures,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,

@@ -700,6 +700,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "dungeonInstanceCacheMgr.GetCombatAnomalyInstances", "dungeonInstanceCacheMgr.GetOreAnomalyInstances", "dungeonInstanceCacheMgr.GetIceBeltInstances", "dungeonInstanceCacheMgr.GetHomefrontSiteInstances",
   // And the Agency's combat anomalies, ore anomalies and ice belts: the systems' counts (the trackers' get_unknown_sites).
   "dungeonInstanceCacheMgr.GetCombatAnomaliesCount", "dungeonInstanceCacheMgr.GetOreAnomaliesCount", "dungeonInstanceCacheMgr.GetIceBeltsCount",
+  // And its cosmic signatures (ContentProviderSignatures._GetAllDungeonInstances).
+  "dungeonInstanceCacheMgr.GetSignatureInstances",
   // The corporation finder's searches (base_corporation.GetRecruitmentAdsByCriteria / GetRecruitmentAdsForCorpID), on
   // the recruitment proxy. The gateway's list has nothing of it.
   "corpRecProxy.SearchCorpAds", "corpRecProxy.GetRecruitmentAdsByCorpID",
@@ -2682,6 +2684,7 @@ const RETAIL_CALLS = Object.freeze({
   "dungeonInstanceCacheMgr.GetIceBeltInstances": same("evedungeons/client/anomalyTracker.py:246", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetIceBeltInstances(), no arguments: by solar system the ice belts' KeyVals, as GetCombatAnomalyInstances (Tranquility, AIR Oportunities - Amarr, 10/30/2026: archetypeID 28)."),
   "dungeonInstanceCacheMgr.GetHomefrontSiteInstances": same("evedungeons/client/anomalyTracker.py:304", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetHomefrontSiteInstances(), no arguments: by solar system the Homefront sites' KeyVals, as GetCombatAnomalyInstances (Tranquility, AIR Oportunities - Amarr, 10/30/2026: archetypeID 70, difficulty None, factionID 500021)."),
   "dungeonInstanceCacheMgr.GetCombatAnomaliesCount": same("evedungeons/client/anomalyTracker.py:238", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetCombatAnomaliesCount(), no arguments: by solar system its combat anomalies' count, every system (nought where none). Recorded on Tranquility so (Paragon - Amarr destroyer, 11/1/2026)."),
+  "dungeonInstanceCacheMgr.GetSignatureInstances": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderSignatures.py:25", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetSignatureInstances(), no arguments: by solar system its signatures' count, every system. Recorded on Tranquility so (Paragon - Amarr destroyer, 11/1/2026)."),
   "dungeonInstanceCacheMgr.GetOreAnomaliesCount": same("evedungeons/client/anomalyTracker.py:260", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetOreAnomaliesCount(), no arguments: by solar system its ore anomalies' count, as GetCombatAnomaliesCount."),
   "dungeonInstanceCacheMgr.GetIceBeltsCount": same("evedungeons/client/anomalyTracker.py:249", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetIceBeltsCount(), no arguments: by solar system its ice belts' count, as GetCombatAnomaliesCount."),
   "dungeonInstanceCacheMgr.GetCombatAnomalyInstances": same("evedungeons/client/anomalyTracker.py:235", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetCombatAnomalyInstances(), no arguments: by solar system, each combat anomaly's KeyVal (dungeonID, instanceID, siteID, archetypeID, factionID, difficulty, entryObjectTypeID, dungeonNameID, position). Recorded on Tranquility so (AIR Oportunities - Amarr, 10/30/2026)."),

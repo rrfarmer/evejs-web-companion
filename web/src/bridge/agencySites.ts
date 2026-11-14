@@ -21,6 +21,9 @@ import { DISTANCE, ANY, SECURITY_FILTER, MAX_AGENT_PIECES } from "./agencyAgents
 export interface AgencySite {
   readonly instanceID: number; readonly dungeonID: number | null; readonly archetypeID: number | null; readonly factionID: number | null;
   readonly difficulty: number | null; readonly dungeonNameID: number | null;
+  /** A signature of the pilot's own system, as the sensor suite has it (SignatureSiteData): its name the targetID, its
+   * signal strength the probe results' certainty for it (nought before any). */
+  readonly targetID?: string | null; readonly signalStrength?: number;
 }
 /** A system's sites: a known site, or null for one the count tells of (UNKNOWN_DUNGEON). */
 export interface AgencySiteSystem {
@@ -83,6 +86,23 @@ export function trackerSites(known: JsonValue | undefined, counts: JsonValue | u
   }
   if (here !== null && !knownSites.has(here)) knownSites.set(here, []);
   for (const [id, list] of knownSites) out.set(id, list);
+  return out;
+}
+
+/**
+ * ContentProviderSignatures._GetAllDungeonInstances: the counts (GetSignatureInstances; a list kept as it is, a system
+ * of none left out), and the pilot's system its sensor suite's signatures, or left out where there are none.
+ */
+export function signatureSites(counts: JsonValue | undefined, here: number | null, local: readonly AgencySite[]): Map<number, (AgencySite | null)[]> {
+  const out = new Map<number, (AgencySite | null)[]>();
+  for (const [system, value] of entries(counts)) {
+    const id = num(system), n = num(value);
+    if (id === null) continue;
+    if (n !== null) { if (n > 0) out.set(id, Array.from({ length: n }, () => null)); continue; }
+    const list = items(value);
+    if (list.length) out.set(id, list.map(() => null));
+  }
+  if (here !== null) { if (local.length) out.set(here, [...local]); else out.delete(here); }
   return out;
 }
 
