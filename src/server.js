@@ -14119,6 +14119,14 @@ app.get("/api/client-data/career-agents", requireAuth, async (req, res, next) =>
   } catch (error) { next(error); }
 });
 
+// The star map's planets of every system (starmap.GetKnownUniverseSolarSystems), for the Agency's Planetary Production:
+// by system, each planet's [itemID, typeID, celestialIndex]. Static reference data, asked once and kept.
+app.get("/api/client-data/system-planets", requireAuth, async (req, res, next) => {
+  try {
+    res.json({ ok: true, systems: staticData.getSystemPlanets() });
+  } catch (error) { next(error); }
+});
+
 // The agents service's cfg of its agents (agents.__GetAllAgents): each station's solar system and owner, each NPC
 // corporation's faction. Static reference data, asked once and kept by the page.
 app.get("/api/client-data/agent-places", requireAuth, async (req, res, next) => {

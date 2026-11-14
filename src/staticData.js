@@ -1047,6 +1047,19 @@ function getSolarSystemName(solarSystemID) {
 // computed here. It exists so the Planets panel can obey R7d and show a place
 // instead of a number.
 
+/**
+ * Every solar system's planets as the star map knows them (starmap.GetKnownUniverseSolarSystems' planetItemIDs and
+ * planetCountByType; the map's items): by system, each planet's [itemID, typeID, celestialIndex]. Static reference data.
+ */
+function getSystemPlanets() {
+  const out = {};
+  for (const planet of buildJsonlIndex("mapPlanets.jsonl", "_key").values()) {
+    const systemID = Number(planet && planet.solarSystemID) || 0;
+    if (systemID > 0) (out[systemID] ??= []).push([Number(planet._key), Number(planet.typeID) || 0, Number(planet.celestialIndex) || 0]);
+  }
+  return out;
+}
+
 function getPlanetCelestial(planetID) {
   return buildJsonlIndex("mapPlanets.jsonl", "_key").get(Number(planetID) || 0) || null;
 }
@@ -2536,6 +2549,7 @@ module.exports = {
   getStargates,
   getStation,
   getAgentPlaces,
+  getSystemPlanets,
   getSystemStations,
   getStationName,
   getStationShortName,

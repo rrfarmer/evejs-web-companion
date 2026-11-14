@@ -3722,6 +3722,12 @@ export interface AppFlow {
    */
   agencyIncursions(filters: AgencySiteFilters): Promise<readonly AgencyIncursion[] | null>;
   /**
+   * The Agency's Planetary Production (ContentProviderPlanetaryProductionSystems): the systems within the distance (by
+   * jumps) that have a planet of a chosen type and pass the security filter, to MAX_CONTENT_PIECES_MAX; each with its
+   * planets (the star map's).
+   */
+  agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
+  /**
    * The Agency's page of one incursion (IncursionContentGroup, its constellation the item): the incursion of the
    * constellation, its systems in incursions (map.GetSystemsInIncursions, each its sceneType) by jumps, and its
    * accumulated LP pool (rewardMgr.GetDelayedRewardsByGroupIDs, the REWARD_TYPE_LP reward's quantity; null for none).
@@ -19955,6 +19961,35 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  let systemPlanetsHeld: Awaited<ReturnType<typeof api.loadSystemPlanets>> = null;
+  async function agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<Awaited<ReturnType<AppFlow["agencyPlanetaryProduction"]>>> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [planets, jumps, graph] = await Promise.all([
+      systemPlanetsHeld ? Promise.resolve(systemPlanetsHeld) : api.loadSystemPlanets(callOptions).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+      loadRouteGraph().catch(() => null),
+    ]);
+    systemPlanetsHeld ??= planets;
+    if (planets === null || here === null) return null;
+    // GetAllSolarSystemIDsWithinJumpRange: the systems by their jumps (each jump's own in the pathfinder's order; here by
+    // ID), the pilot's at nought.
+    const inRange: [number, number][] = [[here, 0]];
+    for (const [id, n] of jumps ?? []) if (id !== here && (filters.distance === 1000 || n <= (filters.distance === 1 ? 0 : filters.distance))) inRange.push([id, n]);
+    inRange.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    const wanted = new Set(planetTypes);
+    const out: { solarSystemID: number; jumps: number | null; security: number | null; planets: { planetID: number; typeID: number; celestialIndex: number }[] }[] = [];
+    for (const [id, n] of inRange) {
+      if (out.length >= 30) break;
+      const list = planets[String(id)] ?? [];
+      if (!list.some(([, typeID]) => wanted.has(typeID))) continue;
+      const security = graph?.security(id) ?? null, sec = security === null ? 0 : shownSecurity(security);
+      if (filters.security === 1 ? sec < 0.45 : filters.security === 3 ? sec > 0 : filters.security === 2 ? !(sec > 0 && sec < 0.45) : false) continue;
+      out.push({ solarSystemID: id, jumps: n, security, planets: list.map(([planetID, typeID, celestialIndex]) => ({ planetID, typeID, celestialIndex })) });
+    }
+    requestNames(out.map((s) => ({ kind: "system" as const, id: s.solarSystemID })));
+    requestSystemSecurity(out.map((s) => s.solarSystemID));
+    return out;
+  }
   async function agencyIncursions(filters: AgencySiteFilters): Promise<readonly AgencyIncursion[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [answer, jumps, graph] = await Promise.all([
@@ -33893,6 +33928,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyEpicArcs,
     agencyEscalations,
     agencyIncursions,
+    agencyPlanetaryProduction,
     agencyIncursion,
     factionWarfareLocal,
     insurgencyLocal,

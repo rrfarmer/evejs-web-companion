@@ -5807,6 +5807,12 @@ export async function loadCareerAgentData(options: ApiOptions = {}): Promise<{ r
   return data.available ? { schools: data.schools as Record<string, number[]>, divisions: data.divisions as Record<string, { nameID: number | null; descriptionID: number | null }>, plans: (data.plans ?? {}) as Record<string, number | null> } : null;
 }
 
+/** GET /api/client-data/system-planets: by system, each planet's [itemID, typeID, celestialIndex]. */
+export async function loadSystemPlanets(options: ApiOptions = {}): Promise<Readonly<Record<string, readonly (readonly [number, number, number])[]>> | null> {
+  const data = await getJson("/api/client-data/system-planets", options);
+  return data.systems && typeof data.systems === "object" ? data.systems as Record<string, [number, number, number][]> : null;
+}
+
 /** GET /api/client-data/agent-places: each station's [solar system, owner] and each NPC corporation's faction (the client's cfg). */
 export async function loadAgentPlaces(options: ApiOptions = {}): Promise<{ readonly stations: Readonly<Record<string, readonly [number, number | null]>>; readonly factions: Readonly<Record<string, number>> } | null> {
   const data = await getJson("/api/client-data/agent-places", options);
