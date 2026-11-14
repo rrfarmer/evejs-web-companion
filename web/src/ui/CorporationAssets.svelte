@@ -29,14 +29,13 @@
   import type { AppFlow, AssetTypeFacts, CorpAssetItem, CorpAssetLocation } from "../app/flow.ts";
   import { SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { celestialRouteEntries, isPlayerItemID, isWaypointPlace } from "../nav/waypoints.ts";
-  import { formatNumeric, fmtAmt } from "../bridge/pyNumbers.ts";
-  import { iskWords } from "../bridge/questions.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
   import { resolvedName } from "../store/names.ts";
   import LabelText from "./LabelText.svelte";
   import AssetSafetyList from "./AssetSafetyList.svelte";
   import TypeIcon from "./TypeIcon.svelte";
+  import { invItemColumns, invItemGridColumns, INV_ITEM_DEFAULT_HIDDEN, type InvItemColumn } from "./invItemColumns.ts";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -234,30 +233,15 @@
     }
   }
   const typeName = (id: number) => nameOf("type", id) || String(id);
-  // GetInvItemDefaultHeaders, each with its getter (_item_column_value_getter_by_column) and its sort value (GetItemData's
-  // sort_<header>, else the text); GetInvItemDefaultHiddenHeaders (Meta level, Tech level, Category) hidden at first.
-  interface Column { label: string; text: (item: CorpAssetItem) => string; sort: (item: CorpAssetItem) => number | string; right?: boolean }
-  const COLUMNS: readonly Column[] = [
-    { label: "UI/Common/Name", text: (i) => typeName(i.typeID), sort: (i) => typeName(i.typeID).toLowerCase() },
-    { label: "UI/Common/Quantity", text: (i) => qtyOf(i), sort: (i) => (i.singleton || i.typeID === 51 ? 0 : i.stacksize), right: true },
-    { label: "UI/Inventory/ItemGroup", text: (i) => nameOf("typeGroup", i.typeID), sort: (i) => nameOf("typeGroup", i.typeID).toLowerCase() },
-    { label: "UI/Inventory/ItemCategory", text: (i) => nameOf("typeCategory", i.typeID), sort: (i) => nameOf("typeCategory", i.typeID).toLowerCase() },
-    { label: "UI/Inventory/ItemSize", text: (i) => sizeOf(i), sort: (i) => sizeOf(i) },
-    { label: "UI/Inventory/ItemSlot", text: (i) => slotOf(i), sort: (i) => slotOf(i) },
-    { label: "UI/Inventory/ItemVolume", text: (i) => volumeOf(i), sort: (i) => volumeNumber(i), right: true },
-    // metaLevel: FmtAmt(GetMetaLevel), nothing where there is none (or nought); sorted by the level or nought.
-    { label: "UI/Inventory/ItemMetaLevel", text: (i) => { const m = facts.get(i.typeID)?.metaLevel ?? null; return m ? fmtAmt(m) : ""; }, sort: (i) => facts.get(i.typeID)?.metaLevel ?? 0, right: true },
-    // _get_item_tech_level: '<right>%s' % techLevel, FmtAmt where it is set - so "None" where the type has none.
-    { label: "UI/Inventory/ItemTechLevel", text: (i) => { const t = facts.get(i.typeID)?.techLevel ?? null; return t ? fmtAmt(t) : String(t === null ? "None" : t); }, sort: (i) => String(facts.get(i.typeID)?.techLevel ?? "None"), right: true },
-    { label: "UI/Contracts/ContractsWindow/EstPrice", text: (i) => priceOf(i), sort: (i) => estPriceNumber(i), right: true },
-  ];
+  // GetInvItemDefaultHeaders with their values and sorts (invItemColumns.ts, shared with Personal Assets).
+  type Column = InvItemColumn;
+  const COLUMNS: readonly Column[] = invItemColumns({ text: (label, args) => text(label, args ?? {}), nameOf, facts: () => facts, templates: () => $words.templates });
   // Scroll 'CorporationAssets': settings.user.ui filteredColumns / filteredColumnsByDefault and scrollsortby.
-  const DEFAULT_HIDDEN = ["UI/Inventory/ItemMetaLevel", "UI/Inventory/ItemTechLevel", "UI/Inventory/ItemCategory"];
   const readList = (key: string, fallback: string[]) => { try { const v = JSON.parse(localStorage.getItem(`evejs.play.${key}`) ?? "null"); return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : fallback; } catch { return fallback; } };
   let hidden = $state<string[]>(readList("filteredColumns_CorporationAssets", []));
-  let hiddenByDefault = $state<string[]>(readList("filteredColumnsByDefault_CorporationAssets", DEFAULT_HIDDEN));
+  let hiddenByDefault = $state<string[]>(readList("filteredColumnsByDefault_CorporationAssets", [...INV_ITEM_DEFAULT_HIDDEN]));
   const shownColumns = $derived(COLUMNS.filter((c) => !hidden.includes(c.label) && !hiddenByDefault.includes(c.label)));
-  const gridColumns = $derived(shownColumns.map((c) => (c.label === "UI/Common/Name" ? "minmax(160px, 2fr)" : c.label === "UI/Inventory/ItemGroup" || c.label === "UI/Inventory/ItemCategory" ? "1fr" : c.label === "UI/Contracts/ContractsWindow/EstPrice" ? "110px" : c.label === "UI/Inventory/ItemVolume" ? "90px" : "64px")).join(" "));
+  const gridColumns = $derived(invItemGridColumns(shownColumns));
   let headerMenuFor = $state<string | null>(null);
   function keep(key: string, list: string[]): void { try { localStorage.setItem(`evejs.play.${key}`, JSON.stringify(list)); } catch { /* not kept */ } }
   // HideColumn / ShowColumn: hidden kept; shown taken off both lists.
@@ -280,42 +264,8 @@
     const out = list.slice().sort((a, b) => { const x = col.sort(a), y = col.sort(b); return x < y ? -1 : x > y ? 1 : 0; });
     return sortReversed ? out.reverse() : out;
   }
-  // uix.GetItemData and the default visible columns (GetInvItemDefaultHeaders less the hidden Meta level, Tech level
-  // and Category): Name, Quantity, Group, Size, Slot, Volume, Est. Price.
+  // uix.GetItemData's type facts for the columns (invItemColumns.ts).
   let facts = $state<ReadonlyMap<number, AssetTypeFacts>>(new Map());
-  const SIZES: Record<number, string> = { 1: "UI/InfoWindow/SmallSize", 2: "UI/InfoWindow/MediumSize", 3: "UI/InfoWindow/LargeSize", 4: "UI/InfoWindow/XLargeSize" };
-  const SLOTS: Record<number, string> = { 2663: "UI/Inventory/SlotRigs", 12: "UI/Inventory/SlotHigh", 13: "UI/Inventory/SlotMedium", 11: "UI/Inventory/SlotLow" };
-  // GetItemQty: nothing for a singleton (or a bookmark), else FmtAmt of the stack.
-  const qtyOf = (item: CorpAssetItem) => (item.singleton || item.typeID === 51 ? "" : fmtAmt(item.stacksize));
-  // _get_item_size: the charge size in its size class's words.
-  const sizeOf = (item: CorpAssetItem) => { const v = facts.get(item.typeID)?.chargeSize; return v === null || v === undefined ? "" : plainText(text(SIZES[Math.trunc(v)] ?? "")); };
-  // _get_item_slot: the implant slot, else the booster slot, else the power slot its effects fit.
-  const slotOf = (item: CorpAssetItem) => {
-    const f = facts.get(item.typeID);
-    if (!f) return "";
-    if (f.implantness !== null) return String(Math.trunc(f.implantness));
-    if (f.boosterness !== null) return String(Math.trunc(f.boosterness));
-    return f.slotEffect === null ? "" : plainText(text(SLOTS[f.slotEffect] ?? ""));
-  };
-  // GetItemVolume (a singleton's type volume, else its packaged one, times the stack) as ValueAndUnit with m3 (dogma unit
-  // 9's display name), two places where it has a fraction; none for plastic wrap.
-  const volumeOf = (item: CorpAssetItem) => {
-    const f = facts.get(item.typeID);
-    if (!f || item.typeID === 3468) return "";
-    const each = item.singleton ? f.volume : f.packagedVolume;
-    if (each === null) return "";
-    const volume = each === -1 ? -1 : each * (item.stacksize < 0 ? 1 : item.stacksize);
-    const places = Math.abs(volume - Math.trunc(volume)) > 1e-7 ? 2 : 0;
-    return plainText(text("UI/InfoWindow/ValueAndUnit", { value: formatNumeric(places ? volume : Math.trunc(volume), { useGrouping: true, decimalPlaces: places }), unit: "m3" }));
-  };
-  // GetItemVolume's number, for the column's sort.
-  const volumeNumber = (item: CorpAssetItem) => { const f = facts.get(item.typeID); const each = f ? (item.singleton ? f.volume : f.packagedVolume) : null; return item.typeID === 3468 || each === null ? 0 : each * (item.stacksize < 0 ? 1 : item.stacksize); };
-  const estPriceNumber = (item: CorpAssetItem) => { const price = item.singleton === 2 ? null : facts.get(item.typeID)?.averagePrice ?? null; return price && item.stacksize ? item.stacksize * price : 0; };
-  // estPrice: the cfg's average price times the stack (none for a blueprint copy), FmtISK.
-  const priceOf = (item: CorpAssetItem) => {
-    const price = item.singleton === 2 ? null : facts.get(item.typeID)?.averagePrice ?? null;
-    return price && item.stacksize ? iskWords(item.stacksize * price, 2, $words.templates, nameOf) ?? "" : "";
-  };
 </script>
 
 {#snippet itemRow(item: CorpAssetItem, depth: number)}

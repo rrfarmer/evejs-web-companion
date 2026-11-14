@@ -1615,6 +1615,8 @@
   .fly-windows :global(.as-item) { display: grid; grid-template-columns: 1fr 90px 100px; gap: 6px; align-items: center; min-height: 22px;
     padding: 0 4px 0 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.03); font-size: 12px; margin: 0; }
   .fly-windows :global(.as-item.as-head) { font-size: 10px; color: rgba(255, 255, 255, 0.6); min-height: 18px; }
+  .fly-windows :global(.as-col) { all: unset; cursor: pointer; white-space: nowrap; overflow: hidden; }
+  .fly-windows :global(.as-item > span) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fly-windows :global(.as-item .num) { text-align: right; }
   .fly-windows :global(.as-note) { opacity: 0.7; }
   .fly-windows :global(.as-menu) { display: flex; flex-direction: column; margin-left: 24px; width: max-content; background: rgba(12, 14, 16, 0.97);

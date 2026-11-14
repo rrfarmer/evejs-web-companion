@@ -34,6 +34,8 @@
   import TypeIcon from "./TypeIcon.svelte";
   import AssetSafetyList from "./AssetSafetyList.svelte";
   import LabelText from "./LabelText.svelte";
+  import { invItemColumns, invItemGridColumns, INV_ITEM_DEFAULT_HIDDEN, INV_ITEM_COLUMN_WORDS, type InvItem } from "./invItemColumns.ts";
+  import type { AssetTypeFacts } from "../app/flow.ts";
   import { linkFollowerOf, LINK_WORDS } from "./linkFollowers.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { shownSecurity, securityStatusRgb } from "../bridge/systemSecurity.ts";
@@ -213,6 +215,51 @@
     const args = { location: row.stationID, itemCount: row.itemCount, jumps: jumps ?? 0, secStatus: secStatus(row.solarSystemID) };
     return text(jumps === null ? ASSET_WORDS.noRoute : ASSET_WORDS.label, args);
   }
+  // The open location's items as InvAssetItem rows (GetSubContent, uix.GetItemData): the inventory's columns
+  // (invItemColumns.ts, as the corporation's assets), hidden and sorted as the scroll keeps them (settings.user.ui
+  // filteredColumns / filteredColumnsByDefault / scrollsortby, scroll 'assets'); a header's right button its
+  // Hide / Show menu (Scroll.GetHeaderMenu).
+  let typeFacts = $state<ReadonlyMap<number, AssetTypeFacts>>(new Map());
+  const COLUMNS = invItemColumns({ text: (label, args) => text(label, args ?? {}), nameOf: nameOfRef, facts: () => typeFacts, templates: () => $words.templates });
+  const readKept = (key: string, fallback: string[]) => { try { const v = JSON.parse(localStorage.getItem(`evejs.play.${key}`) ?? "null"); return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : fallback; } catch { return fallback; } };
+  let hiddenColumns = $state<string[]>(readKept("filteredColumns_assets", []));
+  let hiddenByDefault = $state<string[]>(readKept("filteredColumnsByDefault_assets", [...INV_ITEM_DEFAULT_HIDDEN]));
+  const shownColumns = $derived(COLUMNS.filter((c) => !hiddenColumns.includes(c.label) && !hiddenByDefault.includes(c.label)));
+  const itemGrid = $derived(invItemGridColumns(shownColumns));
+  let headerMenuFor = $state<string | null>(null);
+  const keepList = (key: string, list: string[]) => { try { localStorage.setItem(`evejs.play.${key}`, JSON.stringify(list)); } catch { /* not kept */ } };
+  function hideColumn(label: string): void { headerMenuFor = null; if (!hiddenColumns.includes(label)) hiddenColumns = [...hiddenColumns, label]; keepList("filteredColumns_assets", hiddenColumns); }
+  function showColumn(label: string): void {
+    headerMenuFor = null;
+    hiddenColumns = hiddenColumns.filter((l) => l !== label); hiddenByDefault = hiddenByDefault.filter((l) => l !== label);
+    keepList("filteredColumns_assets", hiddenColumns); keepList("filteredColumnsByDefault_assets", hiddenByDefault);
+  }
+  const keptSort = (() => { try { return JSON.parse(localStorage.getItem("evejs.play.scrollsortby_assets") ?? "null") as [string, boolean] | null; } catch { return null; } })();
+  let sortColumn = $state<string | null>(keptSort?.[0] ?? "UI/Common/Name"), sortReversed = $state(keptSort?.[1] ?? false);
+  function sortOn(label: string): void {
+    sortReversed = sortColumn === label ? !sortReversed : false; sortColumn = label;
+    try { localStorage.setItem("evejs.play.scrollsortby_assets", JSON.stringify([sortColumn, sortReversed])); } catch { /* not kept */ }
+  }
+  /** The store's row as the columns read an item: its stack the units (1 for an assembled thing, whose quantity is -1), singleton 1. */
+  const invItem = (item: { itemID: number; typeID: number; units: number; singleton: boolean }): InvItem =>
+    ({ itemID: item.itemID, typeID: item.typeID, stacksize: item.units, singleton: item.singleton ? 1 : 0 });
+  const openItems = $derived.by(() => {
+    if (openStation === null || openStation.error || openStation.hasNoItems) return [] as InvItem[];
+    const list = openStation.items.map(invItem);
+    const col = COLUMNS.find((c) => c.label === sortColumn);
+    if (!col) return list;
+    const out = list.slice().sort((a, b) => { const x = col.sort(a), y = col.sort(b); return x < y ? -1 : x > y ? 1 : 0; });
+    return sortReversed ? out.reverse() : out;
+  });
+  $effect(() => {
+    if (!retail || openStation === null || openStation.error) return;
+    const types = [...new Set(openStation.items.map((item) => item.typeID))];
+    if (types.length === 0) return;
+    flow.requestWords([...INV_ITEM_COLUMN_WORDS]);
+    flow.requestNames(types.flatMap((id) => [{ kind: "type" as const, id }, { kind: "typeGroup" as const, id }, { kind: "typeCategory" as const, id }]));
+    const missing = types.filter((id) => !typeFacts.has(id));
+    if (missing.length > 0) void flow.assetTypeFacts(missing).then((read) => { typeFacts = new Map([...typeFacts, ...read]); }).catch(() => {});
+  });
   const sortedStations = $derived.by(() => {
     const rows = $assets.stations.map((row) => ({ row, name: stationName(row.stationID), jumps: jumpsTo(row) ?? Number.MAX_SAFE_INTEGER }));
     const cmp = (a: number | string, b: number | string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -393,12 +440,29 @@
           {:else if openStation.hasNoItems}
             <p class="as-item as-note">{plainText(text(ASSET_WORDS.nothing)) || "Nothing found"}</p>
           {:else}
-            <div class="as-item as-head"><span>{plainText(text(ASSET_WORDS.name)) || "Name"}</span><span class="num">{plainText(text(ASSET_WORDS.quantity)) || "Quantity"}</span><span class="num">{plainText(text(ASSET_WORDS.volume)) || "Volume"}</span></div>
-            {#each openStation.items as item (item.itemID)}
-              <div class="as-item">
-                <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
-                <span class="num">{formatUnits(item.units)}</span>
-                <span class="num">{formatAssetVolume(item.volume === null ? null : item.volume * item.units)}</span>
+            <div class="as-item as-head" style:grid-template-columns={itemGrid}>
+              {#each shownColumns as col (col.label)}
+                <button type="button" class="as-col" class:num={col.right} onclick={() => sortOn(col.label)}
+                  oncontextmenu={(e) => { e.preventDefault(); headerMenuFor = headerMenuFor === col.label ? null : col.label; }}>{plainText(text(col.label))}{sortColumn === col.label ? (sortReversed ? " ▴" : " ▾") : ""}</button>
+              {/each}
+            </div>
+            {#if headerMenuFor}
+              <div class="as-menu" role="menu">
+                {#if shownColumns.length > 1}<button type="button" role="menuitem" onclick={() => hideColumn(headerMenuFor!)}>{plainText(text("/Carbon/UI/Common/Hide", { label: plainText(text(headerMenuFor)) }))}</button>{/if}
+                {#each COLUMNS.filter((c) => !shownColumns.includes(c)) as c (c.label)}
+                  <button type="button" role="menuitem" onclick={() => showColumn(c.label)}>{plainText(text("/Carbon/UI/Common/Show", { label: plainText(text(c.label)) }))}</button>
+                {/each}
+              </div>
+            {/if}
+            {#each openItems as item (item.itemID)}
+              <div class="as-item" style:grid-template-columns={itemGrid}>
+                {#each shownColumns as col (col.label)}
+                  {#if col.label === "UI/Common/Name"}
+                    <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
+                  {:else}
+                    <span class:num={col.right}>{col.text(item)}</span>
+                  {/if}
+                {/each}
               </div>
             {/each}
           {/if}
