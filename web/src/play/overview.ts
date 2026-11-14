@@ -38,7 +38,7 @@ export class Overview {
   private lastDraw = 0;
   private selected: number | null = null;
   private groupsOfType: Record<string, number | null> = {};
-  private tabs: { name: string; groups: Set<number> }[] = [];
+  private tabs: { name: string; presetName: string; groups: Set<number> }[] = [];
   private tab = 0;
   private readonly tabsEl: HTMLDivElement;
   /** The column the rows are sorted by and which way: the client's overview sorts by distance, nearest first, until a
@@ -88,7 +88,7 @@ export class Overview {
     });
     void overviewPresets().then((p) => {
       if (!p) return;
-      this.tabs = p.tabs.map((t) => ({ name: t.name, groups: new Set(p.presets[t.preset]?.groups ?? []) }));
+      this.tabs = p.tabs.map((t) => ({ name: t.name, presetName: p.presets[t.preset]?.name ?? t.name, groups: new Set(p.presets[t.preset]?.groups ?? []) }));
       let saved = 0;
       try { saved = Number(localStorage.getItem(TAB_KEY)) || 0; } catch { /* no storage: the first tab */ }
       this.choose(saved < this.tabs.length ? saved : 0);
@@ -109,6 +109,12 @@ export class Overview {
     this.tabsEl.innerHTML = this.tabs.map((t, n) => `<span class="ov-tab${n === i ? " active" : ""}" data-tab="${n}">${esc(t.name)}</span>`).join("");
     try { localStorage.setItem(TAB_KEY, String(i)); } catch { /* not kept */ }
     this.lastDraw = 0;
+  }
+
+  /** overviewPresetSvc.GetActiveOverviewPresetName: the chosen tab's preset - its display name and groups; null until read. */
+  activePreset(): { readonly name: string; readonly groups: ReadonlySet<number> } | null {
+    const t = this.tabs[this.tab];
+    return t ? { name: t.presetName, groups: t.groups } : null;
   }
 
   setSelected(itemID: number | null): void { this.selected = itemID; this.lastDraw = 0; }

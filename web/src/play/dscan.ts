@@ -45,6 +45,8 @@ export interface DScanHooks {
   known(id: number): { name: string | null; distance: number | null };
   typeName(typeID: number): string | null;
   groupName(groupID: number): string | null;
+  /** The active overview preset (GetActiveOverviewPresetName): its name and groups; null until the presets are read. */
+  activePreset?(): { readonly name: string; readonly groups: ReadonlySet<number> } | null;
   /** The install's words for a label, filled; null where they are not had (the window keeps its own). */
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
 }
@@ -53,7 +55,10 @@ export interface DScanHooks {
 export const DSCAN_WORDS: readonly string[] = ["UI/Inflight/Scanner/DirectionalScanner", "UI/Inflight/Scanner/ScanResults",
   "UI/Inflight/Scanner/Range", "UI/Inflight/Scanner/UnitAU", "UI/Inflight/Scanner/UnitKm", "UI/Inflight/Scanner/Angle",
   "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
-  "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap"];
+  "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap",
+  "UI/Inflight/Scanner/Filtered", "UI/Inflight/Scanner/DirectionalNoResult"];
+/** inventorycommon groupCloud: hidden from the scan's rows but for a GM / world mod (UpdateScroll). */
+const GROUP_CLOUD = 227;
 
 function distanceWords(m: number | null): string {
   if (m === null) return "-";
@@ -71,6 +76,8 @@ export class DScanWindow {
   private inKm = false;
   private readonly tbody: HTMLTableSectionElement;
   private readonly status: HTMLDivElement;
+  private readonly filterBox: HTMLSpanElement;
+  private readonly word: (label: string, own: string, args?: Readonly<Record<string, string | number>>) => string;
   private busy = false;
   rows: DScanRow[] = [];
 
@@ -131,6 +138,8 @@ export class DScanWindow {
     });
     this.unit.addEventListener("click", () => { this.inKm = !this.inKm; showUnit(); });
     this.window.body.querySelector(".dscan-go")!.addEventListener("click", () => void this.scan());
+    this.filterBox = this.window.body.querySelector(".dscan-filter")!;
+    this.word = w;
     this.window.root.style.display = "none";
   }
 
@@ -162,8 +171,27 @@ export class DScanWindow {
   }
 
   private draw(): void {
+    // UpdateScroll: the scanner's preset (scanner_presetInUse, else the active overview preset) - a row shows where its
+    // group is one of the preset's valid groups, the rest counted; a cloud not at all (no GM role here); the filter box
+    // "Filtered: N (preset)"; an empty list says UI/Inflight/Scanner/DirectionalNoResult.
     this.tbody.innerHTML = "";
-    for (const r of this.rows) {
+    const preset = this.hooks.activePreset?.() ?? null;
+    let filtered = 0;
+    const shown = this.rows.filter((r) => {
+      if (preset && !preset.groups.has(r.groupID)) { filtered += 1; return false; }
+      return r.groupID !== GROUP_CLOUD;
+    });
+    this.filterBox.textContent = preset
+      ? `${this.word("UI/Inflight/Scanner/Filtered", `Filtered: ${filtered}`, { noFiltered: filtered })} (${preset.name})`
+      : "-";
+    if (!shown.length) {
+      const tr = document.createElement("tr");
+      tr.className = "dscan-none";
+      tr.innerHTML = `<td colspan="4"></td>`;
+      tr.firstElementChild!.textContent = this.word("UI/Inflight/Scanner/DirectionalNoResult", "No results");
+      this.tbody.appendChild(tr);
+    }
+    for (const r of shown) {
       const known = this.hooks.known(r.id);
       const tr = document.createElement("tr");
       const type = this.hooks.typeName(r.typeID) ?? `Type ${r.typeID}`;

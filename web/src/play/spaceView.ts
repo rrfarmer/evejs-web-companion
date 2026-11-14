@@ -522,6 +522,7 @@ export class SpaceView {
         typeName: (typeID) => this.names?.types[String(typeID)]?.[0] ?? null,
         groupName: (groupID) => this.names?.groups[String(groupID)]?.[0] ?? null,
         word: (label, args) => this.actions.word?.(label, args) ?? null,
+        activePreset: () => this.overview?.activePreset() ?? null,
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);
