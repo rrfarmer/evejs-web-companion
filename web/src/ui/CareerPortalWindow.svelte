@@ -72,6 +72,51 @@
   // gauge drawn later (a view's own career node, a return to the careers view) is drawn filled, as the client's nodes,
   // built once for the window, are.
   let gaugesAt = $state(0);
+  // PublicCareerGoalNoticeMessenger: ProgressedNotice (goal, amount) -> update_local_goal_progress (the goal's progress
+  // the amount) and on_goal_progress_changed; CompletedNotice -> mark_local_goal_completed (the progress the target,
+  // completed). The views follow (CircleNode.OnGoalUpdated, CareerNode.OnGoalUpdated's SetGaugeValue), and a career
+  // path goal's CareerPointsLabel shows the difference (AnimateProgressDifference).
+  // svelte-ignore state_referenced_locally
+  const notices = flow.gatewayNotices;
+  const GOAL_NOTICE = "eve_public.career.goal.api.";
+  let noticeSeen = 0;
+  $effect(() => {
+    const notice = $notices;
+    if (notice === null || notice.n === noticeSeen) return;
+    noticeSeen = notice.n;
+    if (!notice.typeName.startsWith(GOAL_NOTICE)) return;
+    const kind = notice.typeName.slice(GOAL_NOTICE.length);
+    const payload = notice.payload !== null && typeof notice.payload === "object" && !Array.isArray(notice.payload) ? notice.payload as Record<string, unknown> : {};
+    const id = String(((payload.goal ?? {}) as Record<string, unknown>).uuid ?? "");
+    untrack(() => {
+      const before = (goals ?? []).find((g) => g.goalID === id);
+      if (!before || !goals) return;
+      const progress = kind === "CompletedNotice" ? before.target : kind === "ProgressedNotice" ? Number(payload.amount ?? 0) : null;
+      if (progress === null) return;
+      const completed = before.completed || kind === "CompletedNotice" || (before.target > 0 && progress >= before.target);
+      const labels = [...new Set(before.rewards.map((r) => r.label))];
+      goals = goals.map((g) => g.goalID !== id ? g : { ...g, progress, completed,
+        unclaimedLabels: completed && !before.completed ? labels : g.unclaimedLabels, unclaimedRewards: completed && !before.completed ? labels.length > 0 : g.unclaimedRewards });
+      const owner = CAREERS.find((c) => careerPathGoal(c)?.goalID === id);
+      if (owner && progress > before.progress) bump(owner.id, progress - before.progress);
+    });
+  });
+  // CareerPointsLabel.AnimateProgressDifference: faded out over 0.4 s; after 0.5 s "+difference" in LEAFY_GREEN, faded in
+  // over 0.4 s and moved in from 10 px below; MoveBack, 1 s later: moved out 10 px down and faded out over 0.4 s; after
+  // 0.5 s Reset (the points' words again), faded in over 0.4 s from 10 px above its place.
+  let pointsBump = $state<Record<number, { phase: "out" | "in" | "leave" | "back"; text: string }>>({});
+  const bumpTimers = new Map<number, ReturnType<typeof setTimeout>[]>();
+  function bump(careerID: number, difference: number) {
+    for (const t of bumpTimers.get(careerID) ?? []) clearTimeout(t);
+    const set = (phase: "out" | "in" | "leave" | "back" | null) => {
+      const next = { ...pointsBump };
+      if (phase === null) delete next[careerID]; else next[careerID] = { phase, text: `+${difference}` };
+      pointsBump = next;
+    };
+    set("out");
+    bumpTimers.set(careerID, [setTimeout(() => set("in"), 500), setTimeout(() => set("leave"), 1900), setTimeout(() => set("back"), 2400), setTimeout(() => set(null), 2800)]);
+  }
+  $effect(() => () => { for (const ts of bumpTimers.values()) for (const t of ts) clearTimeout(t); });
   let careerTexts = $state<Record<number, { nameID: number | null; descriptionID: number | null }>>({});
   $effect(() => {
     void flow.careerGoals().then((g) => { gaugesAt = performance.now(); goals = g; }, () => { goals = null; });
@@ -262,12 +307,13 @@
           {#snippet node(n: unknown)}
             {@const c = n as Career}
             {@const pg = careerPathGoal(c)}
+            {@const b = pointsBump[c.id]}
             <div class="cpw-careernode">
               <button type="button" class="cpw-career" data-own-sound class:on={careerID === c.id} title={careerName(c)} onclick={() => { sound("career_portal_select_profession_play"); go("ACTIVITIES_VIEW", c.id, null, null); }}
                 onmouseenter={careerEnter} onmouseleave={() => (careerHover = false)}>{@render careerGauge(c)}</button>
               <div class="cpw-career-text">
                 <b>{careerName(c)}<img class="cpw-info" alt="" title={word(C + CAREER_DESCRIPTIONS[c.id])} src={clientTexture("res:/ui/Texture/classes/Menu/Icons/info.png")} /></b>
-                <span class="cpw-points" class:full={!!pg && pg.progress >= pg.target}><img alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/career_point_icon.png")} />{word(C + "CareerPointsNumFull", { currentPoints: pg?.progress ?? 0, totalPoints: pg?.target ?? 0 })}</span>
+                <span class={`cpw-points${b ? ` p-${b.phase}` : ""}`} class:full={!!pg && pg.progress >= pg.target}><img alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/career_point_icon.png")} />{b && (b.phase === "in" || b.phase === "leave") ? b.text : word(C + "CareerPointsNumFull", { currentPoints: pg?.progress ?? 0, totalPoints: pg?.target ?? 0 })}</span>
                 <button type="button" class="cpw-ghost" onclick={() => { video = CAREER_VIDEOS[c.id] ?? null; }}>▶ {word(C + "PlayVideo")}</button>
               </div>
             </div>
@@ -434,8 +480,8 @@
   {@const frac = pg && pg.target > 0 ? Math.min(1, pg.progress / pg.target) : 0}
   <svg class="cpw-gauge" class:full={frac >= 1} class:filling={performance.now() - gaugesAt < 1000} viewBox="0 0 100 100" aria-hidden="true">
     <circle class="cpw-gauge-bg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray="0.997 1" transform="rotate(-90 50 50)" />
-    {#if frac > 0}<circle class="cpw-gauge-mid" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />
-      <circle class="cpw-gauge-fg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />{/if}
+    <circle class="cpw-gauge-mid" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />
+    <circle class="cpw-gauge-fg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />
   </svg>
   {#if careerIcon(c.id, 128)}<img class="cpw-career-icon" alt="" src={careerIcon(c.id, 128)} />{/if}
 {/snippet}
@@ -489,7 +535,9 @@
   .cpw-gauge-bg { stroke: rgb(24 45 51); }
   .cpw-gauge-fg { stroke: #58a7bf; filter: drop-shadow(0 0 2px rgb(88 167 191 / 0.6)); }
   .cpw-gauge.full .cpw-gauge-fg { stroke: #8dc169; filter: drop-shadow(0 0 3px #8dc169); }
-  .cpw-gauge-mid { stroke: #8dc169; }
+  /* a later value (OnGoalUpdated -> SetGaugeValue): the middle gauge there over 0.75 s, the gauge after 1 s */
+  .cpw-gauge-mid { stroke: #8dc169; transition: stroke-dasharray 0.75s linear; }
+  .cpw-gauge-fg { transition: stroke-dasharray 0.75s linear 1s; }
   .cpw-gauge.filling .cpw-gauge-mid { animation: cpw-gauge-in 0.75s linear; }
   .cpw-gauge.filling .cpw-gauge-fg { animation: cpw-gauge-in 0.75s linear 1s backwards; }
   .cpw-gauge.filling.full .cpw-gauge-fg { animation: cpw-gauge-in 0.75s linear 1s backwards, cpw-gauge-blue 0.01s linear 1.75s backwards; }
@@ -503,6 +551,13 @@
   .cpw-points { display: flex; align-items: center; gap: 4px; }
   .cpw-points img { width: 16px; height: 16px; }
   .cpw-points.full { color: #8dc169; }
+  .cpw-points { transition: opacity 0.4s, transform 0.4s; }
+  .cpw-points.p-out { opacity: 0; }
+  .cpw-points.p-in { color: #8dc169; animation: cpw-points-in 0.4s; }
+  .cpw-points.p-leave { color: #8dc169; opacity: 0; transform: translateY(10px); }
+  .cpw-points.p-back { animation: cpw-points-back 0.4s; }
+  @keyframes cpw-points-in { from { opacity: 0; transform: translateY(10px); } }
+  @keyframes cpw-points-back { from { opacity: 0; transform: translateY(-14px); } }
   .cpw-node { position: relative; width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; align-items: center; border-left: none;
     background: radial-gradient(circle, rgb(0 0 0 / 0.85) 62%, transparent 64%), conic-gradient(#8dc169 var(--done, 0deg), rgb(255 255 255 / 0.35) 0); }
   .cpw-node img { width: 32px; height: 32px; }

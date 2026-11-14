@@ -11973,6 +11973,17 @@
   "eve_public.career.goal.api.ClaimRewardResponse": {
    "fields": []
   },
+  "eve_public.career.goal.api.CompletedNotice": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.Identifier"
+    }
+   ]
+  },
   "eve_public.career.goal.api.GetAllRequest": {
    "fields": []
   },
@@ -12081,6 +12092,23 @@
      "type": 11,
      "label": 1,
      "typeName": "eve_public.career.goal.Attributes"
+    }
+   ]
+  },
+  "eve_public.career.goal.api.ProgressedNotice": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.Identifier"
+    },
+    {
+     "name": "amount",
+     "number": 2,
+     "type": 13,
+     "label": 1
     }
    ]
   },
