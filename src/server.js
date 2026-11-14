@@ -11048,6 +11048,23 @@ app.get("/api/bridge/pocket-timer", requireAuth, (req, res, next) => {
   }
 });
 
+// The tales of the pilot's system as it was last told them (gamePort/pilots.js taleData: OnTaleData's (solarSystemID,
+// {taleID: tale})), or null. The client is told once, after it comes into the system; a browser drawing the pilot
+// afresh asks this instead. Through the web gateway nothing is kept: known false.
+app.get("/api/bridge/tale-data", requireAuth, (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  try {
+    if (!gamePortPilots || !isGamePortHandle(held.bridgeSessionID) || typeof gamePortPilots.taleData !== "function") {
+      res.json({ ok: true, known: false, args: null });
+      return;
+    }
+    res.json({ ok: true, known: true, args: gamePortPilots.taleData({ userid: held.accountID }, held.bridgeSessionID) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Why a pilot of this account went offline, where the game server closed its connection with a reason of its own
 // (another login of the account: gamePort/pilots.js closedByServer). The page asks as it lets the pilot go, and says
 // so, as the retail client puts up its connection-lost notice. Null where the server closed nothing.

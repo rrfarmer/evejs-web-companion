@@ -391,6 +391,7 @@ import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites
 import { acceptContract as acceptContractCall } from "../bridge/contractWrites.ts";
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
+import { INCURSION_TEMPLATE_CLASSES, decodeInfluence, incursionsOfTaleData, type IncursionData } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
@@ -3363,6 +3364,13 @@ export interface AppFlow {
   cachedCorporationWealth(accountKey: number): Promise<number>;
   /** Native OnCorpAccountChangedClient, after the division's old-value read/cache update. */
   readonly corporationWealthChanged: ReadableSignal<CorporationWealthChange | null>;
+  /**
+   * incursionSvc.incursionData: the incursion of the pilot's system as the server's OnTaleData set it (bridge/
+   * incursion.ts), OnInfluenceUpdate moved its influence and OnTaleRemove cleared it; null with none.
+   */
+  readonly incursion: ReadableSignal<IncursionData | null>;
+  /** Ask the BFF once for this system what OnTaleData last said (a browser drawing the pilot afresh). Never throws. */
+  requestTaleData(solarSystemID: number | null): void;
   corporationCashMenu(ownerIDs: readonly number[]): Promise<{ readonly transfer: () => Promise<void> } | null>;
   readonly moneyTransfer: ReadableSignal<MoneyTransfer | null>;
   readonly ownerDoubleClickPreference: ReadableSignal<0 | 1>;
@@ -6102,6 +6110,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // (bridge/walletReads.ts), with what those services keep kept for this pilot.
   const walletReads = createWalletReads(bridgeAsk);
   const corporationWealthSignal = createSignal<CorporationWealthChange | null>(null);
+  const incursionSignal = createSignal<IncursionData | null>(null);
   const corporationWealthReads = createCorporationWealth({
     capture: () => {
       const scope = captureMemberOperation();
@@ -6921,6 +6930,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === REMOTE_MESSAGE) {
       const said = remoteDialogOf(args);
       if (said !== null) sayDialog(said.dialog, said.values, said.fallback, said.fallbackType);
+      return;
+    }
+    // incursionSvc.OnTaleData / OnTaleRemove, infoPanelIncursions.OnInfluenceUpdate.
+    if (method === "OnTaleData") {
+      const tales = incursionsOfTaleData(args);
+      if (tales.length) incursionSignal.set(tales[tales.length - 1]!);
+      return;
+    }
+    if (method === "OnTaleRemove") {
+      if (INCURSION_TEMPLATE_CLASSES.includes(Number(args[1])) && incursionSignal.get() !== null) incursionSignal.set(null);
+      return;
+    }
+    if (method === "OnInfluenceUpdate") {
+      const held = incursionSignal.get();
+      if (held !== null && Number(args[0]) === held.taleID) {
+        const next = decodeInfluence(args[1] as JsonValue);
+        incursionSignal.set({ ...held, influence: { ...held.influence, influence: next.influence, lastUpdatedMs: next.lastUpdatedMs } });
+      }
       return;
     }
     // clone_grade_svc.OnSubscriptionChangedServer(new_state): what the notice says is the grade from then on,
@@ -10589,6 +10616,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * The pocket's timer and room asked of the BFF (api.readPocketTimer), once for an Abyssal system, where the timer
    * or the objective chain is not known.
    */
+  let taleDataAskedFor: number | null = null;
+  function askTaleData(solarSystemID: number | null): void {
+    if (solarSystemID === null || taleDataAskedFor === solarSystemID) return;
+    taleDataAskedFor = solarSystemID;
+    void api.readTaleData(callOptions).then(({ args }) => {
+      if (args === null || Number(args[0]) !== solarSystemID || incursionSignal.get() !== null) return;
+      const tales = incursionsOfTaleData(args);
+      if (tales.length) incursionSignal.set(tales[tales.length - 1]!);
+    }).catch(() => { taleDataAskedFor = null; });
+  }
   let pocketTimerAskedFor: number | null = null;
   function askPocketTimer(solarSystemID: number | null): void {
     if (!isAbyssalSystem(solarSystemID) || (abyssalTimerSignal.get() !== null && abyssChain !== null) || pocketTimerAskedFor === solarSystemID) return;
@@ -22994,6 +23031,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // The pocket's timer where the page finds its pilot already in a pocket (a browser drawing it afresh): the
     // client keeps it from the pocket's entry, so the BFF is asked what the pilot was last told, once for the system.
     askPocketTimer(status.solarSystemID);
+    // The incursion where the page finds its pilot already in a system (incursionSvc is told by OnTaleData once, after
+    // the system is come to): in another system what was held is not this one's; the BFF is asked once for the system.
+    if (flightSystemChanged) incursionSignal.set(null);
+    askTaleData(status.solarSystemID);
     // Out of Abyssal space the abyss service's objective chain is no more (abyssal_service.OnSessionChanged).
     if (flightSystemChanged && !isAbyssalSystem(status.solarSystemID)) stopAbyssObjectives();
     // The dungeon the pilot is in, asked once where the page finds it in space (dungeonTracking.OnCharacterSessionChanged).
@@ -33480,6 +33521,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationWealth: accountKey => corporationWealthReads.fresh(accountKey),
     cachedCorporationWealth: accountKey => corporationWealthReads.cached(accountKey),
     corporationWealthChanged: readonlySignal(corporationWealthSignal),
+    incursion: readonlySignal(incursionSignal),
+    requestTaleData: askTaleData,
     corporationCashMenu,
     get ownerDoubleClickPreference() { return ownerDoubleClickSetting(store.session.get().accountID, settingsStorage).value; },
     infoWindows,

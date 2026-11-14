@@ -1,7 +1,8 @@
 <script lang="ts">
   // The client's info panels (infoPanels/infoPanelContainer.InfoPanelContainer, PANELWIDTH 312, at the top of the
   // left side beside the Neocom), the panels in PANELTYPES' order each where IsAvailable. Here the location's (InfoPanelLocation.svelte, always available), the route's (InfoPanelRoute.svelte, always
-  // available), the factional warfare's (InfoPanelFactionalWarfare.svelte, in a warzone system) and the job board's
+  // available), the incursion's (InfoPanelIncursions.svelte, in an incursion), the factional warfare's (InfoPanelFactionalWarfare.svelte, in a
+  // warzone system) and the job board's
   // (infoPanelJobBoard.InfoPanelJobBoard, PANEL_JOB_BOARD): available while the board tracks a job
   // (service.get_tracked_jobs - the accepted agent missions and the tracked freelance jobs). InfoPanelBase's top row
   // (28 high): in the left gutter (LEFTPAD 56) the ExpandButton (ToggleMode: MODE_NORMAL <-> MODE_COMPACT, the arrow
@@ -18,6 +19,7 @@
   import InfoPanelLocation from "./InfoPanelLocation.svelte";
   import InfoPanelRoute from "./InfoPanelRoute.svelte";
   import InfoPanelFactionalWarfare from "./InfoPanelFactionalWarfare.svelte";
+  import InfoPanelIncursions from "./InfoPanelIncursions.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
   let { store, flow, showAgents, openRouteWindow }: { store: ClientStore; flow: AppFlow; showAgents?: () => void; openRouteWindow?: () => void } = $props();
   // svelte-ignore state_referenced_locally
@@ -25,12 +27,12 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const me = $derived($station.online?.characterID ?? null);
-  // each panel's mode by its panelTypeID (PANEL_LOCATION_INFO 1, PANEL_ROUTE 2, PANEL_FACTIONAL_WARFARE 5, PANEL_JOB_BOARD 24)
+  // each panel's mode by its panelTypeID (PANEL_LOCATION_INFO 1, PANEL_ROUTE 2, PANEL_INCURSIONS 4, PANEL_FACTIONAL_WARFARE 5, PANEL_JOB_BOARD 24)
   const modeKey = (panel: number) => (me ? `evejs.play.${me}.infoPanelMode.${panel}` : null);
   let modes = $state<Record<number, boolean>>({}), count = $state(0);
   $effect(() => {
     const read: Record<number, boolean> = {};
-    for (const panel of [1, 2, 5, 24]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
+    for (const panel of [1, 2, 4, 5, 24]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
     modes = read;
   });
   function toggleMode(panel: number): void {
@@ -46,6 +48,7 @@
 <div class="ip-container">
   <InfoPanelLocation {store} {flow} compact={modes[1] === true} onToggle={() => toggleMode(1)} />
   <InfoPanelRoute {store} {flow} compact={modes[2] === true} onToggle={() => toggleMode(2)} {openRouteWindow} />
+  <InfoPanelIncursions {store} {flow} compact={modes[4] === true} onToggle={() => toggleMode(4)} />
   <InfoPanelFactionalWarfare {store} {flow} compact={modes[5] === true} onToggle={() => toggleMode(5)} />
   <!-- the panel is built while hidden, so its reads run and its count says whether it is available -->
   <section class="ip-panel" class:hidden={count === 0}>

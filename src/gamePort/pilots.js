@@ -1366,7 +1366,16 @@ function createGamePortPilots({
   // The pocket's room too (OnAbyssalLocationEntered's client_data, 75 to 93: its location_id is the room), kept until
   // the session leaves Abyssal space, as the client keeps the objective chain it starts with it (OnSessionChanged,
   // 195 to 207), for the Abyssal info panel of a browser drawing the pilot afresh (pocketRoom).
+  // The tales of the pilot's system as last told (incursionSvc.OnTaleData: (solarSystemID, {taleID: tale}), sent once
+  // after each change of solar system), kept until OnTaleRemove names one of them or the session changes system, so a
+  // browser drawing the pilot afresh is answered the incursion it is in (taleData).
   function keepPocketTimer(entry, notification) {
+    if (notification.method === "OnTaleData") entry.taleData = notification.args ?? null;
+    else if (notification.method === "OnTaleRemove" && entry.taleData) {
+      const removed = Number(notification.args?.[0]);
+      const tales = entry.taleData[1] && Array.isArray(entry.taleData[1].entries) ? entry.taleData[1].entries : [];
+      if (tales.some((pair) => Number(pair[0]) === removed)) entry.taleData = null;
+    }
     if (notification.method === "OnAddExpiryDurationForAbyssalContent") entry.pocketTimer = notification.args[0] ?? null;
     else if (notification.method === "OnAbyssalContentFinished") entry.pocketTimer = null;
     else if (notification.method === "OnAbyssalLocationEntered") entry.pocketRoom = notification.args[0] ?? null;
@@ -2237,6 +2246,8 @@ function createGamePortPilots({
       // What the client's own services tell its object cache to forget on this change.
       forgetNamed(entry, namedOnSessionChange(changes, entry.session.attributes));
       // Out of Abyssal space (idCheckers.IsAbyssalSpaceSystem: 32,000,000 to 32,999,999) the pocket's timer is no more.
+      // In another system the tales told of the old one are not this one's; its own come after the change.
+      if ("solarsystemid2" in changes) entry.taleData = null;
       if ("solarsystemid2" in changes && !(Number(changes.solarsystemid2[1]) >= 32000000 && Number(changes.solarsystemid2[1]) <= 32999999)) {
         entry.pocketTimer = null;
         entry.pocketRoom = null;
@@ -6750,6 +6761,8 @@ function createGamePortPilots({
     pocketTimer: (sessionFields = {}, bridgeSessionID = undefined) => held(bridgeSessionID, sessionFields).pocketTimer ?? null,
     /** The Abyssal pocket's room as the pilot was last told it (keepPocketTimer): OnAbyssalLocationEntered's client_data, or null. */
     pocketRoom: (sessionFields = {}, bridgeSessionID = undefined) => held(bridgeSessionID, sessionFields).pocketRoom ?? null,
+    /** The tales of the pilot's system as last told (keepPocketTimer): OnTaleData's arguments, or null. */
+    taleData: (sessionFields = {}, bridgeSessionID = undefined) => held(bridgeSessionID, sessionFields).taleData ?? null,
     /** What the game server closed a character's last connection with ({ reasonCode, reason, at }), or null. */
     closedByServer: (characterID) => closedByServerByCharacter.get(positive(characterID)) ?? null,
     answerClientQuestion,

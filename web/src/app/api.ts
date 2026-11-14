@@ -319,6 +319,12 @@ export async function readPocketTimer(options: ApiOptions = {}): Promise<{ reado
   return { known: data.known === true, endTime: (data.endTime ?? null) as JsonValue | null, room: (data.room ?? null) as JsonValue | null };
 }
 
+/** GET /api/bridge/tale-data: the tales of the pilot's system as it was last told them (OnTaleData's arguments), or null. */
+export async function readTaleData(options: ApiOptions = {}): Promise<{ readonly known: boolean; readonly args: readonly JsonValue[] | null }> {
+  const data = await getJson("/api/bridge/tale-data", options);
+  return { known: data.known === true, args: Array.isArray(data.args) ? data.args as JsonValue[] : null };
+}
+
 /** GET /api/objectives/chain: an objective chain, its objectives' and tasks' types and its type lists, as the client reads them. */
 export async function loadObjectiveChain(chainID: number, options: ApiOptions = {}): Promise<Readonly<Record<string, JsonValue>>> {
   return await getJson(`/api/objectives/chain?chainID=${chainID}`, options);
