@@ -131,6 +131,7 @@
   const overall = $derived([...(goals ?? []).filter((g) => !CAREERS.some((c) => c.proto === g.career))].sort((a, b) => a.target - b.target));
   const overallTarget = $derived(overall.at(-1)?.target ?? 0);
   const overallProgress = $derived(overall.at(-1)?.progress ?? 0);
+  const CAREER_DESCRIPTIONS: Record<number, string> = { 6: "EnforcerDescriptionShort", 4: "ExplorerDescriptionShort", 5: "IndustrialistDescriptionShort", 7: "SoldierDescriptionShort" };
   const CAREER_VIDEOS: Record<number, string> = { 6: "Enforcer_Intro", 7: "SOF_Intro", 4: "Exploration_Intro", 5: "Industry_Intro" };
   let video = $state<string | null>(null);
   // careerConst.ICON_BY_ACTIVITY_ID, in CAREER_PATH_GROUPS' order for each career.
@@ -161,7 +162,7 @@
       ...Object.values(careerTexts).flatMap((t) => [t.nameID, t.descriptionID]).filter((x): x is number => !!x).map((x) => `#${x}`),
       C + "AuraAssistancePanelTitle", C + "AuraAssistanceFreelanceJobsTitle", C + "AuraAssistanceFreelanceJobsText", C + "OpenFreelanceJobs", "UI/Corporations/FreelanceProjects/FreelanceJobsAOFeatureDescription",
       C + "AuraAssistanceCareerAgentMissionsTitle", C + "AuraAssistanceCareerAgentsText", C + "AuraAssistanceSkillPlansTitle", C + "AuraAssistanceSkillPlansText", C + "AuraAssistanceOpenSkillPlanButton",
-      C + "GraduationReward", C + "PlayVideo", C + "OverallProgress", C + "OverallCareerPoints",
+      C + "GraduationReward", C + "PlayVideo", C + "CareerPointsNumFull", ...Object.values(CAREER_DESCRIPTIONS).map((d) => C + d), C + "OverallProgress", C + "OverallCareerPoints",
       ...(goals ?? []).filter((g) => view === "GOALS_VIEW" ? g.annotations.group === activity : g.goalID === goalID).flatMap((g) => [g.nameID, g.descriptionID]).filter((x): x is number => !!x).map((x) => `#${x}`)]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
@@ -248,17 +249,24 @@
       {#if goals === undefined}<p class="cpw-dim">…</p>
       {:else if goals === null}<p class="cpw-dim">{word("UI/Opportunities/FailedToLoad")}</p>
       {:else if view === "CAREERS_VIEW"}
-        <!-- CareerView: the four careers, their 128 px icons, names and goals done (CareerPointsNumFull). -->
+        <!-- CareerView: the four careers. CareerNode: IconWithGauge (its gauge and 128 px icon) centred on the ring, and
+             CardTextCont TEXT_CONT_TOP 4 below it - the name (EveCaptionLarge, bold) with an InfoGlyphIcon whose hint is
+             CAREER_DESCRIPTIONS', CareerPointsLabel (career_point_icon and CareerPointsNumFull - the career path goal's
+             progress and target -, LEAFY_GREEN once reached) and the PlayVideo button (CAREER_VIDEOS). -->
         <CareerCircle nodes={CAREERS} size={circle} nodeSize={Math.min(180, circle * 0.215)} offset={-Math.PI / 4} completed={CAREERS.every((c) => careerGoals(c).every((g) => g.completed))}
           inner={{ mask: careerMask, scale: 0.8, opacity: careerHover ? 0.4 : 0 }} {enter}>
           {#snippet node(n: unknown)}
             {@const c = n as Career}
-            {@const list = careerGoals(c)}
-            <button type="button" class="cpw-career" data-own-sound class:on={careerID === c.id} title={careerName(c)} onclick={() => { sound("career_portal_select_profession_play"); go("ACTIVITIES_VIEW", c.id, null, null); }}
-              onmouseenter={careerEnter} onmouseleave={() => (careerHover = false)}>
-              {#if careerIcon(c.id, 128)}<img alt="" src={careerIcon(c.id, 128)} />{/if}
-              <b>{careerName(c)}</b><small>{done(list)} / {list.length}</small>
-            </button>
+            {@const pg = careerPathGoal(c)}
+            <div class="cpw-careernode">
+              <button type="button" class="cpw-career" data-own-sound class:on={careerID === c.id} title={careerName(c)} onclick={() => { sound("career_portal_select_profession_play"); go("ACTIVITIES_VIEW", c.id, null, null); }}
+                onmouseenter={careerEnter} onmouseleave={() => (careerHover = false)}>{@render careerGauge(c)}</button>
+              <div class="cpw-career-text">
+                <b>{careerName(c)}<img class="cpw-info" alt="" title={word(C + CAREER_DESCRIPTIONS[c.id])} src={clientTexture("res:/ui/Texture/classes/Menu/Icons/info.png")} /></b>
+                <span class="cpw-points" class:full={!!pg && pg.progress >= pg.target}><img alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/career_point_icon.png")} />{word(C + "CareerPointsNumFull", { currentPoints: pg?.progress ?? 0, totalPoints: pg?.target ?? 0 })}</span>
+                <button type="button" class="cpw-ghost" onclick={() => { video = CAREER_VIDEOS[c.id] ?? null; }}>▶ {word(C + "PlayVideo")}</button>
+              </div>
+            </div>
           {/snippet}
           {#snippet centre()}<b class="cpw-centre-title">{word(C + "CareerPortalWnd")}</b>{/snippet}
         </CareerCircle>
@@ -411,6 +419,19 @@
   {/if}
 </div>
 
+{#snippet careerGauge(c: Career)}
+  <!-- IconWithGauge: GaugeCircular (lineWidth 4, from the top clockwise, glow 0.5, bgPortion 0.997, its background
+       CRYO_BLUE at brightness 0.2; CRYO_BLUE, LEAFY_GREEN once full - UpdateGaugeColor) at the career path goal's
+       progress / target, the career's icon at nodeSize / 1.2 inside it. -->
+  {@const pg = careerPathGoal(c)}
+  {@const frac = pg && pg.target > 0 ? Math.min(1, pg.progress / pg.target) : 0}
+  <svg class="cpw-gauge" class:full={frac >= 1} viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="cpw-gauge-bg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray="0.997 1" transform="rotate(-90 50 50)" />
+    {#if frac > 0}<circle class="cpw-gauge-fg" cx="50" cy="50" r="49" pathLength="1" stroke-dasharray={`${frac} 1`} transform="rotate(-90 50 50)" />{/if}
+  </svg>
+  {#if careerIcon(c.id, 128)}<img class="cpw-career-icon" alt="" src={careerIcon(c.id, 128)} />{/if}
+{/snippet}
+
 {#snippet careerBehind(career: Career, angle: number, careerNodeSize: number, previews: boolean)}
   {@const index = CAREERS.findIndex((c) => c.id === career.id)}
   {@const ringAngle = -Math.PI / 4 + (index / CAREERS.length) * 2 * Math.PI}
@@ -426,14 +447,14 @@
         {@const c = n as Career}
         {#if c.id !== career.id}
           <span class="cpw-career cpw-other" class:shown={careerHover && previews} style:transform={`rotate(${angle}deg)`}>
-            {#if careerIcon(c.id, 128)}<img alt="" src={careerIcon(c.id, 128)} />{/if}</span>
+            {@render careerGauge(c)}</span>
         {/if}
       {/snippet}
       {#snippet centre()}
         <button type="button" class="cpw-career cpw-chosen" data-own-sound class:arriving title={careerName(career)}
           style:--from-x={`${ringRadius * Math.cos(ringAngle)}px`} style:--from-y={`${ringRadius * Math.sin(ringAngle)}px`} style:--node-rotate={`${angle}deg`} style:width={`${careerNodeSize}px`} style:height={`${careerNodeSize}px`}
           style:transform={`rotate(${angle}deg) scale(1.5)`} onmouseenter={careerEnter} onmouseleave={() => (careerHover = false)}
-          onclick={() => (sound("career_portal_select_profession_play"), view === "GOALS_VIEW" ? go("ACTIVITIES_VIEW", careerID, activity, null) : go("CAREERS_VIEW", careerID, null, null))}>{#if careerIcon(career.id, 128)}<img alt="" src={careerIcon(career.id, 128)} />{/if}</button>
+          onclick={() => (sound("career_portal_select_profession_play"), view === "GOALS_VIEW" ? go("ACTIVITIES_VIEW", careerID, activity, null) : go("CAREERS_VIEW", careerID, null, null))}>{@render careerGauge(career)}</button>
       {/snippet}
     </CareerCircle>
   </div>
@@ -451,9 +472,23 @@
   .cpw-body > .cpw-goal, .cpw-body > .cpw-side { position: absolute; right: 0; top: 0; max-height: 100%; z-index: 1; }
   .cpw-dim { opacity: 0.65; }
   .cpw-career { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; font-size: 12px; }
-  .cpw-career img { width: 70%; height: auto; transition: filter 0.2s; }
+  .cpw-career { position: relative; justify-content: center; }
+  .cpw-career-icon { position: relative; width: 83.3%; height: auto; transition: filter 0.2s; }
   /* IconWithGauge.OnMouseEnter / Exit: the icon (OUTPUT_COLOR_AND_GLOW) to 1.4 and back over HOVER_ANIMATION_DURATION. */
-  .cpw-career:hover img { filter: brightness(1.4); }
+  .cpw-career:hover .cpw-career-icon { filter: brightness(1.4); }
+  .cpw-gauge { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .cpw-gauge circle { fill: none; stroke-width: 4px; vector-effect: non-scaling-stroke; }
+  .cpw-gauge-bg { stroke: rgb(24 45 51); }
+  .cpw-gauge-fg { stroke: #58a7bf; filter: drop-shadow(0 0 2px rgb(88 167 191 / 0.6)); }
+  .cpw-gauge.full .cpw-gauge-fg { stroke: #8dc169; filter: drop-shadow(0 0 3px #8dc169); }
+  .cpw-careernode { position: relative; width: 100%; height: 100%; }
+  .cpw-careernode > .cpw-career { width: 100%; height: 100%; }
+  .cpw-career-text { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; white-space: nowrap; font-size: 12px; }
+  .cpw-career-text b { font-size: 18px; display: flex; align-items: center; gap: 6px; }
+  .cpw-info { width: 16px; height: 16px; opacity: 0.7; cursor: help; }
+  .cpw-points { display: flex; align-items: center; gap: 4px; }
+  .cpw-points img { width: 16px; height: 16px; }
+  .cpw-points.full { color: #8dc169; }
   .cpw-node { position: relative; width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; align-items: center; border-left: none;
     background: radial-gradient(circle, rgb(0 0 0 / 0.85) 62%, transparent 64%), conic-gradient(#8dc169 var(--done, 0deg), rgb(255 255 255 / 0.35) 0); }
   .cpw-node img { width: 32px; height: 32px; }
