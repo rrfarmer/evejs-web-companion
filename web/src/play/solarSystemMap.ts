@@ -46,6 +46,8 @@ export interface SolarSystemMapHooks {
   ego(): { x: number; y: number; z: number } | null;
   /** A marker's label: its name and distance (GetLabelText). */
   label?(itemID: number): string;
+  /** LoadSolarSystemMap's cfg.evelocations.Prime: the celestials' names asked for. */
+  primeNames?(itemIDs: readonly number[]): void;
   word?(label: string): string | null;
 }
 
@@ -202,6 +204,7 @@ export class SolarSystemMapWindow {
       this.markersLayer.appendChild(el);
       this.markers.push({ itemID: c.itemID, at: mapPoint(c.position), el });
     }
+    this.hooks.primeNames?.(this.markers.map((m) => m.itemID));
     this.radius = radius;
     // FrameSolarSystem: GetTranslationFromParentWithRadius - the distance at which the radius fills the view - times 1.3
     const fit = radius / Math.sin(FOV_RADIANS / 2);

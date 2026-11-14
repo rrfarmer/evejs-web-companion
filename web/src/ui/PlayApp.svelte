@@ -38,6 +38,7 @@
   import { notify } from "./notices.ts";
   import { orderableDroneIDs } from "./droneFlight.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
+  import { nameKey } from "../store/names.ts";
   import { sendMusicEvent, securitySwitch, combatSwitch } from "../play/music.ts";
   import { gfx, onGfx } from "../play/gfxSettings.ts";
   import ErrorBoundary from "./ErrorBoundary.svelte";
@@ -632,6 +633,11 @@
       },
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
+      primeLocations: (itemIDs) => s.flow.requestNames(itemIDs.map((id) => ({ kind: "evelocation" as const, id }))),
+      locationName: (itemID) => {
+        const name = s.store.names.get().resolved[nameKey("evelocation", itemID)];
+        return typeof name === "string" && name !== "" ? name : null;
+      },
       shipAttribute: (attributeID) => {
         const value = s.store.fitting.get().shipAttributes?.[attributeID];
         return typeof value === "number" && Number.isFinite(value) ? value : null;

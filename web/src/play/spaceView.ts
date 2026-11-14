@@ -111,6 +111,10 @@ export interface SpaceActions {
   coneScan?(angle: number, range: number, x: number, y: number, z: number): Promise<unknown>;
   /** The install's words for a label, filled with its arguments; null where they are not had yet. */
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
+  /** cfg.evelocations.Prime: the locations' names asked for (config.GetMultiLocationsEx). */
+  primeLocations?(itemIDs: readonly number[]): void;
+  /** cfg.evelocations.Get(itemID).name where it is known; null until it is. */
+  locationName?(itemID: number): string | null;
   /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
   shipAttribute?(attributeID: number): number | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
@@ -517,10 +521,13 @@ export class SpaceView {
       celestials: () => (this.snapshot?.entities ?? []).filter((e) => e.groupID !== null && (MARKER_GROUPS.has(e.groupID))),
       ego: () => this.snapshot?.ship?.position ?? null,
       word: (label) => this.actions.word?.(label) ?? null,
+      // GetLabelText: GetDisplayText - the location's own name (cfg.evelocations), the type's until it is known - and
+      // FmtDist of its distance
       label: (itemID) => {
         const e = this.snapshot?.entities.find((each) => each.itemID === itemID);
-        return e ? `${this.nameOf(e)} ${distanceWords(this.distanceTo(e))}` : "";
+        return e ? `${this.actions.locationName?.(itemID) ?? this.nameOf(e)} ${distanceWords(this.distanceTo(e))}` : "";
       },
+      primeNames: (itemIDs) => this.actions.primeLocations?.(itemIDs),
     }, this.layer);
     this.layer.appendChild(this.systemMap.window.root);
     this.raiseOnClick(this.systemMap.window.root);
