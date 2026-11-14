@@ -27,7 +27,8 @@
   // The daily goals' feature (features/daily_goals: DailyGoalsProvider - GetAllCurrentRequest, DailyGoalJob): in Browse
   // the daily ones (CATEGORY_DAILY) not expired and not completed unless a reward is claimable, in Active the started
   // and not completed ones, in Unclaimed Rewards the claimable ones (Claim All redeems them); DailyGoalCard, its page
-  // DailyGoalPage with the board's Back.
+  // DailyGoalPage with the board's Back. Above Browse's cards the reward track (DailyRewardTrack); Unclaimed Rewards
+  // holds every daily-goals job with a claimable reward (get_jobs_with_unclaimed_rewards), the bonus and milestones too.
   // Asked from elsewhere (jobBoardRequests: open_freelance_project from Show Info's Freelance Projects tab, its OpenAIR
   // the browse page) the window shows that job's page, or the browse page.
   import { onMount } from "svelte";
@@ -39,6 +40,7 @@
   import type { CorporationGoal, CorporationGoals, DailyGoal } from "../app/flow.ts";
   import DailyGoalCard from "./DailyGoalCard.svelte";
   import DailyGoalPage from "./DailyGoalPage.svelte";
+  import DailyRewardTrack from "./DailyRewardTrack.svelte";
   import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -66,11 +68,16 @@
   const dailyExpired = (d: DailyGoal) => d.activeUntilMs !== null && d.activeUntilMs <= Date.now();
   const dailyLists = $derived.by(() => {
     const own = daily.filter((d) => d.category === "CATEGORY_DAILY");
-    return { browse: own.filter((d) => !dailyExpired(d) && (!dailyDone(d) || d.claimable)), active: own.filter((d) => d.current > 0 && !dailyDone(d)), unclaimed: own.filter((d) => d.claimable) };
+    return { browse: own.filter((d) => !dailyExpired(d) && (!dailyDone(d) || d.claimable)), active: own.filter((d) => d.current > 0 && !dailyDone(d)), unclaimed: daily.filter((d) => d.claimable) };
   });
   const shownDaily = $derived(tab === "browse" ? dailyLists.browse : tab === "active" ? dailyLists.active : dailyLists.unclaimed);
   const dailyOpen = $derived(openDaily === null ? null : daily.find((d) => d.goalID === openDaily) ?? null);
   async function claimDaily(goalID: string): Promise<void> { await flow.redeemDailyGoal(goalID); daily = (await flow.dailyGoals()) ?? daily; }
+  // The reward track's Claim All (DailyGoalsFeaturePage._claim_all): every daily goal's claimable reward.
+  async function claimAllDaily(): Promise<void> {
+    busy = true;
+    try { for (const d of dailyLists.unclaimed) await flow.redeemDailyGoal(d.goalID); daily = (await flow.dailyGoals()) ?? daily; } finally { busy = false; }
+  }
   async function load(): Promise<void> {
     void flow.loadJournal().catch(() => {});
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
@@ -159,6 +166,7 @@
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
+      {#if tab === "browse"}<DailyRewardTrack {store} {flow} goals={daily} {busy} onClaimAll={() => void claimAllDaily()} />{/if}
       <div class="jb-cards" title={tab === "browse" ? word(O + "VisibilityFreelanceProjects") : ""}>
         {#each shownMissions as m (m.agentID)}
           <MissionJobCard {store} {flow} mission={m} onOpen={() => void openMissionPage(m.agentID!)} />

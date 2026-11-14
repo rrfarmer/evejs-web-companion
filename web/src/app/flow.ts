@@ -622,7 +622,7 @@ export interface DailyGoal {
   readonly method: string | null;
   /** The career path (careerConst: 4 explorer, 5 industrialist, 6 enforcer, 7 soldier of fortune), null where none. */
   readonly careerPath: number | null;
-  readonly rewards: readonly ({ readonly kind: "isk"; readonly amount: number } | { readonly kind: "lp"; readonly amount: number; readonly corporationID: number | null })[];
+  readonly rewards: readonly ({ readonly kind: "isk" | "sp"; readonly amount: number } | { readonly kind: "lp"; readonly amount: number; readonly corporationID: number | null })[];
   readonly target: number; readonly current: number;
   readonly activeUntilMs: number | null;
   readonly omega: boolean; readonly paidCompletion: boolean; readonly claimable: boolean;
@@ -19639,7 +19639,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         const unit = record(record(pay).unit);
         if (unit.isk) rewards.push({ kind: "isk", amount: int(record(record(unit.isk).amount).units) });
         else if (unit.lp) { const lp = record(record(unit.lp).amount); rewards.push({ kind: "lp", amount: int(lp.amount), corporationID: int(record(lp.associated_corporation).sequential) || null }); }
+        else if (unit.sp) rewards.push({ kind: "sp", amount: int(record(unit.sp).amount) });
       }
+      // REWARD_SORT_ORDER: ISK, LP, SP.
+      rewards.sort((x, y) => ["isk", "lp", "sp"].indexOf(x.kind) - ["isk", "lp", "sp"].indexOf(y.kind));
       const until = record(a.active_until);
       return {
         goalID: id, nameID: int(record(a.name_message).sequential) || null, descriptionID: int(record(a.description_message).sequential) || null,

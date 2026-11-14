@@ -45,7 +45,7 @@
         <div><b>{g.current.toLocaleString("en-US")}</b><small>/ {g.target.toLocaleString("en-US")}</small><small>{Math.floor(ratio * 100)}%</small></div></div>
     </section>
     <section><h3>{word(D + "DetailsPageRewardsTitle")}</h3>
-      {#each g.rewards as r, i (i)}<div>{r.kind === "isk" ? `${r.amount.toLocaleString("en-US")} ${word("UI/Common/ISK") || "ISK"}` : `${r.amount.toLocaleString("en-US")} LP${r.corporationID ? ` · ${resolvedName($names.resolved, "owner", r.corporationID, "")}` : ""}`}</div>{/each}
+      {#each g.rewards as r, i (i)}<div>{r.kind === "isk" ? `${r.amount.toLocaleString("en-US")} ${word("UI/Common/ISK") || "ISK"}` : r.kind === "sp" ? `${r.amount.toLocaleString("en-US")} SP` : `${r.amount.toLocaleString("en-US")} LP${r.kind === "lp" && r.corporationID ? ` · ${resolvedName($names.resolved, "owner", r.corporationID, "")}` : ""}`}</div>{/each}
       {#if g.claimable}<button class="dp-claim" disabled={claiming} onclick={async () => { claiming = true; try { await onClaim(); } finally { claiming = false; } }}>{claiming ? "…" : word("UI/Generic/Claim") || "Claim"}</button>{/if}
     </section>
   </div>

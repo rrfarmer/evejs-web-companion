@@ -25,7 +25,7 @@
     const m = Math.max(0, Math.floor((g.activeUntilMs - Date.now()) / 60_000));
     return `${Math.floor(m / 60)}h ${m % 60}m`;
   });
-  const reward = (r: DailyGoal["rewards"][number]) => (r.kind === "isk" ? `${r.amount.toLocaleString("en-US")} ${word("UI/Common/ISK") || "ISK"}` : `${r.amount.toLocaleString("en-US")} LP`);
+  const reward = (r: DailyGoal["rewards"][number]) => `${r.amount.toLocaleString("en-US")} ${r.kind === "isk" ? word("UI/Common/ISK") || "ISK" : r.kind === "sp" ? "SP" : "LP"}`;
   let claiming = $state(false);
 </script>
 
