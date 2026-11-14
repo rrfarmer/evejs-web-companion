@@ -35,6 +35,7 @@ export type CoreTabID =
   | "jobBoard"
   | "paintTool"
   | "locationSearch"
+  | "careerPortal"
   | "skills"
   | "planets"
   | "industryManager"
@@ -202,6 +203,8 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "paintTool", label: "Structure SKINR", where: "both", launchable: false },
   // searchUtil.GetResultsInNewWindow's window, from the route info panel's search box.
   { id: "locationSearch", label: "Search Results", where: "both", launchable: false },
+  // careerPortalWnd.CareerPortalDockablePanel (UI/CareerPortal/CareerPortalWnd): the AIR Career Program.
+  { id: "careerPortal", label: "AIR Career Program", where: "both" },
   { id: "skills", label: "Skills", where: "both" },
   { id: "planets", label: "Planets", where: "both" },
   // R109 — a GLOBAL window: a blueprint expanded into its whole build tree,

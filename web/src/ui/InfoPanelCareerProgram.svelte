@@ -1,18 +1,19 @@
 <script lang="ts">
   // infoPanels/infoPanelCareerProgram.InfoPanelCareerProgram (PANEL_CAREER_PROGRAM 23, before the job board's in
   // PANELTYPES; careerProgram.png). IsAvailable: the controller tracks a goal (flow.trackedCareerGoals).
-  // - The header: UI/CareerPortal/CareerPortalWnd; its button opens the Career Portal (not here yet).
+  // - The header: UI/CareerPortal/CareerPortalWnd; its button opens the Career Portal (OpenCareerPortal).
   // - A TrackedGoal for each tracked goal the goals' data has: SectionHeader (0.35 black: the goal's name, one line,
   //   its hint the name; the Aura icon at the right, its hint the goal's aura text); under it on 0.25 black
   //   UI/CareerPortal/GoalProgressCompleted {progressValue, targetValue}, a click folding the rest away; the description;
   //   where a reward is unclaimed the success line at the left and UI/CareerPortal/ClaimRewards (which opens the portal).
-  // OnRewardClaimed: a tracked goal with nothing left to claim is untracked. Not here: the Career Portal window (its
-  // goals, tracking and claiming), the Aura panel's tooltip, the notices' live progress.
+  // OnRewardClaimed: a tracked goal with nothing left to claim is untracked. Not here: the Aura panel's tooltip, the
+  // notices' live progress.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, CareerGoal } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "../play/window.ts";
+  import { openCareerPortal } from "./careerPortalRequests.ts";
   let { store, flow, compact, onToggle }: { store: ClientStore; flow: AppFlow; compact: boolean; onToggle: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -41,7 +42,7 @@
       <div class="ip-gutter">
         <button type="button" class="ip-expand" class:expanded={!compact} aria-label={compact ? "Expand" : "Collapse"} onclick={onToggle}>
           <img alt="" src={clientTexture("res:/UI/Texture/classes/Neocom/arrowDown.png")} /></button>
-        <span class="ip-icon"><img alt="" src={clientTexture("res:/ui/Texture/Classes/InfoPanels/careerProgram.png")} /></span>
+        <button type="button" class="ip-icon" title={word(C + "CareerPortalWnd")} onclick={openCareerPortal}><img alt="" src={clientTexture("res:/ui/Texture/Classes/InfoPanels/careerProgram.png")} /></button>
       </div>
       <span class="cp-title">{word(C + "CareerPortalWnd")}</span>
     </div>
@@ -58,7 +59,7 @@
                 {word(C + "GoalProgressCompleted", { progressValue: g.progress, targetValue: g.target })}</button>
               {#if !folded[g.goalID]}
                 <p>{g.descriptionID ? word(`#${g.descriptionID}`) : ""}</p>
-                {#if g.unclaimedRewards}<button type="button" class="cp-claim">{word(C + "ClaimRewards")}</button>{/if}
+                {#if g.unclaimedRewards}<button type="button" class="cp-claim" onclick={openCareerPortal}>{word(C + "ClaimRewards")}</button>{/if}
               {/if}
             </div>
           </div>

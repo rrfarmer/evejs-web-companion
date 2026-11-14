@@ -8,9 +8,11 @@ export interface NeocomButton { id: string; label: string; icon: string }
 
 const icon = (name: string) => clientTexture(`res:/UI/Texture/WindowIcons/${name}.png`);
 
-// RAWDATA_NEOCOMDEFAULT, as far as the play page goes: the career program, Project Discovery and
-// the like are left out until there is something behind them.
+// RAWDATA_NEOCOMDEFAULT, as far as the play page goes: Project Discovery and the like are left out until there is
+// something behind them. The career program first (BTNTYPE_CAREER_PROGRAM, AIR_CAREER_PROGRAM_ID: CareerPortalWnd,
+// airCareerProgram.png).
 export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
+  { id: "careerportal", label: "AIR Career Program", icon: icon("airCareerProgram") },
   { id: "agency", label: "Agency", icon: icon("agentfinder") },
   { id: "jobboard", label: "Opportunities", icon: icon("opportunities") },
   { id: "mail", label: "EVE Mail", icon: icon("evemail") },

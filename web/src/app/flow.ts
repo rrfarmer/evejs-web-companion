@@ -651,6 +651,8 @@ export interface CareerGoal {
   /** The proto's career enum's name (CAREER_EXPLORER ...), and the ui annotations by key. */
   readonly career: string | null; readonly annotations: Readonly<Record<string, string>>;
   readonly careerPoints: number;
+  /** GoalThreat (0 none ... 3 high). */
+  readonly threat: number;
   readonly progress: number; readonly completed: boolean;
   /** Goal.has_unclaimed_rewards: completed, and a reward label not claimed. */
   readonly unclaimedRewards: boolean;
@@ -19878,7 +19880,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const p = progress.get(id), target = Number(a.target ?? 0), value = p?.progress ?? 0;
       const completed = (p?.completed ?? false) || (target > 0 && value >= target);
       return { goalID: id, nameID: Number(rec(a.name).sequential ?? 0) || null, descriptionID: Number(rec(a.description).sequential ?? 0) || null, target,
-        career: typeof a.career === "string" ? a.career : null, annotations, careerPoints: Number(a.career_points ?? 0), progress: value, completed,
+        career: typeof a.career === "string" ? a.career : null, annotations, careerPoints: Number(a.career_points ?? 0), threat: Number(a.threat ?? 0), progress: value, completed,
         unclaimedRewards: completed && (p?.unclaimedLabel ?? false) };
     });
   }

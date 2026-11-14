@@ -21,6 +21,7 @@
   import AgentsMissions from "./AgentsMissions.svelte";
   import AgentFinder from "./AgentFinder.svelte";
   import JobBoardWindow from "./JobBoardWindow.svelte";
+  import CareerPortalWindow from "./CareerPortalWindow.svelte";
   import PaintToolWindow from "./PaintToolWindow.svelte";
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
@@ -161,6 +162,8 @@
   <AgentsMissions {store} {flow} />
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
+{:else if tab === "careerPortal"}
+  <CareerPortalWindow {store} {flow} />
 {:else if tab === "locationSearch"}
   <LocationSearchWindow {store} {flow} />
 {:else if tab === "jobBoard"}

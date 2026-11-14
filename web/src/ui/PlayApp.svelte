@@ -30,6 +30,7 @@
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { jobBoardRequests } from "./jobBoardRequests.ts";
+  import { careerPortalRequests } from "./careerPortalRequests.ts";
   import { locationSearchRequests } from "./locationSearchRequests.ts";
   import { notify } from "./notices.ts";
   import { orderableDroneIDs } from "./droneFlight.ts";
@@ -69,7 +70,7 @@
 
   // The Neocom's buttons (play/neocom.ts) and the app panel each opens.
   const NEOCOM_TABS: Record<string, TabID> = {
-    agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
+    careerportal: "careerPortal", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
     fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "market", contracts: "contracts", industry: "industry", planets: "planets", locations: "locations",
@@ -279,6 +280,7 @@
   $effect(() => jobBoardRequests.subscribe((request) => { if (request) open("jobBoard"); }));
   // The route panel's search (GetResultsInNewWindow): the search results window, which takes the request.
   $effect(() => locationSearchRequests.subscribe((request) => { if (request) open("locationSearch"); }));
+  $effect(() => careerPortalRequests.subscribe((n) => { if (n) open("careerPortal"); }));
 
   // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with
   // its window icons): those the play mode has a window for.
@@ -360,7 +362,7 @@
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
-    notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 },
+    notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, careerPortal: { w: 900, h: 750 },
   };
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
@@ -470,6 +472,7 @@
     ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market",
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry",
+    CmdToggleAirCareerProgram: "careerPortal",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
