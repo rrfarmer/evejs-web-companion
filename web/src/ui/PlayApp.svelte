@@ -198,6 +198,10 @@
       // The rack's data: the fitting (flow.loadFitting) and which modules run (the space read's activeModuleIDs,
       // 1 Hz, the agreed rate: a claim held while the pilot plays, released on leaving).
       void session.flow.loadFitting().catch(() => {});
+      // The session's place (the system, docked or in space), as Workspace reads it once online: character select does
+      // not read it, and nothing else does until the session changes - the probe results are published by its system
+      // (publishProbeResults), and a pilot logged in to space had none until then.
+      void session.flow.loadFlightStatus().catch(() => {});
       session.flow.startSpacePolling();
       spaceClaimed = session;
       // A few older calls read the tab's token (App.svelte does the same for its pilot in front).

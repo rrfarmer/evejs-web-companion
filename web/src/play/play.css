@@ -164,6 +164,16 @@ button { font: inherit; color: inherit; }
 .ssm-result-icon { position: absolute; left: -1px; top: -1px; width: 16px; height: 16px; background: var(--result-colour);
   -webkit-mask: var(--result-icon) center / 16px 16px no-repeat; mask: var(--result-icon) center / 16px 16px no-repeat; }
 .ssm-result .ssm-frame { opacity: 0; }
+.ssm-gauge { position: absolute; left: -23px; top: -23px; width: 60px; height: 60px; pointer-events: none; }
+.ssm-gauge img { position: absolute; inset: 0; width: 60px; height: 60px; opacity: 0.4; }
+.ssm-gauge-ring { position: absolute; left: 8px; top: 8px; width: 44px; height: 44px; border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 20px, #000 20px); mask: radial-gradient(circle, transparent 20px, #000 20px); }
+.ssm-result.perfect .ssm-gauge-ring { animation: ssm-blink-in 0.1s linear 4; }
+@keyframes ssm-blink-in { from { opacity: 0; } to { opacity: 1; } }
+.ssm-perfect-ring { position: absolute; left: -33px; top: -33px; width: 80px; height: 80px; border-radius: 50%; pointer-events: none;
+  border: 0 solid rgb(102, 255, 102); box-sizing: border-box; opacity: 0; transform: scale(0);
+  animation: ssm-perfect 0.8s linear both; }
+@keyframes ssm-perfect { from { opacity: 0.3; transform: scale(0); border-width: 40px; } to { opacity: 0; transform: scale(1.4); border-width: 0; } }
 .ssm-result.selected .ssm-frame { opacity: 0.9; }
 .ssm-result .ssm-label { color: var(--result-colour); }
 .dscan-head { position: relative; display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 2px; }

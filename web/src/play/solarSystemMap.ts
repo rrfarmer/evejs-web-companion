@@ -75,8 +75,12 @@
 //   group's bracket - in GetResultColor. The selected results (UpdateSelectedObjects, scanSvc.IsSiteSelected): rings
 //   and lines CIRCLE_COLOR_SELECTED (1, 0, 0, 0.7), the others CIRCLE_COLOR_DESELECTED; a sphere's selected parts
 //   (_SetSphereSelectedState: its surface area and two more shown only when selected - here brighter). A result
-//   marker clicked selects its site (MarkerScanResult: SelectSite, Shift or Ctrl adding). Not yet the markers'
-//   certainty gauge and menu.
+//   marker clicked selects its site (MarkerScanResult: SelectSite, Shift or Ctrl adding). A selected result's marker
+//   (CheckShowGauge / ConstructGauge): a GaugeCircular of radius 22, line 2, from the top clockwise to the certainty,
+//   from the colour at 0.8 of its brightness to the colour, on the colour at brightness 0.4, in CircularGradient.png
+//   (60 x 60, opacity 0.4); the marker at 1.0, an unselected one at 0.6 (GetMarkerOpacity). A result turned perfect
+//   (AnimPerfectResult): the gauge blinked in four times, two circles of radius 40 (0.4, 1, 0.4) grown to 1.4 and
+//   faded from 0.3 over 0.8 s, 0.25 s and 0.65 s on. Not yet the label's name and distance, the menu.
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -148,11 +152,17 @@ const RESULT_ICONS: Readonly<Record<number, string>> = {
 };
 /** mapMarkerUtil.GetResultColor. */
 function resultColour(certainty: number): string {
-  if (certainty <= 0.25) return "#ff0000";
-  if (certainty <= 0.75) return "#e68000";
-  if (certainty < 1) return "#ffff1a";
-  return "#00cc00";
+  return rgbCss(resultRgb(certainty));
 }
+function resultRgb(certainty: number): [number, number, number] {
+  if (certainty <= 0.25) return [1, 0, 0];
+  if (certainty <= 0.75) return [0.9, 0.5, 0];
+  if (certainty < 1) return [1, 1, 0.1];
+  return [0, 0.8, 0];
+}
+const rgbCss = (c: readonly number[]) => `rgb(${c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(", ")})`;
+/** Color.SetBrightness: the colour's value (HSV) set. */
+const withBrightness = (c: readonly number[], value: number) => { const max = Math.max(...c); return max > 0 ? c.map((v) => (v / max) * value) : c.map(() => value); };
 /** A probe as the map takes it. */
 type MapProbe = ReturnType<NonNullable<SolarSystemMapHooks["probes"]>>[number];
 /** A probe given a new destination, a new range step, or both. */
@@ -286,6 +296,10 @@ export class SolarSystemMapWindow {
   private resultsFor = "";
   private resultMarkers: { at: THREE.Vector3; el: HTMLDivElement }[] = [];
   private resultDashes: THREE.LineDashedMaterial[] = [];
+  /** Each result's certainty as last drawn, to see one turn perfect (OnClientEvent_PerfectScanResultReached). */
+  private lastCertainty = new Map<string, number>();
+  /** The results that turned perfect at the last drawing, for checks. */
+  perfectReached: string[] = [];
   /** The results drawn, for checks: spheres, circles, lines, markers. */
   resultInfo = { spheres: 0, circles: 0, lines: 0, markers: 0, selected: 0 };
   private intersections = new Map<string, { mesh: THREE.Mesh; config: string; changedAt: number }>();
@@ -677,6 +691,8 @@ export class SolarSystemMapWindow {
     this.resultMarkers = [];
     this.resultDashes = [];
     const info = { spheres: 0, circles: 0, lines: 0, markers: 0, selected: 0 };
+    this.perfectReached = results.filter((r) => r.certainty >= 1 && (this.lastCertainty.get(r.id) ?? 1) < 1).map((r) => r.id);
+    this.lastCertainty = new Map(results.map((r) => [r.id, r.certainty]));
     const at = (v: readonly number[]) => mapPoint({ x: v[0]!, y: v[1]!, z: v[2]! });
     const dashed = (length: number, isSelected: boolean) => {
       // LINE_DASH_LENGTH / length: the dashes' share of the line; UpdateSelectedObjects' colour
@@ -693,6 +709,31 @@ export class SolarSystemMapWindow {
       el.innerHTML = `<img class="ssm-frame" alt="" src="${clientTexture("res:/UI/Texture/classes/Bracket/selectionCircle.png")}"><span class="ssm-result-icon"></span><span class="ssm-label">${r.id}</span>`;
       el.style.setProperty("--result-icon", `url(${clientTexture(icon ?? "res:/UI/Texture/classes/MapView/scanResultLocation.png")})`);
       el.style.setProperty("--result-colour", resultColour(r.certainty));
+      // GetMarkerOpacity: a selected site's marker whole, the others at 0.6
+      el.style.opacity = selected.has(r.id) ? "1" : "0.6";
+      if (selected.has(r.id)) {
+        // ConstructGauge / UpdateCircularGauge
+        const rgb = resultRgb(r.certainty);
+        const start = withBrightness(rgb, Math.max(...rgb) * 0.8);
+        const gauge = document.createElement("div");
+        gauge.className = "ssm-gauge";
+        gauge.innerHTML = `<img alt="" src="${clientTexture("res:/UI/Texture/Shared/CircularGradient.png")}"><span class="ssm-gauge-ring"></span>`;
+        const ring = gauge.querySelector<HTMLElement>(".ssm-gauge-ring")!;
+        const turn = Math.max(0, Math.min(1, r.certainty)) * 360;
+        ring.style.background = `conic-gradient(from 0deg, ${rgbCss(start)} 0deg, ${rgbCss(rgb)} ${turn}deg, ${rgbCss(withBrightness(rgb, 0.4))} ${turn}deg 360deg)`;
+        gauge.dataset.value = String(r.certainty);
+        el.appendChild(gauge);
+      }
+      if (this.perfectReached.includes(r.id)) {
+        // AnimPerfectResult: the gauge blinked in, and two circles grown out
+        el.classList.add("perfect");
+        for (const delay of [0.25, 0.65]) {
+          const c = document.createElement("span");
+          c.className = "ssm-perfect-ring";
+          c.style.animationDelay = `${delay}s`;
+          el.appendChild(c);
+        }
+      }
       el.addEventListener("click", (e) => this.hooks.selectSite?.(r.id, e.shiftKey || e.ctrlKey));
       el.addEventListener("mouseenter", () => el.classList.add("hover"));
       el.addEventListener("mouseleave", () => el.classList.remove("hover"));
