@@ -16,7 +16,8 @@
   let { nodes, size, nodeSize, offset, completed, node, centre, inner, enter = null, ring = true, glow = true, ringOpacity = 0.8 }: {
     nodes: readonly unknown[]; size: number; nodeSize: number; offset: number; completed: boolean;
     node: Snippet<[unknown, number]>; centre?: Snippet;
-    inner?: { readonly mask: string; readonly scale: number; readonly opacity: number };
+    /** `scaled`: InnerCircles.ScaleDown (to 2 and faded out over 0.5 s; ScaleUp back), under a hovered career node. */
+    inner?: { readonly mask: string; readonly scale: number; readonly opacity: number; readonly scaled?: boolean };
     enter?: { readonly scale: number; readonly rotate?: number; readonly fade?: number } | null;
     /** The outer ring and the glow fill: faded out where the career view lies behind the others (_GoToAlternateState). */
     ring?: boolean; glow?: boolean;
@@ -44,7 +45,7 @@
   {#if inner}
     {@const d = size - nodeSize - 10}
     <img class="cc-inner" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/innerCircles.png")} style:width={`${d}px`} style:height={`${d}px`}
-      style:opacity={inner.opacity} style:mask-image={`url(${clientTexture(inner.mask)})`} style:-webkit-mask-image={`url(${clientTexture(inner.mask)})`}
+      class:scaled={inner.scaled} style:opacity={inner.scaled ? 0 : inner.opacity} style:mask-image={`url(${clientTexture(inner.mask)})`} style:-webkit-mask-image={`url(${clientTexture(inner.mask)})`}
       style:mask-size={`${100 / inner.scale}%`} style:-webkit-mask-size={`${100 / inner.scale}%`} />
   {/if}
   {#if glow}<img class="cc-glow" alt="" src={clientTexture("res:/UI/Texture/classes/careerPortal/circle_glow.png")} style:width={`${(size - nodeSize) * 1.33}px`} style:height={`${(size - nodeSize) * 1.33}px`} />{/if}
@@ -66,7 +67,8 @@
   @keyframes cc-fade { from { opacity: var(--from-opacity); } }
   .cc-glow { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.25; pointer-events: none; }
   .cc-ring { position: absolute; inset: 0; pointer-events: none; }
-  .cc-inner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 0.4s;
+  .cc-inner.scaled { transform: translate(-50%, -50%) scale(2); transition: opacity 0.5s, transform 0.5s ease-in-out; }
+  .cc-inner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 0.4s, transform 0.5s ease-in-out;
     mask-position: center; -webkit-mask-position: center; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
   .cc-centre { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; max-width: 50%; }
   .cc-node { position: absolute; display: flex; align-items: center; justify-content: center; }
