@@ -643,6 +643,19 @@ export interface DungeonJob {
   readonly active: boolean;
 }
 
+/** A career goal (careergoals.client goal.Goal): its definition (GoalDefinition.from_proto) and the pilot's progress. */
+export interface CareerGoal {
+  /** The goal's uuid as the gateway sends it (base64). */
+  readonly goalID: string;
+  readonly nameID: number | null; readonly descriptionID: number | null; readonly target: number;
+  /** The proto's career enum's name (CAREER_EXPLORER ...), and the ui annotations by key. */
+  readonly career: string | null; readonly annotations: Readonly<Record<string, string>>;
+  readonly careerPoints: number;
+  readonly progress: number; readonly completed: boolean;
+  /** Goal.has_unclaimed_rewards: completed, and a reward label not claimed. */
+  readonly unclaimedRewards: boolean;
+}
+
 /** A system's corruption or suppression (InsurgencyMessenger SystemData): its progress, stage, the Vanguard's share. */
 export interface InsurgencyProgress { readonly numerator: number; readonly denominator: number; readonly stage: number; readonly vanguardNumerator: number; readonly vanguardDenominator: number }
 /** flow.insurgencyLocal: the campaign covering the pilot's system, and for an active one its stages and progress. */
@@ -3656,6 +3669,17 @@ export interface AppFlow {
    * Null where no campaign covers the system or the campaigns could not be read.
    */
   insurgencyLocal(): Promise<InsurgencyLocal | null>;
+  /**
+   * The career goals (careergoals.client goal_data_controller): GetDefinitionsRequest's definitions with the pilot's
+   * progress and rewards' states from GetAllRequest. Null where the definitions could not be read.
+   */
+  careerGoals(): Promise<readonly CareerGoal[] | null>;
+  /**
+   * The career goals the pilot tracks (careerControllerUI: careerPortal_trackedGoals in settings.char.ui), kept for the
+   * character in this browser. track / untrack as the controller's track_goal / untrack_goal.
+   */
+  readonly trackedCareerGoals: ReadableSignal<readonly string[]>;
+  trackCareerGoal(goalID: string, tracked: boolean): void;
   /** A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest, redeem_current_location false); true when done. */
   redeemDailyGoal(goalID: string): Promise<boolean>;
   /** The dropbox's drag source: the pilot's items here - the hangar and the active ship's holds - as DropboxController
@@ -19833,6 +19857,46 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
       data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon !== null && currentDungeon.instanceID === s.instanceID }));
   }
+  async function careerGoals(): Promise<readonly CareerGoal[] | null> {
+    const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
+    const [defs, all] = await Promise.all([
+      api.publicGatewayRequest("eve_public.career.goal.api.GetDefinitionsRequest", {}, callOptions).catch(() => null),
+      api.publicGatewayRequest("eve_public.career.goal.api.GetAllRequest", {}, callOptions).catch(() => null),
+    ]);
+    if (!defs || defs.statusCode !== 200) return null;
+    const progress = new Map<string, { progress: number; completed: boolean; unclaimedLabel: boolean }>();
+    for (const g of all && all.statusCode === 200 && Array.isArray(rec(all.payload).goals) ? rec(all.payload).goals as unknown[] : []) {
+      const row = rec(g);
+      // GoalProgress.from_proto: completed where completed_time is set; a label claimed where claimed_time is.
+      const states = Array.isArray(row.reward_label_states) ? row.reward_label_states as unknown[] : [];
+      progress.set(String(rec(row.goal).uuid ?? ""), { progress: Number(row.progress ?? 0), completed: row.completed_time !== undefined && row.completed_time !== null,
+        unclaimedLabel: states.some((x) => rec(x).claimed_time === undefined || rec(x).claimed_time === null) });
+    }
+    return (Array.isArray(rec(defs.payload).goals) ? rec(defs.payload).goals as unknown[] : []).map((g): CareerGoal => {
+      const row = rec(g), a = rec(row.attributes), id = String(rec(row.goal).uuid ?? "");
+      const annotations = Object.fromEntries((Array.isArray(a.ui_annotations) ? a.ui_annotations as unknown[] : []).map((x) => [String(rec(x).key ?? ""), String(rec(x).value ?? "").split(/\s+/).join("")]));
+      const p = progress.get(id), target = Number(a.target ?? 0), value = p?.progress ?? 0;
+      const completed = (p?.completed ?? false) || (target > 0 && value >= target);
+      return { goalID: id, nameID: Number(rec(a.name).sequential ?? 0) || null, descriptionID: Number(rec(a.description).sequential ?? 0) || null, target,
+        career: typeof a.career === "string" ? a.career : null, annotations, careerPoints: Number(a.career_points ?? 0), progress: value, completed,
+        unclaimedRewards: completed && (p?.unclaimedLabel ?? false) };
+    });
+  }
+  const trackedCareerKey = () => { const me = store.station.get().online?.characterID ?? null; return me ? `evejs.play.${me}.careerPortal_trackedGoals` : null; };
+  const readTrackedCareer = (): readonly string[] => { const k = trackedCareerKey(); try { const v = k ? JSON.parse(settingsStorage?.getItem(k) ?? "[]") : []; return Array.isArray(v) ? v.map(String) : []; } catch { return []; } };
+  const trackedCareerSignal = createSignal<readonly string[]>([]);
+  let trackedCareerFor: string | null = null;
+  const trackedCareerView: ReadableSignal<readonly string[]> = {
+    get: () => { const k = trackedCareerKey(); if (k !== trackedCareerFor) { trackedCareerFor = k; trackedCareerSignal.set(readTrackedCareer()); } return trackedCareerSignal.get(); },
+    subscribe: (listener) => { trackedCareerView.get(); return trackedCareerSignal.subscribe(listener); },
+  };
+  function trackCareerGoal(goalID: string, tracked: boolean): void {
+    const now = trackedCareerView.get();
+    const next = tracked ? (now.includes(goalID) ? now : [...now, goalID]) : now.filter((id) => id !== goalID);
+    const k = trackedCareerKey();
+    try { if (k) settingsStorage?.setItem(k, JSON.stringify(next)); } catch { /* kept for the page's life */ }
+    trackedCareerSignal.set(next);
+  }
   async function insurgencyLocal(): Promise<InsurgencyLocal | null> {
     const here = store.station.get().online?.solarSystemID ?? null;
     if (here === null) return null;
@@ -33459,6 +33523,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     dungeonJobs,
     factionWarfareLocal,
     insurgencyLocal,
+    careerGoals,
+    trackedCareerGoals: trackedCareerView,
+    trackCareerGoal,
     redeemDailyGoal,
     corporationGoalContributors,
     corporationGoalAction,

@@ -14816,6 +14816,10 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.pirate.corruption.api.GetStageThresholdsRequest",
   "eve_public.pirate.suppression.api.GetSystemInfoRequest",
   "eve_public.pirate.suppression.api.GetStageThresholdsRequest",
+  // The career program (careergoals.client PublicCareerGoalRequestMessenger: the goals' definitions, the pilot's
+  // goals and rewards).
+  "eve_public.career.goal.api.GetDefinitionsRequest",
+  "eve_public.career.goal.api.GetAllRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest).

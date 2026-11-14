@@ -11797,6 +11797,302 @@
      "typeName": "eve_public.math.Fraction"
     }
    ]
+  },
+  "eve_public.career.goal.Attributes": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "progress",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "target",
+     "number": 4,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "reward",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.fulfillment.offer.Identifier"
+    },
+    {
+     "name": "ui_annotations",
+     "number": 6,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.ui.Annotation"
+    },
+    {
+     "name": "threat",
+     "number": 7,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "completed",
+     "number": 8,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "career",
+     "number": 9,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.career.goal.Attributes.Career"
+    },
+    {
+     "name": "career_points",
+     "number": 10,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "claimed",
+     "number": 11,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "rewards",
+     "number": 12,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.career.goal.Reward"
+    }
+   ]
+  },
+  "eve_public.career.goal.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.career.goal.ItemRewardType": {
+   "fields": [
+    {
+     "name": "identifier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "quantity",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.career.goal.Reward": {
+   "fields": [
+    {
+     "name": "reward_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.RewardType"
+    },
+    {
+     "name": "reward_label",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.career.goal.RewardLabel"
+    }
+   ]
+  },
+  "eve_public.career.goal.RewardType": {
+   "fields": [
+    {
+     "name": "item",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.ItemRewardType",
+     "oneof": "type"
+    },
+    {
+     "name": "isk",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency",
+     "oneof": "type"
+    },
+    {
+     "name": "skill_points",
+     "number": 3,
+     "type": 13,
+     "label": 1,
+     "oneof": "type"
+    }
+   ]
+  },
+  "eve_public.career.goal.api.ClaimRewardRequest": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.Identifier"
+    },
+    {
+     "name": "label",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.career.goal.RewardLabel"
+    }
+   ]
+  },
+  "eve_public.career.goal.api.ClaimRewardResponse": {
+   "fields": []
+  },
+  "eve_public.career.goal.api.GetAllRequest": {
+   "fields": []
+  },
+  "eve_public.career.goal.api.GetAllResponse": {
+   "fields": [
+    {
+     "name": "goals",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.career.goal.api.GetAllResponse.Goal"
+    }
+   ]
+  },
+  "eve_public.career.goal.api.GetAllResponse.Goal": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.Identifier"
+    },
+    {
+     "name": "progress",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "not_completed",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "completed"
+    },
+    {
+     "name": "completed_time",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "completed"
+    },
+    {
+     "name": "reward_label_states",
+     "number": 5,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.career.goal.api.GetAllResponse.Goal.RewardLabelState"
+    }
+   ]
+  },
+  "eve_public.career.goal.api.GetAllResponse.Goal.RewardLabelState": {
+   "fields": [
+    {
+     "name": "label",
+     "number": 1,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.career.goal.RewardLabel"
+    },
+    {
+     "name": "claimed_time",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "claimed"
+    },
+    {
+     "name": "not_claimed",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "claimed"
+    }
+   ]
+  },
+  "eve_public.career.goal.api.GetDefinitionsRequest": {
+   "fields": []
+  },
+  "eve_public.career.goal.api.GetDefinitionsResponse": {
+   "fields": [
+    {
+     "name": "goals",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.career.goal.api.GetDefinitionsResponse.Goal"
+    }
+   ]
+  },
+  "eve_public.career.goal.api.GetDefinitionsResponse.Goal": {
+   "fields": [
+    {
+     "name": "goal",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.career.goal.Attributes"
+    }
+   ]
+  },
+  "eve_public.fulfillment.offer.Identifier": {
+   "fields": [
+    {
+     "name": "store_offer",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {
@@ -11881,6 +12177,22 @@
    "values": {
     "PAYMENT_PERIOD_UNSPECIFIED": 0,
     "PAYMENT_PERIOD_COMPLETION": 1
+   }
+  },
+  "eve_public.career.goal.Attributes.Career": {
+   "values": {
+    "CAREER_UNSPECIFIED": 0,
+    "CAREER_EXPLORATION": 1,
+    "CAREER_INDUSTRIALIST": 2,
+    "CAREER_ENFORCER": 3,
+    "CAREER_SOLDIER_OF_FORTUNE": 4
+   }
+  },
+  "eve_public.career.goal.RewardLabel": {
+   "values": {
+    "REWARD_LABEL_UNSPECIFIED": 0,
+    "REWARD_LABEL_ALPHA": 1,
+    "REWARD_LABEL_OMEGA": 2
    }
   }
  }
