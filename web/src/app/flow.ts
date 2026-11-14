@@ -3794,6 +3794,12 @@ export interface AppFlow {
    * accumulated LP pool (rewardMgr.GetDelayedRewardsByGroupIDs, the REWARD_TYPE_LP reward's quantity; null for none).
    */
   agencyIncursion(constellationID: number): Promise<{ readonly incursion: AgencyIncursion; readonly systems: readonly { readonly solarSystemID: number; readonly sceneType: number | null; readonly jumps: number | null; readonly security: number | null }[]; readonly lpPool: number | null } | null>;
+  /**
+   * TriglavianSpaceContentGroupPage.ConstructStandingEntry: the Triglavian Collective's standing with the pilot
+   * (GetStandingWithSkillBonus(factionTriglavian, charid)) and, in a player corporation, with the corporation (its
+   * standing as the corporation's standings list has it; null otherwise).
+   */
+  agencyTriglavianStandings(): Promise<{ readonly characterID: number | null; readonly character: number; readonly corporationID: number | null; readonly corporation: number | null }>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -20471,6 +20477,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  async function agencyTriglavianStandings(): Promise<Awaited<ReturnType<AppFlow["agencyTriglavianStandings"]>>> {
+    await Promise.all([
+      store.standings.get().char === null ? loadStandings().catch(() => undefined) : Promise.resolve(),
+      store.skills.get().skills === null ? loadSkills().catch(() => undefined) : Promise.resolve(),
+    ]);
+    const TRIGLAVIAN = 500026;
+    const online = store.station.get().online;
+    const standings = new Map((store.standings.get().char ?? []).map((row) => [row.fromID, row.standing]));
+    const levels = new Map((store.skills.get().skills ?? []).map((skill) => [skill.typeID, skill.level]));
+    const corporationID = online?.corporationID ?? null;
+    const playerCorp = corporationID !== null && !isNpcCorporation(corporationID);
+    const corp = playerCorp ? (store.standings.get().corp ?? []).find((row) => row.fromID === TRIGLAVIAN)?.standing ?? 0 : null;
+    requestNames([{ kind: "owner", id: TRIGLAVIAN }, ...(online ? [{ kind: "owner" as const, id: online.characterID }] : []), ...(playerCorp ? [{ kind: "owner" as const, id: corporationID }] : [])]);
+    return { characterID: online?.characterID ?? null, character: standingWithSkillBonus(TRIGLAVIAN, TRIGLAVIAN, standings, (typeID) => levels.get(typeID) ?? 0),
+      corporationID: playerCorp ? corporationID : null, corporation: corp };
+  }
   async function agencyAgentOwners(): Promise<{ factions: { id: number; standing: number }[]; corporations: Record<number, { id: number; standing: number }[]> } | null> {
     const [places] = await Promise.all([
       agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
@@ -34229,6 +34251,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyFleetUp,
     agencyPirateStrongholds,
     agencyAsteroidBelts,
+    agencyTriglavianStandings,
     agencyFleetRegistration,
     agencyRegisterFleet,
     agencyColonyResources,
