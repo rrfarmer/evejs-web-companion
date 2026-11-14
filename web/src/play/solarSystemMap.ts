@@ -57,7 +57,15 @@
 //   let go (RegisterProbeScale), the step nearest (GetRangeStepForType) - Shift SetProbeRangeStep for the one, else
 //   ScaleAllProbes(that step's range / the range): each place about the centre and each range the step nearest.
 //   In both modes a line from the centre to each probe (ShowCentroidLines, CENTROID_LINE_COLOR). Not here: the
-//   modify hint, the move sounds, the intersection highlights.
+//   modify hint, the move sounds.
+// - The probes' intersections (HighlightProbeIntersections): where two active probes' spheres meet (IsIntersecting),
+//   a circle (ProbesIntersection: intersectionCircle.png on a zsprite, additive, BASE_PROBE_COLOR x its opacity) at
+//   ComputeHighlightCircle's point, turned to the line between them, scaled to the circle's radius x 2. Shown only with
+//   showAll or out of a formation - the client is always in one (ProbeTracker starts in Pinpoint, nothing breaks it),
+//   so only while a probe is moved with Shift or the formation spread (MoveProbe), gone at the next plain update. Each
+//   circle changed goes to INTERSECTION_ACTIVE 0.6, and 500 ms after its last change to INTERSECTION_INACTIVE 0.05
+//   over 1.5 s. (HighlightMarkersInProbeRange marks markers in range, but UpdateInRangeIndicatorState draws nothing
+//   in this client: nothing to show.)
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -161,6 +169,21 @@ export function keysAt(keys: Keys, t: number): number {
   return keys[keys.length - 1]![1];
 }
 const AU_M = 149_597_870_700;
+const INTERSECTION_ACTIVE = 0.6;
+const INTERSECTION_INACTIVE = 0.05;
+
+/** IsIntersecting: the two spheres' surfaces meet (neither apart nor one inside the other). */
+export function isIntersecting(d: number, r1: number, r2: number): boolean {
+  return !(d > r1 + r2 || r1 > d + r2 || r2 > d + r1);
+}
+
+/** ComputeHighlightCircle: the circle where the spheres meet - its distance along the line from the first, its radius. */
+export function highlightCircle(d: number, r1: number, r2: number): { along: number; radius: number } | null {
+  if (!d) return null;
+  const along = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
+  const sq = r1 * r1 - along * along;
+  return sq < 0 ? null : { along, radius: Math.sqrt(sq) };
+}
 
 /** EVE's coordinates to the map's (the space view's handedness: z mirrored), scaled. */
 export function mapPoint(p: { x: number; y: number; z: number }): THREE.Vector3 {
@@ -217,6 +240,11 @@ export class SolarSystemMapWindow {
   private readonly centroidLines = new THREE.LineSegments(new THREE.BufferGeometry(),
     new THREE.LineBasicMaterial({ color: PROBE_COLOR.clone().multiplyScalar(0.3), depthTest: false, transparent: true }));
   private readonly rangeRings = new THREE.Group();
+  private readonly intersectionGroup = new THREE.Group();
+  private intersections = new Map<string, { mesh: THREE.Mesh; config: string; changedAt: number }>();
+  private intersectionTexture: THREE.Texture | null = null;
+  /** The intersections shown, for checks: the pair, the circle's radius (map units) and its opacity now. */
+  intersectionInfo: { pair: string; radius: number; opacity: number }[] = [];
   private readonly ringMaterial = new THREE.LineBasicMaterial({ color: PROBE_COLOR, transparent: true, opacity: 0.5, depthTest: false });
   private shiftHeld = false;
   private ctrlHeld = false;
@@ -287,6 +315,7 @@ export class SolarSystemMapWindow {
     this.scene.add(this.centroidLines);
     this.rangeRings.visible = false;
     this.scene.add(this.rangeRings);
+    this.scene.add(this.intersectionGroup);
     this.canvas.addEventListener("pointerdown", (e) => {
       if (e.button === 2 && this.moving) { this.cancelMove(); return; }
       if (e.button === 0 && this.pressCursor(e)) return;
@@ -583,6 +612,55 @@ export class SolarSystemMapWindow {
       this.probeObjects.delete(id);
     }
     this.updateCursors(probes);
+    this.updateIntersections(probes);
+  }
+
+  /** HighlightProbeIntersections(showAll): shown while a probe is moved with Shift or the formation spread. */
+  private updateIntersections(probes: readonly MapProbe[]): void {
+    const mv = this.moving;
+    const showAll = mv !== null && (mv.mode === "spread" || (mv.mode === "position" && (mv.shift || this.shiftHeld)));
+    const now = performance.now();
+    const seen = new Set<string>();
+    if (showAll) {
+      const active = probes.filter((p) => p.state !== 0).map((p) => p.probeID).sort((a, b) => a - b);
+      for (let i = 0; i < active.length; i++) {
+        for (let j = i + 1; j < active.length; j++) {
+          const a = this.probeObjects.get(active[i]!), b = this.probeObjects.get(active[j]!);
+          if (!a || !b) continue;
+          const p1 = a.sphere.position, p2 = b.sphere.position, r1 = a.sphere.scale.x, r2 = b.sphere.scale.x;
+          const d = p1.distanceTo(p2);
+          const circle = isIntersecting(d, r1, r2) ? highlightCircle(d, r1, r2) : null;
+          if (!circle) continue;
+          const key = `${active[i]}:${active[j]}`;
+          seen.add(key);
+          let o = this.intersections.get(key);
+          if (!o) {
+            this.intersectionTexture ??= new THREE.TextureLoader().load(clientTexture("res:/UI/Texture/classes/ProbeScanner/intersectionCircle.png"));
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.intersectionTexture, color: PROBE_COLOR,
+              transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+            this.intersectionGroup.add(mesh);
+            o = { mesh, config: "", changedAt: now };
+            this.intersections.set(key, o);
+          }
+          // SetIntersectionHighlight: a changed pair lit again
+          const config = `${p1.x},${p1.y},${p1.z},${p2.x},${p2.y},${p2.z},${r1},${r2}`;
+          if (config !== o.config) { o.config = config; o.changedAt = now; }
+          const normal = p2.clone().sub(p1).normalize();
+          o.mesh.position.copy(p1).addScaledVector(normal, circle.along);
+          o.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+          o.mesh.scale.setScalar(circle.radius * 2);
+        }
+      }
+    }
+    this.intersectionInfo = [];
+    for (const [key, o] of this.intersections) {
+      if (!seen.has(key)) { this.intersectionGroup.remove(o.mesh); this.intersections.delete(key); continue; }
+      // FadeOutIntersection: 500 ms after the last change, to the inactive opacity over 1.5 s
+      const idle = now - o.changedAt - 500;
+      const opacity = idle <= 0 ? INTERSECTION_ACTIVE : INTERSECTION_ACTIVE + (INTERSECTION_INACTIVE - INTERSECTION_ACTIVE) * Math.min(1, idle / 1500);
+      (o.mesh.material as THREE.MeshBasicMaterial).color.copy(PROBE_COLOR).multiplyScalar(opacity);
+      this.intersectionInfo.push({ pair: key, radius: o.mesh.scale.x / 2, opacity });
+    }
   }
 
   /** An arrow in our own shape (probeCursor.red's cursorzshape): a shaft and a head along +y, tagged for picking. */
