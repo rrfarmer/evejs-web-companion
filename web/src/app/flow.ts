@@ -693,6 +693,8 @@ export interface FactionWarfareLocal {
 }
 
 /** The epic arcs (flow.epicArcs) and their feature tag's title message and eveicon. */
+/** An epic arc as the Agency shows it (EpicArcAgentContentPiece): the arc and its active agent's place. */
+export interface AgencyEpicArc { readonly arc: EpicArcView; readonly stationID: number | null; readonly solarSystemID: number | null; readonly jumps: number | null }
 export interface EpicArcsRead { readonly arcs: readonly EpicArcView[]; readonly featureTag: { readonly title: number | null; readonly icon: string | null } | null }
 
 export interface FreelanceJob {
@@ -3701,6 +3703,11 @@ export interface AppFlow {
    * pilot's system's own signatures (scanMgr.GetFullState's, the sensor suite's), picked as the other site pages.
    */
   agencySignatures(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
+  /**
+   * The Agency's Epic Arcs (ContentProviderEpicArcs): the arcs (epicArcs, as the job board reads them), each with its
+   * active agent's station, system and jumps, sorted by (state, jumps).
+   */
+  agencyEpicArcs(): Promise<readonly AgencyEpicArc[] | null>;
   agencyAgentOwners(): Promise<{ readonly factions: readonly { readonly id: number; readonly standing: number }[]; readonly corporations: Readonly<Record<number, readonly { readonly id: number; readonly standing: number }[]>> } | null>;
   /**
    * The faction warfare of the pilot's system, as fwWarzoneSvc and fwVictoryPointSvc keep it:
@@ -19929,6 +19936,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestSystemSecurity(picked.map((a) => a.solarSystemID));
     return picked;
   }
+  async function agencyEpicArcs(): Promise<readonly AgencyEpicArc[] | null> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [read, table, places, jumps] = await Promise.all([
+      epicArcs(),
+      agentsKnown().catch(() => null),
+      agentPlacesHeld ? Promise.resolve(agentPlacesHeld) : api.loadAgentPlaces(callOptions).catch(() => null),
+      here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
+    ]);
+    agentPlacesHeld ??= places;
+    if (read === null) return null;
+    const byID = new Map((table ?? []).map((row) => [row.agentID, row]));
+    const out = read.arcs.map((arc) => {
+      const row = arc.activeAgentID !== null ? byID.get(arc.activeAgentID) : undefined;
+      const place = row?.stationID != null ? places?.stations[String(row.stationID)] : undefined;
+      const solarSystemID = place?.[0] ?? null;
+      return { arc, stationID: row?.stationID ?? null, solarSystemID, jumps: solarSystemID === null ? null : solarSystemID === here ? 0 : jumps?.get(solarSystemID) ?? null };
+    });
+    // _GetSortKey: (the arc's state, the jumps to it); an unreachable one a long way.
+    const far = (a: AgencyEpicArc) => a.jumps ?? Number.MAX_SAFE_INTEGER;
+    out.sort((a, b) => a.arc.state - b.arc.state || far(a) - far(b));
+    requestNames(out.flatMap((a) => (a.solarSystemID ? [{ kind: "system" as const, id: a.solarSystemID }] : [])));
+    requestSystemSecurity(out.flatMap((a) => (a.solarSystemID ? [a.solarSystemID] : [])));
+    return out;
+  }
   async function agencySignatures(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const online = store.station.get().online;
@@ -33760,6 +33791,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyCombatAnomalies,
     agencyTrackerSites,
     agencySignatures,
+    agencyEpicArcs,
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,
