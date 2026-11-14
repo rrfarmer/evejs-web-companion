@@ -115,6 +115,8 @@ export interface SpaceActions {
   primeLocations?(itemIDs: readonly number[]): void;
   /** cfg.evelocations.Get(itemID).name where it is known; null until it is. */
   locationName?(itemID: number): string | null;
+  /** The pilot's active probes as the scanner has them (its operations), or none. */
+  probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number }[];
   /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
   shipAttribute?(attributeID: number): number | null;
   /** menusvc.OpenCargo on a wreck or a can: flown to within reach, opened, and the inventory window shown on it. */
@@ -528,6 +530,11 @@ export class SpaceView {
         return e ? `${this.actions.locationName?.(itemID) ?? this.nameOf(e)} ${distanceWords(this.distanceTo(e))}` : "";
       },
       primeNames: (itemIDs) => this.actions.primeLocations?.(itemIDs),
+      // the probes' places from the park where it has them (live), the scanner's read otherwise
+      probes: () => (this.actions.probes?.() ?? []).map((p) => {
+        const ball = this.snapshot?.entities.find((e) => e.itemID === p.probeID);
+        return ball ? { ...p, pos: [ball.position.x, ball.position.y, ball.position.z] as const } : p;
+      }),
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
       aimSpaceCamera: (direction) => {
         const dist = this.camera.position.distanceTo(this.controls.target);

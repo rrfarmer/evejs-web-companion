@@ -633,6 +633,10 @@
       },
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
+      probes: () => {
+        const operations = s.store.scanner.get().operations;
+        return operations.status === "ready" ? operations.value.probes : [];
+      },
       primeLocations: (itemIDs) => s.flow.requestNames(itemIDs.map((id) => ({ kind: "evelocation" as const, id }))),
       locationName: (itemID) => {
         const name = s.store.names.get().resolved[nameKey("evelocation", itemID)];

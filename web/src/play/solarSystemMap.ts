@@ -31,6 +31,12 @@
 // - Align with camera (SCANMODE_CAMERA; OnCameraUpdate): while the map is open the cone turns with the map's camera
 //   and the space camera is turned to look the same way (AlignSpaceCameraToViewVector); entering it the map's point
 //   of interest goes to the ship (LookAtEgoMarker) over GetRotationDurationFromVectors' 0.2 .. 0.5 s.
+// - The probes (mapViewProbeHandlerStandalone UpdateProbeSpheres; inflight/probeControl_MapView ProbeControl): each
+//   active probe's range sphere at its destination (SetPosition(probe.destination), SetRange(probe.scanRange)) and
+//   its marker where it is (systemMapHandler: MarkerProbe at probe.pos); from OnProbeWarpStart to OnProbeWarpEnd a
+//   line from where it is to its destination (WARP_LINE_COLOR: BASE_PROBE_COLOR (0.451, 0.941, 1.0) x 0.3, here
+//   while the scanner holds it moving or warping). Our own sphere (Scanbubbledoteffect is a textured ubershader
+//   set); no cursors yet (probeCursor, probeRangeCursor, probeSpreadCursor: the probes are moved from the scanner).
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -71,9 +77,13 @@ export interface SolarSystemMapHooks {
   dscanCone?(): { angleDeg: number; rangeMetres: number; direction: { x: number; y: number; z: number }; shown: boolean; cameraMode?: boolean } | null;
   /** AlignSpaceCameraToViewVector: the space camera turned to look along the direction (the map's / space view's axes). */
   aimSpaceCamera?(direction: THREE.Vector3): void;
+  /** The pilot's active probes (the scanner's operations): place and destination (EVE's coordinates), range in metres. */
+  probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number }[];
 }
 
 const COLOR_DSCAN = new THREE.Color(0.225, 0.75, 0.5);
+/** probeControl_MapView BASE_PROBE_COLOR. */
+const PROBE_COLOR = new THREE.Color(0.45098039215686275, 0.9411764705882353, 1.0);
 // ScanEffect (OnDirectionalScanComplete): the cone model's curve sets, read from res:/dx9/model/ui/scancone.black -
 // ScanPart_01 (1 s): FresnelFactors.y x 0.6 by the keys 0, 0.1 -> 1, 0.5 -> 1, 0.75 -> 0.1, 1 -> 0; then ScanPart_02 (1 s):
 // FresnelFactors.y x 0.66 by 0, 0.25 -> 1, 0.7516 -> 0.1, 1 -> 0; translateUVcurve 0, 0.8866 -> 0.95, 1 -> 1 (the
@@ -139,6 +149,10 @@ export class SolarSystemMapWindow {
   private readonly dot = dotTexture();
   private readonly markersLayer = document.createElement("div");
   private readonly coneGroup = new THREE.Group();
+  private readonly probeGroup = new THREE.Group();
+  private probeObjects = new Map<number, { sphere: THREE.Mesh; marker: THREE.Sprite; line: THREE.Line; range: number }>();
+  /** The probes drawn, for checks: id, map place, sphere radius, whether its line shows. */
+  probeInfo: { probeID: number; at: [number, number, number]; to: [number, number, number]; radius: number; moving: boolean }[] = [];
   private coneFor = "";
   private scanEffectAt = 0;
   private coneSurface: THREE.MeshBasicMaterial | null = null;
@@ -184,6 +198,7 @@ export class SolarSystemMapWindow {
     this.egoMarker.renderOrder = 2;
     this.scene.add(this.egoMarker);
     this.scene.add(this.coneGroup);
+    this.scene.add(this.probeGroup);
     this.canvas.addEventListener("pointerdown", (e) => this.drag(e));
     this.canvas.addEventListener("dblclick", () => this.toggleView());
     const word = (label: string, own: string) => hooks.word?.(label) ?? own;
@@ -346,6 +361,7 @@ export class SolarSystemMapWindow {
     this.camera.lookAt(this.poi);
     this.camera.updateMatrixWorld();
     this.updateCone(ego);
+    this.updateProbes();
     this.renderer.render(this.scene, this.camera);
     // the markers on their map points (behind the camera: hidden)
     const v = new THREE.Vector3();
@@ -420,6 +436,47 @@ export class SolarSystemMapWindow {
   /** The markers drawn, for checks: how many, and how many in the view. */
   markerCounts(): { all: number; shown: number } {
     return { all: this.markers.length, shown: this.markers.filter((m) => m.el.style.display !== "none").length };
+  }
+
+  /** The probes' spheres, markers and lines kept as the scanner has them. */
+  private updateProbes(): void {
+    const probes = this.hooks.probes?.() ?? [];
+    const seen = new Set<number>();
+    this.probeInfo = [];
+    for (const p of probes) {
+      seen.add(p.probeID);
+      let o = this.probeObjects.get(p.probeID);
+      if (!o) {
+        const sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.MeshBasicMaterial({ color: PROBE_COLOR, transparent: true,
+          opacity: 0.08, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+        const wire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.SphereGeometry(1, 16, 8), 1),
+          new THREE.LineBasicMaterial({ color: PROBE_COLOR, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending }));
+        sphere.add(wire);
+        const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dot, color: PROBE_COLOR, sizeAttenuation: false, depthTest: false }));
+        marker.scale.setScalar(0.014);
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+          new THREE.LineBasicMaterial({ color: PROBE_COLOR.clone().multiplyScalar(0.3), depthWrite: false }));
+        this.probeGroup.add(sphere, marker, line);
+        o = { sphere, marker, line, range: 0 };
+        this.probeObjects.set(p.probeID, o);
+      }
+      const at = mapPoint({ x: p.pos[0], y: p.pos[1], z: p.pos[2] });
+      const to = mapPoint({ x: p.destination[0], y: p.destination[1], z: p.destination[2] });
+      const radius = p.scanRange * SOLARSYSTEM_SCALE;
+      o.sphere.position.copy(to);
+      o.sphere.scale.setScalar(Math.max(radius, 1e-6));
+      o.marker.position.copy(at);
+      // probeStateMoving 2, probeStateWarping 3: on its way
+      const moving = p.state === 2 || p.state === 3;
+      o.line.visible = moving;
+      if (moving) o.line.geometry.setFromPoints([at, to]);
+      this.probeInfo.push({ probeID: p.probeID, at: [at.x, at.y, at.z], to: [to.x, to.y, to.z], radius, moving });
+    }
+    for (const [id, o] of this.probeObjects) {
+      if (seen.has(id)) continue;
+      this.probeGroup.remove(o.sphere, o.marker, o.line);
+      this.probeObjects.delete(id);
+    }
   }
 
   /** OnDirectionalScanComplete -> ScanEffect: ScanPart_01, then ScanPart_02 when it ends. */
