@@ -370,7 +370,35 @@ export interface FleetAdvertBasics {
 /** evefleet/const: FLEETNAME_MAXLENGTH, FLEETDESC_MAXLENGTH, INVITE_PUBLIC_OPEN, and the activities fleetActivityNames names. */
 const FLEETNAME_MAXLENGTH = 32, FLEETDESC_MAXLENGTH = 250, INVITE_PUBLIC_OPEN = 16;
 const FLEET_ACTIVITIES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
-const emptySet = (): JsonValue => ({ type: "objectex1", header: [{ type: "token", value: "__builtin__.set" }, [{ type: "list", items: [] }]], list: [], dict: [] });
+const pythonSet = (ids: readonly number[]): JsonValue => ({ type: "objectex1", header: [{ type: "token", value: "__builtin__.set" }, [{ type: "list", items: [...ids] }]], list: [], dict: [] });
+
+/** An advert's advanced options (evefleet/fleetAdvertObject.py GetDefaultAdvancedOptions): the scope's minimums, the entities let in and kept out, and the rest. */
+export interface FleetAdvertAdvanced {
+  readonly public_minStanding: number | null;
+  readonly public_minSecurity: number | null;
+  readonly public_allowedEntities: readonly number[];
+  readonly public_disallowedEntities: readonly number[];
+  readonly membergroups_minStanding: number | null;
+  readonly membergroups_minSecurity: number | null;
+  readonly membergroups_allowedEntities: readonly number[];
+  readonly membergroups_disallowedEntities: readonly number[];
+  readonly joinNeedsApproval: boolean;
+  readonly hideInfo: boolean;
+  readonly updateOnBossChange: boolean;
+  readonly advertJoinLimit: number | null;
+}
+
+/** GetDefaultAdvancedOptions. */
+export const DEFAULT_ADVERT_ADVANCED: FleetAdvertAdvanced = Object.freeze({
+  public_minStanding: null, public_minSecurity: null, public_allowedEntities: [], public_disallowedEntities: [],
+  membergroups_minStanding: null, membergroups_minSecurity: null, membergroups_allowedEntities: [], membergroups_disallowedEntities: [],
+  joinNeedsApproval: false, hideInfo: false, updateOnBossChange: true, advertJoinLimit: null,
+});
+
+/** evefleet/fleetAdvertObject.MAX_ALLOWED_ENTITIES: a set of entities is cut to its first thousand. */
+const MAX_ALLOWED_ENTITIES = 1000;
+/** evefleet/const.MAX_MEMBERS_IN_FLEET: an advert's join limit is held between one and it. */
+const MAX_MEMBERS_IN_FLEET = 256;
 
 /**
  * FleetAdvertCreationObject(fleetName, description, activityValue, inviteScope=INVITE_PUBLIC_OPEN,
@@ -379,26 +407,37 @@ const emptySet = (): JsonValue => ({ type: "objectex1", header: [{ type: "token"
  * client does not name None, and the advanced options' defaults (GetDefaultAdvancedOptions), the sets empty.
  */
 export function basicAdvertData(basics: FleetAdvertBasics): JsonValue {
+  return advertData(basics, INVITE_PUBLIC_OPEN, null);
+}
+
+/**
+ * FleetAdvertCreationObject(..., inviteScope, useAdvanceOptions, **advancedOptions).GetData(): with the advanced
+ * options (null: the defaults, and useAdvanceOptions False), each set cut to its first thousand and the join limit
+ * held between one and MAX_MEMBERS_IN_FLEET, as the object's setters hold them.
+ */
+export function advertData(basics: FleetAdvertBasics, inviteScope: number, advanced: FleetAdvertAdvanced | null): JsonValue {
   const activity = basics.activityValue !== null && FLEET_ACTIVITIES.has(basics.activityValue) ? basics.activityValue : null;
+  const a = advanced ?? DEFAULT_ADVERT_ADVANCED;
+  const set = (ids: readonly number[]) => pythonSet(ids.slice(0, MAX_ALLOWED_ENTITIES));
   const entries: [string, JsonValue][] = [
     ["fleetName", { type: "wstring", value: basics.fleetName.slice(0, FLEETNAME_MAXLENGTH) }],
     ["description", { type: "wstring", value: basics.description.slice(0, FLEETDESC_MAXLENGTH) }],
-    ["inviteScope", INVITE_PUBLIC_OPEN],
+    ["inviteScope", inviteScope],
     ["activityValue", activity],
-    ["useAdvanceOptions", false],
+    ["useAdvanceOptions", advanced !== null],
     ["newPlayerFriendly", basics.newPlayerFriendly],
-    ["public_minStanding", null],
-    ["public_minSecurity", null],
-    ["public_allowedEntities", emptySet()],
-    ["public_disallowedEntities", emptySet()],
-    ["membergroups_minStanding", null],
-    ["membergroups_minSecurity", null],
-    ["membergroups_allowedEntities", emptySet()],
-    ["membergroups_disallowedEntities", emptySet()],
-    ["joinNeedsApproval", false],
-    ["hideInfo", false],
-    ["updateOnBossChange", true],
-    ["advertJoinLimit", null],
+    ["public_minStanding", a.public_minStanding],
+    ["public_minSecurity", a.public_minSecurity],
+    ["public_allowedEntities", set(a.public_allowedEntities)],
+    ["public_disallowedEntities", set(a.public_disallowedEntities)],
+    ["membergroups_minStanding", a.membergroups_minStanding],
+    ["membergroups_minSecurity", a.membergroups_minSecurity],
+    ["membergroups_allowedEntities", set(a.membergroups_allowedEntities)],
+    ["membergroups_disallowedEntities", set(a.membergroups_disallowedEntities)],
+    ["joinNeedsApproval", a.joinNeedsApproval],
+    ["hideInfo", a.hideInfo],
+    ["updateOnBossChange", a.updateOnBossChange],
+    ["advertJoinLimit", a.advertJoinLimit === null ? null : Math.min(Math.max(a.advertJoinLimit, 1), MAX_MEMBERS_IN_FLEET)],
   ];
   return { type: "dict", entries };
 }

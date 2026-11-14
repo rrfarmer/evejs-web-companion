@@ -1131,7 +1131,7 @@ export interface WalletSharesRead {
 }
 import { readAllianceFittings, readCharacterFittings, readCorporationFittings } from "../bridge/fittingReads.ts";
 import type { FleetFinderRead } from "../nav/fleetJoinWatch.ts";
-import { acceptFleetInvite as acceptFleetInviteCall, applyToJoinFleet as applyToJoinFleetCall, basicAdvertData, createFleetBroadcasts, declineFleetInvite as declineFleetInviteCall, formFleet as formFleetCall, inviteToFleet as inviteToFleetCall, kickFleetMember as kickFleetMemberCall, leaveFleet as leaveFleetCall, makeFleetLeader as makeFleetLeaderCall, moveFleetMember as moveFleetMemberCall, tagFleetTarget, updateFleetMemberInfo as updateFleetMemberInfoCall, addToWatchlist as addToWatchlistCall, removeFromWatchlist as removeFromWatchlistCall, type FleetAdvertBasics, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
+import { acceptFleetInvite as acceptFleetInviteCall, applyToJoinFleet as applyToJoinFleetCall, advertData, basicAdvertData, createFleetBroadcasts, declineFleetInvite as declineFleetInviteCall, formFleet as formFleetCall, inviteToFleet as inviteToFleetCall, kickFleetMember as kickFleetMemberCall, leaveFleet as leaveFleetCall, makeFleetLeader as makeFleetLeaderCall, moveFleetMember as moveFleetMemberCall, tagFleetTarget, updateFleetMemberInfo as updateFleetMemberInfoCall, addToWatchlist as addToWatchlistCall, removeFromWatchlist as removeFromWatchlistCall, type FleetAdvertAdvanced, type FleetAdvertBasics, type FleetApplyOutcome } from "../bridge/fleetWrites.ts";
 import { BOOKMARK_EXPIRY, bookmarkScanResult as bookmarkScanResultCall, addFolder as addFolderCall, addToKnownFolders as addToKnownFoldersCall, copyBookmarks as copyBookmarksCall, moveBookmarks as moveBookmarksCall, removeFromKnownFolders as removeFromKnownFoldersCall, type MovedOrCopied, bookmarkLocation as bookmarkLocationCall, bookmarkStaticLocation as bookmarkStaticLocationCall, createSubfolder as createSubfolderCall, updateFolder as updateFolderCall, type FolderAccess, deleteBookmarks as deleteBookmarksCall, deleteFolder as deleteFolderCall, deleteSubfolder as deleteSubfolderCall, setFolderActive as setFolderActiveCall, updateBookmark as updateBookmarkCall, updateSubfolder as updateSubfolderCall } from "../bridge/bookmarkWrites.ts";
 import { giveIskFromWallet as giveIskFromWalletCall, giveMoney as giveMoneyCall, transferValue, transferReason } from "../bridge/giveMoney.ts";
 import { afterArriving, destinationValid, isPlayerItemID, isWaypointPlace, keepWaypoints, movedWaypoint, readWaypoints, withWaypoint, withoutWaypoint, type DestinationFacts, type PilotPlace } from "../nav/waypoints.ts";
@@ -3767,7 +3767,7 @@ export interface AppFlow {
    * where it was registered; in none, the fleet formed with the advert, or with none. A refusal is said in the
    * client's dialog. True where it was made.
    */
-  agencyRegisterFleet(advert: FleetAdvertBasics | null): Promise<boolean>;
+  agencyRegisterFleet(advert: FleetAdvertBasics | null, options?: { readonly inviteScope: number; readonly advanced: FleetAdvertAdvanced } | null): Promise<boolean>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
@@ -20117,10 +20117,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const advert = registered ? await bridgeAsk("fleetProxy", "GetMyFleetFinderAdvert", []).then(decodeMyFleetFinderAdvert).catch(() => null) : null;
     return { inFleet: fleetID !== null, isBoss, registered, advert };
   }
-  async function agencyRegisterFleet(advert: FleetAdvertBasics | null): Promise<boolean> {
+  async function agencyRegisterFleet(advert: FleetAdvertBasics | null, options: { readonly inviteScope: number; readonly advanced: FleetAdvertAdvanced } | null = null): Promise<boolean> {
     const { fleetID, isBoss, registered } = fleetStanding();
+    const data = advert ? (options ? advertData(advert, options.inviteScope, options.advanced) : basicAdvertData(advert)) : null;
     if (fleetID === null) {
-      await runFleetAction("form", () => formFleetCall(bridgeDo, false, advert ? basicAdvertData(advert) : null), "ready");
+      await runFleetAction("form", () => formFleetCall(bridgeDo, false, data), "ready");
       return store.fleet.get().actionError === null;
     }
     if (advert && !isBoss) {
@@ -20129,7 +20130,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return false;
     }
     try {
-      if (advert) await bridgeDo("fleetProxy", "AddFleetFinderAdvert", [basicAdvertData(advert)]);
+      if (data) await bridgeDo("fleetProxy", "AddFleetFinderAdvert", [data]);
       else if (registered) await bridgeDo("fleetProxy", "RemoveFleetFinderAdvert", []);
     } catch (error) {
       sayRefusalDialog(error, `The fleet's advert was refused. ${errorWords(error)}`);
