@@ -523,6 +523,7 @@ export class SpaceView {
         groupName: (groupID) => this.names?.groups[String(groupID)]?.[0] ?? null,
         word: (label, args) => this.actions.word?.(label, args) ?? null,
         activePreset: () => this.overview?.activePreset() ?? null,
+        presets: () => this.overview?.presetList() ?? [],
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);

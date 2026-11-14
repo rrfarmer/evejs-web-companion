@@ -460,19 +460,42 @@ export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot
 }
 
 /**
- * The overview's default presets and its first tabs (lib/defaultOverviews.mjs), each preset's name in the client's
- * English (its overviewNameID through the client's localization file, read by src/clientData/clientWords.js), written
- * as overviewPresets.json: { tabs: [{ name, preset }], presets: { shortName: { name, groups } } }.
+ * The overview's default presets and its first tabs, each name in the client's English (its message through the
+ * client's localization file, read by src/clientData/clientWords.js), written as overviewPresets.json:
+ * { source, tabs: [{ name, preset }], presets: { shortName: { name, groups, ... } } }.
+ *
+ * The client's default profile is 'jotunn_default' (overview/default/const.py DEFAULT), a YAML overview in its code
+ * (data/jotunn_default.py), read by overviewdefaults.py from the decompiled client tree (EVEJS_CLIENT_CODE, else its
+ * own default path): 36 presets named by "DefaultPreset_<message>", each with a category (categories.py
+ * CATEGORY_NAME_LABELS; CATEGORY_ORDER 0 - 5), its groups and states; five tabs named by YAML_OVERVIEWS' tab_name_ids.
+ * Where that tree is not had: the FSD defaultoverviews.fsdbinary ('old_default', lib/defaultOverviews.mjs).
  */
 export function extractOverviewPresets(rf, clientDir, outRoot) {
-  const presets = readDefaultOverviews(rf.read("res:/staticdata/defaultoverviews.fsdbinary"));
   const { createClientWords } = createRequire(import.meta.url)("../../src/clientData/clientWords.js");
   const words = createClientWords({ clientRoot: clientDir });
+  const file = path.join(outRoot, "overviewPresets.json");
+  const py = spawnSync(process.env.PYTHON ?? "python", ["-I", path.join(REPO, "tools", "client-extract", "overviewdefaults.py"),
+    ...(process.env.EVEJS_CLIENT_CODE ? [process.env.EVEJS_CLIENT_CODE] : [])], { encoding: "utf8", maxBuffer: 16 << 20, input: "" });
+  if (py.status === 0 && py.stdout.trim()) {
+    const jotunn = JSON.parse(py.stdout);
+    const CATEGORY_NAME_LABELS = { 1: "Overview/Default/CategoryNames/General", 2: "Overview/Default/CategoryNames/WarpTo",
+      3: "Overview/Default/CategoryNames/TargetCapsuleer", 4: "Overview/Default/CategoryNames/Friendly", 5: "Overview/Default/CategoryNames/Mining" };
+    const presets = {};
+    for (const [shortName, p] of Object.entries(jotunn.presets)) {
+      presets[shortName] = { name: (p.nameID && words.message(p.nameID)) || shortName, nameID: p.nameID, categoryID: p.categoryID,
+        categoryName: CATEGORY_NAME_LABELS[p.categoryID] ? words.template(CATEGORY_NAME_LABELS[p.categoryID]) : null,
+        descriptionID: p.descriptionID, groups: p.groups, alwaysShownStates: p.alwaysShownStates, filteredStates: p.filteredStates };
+    }
+    const tabs = jotunn.tabs.filter((t) => t.overview && presets[t.overview])
+      .map((t) => ({ name: (t.nameID && words.message(t.nameID)) || t.yamlName, preset: t.overview, bracket: t.bracket }));
+    fs.writeFileSync(file, JSON.stringify({ source: "jotunn_default", defaultPreset: jotunn.defaultPreset, categoryOrder: [0, 1, 2, 3, 4, 5], tabs, presets }));
+    return file;
+  }
+  const presets = readDefaultOverviews(rf.read("res:/staticdata/defaultoverviews.fsdbinary"));
   const byShort = {};
   for (const p of presets) byShort[p.shortName] = { name: words.message(p.nameID) ?? p.shortName, nameID: p.nameID, groups: p.groups };
   const tabs = DEFAULT_TAB_NAMES.filter((n) => byShort[n]).map((n) => ({ name: byShort[n].name, preset: n }));
-  const file = path.join(outRoot, "overviewPresets.json");
-  fs.writeFileSync(file, JSON.stringify({ tabs, presets: byShort }));
+  fs.writeFileSync(file, JSON.stringify({ source: "old_default", tabs, presets: byShort }));
   return file;
 }
 

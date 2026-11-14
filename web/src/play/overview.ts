@@ -8,7 +8,9 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { distanceWords } from "./spaceView.ts";
 
-interface OverviewPresets { tabs: { name: string; preset: string }[]; presets: Record<string, { name: string; groups: number[] }> }
+interface OverviewPresets { tabs: { name: string; preset: string }[]; presets: Record<string, { name: string; groups: number[]; categoryID?: number; categoryName?: string | null }>; categoryOrder?: number[] }
+/** A default preset as a chooser lists it (GetPresetDisplayName with its category: "Category: Name"). */
+export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number> }
 let presetsRead: Promise<OverviewPresets | null> | null = null;
 function overviewPresets() {
   presetsRead ??= fetch("/client-assets/overviewPresets.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -39,6 +41,7 @@ export class Overview {
   private selected: number | null = null;
   private groupsOfType: Record<string, number | null> = {};
   private tabs: { name: string; presetName: string; groups: Set<number> }[] = [];
+  private presetChoices: PresetChoice[] = [];
   private tab = 0;
   private readonly tabsEl: HTMLDivElement;
   /** The column the rows are sorted by and which way: the client's overview sorts by distance, nearest first, until a
@@ -89,6 +92,13 @@ export class Overview {
     void overviewPresets().then((p) => {
       if (!p) return;
       this.tabs = p.tabs.map((t) => ({ name: t.name, presetName: p.presets[t.preset]?.name ?? t.name, groups: new Set(p.presets[t.preset]?.groups ?? []) }));
+      // overviewUtil.GetDefaultFiltersSorted: by category (CATEGORY_ORDER), each sorted by its display name with category
+      const order = p.categoryOrder ?? [0, 1, 2, 3, 4, 5];
+      this.presetChoices = Object.entries(p.presets)
+        .map(([id, preset]) => ({ id, name: preset.name, label: preset.categoryName ? `${preset.categoryName}: ${preset.name}` : preset.name,
+          groups: new Set(preset.groups), category: preset.categoryID ?? 0 }))
+        .sort((a, b) => (order.indexOf(a.category) - order.indexOf(b.category)) || a.label.localeCompare(b.label))
+        .map(({ id, name, label, groups }) => ({ id, name, label, groups }));
       let saved = 0;
       try { saved = Number(localStorage.getItem(TAB_KEY)) || 0; } catch { /* no storage: the first tab */ }
       this.choose(saved < this.tabs.length ? saved : 0);
@@ -110,6 +120,9 @@ export class Overview {
     try { localStorage.setItem(TAB_KEY, String(i)); } catch { /* not kept */ }
     this.lastDraw = 0;
   }
+
+  /** The default presets in the order the client's choosers list them; empty until read. */
+  presetList(): readonly PresetChoice[] { return this.presetChoices; }
 
   /** overviewPresetSvc.GetActiveOverviewPresetName: the chosen tab's preset - its display name and groups; null until read. */
   activePreset(): { readonly name: string; readonly groups: ReadonlySet<number> } | null {

@@ -47,6 +47,8 @@ export interface DScanHooks {
   groupName(groupID: number): string | null;
   /** The active overview preset (GetActiveOverviewPresetName): its name and groups; null until the presets are read. */
   activePreset?(): { readonly name: string; readonly groups: ReadonlySet<number> } | null;
+  /** The presets the filter box offers (GetPresetOptions' defaults, by category); empty until read. */
+  presets?(): readonly { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number> }[];
   /** The install's words for a label, filled; null where they are not had (the window keeps its own). */
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
 }
@@ -56,7 +58,9 @@ export const DSCAN_WORDS: readonly string[] = ["UI/Inflight/Scanner/DirectionalS
   "UI/Inflight/Scanner/Range", "UI/Inflight/Scanner/UnitAU", "UI/Inflight/Scanner/UnitKm", "UI/Inflight/Scanner/Angle",
   "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
   "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap",
-  "UI/Inflight/Scanner/Filtered", "UI/Inflight/Scanner/DirectionalNoResult"];
+  "UI/Inflight/Scanner/Filtered", "UI/Inflight/Scanner/DirectionalNoResult", "UI/Inflight/Scanner/UseActiveOverviewSettings"];
+/** settings.user.ui scanner_presetInUse: the scanner's own preset, none for the active overview's. */
+const PRESET_KEY = "evejs.play.scanner_presetInUse";
 /** inventorycommon groupCloud: hidden from the scan's rows but for a GM / world mod (UpdateScroll). */
 const GROUP_CLOUD = 227;
 
@@ -140,8 +144,44 @@ export class DScanWindow {
     this.window.body.querySelector(".dscan-go")!.addEventListener("click", () => void this.scan());
     this.filterBox = this.window.body.querySelector(".dscan-filter")!;
     this.word = w;
+    // LoadFilterTooltipPanel: the box's tooltip, a list (210 wide, at most 200 high) - UseActiveOverviewSettings, then
+    // the presets - each a checkbox of one group, the chosen one checked, the first ten with a shortcut hint
+    // ((i + 1) % 10); a choice (OnFilterChange) kept as scanner_presetInUse and the rows filtered again, or a scan made
+    // where there are none.
+    this.filterBox.addEventListener("mouseenter", () => this.showFilters());
+    this.filterBox.addEventListener("click", () => this.showFilters());
+    this.window.root.addEventListener("mouseleave", () => this.hideFilters());
     this.window.root.style.display = "none";
   }
+
+  private filterList: HTMLDivElement | null = null;
+  private chosenPreset(): string | null { try { return localStorage.getItem(PRESET_KEY); } catch { return null; } }
+  private showFilters(): void {
+    this.hideFilters();
+    const chosen = this.chosenPreset();
+    const options = [{ id: null as string | null, label: this.word("UI/Inflight/Scanner/UseActiveOverviewSettings", "Use Active Overview Settings") },
+      ...(this.hooks.presets?.() ?? []).map((p) => ({ id: p.id as string | null, label: p.label }))];
+    const list = document.createElement("div");
+    list.className = "dscan-filters";
+    options.forEach((o, i) => {
+      const row = document.createElement("label");
+      row.className = "dscan-filter-row";
+      row.innerHTML = `<input type="radio" name="dscan-filter"><span class="dscan-filter-key"></span><span></span>`;
+      const radio = row.querySelector("input")!;
+      radio.checked = o.id === chosen;
+      (row.children[1] as HTMLElement).textContent = i < 10 ? String((i + 1) % 10) : "";
+      (row.children[2] as HTMLElement).textContent = o.label;
+      radio.addEventListener("change", () => {
+        try { if (o.id === null) localStorage.removeItem(PRESET_KEY); else localStorage.setItem(PRESET_KEY, o.id); } catch { /* kept for the page's life only */ }
+        if (this.rows.length) this.draw(); else void this.scan();
+        this.showFilters();
+      });
+      list.appendChild(row);
+    });
+    this.filterBox.after(list);
+    this.filterList = list;
+  }
+  private hideFilters(): void { this.filterList?.remove(); this.filterList = null; }
 
   get isOpen(): boolean { return !this.detached && this.window.root.style.display !== "none"; }
   toggle(): void { if (this.isOpen) this.window.root.style.display = "none"; else this.open(); }
@@ -175,7 +215,9 @@ export class DScanWindow {
     // group is one of the preset's valid groups, the rest counted; a cloud not at all (no GM role here); the filter box
     // "Filtered: N (preset)"; an empty list says UI/Inflight/Scanner/DirectionalNoResult.
     this.tbody.innerHTML = "";
-    const preset = this.hooks.activePreset?.() ?? null;
+    const chosen = this.chosenPreset();
+    const own = chosen === null ? undefined : this.hooks.presets?.().find((p) => p.id === chosen);
+    const preset = own ?? this.hooks.activePreset?.() ?? null;
     let filtered = 0;
     const shown = this.rows.filter((r) => {
       if (preset && !preset.groups.has(r.groupID)) { filtered += 1; return false; }
