@@ -161,7 +161,10 @@ button { font: inherit; color: inherit; }
 .ssm-label { display: none; position: absolute; left: 26px; top: 2px; white-space: nowrap; font-size: 11px; color: #fff;
   text-shadow: 0 0 2px #000, 1px 1px 1px #000; pointer-events: none; }
 .ssm-marker.hover .ssm-label { display: block; }
-.ssm-result .ssm-icon { filter: drop-shadow(0 0 0 var(--result-colour)) drop-shadow(0 0 1px var(--result-colour)); }
+.ssm-result-icon { position: absolute; left: -1px; top: -1px; width: 16px; height: 16px; background: var(--result-colour);
+  -webkit-mask: var(--result-icon) center / 16px 16px no-repeat; mask: var(--result-icon) center / 16px 16px no-repeat; }
+.ssm-result .ssm-frame { opacity: 0; }
+.ssm-result.selected .ssm-frame { opacity: 0.9; }
 .ssm-result .ssm-label { color: var(--result-colour); }
 .dscan-head { position: relative; display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 2px; }
 /* the filter box's tooltip list (LoadFilterTooltipPanel: 210 wide, at most 200 high) */

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext } from "svelte";
   import { resultColor } from "../bridge/probeResults.ts";
+  import { selectedSites, selectSite } from "../app/probeSiteSelection.ts";
   // The probe scanner's results (bridge/probeResults.ts): the session's system's results as the client's scan handler
   // keeps them from OnSystemScanStopped, listed as its results scroll lists them (scanResults.py, ScanResultNew):
   // distance from the ship, ID, name, group and signal strength, by ID; the client's words for "no results" where
@@ -278,7 +279,9 @@
         </thead>
         <tbody>
           {#each rows as row (row.id)}
-            <tr class:ps-row={retail} style={retail ? `--cert: ${resultColor(row.certainty)}; --base: ${Math.min(row.certainty, row.prevCertainty) * 100}%; --change: ${Math.abs(row.certainty - row.prevCertainty) * 100}%` : undefined}
+            <tr class:ps-row={retail} class:ps-selected={retail && $selectedSites.has(row.id)}
+              onclick={retail ? (event) => { if ((event.target as HTMLElement).closest("button")) return; selectSite(row.id, event.shiftKey || event.ctrlKey); } : undefined}
+              style={retail ? `--cert: ${resultColor(row.certainty)}; --base: ${Math.min(row.certainty, row.prevCertainty) * 100}%; --change: ${Math.abs(row.certainty - row.prevCertainty) * 100}%` : undefined}
               oncontextmenu={retail ? (event) => { event.preventDefault(); menuFor = menuFor === row.id ? null : row.id; } : undefined}>
               {#if retail}<td class="ps-ic"><span class="ps-result-icon" style={`--icon: url(/client-res/${row.icon})`}></span></td>{/if}
               <td class="num">{row.distance === null ? "" : fmtDist(row.distance)}</td>

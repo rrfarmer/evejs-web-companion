@@ -6,6 +6,8 @@
   // brackets. The Neocom opens the app's panels (PanelHost) in client-look windows (DesktopWindow).
   import { onDestroy } from "svelte";
   import { splitResults } from "../bridge/probeResults.ts";
+  import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
+  import { get as storeValue } from "svelte/store";
   import { marketDetailsTarget } from "./marketDetails.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
@@ -639,6 +641,8 @@
         return operations.status === "ready" ? operations.value.probes : [];
       },
       moveProbes: (moves) => s.flow.moveScannerProbes(moves),
+      selectedSites: () => storeValue(probeSitesSelected),
+      selectSite: (siteID, multiSelect) => selectProbeSite(siteID, multiSelect),
       // scanHandler.GetResults: the session's system's results less the ignored and the filtered
       scanResults: () => {
         const held = s.store.scanner.get().probeResults;
@@ -1413,6 +1417,8 @@
     color-mix(in srgb, var(--cert) 50%, black) var(--base) calc(var(--base) + var(--change)), transparent 0);
     background-size: 100% 2px; background-repeat: no-repeat; background-position: bottom; }
   .fly-windows :global(.ps-row td) { padding: 0 4px; white-space: nowrap; }
+  .fly-windows :global(.ps-row) { cursor: default; }
+  .fly-windows :global(.ps-row.ps-selected) { background-color: rgba(255, 255, 255, 0.14); }
   .fly-windows :global(.ps-ic) { width: 16px; padding: 0 2px !important; }
   .fly-windows :global(.ps-result-icon) { display: block; width: 16px; height: 16px; background: var(--cert, #fff);
     -webkit-mask: var(--icon) center / 16px 16px no-repeat; mask: var(--icon) center / 16px 16px no-repeat; }

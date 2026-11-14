@@ -119,6 +119,10 @@ export interface SpaceActions {
   probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
   /** The probe scan's results shown in the session's system (the solar system map's UpdateScanResult). */
   scanResults?(): readonly MapScanResult[];
+  /** scanSvc.IsSiteSelected's set: the probe results selected. */
+  selectedSites?(): ReadonlySet<string>;
+  /** scanSvc.SelectSite: a result marker clicked in the solar system map. */
+  selectSite?(siteID: string, multiSelect: boolean): void;
   /** The solar system map's probe move (RegisterProbeMove): each probe given its destination. */
   moveProbes?(moves: readonly { probeID: number; destination?: [number, number, number]; rangeStep?: number | undefined }[]): Promise<void>;
   /** The active ship's attribute as the client's dogma has it (GetAccurateAttributeValue); null where not had. */
@@ -541,6 +545,8 @@ export class SpaceView {
       }),
       moveProbes: (moves) => this.actions.moveProbes?.(moves),
       scanResults: () => this.actions.scanResults?.() ?? [],
+      selectedSites: () => this.actions.selectedSites?.() ?? new Set(),
+      selectSite: (siteID, multiSelect) => this.actions.selectSite?.(siteID, multiSelect),
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
       aimSpaceCamera: (direction) => {
         const dist = this.camera.position.distanceTo(this.controls.target);

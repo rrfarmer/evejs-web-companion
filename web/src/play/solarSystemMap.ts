@@ -72,8 +72,11 @@
 //   normal (_DrawCircleResultLines, CIRCLE_COLOR_DESELECTED (0.5, 0, 0, 0.5), the dashes moving, ChangeLineAnimation);
 //   two places (three probes) a marker each and a dashed line between (_DrawPointResultLines); a place a marker. Each
 //   marker MarkerScanResult: GetResultTexturePath - scanResultLocation.png for a float or a circle, else the scan
-//   group's bracket - in GetResultColor. Not yet the selected colours (CIRCLE_COLOR_SELECTED; IsSiteSelected), the
-//   markers' certainty gauge and menu.
+//   group's bracket - in GetResultColor. The selected results (UpdateSelectedObjects, scanSvc.IsSiteSelected): rings
+//   and lines CIRCLE_COLOR_SELECTED (1, 0, 0, 0.7), the others CIRCLE_COLOR_DESELECTED; a sphere's selected parts
+//   (_SetSphereSelectedState: its surface area and two more shown only when selected - here brighter). A result
+//   marker clicked selects its site (MarkerScanResult: SelectSite, Shift or Ctrl adding). Not yet the markers'
+//   certainty gauge and menu.
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -118,6 +121,10 @@ export interface SolarSystemMapHooks {
   probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
   /** The probe scan's results shown (the scanner's list less the ignored and the filtered). */
   scanResults?(): readonly MapScanResult[];
+  /** The probe results selected (scanSvc.selectedSites). */
+  selectedSites?(): ReadonlySet<string>;
+  /** SelectSite: a result marker clicked. */
+  selectSite?(siteID: string, multiSelect: boolean): void;
   /** RegisterProbeMove: the moved idle probes given their new destinations (EVE's coordinates). */
   moveProbes?(moves: readonly ProbeMove[]): Promise<void> | void;
 }
@@ -130,8 +137,9 @@ export interface MapScanResult {
   readonly data: readonly [number, number, number] | number | { readonly point: readonly [number, number, number]; readonly radius: number; readonly normal: readonly [number, number, number] } | readonly (readonly [number, number, number])[] | null;
   readonly pos: readonly [number, number, number] | null;
 }
-/** mapViewProbeHandlerStandalone CIRCLE_COLOR_DESELECTED. */
+/** mapViewProbeHandlerStandalone CIRCLE_COLOR_DESELECTED (0.5, 0, 0, 0.5) and CIRCLE_COLOR_SELECTED (1, 0, 0, 0.7). */
 const CIRCLE_COLOR = new THREE.Color(0.5, 0, 0);
+const CIRCLE_COLOR_SELECTED = new THREE.Color(1, 0, 0);
 /** mapMarkerUtil.ICONS_BY_SCANGROUP, by the strength attribute. */
 const RESULT_ICONS: Readonly<Record<number, string>> = {
   211: "res:/UI/Texture/Shared/Brackets/ore_site_16.png", 209: "res:/UI/Texture/Shared/Brackets/harvestableCloud.png",
@@ -279,7 +287,7 @@ export class SolarSystemMapWindow {
   private resultMarkers: { at: THREE.Vector3; el: HTMLDivElement }[] = [];
   private resultDashes: THREE.LineDashedMaterial[] = [];
   /** The results drawn, for checks: spheres, circles, lines, markers. */
-  resultInfo = { spheres: 0, circles: 0, lines: 0, markers: 0 };
+  resultInfo = { spheres: 0, circles: 0, lines: 0, markers: 0, selected: 0 };
   private intersections = new Map<string, { mesh: THREE.Mesh; config: string; changedAt: number }>();
   private intersectionTexture: THREE.Texture | null = null;
   /** The intersections shown, for checks: the pair, the circle's radius (map units) and its opacity now. */
@@ -659,7 +667,8 @@ export class SolarSystemMapWindow {
   /** UpdateScanResult: the shown results drawn anew where they change; the dashes moved each frame. */
   private updateResults(): void {
     const results = this.hooks.scanResults?.() ?? [];
-    const key = JSON.stringify(results.map((r) => [r.id, r.certainty, r.data, r.pos]));
+    const selected = this.hooks.selectedSites?.() ?? new Set<string>();
+    const key = JSON.stringify([results.map((r) => [r.id, r.certainty, r.data, r.pos]), [...selected].sort()]);
     for (const d of this.resultDashes) (d as unknown as { dashOffset: number }).dashOffset = -((performance.now() / 1000) * 0.05) % 1;
     if (key === this.resultsFor) return;
     this.resultsFor = key;
@@ -667,20 +676,24 @@ export class SolarSystemMapWindow {
     for (const m of this.resultMarkers) m.el.remove();
     this.resultMarkers = [];
     this.resultDashes = [];
-    const info = { spheres: 0, circles: 0, lines: 0, markers: 0 };
+    const info = { spheres: 0, circles: 0, lines: 0, markers: 0, selected: 0 };
     const at = (v: readonly number[]) => mapPoint({ x: v[0]!, y: v[1]!, z: v[2]! });
-    const dashed = (length: number) => {
-      // LINE_DASH_LENGTH / length: the dashes' share of the line
-      const m = new THREE.LineDashedMaterial({ color: CIRCLE_COLOR, transparent: true, opacity: 0.5, dashSize: length / 40, gapSize: length / 40, depthWrite: false });
+    const dashed = (length: number, isSelected: boolean) => {
+      // LINE_DASH_LENGTH / length: the dashes' share of the line; UpdateSelectedObjects' colour
+      const m = new THREE.LineDashedMaterial({ color: isSelected ? CIRCLE_COLOR_SELECTED : CIRCLE_COLOR, transparent: true,
+        opacity: isSelected ? 0.7 : 0.5, dashSize: length / 40, gapSize: length / 40, depthWrite: false });
       this.resultDashes.push(m);
       return m;
     };
     const marker = (place: THREE.Vector3, r: MapScanResult, location: boolean) => {
       const el = document.createElement("div");
       el.className = "ssm-marker ssm-result";
+      el.classList.toggle("selected", selected.has(r.id));
       const icon = location || r.strengthAttributeID === null ? undefined : RESULT_ICONS[r.strengthAttributeID];
-      el.innerHTML = `<img class="ssm-icon" alt="" src="${clientTexture(icon ?? "res:/UI/Texture/classes/MapView/scanResultLocation.png")}"><span class="ssm-label">${r.id}</span>`;
+      el.innerHTML = `<img class="ssm-frame" alt="" src="${clientTexture("res:/UI/Texture/classes/Bracket/selectionCircle.png")}"><span class="ssm-result-icon"></span><span class="ssm-label">${r.id}</span>`;
+      el.style.setProperty("--result-icon", `url(${clientTexture(icon ?? "res:/UI/Texture/classes/MapView/scanResultLocation.png")})`);
       el.style.setProperty("--result-colour", resultColour(r.certainty));
+      el.addEventListener("click", (e) => this.hooks.selectSite?.(r.id, e.shiftKey || e.ctrlKey));
       el.addEventListener("mouseenter", () => el.classList.add("hover"));
       el.addEventListener("mouseleave", () => el.classList.remove("hover"));
       this.markersLayer.appendChild(el);
@@ -689,10 +702,12 @@ export class SolarSystemMapWindow {
     };
     for (const r of results) {
       const data = r.data;
+      const isSelected = selected.has(r.id);
+      if (isSelected) info.selected += 1;
       if (typeof data === "number") {
         if (!r.pos) continue;
         // CreateSphereResult: the deviation's sphere at the guess
-        const sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.15, 0, 0),
+        const sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(isSelected ? 0.4 : 0.15, 0, 0),
           transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
         sphere.position.copy(at(r.pos));
         sphere.scale.setScalar(Math.max(1e-6, data * SOLARSYSTEM_SCALE));
@@ -705,7 +720,7 @@ export class SolarSystemMapWindow {
         const radius = c.radius * SOLARSYSTEM_SCALE;
         const pts: THREE.Vector3[] = [];
         for (let i = 0; i <= 128; i++) { const a = (i / 128) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius)); }
-        const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), dashed(2 * Math.PI * radius));
+        const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), dashed(2 * Math.PI * radius, isSelected));
         ring.computeLineDistances();
         ring.position.copy(at(c.point));
         const normal = at(c.normal).normalize();
@@ -720,7 +735,7 @@ export class SolarSystemMapWindow {
         const places = (data as readonly (readonly number[])[]).map((p) => at(p));
         for (const p of places) marker(p, r, false);
         if (places.length > 1) {
-          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([places[0]!, places[1]!]), dashed(places[0]!.distanceTo(places[1]!)));
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([places[0]!, places[1]!]), dashed(places[0]!.distanceTo(places[1]!), isSelected));
           line.computeLineDistances();
           this.resultGroup.add(line);
           info.lines += 1;
