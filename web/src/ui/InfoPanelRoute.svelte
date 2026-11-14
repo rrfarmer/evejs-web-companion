@@ -13,9 +13,8 @@
   //   - DestinationWaypointPanel (more than one entry): the last entry's trace (hint CurrentDestination), its pointer up
   //     under the last marker.
   // _GetNumJumps: the route's distinct systems (a station as its system), less one where the first is the pilot's.
-  // The header button: AutopilotSettings' menu (here Manage Route only - the route window).
-  // Not here: the header menu's search, autopilot, route type, security penalty and avoidance settings; the markers'
-  // menus, drag and hover; the lawless and Triglavian markers; the animations. A structure waypoint's own system is
+  // The header button: AutopilotSettings' menu (RouteSettingsMenu.svelte).
+  // Not here: the header menu's search; the markers' menus, drag and hover; the lawless and Triglavian markers; the animations. A structure waypoint's own system is
   // not put before it (the route window reads no system for a structure).
   import { onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -26,6 +25,7 @@
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "../play/window.ts";
   import { showInfo } from "./showInfo.ts";
+  import RouteSettingsMenu from "./RouteSettingsMenu.svelte";
   let { store, flow, compact, onToggle, openRouteWindow }: { store: ClientStore; flow: AppFlow; compact: boolean; onToggle: () => void; openRouteWindow?: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -43,8 +43,11 @@
   let map = $state<StarMapData | null>(null), plan = $state<RouteWindowWaypoints | null>(null), menu = $state(false);
   onMount(() => { flow.requestWords(LABELS); void flow.loadStarMap().then((m) => { map = m; }, () => {}); });
   const systemID = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
-  // OnDestinationSet: the waypoints changed, or the pilot's system.
-  $effect(() => { void $waypointsSignal; void systemID; void flow.routeWindowWaypoints().then((p) => { plan = p; }, () => { plan = null; }); });
+  // OnDestinationSet: the waypoints changed, the pilot's system, or the autopilot's settings (the star map plots the
+  // route again on OnAutopilotUpdated).
+  // svelte-ignore state_referenced_locally
+  const routeSettings = flow.routeSettings;
+  $effect(() => { void $waypointsSignal; void systemID; void $routeSettings; void flow.routeWindowWaypoints().then((p) => { plan = p; }, () => { plan = null; }); });
   const isSystem = (id: number) => id >= 30_000_000 && id <= 39_999_999;
   const isStation = (id: number) => id >= 60_000_000 && id < 64_000_000;
   // The autopilot route: each waypoint's way there, then (a station) its system, then it.
@@ -113,9 +116,7 @@
         <img alt="" src={clientTexture("res:/UI/Texture/classes/Neocom/arrowDown.png")} /></button>
       <button type="button" class="ip-icon" onclick={() => { menu = !menu; }}><img alt="" src={clientTexture("res:/UI/Texture/Classes/InfoPanels/Route.png")} /></button>
       {#if menu}
-        <div class="rt-menu" role="menu" tabindex="-1" onmouseleave={() => { menu = false; }}>
-          <button type="button" onclick={() => { menu = false; openRouteWindow?.(); }}>{word("UI/Map/MapPallet/ManageRoute") || "Manage Route"}</button>
-        </div>
+        <div class="rt-menu-wrap" role="presentation" onmouseleave={() => { menu = false; }}><RouteSettingsMenu {store} {flow} {openRouteWindow} onClose={() => { menu = false; }} /></div>
       {/if}
     </div>
     {#if !compact}
@@ -160,9 +161,7 @@
   .ip-expand img { width: 7px; height: 7px; transform: rotate(-90deg); }
   .ip-expand.expanded img { transform: none; }
   .ip-icon img { width: 16px; height: 16px; }
-  .rt-menu { position: absolute; left: 28px; top: 28px; z-index: 5; display: flex; flex-direction: column; min-width: 160px; background: rgb(20 22 26 / 0.97); border: 1px solid rgb(255 255 255 / 0.15); }
-  .rt-menu button { all: unset; cursor: pointer; padding: 4px 10px; }
-  .rt-menu button:hover { background: rgb(255 255 255 / 0.08); }
+  .rt-menu-wrap { display: contents; }
   .rt-header { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
   .rt-title { font-size: 17px; color: rgb(255 255 255 / 0.95); }
   .rt-compact { flex-wrap: wrap; font-size: 13px; }
