@@ -10,8 +10,12 @@
   //   the threshold), StatusContested {num: fraction * 100} (score above 0), else StatusStable.
   // - GetAdjacencyText: ADJACENCY_TO_LABEL_SYSTEM_TEXT (UI/FactionWarfare/frontlines/FrontlineSystem, SecondlineSystem,
   //   BacklineSystem).
-  // Not here: the net advantage line (fwAdvantageSvc: the activity tracker's solar system scores, a public-gateway
-  // request), the system upgrade's benefit icons, the battlefield scoreboards, the Bulwark systems, the title's
+  // - _GetAdvantageTextAndHint (the net advantage line, EveLabelSmall, in normal mode outside Bulwark systems): the
+  //   activity tracker's scores (fwAdvantageSvc: GetSolarSystemScoresRequest); the net score the occupier's
+  //   contribution + floor less the attacker's; a winner where it is not 0: UI/FactionWarfare/shortAdvantageLine
+  //   {factionName: the winner's race's name, netAdvantagePercent: |net| as {0:.0%}}, its hint advantagebreakdownTooltip
+  //   {objectives, floor: the winner's contribution and floor as {0:.0%}}; else noFactionHasAdvantageShortLine.
+  // Not here: the system upgrade's benefit icons, the battlefield scoreboards, the Bulwark systems, the title's
   // OpenMilitia link, the gauge's tooltip.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, FactionWarfareLocal } from "../app/flow.ts";
@@ -37,7 +41,7 @@
     void flow.factionWarfareLocal().then((read) => { if (asked === systemID) fw = read; }, () => { fw = null; });
   });
   $effect(() => {
-    flow.requestWords([F + "FactionalWarfare", F + "StatusVulnerable", F + "StatusContested", F + "StatusStable", F + "frontlines/FrontlineSystem", F + "frontlines/SecondlineSystem", F + "frontlines/BacklineSystem"]);
+    flow.requestWords([F + "shortAdvantageLine", F + "advantagebreakdownTooltip", F + "noFactionHasAdvantageShortLine", ...Object.values(fw?.raceNameIDs ?? {}).map((id) => `#${id}`), F + "FactionalWarfare", F + "StatusVulnerable", F + "StatusContested", F + "StatusStable", F + "frontlines/FrontlineSystem", F + "frontlines/SecondlineSystem", F + "frontlines/BacklineSystem"]);
     if (fw?.occupation) flow.requestNames([{ kind: "owner", id: fw.occupation.occupierID }]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
@@ -55,6 +59,19 @@
     return word(F + "StatusStable");
   });
   const status = $derived(occ ? (statusText ? `${resolvedName($names.resolved, "owner", occ.occupierID, "")}: ${statusText}` : resolvedName($names.resolved, "owner", occ.occupierID, "")) : "");
+  // Python's '{0:.0%}': the value * 100 rounded to a whole number (half to even), then "%".
+  const percent = (value: number) => { const x = value * 100, r = Math.round(x); return `${Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r}%`; };
+  const advantage = $derived.by((): { text: string; hint: string } | null => {
+    const a = fw?.advantage;
+    if (!a || !occ) return null;
+    const score = (id: number | null) => (id !== null && a[id] ? a[id].contribution + a[id].floor : 0);
+    const net = score(occ.occupierID) - score(occ.attackerID);
+    const winner = net > 0 ? occ.occupierID : net < 0 ? occ.attackerID : null;
+    if (winner === null) return { text: word(F + "noFactionHasAdvantageShortLine"), hint: "" };
+    const raceName = fw?.raceNameIDs[winner] ? word(`#${fw.raceNameIDs[winner]}`) : "";
+    return { text: word(F + "shortAdvantageLine", { factionName: raceName, netAdvantagePercent: percent(Math.abs(net)) }),
+      hint: word(F + "advantagebreakdownTooltip", { objectives: percent(a[winner]?.contribution ?? 0), floor: percent(a[winner]?.floor ?? 0) }) };
+  });
   // UpdateChart: a 0.01 black gap, the contested part (attacker), a 0.01 gap, the rest (occupier); in turns of 1.02.
   const gradient = $derived.by(() => {
     if (!occ) return "";
@@ -82,6 +99,7 @@
         <div class="fw-text">
           <span class="fw-line">{status}</span>
           {#if ADJACENCY[occ.adjacency]}<span class="fw-line">{word(F + ADJACENCY[occ.adjacency])}</span>{/if}
+          {#if advantage}<span class="fw-small" title={advantage.hint}>{advantage.text}</span>{/if}
         </div>
       </div>
     {/if}
@@ -105,4 +123,5 @@
   .fw-gauge.small > span { width: 16px; height: 16px; }
   .fw-text { display: flex; flex-direction: column; gap: 2px; }
   .fw-line { font-size: 12px; color: rgb(255 255 255 / 0.85); }
+  .fw-small { margin-top: 8px; font-size: 11px; color: rgb(255 255 255 / 0.75); }
 </style>

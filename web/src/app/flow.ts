@@ -649,6 +649,13 @@ export interface FactionWarfareLocal {
   readonly occupation: { readonly occupierID: number; readonly attackerID: number | null; readonly adjacency: string; readonly pirateFactionID: number | null } | null;
   /** VictoryPointState(vpScore, vpThreshold). */
   readonly victory: { readonly score: number; readonly threshold: number } | null;
+  /**
+   * fwAdvantageSvc.GetAdvantageState: the activity tracker's scores (GetSolarSystemScoresRequest) by faction, each
+   * contribution and floor over MAX_ACTIVITY_POINTS (100000); null where unread.
+   */
+  readonly advantage: Readonly<Record<number, { readonly contribution: number; readonly floor: number }>> | null;
+  /** appConst.raceByFaction's races' name messages (characterdata.races.get_race_name), by faction. */
+  readonly raceNameIDs: Readonly<Record<number, number>>;
 }
 
 /** The epic arcs (flow.epicArcs) and their feature tag's title message and eveicon. */
@@ -19774,11 +19781,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon !== null && currentDungeon.instanceID === s.instanceID }));
   }
   async function factionWarfareLocal(): Promise<FactionWarfareLocal | null> {
-    const [occupation, victory] = await Promise.all([
+    const here = store.station.get().online?.solarSystemID ?? null;
+    const [occupation, victory, scores, raceNames] = await Promise.all([
       bridgeAsk("fwWarzoneSolarsystem", "GetLocalOccupationState", []).catch(() => null),
       bridgeAsk("fwVictoryPointMgr", "GetLocalVictoryPointState", []).catch(() => null),
+      here ? api.publicGatewayRequest("eve_public.faction.activity.GetSolarSystemScoresRequest", { solar_system: { sequential: here } } as unknown as Record<string, JsonValue>, callOptions).catch(() => null) : Promise.resolve(null),
+      api.getRaceNameIDs(callOptions).catch(() => ({} as Readonly<Record<number, number>>)),
     ]);
     if (!Array.isArray(occupation) || !Array.isArray(victory)) return null;
+    // advantageState.CreateAdvantageStateFromActivityState: points over MAX_ACTIVITY_POINTS.
+    let advantage: Record<number, { contribution: number; floor: number }> | null = null;
+    if (scores && scores.statusCode === 200) {
+      advantage = {};
+      const payload = (scores.payload && typeof scores.payload === "object" ? scores.payload : {}) as Record<string, unknown>;
+      for (const row of Array.isArray(payload.scores) ? payload.scores as Record<string, unknown>[] : []) {
+        const factionID = Number((row.faction as Record<string, unknown> | undefined)?.sequential ?? 0);
+        if (factionID > 0) advantage[factionID] = { contribution: Number(row.contribution ?? 0) / 100000, floor: Number(row.floor ?? 0) / 100000 };
+      }
+    }
+    // appConst.factionByRace (Caldari 1, Minmatar 2, Amarr 4, Gallente 8), turned about.
+    const RACE_BY_FACTION: Record<number, number> = { 500001: 1, 500002: 2, 500003: 4, 500004: 8 };
+    const raceNameIDs = Object.fromEntries(Object.entries(RACE_BY_FACTION).map(([factionID, raceID]) => [Number(factionID), Number(raceNames[raceID] ?? 0)]).filter(([, id]) => (id ?? 0) > 0));
     const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : v && typeof v === "object" && "value" in v ? Number((v as { value: unknown }).value) : null);
     // An objectex1 (a class instance): its header's second item is the constructor's arguments.
     const argsOf = (v: unknown): unknown[] | null => {
@@ -19793,6 +19816,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       solarSystemID: num(occupation[0]) ?? 0,
       occupation: o && occupierID !== null ? { occupierID, attackerID, adjacency: String(o[1] ?? ""), pirateFactionID: num(o[3]) } : null,
       victory: vp && num(vp[0]) !== null && num(vp[1]) ? { score: num(vp[0])!, threshold: num(vp[1])! } : null,
+      advantage, raceNameIDs,
     };
   }
   async function redeemDailyGoal(goalID: string): Promise<boolean> {

@@ -11568,6 +11568,107 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.faction.activity.GetSolarSystemScoresRequest": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.faction.activity.GetSolarSystemScoresResponse": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "scores",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.faction.activity.Score"
+    }
+   ]
+  },
+  "eve_public.faction.activity.Score": {
+   "fields": [
+    {
+     "name": "faction",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.faction.Identifier"
+    },
+    {
+     "name": "contribution",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "floor",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.faction.activity.ScoreContributionNotice": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "contributor",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "faction",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.faction.Identifier"
+    },
+    {
+     "name": "contribution",
+     "number": 4,
+     "type": 5,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.faction.activity.SolarSystemScoresNotice": {
+   "fields": [
+    {
+     "name": "solar_system",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "scores",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.faction.activity.Score"
+    }
+   ]
   }
  },
  "enums": {

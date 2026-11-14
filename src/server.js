@@ -14791,6 +14791,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.sovereignty.hub.workforce.api.GetNetworkableHubsRequest",
   "eve_public.sovereignty.resource.planet.api.GetAllDefinitionsRequest",
   "eve_public.sovereignty.resource.star.api.GetAllConfigurationsRequest",
+  // The factional warfare info panel's net advantage (fwAdvantageSvc: the activity tracker's get_solar_system_scores).
+  "eve_public.faction.activity.GetSolarSystemScoresRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   // A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest).
