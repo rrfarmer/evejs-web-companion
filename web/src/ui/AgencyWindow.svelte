@@ -43,6 +43,7 @@
   import AgencyCampaignsPage from "./AgencyCampaignsPage.svelte";
   import AgencyPirateStrongholdsPage from "./AgencyPirateStrongholdsPage.svelte";
   import AgencyAbyssalPage from "./AgencyAbyssalPage.svelte";
+  import AgencyProjectDiscoveryPage from "./AgencyProjectDiscoveryPage.svelte";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
   import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
@@ -57,7 +58,7 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const station = store.station;
-  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, ASTEROID_BELTS = 40, PIRATE_STRONGHOLDS = 73, ABYSSAL_DEADSPACE = 37, ABYSSAL_FILAMENTS = 44, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
+  const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, PROJECT_DISCOVERY = 52, ASTEROID_BELTS = 40, PIRATE_STRONGHOLDS = 73, ABYSSAL_DEADSPACE = 37, ABYSSAL_FILAMENTS = 44, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // carousel_* textures for the home page's carousel cards (their texturePath), else the group's own card.
@@ -172,6 +173,8 @@
       <div class="ag-page ag-help-page"><AgencyGuidePage {store} {flow} guide="factionWarfare" {onOpenTab} onShow={(id) => show(id)} /></div>
     {:else if groupID === ABYSSAL_DEADSPACE || groupID === ABYSSAL_FILAMENTS}
       {#key groupID}<div class="ag-page"><AgencyAbyssalPage {store} {flow} page={groupID === ABYSSAL_DEADSPACE ? "deadspace" : "filaments"} onShow={(id) => show(id)} /></div>{/key}
+    {:else if groupID === PROJECT_DISCOVERY}
+      <div class="ag-page"><AgencyProjectDiscoveryPage {store} {flow} /></div>
     {:else if groupID === PIRATE_STRONGHOLDS}
       <div class="ag-page"><AgencyPirateStrongholdsPage {store} {flow} filters={siteFilters[groupID] ?? DEFAULT_SITE_FILTERS} /></div>
     {:else if groupID === CAMPAIGNS}
