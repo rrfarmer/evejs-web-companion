@@ -335,14 +335,29 @@ button { font: inherit; color: inherit; }
 .ov-table th.sorted::after { content: " \25B4"; font-size: 9px; }
 .ov-table th.sorted.down::after { content: " \25BE"; }
 
-/* the client's combat notification (combatMessage.ts, message.py CombatMessage): CENTERTOP at max(32 % of the height,
-   225 px), six lines 20 px apart, each 0 -> 1 -> 0 over its 5 s (fadeOutTime [0,0] [0.2|0.05,1] [1,0]) */
-.space .combat-msg { position: absolute; left: 0; right: 0; top: max(32%, 225px); height: 120px; pointer-events: none; z-index: 3; }
-.space .combat-msg-line { position: absolute; left: 0; right: 0; top: 0; text-align: center; white-space: nowrap; color: #fff;
+/* the client's combat notification (combatMessage.ts, message.py CombatMessage): the box placed by the script (its
+   bottom at topOffset), the lines bottom-aligned in it 20 px apart, the text aligned by the place or the setting; each
+   line 0 -> 1 -> 0 over its 5 s (fadeOutTime [0,0] [0.2|0.05,1] [1,0]) */
+.space .combat-msg { position: absolute; pointer-events: none; z-index: 3; font-size: 12px; }
+.space .combat-msg-line { position: absolute; left: 0; right: 0; padding: 0 6px; text-align: center; white-space: nowrap; color: #fff;
   font-family: var(--font); line-height: 20px; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+.space .combat-msg[data-text-align="left"] .combat-msg-line { text-align: left; }
+.space .combat-msg[data-text-align="right"] .combat-msg-line { text-align: right; }
 .space .combat-msg-text { display: inline-block; opacity: 0; animation-timing-function: linear; animation-fill-mode: forwards; }
 @keyframes combat-msg-fade { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes combat-msg-fade-busy { 0% { opacity: 0; } 5% { opacity: 1; } 100% { opacity: 0; } }
+/* moving mode (EnterDragMode): the box takes the mouse; a white 0.25 frame with 5 px corners (FRAME_BORDER1_CORNER5,
+   top -5), the fill (buttonDown.png), the close button (eveicon.close, 24 x 24, its icon 16) at the top right; the
+   example text 12 px, 380 wide */
+.space .combat-msg.moving { pointer-events: auto; cursor: move; }
+.space .combat-msg-frame { position: absolute; inset: -5px 0 0 0; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 5px;
+  background: url("/client-res/ui/texture/classes/neocom/buttondown.png") center / 100% 100% no-repeat; pointer-events: none; }
+.space .combat-msg-close { position: absolute; top: 0; right: 0; width: 24px; height: 24px; padding: 0; border: 0; cursor: pointer;
+  pointer-events: auto; background: url("/client-res/ui/texture/eveicon/system_icons/close_16px.png") center / 16px 16px no-repeat; opacity: 0.8; }
+.space .combat-msg-close:hover { opacity: 1; }
+.space .combat-msg-fake { position: absolute; left: 6px; top: 5px; width: 380px; font: 12px/20px var(--font); color: #fff; }
+.space .combat-msg[data-text-align="center"] .combat-msg-fake { text-align: center; }
+.space .combat-msg[data-text-align="right"] .combat-msg-fake { text-align: right; }
 /* the HUD's shortcut indication while a combat command is held (HudActionIndicationController.set_shortcut_indication) */
 .space .cmd-indication { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: 6px 14px; font-size: 14px;
   color: #fff; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.15); pointer-events: none; opacity: 0;

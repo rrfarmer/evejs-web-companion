@@ -10,6 +10,7 @@
   import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { addGameLogLine } from "./gameLog.ts";
+  import { combatFlag, combatFontSize, damageMessageShown } from "./combatSettings.ts";
   import type { DamageEvent } from "../store/types.ts";
   import { get as storeValue } from "svelte/store";
   import { marketDetailsTarget } from "./marketDetails.ts";
@@ -503,6 +504,8 @@
   function logCombatLine(d: DamageEvent): void {
     const s = session;
     if (!s || d.attackType === undefined) return;
+    // godma.OnDamageMessage's gates (damageMessages, damageMessagesNoDamage, damageMessagesEnemy / Mine)
+    if (!damageMessageShown(d.direction, d.amount)) return;
     const quality = d.quality ?? 0;
     const key = (quality === 0 ? "AttackMiss" : "AttackHits")
       + (d.attackType === "otherPlayer" ? "RD" : d.attackType === "otherPlayerWeapons" ? "R" : d.banked ? "Banked" : "");
@@ -524,7 +527,8 @@
     if (d.ownerID) s.flow.requestNames([{ kind: "owner", id: d.ownerID }]);
     if (d.weaponTypeID) s.flow.requestNames([{ kind: "type", id: d.weaponTypeID }]);
     const args = { target: nameOfItem(targetID), source: nameOfItem(sourceID), owner, weapon: d.weaponTypeID ?? 0, extraNameText: "",
-      strongColor: "<color=0xff00ffff>", faintColor: "<color=0x77ffffff>", fontMarkUpStart: "<font size=10>", fontMarkUpEnd: "</font>" };
+      // the small font a step below the notification's (max(10, notificationFontSize - 2))
+      strongColor: "<color=0xff00ffff>", faintColor: "<color=0x77ffffff>", fontMarkUpStart: `<font size=${Math.max(10, storeValue(combatFontSize) - 2)}>`, fontMarkUpEnd: "</font>" };
     const markup = formatTemplate(template, args as never, { nameOf: (kind, id) => resolved[nameKey(kind, id)] ?? "" }).trim();
     let text = plainText(markup).trim();
     if (d.weaponTypeID) text += ` - ${resolved[nameKey("type", d.weaponTypeID)] ?? ""}`;
@@ -532,10 +536,15 @@
     if (typeof hq === "string") text += ` - ${plainText(hq)}`;
     if (quality > 0) text = `${Math.round(d.amount)} ${text}`;
     addGameLogLine(text, "combat");
-    // the in-space line (logger.Say, msgLimited): the message, " - " the hit quality (damageMessagesShowQuality, on by
-    // default; the weapon and the ticker / ship type extras are off by default), the damage before it in damage_html's
-    // colour - red for a shot at us, cyan for ours - and a miss's from one attacker once in 10 s
-    view?.combatMessage.add(typeof hq === "string" ? `${markup} - ${hq}` : markup, quality, sourceID,
+    // the in-space line (logger.Say, msgLimited) where damageMessageShowInspaceNotifications is on: the message, then
+    // " - " the weapon (damageMessagesShowWeapon) and " - " the hit quality (damageMessagesShowQuality), the damage
+    // before it in damage_html's colour - red for a shot at us, cyan for ours - and a miss's from one attacker once in
+    // 10 s. (The ticker / ship type extras need the payload's tickerText / typeName, not read here.)
+    if (!combatFlag("damageMessageShowInspaceNotifications")) return;
+    let post = "";
+    if (d.weaponTypeID && combatFlag("damageMessagesShowWeapon")) post += ` - ${resolved[nameKey("type", d.weaponTypeID)] ?? ""}`;
+    if (typeof hq === "string" && combatFlag("damageMessagesShowQuality")) post += ` - ${hq}`;
+    view?.combatMessage.add(markup + post, quality, sourceID,
       quality > 0 ? { amount: d.amount, color: d.attackType !== "me" ? "#cc0000" : "#00ffff" } : null);
   }
 
@@ -858,6 +867,11 @@
     });
     spaceHost.appendChild(v.root);
     view = v;
+    // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
+    s.flow.requestWords(["UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode"]);
+    const combatWord = (label: string, own: string) => { const t = s.store.words.get().templates[label]; return typeof t === "string" ? plainText(t) : own; };
+    v.combatMessage.exampleText = () => combatWord("UI/Accessories/Log/ExampleText", "Example Text");
+    v.combatMessage.exitHint = () => combatWord("UI/Accessories/Log/ExitMessageMovingMode", "Exit Message Moving Mode");
     // The client's drones window comes up in space for a ship with a drone bay.
     void s.flow.loadDrones().then(() => {
       const d = s.store.drones.get();
@@ -1704,6 +1718,16 @@
   .fly-windows :global(.log-menu button) { all: unset; position: relative; padding: 3px 10px 3px 24px; font-size: 12px; cursor: default; }
   .fly-windows :global(.log-menu button[aria-checked="true"])::before { content: "✓"; position: absolute; left: 8px; font-size: 11px; }
   .fly-windows :global(.log-menu button:hover) { background: rgba(255, 255, 255, 0.1); }
+  /* the combat settings' submenus: to the right of their entry, a caret on it; an entry whose setting depends on an off
+     one greyed (isEnabled) */
+  .fly-windows :global(.log-menu .log-sub-wrap) { position: relative; display: flex; flex-direction: column; }
+  .fly-windows :global(.log-menu .has-sub)::after { content: "▸"; position: absolute; right: 8px; font-size: 10px; opacity: 0.7; }
+  .fly-windows :global(.log-menu .has-sub) { padding-right: 24px; white-space: nowrap; }
+  .fly-windows :global(.log-menu .log-sub) { left: 100%; top: -5px; white-space: nowrap; }
+  .fly-windows :global(.log-menu button:disabled) { opacity: 0.4; pointer-events: none; }
+  .fly-windows :global(.log-menu .sep) { height: 1px; margin: 3px 0; background: rgba(255, 255, 255, 0.12); }
+  .fly-windows :global(.log-menu .has-icon img) { position: absolute; left: 4px; top: 3px; width: 16px; height: 16px; }
+  .fly-windows :global(.log-menu .destructive) { color: #ff6a5a; }
   .fly-windows :global(.log-table) { width: 100%; border-collapse: collapse; font-size: 12px; }
   .fly-windows :global(.log-table th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6); padding: 2px 6px; }
   .fly-windows :global(.log-table td) { padding: 1px 6px; vertical-align: top; color: rgba(255, 255, 255, 0.85); }
