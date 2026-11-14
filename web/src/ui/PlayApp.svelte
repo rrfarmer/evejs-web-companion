@@ -5,7 +5,9 @@
   // bot, and no bot is mounted. Docked, the station's Undock; in space, the SpaceView with its HUD, overview and
   // brackets. The Neocom opens the app's panels (PanelHost) in client-look windows (DesktopWindow).
   import { onDestroy } from "svelte";
-  import { splitResults } from "../bridge/probeResults.ts";
+  import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS } from "../bridge/probeResults.ts";
+  import { romanLevel } from "../bridge/skills.ts";
+  import { fmtDist } from "../space/overview.ts";
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { get as storeValue } from "svelte/store";
   import { marketDetailsTarget } from "./marketDetails.ts";
@@ -646,6 +648,44 @@
       },
       moveProbes: (moves) => s.flow.moveScannerProbes(moves),
       selectedSites: () => storeValue(probeSitesSelected),
+      // MarkerScanResult.GetLabelText (id, scanSvc.GetDisplayName, distance) and GetBracketLabelText's difficulty line
+      resultLabel: (siteID) => {
+        const held = s.store.scanner.get().probeResults;
+        const result = held?.results.find((each) => each.id === siteID);
+        if (!result) return siteID;
+        const templates = s.store.words.get().templates;
+        const word = (label: string, args: Record<string, string | number> = {}): string | null => {
+          const t = templates[label];
+          return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: () => "" })).trim() : null;
+        };
+        const resolved = s.store.names.get().resolved;
+        const nameOf = (kind: "type" | "group", id: number): string | null => {
+          const name = resolved[nameKey(kind, id)];
+          return typeof name === "string" && name.trim() !== "" ? name : null;
+        };
+        // what the name needs, asked for as the scanner's list asks (its type and group, a site's dungeon name)
+        const site = result.scanGroupID === SCAN_GROUP.signatures || result.scanGroupID === SCAN_GROUP.anomalies;
+        const words = [...PROBE_RESULT_WORD_LABELS, "UI/Inflight/Scanner/ScanningDifficulty", "UI/Inflight/Scanner/DifficultyUnknown", "UI/Agents/AgentEntry/Level"];
+        if (site && result.dungeonNameID !== null) words.push(`#${result.dungeonNameID}`);
+        s.flow.requestWords(words);
+        if (!site) s.flow.requestNames([...(result.typeID !== null ? [{ kind: "type" as const, id: result.typeID }] : []),
+          ...(result.groupID !== null ? [{ kind: "group" as const, id: result.groupID }] : [])]);
+        const own = s.store.space.get().snapshot?.ship?.position ?? null;
+        const [row] = resultRows([result], own === null ? null : [own.x, own.y, own.z], {
+          words: (label) => word(label),
+          typeName: (typeID) => nameOf("type", typeID),
+          groupName: (groupID) => nameOf("group", groupID),
+          messageText: (messageID) => word(`#${messageID}`),
+        });
+        let text = [siteID, row?.name ?? "", row?.distance === null || row?.distance === undefined ? "" : fmtDist(row.distance)].filter((part) => part !== "").join(" ");
+        if (result.certainty < 1) {
+          const difficulty = result.difficulty === null
+            ? word("UI/Inflight/Scanner/DifficultyUnknown") ?? "Unknown"
+            : word("UI/Agents/AgentEntry/Level", { level: romanLevel(result.difficulty) }) ?? `Level ${romanLevel(result.difficulty)}`;
+          text += "\n" + (word("UI/Inflight/Scanner/ScanningDifficulty", { difficulty }) ?? `Scanning Difficulty: ${difficulty}`);
+        }
+        return text;
+      },
       selectSite: (siteID, multiSelect) => selectProbeSite(siteID, multiSelect),
       // scanHandler.GetResults: the session's system's results less the ignored and the filtered
       scanResults: () => {

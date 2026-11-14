@@ -80,7 +80,9 @@
 //   from the colour at 0.8 of its brightness to the colour, on the colour at brightness 0.4, in CircularGradient.png
 //   (60 x 60, opacity 0.4); the marker at 1.0, an unselected one at 0.6 (GetMarkerOpacity). A result turned perfect
 //   (AnimPerfectResult): the gauge blinked in four times, two circles of radius 40 (0.4, 1, 0.4) grown to 1.4 and
-//   faded from 0.3 over 0.8 s, 0.25 s and 0.65 s on. Not yet the label's name and distance, the menu.
+//   faded from 0.3 over 0.8 s, 0.25 s and 0.65 s on. Its label (GetLabelText): the id, the display name and the
+//   distance, and below a partial result's the difficulty (GetBracketLabelText: ScanningDifficulty, by
+//   GetScanDifficultyText - Level in Roman or DifficultyUnknown). Not yet the radial menu.
 // Not here: the markers' overlap stacking and distance fade, the bookmarks, the scan panels docked in it, the range indicator, the probe
 // handler, the d-scan cone (directionalScanHandler), the top / side view buttons, the nebula and starfield.
 
@@ -129,6 +131,8 @@ export interface SolarSystemMapHooks {
   selectedSites?(): ReadonlySet<string>;
   /** SelectSite: a result marker clicked. */
   selectSite?(siteID: string, multiSelect: boolean): void;
+  /** A result marker's label: GetLabelText, and the difficulty line for a partial result. */
+  resultLabel?(siteID: string): string;
   /** RegisterProbeMove: the moved idle probes given their new destinations (EVE's coordinates). */
   moveProbes?(moves: readonly ProbeMove[]): Promise<void> | void;
 }
@@ -735,7 +739,10 @@ export class SolarSystemMapWindow {
         }
       }
       el.addEventListener("click", (e) => this.hooks.selectSite?.(r.id, e.shiftKey || e.ctrlKey));
-      el.addEventListener("mouseenter", () => el.classList.add("hover"));
+      el.addEventListener("mouseenter", () => {
+        el.classList.add("hover");
+        (el.querySelector(".ssm-label") as HTMLElement).textContent = this.hooks.resultLabel?.(r.id) ?? r.id;
+      });
       el.addEventListener("mouseleave", () => el.classList.remove("hover"));
       this.markersLayer.appendChild(el);
       this.resultMarkers.push({ at: place, el });

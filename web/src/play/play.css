@@ -164,6 +164,7 @@ button { font: inherit; color: inherit; }
 .ssm-result-icon { position: absolute; left: -1px; top: -1px; width: 16px; height: 16px; background: var(--result-colour);
   -webkit-mask: var(--result-icon) center / 16px 16px no-repeat; mask: var(--result-icon) center / 16px 16px no-repeat; }
 .ssm-result .ssm-frame { opacity: 0; }
+.ssm-result .ssm-label { white-space: pre; }
 .ssm-gauge { position: absolute; left: -23px; top: -23px; width: 60px; height: 60px; pointer-events: none; }
 .ssm-gauge img { position: absolute; inset: 0; width: 60px; height: 60px; opacity: 0.4; }
 .ssm-gauge-ring { position: absolute; left: 8px; top: 8px; width: 44px; height: 44px; border-radius: 50%;
