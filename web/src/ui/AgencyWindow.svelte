@@ -41,6 +41,7 @@
   import AgencyGuidePage from "./AgencyGuidePage.svelte";
   import AgencyFactionWarfarePage from "./AgencyFactionWarfarePage.svelte";
   import AgencyInsurgencySystemsPage from "./AgencyInsurgencySystemsPage.svelte";
+  import AgencyEssPage from "./AgencyEssPage.svelte";
   import AgencyFleetUpPage from "./AgencyFleetUpPage.svelte";
   import AgencyCampaignsPage from "./AgencyCampaignsPage.svelte";
   import AgencyPirateStrongholdsPage from "./AgencyPirateStrongholdsPage.svelte";
@@ -53,6 +54,7 @@
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
   import { DEFAULT_AGENCY_FW_FILTERS, DEFAULT_AGENCY_INSURGENCY_FILTERS, DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
+  import { DEFAULT_ESS_FILTERS } from "../bridge/agencyEss.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
   let { store, flow, showTravel, onOpenTab }: { store: ClientStore; flow: AppFlow; showTravel?: () => void; onOpenTab?: (tab: string) => void } = $props();
@@ -68,6 +70,7 @@
   const HOME_LEFT = [11, 12, 13, 14];
   const FW_SYSTEMS = 46;
   const INSURGENCY_SYSTEMS = 79;
+  const ESS_SYSTEMS = 65;
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // CorpContentGroup (an ExternalContentGroup): its name and description the player corporation's ((contentGroupCorp, 1):
   // ContentGroupCorp2, Descriptions/Corp2) where the pilot's corporation is not an NPC's; its card opens the
@@ -94,6 +97,7 @@
   let siteFilters = $state<Record<number, AgencySiteFilters>>({});
   let fwFilters = $state(DEFAULT_AGENCY_FW_FILTERS);
   let insurgencyFilters = $state(DEFAULT_AGENCY_INSURGENCY_FILTERS);
+  let essFilters = $state(DEFAULT_ESS_FILTERS);
   const SITE_PAGES: Record<number, SiteTrackerKind | "signature" | "escalation" | "belts"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature", [ESCALATIONS]: "escalation", [HOMEFRONT]: "homefront", [ASTEROID_BELTS]: "belts" };
   const groupID = $derived(history[at] ?? HOME);
   const itemID = $derived(items[at] ?? null);
@@ -224,6 +228,8 @@
       <div class="ag-page ag-help-page"><AgencyGuidePage {store} {flow} guide="pirateInsurgencies" {onOpenTab} onShow={(id) => show(id)} /></div>
     {:else if groupID === INSURGENCY_SYSTEMS}
       <div class="ag-page"><AgencyInsurgencySystemsPage {store} {flow} bind:filters={insurgencyFilters} /></div>
+    {:else if groupID === ESS_SYSTEMS}
+      <div class="ag-page"><AgencyEssPage {store} {flow} bind:filters={essFilters} /></div>
     {:else if groupID === HELP}
       <div class="ag-page ag-help-page"><AgencyHelpPage {store} {flow} /></div>
     {:else if groupID === COLONY_RESOURCES}

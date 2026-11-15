@@ -408,6 +408,7 @@ import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchRead
 import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
 import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencyInsurgencySystems as insurgencySystemsForAgency, agencySiteSystems, insurgencySiteCandidates, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencyInsurgencyFilters, type AgencyInsurgencySystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type InsurgencyStages, type SiteTrackerKind } from "../bridge/agencySites.ts";
+import { essBeacon, essDetails, essSettings, essSystems, filterEssSystems, type AgencyEssFilters, type AgencyEssSystem, type EssDetails, type EssLocation, type EssSettings, type EssSystem } from "../bridge/agencyEss.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
@@ -3782,6 +3783,10 @@ export interface AppFlow {
   agencyFactionWarfareSystems(filters: AgencyFactionWarfareFilters): Promise<readonly AgencyFactionWarfareSystem[]>;
   agencyFactionWarfareSystemLP(systemID: number): Promise<number | null>;
   agencyInsurgencySystems(filters: AgencyInsurgencyFilters): Promise<{ systems: readonly AgencyInsurgencySystem[]; activeCampaign: boolean }>;
+  agencyEssSystems(filters: AgencyEssFilters): Promise<readonly AgencyEssSystem[]>;
+  agencyEssSettings(): Promise<EssSettings | null>;
+  agencyEssDetails(systemID: number): Promise<EssDetails | null>;
+  agencyEssBeacon(): Promise<number | null>;
   agencyRegisterLocalSignalTracker(): Promise<void>;
   readonly agencyAnomaliesChanged: ReadableSignal<number>;
   /**
@@ -21114,6 +21119,26 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames(systems.map((row) => ({ kind: "system", id: row.solarSystemID })));
     return { systems, activeCampaign: campaigns.some((campaign) => campaign.fsmState === 3) };
   }
+  let essAgencyRead: { expiresAt: number; rows: Promise<EssSystem[]> } | null = null;
+  async function agencyEssSystems(filters: AgencyEssFilters): Promise<readonly AgencyEssSystem[]> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    if (!essAgencyRead || essAgencyRead.expiresAt <= Date.now()) {
+      const rows = bridgeAsk("dynamicResourceCacheMgr", "GetESSAgencyData", []).then(essSystems);
+      essAgencyRead = { expiresAt: Date.now() + 30_000, rows };
+      void rows.catch(() => { if (essAgencyRead?.rows === rows) essAgencyRead = null; });
+    }
+    const [rows, jumps, map] = await Promise.all([
+      essAgencyRead.rows,
+      here === null ? null : autopilotDistancesFrom(here).catch(() => null),
+      starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; }),
+    ]);
+    const geography = new Map<number, EssLocation>(map.systems.map(([id, , , , , regionID, constellationID, , security]) =>
+      [id, { regionID, constellationID, security: security ?? null }]));
+    const systems = filterEssSystems(rows, filters, here, jumps, geography);
+    requestNames(systems.map((row) => ({ kind: "system", id: row.solarSystemID })));
+    return systems;
+  }
+
   async function agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [known, counts, jumps, graph] = await Promise.all([
@@ -35221,6 +35246,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyFactionWarfareSystems,
     agencyFactionWarfareSystemLP,
     agencyInsurgencySystems,
+    agencyEssSystems,
+    agencyEssSettings: async () => essSettings(await bridgeAsk("dynamicResourceCacheMgr", "GetDynamicResourceSettings", [])),
+    agencyEssDetails: async (systemID) => essDetails(await bridgeAsk("dynamicResourceCacheMgr", "GetESSSystemDetails", [systemID])),
+    agencyEssBeacon: async () => essBeacon(await bridgeAsk("essMgr", "GetDataForClientSolarSystem", [])),
     async agencyRegisterLocalSignalTracker() { await bridgeDo("scanMgr", "SignalTrackerRegister", []); },
     agencyAnomaliesChanged: readonlySignal(agencyAnomaliesChanged),
     agencySignatures,

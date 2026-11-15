@@ -717,6 +717,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "facWarMgr.GetStats_Corp", "facWarMgr.GetStats_Alliance", "facWarMgr.GetStats_Militia", "facWarMgr.GetCharacterRankInfo",
   // And its insurgencies (PirateInsurgencySiteTracker) and ESS systems (ContentProviderESS._GetSolarSystemsWithESS).
   "dungeonInstanceCacheMgr.GetPirateInsurgencyInstances", "dynamicResourceCacheMgr.GetESSAgencyData",
+  "dynamicResourceCacheMgr.GetESSSystemDetails", "dynamicResourceCacheMgr.GetDynamicResourceSettings",
+  "essMgr.GetDataForClientSolarSystem",
   // And its custom content, the pirate strongholds among it (agency/client/custom_content.get_custom_content).
   "custom_agency_provider.get_content_data",
   // And Colony Resources' sovereignty (starMapSvc.GetAllianceSolarSystems).
@@ -2791,6 +2793,9 @@ const RETAIL_CALLS = Object.freeze({
   "stationSvc.GetAllianceSystems": same("eve/client/script/ui/shared/maps/starMapSvc.py:1609", "sm.RemoteSvc('stationSvc').GetAllianceSystems(), no arguments: the alliance-held systems, each row its solarSystemID and allianceID."),
   "dungeonInstanceCacheMgr.GetPirateInsurgencyInstances": same("evedungeons/client/anomalyTracker.py:314", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetPirateInsurgencyInstances(), no arguments: by solar system the insurgency sites' KeyVals."),
   "dynamicResourceCacheMgr.GetESSAgencyData": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderESS.py:49", "sm.RemoteSvc('dynamicResourceCacheMgr').GetESSAgencyData(), no arguments: by solar system its ESS's data (currentOutput, mainValue, reserveValue, vaultOpen)."),
+  "dynamicResourceCacheMgr.GetESSSystemDetails": same("eve/client/script/ui/shared/agencyNew/contentPieces/essSystemContentPiece.py:21", "GetESSSystemDetails(solarSystemID) for the selected system's payout state, links and reserve window."),
+  "dynamicResourceCacheMgr.GetDynamicResourceSettings": judged("eve/client/script/ui/shared/agencyNew/ui/filters/essFiltersCont.py:23", sentWithNothing, "GetDynamicResourceSettings(), without arguments: bounty filtering bounds and reserve timing factors."),
+  "essMgr.GetDataForClientSolarSystem": judged("eve/client/script/ui/shared/dynamicResource/dynamicResourceSvc.py:74", sentWithNothing, "GetDataForClientSolarSystem(), without arguments: the local ESS data and entrance beacon."),
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances": same("evedungeons/client/anomalyTracker.py:293", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetFactionWarfareInstances(), no arguments: by solar system the factional warfare complexes' KeyVals; the tracker keeps the occupier's."),
   "facWarMgr.GetSolarSystemLPs": judged("eve/client/script/ui/services/facWarSvc.py:449", oneIDAlone("solar system"), "facWarMgr.GetSolarSystemLPs(solarSystemID) reads the specified warzone system's infrastructure hub loyalty point pool."),
   "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates": same("eve/client/script/ui/services/fwWarzoneSvc.py:73", "sm.RemoteSvc('fwWarzoneSolarsystem').GetAllWarzonesOccupationStates(), no arguments: by warzone, by solar system, its OccupationState."),
