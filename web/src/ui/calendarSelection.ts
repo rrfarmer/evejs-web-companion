@@ -13,6 +13,18 @@ export function calendarMonthOffset(date: Pick<CalendarDate, "y" | "m">, origin:
   return (date.y - origin.y) * 12 + date.m - origin.m;
 }
 
+export function calendarDayStart(day: CalendarDate): number {
+  return Date.UTC(day.y, day.m, day.d);
+}
+
+/** CalendarNewEventWnd starts at the next whole hour today and noon on future days. */
+export function newCalendarEventStart(day: CalendarDate, now: number): number {
+  const requested = calendarDayStart(day);
+  const today = calendarDayStart(calendarDate(new Date(now)));
+  const hour = 3_600_000;
+  return requested > today ? requested + 12 * hour : (Math.floor(now / hour) + 1) * hour;
+}
+
 function firstColumn(year: number, month: number): number {
   return (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7;
 }

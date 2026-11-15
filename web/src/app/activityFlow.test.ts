@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import { createAppFlow } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
+import { mailMarkupOfTyped } from "../bridge/mailMarkup.ts";
+import type { BridgeCallRequestBody } from "../bridge/wire.ts";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -165,4 +167,64 @@ test("Calendar replies send the native IDs and chosen status and re-read after a
     ["calendarMgr", "SendEventResponse", [980000000006, 140_000_002, 4], true, true],
     ["calendarMgr", "SendEventResponse", [980000000006, 140_000_002, 2], true, true],
   ]);
+});
+
+test("New Calendar Event writes the native FILETIME, text and personal invitees through the confirmed pilot call", async () => {
+  const calls: BridgeCallRequestBody[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "/api/bridge/call");
+    const body = JSON.parse(String(init?.body)) as BridgeCallRequestBody;
+    calls.push(body);
+    return json({ ok: true, service: body.service, method: body.method, result: { type: "long", value: "980000000042" } });
+  };
+  const flow = createAppFlow(createClientStore(), { fetch });
+  const initial = flow.calendarUpdated.get();
+  const startsAt = Date.UTC(2026, 10, 17, 12, 15);
+  const draft = { startsAt, title: "Drill", description: mailMarkupOfTyped("Use <angles> & lines.\nBring scanners."),
+    duration: 120, important: true, inviteeIDs: [140_000_001] };
+  for (const scope of ["personal", "corporation", "alliance"] as const) {
+    assert.equal(await flow.createCalendarEvent({ ...draft, scope }), 980000000042);
+  }
+  const args = [
+    { type: "long", value: (BigInt(startsAt) * 10_000n + 116444736000000000n).toString() }, 120,
+    { type: "wstring", value: "Drill" }, { type: "wstring", value: "Use &lt;angles&gt; &amp; lines.<br>Bring scanners." }, 1,
+  ];
+  assert.deepEqual(calls.map(({ service, method, args, pilot, confirm }) => [service, method, args, pilot, confirm]), [
+    ["calendarMgr", "CreatePersonalEvent", [...args, { type: "list", items: [140_000_001] }], true, true],
+    ["calendarMgr", "CreateCorporationEvent", args, true, true],
+    ["calendarMgr", "CreateAllianceEvent", args, true, true],
+  ]);
+  assert.equal(flow.calendarUpdated.get(), initial + 3);
+});
+
+test("the Calendar only retries a charged invitation when the organizer accepts the quoted in-game cost", async () => {
+  const calls: unknown[] = [];
+  const values = { type: "dict", entries: [["totalCost", 50], ["totalCostISK", "50 ISK"]] };
+  const fetch: typeof globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    calls.push(body.kwargs);
+    if (body.kwargs?.approvedCost === 50) return json({ ok: true, service: body.service, method: body.method, result: 17 });
+    return json({ ok: false, error: "CALL_REFUSED", refusal: { key: "ContactCostNotApproved", values } }, 409);
+  };
+  const flow = createAppFlow(createClientStore(), { fetch });
+  const send = () => flow.createCalendarEvent({
+    scope: "personal", startsAt: Date.UTC(2026, 10, 17, 12), title: "Drill", description: "",
+    duration: null, important: false, inviteeIDs: [140_000_001],
+  });
+  async function answer(yes: boolean): Promise<void> {
+    for (let i = 0; i < 20 && flow.dialogsSaid.get().length === 0; ++i) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    const question = flow.dialogsSaid.get()[0];
+    assert.equal(question?.dialog, "CSPACalendarCheck");
+    flow.answerDialog(question!.n, yes);
+  }
+  const declined = send();
+  await answer(false);
+  assert.equal(await declined, null);
+  assert.deepEqual(calls.map(kwargs => kwargs ?? null), [null]);
+  const approved = send();
+  await answer(true);
+  assert.equal(await approved, 17);
+  assert.deepEqual(calls.map(kwargs => kwargs ?? null), [null, null, { approvedCost: 50 }]);
 });

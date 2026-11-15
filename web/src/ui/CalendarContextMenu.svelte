@@ -4,7 +4,8 @@
   import type { CalendarReply } from "../bridge/calendar.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import { CALENDAR_REPLY_CHOICES, calendarReplyChoices, calendarResponses, calendarView, type CalendarMenu } from "./calendarView.ts";
+  import { calendarDate, calendarDayStart } from "./calendarSelection.ts";
+  import { CALENDAR_REPLY_CHOICES, calendarCaption, calendarReplyChoices, calendarResponses, calendarView, type CalendarMenu } from "./calendarView.ts";
   import { notify } from "./notices.ts";
   import { portal } from "./portal.ts";
 
@@ -16,17 +17,22 @@
   const { agenda, replying } = model;
   const viewEvent = "/Carbon/UI/Calendar/ViewEvent";
   const goToDay = "/Carbon/UI/Calendar/GotoDay";
+  const createEvent = "/Carbon/UI/Calendar/CreateNewEvent";
+  const viewDay = "/Carbon/UI/Calendar/ViewDay";
   const word = (key: string, fallback: string): string => plainText($words.templates[key] ?? "") || fallback;
-  const event = $derived($agenda.status === "ready" ?
-    $agenda.data.events.find(row => row.eventID === menu.row.event.eventID) ?? menu.row.event : menu.row.event);
-  const response = $derived(calendarResponses($agenda).get(event.eventID) ?? menu.row.response);
+  const row = $derived(menu.kind === "event" ? menu.row : null);
+  const day = $derived(menu.kind === "day" ? menu.day : null);
+  const canCreate = $derived(day !== null && calendarDayStart(day) >= calendarDayStart(calendarDate(new Date(flow.calendarNow()))));
+  const event = $derived(row && $agenda.status === "ready" ?
+    $agenda.data.events.find(candidate => candidate.eventID === row?.event.eventID) ?? row.event : row?.event ?? null);
+  const response = $derived(event ? calendarResponses($agenda).get(event.eventID) ?? row?.response ?? 3 : 3);
   const characterID = $derived($station.online?.characterID ?? null);
-  const replies = $derived(calendarReplyChoices(event, characterID, response, flow.calendarNow(), true));
+  const replies = $derived(event ? calendarReplyChoices(event, characterID, response, flow.calendarNow(), true) : []);
 
   let popup: HTMLDivElement | undefined = $state();
   let x = $state(0), y = $state(0);
   $effect(() => {
-    flow.requestWords([viewEvent, goToDay, ...CALENDAR_REPLY_CHOICES.map(([, key]) => key)]);
+    flow.requestWords([viewEvent, goToDay, createEvent, viewDay, ...CALENDAR_REPLY_CHOICES.map(([, key]) => key)]);
   });
   $effect(() => {
     const { x: left, y: top } = menu;
@@ -49,7 +55,7 @@
 
   function dismiss(restoreFocus = false): void {
     const anchor = menu.anchor;
-    model.closeEventMenu();
+    model.closeMenu();
     if (restoreFocus && anchor.isConnected) anchor.focus();
   }
 
@@ -76,6 +82,7 @@
 
   async function respond(status: CalendarReply): Promise<void> {
     const invitation = event;
+    if (!invitation) return;
     const choices = calendarReplyChoices(invitation, characterID, response, flow.calendarNow(), true);
     dismiss(true);
     try {
@@ -91,29 +98,42 @@
   function openEvent(): void {
     const invitation = event;
     dismiss();
-    model.openEvent(invitation);
+    if (invitation) model.openEvent(invitation);
   }
 
   function jump(): void {
-    const day = menu.row.day;
+    const day = row?.day;
     dismiss(true);
-    model.jumpToDay(day);
+    if (day) model.jumpToDay(day);
+  }
+
+  function openDay(create: boolean, keep: boolean): void {
+    const date = day;
+    dismiss(true);
+    if (!date) return;
+    if (create) model.newEvent(date);
+    else model.openDay(date, keep);
   }
 </script>
 
 <svelte:window onpointerdown={outside} />
-<div class="hull-menu calendar-event-menu" role="menu" aria-label={event.eventTitle} tabindex="-1"
+<div class="hull-menu calendar-context-menu" role="menu" aria-label={event?.eventTitle ?? (day && calendarCaption(day)) ?? "Calendar"} tabindex="-1"
   use:portal bind:this={popup} style:left={`${x}px`} style:top={`${y}px`} onkeydown={navigate}>
-  <button type="button" role="menuitem" tabindex="-1" onclick={openEvent}>{word(viewEvent, "View Event")}</button>
-  {#if replies.length}
-    <hr />
-    {#each replies as [status, key, fallback] (status)}
-      <button type="button" role="menuitem" tabindex="-1" disabled={$replying.has(event.eventID)} onclick={() => respond(status)}>{word(key, fallback)}</button>
-    {/each}
-  {/if}
-  {#if menu.allowJump && !event.isDeleted && response !== 1}
-    <hr />
-    <button type="button" role="menuitem" tabindex="-1" onclick={jump}>{word(goToDay, "Go to Day")}</button>
+  {#if event && menu.kind === "event"}
+    <button type="button" role="menuitem" tabindex="-1" onclick={openEvent}>{word(viewEvent, "View Event")}</button>
+    {#if replies.length}
+      <hr />
+      {#each replies as [status, key, fallback] (status)}
+        <button type="button" role="menuitem" tabindex="-1" disabled={$replying.has(event.eventID)} onclick={() => respond(status)}>{word(key, fallback)}</button>
+      {/each}
+    {/if}
+    {#if menu.allowJump && !event.isDeleted && response !== 1}
+      <hr />
+      <button type="button" role="menuitem" tabindex="-1" onclick={jump}>{word(goToDay, "Go to Day")}</button>
+    {/if}
+  {:else if day}
+    {#if canCreate}<button type="button" role="menuitem" tabindex="-1" onclick={() => openDay(true, false)}>{word(createEvent, "Create New Event")}</button>{/if}
+    <button type="button" role="menuitem" tabindex="-1" onclick={input => openDay(false, input.shiftKey)}>{word(viewDay, "View Day")}</button>
   {/if}
 </div>
 

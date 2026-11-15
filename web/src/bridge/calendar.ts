@@ -29,6 +29,7 @@
 // creatorID / characterID / eventID stay as plain numeric fields for a future UI
 // to resolve — never forced into a label, never dropped.
 
+import { unixMsToFiletime } from "./activity.ts";
 import {
   isKeyValValue,
   isListValue,
@@ -37,6 +38,40 @@ import {
   unwrapLong,
   type JsonValue,
 } from "./wire.ts";
+
+export const CALENDAR_TITLE_LIMIT = 40;
+export const CALENDAR_DESCRIPTION_LIMIT = 500;
+export const CALENDAR_INVITEE_LIMIT = 50;
+export const CALENDAR_MONTH_RANGE = 12;
+export const CALENDAR_CREATE_METHODS = {
+  personal: "CreatePersonalEvent", corporation: "CreateCorporationEvent", alliance: "CreateAllianceEvent",
+} as const;
+export type CalendarEventScope = keyof typeof CALENDAR_CREATE_METHODS;
+export interface CalendarEventDraft {
+  readonly scope: CalendarEventScope;
+  readonly startsAt: number;
+  readonly duration: number | null;
+  readonly title: string;
+  readonly description: string;
+  readonly important: boolean;
+  readonly inviteeIDs: readonly number[];
+}
+
+export function calendarCreateArgs(draft: CalendarEventDraft): JsonValue[] {
+  const args: JsonValue[] = [
+    { type: "long", value: unixMsToFiletime(draft.startsAt).toString() }, draft.duration,
+    { type: "wstring", value: draft.title }, draft.description ? { type: "wstring", value: draft.description } : "",
+    draft.important ? 1 : 0,
+  ];
+  if (draft.scope === "personal") args.push({ type: "list", items: [...draft.inviteeIDs] });
+  return args;
+}
+
+export function calendarCreatedID(result: JsonValue): number {
+  const id = Number(unwrapLong(result));
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error("The server did not return the new Calendar event ID.");
+  return id;
+}
 
 /** One calendar event row (GetEventList). */
 export interface CalendarEvent {

@@ -490,12 +490,12 @@ const KEPT_UNTIL_CHANGED = Object.freeze({
   }),
   // calendar's responses (eveCalendarsvc.py 250 to 257): asked once and kept for the session, a change of
   // corporation or alliance not among what lets them go (400 to 407). The client changes the one answered at its
-  // own SendEventResponse (295 to 312) and at the server's OnEventResponseByExternal (409 to 412); here what is
-  // kept is let go at either, and asked for when it is next wanted.
+  // own SendEventResponse (295 to 312), on its own creation (189), and at the server's OnEventResponseByExternal
+  // (409 to 412). Let the answer go after these writes so /fly can re-read the organizer's accepted response.
   [CALENDAR_MGR]: Object.freeze({
     keptAs: responsesKeptAs,
     notices: new Set(["OnEventResponseByExternal"]),
-    writes: Object.freeze({ calendarMgr: new Set(["SendEventResponse"]) }),
+    writes: Object.freeze({ calendarMgr: new Set(["SendEventResponse", "CreatePersonalEvent", "CreateCorporationEvent", "CreateAllianceEvent"]) }),
   }),
   // planetSvc and planetUISvc: the launches changed (OnPILaunchesChange, at which the client forgets them), a
   // planet's state changed (OnMajorPlanetStateUpdate, at which the client changes its own list of colonies), the

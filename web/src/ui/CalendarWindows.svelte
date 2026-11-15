@@ -2,11 +2,12 @@
   import { tick, untrack } from "svelte";
   import type { Session } from "../app/sessions.ts";
   import { plainText } from "../bridge/clientWords.ts";
-  import CalendarEventMenu from "./CalendarEventMenu.svelte";
+  import CalendarContextMenu from "./CalendarContextMenu.svelte";
+  import CalendarCreateWindow from "./CalendarCreateWindow.svelte";
   import CalendarListWindow from "./CalendarListWindow.svelte";
   import CalendarEventWindow from "./CalendarEventWindow.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
-  import { CALENDAR_AGENDA_LABELS, CALENDAR_EVENT_CAPTION, CALENDAR_WINDOW_SIZES, calendarView } from "./calendarView.ts";
+  import { CALENDAR_AGENDA_LABELS, CALENDAR_CREATE_CAPTION, CALENDAR_EVENT_CAPTION, CALENDAR_WINDOW_SIZES, calendarView } from "./calendarView.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { portal } from "./portal.ts";
 
@@ -15,17 +16,18 @@
   const model = calendarView(session.flow);
   // svelte-ignore state_referenced_locally
   const words = session.store.words;
-  const { windows, raised, eventMenu } = model;
+  const { windows, raised, menu } = model;
   const eventCaption = $derived(plainText($words.templates[CALENDAR_EVENT_CAPTION] ?? "") || "Event");
   function titleOf(win: (typeof $windows)[number]): string {
     if (win.kind === "event") return eventCaption;
+    if (win.kind === "create") return plainText($words.templates[CALENDAR_CREATE_CAPTION] ?? "") || "New Event";
     if (win.kind === "day") return win.id;
     const [key, fallback] = CALENDAR_AGENDA_LABELS[win.agendaKind];
     return plainText($words.templates[key] ?? "") || fallback;
   }
   let layer: HTMLElement | undefined = $state();
   const visible = $derived(inFront && host !== null);
-  $effect(() => { if (!visible) model.closeEventMenu(); });
+  $effect(() => { if (!visible) model.closeMenu(); });
   const front = $derived($windows.filter(win => !win.minimized).reduce<(typeof $windows)[number] | null>(
     (prev, win) => !prev || win.z > prev.z ? win : prev, null));
 
@@ -46,7 +48,9 @@
     untrack(fit);
     return () => observer.disconnect();
   });
-  $effect(() => { if ($windows.some(win => win.kind === "event")) session.flow.requestWords([CALENDAR_EVENT_CAPTION]); });
+  $effect(() => {
+    if ($windows.some(win => win.kind === "event" || win.kind === "create")) session.flow.requestWords([CALENDAR_EVENT_CAPTION, CALENDAR_CREATE_CAPTION]);
+  });
   let served: { readonly id: string } | null = null;
   $effect(() => {
     const request = $raised;
@@ -58,13 +62,15 @@
       fit();
     });
     void tick().then(() => {
-      if (served === request) layer?.querySelector<HTMLElement>(`[data-calendar-window="${request.id}"] footer button:last-child`)?.focus();
+      if (served !== request) return;
+      const win = layer?.querySelector(`[data-calendar-window="${request.id}"]`);
+      win?.querySelector<HTMLElement>("input[name=calendar-title], footer button:last-child")?.focus();
     });
   });
 </script>
 
-{#if visible && $eventMenu}
-  <CalendarEventMenu flow={session.flow} store={session.store} menu={$eventMenu} />
+{#if visible && $menu}
+  <CalendarContextMenu flow={session.flow} store={session.store} menu={$menu} />
 {/if}
 
 {#if visible && $windows.length > 0}
@@ -78,6 +84,7 @@
       onToggleMinimize={() => model.toggleMinimize(win.id)} onMove={(x, y) => model.update(win.id, { x, y })}
       onResize={(w, h) => { model.update(win.id, { w: Math.max(min.w, w), h: Math.max(min.h, h) }); fit(); }}>
       {#if win.kind === "event"}<CalendarEventWindow flow={session.flow} store={session.store} event={win.event} close={() => model.close(win.id)} />
+      {:else if win.kind === "create"}<CalendarCreateWindow flow={session.flow} store={session.store} id={win.id} startsAt={win.startsAt} close={() => model.close(win.id)} />
       {:else}<CalendarListWindow flow={session.flow} store={session.store} subject={win} {title} close={() => model.close(win.id)} />{/if}
     </DesktopWindow>
   {/each}

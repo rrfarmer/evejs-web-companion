@@ -1198,6 +1198,24 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (body.service === "calendarMgr" && ["CreatePersonalEvent", "CreateCorporationEvent", "CreateAllianceEvent"].includes(body.method)) {
+    const personal = body.method === "CreatePersonalEvent";
+    const [start, duration, title, description, important, invitees] = Array.isArray(body.args) ? body.args : [];
+    const validStart = start?.type === "long" && typeof start.value === "string" && /^[1-9]\d{16,17}$/.test(start.value);
+    const validDuration = duration === null || (Number.isSafeInteger(duration) && duration >= 60 && duration <= 1440 && duration % 60 === 0);
+    const validTitle = title?.type === "wstring" && typeof title.value === "string" && !!title.value.trim() && title.value.length <= 40;
+    const validDescription = description === "" || (description?.type === "wstring" && typeof description.value === "string" && description.value.length <= 500);
+    const validInvitees = !personal || (invitees?.type === "list" && Array.isArray(invitees.items) && invitees.items.length <= 50
+      && invitees.items.every(id => Number.isSafeInteger(id) && id > 0));
+    const kwargs = body.kwargs;
+    const validCost = kwargs == null || (personal && invitees?.items?.length > 0 && Object.keys(kwargs).length === 1
+      && Number.isFinite(kwargs.approvedCost) && kwargs.approvedCost > 0);
+    if (body.args?.length !== (personal ? 6 : 5) || !validStart || !validDuration || !validTitle || !validDescription
+        || ![0, 1].includes(important) || !validInvitees || !validCost) {
+      res.status(400).json({ ok: false, error: "INVALID_CALENDAR_EVENT", message: "Check the event date, duration, title, description and invitations." });
+      return;
+    }
+  }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,
   // which that gate lets through, is CmdStop. So was every change of place the page makes (the undock, a flight

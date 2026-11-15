@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calendarGrid, calendarMonthOffset, stepCalendarDate } from "./calendarSelection.ts";
+import { calendarGrid, calendarMonthOffset, newCalendarEventStart, stepCalendarDate } from "./calendarSelection.ts";
 
 test("the six-week November grid starts Monday and includes both neighboring months", () => {
   const days = calendarGrid(2026, 10);
@@ -26,4 +26,10 @@ test("month buttons retain the selected column at the new month's entering edge"
   assert.deepEqual(december, { y: 2026, m: 11, d: 6 });
   assert.equal(calendarMonthOffset(december, selected), 1);
   assert.deepEqual(stepCalendarDate(selected, -1, "month"), { y: 2026, m: 9, d: 31 });
+});
+
+test("New Event uses noon on a future date and the next whole UTC hour today", () => {
+  const now = Date.UTC(2026, 11, 31, 23, 1);
+  assert.equal(newCalendarEventStart({ y: 2026, m: 11, d: 31 }, now), Date.UTC(2027, 0, 1));
+  assert.equal(newCalendarEventStart({ y: 2027, m: 0, d: 2 }, now), Date.UTC(2027, 0, 2, 12));
 });

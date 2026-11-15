@@ -4,7 +4,7 @@ import { filetimeToUnixMs } from "../bridge/activity.ts";
 import type { CalendarAgenda, CalendarEvent, CalendarReply } from "../bridge/calendar.ts";
 import { createSignal, readonlySignal } from "../store/signals.ts";
 import type { WinState } from "./desktop.ts";
-import { calendarDate, type CalendarDate } from "./calendarSelection.ts";
+import { calendarDate, calendarDayStart, newCalendarEventStart, type CalendarDate } from "./calendarSelection.ts";
 
 // appConst.calendarTag* and eventResponse*.
 export const CALENDAR_TAGS = { personal: 1, corp: 2, alliance: 4, ccp: 8, automated: 16 } as const;
@@ -19,6 +19,7 @@ export const CALENDAR_RESPONSES = [
 ] as const;
 export const CALENDAR_RESPONSE_PATH = "UI/Calendar/ResponseTypes/";
 export const CALENDAR_EVENT_CAPTION = "UI/Calendar/EventWindow/CaptionRead";
+export const CALENDAR_CREATE_CAPTION = "UI/Calendar/EventWindow/CaptionNew";
 export const CALENDAR_REPLY_CHOICES = [
   [4, "/Carbon/UI/Calendar/Accept", "Accept"],
   [5, "/Carbon/UI/Calendar/MaybeReply", "Tentative"],
@@ -102,11 +103,15 @@ export function calendarAgendaRows(state: AgendaState, filters: Filters): Readon
   };
 }
 
-export const CALENDAR_WINDOW_SIZES = { day: { w: 315, h: 300 }, agenda: { w: 315, h: 300 }, event: { w: 530, h: 370 } } as const;
+const eventWindowSize = { w: 530, h: 370 };
+export const CALENDAR_WINDOW_SIZES = { day: { w: 315, h: 300 }, agenda: { w: 315, h: 300 }, event: eventWindowSize, create: eventWindowSize } as const;
 export type CalendarListSubject = { readonly kind: "day"; readonly day: CalendarDate } | { readonly kind: "agenda"; readonly agendaKind: CalendarAgendaKind };
-type CalendarSubject = CalendarListSubject | { readonly kind: "event"; readonly event: CalendarEvent };
+type CalendarSubject = CalendarListSubject | { readonly kind: "event"; readonly event: CalendarEvent } |
+  { readonly kind: "create"; readonly startsAt: number };
 type CalendarWindow = Omit<WinState, "id"> & { readonly id: string } & CalendarSubject;
-export type CalendarMenu = { readonly row: CalendarRow; readonly x: number; readonly y: number; readonly anchor: HTMLElement; readonly allowJump: boolean };
+type CalendarMenuSubject = { readonly kind: "event"; readonly row: CalendarRow; readonly allowJump: boolean } |
+  { readonly kind: "day"; readonly day: CalendarDate };
+export type CalendarMenu = { readonly x: number; readonly y: number; readonly anchor: HTMLElement } & CalendarMenuSubject;
 
 function createCalendarView(flow: AppFlow) {
   const filters = createSignal(DEFAULT_FILTERS);
@@ -125,7 +130,7 @@ function createCalendarView(flow: AppFlow) {
   const windows = createSignal<readonly CalendarWindow[]>([]);
   const raised = createSignal<{ readonly id: string } | null>(null);
   const replying = createSignal<ReadonlySet<number>>(new Set());
-  const eventMenu = createSignal<CalendarMenu | null>(null);
+  const menu = createSignal<CalendarMenu | null>(null);
   let selectDay: ((day: CalendarDate) => void) | null = null;
   const topZ = () => Math.max(0, ...windows.get().filter(win => !win.minimized).map(win => win.z));
   const update = (id: string, patch: Partial<Omit<WinState, "id">>) => {
@@ -136,17 +141,26 @@ function createCalendarView(flow: AppFlow) {
     if (current.some(win => win.id === id)) {
       update(id, { minimized: false, z: topZ() + 1 });
     } else {
-      const others = keepOtherLists ? current : current.filter(win => win.kind === "event");
+      const others = keepOtherLists ? current : current.filter(win => win.kind === "event" || win.kind === "create");
       const inset = (others.length % 8) * 28;
       const size = CALENDAR_WINDOW_SIZES[subject.kind];
       windows.set([...others, { ...subject, id, x: 80 + inset, y: 64 + inset, ...size,
-        h: subject.kind === "event" ? 460 : size.h, z: topZ() + 1, minimized: false }]);
+        h: subject.kind === "event" || subject.kind === "create" ? 460 : size.h, z: topZ() + 1, minimized: false }]);
     }
     raised.set({ id });
   }
   function reveal(id: string): void {
     update(id, { minimized: false, z: topZ() + 1 });
     raised.set({ id });
+  }
+  function showMenu(input: MouseEvent | KeyboardEvent, subject: CalendarMenuSubject): void {
+    if (!(input.currentTarget instanceof HTMLElement)) return;
+    input.preventDefault();
+    input.stopPropagation();
+    const anchor = subject.kind === "event" ? input.currentTarget.querySelector("button") ?? input.currentTarget : input.currentTarget;
+    const rect = anchor.getBoundingClientRect();
+    const mouse = input instanceof MouseEvent && input.button === 2;
+    menu.set({ ...subject, x: mouse ? input.clientX : rect.left, y: mouse ? input.clientY : rect.bottom, anchor });
   }
 
   return {
@@ -155,7 +169,7 @@ function createCalendarView(flow: AppFlow) {
     windows: readonlySignal(windows),
     raised: readonlySignal(raised),
     replying: readonlySignal(replying),
-    eventMenu: readonlySignal(eventMenu),
+    menu: readonlySignal(menu),
     topZ,
     setFilter(key: Filter, checked: boolean) { filters.update(current => ({ ...current, [key]: checked })); },
     openDay(day: CalendarDate, keepOtherDays: boolean) {
@@ -165,16 +179,20 @@ function createCalendarView(flow: AppFlow) {
       open(agendaKind, { kind: "agenda", agendaKind }, keepOtherLists);
     },
     openEvent(event: CalendarEvent) { open(`event-${event.eventID}`, { kind: "event", event }, true); },
-    showEventMenu(input: MouseEvent | KeyboardEvent, row: CalendarRow, allowJump: boolean) {
-      if (!(input.currentTarget instanceof HTMLElement)) return;
-      input.preventDefault();
-      input.stopPropagation();
-      const anchor = input.currentTarget.querySelector("button") ?? input.currentTarget;
-      const rect = anchor.getBoundingClientRect();
-      const mouse = input instanceof MouseEvent && input.button === 2;
-      eventMenu.set({ row, x: mouse ? input.clientX : rect.left, y: mouse ? input.clientY : rect.bottom, anchor, allowJump });
+    newEvent(day: CalendarDate) {
+      const now = flow.calendarNow();
+      const today = calendarDate(new Date(now));
+      if (calendarDayStart(day) < calendarDayStart(today)) {
+        flow.reportCalendarPastDay();
+        day = today;
+      }
+      open(`create-${calendarCaption(day)}`, { kind: "create", startsAt: newCalendarEventStart(day, now) }, true);
     },
-    closeEventMenu() { eventMenu.set(null); },
+    showEventMenu(input: MouseEvent | KeyboardEvent, row: CalendarRow, allowJump: boolean) {
+      showMenu(input, { kind: "event", row, allowJump });
+    },
+    showDayMenu(input: MouseEvent | KeyboardEvent, day: CalendarDate) { showMenu(input, { kind: "day", day }); },
+    closeMenu() { menu.set(null); },
     registerDayJump(select: (day: CalendarDate) => void) {
       selectDay = select;
       return () => { if (selectDay === select) selectDay = null; };

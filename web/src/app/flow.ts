@@ -195,7 +195,9 @@ import {
   decodeActivityCalendar,
   decodeActivityNotifications,
 } from "../bridge/activity.ts";
-import { decodeEventDetails, decodeEventList, decodeResponsesForCharacter, decodeResponsesToEvent, type CalendarAgenda, type CalendarEvent, type CalendarReply, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
+import { CALENDAR_CREATE_METHODS, calendarCreateArgs, calendarCreatedID, decodeEventDetails, decodeEventList,
+  decodeResponsesForCharacter, decodeResponsesToEvent, type CalendarAgenda, type CalendarEvent,
+  type CalendarEventDraft, type CalendarReply, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
 import {
   contractRefusalMessage,
   decodeContractDetail,
@@ -2537,6 +2539,8 @@ export interface AppFlow {
   loadCalendarEvent(eventID: number, ownerID: number): Promise<EventDetails | null>;
   loadCalendarInvitees(eventID: number, ownerID: number): Promise<readonly EventResponse[]>;
   calendarNow(): number;
+  reportCalendarPastDay(): void;
+  createCalendarEvent(draft: CalendarEventDraft): Promise<number | null>;
   respondToCalendarEvent(eventID: number, ownerID: number, reply: CalendarReply): Promise<void>;
   /** Refresh current-system scan sites and the probes' state. */
   loadScanner(): Promise<void>;
@@ -10845,6 +10849,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const rows = decodeResponsesToEvent(await bridgeAsk("calendarMgr", "GetResponsesToEvent", [eventID, ownerID]));
     requestNames(rows.map(row => ({ kind: "character", id: row.characterID })));
     return rows;
+  }
+
+  async function createCalendarEvent(draft: CalendarEventDraft): Promise<number | null> {
+    const method = CALENDAR_CREATE_METHODS[draft.scope];
+    const args = calendarCreateArgs(draft);
+    try {
+      try {
+        return calendarCreatedID(await bridgeDo("calendarMgr", method, args));
+      } catch (error) {
+        const refusal = refusalDialogOf(error);
+        if (draft.scope !== "personal" || !draft.inviteeIDs.length || refusal?.dialog !== "ContactCostNotApproved") throw error;
+        const amount = readDictEntry(refusal.values, "totalCost");
+        const cost = unwrapReal(amount) ?? Number(unwrapLong(amount));
+        if (!Number.isFinite(cost) || cost <= 0) throw error;
+        const askValues: JsonValue = { type: "dict", entries: [
+          ["amount", amount ?? cost], ["amountISK", readDictEntry(refusal.values, "totalCostISK") ?? `${cost.toLocaleString()} ISK`],
+        ] };
+        if (!await askDialog("CSPACalendarCheck", askValues, `Pay ${cost.toLocaleString()} ISK to send the Calendar invitations?`)) return null;
+        return calendarCreatedID(await bridgeDo("calendarMgr", method, args, { approvedCost: cost }));
+      }
+    } finally {
+      calendarUpdatedSignal.update(n => n + 1);
+    }
   }
 
   async function respondToCalendarEvent(eventID: number, ownerID: number, reply: CalendarReply): Promise<void> {
@@ -34700,6 +34727,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadCalendarEvent,
     loadCalendarInvitees,
     calendarNow: serverNow,
+    reportCalendarPastDay: () => sayDialog("CalendarCannotPlanThePast2", null, "You cannot plan events in the past."),
+    createCalendarEvent,
     respondToCalendarEvent,
     loadScanner,
     launchScannerProbes,

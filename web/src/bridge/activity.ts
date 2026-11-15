@@ -61,6 +61,10 @@ export function filetimeToUnixMs(value: bigint | null): number | null {
   return Number.isSafeInteger(result) ? result : null;
 }
 
+export function unixMsToFiletime(value: number): bigint {
+  return BigInt(value) * FILETIME_TICKS_PER_MS + FILETIME_UNIX_EPOCH;
+}
+
 /**
  * Human category for a notification type. This deliberately does not fall
  * back to the numeric typeID: unknown retail additions remain useful and do

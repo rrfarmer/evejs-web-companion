@@ -9,13 +9,13 @@
   // current and next months with the pilot's responses.
   import { onMount, tick } from "svelte";
   import { plainText, formatTemplate } from "../bridge/clientWords.ts";
-  import type { CalendarEvent } from "../bridge/calendar.ts";
+  import { CALENDAR_MONTH_RANGE, type CalendarEvent } from "../bridge/calendar.ts";
   import { isNpcCorporation } from "../bridge/standingsReads.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { calendarDate, calendarGrid, calendarMonthOffset, stepCalendarDate, type CalendarDate } from "./calendarSelection.ts";
   import { CALENDAR_AGENDA_LABELS, CALENDAR_FILTERS, CALENDAR_GROUPS, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH,
-    calendarAgendaRows, calendarResponses, calendarRows, calendarView, type CalendarRow } from "./calendarView.ts";
+    calendarAgendaRows, calendarResponses, calendarRows, calendarView, isCalendarMenuKey, type CalendarRow } from "./calendarView.ts";
   import CalendarAgendaList from "./CalendarAgendaList.svelte";
   import CalendarCellEvents from "./CalendarCellEvents.svelte";
 
@@ -40,8 +40,6 @@
     previous: "UI/Calendar/Hints/Previous", next: "UI/Calendar/Hints/Next",
     viewDay: "/Carbon/UI/Calendar/ViewDay",
   } as const;
-  // appConst.calendarViewRangeInMonths.
-  const VIEW_RANGE = 12;
   const word = (label: string, own: string, args: Readonly<Record<string, string | number>> = {}): string => {
     const t = $words.templates[label];
     return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: () => "" })) : own;
@@ -103,7 +101,7 @@
   const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" });
 
   function selectDay(day: CalendarDate, focus = false): void {
-    if (Math.abs(calendarMonthOffset(day, today)) > VIEW_RANGE) return;
+    if (Math.abs(calendarMonthOffset(day, today)) > CALENDAR_MONTH_RANGE) return;
     if (day.y !== view.y || day.m !== view.m) view = { y: day.y, m: day.m };
     selected = day.d;
     if (focus) void tick().then(() => gridElement?.querySelector<HTMLElement>('[tabindex="0"]')?.focus());
@@ -113,9 +111,13 @@
     selectDay(stepCalendarDate({ ...view, d: selected }, step, "month"));
   }
 
-  function navigateDays(event: KeyboardEvent): void {
+  function navigateDays(event: KeyboardEvent, day: CalendarDate): void {
     const { key } = event;
     if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (isCalendarMenuKey(event)) {
+      model.showDayMenu(event, day);
+      return;
+    }
     if (key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
@@ -133,7 +135,7 @@
 
 <section class="panel calendar-wnd">
   <div class="cal-left">
-    <button type="button" class="cal-new" disabled title="Not on the play page yet">{word(WORDS.newEvent, "New Event")}</button>
+    <button type="button" class="cal-new" onclick={() => model.newEvent({ ...view, d: selected })}>{word(WORDS.newEvent, "New Event")}</button>
     <div class="cal-lists">
       <CalendarAgendaList {words} title={word(...CALENDAR_AGENDA_LABELS.upcoming)} rows={agendaRows.upcoming} status={$agenda.status}
         openMore={keep => model.openAgenda("upcoming", keep)} openEvent={row => model.openEvent(row.event)}
@@ -151,9 +153,9 @@
   </div>
   <div class="cal-month">
     <div class="cal-head">
-      <button type="button" class="cal-arrow" onclick={() => browse(-1)} disabled={monthOffset <= -VIEW_RANGE}
+      <button type="button" class="cal-arrow" onclick={() => browse(-1)} disabled={monthOffset <= -CALENDAR_MONTH_RANGE}
         aria-label={word(WORDS.previous, "Previous")} title={word(WORDS.previous, "Previous")}><img src="/client-res/ui/texture/eveicon/system_icons/navigate_back_16px.png" alt="" /></button>
-      <button type="button" class="cal-arrow" onclick={() => browse(1)} disabled={monthOffset >= VIEW_RANGE}
+      <button type="button" class="cal-arrow" onclick={() => browse(1)} disabled={monthOffset >= CALENDAR_MONTH_RANGE}
         aria-label={word(WORDS.next, "Next")} title={word(WORDS.next, "Next")}><img src="/client-res/ui/texture/eveicon/system_icons/navigate_forward_16px.png" alt="" /></button>
       <span class="cal-title" id={monthHeading}>{word(`/Carbon/UI/Common/MonthsWithYear/${MONTHS[view.m]}`, `${MONTHS[view.m]} ${view.y}`, { year: view.y })}</span>
       <button type="button" class="cal-today" onclick={() => selectDay(today)}>{word(WORDS.today, "Today")}</button>
@@ -176,8 +178,9 @@
               aria-label={dateLabel.format(Date.UTC(day.y, day.m, day.d))} aria-selected={isSelected}
               aria-current={isToday ? "date" : undefined} tabindex={out ? undefined : isSelected ? 0 : -1}
               onmousedown={event => { if (out) event.preventDefault(); }}
+              oncontextmenu={event => { if (!out) model.showDayMenu(event, day); }}
               onclick={() => { if (!out) selectDay(day, true); }}
-              ondblclick={event => { if (out) selectDay(day, true); else model.openDay(day, event.shiftKey); }} onkeydown={navigateDays}>
+              ondblclick={event => { if (out) selectDay(day, true); else model.openDay(day, event.shiftKey); }} onkeydown={event => navigateDays(event, day)}>
               <span class="num">{day.d}</span>
               {#if dayRows.length}
                 <CalendarCellEvents rows={dayRows} timestamp={$filters.timestamp} more={word(WORDS.viewDay, "View Day")}
