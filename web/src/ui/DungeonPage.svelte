@@ -12,17 +12,19 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import WarDungeonOpportunity from "./WarDungeonOpportunity.svelte";
   let { store, flow, job, onBack }: { store: ClientStore; flow: AppFlow; job: DungeonJob; onBack: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const d = $derived(job.data);
+  const nameID = $derived(("canBrowse" in job ? job.nameID : null) ?? d?.nameID);
   const feature = $derived(d?.contentTags.find((t) => t.type === "feature") ?? null);
   const A = "UI/Agency/";
   $effect(() => {
     flow.requestWords(["UI/Commands/Back", "UI/Common/Description", "UI/Dungeons/GameplayDescriptionHeader", A + "ContentDifficulty", A + "ContentDifficultyTooltip", A + "LevelX", A + "RoamingEnemies", A + "RoamingEnemiesTooltip", A + "OreTypesInBelt", A + "OreTypesInBeltTooltip",
-      ...[d?.nameID, d?.descriptionID, d?.gameplayDescriptionID, d?.archetypeTitleID, d?.archetypeDescriptionID, feature?.title].filter((x): x is number => typeof x === "number").map((x) => `#${x}`)]);
+      ...[nameID, d?.descriptionID, d?.gameplayDescriptionID, d?.archetypeTitleID, d?.archetypeDescriptionID, feature?.title].filter((x): x is number => typeof x === "number").map((x) => `#${x}`)]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
   // appConst.factionUnknown.
@@ -37,10 +39,11 @@
   <div><button class="dp-ghost" onclick={onBack}>{word("UI/Commands/Back") || "Back"}</button></div>
   <header class="dp-head">
     <span class="dp-caption">{#if feature?.icon}<img alt="" src={clientTexture(feature.icon)} />{/if}{feature?.title ? word(`#${feature.title}`) : ""}</span>
-    <h2>{d?.nameID ? word(`#${d.nameID}`) : ""}</h2>
+    <h2>{nameID ? word(`#${nameID}`) : ""}</h2>
     <span class="dp-caption">{subtitle}</span>
     <span class="dp-caption">{resolvedName($names.resolved, "system", job.solarSystemID, "")}</span>
   </header>
+  {#if "canBrowse" in job}<WarDungeonOpportunity {store} {flow} {job} header={false} />{/if}
   {#if d?.descriptionID}<section><h3>{word("UI/Common/Description")}</h3><p>{word(`#${d.descriptionID}`)}</p></section>{/if}
   {#if d?.gameplayDescriptionID || d?.difficulty || enemy || resources.length}
     <section><h3>{word("UI/Dungeons/GameplayDescriptionHeader")}</h3>

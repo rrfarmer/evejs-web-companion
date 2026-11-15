@@ -187,7 +187,7 @@
         <div class="lp"><span>{lpText(lp)}</span><span>{lpText(upgrade.next)}</span></div>
         <progress value={upgrade.progress} max="1" aria-label={word(A + "systemUpgradeLevel", { level: upgrade.level })}></progress>
       {/if}
-      <AgencySystemSiteList {flow} {store} system={selected} label={A + "sitesInSystem"} {word} />
+      <AgencySystemSiteList {flow} {store} system={selected} label={A + "sitesInSystem"} {word} provider="factional_warfare" />
     {/if}
   </section>
 </div>

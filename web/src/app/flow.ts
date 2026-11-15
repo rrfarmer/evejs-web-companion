@@ -237,7 +237,7 @@ import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmen
 import { allowedMilitiaFactions, insurgencyCampaigns, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type MilitiaVictoryPoints, type MilitiaWarzoneMarkers } from "../bridge/militiaEnlistment.ts";
 import { warzoneStatistics, type WarzoneStatistics, type WarzoneStatisticsScope } from "../bridge/warzoneStatistics.ts";
 import { convoyActivities, oreActivities, type StarMapActivity, type StarMapActivityMode } from "../bridge/starMapFilters.ts";
-import { readTrackedMilitiaJob, untrackMilitiaJob } from "../ui/jobTracking.ts";
+import { readTrackedMilitiaJob, setWarDungeonTracked, trackedWarDungeonJobs, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
 import {
@@ -406,7 +406,7 @@ import { acceptContract as acceptContractCall } from "../bridge/contractWrites.t
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
-import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
+import { decodeDungeonSites, relevantDungeonSystems, WAR_DUNGEON_PROVIDERS, warDungeonCanBrowse, warDungeonJobID, warDungeonProviders, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
 import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencyInsurgencySystems as insurgencySystemsForAgency, agencySiteSystems, insurgencySiteCandidates, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencyInsurgencyFilters, type AgencyInsurgencySystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type InsurgencyStages, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { essBeacon, essDetails, essSettings, essSystems, filterEssSystems, type AgencyEssFilters, type AgencyEssSystem, type EssDetails, type EssLocation, type EssSettings, type EssSystem } from "../bridge/agencyEss.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
@@ -649,13 +649,19 @@ export interface DailyGoal {
 }
 
 /** A dungeon on the job board (features/dungeons DungeonJob): the site, its system and jumps, its dungeon's data. */
-export interface DungeonJob {
-  /** The provider: combat anomalies, ore anomalies, ice belts, Homefront operations, cosmic signatures. */
-  readonly kind: "combat" | "ore" | "ice" | "homefront" | "signature";
+interface DungeonJobDetails {
   readonly instanceID: number; readonly dungeonID: number; readonly solarSystemID: number; readonly jumps: number | null;
   readonly data: DungeonData | null;
   /** active_dungeon: the dungeon the pilot is in is this site. */
   readonly active: boolean;
+}
+
+export type DungeonJob = (DungeonJobDetails & { readonly kind: "combat" | "ore" | "ice" | "homefront" | "signature" }) | WarDungeonJob;
+export interface WarDungeonJob extends DungeonJobDetails {
+  readonly kind: WarDungeonKind;
+  readonly targetID: string | null;
+  readonly nameID: number | null;
+  readonly canBrowse: boolean;
 }
 
 /** A career goal's reward (careergoals.client reward_definition). */
@@ -3750,6 +3756,8 @@ export interface AppFlow {
    * not be read gives none.
    */
   dungeonJobs(): Promise<readonly DungeonJob[]>;
+  warDungeonJobs(trackedOnly?: boolean): Promise<readonly WarDungeonJob[]>;
+  readonly activeDungeon: ReadableSignal<CurrentDungeon | null>;
   /**
    * An Agency agent page's agents (ContentProviderAgents and its kinds, bridge/agencyAgents.ts): from the agents
    * table (agentMgr.GetAgents, kept), the static places, the autopilot's jumps and the pilot's standings and skills.
@@ -7463,7 +7471,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (sessionNames?.some((name) => name === "solarsystemid" || name === "shipid" || name === "structureid")) updateFleetInfo();
     // dungeonTracking.ProcessSessionChange (56 to 61): another location, and the dungeon tracked is let go.
     if (sessionNames?.some((name) => name === "locationid" || name === "solarsystemid" || name === "stationid" || name === "structureid")) {
-      currentDungeon = null;
+      leaveCurrentDungeon();
+      currentDungeonAsked = false;
+      currentDungeonLocation += 1;
     }
     // crimewatchSvc.ProcessSessionChange and OnSessionChanged: another place, or another system or ship, and
     // the client asks crimewatch its states again. So does the page, of the BFF.
@@ -7662,11 +7672,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // The dungeon tracked (bridge/dungeonTracking.ts; dungeonTracking.py 124 to 137).
     if (method === "OnEnteringDungeonRoom") {
       const entered = dungeonEntered(args);
-      if (entered !== null) currentDungeon = enterDungeonRoom(currentDungeon, entered);
+      if (entered !== null) {
+        const previous = currentDungeon.get();
+        if (previous && entered.instanceID !== null && previous.instanceID !== entered.instanceID) leaveCurrentDungeon();
+        currentDungeon.set(enterDungeonRoom(currentDungeon.get(), entered));
+      }
       return;
     }
     if (method === "OnExitingDungeon") {
-      currentDungeon = exitDungeon(currentDungeon, args);
+      if (exitDungeon(currentDungeon.get(), args) === null) leaveCurrentDungeon();
+      return;
+    }
+    if (method === "OnDungeonCompleted") {
+      const inside = currentDungeon.get();
+      if (inside?.dungeonID === Number(args[0])) completedDungeon = inside.instanceID;
       return;
     }
     if (method === "OnIndustryMaterials") {
@@ -16731,15 +16750,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The dungeon the pilot is in, as the client's dungeon tracking keeps it (bridge/dungeonTracking.ts): from the
   // server's OnEnteringDungeonRoom and OnExitingDungeon, let go at a change of location, and asked of the keeper once
   // where the page finds its pilot in space (the client's OnCharacterSessionChanged).
-  let currentDungeon: CurrentDungeon | null = null;
+  const currentDungeon = createSignal<CurrentDungeon | null>(null);
+  let completedDungeon: number | null = null;
+  function leaveCurrentDungeon(): void {
+    if (completedDungeon !== null && completedDungeon === currentDungeon.get()?.instanceID) {
+      const characterID = store.station.get().online?.characterID ?? null;
+      for (const job of trackedWarDungeonJobs(characterID)) {
+        if (job.instanceID === completedDungeon) setWarDungeonTracked(characterID, job, false);
+      }
+    }
+    completedDungeon = null;
+    currentDungeon.set(null);
+  }
   let currentDungeonAsked = false;
+  let currentDungeonLocation = 0;
   function askCurrentDungeon(): void {
     if (currentDungeonAsked) return;
     currentDungeonAsked = true;
+    const location = currentDungeonLocation;
     void readCurrentDungeon(bridgeAsk).then((dungeon) => {
-      if (currentDungeon === null && dungeon !== null) currentDungeon = dungeon;
+      if (location === currentDungeonLocation && currentDungeon.get() === null && dungeon !== null) currentDungeon.set(dungeon);
     }).catch(() => {
-      currentDungeonAsked = false;
+      if (location === currentDungeonLocation) currentDungeonAsked = false;
     });
   }
   // The Ship Restrictions window (ui/ShipRestrictionsWindow.svelte; evedungeons/client/ship_restrictions_window.py):
@@ -16771,9 +16803,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         // movementFunctions.py 554 to 562: refused for the ship in a dungeon the client knows, the Ship
         // Restrictions window for it and the gate's own object, and nothing else said.
         const refusal = error instanceof BridgeCallError ? error.refusal : null;
-        if (refusal !== null && SHIP_RESTRICTION_REFUSALS.has(refusal.key) && currentDungeon !== null) {
+        const inside = currentDungeon.get();
+        if (refusal !== null && SHIP_RESTRICTION_REFUSALS.has(refusal.key) && inside !== null) {
           const gate = (store.space.get().snapshot?.entities ?? []).find((entity) => entity.itemID === itemID);
-          openShipRestrictions(currentDungeon.dungeonID, gate?.dunObjectID ?? null);
+          openShipRestrictions(inside.dungeonID, gate?.dunObjectID ?? null);
           return;
         }
         throw error;
@@ -21242,6 +21275,50 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames([...AGENT_FACTIONS, ...Object.keys(places.factions).map(Number)].map((id) => ({ kind: "owner" as const, id })));
     return { factions: AGENT_FACTIONS.map((id) => ({ id, standing: raised(id, id) })), corporations };
   }
+  async function warDungeonJobs(trackedOnly = false): Promise<readonly WarDungeonJob[]> {
+    const pilot = store.station.get().online;
+    if (!pilot) return [];
+    const tracked = new Map(trackedWarDungeonJobs(pilot?.characterID ?? null).map((job) => [warDungeonJobID(job), job.since]));
+    if (trackedOnly && !tracked.size) return [];
+    // The retail providers use fwEnlistmentSvc.GetMyFaction. The selected-pilot
+    // summary may omit warfactionid on reconnect, including for NPC militia.
+    const faction = await bridgeAsk("fwCharacterEnlistmentMgr", "GetMyEnlistment", [])
+      .then((result) => militiaAffiliation(result).factionID).catch(() => pilot.warFactionID ?? null);
+    const providers = warDungeonProviders(faction);
+    if (!providers.length) return [];
+    const here = store.flight.get().status?.solarSystemID ?? pilot?.solarSystemID ?? null;
+    const [answers, jumps, route] = await Promise.all([
+      Promise.all(providers.map((kind) => bridgeAsk("dungeonInstanceCacheMgr", WAR_DUNGEON_PROVIDERS[kind], []).catch(() => null))),
+      here === null ? null : autopilotDistancesFrom(here).catch(() => null),
+      routeOfWaypoints().catch(() => null),
+    ]);
+    const routeSystems = (route?.markers ?? []).map((marker) => marker.solarSystemID);
+    const inside = currentDungeon.get()?.instanceID ?? null;
+    const oneDayAgo = Date.now() - 86_400_000;
+    const rows = providers.flatMap((kind, index) => {
+      const sites = trackerSites(answers[index] ?? undefined, undefined, null);
+      const relevant = new Set(relevantDungeonSystems(sites, here, jumps, 2, 5, 20, routeSystems));
+      return [...sites].flatMap(([solarSystemID, systemSites]) => systemSites.flatMap((site) => {
+        if (site?.dungeonID == null || site.instanceID <= 0) return [];
+        const since = tracked.get(warDungeonJobID({ kind, instanceID: site.instanceID }));
+        if (trackedOnly && since === undefined) return [];
+        const active = solarSystemID === here && site.instanceID === inside;
+        if (!active && !relevant.has(solarSystemID) && !(since !== undefined && since > oneDayAgo)) return [];
+        return [{
+          kind, solarSystemID, instanceID: site.instanceID, dungeonID: site.dungeonID,
+          nameID: site.dungeonNameID, targetID: site.targetID ?? null, active,
+          jumps: solarSystemID === here ? 0 : jumps?.get(solarSystemID) ?? null,
+          canBrowse: warDungeonCanBrowse(faction, site.factionID),
+        }];
+      }));
+    });
+    if (!rows.length) return [];
+    const data = await api.loadDungeons([...new Set(rows.map((row) => row.dungeonID))], callOptions).catch(() => null);
+    requestNames([...new Set(rows.map((row) => row.solarSystemID))].map((id) => ({ kind: "system", id })));
+    requestNames([...new Set(Object.values(data ?? {}).flatMap((row) => row?.factionID ? [row.factionID] : []))].map((id) => ({ kind: "owner", id })));
+    return rows.map((row) => ({ ...row, data: data?.[String(row.dungeonID)] ?? null }));
+  }
+
   async function dungeonJobs(): Promise<readonly DungeonJob[]> {
     const here = store.station.get().online?.solarSystemID ?? null;
     askCurrentDungeon();
@@ -21249,13 +21326,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // JUMPS_WHERE_DUNGEONS_CAN_BE_VISIBLE and INCLUDE_SYSTEMS_IN_ROUTE (AnomaliesProvider's defaults 2, 5, True).
     const PROVIDERS = [["combat", "GetCombatAnomalyInstances", 1, 1, false], ["ore", "GetOreAnomalyInstances", 1, 1, false],
       ["ice", "GetIceBeltInstances", 1, 1, false], ["homefront", "GetHomefrontSiteInstances", 2, 5, true]] as const;
-    const [answers, jumps, route] = await Promise.all([
+    const [answers, jumps, route, warSites] = await Promise.all([
       Promise.all(PROVIDERS.map(([, method]) => bridgeAsk("dungeonInstanceCacheMgr", method, []).catch(() => null))),
       here ? autopilotDistancesFrom(here).catch(() => null) : Promise.resolve(null),
       routeOfWaypoints().catch(() => null),
+      warDungeonJobs(),
     ]);
     const routeSystems = (route?.markers ?? []).map((marker) => marker.solarSystemID);
-    const shown: { solarSystemID: number; dungeonID: number; instanceID: number; kind: DungeonJob["kind"] }[] = PROVIDERS.flatMap(([kind, , always, canBe, withRoute], index) => {
+    const shown: { solarSystemID: number; dungeonID: number; instanceID: number; kind: Exclude<DungeonJob["kind"], WarDungeonKind> }[] = PROVIDERS.flatMap(([kind, , always, canBe, withRoute], index) => {
       const answer = answers[index];
       if (answer === null || answer === undefined) return [];
       const sites = decodeDungeonSites(answer);
@@ -21263,8 +21341,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     });
     // CosmicSignaturesProvider: the dungeon the pilot is in, where its entry is a signature (its data says), and it is
     // no site listed above.
-    const inside = currentDungeon;
-    if (inside !== null && inside.instanceID !== null && here !== null && !shown.some((s) => s.instanceID === inside.instanceID)) {
+    const inside = currentDungeon.get();
+    if (inside !== null && inside.instanceID !== null && here !== null &&
+        !shown.some((s) => s.instanceID === inside.instanceID) && !warSites.some((s) => s.instanceID === inside.instanceID)) {
       shown.push({ solarSystemID: here, dungeonID: inside.dungeonID, instanceID: inside.instanceID, kind: "signature" });
     }
     const data = await api.loadDungeons([...new Set(shown.map((s) => s.dungeonID))], callOptions).catch(() => null);
@@ -21275,8 +21354,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestNames([...factions.map((id) => ({ kind: "owner" as const, id })), ...[...new Set(shown.map((s) => s.solarSystemID))].map((id) => ({ kind: "system" as const, id }))]);
     const resources = [...new Set(Object.values(data ?? {}).flatMap((d) => [...(d?.oreTypes ?? []), ...(d?.iceTypes ?? [])]))];
     if (resources.length) requestNames(resources.map((id) => ({ kind: "type" as const, id })));
-    return shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
-      data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon !== null && currentDungeon.instanceID === s.instanceID }));
+    return [...shown.map((s) => ({ kind: s.kind, instanceID: s.instanceID, dungeonID: s.dungeonID, solarSystemID: s.solarSystemID, jumps: s.solarSystemID === here ? 0 : jumps?.get(s.solarSystemID) ?? null,
+      data: data?.[String(s.dungeonID)] ?? null, active: currentDungeon.get()?.instanceID === s.instanceID })), ...warSites];
   }
   async function careerGoals(): Promise<readonly CareerGoal[] | null> {
     const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
@@ -35237,6 +35316,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     dailyGoals,
     epicArcs,
     dungeonJobs,
+    warDungeonJobs,
+    activeDungeon: readonlySignal(currentDungeon),
     agencyAgents,
     agencyAgentOwners,
     agencyCareerAgents,

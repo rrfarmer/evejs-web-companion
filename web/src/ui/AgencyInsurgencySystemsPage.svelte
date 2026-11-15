@@ -160,7 +160,7 @@
           </span>
         {/if}
       </div>
-      <AgencySystemSiteList {flow} {store} system={selected} label={A + "ActivitiesInSystem"} {word} />
+      <AgencySystemSiteList {flow} {store} system={selected} label={A + "ActivitiesInSystem"} {word} provider="pirate_insurgencies" />
     {/if}
   </section>
 </div>

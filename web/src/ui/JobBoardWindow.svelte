@@ -56,7 +56,8 @@
   import { resolvedName } from "../store/names.ts";
   import FreelanceJobPage from "./FreelanceJobPage.svelte";
   import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
-  import { trackedJobsChanged, trackedMilitiaJob } from "./jobTracking.ts";
+  import { trackedJobsChanged, trackedMilitiaJob, trackedWarDungeonJobs } from "./jobTracking.ts";
+  import { warDungeonJobID } from "../bridge/dungeonJobs.ts";
   import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
   import type { FreelanceProject } from "../app/flow.ts";
   let { store, flow, openCorporation, showAgents }: { store: ClientStore; flow: AppFlow; openCorporation?: () => void; showAgents?: () => void } = $props();
@@ -66,6 +67,14 @@
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  // svelte-ignore state_referenced_locally
+  const flight = store.flight;
+  // svelte-ignore state_referenced_locally
+  const activeDungeon = flow.activeDungeon;
+  // svelte-ignore state_referenced_locally
+  const anomaliesChanged = flow.agencyAnomaliesChanged;
+  // svelte-ignore state_referenced_locally
+  const waypoints = flow.waypoints;
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob($station.online?.characterID ?? null); });
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
   const REWARDS_COUNT = "UI/Achievements/Window/Rewards/RewardsCount";
@@ -96,10 +105,27 @@
   const arcOpen = $derived(openArc === null ? null : epic?.arcs.find((a) => a.epicArcID === openArc) ?? null);
   // The dungeons (features/dungeons: the combat anomalies', ore anomalies', ice belts', Homefront operations' and
   // cosmic signatures' providers, DungeonJob; a signature never in Browse): in
-  // Browse those the providers list, in Active the one the pilot is in (active_dungeon; tracking is not here).
-  let dungeons = $state<readonly DungeonJob[]>([]), openDungeon = $state<number | null>(null);
-  const shownDungeons = $derived(tab === "browse" ? dungeons.filter((d) => d.kind !== "signature") : tab === "active" ? dungeons.filter((d) => d.active) : []);
-  const dungeonOpen = $derived(openDungeon === null ? null : dungeons.find((d) => d.instanceID === openDungeon) ?? null);
+  // Browse jobs allowed by each provider, and Active jobs the pilot is tracking or inside.
+  let dungeons = $state<readonly DungeonJob[]>([]);
+  let openDungeon = $state<Pick<DungeonJob, "kind" | "instanceID"> | null>(null);
+  const trackedDungeonIDs = $derived.by(() => {
+    void $trackedJobsChanged;
+    return new Set(trackedWarDungeonJobs($station.online?.characterID ?? null).map(warDungeonJobID));
+  });
+  const activeDungeons = $derived(dungeons.filter((d) => d.active || ("canBrowse" in d && trackedDungeonIDs.has(warDungeonJobID(d)))));
+  const shownDungeons = $derived(tab === "browse" ? dungeons.filter((d) => d.kind !== "signature" && (!("canBrowse" in d) || d.canBrowse)) : tab === "active" ? activeDungeons : []);
+  const dungeonOpen = $derived(dungeons.find((d) => d.kind === openDungeon?.kind && d.instanceID === openDungeon.instanceID) ?? null);
+  $effect(() => {
+    void $trackedJobsChanged;
+    void $activeDungeon?.instanceID;
+    void $anomaliesChanged;
+    void $waypoints;
+    void $flight.status?.solarSystemID;
+    void $station.online?.warFactionID;
+    let current = true;
+    void flow.dungeonJobs().then((rows) => { if (current) dungeons = rows; }, () => {});
+    return () => { current = false; };
+  });
   const dailyOpen = $derived(openDaily === null ? null : daily.find((d) => d.goalID === openDaily) ?? null);
   async function claimDaily(goalID: string): Promise<void> { await flow.redeemDailyGoal(goalID); daily = (await flow.dailyGoals()) ?? daily; }
   // The reward track's Claim All (DailyGoalsFeaturePage._claim_all): every daily goal's claimable reward.
@@ -113,7 +139,6 @@
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
     void flow.dailyGoals().then((d) => { daily = d ?? []; }, () => { daily = []; });
     void flow.epicArcs().then((e) => { epic = e; }, () => { epic = null; });
-    void flow.dungeonJobs().then((d) => { dungeons = d; }, () => { dungeons = []; });
     board = await flow.freelanceBoard();
   }
   const goalRemaining = (g: CorporationGoal) => { const left = Math.max(0, g.desired - g.current); return g.participationLimit ? Math.min(left, Math.max(0, g.participationLimit - g.myProgress)) : left; };
@@ -139,7 +164,7 @@
   async function openMissionPage(agentID: number): Promise<void> { openMission = agentID; open = null; await flow.openMissionDetails(agentID); }
   onMount(() => { flow.requestWords(LABELS); void load(); });
   const jobs = $derived(board ? (tab === "browse" ? board.browse : tab === "active" ? board.active : board.unclaimed) : []);
-  const activeCount = $derived((board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length + (militia === null ? 0 : 1));
+  const activeCount = $derived((board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + activeDungeons.length + (militia === null ? 0 : 1));
   const shownMilitia = $derived(tab === "active" ? militia : null);
   const unclaimedCount = $derived((board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length);
   // freelanceprojects util.is_project_manager_for_corporation.
@@ -150,6 +175,7 @@
     if (!r) return;
     serveJobBoardRequest(r.n);
     notice = "";
+    openDungeon = r.dungeon ?? null;
     if (r.projectID) { tab = "browse"; open = r.projectID; openCorp = r.corporationID; } else { tab = r.page; open = null; }
   });
   async function closeJob(p: FreelanceProject): Promise<void> {
@@ -223,8 +249,8 @@
         {#each shownDaily as d (d.goalID)}
           <DailyGoalCard {store} {flow} goal={d} onOpen={() => { openDaily = d.goalID; open = null; openMission = null; openGoal = null; }} onClaim={() => claimDaily(d.goalID)} />
         {/each}
-        {#each shownDungeons as d (d.instanceID)}
-          <DungeonCard {store} {flow} job={d} onOpen={() => { openDungeon = d.instanceID; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }} />
+        {#each shownDungeons as d (d.kind + ":" + d.instanceID)}
+          <DungeonCard {store} {flow} job={d} onOpen={() => { openDungeon = { kind: d.kind, instanceID: d.instanceID }; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }} />
         {/each}
         {#each shownGoals as g (g.goalID)}
           <CorporationGoalCard {store} {flow} goal={g} methods={goals?.methods ?? {}} onOpen={() => { openGoal = g.goalID; open = null; openMission = null; }} />

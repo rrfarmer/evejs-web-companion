@@ -33,10 +33,12 @@
   import { approachedBallID } from "../space/actionIndication.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow } from "../app/flow.ts";
+  import type { AppFlow, WarDungeonJob } from "../app/flow.ts";
   import type { JournalMission, MissionSpot } from "../store/types.ts";
   import type { FreelanceJob } from "../app/flow.ts";
-  import { trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, untrackFreelanceJob } from "./jobTracking.ts";
+  import { trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, trackedWarDungeonJobs, untrackFreelanceJob } from "./jobTracking.ts";
+  import { warDungeonJobID } from "../bridge/dungeonJobs.ts";
+  import WarDungeonOpportunity from "./WarDungeonOpportunity.svelte";
   import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
 
@@ -61,6 +63,8 @@
   const station = store.station;
   // svelte-ignore state_referenced_locally
   const space = store.space;
+  // svelte-ignore state_referenced_locally
+  const anomaliesChanged = flow.agencyAnomaliesChanged;
 
   onMount(() => {
     flow.refreshMissionTracker();
@@ -86,7 +90,21 @@
     void Promise.all(ids.map((id) => flow.freelanceJob(id).catch(() => null))).then((jobs) => { freelance = jobs.filter((j): j is FreelanceJob => j !== null); });
   });
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob(me); });
-  $effect(() => { onCount?.(missions.length + freelance.length + (militia === null ? 0 : 1)); });
+  let warJobs = $state<readonly WarDungeonJob[]>([]);
+  $effect(() => {
+    void $trackedJobsChanged;
+    void $anomaliesChanged;
+    void solarSystemID;
+    void $station.online?.warFactionID;
+    const order = new Map(trackedWarDungeonJobs(me).map((job, i) => [warDungeonJobID(job), i]));
+    if (!order.size) { warJobs = []; return; }
+    let current = true;
+    void flow.warDungeonJobs(true).then((jobs) => {
+      if (current) warJobs = [...jobs].sort((a, b) => (order.get(warDungeonJobID(a)) ?? 0) - (order.get(warDungeonJobID(b)) ?? 0));
+    }, () => {});
+    return () => { current = false; };
+  });
+  $effect(() => { onCount?.(missions.length + freelance.length + warJobs.length + (militia === null ? 0 : 1)); });
   const jobProgress = (j: FreelanceJob) => (j.project.target ? j.project.current / j.project.target : 0);
   const jobProgressText = (j: FreelanceJob) => (!j.project.target ? "" : j.project.target >= 100 ? `${Math.floor(jobProgress(j) * 100)}%`
     : `${j.project.current.toLocaleString("en-US")}/${j.project.target.toLocaleString("en-US")}`);
@@ -329,7 +347,7 @@
 
 <section class="panel mission-tracker" class:embedded>
   {#if !embedded}<h2 class="panel-title">{word("UI/Opportunities/WindowTitle", "Tracked")}</h2>{/if}
-  {#if missions.length === 0 && freelance.length === 0 && militia === null && !embedded}
+  {#if missions.length === 0 && freelance.length === 0 && warJobs.length === 0 && militia === null && !embedded}
     <p class="empty">{$agents.journal === null ? "Reading the journal…" : "No mission is accepted."}</p>
   {/if}
   {#each missions as mission (mission.agentID)}
@@ -359,6 +377,9 @@
     </article>
   {/each}
   {#if militia !== null}<MilitiaOpportunity {store} {flow} factionID={militia} />{/if}
+  {#each warJobs as job (warDungeonJobID(job))}
+    <WarDungeonOpportunity {store} {flow} {job} />
+  {/each}
   {#each freelance as j (j.project.projectID)}
     {@const pct = Math.min(1, jobProgress(j))}
     {@const stateColor = jobStateColor(j)}

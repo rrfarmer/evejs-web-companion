@@ -3,8 +3,9 @@
 // window; the window takes the request.
 
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
+import type { WarDungeonIdentity } from "../bridge/dungeonJobs.ts";
 
-export interface JobBoardRequest { readonly n: number; readonly projectID: string | null; readonly corporationID: number | null; readonly page: "browse" | "active" }
+export interface JobBoardRequest { readonly n: number; readonly projectID: string | null; readonly corporationID: number | null; readonly page: "browse" | "active"; readonly dungeon?: WarDungeonIdentity }
 const request = createSignal<JobBoardRequest | null>(null);
 let serial = 0;
 export const jobBoardRequests: ReadableSignal<JobBoardRequest | null> = readonlySignal(request);
@@ -13,6 +14,9 @@ export const jobBoardRequests: ReadableSignal<JobBoardRequest | null> = readonly
  * page where asked. */
 export function openJobBoard(projectID: string | null = null, corporationID: number | null = null, page: "browse" | "active" = "browse"): void {
   request.set({ n: ++serial, projectID, corporationID, page });
+}
+export function openWarDungeonJob(dungeon: WarDungeonIdentity): void {
+  request.set({ n: ++serial, projectID: null, corporationID: null, page: "active", dungeon });
 }
 
 /** The window has taken the request. */

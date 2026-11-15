@@ -37,7 +37,9 @@ export function dungeonEntered(args: readonly unknown[]): CurrentDungeon | null 
 
 /** The next tracked dungeon on OnEnteringDungeonRoom (OnEnteringDungeonRoom, 124 to 133). */
 export function enterDungeonRoom(current: CurrentDungeon | null, entered: CurrentDungeon): CurrentDungeon {
-  return current !== null && current.dungeonID === entered.dungeonID ? { ...current, roomID: entered.roomID } : entered;
+  return current !== null && current.dungeonID === entered.dungeonID &&
+    (entered.instanceID === null || current.instanceID === entered.instanceID)
+    ? { ...current, roomID: entered.roomID } : entered;
 }
 
 /** The tracked dungeon after OnExitingDungeon(dungeon_id) (_clear_dungeon): let go where it is that one or none is named. */

@@ -17,8 +17,9 @@
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const feature = $derived(job.data?.contentTags.find((t) => t.type === "feature") ?? null);
+  const nameID = $derived(("canBrowse" in job ? job.nameID : null) ?? job.data?.nameID ?? null);
   $effect(() => {
-    flow.requestWords(["UI/Agency/LevelX", "UI/Generic/CurrentLocation", ...[job.data?.nameID ?? null, feature?.title ?? null].filter((x): x is number => x !== null).map((x) => `#${x}`)]);
+    flow.requestWords(["UI/Agency/LevelX", "UI/Generic/CurrentLocation", ...[nameID, feature?.title ?? null].filter((x): x is number => x !== null).map((x) => `#${x}`)]);
     flow.requestSystemSecurity([job.solarSystemID]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
@@ -39,7 +40,7 @@
     {#if job.active}<span class="dj-state" title={word("UI/Generic/CurrentLocation")}>📍</span>{/if}
   </div>
   <div class="dj-system">{#if security !== null}<b style:color={securityStatusColor(security)}>{shownSecurity(security).toFixed(1)}</b>{/if} {resolvedName($names.resolved, "system", job.solarSystemID, "")}{#if job.jumps !== null && job.jumps > 0}<span class="dj-dim"> · {job.jumps} {job.jumps === 1 ? "jump" : "jumps"}</span>{/if}</div>
-  <div class="dj-title">{job.data?.nameID ? word(`#${job.data.nameID}`) : ""}</div>
+  <div class="dj-title">{nameID ? word(`#${nameID}`) : ""}</div>
   <div class="dj-bottom">{subtitle}</div>
 </div>
 

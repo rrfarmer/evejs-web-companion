@@ -16,6 +16,33 @@
 // sensor suite's anomalies once its scan has updated them (with their scan result IDs).
 
 import type { JsonValue } from "./wire.ts";
+import { EMPIRE_MILITIAS, militiaFactionID, type MilitiaFactionID } from "./militiaEnlistment.ts";
+
+export const WAR_DUNGEON_PROVIDERS = {
+  factional_warfare: "GetFactionWarfareInstances",
+  pirate_insurgencies: "GetPirateInsurgencyInstances",
+} as const;
+export type WarDungeonKind = keyof typeof WAR_DUNGEON_PROVIDERS;
+export interface WarDungeonIdentity { readonly kind: WarDungeonKind; readonly instanceID: number }
+export const warDungeonJobID = ({ kind, instanceID }: WarDungeonIdentity): string => `${kind}:${instanceID}`;
+
+export function warDungeonProviders(faction: number | null | undefined): readonly WarDungeonKind[] {
+  const enrolled = militiaFactionID(faction);
+  if (enrolled === null) return [];
+  return (EMPIRE_MILITIAS as readonly MilitiaFactionID[]).includes(enrolled)
+    ? ["factional_warfare", "pirate_insurgencies"] : ["pirate_insurgencies"];
+}
+
+// facwarCommon's occupation and insurgency combat enemies. This filters Browse,
+// while Agency's job lookup and manual tracking use the provider's actual jobs.
+const WAR_ENEMIES: Record<MilitiaFactionID, readonly MilitiaFactionID[]> = {
+  500001: [500004, 500010], 500002: [500003, 500011], 500003: [500002, 500011],
+  500004: [500001, 500010], 500010: [500001, 500004], 500011: [500002, 500003],
+};
+export function warDungeonCanBrowse(pilotFaction: number | null, siteFaction: number | null): boolean {
+  const pilot = militiaFactionID(pilotFaction), site = militiaFactionID(siteFaction);
+  return pilot !== null && site !== null && (pilot === site || WAR_ENEMIES[pilot].includes(site));
+}
 
 export interface DungeonSite { readonly solarSystemID: number; readonly dungeonID: number; readonly instanceID: number }
 
