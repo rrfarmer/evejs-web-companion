@@ -42,6 +42,7 @@
   import ClientDialogs from "./ClientDialogs.svelte";
   import FleetInvitation from "./FleetInvitation.svelte";
   import InfoWindows from "./InfoWindows.svelte";
+  import CalendarDayWindows from "./CalendarDayWindows.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
   import { commandForKey, COMBAT_WORDS } from "../play/shortcutKeys.ts";
@@ -1255,6 +1256,7 @@
   <ErrorBoundary name="Server question"><ServerQuestion store={session.store} flow={session.flow} /></ErrorBoundary>
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
+  <ErrorBoundary name="Calendar days"><CalendarDayWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <Toasts />
   {#if systemMenu}
     <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} /></ErrorBoundary>
@@ -1271,7 +1273,7 @@
   .fly-invitations { --char-bar-h: 0px; }
   .fly-fade { position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 15; opacity: 0; }
   /* the layer's windows take the pointer; the info windows' own full-size layer does not (its windows do) */
-  .fly-windows :global(> :not(.info-window-layer)) { pointer-events: auto; }
+  .fly-windows :global(> :not(.info-window-layer, .calendar-day-layer)) { pointer-events: auto; }
   .fly-hangar { position: absolute; inset: 0; }
   .fly-hangar :global(.hangar-view) { position: absolute; inset: 0; }
   .fly-neocom { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; }

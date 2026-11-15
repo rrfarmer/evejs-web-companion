@@ -25,6 +25,7 @@
   import DroneRecoveryNotice from "./DroneRecoveryNotice.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
+  import { calendarView } from "./calendarView.ts";
   import { marketDetailsTarget } from "./marketDetails.ts";
   import { skillPlanTemplateTarget } from "./skillPlanTemplate.ts";
   import { shipHoldTarget } from "./shipHold.ts";
@@ -180,7 +181,7 @@
   const openIds = $derived(new Set(wins.map((w) => w.id)));
   const focused = $derived(computeFocusedId(wins));
   const infoTop = (): number => Math.max(0, ...flow.infoWindows.state.get().map(w => w.z));
-  const topZ = (): number => Math.max(infoTop(), ...wins.map(w => w.z));
+  const topZ = (): number => Math.max(infoTop(), calendarView(flow).topZ(), ...wins.map(w => w.z));
 
   // Opening a window GIVES THE WORK AREA BACK. While the Station panel has the
   // whole column the desktop is hidden, so a window opened into it would appear

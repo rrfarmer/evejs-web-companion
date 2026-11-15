@@ -15,6 +15,8 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { calendarDate, calendarGrid, calendarMonthOffset, stepCalendarDate, type CalendarDate } from "./calendarSelection.ts";
+  import { CALENDAR_FILTERS, calendarCaption, calendarRows, calendarTime, calendarView, type CalendarRow } from "./calendarView.ts";
+  import CalendarCellEvents from "./CalendarCellEvents.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const monthHeading = $props.id();
@@ -24,6 +26,9 @@
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const station = store.station;
+  // svelte-ignore state_referenced_locally
+  const model = calendarView(flow);
+  const { filters } = model;
   const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const WORDS = {
@@ -33,13 +38,10 @@
     ccp: "UI/Calendar/CalendarWindow/GroupCcp", automated: "UI/Calendar/CalendarWindow/GroupAutomated", declined: "UI/Calendar/CalendarWindow/DeclinedEvents",
     timestamp: "UI/Calendar/CalendarWindow/ShowTimestamp",
     previous: "UI/Calendar/Hints/Previous", next: "UI/Calendar/Hints/Next",
+    viewDay: "/Carbon/UI/Calendar/ViewDay",
   } as const;
-  const FILTERS = ["personal", "corp", "alliance", "ccp", "automated", "declined", "timestamp"] as const;
-  // appConst.calendarViewRangeInMonths, calendarTag* and eventResponse*.
+  // appConst.calendarViewRangeInMonths.
   const VIEW_RANGE = 12;
-  const TAGS = { personal: 1, corp: 2, alliance: 4, ccp: 8, automated: 16 } as const;
-  const TAG_KEYS = Object.keys(TAGS) as (keyof typeof TAGS)[];
-  const RESPONSE_DELETED = 1, RESPONSE_DECLINED = 2;
   const word = (label: string, own: string, args: Readonly<Record<string, string | number>> = {}): string => {
     const t = $words.templates[label];
     return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: () => "" })) : own;
@@ -56,8 +58,7 @@
   let selected = $state(today.d);
   let gridElement: HTMLElement | undefined = $state();
   const monthOffset = $derived(calendarMonthOffset(view, today));
-  let filters = $state<Record<(typeof FILTERS)[number], boolean>>({ personal: true, corp: true, alliance: true, ccp: true, automated: true, declined: true, timestamp: true });
-  const visibleFilters = $derived(FILTERS.filter(filter => {
+  const visibleFilters = $derived(CALENDAR_FILTERS.filter(filter => {
     if (filter === "corp") {
       const id = $station.online?.corporationID ?? null;
       return id !== null && id > 0 && !isNpcCorporation(id);
@@ -65,7 +66,6 @@
     if (filter === "alliance") return ($station.online?.allianceID ?? 0) > 0;
     return true;
   }));
-  const tagMask = $derived(TAG_KEYS.reduce((mask, key) => filters[key] ? mask | TAGS[key] : mask, 0));
 
   let monthEvents = $state<readonly CalendarEvent[]>([]);
   let monthStatus = $state<"loading" | "ready" | "error">("loading");
@@ -87,21 +87,13 @@
   const events = $derived($activity.calendarEvents.status === "ready" ? $activity.calendarEvents.value : []);
   const responses = $derived(new Map($activity.calendarResponses.value?.map(row => [row.eventID, row.status])));
   const eventsByDay = $derived.by(() => {
-    const map = new Map<number, { id: number; title: string; at: number }[]>();
-    for (const e of monthEvents) {
-      const response = responses.get(e.eventID);
-      if (e.isDeleted || !(tagMask & e.flag) || response === RESPONSE_DELETED || (response === RESPONSE_DECLINED && !filters.declined)) continue;
-      const ms = filetimeToUnixMs(e.eventDateTime);
-      if (ms === null) continue;
-      const d = new Date(ms);
-      if (d.getUTCFullYear() !== view.y || d.getUTCMonth() !== view.m) continue;
-      const day = d.getUTCDate();
-      const row = { id: e.eventID, title: e.eventTitle, at: ms };
-      const list = map.get(day);
+    const map = new Map<number, CalendarRow[]>();
+    for (const row of calendarRows(monthEvents, $filters, responses)) {
+      if (row.day.y !== view.y || row.day.m !== view.m) continue;
+      const list = map.get(row.day.d);
       if (list) list.push(row);
-      else map.set(day, [row]);
+      else map.set(row.day.d, [row]);
     }
-    for (const list of map.values()) list.sort((a, b) => a.at - b.at || a.title.localeCompare(b.title));
     return map;
   });
   const upcoming = $derived(events.map((e) => ({ title: e.title, at: filetimeToUnixMs(e.eventDateTime) })).filter((e): e is { title: string; at: number } => e.at !== null && e.at >= Date.now())
@@ -123,15 +115,20 @@
 
   function navigateDays(event: KeyboardEvent): void {
     const { key } = event;
+    if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      model.openDay({ ...view, d: selected }, event.shiftKey);
+      return;
+    }
     const vertical = key === "ArrowUp" || key === "ArrowDown";
-    if ((!vertical && key !== "ArrowLeft" && key !== "ArrowRight") || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!vertical && key !== "ArrowLeft" && key !== "ArrowRight") return;
     const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
     event.preventDefault();
     event.stopPropagation();
     selectDay(stepCalendarDate({ ...view, d: selected }, step, vertical ? "week" : "day"), true);
   }
-  const time = (ms: number): string => { const d = new Date(ms); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
-  const dateText = (ms: number): string => { const d = new Date(ms); return `${d.getUTCFullYear()}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${String(d.getUTCDate()).padStart(2, "0")}`; };
 </script>
 
 <section class="panel calendar-wnd">
@@ -140,7 +137,7 @@
     <div class="cal-lists">
       <b>{word(WORDS.upcoming, "Upcoming Events")}</b>
       <div class="cal-list">
-        {#each upcoming as e, i (i)}<div class="cal-entry"><small>{dateText(e.at)} {time(e.at)}</small><span>{e.title}</span></div>{/each}
+        {#each upcoming as e, i (i)}<div class="cal-entry"><small>{calendarCaption(calendarDate(new Date(e.at)))} {calendarTime(e.at)}</small><span>{e.title}</span></div>{/each}
       </div>
       <b>{word(WORDS.updates, "Latest Updates")}</b>
       <div class="cal-list short"></div>
@@ -148,7 +145,7 @@
     <div class="cal-filters">
       <b>{word(WORDS.filters, "Filters")}</b>
       {#each visibleFilters as f (f)}
-        <label><input type="checkbox" bind:checked={filters[f]} /> {word(WORDS[f], f)}</label>
+        <label><input type="checkbox" checked={$filters[f]} onchange={event => model.setFilter(f, event.currentTarget.checked)} /> {word(WORDS[f], f)}</label>
       {/each}
     </div>
   </div>
@@ -174,16 +171,17 @@
             {@const out = day.m !== view.m}
             {@const isToday = !out && day.y === today.y && day.m === today.m && day.d === today.d}
             {@const isSelected = !out && day.d === selected}
+            {@const dayRows = out ? [] : eventsByDay.get(day.d) ?? []}
             <div class="cal-day" role="gridcell" class:out class:today={isToday} class:selected={isSelected}
               aria-label={dateLabel.format(Date.UTC(day.y, day.m, day.d))} aria-selected={isSelected}
               aria-current={isToday ? "date" : undefined} tabindex={out ? undefined : isSelected ? 0 : -1}
               onmousedown={event => { if (out) event.preventDefault(); }}
               onclick={() => { if (!out) selectDay(day, true); }}
-              ondblclick={() => { if (out) selectDay(day, true); }} onkeydown={navigateDays}>
+              ondblclick={event => { if (out) selectDay(day, true); else model.openDay(day, event.shiftKey); }} onkeydown={navigateDays}>
               <span class="num">{day.d}</span>
-              {#each (out ? [] : eventsByDay.get(day.d) ?? []) as e (e.id)}
-                <span class="ev" title={e.title}>{filters.timestamp ? `${time(e.at)} ` : ""}{e.title}</span>
-              {/each}
+              {#if dayRows.length}
+                <CalendarCellEvents rows={dayRows} timestamp={$filters.timestamp} more={word(WORDS.viewDay, "View Day")} open={shift => model.openDay(day, shift)} />
+              {/if}
             </div>
           {/each}
         </div>
@@ -223,5 +221,4 @@
   .cal-day.selected { box-shadow: inset 0 0 0 1px var(--theme-focus, #58a7bf); }
   .cal-day:focus-visible { outline: 1px solid var(--theme-focus-bright, #8fd0e6); outline-offset: -2px; }
   .cal-day .num { align-self: flex-end; font-size: 11px; }
-  .cal-day .ev { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: rgba(255, 255, 255, 0.85); }
 </style>
