@@ -58,6 +58,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
   ] },
   { label: "Ship", icon: icon("directoryShip"), items: [
     { id: "fitting", label: "Fitting", icon: icon("fitting") },
+    { id: "shipTree", label: "Ship Tree", icon: icon("isis") },
   ] },
   { label: "Social", icon: icon("directorySocial"), items: [
     { id: "contacts", label: "Contacts", icon: icon("peopleandplaces") },

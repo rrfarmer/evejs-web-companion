@@ -9,6 +9,7 @@
 import { BridgeCallError, callMethod, refusalOfBody } from "../bridge/callMethod.ts";
 import type { Ask } from "../bridge/ask.ts";
 import type { AcademyCatalogue } from "../bridge/academyShips.ts";
+import type { ShipTreeCatalogue } from "../bridge/shipTree.ts";
 import type { AchievementCatalogue } from "../bridge/achievements.ts";
 import type { CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import type { CorporationRoleData, CorporationRoleGroupSpec } from "../bridge/corporationRoles.ts";
@@ -4098,6 +4099,12 @@ export async function getShipTraits(
 export async function getAcademyCatalogue(options: ApiOptions = {}): Promise<AcademyCatalogue | null> {
   const data = await getJson("/api/client-data/academy-ships", options);
   return (data.academy ?? null) as unknown as AcademyCatalogue | null;
+}
+
+/** The installed Ship Tree's hulls, class labels, Dogma rig sizes and silhouette paths. */
+export async function getShipTreeCatalogue(options: ApiOptions = {}): Promise<ShipTreeCatalogue | null> {
+  const data = await getJson("/api/client-data/ship-tree", options);
+  return (data.shipTree ?? null) as unknown as ShipTreeCatalogue | null;
 }
 
 /** The local Aura conversation opened by a travel decline in an Academy ship. */

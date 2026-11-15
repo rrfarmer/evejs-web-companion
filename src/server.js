@@ -22,6 +22,7 @@ const { createCameraTaskDefinitions, isCameraTaskEvent, recordCameraTaskEvents }
 const { py27HashOrder } = require("./clientData/py27HashOrder");
 const { createSdeBuiltData } = require("./clientData/sdeBuiltData");
 const { hullBrowserData } = require("./clientData/hullBrowser");
+const { expandClientTypeList, shipTreeTypeIndex } = require("./clientData/shipTree");
 const { readFitting } = require("./clientData/importFitting");
 const { createClientConstants } = require("./clientData/clientConstants");
 const { createClientNotificationFormats } = require("./clientData/clientNotificationFormats");
@@ -14471,18 +14472,53 @@ app.get("/api/client-data/type-list/:listID", requireAuth, async (req, res, next
     const [lists, types, groups] = await Promise.all([clientBuiltData.table("typeLists"), clientBuiltData.table("typesGroupIDsOrdered"), clientBuiltData.table("groupsOrdered")]);
     const list = lists && lists[String(listID)];
     if (!list || !types || !groups) return res.json({ ok: true, available: false, typeIDs: [] });
-    const arr = (v) => (Array.isArray(v) ? v.map(Number) : []);
-    const byGroups = (ids) => { const set = new Set(ids); return (types["#order"] || []).filter((t) => set.has(Number(types[String(t)]))); };
-    const byCategories = (ids) => { const set = new Set(ids); return (types["#order"] || []).filter((t) => { const g = groups[String(types[String(t)])]; return g && set.has(Number(g.categoryID)); }); };
-    const minus = (a, b) => { const s = new Set(b); return new Set([...a].filter((x) => !s.has(x))); };
-    let final = minus(new Set(byCategories(arr(list.includedCategoryIDs))), byCategories(arr(list.excludedCategoryIDs)));
-    final = minus(new Set([...final, ...byGroups(arr(list.includedGroupIDs))]), byGroups(arr(list.excludedGroupIDs)));
-    final = minus(new Set([...final, ...arr(list.includedTypeIDs)]), arr(list.excludedTypeIDs));
-    res.json({ ok: true, available: true, typeIDs: [...final].map(Number),
+    const final = expandClientTypeList(list, types, groups);
+    res.json({ ok: true, available: true, typeIDs: final.map(Number),
       // the types' groups (goalMessengerUtil.add_ores_to_proto: allowed_group_ids = the listed types' groups).
       groupIDs: [...new Set([...final].map((t) => Number(types[String(t)])).filter((g) => Number.isSafeInteger(g) && g > 0))] });
   } catch (error) { next(error); }
 });
+
+// ShipTree._InitShipTypeIDDict and GetHoloIconPath. Read the build's ship and class
+// tables once. The client places them into the selected faction's graph.
+let shipTreeRead;
+app.get("/api/client-data/ship-tree", requireAuth, async (_req, res, next) => {
+  try {
+    shipTreeRead ??= loadShipTree().catch(error => {
+      shipTreeRead = undefined;
+      throw error;
+    });
+    res.json({ ok: true, shipTree: await shipTreeRead });
+  } catch (error) { next(error); }
+});
+
+async function loadShipTree() {
+  const [lists, typeGroups, groups, typeShipGroups, typeFactions, typePublished, classes] = await Promise.all([
+    clientBuiltData.table("typeLists"), clientBuiltData.table("typesGroupIDsOrdered"),
+    clientBuiltData.table("groupsOrdered"), clientBuiltData.table("typeShipGroups"),
+    clientBuiltData.table("typeFactions"), clientBuiltData.table("typePublished"), clientBuiltData.infoBubbleGroups(),
+  ]);
+  const academyList = lists?.[992];
+  if (!academyList || !typeGroups || !groups || !typeShipGroups || !typeFactions || !typePublished || !classes) return null;
+  const indexed = shipTreeTypeIndex({ academyList, typeGroups, groups, typeShipGroups, typeFactions, typePublished });
+  const typeIDs = [670, ...indexed.map(row => row.typeID)];
+  const [types, dogma] = await Promise.all([clientBuiltData.rows("types", typeIDs), clientBuiltData.rows("typeDogma", typeIDs)]);
+  if (!types || !dogma) return null;
+  const graphicIDs = [...new Set(Object.values(types).map(type => strictPositiveID(type?.graphicID)).filter(Boolean))];
+  const graphics = await clientBuiltData.rows("graphicIDs", graphicIDs);
+  const detail = typeID => {
+    const type = types[typeID];
+    const graphic = graphics?.[type?.graphicID];
+    const iconFolder = graphic?.iconInfo?.folder;
+    return {
+      nameID: type?.typeNameID ?? null,
+      descriptionID: type?.descriptionID ?? null,
+      holoIcon: iconFolder && graphic.sofHullName ? `${iconFolder}/${graphic.sofHullName}_isis.png` : null,
+      rigSize: dogma[typeID]?.dogmaAttributes?.find(attribute => attribute.attributeID === 1547)?.value ?? 0,
+    };
+  };
+  return { ships: indexed.map(row => ({ ...row, ...detail(row.typeID) })), classes, capsule: detail(670) };
+}
 
 // Python 2.7's str hash (64-bit, no randomisation) and the order a dict of str keys, inserted one after another,
 // iterates in (dictobject.c: an 8-slot table, lookdict_string's probing - i = 5i + perturb + 1, perturb >>= 5 -,
@@ -18520,7 +18556,7 @@ app.post("/api/icons/cache", requireAuth, (req, res) => {
 // group's icon, a career banner): /client-res/ui/texture/... answers an indexed PNG, JPEG or a supported DDS
 // converted to PNG, or 404 (src/clientData/clientTextures.js). No session: the install's pictures do not vary by
 // player. Above the catch-all, for the same reason as the icon cache below.
-app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds))$/, (req, res) => {
+app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds)|dx9\/model\/[a-z0-9_./-]+\/icons\/[a-z0-9_-]+_isis\.png)$/, (req, res) => {
   if (/\.dds$/i.test(req.params[0])) {
     const png = clientTextures.pngFor?.(`res:/${req.params[0]}`);
     if (!png) { res.status(404).end(); return; }

@@ -27,6 +27,7 @@
   import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import { ACADEMY_BUTTON, ACADEMY_TITLE } from "../bridge/academyShips.ts";
+  import { SHIP_TREE_CAPTION } from "../bridge/shipTree.ts";
   import { FittingShipScene } from "../play/fittingScene.ts";
   import { setContext } from "svelte";
   // The app panels in this page's windows draw as the client's where they know how (Fitting.svelte's ring).
@@ -103,7 +104,7 @@
   const NEOCOM_TABS: Record<string, TabID> = {
     theatersOfWar: "theatersOfWar",
     achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
-    fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat",
+    fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "market", contracts: "contracts", industry: "industry", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
@@ -453,6 +454,7 @@
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
     academyShips: { w: 1280, h: 688 },
+    shipTree: { w: 1055, h: 720 },
   };
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
@@ -570,6 +572,7 @@
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
     theatersOfWar: "UI/TheatersOfWar/TheatersOfWarCaption",
     academyShips: ACADEMY_TITLE,
+    shipTree: SHIP_TREE_CAPTION,
   };
   let captions = $state<Partial<Record<TabID, string>>>({});
   $effect(() => {
@@ -710,7 +713,7 @@
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist",
-    ToggleTheatersOfWarWindow: "theatersOfWar",
+    ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
@@ -721,7 +724,8 @@
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
     const tab = NEOCOM_TABS[id];
-    if (tab) open(tab);
+    if (tab === "shipTree" && wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
+    else if (tab) open(tab);
   }
   function toggleStarMap(show = !starMap) {
     if (!show) { starMap?.root.dispatchEvent(new Event("star-map-closed")); starMap?.dispose(); starMap = null; return; }

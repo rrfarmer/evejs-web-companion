@@ -1,5 +1,8 @@
 <script lang="ts">
   import AcademyShips from "./AcademyShips.svelte";
+  import ShipTree from "./ShipTree.svelte";
+  import { AIR_FACTION } from "../bridge/shipTree.ts";
+  import { shipTreeSelection } from "./shipTreeSelection.ts";
   // The main-area host for a SELECTED tab — static (a Neocom pick) or
   // state-specific (a shell control). One place the tab -> real component
   // mapping lives, so App and both shells stay thin routers. Every panel here is
@@ -147,7 +150,9 @@
 {:else if tab === "industry"}
   <Industry {store} {flow} />
 {:else if tab === "academyShips"}
-  <AcademyShips {store} {flow} />
+  <AcademyShips {store} {flow} openShipTree={onOpen ? () => { shipTreeSelection(flow).set(AIR_FACTION); onOpen?.("shipTree"); } : undefined} />
+{:else if tab === "shipTree"}
+  <ShipTree {store} {flow} />
 {:else if tab === "market"}
   <Market {store} {flow} />
 {:else if tab === "activity"}

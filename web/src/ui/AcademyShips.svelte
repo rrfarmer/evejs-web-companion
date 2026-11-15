@@ -15,7 +15,7 @@
   import TypeIcon from "./TypeIcon.svelte";
   import { skillPlanButtonHint, skillPlanTemplateTarget } from "./skillPlanTemplate.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, openShipTree }: { store: ClientStore; flow: AppFlow; openShipTree?: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const { station, words, names } = store;
   // svelte-ignore state_referenced_locally
@@ -27,11 +27,12 @@
   const VIEW = "UI/Common/Buttons/View";
   const BOARD = "UI/Common/Buttons/Board";
   const SAVE = "UI/Fitting/FittingWindow/Save";
+  const SHOW_IN_TREE = "UI/InfoWindow/ShowInISIS";
   const PLAN_NAME = "Tooltips/SkillPlanner/SkillPlanNameStringWithType";
   const PLAN_HINT = "Tooltips/SkillPlanner/SkillPlanButtonTooltip";
   const PLAN_LIMIT = "UI/SkillPlan/MaximumSkillPlanReached";
   const LABELS = [
-    BOARD, BACK, VIEW, SAVE, PLAN_NAME, PLAN_HINT, PLAN_LIMIT,
+    BOARD, BACK, VIEW, SAVE, SHOW_IN_TREE, PLAN_NAME, PLAN_HINT, PLAN_LIMIT,
     ...["WindowDescription", "shipsAvailable", "BorrowedShips", "RecommendedLabel", "RentedLabel", "BuyStandard"]
       .map(key => ROOT + key),
     ...ACADEMY_CATEGORIES.flatMap(({ name }) => [ROOT + "CategoryName" + name, ROOT + "CategoryDescription" + name]),
@@ -248,6 +249,12 @@
               </details>
             {/if}
             <div class="fit-actions">
+              {#if openShipTree}
+                <button type="button" class="icon-button" aria-label={word(SHOW_IN_TREE, "Show in Ship Tree")}
+                  title={word(SHOW_IN_TREE, "Show in Ship Tree")} onclick={openShipTree}>
+                  <img alt="" src="/client-res/ui/texture/eveicon/system_icons/ship_tree_16px.png" />
+                </button>
+              {/if}
               <button type="button" class="icon-button" aria-label="Save Standard Fitting" title={word(SAVE, "Save Fitting")} disabled={busy}
                 onclick={() => run(() => flow.saveAcademyStandardFit(picked, facts))}>
                 <img alt="" src="/client-res/ui/texture/eveicon/system_icons/load_16px.png" />

@@ -103,6 +103,7 @@
   bind:this={el}
   class="win"
   class:focused
+  class:ship-tree-window={win.id === "shipTree"}
   style:display={win.minimized ? "none" : undefined}
   style="left:{win.x}px; top:{win.y}px; width:{win.w}px; height:{win.h}px; z-index:{win.z};"
   onpointerdown={onFocus}
@@ -161,3 +162,9 @@
   <span class="win-resize win-resize-se" title="Resize" onpointerdown={(e) => startResize(e, "se")}></span>
   {/if}
 </section>
+
+<style>
+  /* The scrollable graph can extend under the title bar during a pan. */
+  .ship-tree-window > .win-bar { position: relative; z-index: 1; }
+  .ship-tree-window > .win-body { position: relative; isolation: isolate; }
+</style>
