@@ -17,6 +17,7 @@
   import InfoFreelanceProjects from "./InfoFreelanceProjects.svelte";
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
+  import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MapRouteStep } from "../app/flow.ts";
@@ -32,6 +33,7 @@
   import { DATE_LABELS, formatTemplate, plainText, type FormatContext } from "../bridge/clientWords.ts";
   import { INTERVAL_WORD_LABELS, dateTimeIntervalWritten } from "../bridge/timeInterval.ts";
   import type { CharacterInfoHeader } from "../bridge/characterInfo.ts";
+  import type { EmploymentHistory } from "../bridge/employmentHistory.ts";
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
   import {
     OWNER_INFO_WORDS,
@@ -449,8 +451,12 @@
   let characterHeaderRead = $state<CharacterInfoHeader | null>(null);
   /** The latest header reading asked; an older one's answer is dropped. Not reactive. */
   let characterHeaderReads = 0;
+  const ownCharacter = $derived($subject?.kind === "character" && $subject.characterID === $station.online?.characterID);
+  const ownCharacterCorporation = $derived(ownCharacter ? $station.online?.corporationID : null);
   $effect(() => {
     const current = $subject;
+    // When the subject is the pilot, OnSessionChanged invalidates their old public record.
+    void ownCharacterCorporation;
     const ticket = ++characterHeaderReads;
     characterHeaderRead = null;
     if (current?.kind !== "character" || isNpcOwner(current.characterID)) return;
@@ -561,6 +567,48 @@
       if (typeof text === "string" && text !== "") return text;
     }
     return title;
+  });
+
+  const characterTabs = $derived.by(() => {
+    const current = $subject;
+    if (current?.kind !== "character") return [];
+    const tabs: ("bio" | "description" | "standings" | "employment")[] = [];
+    if (characterHeaderRead?.description) tabs.push("bio");
+    tabs.push("description");
+    if (!ownCharacter) tabs.push("standings");
+    if (!isNpcOwner(current.characterID)) tabs.push("employment");
+    return tabs;
+  });
+  type CharacterTab = (typeof characterTabs)[number];
+  let chosenCharacterTab = $state<CharacterTab | null>(null);
+  let employmentVisited = $state(false);
+  function selectCharacterTab(tab: CharacterTab): void {
+    chosenCharacterTab = tab;
+    if (tab === "employment") employmentVisited = true;
+  }
+  const characterTab = $derived(chosenCharacterTab && characterTabs.includes(chosenCharacterTab) ? chosenCharacterTab : characterTabs[0]);
+  const CHARACTER_TAB_LABELS: Record<CharacterTab, string> = {
+    bio: "UI/InfoWindow/TabNames/Bio", description: "UI/InfoWindow/TabNames/Description",
+    standings: "UI/InfoWindow/TabNames/Standings", employment: "UI/InfoWindow/TabNames/EmploymentHistory",
+  };
+  let characterEmployment = $state<EmploymentHistory | null>(null);
+  let employmentUnavailable = $state(false);
+  // Keep an opened character's result when switching tabs. Refresh after a corporation change.
+  const employmentOwner = $derived($subject?.kind === "character" && employmentVisited && !isNpcOwner($subject.characterID)
+    ? $subject.characterID : null);
+  $effect(() => {
+    const id = employmentOwner;
+    if (id === null) return;
+    void ownCharacterCorporation;
+    let current = true;
+    characterEmployment = null;
+    employmentUnavailable = false;
+    void flow.characterEmploymentHistory(id).then(history => {
+      if (!current) return;
+      characterEmployment = history;
+      employmentUnavailable = history === null;
+    }).catch(() => { if (current) employmentUnavailable = true; });
+    return () => { current = false; };
   });
 
   /** MemberFor's time: FmtDateTimeInterval(startDateTime, now, 'day'), the calendar's years, months and days. */
@@ -856,7 +904,8 @@
     "UI/InfoWindow/MemberOf": "In the corporation",
     "UI/InfoWindow/MemberFor": "for {timePeriod}",
     "UI/InfoWindow/ClickForCorpInfo": "The corporation's information",
-    "UI/InfoWindow/TabNames/Bio": "In their own words",
+    "UI/InfoWindow/TabNames/Bio": "Bio",
+    "UI/InfoWindow/TabNames/EmploymentHistory": "Employment History",
   };
   /** A faction's labels the window uses, with the page's own words where the install's are not had. */
   const FACTION_INFO_WORDS: Readonly<Record<string, string>> = {
@@ -1546,17 +1595,22 @@
         <p class="note">Reading…</p>
       {/if}
     {:else if $subject.kind === "character"}
-      <!-- INFO_TABS' order: the Bio, there only where it has words (construct_main_tabs: `if text`), the Description,
-           then the Standings. -->
-      {#if characterHeaderRead !== null && characterHeaderRead.description !== ""}
-        <h3>{word("UI/InfoWindow/TabNames/Bio")}</h3>
+      <nav class="character-info-tabs" aria-label="Character information">
+        {#each characterTabs as tab (tab)}
+          <button type="button" aria-pressed={characterTab === tab} onclick={() => selectCharacterTab(tab)}>{word(CHARACTER_TAB_LABELS[tab])}</button>
+        {/each}
+      </nav>
+      {#if characterTab === "bio" && characterHeaderRead?.description}
         <div class="info-description">{@render markupLines(characterHeaderRead.description)}</div>
+      {:else if characterTab === "description"}
+        {#if characterDescription !== null}<div class="info-description">{@render markupLines(characterDescription)}</div>{/if}
+      {:else if characterTab === "standings"}
+        {@render standingsTab()}
+      {:else if characterTab === "employment"}
+        {#if employmentUnavailable}<p role="status">Employment history is unavailable.</p>
+        {:else if characterEmployment === null}<p role="status">Reading employment history…</p>
+        {:else}<EmploymentHistoryEntries {store} {flow} history={characterEmployment} />{/if}
       {/if}
-      {#if characterDescription !== null && characterDescription !== ""}
-        <h3>{word("UI/InfoWindow/TabNames/Description")}</h3>
-        <div class="info-description">{@render markupLines(characterDescription)}</div>
-      {/if}
-      {@render standingsTab()}
     {:else if $subject.kind === "corporation" || $subject.kind === "alliance"}
       {@const rows = $subject.kind === "corporation" ? corporationRows : allianceRows}
       {#if rows.length > 0}
@@ -1606,3 +1660,10 @@
     {/if}
   {/if}
 </section>
+
+<style>
+  .character-info-tabs { display: flex; flex-wrap: wrap; gap: 3px; margin: 8px 0; border-bottom: 1px solid #ffffff30; }
+  .character-info-tabs button { padding: 5px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
+  .character-info-tabs button:hover, .character-info-tabs button[aria-pressed="true"] { background: #ffffff12; }
+  .character-info-tabs button[aria-pressed="true"] { border-bottom-color: #9ec2da; }
+</style>

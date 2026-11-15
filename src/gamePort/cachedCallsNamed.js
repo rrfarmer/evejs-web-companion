@@ -170,14 +170,16 @@ function namedAfterCall(service, method, args, attributes = {}, bound = undefine
  * What it names on a change to its session ({name: [old, new]}).
  *
  * base_corporation_ui.py 98, CorporationUI.ProcessSessionChange: another corporation, and the pilot's
- * employment record is not what was kept. facWarSvc.py 57, OnSessionChanged: in or out of a militia, and
- * _RefreshCache (199) names four.
+ * employment record is not what was kept. 24.02 infosvc.OnSessionChanged invalidates their public record.
+ * facWarSvc.py 57, OnSessionChanged: in or out of a militia, and _RefreshCache (199) names four.
  */
 function namedOnSessionChange(changes, attributes = {}) {
   const session = attributes || {};
   const employment = ["corporationSvc", "GetEmploymentRecord", [session.charid]];
   const named = [];
-  if (changes && Object.hasOwn(changes, "corpid") && whole(session.charid) !== null && whole(session.charid) !== 0n) named.push(employment);
+  if (changes && Object.hasOwn(changes, "corpid") && whole(session.charid) > 0n) {
+    named.push(employment, ["charMgr", "GetPublicInfo3", [session.charid]]);
+  }
   if (changes && Object.hasOwn(changes, "warfactionid")) named.push(...RANKS, ["facWarMgr", "GetCorpFactionalWarStatus", []], employment);
   return withEveryArgument(named);
 }

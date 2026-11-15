@@ -225,7 +225,7 @@ import { inventoryPasswords, inventoryPasswordText, type InventoryPasswordType }
 import { decodeSkillHistory, decodeSkills } from "../bridge/boundSkills.ts";
 import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
 import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification } from "../bridge/skillNotifications.ts";
-import { employmentHistoryOf } from "../bridge/employmentHistory.ts";
+import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
 import {
@@ -939,7 +939,7 @@ import { CRIMEWATCH_NOTICES, CRIMEWATCH_SESSION_NAMES } from "../space/crimewatc
 import type { SafetyLevel } from "../space/crimewatch.ts";
 import { CLONE_GRADE_ALPHA, CLONE_GRADE_NOTICE, cloneGradeOf } from "../bridge/cloneGrade.ts";
 import type { AgentFinderRow, AgentRow, HoldItem, JournalMission, MissionSpot, SpaceEntity } from "../store/types.ts";
-import { publicInfoRow, readCharacterBloodline, readCharacterInfoHeader, readNpcCharacterCorporation, type CharacterInfoHeader } from "../bridge/characterInfo.ts";
+import { publicInfoRow, readCharacterBloodline, readCharacterInfoHeader, readCharacterPublicInfo, readNpcCharacterCorporation, type CharacterInfoHeader } from "../bridge/characterInfo.ts";
 import { GATE_ACTIVATION_RANGE_M, TYPE_ABYSS_ENTRANCE_GATE, activateGate as activateGateCall, gateCallFor } from "../bridge/gateActivation.ts";
 import {
   ABYSS_LOOTABLE_OBJECTIVE,
@@ -3512,6 +3512,7 @@ export interface AppFlow {
    * (bridge/employmentHistory.ts): the corporation service's record of the pilot's corporations and transfers.
    */
   loadEmploymentHistory(): Promise<void>;
+  characterEmploymentHistory(characterID: number): Promise<EmploymentHistory | null>;
   /** Refresh the flight status (location + ship movement state). */
   loadFlightStatus(): Promise<void>;
   /** Undock from the station (the session enters space). */
@@ -18885,7 +18886,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const { characterID, corporationID, allianceID, warFactionID } = scope.online;
     const playerCorporation = !isNpcCorporation(corporationID);
     const [publicInfo, info, corporation, member, alliance, fw] = await Promise.all([
-      scope.ask("charMgr", "GetPublicInfo3", [characterID]), scope.ask("corpRegistry", "GetInfoWindowDataForChar", [characterID]),
+      readCharacterPublicInfo(scope.ask, characterID), scope.ask("corpRegistry", "GetInfoWindowDataForChar", [characterID]),
       playerCorporation ? scope.ask("corpRegistry", "GetCorporation", []) : Promise.resolve(null),
       playerCorporation ? readCorporationMember(characterID, scope) : Promise.resolve(null),
       allianceID ? scope.ask("allianceRegistry", "GetEmploymentRecord", [corporationID]) : Promise.resolve(null),
@@ -18893,7 +18894,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ]);
     scope.current();
     const first = (row: JsonValue) => isListValue(row) ? row.items[0] ?? null : Array.isArray(row) ? row[0] ?? null : row;
-    const corpStart = memberInteger(publicInfoRow(publicInfo), "startDateTime");
+    const corpStart = memberInteger(publicInfo, "startDateTime");
     const allianceStart = memberInteger(readRowsetRows(alliance)[0] ?? publicInfoRow(alliance) ?? first(alliance), "startDate");
     const text = readKeyVal(info, "title") ?? memberField(info, "title");
     const roleMask = BigInt(scope.online.corpRole ?? "0"), director = (roleMask & 1n) !== 0n;
@@ -23928,10 +23929,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
-  // The Character Sheet's employment history, as the client's employment tab asks for it (infosvc.py 2842):
-  // corporationSvc.GetEmployementRecordAndCharacterTransfers(the pilot), CCP's spelling, its days reckoned to now.
-  // Through the web gateway, whose list has nothing of the corporation service's, it is not to be had, and the
-  // sheet says so; on the game port it is asked as the client asks it.
+  async function characterEmploymentHistory(characterID: number): Promise<EmploymentHistory | null> {
+    const answer = await bridgeAsk("corporationSvc", "GetEmployementRecordAndCharacterTransfers", [characterID]);
+    const history = employmentHistoryOf(answer, filetimeOf(Date.now()));
+    if (history !== null) requestNames(history.lines.map((line) => ({ kind: "corporation", id: line.corporationID })));
+    return history;
+  }
+
+  // The Character Sheet reads the same Info service panel for its own pilot.
   async function loadEmploymentHistory(): Promise<void> {
     const characterID = store.station.get().online?.characterID ?? 0;
     if (!(characterID > 0)) {
@@ -23939,14 +23944,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return;
     }
     try {
-      const answer = await bridgeAsk("corporationSvc", "GetEmployementRecordAndCharacterTransfers", [characterID]);
-      const history = employmentHistoryOf(answer, filetimeOf(Date.now()));
+      const history = await characterEmploymentHistory(characterID);
       if (history === null) {
         store.apply({ type: "character-sheet/employment-history", history: null, error: "your employment history: the answer could not be read" });
         return;
       }
       store.apply({ type: "character-sheet/employment-history", history, error: null });
-      requestNames(history.lines.map((line) => ({ kind: "corporation", id: line.corporationID })));
     } catch (error) {
       if (failsTheReading(error)) {
         throw error;
@@ -34850,6 +34853,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadCharacterSheet,
     loadSkillHistory,
     loadEmploymentHistory,
+    characterEmploymentHistory,
 
     async loadPackageIntoShip(cargoTypeID, cargoQuantity) {
       await runAgentAction(async () => {

@@ -167,14 +167,14 @@ test("a call the client names nothing beside names nothing", () => {
 
 test("another corporation names the pilot's employment record; in or out of a militia names the ranks, the corporation's standing in the war, and the record", () => {
   const employment = ["corporationSvc", "GetEmploymentRecord", [CHARACTER]];
-  assert.deepEqual(namedOnSessionChange({ corpid: [98000000, 1000044] }, SESSION), [employment]);
+  assert.deepEqual(namedOnSessionChange({ corpid: [98000000, 1000044] }, SESSION), [employment, ["charMgr", "GetPublicInfo3", [SESSION.charid]]]);
   assert.deepEqual(namedOnSessionChange({ warfactionid: [null, 500001] }, SESSION), [
     ["facWarMgr", "GetMyCharacterRankInfo", []],
     ["facWarMgr", "GetMyCharacterRankOverview", []],
     ["facWarMgr", "GetCorpFactionalWarStatus", []],
     employment,
   ]);
-  assert.equal(namedOnSessionChange({ corpid: [1, 2], warfactionid: [null, 500001] }, SESSION).length, 5);
+  assert.equal(namedOnSessionChange({ corpid: [1, 2], warfactionid: [null, 500001] }, SESSION).length, 6);
   // Any other change names nothing; and with no character, a corporation changing names nothing (bool(session.charid)).
   assert.deepEqual(namedOnSessionChange({ stationid: [60003760, null], shipid: [1, 2] }, SESSION), []);
   assert.deepEqual([namedOnSessionChange({ corpid: [1, 2] }, {}), namedOnSessionChange({ corpid: [1, 2] }, { charid: null }), namedOnSessionChange({ corpid: [1, 2] }, { charid: 0 }), namedOnSessionChange({ corpid: [1, 2] }, null)], [[], [], [], []]);

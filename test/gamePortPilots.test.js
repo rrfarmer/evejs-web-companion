@@ -7092,13 +7092,21 @@ test("a pilot with no Broker Relations and an owner with no standing to it pays 
   assert.equal(lastMarketCall(unknown.session).args[8], null);
 });
 
-test("another corporation: the session forgets the pilot's employment record, as the client's corporation window has it", async () => {
+test("another corporation invalidates only the pilot's public profile and employment record", async () => {
   const { session } = await withContainers();
-  const { named } = withObjectCache(session);
+  const own = `charMgr.GetPublicInfo3.[${session.attributes.charid}]`;
+  const other = "charMgr.GetPublicInfo3.[140000009]";
+  const { named, cached } = withObjectCache(session, { [own]: 1, [other]: 2 });
   session.change({ stationid: [60003760, null] });
   assert.deepEqual(named, []);
+  assert.equal(cached.get(own), 1);
   session.change({ corpid: [1000044, 98000000] });
-  assert.deepEqual(named, [["corporationSvc", "GetEmploymentRecord", [session.attributes.charid]]]);
+  assert.deepEqual(named, [
+    ["corporationSvc", "GetEmploymentRecord", [session.attributes.charid]],
+    ["charMgr", "GetPublicInfo3", [session.attributes.charid]],
+  ]);
+  assert.equal(cached.has(own), false);
+  assert.equal(cached.get(other), 2);
 });
 
 // The rate for whoever wants to show it (the BFF's Market read): what an order placed at that station would name.

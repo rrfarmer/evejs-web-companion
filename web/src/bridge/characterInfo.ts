@@ -1,7 +1,7 @@
 // What a character's Show Info header reads (characterInfoWindow.py construct_header_character, 53 to 160), for a
 // character that is no NPC, the three asked side by side:
 //
-//   charMgr.GetPublicInfo3(charID)                        its Bio (description: TAB_BIO's text), its start in its
+//   info.GetPublicInfoForCharacter(charID)                 its Bio (description: TAB_BIO's text), its start in its
 //                                                         corporation (startDateTime) and its militia
 //                                                         (militiaFactionID): Tranquility's answer is a CRowset of one
 //                                                         packed row (bounty, title, startDateTime, description,
@@ -52,9 +52,14 @@ export function publicInfoRow(answer: JsonValue): JsonValue | null {
   return isKeyValValue(answer) ? answer : null;
 }
 
-/** A character's bloodline as its window's Description reads it for one that is no agent: GetPublicInfo3's (info[0].bloodlineID). */
+/** info.GetPublicInfoForCharacter calls charMgr.GetPublicInfo3. Consumers use its first public row. */
+export async function readCharacterPublicInfo(ask: Ask, characterID: number): Promise<JsonValue | null> {
+  return publicInfoRow(await ask("charMgr", "GetPublicInfo3", [characterID]));
+}
+
+/** A non-agent's Description reads the bloodline from the same public row. */
 export async function readCharacterBloodline(ask: Ask, characterID: number): Promise<number | null> {
-  const row = publicInfoRow(await ask("charMgr", "GetPublicInfo3", [characterID]));
+  const row = await readCharacterPublicInfo(ask, characterID);
   return row === null ? null : idOf(readRowField(row, "bloodlineID"));
 }
 
@@ -66,11 +71,11 @@ export async function readNpcCharacterCorporation(ask: Ask, characterID: number)
 /** The header's three reads, each failing by itself (to none of its part). */
 export async function readCharacterInfoHeader(ask: Ask, characterID: number): Promise<CharacterInfoHeader> {
   const [publicInfo, corporation, security] = await Promise.allSettled([
-    ask("charMgr", "GetPublicInfo3", [characterID]),
+    readCharacterPublicInfo(ask, characterID),
     ask("corpRegistry", "GetInfoWindowDataForChar", [characterID]),
     ask("crimewatch", "GetCharacterSecurityStatus", [characterID]),
   ]);
-  const row = publicInfo.status === "fulfilled" ? publicInfoRow(publicInfo.value) : null;
+  const row = publicInfo.status === "fulfilled" ? publicInfo.value : null;
   const started = row === null ? null : unwrapLong(readRowField(row, "startDateTime") ?? null);
   const corp = corporation.status === "fulfilled" ? corporation.value : null;
   // construct_header_character 79 to 86: its own title, then title1 to title16, each one that is not empty.
