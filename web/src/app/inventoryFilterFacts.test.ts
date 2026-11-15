@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FILTER_FIELD as F } from "../bridge/inventoryFilters.ts";
-import { loadInventoryFilterFacts } from "./inventoryFilterFacts.ts";
+import { loadInventoryFilterFacts, loadInventoryItemFittingFacts } from "./inventoryFilterFacts.ts";
 
 test("inventory filters use native type effect IDs, dogma attributes and meta defaults", async () => {
   const fetch: typeof globalThis.fetch = async (input, options) => {
@@ -46,4 +46,33 @@ test("clone filters follow recursive skills and allow a blueprint if any activit
   };
   const facts = await loadInventoryFilterFacts([10, 20, 30, 40], new Set([F.clone]), { fetch }, 1);
   assert.deepEqual([...facts.values()].map(row => row[F.clone]), [1, 0, 1, 1]);
+});
+
+test("modified fitting filters keep distinct instance values and leave an unreadable item pending", async () => {
+  const asked: number[] = [];
+  const fetch: typeof globalThis.fetch = async (input, options) => {
+    if (String(input).startsWith("/api/client-data/type-prices?")) {
+      return Response.json({ ok: true, available: true, dynamic: { 100: false, 200: true, 300: null } });
+    }
+    assert.equal(String(input), "/api/bridge/call");
+    const body = JSON.parse(String(options?.body));
+    assert.equal(body.service, "dynamicItemService");
+    assert.equal(body.method, "GetDynamicItemInfo");
+    const [id] = body.args;
+    asked.push(id);
+    const result = id === 4 ? null : { type: "object", name: "util.KeyVal", args: { type: "dict", entries: [
+      ["itemID", { type: "long", value: String(id) }], ["typeID", 200],
+      ["attributes", { type: "dict", entries: [[30, id === 2 ? 12.9 : 18.4], [50, id === 2 ? 21.3 : 8]] }],
+    ] } };
+    return Response.json({ ok: true, service: body.service, method: body.method, result });
+  };
+  const rows = [{ itemID: 1, typeID: 100 }, { itemID: 2, typeID: 200 }, { itemID: 3, typeID: 200 },
+    { itemID: 4, typeID: 200 }, { itemID: 5, typeID: 300 }];
+  const facts = await loadInventoryItemFittingFacts(rows, new Set([F.power, F.cpu]), { fetch });
+  assert.deepEqual(asked.sort(), [2, 3, 4]);
+  assert.equal(facts.has(1), false);
+  assert.deepEqual(facts.get(2), { [F.power]: 12, [F.cpu]: 21 });
+  assert.deepEqual(facts.get(3), { [F.power]: 18, [F.cpu]: 8 });
+  assert.deepEqual(facts.get(4), {});
+  assert.deepEqual(facts.get(5), {});
 });

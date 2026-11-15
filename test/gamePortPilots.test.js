@@ -6478,6 +6478,20 @@ async function withContainers(answers = {}) {
   return { ...built, hangar, ship, list, asked: () => answered };
 }
 
+test("dynamic attribute reads send only item IDs returned by the pilot's inventory", async () => {
+  const itemID = 9988400000489;
+  const { pilots, session, handle, hangar, list } = await withContainers({
+    "bound:List": { type: "list", items: [godmaInvItem(itemID, 47745, 46, 7, STATION, 4)] },
+    "dynamicItemService.GetDynamicItemInfo": keyVal([["itemID", itemID], ["typeID", 47745], ["attributes", { type: "dict", entries: [[30, 1291.42]] }]]),
+  });
+  const read = (id) => pilots.callMethod("dynamicItemService", "GetDynamicItemInfo", [id], null, WHO, handle);
+  assert.equal((await read(itemID)).result, null);
+  await list(hangar);
+  assert.equal((await read(itemID + 1)).result, null);
+  assert.equal((await read(itemID)).result.name, "util.KeyVal");
+  assert.equal(session.calls.filter(call => call.method === "GetDynamicItemInfo").length, 1);
+});
+
 test("what a container lists is asked for once and kept: by container, by flag, and by which of the two listings it is", async () => {
   const { pilots, session, handle, hangar, ship, list, asked } = await withContainers();
   assert.deepEqual([await list(hangar), await list(hangar), await list(hangar)], [1, 1, 1]);

@@ -1,10 +1,11 @@
 import { FILTER_FIELD as F, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
 import { requiredSkillsRecursiveAsDict } from "../bridge/skillPlanMilestones.ts";
-import type { JsonValue } from "../bridge/wire.ts";
-import { fetchTypeDogma, getCloneGrade, getRequiredSkills, getTypeMeta, loadIndustryDefinitions, loadTypeEffects, type ApiOptions } from "./api.ts";
+import { readDictPairs, readKeyVal, unwrapLong, type JsonValue } from "../bridge/wire.ts";
+import { bridgeAsk, fetchTypeDogma, getCloneGrade, getRequiredSkills, getTypeMeta, getTypePrices, loadIndustryDefinitions, loadTypeEffects, type ApiOptions } from "./api.ts";
 
 const POWER_ATTRIBUTE = 30;
 const CPU_ATTRIBUTE = 50;
+export const ITEM_FITTING_FILTER_FIELDS: ReadonlySet<number> = new Set([F.power, F.cpu]);
 const CATEGORY_SKILL = 16;
 const blueprintCategory = (categoryID: number | null) => categoryID === 9 || categoryID === 34;
 export const TYPE_FILTER_FIELDS: ReadonlySet<number> = new Set([F.slot, F.metaGroup, F.metaLevel, F.power, F.cpu, F.clone]);
@@ -70,6 +71,50 @@ export async function loadInventoryFilterFacts(
       }
       result.set(typeID, facts);
     }
+  }
+  return result;
+}
+
+/** GetDynamicItemAttributes reads the attributes of the visible item instance, as the retail filter does. */
+export async function loadInventoryItemFittingFacts(
+  rows: readonly { itemID: number; typeID: number }[], fields: ReadonlySet<number>, options: ApiOptions,
+): Promise<ReadonlyMap<number, InventoryFilterFacts>> {
+  const readPower = fields.has(F.power);
+  const readCpu = fields.has(F.cpu);
+  const result = new Map<number, InventoryFilterFacts>();
+  if (!readPower && !readCpu) return result;
+  const ask = bridgeAsk(options);
+  const typeIDs = [...new Set(rows.map(row => row.typeID))];
+  const dynamic = new Set<number>();
+  const unknown = new Set<number>();
+  for (let start = 0; start < typeIDs.length; start += 50) {
+    const ids = typeIDs.slice(start, start + 50);
+    const types = await getTypePrices(ids, options).then(answer => answer.dynamic).catch(() => ({} as Readonly<Record<number, boolean | null>>));
+    for (const id of ids) {
+      if (types[id] === true) dynamic.add(id);
+      else if (types[id] == null) unknown.add(id);
+    }
+  }
+  for (const row of rows) if (unknown.has(row.typeID)) result.set(row.itemID, {});
+  const candidates = rows.filter(row => dynamic.has(row.typeID));
+  for (let start = 0; start < candidates.length; start += 4) {
+    await Promise.all(candidates.slice(start, start + 4).map(async ({ itemID, typeID }) => {
+      const item = await ask("dynamicItemService", "GetDynamicItemInfo", [itemID]).catch(() => null);
+      const facts: Record<number, number> = {};
+      const attributes = readKeyVal(item, "attributes");
+      const dict = record(attributes);
+      if (dict?.type === "dict" && Array.isArray(dict.entries) &&
+          unwrapLong(readKeyVal(item, "itemID")) === BigInt(itemID) && unwrapLong(readKeyVal(item, "typeID")) === BigInt(typeID)) {
+        const values = new Map(readDictPairs(attributes).map(([attribute, value]) => [Number(attribute), value] as const));
+        const integer = (attribute: number) => {
+          const value = values.get(attribute);
+          return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : 0;
+        };
+        if (readPower) facts[F.power] = integer(POWER_ATTRIBUTE);
+        if (readCpu) facts[F.cpu] = integer(CPU_ATTRIBUTE);
+      }
+      result.set(itemID, facts);
+    }));
   }
   return result;
 }

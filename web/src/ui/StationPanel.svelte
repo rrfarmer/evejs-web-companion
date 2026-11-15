@@ -37,7 +37,7 @@
   import TypeIcon from "./TypeIcon.svelte";
   import InventoryFilters from "./InventoryFilters.svelte";
   import { FILTER_FIELD, matchInventoryFilter, roundInventoryFilterPrice, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
-  import { loadInventoryFilterFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
+  import { ITEM_FITTING_FILTER_FIELDS, loadInventoryFilterFacts, loadInventoryItemFittingFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
   import { showInfo } from "./showInfo.ts";
   import KeyActivationWindow from "./KeyActivationWindow.svelte";
   import { ABYSS_WINDOW_LABELS, offersActivateAbyssalKey, type FilamentPlace } from "../bridge/abyssalKeys.ts";
@@ -280,9 +280,12 @@
   let filterPrices = $state<ReadonlyMap<number, number | null> | null>(null);
   let filterPriceError = $state(false);
   let filterTypeFacts = $state<ReadonlyMap<number, InventoryFilterFacts>>(new Map());
+  let filterItemFitting = $state<ReadonlyMap<number, InventoryFilterFacts>>(new Map());
   let filterTypeError = $state(false);
+  let filterItemError = $state(false);
   const typeFilterFields = $derived([...new Set(itemFilters.flatMap(([, , conditions]) => conditions.map(([field]) => field)))]
     .filter(field => TYPE_FILTER_FIELDS.has(field)).sort((a, b) => a - b).join(","));
+  const itemFilterFields = $derived(typeFilterFields.split(",").map(Number).filter(field => ITEM_FITTING_FILTER_FIELDS.has(field)).join(","));
   const needsFilterPrices = $derived(itemFilters.some(([, , conditions]) => conditions.some(([field]) => field === FILTER_FIELD.price)));
   $effect(() => { if (!$station.online?.characterID) itemFilters = []; });
   $effect(() => {
@@ -468,6 +471,7 @@
   ]);
   const filterTypeIDs = $derived(typeFilterFields ? [...new Set(inventoryRows.map(row => row.typeID))]
     .sort((a, b) => a - b).join(",") : "");
+  const filterItemKeys = $derived(itemFilterFields ? [...new Set(inventoryRows.map(row => `${row.itemID}:${row.typeID}`))].sort().join(",") : "");
   $effect(() => {
     const ids = filterTypeIDs;
     const fields = typeFilterFields;
@@ -481,6 +485,26 @@
       filterTypeFacts = facts;
       filterTypeError = [...facts.values()].some(row => [...wanted].some(field => row[field] === undefined));
     }).catch(() => { if (current) filterTypeError = true; });
+    return () => { current = false; };
+  });
+  $effect(() => {
+    const keys = filterItemKeys;
+    const fields = itemFilterFields;
+    if (!keys || !fields) { filterItemFitting = new Map(); filterItemError = false; return; }
+    let current = true;
+    const wanted = new Set(fields.split(",").map(Number));
+    const items = keys.split(",").map(key => {
+      const [itemID, typeID] = key.split(":").map(Number);
+      return { itemID: itemID!, typeID: typeID! };
+    });
+    // Until this read finishes, a type default cannot distinguish a stock item from a modified one.
+    filterItemFitting = new Map(items.map(({ itemID }) => [itemID, {}]));
+    filterItemError = false;
+    void loadInventoryItemFittingFacts(items, wanted, flow.requestOptions()).then(facts => {
+      if (!current) return;
+      filterItemFitting = facts;
+      filterItemError = [...facts.values()].some(row => [...wanted].some(field => row[field] === undefined));
+    }).catch(() => { if (current) filterItemError = true; });
     return () => { current = false; };
   });
 
@@ -949,6 +973,12 @@
     const price = filterPrices?.get(row.typeID);
     const facts = { ...filterTypeFacts.get(row.typeID),
       ...(filterPrices === null ? {} : { [FILTER_FIELD.price]: price == null ? null : roundInventoryFilterPrice(price) }) };
+    const fitting = filterItemFitting.get(row.itemID);
+    if (fitting) {
+      delete facts[FILTER_FIELD.cpu];
+      delete facts[FILTER_FIELD.power];
+      Object.assign(facts, fitting);
+    }
     return itemFilters.every(filter => matchInventoryFilter(row, name, filter, facts) !== false);
   }
 
@@ -1848,7 +1878,7 @@
     {/key}
   {/if}
   {#if needsFilterPrices && filterPriceError}<p class="stn-note">Average prices could not be loaded for the filter.</p>{/if}
-  {#if typeFilterFields && filterTypeError}<p class="stn-note">Some items could not be checked against the active filters.</p>{/if}
+  {#if typeFilterFields && filterTypeError || itemFilterFields && filterItemError}<p class="stn-note">Some items could not be checked against the active filters.</p>{/if}
 
   <!-- =============================================================== notes -->
   {#if notes.length > 0}

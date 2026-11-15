@@ -2663,6 +2663,18 @@ function createGamePortPilots({
       const row = await run(entry, FACILITY_MANAGER, "GetFacility", () => facilityGivenAfresh(entry, id));
       return { service, method, result: wireToBridgeJson(row === undefined ? null : row), notifications: drain(entry) };
     }
+    // Inventory's native dynamic attribute read. A held List must have returned this actual item.
+    if (service === "dynamicItemService" && method === "GetDynamicItemInfo") {
+      const itemID = Array.isArray(args) && args.length === 1 ? positive(args[0]) : null;
+      if (itemID === null || kwargs !== null) throw fail("CALL_INVALID", "An inventory item is named by its number.");
+      const result = await run(entry, service, method, () => {
+        if (rowOfItem(entry, itemID) === null) return null;
+        const form = shape(service, method, [itemID], null, contextFor(entry));
+        ledger.note(service, method, form);
+        return byName(entry.session, service, method, form);
+      });
+      return { service, method, result: wireToBridgeJson(result ?? null), notifications: drain(entry) };
+    }
     assertAllowed(service, method);
     if (service === "invCache" && method === "FetchItem") {
       // Native CheckCanFit1143-1150 consults its source cache, with no remote fallback.
