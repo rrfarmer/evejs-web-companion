@@ -172,6 +172,15 @@ test("the Academy travel notice opens one separate conversation, including on a 
   assert.equal(flow.academyTravelConversation.get(), true, "a new attempt can open the conversation again");
 });
 
+test("a capital system notice refreshes the Ansiblex cost input once", async () => {
+  const { source, flow } = await onlineFlow();
+  const change = gatewayFrame({ kind: "notification", notification: { method: "OnCapitalSystemChanged", args: [] } }, 1);
+  assert.equal(flow.jumpBridgeCapitalChanged.get(), 0);
+  source.emit(change);
+  source.emit(change);
+  assert.equal(flow.jumpBridgeCapitalChanged.get(), 1);
+});
+
 test("a pushed chat message lands in the channel backlog without a poll", async () => {
   const { source, store, paths } = await onlineFlow();
   const before = paths.filter((p) => p === "/api/bridge/chat/local").length;

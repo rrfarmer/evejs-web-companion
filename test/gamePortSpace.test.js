@@ -807,6 +807,22 @@ test("a ship nobody flies is the law's only if it is of the law's groups and not
   assert.deepEqual([npcKindOf(550), npcKindOf(550, -11), npcKindOf(550, 11), npcKindOf(1310), npcKindOf(1310, -11), npcKindOf(null), npcKindOf(null, -11)], ["npc", "npc", "npc", "drifter", "drifter", "npc", "npc"]);
 });
 
+test("the Ansiblex projection carries its link and capacitor revision without revealing the charge", () => {
+  const park = undockedPark();
+  const id = 1030000000100;
+  park.ballpark.addBall({ id, x: 1000, radius: 3600 });
+  const slim = { typeID: 35841, groupID: 1408, categoryID: 65 };
+  const row = (fields) => {
+    park.slimItems.set(id, new Map(Object.entries({ ...slim, ...fields })));
+    return projectSpace(park, { solarSystemID: SYSTEM, shipID: undock.shipID }).entities.find(entity => entity.itemID === id);
+  };
+  assert.equal(row({}).jumpBridge, undefined);
+  assert.deepEqual(row({ targetSolarsystemID: 30000214, activationState: 2, component_jumpBridge: 0 }).jumpBridge,
+    { targetSystemID: 30000214, activationState: 2, chargeTag: 0 });
+  assert.deepEqual(row({ targetSolarsystemID: null, activationState: 1, component_jumpBridge: 12 }).jumpBridge,
+    { targetSystemID: null, activationState: 1, chargeTag: 12 });
+});
+
 // ── a ship that compresses ore ───────────────────────────────────────────────
 //
 // A client is told on the ship's slim item: compression_facility_typelists, a dict of the type lists the ship

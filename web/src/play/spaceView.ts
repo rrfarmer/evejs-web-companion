@@ -50,6 +50,7 @@ import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { DynamicExposure } from "../three/exposure.ts";
 import { CombatMessage } from "./combatMessage.ts";
 import { RadialMenu, RADIAL_CSS, RADIAL_ICON, WARP_RANGES, holdToOpen, radialRanges, type RadialOption } from "./radialMenu.ts";
+import { JUMP_BRIDGE_GROUP, type JumpBridgeSlim } from "../bridge/jumpBridgePanel.ts";
 
 export interface Entity {
   kind: string; itemID: number; typeID: number | null; groupID: number | null; categoryID: number | null; name: string | null;
@@ -61,6 +62,12 @@ export interface Entity {
   characterID?: number | null;
   allianceID?: number | null;
   warFactionID?: number | null;
+  jumpBridge?: JumpBridgeSlim;
+}
+export interface JumpBridgePanelState {
+  readonly bridge: JumpBridgeSlim;
+  readonly shipTypeID: number | null;
+  readonly near: boolean;
 }
 interface Snapshot {
   entities: Entity[];
@@ -77,6 +84,9 @@ interface Snapshot {
  * thing in space (the radial menu's Show Info).
  */
 export interface SpaceViewOptions {
+  mountJumpBridge?: (host: HTMLElement, gate: Entity, state: JumpBridgePanelState) =>
+    { update(state: JumpBridgePanelState): void; destroy(): void };
+  jumpBridge?: (itemID: number) => Promise<void>;
   onNeocom?: (id: string) => void;
   /** The system the view is in, with its security, as its scene is loaded (the music's switch). */
   onSystem?: (solarSystemID: number, security: number | null) => void;
@@ -203,6 +213,9 @@ export class SpaceView {
   private readonly controls: OrbitControls;
   private readonly brackets = document.createElement("div");
   private readonly bracketEls = new Map<number, HTMLDivElement>();
+  private readonly jumpBridgePanels = new Map<number, {
+    host: HTMLDivElement; signature: string; update(state: JumpBridgePanelState): void; destroy(): void;
+  }>();
   private readonly marks = new Map<number, THREE.Object3D>();
   // Empty slots hidden, as the client's default (showEmptySlots off) has them, until the module rack knows the fit.
   private readonly shipHud = new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });
@@ -672,6 +685,8 @@ export class SpaceView {
   }
 
   dispose(): void {
+    for (const panel of this.jumpBridgePanels.values()) panel.destroy();
+    this.jumpBridgePanels.clear();
     // the ambient sound let go with the view (the ship docked, the session gone)
     void this.ambient?.loop?.then((l) => l.stop());
     this.ambient = null;
@@ -922,7 +937,14 @@ export class SpaceView {
         : { key: "approach", title: "Approach", icon: icon("approach"), run: () => this.actions.approach(id) },
       { key: "warp", title: "Warp To Within 0 m", icon: icon("warp_to"), run: () => this.actions.warpTo(id) },
     ];
-    if (e.kind === "station" || e.kind === "structure") out.push({ key: "dock", title: "Dock", icon: icon("dock"), run: () => this.actions.dock(id) });
+    if (this.overview.groupOf(e) === JUMP_BRIDGE_GROUP) {
+      const jump = this.options.jumpBridge;
+      if (jump && e.jumpBridge?.targetSystemID && e.jumpBridge.activationState === 2) {
+        out.push({ key: "jump", title: "Jump Through Jump Gate", icon: icon("jump_to"), run: () => jump(id) });
+      }
+    } else if (e.kind === "station" || e.kind === "structure") {
+      out.push({ key: "dock", title: "Dock", icon: icon("dock"), run: () => this.actions.dock(id) });
+    }
     if (e.kind === "stargate") out.push({ key: "jump", title: "Jump", icon: icon("jump_to"), run: () => this.actions.jump(id) });
     out.push(
       { key: "orbit", title: "Orbit", icon: icon("orbit"), run: () => this.actions.orbit(id) },
@@ -951,7 +973,7 @@ export class SpaceView {
       return;
     }
     const dist = this.distanceTo(e);
-    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}`;
+    const sig = `${e.itemID}:${this.locked.has(e.itemID)}:${dist >= 150_000}:${e.jumpBridge?.activationState ?? ""}`;
     if (body.getAttribute("data-sig") !== sig) {
       body.setAttribute("data-sig", sig);
       // its picture (the client's own, /client-res/type-picture), its name, its type (and Hostile for an NPC), how far
@@ -1667,6 +1689,43 @@ export class SpaceView {
     }
   }
 
+  private positionJumpBridge(gate: Entity, ship: Snapshot["ship"], position: THREE.Vector3, width: number, height: number): void {
+    const mount = this.options.mountJumpBridge;
+    const bridge = gate.jumpBridge;
+    if (!mount || !bridge) return;
+    let panel = this.jumpBridgePanels.get(gate.itemID);
+    const range = this.camera.position.distanceTo(position);
+    const anchor = position.clone().project(this.camera);
+    if (!ship || ship.mode === "WARP" || range > 600_000 || anchor.z >= 1 || Math.abs(anchor.x) > 1.05 || Math.abs(anchor.y) > 1.05) {
+      if (panel) {
+        panel.destroy();
+        panel.host.remove();
+        this.jumpBridgePanels.delete(gate.itemID);
+      }
+      return;
+    }
+    const near = range <= 150_000;
+    const signature = `${bridge.targetSystemID}:${bridge.activationState}:${bridge.chargeTag}:${ship.typeID}:${near}`;
+    const state = { bridge, shipTypeID: ship.typeID, near };
+    if (!panel) {
+      const host = document.createElement("div");
+      host.className = "jump-bridge-bracket";
+      this.brackets.appendChild(host);
+      panel = { host, signature, ...mount(host, gate, state) };
+      this.jumpBridgePanels.set(gate.itemID, panel);
+    } else if (panel.signature !== signature) {
+      panel.signature = signature;
+      panel.update(state);
+    }
+    const raised = position.clone();
+    raised.y += 5_500;
+    raised.project(this.camera);
+    const projected = raised.z < 1 && Math.abs(raised.x) <= 1 && Math.abs(raised.y) <= 1 ? raised : anchor;
+    const x = Math.min(width - 155, Math.max(155, (projected.x + 1) * width / 2));
+    const y = Math.min(height - 38, Math.max(235, (1 - projected.y) * height / 2));
+    panel.host.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+  }
+
   private frame(): void {
     if (this.stopped) return;
     this.frameCount++;
@@ -1728,6 +1787,7 @@ export class SpaceView {
       const selectedOrTargeted = this.selected === e.itemID || this.activeTarget === e.itemID ||
         this.locked.has(e.itemID) || this.lockingIDs.has(e.itemID);
       const groupID = this.overview.groupOf(e);
+      if (groupID === JUMP_BRIDGE_GROUP) this.positionJumpBridge(e, snap?.ship ?? null, rel, w, h);
       const wanted = gridBracketWanted(e, groupID, bracketMask, overviewMask, {
         override: this.bracketOverride,
         showSpecials: this.showSpecialBrackets,
@@ -1763,6 +1823,12 @@ export class SpaceView {
       }
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
+    for (const [id, panel] of this.jumpBridgePanels) {
+      if (seen.has(id)) continue;
+      panel.destroy();
+      panel.host.remove();
+      this.jumpBridgePanels.delete(id);
+    }
     if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x), relations);
     if (!this.stepJumpCamera(now, ego)) {
       if (ego && this.framedFor !== ego.itemID) {

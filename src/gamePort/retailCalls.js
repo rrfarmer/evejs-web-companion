@@ -667,6 +667,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "beyonce.CallComponentFromClient",
   "academy_ship.get_academy_ship_state", "academy_ship.borrow_academy_ship",
   "air_npe.get_air_npe_state", "air_npe.get_air_npe_checkpoint_for_player",
   "structureAssetSafety.GetDefaultAssetSafetyDestination",
@@ -1008,7 +1009,7 @@ const ON_AN_ANSWERED_OBJECT = Object.freeze(new Set(["scanMgr.GetFullState"]));
 // bp.CmdGotoBookmark, on the ballpark's object.)
 // (CmdJumpToFleetModuleBeacon, CmdGroupJumpToFleetModuleBeacon and CmdBridgeToFleetModuleBeacon on 2026-10-15, the fleet
 // menu's Jump To, Conduit Jump To and Bridge To: cynoTravelSvc.py's bp.Cmd..., on the ballpark's object.)
-const ON_THE_PARK = Object.freeze(new Set(["CmdFleetTagTarget", "CmdGotoPoint", "CmdGotoDirection", "BookmarkScanResult", "CmdGotoBookmark", "CmdAlignTo", "CmdFollowBall", "CmdSetSpeedFraction", "CmdOrbit", "CmdStop", "BookmarkLocation", "CmdWarpToStuff", "CmdWarpToStuffAutopilot", "CmdDock", "CmdStargateJump", "CmdJumpToFleetModuleBeacon", "CmdGroupJumpToFleetModuleBeacon", "CmdBridgeToFleetModuleBeacon"]));
+const ON_THE_PARK = Object.freeze(new Set(["CallComponentFromClient", "CmdFleetTagTarget", "CmdGotoPoint", "CmdGotoDirection", "BookmarkScanResult", "CmdGotoBookmark", "CmdAlignTo", "CmdFollowBall", "CmdSetSpeedFraction", "CmdOrbit", "CmdStop", "BookmarkLocation", "CmdWarpToStuff", "CmdWarpToStuffAutopilot", "CmdDock", "CmdStargateJump", "CmdJumpToFleetModuleBeacon", "CmdGroupJumpToFleetModuleBeacon", "CmdBridgeToFleetModuleBeacon"]));
 const madeOnMoniker = (service, method) => Object.hasOwn(MONIKER_SERVICES, service) && !MONIKER_SERVICES[service].has(method) && method !== "MachoBindObject";
 /**
  * Whether the game port makes a call on an object though it is asked of a service by its name: on the service's
@@ -2152,6 +2153,7 @@ function scanProbes(given) {
 }
 
 const RETAIL_CALLS = Object.freeze({
+  "beyonce.CallComponentFromClient": same("jumpbridge/client/jumpBridge.py:134-137", "CallComponentFromClient(structureID, 'structureJumpBridge', 'GetJumpBridgeInfo') on the park"),
   "academy_ship.get_academy_ship_state": same("academyships/client/repository.py", "get_academy_ship_state()"),
   "academy_ship.borrow_academy_ship": same("academyships/client/repository.py", "borrow_academy_ship(fittingID)"),
   "air_npe.get_air_npe_state": same("storylines/client/airnpe.py", "Get the active pilot's AIR tutorial state"),

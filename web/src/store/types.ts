@@ -2065,6 +2065,7 @@ export interface SpaceEntity {
   readonly abyssFilamentTypeID?: number | null;
   readonly gameModeID?: number | null;
   readonly isAbyssGateOpen?: boolean | null;
+  readonly jumpBridge?: import("../bridge/jumpBridgePanel.ts").JumpBridgeSlim;
   readonly miningResourceFamily?: "ore" | "ice" | "gas" | null;
   readonly beltID: number | null;
   /**

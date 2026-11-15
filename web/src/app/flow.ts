@@ -1176,6 +1176,7 @@ import {
 } from "../bridge/boundEntityWrites.ts";
 import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignToBookmark as alignToBookmarkCall, approach as approachCall, approachBookmark as approachBookmarkCall, approachMissionLocation as approachMissionLocationCall, autopilotWarp as autopilotWarpCall, warpToFleetMember as warpToFleetMemberCall, warpFleetToMember as warpFleetToMemberCall, toMemberBeacon as toMemberBeaconCall, warpToItem as warpToItemCall, goToPoint, keepAtRange as keepAtRangeCall, orbit as orbitCall, stopShip as stopShipCall, warpToBookmark as warpToBookmarkCall, warpToLaunch as warpToLaunchCall, warpToMissionLocation as warpToMissionLocationCall, warpToScanResult as warpToScanResultCall, type FlightNow, type SitesReadIn } from "../bridge/movementWrites.ts";
 import { dock as dockCall, dockAtStructure as dockAtStructureCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall } from "../bridge/placeChanges.ts";
+import { jumpBridgeZone, readJumpBridgeCharge } from "../bridge/jumpBridgePanel.ts";
 import { sessionPlace } from "../bridge/sessionPlace.ts";
 import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
 import { activityIDOf, averagePrices, createJobReckoner, type JobReckoner, type JobReckoning } from "../bridge/industryJobReckoning.ts";
@@ -4271,6 +4272,11 @@ export interface AppFlow {
    * are the flight's, as `jump`'s.
    */
   stargateJump(gateID: number): Promise<void>;
+  jumpThroughAnsiblex(structureID: number): Promise<void>;
+  jumpBridgeCharge(structureID: number): Promise<ReturnType<typeof readJumpBridgeCharge>>;
+  jumpBridgeSystem(systemID: number): Promise<{ readonly name: string; readonly security: number | null } | null>;
+  jumpBridgePilotCost(typeID: number, shipTypeID: number, destinationID: number | null): Promise<{ readonly zone: number; readonly chargeGJ: number } | null>;
+  readonly jumpBridgeCapitalChanged: ReadableSignal<number>;
   /** TravelToLocationTask's next jump on the route to the selected solar system. */
   jumpAlongWaypoints(destinationID: number): Promise<void>;
   /**
@@ -7017,6 +7023,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === "OnAirNpeStateChanged" || method === "OnAirNpeCheckpointChanged" || method === "OnGlobalConfigChanged") {
       academyChangedSignal.update(n => n + 1);
     }
+    if (method === "OnCapitalSystemChanged") jumpBridgeCapitalSignal.update(n => n + 1);
     directTrades.receive(method, args);
     if (method && OVERVIEW_CONTACT_NOTIFICATIONS.has(method)) contactStandingsChangedSignal.update(n => n + 1);
     if (method === "OnNewCalendarEvent" || method === "OnEditCalendarEvent" || method === "OnRemoveCalendarEvent" || method === "OnEventResponseByExternal") {
@@ -17402,6 +17409,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** A jump through an Ansiblex jump gate (bridge/placeChanges.ts jumpThroughJumpGate). */
   function jumpGateStep(structureID: number): Promise<FlightStepResult> {
     return orderedStep((flightNow) => jumpThroughJumpGateCall(bridgeDo, flightNow, structureID));
+  }
+
+  const jumpBridgeCapitalSignal = createSignal(0);
+  let jumpBridgeStars: Promise<api.StarMapData> | null = null;
+  function loadJumpBridgeStars(): Promise<api.StarMapData> {
+    return jumpBridgeStars ??= api.loadStarMap(callOptions).catch(error => { jumpBridgeStars = null; throw error; });
+  }
+
+  async function jumpBridgePilotCost(typeID: number, shipTypeID: number, destinationID: number | null) {
+    if (destinationID === null || !store.station.get().online?.allianceID) return null;
+    const [capital, attributes, ship, stars] = await Promise.all([
+      bridgeAsk("allianceRegistry", "GetCapitalSystemInfo", []),
+      api.loadJumpBridgeAttributes(typeID, callOptions),
+      api.fetchTypeDogma([shipTypeID], [6364], callOptions),
+      loadJumpBridgeStars(),
+    ]);
+    const capitalID = readRowField(capital, "currentCapitalSystem");
+    const home = stars.systems.find(row => row[0] === capitalID);
+    const destination = stars.systems.find(row => row[0] === destinationID);
+    const base = ship[shipTypeID]?.[6364];
+    if (!home || !destination || !attributes || base === undefined) return null;
+    const zone = jumpBridgeZone(Math.hypot(home[1] - destination[1], home[2] - destination[2], home[3] - destination[3]) / 9_460_000_000_000_000);
+    const multiplier = attributes.zoneModifiers[zone - 1];
+    return multiplier === undefined ? null : { zone, chargeGJ: base * multiplier };
   }
 
   async function orderedStep(order: (flightNow: () => Promise<FlightNow>) => Promise<void>): Promise<FlightStepResult> {
@@ -35955,6 +35986,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async stargateJump(gateID) {
       await navigateSystemTo(gateID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpStep(gateID, 0)));
     },
+    async jumpThroughAnsiblex(structureID) {
+      await navigateSystemTo(structureID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpGateStep(structureID)));
+    },
+    async jumpBridgeCharge(structureID) {
+      return readJumpBridgeCharge(await bridgeAsk("beyonce", "CallComponentFromClient", [structureID, "structureJumpBridge", "GetJumpBridgeInfo"]));
+    },
+    async jumpBridgeSystem(systemID) {
+      const system = (await loadJumpBridgeStars()).systems.find(row => row[0] === systemID);
+      return system?.[7] ? { name: system[7], security: system[8] ?? null } : null;
+    },
+    jumpBridgePilotCost,
+    jumpBridgeCapitalChanged: readonlySignal(jumpBridgeCapitalSignal),
     jumpAlongWaypoints,
     jumpThrough,
     activateGate,

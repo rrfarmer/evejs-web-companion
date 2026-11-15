@@ -1258,6 +1258,13 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The Academy call does not use those arguments." });
     return;
   }
+  if (body.service === "beyonce" && body.method === "CallComponentFromClient") {
+    if (body.pilot !== true || !Array.isArray(body.args) || body.args.length !== 3 || body.kwargs != null
+        || !isPlayerStructureID(body.args[0]) || body.args[1] !== "structureJumpBridge" || body.args[2] !== "GetJumpBridgeInfo") {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The pilot may read the charge of an Ansiblex bridge." });
+      return;
+    }
+  }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,
   // which that gate lets through, is CmdStop. So was every change of place the page makes (the undock, a flight

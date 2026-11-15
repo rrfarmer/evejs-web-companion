@@ -4,7 +4,9 @@
   // through the app's session (store + Flow, app/sessions.ts) as it does in the multibox client; nothing here is a
   // bot, and no bot is mounted. Docked, the station's Undock; in space, the SpaceView with its HUD, overview and
   // brackets. The Neocom opens the app's panels (PanelHost) in client-look windows (DesktopWindow).
-  import { onDestroy, untrack } from "svelte";
+  import { mount, onDestroy, unmount, untrack } from "svelte";
+  import { createSignal } from "../store/signals.ts";
+  import JumpBridgePanel from "./JumpBridgePanel.svelte";
   import { autoOpenWatchlist } from "./watchlistSettings.ts";
   import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS, PROBE_RESULT_LABELS, MIN_WARP_DISTANCE, isAccurate } from "../bridge/probeResults.ts";
   import { romanLevel } from "../bridge/skills.ts";
@@ -1026,6 +1028,12 @@
       entryWarpHistory: enteringSpace ?? undefined,
       recordCameraTask: s.flow.recordCameraTask,
       overviewPilotID: s.store.station.get().online?.characterID,
+      mountJumpBridge: (target, gate, initial) => {
+        const state = createSignal(initial);
+        const panel = mount(JumpBridgePanel, { target, props: { session: s, gate, state, simNow: () => live.simNow() } });
+        return { update: next => state.set(next), destroy: () => { void unmount(panel); } };
+      },
+      jumpBridge: (id) => s.flow.jumpThroughAnsiblex(id),
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       overviewRelationships,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
