@@ -3847,6 +3847,12 @@ export interface AppFlow {
    * progress and rewards' states from GetAllRequest. Null where the definitions could not be read.
    */
   careerGoals(): Promise<readonly CareerGoal[] | null>;
+  achievementCatalogue(): Promise<import("../bridge/achievements.ts").AchievementCatalogue>;
+  achievementCategoryScore(id: string): Promise<number>;
+  achievementScore(): Promise<number>;
+  achievementProgress(id: string): Promise<import("../bridge/achievements.ts").AchievementProgress>;
+  achievementRewards(): Promise<readonly import("../bridge/achievements.ts").UnclaimedAchievementReward[]>;
+  claimAchievementReward(reward: import("../bridge/achievements.ts").UnclaimedAchievementReward): Promise<void>;
   /**
    * The career goals the pilot tracks (careerControllerUI: careerPortal_trackedGoals in settings.char.ui), kept for the
    * character in this browser. track / untrack as the controller's track_goal / untrack_goal.
@@ -12837,6 +12843,61 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throw Object.assign(new Error(`${request} was answered ${answer.statusCode}${answer.statusMessage ? `: ${answer.statusMessage}` : ""}.`), { statusCode: answer.statusCode });
     }
     return answer.payload;
+  }
+
+  const achievementCatalogue = () => api.loadAchievementCatalogue(callOptions);
+  const achievementObject = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  async function achievementRead(request: string, payload: Record<string, JsonValue>): Promise<Record<string, unknown>> {
+    const answer = await api.publicGatewayRequest(`eve_public.achievement.${request}`, payload, callOptions);
+    if (answer.statusCode === 404) return {};
+    if (answer.statusCode !== 200) throw new Error(answer.statusMessage || `EveJS returned ${answer.statusCode}.`);
+    return achievementObject(answer.payload);
+  }
+  async function achievementCategoryScore(id: string): Promise<number> {
+    return Number((await achievementRead("category.api.GetRequest", { category: { uuid: bytesFromUuid(id) } })).score ?? 0);
+  }
+  async function achievementScore(): Promise<number> {
+    const characterID = store.station.get().online?.characterID;
+    if (!characterID) throw new Error("Select a pilot to read their achievement score.");
+    return Number((await achievementRead("showcase.api.GetCharacterScoreRequest", { character: { sequential: characterID } })).score ?? 0);
+  }
+  async function achievementProgress(id: string): Promise<import("../bridge/achievements.ts").AchievementProgress> {
+    const body = await achievementRead("api.GetRequest", { achievement: { uuid: bytesFromUuid(id) } });
+    const entries = achievementObject(body.checklist).values;
+    const checked = (Array.isArray(entries) ? entries : []).reduce((count, entry) => {
+      const values = achievementObject(entry).values;
+      return count + (Array.isArray(values) ? values.length : 0);
+    }, 0);
+    return { completed: Boolean(body.completed_date), current: Number(body.progress_value ?? checked) };
+  }
+  async function achievementRewards(): Promise<readonly import("../bridge/achievements.ts").UnclaimedAchievementReward[]> {
+    const result: import("../bridge/achievements.ts").UnclaimedAchievementReward[] = [];
+    const seen = new Set<string>();
+    const uuid = (value: unknown) => uuidFromBytes(String(achievementObject(value).uuid ?? ""));
+    let token = "";
+    do {
+      const page = await achievementRead("reward.api.GetUnclaimedRequest", { page: { size: 100, ...(token ? { token } : {}) } });
+      for (const value of Array.isArray(page.rewards) ? page.rewards : []) {
+        const row = achievementObject(value);
+        const kind = row.achievement_source ? "achievement" : "category";
+        const from = achievementObject(row[`${kind}_source`]);
+        const source = uuid(from[kind]);
+        const milestone = uuid(from.milestone);
+        const rewards = (Array.isArray(row.unclaimed_rewards) ? row.unclaimed_rewards : []).map(uuid).filter((id): id is string => id !== null);
+        if (source && milestone) result.push({ kind, source, milestone, rewards });
+      }
+      token = String(achievementObject(page.next_page).token ?? "");
+      if (!token || seen.has(token)) break;
+      seen.add(token);
+    } while (seen.size < 100);
+    return result;
+  }
+  async function claimAchievementReward(reward: import("../bridge/achievements.ts").UnclaimedAchievementReward): Promise<void> {
+    await gatewayAsk("eve_public.achievement.reward.api.ClaimRequest", {
+      [`${reward.kind}_source`]: { [reward.kind]: { uuid: bytesFromUuid(reward.source) }, milestone: { uuid: bytesFromUuid(reward.milestone) } },
+      all_rewards: true,
+    }, true);
   }
 
   async function personalSkillPlanCount(): Promise<number | null> {
@@ -34364,6 +34425,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     factionWarfareLocal,
     insurgencyLocal,
     careerGoals,
+    achievementCatalogue,
+    achievementCategoryScore,
+    achievementScore,
+    achievementProgress,
+    achievementRewards,
+    claimAchievementReward,
     trackedCareerGoals: trackedCareerView,
     trackCareerGoal,
     claimCareerReward,

@@ -6,9 +6,9 @@
 // res: paths (res:/UI/Texture/Classes/Skills/doNotHave.png, a skill group's
 // icon in skills/skillConst.py ICON_BY_GROUPID). The install keeps each one in
 // ResFiles under a hashed name, and tq/resfileindex.txt says which: the path,
-// lowercased, then the file under ResFiles. The PNGs are stored as they are.
+// lowercased, then the file under ResFiles. PNG and JPEG textures are stored as they are.
 //
-// PNGs and the medal atlases' uncompressed BGRA32 DDS format can be read here.
+// PNGs, JPEGs and the medal atlases' uncompressed BGRA32 DDS format can be read here.
 // The index is the whole of what may be read, and nothing else under the install.
 
 const fs = require("node:fs");
@@ -16,7 +16,7 @@ const path = require("node:path");
 const { readResourceIndex } = require("./clientWords");
 const { dds32Png } = require("./dds32Png");
 
-const TEXTURE_PATH = /^res:\/ui\/texture\/[a-z0-9_./-]+\.png$/;
+const TEXTURE_PATH = /^res:\/ui\/texture\/[a-z0-9_./-]+\.(?:png|jpg)$/;
 // A graphic's pictures the client renders ahead (eveGraphicIDs iconFolder: res:/dx9/model/.../icons/<graphicID>_64.png),
 // which evePhotosvc.GetRenderPath loads for a renderable type: a drone's, a ship's, a structure's.
 const RENDER_PATH = /^res:\/dx9\/model\/[a-z0-9_./-]+\/icons\/[0-9]+_(?:64|128)\.png$/;

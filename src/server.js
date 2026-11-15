@@ -14941,6 +14941,7 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.career.goal.api.GetAllRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
+  "eve_public.achievement.reward.api.ClaimRequest",
   // The Career Portal's Claim Reward (PublicCareerGoalRequestMessenger.claim_reward_request: a goal's reward label).
   "eve_public.career.goal.api.ClaimRewardRequest",
   // A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest).
@@ -15046,7 +15047,8 @@ app.post("/api/public-gateway/request", requireAuth, async (req, res, next) => {
     const payload = body.payload && typeof body.payload === "object" && !Array.isArray(body.payload) ? body.payload : {};
     let answer;
     try {
-      answer = await sharedPublicGateway().request({ userID: held.accountID, characterID: held.characterID }, request, payload);
+      const forAccount = request === "eve_public.achievement.showcase.api.GetCharacterScoreRequest";
+      answer = await sharedPublicGateway().request({ userID: held.accountID, ...(forAccount ? {} : { characterID: held.characterID }) }, request, payload);
     } catch (error) {
       if (!String(error && error.code).startsWith("GATEWAY_")) throw error;
       res.status(502).json({ ok: false, error: error.code, message: error.message });
@@ -18196,10 +18198,10 @@ app.post("/api/icons/cache", requireAuth, (req, res) => {
 // to the catch-all, the browser receives index.html with a 200, `<img onerror>`
 // never fires, and every uncached icon becomes a permanently broken image.
 // The client's own textures by their res: path, for the page to draw what the client draws with them (a skill
-// group's icon, a skill book's mark): /client-res/ui/texture/... answers an indexed PNG or a supported DDS
+// group's icon, a career banner): /client-res/ui/texture/... answers an indexed PNG, JPEG or a supported DDS
 // converted to PNG, or 404 (src/clientData/clientTextures.js). No session: the install's pictures do not vary by
 // player. Above the catch-all, for the same reason as the icon cache below.
-app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|dds))$/, (req, res) => {
+app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds))$/, (req, res) => {
   if (/\.dds$/i.test(req.params[0])) {
     const png = clientTextures.pngFor?.(`res:/${req.params[0]}`);
     if (!png) { res.status(404).end(); return; }
@@ -18213,12 +18215,12 @@ app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|dds))$/, (req, re
     return;
   }
   res.set("Cache-Control", "public, max-age=2592000, immutable");
-  res.type("png").sendFile(file, (error) => {
+  res.type(/\.jpg$/i.test(req.params[0]) ? "jpeg" : "png").sendFile(file, (error) => {
     if (error && !res.headersSent) res.status(404).end();
   });
 });
 
-// The client's own videos by their res: path (the Career Portal's career intros, careerConst.CAREER_VIDEOS):
+// The client's own videos by their res: path (for example, the Achievements career banners):
 // /client-res/video/....webm answers the indexed file, with ranges (sendFile), or 404. No session, as the textures.
 app.get(/^\/client-res\/(video\/[A-Za-z0-9_./-]+\.webm)$/, (req, res) => {
   const file = (typeof clientTextures.videoFor === "function" ? clientTextures.videoFor(`res:/${req.params[0]}`) : null) || clientTextures.fileFor(`res:/${req.params[0]}`);

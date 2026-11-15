@@ -9,10 +9,9 @@ export interface NeocomButton { id: string; label: string; icon: string }
 const icon = (name: string) => clientTexture(`res:/UI/Texture/WindowIcons/${name}.png`);
 
 // RAWDATA_NEOCOMDEFAULT, as far as the play page goes: Project Discovery and the like are left out until there is
-// something behind them. The career program first (BTNTYPE_CAREER_PROGRAM, AIR_CAREER_PROGRAM_ID: CareerPortalWnd,
-// airCareerProgram.png).
+// something behind them. 24.02 puts Achievements first (BTNTYPE_ACHIEVEMENTS, type 25).
 export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
-  { id: "careerportal", label: "AIR Career Program", icon: icon("airCareerProgram") },
+  { id: "achievements", label: "Achievements", icon: icon("achievements") },
   { id: "agency", label: "Agency", icon: icon("agentfinder") },
   { id: "jobboard", label: "Opportunities", icon: icon("opportunities") },
   { id: "mail", label: "EVE Mail", icon: icon("evemail") },
@@ -29,8 +28,7 @@ export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
 /**
  * The EVE menu (neocomRawData.GetEveMenuRawData, neocomConst's RAWDATA_EVEMENU_GROUP_*, btnDataRaw's labels and
  * icons): its groups in the client's order, each with the commands it holds; a command the play page has a window
- * for carries that window's id, the rest are listed and say they are not there yet. The groups that hold nothing
- * the page can show yet (Paragon services) are left out.
+ * for carries that window's id, the rest are listed and say they are not there yet.
  */
 export interface EveMenuGroup { label: string; icon: string; items: readonly { id: string | null; label: string; icon: string }[] }
 export const EVE_MENU: readonly EveMenuGroup[] = [
@@ -67,6 +65,9 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "mail", label: "EVE Mail", icon: icon("evemail") },
     { id: "corporation", label: "Corporation", icon: icon("corporation") },
     { id: "calendar", label: "Calendar", icon: icon("calendar") },
+  ] },
+  { label: "Paragon Services", icon: clientTexture("res:/UI/Texture/eveicon/feature_icons/paragon_folder_64px.png"), items: [
+    { id: "achievements", label: "Achievements", icon: icon("achievements") },
   ] },
   { label: "Utilities", icon: icon("directoryUtilities"), items: [
     { id: "notepad", label: "Notepad", icon: icon("notepad") },

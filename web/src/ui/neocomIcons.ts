@@ -74,7 +74,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   jobBoard: ["M4 7h16v12H4z", "M9 7V4h6v3", "M4 12h16"],
   paintTool: ["M5 19l4-1 10-10-3-3L6 15z", "M14 6l3 3"],
   locationSearch: ["M10 4a6 6 0 1 0 0 12a6 6 0 1 0 0-12", "M15 15l5 5"],
-  careerPortal: ["M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18", "M12 7a5 5 0 1 0 0 10a5 5 0 1 0 0-10", "M12 3v4", "M12 17v4", "M3 12h4", "M17 12h4"],
+  achievements: ["M8 4h8v5a4 4 0 0 1-8 0z", "M8 6H5v2a3 3 0 0 0 3 3M16 6h3v2a3 3 0 0 1-3 3M12 13v5m-4 2h8"],
   assets: ["M4 14h7v6H4z", "M13 14h7v6h-7z", "M8.5 7h7v6h-7z"],
   wallet: ["M4 7h16v11H4z", "M4 7l12-3v3", "M17 13h.01"],
   corpWallet: ["M6 9h12v3H6z", "M6 14h12v4H6z", "M8 6h8"],

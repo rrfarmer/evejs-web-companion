@@ -8,6 +8,7 @@
 
 import { BridgeCallError, callMethod, refusalOfBody } from "../bridge/callMethod.ts";
 import type { Ask } from "../bridge/ask.ts";
+import type { AchievementCatalogue } from "../bridge/achievements.ts";
 import type { CorporationRoleData, CorporationRoleGroupSpec } from "../bridge/corporationRoles.ts";
 import { decodeBoundDogma, type BoundDogma } from "../bridge/boundDogma.ts";
 import { decodeNameValidation, decodeValidRandomName } from "../bridge/charAccount.ts";
@@ -5888,6 +5889,14 @@ export async function loadLpCorporations(options: ApiOptions = {}): Promise<read
 export async function loadArchetypeTitles(ids: readonly number[], options: ApiOptions = {}): Promise<Readonly<Record<string, number | null>>> {
   const data = await getJson(`/api/client-data/archetype-titles?ids=${ids.join(",")}`, options);
   return data.titles && typeof data.titles === "object" ? data.titles as Record<string, number | null> : {};
+}
+
+export async function loadAchievementCatalogue(options: ApiOptions = {}): Promise<AchievementCatalogue> {
+  const data = await getJson("/api/client-data/achievement-definitions", options);
+  if (!data.roots || !Array.isArray(data.categories) || !Array.isArray(data.achievements)) {
+    throw new Error("EveJS did not return an achievement catalogue.");
+  }
+  return data as unknown as AchievementCatalogue;
 }
 
 export async function publicGatewayRequest(request: string, payload: Record<string, JsonValue>, options: ApiOptions & { confirm?: boolean } = {}): Promise<PublicGatewayAnswer> {

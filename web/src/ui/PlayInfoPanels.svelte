@@ -21,7 +21,6 @@
   import InfoPanelFactionalWarfare from "./InfoPanelFactionalWarfare.svelte";
   import InfoPanelIncursions from "./InfoPanelIncursions.svelte";
   import InfoPanelInsurgency from "./InfoPanelInsurgency.svelte";
-  import InfoPanelCareerProgram from "./InfoPanelCareerProgram.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
   let { store, flow, showAgents, openRouteWindow }: { store: ClientStore; flow: AppFlow; showAgents?: () => void; openRouteWindow?: () => void } = $props();
   // svelte-ignore state_referenced_locally
@@ -29,12 +28,12 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const me = $derived($station.online?.characterID ?? null);
-  // each panel's mode by its panelTypeID (PANEL_LOCATION_INFO 1, PANEL_ROUTE 2, PANEL_INCURSIONS 4, PANEL_FACTIONAL_WARFARE 5, PANEL_CAREER_PROGRAM 23, PANEL_JOB_BOARD 24, PANEL_INSURGENCY 25)
+  // Each remaining panel's mode by its panelTypeID. 24.02 removed the career panel (23).
   const modeKey = (panel: number) => (me ? `evejs.play.${me}.infoPanelMode.${panel}` : null);
   let modes = $state<Record<number, boolean>>({}), count = $state(0);
   $effect(() => {
     const read: Record<number, boolean> = {};
-    for (const panel of [1, 2, 4, 5, 23, 24, 25]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
+    for (const panel of [1, 2, 4, 5, 24, 25]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
     modes = read;
   });
   function toggleMode(panel: number): void {
@@ -52,7 +51,6 @@
   <InfoPanelRoute {store} {flow} compact={modes[2] === true} onToggle={() => toggleMode(2)} {openRouteWindow} />
   <InfoPanelIncursions {store} {flow} compact={modes[4] === true} onToggle={() => toggleMode(4)} />
   <InfoPanelFactionalWarfare {store} {flow} compact={modes[5] === true} onToggle={() => toggleMode(5)} />
-  <InfoPanelCareerProgram {store} {flow} compact={modes[23] === true} onToggle={() => toggleMode(23)} />
   <!-- the panel is built while hidden, so its reads run and its count says whether it is available -->
   <section class="ip-panel" class:hidden={count === 0}>
     <div class="ip-top">
