@@ -24,6 +24,7 @@
     isActiveJob,
     jobAsChosen,
     jobCannotBeAsked,
+    matchesIndustryFilter,
     mostRunsToAsk,
     previewMaterials,
     previewTimeSeconds,
@@ -643,7 +644,12 @@
     return $industry.blueprints.filter((b) => {
       if (bpFacility !== null && b.facilityID !== bpFacility) return false;
       if (bpKind !== "all" && b.original !== (bpKind === "original")) return false;
-      if (q && !typeName(b.typeID).toLowerCase().includes(q)) return false;
+      if (q && !matchesIndustryFilter(q, b.itemID, [
+        typeName(b.typeID),
+        b.facilityID === null ? "" : facilityName(b.facilityID),
+        resolvedName($names.resolved, "station", b.locationID, ""),
+        resolvedName($names.resolved, "typeGroup", b.typeID, ""),
+      ])) return false;
       return true;
     }).sort((x, y) => typeName(x.typeID).localeCompare(typeName(y.typeID)));
   });
@@ -663,9 +669,13 @@
    */
   let jobStatus = $state<"active" | "running" | "ready" | "paused" | "history">("active");
   let jobActivity = $state<IndustryActivity | "">("");
+  let jobFilter = $state("");
   const shownJobs = $derived.by(() => $industry.jobs.filter((job) => {
     const st = shownStatus(job);
     if (jobActivity && job.activity !== jobActivity) return false;
+    if (jobFilter && !matchesIndustryFilter(jobFilter, job.blueprintID, [
+      typeName(job.blueprintTypeID), facilityName(job.facilityID), $station.online?.characterName ?? "",
+    ])) return false;
     if (jobStatus === "active") return isActiveJob(job.status);
     if (jobStatus === "history") return !isActiveJob(job.status);
     return st === jobStatus;
@@ -1083,6 +1093,7 @@
         {#each CLIENT_ACTIVITIES as a (a.id)}<option value={a.id}>{industryWord(a.label) || ACTIVITY_LABELS[a.id]}</option>{/each}
       </select>
       <select><option>{industryWord("UI/Industry/InstalledByMe") || "Installed by Me"}</option></select>
+      <input type="search" aria-label="Filter jobs" placeholder="Filter" bind:value={jobFilter} />
     </div>
     {#if $industry.jobsError}<p class="error">{$industry.jobsError}</p>{/if}
     <div class="ind-scroll">
@@ -1277,7 +1288,7 @@
         <option value="original">{industryWord("UI/Industry/Originals") || "Originals"}</option>
         <option value="copy">{industryWord("UI/Industry/Copies") || "Copies"}</option>
       </select>
-      <input type="search" placeholder="Filter" bind:value={bpFilter} />
+      <input type="search" aria-label="Filter blueprints" placeholder="Filter" bind:value={bpFilter} />
     </div>
     {#if $industry.blueprintsError}<p class="error">{$industry.blueprintsError}</p>{/if}
     <div class="ind-scroll">
