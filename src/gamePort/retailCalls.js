@@ -768,6 +768,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // (fittingSvc.GetFittingMgr, 85 to 92). The gateway's list has none of them.
   "corpFittingMgr.SaveFitting", "corpFittingMgr.UpdateFitting", "corpFittingMgr.UpdateNameAndDescription",
   "allianceFittingMgr.SaveFitting", "allianceFittingMgr.UpdateFitting", "allianceFittingMgr.UpdateNameAndDescription",
+  "charFittingMgr.SaveManyFittings", "corpFittingMgr.SaveManyFittings", "allianceFittingMgr.SaveManyFittings",
   "corpFittingMgr.DeleteFitting", "allianceFittingMgr.DeleteFitting",
   "corpFittingMgr.DeleteManyFittings", "allianceFittingMgr.DeleteManyFittings",
   // Everything of the pilot's, for the assets window's search (invCache.py 880). The web gateway refuses it on purpose
@@ -1020,19 +1021,23 @@ const FITTING_SVC = "eve/client/script/environment/fittingSvc.py";
  * window's edits), and fitData a list of (typeID, flag, qty) tuples. A route gives the fitting as a plain object of
  * those fields. Null for anything else.
  */
-function persistedFitting(fitting) {
+function persistedFitting(fitting, tempID = null) {
   if (!fitting || typeof fitting !== "object" || Array.isArray(fitting) || fitting.type !== undefined) return null;
   const rows = Array.isArray(fitting.fitData) ? fitting.fitData : null;
   if (rows === null || typeof fitting.name !== "string" || typeof fitting.description !== "string") return null;
   if (!wholeAndPositive(fitting.shipTypeID) || !wholeAndPositive(fitting.ownerID)) return null;
   if (!rows.every((row) => Array.isArray(row) && row.length === 3 && row.every((value) => Number.isSafeInteger(value)))) return null;
-  return keyVal(orderEntries([
+  const entries = [
     ["name", typedText(fitting.name)],
     ["description", typedText(fitting.description)],
     ["shipTypeID", fitting.shipTypeID],
     ["fitData", { type: "list", items: rows.map((row) => [...row]) }],
     ["ownerID", fitting.ownerID],
-  ]));
+  ];
+  if (tempID !== null) entries.push(["fittingID", tempID]);
+  const value = keyVal(orderEntries(entries));
+  if (tempID !== null) value.name = "utillib.KeyVal";
+  return value;
 }
 /** SaveFitting(ownerID, fitting), as PersistFitting asks it (304). */
 function fittingSaved(args, kwargs) {
@@ -1042,6 +1047,20 @@ function fittingSaved(args, kwargs) {
     return { status: "differs", note: "The client saves an owner's fitting as the KeyVal of five PersistFitting makes, and nothing else." };
   }
   return { args: [ownerID, made], status: "reshaped" };
+}
+
+/** PersistManyFittings uses temp IDs starting at INVALID_FITTING_ID (-1). */
+function fittingsSaved(args, kwargs) {
+  const [ownerID, fittings] = args;
+  const invalid = { status: "differs", note: "Expected an owner's fitting batch." };
+  if (args.length !== 2 || !wholeAndPositive(ownerID) || !Array.isArray(fittings) ||
+      !fittings.length || fittings.length > 600 || Object.keys(kwargs).length > 0) return invalid;
+  const entries = fittings.map((fitting, index) => {
+    const tempID = -1 - index;
+    return [tempID, fitting?.ownerID === ownerID ? persistedFitting(fitting, tempID) : null];
+  });
+  if (entries.some(([, row]) => row === null)) return invalid;
+  return { args: [ownerID, { type: "dict", entries: orderEntries(entries) }], status: "reshaped" };
 }
 /** UpdateFitting(ownerID, fitting, fittingID=...), as PersistFitting asks it (302), for the owner's fitting of that name. */
 function fittingUpdated(args, kwargs) {
@@ -2152,6 +2171,9 @@ const RETAIL_CALLS = Object.freeze({
   "corpFittingMgr.UpdateFitting": judged(`${FITTING_SVC}:302`, fittingUpdated, "GetFittingMgr(ownerID).UpdateFitting(ownerID, fitting, fittingID=...), the corporation's fitting manager: as the pilot's, where the pilot said Yes to UpdateFitCorp. In no recording."),
   "allianceFittingMgr.UpdateNameAndDescription": typing(same(`${FITTING_SVC}:720`, "GetFittingMgr(ownerID).UpdateNameAndDescription(fittingID, ownerID, name, description), the alliance's fitting manager for a fitting of the alliance's: as the pilot's. In no recording."), [2, 3]),
   "allianceFittingMgr.SaveFitting": judged(`${FITTING_SVC}:304`, fittingSaved, "GetFittingMgr(ownerID).SaveFitting(ownerID, fitting), the alliance's fitting manager: as the pilot's (the fitting display's Save for Alliance, offered to the executor corporation's). In no recording."),
+  "charFittingMgr.SaveManyFittings": judged(`${FITTING_SVC}:348`, fittingsSaved, "SaveManyFittings(ownerID, {tempID: fitting}), answering temporary-to-real ID mappings."),
+  "corpFittingMgr.SaveManyFittings": judged(`${FITTING_SVC}:348`, fittingsSaved, "The fitting manager saves the selected imported profiles for the pilot's corporation."),
+  "allianceFittingMgr.SaveManyFittings": judged(`${FITTING_SVC}:348`, fittingsSaved, "The fitting manager saves the selected imported profiles for the pilot's alliance."),
   "allianceFittingMgr.UpdateFitting": judged(`${FITTING_SVC}:302`, fittingUpdated, "GetFittingMgr(ownerID).UpdateFitting(ownerID, fitting, fittingID=...), the alliance's fitting manager: as the pilot's, where the pilot said Yes to UpdateFitPersonal (PersistFitting asks UpdateFitCorp of the corporation's alone). In no recording."),
   "corpFittingMgr.GetFittings": reshaped(`${FITTING_SVC}:430`, fittingsOf("corporationID", "corporation"), "GetFittingMgr(session.corpid).GetFittings(session.corpid)"),
   "allianceFittingMgr.GetFittings": reshaped(`${FITTING_SVC}:430`, fittingsOf("allianceID", "alliance"), "GetFittingMgr(session.allianceid).GetFittings(session.allianceid), and only for a pilot in an alliance"),

@@ -120,7 +120,7 @@ const FEATURE_WRITE_METHODS = freezeMethodMap({
   // there (fittingSvc.GetFittingMgr, 85 to 92): the fitting display's Save for Corporation and Save for Alliance. The
   // game port carries them; the web gateway's list has none.
   corpFittingMgr: ["SaveFitting", "UpdateFitting", "UpdateNameAndDescription", "DeleteFitting", "DeleteManyFittings"],
-  allianceFittingMgr: ["SaveFitting", "UpdateFitting", "UpdateNameAndDescription", "DeleteFitting", "DeleteManyFittings"],
+  allianceFittingMgr: ["SaveFitting", "SaveManyFittings", "UpdateFitting", "UpdateNameAndDescription", "DeleteFitting", "DeleteManyFittings"],
   // PurchaseSkills is the client's own buying of skill books (characterskills/client/purchase.py 100), from its
   // books window; a page's write since 2026-10-16 (the Factory route it was kept for went with Pilot Training).
   // SaveNewQueue is the client's own saving of a queue, on its skill handler (skillQueueSvc.py 153). The game
@@ -909,6 +909,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "charFittingMgr.SaveManyFittings", "corpFittingMgr.SaveManyFittings", "allianceFittingMgr.SaveManyFittings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID",
   "corporationSvc.SetMedalStatus",
   "charMgr.AddOwnerNote", "charMgr.EditOwnerNote", "charMgr.RemoveOwnerNote",

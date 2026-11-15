@@ -51,6 +51,7 @@
     type DragPayload,
   } from "./dragDrop.ts";
   import { startFittingDrag, startFittingSourceDrag } from "./fittingDrag.ts";
+  import ImportFittings from "./ImportFittings.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { formatNumeric, type PyNumber } from "../bridge/pyNumbers.ts";
   import {
@@ -188,6 +189,8 @@
 
   let busy = $state(false);
   let importExportOpen = $state(false);
+  let importFileOpen = $state(false);
+  let importedCount = $state<number | null>(null);
   let error = $state("");
   /** Which module the player picked to fit, and where it is coming from. */
   let pickedItemID = $state<number | null>(null);
@@ -447,6 +450,8 @@
     "UI/Fitting/FittingWindow/FittingManagement/ImportFromClipboardHint": "",
     "UI/Fitting/FittingWindow/FittingManagement/ExportToClipboard": "Copy this ship's fitting as text",
     "UI/Fitting/FittingWindow/FittingManagement/ExportToClipboardHint": "",
+    "UI/Fitting/FittingWindow/ImportFromFile": "Import from File",
+    "UI/Fitting/ImportFittings": "Import Fittings",
     // Said by the import (flow.ts importFittingFromClipboard): asked here, where it is made.
     "UI/SkillQueue/CouldNotReadLines": "",
     "UI/Market/MarketQuote/BuyAll": "Shop for all of it",
@@ -4025,9 +4030,10 @@
     <h2>{fitWord("UI/Fitting/FittingWindow/ShipAndFittings")}</h2>
     <p class="controls">
       <button type="button" disabled={busy} onclick={() => void flow.saveFitAs().catch(() => {})}>{fitWord("UI/Fitting/FittingWindow/SaveFitAs")}</button>
-      <!-- hullAndHardwareTypeBrowser.AddExportImportMenu (680 to 694): Import from Clipboard and Export to Clipboard. -->
+      <!-- hullAndHardwareTypeBrowser._get_import_export_menu: clipboard actions and the file importer. -->
       <span class="import-export">
         <button type="button" class="minor" aria-haspopup="menu" aria-expanded={importExportOpen} title={fitWord("UI/Fitting/FittingWindow/ImportAndExport")}
+          aria-label={fitWord("UI/Fitting/FittingWindow/ImportAndExport")}
           onclick={() => (importExportOpen = !importExportOpen)}>⇅</button>
         {#if importExportOpen}
           <span class="import-export-menu" role="menu">
@@ -4039,10 +4045,18 @@
               onclick={() => { importExportOpen = false; void flow.currentFitText().then((text) => (text === null ? undefined : navigator.clipboard.writeText(text))).catch(() => {}); }}>
               {fitWord("UI/Fitting/FittingWindow/FittingManagement/ExportToClipboard")}
             </button>
+            <button type="button" role="menuitem" onclick={() => { importExportOpen = false; importedCount = null; importFileOpen = true; }}>
+              {fitWord("UI/Fitting/FittingWindow/ImportFromFile")}
+            </button>
           </span>
         {/if}
       </span>
     </p>
+    {#if importFileOpen}
+      <ImportFittings {flow} title={fitWord("UI/Fitting/ImportFittings")} onClose={() => { importFileOpen = false; }}
+        onImported={count => { importedCount = count; importFileOpen = false; }} />
+    {/if}
+    {#if importedCount !== null}<p role="status">Imported {importedCount} {importedCount === 1 ? "fitting" : "fittings"}.</p>{/if}
     <p class="controls">
       <button type="button" class={showPersonalFittings ? "active" : "minor"} aria-pressed={showPersonalFittings}
         title={filterHint("UI/Fitting/FittingWindow/FilterPersonalFittings", ($savedFittings ?? []).filter((saved) => saved.source === "personal").length, 500)}

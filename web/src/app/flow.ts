@@ -1092,6 +1092,7 @@ import { shiftHeld } from "./keyState.ts";
 import { FittingLinkError, fittingFromString, formatFittingUrl, parseFittingUrl, simpleHtmlUnescape, typeIDsInFittingString, type FittingLinkTypeFacts } from "../bridge/fittingLink.ts";
 import { fitFitting, fittedRigsByFlag, fittingForApplying, isModularShip, isRigFlag, isThereRigMismatch, itemsToFitFrom, listHangar, listShip, VISIBLE_SUBSYSTEM_FLAGS } from "../bridge/fittingLoad.ts";
 import { fittingEftString } from "../bridge/fittingExport.ts";
+import { parseFittingFile, reserveImportedFittingName, resolveFittingFileProfile, type FittingFileEntry, type FittingFileType } from "../bridge/fittingFileImport.ts";
 import { decodeAllianceInfo, decodeRankedAlliances, toStr as allianceText, type AllianceInfo, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
 import { aggressionSettingsOf, type AggressionSettings, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
 import { toNumOrNull as corporationShareNumber } from "../bridge/allianceInfo.ts";
@@ -4503,6 +4504,9 @@ export interface AppFlow {
   currentFitText(): Promise<string | null>;
   /** The fitting window's Import from Clipboard, of the clipboard's text (null where the browser would not give it). */
   importFittingFromClipboard(text: string | null): Promise<void>;
+  previewFittingFile(text: string): Promise<readonly FittingFileEntry[]>;
+  fittingFileOwners(): Promise<readonly { kind: "character" | "corporation" | "alliance"; id: number }[]>;
+  saveFittingFile(ownerID: number, entries: readonly FittingFileEntry[]): Promise<number>;
   /** The multifit window open now (ClientDialogs.svelte shows it); null with none. */
   readonly multiFitAsked: ReadableSignal<MultiFitAsk | null>;
   /** GetMaxShipsToFit, as last read: nought where the config allows no multifit. */
@@ -14568,6 +14572,73 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (ownerID === online.corporationID) return { manager: "corpFittingMgr", kind: "corporation", source: "corporation" };
     if ((online.allianceID ?? null) !== null && ownerID === online.allianceID) return { manager: "allianceFittingMgr", kind: "alliance", source: "alliance" };
     return null;
+  }
+
+  async function previewFittingFile(text: string): ReturnType<AppFlow["previewFittingFile"]> {
+    const profiles = parseFittingFile(text);
+    const names = [...new Set(profiles.flatMap(profile => [profile.hull, ...profile.hardware.map(item => item.type)]))]
+      .filter(name => name.length <= 256 && name !== "");
+    const types = new Map<string, FittingFileType>();
+    const current = callOptions.captureRequestGuard!();
+    for (let start = 0; start < names.length; start += 100) {
+      current();
+      const batch = names.slice(start, start + 100);
+      const found = await api.fittingFileTypes(batch, callOptions);
+      batch.forEach((name, index) => types.set(name, found[index]!));
+    }
+    current();
+    return profiles.map(profile => resolveFittingFileProfile(profile, types));
+  }
+
+  async function fittingFileOwners(): ReturnType<AppFlow["fittingFileOwners"]> {
+    const pilot = store.station.get().online;
+    if (!pilot) return [];
+    const owners: Awaited<ReturnType<AppFlow["fittingFileOwners"]>>[number][] = [{ kind: "character", id: pilot.characterID }];
+    if (hasFittingManagerRole() && pilot.corporationID) {
+      owners.push({ kind: "corporation", id: pilot.corporationID });
+      if (pilot.allianceID && await saveForAllianceOffered()) owners.push({ kind: "alliance", id: pilot.allianceID });
+    }
+    return owners;
+  }
+
+  async function saveFittingFile(ownerID: number, entries: readonly FittingFileEntry[]): Promise<number> {
+    const current = callOptions.captureRequestGuard!();
+    const owner = fittingOwner(ownerID);
+    if (!owner || !(await canDeleteFit(ownerID))) throw new Error("You cannot save fittings for that owner.");
+    const selected = entries.filter(entry => entry.shipTypeID !== null);
+    if (!selected.length) return 0;
+    current();
+    const existing = await (owner.kind === "character" ? readCharacterFittings(bridgeAsk, ownerID).then(decodeFittings)
+      : owner.kind === "corporation" ? readCorporationFittings(bridgeAsk, ownerID).then(decodeCorpFittings)
+      : readAllianceFittings(bridgeAsk, ownerID).then(decodeAllianceFittings));
+    const limit = owner.kind === "corporation" ? MAX_CORP_FITTINGS : MAX_CHAR_FITTINGS;
+    if (existing.length + selected.length > limit) throw new Error(`This owner's fitting library can hold ${limit} fittings.`);
+    const used = new Set(existing.map(fitting => fitting.name.toLowerCase()));
+    const batch = selected.map(entry => {
+      const description = entry.description.slice(0, 500);
+      if (!entry.name.trim()) throw new Error("A fitting needs a name.");
+      const name = reserveImportedFittingName(entry.name, used);
+      if (name.includes("@@") || description.includes("@@")) throw new Error(`The name or description of ${name} contains @@.`);
+      if (!entry.fitData.length) throw new Error(`${name} has no usable hardware.`);
+      return { name, description, shipTypeID: entry.shipTypeID!, fitData: entry.fitData, ownerID };
+    });
+    current();
+    const answer = await bridgeDo(owner.manager, "SaveManyFittings", [ownerID, batch]);
+    const mapped = new Map<number, number>();
+    for (const row of isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : []) {
+      const temp = readKeyVal(row, "tempFittingID"), real = readKeyVal(row, "realFittingID");
+      if (typeof temp === "number" && Number.isSafeInteger(temp) && temp < 0 && temp >= -batch.length &&
+          typeof real === "number" && Number.isSafeInteger(real) && real > 0) mapped.set(temp, real);
+    }
+    if (mapped.size !== batch.length) {
+      await loadSavedFittings().catch(() => {});
+      throw new Error("EVE did not confirm the complete fitting import. Check the saved fittings list.");
+    }
+    const saved = batch.map((fit, index): SourcedFitting => ({ ...fit, fittingID: mapped.get(-1 - index)!, source: owner.source,
+      savedDate: null, modules: fit.fitData.map(([typeID, flagID, quantity]) => ({ typeID, flagID, quantity })) }));
+    savedFittingsSignal.set(withFittingsAfter(savedFittingsSignal.get() ?? [], saved));
+    void reckonFittingsDeletable().catch(() => {});
+    return saved.length;
   }
 
   /**
@@ -32925,6 +32996,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     viewFittingText,
     currentFitText,
     importFittingFromClipboard,
+    previewFittingFile,
+    fittingFileOwners,
+    saveFittingFile,
     multiFitAsked: readonlySignal(multiFitAskedSignal),
     maxShipsToFit: readonlySignal(maxShipsToFitSignal),
     openMultiFit,

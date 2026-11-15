@@ -33,7 +33,7 @@ import {
   type RequestPriority,
 } from "./transport.ts";
 import { pageCarries, pageFetch, pageSocket } from "./pageFetch.ts";
-import type { JsonValue } from "../bridge/wire.ts";
+import { readPlainJsonField, type JsonValue } from "../bridge/wire.ts";
 import type { ExpertSystemData } from "../bridge/expertSystems.ts";
 import type { HullFacts, ShipTraitBonus, ShipTraits } from "../bridge/hullBrowser.ts";
 import type { ComparisonTypeData, DogmaAttributeRecord } from "../bridge/typeComparison.ts";
@@ -4699,6 +4699,17 @@ export async function importFitting(
   }
   const errorLines = Array.isArray(data.errorLines) ? (data.errorLines as JsonValue[]).map((line) => String(line)) : [];
   return { shipTypeID, name: typeof data.name === "string" ? data.name : "", fitData, errorLines };
+}
+
+/** Named types in a fitting XML file, in request order. */
+export async function fittingFileTypes(names: readonly string[], options: ApiOptions = {}): Promise<readonly import("../bridge/fittingFileImport.ts").FittingFileType[]> {
+  const data = await postJson("/api/client-data/fitting-file-types", { names }, options);
+  if (!Array.isArray(data.types) || data.types.length !== names.length) throw new Error("The fitting types could not be read.");
+  return data.types.map(row => {
+    const id = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+    return { hullID: id(readPlainJsonField(row, "hullID")), typeID: id(readPlainJsonField(row, "typeID")),
+      fittable: readPlainJsonField(row, "fittable") === true, obsolete: readPlainJsonField(row, "obsolete") === true };
+  });
 }
 
 /**

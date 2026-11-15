@@ -165,6 +165,28 @@ function getFittingImportNames() {
   return caches.get(cacheKey);
 }
 
+/** export.py's hardware lookup uses evetypes.GetTypeIDByName, including unpublished types. */
+function getFittingFileType(name) {
+  const cacheKey = "itemTypes:fittingFileTypes";
+  if (!caches.has(cacheKey)) {
+    const types = new Map();
+    for (const type of buildIndex("itemTypes", "types", "typeID").values()) {
+      if (type.name) types.set(type.name.toLowerCase(), type);
+    }
+    caches.set(cacheKey, types);
+  }
+  const { cleanText } = require("./clientData/importMultibuy");
+  const clean = cleanText(name).replace(/<[^>]*>/g, "").toLowerCase();
+  const type = caches.get(cacheKey).get(clean);
+  const hullID = getFittingImportNames().names.get(clean) ?? null;
+  return {
+    hullID: [6, 65].includes(getTypeCategoryID(hullID)) ? hullID : null,
+    typeID: type?.typeID ?? null,
+    fittable: [7, 32, 66].includes(type?.categoryID),
+    obsolete: type ? Boolean(getTypeDogmaAttribute(type.typeID, 2696)) : false,
+  };
+}
+
 function getTypeName(typeID) {
   const entry = getType(typeID);
   return entry ? String(entry.name || `Type ${typeID}`) : `Type ${typeID}`;
@@ -2595,6 +2617,7 @@ module.exports = {
   getSkillImportNames,
   isSkillType,
   getFittingImportNames,
+  getFittingFileType,
   getPassiveFilteredEffects,
   getModuleChargeFitment,
   getChargeSize,

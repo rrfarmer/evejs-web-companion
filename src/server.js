@@ -658,6 +658,8 @@ app.locals.botLogStore = botLogStore;
 fs.mkdirSync(config.iconCacheDir, { recursive: true });
 
 app.disable("x-powered-by");
+// A native fitting batch can fill an owner's library in one write.
+app.use("/api/bridge/call", express.json({ limit: "4mb", type: "application/vnd.evejs.fitting-batch+json" }));
 app.use(express.json({ limit: "64kb" }));
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) {
@@ -1162,6 +1164,10 @@ async function activatePreparedOperation(definition,operationRunID) {
 // signed login session. Wire contract: docs/bridge-wire-contract.md.
 app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
   const body = req.body || {};
+  if (req.is("application/vnd.evejs.fitting-batch+json") && (body.method !== "SaveManyFittings" ||
+      !["charFittingMgr", "corpFittingMgr", "allianceFittingMgr"].includes(body.service))) {
+    return res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Expected a fitting batch." });
+  }
   // A call names its service and its method, each as text. Anything else is no call: a list of one name spells
   // that name wherever it is made into text further on, and a write named so is no write to the check below.
   if (typeof body.service !== "string" || body.service === "" || typeof body.method !== "string" || body.method === "") {
@@ -14017,6 +14023,18 @@ app.post("/api/client-data/fitting-import", requireAuth, (req, res, next) => {
   try {
     const { names, listed } = staticData.getFittingImportNames();
     res.json({ ok: true, ...readFitting(text, { names, listed, typeOf: (typeID) => staticData.getType(typeID), dogmaOf: (typeID) => staticData.getTypeDogma(typeID) }) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/client-data/fitting-file-types", requireAuth, (req, res, next) => {
+  const names = req.body?.names;
+  if (!Array.isArray(names) || names.length > 100 || !names.every(name => typeof name === "string" && name.length <= 256)) {
+    return res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Expected up to 100 fitting type names." });
+  }
+  try {
+    res.json({ ok: true, types: names.map(staticData.getFittingFileType) });
   } catch (error) {
     next(error);
   }

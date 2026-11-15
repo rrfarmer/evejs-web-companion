@@ -149,7 +149,9 @@ export async function callMethod<TResult = JsonValue>(
   options: CallMethodOptions = {},
 ): Promise<BridgeCallOutcome<TResult>> {
   // Over HTTP, or on the tab's socket where the page is set to (app/pageFetch.ts). A fetch handed in is used as it is.
-  const doFetch = options.fetch ?? pageFetch();
+  // SaveManyFittings can hold an entire library, past the tab socket's frame limit.
+  const fittingBatch = method === "SaveManyFittings" && ["charFittingMgr", "corpFittingMgr", "allianceFittingMgr"].includes(service);
+  const doFetch = options.fetch ?? (fittingBatch ? globalThis.fetch.bind(globalThis) : pageFetch());
   const assertCurrent = options.captureRequestGuard?.();
   const authHeaders = "token" in options ? tokenAuthHeaders(options.token) : sessionAuthHeaders();
   const credentials = "token" in options ? "omit" : "same-origin";
@@ -178,7 +180,7 @@ export async function callMethod<TResult = JsonValue>(
       // key present) uses this flow's token; otherwise the per-tab global.
       headers: {
         ...authHeaders,
-        "content-type": "application/json",
+        "content-type": fittingBatch ? "application/vnd.evejs.fitting-batch+json" : "application/json",
       },
       credentials,
       body: JSON.stringify(body),
@@ -194,7 +196,7 @@ export async function callMethod<TResult = JsonValue>(
         signal: options.signal ?? AbortSignal.timeout(65_000),
       });
       // A call that goes on the tab's open socket holds none of the browser's connections, and so no lane.
-    }, { carried: options.fetch === undefined && pageCarries(url, request) });
+    }, { carried: !fittingBatch && options.fetch === undefined && pageCarries(url, request) });
   } catch (cause) {
     assertCurrent?.();
     if (cause instanceof BridgeCallError && cause.code === "SESSION_REQUEST_RETIRED") throw cause;
