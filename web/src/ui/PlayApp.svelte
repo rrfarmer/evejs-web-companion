@@ -4,7 +4,8 @@
   // through the app's session (store + Flow, app/sessions.ts) as it does in the multibox client; nothing here is a
   // bot, and no bot is mounted. Docked, the station's Undock; in space, the SpaceView with its HUD, overview and
   // brackets. The Neocom opens the app's panels (PanelHost) in client-look windows (DesktopWindow).
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
+  import { autoOpenWatchlist } from "./watchlistSettings.ts";
   import { splitResults, resultRows, SCAN_GROUP, PROBE_RESULT_WORD_LABELS, PROBE_RESULT_LABELS, MIN_WARP_DISTANCE, isAccurate } from "../bridge/probeResults.ts";
   import { romanLevel } from "../bridge/skills.ts";
   import { fmtDist } from "../space/overview.ts";
@@ -123,6 +124,7 @@
   const targeting = $derived(session?.store.targeting);
   const fitting = $derived(session?.store.fitting);
   const inventory = $derived(session?.store.inventory);
+  const fleet = $derived(session?.store.fleet);
 
   // A refusal the server gave an order (a lock, a module, a move, a fit, an item's move), as the client puts it up:
   // the flow says some in the client's own dialogs (actionErrorSaid); the rest are said here, once each, in space on
@@ -227,6 +229,7 @@
       stage = "game";
       // The client's chat window, with Local, is up from the start.
       open("chat");
+      void session.flow.loadFleet(true).catch(() => {});
     } catch (err) {
       error = (err as Error).message;
       stage = "select";
@@ -453,7 +456,27 @@
     const h = innerHeight >= 1200 ? 350 : innerHeight >= 960 ? 320 : 260;
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
-  function open(tab: TabID) { wins = openFly(wins, tab); raiseApp(tab); }
+  function open(tab: TabID) {
+    if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
+    wins = openFly(wins, tab);
+    raiseApp(tab);
+  }
+  let lastFleetID: number | null = null;
+  $effect(() => {
+    const characterID = chosenCharacterID;
+    if (stage !== "game" || characterID === null) {
+      lastFleetID = null;
+      return;
+    }
+    const fleetID = $fleet?.authoritativeFleetID ?? null;
+    if (fleetID === lastFleetID) return;
+    const leaving = lastFleetID !== null;
+    lastFleetID = fleetID;
+    untrack(() => {
+      if (leaving) wins = closeWindow(wins, "watchlist");
+      if (fleetID !== null && autoOpenWatchlist(characterID)) open("watchlist");
+    });
+  });
   // A type's market details asked for from outside the market window (marketDetails.ts, marketutils.ShowMarketDetails):
   // the market window opened, as the workspace opens it; the window takes the type. Watched by the counter, so asking
   // twice for the same type brings the window back.
@@ -616,7 +639,7 @@
     ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market",
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry",
-    OpenAchievementsWindow: "achievements",
+    OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.

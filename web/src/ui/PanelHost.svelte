@@ -144,7 +144,7 @@
 {:else if tab === "activity"}
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}
-  <FleetCenter {store} {flow} />
+  <FleetCenter {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
 {:else if tab === "scanner"}
   <Scanner {store} {flow} />
 {:else if tab === "mail"}

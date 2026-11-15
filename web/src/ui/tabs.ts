@@ -212,8 +212,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "miningOperations", label: "Mining Command Center", where: "both", launchable: false },
   { id: "activity", label: "Activity", where: "both" },
   { id: "fleet", label: "Fleet", where: "both" },
-  // The fleet's watch list (fleetWatchList.py WatchListPanel): opened where it is wanted, as the client opens it on an
-  // add to it (fleetSvc.AddFavorite, 676), so not offered in the rail.
+  // The fleet's watch list opens from a fleet action or the fleet window.
   { id: "watchlist", label: "Watch List", where: "both", launchable: false },
   { id: "mail", label: "Mail", where: "both" },
   // The client's People & Places (AddressBookWindow), titled Contacts: the pilot's own contacts and blocked owners.

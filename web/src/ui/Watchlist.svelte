@@ -4,12 +4,13 @@
   // pilot's ballpark (WatchListEntry.UpdateDamage, its ship by SlimItemFromCharID), with the ship's type beside it
   // (UpdateShipIcon, InBubble), and none where it is not. With nobody on it, the client's hint. Members are added and
   // taken off by the fleet's menu for a member (Contacts); the client opens this window on an add (AddFavorite, 676).
-  // Not here yet: the window's own menu (colours, damage updates off, clearing), its two columns and dragging, the
+  // Not here yet: the colour, damage and clearing controls, its two columns and dragging, the
   // broadcasts' icons, and the damage of a member out of the ballpark (OnFleetDamageStateChange, which EveJS never
   // sends).
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import { autoOpenWatchlist, setAutoOpenWatchlist, WATCHLIST_AUTO_OPEN } from "./watchlistSettings.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -20,10 +21,16 @@
   const space = store.space;
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const characterID = $derived($station.online?.characterID ?? null);
+  let autoOpen = $state(true);
+  $effect(() => { autoOpen = characterID === null || autoOpenWatchlist(characterID); });
 
   const WORDS = {
     caption: "UI/Fleet/WatchList",
     empty: "UI/Fleet/Watchlist/DropFleetMembers",
+    autoOpen: WATCHLIST_AUTO_OPEN,
   } as const;
 
   function word(label: string, own: string): string {
@@ -56,7 +63,21 @@
 </script>
 
 <section class="watchlist" aria-label="{word(WORDS.caption, 'Watch List')} [{watched.length}]">
-  <h3>{word(WORDS.caption, "Watch List")} [{watched.length}]</h3>
+  <header>
+    <h3>{word(WORDS.caption, "Watch List")} [{watched.length}]</h3>
+    {#if characterID !== null}
+      <details class="options">
+        <summary aria-label="More options" title="More options">⋯</summary>
+        <label>
+          <input type="checkbox" checked={autoOpen} onchange={(event) => {
+            autoOpen = event.currentTarget.checked;
+            if (characterID !== null) setAutoOpenWatchlist(characterID, autoOpen);
+          }} />
+          {word(WORDS.autoOpen, "Auto-open Watchlist")}
+        </label>
+      </details>
+    {/if}
+  </header>
   {#if watched.length === 0}
     <p class="empty">{word(WORDS.empty, "Add fleet members to watch them here.")}</p>
   {:else}
@@ -81,7 +102,11 @@
 
 <style>
   .watchlist { display: flex; flex-direction: column; gap: 0.4rem; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
   h3 { margin: 0; font-size: 0.9rem; letter-spacing: 0.04em; text-transform: uppercase; }
+  .options { position: relative; }
+  .options summary { list-style: none; cursor: pointer; padding: 0 0.25rem; }
+  .options label { position: absolute; right: 0; z-index: 1; white-space: nowrap; padding: 0.5rem; background: var(--panel, #161a20); border: 1px solid var(--line, #444); }
   .empty { margin: 0; opacity: 0.75; }
   ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
   li { display: flex; align-items: center; gap: 0.5rem; min-height: 24px; }

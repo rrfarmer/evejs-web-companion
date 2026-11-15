@@ -10,7 +10,7 @@
   import type { FleetAdvert } from "../bridge/fleetAds.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, openWatchlist }: { store: ClientStore; flow: AppFlow; openWatchlist?: () => void } = $props();
 
   // svelte-ignore state_referenced_locally
   const fleet = store.fleet;
@@ -86,6 +86,7 @@
       "UI/Fleet/FleetRegistry/Advert", "UI/Fleet/FleetRegistry/FindFleets", "Tooltips/Neocom/Fleet", "UI/Fleet/FleetWindow/FleetFinder",
       "UI/Fleet/FleetWindow/FormFleetHeader", "UI/Fleet/FleetWindow/FormFleetDescription", "UI/Fleet/FleetWindow/FormFleet", "UI/Fleet/FleetWindow/DefaultSetup",
       ...FINDER_WORDS]);
+    if (openWatchlist) flow.requestWords(["UI/Fleet/FleetWindow/OpenFleetWatchlist"]);
   });
   // svelte-ignore state_referenced_locally
   const names = store.names;
@@ -440,6 +441,9 @@
         <span class="eyebrow">Current fleet</span>
         <strong class="count">{rosterCountWords}</strong>
       </div>
+      {#if openWatchlist}
+        <button type="button" onclick={openWatchlist}>{fleetWord("UI/Fleet/FleetWindow/OpenFleetWatchlist") || "Open Fleet Watchlist"}</button>
+      {/if}
       <button type="button" class="danger" disabled={busy} onclick={() => void leaveFleet()}>
         Leave fleet
       </button>
