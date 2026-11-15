@@ -36,7 +36,8 @@
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
   import InventoryFilters from "./InventoryFilters.svelte";
-  import { FILTER_FIELD, matchInventoryFilter, roundInventoryFilterPrice, type InventoryFilter } from "../bridge/inventoryFilters.ts";
+  import { FILTER_FIELD, matchInventoryFilter, roundInventoryFilterPrice, type InventoryFilter, type InventoryFilterFacts } from "../bridge/inventoryFilters.ts";
+  import { loadInventoryFilterFacts, TYPE_FILTER_FIELDS } from "../app/inventoryFilterFacts.ts";
   import { showInfo } from "./showInfo.ts";
   import KeyActivationWindow from "./KeyActivationWindow.svelte";
   import { ABYSS_WINDOW_LABELS, offersActivateAbyssalKey, type FilamentPlace } from "../bridge/abyssalKeys.ts";
@@ -278,6 +279,10 @@
   let itemFilters = $state<readonly InventoryFilter[]>([]);
   let filterPrices = $state<ReadonlyMap<number, number | null> | null>(null);
   let filterPriceError = $state(false);
+  let filterTypeFacts = $state<ReadonlyMap<number, InventoryFilterFacts>>(new Map());
+  let filterTypeError = $state(false);
+  const typeFilterFields = $derived([...new Set(itemFilters.flatMap(([, , conditions]) => conditions.map(([field]) => field)))]
+    .filter(field => TYPE_FILTER_FIELDS.has(field)).sort((a, b) => a - b).join(","));
   const needsFilterPrices = $derived(itemFilters.some(([, , conditions]) => conditions.some(([field]) => field === FILTER_FIELD.price)));
   $effect(() => { if (!$station.online?.characterID) itemFilters = []; });
   $effect(() => {
@@ -456,19 +461,34 @@
     return $names.resolved[nameKey("type", typeID)] ?? "your ship";
   }
 
+  const inventoryRows = $derived([
+    ...$inventory.hangar.rows, ...$inventory.cargo.rows, ...($inventory.container?.rows ?? []),
+    ...$inventory.corp.divisions.flatMap(division => division.rows),
+    ...($inventory.openShip?.bays.flatMap(bay => bay.items ?? []) ?? []),
+  ]);
+  const filterTypeIDs = $derived(typeFilterFields ? [...new Set(inventoryRows.map(row => row.typeID))]
+    .sort((a, b) => a - b).join(",") : "");
+  $effect(() => {
+    const ids = filterTypeIDs;
+    const fields = typeFilterFields;
+    if (!fields || !ids) return;
+    let current = true;
+    filterTypeError = false;
+    const wanted = new Set(fields.split(",").map(Number));
+    void loadInventoryFilterFacts(ids.split(",").map(Number), wanted, flow.requestOptions()).then(facts => {
+      if (!current) return;
+      filterTypeFacts = facts;
+      filterTypeError = [...facts.values()].some(row => [...wanted].some(field => row[field] === undefined));
+    }).catch(() => { if (current) filterTypeError = true; });
+    return () => { current = false; };
+  });
+
   // R7c — every typeID on screen resolves to a NAME, batched and cached by the
   // flow. Fire-and-forget so rows render at once and gain their names.
   $effect(() => {
     const refs: NameRef[] = [];
     const ship = $inventory.openShip;
-    const everyRow = [
-      ...$inventory.hangar.rows,
-      ...$inventory.cargo.rows,
-      ...($inventory.container ? $inventory.container.rows : []),
-      ...$inventory.corp.divisions.flatMap((division) => division.rows),
-      ...(ship ? ship.bays.flatMap((bay) => bay.items ?? []) : []),
-    ];
-    for (const row of everyRow) {
+    for (const row of inventoryRows) {
       refs.push({ kind: "type", id: row.typeID });
       // A named item's own name, as the client names it (uix.GetItemName).
       if (isNamedItem(row)) refs.push({ kind: "evelocation", id: row.itemID });
@@ -926,7 +946,8 @@
     const name = nameOf(row);
     if (!matchesFilter(name, query)) return false;
     const price = filterPrices?.get(row.typeID);
-    const facts = filterPrices === null ? {} : { [FILTER_FIELD.price]: price == null ? null : roundInventoryFilterPrice(price) };
+    const facts = { ...filterTypeFacts.get(row.typeID),
+      ...(filterPrices === null ? {} : { [FILTER_FIELD.price]: price == null ? null : roundInventoryFilterPrice(price) }) };
     return itemFilters.every(filter => matchInventoryFilter(row, name, filter, facts) !== false);
   }
 
@@ -1826,6 +1847,7 @@
     {/key}
   {/if}
   {#if needsFilterPrices && filterPriceError}<p class="stn-note">Average prices could not be loaded for the filter.</p>{/if}
+  {#if typeFilterFields && filterTypeError}<p class="stn-note">Some items could not be checked against the active filters.</p>{/if}
 
   <!-- =============================================================== notes -->
   {#if notes.length > 0}

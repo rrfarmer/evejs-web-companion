@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getCategories, getCategoryGroups, resolveNames } from "../app/api.ts";
+  import { getCategories, getCategoryGroups, getTypeMeta, resolveNames } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import {
@@ -33,6 +33,9 @@
     [F.assembled, "ConditionAssembled", "Assembled"], [F.category, "", "Category"], [F.group, "ConditionGroup", "Group"],
     [F.name, "ConditionName", "Name"], [F.size, "ConditionStackSize", "Stack Size"],
     [F.price, "ConditionUnitPrice", "Unit Price"], [F.volume, "ConditionVolume", "Volume"],
+    [F.slot, "ConditionSlotType", "Slot Type"], [F.metaGroup, "ConditionMetaGroup", "Meta Group"],
+    [F.metaLevel, "ConditionMetaLevel", "Meta Level"], [F.power, "ConditionPowerUsage", "Powergrid Use"],
+    [F.cpu, "ConditionCpuUsage", "CPU Use"],
   ] as const;
   const operators: Readonly<Record<number, readonly [string, string]>> = {
     [O.is]: ["CritIs", "Is"], [O.isnt]: ["CritIsNot", "Is Not"],
@@ -40,10 +43,18 @@
     [O.starts]: ["CritStartsWith", "Starts With"], [O.notStarts]: ["CritNotStartsWith", "Does Not Start With"],
     [O.contains]: ["CritContains", "Contains"], [O.notContains]: ["CritNotContains", "Does Not Contain"],
   };
+  const slotOptions = [
+    [11, "SlotLowPower", "Low"], [13, "SlotMedPower", "Medium"],
+    [12, "SlotHighPower", "High"], [2663, "SlotRig", "Rig"],
+  ] as const;
+  const metaOptions = [[1, "Tech I"], [2, "Tech II"], [3, "Storyline"], [4, "Faction"], [5, "Officer"], [6, "Deadspace"], [14, "Tech III"]] as const;
+  const idFields = new Set<number>([F.category, F.group, F.slot, F.metaGroup]);
+  const integerFields = new Set<number>([F.size, F.metaLevel]);
 
   type Option = { readonly id: number; readonly nameID: number; readonly published: boolean };
   let categories = $state<readonly Option[]>([]);
   let groups = $state<ReadonlyMap<number, readonly Option[]>>(new Map());
+  let metaNames = $state<ReadonlyMap<number, number | null>>(new Map());
   let groupCategories = $state<readonly (number | null)[]>([]);
   let expanded = $state(false);
   let loaded = $state(false);
@@ -62,7 +73,7 @@
   const filters = $derived([...(saved ?? defaults)].sort((a, b) => a[0].localeCompare(b[0])));
   const normalized = (name: string) => name.toLowerCase();
   const readyConditions = $derived(draft?.conditions.filter(([field, , value]) =>
-    field !== F.group && field !== F.category || typeof value === "number" && value > 0) ?? []);
+    !idFields.has(field) || typeof value === "number" && value > 0) ?? []);
   const preview = $derived<InventoryFilter | null>(expanded && draft && readyConditions.length ? [draft.name, draft.match, readyConditions] : null);
   const unsupported = (filter: InventoryFilter) => filter[2].some(([field]) => !fields.some(([id]) => field === id));
 
@@ -86,6 +97,7 @@
     flow.requestWords([
       ...Object.values(controls).map(([key]) => key), ...fields.flatMap(([, key]) => key ? [PREFIX + key] : []),
       ...Object.values(operators).map(([key]) => PREFIX + key), PREFIX + "CritIsTrue", PREFIX + "CritIsFalse",
+      ...slotOptions.map(([, key]) => PREFIX + key),
       ...DEFAULT_INVENTORY_FILTERS.map(([key]) => key),
     ]);
     void read();
@@ -100,10 +112,21 @@
     groupCategories = (filter?.[2] ?? []).map(() => null);
     if (filter) flow.requestNames(filter[2].flatMap(([field, , id]) =>
       typeof id === "number" && (field === F.category || field === F.group) ? [{ kind: field === F.category ? "category" : "group", id }] : []));
+    if (filter?.[2].some(([field]) => field === F.metaGroup)) void readMetaGroups();
     if (!categories.length) void getCategories(flow.requestOptions()).then(rows => {
       categories = rows.filter(row => row.published).map(row => ({ ...row, id: row.categoryID }));
       flow.requestWords(categories.map(row => `#${row.nameID}`));
     }).catch(() => { error = "Item categories could not be loaded."; });
+  }
+
+  async function readMetaGroups() {
+    if (metaNames.size) return;
+    try {
+      const result = await getTypeMeta([], flow.requestOptions());
+      if (!active) return;
+      metaNames = result.metaGroupNameIDs;
+      flow.requestWords([...metaNames.values()].flatMap(id => id === null ? [] : [`#${id}`]));
+    } catch { /* The standard meta-group names are available below. */ }
   }
 
   async function selectGroupCategory(index: number, categoryID: number, operator: number) {
@@ -128,15 +151,15 @@
 
   function add(field: number) {
     if (!draft || !fields.some(([id]) => id === field)) return;
-    const category = field === F.category || field === F.group;
+    if (field === F.metaGroup) void readMetaGroups();
     const boolean = field === F.assembled;
-    change(draft.conditions.length, [field, field === F.name ? O.starts : category ? O.is : boolean ? O.isnt : O.greater,
+    change(draft.conditions.length, [field, field === F.name ? O.starts : idFields.has(field) ? O.is : boolean ? O.isnt : O.greater,
       field === F.name ? "" : boolean ? true : 0]);
   }
 
   function options(field: number): readonly number[] {
     if (field === F.name) return [O.starts, O.notStarts, O.is, O.isnt, O.contains, O.notContains];
-    if (field === F.category || field === F.group || field === F.assembled) return [O.is, O.isnt];
+    if (idFields.has(field) || field === F.assembled) return [O.is, O.isnt];
     return [O.less, O.equal, O.greater];
   }
 
@@ -162,7 +185,7 @@
   }
 
   const complete = (conditions: readonly InventoryCondition[]) => conditions.length > 0 &&
-    conditions.every(([field, , value]) => field !== F.group && field !== F.category || typeof value === "number" && value > 0);
+    conditions.every(([field, , value]) => !idFields.has(field) || typeof value === "number" && value > 0);
 
   async function persist(remove: string | null = null, replace = false) {
     if (!loaded || busy || (!remove && (!draft?.name.trim() || !complete(draft.conditions)))) return;
@@ -255,13 +278,21 @@
                     {/if}
                     {#each choices as option (option.id)}<option value={option.id}>{optionName(option)}</option>{/each}
                   </select>
+                {:else if field === F.slot || field === F.metaGroup}
+                  {@const choices = field === F.slot ? slotOptions.map(([id, key, fallback]) => [id, label([PREFIX + key, fallback])] as const)
+                    : metaOptions.map(([id, fallback]) => [id, label([`#${metaNames.get(id)}`, fallback])] as const).sort((a, b) => a[1].localeCompare(b[1]))}
+                  <select aria-label={`Condition ${index + 1} value`} value={value} onchange={event => change(index, [field, operator, Number(event.currentTarget.value)])}>
+                    <option value={0}>{field === F.slot ? "Select slot" : "Select meta group"}</option>
+                    {#if typeof value === "number" && value > 0 && !choices.some(([id]) => id === value)}<option value={value}>Saved value</option>{/if}
+                    {#each choices as [id, text] (id)}<option value={id}>{text}</option>{/each}
+                  </select>
                 {:else if field !== F.assembled}
                   <input aria-label={`Condition ${index + 1} value`} type={field === F.name ? "text" : "number"}
-                    min={field === F.name ? undefined : 0} step={field === F.size ? 1 : "any"} value={String(value)}
+                    min={field === F.name ? undefined : 0} step={integerFields.has(field) ? 1 : "any"} value={String(value)}
                     oninput={event => {
                       const input = event.currentTarget.value;
                       const numeric = Math.max(0, Number(input));
-                      change(index, [field, operator, field === F.name ? input : field === F.size ? Math.trunc(numeric) : numeric]);
+                      change(index, [field, operator, field === F.name ? input : integerFields.has(field) ? Math.trunc(numeric) : numeric]);
                     }} />
                 {/if}
               {:else}
