@@ -751,7 +751,8 @@
 
   /**
    * The template's Apply, as the editor opens on the new plan: a list's levels appended (AppendSkillRequirements, none
-   * without a skill or a level) and its name set (RequirementListSkillPlanTemplate); a type's needs, a milestone made of
+   * without a skill or a level) and its name set (RequirementListSkillPlanTemplate). An Academy fit adds its hull's
+   * milestone first (_FitSkillPlanTemplate). For a type's needs, a milestone is made of
    * it where one is free (_AddRequirementsForType's way: a skill's needs to level I and its level I, else the type),
    * else its needs alone, and where the plan has no name, SkillPlanNameStringWithType with the type's name
    * (TypeRequirementSkillPlanTemplate).
@@ -762,11 +763,23 @@
     try {
       if (given.kind === "list") {
         const levels = given.requirements.filter(([skill, level]) => skill !== null && level !== null).map(([skill, level]) => [skill, level] as const);
-        if (levels.length > 0) {
+        if (levels.length > 0 || given.milestoneTypeID !== undefined) {
           const facts = await factsWith(levels.map(([skill]) => skill));
           if (facts === null) {
             note = "The client's skill data could not be read: the plan was not changed.";
             return;
+          }
+          if (given.milestoneTypeID !== undefined) {
+            if (!(await readTypeFacts([given.milestoneTypeID]))) {
+              note = "The standard hull's data could not be read.";
+              return;
+            }
+            const added = withMilestoneAdded(milestones, requirements, given.milestoneTypeID, null, typeFacts.required, newMilestoneID);
+            if (added) {
+              validateSkillPlan(added.list, facts);
+              requirements = added.list;
+              milestones = added.milestones;
+            }
           }
           requirements = withLevelsAppended(requirements, levels, facts);
         }

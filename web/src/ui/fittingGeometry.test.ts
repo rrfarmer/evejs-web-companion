@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   FAMILY_ARCS,
   PREFERRED_STEP_DEGREES,
+  academySlotPlacement,
   arcAngles,
   countByFamily,
   layoutSockets,
@@ -252,4 +253,11 @@ test("the socket order within a family matches slot order", () => {
   for (let i = 1; i < sockets.length; i += 1) {
     assert.ok(sockets[i]!.angleDegrees > sockets[i - 1]!.angleDegrees);
   }
+});
+
+test("Academy sockets use the installed slot arcs with the larger radius and four-pixel spacing", () => {
+  const secondHigh = academySlotPlacement("high", 1);
+  assert.ok(Math.abs(secondHigh.angleDegrees - (-35 + 82 / 8 + 180 * 4 / (252 * Math.PI))) < 1e-9);
+  assert.ok(Math.abs(Math.hypot(secondHigh.x - 320, secondHigh.y - 320) - 252) < 1e-9);
+  assert.equal(academySlotPlacement("rig", 0).angleDegrees, 287);
 });

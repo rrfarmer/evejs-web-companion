@@ -14233,12 +14233,20 @@ app.get("/api/client-data/academy-ships", requireAuth, async (req, res, next) =>
       clientBuiltData.table("groupCategories"),
     ]);
     if (!types || !dogma || !groupCategories) return res.json({ ok: true, academy: null });
-    const facts = Object.fromEntries(typeIDs.map(id => [id, {
-      factionID: types[id]?.factionID ?? null,
-      categoryID: groupCategories[types[id]?.groupID] ?? null,
-      effects: (dogma[id]?.dogmaEffects ?? []).map(effect => effect.effectID),
-      standardTypeID: dogma[id]?.dogmaAttributes?.find(attribute => attribute.attributeID === 6326)?.value ?? id,
-    }]));
+    const hulls = new Set(Object.values(fittings).map(fit => fit.shipTypeID));
+    const facts = Object.fromEntries(typeIDs.map(id => {
+      const attributes = dogma[id]?.dogmaAttributes ?? [];
+      const value = attributeID => attributes.find(attribute => attribute.attributeID === attributeID)?.value;
+      return [id, {
+        factionID: types[id]?.factionID ?? null,
+        categoryID: groupCategories[types[id]?.groupID] ?? null,
+        descriptionID: types[id]?.descriptionID ?? null,
+        effects: (dogma[id]?.dogmaEffects ?? []).map(effect => effect.effectID),
+        standardTypeID: value(6326) ?? id,
+        // AcademyFittingPreview reads the loan hull's high, medium, low and rig counts, by slot flag.
+        ...(hulls.has(id) && { slotCounts: { 27: value(14) ?? 0, 19: value(13) ?? 0, 11: value(12) ?? 0, 92: value(1137) ?? 0 } }),
+      }];
+    }));
     res.json({ ok: true, academy: {
       offers: Object.entries(offers).map(([id, offer]) => {
         const { shipTypeID, nameID, modules, cargo } = fittings[id];

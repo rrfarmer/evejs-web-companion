@@ -1,4 +1,6 @@
 import type { JsonValue } from "./wire.ts";
+import type { RequiredSkills } from "./missingSkills.ts";
+import { requiredSkillsRecursiveAsDict } from "./skillPlanMilestones.ts";
 
 export const EXORDIUM_REGION = 10001004;
 export const ACADEMY_TITLE = "UI/AcademyShips/WindowTitle";
@@ -36,8 +38,10 @@ export interface AcademyOffer {
 export interface AcademyType {
   readonly factionID: number | null;
   readonly categoryID: number | null;
+  readonly descriptionID?: number | null;
   readonly effects: readonly number[];
   readonly standardTypeID: number;
+  readonly slotCounts?: Readonly<Record<number, number>>;
 }
 
 export interface AcademyCatalogue {
@@ -126,9 +130,38 @@ export function academyFit(offer: AcademyOffer, facts: AcademyCatalogue["facts"]
   ];
 }
 
+export function academyWheelSlots(offer: AcademyOffer, facts: AcademyCatalogue["facts"]) {
+  const fit = academyFit(offer, facts);
+  const counts = facts[offer.shipTypeID]?.slotCounts;
+  return ACADEMY_RACKS.flatMap(({ flag: rack, label }) =>
+    Array.from({ length: counts?.[rack] ?? 0 }, (_, index) => {
+      const flag = rack + index;
+      return { rack, flag, label, index, typeID: fit.find(item => item.flag === flag)?.typeID ?? null };
+    }),
+  );
+}
+
 export function academyStandardType(typeID: number, facts: AcademyCatalogue["facts"]): number {
   const equivalent = facts[typeID]?.standardTypeID;
   return positive(equivalent) ? equivalent : typeID;
+}
+
+export function academyStandardTypes(offer: AcademyOffer, facts: AcademyCatalogue["facts"]) {
+  const distinct = (ids: readonly number[]) => [...new Set(ids.map(id => academyStandardType(id, facts)))];
+  return {
+    shipAndFit: distinct([offer.shipTypeID, ...offer.modules.map(item => item.typeID)]),
+    cargo: distinct(offer.cargo.map(item => item.typeID)),
+  };
+}
+
+/** build_standard_skill_requirements combines recursive needs in fit order, with each skill at its highest level. */
+export function academyPlanRequirements(typeIDs: readonly number[], required: RequiredSkills): (readonly [number, number])[] {
+  const levels = new Map<number, number>();
+  for (const typeID of typeIDs) {
+    const needs = requiredSkillsRecursiveAsDict(typeID, required).sort(([left], [right]) => left - right);
+    for (const [skill, level] of needs) levels.set(skill, Math.max(level, levels.get(skill) ?? 0));
+  }
+  return [...levels];
 }
 
 export function academyStandardBuy(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): ReadonlyMap<number, number> {

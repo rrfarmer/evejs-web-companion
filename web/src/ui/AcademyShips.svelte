@@ -2,15 +2,18 @@
   import { getAcademyCatalogue } from "../app/api.ts";
   import { errorWords, type AppFlow } from "../app/flow.ts";
   import {
-    ACADEMY_CATEGORIES, ACADEMY_RACKS, academyFit, academyOffers, academyStandardBuy, recommendedAcademyShip,
+    ACADEMY_CATEGORIES, academyOffers, academyStandardBuy, recommendedAcademyShip,
     type AcademyCatalogue, type AcademyOffer, type AcademyShipState,
   } from "../bridge/academyShips.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
   import type { FittingSkillRequirements } from "../bridge/fittingSkills.ts";
+  import { MAX_PERSONAL_PLANS } from "../bridge/skillPlans.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import AcademyFittingWheel from "./AcademyFittingWheel.svelte";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
   import TypeIcon from "./TypeIcon.svelte";
+  import { skillPlanButtonHint, skillPlanTemplateTarget } from "./skillPlanTemplate.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -24,8 +27,12 @@
   const VIEW = "UI/Common/Buttons/View";
   const BOARD = "UI/Common/Buttons/Board";
   const SAVE = "UI/Fitting/FittingWindow/Save";
+  const PLAN_NAME = "Tooltips/SkillPlanner/SkillPlanNameStringWithType";
+  const PLAN_HINT = "Tooltips/SkillPlanner/SkillPlanButtonTooltip";
+  const PLAN_LIMIT = "UI/SkillPlan/MaximumSkillPlanReached";
   const LABELS = [
-    BOARD, BACK, VIEW, SAVE, ...["WindowDescription", "shipsAvailable", "BorrowedShips", "RecommendedLabel", "RentedLabel", "BuyStandard"]
+    BOARD, BACK, VIEW, SAVE, PLAN_NAME, PLAN_HINT, PLAN_LIMIT,
+    ...["WindowDescription", "shipsAvailable", "BorrowedShips", "RecommendedLabel", "RentedLabel", "BuyStandard"]
       .map(key => ROOT + key),
     ...ACADEMY_CATEGORIES.flatMap(({ name }) => [ROOT + "CategoryName" + name, ROOT + "CategoryDescription" + name]),
   ];
@@ -38,9 +45,9 @@
   let loanError = $state("");
   let actionError = $state("");
   let missingSkills = $state.raw<FittingSkillRequirements | null>(null);
+  let planCount = $state<number | null>(null);
   const availableOffers = $derived(catalogue && category !== null ? academyOffers(catalogue, category, raceID, shipName) : []);
   const offer = $derived(availableOffers.find(offer => offer.fittingID === selected) ?? availableOffers[0] ?? null);
-  const fit = $derived(offer && catalogue ? academyFit(offer, catalogue.facts) : []);
   const loanCount = $derived(loan?.shipID != null ? 1 : 0);
 
   $effect(() => {
@@ -60,11 +67,26 @@
     const picked = offer, facts = catalogue?.facts;
     missingSkills = null;
     if (!picked || !facts) return;
+    const moduleWords = picked.modules.flatMap(({ typeID }) => {
+      const id = facts[typeID]?.descriptionID;
+      return id ? [`#${id}`] : [];
+    });
+    flow.requestWords(moduleWords);
     let current = true;
     void flow.academyStandardSkills(picked, facts).then(read => {
       if (!current || !read) return;
       missingSkills = read;
       flow.requestNames(read.listed.map(([id]) => ({ kind: "type", id })));
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+
+  const browsing = $derived(category !== null);
+  $effect(() => {
+    if (!browsing) return;
+    let current = true;
+    void flow.personalSkillPlanCount().then(count => {
+      if (current) planCount = count;
     }).catch(() => {});
     return () => { current = false; };
   });
@@ -90,7 +112,34 @@
   }
 
   function shipName(offer: AcademyOffer): string {
-    return resolvedName($names.resolved, "type", offer.shipTypeID, offer.name);
+    return typeName(offer.shipTypeID, offer.name);
+  }
+
+  function typeName(typeID: number, fallback = "Equipment"): string {
+    return resolvedName($names.resolved, "type", typeID, fallback);
+  }
+
+  function moduleDescription(typeID: number): string {
+    const id = catalogue?.facts[typeID]?.descriptionID;
+    return id ? word(`#${id}`, "") : "";
+  }
+
+  async function openFitPlan(picked: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<void> {
+    const count = await flow.personalSkillPlanCount().catch(() => null);
+    if (offer?.fittingID !== picked.fittingID) return;
+    planCount = count;
+    if (count !== null && count >= MAX_PERSONAL_PLANS) {
+      skillPlanTemplateTarget.ask(null);
+      return;
+    }
+    const plan = await flow.academyStandardPlan(picked, facts);
+    if (offer?.fittingID !== picked.fittingID) return;
+    skillPlanTemplateTarget.ask({
+      kind: "list",
+      milestoneTypeID: plan.shipTypeID,
+      name: word(PLAN_NAME, `A plan for ${plan.shipName}`, { typeName: plan.shipName }),
+      requirements: plan.requirements,
+    });
   }
 
   function choose(id: number | null): void {
@@ -177,31 +226,13 @@
         <div class="details">
           <div class="ship">
             <ShipInfoPreview typeID={picked.shipTypeID} factionID={facts[picked.shipTypeID]?.factionID ?? null} active={true} expanded={true} />
+            <AcademyFittingWheel offer={picked} {facts} {typeName} description={moduleDescription} />
+          </div>
+          <footer>
             <div class="ship-copy">
               <h2>{shipName(picked)}</h2>
               <p>{word(`#${picked.descriptionID}`, "")}</p>
             </div>
-          </div>
-          <div class="fit" aria-label="Fitting preview">
-            {#each ACADEMY_RACKS as rack (rack.flag)}
-              {@const rows = fit.filter(item => item.rack === rack.flag)}
-              {#if rows.length > 0}
-                <section aria-label={rack.label}>
-                  <h3>{rack.label}</h3>
-                  <div class="modules">
-                    {#each rows as item}
-                      {@const name = resolvedName($names.resolved, "type", item.typeID, "Equipment")}
-                      <span class="module" title={item.amount > 1 ? `${name} × ${item.amount.toLocaleString()}` : name}>
-                        <TypeIcon typeID={item.typeID} {name} />
-                        {#if item.amount > 1}<span>{item.amount.toLocaleString()}</span>{/if}
-                      </span>
-                    {/each}
-                  </div>
-                </section>
-              {/if}
-            {/each}
-          </div>
-          <footer>
             {#if loanError || actionError}<p class="error" role="alert">{actionError || loanError}</p>{/if}
             {#if missingSkills?.listed.length}
               <details class="requirements">
@@ -216,8 +247,17 @@
                 {/each}
               </details>
             {/if}
-            <button type="button" title={word(SAVE, "Save Fitting")} disabled={busy}
-              onclick={() => run(() => flow.saveAcademyStandardFit(picked, facts))}>Save Standard Fitting</button>
+            <div class="fit-actions">
+              <button type="button" class="icon-button" aria-label="Save Standard Fitting" title={word(SAVE, "Save Fitting")} disabled={busy}
+                onclick={() => run(() => flow.saveAcademyStandardFit(picked, facts))}>
+                <img alt="" src="/client-res/ui/texture/eveicon/system_icons/load_16px.png" />
+              </button>
+              <button type="button" class="icon-button" aria-label="Create Skill Plan"
+                title={skillPlanButtonHint(planCount, (label, args) => word(label, label === PLAN_HINT ? "Create Skill Plan" : `You have reached the limit of ${planCount} personal skill plans.`, args))}
+                disabled={busy} onclick={() => run(() => openFitPlan(picked, facts))}>
+                <img alt="" src="/client-res/ui/texture/eveicon/system_icons/skill_plan_16px.png" />
+              </button>
+            </div>
             <button type="button" disabled={busy} onclick={() => run(() => flow.openMultiBuy(academyStandardBuy(picked, facts)))}>
               {word(ROOT + "BuyStandard", "Buy Standard")}
             </button>
@@ -251,31 +291,29 @@
   .category .count { color: #e6eef1; }
   .view { margin-top: 12px; min-width: min(100%, 167px); }
   header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-  nav, .modules { display: flex; gap: 5px; flex-wrap: wrap; }
+  nav, .fit-actions { display: flex; gap: 5px; flex-wrap: wrap; }
   .loans { margin-left: auto; border: 1px solid #3f5761; padding: 7px 10px; }
   .held { color: #90dcbb; }
   .browse { display: grid; grid-template-columns: minmax(155px, 220px) minmax(0, 1fr); gap: 12px; }
   .offers { display: grid; gap: 4px; align-content: start; max-height: 530px; overflow: auto; }
   .offer { display: flex; text-align: left; align-items: center; gap: 6px; min-height: 52px; padding: 5px 6px; }
   small { display: block; color: #b4d2dc; font-size: 11px; margin-top: 2px; }
-  .details { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(155px, .52fr); background: #0b1115; border: 1px solid #415b65; }
-  .ship { position: relative; min-height: clamp(280px, 54vh, 475px); }
-  .ship-copy { position: absolute; inset: auto 0 0; padding: 48px 14px 14px; background: linear-gradient(transparent, #0b1115 40%); pointer-events: none; }
+  .details { min-width: 0; background: #0b1115; border: 1px solid #415b65; }
+  .ship { position: relative; height: clamp(260px, 54vh, 475px); container-type: size; }
+  .ship-copy { flex: 0 0 100%; padding-bottom: 4px; }
   .ship-copy p { margin-top: 5px; }
-  .fit { padding: 12px; overflow: auto; border-left: 1px solid #354c57; }
-  .fit section + section { margin-top: 12px; }
-  .fit h3 { margin-bottom: 5px; font-size: 12px; color: #c9e3eb; font-weight: 500; }
-  .module { display: grid; gap: 2px; justify-items: center; font-size: 11px; }
-  footer { display: flex; grid-column: 1 / -1; align-items: center; flex-wrap: wrap; justify-content: end; gap: 7px; border-top: 1px solid #354c57; padding: 9px; }
+  footer { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; border-top: 1px solid #354c57; padding: 9px; }
+  .icon-button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; }
+  .icon-button img { width: 16px; height: 16px; }
+  .fit-actions { margin-right: auto; }
   .primary { background: #335668; border-color: #739ead; min-width: 95px; }
-  .requirements { margin-right: auto; font-size: 12px; color: #f2c380; }
+  .requirements { flex-basis: 100%; font-size: 12px; color: #f2c380; }
   .requirements h3 { font-size: 12px; margin-top: 4px; }
   summary { cursor: pointer; }
   .error { color: #ffb3a7; }
   @media (max-width: 685px) {
     .academy { padding: 10px; }
-    .categories, .details { grid-template-columns: 1fr; }
-    .fit { border-left: 0; }
+    .categories { grid-template-columns: 1fr; }
     .browse { grid-template-columns: minmax(112px, 34%) minmax(0, 1fr); gap: 5px; }
   }
 </style>

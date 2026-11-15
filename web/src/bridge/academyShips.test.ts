@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  academyFit, academyOffers, academyStandardBuy, academyStateOf, academyTutorialLocked,
+  academyFit, academyOffers, academyPlanRequirements, academyStandardBuy, academyStandardTypes, academyStateOf, academyTutorialLocked, academyWheelSlots,
   type AcademyCatalogue, type AcademyOffer, type AcademyType,
 } from "./academyShips.ts";
 
@@ -60,4 +60,35 @@ test("academy rack flags split fitted modules and preserve drone and cargo stack
     [6, 5, 13000], [7, 5, 18000], [8, 5, 13000],
   ]);
   assert.deepEqual([...academyStandardBuy(fitting, facts)], [[603, 1], [12, 1], [14, 3], [13, 2], [15, 1], [16, 26000], [17, 18000]]);
+  assert.deepEqual(academyStandardTypes(fitting, facts), { shipAndFit: [603, 12, 14, 13, 15], cargo: [16, 17] });
+});
+
+test("the Academy preview fills the loan hull's slots in rack order and leaves empty frames", () => {
+  const fitting = {
+    ...offer(95859, "Merlin"),
+    modules: [{ typeID: 1, amount: 2 }, { typeID: 2, amount: 1 }, { typeID: 3, amount: 3 }],
+    cargo: [{ typeID: 4, amount: 500 }],
+  };
+  const facts = {
+    95859: { ...type(500001, 603), slotCounts: { 27: 3, 19: 2, 11: 1, 92: 1 } },
+    1: type(null, 10, [12]), 2: type(null, 20, [13]), 3: type(null, 30, [], 18),
+  };
+  assert.deepEqual(academyWheelSlots(fitting, facts).map(({ flag, typeID }) => [flag, typeID]), [
+    [27, 1], [28, 1], [29, null], [19, 2], [20, null], [11, null], [92, null],
+  ]);
+});
+
+test("a standard Academy plan includes every recursive skill up to the highest level required, including cargo", () => {
+  const fitting = {
+    ...offer(95859, "Merlin"),
+    modules: [{ typeID: 1, amount: 2 }],
+    cargo: [{ typeID: 2, amount: 10 }],
+  };
+  const { shipAndFit, cargo } = academyStandardTypes(fitting, {
+    95859: type(500001, 603), 1: type(null, 10), 2: type(null, 20),
+  });
+  assert.deepEqual(academyPlanRequirements([...shipAndFit, ...cargo], {
+    603: [[300, 2], [100, 1]], 10: [[400, 1]], 20: [[500, 3], [100, 4]],
+    300: [[200, 2]], 400: [[300, 3]],
+  }), [[100, 4], [200, 2], [300, 3], [400, 1], [500, 3]]);
 });

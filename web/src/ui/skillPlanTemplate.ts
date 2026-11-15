@@ -9,9 +9,9 @@
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { MAX_PERSONAL_PLANS } from "../bridge/skillPlans.ts";
 
-/** skillPlanTemplate.py: a list of levels and a name (RequirementListSkillPlanTemplate), or a type's needs (TypeRequirementSkillPlanTemplate). */
+/** A list of levels, optionally with the Academy fit's hull milestone, or a type's needs. */
 export type SkillPlanTemplate =
-  | { readonly kind: "list"; readonly requirements: readonly (readonly [number, number])[]; readonly name: string | null }
+  | { readonly kind: "list"; readonly requirements: readonly (readonly [number, number])[]; readonly name: string | null; readonly milestoneTypeID?: number }
   | { readonly kind: "type"; readonly typeID: number };
 
 export interface SkillPlanTemplateTarget {
@@ -57,9 +57,15 @@ export function createSkillPlanButton(
   word: (label: string, args?: Readonly<Record<string, string | number>>) => string,
 ): { readonly hint: string; readonly use: () => void } {
   const full = planCount !== null && planCount >= MAX_PERSONAL_PLANS;
-  const hint = word("Tooltips/SkillPlanner/SkillPlanButtonTooltip");
   return {
-    hint: full ? `${hint}\n\n${word("UI/SkillPlan/MaximumSkillPlanReached", { numPlans: planCount ?? 0 })}` : hint,
+    hint: skillPlanButtonHint(planCount, word),
     use: () => skillPlanTemplateTarget.ask(full ? null : template),
   };
+}
+
+export function skillPlanButtonHint(planCount: number | null, word: Parameters<typeof createSkillPlanButton>[2]): string {
+  const hint = word("Tooltips/SkillPlanner/SkillPlanButtonTooltip");
+  return planCount !== null && planCount >= MAX_PERSONAL_PLANS
+    ? `${hint}\n\n${word("UI/SkillPlan/MaximumSkillPlanReached", { numPlans: planCount })}`
+    : hint;
 }

@@ -176,8 +176,20 @@ export const CLIENT_BASE = 640, CLIENT_SLOT_RADIUS = 239, CLIENT_SLOT_WIDTH = 44
 export function clientSlotPlacement(family: SlotFamily, index: number): { x: number; y: number; angleDegrees: number } {
   const [start, length] = CLIENT_SLOT_ARCS[family];
   const angleDegrees = start + (length / CLIENT_GROUP_FLAGS[family]) * index;
+  return clientRingPoint(angleDegrees, CLIENT_SLOT_RADIUS);
+}
+
+/** AcademyFittingPreview has larger frames at radius 252 with an extra four pixels of arc spacing. */
+export function academySlotPlacement(family: SlotFamily, index: number): { x: number; y: number; angleDegrees: number } {
+  const radius = 252;
+  const [start, length] = CLIENT_SLOT_ARCS[family];
+  const angleDegrees = start + (length / CLIENT_GROUP_FLAGS[family] + 4 / radius * 180 / Math.PI) * index;
+  return clientRingPoint(angleDegrees, radius);
+}
+
+function clientRingPoint(angleDegrees: number, radius: number): { x: number; y: number; angleDegrees: number } {
   const radians = ((angleDegrees - 90) * Math.PI) / 180;
-  return { x: CLIENT_SLOT_RADIUS * Math.cos(radians) + CLIENT_BASE / 2, y: CLIENT_SLOT_RADIUS * Math.sin(radians) + CLIENT_BASE / 2, angleDegrees };
+  return { x: radius * Math.cos(radians) + CLIENT_BASE / 2, y: radius * Math.sin(radians) + CLIENT_BASE / 2, angleDegrees };
 }
 
 // The ring's three gauges (fittingLayout.py FittingLayout: radius int(size x 0.885 / 2), BaseFittingGauge lineWidth 11;

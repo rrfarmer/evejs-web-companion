@@ -414,7 +414,7 @@ import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, ep
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
 import { ACADEMY_TRAVEL_DECLINED, ACADEMY_UNDOCK_DIALOG, academyShipDeclineDialog, isAcademyTravelDecline } from "../bridge/academyShipNotices.ts";
-import { EXORDIUM_REGION, academyFit, academyStandardType, academyStateOf, academyTutorialLocked, type AcademyCatalogue, type AcademyOffer, type AcademyShipState } from "../bridge/academyShips.ts";
+import { EXORDIUM_REGION, academyFit, academyPlanRequirements, academyStandardType, academyStandardTypes, academyStateOf, academyTutorialLocked, type AcademyCatalogue, type AcademyOffer, type AcademyShipState } from "../bridge/academyShips.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
 import {
@@ -4366,6 +4366,9 @@ export interface AppFlow {
   boardAcademyShip(offer: AcademyOffer): Promise<void>;
   saveAcademyStandardFit(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<void>;
   academyStandardSkills(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<FittingSkillRequirements | null>;
+  academyStandardPlan(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<{
+    readonly shipTypeID: number; readonly shipName: string; readonly requirements: readonly (readonly [number, number])[];
+  }>;
   /** A faction as the info window shows it, or null for none (api.getFaction). */
   factionShowInfo(factionID: number): Promise<api.FactionInfo | null>;
   /** The NPCs' standings with each other (standingMgr.GetNPCNPCStandings), read once and kept, as the standing service keeps them. */
@@ -5673,9 +5676,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function academyStandardSkills(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<FittingSkillRequirements | null> {
-    const standard = (id: number) => academyStandardType(id, facts);
-    const shipAndFit = [...new Set([standard(offer.shipTypeID), ...offer.modules.map(item => standard(item.typeID))])];
-    const cargo = [...new Set(offer.cargo.map(item => standard(item.typeID)))];
+    const { shipAndFit, cargo } = academyStandardTypes(offer, facts);
     const [types] = await Promise.all([skillPlanTypeFacts([...new Set([...shipAndFit, ...cargo])]), ensurePilotSkills()]);
     const held = pilotSkillsHeld;
     if (!types || !held || held.characterID !== onlineCharacterID()) return null;
@@ -5683,6 +5684,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       required: types.required, mine: held.mine, lapsed: held.lapsed,
       categoryOf: typeID => types.categoryID.get(typeID) ?? null,
     });
+  }
+
+  async function academyStandardPlan(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): ReturnType<AppFlow["academyStandardPlan"]> {
+    const shipTypeID = academyStandardType(offer.shipTypeID, facts);
+    const { shipAndFit, cargo } = academyStandardTypes(offer, facts);
+    const typeIDs = [...new Set([...shipAndFit, ...cargo])];
+    const [types] = await Promise.all([
+      skillPlanTypeFacts(typeIDs),
+      resolveNamesNow([{ kind: "type", id: shipTypeID }]),
+    ]);
+    if (!types) throw new Error("The standard fitting's skill requirements could not be read.");
+    return {
+      shipTypeID,
+      shipName: nameCache.get(nameKey("type", shipTypeID)) ?? offer.name,
+      requirements: academyPlanRequirements(typeIDs, types.required),
+    };
   }
   const conversations = createChatConversations({
     capture: () => {
@@ -33640,6 +33657,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     boardAcademyShip,
     saveAcademyStandardFit,
     academyStandardSkills,
+    academyStandardPlan,
     factionShowInfo(factionID) {
       return api.getFaction(factionID, callOptions);
     },
