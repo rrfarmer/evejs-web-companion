@@ -27,11 +27,12 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
 
-  let { store, flow, openSkillPlanLink = null }: {
+  let { store, flow, openSkillPlanLink = null, openInventoryFilterLink = null }: {
     store: ClientStore;
     flow: AppFlow;
     /** A skill plan's link in a message, clicked. */
     openSkillPlanLink?: ((url: string) => void) | null;
+    openInventoryFilterLink?: ((url: string) => void) | null;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -95,7 +96,7 @@
 
   /** How a link in a message is followed (ui/linkFollowers.ts: the client's link registry), or null where it is not. */
   function followerOf(url: string, text: string) {
-    return linkFollowerOf(url, flow, openSkillPlanLink, linkWord, text);
+    return linkFollowerOf(url, flow, openSkillPlanLink, linkWord, text, openInventoryFilterLink);
   }
 
   /** chat/client/const.py MAX_MESSAGE_LENGTH: the most the chat's text holds, its tags counted (EditPlainText countWithTags). */

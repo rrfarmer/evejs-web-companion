@@ -77,11 +77,12 @@
   import { resolvedName } from "../store/names.ts";
   import MailNotifications from "./MailNotifications.svelte";
 
-  let { store, flow, openSkillPlanLink = null }: {
+  let { store, flow, openSkillPlanLink = null, openInventoryFilterLink = null }: {
     store: ClientStore;
     flow: AppFlow;
     /** A skill plan's link in a mail, followed (link.py handle_link). */
     openSkillPlanLink?: ((url: string) => void) | null;
+    openInventoryFilterLink?: ((url: string) => void) | null;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -107,7 +108,7 @@
    * pane's label follows its links), or null where it is not.
    */
   function followerOf(url: string, text: string) {
-    return linkFollowerOf(url, flow, openSkillPlanLink, (label) => word(label, LINK_WORDS[label] ?? ""), text);
+    return linkFollowerOf(url, flow, openSkillPlanLink, (label) => word(label, LINK_WORDS[label] ?? ""), text, openInventoryFilterLink);
   }
 
   let busy = $state(false);

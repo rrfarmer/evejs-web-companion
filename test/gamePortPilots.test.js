@@ -1600,6 +1600,36 @@ test("a pilot's ballpark ends with its session, and what goes wrong in the park'
 // ── bound objects ────────────────────────────────────────────────────────────
 
 const WHO = { userid: ACCOUNT };
+
+test("inventory filter sharing sends native dict and tuple shapes and rejects other setting kinds", async () => {
+  const service = "sharedSettingsMgr";
+  const store = "StoreSettingLinkAndGetID";
+  const get = "GetStoredSharedSetting";
+  const hash = "ae".repeat(20);
+  const filter = ["On", 1, [[7, 3, "no"]]];
+  const nativeKey = keyVal([["hashvalue", hash], ["sqID", 5], ["settingTypeID", 2]]);
+  const yaml = "- [filter, ['On', 1, [[7, 3, 'no']]]]\n";
+  const { pilots, session, handle } = await selected({ answers: {
+    [`${service}.${store}`]: nativeKey,
+    [`${service}.${get}`]: yaml,
+  } }, { allowed: new Set([`${service}.${store}`, `${service}.${get}`]) });
+  const call = (method, args) => pilots.callMethod(service, method, args, null, WHO, handle);
+  assert.deepEqual((await call(store, [2, filter])).result, {
+    type: "object", name: "util.KeyVal", args: { type: "dict", entries: [["hashvalue", hash], ["sqID", 5], ["settingTypeID", 2]] },
+  });
+  assert.equal((await call(get, [[hash, 5, 2]])).result, yaml);
+  await rejects(call(store, [3, filter]), "CALL_INVALID", /shared item filter/);
+  await rejects(call(get, [[hash, 5, 3]]), "CALL_INVALID", /shared item filter/);
+  const calls = session.calls.filter(call => call.service === service);
+  assert.deepEqual(calls.map(call => call.args), [
+    [2, { type: "dict", entries: [["filter", { type: "tuple", items: [
+      { type: "wstring", value: "On" }, 1, { type: "list", items: [
+        { type: "list", items: [7, 3, { type: "wstring", value: "no" }] },
+      ] },
+    ] }]] }],
+    [{ type: "tuple", items: [hash, 5, 2] }],
+  ]);
+});
 const STRUCTURE = 1030000000001;
 
 test("the hangar is bound as invCache binds it: the station's manager, then GetInventory(containerHangar, None)", async () => {

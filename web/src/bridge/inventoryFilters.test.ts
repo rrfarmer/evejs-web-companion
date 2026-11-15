@@ -3,7 +3,8 @@ import test from "node:test";
 import type { InventoryItemRow } from "../store/types.ts";
 import {
   addInventoryFilterTypes, FILTER_FIELD as F, FILTER_OP as O, matchInventoryFilter,
-  readInventoryFilters, roundInventoryFilterPrice, writeInventoryFilters, type InventoryFilter,
+  parseInventoryFilterLink, readInventoryFilters, readSharedInventoryFilter, roundInventoryFilterPrice,
+  shareInventoryFilter, writeInventoryFilters, type InventoryFilter,
 } from "./inventoryFilters.ts";
 
 test("inventory filters load the retail YAML sequence and retain every condition on save", () => {
@@ -14,6 +15,25 @@ test("inventory filters load the retail YAML sequence and retain every condition
   assert.deepEqual(readInventoryFilters(writeInventoryFilters(examples)), examples);
   assert.deepEqual(readInventoryFilters(writeInventoryFilters([])), []);
   assert.throws(() => readInventoryFilters("- bad entry\n"));
+});
+
+test("item-filter links store the draft and load the native shared-settings YAML", async () => {
+  const hash = "9a".repeat(20);
+  const filter: InventoryFilter = ["On", 1, [[F.name, O.is, "no"], [F.blueprintCopy, O.is, true]]];
+  const url = await shareInventoryFilter(async (service, method, args) => {
+    assert.equal(`${service}.${method}`, "sharedSettingsMgr.StoreSettingLinkAndGetID");
+    assert.deepEqual(args, [2, filter]);
+    return { type: "object", name: "util.KeyVal", args: { type: "dict", entries: [["hashvalue", hash], ["sqID", 12], ["settingTypeID", 2]] } };
+  }, filter);
+  assert.equal(url, `sharedSetting:${hash}//12//2`);
+  assert.equal(parseInventoryFilterLink(`sharedSetting:${hash}//12//3`), null);
+  assert.equal(parseInventoryFilterLink(`sharedSetting:${hash}//0//2`), null);
+  assert.deepEqual(await readSharedInventoryFilter(async (service, method, args) => {
+    assert.equal(`${service}.${method}`, "sharedSettingsMgr.GetStoredSharedSetting");
+    assert.deepEqual(args, [[hash, 12, 2]]);
+    return "- [filter, ['On', 1, [[7, 3, 'no'], [14, 3, true]]]]\n";
+  }, url), filter);
+  await assert.rejects(readSharedInventoryFilter(async () => null, url), /could not be read/);
 });
 
 test("dropping types appends unique Name Is rows in drop order", () => {

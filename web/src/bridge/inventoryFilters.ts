@@ -1,5 +1,7 @@
 import { parse, stringify } from "yaml";
 import type { InventoryItemRow } from "../store/types.ts";
+import type { Ask } from "./ask.ts";
+import { readKeyVal } from "./wire.ts";
 
 export const INVENTORY_FILTERS_SETTING = "inventoryFilters";
 
@@ -33,17 +35,52 @@ function isCondition(row: unknown): row is InventoryCondition {
   return typeof value === "string" || typeof value === "boolean" || Number.isFinite(value);
 }
 
+function isInventoryFilter(row: unknown): row is InventoryFilter {
+  return Array.isArray(row) && row.length === 3 && typeof row[0] === "string" &&
+    (row[1] === 1 || row[1] === 2) && Array.isArray(row[2]) && row[2].every(isCondition);
+}
+
 export function readInventoryFilters(text: string): readonly InventoryFilter[] {
   const rows: unknown = parse(text, { version: "1.1" });
-  if (!Array.isArray(rows) || !rows.every(row => Array.isArray(row) && row.length === 3 &&
-      typeof row[0] === "string" && (row[1] === 1 || row[1] === 2) && Array.isArray(row[2]) && row[2].every(isCondition))) {
+  if (!Array.isArray(rows) || !rows.every(isInventoryFilter)) {
     throw new Error("Inventory filters could not be read.");
   }
-  return rows as InventoryFilter[];
+  return rows;
 }
 
 export function writeInventoryFilters(filters: readonly InventoryFilter[]): string {
   return stringify(filters, { version: "1.1", directives: false, aliasDuplicateObjects: false });
+}
+
+const SHARED_ITEM_FILTER = 2;
+type ItemFilterSettingKey = readonly [hash: string, sequence: number, type: typeof SHARED_ITEM_FILTER];
+
+function itemFilterSettingKey(hash: unknown, sequence: unknown, type: unknown): ItemFilterSettingKey | null {
+  return typeof hash === "string" && /^[0-9a-f]{40}$/.test(hash) && typeof sequence === "number" &&
+    Number.isSafeInteger(sequence) && sequence > 0 && type === SHARED_ITEM_FILTER ? [hash, sequence, type] : null;
+}
+
+/** sharedSettings/client/link.py registers one scheme for settings. Inventory filters use type 2. */
+export function parseInventoryFilterLink(url: string): ItemFilterSettingKey | null {
+  const match = /^sharedSetting:([0-9a-f]{40})\/\/([0-9]+)\/\/2$/i.exec(url.trim());
+  return match ? itemFilterSettingKey(match[1]?.toLowerCase(), Number(match[2]), SHARED_ITEM_FILTER) : null;
+}
+
+export async function shareInventoryFilter(act: Ask, filter: InventoryFilter): Promise<string> {
+  const keyVal = await act("sharedSettingsMgr", "StoreSettingLinkAndGetID", [SHARED_ITEM_FILTER, filter]);
+  const key = itemFilterSettingKey(readKeyVal(keyVal, "hashvalue"), readKeyVal(keyVal, "sqID"), readKeyVal(keyVal, "settingTypeID"));
+  if (!key) throw new Error("The shared item filter could not be stored.");
+  return `sharedSetting:${key.join("//")}`;
+}
+
+export async function readSharedInventoryFilter(ask: Ask, link: string): Promise<InventoryFilter> {
+  const key = parseInventoryFilterLink(link);
+  if (!key) throw new Error("Enter an EVE item-filter link.");
+  const answer = await ask("sharedSettingsMgr", "GetStoredSharedSetting", [key]);
+  const data: unknown = typeof answer === "string" ? parse(answer, { version: "1.1" }) : null;
+  const filter: unknown = Array.isArray(data) ? data.find(row => Array.isArray(row) && row.length === 2 && row[0] === "filter")?.[1] : null;
+  if (!isInventoryFilter(filter)) throw new Error("The shared item filter could not be read.");
+  return filter;
 }
 
 export function addInventoryFilterTypes(conditions: readonly InventoryCondition[], names: readonly string[]): readonly InventoryCondition[] {

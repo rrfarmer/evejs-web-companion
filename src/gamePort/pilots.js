@@ -2676,6 +2676,28 @@ function createGamePortPilots({
       return { service, method, result: wireToBridgeJson(result ?? null), notifications: drain(entry) };
     }
     assertAllowed(service, method);
+    if (service === "sharedSettingsMgr") {
+      // This page exposes only item-filter links (sharedSettings.SHARED_SETTING_ITEMS).
+      const invalid = () => fail("CALL_INVALID", "Expected a shared item filter or its link key.");
+      if (kwargs !== null) throw invalid();
+      if (method === "StoreSettingLinkAndGetID") {
+        const [kind, filter] = args;
+        if (args.length !== 2 || kind !== 2 || !Array.isArray(filter) || filter.length !== 3) throw invalid();
+        const [name, match, conditions] = filter;
+        if (typeof name !== "string" || !name.trim() || (match !== 1 && match !== 2) ||
+            !Array.isArray(conditions) || !conditions.length || !conditions.every(row => Array.isArray(row) && row.length === 3 &&
+              Number.isSafeInteger(row[0]) && Number.isSafeInteger(row[1]) &&
+              (typeof row[2] === "string" || typeof row[2] === "boolean" || Number.isFinite(row[2])))) throw invalid();
+        const unicode = value => typeof value === "string" ? { type: "wstring", value } : value;
+        args = [kind, { type: "dict", entries: [["filter", { type: "tuple", items: [unicode(name), match,
+          { type: "list", items: conditions.map(row => ({ type: "list", items: row.map(unicode) })) }] }]] }];
+      } else {
+        const [key] = args;
+        if (args.length !== 1 || !Array.isArray(key) || key.length !== 3 || typeof key[0] !== "string" ||
+            !/^[0-9a-f]{40}$/.test(key[0]) || positive(key[1]) === null || key[2] !== 2) throw invalid();
+        args = [{ type: "tuple", items: key }];
+      }
+    }
     if (service === "invCache" && method === "FetchItem") {
       // Native CheckCanFit1143-1150 consults its source cache, with no remote fallback.
       // This page seam currently supports exact numeric items/sources; tuple charge writers are separate.

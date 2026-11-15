@@ -16,6 +16,7 @@
 
 import type { AppFlow } from "../app/flow.ts";
 import { LINK_DRAG_TYPE, parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
+import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
 import { linkScheme } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 
@@ -33,11 +34,12 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/SkillPlan/SkillPlan": "Skill plan",
   "UI/Commands/ShowInfo": "Show information",
   "UI/Fitting/ShowFitting": "Look at the fitting",
+  "UI/Inventory/Filters/SharedItemFilter": "Shared Item Filter",
 };
 
 export interface LinkFollower {
   /** Its registry's kind, for its colour (styles.css .evelink.skillPlan, .showInfo, .web, .fitting). */
-  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting";
+  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting";
   readonly hint: string;
   readonly follow: () => void;
 }
@@ -53,6 +55,7 @@ export function linkFollowerOf(
   openSkillPlanLink: ((url: string) => void) | null,
   word: (label: string) => string,
   text: string | null = null,
+  openInventoryFilterLink: ((url: string) => void) | null = null,
 ): LinkFollower | null {
   const scheme = linkScheme(url);
   if (scheme === "fitting") {
@@ -60,6 +63,9 @@ export function linkFollowerOf(
   }
   if (scheme === "skillplan" && openSkillPlanLink !== null && parseSkillPlanUrl(url) !== null) {
     return { kind: "skillPlan", hint: word("UI/SkillPlan/SkillPlan"), follow: () => openSkillPlanLink(url) };
+  }
+  if (scheme === "sharedsetting" && openInventoryFilterLink !== null && parseInventoryFilterLink(url)) {
+    return { kind: "sharedSetting", hint: word("UI/Inventory/Filters/SharedItemFilter"), follow: () => openInventoryFilterLink(url) };
   }
   if (scheme === "showinfo") {
     const subject = subjectOfShowInfoLink(url);

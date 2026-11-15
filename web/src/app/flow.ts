@@ -309,6 +309,7 @@ import { levelButtonState, levelsForSkillAndRequirements, nextLevelToQueue, queu
 import { highestQueuedLevel, queueAfter, type SkillMenuEntry } from "../bridge/skillMenu.ts";
 import type { SkillRowInfo } from "../bridge/skillPlans.ts";
 import { parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
+import { readSharedInventoryFilter, shareInventoryFilter, type InventoryFilter } from "../bridge/inventoryFilters.ts";
 
 /** A skill plan link followed: its plan's id (a certified plan's a whole number, the others' a uuid) and owner. */
 /**
@@ -4387,6 +4388,11 @@ export interface AppFlow {
   fittingWindowShipName(): Promise<string>;
   /** handle_link: a "skillPlan:" url followed; nothing where the client's own parse would refuse it. */
   openSkillPlanLink(url: string): void;
+  readonly inventoryFilterLinks: ReadableSignal<InventoryFilter | null>;
+  shareInventoryFilter(filter: InventoryFilter): Promise<string>;
+  readSharedInventoryFilter(url: string): Promise<InventoryFilter>;
+  followInventoryFilterLink(url: string): Promise<boolean>;
+  takeInventoryFilterLink(): InventoryFilter | null;
   /** The link followed and not yet opened, taken by whoever opens it (null where none is waiting). */
   takeSkillPlanLink(): SkillPlanLinkFollowed | null;
   /**
@@ -11895,6 +11901,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function followWebLink(url: string): Promise<void> {
     if (!(await askDialog("ExternalLinkWarning", { type: "dict", entries: [["url", url]] }, `Open ${url} in a tab of its own?`, "okcancel"))) return;
     window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  const inventoryFilterLinks = createSignal<InventoryFilter | null>(null);
+  async function followInventoryFilterLink(url: string): Promise<boolean> {
+    const current = callOptions.captureRequestGuard!();
+    if (!(await askDialog("OpenItemFilterSetting", null, "Open this shared item filter?", "yesno",
+      { defaultAnswer: "no", suppressAnswer: "yes" }))) return false;
+    try {
+      current();
+      const filter = await readSharedInventoryFilter(bridgeAsk, url);
+      current();
+      inventoryFilterLinks.set(filter);
+      return true;
+    } catch (error) {
+      if (!isSessionLost(error)) sayDialog("ItemFilterLoadingError", null, "The shared item filter could not be loaded.");
+      return false;
+    }
+  }
+
+  function takeInventoryFilterLink(): InventoryFilter | null {
+    const filter = inventoryFilterLinks.get();
+    inventoryFilterLinks.set(null);
+    return filter;
   }
 
   function openSkillPlanLink(url: string): void {
@@ -32850,6 +32879,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     skillBooksAsked: readonlySignal(skillBooksAskedSignal),
     gatewayNotices: readonlySignal(gatewayNoticesSignal),
     skillPlanLinks: readonlySignal(skillPlanLinksSignal),
+    inventoryFilterLinks: readonlySignal(inventoryFilterLinks),
+    shareInventoryFilter: filter => shareInventoryFilter(bridgeDo, filter),
+    readSharedInventoryFilter: url => readSharedInventoryFilter(bridgeAsk, url),
+    followInventoryFilterLink,
+    takeInventoryFilterLink,
     followWebLink,
     followFittingLink,
     droppedLinkMarkup,

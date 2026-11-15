@@ -123,6 +123,10 @@
    * and an industry plan spans every signed-in pilot's blueprints.
    */
   const GlobalView = $derived(globalWindowView(tab));
+
+  async function openInventoryFilterLink(url: string) {
+    if (await flow.followInventoryFilterLink(url)) onOpen?.("inventory");
+  }
 </script>
 
 <!-- One panel's failure is that panel's failure: a boundary per host keeps a
@@ -149,7 +153,7 @@
   <Scanner {store} {flow} />
 {:else if tab === "mail"}
   <!-- A skill plan link in a mail, followed (link.py handle_link): the Skills window opens on it. -->
-  <Mail {store} {flow} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
+  <Mail {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
 {:else if tab === "contacts"}
   <Contacts {store} {flow} showAgents={() => onOpen?.("agents")} openMail={() => onOpen?.("mail")} openWatchlist={() => onOpen?.("watchlist")} />
 {:else if tab === "locations"}
@@ -229,7 +233,7 @@
   <CalendarWindow {store} {flow} />
 {:else if tab === "chat"}
   <!-- A skill plan link in a message, followed (link.py handle_link): the Skills window opens on it. -->
-  <Chat {store} {flow} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
+  <Chat {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
 {:else if tab === "compare"}
   <TypeCompare {store} {flow} />
 {:else}

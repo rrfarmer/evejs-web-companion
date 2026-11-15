@@ -1,17 +1,18 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { getCategories, getCategoryGroups, getTypeMeta, importMultibuy, resolveNames } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import {
     addInventoryFilterTypes, DEFAULT_INVENTORY_FILTERS, FILTER_FIELD as F, FILTER_OP as O,
-    INVENTORY_FILTERS_SETTING, readInventoryFilters, writeInventoryFilters,
+    INVENTORY_FILTERS_SETTING, parseInventoryFilterLink, readInventoryFilters, writeInventoryFilters,
     type InventoryCondition, type InventoryFilter,
   } from "../bridge/inventoryFilters.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { carriesOurPayload, decodeDrag, DRAG_MIME } from "./dragDrop.ts";
   import { droppedFittingDrag, isFittingDrag } from "./fittingDrag.ts";
+  import { startLinkDrag } from "./linkFollowers.ts";
 
   let { store, flow, onFilters, selectedTypes }: {
     store: ClientStore;
@@ -23,12 +24,15 @@
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
+  // svelte-ignore state_referenced_locally
+  const links = flow.inventoryFilterLinks;
   const PREFIX = "UI/Inventory/Filters/";
   const controls = {
     my: ["UI/Inventory/MyFilters", "My Filters"], create: ["UI/Inventory/CreateFilter", "Create Filter"],
     editor: [PREFIX + "ItemFilterCaption", "Item Filter"], match: [PREFIX + "Match", "Match"],
     name: [PREFIX + "FilterName", "Filter Name"], all: [PREFIX + "All", "All"], any: [PREFIX + "Any", "Any"],
     importItems: [PREFIX + "ImportFilterItems", "Import Items"], failedLines: ["UI/SkillQueue/CouldNotReadLines", "Could not read these lines:"],
+    share: [PREFIX + "ShareFilter", "Share Filter"], shared: [PREFIX + "SharedItemFilter", "Shared Item Filter"],
   } as const;
   const fields = [
     [F.assembled, "ConditionAssembled", "Assembled"], [F.category, "", "Category"], [F.group, "ConditionGroup", "Group"],
@@ -70,6 +74,9 @@
   let importOpen = $state(false);
   let importText = $state("");
   let importFailures = $state<readonly string[]>([]);
+  let shared = $state<{ url: string; name: string } | null>(null);
+  let openShared = $state(false);
+  let sharedInput = $state("");
   let confirm = $state<{ kind: "replace" | "remove"; name: string } | null>(null);
   let active = false;
 
@@ -87,6 +94,13 @@
   $effect(() => {
     const enabled = filters.filter(([name]) => checked.includes(name));
     onFilters((preview ? [...enabled, preview] : enabled).filter(filter => !unsupported(filter)));
+  });
+
+  $effect(() => {
+    if (loaded && !busy && $links) untrack(() => {
+      const filter = flow.takeInventoryFilterLink();
+      if (filter) { expanded = true; edit(filter, null); }
+    });
   });
 
   async function read() {
@@ -111,13 +125,14 @@
     return () => { active = false; };
   });
 
-  function edit(filter?: InventoryFilter) {
+  function edit(filter?: InventoryFilter, original = filter?.[0] ?? null) {
     confirm = null;
     error = "";
     importOpen = false;
     importText = "";
     importFailures = [];
-    draft = filter ? { original: filter[0], name: filter[0], match: filter[1], conditions: filter[2] }
+    shared = null;
+    draft = filter ? { original, name: filter[0], match: filter[1], conditions: filter[2] }
       : { original: null, name: "", match: 1, conditions: [] };
     groupCategories = (filter?.[2] ?? []).map(() => null);
     if (filter) flow.requestNames(filter[2].flatMap(([field, , id]) =>
@@ -223,6 +238,32 @@
   const complete = (conditions: readonly InventoryCondition[]) => conditions.length > 0 &&
     conditions.every(([field, , value]) => !idFields.has(field) || typeof value === "number" && value > 0);
 
+  async function share() {
+    if (!draft?.name.trim() || !complete(draft.conditions) || busy) return;
+    const filter: InventoryFilter = [draft.name.trim(), draft.match, draft.conditions];
+    busy = true;
+    error = "";
+    try {
+      const url = await flow.shareInventoryFilter(filter);
+      if (active) shared = { url, name: filter[0] };
+    } catch { if (active) error = "The item filter could not be shared."; }
+    finally { if (active) busy = false; }
+  }
+
+  async function openSharedFilter() {
+    if (busy || !parseInventoryFilterLink(sharedInput)) return;
+    busy = true;
+    error = "";
+    try {
+      const filter = await flow.readSharedInventoryFilter(sharedInput);
+      if (!active) return;
+      edit(filter, null);
+      openShared = false;
+      sharedInput = "";
+    } catch { if (active) error = "The shared item filter could not be loaded."; }
+    finally { if (active) busy = false; }
+  }
+
   async function persist(remove: string | null = null, replace = false) {
     if (!loaded || busy || (!remove && (!draft?.name.trim() || !complete(draft.conditions)))) return;
     const next: InventoryFilter | null = remove || !draft ? null : [draft.name.trim(), draft.match, draft.conditions];
@@ -262,8 +303,15 @@
   {:else}
     <div class="filter-actions">
       <button type="button" disabled={busy} onclick={() => edit()}>{label(controls.create)}</button>
+      <button type="button" disabled={busy} aria-expanded={openShared} onclick={() => { openShared = !openShared; }}>Open Filter Link</button>
       {#if checked.length}<button type="button" onclick={() => { checked = []; }}>Clear Active Filters</button>{/if}
     </div>
+    {#if openShared}
+      <form class="shared-filter" onsubmit={event => { event.preventDefault(); void openSharedFilter(); }}>
+        <label>{label(controls.shared)} <input type="text" bind:value={sharedInput} /></label>
+        <button type="submit" disabled={busy || !parseInventoryFilterLink(sharedInput)}>Open</button>
+      </form>
+    {/if}
     <ul class="saved-filters">
       {#each filters as filter (filter[0])}
         <li>
@@ -357,9 +405,21 @@
           </fieldset>
           <label>{label(controls.name)} <input type="text" maxlength={100} bind:value={draft.name} /></label>
           <button type="button" disabled={busy} aria-expanded={importOpen} onclick={() => { importOpen = !importOpen; }}>{label(controls.importItems)}</button>
+          <button type="button" title={label(controls.share)} disabled={busy || !draft.name.trim() || !complete(draft.conditions)} onclick={() => void share()}>Share Filter</button>
           <button type="button" disabled={busy || !draft.name.trim() || !complete(draft.conditions)} onclick={() => void persist()}>Save</button>
           <button type="button" disabled={busy} onclick={() => { draft = null; if (confirm?.kind === "replace") confirm = null; }}>Close</button>
         </footer>
+        {#if shared}
+          {@const link = shared}
+          <div class="shared-filter">
+            <button type="button" class="evelink sharedSetting" draggable="true" title={label(controls.share)} ondragstart={event => {
+              startLinkDrag(event, link.url, link.name);
+              event.dataTransfer?.setData("text/plain", link.url);
+            }}
+              onclick={event => { const field = event.currentTarget.nextElementSibling?.querySelector("input"); field?.focus(); field?.select(); }}>{link.name}</button>
+            <label>Filter link <input type="text" readonly value={link.url} onfocus={event => event.currentTarget.select()} /></label>
+          </div>
+        {/if}
         {#if importOpen}
           <div class="import-items">
             <label>Item list <textarea rows="3" bind:value={importText} placeholder="Veldspar&#10;Tritanium" /></label>
@@ -402,5 +462,7 @@
   .import-items { display: flex; align-items: end; gap: 6px; margin-top: 6px; }
   .import-items label { display: grid; flex: 1; gap: 2px; }
   .import-items textarea { border: 1px solid var(--line, #444); background: rgb(0 0 0 / 35%); }
+  .shared-filter { display: flex; flex-wrap: wrap; align-items: end; gap: 6px; margin-top: 6px; }
+  .shared-filter label { display: grid; flex: 1 1 12rem; }
   .import-failures { margin-top: 6px; overflow: auto; max-height: 6rem; }
 </style>
