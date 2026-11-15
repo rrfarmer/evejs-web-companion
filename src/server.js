@@ -13244,7 +13244,8 @@ app.get("/api/market/find", requireAuth, async (req, res, next) => {
   try {
     const q = typeof req.query.q === "string" ? req.query.q : "";
     const limit = req.query.limit !== undefined ? Number(req.query.limit) : undefined;
-    const result = staticData.findMarketTypes({ q, limit });
+    const categoryID = Number(req.query.categoryID);
+    const result = staticData.findMarketTypes({ q, limit, categoryID: Number.isSafeInteger(categoryID) && categoryID > 0 ? categoryID : null });
     res.json({
       ok: true,
       source: "static-data",

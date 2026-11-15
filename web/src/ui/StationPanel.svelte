@@ -883,6 +883,7 @@
       kind: "inventoryItem",
       itemID: row.itemID,
       typeID: row.typeID,
+      itemIDs: selection,
       from: place,
     };
     event.dataTransfer?.setData(DRAG_MIME, encodeDrag(payload));

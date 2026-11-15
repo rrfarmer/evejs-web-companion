@@ -42,6 +42,8 @@ export interface InventoryDrag {
   readonly kind: "inventoryItem";
   readonly itemID: number;
   readonly typeID: number;
+  /** Selected items carried by an inventory drag into the fitting stage. Older drags carry only itemID. */
+  readonly itemIDs?: readonly number[];
   /** Where it is being dragged FROM, so a drop onto its own home is a no-op. */
   readonly from: InventoryPlace;
 }
@@ -129,7 +131,8 @@ export function decodeDrag(raw: string | null | undefined): DragPayload | null {
     return { kind: "fittedModule", itemID, typeID };
   }
   if (record.kind === "inventoryItem" && isPlace(record.from)) {
-    return { kind: "inventoryItem", itemID, typeID, from: record.from };
+    const itemIDs = Array.isArray(record.itemIDs) ? record.itemIDs.filter((id): id is number => Number.isSafeInteger(id) && id > 0) : [];
+    return { kind: "inventoryItem", itemID, typeID, from: record.from, ...(itemIDs.includes(itemID) ? { itemIDs } : {}) };
   }
   return null;
 }

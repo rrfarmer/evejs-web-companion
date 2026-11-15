@@ -52,6 +52,7 @@
   } from "./dragDrop.ts";
   import { startFittingDrag, startFittingSourceDrag } from "./fittingDrag.ts";
   import ImportFittings from "./ImportFittings.svelte";
+  import FittingCharges from "./FittingCharges.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { formatNumeric, type PyNumber } from "../bridge/pyNumbers.ts";
   import {
@@ -150,6 +151,7 @@
   let selectedFittings = $state<readonly number[]>([]);
   let lastSelectedFitting: number | null = null;
   let browserSection = $state<HTMLElement | null>(null);
+  let browseCharges = $state(false);
   /** The fittings' rows as the browser shows them now, in order (the scroll's nodes). */
   const shownFittingIDs = (): number[] => [...(browserSection?.querySelectorAll<HTMLElement>("[data-fitting-id]") ?? [])].map((row) => Number(row.dataset.fittingId));
   function selectFitting(fittingID: number, event: MouseEvent): void {
@@ -421,6 +423,8 @@
   // group's or a race's menu is the client's ShipParentGroup's: Compare, then Expand or Collapse. Delete Fitting is offered as GetDeletableNodes offers it (the
   // corporation's and the alliance's by role). The tree's open groups are kept while the window is.
   const FITTING_BROWSER_WORDS: Readonly<Record<string, string>> = {
+    "UI/Fitting/FittingWindow/Charges": "Charges",
+    "UI/Fitting/FittingWindow/NoChargesFound": "No charges found.",
     // The browser's own button (fittingWnd.py 100, BROWSE_FITTINGS).
     "UI/Fitting/FittingWindow/ShipAndFittings": "Ships and fittings",
     // A hull's traits in its tooltip (traits.TraitsContainer) and its menu (menusvc.GetMenuFromItemIDTypeID).
@@ -1571,9 +1575,19 @@
     const typeID = pickedTypeID();
     if (typeID === null) return;
     pickedItemID = null;
+    loadSimulatedChargeAt(flagID, typeID);
+  }
+  function loadSimulatedChargeAt(flagID: number, typeID: number): void {
     void run(async () => {
       // FitAmmoToLocation returns nothing where the module does not take the charge, and the window says nothing.
       await flow.loadSimulatedCharge(flagID, typeID);
+      fitFeedback = "";
+    });
+  }
+  function tryFitCharges(typeIDs: readonly number[]): void {
+    void run(async () => {
+      if (!simulation) await flow.simulateShip();
+      await flow.loadSimulatedCharges(typeIDs);
       fitFeedback = "";
     });
   }
@@ -2481,7 +2495,7 @@
     // something legible rather than nothing.
     event.dataTransfer?.setData("text/plain", moduleName(typeID));
     if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.effectAllowed = simulation ? "copyMove" : "move";
     }
   }
 
@@ -2492,13 +2506,28 @@
     // preventDefault is what MAKES an element a drop target; without it the
     // browser refuses the drop and shows the "no entry" cursor.
     event.preventDefault();
-    if (event.dataTransfer) {
+    if (!simulation && event.dataTransfer) {
       event.dataTransfer.dropEffect = "move";
     }
     dropSlot = slotKey(slot);
   }
 
+  function dropOnSimulatedShip(event: DragEvent): void {
+    if (!simulation) return;
+    const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME) ?? null);
+    if (payload?.kind !== "inventoryItem") return;
+    const rows = rowsIn($inventory, payload.from);
+    const typeIDs = (payload.itemIDs ?? [payload.itemID]).flatMap(itemID => {
+      const row = rows.find(item => item.itemID === itemID);
+      return row?.categoryID === 8 ? [row.typeID] : [];
+    });
+    if (!typeIDs.length) return;
+    event.preventDefault();
+    tryFitCharges([...new Set(typeIDs)]);
+  }
+
   function dropOnSocket(event: DragEvent, slot: FittingSlot): void {
+    event.stopPropagation();
     dropSlot = null;
     linkingTypeID = null;
     const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME) ?? null);
@@ -2515,6 +2544,14 @@
     // a hold, is loaded into the module here (FitCharges), and taken nowhere else.
     const flagID = slotFlagOf(slot.family, slot.index);
     const shift = event.shiftKey;
+    if (simulation && flagID !== null && payload?.kind === "inventoryItem") {
+      const row = rowsIn($inventory, payload.from).find(item => item.itemID === payload.itemID);
+      if (row?.categoryID === 8) {
+        pickedItemID = null;
+        loadSimulatedChargeAt(flagID, row.typeID);
+        return;
+      }
+    }
     if (!simulation && flagID !== null && payload !== null) {
       if (payload.kind === "fittedModule") {
         void run(async () => {
@@ -2570,7 +2607,9 @@
       return;
     }
     if (simulation) {
-      fitSimulated(slotFlagOf(slot.family, slot.index));
+      const flagID = slotFlagOf(slot.family, slot.index);
+      if (pickedCategoryID() === 8 && flagID !== null) loadSimulated(flagID);
+      else fitSimulated(flagID);
       return;
     }
     const source = pickedSource;
@@ -2587,7 +2626,11 @@
       return;
     }
     if (simulation) {
-      fitSimulated(null);
+      if (pickedCategoryID() === 8) {
+        const typeID = pickedTypeID();
+        pickedItemID = null;
+        if (typeID !== null) tryFitCharges([typeID]);
+      } else fitSimulated(null);
       return;
     }
     const source = pickedSource;
@@ -3603,7 +3646,8 @@
           </p>
 
           <div class="fit-ring-wrap overflow-x-auto">
-            <div class="fit-ring" class:retail style={retail ? `--slot-w: ${(CLIENT_SLOT_WIDTH / CLIENT_BASE) * 100}%; --slot-h: ${(CLIENT_SLOT_HEIGHT / CLIENT_BASE) * 100}%` : ""}>
+            <div class="fit-ring" role="group" aria-label="Fitting sockets" class:retail style={retail ? `--slot-w: ${(CLIENT_SLOT_WIDTH / CLIENT_BASE) * 100}%; --slot-h: ${(CLIENT_SLOT_HEIGHT / CLIENT_BASE) * 100}%` : ""}
+              ondragover={event => { if (simulation && carriesOurPayload(event.dataTransfer?.types)) event.preventDefault(); }} ondrop={dropOnSimulatedShip}>
               {#if retail}
                 {#if shipSceneOf}<div class="fit-ship-scene" use:shipScene={{ typeID: ringTypeID, fits: shipTurretFits }}></div>{/if}
                 <!-- fittingLayout.py's base, bottom up: fittingbase (black 0.86), fittingbase_basecircle (the theme's UI
@@ -4041,7 +4085,13 @@
         <button type="button" role="menuitem" onclick={() => { const id = menuFor.id; nodeMenu = null; opened[id] = opened[id] !== true; }}>{fitWord(opened[menuFor.id] === true ? "UI/Common/Collapse" : "UI/Common/Expand")}</button>
       </span>
     {/if}
-    <h2>{fitWord("UI/Fitting/FittingWindow/ShipAndFittings")}</h2>
+    <nav class="controls" aria-label="Fitting browser">
+      <button type="button" aria-pressed={!browseCharges} onclick={() => browseCharges = false}>{fitWord("UI/Fitting/FittingWindow/ShipAndFittings")}</button>
+      <button type="button" aria-pressed={browseCharges} onclick={() => browseCharges = true}>{fitWord("UI/Fitting/FittingWindow/Charges")}</button>
+    </nav>
+    {#if browseCharges}
+      <FittingCharges {flow} {busy} onFit={typeID => tryFitCharges([typeID])} word={fitWord} />
+    {:else}
     <p class="controls">
       <button type="button" disabled={busy} onclick={() => void flow.saveFitAs().catch(() => {})}>{fitWord("UI/Fitting/FittingWindow/SaveFitAs")}</button>
       <!-- hullAndHardwareTypeBrowser._get_import_export_menu: clipboard actions and the file importer. -->
@@ -4254,6 +4304,7 @@
         {/if}
       </div>
     {/if}
+    {/if}
   </section>
 
   <!-- ===================== modules you can fit ======================== -->
@@ -4267,7 +4318,7 @@
     {#if pickedItemID !== null}
       <p class="controls">
         <button type="button" disabled={busy} onclick={fitAnywhere}>
-          Fit {pickedName} in the first free slot
+          {simulation && pickedCategoryID() === 8 ? `Load ${pickedName} into compatible modules` : `Fit ${pickedName} in the first free slot`}
         </button>
         <button type="button" class="minor" disabled={busy} onclick={() => (pickedItemID = null)}>
           Put it back down

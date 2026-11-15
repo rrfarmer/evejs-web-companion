@@ -47,6 +47,7 @@ import {
   simulateFitData,
   simulatedSlotLayout,
   loadChargeToSimulation,
+  loadChargesToSimulation,
   setActiveDronesOfType,
   setDronesOfType,
   simulateCurrentShip,
@@ -2365,6 +2366,8 @@ export interface AppFlow {
   unfitSimulatedModule(flagID: number): void;
   /** A charge loaded into the simulated module in a slot; false where it does not take it. */
   loadSimulatedCharge(flagID: number, chargeTypeID: number): Promise<boolean>;
+  /** Load simulated charges into each compatible fitted module type, in charge-selection order. */
+  loadSimulatedCharges(chargeTypeIDs: readonly number[]): Promise<void>;
   /** A saved fitting simulated, or a hull alone with no fitData (ghostFittingSvc.SimulateFitting). */
   simulateFitting(fitting: {
     readonly shipTypeID: number;
@@ -2491,7 +2494,7 @@ export interface AppFlow {
    * Search tradable items by NAME — how the player picks what to look at.
    * Static reference data, so it answers even when the market daemon does not.
    */
-  findMarketTypes(q: string): Promise<readonly api.MarketTypeMatch[]>;
+  findMarketTypes(q: string, categoryID?: number): Promise<readonly api.MarketTypeMatch[]>;
   /**
    * List the ore families the bot editor's ore picker can offer. Static
    * reference data, so it answers even before a character is selected.
@@ -9978,12 +9981,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   /** A charge loaded into the simulated module in a slot (FitAmmoToLocation); false where the module does not take it. */
   async function loadSimulatedCharge(flagID: number, chargeTypeID: number): Promise<boolean> {
-    if (!simulation) return false;
-    await dogmaStaticFor([chargeTypeID], []);
-    if (!simulation) return false;
-    const loaded = loadChargeToSimulation(simulation.simulated, flagID, chargeTypeID);
+    const target = simulation;
+    if (!target || !(await dogmaStaticFor([chargeTypeID], [])) || target !== simulation) return false;
+    const loaded = loadChargeToSimulation(target.simulated, flagID, chargeTypeID);
     showSimulation();
     return loaded;
+  }
+
+  async function loadSimulatedCharges(chargeTypeIDs: readonly number[]): Promise<void> {
+    const target = simulation;
+    if (!target || !chargeTypeIDs.length || !(await dogmaStaticFor(chargeTypeIDs, [])) || target !== simulation) return;
+    loadChargesToSimulation(target.simulated, chargeTypeIDs);
+    showSimulation();
   }
 
   /** What the simulated hold's rules go by of each type named: whether it is a dynamic one, the type lists it is on. */
@@ -34043,6 +34052,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadSimulatedCharge(flagID, chargeTypeID) {
       return loadSimulatedCharge(flagID, chargeTypeID);
     },
+    loadSimulatedCharges,
     simulateFitting(fitting) {
       return simulateFitting(fitting);
     },
@@ -34298,7 +34308,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     loadMarket,
     watchMarketProgression,
-    findMarketTypes: (q: string) => api.findMarketTypes(q, callOptions),
+    findMarketTypes: (q: string, categoryID?: number) => api.findMarketTypes(q, callOptions, categoryID),
     listOreFamilies: () => api.listOreFamilies(callOptions),
     loadMarketGroups: (parentGroupID: number) => api.loadMarketGroups(parentGroupID, callOptions),
     loadMarketGroupTypes: (marketGroupID: number) =>

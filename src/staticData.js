@@ -1777,6 +1777,7 @@ function findMarketTypes(filters = {}) {
     if (score < 0) {
       continue;
     }
+    if (filters.categoryID && Number(getGroup(entry.groupID)?.categoryID) !== filters.categoryID) continue;
     scored.push({
       score,
       name,

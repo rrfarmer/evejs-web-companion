@@ -1514,13 +1514,14 @@ export async function loadMarketGroupTypes(
 export async function findMarketTypes(
   q: string,
   options: ApiOptions = {},
+  categoryID?: number,
 ): Promise<readonly MarketTypeMatch[]> {
   const trimmed = q.trim();
   if (trimmed.length < 2) {
     return [];
   }
   const data = await getJson(
-    `/api/market/find?q=${encodeURIComponent(trimmed)}`,
+    `/api/market/find?q=${encodeURIComponent(trimmed)}${categoryID === undefined ? "" : `&categoryID=${categoryID}`}`,
     options,
   );
   return Array.isArray(data.matches)

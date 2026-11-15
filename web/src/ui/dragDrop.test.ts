@@ -32,6 +32,8 @@ const FITTED: DragPayload = { kind: "fittedModule", itemID: 7_700_001, typeID: 4
 
 test("an inventory drag survives encode and decode", () => {
   assert.deepEqual(decodeDrag(encodeDrag(ITEM)), ITEM);
+  const selection: DragPayload = { ...ITEM, itemIDs: [1002, ITEM.itemID] };
+  assert.deepEqual(decodeDrag(encodeDrag(selection)), selection);
 });
 
 test("a fitted-module drag survives encode and decode", () => {

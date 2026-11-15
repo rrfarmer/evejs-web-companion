@@ -16,7 +16,7 @@
 // that may be active is max(5, the pilot's maxActiveDrones) (FittingDogmaLocation.GetMaxActiveDrones).
 
 import { activeDroneBandwidth, activeDroneDps, type DroneReading } from "./drones.ts";
-import { academyChargeAllowed } from "./chargeCompatibility.ts";
+import { academyChargeAllowed, usedWithPair } from "./chargeCompatibility.ts";
 import { loadSimulatedShip, type Brain, type DogmaItem, type DogmaLocation, type DogmaStatic, type SimulatedCharge } from "./location.ts";
 import { ACTIVE, activateOnLoading, eatingFitErrors, OFFLINE, offlineSlots, ONLINE, setModuleState } from "./moduleStates.ts";
 import { intDictOrder } from "../py27DictOrder.ts";
@@ -1072,6 +1072,29 @@ export function loadChargeToSimulation(simulation: SimulatedShip, flagID: number
   charge.stacksize = numCharges;
   simulation.changed = true;
   return true;
+}
+
+/** TryFitFakeAmmoToAllModulesFitted: the first compatible charge in the selection wins for each module type. */
+export function loadChargesToSimulation(simulation: SimulatedShip, chargeTypeIDs: readonly number[]): void {
+  const { types } = simulation.location.static;
+  const flags = [EFFECT_HI_POWER, EFFECT_MED_POWER, EFFECT_LO_POWER].flatMap(effect => POWER_TO_FLAGS.get(effect) ?? []);
+  const modulesByFlag = new Map(fittedModules(simulation).map(module => [module.flagID, module.typeID]));
+  const modulesByType = new Map<number, number[]>();
+  for (const flagID of flags) {
+    const typeID = modulesByFlag.get(flagID);
+    if (typeID === undefined) continue;
+    const fittedFlags = modulesByType.get(typeID) ?? [];
+    fittedFlags.push(flagID);
+    modulesByType.set(typeID, fittedFlags);
+  }
+  for (const chargeTypeID of chargeTypeIDs) {
+    for (const [typeID, fittingFlags] of modulesByType) {
+      if (!usedWithPair(types[typeID], types[chargeTypeID])) continue;
+      for (const flagID of fittingFlags) loadChargeToSimulation(simulation, flagID, chargeTypeID);
+      modulesByType.delete(typeID);
+    }
+    if (modulesByType.size === 0) break;
+  }
 }
 
 /** UnfitModule (and UnfitDrone): the module put offline, the fit errors passed over, then unfitted with its charge. */

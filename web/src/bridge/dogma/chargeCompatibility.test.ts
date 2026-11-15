@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DogmaLocation, type DogmaStatic, type DogmaTypeFacts } from "./location.ts";
-import { chargeFitsModule } from "./simulation.ts";
+import { DogmaLocation, loadSimulatedShip, type DogmaStatic, type DogmaTypeFacts } from "./location.ts";
+import { chargeFitsModule, loadChargesToSimulation, type SimulatedShip } from "./simulation.ts";
 import { usedWithTypeIDs } from "./fittingWarnings.ts";
 import { usedWithPair } from "./chargeCompatibility.ts";
 
@@ -41,4 +41,24 @@ test("Used With is limited to the first four charge groups, and checks size and 
   const types = { 1: module, 2: charge(85, 1, 0.1), 3: charge(85, 1, 0.2), 4: charge(85, 2, 0.1), 5: charge(86, 1, 0.1) };
   assert.deepEqual(usedWithTypeIDs({ types, attributes: {}, effects: {} }, 1, id => id === 85 ? [2, 3, 4] : [5]), [2]);
   assert.deepEqual(([2, 3, 4, 5] as const).filter(id => usedWithPair(module, types[id])), [2]);
+});
+
+test("simulation skips a charge with no Used with match and loads the first match into each compatible rack slot", () => {
+  const module = (chargeGroup: number): DogmaTypeFacts => ({
+    groupID: 74, categoryID: 7, published: true, effects: [], requiredSkills: [],
+    attributes: [[128, 1], [38, 0.1], [604, chargeGroup]], chargeGroups: [chargeGroup],
+  });
+  const charge = (groupID: number): DogmaTypeFacts => ({
+    groupID, categoryID: 8, published: true, effects: [], requiredSkills: [], attributes: [[128, 1], [161, 0.025]],
+  });
+  const staticData = { types: { 100: module(85), 101: module(86), 1: charge(999), 2: charge(85), 3: charge(85), 4: charge(86) }, effects: {}, attributes: {} };
+  const view = loadSimulatedShip(staticData, 587, { characterID: 1, typeID: 1373, securityStatus: 0 }, null);
+  const simulation: SimulatedShip = { ...view, cargo: new Map(), selectedDrones: new Map(), changed: false, ghosts: 0 };
+  for (const [flag, typeID] of [[27, 100], [28, 100], [19, 101], [92, 100]] as const) view.location.fitModule(view.ship, `${flag}`, typeID, flag);
+  loadChargesToSimulation(simulation, [1]);
+  assert.equal(view.ship.subLocations.size, 0);
+  assert.equal(simulation.changed, false);
+  loadChargesToSimulation(simulation, [1, 2, 3, 4]);
+  assert.deepEqual([...view.ship.subLocations].map(([flag, ammo]) => [flag, ammo.typeID, ammo.stacksize]), [[27, 2, 4], [28, 2, 4], [19, 4, 4]]);
+  assert.equal(simulation.changed, true);
 });
