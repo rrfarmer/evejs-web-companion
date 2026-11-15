@@ -195,6 +195,7 @@ import {
   decodeActivityCalendar,
   decodeActivityNotifications,
 } from "../bridge/activity.ts";
+import { decodeEventList, type CalendarEvent } from "../bridge/calendar.ts";
 import {
   contractRefusalMessage,
   decodeContractDetail,
@@ -2530,6 +2531,7 @@ export interface AppFlow {
    * current-month calendar data and the existing mailbox unread count.
    */
   loadActivity(): Promise<void>;
+  loadCalendarMonth(month: number, year: number): Promise<readonly CalendarEvent[]>;
   /** Refresh current-system scan sites and the probes' state. */
   loadScanner(): Promise<void>;
   /** Launch every probe EveJS currently says is safe to launch. */
@@ -10795,6 +10797,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   // --- Activity Center -----------------------------------------------------
+
+  async function loadCalendarMonth(month: number, year: number): Promise<readonly CalendarEvent[]> {
+    const answer = await bridgeAsk("calendarProxy", "GetEventList", [month, year]);
+    return decodeEventList(calendarEventsOfMonths([answer]));
+  }
 
   async function loadActivity(): Promise<void> {
     const assertCurrent = callOptions.captureRequestGuard?.();
@@ -34635,6 +34642,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await runMarketAction("modify", async () => ({ ...await modifyOrderCall(bridgeDo, bridgeAsk, orderID, price), ownOrders: null }));
     },
     loadActivity,
+    loadCalendarMonth,
     loadScanner,
     launchScannerProbes,
     analyzeScannerSignatures,

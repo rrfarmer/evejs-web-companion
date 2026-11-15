@@ -44,9 +44,10 @@ test("loadActivity asks by the generic call the notification service's two, the 
     // skillHistoryProvider.py 32 to 34): no notifications, no events, no responses, two unread mails, and nothing
     // of the skill handler's.
     if (url === "/api/bridge/call") {
-      const sent = JSON.parse(String(init?.body ?? "{}")) as { service?: string };
-      return json({ ok: true, result: emptyAnswerOf(sent.service) });
+      const { service, method } = JSON.parse(String(init?.body ?? "{}")) as { service: string; method: string };
+      return json({ ok: true, service, method, result: emptyAnswerOf(service) });
     }
+    if (url === "/api/names") return json({ ok: true, names: {} });
     throw new Error(`unexpected fetch: ${url}`);
   };
 
@@ -54,7 +55,7 @@ test("loadActivity asks by the generic call the notification service's two, the 
   const flow = createAppFlow(store, { fetch });
   await flow.loadActivity();
 
-  assert.deepEqual(calls, Array.from({ length: 8 }, () => "/api/bridge/call"));
+  assert.deepEqual(calls, [...Array.from({ length: 8 }, () => "/api/bridge/call"), "/api/names"]);
   assert.equal(store.get().activity.notifications.status, "ready");
   assert.deepEqual(store.get().activity.notifications.value, []);
   assert.equal(store.get().activity.calendarEvents.status, "ready");
@@ -66,11 +67,12 @@ test("loadActivity lands partial success when the notification service's reads f
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url === "/api/bridge/call") {
-      const sent = JSON.parse(String(init?.body ?? "{}")) as { service?: string };
-      return sent.service === "notificationMgr"
+      const { service, method } = JSON.parse(String(init?.body ?? "{}")) as { service: string; method: string };
+      return service === "notificationMgr"
         ? json({ ok: false, error: "CALL_FAILED", message: "notificationMgr unavailable" }, 503)
-        : json({ ok: true, result: emptyAnswerOf(sent.service) });
+        : json({ ok: true, service, method, result: emptyAnswerOf(service) });
     }
+    if (url === "/api/names") return json({ ok: true, names: {} });
     throw new Error(`unexpected fetch: ${url}`);
   };
 
@@ -86,4 +88,20 @@ test("loadActivity lands partial success when the notification service's reads f
   assert.deepEqual(activity.calendarEvents.value, []);
   assert.equal(activity.calendarResponses.status, "ready");
   assert.equal(activity.mailError, null);
+});
+
+test("the Calendar reads the browsed month and keeps past events from all returned rowsets", async () => {
+  const timestamp = "134282418600000000";
+  const calls: unknown[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "/api/bridge/call");
+    const { service, method, args } = JSON.parse(String(init?.body));
+    calls.push([service, method, args]);
+    const row = (eventID: number, flag: number) => keyVal({ eventID, flag, eventDateTime: { type: "long", value: timestamp } });
+    return json({ ok: true, service, method, result: [{ type: "list", items: [row(1, 8)] }, { type: "list", items: [row(2, 1)] }, null] });
+  };
+  const flow = createAppFlow(createClientStore(), { fetch });
+  const events = await flow.loadCalendarMonth(7, 2026);
+  assert.deepEqual(calls, [["calendarProxy", "GetEventList", [7, 2026]]]);
+  assert.deepEqual(events.map(event => [event.eventID, event.flag, event.eventDateTime]), [[1, 8, BigInt(timestamp)], [2, 1, BigInt(timestamp)]]);
 });
