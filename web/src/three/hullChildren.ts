@@ -1012,7 +1012,7 @@ async function childMesh(node: SofChildMesh, animator?: ChildAnimator): Promise<
 }
 
 /** The transform modifiers drawn so far (the rest leave the transform as it is). */
-const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierSRT", "EveTransformLookAtCamera", "EveTransformCameraRotationAligned"]);
+const MODIFIERS = new Set(["EveChildModifierHalo", "EveChildModifierHaloInverted", "EveChildModifierCameraOrientedRotationConstrained", "EveChildModifierBillboard2D", "EveChildModifierBillboard3D", "EveChildModifierTranslateWithCamera", "EveChildModifierSRT", "EveTransformLookAtCamera", "EveTransformCameraRotationAligned"]);
 
 /**
  * A modified child's transform from its own (base, in EVE's model space of the hull) and the eye there, as trinity's
@@ -1060,10 +1060,14 @@ function applyModifiers(base: THREE.Matrix4, mods: string[], eye: THREE.Vector3,
       const across = new THREE.Vector3().crossVectors(up, n);
       const f = Math.max(d.clone().normalize().dot(uz.clone().normalize().negate()), 0);
       out.multiply(new THREE.Matrix4().makeBasis(across, up, n)).multiply(new THREE.Matrix4().makeScale(f, f, f));
-    } else if (mod === "EveChildModifierBillboard2D") {
+    } else if (mod === "EveChildModifierBillboard2D" || mod === "EveChildModifierBillboard3D") {
       const [ex, ey, ez] = eyeAxes as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
-      out.makeBasis(ex.clone().multiplyScalar(x.length()), ey.clone().multiplyScalar(y.length()), ez.clone().multiplyScalar(z.length()));
+      // The Ship Info billboard's 3D offsets use camera back as +Z, e.g. -99000 places the logo in front.
+      const depth = mod === "EveChildModifierBillboard3D" ? -z.length() : z.length();
+      out.makeBasis(ex.clone().multiplyScalar(x.length()), ey.clone().multiplyScalar(y.length()), ez.clone().multiplyScalar(depth));
       out.setPosition(t);
+    } else if (mod === "EveChildModifierTranslateWithCamera") {
+      out.setPosition(t.add(eye));
     } else if (mod === "EveTransformCameraRotationAligned") {
       const p = parent ?? new THREE.Matrix4();
       const own = p.clone().invert().multiply(out);

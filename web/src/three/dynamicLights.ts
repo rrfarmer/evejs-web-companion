@@ -48,8 +48,9 @@ export const dynamicLightUniforms = {
 };
 
 interface Gathered { pos: THREE.Vector3; color: THREE.Vector3; radius: number; source: number; dir: THREE.Vector3 | null; cosOuter: number; cosInner: number }
-let frame = -1;
-let gathered: Gathered[] = [];
+interface LightFrame { frame: number; gathering: Gathered[]; published: Gathered[] }
+const lightFrames = new WeakMap<THREE.WebGLRenderer, LightFrame>();
+let lastPublished: LightFrame | null = null;
 const tmp = new THREE.Vector3();
 
 /**
@@ -58,11 +59,20 @@ const tmp = new THREE.Vector3();
  */
 export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera, group: THREE.Object3D): void {
   const f = renderer.info.render.frame;
-  if (f !== frame) {
-    // (an empty list too: the last view's lights must not stay on, e.g. the hangar's after undocking)
-    publish(renderer, camera);
-    frame = f;
-    gathered = [];
+  let state = lightFrames.get(renderer);
+  if (!state) {
+    state = { frame: -1, gathering: [], published: [] };
+    lightFrames.set(renderer, state);
+  }
+  if (f !== state.frame || state !== lastPublished) {
+    if (f !== state.frame) {
+      state.frame = f;
+      state.published = state.gathering;
+      state.gathering = [];
+    }
+    // Ship Info, Fitting and the play scene can render in the same tab.
+    publish(renderer, camera, state.published);
+    lastPublished = state;
   }
   const lights = group.userData.lights as ChildLight[] | undefined;
   if (!lights?.length) return;
@@ -76,7 +86,7 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
     const pos = new THREE.Vector3(l.position[0] ?? 0, l.position[1] ?? 0, l.position[2] ?? 0).applyMatrix4(m);
     const b = l.brightness * k;
     const dir = l.direction ? new THREE.Vector3(l.direction[0] ?? 0, l.direction[1] ?? 0, l.direction[2] ?? -1).transformDirection(m) : null;
-    gathered.push({
+    state.gathering.push({
       pos, color: new THREE.Vector3((l.color[0] ?? 0) * b, (l.color[1] ?? 0) * b, (l.color[2] ?? 0) * b),
       radius: l.radius * scale, source: (l.sourceRadius ?? 0) * scale, dir, cosOuter: l.cosOuter ?? 0, cosInner: l.cosInner ?? 0,
     });
@@ -89,7 +99,7 @@ export function offerLights(renderer: THREE.WebGLRenderer, camera: THREE.Camera,
  * LOD factor: the LOD quality's, AdjustLightCutoff), dimmed over FADE_SIZE 5 pixels past it, and - scaleBrightness, Tr2Light's default - its colour x its
  * radius. The MAX largest on screen kept.
  */
-function publish(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+function publish(renderer: THREE.WebGLRenderer, camera: THREE.Camera, gathered: readonly Gathered[]): void {
   const eye = camera.getWorldPosition(new THREE.Vector3());
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));

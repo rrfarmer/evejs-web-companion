@@ -6,6 +6,7 @@
   import { portal } from "./portal.ts";
   import DesktopWindow from "./DesktopWindow.svelte";
   import ShowInfo from "./ShowInfo.svelte";
+  import ShipInfoPreview from "./ShipInfoPreview.svelte";
   import MedalInfo from "./MedalInfo.svelte";
   import ErrorBoundary from "./ErrorBoundary.svelte";
   import { infoWindowLabel } from "./infoWindowLabel.ts";
@@ -47,7 +48,11 @@
   $effect(() => { session.flow.requestWords(["UI/Control/EveWindow/Previous", "UI/Control/EveWindow/Next", "/Carbon/UI/Controls/Window/Loading"]); });
   function word(key: string, fallback: string): string { return plainText($words.templates[key] ?? "") || fallback; }
   function focus(w: InfoWindowState): void { model.focus(w.id, (host?.topZ() ?? Math.max(0, ...windows.get().map(w => w.z))) + 1); }
-  function resize(w: InfoWindowState, width: number, height: number): void { model.geometry(w.id, { x: w.x, y: w.y, w: Math.max(260, width), h: Math.max(120, height) }); fit(); }
+  function resize(w: InfoWindowState, width: number, height: number): void {
+    const ship = w.entry.identity.content === "ship";
+    model.geometry(w.id, { x: w.x, y: w.y, w: Math.max(ship ? 325 : 260, width), h: Math.max(ship ? 450 : 120, height) });
+    fit();
+  }
   function navigate(w: InfoWindowState, direction: -1 | 1): void {
     void model.navigate(w.id, direction, infoShiftPressed()).catch(error => {
       // eve_exception_handler uses showExceptions=0 for this local type/key error.
@@ -77,6 +82,15 @@
   {#key w.reconstruction}
     <div use:reconstructed>{#if w.contentConstructed}<ErrorBoundary name={infoWindowLabel(w, $names.resolved)}>
       {#if w.entry.subject.kind === "medal"}<MedalInfo store={session.store} flow={session.flow} subject={w.entry.subject} reads={w.reads} />
+      {:else if w.entry.identity.content === "ship" && w.entry.identity.typeID !== null}
+        {@const expanded = w.w >= 640 && !host?.mobile}
+        <div class="ship-info-content" class:expanded>
+          <ShowInfo store={session.store} flow={session.flow} subject={w.subject} />
+          <div class="ship-info-scene" style:--preview-height={`${Math.max(240, w.h - 46)}px`}>
+            <ShipInfoPreview typeID={w.entry.identity.typeID} flow={session.flow} {expanded}
+              active={visible && !w.minimized && (!host?.mobile || w.modal || w.id === mobileID)} />
+          </div>
+        </div>
       {:else}<ShowInfo store={session.store} flow={session.flow} subject={w.subject} corporationResult={w.visibleCorporationResult} />{/if}
     </ErrorBoundary>{/if}</div>
   {/key}
@@ -110,6 +124,10 @@
 <style>
   .info-window-layer { position: absolute; inset: 0; pointer-events: none; }
   .info-window-layer :global(.win), .info-phone-tabs { pointer-events: auto; }
+  .ship-info-content { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .ship-info-content.expanded { grid-template-columns: minmax(220px, 38%) minmax(0, 1fr); }
+  .ship-info-scene { grid-row: 1; height: 220px; }
+  .expanded .ship-info-scene { grid-column: 2; height: var(--preview-height); position: sticky; top: 0; }
   .info-history { display: flex; align-items: center; gap: .2rem; flex-shrink: 0; }
   .info-history button { font-size: 1.2rem; }
   .info-loading { width: .8rem; height: .8rem; margin: 0 .3rem; border: 2px solid #52748b; border-top-color: #b4d8ed; border-radius: 50%; animation: info-loading .8s linear infinite; }

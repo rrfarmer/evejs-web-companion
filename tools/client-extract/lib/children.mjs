@@ -1032,6 +1032,7 @@ export function readEffectFile(rf, path) {
     if (o && typeof o === "object") external = joinDynamicBindings(o, skipped);
     // (a file whose root is an EveTransform - a ShipEffect's graphic: the web's - is that transform as a container)
     root = o?.type === "EveTransform" ? readNode(transformAsChild(o, skipped), skipped)
+      : o?.type === "EveChildContainer" ? readNode(o, skipped)
       : o && typeof o === "object" ? readNode({ ...o, type: "EveChildContainer", objects: o.effectChildren ?? [] }, skipped) : null;
   } catch (e) {
     skipped.unread = String(e.message ?? e);

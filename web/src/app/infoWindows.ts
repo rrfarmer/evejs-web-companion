@@ -181,7 +181,7 @@ export function createInfoWindows(deps: {
         const reads = makeReads(id, entry, true), result = corporationResult(reads);
         const w: InfoWindowState = { id, entry, captionEntry: entry, subject: readonlySignal(signal), history: [identity.content === "corporation" ? pendingHistory : entry], index: 0, reconstruction: 1,
           reads, loading: false, pendingLoadData: null, waitingForReconstruction: false, contentConstructed: identity.content !== "corporation", corporationResult: result, visibleCorporationResult: result,
-          x: 16 + offset, y: 16 + offset, w: 500, h: 600,
+          x: 16 + offset, y: 16 + offset, w: bucket === "ship" ? 960 : 500, h: bucket === "ship" ? 656 : 600,
           z: Math.max(0, ...windows.map(w => w.z)) + 1, minimized: false,
           modal: modal && !options.progressModal };
         state.set([...windows, w]); loadCorporation(entry, reads); requestRaise(id); return id;

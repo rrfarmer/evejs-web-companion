@@ -6,6 +6,7 @@
 //        [--scene <res path of an EveSpaceScene> ...] [--celestial <res path of a planet/sun object> ...]
 //        [--system-celestials <solarSystemID> ...] [--overview] [--graphic <graphicID> ...]
 //        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--sof-materials] [--missile <missile typeID> ...]
+//        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
 //
 // Nothing here ships client data: the script reads the client on this machine and writes to
 // _local/client-assets/<build>/ (git-ignored). Output mirrors res: paths, lower case:
@@ -178,7 +179,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   // the hull's locator sets its children's effect propagators name: each locator [x, y, z, qx, qy, qz, qw]
   const locatorHull = sof.hulls.get(String(hullName).toLowerCase());
   // (and its hangar_drones: the hangar VFX's drone propagators, added to the ship, take them - entry 212)
-  built.locatorSets = Object.fromEntries([...new Set([...usedLocatorSets(), "hangar_drones"])].map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
+  built.locatorSets = Object.fromEntries([...new Set([...usedLocatorSets(), "hangar_drones", "camera_look_at"])].map((name) => [name, ((locatorHull?.locatorSets ?? []).find((s) => String(s.name ?? "").trim() === name)?.locators ?? [])
     .map((l) => [...(l.position ?? [0, 0, 0]), ...(l.rotation ?? [0, 0, 0, 1])])]));
   // the hull's impact effects as EveSOF::SetupImpactEffects (EveSOF.cpp:2652-2785) sets them up where its
   // impactEffectType is not nought (1 an ellipsoid shield, 2 none drawn): its "damage" locators [x, y, z, qx, qy, qz, qw],
@@ -560,6 +561,7 @@ function parseArgs(argv) {
     else if (a === "--fx") out.fx.push(argv[++i]);
     else if (a === "--star-map") out.starMap = true;
     else if (a === "--fitting-scene") out.fittingScene = true;
+    else if (a === "--ship-info") out.shipInfo = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
     else if (a === "--system-celestials") out.systemCelestials.push(Number(argv[++i]));
@@ -724,6 +726,26 @@ async function main() {
     fs.writeFileSync(path.join(outRoot, "fittingScene.json"), JSON.stringify(scene));
     console.log(`fittingScene.json: ${Object.keys(scene).filter((k) => scene[k]).join(", ")}`);
   }
+  if (args.shipInfo) {
+    if (!sde) throw new Error("--ship-info needs the SDE");
+    const graphic = (id) => sdeGraphic(sde, id)?.graphicFile;
+    const res = graphic(26811)?.toLowerCase().replace(/\.red$/, ".black");
+    if (!res) throw new Error("No Ship Info scene in the SDE");
+    const scene = readBlack(rf.read(res), res);
+    const reflections = scene.envMapResPath ? copyRes(rf, scene.envMapResPath, outRoot) : null;
+    const background = readEffectFile(rf, "res:/dx9/scene/showinfo/showinfo_logo_background_01a.red");
+    const lightRig = readEffectFile(rf, graphic(27949));
+    if (!background?.root || !lightRig?.root) throw new Error("Ship Info effect data is missing");
+    // set_faction_background repositions the first container after each controller transition.
+    for (const effect of Object.values(background.childEffects)) {
+      if (effect?.objects?.[0]?.srt) effect.objects[0].srt.translation = [28000, -12000, -99000];
+    }
+    for (const effect of [background, lightRig]) await copyChildGraphAssets(rf, [effect.root, ...Object.values(effect.childEffects)], outRoot);
+    fs.writeFileSync(path.join(outRoot, "shipInfoScene.json"), JSON.stringify({ reflections,
+      sunDiffuseColor: scene.sunDiffuseColor, sunDirection: scene.sunDirection, ambientColor: scene.ambientColor,
+      background, lightRig }));
+    console.log(`shipInfoScene.json: ${Object.keys(background.childEffects).length} faction effects and light rig`);
+  }
   if (args.starMap) {
     const textures = {};
     for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds",
@@ -774,7 +796,7 @@ async function main() {
     const file = extractOverviewPresets(rf, client, outRoot);
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
