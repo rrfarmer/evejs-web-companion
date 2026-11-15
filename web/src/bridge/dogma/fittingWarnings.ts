@@ -11,6 +11,7 @@
 // which the bonus check adds to its type's.
 
 import type { DogmaStatic } from "./location.ts";
+import { academyChargeAllowed, usedWithCandidate } from "./chargeCompatibility.ts";
 import { intDictOrder } from "../py27DictOrder.ts";
 
 /** fittingWarningConst's levels. */
@@ -280,12 +281,12 @@ export interface FitWarningInputs {
 function usedWithOf(staticData: DogmaStatic, moduleTypeID: number, chargeTypeIDs: readonly number[]): number[] | null {
   const module = staticData.types[moduleTypeID];
   const chargeGroups = (module?.chargeGroups ?? []).filter((groupID) => groupID > 0).map(Math.trunc);
-  if (!module || module.published === false || chargeGroups.length === 0) return null;
+  if (!usedWithCandidate(module) || chargeGroups.length === 0) return null;
   const capacity = typeAttribute(staticData, moduleTypeID, ATTRIBUTE_CAPACITY);
   const size = typeAttribute(staticData, moduleTypeID, ATTRIBUTE_CHARGE_SIZE) ?? 0;
   return chargeTypeIDs.filter((chargeTypeID) => {
     const charge = staticData.types[chargeTypeID];
-    if (!charge || charge.published === false || charge.groupID === null || !chargeGroups.includes(charge.groupID)) return false;
+    if (!usedWithCandidate(charge) || !academyChargeAllowed(charge, module) || charge.groupID === null || !chargeGroups.includes(charge.groupID)) return false;
     if (capacity !== null && capacity < (typeAttribute(staticData, chargeTypeID, ATTRIBUTE_VOLUME) ?? 0)) return false;
     return !size || (typeAttribute(staticData, chargeTypeID, ATTRIBUTE_CHARGE_SIZE) ?? 0) === size;
   });
@@ -306,7 +307,7 @@ function usedWithOf(staticData: DogmaStatic, moduleTypeID: number, chargeTypeIDs
 export function usedWithTypeIDs(staticData: DogmaStatic, moduleTypeID: number, groupTypes: (groupID: number) => readonly number[] | undefined): number[] | null | undefined {
   const module = staticData.types[moduleTypeID];
   const chargeGroups = (module?.chargeGroups ?? []).filter((groupID) => groupID > 0).map(Math.trunc);
-  if (!module || module.published === false || chargeGroups.length === 0) return null;
+  if (!usedWithCandidate(module) || chargeGroups.length === 0) return null;
   const candidates = new Set<number>();
   for (const groupID of chargeGroups) {
     const types = groupTypes(groupID);

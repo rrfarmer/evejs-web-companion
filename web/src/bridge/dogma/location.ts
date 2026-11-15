@@ -116,6 +116,8 @@ export interface DogmaTypeFacts {
   readonly requiredSkills: readonly number[];
   /** evetypes.IsPublished; unknown where it was not read. */
   readonly published?: boolean | null;
+  /** Membership in the client’s Academy equipment list (992). */
+  readonly academy?: boolean;
   /** GetCanFitShipGroups and GetCanFitShipTypes: the ship groups and types it may be fitted to (none: any). */
   readonly fitsShipGroups?: readonly number[];
   readonly fitsShipTypes?: readonly number[];

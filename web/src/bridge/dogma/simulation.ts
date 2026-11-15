@@ -16,6 +16,7 @@
 // that may be active is max(5, the pilot's maxActiveDrones) (FittingDogmaLocation.GetMaxActiveDrones).
 
 import { activeDroneBandwidth, activeDroneDps, type DroneReading } from "./drones.ts";
+import { academyChargeAllowed } from "./chargeCompatibility.ts";
 import { loadSimulatedShip, type Brain, type DogmaItem, type DogmaLocation, type DogmaStatic, type SimulatedCharge } from "./location.ts";
 import { ACTIVE, activateOnLoading, eatingFitErrors, OFFLINE, offlineSlots, ONLINE, setModuleState } from "./moduleStates.ts";
 import { intDictOrder } from "../py27DictOrder.ts";
@@ -1036,6 +1037,7 @@ export function simulatedHoldUse(simulation: SimulatedShip): { readonly cargo: P
 
 /** ammoloadingUtils.IsChargeCompatibleWithLauncher: a group the module takes, and its charge size (or room for one). */
 export function chargeFitsModule(location: DogmaLocation, chargeTypeID: number, moduleTypeID: number): boolean {
+  if (!academyChargeAllowed(location.static.types[chargeTypeID], location.static.types[moduleTypeID])) return false;
   const chargeGroups = (location.static.types[moduleTypeID]?.chargeGroups ?? []).filter((groupID) => groupID > 0).map(Math.trunc);
   const groupID = location.static.types[chargeTypeID]?.groupID ?? null;
   if (groupID === null || !chargeGroups.includes(groupID)) return false;

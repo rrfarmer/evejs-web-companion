@@ -14673,6 +14673,7 @@ app.get("/api/client-data/type-attributes", requireAuth, async (req, res, next) 
 //   each attribute the types carry, the effects name, and those asked (attributeIDs, at most 200): what Attribute and
 //                  itemAttributeFactory go by (stackable, dataType, defaultValue, highIsGood, the cap and floor
 //                  attributes, whether it is a charged one), and the cap and floor attributes' own records
+let academyTypeIDs;
 app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
   try {
     const listed = (name, most) => {
@@ -14729,6 +14730,8 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
       return Math.trunc(price);
     };
     const types = {};
+    // idCheckers.is_academy_type reads EVE type list 992 (academyships/common/const.py).
+    const academy = academyTypeIDs ??= new Set(staticData.getTypeIDsByListID(992) ?? []);
     const effectIDs = [];
     const attributeIDs = new Set(askedAttributes);
     for (const typeID of wanted) {
@@ -14787,6 +14790,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
         requiredSkills: required.map(([skillID]) => whole(skillID)).filter((skillID) => skillID !== null && skillID > 0),
         // evetypes.IsPublished.
         published: type.published === undefined || type.published === null ? null : Boolean(type.published),
+        academy: academy.has(typeID),
         basePrice: number(type.basePrice),
         computedBasePrice: computedBasePrice(typeID, 1),
       };
