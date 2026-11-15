@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import type { Session } from "../app/sessions.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import { filetimeToUnixMs } from "../bridge/activity.ts";
   import CalendarContextMenu from "./CalendarContextMenu.svelte";
-  import CalendarCreateWindow from "./CalendarCreateWindow.svelte";
+  import CalendarEventEditor from "./CalendarEventEditor.svelte";
   import CalendarListWindow from "./CalendarListWindow.svelte";
   import CalendarEventWindow from "./CalendarEventWindow.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
-  import { CALENDAR_AGENDA_LABELS, CALENDAR_CREATE_CAPTION, CALENDAR_EVENT_CAPTION, CALENDAR_WINDOW_SIZES, calendarView } from "./calendarView.ts";
+  import { CALENDAR_AGENDA_LABELS, CALENDAR_CREATE_CAPTION, CALENDAR_EDIT_CAPTION, CALENDAR_EVENT_CAPTION, CALENDAR_WINDOW_SIZES, calendarView } from "./calendarView.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { portal } from "./portal.ts";
 
@@ -17,9 +18,10 @@
   // svelte-ignore state_referenced_locally
   const words = session.store.words;
   const { windows, raised, menu } = model;
+  onMount(() => session.flow.calendarEventChanged.subscribe(model.applyEventNotice));
   const eventCaption = $derived(plainText($words.templates[CALENDAR_EVENT_CAPTION] ?? "") || "Event");
   function titleOf(win: (typeof $windows)[number]): string {
-    if (win.kind === "event") return eventCaption;
+    if (win.kind === "event") return win.editing ? plainText($words.templates[CALENDAR_EDIT_CAPTION] ?? "") || "Edit Event" : eventCaption;
     if (win.kind === "create") return plainText($words.templates[CALENDAR_CREATE_CAPTION] ?? "") || "New Event";
     if (win.kind === "day") return win.id;
     const [key, fallback] = CALENDAR_AGENDA_LABELS[win.agendaKind];
@@ -49,7 +51,9 @@
     return () => observer.disconnect();
   });
   $effect(() => {
-    if ($windows.some(win => win.kind === "event" || win.kind === "create")) session.flow.requestWords([CALENDAR_EVENT_CAPTION, CALENDAR_CREATE_CAPTION]);
+    if ($windows.some(win => win.kind === "event" || win.kind === "create")) {
+      session.flow.requestWords([CALENDAR_EVENT_CAPTION, CALENDAR_CREATE_CAPTION, CALENDAR_EDIT_CAPTION]);
+    }
   });
   let served: { readonly id: string } | null = null;
   $effect(() => {
@@ -83,8 +87,14 @@
       onFocus={() => model.focus(win.id, (host?.topZ() ?? 0) + 1)} onClose={() => model.close(win.id)}
       onToggleMinimize={() => model.toggleMinimize(win.id)} onMove={(x, y) => model.update(win.id, { x, y })}
       onResize={(w, h) => { model.update(win.id, { w: Math.max(min.w, w), h: Math.max(min.h, h) }); fit(); }}>
-      {#if win.kind === "event"}<CalendarEventWindow flow={session.flow} store={session.store} event={win.event} close={() => model.close(win.id)} />
-      {:else if win.kind === "create"}<CalendarCreateWindow flow={session.flow} store={session.store} id={win.id} startsAt={win.startsAt} close={() => model.close(win.id)} />
+      {#if win.kind === "event"}
+        {#if win.editing}
+          <CalendarEventEditor flow={session.flow} store={session.store} id={win.id} existing={win.event}
+            startsAt={filetimeToUnixMs(win.event.eventDateTime) ?? session.flow.calendarNow()} close={() => model.close(win.id)} />
+        {:else}
+          <CalendarEventWindow flow={session.flow} store={session.store} event={win.event} close={() => model.close(win.id)} />
+        {/if}
+      {:else if win.kind === "create"}<CalendarEventEditor flow={session.flow} store={session.store} id={win.id} startsAt={win.startsAt} close={() => model.close(win.id)} />
       {:else}<CalendarListWindow flow={session.flow} store={session.store} subject={win} {title} close={() => model.close(win.id)} />{/if}
     </DesktopWindow>
   {/each}

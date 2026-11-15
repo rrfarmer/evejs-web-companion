@@ -6,7 +6,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { CALENDAR_GROUPS, CALENDAR_REPLY_CHOICES, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, CALENDAR_TAGS,
-    calendarDateTime, calendarReplyChoices, calendarResponses, calendarView } from "./calendarView.ts";
+    calendarDateTime, calendarReplyChoices, calendarResponses, calendarView, canManageCalendarEvent } from "./calendarView.ts";
   import LabelText from "./LabelText.svelte";
   import { LINK_WORDS, linkFollowerOf } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
@@ -17,7 +17,7 @@
   const { names, station, words } = store;
   // svelte-ignore state_referenced_locally
   const model = calendarView(flow);
-  const { agenda, replying } = model;
+  const { agenda, replying, deleting } = model;
   // svelte-ignore state_referenced_locally
   const calendarUpdated = flow.calendarUpdated;
   const LABEL = {
@@ -26,6 +26,7 @@
     durationNone: "UI/Calendar/EventWindow/DateNotSpecified", durationHours: "UI/Calendar/EventWindow/DateSpecified",
     description: "UI/Calendar/EventWindow/TabDescription", invitations: "UI/Calendar/EventWindow/TabInvitations",
     noCharacter: "UI/Calendar/EventWindow/NoCharacter", close: "UI/Generic/Close", search: "UI/Common/Search",
+    edit: "UI/Calendar/EventWindow/Edit", delete: "UI/Calendar/EventWindow/Delete",
     date: "/Carbon/UI/Common/DateTime/DateLongShort",
   } as const;
   function word(key: string, fallback: string, args: Record<string, number> = {}): string {
@@ -54,6 +55,7 @@
   const eventID = $derived(event.eventID);
   const ownerID = $derived(event.ownerID);
   $effect(() => {
+    event.dateModified;
     let active = true;
     detail = null;
     detailStatus = "loading";
@@ -71,8 +73,17 @@
   const responseStatus = $derived(currentEvent.isDeleted ? 1 : calendarResponses($agenda).get(eventID) ?? 3);
   const response = $derived(responseOf(responseStatus));
   const characterID = $derived($station.online?.characterID ?? null);
+  const manage = $derived(canManageCalendarEvent(currentEvent, $station.online, flow.calendarNow()));
   const replies = $derived($agenda.status === "ready" ? calendarReplyChoices(currentEvent, characterID, responseStatus, flow.calendarNow()) : []);
   let replyError = $state<string | null>(null);
+  async function deleteEvent(): Promise<void> {
+    replyError = null;
+    try {
+      await model.deleteEvent(currentEvent);
+    } catch (error) {
+      replyError = error instanceof Error ? error.message : "The Calendar event could not be canceled.";
+    }
+  }
   async function respond(status: CalendarReply): Promise<void> {
     if (!calendarReplyChoices(currentEvent, characterID, responseStatus, flow.calendarNow()).some(([choice]) => choice === status)) {
       replyError = "This event no longer accepts that reply.";
@@ -85,7 +96,7 @@
       replyError = error instanceof Error ? error.message : "The Calendar reply could not be saved.";
     }
   }
-  const durationHours = $derived(event.eventDuration === null ? null : Math.trunc(event.eventDuration / 60));
+  const durationHours = $derived(currentEvent.eventDuration === null ? null : Math.trunc(currentEvent.eventDuration / 60));
   const personal = $derived(event.flag === CALENDAR_TAGS.personal);
   const canSeeInvitations = $derived(personal || ((event.flag === CALENDAR_TAGS.corp || event.flag === CALENDAR_TAGS.alliance)
     && !!$station.online?.corporationID && (BigInt($station.online?.corpRole ?? "0") & 36028797018963968n) !== 0n));
@@ -116,9 +127,10 @@
 </script>
 
 <div class="calendar-event" data-calendar-window={`event-${eventID}`}>
-  <h2>{#if event.importance > 0}<strong class="important">!</strong>{/if}{event.eventTitle}</h2>
+  <h2>{#if currentEvent.importance > 0}<strong class="important">!</strong>{/if}{currentEvent.eventTitle}</h2>
+  <div class="event-meta">
   <dl>
-    <dt>{word(LABEL.start, "Start Time")}</dt><dd>{dateText(event.eventDateTime)}</dd>
+    <dt>{word(LABEL.start, "Start Time")}</dt><dd>{dateText(currentEvent.eventDateTime)}</dd>
     <dt>{word(LABEL.type, "Event Type")}</dt><dd>{groupName(event.flag)}</dd>
     <dt>{word(LABEL.duration, "Duration")}</dt><dd>{durationHours === null ? word(LABEL.durationNone, "Not specified") : word(LABEL.durationHours, `${durationHours} hours`, { hours: durationHours })}</dd>
     <dt>{word(LABEL.creator, "Creator")}</dt>
@@ -128,8 +140,15 @@
       {:else}{creator}{/if}
     </dd>
     <dt>{word(LABEL.status, "Status")}</dt><dd class="response"><img src={`/client-res/ui/texture/icons/38_16_${response[2]}.png`} width="16" height="16" alt="" />{word(CALENDAR_RESPONSE_PATH + response[0], response[1])}</dd>
-    <dt>{word(LABEL.updated, "Last Updated")}</dt><dd>{dateText(event.dateModified)}</dd>
+    <dt>{word(LABEL.updated, "Last Updated")}</dt><dd>{dateText(currentEvent.dateModified)}</dd>
   </dl>
+  {#if manage}
+    <div class="manage">
+      <button type="button" disabled={$deleting.has(eventID)} onclick={() => model.openEvent(currentEvent, true)}>{word(LABEL.edit, "Edit")}</button>
+      <button type="button" disabled={$deleting.has(eventID)} onclick={deleteEvent}>{word(LABEL.delete, "Delete")}</button>
+    </div>
+  {/if}
+  </div>
   <div class="calendar-event-tabs" role="tablist" aria-label={word(LABEL.type, "Event")}>
     <button type="button" role="tab" id={`${tabID}-description`} aria-controls={`${tabID}-panel`} aria-selected={tab === "description"} onclick={() => (tab = "description")}>{word(LABEL.description, "Description")}</button>
     {#if canSeeInvitations}<button type="button" role="tab" id={`${tabID}-invitations`} aria-controls={`${tabID}-panel`} aria-selected={tab === "invitations"} onclick={() => (tab = "invitations")}>{word(LABEL.invitations, "Invitations")}</button>{/if}
@@ -165,6 +184,8 @@
   .calendar-event { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; padding: 6px 8px; box-sizing: border-box; font-size: 12px; }
   h2 { margin: 0 0 3px; font-size: 19px; font-weight: 400; overflow-wrap: anywhere; }
   .important { color: #e26758; margin-right: 4px; }
+  .event-meta { display: flex; gap: 8px; justify-content: space-between; }
+  .manage { display: flex; flex-direction: column; gap: 8px; align-self: flex-start; }
   dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 20px; align-items: center; margin: 0 0 4px; }
   dt { font-weight: 600; }
   dd { margin: 0; min-height: 17px; overflow-wrap: anywhere; }

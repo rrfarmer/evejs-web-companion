@@ -4086,6 +4086,22 @@ const atTheProxy = (session) => session.proxyCalls.map((call) => [`${call.servic
 /** The stand-in's clock is in November 2023 unless a test says. */
 const [NOVEMBER, DECEMBER] = [[11, 2023], [12, 2023]];
 
+test("Calendar replies are read again when a removed pilot is invited back", async () => {
+  const pair = "calendarMgr.GetResponsesForCharacter";
+  let status = 0;
+  let asks = 0;
+  const { pilots, session, handle } = await selected({
+    answers: calendarAnswers({ [pair]: () => { ++asks; return { type: "list", items: [status] }; } }),
+  }, { allowed: new Set([...CALENDAR_PAIRS.allowed, pair]) });
+  const read = async () => (await pilots.callMethod("calendarMgr", "GetResponsesForCharacter", [], null, FIELDS, handle)).result.items[0];
+  assert.deepEqual([await read(), await read()], [0, 0]);
+  const before = asks;
+  status = 3;
+  session.notify("OnNewCalendarEvent", [7, PILOT]);
+  assert.equal(await read(), 3);
+  assert.equal(asks, before + 1);
+});
+
 test("a character chosen has what of its contracts wants attention asked for, and this month's events and the next's, which are kept", async () => {
   const { pilots, session, handle } = await selected({ answers: calendarAnswers({ "contractProxy.GetLoginInfo": () => ({ type: "list", items: ["figures"] }) }) }, CALENDAR_PAIRS);
   const month = async (monthAndYear) => (await pilots.callMethod("calendarProxy", "GetEventList", monthAndYear, null, FIELDS, handle)).result.items;

@@ -103,6 +103,8 @@ test("the writes the page makes itself are writes, each named once", () => {
   assert.deepEqual([isBridgeWritePair("skillMgr", "SaveNewQueue"), isPageWritePair("skillMgr", "SaveNewQueue")], [true, false]);
   assert.deepEqual(PAGE_WRITE_PAIR_KEYS.filter(key => key.startsWith("calendarMgr.")), [
     "calendarMgr.SendEventResponse", "calendarMgr.CreatePersonalEvent", "calendarMgr.CreateCorporationEvent", "calendarMgr.CreateAllianceEvent",
+    "calendarMgr.EditPersonalEvent", "calendarMgr.EditCorporationEvent", "calendarMgr.EditAllianceEvent",
+    "calendarMgr.UpdateEventParticipants", "calendarMgr.DeleteEvent",
   ]);
   assert.equal(new Set(PAGE_WRITE_PAIR_KEYS).size, PAGE_WRITE_PAIR_KEYS.length);
   for (const pair of PAGE_WRITE_PAIR_KEYS) {

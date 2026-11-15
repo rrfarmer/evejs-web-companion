@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppFlow } from "../app/flow.ts";
 import type { CalendarEvent } from "../bridge/calendar.ts";
-import { CALENDAR_TAGS, calendarAgendaRows, calendarReplyChoices, calendarRows, calendarView } from "./calendarView.ts";
+import { CALENDAR_TAGS, calendarAgendaRows, calendarReplyChoices, calendarRows, calendarView, canManageCalendarEvent } from "./calendarView.ts";
+import { calendarEventNotice } from "../bridge/calendar.ts";
 
 test("calendar day windows reopen by date, stack with Shift, and replace other days by default", () => {
   const flow = {} as AppFlow;
@@ -18,6 +19,31 @@ test("calendar day windows reopen by date, stack with Shift, and replace other d
   assert.equal(calendarView({} as AppFlow).windows.get().length, 0);
   view.openDay(next, false);
   assert.deepEqual(view.windows.get().map(win => win.id), ["2026.12.01"]);
+});
+
+test("Calendar event edits obey ownership and roles, and removal closes a live event window", () => {
+  const now = Date.UTC(2026, 10, 15, 14);
+  const when = BigInt(now + 1000) * 10_000n + 116444736000000000n;
+  const event: CalendarEvent = {
+    eventID: 32, ownerID: 140000001, flag: CALENDAR_TAGS.personal, eventDateTime: when, eventDuration: null,
+    eventTitle: "Original", importance: 0, dateModified: null, isDeleted: false, autoEventType: null,
+  };
+  const pilot = { characterID: 140000001, corporationID: 98000001, allianceID: 99000001, corpRole: "36028797018963968" };
+  assert.ok(canManageCalendarEvent(event, pilot, now));
+  assert.equal(canManageCalendarEvent(event, { ...pilot, characterID: 140000002 }, now), false);
+  assert.equal(canManageCalendarEvent(event, pilot, now + 1001), false);
+  assert.ok(canManageCalendarEvent({ ...event, ownerID: 98000001, flag: CALENDAR_TAGS.corp }, pilot, now));
+  assert.equal(canManageCalendarEvent({ ...event, ownerID: 98000001, flag: CALENDAR_TAGS.automated }, pilot, now), false);
+  assert.ok(canManageCalendarEvent({ ...event, ownerID: 99000001, flag: CALENDAR_TAGS.alliance }, pilot, now));
+  assert.equal(canManageCalendarEvent({ ...event, ownerID: 99000001, flag: CALENDAR_TAGS.alliance }, { ...pilot, corpRole: "0" }, now), false);
+  const view = calendarView({} as AppFlow);
+  view.openEvent(event);
+  const edited = calendarEventNotice("OnEditCalendarEvent", [32, 140000001, String(when), String(when), 45, { type: "wstring", value: "Updated" }, 1], now);
+  view.applyEventNotice(edited);
+  const win = view.windows.get()[0];
+  assert.equal(win?.kind === "event" ? win.event.eventTitle : null, "Updated");
+  view.applyEventNotice(calendarEventNotice("OnRemoveCalendarEvent", [32, String(when), false], now));
+  assert.equal(view.windows.get().length, 0);
 });
 
 test("event windows reopen by event ID and survive replacement of the open day", () => {

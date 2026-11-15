@@ -29,7 +29,7 @@
 // creatorID / characterID / eventID stay as plain numeric fields for a future UI
 // to resolve — never forced into a label, never dropped.
 
-import { unixMsToFiletime } from "./activity.ts";
+import { filetimeToUnixMs, unixMsToFiletime } from "./activity.ts";
 import {
   isKeyValValue,
   isListValue,
@@ -46,6 +46,9 @@ export const CALENDAR_MONTH_RANGE = 12;
 export const CALENDAR_CREATE_METHODS = {
   personal: "CreatePersonalEvent", corporation: "CreateCorporationEvent", alliance: "CreateAllianceEvent",
 } as const;
+export const CALENDAR_EDIT_METHODS = {
+  personal: "EditPersonalEvent", corporation: "EditCorporationEvent", alliance: "EditAllianceEvent",
+} as const;
 export type CalendarEventScope = keyof typeof CALENDAR_CREATE_METHODS;
 export interface CalendarEventDraft {
   readonly scope: CalendarEventScope;
@@ -57,14 +60,31 @@ export interface CalendarEventDraft {
   readonly inviteeIDs: readonly number[];
 }
 
-export function calendarCreateArgs(draft: CalendarEventDraft): JsonValue[] {
-  const args: JsonValue[] = [
-    { type: "long", value: unixMsToFiletime(draft.startsAt).toString() }, draft.duration,
+const calendarTimeArg = (at: bigint): JsonValue => ({ type: "long", value: at.toString() });
+export const calendarInviteeArg = (ids: readonly number[]): JsonValue => ({ type: "list", items: [...ids] });
+
+function calendarEventFields(draft: CalendarEventDraft, at: bigint): JsonValue[] {
+  return [
+    calendarTimeArg(at), draft.duration,
     { type: "wstring", value: draft.title }, draft.description ? { type: "wstring", value: draft.description } : "",
     draft.important ? 1 : 0,
   ];
-  if (draft.scope === "personal") args.push({ type: "list", items: [...draft.inviteeIDs] });
+}
+
+export function calendarCreateArgs(draft: CalendarEventDraft): JsonValue[] {
+  const args = calendarEventFields(draft, unixMsToFiletime(draft.startsAt));
+  if (draft.scope === "personal") args.push(calendarInviteeArg(draft.inviteeIDs));
   return args;
+}
+
+/** Preserve fractional seconds on an edit that keeps the original displayed minute. */
+export function calendarEditedTime(oldTime: bigint, startsAt: number): bigint {
+  const oldMs = filetimeToUnixMs(oldTime);
+  return oldMs !== null && Math.floor(oldMs / 60_000) * 60_000 === startsAt ? oldTime : unixMsToFiletime(startsAt);
+}
+
+export function calendarEditArgs(eventID: number, oldTime: bigint, nextTime: bigint, draft: CalendarEventDraft): JsonValue[] {
+  return [eventID, calendarTimeArg(oldTime), ...calendarEventFields(draft, nextTime)];
 }
 
 export function calendarCreatedID(result: JsonValue): number {
@@ -90,6 +110,24 @@ export interface CalendarEvent {
   readonly flag: number;
   /** The auto-event category, or null for a normal user event. */
   readonly autoEventType: number | null;
+}
+
+type CalendarEventChange = Pick<CalendarEvent, "eventID" | "ownerID" | "eventDateTime" | "eventDuration" | "eventTitle" | "importance" | "autoEventType" | "dateModified">;
+export type CalendarEventNotice = { kind: "edited"; event: CalendarEventChange } | { kind: "removed"; eventID: number };
+
+export function calendarEventNotice(method: string | null, args: readonly unknown[], now: number): CalendarEventNotice | null {
+  if (method !== "OnEditCalendarEvent" && method !== "OnRemoveCalendarEvent") return null;
+  const eventID = Number(unwrapLong(args[0]));
+  if (!Number.isSafeInteger(eventID) || eventID <= 0) return null;
+  if (method === "OnRemoveCalendarEvent") return { kind: "removed", eventID };
+  const ownerID = Number(unwrapLong(args[1]));
+  const eventDateTime = unwrapLong(args[3]);
+  if (!Number.isSafeInteger(ownerID) || ownerID <= 0 || eventDateTime === null) return null;
+  return { kind: "edited", event: {
+    eventID, ownerID, eventDateTime, eventDuration: args[4] == null ? null : Number(unwrapLong(args[4])),
+    eventTitle: calendarText(args[5]), importance: Number(unwrapLong(args[6])),
+    autoEventType: args[7] == null ? null : Number(unwrapLong(args[7])), dateModified: unixMsToFiletime(Math.trunc(now)),
+  } };
 }
 
 /** This character's own response to one event (GetResponsesForCharacter). */
@@ -149,9 +187,10 @@ function listItems(value: JsonValue | undefined): readonly JsonValue[] {
   return Array.isArray(value) ? value : isListValue(value) ? value.items : [];
 }
 
-function calendarText(value: JsonValue | undefined): string {
+function calendarText(value: unknown): string {
   if (typeof value === "string") return value;
-  if (value && typeof value === "object" && "type" in value && value.type === "wstring" && typeof value.value === "string") return value.value;
+  if (value && typeof value === "object" && "type" in value && value.type === "wstring"
+      && "value" in value && typeof value.value === "string") return value.value;
   return "";
 }
 

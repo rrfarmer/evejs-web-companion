@@ -1154,6 +1154,13 @@ async function activatePreparedOperation(definition,operationRunID) {
   return true;
 }
 
+const isCalendarID = value => Number.isSafeInteger(value) && value > 0;
+const isCalendarTime = value => value?.type === "long" && typeof value.value === "string" && /^[1-9]\d{16,17}$/.test(value.value);
+const isCalendarInviteeList = value => value?.type === "list" && Array.isArray(value.items)
+  && value.items.length <= 50 && value.items.every(isCalendarID);
+const validCalendarCost = (kwargs, mayCharge) => kwargs == null || (mayCharge && Object.keys(kwargs).length === 1
+  && Number.isFinite(kwargs.approvedCost) && kwargs.approvedCost > 0);
+
 // Thin bridge proxy for the whitelisted EveJS callMethod path (goal R1).
 // Forwards the retail call tuple (service, method, args, kwargs) to the
 // gateway's POST /_evejs-web/v1/call; the gateway enforces the deny-by-default
@@ -1198,23 +1205,36 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
-  if (body.service === "calendarMgr" && ["CreatePersonalEvent", "CreateCorporationEvent", "CreateAllianceEvent"].includes(body.method)) {
-    const personal = body.method === "CreatePersonalEvent";
-    const [start, duration, title, description, important, invitees] = Array.isArray(body.args) ? body.args : [];
-    const validStart = start?.type === "long" && typeof start.value === "string" && /^[1-9]\d{16,17}$/.test(start.value);
-    const validDuration = duration === null || (Number.isSafeInteger(duration) && duration >= 60 && duration <= 1440 && duration % 60 === 0);
+  if (body.service === "calendarMgr" && /^(Create|Edit)(Personal|Corporation|Alliance)Event$/.test(body.method)) {
+    const editing = body.method.startsWith("Edit");
+    const inviting = body.method === "CreatePersonalEvent";
+    const args = Array.isArray(body.args) ? body.args : [];
+    const [start, duration, title, description, important, invitees] = editing ? args.slice(2) : args;
+    const validTarget = !editing || (isCalendarID(args[0]) && isCalendarTime(args[1]));
+    const validDuration = duration === null || (Number.isSafeInteger(duration)
+      && (editing ? duration >= 0 : duration >= 60 && duration <= 1440 && duration % 60 === 0));
     const validTitle = title?.type === "wstring" && typeof title.value === "string" && !!title.value.trim() && title.value.length <= 40;
     const validDescription = description === "" || (description?.type === "wstring" && typeof description.value === "string" && description.value.length <= 500);
-    const validInvitees = !personal || (invitees?.type === "list" && Array.isArray(invitees.items) && invitees.items.length <= 50
-      && invitees.items.every(id => Number.isSafeInteger(id) && id > 0));
-    const kwargs = body.kwargs;
-    const validCost = kwargs == null || (personal && invitees?.items?.length > 0 && Object.keys(kwargs).length === 1
-      && Number.isFinite(kwargs.approvedCost) && kwargs.approvedCost > 0);
-    if (body.args?.length !== (personal ? 6 : 5) || !validStart || !validDuration || !validTitle || !validDescription
-        || ![0, 1].includes(important) || !validInvitees || !validCost) {
+    const validInvitees = !inviting || isCalendarInviteeList(invitees);
+    if (args.length !== (editing ? 7 : inviting ? 6 : 5) || !validTarget || !isCalendarTime(start) || !validDuration || !validTitle || !validDescription
+        || ![0, 1].includes(important) || !validInvitees || !validCalendarCost(body.kwargs, inviting && invitees?.items?.length > 0)) {
       res.status(400).json({ ok: false, error: "INVALID_CALENDAR_EVENT", message: "Check the event date, duration, title, description and invitations." });
       return;
     }
+  }
+  if (body.service === "calendarMgr" && body.method === "UpdateEventParticipants") {
+    const args = Array.isArray(body.args) ? body.args : [];
+    const [eventID, added, removed] = args;
+    if (args.length !== 3 || !isCalendarID(eventID) || !isCalendarInviteeList(added) || !isCalendarInviteeList(removed)
+        || !validCalendarCost(body.kwargs, added.items.length > 0) || removed.items.some(id => added.items.includes(id))) {
+      res.status(400).json({ ok: false, error: "INVALID_CALENDAR_PARTICIPANTS", message: "Check the selected Calendar invitees." });
+      return;
+    }
+  }
+  if (body.service === "calendarMgr" && body.method === "DeleteEvent"
+      && (!Array.isArray(body.args) || body.args.length !== 2 || !body.args.every(isCalendarID) || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_CALENDAR_EVENT", message: "The event and organizer IDs are required for cancellation." });
+    return;
   }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,

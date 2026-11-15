@@ -2990,6 +2990,11 @@ const RETAIL_CALLS = Object.freeze({
   "calendarMgr.CreatePersonalEvent": same(`${CALENDAR_SVC}:183`, "CreatePersonalEvent(dateTime, duration, title, description, important, invitees); CSPAChargedAction retries with approvedCost after consent"),
   "calendarMgr.CreateCorporationEvent": same(`${CALENDAR_SVC}:191`, "CreateCorporationEvent(dateTime, duration, title, description, important)"),
   "calendarMgr.CreateAllianceEvent": same(`${CALENDAR_SVC}:193`, "CreateAllianceEvent(dateTime, duration, title, description, important)"),
+  "calendarMgr.EditPersonalEvent": same(`${CALENDAR_SVC}:213`, "EditPersonalEvent(eventID, oldDateTime, dateTime, duration, title, description, important)"),
+  "calendarMgr.EditCorporationEvent": same(`${CALENDAR_SVC}:215`, "EditCorporationEvent(eventID, oldDateTime, dateTime, duration, title, description, important)"),
+  "calendarMgr.EditAllianceEvent": same(`${CALENDAR_SVC}:217`, "EditAllianceEvent(eventID, oldDateTime, dateTime, duration, title, description, important)"),
+  "calendarMgr.UpdateEventParticipants": same(`${CALENDAR_SVC}:196`, "UpdateEventParticipants(eventID, charsToAdd, charsToRemove), with both lists and approvedCost when the organizer approves a charge"),
+  "calendarMgr.DeleteEvent": same(`${CALENDAR_SVC}:316`, "DeleteEvent(eventID, ownerID) after CalendarDeleteEvent is accepted"),
   "calendarMgr.SendEventResponse": same(`${CALENDAR_SVC}:295`, "RespondToEvent sends the opened invitation's eventID, ownerID, and its chosen response (accepted, tentative, or declined)."),
   "account.GetCashBalance": same(`${WALLET_SVC}:41,156-170`, "GetCashBalance(0) for personal wealth; corporate GetCorpWealth sends (1, accountKey=None/explicit key) freshly, separately from its one-minute per-key cache"),
   "account.GiveCashFromCorpAccount": Object.freeze({

@@ -1,7 +1,8 @@
 import { readable } from "svelte/store";
 import type { AppFlow } from "../app/flow.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
-import type { CalendarAgenda, CalendarEvent, CalendarReply } from "../bridge/calendar.ts";
+import type { CalendarAgenda, CalendarEvent, CalendarEventNotice, CalendarEventScope, CalendarReply } from "../bridge/calendar.ts";
+import { hasChatManagerRole } from "../bridge/mail.ts";
 import { createSignal, readonlySignal } from "../store/signals.ts";
 import type { WinState } from "./desktop.ts";
 import { calendarDate, calendarDayStart, newCalendarEventStart, type CalendarDate } from "./calendarSelection.ts";
@@ -20,6 +21,7 @@ export const CALENDAR_RESPONSES = [
 export const CALENDAR_RESPONSE_PATH = "UI/Calendar/ResponseTypes/";
 export const CALENDAR_EVENT_CAPTION = "UI/Calendar/EventWindow/CaptionRead";
 export const CALENDAR_CREATE_CAPTION = "UI/Calendar/EventWindow/CaptionNew";
+export const CALENDAR_EDIT_CAPTION = "UI/Calendar/EventWindow/CaptionEdit";
 export const CALENDAR_REPLY_CHOICES = [
   [4, "/Carbon/UI/Calendar/Accept", "Accept"],
   [5, "/Carbon/UI/Calendar/MaybeReply", "Tentative"],
@@ -72,6 +74,21 @@ export function calendarRows(events: readonly CalendarEvent[], filters: Filters,
 }
 
 export type CalendarRow = ReturnType<typeof calendarRows>[number];
+const scopes: Readonly<Partial<Record<number, CalendarEventScope>>> = { 1: "personal", 2: "corporation", 4: "alliance" };
+export function calendarEventScope(event: CalendarEvent): CalendarEventScope | null {
+  return scopes[event.flag] ?? null;
+}
+
+type CalendarPilot = { characterID: number; corporationID?: number | null; allianceID?: number | null; corpRole?: string | null };
+export function canManageCalendarEvent(event: CalendarEvent, pilot: CalendarPilot | null, now: number): boolean {
+  const start = filetimeToUnixMs(event.eventDateTime);
+  if (!pilot || event.isDeleted || start === null || start < now) return false;
+  const scope = calendarEventScope(event);
+  if (scope === "personal") return event.ownerID === pilot.characterID;
+  if (!scope || !hasChatManagerRole(pilot.corpRole)) return false;
+  return event.ownerID === (scope === "corporation" ? pilot.corporationID : pilot.allianceID);
+}
+
 export function calendarReplyChoices(event: CalendarEvent, characterID: number | null, response: number, now: number, fromMenu = false) {
   const start = filetimeToUnixMs(event.eventDateTime);
   if (!characterID || event.ownerID === characterID || event.isDeleted || response === 1 || start === null || start < now) return [];
@@ -106,7 +123,7 @@ export function calendarAgendaRows(state: AgendaState, filters: Filters): Readon
 const eventWindowSize = { w: 530, h: 370 };
 export const CALENDAR_WINDOW_SIZES = { day: { w: 315, h: 300 }, agenda: { w: 315, h: 300 }, event: eventWindowSize, create: eventWindowSize } as const;
 export type CalendarListSubject = { readonly kind: "day"; readonly day: CalendarDate } | { readonly kind: "agenda"; readonly agendaKind: CalendarAgendaKind };
-type CalendarSubject = CalendarListSubject | { readonly kind: "event"; readonly event: CalendarEvent } |
+type CalendarSubject = CalendarListSubject | { readonly kind: "event"; readonly event: CalendarEvent; readonly editing: boolean } |
   { readonly kind: "create"; readonly startsAt: number };
 type CalendarWindow = Omit<WinState, "id"> & { readonly id: string } & CalendarSubject;
 type CalendarMenuSubject = { readonly kind: "event"; readonly row: CalendarRow; readonly allowJump: boolean } |
@@ -130,6 +147,7 @@ function createCalendarView(flow: AppFlow) {
   const windows = createSignal<readonly CalendarWindow[]>([]);
   const raised = createSignal<{ readonly id: string } | null>(null);
   const replying = createSignal<ReadonlySet<number>>(new Set());
+  const deleting = createSignal<ReadonlySet<number>>(new Set());
   const menu = createSignal<CalendarMenu | null>(null);
   let selectDay: ((day: CalendarDate) => void) | null = null;
   const topZ = () => Math.max(0, ...windows.get().filter(win => !win.minimized).map(win => win.z));
@@ -139,7 +157,12 @@ function createCalendarView(flow: AppFlow) {
   function open(id: string, subject: CalendarSubject, keepOtherLists: boolean): void {
     const current = windows.get();
     if (current.some(win => win.id === id)) {
-      update(id, { minimized: false, z: topZ() + 1 });
+      const z = topZ() + 1;
+      windows.update(wins => wins.map(win => {
+        if (win.id !== id) return win;
+        if (win.kind === "event" && subject.kind === "event" && !win.editing) return { ...win, ...subject, minimized: false, z };
+        return { ...win, minimized: false, z };
+      }));
     } else {
       const others = keepOtherLists ? current : current.filter(win => win.kind === "event" || win.kind === "create");
       const inset = (others.length % 8) * 28;
@@ -169,6 +192,7 @@ function createCalendarView(flow: AppFlow) {
     windows: readonlySignal(windows),
     raised: readonlySignal(raised),
     replying: readonlySignal(replying),
+    deleting: readonlySignal(deleting),
     menu: readonlySignal(menu),
     topZ,
     setFilter(key: Filter, checked: boolean) { filters.update(current => ({ ...current, [key]: checked })); },
@@ -178,7 +202,26 @@ function createCalendarView(flow: AppFlow) {
     openAgenda(agendaKind: CalendarAgendaKind, keepOtherLists: boolean) {
       open(agendaKind, { kind: "agenda", agendaKind }, keepOtherLists);
     },
-    openEvent(event: CalendarEvent) { open(`event-${event.eventID}`, { kind: "event", event }, true); },
+    openEvent(event: CalendarEvent, editing = false) { open(`event-${event.eventID}`, { kind: "event", event, editing }, true); },
+    applyEventNotice(notice: CalendarEventNotice | null) {
+      if (notice?.kind === "removed") {
+        windows.update(rows => rows.filter(win => win.id !== `event-${notice.eventID}`));
+      } else if (notice?.kind === "edited") {
+        windows.update(rows => rows.map(win => win.kind === "event" && !win.editing
+          && win.event.eventID === notice.event.eventID && win.event.ownerID === notice.event.ownerID
+          ? { ...win, event: { ...win.event, ...notice.event } } : win));
+      }
+    },
+    async deleteEvent(event: CalendarEvent) {
+      const id = event.eventID;
+      if (deleting.get().has(id)) return;
+      deleting.update(ids => new Set([...ids, id]));
+      try {
+        if (await flow.deleteCalendarEvent(id, event.ownerID)) windows.update(wins => wins.filter(win => win.id !== `event-${id}`));
+      } finally {
+        deleting.update(ids => new Set([...ids].filter(one => one !== id)));
+      }
+    },
     newEvent(day: CalendarDate) {
       const now = flow.calendarNow();
       const today = calendarDate(new Date(now));

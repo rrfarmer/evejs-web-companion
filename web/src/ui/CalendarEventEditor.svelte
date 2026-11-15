@@ -1,19 +1,20 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import type { CharacterMatch } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { CALENDAR_DESCRIPTION_LIMIT, CALENDAR_INVITEE_LIMIT, CALENDAR_MONTH_RANGE, CALENDAR_TITLE_LIMIT,
-    type CalendarEventScope } from "../bridge/calendar.ts";
+    type CalendarEvent, type CalendarEventDraft, type CalendarEventScope } from "../bridge/calendar.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { hasChatManagerRole } from "../bridge/mail.ts";
-  import { mailMarkupOfTyped } from "../bridge/mailMarkup.ts";
+  import { mailBodyLines, mailMarkupOfTyped } from "../bridge/mailMarkup.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import CalendarInviteePicker from "./CalendarInviteePicker.svelte";
   import { calendarDate, calendarMonthOffset } from "./calendarSelection.ts";
+  import { CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, calendarEventScope, canManageCalendarEvent } from "./calendarView.ts";
 
-  let { flow, store, id, startsAt, close }: {
-    flow: AppFlow; store: ClientStore; id: string; startsAt: number; close: () => void;
+  let { flow, store, id, startsAt, existing = null, close }: {
+    flow: AppFlow; store: ClientStore; id: string; startsAt: number; existing?: CalendarEvent | null; close: () => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const { station, words, names } = store;
@@ -29,28 +30,39 @@
     alliance: "UI/Calendar/EventWindow/GroupAlliance", description: "UI/Calendar/EventWindow/TabDescription",
     invitations: "UI/Calendar/EventWindow/TabInvitations", add: "UI/Calendar/EventWindow/AddInvitee",
     remove: "UI/Calendar/EventWindow/RemoveInvitee", search: "UI/Common/Search",
-    none: "UI/Calendar/EventWindow/NoCharacter", undecided: "UI/Calendar/ResponseTypes/NotResponded",
-    create: "UI/Calendar/EventWindow/Create", cancel: "UI/Generic/Cancel", limit: "UI/Calendar/FindInviteesWindow/TooMany",
+    none: "UI/Calendar/EventWindow/NoCharacter",
+    create: "UI/Calendar/EventWindow/Create", save: "UI/Calendar/EventWindow/Save", cancel: "UI/Generic/Cancel", limit: "UI/Calendar/FindInviteesWindow/TooMany",
     required: "dialog:CalendarEventMustSpecifyTitle/body", past: "dialog:CalendarCannotPlanThePast/body",
     future: "dialog:CalendarTooFarIntoFuture/body",
   } as const;
   const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const timeOptions = Array.from({ length: 96 }, (_, quarter) =>
-    `${String(Math.floor(quarter / 4)).padStart(2, "0")}:${String(quarter % 4 * 15).padStart(2, "0")}`);
+  const timeLabel = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+  const minuteOfDay = initial.getUTCHours() * 60 + initial.getUTCMinutes();
+  const timeOptions = Array.from(new Set([...Array.from({ length: 96 }, (_, quarter) => quarter * 15), minuteOfDay])).sort((a, b) => a - b);
   const durations = Array.from({ length: 24 }, (_, index) => index + 1);
   const word = (key: string, fallback: string, values: Record<string, number> = {}): string =>
     plainText(formatTemplate($words.templates[key] ?? "", values, { nameOf: () => "" })) || fallback;
-  $effect(() => { flow.requestWords([...Object.values(FIELD), ...months.map(month => `UI/Common/Months/${month}`)]); });
+  $effect(() => { flow.requestWords([...Object.values(FIELD), ...months.map(month => `UI/Common/Months/${month}`),
+    ...CALENDAR_RESPONSES.map(([key]) => CALENDAR_RESPONSE_PATH + key)]); });
 
   const tabID = $props.id();
-  let title = $state(""), description = $state("");
+  // svelte-ignore state_referenced_locally
+  const original = existing;
+  let title = $state(original?.eventTitle ?? ""), description = $state("");
   let year = $state(initial.getUTCFullYear()), month = $state(initial.getUTCMonth()), day = $state(initial.getUTCDate());
-  let quarterHour = $state(initial.getUTCHours() * 4 + initial.getUTCMinutes() / 15);
-  let duration = $state<number | null>(null);
-  let important = $state(false);
-  let scope = $state<CalendarEventScope>("personal");
+  let minute = $state(minuteOfDay);
+  let duration = $state<number | null>(original?.eventDuration ?? null);
+  let important = $state((original?.importance ?? 0) > 0);
+  let scope = $state<CalendarEventScope>((original && calendarEventScope(original)) ?? "personal");
   let tab = $state<"description" | "invitations">("description");
-  let invitees = $state<readonly CharacterMatch[]>([]);
+  type Invitee = CharacterMatch & { status: number };
+  let invitees = $state<readonly Invitee[]>([]);
+  let savedInvitees: readonly number[] = [];
+  let savedTime = original?.eventDateTime ?? null;
+  let savedFields: Pick<CalendarEventDraft, "startsAt" | "title" | "description" | "duration" | "important"> | null = null;
+  let loadedMarkup: { text: string; markup: string } | null = $state(null);
+  let loading = $state(original !== null);
+  let unavailable = $state(false);
   let filter = $state("");
   let pickerOpen = $state(false);
   let addButton: HTMLButtonElement | undefined = $state();
@@ -67,12 +79,40 @@
   const ownerID = $derived(scope === "corporation" ? corporationID : scope === "alliance" ? allianceID : 0);
   $effect(() => { if (tab === "invitations" && ownerID) flow.requestNames([{ kind: "owner", id: ownerID }]); });
   const groupName = $derived(ownerID ? resolvedName($names.resolved, "owner", ownerID) : "");
-  const descriptionMarkup = $derived(mailMarkupOfTyped(description));
+  const descriptionMarkup = $derived(description === loadedMarkup?.text ? loadedMarkup.markup : mailMarkupOfTyped(description));
   const currentYear = $derived.by(() => new Date(flow.calendarNow()).getUTCFullYear());
   const dayCount = $derived(new Date(Date.UTC(year, month + 1, 0)).getUTCDate());
   const filterText = $derived(filter.trim().toLocaleLowerCase());
-  const shownInvitees = $derived(invitees.filter(pilot => filterText.length < 2 || pilot.name.toLocaleLowerCase().includes(filterText))
-    .sort((a, b) => a.name.localeCompare(b.name)));
+  const characterID = $derived($station.online?.characterID ?? null);
+  const inviteeGroups = $derived((original ? [4, 5, 3, 2] : [3]).map(status => ({
+    status, rows: invitees.filter(pilot => pilot.status === status).map(pilot => ({
+      ...pilot, name: pilot.name || resolvedName($names.resolved, "character", pilot.characterID),
+    })).filter(pilot => filterText.length < 2 || pilot.name.toLocaleLowerCase().includes(filterText))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  })));
+
+  onMount(() => {
+    if (!original) return;
+    let active = true;
+    void Promise.all([
+      flow.loadCalendarEvent(original.eventID, original.ownerID),
+      scope === "personal" ? flow.loadCalendarInvitees(original.eventID, original.ownerID) : [],
+    ]).then(([details, responses]) => {
+      if (!active) return;
+      if (!details) throw new Error("Event details could not be read.");
+      loadedMarkup = { markup: details.eventText, text: mailBodyLines(details.eventText).map(line => line.map(run => run.text).join("")).join("\n") };
+      description = loadedMarkup.text;
+      invitees = responses.filter(row => row.status >= 2).map(row => ({ ...row, name: "" }));
+      savedInvitees = invitees.filter(pilot => pilot.characterID !== characterID).map(row => row.characterID);
+      loading = false;
+    }).catch(cause => {
+      if (!active) return;
+      error = cause instanceof Error ? cause.message : "Event details could not be read.";
+      unavailable = true;
+      loading = false;
+    });
+    return () => { active = false; };
+  });
 
   function clampDay(nextYear: number, nextMonth: number): void {
     year = nextYear;
@@ -88,9 +128,9 @@
   function addInvitees(pilots: readonly CharacterMatch[]): void {
     const selected = new Map(invitees.map(pilot => [pilot.characterID, pilot]));
     for (const pilot of pilots) {
-      if (pilot.characterID !== $station.online?.characterID) selected.set(pilot.characterID, pilot);
+      if (pilot.characterID !== characterID && !selected.has(pilot.characterID)) selected.set(pilot.characterID, { ...pilot, status: 3 });
     }
-    if (selected.size > CALENDAR_INVITEE_LIMIT) {
+    if ([...selected.keys()].filter(id => id !== characterID).length > CALENDAR_INVITEE_LIMIT) {
       error = word(FIELD.limit, `You can invite up to ${CALENDAR_INVITEE_LIMIT} characters.`, { max: CALENDAR_INVITEE_LIMIT });
       return;
     }
@@ -106,33 +146,54 @@
     }
     if (!title.trim()) return word(FIELD.required, "Enter a title for the event.");
     if (descriptionMarkup.length > CALENDAR_DESCRIPTION_LIMIT) return `Keep the description within ${CALENDAR_DESCRIPTION_LIMIT} characters.`;
+    if (original && !canManageCalendarEvent({ ...original, eventDateTime: savedTime }, $station.online, now)) return "This event is no longer open for editing.";
     if (!choices.includes(scope)) return "Your current roles do not allow this event type.";
     return "";
   }
 
-  async function create(input: SubmitEvent): Promise<void> {
+  async function save(input: SubmitEvent): Promise<void> {
     input.preventDefault();
-    if (busy) return;
-    const at = Date.UTC(year, month, day, 0, quarterHour * 15);
+    if (busy || loading || unavailable || pickerOpen) return;
+    const at = Date.UTC(year, month, day, 0, minute);
     error = validation(at);
     if (error) return;
     busy = true;
+    const draft: CalendarEventDraft = {
+      scope, startsAt: at, duration, title, description: descriptionMarkup, important,
+      inviteeIDs: invitees.filter(pilot => pilot.characterID !== characterID).map(pilot => pilot.characterID),
+    };
     try {
-      const eventID = await flow.createCalendarEvent({
-        scope, startsAt: at, duration, title, description: descriptionMarkup, important,
-        inviteeIDs: invitees.map(pilot => pilot.characterID),
-      });
-      if (eventID !== null) close();
+      if (original && savedTime !== null) {
+        if (!savedFields || draft.startsAt !== savedFields.startsAt || draft.title !== savedFields.title ||
+            draft.description !== savedFields.description || draft.duration !== savedFields.duration || draft.important !== savedFields.important) {
+          const nextTime = await flow.editCalendarEvent(original.eventID, savedTime, draft);
+          if (nextTime === null) return;
+          savedTime = nextTime;
+          savedFields = draft;
+        }
+        if (scope === "personal") {
+          const added = draft.inviteeIDs.filter(id => !savedInvitees.includes(id));
+          const removed = savedInvitees.filter(id => !draft.inviteeIDs.includes(id));
+          if (!await flow.updateCalendarParticipants(original.eventID, added, removed)) {
+            error = "Event details were saved. Review the invitation changes to continue.";
+            return;
+          }
+        }
+        close();
+      } else if (await flow.createCalendarEvent(draft) !== null) {
+        close();
+      }
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : "The Calendar event could not be created.";
+      const detail = cause instanceof Error ? cause.message : "The Calendar event could not be saved.";
+      error = savedFields ? `Event details were saved. ${detail}` : detail;
     } finally {
       busy = false;
     }
   }
 </script>
 
-<form class="calendar-create" data-calendar-window={id} onsubmit={create} oninput={() => { if (!busy) error = ""; }}>
-  <fieldset disabled={busy || pickerOpen}>
+<form class="calendar-create" data-calendar-window={id} onsubmit={save} oninput={() => { if (!busy) error = ""; }}>
+  <fieldset disabled={busy || pickerOpen || loading || unavailable}>
     <label class="title">{word(FIELD.title, "Title")}
       <input name="calendar-title" maxlength={CALENDAR_TITLE_LIMIT} bind:value={title} />
     </label>
@@ -153,13 +214,16 @@
         </select>
       </label>
       <label>{word(FIELD.time, "Time")}
-        <select bind:value={quarterHour}>
-          {#each timeOptions as time, index (time)}<option value={index}>{time}</option>{/each}
+        <select bind:value={minute}>
+          {#each timeOptions as time (time)}<option value={time}>{timeLabel(time)}</option>{/each}
         </select>
       </label>
       <label>{word(FIELD.duration, "Duration")}
         <select bind:value={duration}>
           <option value={null}>{word(FIELD.unspecified, "Not specified")}</option>
+          {#if original?.eventDuration != null && (original.eventDuration % 60 !== 0 || original.eventDuration < 60 || original.eventDuration > 1440)}
+            <option value={original.eventDuration}>{original.eventDuration} min</option>
+          {/if}
           {#each durations as hours (hours)}
             <option value={hours * 60}>{word(FIELD.hours, hours === 1 ? "1 hour" : `${hours} hours`, { hours })}</option>
           {/each}
@@ -167,14 +231,18 @@
       </label>
     </div>
     <label class="check"><input type="checkbox" bind:checked={important} /> {word(FIELD.important, "Important")}</label>
-    <div class="event-types" role="group" aria-label={word(FIELD.type, "Event Type")}>
-      {#each choices as choice (choice)}
-        <label class="check">
-          <input type="radio" name={`${tabID}-scope`} value={choice} bind:group={scope} />
-          {word(FIELD[choice], choice[0]!.toUpperCase() + choice.slice(1))}
-        </label>
-      {/each}
-    </div>
+    {#if original}
+      <div><b>{word(FIELD.type, "Event Type")}</b> {word(FIELD[scope], scope)}</div>
+    {:else}
+      <div class="event-types" role="group" aria-label={word(FIELD.type, "Event Type")}>
+        {#each choices as choice (choice)}
+          <label class="check">
+            <input type="radio" name={`${tabID}-scope`} value={choice} bind:group={scope} />
+            {word(FIELD[choice], choice[0]!.toUpperCase() + choice.slice(1))}
+          </label>
+        {/each}
+      </div>
+    {/if}
   </fieldset>
   <div class="calendar-create-tabs" role="tablist" aria-label={word(FIELD.type, "Event")} inert={pickerOpen}>
     <button type="button" role="tab" id={`${tabID}-description`} aria-controls={`${tabID}-panel`}
@@ -183,27 +251,34 @@
       aria-selected={tab === "invitations"} onclick={() => (tab = "invitations")}>{word(FIELD.invitations, "Invitations")}</button>
   </div>
   <div class="create-panel" role="tabpanel" id={`${tabID}-panel`} aria-labelledby={`${tabID}-${tab}`} inert={pickerOpen}>
-    {#if tab === "description"}
-      <textarea aria-label={word(FIELD.description, "Description")} maxlength={CALENDAR_DESCRIPTION_LIMIT} disabled={busy} bind:value={description}></textarea>
+    {#if loading}
+      <p role="status">Loading…</p>
+    {:else if tab === "description"}
+      <textarea aria-label={word(FIELD.description, "Description")} maxlength={CALENDAR_DESCRIPTION_LIMIT} disabled={busy || unavailable} bind:value={description}></textarea>
       <small class:over-limit={descriptionMarkup.length > CALENDAR_DESCRIPTION_LIMIT}>{descriptionMarkup.length}/{CALENDAR_DESCRIPTION_LIMIT}</small>
     {:else if scope === "personal"}
       <div class="invite-toolbar">
-        <button type="button" bind:this={addButton} disabled={busy} onclick={() => (pickerOpen = true)}>{word(FIELD.add, "Add Invitee")}</button>
+        <button type="button" bind:this={addButton} disabled={busy || unavailable} onclick={() => (pickerOpen = true)}>{word(FIELD.add, "Add Invitee")}</button>
         <input type="search" bind:value={filter} aria-label={word(FIELD.search, "Search")} placeholder={word(FIELD.search, "Search")} />
       </div>
       <div class="invite-list">
-        <details open>
-          <summary><img src="/client-res/ui/texture/icons/38_16_177.png" width="16" height="16" alt="" />{word(FIELD.undecided, "Not Responded")} ({shownInvitees.length})</summary>
-          {#each shownInvitees as pilot (pilot.characterID)}
-            <div class="invite-row">
-              <span>{pilot.name}</span>
-              <button type="button" disabled={busy} aria-label={`Remove ${pilot.name}`}
-                onclick={() => { invitees = invitees.filter(row => row.characterID !== pilot.characterID); }}>
-                {word(FIELD.remove, "Remove Invitee", { num: 1 })}
-              </button>
-            </div>
-          {:else}<p>{word(FIELD.none, "No characters")}</p>{/each}
-        </details>
+        {#each inviteeGroups as group (group.status)}
+          {@const [key, fallback, icon] = CALENDAR_RESPONSES[group.status] ?? CALENDAR_RESPONSES[3]}
+          <details open={!original}>
+            <summary><img src={`/client-res/ui/texture/icons/38_16_${icon}.png`} width="16" height="16" alt="" />{word(CALENDAR_RESPONSE_PATH + key, fallback)} ({group.rows.length})</summary>
+            {#each group.rows as pilot (pilot.characterID)}
+              <div class="invite-row">
+                <span>{pilot.name}</span>
+                {#if pilot.characterID !== characterID}
+                  <button type="button" disabled={busy} aria-label={`Remove ${pilot.name}`}
+                    onclick={() => { invitees = invitees.filter(row => row.characterID !== pilot.characterID); }}>
+                    {word(FIELD.remove, "Remove Invitee", { num: 1 })}
+                  </button>
+                {/if}
+              </div>
+            {:else}<p>{word(FIELD.none, "No characters")}</p>{/each}
+          </details>
+        {/each}
       </div>
     {:else}
       <p>{groupName}</p>
@@ -211,7 +286,7 @@
   </div>
   {#if error}<p role="alert">{error}</p>{/if}
   <footer inert={pickerOpen}>
-    <button type="submit" disabled={busy || pickerOpen}>{word(FIELD.create, "Create")}</button>
+    <button type="submit" disabled={busy || pickerOpen || loading || unavailable}>{original ? word(FIELD.save, "Save") : word(FIELD.create, "Create")}</button>
     <button type="button" disabled={busy} onclick={close}>{word(FIELD.cancel, "Cancel")}</button>
   </footer>
   {#if pickerOpen}<CalendarInviteePicker {flow} {store} added={invitees} add={addInvitees} close={closePicker} />{/if}

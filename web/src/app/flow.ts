@@ -195,9 +195,10 @@ import {
   decodeActivityCalendar,
   decodeActivityNotifications,
 } from "../bridge/activity.ts";
-import { CALENDAR_CREATE_METHODS, calendarCreateArgs, calendarCreatedID, decodeEventDetails, decodeEventList,
+import { CALENDAR_CREATE_METHODS, CALENDAR_EDIT_METHODS, calendarCreateArgs, calendarCreatedID, calendarEditArgs,
+  calendarEditedTime, calendarEventNotice, calendarInviteeArg, decodeEventDetails, decodeEventList,
   decodeResponsesForCharacter, decodeResponsesToEvent, type CalendarAgenda, type CalendarEvent,
-  type CalendarEventDraft, type CalendarReply, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
+  type CalendarEventDraft, type CalendarEventNotice, type CalendarReply, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
 import {
   contractRefusalMessage,
   decodeContractDetail,
@@ -2536,11 +2537,15 @@ export interface AppFlow {
   loadCalendarMonth(month: number, year: number): Promise<readonly CalendarEvent[]>;
   loadCalendarAgenda(): Promise<CalendarAgenda>;
   readonly calendarUpdated: ReadableSignal<number>;
+  readonly calendarEventChanged: ReadableSignal<CalendarEventNotice | null>;
   loadCalendarEvent(eventID: number, ownerID: number): Promise<EventDetails | null>;
   loadCalendarInvitees(eventID: number, ownerID: number): Promise<readonly EventResponse[]>;
   calendarNow(): number;
   reportCalendarPastDay(): void;
   createCalendarEvent(draft: CalendarEventDraft): Promise<number | null>;
+  editCalendarEvent(eventID: number, oldTime: bigint, draft: CalendarEventDraft): Promise<bigint | null>;
+  updateCalendarParticipants(eventID: number, added: readonly number[], removed: readonly number[]): Promise<boolean>;
+  deleteCalendarEvent(eventID: number, ownerID: number): Promise<boolean>;
   respondToCalendarEvent(eventID: number, ownerID: number, reply: CalendarReply): Promise<void>;
   /** Refresh current-system scan sites and the probes' state. */
   loadScanner(): Promise<void>;
@@ -6891,6 +6896,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     directTrades.receive(method, args);
     if (method && OVERVIEW_CONTACT_NOTIFICATIONS.has(method)) contactStandingsChangedSignal.update(n => n + 1);
     if (method === "OnNewCalendarEvent" || method === "OnEditCalendarEvent" || method === "OnRemoveCalendarEvent" || method === "OnEventResponseByExternal") {
+      const change = calendarEventNotice(method, args, serverNow());
+      if (change) calendarEventChangedSignal.set(change);
       calendarUpdatedSignal.update(n => n + 1);
     }
     if (method === "OnLockedItemChange") inventoryMoves.invalidate(Number(args[2]));
@@ -10813,6 +10820,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // --- Activity Center -----------------------------------------------------
 
   const calendarUpdatedSignal = createSignal(0);
+  const calendarEventChangedSignal = createSignal<CalendarEventNotice | null>(null);
 
   function calendarAgendaMonths(nowMs: number): readonly [readonly [number, number], readonly [number, number]] {
     const now = new Date(nowMs);
@@ -10851,15 +10859,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return rows;
   }
 
-  async function createCalendarEvent(draft: CalendarEventDraft): Promise<number | null> {
-    const method = CALENDAR_CREATE_METHODS[draft.scope];
-    const args = calendarCreateArgs(draft);
+  async function writeCalendarWithInvitations(method: string, args: JsonValue[], sendsInvitations: boolean): Promise<{ value: JsonValue } | null> {
+    const current = callOptions.captureRequestGuard?.();
     try {
       try {
-        return calendarCreatedID(await bridgeDo("calendarMgr", method, args));
+        return { value: await bridgeDo("calendarMgr", method, args) };
       } catch (error) {
         const refusal = refusalDialogOf(error);
-        if (draft.scope !== "personal" || !draft.inviteeIDs.length || refusal?.dialog !== "ContactCostNotApproved") throw error;
+        if (!sendsInvitations || refusal?.dialog !== "ContactCostNotApproved") throw error;
         const amount = readDictEntry(refusal.values, "totalCost");
         const cost = unwrapReal(amount) ?? Number(unwrapLong(amount));
         if (!Number.isFinite(cost) || cost <= 0) throw error;
@@ -10867,8 +10874,46 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           ["amount", amount ?? cost], ["amountISK", readDictEntry(refusal.values, "totalCostISK") ?? `${cost.toLocaleString()} ISK`],
         ] };
         if (!await askDialog("CSPACalendarCheck", askValues, `Pay ${cost.toLocaleString()} ISK to send the Calendar invitations?`)) return null;
-        return calendarCreatedID(await bridgeDo("calendarMgr", method, args, { approvedCost: cost }));
+        current?.();
+        return { value: await bridgeDo("calendarMgr", method, args, { approvedCost: cost }) };
       }
+    } finally {
+      calendarUpdatedSignal.update(n => n + 1);
+    }
+  }
+
+  async function createCalendarEvent(draft: CalendarEventDraft): Promise<number | null> {
+    const result = await writeCalendarWithInvitations(CALENDAR_CREATE_METHODS[draft.scope], calendarCreateArgs(draft),
+      draft.scope === "personal" && draft.inviteeIDs.length > 0);
+    return result && calendarCreatedID(result.value);
+  }
+
+  async function editCalendarEvent(eventID: number, oldTime: bigint, draft: CalendarEventDraft): Promise<bigint | null> {
+    const nextTime = calendarEditedTime(oldTime, draft.startsAt);
+    const current = callOptions.captureRequestGuard?.();
+    if (nextTime !== oldTime && !await askDialog("CalendarEventEditDate", null, "Changing the start time will reset attendees’ replies. Continue?")) return null;
+    current?.();
+    try {
+      await bridgeDo("calendarMgr", CALENDAR_EDIT_METHODS[draft.scope], calendarEditArgs(eventID, oldTime, nextTime, draft));
+      return nextTime;
+    } finally {
+      calendarUpdatedSignal.update(n => n + 1);
+    }
+  }
+
+  async function updateCalendarParticipants(eventID: number, added: readonly number[], removed: readonly number[]): Promise<boolean> {
+    if (!added.length && !removed.length) return true;
+    return await writeCalendarWithInvitations("UpdateEventParticipants", [eventID, calendarInviteeArg(added), calendarInviteeArg(removed)], added.length > 0) !== null;
+  }
+
+  async function deleteCalendarEvent(eventID: number, ownerID: number): Promise<boolean> {
+    const current = callOptions.captureRequestGuard?.();
+    if (!await askDialog("CalendarDeleteEvent", null, "Cancel this Calendar event?")) return false;
+    current?.();
+    try {
+      await bridgeDo("calendarMgr", "DeleteEvent", [eventID, ownerID]);
+      calendarEventChangedSignal.set({ kind: "removed", eventID });
+      return true;
     } finally {
       calendarUpdatedSignal.update(n => n + 1);
     }
@@ -34724,11 +34769,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadCalendarMonth,
     loadCalendarAgenda,
     calendarUpdated: readonlySignal(calendarUpdatedSignal),
+    calendarEventChanged: readonlySignal(calendarEventChangedSignal),
     loadCalendarEvent,
     loadCalendarInvitees,
     calendarNow: serverNow,
     reportCalendarPastDay: () => sayDialog("CalendarCannotPlanThePast2", null, "You cannot plan events in the past."),
     createCalendarEvent,
+    editCalendarEvent,
+    updateCalendarParticipants,
+    deleteCalendarEvent,
     respondToCalendarEvent,
     loadScanner,
     launchScannerProbes,

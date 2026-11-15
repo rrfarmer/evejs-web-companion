@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createAppFlow } from "./flow.ts";
+import type { AppFlow } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
 import { mailMarkupOfTyped } from "../bridge/mailMarkup.ts";
 import type { BridgeCallRequestBody } from "../bridge/wire.ts";
@@ -11,6 +12,15 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+async function answerCalendarDialog(flow: AppFlow, key: string, yes: boolean): Promise<void> {
+  for (let i = 0; i < 20 && flow.dialogsSaid.get().length === 0; ++i) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  const question = flow.dialogsSaid.get()[0];
+  assert.equal(question?.dialog, key);
+  flow.answerDialog(question!.n, yes);
 }
 
 /** What the generic call answers, by the service asked: nothing of each, in the form the server answers in. */
@@ -211,20 +221,55 @@ test("the Calendar only retries a charged invitation when the organizer accepts 
     scope: "personal", startsAt: Date.UTC(2026, 10, 17, 12), title: "Drill", description: "",
     duration: null, important: false, inviteeIDs: [140_000_001],
   });
-  async function answer(yes: boolean): Promise<void> {
-    for (let i = 0; i < 20 && flow.dialogsSaid.get().length === 0; ++i) {
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    const question = flow.dialogsSaid.get()[0];
-    assert.equal(question?.dialog, "CSPACalendarCheck");
-    flow.answerDialog(question!.n, yes);
-  }
   const declined = send();
-  await answer(false);
+  await answerCalendarDialog(flow, "CSPACalendarCheck", false);
   assert.equal(await declined, null);
   assert.deepEqual(calls.map(kwargs => kwargs ?? null), [null]);
   const approved = send();
-  await answer(true);
+  await answerCalendarDialog(flow, "CSPACalendarCheck", true);
   assert.equal(await approved, 17);
   assert.deepEqual(calls.map(kwargs => kwargs ?? null), [null, null, { approvedCost: 50 }]);
+});
+
+test("Calendar rescheduling and cancellation use native confirmation and exact event identifiers", async () => {
+  const calls: BridgeCallRequestBody[] = [];
+  const fetch: typeof globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as BridgeCallRequestBody;
+    calls.push(body);
+    return json({ ok: true, service: body.service, method: body.method, result: null });
+  };
+  const flow = createAppFlow(createClientStore(), { fetch });
+  const eventID = 980000000033;
+  const original = Date.UTC(2026, 10, 17, 12);
+  const filetime = (ms: number) => BigInt(ms) * 10_000n + 116444736000000000n;
+  const preciseOld = filetime(original) + 3n;
+  const draft = { scope: "alliance" as const, startsAt: original, title: "Edited", description: "", duration: 45,
+    important: true, inviteeIDs: [] };
+  assert.equal(await flow.editCalendarEvent(eventID, preciseOld, draft), preciseOld);
+  assert.equal(flow.dialogsSaid.get().length, 0);
+  assert.deepEqual(calls[0]?.args, [eventID, { type: "long", value: String(preciseOld) },
+    { type: "long", value: String(preciseOld) }, 45, { type: "wstring", value: "Edited" }, "", 1]);
+  const moved = { ...draft, startsAt: original + 15 * 60_000 };
+  const edit = () => flow.editCalendarEvent(eventID, preciseOld, moved);
+  const declined = edit();
+  await answerCalendarDialog(flow, "CalendarEventEditDate", false);
+  assert.equal(await declined, null);
+  assert.equal(calls.length, 1);
+  const accepted = edit();
+  await answerCalendarDialog(flow, "CalendarEventEditDate", true);
+  assert.equal(await accepted, filetime(moved.startsAt));
+  assert.deepEqual(calls[1]?.args?.slice(0, 3), [eventID, { type: "long", value: String(preciseOld) },
+    { type: "long", value: String(filetime(moved.startsAt)) }]);
+
+  assert.equal(await flow.updateCalendarParticipants(eventID, [140000001], [140000003]), true);
+  const canceled = flow.deleteCalendarEvent(eventID, 99000001);
+  await answerCalendarDialog(flow, "CalendarDeleteEvent", true);
+  assert.equal(await canceled, true);
+  assert.deepEqual(calls.map(({ method, pilot, confirm }) => [method, pilot, confirm]), [
+    ["EditAllianceEvent", true, true], ["EditAllianceEvent", true, true],
+    ["UpdateEventParticipants", true, true], ["DeleteEvent", true, true],
+  ]);
+  assert.deepEqual(calls[2]?.args, [eventID, { type: "list", items: [140000001] }, { type: "list", items: [140000003] }]);
+  assert.deepEqual(calls[3]?.args, [eventID, 99000001]);
+  assert.deepEqual(flow.calendarEventChanged.get(), { kind: "removed", eventID });
 });

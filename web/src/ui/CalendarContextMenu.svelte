@@ -5,7 +5,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { calendarDate, calendarDayStart } from "./calendarSelection.ts";
-  import { CALENDAR_REPLY_CHOICES, calendarCaption, calendarReplyChoices, calendarResponses, calendarView, type CalendarMenu } from "./calendarView.ts";
+  import { CALENDAR_REPLY_CHOICES, calendarCaption, calendarReplyChoices, calendarResponses, calendarView, canManageCalendarEvent, type CalendarMenu } from "./calendarView.ts";
   import { notify } from "./notices.ts";
   import { portal } from "./portal.ts";
 
@@ -14,8 +14,10 @@
   const { station, words } = store;
   // svelte-ignore state_referenced_locally
   const model = calendarView(flow);
-  const { agenda, replying } = model;
+  const { agenda, replying, deleting } = model;
   const viewEvent = "/Carbon/UI/Calendar/ViewEvent";
+  const editEvent = "/Carbon/UI/Calendar/EditEvent";
+  const deleteEvent = "/Carbon/UI/Calendar/DeleteEvent";
   const goToDay = "/Carbon/UI/Calendar/GotoDay";
   const createEvent = "/Carbon/UI/Calendar/CreateNewEvent";
   const viewDay = "/Carbon/UI/Calendar/ViewDay";
@@ -28,11 +30,12 @@
   const response = $derived(event ? calendarResponses($agenda).get(event.eventID) ?? row?.response ?? 3 : 3);
   const characterID = $derived($station.online?.characterID ?? null);
   const replies = $derived(event ? calendarReplyChoices(event, characterID, response, flow.calendarNow(), true) : []);
+  const manage = $derived(event !== null && canManageCalendarEvent(event, $station.online, flow.calendarNow()));
 
   let popup: HTMLDivElement | undefined = $state();
   let x = $state(0), y = $state(0);
   $effect(() => {
-    flow.requestWords([viewEvent, goToDay, createEvent, viewDay, ...CALENDAR_REPLY_CHOICES.map(([, key]) => key)]);
+    flow.requestWords([viewEvent, editEvent, deleteEvent, goToDay, createEvent, viewDay, ...CALENDAR_REPLY_CHOICES.map(([, key]) => key)]);
   });
   $effect(() => {
     const { x: left, y: top } = menu;
@@ -95,10 +98,21 @@
     }
   }
 
-  function openEvent(): void {
+  function openEvent(edit = false): void {
     const invitation = event;
     dismiss();
-    if (invitation) model.openEvent(invitation);
+    if (invitation) model.openEvent(invitation, edit);
+  }
+
+  async function removeEvent(): Promise<void> {
+    const invitation = event;
+    dismiss(true);
+    if (!invitation) return;
+    try {
+      await model.deleteEvent(invitation);
+    } catch (error) {
+      notify({ kind: "danger", title: "Calendar", detail: error instanceof Error ? error.message : "The Calendar event could not be canceled." });
+    }
   }
 
   function jump(): void {
@@ -120,7 +134,10 @@
 <div class="hull-menu calendar-context-menu" role="menu" aria-label={event?.eventTitle ?? (day && calendarCaption(day)) ?? "Calendar"} tabindex="-1"
   use:portal bind:this={popup} style:left={`${x}px`} style:top={`${y}px`} onkeydown={navigate}>
   {#if event && menu.kind === "event"}
-    <button type="button" role="menuitem" tabindex="-1" onclick={openEvent}>{word(viewEvent, "View Event")}</button>
+    <button type="button" role="menuitem" tabindex="-1" onclick={() => openEvent()}>{word(viewEvent, "View Event")}</button>
+    {#if manage}
+      <button type="button" role="menuitem" tabindex="-1" disabled={$deleting.has(event.eventID)} onclick={() => openEvent(true)}>{word(editEvent, "Edit Event")}</button>
+    {/if}
     {#if replies.length}
       <hr />
       {#each replies as [status, key, fallback] (status)}
@@ -130,6 +147,10 @@
     {#if menu.allowJump && !event.isDeleted && response !== 1}
       <hr />
       <button type="button" role="menuitem" tabindex="-1" onclick={jump}>{word(goToDay, "Go to Day")}</button>
+    {/if}
+    {#if manage}
+      <hr />
+      <button type="button" role="menuitem" tabindex="-1" disabled={$deleting.has(event.eventID)} onclick={removeEvent}>{word(deleteEvent, "Delete Event")}</button>
     {/if}
   {:else if day}
     {#if canCreate}<button type="button" role="menuitem" tabindex="-1" onclick={() => openDay(true, false)}>{word(createEvent, "Create New Event")}</button>{/if}
