@@ -48,6 +48,7 @@
   import { jobBoardRequests } from "./jobBoardRequests.ts";
   import { agencyRequests } from "./agencyRequests.ts";
   import { skillPlanCareerRequests } from "./skillPlanCareerRequests.ts";
+  import { skillPlanTemplateTarget } from "./skillPlanTemplate.ts";
   import { achievementRequest } from "./achievementRequests.ts";
   import { locationSearchRequests } from "./locationSearchRequests.ts";
   import { notify } from "./notices.ts";
@@ -314,6 +315,14 @@
   $effect(() => agencyRequests.subscribe((request) => { if (request) open("finder"); }));
   $effect(() => achievementRequest.subscribe(id => { if (id) open("achievements"); }));
   $effect(() => skillPlanCareerRequests.subscribe((request) => { if (request) open("skills"); }));
+  const skillPlanRequests = skillPlanTemplateTarget.requests;
+  let servedSkillPlanRequests = skillPlanRequests.get();
+  $effect(() => {
+    const count = $skillPlanRequests;
+    if (count === servedSkillPlanRequests) return;
+    servedSkillPlanRequests = count;
+    open("skills");
+  });
 
   // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with
   // its window icons): those the play mode has a window for.

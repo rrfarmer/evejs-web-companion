@@ -19,7 +19,7 @@ import { decodeShipBays, decodeShipBaysChecked } from "../bridge/shipBays.ts";
 import { CARGO_HOLD, SHIP_HOLDS, SHIP_HOLD_ATTRIBUTES, trackedShipHolds } from "../bridge/shipHolds.ts";
 import { decodeShipFighters, squadronsByTube } from "../bridge/shipFighters.ts";
 import { evaluateFit, PYTHON_EFFECT_ATTRIBUTES, usedWithTypeIDs, WARNING_TYPE_LISTS } from "../bridge/dogma/fittingWarnings.ts";
-import { fittingSkillWarning, type FittingSkillWarning } from "../bridge/fittingSkills.ts";
+import { fittingSkillWarning, type FittingSkillRequirements, type FittingSkillWarning } from "../bridge/fittingSkills.ts";
 import { FREIGHT_BAYS, planLootTransfers } from "../bridge/bayRouting.ts";
 import { holdFreeM3 } from "../bridge/holdFit.ts";
 import { dispatchSupportCollectionAction } from "./supportCollectionFlow.ts";
@@ -4664,7 +4664,7 @@ export interface AppFlow {
    * (AddMissingSkillRequirements: RequiredSkillRow), each skill at its level with its mark and its skill bar; and its
    * training time and action (AddTrainingTime, AddSkillActionForList), null where there is no time to train.
    */
-  fittingSkillTooltip(warning: FittingSkillWarning): Promise<{ readonly rows: readonly SkillsRequiredRow[]; readonly training: SkillTrainingRecord | null }>;
+  fittingSkillTooltip(requirements: FittingSkillRequirements): Promise<{ readonly rows: readonly SkillsRequiredRow[]; readonly training: SkillTrainingRecord | null }>;
   /** A skill action's Train Skills, Buy and Train, and apply-points button, of a record not the skill window's. */
   trainSkillsFor(record: SkillTrainingRecord): Promise<void>;
   buySkillsFor(record: SkillTrainingRecord): Promise<void>;
@@ -12252,11 +12252,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     };
   }
 
-  async function fittingSkillTooltip(warning: FittingSkillWarning): Promise<{ readonly rows: readonly SkillsRequiredRow[]; readonly training: SkillTrainingRecord | null }> {
+  async function fittingSkillTooltip(requirements: FittingSkillRequirements): Promise<{ readonly rows: readonly SkillsRequiredRow[]; readonly training: SkillTrainingRecord | null }> {
     const held = pilotSkillsHeld;
-    const shown = [...warning.fit, ...warning.cargo];
-    if (held === null || (shown.length === 0 && warning.listed.length === 0)) return { rows: [], training: null };
-    const skills = [...new Set([...shown, ...warning.listed].map(([skill]) => skill))];
+    const shown = [...requirements.fit, ...requirements.cargo];
+    const { listed, missingBooks } = requirements;
+    if (held === null || (shown.length === 0 && listed.length === 0)) return { rows: [], training: null };
+    const skills = [...new Set([...shown, ...listed].map(([skill]) => skill))];
     const skillTypes = [...new Set(skills.flatMap((skill) => [skill, ...requiredSkillsRecursive(skill, requiredSkillsKept).keys()]))];
     const lists: Record<number, readonly number[]> = {};
     const [facts, prices] = await Promise.all([
@@ -12272,7 +12273,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const rows = shown.map(([skill, level]) => requiredSkillRow(skill, level, requiredSkillsKept, facts, sold(skill)));
     // After the rows: the time to train the list (GetSkillTrainingTimeLeftForTypesAndLevels, boosters left out); none
     // and the tooltip ends there.
-    const { listed, missingBooks } = warning;
     const ticks = trainingTimeForSkills(listed, facts.mine, facts.lapsed, { rank: facts.rank, rate: facts.rate, pointsNow: facts.pointsNow });
     if (ticks === null || ticks <= 0) return { rows, training: null };
     // ItemObject(skill).NeedsOmegaUpgrade of any listed (its level trained or queued: MySkillLevelIncludingQueued).
