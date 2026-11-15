@@ -140,6 +140,7 @@ export interface SpaceActions {
   dock(itemID: number): Promise<void>;
   /** scanMgr.ConeScan(angle, range, x, y, z): the directional scanner's call, where the page can make it. */
   coneScan?(angle: number, range: number, x: number, y: number, z: number): Promise<unknown>;
+  dscanHologramTypes?(ids: readonly number[]): Promise<Record<string, number>>;
   /** The install's words for a label, filled with its arguments; null where they are not had yet. */
   word?(label: string, args?: Readonly<Record<string, string | number>>): string | null;
   /** cfg.evelocations.Prime: the locations' names asked for (config.GetMultiLocationsEx). */
@@ -634,6 +635,7 @@ export class SpaceView {
       resultMenu: (siteID) => this.actions.resultMenu?.(siteID) ?? [],
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
       aimSpaceCamera: (direction) => this.aimSpaceCamera(direction),
+      hologramTypes: this.actions.dscanHologramTypes,
       scanShortcutHeld: () => this.dscanKey !== null,
       scanTowards: (position) => this.scanTowards(position),
       selectCelestial: () => this.dscan?.setCameraMode(false),
@@ -665,7 +667,9 @@ export class SpaceView {
         presets: () => this.overview?.presetList() ?? [],
         maxRangeMetres: () => this.actions.shipAttribute?.(5796) ?? null,
         openMap: () => this.systemMap?.toggle(),
-        scanned: () => this.systemMap?.scanEffect(),
+        scanStarted: () => this.systemMap?.scanStarted(),
+        scanned: (result) => this.systemMap?.scanEffect(result),
+        hoverResult: (typeID) => this.systemMap?.hoverScanResult(typeID),
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
       this.raiseOnClick(this.dscan.window.root);

@@ -575,6 +575,7 @@ function parseArgs(argv) {
     else if (a === "--fx") out.fx.push(argv[++i]);
     else if (a === "--star-map") out.starMap = true;
     else if (a === "--fitting-scene") out.fittingScene = true;
+    else if (a === "--dscan-hologram") out.dscanHologram = true;
     else if (a === "--ship-info") out.shipInfo = true;
     else if (a === "--effect") out.effects.push(argv[++i]);
     else if (a === "--missile") out.missiles.push(Number(argv[++i]));
@@ -801,6 +802,13 @@ async function main() {
     fs.writeFileSync(path.join(outRoot, "sofMaterials.json"), JSON.stringify(map));
     console.log(`sofMaterials.json: ${Object.keys(map).length} materials`);
   }
+  if (args.dscanHologram) {
+    const area = loadSof(rf).data.generic?.variants?.find((variant) => variant.name === "dscan_hologram")?.hullArea;
+    if (!area || area.shader !== "fx/fx3dv5.fx") throw new Error("The client's dscan_hologram area is unavailable");
+    const textures = Object.fromEntries(area.textures.map(({ name, resFilePath }) => [name, copyRes(rf, resFilePath, outRoot)]));
+    const parameters = Object.fromEntries(area.parameters.map(({ name, value }) => [name, value]));
+    fs.writeFileSync(path.join(outRoot, "dscanHologram.json"), JSON.stringify({ textures, parameters }));
+  }
   if (args.ammoColors) {
     if (!sde) throw new Error("--ammo-colors needs the SDE (--sde, or a config.json that names it)");
     const map = ammoColors(rf, client, sde, REPO);
@@ -826,7 +834,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
+  if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.dscanHologram && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {

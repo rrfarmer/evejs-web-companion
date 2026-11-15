@@ -22,7 +22,7 @@
   import { marketDetailsTarget } from "./marketDetails.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
-  import { bridgeDo, corpTickers } from "../app/api.ts";
+  import { bridgeDo, corpTickers, getDscanHologramTypes } from "../app/api.ts";
   import { StarMap } from "../play/starMap.ts";
   import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
@@ -919,6 +919,7 @@
       },
       // directionalScanSvc.DirectionalScan: scanMgr.ConeScan(scanAngle, scanRange, *direction).
       coneScan: (angle, range, x, y, z) => act("scanMgr", "ConeScan", [angle, range, x, y, z]),
+      dscanHologramTypes: (ids) => getDscanHologramTypes(ids, s.flow.requestOptions()),
       probes: () => {
         const operations = s.store.scanner.get().operations;
         return operations.status === "ready" ? operations.value.probes : [];

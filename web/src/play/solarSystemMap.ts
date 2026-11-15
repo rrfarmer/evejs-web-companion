@@ -92,6 +92,8 @@
 import * as THREE from "three";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bracketIcon } from "./brackets.ts";
+import { ScanHolograms } from "./scanHologram.ts";
+import type { DScanResult } from "./dscan.ts";
 
 export const SOLARSYSTEM_SCALE = 1e-10;
 const MIN_DISTANCE = 0.5;
@@ -103,6 +105,7 @@ const GROUP_SUN = 6;
 const GROUP_PLANET = 7;
 const GROUP_MOON = 8;
 const GROUP_STARGATE = 10;
+type ScanMarker = { at: THREE.Vector3; el: HTMLDivElement; partial?: boolean };
 /** mapViewConst.VIEWMODE_MARKERS_OPTIONS_DEFAULT (inventorycommon const). */
 export const MARKER_GROUPS: ReadonlySet<number> = new Set([7, 8, 15, 9, 310, 2020, 10, 6, 1657, 1404, 1406]);
 
@@ -124,6 +127,7 @@ export interface SolarSystemMapHooks {
   /** The directional scan's angle and range, where its window is, the way it looks (EVE's coordinates) and whether
    * its cone is shown; null without a scanner. */
   dscanCone?(): { angleDeg: number; rangeMetres: number; direction: { x: number; y: number; z: number }; shown: boolean; cameraMode?: boolean } | null;
+  hologramTypes?(ids: readonly number[]): Promise<Record<string, number>>;
   /** AlignSpaceCameraToViewVector: the space camera turned to look along the direction (the map's / space view's axes). */
   aimSpaceCamera?(direction: THREE.Vector3): void;
   scanShortcutHeld?(): boolean;
@@ -296,6 +300,7 @@ export class SolarSystemMapWindow {
   private readonly dot = dotTexture();
   private readonly markersLayer = document.createElement("div");
   private readonly coneGroup = new THREE.Group();
+  private readonly holograms: ScanHolograms;
   private readonly probeGroup = new THREE.Group();
   private probeObjects = new Map<number, { sphere: THREE.Mesh; marker: THREE.Sprite; line: THREE.Line; range: number }>();
   private readonly cursorGroup = new THREE.Group();
@@ -308,7 +313,7 @@ export class SolarSystemMapWindow {
   private readonly intersectionGroup = new THREE.Group();
   private readonly resultGroup = new THREE.Group();
   private resultsFor = "";
-  private resultMarkers: { at: THREE.Vector3; el: HTMLDivElement }[] = [];
+  private resultMarkers: ScanMarker[] = [];
   private resultDashes: THREE.LineDashedMaterial[] = [];
   /** Each result's certainty as last drawn, to see one turn perfect (OnClientEvent_PerfectScanResultReached). */
   private lastCertainty = new Map<string, number>();
@@ -354,7 +359,7 @@ export class SolarSystemMapWindow {
   scanEffectInfo = { phase: 0, flash: 0, sweep: 0, brightness: 0 };
   /** What the scan shape is now, for checks: "cone" / "half" / "sphere", its rings, and its size in map units. */
   coneInfo = { kind: "none", rings: 0, length: 0, radius: 0 };
-  private markers: { itemID: number; at: THREE.Vector3; el: HTMLDivElement }[] = [];
+  private markers: (ScanMarker & { itemID: number })[] = [];
   private yaw = 0.6;
   /** mapCamera's pitch: 0.01 from straight above .. pi / 2 level. */
   private pitch = 1.0;
@@ -375,10 +380,11 @@ export class SolarSystemMapWindow {
   counts = { planets: 0, moons: 0, orbits: 0, stargates: 0 };
 
   constructor(private readonly hooks: SolarSystemMapHooks, private readonly host: HTMLElement) {
+    this.holograms = new ScanHolograms(hooks.hologramTypes);
     const caption = hooks.word?.("UI/Map/MapPallet/btnSolarsystemMap") ?? "Solar System Map";
     this.window = new PlayWindow({ id: "solarSystemMap", caption, icon: clientTexture("res:/ui/texture/shared/brackets/solarsystem.png"),
       left: Math.max(16, Math.round(innerWidth / 2 - 450)), top: 60, width: 900, height: 600, minWidth: 400, minHeight: 300, closable: true },
-    () => { this.detached = true; this.active = false; this.stop(); });
+    () => { this.detached = true; this.close(); });
     this.window.body.classList.add("ssm");
     this.canvas.className = "ssm-canvas";
     this.window.body.appendChild(this.canvas);
@@ -391,6 +397,7 @@ export class SolarSystemMapWindow {
     this.egoMarker.renderOrder = 2;
     this.scene.add(this.egoMarker);
     this.scene.add(this.coneGroup);
+    this.scene.add(this.holograms.root);
     this.scene.add(this.probeGroup);
     this.scene.add(this.cursorGroup);
     this.centroidLines.renderOrder = 2;
@@ -433,9 +440,14 @@ export class SolarSystemMapWindow {
   get isOpen(): boolean { return !this.detached && this.window.root.style.display !== "none"; }
   setActive(active: boolean): void { this.active = active; }
   toggle(): void { if (this.isOpen) this.close(); else this.open(); }
-  close(): void { this.window.root.style.display = "none"; this.active = false; this.stop(); }
-  dispose(): void {
+  close(): void {
+    this.window.root.style.display = "none";
+    this.active = false;
     this.stop();
+    this.holograms.reset();
+  }
+  dispose(): void {
+    this.close();
     removeEventListener("keydown", this.onModifiers);
     removeEventListener("keyup", this.onModifiers);
     this.renderer?.dispose();
@@ -456,6 +468,7 @@ export class SolarSystemMapWindow {
     const key = all.map((c) => c.itemID).sort((a, b) => a - b).join(",");
     if (key === this.builtFor) return;
     this.builtFor = key;
+    this.holograms.reset();
     this.root.clear();
     this.markerPoi = null;
     this.counts = { planets: 0, moons: 0, orbits: 0, stargates: 0 };
@@ -608,10 +621,28 @@ export class SolarSystemMapWindow {
     }
     this.updateCone(ego, cone, direction);
     this.updateProbes();
+    const inCone = !!(ego && cone?.shown && direction);
+    if (!inCone && this.holograms.root.visible) this.holograms.clear();
+    this.holograms.root.visible = inCone;
+    if (inCone) this.holograms.update(performance.now());
     this.renderer.render(this.scene, this.camera);
     // the markers on their map points (behind the camera: hidden)
     const v = new THREE.Vector3();
+    const delta = new THREE.Vector3();
+    const origin = ego ? mapPoint(ego) : null;
+    const rangeSq = ((cone?.rangeMetres ?? 0) * SOLARSYSTEM_SCALE) ** 2;
+    const minDotSq = Math.cos((cone?.angleDeg ?? 0) * Math.PI / 360) ** 2;
     for (const m of [...this.markers, ...this.resultMarkers]) {
+      let highlighted = false;
+      if (inCone && !m.partial) {
+        delta.copy(m.at).sub(origin!);
+        const lenSq = delta.lengthSq();
+        const dot = delta.dot(direction!);
+        const angle = cone!.angleDeg;
+        highlighted = lenSq > 0 && lenSq <= rangeSq
+          && (angle >= 360 || (dot >= 0 && (angle >= 180 || dot * dot >= minDotSq * lenSq)));
+      }
+      m.el.classList.toggle("dscan-shape", highlighted);
       v.copy(m.at).project(this.camera);
       const shown = v.z < 1 && v.z > -1 && Math.abs(v.x) <= 1.05 && Math.abs(v.y) <= 1.05;
       m.el.style.display = shown ? "" : "none";
@@ -817,7 +848,7 @@ export class SolarSystemMapWindow {
       });
       el.addEventListener("mouseleave", () => el.classList.remove("hover"));
       this.markersLayer.appendChild(el);
-      this.resultMarkers.push({ at: place, el });
+      this.resultMarkers.push({ at: place, el, partial: r.certainty < 1 });
       info.markers += 1;
     };
     for (const r of results) {
@@ -1266,7 +1297,30 @@ export class SolarSystemMapWindow {
   }
 
   /** OnDirectionalScanComplete -> ScanEffect: ScanPart_01, then ScanPart_02 when it ends. */
-  scanEffect(): void { this.scanEffectAt = performance.now(); }
+  scanEffect(result: DScanResult): void {
+    if (!this.isOpen) return;
+    this.scanEffectAt = performance.now();
+    const ego = this.hooks.ego();
+    if (!ego || !this.hooks.dscanCone?.()?.shown) return;
+    const [x, y, z] = result.direction;
+    this.holograms.scanned(result.rows, mapPoint(ego), new THREE.Vector3(x, y, -z).normalize(), result.rangeMetres * SOLARSYSTEM_SCALE);
+  }
+
+  hoverScanResult(typeID: number | null): void {
+    const ego = this.hooks.ego();
+    const cone = this.hooks.dscanCone?.();
+    if (!this.isOpen || !ego || !cone?.shown) return;
+    this.holograms.hover(typeID, mapPoint(ego), mapPoint(cone.direction).normalize(), cone.rangeMetres * SOLARSYSTEM_SCALE);
+  }
+
+  /** AnimBlinkDscanHilite starts at triple brightness and fades to the ordinary highlight. */
+  scanStarted(): void {
+    if (!this.isOpen) return;
+    for (const marker of this.markersLayer.querySelectorAll(".dscan-shape")) {
+      marker.animate([{ filter: "brightness(3)" }, { filter: "brightness(1)" }],
+        { duration: 1000, easing: "ease-in-out", pseudoElement: "::after" });
+    }
+  }
 
   private stepScanEffect(): void {
     const elapsed = this.scanEffectAt ? (performance.now() - this.scanEffectAt) / 1000 : Infinity;

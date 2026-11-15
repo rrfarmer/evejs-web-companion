@@ -168,6 +168,15 @@ button { font: inherit; color: inherit; }
 .ssm-icon { position: absolute; left: -1px; top: -1px; width: 16px; height: 16px; }
 .ssm-frame { position: absolute; left: -8px; top: -8px; width: 30px; height: 30px; opacity: 0; pointer-events: none; }
 .ssm-marker.hover .ssm-frame { opacity: 0.5; }
+.ssm-marker.dscan-shape::before, .ssm-marker.dscan-shape::after {
+  content: ""; position: absolute; pointer-events: none; background: rgb(57 191 128);
+}
+.ssm-marker.dscan-shape::before {
+  inset: -18px; opacity: 0.3; mask: url("/client-res/ui/texture/classes/animations/radialgradient.png") center / contain;
+}
+.ssm-marker.dscan-shape::after {
+  inset: -8px; mask: url("/client-res/ui/texture/classes/bracket/selectioncircle.png") center / contain;
+}
 .ssm-label { display: none; position: absolute; left: 26px; top: 2px; white-space: nowrap; font-size: 11px; color: #fff;
   text-shadow: 0 0 2px #000, 1px 1px 1px #000; pointer-events: none; }
 .ssm-marker.hover .ssm-label { display: block; }

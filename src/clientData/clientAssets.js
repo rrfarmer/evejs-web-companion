@@ -19,6 +19,7 @@ const MIME = new Map([
   [".ogg", "audio/ogg"], [".wav", "audio/wav"],
 ]);
 const GENERATED = new Map([
+  ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/shipInfoScene.json", ["--ship-info"]],
   ["/overviewPresets.json", ["--overview"]],
   ["/sofMaterials.json", ["--sof-materials"]],

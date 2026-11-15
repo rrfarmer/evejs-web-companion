@@ -4171,6 +4171,12 @@ export interface ShipInfoOverview {
   readonly tierIcon: string | null;
 }
 
+export async function getDscanHologramTypes(ids: readonly number[], options: ApiOptions = {}): Promise<Record<string, number>> {
+  const { radii } = await getJson(`/api/client-data/dscan-hologram-types?ids=${ids.join(",")}`, options);
+  if (!radii || typeof radii !== "object" || Array.isArray(radii)) return {};
+  return Object.fromEntries(Object.entries(radii).filter((entry): entry is [string, number] => typeof entry[1] === "number"));
+}
+
 export async function getShipInfoOverview(typeID: number, options: ApiOptions = {}): Promise<ShipInfoOverview | null> {
   const { overview } = await getJson(`/api/client-data/ship-info-overview/${typeID}`, options);
   if (overview === null || typeof overview !== "object" || Array.isArray(overview)) return null;

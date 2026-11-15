@@ -14278,6 +14278,42 @@ app.get("/api/client-data/academy-travel-conversation", requireAuth, async (req,
   }
 });
 
+// ScanHologramHandler excludes these native categories, stargates and types with the mineable component.
+const dscanHologramExcludedCategories = new Set([3, 23, 25, 40, 46, 65]);
+app.get("/api/client-data/dscan-hologram-types", requireAuth, async (req, res, next) => {
+  try {
+    const ids = [...new Set(String(req.query.ids || "").split(",").map(Number))]
+      .filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 200);
+    const [types, groupCategories] = await Promise.all([
+      clientBuiltData.rows("types", ids),
+      clientBuiltData.table("groupCategories"),
+    ]);
+    if (!types || !groupCategories) return res.status(503).json({ ok: false, error: "DSCAN_TYPE_DATA_UNAVAILABLE" });
+    const eligible = ids.filter((id) => {
+      const groupID = types?.[id]?.groupID;
+      const categoryID = groupCategories[groupID];
+      return groupID !== 10 && categoryID != null && !dscanHologramExcludedCategories.has(categoryID);
+    });
+    const [mineable, dogma, graphics] = await Promise.all([
+      clientBuiltData.rows("dscanMineable", eligible),
+      clientBuiltData.rows("typeDogma", eligible),
+      clientBuiltData.rows("graphicIDs", eligible.map((id) => types[id].graphicID).filter(Number.isSafeInteger)),
+    ]);
+    if (!mineable || !dogma || !graphics) return res.status(503).json({ ok: false, error: "DSCAN_TYPE_DATA_UNAVAILABLE" });
+    const radii = {};
+    for (const id of eligible) {
+      const graphic = graphics[types[id].graphicID];
+      if (mineable[id] != null || !graphic?.sofHullName || graphic.sofFactionName == null || graphic.sofRaceName == null) continue;
+      // dogma.data adds the type's radius after the raw dogma attributes.
+      const radius = dogma[id]?.dogmaAttributes?.find((attribute) => attribute.attributeID === 162)?.value ?? types[id].radius;
+      if (Number.isFinite(radius) && radius >= 0) radii[id] = radius;
+    }
+    return res.json({ ok: true, radii });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 // Dungeons as the client's built data has them (evedungeons/client/data GetDungeon): name, description, gameplay
 // description, archetype (its title and description, evearchetypes), faction, difficulty, entry type, and the content
 // tags GetDungeonContentTags makes (the dungeon's, its archetype's, feature_cosmic_signatures for a signature's entry,

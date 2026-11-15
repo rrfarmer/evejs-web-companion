@@ -20,6 +20,11 @@ const DEFAULT_ANGLE_INDEX = ANGLES.indexOf(90);
 const SCAN_COOLDOWN_MS = 1500;
 
 export interface DScanRow { id: number; typeID: number; groupID: number }
+export interface DScanResult {
+  rows: readonly DScanRow[];
+  direction: readonly [number, number, number];
+  rangeMetres: number;
+}
 
 /** The scan's rows from what the bridge hands back: a list of KeyVals, each however the wire decoded it. */
 export function dscanRows(result: unknown): DScanRow[] {
@@ -53,8 +58,10 @@ export interface DScanHooks {
   groupName(groupID: number): string | null;
   /** The active overview preset (GetActiveOverviewPresetName): its name and groups; null until the presets are read. */
   activePreset?(): { readonly name: string; readonly groups: ReadonlySet<number> } | null;
-  /** OnDirectionalScanComplete: a scan answered (the map's scan effect). */
-  scanned?(): void;
+  scanStarted?(): void;
+  /** OnDirectionalScanComplete: the unfiltered answer and the direction the server scanned. */
+  scanned?(result: DScanResult): void;
+  hoverResult?(typeID: number | null): void;
   /** MapBtnClicked: the solar system map opened. */
   openMap?(): void;
   /** The ship's maxDirectionalScanRange in metres (GetMaxRangeM); null where it is not read. */
@@ -368,11 +375,13 @@ export class DScanWindow {
     const angle = ((ANGLES[Number(this.angle.value)] ?? 360) * Math.PI) / 180;
     this.updateMaxValue();
     const range = this.rangeMetres();
+    const aim = direction ?? this.hooks.direction();
     this.status.textContent = "Scanning…";
     try {
-      this.rows = dscanRows(await this.hooks.scan(angle, range, direction ?? this.hooks.direction()));
+      this.hooks.scanStarted?.();
+      this.rows = dscanRows(await this.hooks.scan(angle, range, aim));
       this.draw();
-      this.hooks.scanned?.();
+      this.hooks.scanned?.({ rows: this.rows, direction: aim, rangeMetres: range });
       // directionalScanSvc.PlayResultSound: results, or none
       void playUiEvent(this.rows.length ? "msg_newscan_directional_scan_results_play" : "msg_newscan_directional_scan_noresults_play");
       // The client says nothing under its list on a scan: the line is for the scan under way and a failure only.
@@ -389,6 +398,7 @@ export class DScanWindow {
     // UpdateScroll: the scanner's preset (scanner_presetInUse, else the active overview preset) - a row shows where its
     // group is one of the preset's valid groups, the rest counted; a cloud not at all (no GM role here); the filter box
     // "Filtered: N (preset)"; an empty list says UI/Inflight/Scanner/DirectionalNoResult.
+    if (this.tbody.querySelector("tr:hover")) this.hooks.hoverResult?.(null);
     this.tbody.innerHTML = "";
     const chosen = this.chosenPreset();
     const own = chosen === null ? undefined : this.hooks.presets?.().find((p) => p.id === chosen);
@@ -429,6 +439,8 @@ export class DScanWindow {
     if (this.sort.reversed) entries.reverse();
     for (const { row, name, type, distance } of entries) {
       const tr = document.createElement("tr");
+      tr.addEventListener("mouseenter", () => this.hooks.hoverResult?.(row.typeID));
+      tr.addEventListener("mouseleave", () => this.hooks.hoverResult?.(null));
       const iconCell = document.createElement("td");
       iconCell.className = "ov-icon";
       const path = bracketIcon({ typeID: row.typeID, groupID: row.groupID, categoryID: null });
