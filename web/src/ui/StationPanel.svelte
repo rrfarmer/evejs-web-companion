@@ -35,6 +35,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import { showInfo } from "./showInfo.ts";
   import KeyActivationWindow from "./KeyActivationWindow.svelte";
   import { ABYSS_WINDOW_LABELS, offersActivateAbyssalKey, type FilamentPlace } from "../bridge/abyssalKeys.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -1889,7 +1890,8 @@
                 <TypeIcon typeID={ship.typeID} name={nameOf(ship)} size="md" />
               </span>
               <span class="stn-cell-name">
-                <span class="stn-name stn-ship-name">{nameOf(ship)}</span>
+                <button type="button" class="stn-name stn-ship-name evelink showInfo" title="Show Info"
+                  onclick={() => showInfo({ kind: "type", typeID: ship.typeID })}>{nameOf(ship)}</button>
                 <span class="stn-meta">{flying ? "You are flying this" : shipState(ship)}</span>
               </span>
               <span class="stn-cell-bays">{ship.singleton ? cargoSummary(ship.itemID) : ""}</span>

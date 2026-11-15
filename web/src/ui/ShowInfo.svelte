@@ -15,6 +15,7 @@
   import TypeIcon from "./TypeIcon.svelte";
   import CorpLogo from "./CorpLogo.svelte";
   import InfoFreelanceProjects from "./InfoFreelanceProjects.svelte";
+  import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MapRouteStep } from "../app/flow.ts";
@@ -1582,11 +1583,16 @@
       {:else if !ownerReadDone}
         <p class="note">Reading…</p>
       {/if}
+    {:else if $subject.kind === "type" && typeID !== null}
+      <InfoShipRequirements {store} {flow} {typeID} showEmpty />
     {:else}
       <p class="note">
         Nothing further is loaded about this item. Fit one to your ship to see its effective
         attributes.
       </p>
+    {/if}
+    {#if typeID !== null && $subject.kind === "spaceObject"}
+      <InfoShipRequirements {store} {flow} {typeID} />
     {/if}
   {/if}
 </section>
