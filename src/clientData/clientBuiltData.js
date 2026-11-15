@@ -33,6 +33,7 @@ const MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 // The tables read here: the name each goes by, the client's loader for it, and its resource (in lower case, as
 // the index is kept).
 const TABLES = Object.freeze({
+  achievementEvents: Object.freeze({ loader: "achievementEventsLoader", resource: "res:/staticdata/achievementevents.fsdbinary" }),
   // The faction warfare dashboard's authored system and territory positions.
   warzonePositions: Object.freeze({ loader: "warZonesPositionDataLoader", resource: "res:/staticdata/warzonespositiondata.fsdbinary" }),
   communityTrackTemplates: Object.freeze({ loader: "community_track_templatesLoader", resource: "res:/staticdata/community_track_templates.fsdbinary" }),

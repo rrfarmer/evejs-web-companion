@@ -18,6 +18,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
+const { createCameraTaskDefinitions, isCameraTaskEvent, recordCameraTaskEvents } = require("./gamePort/cameraTasks");
 const { py27HashOrder } = require("./clientData/py27HashOrder");
 const { createSdeBuiltData } = require("./clientData/sdeBuiltData");
 const { hullBrowserData } = require("./clientData/hullBrowser");
@@ -7178,6 +7179,28 @@ async function heldTopLevelCall(held, webSessionID, service, method, args, kwarg
     held.bridgeSessionID,
   ));
 }
+
+const cameraTaskDefinitions = createCameraTaskDefinitions(config.clientRoot, clientBuiltData);
+const cameraTaskUpdates = new WeakMap();
+app.post("/api/bridge/camera-task-events", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const events = req.body?.events;
+  if (!Array.isArray(events) || !events.length || !events.every(isCameraTaskEvent)) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Camera events must be orbit, zoom in, or zoom out." });
+    return;
+  }
+  try {
+    const update = (cameraTaskUpdates.get(held) ?? Promise.resolve()).then(async () => {
+      const tasks = await cameraTaskDefinitions();
+      if (!tasks.length) return [];
+      const ask = async (method, args) => (await heldTopLevelCall(held, req.webSessionID, "monolithTaskTrackerMgr", method, args, null)).result;
+      return recordCameraTaskEvents(tasks, events, ask);
+    });
+    cameraTaskUpdates.set(held, update.catch(() => {}));
+    res.json({ ok: true, pending: await update });
+  } catch (error) { next(error); }
+});
 
 /**
  * Something asked on a held pilot's session, under the checks every held call is under: `request` makes it.

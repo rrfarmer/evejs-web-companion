@@ -224,6 +224,7 @@ import {
 import { shownSecurity } from "../bridge/systemSecurity.ts";
 import { duelChallengeOf, startDuelChallenge, respondToDuelChallenge, type DuelInvitation } from "../bridge/duel.ts";
 import { failsTheReading, failureCode, type Ask } from "../bridge/ask.ts";
+import { createCameraTaskReporter, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { inventoryPasswords, inventoryPasswordText, type InventoryPasswordType } from "../bridge/inventoryPasswords.ts";
 import { decodeSkillHistory, decodeSkills } from "../bridge/boundSkills.ts";
 import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
@@ -3537,6 +3538,7 @@ export interface AppFlow {
   loadFlightStatus(): Promise<void>;
   /** EnterSpaceCamera reads this once when character selection leads directly into space. */
   hasEverWarped(): Promise<boolean | null>;
+  recordCameraTask(event: CameraTaskEvent): void;
   /** Undock from the station (the session enters space). */
   undock(): Promise<void>;
   /**
@@ -5479,6 +5481,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     serverClockAheadMs = serverNowMs - Date.now();
   });
   const serverNow = (): number => Date.now() + (serverClockAheadMs ?? 0);
+  const cameraTaskReporter = createCameraTaskReporter(events => api.recordCameraTaskEvents(events, callOptions));
   // A write the page makes for its pilot, the same way, with its meaning it said (api.bridgeDo).
   const rawBridgeDo = api.bridgeDo(callOptions, (serverNowMs) => {
     serverClockAheadMs = serverNowMs - Date.now();
@@ -6422,6 +6425,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   /** Everything a flow does for a pilot it now holds, however it came to hold it. */
   function pilotSelected(characterID: number, result: Pick<api.SelectResult, "character" | "station"> & { readonly droneRecoveryCheckID: string | null }): void {
+    cameraTaskReporter.reset();
     // accountsvc.ProcessSessionChange: another character, and what the account service kept was the last one's.
     walletReads.forget();
     corporationWealthReads.forget();
@@ -35450,6 +35454,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     pauseSkillTraining,
     applyFreeSkillPoints,
 
+    recordCameraTask: cameraTaskReporter.record,
     async hasEverWarped() {
       const result = await bridgeAsk("monolithTaskTrackerMgr", "HasEverWarped", []);
       return typeof result === "boolean" ? result : null;

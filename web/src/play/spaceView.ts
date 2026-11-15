@@ -25,6 +25,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
+import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
 import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
@@ -94,6 +95,7 @@ export interface SpaceViewOptions {
   undocking?: () => boolean;
   /** Present only when character selection goes directly into space. */
   entryWarpHistory?: Promise<boolean | null>;
+  recordCameraTask?: (event: CameraTaskEvent) => void;
   /**
    * A Sov Hub's menu entries (celestialCheckers): Deposit Reagents (OfferOpenSovFuelDepositWindow: an infrastructure hub,
    * the pilot in a ship in space, not warping, within transfer range - 2,500 m surface to surface) and Open Sov Hub
@@ -552,6 +554,7 @@ export class SpaceView {
       this.undockCam = null;
       this.stopEntryCamera();
     });
+    if (options.recordCameraTask) this.trackCameraTasks(options.recordCameraTask);
     void options.entryWarpHistory?.then(hasWarped => { this.entryWarped = hasWarped ?? true; });
     this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
     this.layer.appendChild(this.overview.window.root);
@@ -679,6 +682,37 @@ export class SpaceView {
     removeEventListener("pointerdown", this.onPointer, true);
     this.radial.close();
     this.root.remove();
+  }
+
+  private trackCameraTasks(record: (event: CameraTaskEvent) => void): void {
+    const canvas = this.renderer.domElement;
+    const gestures = new CameraTaskGestures(record);
+    const input = new AbortController();
+    const listener = { signal: input.signal };
+    const active = () => this.controls.enabled && !!this.snapshot?.ship;
+    canvas.addEventListener("pointerdown", event => {
+      if (event.isTrusted && event.pointerType === "mouse" && event.button === 0 && active()) {
+        gestures.beginOrbit(this.controls.getAzimuthalAngle());
+      }
+    }, listener);
+    const release = (event: PointerEvent) => {
+      if ((event.buttons & 1) === 0 || event.type === "pointercancel") gestures.endOrbit();
+    };
+    canvas.ownerDocument.addEventListener("pointerup", release, listener);
+    canvas.ownerDocument.addEventListener("pointercancel", release, listener);
+    window.addEventListener("blur", () => gestures.endOrbit(), listener);
+    const cameraChanged = () => {
+      if (active()) gestures.moveOrbit(this.controls.getAzimuthalAngle());
+      else gestures.endOrbit();
+    };
+    this.controls.addEventListener("change", cameraChanged);
+    canvas.addEventListener("wheel", event => {
+      if (event.isTrusted && active() && this.controls.enableZoom) gestures.zoom(event.deltaY);
+    }, { ...listener, passive: true });
+    this.unhold.push(() => {
+      input.abort();
+      this.controls.removeEventListener("change", cameraChanged);
+    });
   }
 
   /**

@@ -941,6 +941,7 @@
       windowLayer: windowsEl ? windowLayer : undefined,
       undocking: () => performance.now() - undockedAt < 20000,
       entryWarpHistory: enteringSpace ?? undefined,
+      recordCameraTask: s.flow.recordCameraTask,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
       reloads: () => s.store.fitting.get().reloads ?? {},
       corpTickers: (corpIDs) => corpTickers(corpIDs, false, s.flow.requestOptions()).then((r) => r.tickers),

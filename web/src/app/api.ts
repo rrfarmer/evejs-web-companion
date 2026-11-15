@@ -9,6 +9,7 @@
 import { BridgeCallError, callMethod, refusalOfBody } from "../bridge/callMethod.ts";
 import type { Ask } from "../bridge/ask.ts";
 import type { AchievementCatalogue } from "../bridge/achievements.ts";
+import type { CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import type { CorporationRoleData, CorporationRoleGroupSpec } from "../bridge/corporationRoles.ts";
 import { decodeBoundDogma, type BoundDogma } from "../bridge/boundDogma.ts";
 import { decodeNameValidation, decodeValidRandomName } from "../bridge/charAccount.ts";
@@ -5998,6 +5999,12 @@ export async function loadAchievementCatalogue(options: ApiOptions = {}): Promis
     throw new Error("EveJS did not return an achievement catalogue.");
   }
   return data as unknown as AchievementCatalogue;
+}
+
+export async function recordCameraTaskEvents(events: readonly CameraTaskEvent[], options: ApiOptions): Promise<readonly CameraTaskEvent[]> {
+  const data = await postJson("/api/bridge/camera-task-events", { events }, options);
+  return Array.isArray(data.pending) ? data.pending.filter((value): value is CameraTaskEvent =>
+    value === "orbit" || value === "zoomIn" || value === "zoomOut") : [];
 }
 
 export interface CharacterTitleDefinition { readonly id: string; readonly name: string; readonly visibility: number; readonly releasedAt: number }

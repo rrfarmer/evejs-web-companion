@@ -103,6 +103,8 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  // Only the camera event route builds the full tracker dictionaries from the held pilot's state.
+  monolithTaskTrackerMgr: ["UpdateClientAchievmentsAndCounters"],
   // facWarSvc and fwEnlistmentSvc send the pilot's own enlistment changes.
   facWarMgr: ["JoinFactionAsCharacter", ...ORGANIZATION_ENLISTMENT_METHODS],
   fwCharacterEnlistmentMgr: ["CreateMyDirectEnlistment", "RemoveMyDirectEnlistment"],
