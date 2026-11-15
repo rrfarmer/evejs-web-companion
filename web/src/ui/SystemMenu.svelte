@@ -66,6 +66,7 @@
     fullScreen: "/Carbon/UI/Service/Device/FullScreen", contentHeader: `${G}Header`, contentDescription: `${G}Description`,
     antiAliasing: `${G}AntiAliasing`, brightness: `${G}Brightness`, optimize: `${G}OptimizeSettings`, reset: `${G}ResetGraphicSettings`,
     effects: `${P}Effects/Header`, cameraHeader: `${P}CameraSettings/InSpaceCameraSettings`, cameraShake: `${P}Effects/CameraShake`,
+    dynamicCamera: `${P}CameraSettings/CameraDynamicMovement`, dynamicCameraHint: `${P}CameraSettings/CameraDynamicMovementTooltip`,
     windowAppearance: "UI/SystemMenu/GeneralSettings/WindowAppearance", windowBlur: "UI/SystemMenu/GeneralSettings/General/EnableWindowBlur",
     blurDisabledHint: "UI/SystemMenu/GeneralSettings/WindowBlurDisabledHint", transparency: "UI/SystemMenu/GeneralSettings/Transparency",
     off: `${P}Common/Off`, fullTransparency: "UI/SystemMenu/GeneralSettings/FullTransparency",
@@ -258,6 +259,8 @@
           {/each}
         {:else if panel === "camera"}
           <h3 class="first">{word(WORDS.cameraHeader, "In-Space Camera Settings")}</h3>
+          <label class="sm-check" title={word(WORDS.dynamicCameraHint, "")}><input type="checkbox" checked={settings.dynamicCameraMovement}
+            onchange={(ev) => setGfx({ dynamicCameraMovement: ev.currentTarget.checked })} /> {word(WORDS.dynamicCamera, "Dynamic Camera Movement")}</label>
           <label class="sm-check"><input type="checkbox" checked={settings.cameraShakeEnabled}
             onchange={(ev) => setGfx({ cameraShakeEnabled: ev.currentTarget.checked })} /> {word(WORDS.cameraShake, "Camera Shake")}</label>
         {:else}

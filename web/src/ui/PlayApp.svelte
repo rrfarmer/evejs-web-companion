@@ -203,6 +203,7 @@
 
   let live: LivePark | null = null;
   let spaceClaimed: Session | null = null;
+  let entryWarpHistory: Promise<boolean | null> | null = null;
   let chosenCharacterID = $state<number | null>(null);
   async function enter(characterID: number) {
     if (!session) return;
@@ -212,6 +213,9 @@
     try {
       // The app's own selection: login calls, the lost-drone check, the station panel (flow.pilotSelected).
       await session.flow.selectCharacter(characterID);
+      const { online } = session.store.station.get();
+      entryWarpHistory = gfx().dynamicCameraMovement && online && !deriveDocked(session.store.flight.get().status, online)
+        ? session.flow.hasEverWarped().catch(() => null) : null;
       session.flow.setLivePush(true);
       session.flow.setForeground(true);
       // The rack's data: the fitting (flow.loadFitting) and which modules run (the space read's activeModuleIDs,
@@ -803,6 +807,8 @@
     const s = session;
     const act = bridgeDo(s.flow.requestOptions());
     const st = s.store.station.get().station;
+    const enteringSpace = entryWarpHistory;
+    entryWarpHistory = null;
     const v = new SpaceView(live, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
       setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
@@ -934,6 +940,7 @@
       onSystem: musicSystem,
       windowLayer: windowsEl ? windowLayer : undefined,
       undocking: () => performance.now() - undockedAt < 20000,
+      entryWarpHistory: enteringSpace ?? undefined,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
       reloads: () => s.store.fitting.get().reloads ?? {},
       corpTickers: (corpIDs) => corpTickers(corpIDs, false, s.flow.requestOptions()).then((r) => r.tickers),

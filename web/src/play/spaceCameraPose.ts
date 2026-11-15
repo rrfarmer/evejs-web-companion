@@ -4,6 +4,12 @@ import { Vector3 } from "three";
 const MAX_CAMERA_COORDINATE = 1e38;
 export const MAX_JUMP_CAMERA_COORDINATE = 1e12;
 
+/** cameraUtil.GetInitialLookAtDistance, using the positive root. */
+export function initialOrbitDistance(radius: number, nearest: number, farthest: number): number {
+  const a = 1 / farthest ** 0.95, b = 0.55 / 2, c = -Math.max(radius, nearest);
+  return -2 * c / (b + Math.sqrt(b * b - 4 * a * c));
+}
+
 /** subwaySvc.OnSpecialFX starts the stargate camera from the pilot's own departure. */
 export function isOwnStargateDeparture(guids: readonly string[], shipID: number, start: boolean, ownShipID: number | null): boolean {
   return start && ownShipID !== null && shipID === ownShipID && guids.includes("effects.JumpOut");

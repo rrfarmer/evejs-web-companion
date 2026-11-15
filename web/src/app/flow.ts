@@ -3535,6 +3535,8 @@ export interface AppFlow {
   characterEmploymentHistory(characterID: number): Promise<EmploymentHistory | null>;
   /** Refresh the flight status (location + ship movement state). */
   loadFlightStatus(): Promise<void>;
+  /** EnterSpaceCamera reads this once when character selection leads directly into space. */
+  hasEverWarped(): Promise<boolean | null>;
   /** Undock from the station (the session enters space). */
   undock(): Promise<void>;
   /**
@@ -35448,6 +35450,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     pauseSkillTraining,
     applyFreeSkillPoints,
 
+    async hasEverWarped() {
+      const result = await bridgeAsk("monolithTaskTrackerMgr", "HasEverWarped", []);
+      return typeof result === "boolean" ? result : null;
+    },
     startSpacePolling,
 
     stopSpacePolling,

@@ -25,7 +25,8 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
-import { isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
+import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
+import { ENTRY_CAMERA_DURATION_MS, entryCameraFov, spaceEntryCamera, type EntryCameraPath } from "./spaceEntryCamera.ts";
 import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
@@ -91,6 +92,8 @@ export interface SpaceViewOptions {
   reloads?: () => Readonly<Record<number, { startedAtMs: number }>>;
   /** True while the pilot is coming out of a station: the view's first sight of the ship is the undock camera's. */
   undocking?: () => boolean;
+  /** Present only when character selection goes directly into space. */
+  entryWarpHistory?: Promise<boolean | null>;
   /**
    * A Sov Hub's menu entries (celestialCheckers): Deposit Reagents (OfferOpenSovFuelDepositWindow: an infrastructure hub,
    * the pilot in a ship in space, not warping, within transfer range - 2,500 m surface to surface) and Open Sov Hub
@@ -545,7 +548,11 @@ export class SpaceView {
     this.controls.minDistance = 30;
     this.controls.maxDistance = 1e6;
     this.controls.zoomSpeed = 1.2;
-    this.controls.addEventListener("start", () => { this.undockCam = null; });
+    this.controls.addEventListener("start", () => {
+      this.undockCam = null;
+      this.stopEntryCamera();
+    });
+    void options.entryWarpHistory?.then(hasWarped => { this.entryWarped = hasWarped ?? true; });
     this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
     this.layer.appendChild(this.overview.window.root);
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
@@ -929,6 +936,59 @@ export class SpaceView {
   private lookAt: number | null = null;
   private framedLook: number | null = null;
   private framedFor: number | null = null;
+  private entryWarped: boolean | null = null;
+  private entryConsumed = false;
+  private entryCam: { start: number; path: EntryCameraPath; orbitFov: number; orbitMinDistance: number } | null = null;
+
+  private stopEntryCamera(): void {
+    this.entryConsumed = true;
+    if (!this.entryCam) return;
+    this.camera.fov = this.entryCam.orbitFov;
+    this.controls.minDistance = this.entryCam.orbitMinDistance;
+    this.camera.updateProjectionMatrix();
+    this.entryCam = null;
+  }
+
+  private stepEntryCamera(now: number, systemID: number | null, snapshot: Snapshot | null): void {
+    if (this.lookAt !== null || !gfx().dynamicCameraMovement) { this.stopEntryCamera(); return; }
+    if (!this.entryConsumed && this.entryWarped !== null && systemID !== null && snapshot?.ship) {
+      const ship = snapshot.ship;
+      const toView = ({ x, y, z }: Entity["position"]) => new THREE.Vector3(x, y, -z);
+      const mark = this.marks.get(ship.itemID);
+      // GetBallWaitForModel and GetBallRadius prefer the installed hull's
+      // authored bounding sphere to the Destiny ball radius.
+      if (mark?.userData.loadingModel) return;
+      this.entryConsumed = true;
+      const model = mark?.userData.model as THREE.Object3D | undefined;
+      const bound = model?.userData.boundingSphere?.[3];
+      const radius = typeof bound === "number" && Number.isFinite(bound) && bound > 0 ? bound : ship.radius * 1.1;
+      const nearest = (radius + this.camera.near) * 1.5 * Math.max(1, this.camera.aspect / 1.6) + 2;
+      const forward = toView(ship.velocity);
+      if (!validCameraPosition(forward) || forward.lengthSq() < 1) {
+        forward.set(0, 0, 1);
+        if (mark) forward.applyQuaternion(mark.quaternion);
+      }
+      const planets = snapshot.entities.filter(e => e.kind === "planet").map(e => ({ position: toView(e.position), radius: e.radius }));
+      const path = spaceEntryCamera(this.entryWarped, systemID, radius, nearest, toView(ship.position), forward, planets);
+      if (path) {
+        this.entryCam = { start: now, path, orbitFov: this.camera.fov, orbitMinDistance: this.controls.minDistance };
+        this.controls.minDistance = nearest;
+      }
+    }
+    const entry = this.entryCam;
+    if (!entry) return;
+    const elapsed = now - entry.start;
+    const target = this.controls.target;
+    const eye = entry.path.eyeAt(elapsed).clampLength(this.controls.minDistance, this.controls.maxDistance).add(target);
+    if (setCameraPose(this.camera.position, target, eye, target)) {
+      const fov = entryCameraFov(eye.distanceTo(target));
+      const handoff = THREE.MathUtils.smoothstep(elapsed, ENTRY_CAMERA_DURATION_MS - 600, ENTRY_CAMERA_DURATION_MS);
+      this.camera.fov = THREE.MathUtils.lerp(fov, entry.orbitFov, handoff);
+      this.camera.updateProjectionMatrix();
+      this.camera.lookAt(target);
+    }
+    if (elapsed >= ENTRY_CAMERA_DURATION_MS) this.stopEntryCamera();
+  }
 
   /**
    * The client's ship orbit camera limits (shipOrbitCamera.py, cameraUtil.py): no nearer than GetBallMaxZoom, (radius
@@ -971,11 +1031,9 @@ export class SpaceView {
     // the farthest the camera goes: 800 km, or ten times what it looks at where that is larger (a planet looked at)
     const farthest = Math.max(800000, radius * 10);
     const nearest = (radius + this.camera.near) * 1.5 + 2;
-    const a = 1 / farthest ** 0.95, b = 0.55 / 2, c = -Math.max(radius, nearest);
-    const d = Math.sqrt(b * b - 4 * a * c);
     const dir = this.camera.position.clone().sub(this.controls.target);
     const validDirection = validCameraPosition(dir) && dir.lengthSq() !== 0;
-    const initial = keepZoom && validDirection ? THREE.MathUtils.clamp(dir.length(), nearest, farthest) : -2 * c / (b + d);
+    const initial = keepZoom && validDirection ? THREE.MathUtils.clamp(dir.length(), nearest, farthest) : initialOrbitDistance(radius, nearest, farthest);
     if (!validDirection) dir.set(-0.5, 0.25, 0.83);
     if (setCameraDistance(this.camera.position, this.controls.target, dir, initial)) {
       this.controls.minDistance = nearest;
@@ -984,6 +1042,7 @@ export class SpaceView {
   }
 
   private beginJumpCamera(): void {
+    this.stopEntryCamera();
     const eye = this.camera.position, target = this.controls.target;
     // JumpCamera.OnActivated copies the orbit pose only when both points are valid.
     if (!setCameraPose(eye, target, eye, target, MAX_JUMP_CAMERA_COORDINATE)) {
@@ -1638,9 +1697,10 @@ export class SpaceView {
       if (ego && this.framedFor !== ego.itemID) {
         this.framedFor = ego.itemID;
         this.frameShip(ego.radius);
-        if (this.options.undocking?.()) this.startUndockCamera(ego);
+        if (gfx().dynamicCameraMovement && this.options.undocking?.()) this.startUndockCamera(ego);
       }
       this.stepUndockCamera();
+      this.stepEntryCamera(now, systemID, snap);
       // Keep the eye and target together as the looked-at ball moves.
       if (this.lookAt !== null && !seen.has(this.lookAt)) this.lookAt = null;
       const looked = this.lookAt === null ? null : this.marks.get(this.lookAt);
@@ -1968,7 +2028,9 @@ export class SpaceView {
     }
     const modelled = !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
     if (modelled && e.typeID) {
+      if (e.isSelf) holder.userData.loadingModel = true;
       void typeModel(e.typeID).then((model) => {
+        if (e.isSelf) holder.userData.loadingModel = false;
         if (!model || !this.marks.has(e.itemID)) return;
         model.rotation.y = Math.PI;
         holder.remove(standIn);
@@ -1982,7 +2044,7 @@ export class SpaceView {
         holder.userData.model = model;
         if (e.kind === "drone") { holder.userData.playerDrone = true; model.visible = gfx().droneModelsEnabled; }
         if (e.kind === "ship" || e.kind === "drone") this.fitTurrets(e.itemID, holder);
-      }).catch(() => { /* no model: the stand-in stays */ });
+      }).catch(() => { if (e.isSelf) holder.userData.loadingModel = false; });
     }
     return holder;
   }

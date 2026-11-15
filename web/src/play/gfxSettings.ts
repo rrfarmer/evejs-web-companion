@@ -27,6 +27,7 @@ export interface GfxSettings {
   explosionEffectsEnabled: boolean;
   droneModelsEnabled: boolean;
   cameraShakeEnabled: boolean;
+  dynamicCameraMovement: boolean;
   /** uiColorSettings.show_window_bg_blur_setting (enableWindowBlur, default on). */
   windowBlur: boolean;
   /** window_transparency_setting (0 .. 1, default 1): with the blur. */
@@ -53,7 +54,7 @@ export interface GfxSettings {
 export const GFX_DEFAULTS: Readonly<GfxSettings> = {
   shaderQuality: 3, postProcessingQuality: 2, textureQuality: 0, lodQuality: 3, shadowQuality: 2, aoQuality: 3,
   volumetricQuality: 3, reflectionQuality: 3, turretsEnabled: true, effectsEnabled: true, missilesEnabled: true,
-  explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true,
+  explosionEffectsEnabled: true, droneModelsEnabled: true, cameraShakeEnabled: true, dynamicCameraMovement: true,
   windowBlur: true, windowTransparency: 1, windowTransparencyNoBlur: 0.05, colorThemeID: DEFAULT_COLORTHEMEID,
   audioEnabled: true, useCombatMusic: true, suppressTurret: false, useOldJukeboxOverride: false, masterVolume: 0.8, uiGain: 0.5, eveampGain: 0.5, evevoiceGain: 0.7, worldVolume: 0.7,
 };
