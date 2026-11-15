@@ -17,7 +17,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createAppFlow } from "./flow.ts";
+import { createAppFlow, type ActionMessage } from "./flow.ts";
 import { createClientStore } from "../store/clientStore.ts";
 import type { EventSourceLike } from "./api.ts";
 
@@ -626,4 +626,35 @@ test("R29: a burst of shots coalesces into ONE authoritative health read", async
     1,
     "sixteen shots, one read of what the ship and target actually say",
   );
+});
+
+test("the live bounty notification delivers the payout amount and modified flag", async () => {
+  const { flow, source } = await onlineFlow();
+  const messages: ActionMessage[] = [];
+  const stop = flow.onActionMessage((message) => messages.push(message));
+  try {
+    for (const [sequence, amount, isModified] of [[1, 3000, false], [2, 4250, true]] as const) {
+      source.emit(notificationFrame("OnBountyAddedToPayout", [{
+        type: "object",
+        name: "util.KeyVal",
+        args: {
+          type: "dict",
+          entries: [
+            ["enemyTypeID", 16877],
+            ["amount", amount],
+            ["payoutTime", { type: "long", value: "134444192000000000" }],
+            ["isModified", isModified],
+          ],
+        },
+      }], sequence));
+    }
+    await settle();
+
+    assert.deepEqual(messages, [
+      { kind: "bounty", amount: 3000, isModified: false },
+      { kind: "bounty", amount: 4250, isModified: true },
+    ]);
+  } finally {
+    stop();
+  }
 });
