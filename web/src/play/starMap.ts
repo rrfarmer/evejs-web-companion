@@ -352,6 +352,8 @@ export class StarMap {
   get routeLength(): number { return this.routeLines.size; }
   /** The pilot's system (the my-location marker), the active (selected) item and the hovered system. */
   private hereID: number | null = null;
+  private homeID: number | null = null;
+  private locationHint = "You are here";
   selectedID: number | null = null;
   hoverID: number | null = null;
   private hoverLabel: { el: HTMLDivElement; at: THREE.Vector3 } | null = null;
@@ -531,6 +533,7 @@ export class StarMap {
     this.names = names;
     this.hereID = focusSystemID;
     this.buildMarkers(data, within, names, focusSystemID);
+    this.updateMyLocation();
     this.buildAreaMarkers(data as StarMapSystems & { regions?: readonly (readonly [number, number, number, number, string])[]; constellations?: readonly (readonly [number, number, number, number, string, number])[] });
     this.selectedID = focusSystemID;
     this.updateLineOpacity();
@@ -756,6 +759,7 @@ export class StarMap {
   setColorMode(mode: StarMapColorMode, rows: readonly StarMapActivity[] = [], homeSystemID: number | null = null): void {
     if (!this.data || !this.starColors || !this.starSizes) return;
     this.colorMode = mode;
+    this.homeID = homeSystemID;
     this.activity.clear();
     for (const row of rows) {
       if (this.positions.has(row.systemID)) this.activity.set(row.systemID, row);
@@ -777,7 +781,6 @@ export class StarMap {
       button.className = "star-map-activity-marker";
       button.dataset.systemId = String(row.systemID);
       button.dataset.kind = mode === "ore" ? (row.dungeonNameIDs ? "precise" : "projected") : mode;
-      if (row.systemID === homeSystemID || row.systemID === this.hereID) button.dataset.local = "true";
       if (mode === "phased") {
         const icon = document.createElement("img");
         icon.src = "/client-res/ui/texture/eveicon/control_icons/phased_site_32px.png";
@@ -787,7 +790,30 @@ export class StarMap {
       button.onclick = () => this.select(row.systemID);
       this.activityLabels.push({ row, button });
     }
+    this.markLocalActivities();
     this.activityMarkers.replaceChildren(...this.activityLabels.map(({ button }) => button));
+  }
+
+  private markLocalActivities(): void {
+    for (const { row, button } of this.activityLabels) {
+      if (row.systemID === this.hereID || row.systemID === this.homeID) button.dataset.local = "true";
+      else delete button.dataset.local;
+    }
+  }
+
+  /** OnSessionChanged follows the new system only when the previous one was active. */
+  setPilotSystem(systemID: number | null): void {
+    if (systemID === this.hereID) return;
+    const follow = this.selectedID === this.hereID;
+    this.hereID = systemID;
+    if (follow && systemID !== null) this.select(systemID);
+    this.updateMyLocation();
+    this.markLocalActivities();
+  }
+
+  setLocationHint(text: string): void {
+    this.locationHint = text;
+    if (this.myLocation) this.myLocation.el.title = text;
   }
 
   setActivityHints(hint: (row: StarMapActivity) => string): void {
@@ -882,11 +908,10 @@ export class StarMap {
     this.lineColours.needsUpdate = true;
   }
 
-  /** The selected system's markers: its label and its active systems' (neighbours, constellation), "You are here". */
+  /** The selected system's label and its neighbours and constellation. */
   private buildMarkers(data: StarMapSystems, within: Map<number, [number, number]>, names: Map<number, string>, systemID: number | null): void {
-    this.markers.replaceChildren();
+    for (const { el } of this.labels) el.remove();
     this.labels = [];
-    this.myLocation = null;
     if (systemID === null || !this.positions.has(systemID)) return;
     const constellation = within.get(systemID)?.[1];
     const active = new Set<number>([systemID]);
@@ -902,17 +927,33 @@ export class StarMap {
       this.markers.appendChild(el);
       this.labels.push({ id, at, el, selected: id === systemID });
     }
-    const hereAt = this.hereID !== null ? this.positions.get(this.hereID) : this.positions.get(systemID);
-    if (!hereAt) return;
+  }
+
+  private updateMyLocation(): void {
+    const hereAt = this.hereID === null ? null : this.positions.get(this.hereID);
+    if (!hereAt) {
+      this.myLocation?.el.remove();
+      this.myLocation = null;
+      return;
+    }
+    if (this.myLocation) {
+      this.myLocation.at = hereAt;
+      this.myLocation.el.dataset.systemId = String(this.hereID);
+      return;
+    }
     const here = document.createElement("div");
+    here.className = "star-map-my-location";
+    here.dataset.systemId = String(this.hereID);
     here.style.cssText = "position:absolute;width:14px;height:14px;";
     const bg = document.createElement("img");
     bg.src = "/client-res/ui/texture/classes/mapview/tagbackground.png";
+    bg.alt = "";
     bg.style.cssText = "position:absolute;left:-25px;top:-13px;width:64px;height:64px;";
     const icon = document.createElement("img");
     icon.src = "/client-res/ui/texture/classes/mapview/focusicon.png";
+    icon.alt = "";
     icon.style.cssText = "position:absolute;left:-1px;top:-1px;width:16px;height:16px;";
-    here.title = "You are here";
+    here.title = this.locationHint;
     here.append(bg, icon);
     this.markers.appendChild(here);
     this.myLocation = { at: hereAt, el: here };
@@ -930,7 +971,11 @@ export class StarMap {
       const at = this.positions.get(row.systemID)!;
       const p = project(at);
       button.hidden = !p || p.x < 0 || p.x > w || p.y < 0 || p.y > h;
-      if (p && !button.hidden) button.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -130%)`;
+      if (p && !button.hidden) {
+        // MarkerPinBase.SetUpsideDown moves markers beside the location pin below the star.
+        const offset = button.dataset.local === "true" ? "25px" : "-130%";
+        button.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, ${offset})`;
+      }
     }
     // the abstract markers' content: big - every on-screen system's name under its bubble; else only the selected's
     if (this.markerSize === "big" || this.markerSize === "medium") {

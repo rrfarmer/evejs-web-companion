@@ -1163,6 +1163,7 @@ import {
 } from "../bridge/boundEntityWrites.ts";
 import { alignTo as alignToCall, alignToPosition as alignToPositionCall, alignToBookmark as alignToBookmarkCall, approach as approachCall, approachBookmark as approachBookmarkCall, approachMissionLocation as approachMissionLocationCall, autopilotWarp as autopilotWarpCall, warpToFleetMember as warpToFleetMemberCall, warpFleetToMember as warpFleetToMemberCall, toMemberBeacon as toMemberBeaconCall, warpToItem as warpToItemCall, goToPoint, keepAtRange as keepAtRangeCall, orbit as orbitCall, stopShip as stopShipCall, warpToBookmark as warpToBookmarkCall, warpToLaunch as warpToLaunchCall, warpToMissionLocation as warpToMissionLocationCall, warpToScanResult as warpToScanResultCall, type FlightNow, type SitesReadIn } from "../bridge/movementWrites.ts";
 import { dock as dockCall, dockAtStructure as dockAtStructureCall, isStation, jump as jumpCall, jumpThroughJumpGate as jumpThroughJumpGateCall, undock as undockCall } from "../bridge/placeChanges.ts";
+import { sessionPlace } from "../bridge/sessionPlace.ts";
 import { assembleShip as assembleShipCall, boardCorvette as boardCorvetteCall, boardShip as boardShipCall, jettison as jettisonCall, leaveShip as leaveShipCall, type JettisonOutcome } from "../bridge/shipWrites.ts";
 import { activityIDOf, averagePrices, createJobReckoner, type JobReckoner, type JobReckoning } from "../bridge/industryJobReckoning.ts";
 import { connectJob, decodeFacilityPlaces, disconnectJob, installJob, jobDump, jobPlaces, monitoredAs, type Monitored } from "../bridge/industryMonitor.ts";
@@ -21361,13 +21362,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (results.some(result => !Array.isArray(result) && !isListValue(result))) throw new Error("EveJS did not return the active tales.");
       return { systems: convoyActivities(results), homeSystemID: null };
     }
+    const here = sessionPlace(store.flight.get().status, store.station.get().online).solarSystemID;
     const [counts, precise, home] = await Promise.all([
       bridgeAsk("dungeonInstanceCacheMgr", "GetOreAnomaliesCountInRange", []),
       bridgeAsk("dungeonInstanceCacheMgr", "GetOreAnomalyInstances", []),
       bridgeAsk("charMgr", "GetHomeStationRow", []).catch(() => null),
     ]);
     if (counts === null || precise === null) throw new Error("EveJS did not return the ore anomalies.");
-    const systems = oreActivities(counts, precise, store.station.get().online?.solarSystemID ?? null);
+    const systems = oreActivities(counts, precise, here);
     requestWords([...new Set(systems.flatMap(row => row.dungeonNameIDs ?? []))].map(id => `#${id}`));
     const homeSystem = readKeyVal(home, "solarSystemID");
     return { systems, homeSystemID: typeof homeSystem === "number" ? homeSystem : null };

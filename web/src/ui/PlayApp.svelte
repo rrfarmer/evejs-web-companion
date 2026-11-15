@@ -23,6 +23,7 @@
   import { bridgeDo, corpTickers } from "../app/api.ts";
   import { StarMap } from "../play/starMap.ts";
   import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
+  import { sessionPlace } from "../bridge/sessionPlace.ts";
   import { FittingShipScene } from "../play/fittingScene.ts";
   import { setContext } from "svelte";
   // The app panels in this page's windows draw as the client's where they know how (Fitting.svelte's ring).
@@ -716,7 +717,6 @@
     m.root.appendChild(layout);
     mapHost.appendChild(m.root);
     m.start();
-    const here = s.store.station.get().online?.solarSystemID ?? live?.hello?.solarSystemID ?? null;
     // the destination path (starmap GetDestinationPath: the pilot's system, then each waypoint's way and the waypoint)
     const route = () => void s.flow.routeWindowWaypoints().then((read) => {
       if (starMap !== m) return;
@@ -730,6 +730,7 @@
     }).catch(() => {});
     void s.flow.loadStarMap().then((data) => {
       if (starMap !== m) return;
+      const here = sessionPlace(s.store.flight.get().status, s.store.station.get().online).solarSystemID ?? live?.hello?.solarSystemID ?? null;
       m.build(data, here);
       void m.setLayout(true);
       route();
