@@ -25,12 +25,8 @@ COPY web ./web
 # The plugins this build carries (plugins/index.ts lists them); the web build
 # compiles their windows and blocks in.
 COPY plugins ./plugins
-# The starter-bot seeds are BFF data, but only the browser's codec can prove
-# they are valid documents — the server is plain JS and cannot run it. So the
-# web-side test that decodes them lives here and needs the file, even though
-# nothing in the bundle imports it. Copied alone rather than all of src/: the
-# web build has no business seeing the rest of the server.
-COPY src/starterBots.json ./src/starterBots.json
+# The flight client's Vite plugin bundles the BFF's Destiny park and wire readers.
+COPY src ./src
 RUN npm run build:web
 
 
@@ -61,6 +57,8 @@ COPY --chown=node:node src ./src
 # at start-up with "Cannot find module" (test/dockerImage.test.js keeps watch).
 COPY --chown=node:node contracts ./contracts
 COPY --chown=node:node scripts ./scripts
+# Serve extracted assets and run the local extractor when a matching cache and install are mounted.
+COPY --chown=node:node tools/client-extract ./tools/client-extract
 # The server bot host runs the BROWSER stack in this process: src/botHost.js
 # imports web/src/app/flow.ts and friends at runtime, letting Node strip the
 # types. Without the sources every bot start fails BOT_STACK_UNAVAILABLE, and

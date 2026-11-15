@@ -31,7 +31,7 @@ node tools/client-extract/extract.mjs --client "C:\path\to\EVE Online" --hull cb
 - `--graphic <graphicID>` writes `graphics/<graphicID>.json` for a graphic that is no type's: a SOF hull
   (a station hangar's model, `hangarRegistry.py` hangarModelGraphicID: the model, its SOF build with the
   hull's `anchorpoint` locator and its point lights) or a hangar's scene (sceneGraphicID: its EveSpaceScene's
-  environment cube maps, sun and ambient). The dev server makes them on demand at `/client-assets/graphic/<id>`.
+  environment cube maps, sun and ambient). The asset server makes them on demand at `/client-assets/graphic/<id>`.
 - `--overview` writes `overviewPresets.json`: the client's default overview presets (each preset's
   groups, from `res:/staticdata/defaultoverviews.fsdbinary`, decoded by `lib/defaultOverviews.mjs`) and
   its first tabs (General, Mining, WarpTo), named in the client's English from its localization file.
@@ -46,10 +46,18 @@ python tools/client-extract/shortcuts.py "<decompiled Python for this build>"
 The extractor records the paths in the new build's `config.json`. The BFF reads the localization
 and dialog tables directly from the install named by `EVEJS_CLIENT_ROOT`.
 
-The Vite dev server serves the newest build's folder at `/client-assets`, or the one
-`EVE_CLIENT_BUILD` names, and extracts what a page asks for on first ask (a type's model, a
-system's scene and celestials). `web/hull-viewer.html?type=588` draws a type as the play view does,
-`?planet=40009082&system=30000142` a planet.
+The BFF serves `/client-assets` after `npm run build:web` and `npm start`. It selects the install's
+build from `EVEJS_CLIENT_ROOT`, with the companion's SDE build as the default when the install is
+unset. `EVE_CLIENT_BUILD` selects an explicit build. The asset server uses the selected folder and
+extracts missing models, scenes, and celestials on demand.
+
+Vite's standalone viewers use the same asset server, with the newest numbered folder as their default
+when no install or explicit build is configured. `web/hull-viewer.html?type=588` draws a type as the
+play view does, and `?planet=40009082&system=30000142` draws a planet.
+
+The optional BFF container can serve a pre-extracted cache mounted read-only at
+`/app/_local/client-assets`. For on-demand extraction inside the container, the cache must be writable
+and the configured client and SDE paths must be accessible there.
 
 ## What is in `lib/`
 

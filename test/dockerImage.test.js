@@ -65,8 +65,9 @@ const under = (file, trees) => trees.some((tree) => file === tree || file.starts
 test("the Dockerfile and .dockerignore are read as written: the trees the image is given", () => {
   const copied = copiedIntoTheImage(fs.readFileSync(path.join(ROOT, "Dockerfile"), "utf8"));
   const context = buildContext(fs.readFileSync(path.join(ROOT, ".dockerignore"), "utf8"));
-  assert.deepEqual(copied, ["package.json", "package-lock.json", "src", "contracts", "scripts", "web/src", "plugins"]);
+  assert.deepEqual(copied, ["package.json", "package-lock.json", "src", "contracts", "scripts", "tools/client-extract", "web/src", "plugins"]);
   for (const tree of copied) assert.ok(under(tree, context.allowed), `${tree} is copied into the image but kept out of the build context`);
+  assert.equal(under("_local/client-assets/3698585/config.json", context.allowed), false);
   assert.equal(context.testsKeptOut, true);
   // The reading itself, on a small file: a copy from another stage is not a copy out of the context.
   assert.deepEqual(copiedIntoTheImage("FROM a AS build\nCOPY web ./web\nFROM b\nCOPY --chown=node:node one two ./\nCOPY --from=build /app/x ./x\nCOPY three ./three\n"), ["one", "two", "three"]);

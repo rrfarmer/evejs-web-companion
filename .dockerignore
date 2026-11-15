@@ -13,6 +13,9 @@
 !contracts/**
 !scripts/
 !scripts/**
+!tools/
+!tools/client-extract/
+!tools/client-extract/**
 !web/
 !web/**
 !plugins/

@@ -602,13 +602,15 @@ async function main() {
   } else if (fs.existsSync(tgFile)) typeGraphics = JSON.parse(fs.readFileSync(tgFile, "utf8"));
 
   const specs = [...args.hulls];
+  const meshMissing = (gr2) => {
+    const stem = path.join(outRoot, ...gr2.slice("res:/".length, -".gr2".length).split("/"));
+    const glb = stem + ".glb";
+    return !fs.existsSync(stem + ".json") || !fs.existsSync(glb) || glbBuildOf(fs.readFileSync(glb)) < GLB_BUILD;
+  };
   for (const typeID of args.types) {
     const tg = typeGraphics?.[typeID];
     if (!tg?.gr2) throw new Error(`--type ${typeID}: no SOF hull model known (run --type-graphics with --sde first)`);
-    const stem = tg.gr2.slice("res:/".length, -".gr2".length);
-    // the model where it is missing or of an older GLB build (glb.mjs GLB_BUILD)
-    const glbFile = path.join(outRoot, ...`${stem}.glb`.split("/"));
-    if (!fs.existsSync(glbFile) || glbBuildOf(fs.readFileSync(glbFile)) < GLB_BUILD) specs.push(tg.gr2);
+    if (meshMissing(tg.gr2)) specs.push(tg.gr2);
     const sofFile = await extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot, tg.race);
     console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
   }
@@ -656,8 +658,7 @@ async function main() {
       let gr2 = null;
       for (const [key] of rf.entries) if (key.endsWith(`/${hull}.gr2`) && key.startsWith("res:/dx9/model/")) { gr2 = key; break; }
       if (!gr2) throw new Error(`--graphic ${graphicID}: no model ${hull}.gr2 in the client`);
-      const stem = gr2.slice("res:/".length, -".gr2".length);
-      if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(gr2);
+      if (meshMissing(gr2)) specs.push(gr2);
       await extractSof(rf, gr2, g.sofHullName, g.sofFactionName ?? null, outRoot, g.sofRaceName ?? null);
       fs.writeFileSync(file, JSON.stringify({ graphicID, hull: g.sofHullName, faction: g.sofFactionName ?? null, race: g.sofRaceName ?? null, gr2 }));
       console.log(`graphic ${graphicID}: ${g.sofHullName} as ${g.sofFactionName ?? "none"}`);
@@ -676,8 +677,7 @@ async function main() {
     if (gr2 && !rf.has(gr2)) gr2 = null;
     if (!gr2) for (const [key] of rf.entries) if (key.endsWith(`/${hull}.gr2`) && key.startsWith("res:/dx9/model/")) { gr2 = key; break; }
     if (!gr2) throw new Error(`--dna ${dna}: the hull has no geometry (${String(sofHull.geometryResFilePath ?? "none")})`);
-    const stem = gr2.slice("res:/".length, -".gr2".length);
-    if (!fs.existsSync(path.join(outRoot, ...`${stem}.glb`.split("/")))) specs.push(gr2);
+    if (meshMissing(gr2)) specs.push(gr2);
     await extractSof(rf, gr2, hullName, factionName, outRoot, raceName);
     const file = path.join(outRoot, "dna", `${dna.toLowerCase().replace(/:/g, ".")}.json`);
     fs.mkdirSync(path.dirname(file), { recursive: true });

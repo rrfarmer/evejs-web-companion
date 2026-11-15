@@ -11,6 +11,7 @@ const eveStore = require("./eveStore");
 const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
+const { createClientAssets } = require("./clientData/clientAssets");
 const { createClientWords } = require("./clientData/clientWords");
 const { readAchievementDefinitions, readCharacterTitleDefinitions } = require("./clientData/achievementDefinitions");
 const { createClientTextures } = require("./clientData/clientTextures");
@@ -18348,6 +18349,13 @@ app.use(config.iconCacheUrlPath, express.static(config.iconCacheDir, {
   fallthrough: false,
   immutable: true,
   maxAge: "30d",
+}));
+
+// Extracted 3D resources and audio are installed alongside the BFF. They use the same URLs in dev and production.
+app.use("/client-assets", options.clientAssets || createClientAssets({
+  clientRoot: config.clientRoot,
+  fallbackBuild: config.sdeBuild,
+  errorLogger,
 }));
 
 // R45: the Svelte SPA build is the ONLY app, and it is served at the root.
