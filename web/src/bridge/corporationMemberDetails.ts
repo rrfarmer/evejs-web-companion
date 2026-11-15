@@ -3,6 +3,20 @@ import { isListValue, readDictEntry, readRowField, unwrapLong, type JsonValue } 
 import type { CorporationRoleGroup, GrantMasks } from "./corporationRoles.ts";
 
 export const MEMBER_ROLE_FIELDS = ["roles", "grantableRoles", "rolesAtHQ", "grantableRolesAtHQ", "rolesAtBase", "grantableRolesAtBase", "rolesAtOther", "grantableRolesAtOther"] as const;
+export type MemberDetailsTabID = "general" | "roles" | "titles" | "roles_summary";
+export interface MemberDetailsRequest {
+  readonly characterID: number;
+  readonly n: number;
+  readonly tabID?: MemberDetailsTabID;
+}
+
+/** TabGroup.AutoSelect falls back to General. Accept the companion's earlier saved summary ID. */
+export function memberDetailsSavedTab(value: string | null | undefined): MemberDetailsTabID {
+  if (value === "summary") return "roles_summary";
+  if (value === "roles" || value === "titles" || value === "roles_summary") return value;
+  return "general";
+}
+
 export interface CorporationMember {
   readonly characterID: number;
   readonly corporationID: number;

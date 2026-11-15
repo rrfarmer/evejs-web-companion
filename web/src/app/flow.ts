@@ -180,7 +180,7 @@ import { locationKind } from "../bridge/clientWords.ts";
 import { resolvedName } from "../store/names.ts";
 import { labelEscaped } from "../bridge/labelMarkup.ts";
 import { corporationTrackingOf, type CorporationTracking } from "../bridge/corporationTracking.ts";
-import { corporationMemberOf, memberField, memberInteger, memberTitleOf, MEMBER_ROLE_FIELDS, type CorporationMember, type CorporationMemberDetails } from "../bridge/corporationMemberDetails.ts";
+import { corporationMemberOf, memberDetailsSavedTab, memberField, memberInteger, memberTitleOf, MEMBER_ROLE_FIELDS, type CorporationMember, type CorporationMemberDetails, type MemberDetailsRequest, type MemberDetailsTabID } from "../bridge/corporationMemberDetails.ts";
 import { memberRoleGroups, myGrantableRoles, memberTitlesOf, changeMemberTitles, roleGroupings, type RoleMasks, type CorporationTitle, type RoleGrouping, type GrantMasks } from "../bridge/corporationRoles.ts";
 import { addressBookOf, corporateAddressBookOf, type ContactScope, agentFoldersOf, contactLabelsOf, createdLabelOf, labelBitsSent, onlineStatesOf, type AgentFolders, type ContactLabel, type ContactWrite, type NamedAddressBook } from "../bridge/contacts.ts";
 import { sendMail as sendMailCall, type MailToSend } from "../bridge/mailWrites.ts";
@@ -2760,8 +2760,8 @@ export interface AppFlow {
   /** Corporation member tracking, full for Directors, simple for other members (base_corporation.py 863-867). */
   corporationMemberTracking(filter?: string): Promise<CorporationTracking>;
   corporationMemberRoleOptions(): Promise<readonly { roleID: string; nameID: number; groupID: number }[]>;
-  readonly memberDetailsShown: ReadableSignal<{ readonly characterID: number; readonly n: number } | null>;
-  showMemberDetails(characterID: number): void;
+  readonly memberDetailsShown: ReadableSignal<MemberDetailsRequest | null>;
+  showMemberDetails(characterID: number, tabID?: MemberDetailsTabID): void;
   corporationMemberMenu(characterID: number): Promise<"view" | "edit" | null>;
   corporationRoleAllowance(characterID: number): Promise<{ readonly confirm: () => Promise<void> } | null>;
   corporationQuitMenu(ownerIDs: readonly number[]): Promise<{ readonly removeRoles: () => Promise<void>; readonly quit: () => Promise<void> } | null>;
@@ -3045,8 +3045,8 @@ export interface AppFlow {
   corporationApplicationReview(application: CorporationApplication, status: 4 | 6, customMessage: string): Promise<void>;
   corporationApplicationDecision(application: CorporationApplication, status: 2 | 3 | 7): Promise<void>;
   corporationApplicationsExpanded(applicationID?: number | null): number | null;
-  openCorporationMemberDetails(characterID: number): Promise<void>;
-  memberDetailsPanel(panel?: "general" | "roles" | "titles" | "summary"): "general" | "roles" | "titles" | "summary";
+  openCorporationMemberDetails(characterID: number, tabID?: MemberDetailsTabID): Promise<void>;
+  memberDetailsPanel(panel?: MemberDetailsTabID): MemberDetailsTabID;
   corporationMemberDetails(characterID: number, current?: () => void): Promise<CorporationMemberDetails>;
   corporationMemberRoleBase(current?: () => void): Promise<number | null>;
   corporationMemberIDs(): Promise<readonly number[]>;
@@ -18327,16 +18327,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     } catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
     finally { release(); }
   }
-  const memberDetailsSignal = createSignal<{ readonly characterID: number; readonly n: number } | null>(null);
+  const memberDetailsSignal = createSignal<MemberDetailsRequest | null>(null);
   let memberDetailsRequests = 0;
-  function showMemberDetails(characterID: number): void { memberDetailsSignal.set({ characterID, n: ++memberDetailsRequests }); }
-  function memberDetailsPanel(panel?: "general" | "roles" | "titles" | "summary"): "general" | "roles" | "titles" | "summary" {
-    // TabGroup.Startup/AutoSelect: settings.user.tabgroups editmemberdialog remembers its selected panel.
+  function showMemberDetails(characterID: number, tabID?: MemberDetailsTabID): void {
+    memberDetailsSignal.set({ characterID, n: ++memberDetailsRequests, ...(tabID ? { tabID } : {}) });
+  }
+  function memberDetailsPanel(panel?: MemberDetailsTabID): MemberDetailsTabID {
+    // TabGroup.SelectByID and AutoSelect share the editmemberdialog user setting.
     const key = "evejs-web-user-ui:editmemberdialog";
     try {
       if (panel !== undefined) globalThis.localStorage?.setItem(key, panel);
-      const kept = panel ?? globalThis.localStorage?.getItem(key);
-      if (kept === "roles" || kept === "titles" || kept === "summary") return kept;
+      else return memberDetailsSavedTab(globalThis.localStorage?.getItem(key));
     } catch { /* Use the first enabled native panel when settings cannot be read. */ }
     return panel ?? "general";
   }
@@ -18549,10 +18550,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (members.corporationID !== scope.online.corporationID) throw new BridgeCallError("SESSION_REQUEST_RETIRED", "The corporation changed while its menu was being read.", 0);
     return members.memberIDs.includes(characterID) ? (BigInt(store.station.get().online?.corpRole ?? "0") & 1n) !== 0n ? "edit" : "view" : null;
   }
-  async function openCorporationMemberDetails(characterID: number): Promise<void> {
+  async function openCorporationMemberDetails(characterID: number, tabID?: MemberDetailsTabID): Promise<void> {
     const scope = captureMemberOperation();
     const offered = await corporationMemberMenu(characterID); scope.current();
-    if (offered !== null) showMemberDetails(characterID);
+    if (offered !== null) showMemberDetails(characterID, tabID);
   }
   async function corporationRoleAllowance(characterID: number): Promise<{ readonly confirm: () => Promise<void> } | null> {
     // CharacterChecker.OfferAllowCorpRoles: only single, non-NPC, same-corp self.

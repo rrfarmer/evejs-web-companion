@@ -3,7 +3,7 @@
   import { onMount, untrack } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
-  import type { CorporationMemberDetails } from "../bridge/corporationMemberDetails.ts";
+  import type { CorporationMemberDetails, MemberDetailsTabID } from "../bridge/corporationMemberDetails.ts";
   import { memberTitleOf } from "../bridge/corporationMemberDetails.ts";
   import { canEditCorporationRole, changeCorporationRole, memberRolesSummary, type CorporationRole, type RoleMasks, type CorporationTitle, type CorporationRoleSummaryGroup, type CorporationRoleSummaryRow } from "../bridge/corporationRoles.ts";
   import { DATE_LABELS, LIST_DELIMITER, formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -45,8 +45,9 @@
   let title = $state("");
   let base = $state("");
   let masks = $state<RoleMasks | null>(null);
-  // svelte-ignore state_referenced_locally
-  let active = $state<"general" | "roles" | "titles" | "summary">(flow.memberDetailsPanel());
+  const initialRequest = target.get();
+  let active = $state<MemberDetailsTabID>(untrack(() => flow.memberDetailsPanel(initialRequest?.tabID)));
+  let servedRequest = initialRequest?.n;
   let titleMask = $state(0);
   let titles = $state<readonly CorporationTitle[] | null>(null);
   let titlesLoading = $state(false);
@@ -68,15 +69,22 @@
   let serial = 0;
   let disposed = false;
   function keep(value: CorporationMemberDetails): void { held = value; title = value.member.title; base = value.member.baseID?.toString() ?? ""; masks = { ...value.member.masks }; titleMask = value.member.titleMask; }
-  function selectPanel(panel: "general" | "roles" | "titles" | "summary"): void {
+  function selectPanel(panel: MemberDetailsTabID): void {
     // Load runs the previous tab's DDX before switching, without submitting it.
     if (active === "general" && held?.canEditTitle) title = memberTitleOf(title);
     active = panel;
     flow.memberDetailsPanel(panel);
     if (panel === "roles") void refreshRoleBase();
     if (panel === "titles") void refreshTitles();
-    if (panel === "summary") void refreshSummary();
+    if (panel === "roles_summary") void refreshSummary();
   }
+  $effect(() => {
+    const request = $target;
+    if (!request || request.n === servedRequest) return;
+    servedRequest = request.n;
+    const tabID = request.tabID;
+    if (tabID) untrack(() => { if (active !== tabID) selectPanel(tabID); });
+  });
   async function refreshSummary(): Promise<void> {
     if (!held || !masks) return;
     const request = ++summarySerial, targetRequest = serial;
@@ -143,7 +151,7 @@
         keep(value);
         if (active === "titles") await refreshTitles();
         else if (active === "roles") await refreshRoleBase();
-        else if (active === "summary") await refreshSummary();
+        else if (active === "roles_summary") await refreshSummary();
       }
     }
     catch (cause) { if (!disposed && request === serial) {
@@ -163,7 +171,7 @@
         keep(value);
         if (value !== before && active === "roles") await refreshRoleBase();
         else if (value !== before && active === "titles") await refreshTitles();
-        else if (value !== before && active === "summary") await refreshSummary();
+        else if (value !== before && active === "roles_summary") await refreshSummary();
         if (!disposed && request === serial && close) onClose?.();
       }
     } catch (cause) { if (!disposed && request === serial) error = cause instanceof Error ? cause.message : String(cause); }
@@ -191,15 +199,16 @@
   {#if error}<p role="alert">{error}</p>{/if}
   {#if held}
     <div class="identity">
-      <OwnerPicture name={held.name} urls={portrait ? [portrait, clientTexture(portraitDefaultPath(128))] : [clientTexture(portraitDefaultPath(128))]} size={128} />
+      <OwnerPicture name={held.name} urls={portrait ? [portrait, clientTexture(portraitDefaultPath(128))] : [clientTexture(portraitDefaultPath(128))]} size={64} />
       <div><h3>{held.name}</h3>{#if held.member.title}<p>{held.member.title}</p>{/if}</div>
     </div>
     <div class="member-tabs" role="tablist" aria-label="Member details panels">
       <button type="button" role="tab" aria-selected={active === "general"} onclick={() => selectPanel("general")}>{word(LABELS.general, "General")}</button>
       <button type="button" role="tab" aria-selected={active === "roles"} onclick={() => selectPanel("roles")}>{word(LABELS.roles, "Roles")}</button>
       <button type="button" role="tab" aria-selected={active === "titles"} onclick={() => selectPanel("titles")}>{word(LABELS.titles, "Titles")}</button>
-      <button type="button" role="tab" aria-selected={active === "summary"} onclick={() => selectPanel("summary")}>{word(LABELS.summary, "Roles summary")}</button>
+      <button type="button" role="tab" aria-selected={active === "roles_summary"} onclick={() => selectPanel("roles_summary")}>{word(LABELS.summary, "Roles summary")}</button>
     </div>
+    <div class="member-body">
     {#if active === "general"}
     {#if held.canEditTitle}
       <label>{word(LABELS.title, "Title")}<input aria-label={word(LABELS.title, "Title")} maxlength="100" bind:value={title} disabled={busy} /></label>
@@ -272,6 +281,7 @@
         {:else}<p>{word(LABELS.nothing, "Nothing found")}</p>{/each}
       {/if}
     {/if}
+    </div>
     <div class="controls">
       <button type="button" disabled={busy} onclick={() => void giveShares()}>{word(LABELS.shares, "Give Shares")}</button>
       <button type="button" disabled={busy} onclick={() => void apply(true)}>{word(LABELS.ok, "OK")}</button>
@@ -282,6 +292,7 @@
 </section>
 
 <style>
+  .member-details { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
   .identity { display: flex; align-items: center; gap: 1rem; }
   .identity h3, .identity p { margin: 0; }
   label { display: block; margin: 0.5rem 0; }
@@ -289,8 +300,10 @@
   dl { display: grid; grid-template-columns: minmax(7rem, auto) minmax(0, 1fr); gap: 0.5rem; }
   dt { color: var(--color-muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
-  .member-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+  .member-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; border-bottom: 1px solid var(--color-border); }
   .member-tabs [aria-selected="true"] { border-color: var(--color-accent); }
+  .member-body { flex: 1; min-height: 0; overflow: auto; }
+  .controls { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
   .role-views { display: flex; flex-wrap: wrap; gap: 1rem; }
   .role-views label { flex: 1; min-width: 10rem; }
   .role-list { list-style: none; padding: 0; }

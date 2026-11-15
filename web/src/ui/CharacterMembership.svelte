@@ -60,6 +60,13 @@
     catch (e) { error = e instanceof Error ? e.message : String(e); }
     finally { busy = false; }
   }
+  async function openRolesSummary(characterID: number) {
+    error = "";
+    try { await flow.openCorporationMemberDetails(characterID, "roles_summary"); }
+    catch (cause) {
+      if ((cause as { code?: string })?.code !== "SESSION_REQUEST_RETIRED") error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
   function since(ticks: string): { date: string; duration: string } {
     const ms = Number((BigInt(ticks) - 116444736000000000n) / 10000n);
     let days = Math.max(0, Math.floor((Date.now() - ms) / 86_400_000));
@@ -98,9 +105,7 @@
           {/if}
         </div>
         <div class="info"><small>{row.ceo || row.director ? word(labels.role, "Role") : word(labels.roles, "Roles")}</small>
-          <span>{row.ceo ? word(labels.ceo, "CEO") : row.director ? "Director" : row.roles.slice(0, 4).join(", ") || "None"}
-            {#if row.roles.length > 4}<button class="more" type="button" onclick={() => online?.characterID && flow.openCorporationMemberDetails(online.characterID)}>{row.roles.length - 4} more</button>{/if}
-          </span>
+          <span>{row.ceo ? word(labels.ceo, "CEO") : row.director ? "Director" : row.roles.slice(0, 4).join(", ") || "None"}{#if row.roles.length > 4 && online?.characterID}{@const characterID = online.characterID}{", "}<button class="more evelink" type="button" onclick={() => void openRolesSummary(characterID)}>{row.roles.length - 4} more</button>{/if}</span>
           {#if row.acceptsRoles !== null}
             <label title={word(labels.hint, "Allow new roles to be assigned to you")}><input type="checkbox" checked={row.acceptsRoles} disabled={busy} onclick={(event) => { event.preventDefault(); void changeRoles(!row?.acceptsRoles); }} /> {word(labels.allow, "Allow New Roles")}</label>
           {/if}
@@ -142,6 +147,6 @@
   img { width: 64px; height: 64px; object-fit: contain; }
   .info, .actions { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; }
   small { color: #b7bec5; }
-  .actions button, .more { background: #ffffff10; color: inherit; border: 1px solid #ffffff2a; padding: 6px; }
-  .more { padding: 2px 4px; }
+  .actions button { background: #ffffff10; color: inherit; border: 1px solid #ffffff2a; padding: 6px; }
+  .more { background: transparent; border: 0; padding: 0; }
 </style>

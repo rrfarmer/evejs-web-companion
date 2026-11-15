@@ -126,6 +126,7 @@
   const fitting = $derived(session?.store.fitting);
   const inventory = $derived(session?.store.inventory);
   const fleet = $derived(session?.store.fleet);
+  const memberDetails = $derived(session?.flow.memberDetailsShown);
 
   // A refusal the server gave an order (a lock, a module, a move, a fit, an item's move), as the client puts it up:
   // the flow says some in the client's own dialogs (actionErrorSaid); the rest are said here, once each, in space on
@@ -396,6 +397,7 @@
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
     fleetComposition: { w: 680, h: 420 },
+    memberDetails: { w: 420, h: 480 },
   };
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
@@ -463,6 +465,13 @@
     wins = openFly(wins, tab);
     raiseApp(tab);
   }
+  let openedMemberDetails: NonNullable<typeof $memberDetails> | null = null;
+  $effect(() => {
+    const request = $memberDetails;
+    if (stage !== "game" || !request || request === openedMemberDetails) return;
+    openedMemberDetails = request;
+    untrack(() => open("memberDetails"));
+  });
   let lastFleetID: number | null = null;
   $effect(() => {
     const characterID = chosenCharacterID;
@@ -503,6 +512,7 @@
     assets: "Tooltips/Neocom/PersonalAssets", locations: "UI/PeopleAndPlaces/Locations", log: "UI/Accessories/Log/Log",
     planets: "UI/InfoWindow/TabNames/PlanetaryProduction", notepad: "UI/Notepad/Notepad", calendar: "UI/Calendar/CalendarWindow/Caption",
     fleetComposition: "UI/Fleet/FleetComposition/FleetComposition",
+    memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
   };
   let captions = $state<Partial<Record<TabID, string>>>({});
   $effect(() => {

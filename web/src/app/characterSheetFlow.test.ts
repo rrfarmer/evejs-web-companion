@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 import { createClientStore } from "../store/clientStore.ts";
 import { createAppFlow } from "./flow.ts";
 import { nameKey } from "../store/names.ts";
+import { memberDetailsSavedTab } from "../bridge/corporationMemberDetails.ts";
 import type { JsonValue } from "../bridge/wire.ts";
 
 function keyval(entries: readonly (readonly [string, JsonValue])[]): JsonValue {
@@ -70,6 +71,7 @@ const IMPLANTS: JsonValue = dict([
 const SLOTS: Record<number, number> = { 9941: 1, 9899: 6 };
 
 interface SheetBody {
+  readonly corporationMemberIDs?: readonly number[];
   readonly publicInfo?: JsonValue;
   readonly description?: JsonValue;
   readonly homeStation?: JsonValue;
@@ -123,6 +125,9 @@ function sheetFetch(
       chosen = true;
       return json(200, { ok: true, character: { characterID: PILOT, characterName: "Farmer", stationID: 60015249, structureID: null, solarSystemID: 30000142, corporationID: 98000001 }, station: null, notifications: [] });
     }
+    if (url === "/api/bridge/corporation/member-ids") {
+      return json(200, { ok: true, corporationID: 98000001, memberIDs: body.corporationMemberIDs ?? [] });
+    }
     if (url === "/api/bridge/call") {
       if (sent.pilot === true && !chosen) return json(409, { ok: false, error: "NO_LIVE_SESSION", message: "No pilot is selected." });
       // (A BFF given the row and not the service's answer is one that does not carry the service's call.)
@@ -160,6 +165,28 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+test("the Memberships link requests Roles Summary for a verified corporation member", async () => {
+  const { flow } = await withPilot({ corporationMemberIDs: [PILOT] });
+  await flow.openCorporationMemberDetails(PILOT, "roles_summary");
+  const first = flow.memberDetailsShown.get();
+  assert.deepEqual(first, { characterID: PILOT, tabID: "roles_summary", n: 1 });
+  await flow.openCorporationMemberDetails(PILOT + 1, "roles_summary");
+  assert.equal(flow.memberDetailsShown.get(), first);
+  await flow.openCorporationMemberDetails(PILOT);
+  assert.deepEqual(flow.memberDetailsShown.get(), { characterID: PILOT, n: 2 });
+  await flow.openCorporationMemberDetails(PILOT, "roles_summary");
+  assert.deepEqual(flow.memberDetailsShown.get(), { characterID: PILOT, tabID: "roles_summary", n: 3 });
+});
+
+test("member editor selects saved tabs and restores the earlier summary preference", () => {
+  assert.equal(memberDetailsSavedTab("roles"), "roles");
+  assert.equal(memberDetailsSavedTab("titles"), "titles");
+  assert.equal(memberDetailsSavedTab("roles_summary"), "roles_summary");
+  assert.equal(memberDetailsSavedTab("summary"), "roles_summary");
+  assert.equal(memberDetailsSavedTab(null), "general");
+  assert.equal(memberDetailsSavedTab("other"), "general");
+});
 
 test("loadCharacterSheet decodes identity, bio, home station and a clean clone", async () => {
   const { store, flow, asked } = await withPilot({
