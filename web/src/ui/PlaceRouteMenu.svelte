@@ -19,11 +19,13 @@
     readonly own: string;
   }
 
-  let { store, flow, placeID, heading = { label: "UI/Common/Location", own: "Where" } }: {
+  let { store, flow, placeID, heading = { label: "UI/Common/Location", own: "Where" }, travelBroadcast = null }: {
     store: ClientStore;
     flow: AppFlow;
     placeID: number;
     heading?: PlaceMenuHeading;
+    /** The broadcast entry itself opens GetMenu_TravelTo. */
+    travelBroadcast?: string | null;
   } = $props();
   // svelte-ignore state_referenced_locally
   const waypoints = flow.waypoints;
@@ -49,7 +51,9 @@
 
   let open = $state(false);
   const here = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
-  const entries = $derived(celestialRouteEntries(placeID, isWaypointPlace(placeID) || isPlayerItemID(placeID), here, $waypoints));
+  const entries = $derived(travelBroadcast === null
+    ? celestialRouteEntries(placeID, isWaypointPlace(placeID) || isPlayerItemID(placeID), here, $waypoints)
+    : { setDestination: true, addWaypoint: !$waypoints.includes(placeID), removeWaypoint: $waypoints.includes(placeID) });
 
   function choose(how: "destination" | "add" | "remove"): void {
     open = false;
@@ -63,23 +67,29 @@
   <button
     type="button"
     class="minor"
-    aria-label={word(heading.label, heading.own)}
-    title={word(heading.label, heading.own)}
+    class:travel-entry={travelBroadcast !== null}
+    aria-label={travelBroadcast ?? word(heading.label, heading.own)}
+    title={travelBroadcast === null ? word(heading.label, heading.own) : undefined}
     aria-expanded={open}
     onclick={(event) => {
       event.stopPropagation();
       open = !open;
     }}
-  >⋯</button>
+    oncontextmenu={(event) => {
+      if (travelBroadcast === null) return;
+      event.preventDefault();
+      open = true;
+    }}
+  >{travelBroadcast ?? "⋯"}</button>
   {#if open}
     <span class="place-route-menu">
       {#if entries.setDestination}
-        <button type="button" class="minor" onclick={() => choose("destination")}>{word(WORDS.setDestination, "Head there")}</button>
+        <button type="button" class="minor" onclick={() => choose("destination")}>{word(WORDS.setDestination, travelBroadcast === null ? "Head there" : "Set Destination")}</button>
       {/if}
       {#if entries.addWaypoint}
-        <button type="button" class="minor" onclick={() => choose("add")}>{word(WORDS.addWaypoint, "Put on the route")}</button>
+        <button type="button" class="minor" onclick={() => choose("add")}>{word(WORDS.addWaypoint, travelBroadcast === null ? "Put on the route" : "Add Waypoint")}</button>
       {:else if entries.removeWaypoint}
-        <button type="button" class="minor" onclick={() => choose("remove")}>{word(WORDS.removeWaypoint, "Take off the route")}</button>
+        <button type="button" class="minor" onclick={() => choose("remove")}>{word(WORDS.removeWaypoint, travelBroadcast === null ? "Take off the route" : "Remove Waypoint")}</button>
       {/if}
     </span>
   {/if}
@@ -88,4 +98,6 @@
 <style>
   .place-route { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
   .place-route-menu { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+  .travel-entry { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+  .travel-entry:hover { text-decoration: underline; }
 </style>

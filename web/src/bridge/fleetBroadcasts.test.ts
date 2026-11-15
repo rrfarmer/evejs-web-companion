@@ -5,8 +5,10 @@ import {
   FLEET_BROADCAST_CLASSIFICATION,
   FLEET_BROADCAST_NAMES,
   FLEET_BROADCAST_TTL_MS,
+  broadcastHistoryLabel,
   decodeFleetBroadcastNotification,
   decodeFleetStateChangeNotification,
+  fleetTravelDestination,
   isFleetBroadcastFresh,
 } from "./fleetBroadcasts.ts";
 
@@ -62,7 +64,7 @@ test("decodes itemID/typeID wrapped as a retail long", () => {
   assert.equal(broadcast?.typeID, 670);
 });
 
-test("TravelTo's itemID is a solar system id, not an object — decoded the same way regardless", () => {
+test("a Travel To Me broadcast carries the system ID without a type ID", () => {
   const broadcast = decodeFleetBroadcastNotification(
     "OnFleetBroadcast",
     ["TravelTo", 3, 90000001, 30000142, 30000144, null],
@@ -70,8 +72,24 @@ test("TravelTo's itemID is a solar system id, not an object — decoded the same
   );
   assert.equal(broadcast?.itemID, 30000144);
   assert.equal(broadcast?.typeID, null);
-  assert.equal(FLEET_BROADCAST_CLASSIFICATION.TravelTo.itemMeaning, "destination-system");
+  assert.equal(FLEET_BROADCAST_CLASSIFICATION.TravelTo.itemMeaning, "route-destination");
   assert.equal(FLEET_BROADCAST_CLASSIFICATION.TravelTo.act, true);
+});
+
+test("Travel To uses the explicit destination independent of type and falls back to the sender's system", () => {
+  const senderSystemID = 30000142;
+  for (const [itemID, typeID, expected] of [
+    [30000144, 5, 30000144],
+    [60003760, null, 60003760],
+    [null, null, senderSystemID],
+    [0, 5, senderSystemID],
+  ]) {
+    const broadcast = decodeFleetBroadcastNotification("OnFleetBroadcast", ["TravelTo", 3, 140000001, senderSystemID, itemID, typeID], 4_000);
+    assert.ok(broadcast);
+    assert.equal(fleetTravelDestination(broadcast), expected);
+    assert.equal(broadcastHistoryLabel(broadcast).args.locationID, expected);
+    assert.equal(fleetTravelDestination({ ...broadcast, name: "Location" }), null);
+  }
 });
 
 test("null itemID/typeID decode to null, not a fabricated zero", () => {

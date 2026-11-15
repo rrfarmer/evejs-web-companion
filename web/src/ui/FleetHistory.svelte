@@ -5,11 +5,12 @@
   // makes a broadcast's). A broadcast of the pilot's own is not among them unless the pilot asks for its own
   // (WantBroadcast: BROADCAST_SHOW_OWN, off at first). Nothing is asked of the server.
   // Not here yet: the member history (AddToMemberHistory) and the loot history (OnFleetLootEvent), which list
-  // nothing; an entry's menu and colour; the broadcast settings that leave a kind of broadcast out.
+  // nothing; the other entries' menus and colour; the broadcast settings that leave a kind of broadcast out.
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
-  import { broadcastHistoryLabel, type FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
+  import { broadcastHistoryLabel, fleetTravelDestination, type FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
+  import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import { resolvedName, type NameKind } from "../store/names.ts";
   import type { JsonValue } from "../bridge/wire.ts";
 
@@ -129,7 +130,14 @@
   {:else}
     <ul>
       {#each shown as broadcast (broadcast.receivedAtMs + ":" + broadcast.name + ":" + broadcast.senderCharID)}
-        <li data-broadcast={broadcast.name}>{entryText(broadcast)}</li>
+        {@const destination = fleetTravelDestination(broadcast)}
+        <li data-broadcast={broadcast.name}>
+          {#if destination !== null}
+            <PlaceRouteMenu {store} {flow} placeID={destination} travelBroadcast={entryText(broadcast)} />
+          {:else}
+            {entryText(broadcast)}
+          {/if}
+        </li>
       {/each}
     </ul>
   {/if}

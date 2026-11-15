@@ -96,7 +96,7 @@ export type FleetBroadcastItemMeaning =
   | "primary-target" // Target: the tactical target's ship
   | "align-object" // AlignTo: an object to align to
   | "stargate" // JumpTo: a stargate (client further gates this to groupStargate)
-  | "destination-system" // TravelTo: ⚠ NOT an item — a solar system id in the itemID slot
+  | "route-destination" // TravelTo: a system, station or structure in the itemID slot
   | "sender-own-ship" // HealShield/HealArmor/HealCapacitor: rep the sender, not itemID's owner
   | "third-party-ship" // HealTarget: a third party's ship, distinct from the sender
   | "warp-object" // WarpTo: the object the fleet is told to warp to
@@ -137,7 +137,7 @@ export const FLEET_BROADCAST_CLASSIFICATION: Readonly<
   Target: { itemMeaning: "primary-target", act: true },
   AlignTo: { itemMeaning: "align-object", act: true },
   JumpTo: { itemMeaning: "stargate", act: true },
-  TravelTo: { itemMeaning: "destination-system", act: true },
+  TravelTo: { itemMeaning: "route-destination", act: true },
   HealShield: { itemMeaning: "sender-own-ship", act: true },
   HealArmor: { itemMeaning: "sender-own-ship", act: true },
   HealCapacitor: { itemMeaning: "sender-own-ship", act: true },
@@ -166,6 +166,11 @@ export interface FleetBroadcast {
 /** fleetSvc.py 61, MAX_NUM_BROADCASTS: the most broadcasts the client's history keeps. */
 export const MAX_BROADCAST_HISTORY = 500;
 
+/** GetMenu_TravelTo accepts a destination with or without an accompanying type. */
+export function fleetTravelDestination(broadcast: FleetBroadcast): number | null {
+  return broadcast.name === "TravelTo" ? broadcast.itemID ?? broadcast.senderSolarSystemID : null;
+}
+
 /**
  * The client's label for a broadcast in its history (fleetSvc.AddBroadcast, 1430 to 1490), and the label's
  * arguments as AddBroadcast gives them. The heals' labels have the healed thing's type after them where the ship is
@@ -189,7 +194,7 @@ export function broadcastHistoryLabel(broadcast: FleetBroadcast): { readonly lab
     case "WarpTo": return { label: "UI/Fleet/FleetBroadcast/BroadcastEventWarpTo2", args: place };
     case "AlignTo": return { label: "UI/Fleet/FleetBroadcast/BroadcastEventAlignTo2", args: place };
     case "JumpTo": return { label: "UI/Fleet/FleetBroadcast/BroadcastEventJumpTo2", args: place };
-    case "TravelTo": return { label: "UI/Fleet/FleetBroadcast/BroadcastEventTravelTo2", args: place };
+    case "TravelTo": return { label: "UI/Fleet/FleetBroadcast/BroadcastEventTravelTo2", args: { ...place, locationID: fleetTravelDestination(broadcast) } };
     case "Target": return { label: "UI/Fleet/FleetBroadcast/BroadcastEventTarget", args: {} };
     case "HealTarget": return { label: "UI/Fleet/FleetBroadcast/BroadcastEventHealTarget", args: {} };
   }
