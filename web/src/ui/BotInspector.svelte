@@ -66,6 +66,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import StationPicker from "./StationPicker.svelte";
   import CorpHangarPicker from "./CorpHangarPicker.svelte";
+  import AgentCorpPicker from "./AgentCorpPicker.svelte";
   import FittingSelect from "./FittingSelect.svelte";
   import type { PickerFitting } from "../bots/fittingPicker.ts";
 
@@ -100,7 +101,7 @@
     onClose,
   }: {
     target: InspectorTarget;
-    flow: Pick<AppFlow, "searchDestinations" | "loadCorpOffices">;
+    flow: Pick<AppFlow, "searchDestinations" | "loadCorpOffices" | "loadAgentCorporations">;
     currentStation?: { id: number; name: string } | null;
     equipment?: readonly { groupID: number; label: string }[];
     items?: readonly { typeID: number; groupID?: number | null; name: string }[];
@@ -231,10 +232,6 @@
   function bookmarkValue(step: MacroStep, key: string): string {
     const arg = argOf(step, key);
     return arg !== undefined && arg.kind === "bookmark" ? String(arg.bookmarkID) : "";
-  }
-  function corpValue(step: MacroStep, key: string): string {
-    const arg = argOf(step, key);
-    return arg !== undefined && arg.kind === "corp" ? (arg.name ?? "") : "";
   }
   function rockPickValue(step: MacroStep, key: string): string {
     const arg = argOf(step, key);
@@ -446,16 +443,6 @@
     const match = folders.find((f) => f.folderID === Number(raw));
     if (match === undefined) return;
     onArg(key, { kind: "bookmarkFolder", folderID: match.folderID, name: match.name });
-  }
-  /**
-   * The one argument picker that is a plain text field: no live corporation
-   * search exists anywhere in this app (unlike stations, fittings, bookmarks
-   * or pilots), and the NAME is all the agent finders filter on. An empty
-   * field means "any corporation", the shipped default.
-   */
-  function setCorp(key: string, raw: string): void {
-    const trimmed = raw.trim();
-    onArg(key, trimmed.length === 0 ? undefined : { kind: "corp", id: null, name: trimmed });
   }
   function setRockPick(key: string, raw: string): void {
     // Back to the default: drop the argument rather than storing "nearest", so
@@ -1050,12 +1037,13 @@
           <option value="enabled">Yes</option>
         </select>
       {:else if arg.widget === "corp-picker"}
-        <input
+        {@const corpArg = argOf(step, arg.key)}
+        <AgentCorpPicker
           id={fieldId}
-          type="text"
-          placeholder="any corporation"
-          value={corpValue(step, arg.key)}
-          oninput={(e) => setCorp(arg.key, e.currentTarget.value)}
+          {flow}
+          kind={step.macro === "find-combat-agent" ? "encounter" : "courier"}
+          value={corpArg !== undefined && corpArg.kind === "corp" ? { id: corpArg.id, name: corpArg.name } : null}
+          onPick={(corporation) => onArg(arg.key, corporation === null ? undefined : { kind: "corp", id: corporation.id, name: corporation.name })}
         />
       {:else if arg.widget === "planet-list"}
         <!-- Written by the Planetary Industry window's Haul button, never typed:

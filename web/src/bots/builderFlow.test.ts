@@ -89,6 +89,17 @@ test("corp offices are 'could not check', never 'no offices'", async () => {
   assert.equal(result.error, NO_PILOT_FOR_CORP_OFFICES);
 });
 
+test("the agent finder's corporations are static data, read as the account", async () => {
+  // The finder's corporation list needs no pilot: with none in the client the
+  // step could otherwise only ever search every corporation.
+  const seen: Seen[] = [];
+  const flow = createPilotlessBuilderFlow(accountOptions({ ok: true, agents: [] }, seen));
+  const result = await flow.loadAgentCorporations("courier");
+  assert.equal(result.error, null);
+  assert.ok(seen.length > 0);
+  assert.ok(seen.every((call) => /\/api\/agents\/find\?/.test(call.url) && call.auth === "Bearer account-pass-token"));
+});
+
 test("no account to sign in is an error the caller sees, not an empty library", async () => {
   const flow = createPilotlessBuilderFlow(async () => {
     throw new Error("No account this browser knows could be signed in.");

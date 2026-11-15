@@ -786,6 +786,7 @@ import {
 } from "../bridge/reloadNotifications.ts";
 import type { BotScript, WorldRef } from "../bots/botScript.ts";
 import { decodeScriptValue } from "../bots/scriptCodec.ts";
+import { readAgentCorporations, type AgentCorporationsResult } from "../bots/agentCorporations.ts";
 import { expandSubBots, hasSubBots, type BotResolution, type SubBotReference } from "../bots/subBots.ts";
 import { autoRejectInvitations } from "./autoRejectInvitations.ts";
 import { createChatConversations, type ChatConversations } from "./chatConversations.ts";
@@ -1790,6 +1791,14 @@ export interface AppFlow {
    * to the store: nothing on screen shows it, one picker uses it.
    */
   loadCorpOffices(): Promise<CorpOfficesResult>;
+  /**
+   * The corporations that employ agents of one kind ("courier" for the delivery
+   * finder, "encounter" for the combat finder), named, for the finder step's
+   * corporation picker. Static reference data, read on demand: a failed read
+   * comes back as `error`, never as an empty list that would look like "no
+   * corporation has such agents".
+   */
+  loadAgentCorporations(kind: "courier" | "encounter"): Promise<AgentCorporationsResult>;
   /** Show a different corporation hangar division. */
   selectCorpDivision(division: number): void;
   /** Load the Fitting panel (the active ship's slots + resource readings). */
@@ -7383,6 +7392,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // feature breaking.
       return { stationIDs: [], divisions: [], error: errorWords(error) };
     }
+  }
+
+  function loadAgentCorporations(kind: "courier" | "encounter"): Promise<AgentCorporationsResult> {
+    return readAgentCorporations(kind, callOptions);
   }
 
   // crimewatchSvc: the pilot's combat timers and its ship's safety level. The
@@ -28696,6 +28709,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     giveUpStationOffice,
     setSafetyLevel,
     loadCorpOffices,
+    loadAgentCorporations,
 
     selectCorpDivision(division) {
       store.apply({ type: "inventory/corp-division", division });

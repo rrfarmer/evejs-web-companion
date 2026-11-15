@@ -21,6 +21,7 @@
 import * as api from "../app/api.ts";
 import type { ApiOptions } from "../app/api.ts";
 import type { AppFlow } from "../app/flow.ts";
+import { readAgentCorporations } from "./agentCorporations.ts";
 
 /**
  * The slice of `AppFlow` the Builder and its pickers call.
@@ -30,7 +31,7 @@ import type { AppFlow } from "../app/flow.ts";
  */
 export type BuilderFlow = Pick<
   AppFlow,
-  "listSavedFittings" | "listBookmarks" | "listBookmarkFolders" | "listOreFamilies" | "searchDestinations" | "loadCorpOffices"
+  "listSavedFittings" | "listBookmarks" | "listBookmarkFolders" | "listOreFamilies" | "searchDestinations" | "loadCorpOffices" | "loadAgentCorporations"
 > & {
   requestOptions(): ApiOptions | Promise<ApiOptions>;
 };
@@ -83,5 +84,7 @@ export function createPilotlessBuilderFlow(accountOptions: () => Promise<ApiOpti
     // A read that did not happen, told apart from "no offices" — the picker
     // keeps the step on the pilot's own hangar and says it could not check.
     loadCorpOffices: async () => ({ stationIDs: [], divisions: [], error: NO_PILOT_FOR_CORP_OFFICES }),
+    // The agent table is static data, so the finder's corporation list needs no pilot.
+    loadAgentCorporations: async (kind) => readAgentCorporations(kind, await accountOptions()),
   };
 }
