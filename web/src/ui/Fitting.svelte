@@ -43,8 +43,10 @@
   // the drop handler then refuses.
   import {
     DRAG_MIME,
+    FITTING_CHARGE_DRAG_MIME,
     carriesOurPayload,
     decodeDrag,
+    decodeFittingChargeType,
     dropOnPlaceVerdict,
     dropOnSocketVerdict,
     encodeDrag,
@@ -1577,8 +1579,9 @@
     pickedItemID = null;
     loadSimulatedChargeAt(flagID, typeID);
   }
-  function loadSimulatedChargeAt(flagID: number, typeID: number): void {
+  function loadSimulatedChargeAt(flagID: number, typeID: number, previewLive = false): void {
     void run(async () => {
+      if (previewLive && !simulation) await flow.simulateShip();
       // FitAmmoToLocation returns nothing where the module does not take the charge, and the window says nothing.
       await flow.loadSimulatedCharge(flagID, typeID);
       fitFeedback = "";
@@ -2499,40 +2502,63 @@
     }
   }
 
-  function overSocket(event: DragEvent, slot: FittingSlot): void {
-    if (!carriesOurPayload(event.dataTransfer?.types as string[] | undefined)) {
-      return;
-    }
-    // preventDefault is what MAKES an element a drop target; without it the
-    // browser refuses the drop and shows the "no entry" cursor.
-    event.preventDefault();
-    if (!simulation && event.dataTransfer) {
-      event.dataTransfer.dropEffect = "move";
-    }
-    dropSlot = slotKey(slot);
+  function socketUnderPointer(event: DragEvent): FittingSlot | null {
+    const stage = event.currentTarget;
+    if (!(stage instanceof HTMLElement)) return null;
+    // Use the current hit when the ring or its scroll container moved during the drag.
+    const hit = stage.ownerDocument.elementFromPoint(event.clientX, event.clientY);
+    const button = hit?.closest<HTMLElement>("[data-fit-slot]");
+    if (!button || !stage.contains(button)) return null;
+    return sockets.find(({ slot }) => slotKey(slot) === button.dataset.fitSlot)?.slot ?? null;
   }
 
-  function dropOnSimulatedShip(event: DragEvent): void {
-    if (!simulation) return;
-    const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME) ?? null);
-    if (payload?.kind !== "inventoryItem") return;
+  function overFittingStage(event: DragEvent): void {
+    const types = event.dataTransfer?.types;
+    const catalogue = types?.includes(FITTING_CHARGE_DRAG_MIME) ?? false;
+    if (!catalogue && !carriesOurPayload(types)) return;
+    const slot = socketUnderPointer(event);
+    dropSlot = slot ? slotKey(slot) : null;
+    if (!slot && !simulation && !catalogue) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = simulation || catalogue ? "copy" : "move";
+  }
+
+  function draggedChargeTypes(payload: Extract<DragPayload, { kind: "inventoryItem" }>): number[] {
     const rows = rowsIn($inventory, payload.from);
-    const typeIDs = (payload.itemIDs ?? [payload.itemID]).flatMap(itemID => {
+    const selected = (payload.itemIDs ?? [payload.itemID]).flatMap(itemID => {
       const row = rows.find(item => item.itemID === itemID);
       return row?.categoryID === 8 ? [row.typeID] : [];
     });
-    if (!typeIDs.length) return;
-    event.preventDefault();
-    tryFitCharges([...new Set(typeIDs)]);
+    return [...new Set(selected)];
   }
 
-  function dropOnSocket(event: DragEvent, slot: FittingSlot): void {
-    event.stopPropagation();
+  function dropOnFittingStage(event: DragEvent): void {
     dropSlot = null;
     linkingTypeID = null;
+    if (busy) return;
+    const slot = socketUnderPointer(event);
+    const catalogueType = decodeFittingChargeType(event.dataTransfer?.getData(FITTING_CHARGE_DRAG_MIME));
+    if (catalogueType !== null) {
+      event.preventDefault();
+      if (!slot) tryFitCharges([catalogueType]);
+      else if (slot.module) {
+        const flagID = slotFlagOf(slot.family, slot.index);
+        if (flagID !== null) loadSimulatedChargeAt(flagID, catalogueType, true);
+      }
+      return;
+    }
     const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME) ?? null);
-    const verdict = dropOnSocketVerdict(payload, simulation !== null);
+    if (!payload) return;
     event.preventDefault();
+    if (slot) dropOnSocket(slot, payload, event.shiftKey);
+    else if (simulation && payload.kind === "inventoryItem") {
+      const typeIDs = draggedChargeTypes(payload);
+      if (typeIDs.length) tryFitCharges(typeIDs);
+    }
+  }
+
+  function dropOnSocket(slot: FittingSlot, payload: DragPayload, shift: boolean): void {
+    const verdict = dropOnSocketVerdict(payload, simulation !== null);
     if (verdict !== null) {
       // Refused, and SAID — the panel's existing error line, so a rejected drop
       // reads the same way a rejected click does.
@@ -2543,16 +2569,15 @@
     // another slot is grouped with this one's with Shift held, else moved here; a charge, off another slot or out of
     // a hold, is loaded into the module here (FitCharges), and taken nowhere else.
     const flagID = slotFlagOf(slot.family, slot.index);
-    const shift = event.shiftKey;
-    if (simulation && flagID !== null && payload?.kind === "inventoryItem") {
-      const row = rowsIn($inventory, payload.from).find(item => item.itemID === payload.itemID);
-      if (row?.categoryID === 8) {
+    if (simulation && flagID !== null && payload.kind === "inventoryItem") {
+      const typeID = draggedChargeTypes(payload)[0];
+      if (typeID !== undefined) {
         pickedItemID = null;
-        loadSimulatedChargeAt(flagID, row.typeID);
+        loadSimulatedChargeAt(flagID, typeID);
         return;
       }
     }
-    if (!simulation && flagID !== null && payload !== null) {
+    if (!simulation && flagID !== null) {
       if (payload.kind === "fittedModule") {
         void run(async () => {
           await flow.dropFittedModuleOnSlot(payload.itemID, flagID, shift);
@@ -3647,7 +3672,9 @@
 
           <div class="fit-ring-wrap overflow-x-auto">
             <div class="fit-ring" role="group" aria-label="Fitting sockets" class:retail style={retail ? `--slot-w: ${(CLIENT_SLOT_WIDTH / CLIENT_BASE) * 100}%; --slot-h: ${(CLIENT_SLOT_HEIGHT / CLIENT_BASE) * 100}%` : ""}
-              ondragover={event => { if (simulation && carriesOurPayload(event.dataTransfer?.types)) event.preventDefault(); }} ondrop={dropOnSimulatedShip}>
+              ondragover={overFittingStage} ondragenter={overFittingStage} ondragleave={event => {
+                if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) dropSlot = null;
+              }} ondrop={dropOnFittingStage}>
               {#if retail}
                 {#if shipSceneOf}<div class="fit-ship-scene" use:shipScene={{ typeID: ringTypeID, fits: shipTurretFits }}></div>{/if}
                 <!-- fittingLayout.py's base, bottom up: fittingbase (black 0.86), fittingbase_basecircle (the theme's UI
@@ -3723,6 +3750,7 @@
                   class:warning={slotWarningColor(slotFlagOf(slot.family, slot.index)) !== null}
                   title={simulation && slot.module ? `${slotName(slot)}, ${moduleName(slot.module.typeID)}. ${simulationWord("UI/Fitting/FittingWindow/ModuleMode")}: ${simulatedStateText(slot) ?? ""}. ${simulationWord("UI/Fitting/FittingWindow/ModuleModeHint")} Right-click takes it out.` : socketDescription(slot)}
                   aria-label={simulation ? simulatedSocketDescription(slot) : socketDescription(slot)}
+                  data-fit-slot={slotKey(slot)}
                   aria-pressed={isSelected(slot)}
                   disabled={busy}
                   draggable={!simulation && slot.module !== null}
@@ -3731,9 +3759,6 @@
                   class:link-faded={linkingTypeID !== null && slot.module !== null && slot.module.typeID !== linkingTypeID}
                   onclick={(event) => (simulation ? clickSimulated(slot, event) : clickSocket(slot))}
                   oncontextmenu={(event) => unfitSimulated(slot, event)}
-                  ondragover={(event) => overSocket(event, slot)}
-                  ondragleave={() => (dropSlot = null)}
-                  ondrop={(event) => dropOnSocket(event, slot)}
                   class:drop-target={dropSlot === slotKey(slot)}
                 >
                   {#if slot.module}

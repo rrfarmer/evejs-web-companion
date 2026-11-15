@@ -8,6 +8,7 @@ import {
   DRAG_MIME,
   carriesOurPayload,
   decodeDrag,
+  decodeFittingChargeType,
   dropOnPlaceVerdict,
   dropOnSocketVerdict,
   encodeDrag,
@@ -34,6 +35,14 @@ test("an inventory drag survives encode and decode", () => {
   assert.deepEqual(decodeDrag(encodeDrag(ITEM)), ITEM);
   const selection: DragPayload = { ...ITEM, itemIDs: [1002, ITEM.itemID] };
   assert.deepEqual(decodeDrag(encodeDrag(selection)), selection);
+});
+
+test("a catalogue charge drag carries a positive type ID and cannot decode as an inventory item", () => {
+  assert.equal(decodeFittingChargeType("215"), 215);
+  assert.equal(decodeDrag("215"), null);
+  for (const invalid of [undefined, "", "0", "-215", "215.5", "1e3", "9007199254740993"]) {
+    assert.equal(decodeFittingChargeType(invalid), null);
+  }
 });
 
 test("a fitted-module drag survives encode and decode", () => {

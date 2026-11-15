@@ -36,6 +36,14 @@ import type { InventoryPlace } from "../store/types.ts";
  * selection of text BEFORE deciding whether to accept the drop.
  */
 export const DRAG_MIME = "application/x-evejs-item";
+/** A catalogue charge carries a type only. It can only be used in simulation. */
+export const FITTING_CHARGE_DRAG_MIME = "application/x-evejs-fitting-charge";
+
+export function decodeFittingChargeType(raw: string | undefined): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const typeID = Number(raw);
+  return Number.isSafeInteger(typeID) && typeID > 0 ? typeID : null;
+}
 
 /** Something being dragged out of an inventory container. */
 export interface InventoryDrag {

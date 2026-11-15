@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MarketGroupNode, MarketTypeMatch } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { FITTING_CHARGE_DRAG_MIME } from "./dragDrop.ts";
   import { showInfo } from "./showInfo.ts";
   import TypeIcon from "./TypeIcon.svelte";
 
@@ -20,6 +21,13 @@
   let loadedSearch = $state<string | null>(null);
   let error = $state("");
   const search = $derived(query.trim());
+
+  function startChargeDrag(event: DragEvent, type: MarketTypeMatch) {
+    if (!event.dataTransfer) return;
+    event.dataTransfer.setData(FITTING_CHARGE_DRAG_MIME, String(type.typeID));
+    event.dataTransfer.setData("text/plain", type.name);
+    event.dataTransfer.effectAllowed = "copy";
+  }
 
   async function openBranch(groupID: number, hasTypes: boolean) {
     if (branches[groupID] || pending.has(groupID)) return;
@@ -53,7 +61,7 @@
   <ul>
     {#each types as type (type.typeID)}
       <li>
-        <button type="button" class="charge" disabled={busy} title={type.name}
+        <button type="button" class="charge" disabled={busy} title={type.name} draggable="true" ondragstart={event => startChargeDrag(event, type)}
           aria-label={`Load ${type.name}`} onclick={() => onFit(type.typeID)}>
           <TypeIcon typeID={type.typeID} name={type.name} size="sm" />{type.name}
         </button>
