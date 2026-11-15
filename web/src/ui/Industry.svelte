@@ -41,6 +41,7 @@
   import { isSessionLost } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import type { IndustryJobRequest } from "../app/api.ts";
   import type {
     IndustryActivity,
     IndustryBlueprintRow,
@@ -220,6 +221,25 @@
   let chosenActivity = $state<IndustryActivity | null>(null);
   let chosenFacilityID = $state<number | null>(null);
   let chosenRuns = $state(1);
+  // ContainerME/TE edits the draft's efficiency. The original blueprint stays the source for ConnectJob and InstallJob.
+  const EFFICIENCIES = [
+    { key: "materialEfficiency", icon: "me", label: "MaterialEfficiency", own: "Material Efficiency", min: -80, max: 10 },
+    { key: "timeEfficiency", icon: "te", label: "TimeEfficiency", own: "Time Efficiency", min: -120, max: 20 },
+  ] as const;
+  type EfficiencyField = typeof EFFICIENCIES[number]["key"];
+  let efficiencyPreview = $state<Partial<Record<EfficiencyField, number>>>({});
+  const efficiencyOpen = $derived(EFFICIENCIES.some(({ key }) => efficiencyPreview[key] !== undefined));
+  const effectiveME = $derived(efficiencyPreview.materialEfficiency ?? startingBlueprint?.materialEfficiency ?? 0);
+  const effectiveTE = $derived(efficiencyPreview.timeEfficiency ?? startingBlueprint?.timeEfficiency ?? 0);
+  const materialPreview = $derived(startingBlueprint !== null && effectiveME !== startingBlueprint.materialEfficiency);
+  const timePreview = $derived(startingBlueprint !== null && effectiveTE !== startingBlueprint.timeEfficiency);
+  function closeEfficiencyPreview(key: EfficiencyField): void {
+    delete efficiencyPreview[key];
+  }
+  function focusEfficiencyEditor(input: HTMLInputElement): void {
+    input.focus();
+    input.select();
+  }
   /**
    * A copy job only: the runs each copy is licensed for. The most the blueprint allows until the pilot says
    * another, which is where the game's own client starts a copy job.
@@ -310,9 +330,9 @@
   const materialsForJob = $derived.by(() =>
     materialsToUse(
       startingBlueprint
-        ? previewMaterials(chosenRecipe, chosenRuns, startingBlueprint.materialEfficiency, chosenLicensedRuns, decryptorForJob)
+        ? previewMaterials(chosenRecipe, chosenRuns, effectiveME, chosenLicensedRuns, decryptorForJob)
         : [],
-      reckonedMaterials,
+      materialPreview ? efficiencyQuote?.materials ?? null : reckonedMaterials,
     ),
   );
 
@@ -344,9 +364,10 @@
 
   const previewTime = $derived.by(() =>
     startingBlueprint
-      ? previewTimeSeconds(chosenRecipe, chosenRuns, startingBlueprint.timeEfficiency, chosenLicensedRuns, research ? research.level : 0)
+      ? previewTimeSeconds(chosenRecipe, chosenRuns, effectiveTE, chosenLicensedRuns, research ? research.level : 0)
       : 0,
   );
+  const duration = $derived((timePreview ? efficiencyQuote?.timeSeconds : reckonedSeconds) ?? previewTime);
 
   /** The most runs this blueprint could be asked for, of the chosen kind of work (mostRunsToAsk). */
   const maxRuns = $derived(startingBlueprint ? mostRunsToAsk(chosenActivity, startingBlueprint) : 1);
@@ -364,8 +385,35 @@
         mostLicensedRuns: mostLicensedRuns(startingBlueprint),
       }),
   );
+  const efficiencyRequest = $derived.by((): IndustryJobRequest | null => {
+    if (!startingBlueprint || chosenActivity !== "manufacturing" || chosenFacilityID === null || cannotAsk || (!materialPreview && !timePreview)) return null;
+    return {
+      blueprintItemID: startingBlueprint.itemID,
+      blueprintTypeID: startingBlueprint.typeID,
+      activity: chosenActivity,
+      facilityID: chosenFacilityID,
+      runs: chosenRuns,
+      materialEfficiency: effectiveME,
+      timeEfficiency: effectiveTE,
+    };
+  });
+  let efficiencyAnswer = $state.raw<{
+    request: IndustryJobRequest;
+    quote: Awaited<ReturnType<AppFlow["estimateIndustryJob"]>>;
+  } | null>(null);
+  const efficiencyQuote = $derived(efficiencyAnswer?.request === efficiencyRequest ? efficiencyAnswer?.quote ?? null : null);
+  $effect(() => {
+    const request = efficiencyRequest;
+    if (request === null) return;
+    let current = true;
+    void flow.estimateIndustryJob(request).then((quote) => {
+      if (current) efficiencyAnswer = { request, quote };
+    }).catch(() => {});
+    return () => { current = false; };
+  });
 
   function startJobFor(blueprint: IndustryBlueprintRow): void {
+    efficiencyPreview = {};
     startingBlueprint = blueprint;
     confirming = false;
     availableMaterials = null;
@@ -398,6 +446,7 @@
   }
 
   function closeStartJob(): void {
+    efficiencyPreview = {};
     startingBlueprint = null;
     chosenActivity = null;
     chosenFacilityID = null;
@@ -485,7 +534,7 @@
     const blueprint = startingBlueprint;
     const activity = chosenActivity;
     const facilityID = chosenFacilityID;
-    if (!blueprint || !activity || facilityID === null) {
+    if (!blueprint || !activity || facilityID === null || efficiencyOpen) {
       return;
     }
     void run(async () => {
@@ -753,9 +802,13 @@
     "1,1,2,1,1": "bg5groups", "1,1,1,1,1,1": "bg6groups", "2,3,1": "bggroups_2_3_1", "3,1,1,1": "bggroups_3_1_1_1", "4,2": "bggroups_4_2", "5,1": "bggroups_5_1" };
   const GROUP_ORDER: readonly (readonly number[])[] = [[0], [0, 1], [1, 0, 2], [0, 3, 2, 1], [1, 3, 0, 4, 2], [4, 2, 0, 1, 3, 5]];
   let typeGroups = $state<ReadonlyMap<number, { readonly groupID: number | null; readonly categoryID: number | null } | null>>(new Map());
+  const showEfficiency = $derived(startingBlueprint !== null && chosenActivity !== "reaction" && typeGroups.get(startingBlueprint.typeID)?.categoryID !== 34);
+  const canEditEfficiency = $derived(startingBlueprint?.jobID === null && chosenActivity === "manufacturing");
   $effect(() => {
     if (!retail) return;
-    const wanted = materialLines.map((m) => m.typeID).filter((typeID) => !untrack(() => typeGroups.has(typeID)));
+    const types = materialLines.map((m) => m.typeID);
+    if (startingBlueprint) types.push(startingBlueprint.typeID);
+    const wanted = types.filter((typeID) => !untrack(() => typeGroups.has(typeID)));
     if (!wanted.length) return;
     void flow.industryTypeGroups(wanted).then((found) => { typeGroups = new Map([...typeGroups, ...found]); }).catch(() => {});
   });
@@ -882,7 +935,8 @@
   }
   const facilityPreview = $derived(startingBlueprint !== null && chosenFacilityID !== null && chosenFacilityID !== startingBlueprint.facilityID);
   const CHOICE_WORDS = ["UI/Industry/SelectOptionalMaterial", "UI/Industry/UseNoOptionalItem", "UI/Industry/SelectOutcome",
-    "UI/Industry/RunsPerCopy", "UI/Industry/PreviewModeHint"];
+    "UI/Industry/RunsPerCopy", "UI/Industry/PreviewModeHint", "UI/Industry/EnterPreviewModeHint",
+    "UI/Industry/MaterialEfficiencyHint", "UI/Industry/TimeEfficiencyHint"];
   onMount(() => { if (retail) flow.requestWords(CHOICE_WORDS); });
   const viewFacility = $derived(chosenFacilityID !== null ? $industry.facilities.find((f) => f.facilityID === chosenFacilityID) ?? null : null);
   const VIEW_WORDS = ["UI/Industry/Outcome", "UI/Industry/ResearchedBlueprint", "UI/Industry/BlueprintCopy", "UI/Industry/NoOutcomeSelected",
@@ -1010,7 +1064,7 @@
           <div class="ind-cv-box outloc"><small>{industryWord("UI/Industry/OutputLocation") || "Output Location"}</small>
             <span class="combo">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : ""}</span></div>
           <div class="ind-cv-labels">
-            <div><small>{industryWord("UI/Industry/JobDuration") || "Job Duration"}</small><span>{startingBlueprint ? formatDuration(reckonedSeconds ?? previewTime) : ""}</span></div>
+            <div><small>{industryWord("UI/Industry/JobDuration") || "Job Duration"}</small><span>{startingBlueprint ? formatDuration(duration) : ""}</span></div>
             <div><small>{industryWord("UI/Industry/JobCost") || "Job Cost"}</small><span>{startingBlueprint ? (reckonedFee !== null ? formatIsk(String(Math.round(reckonedFee.total))) : "-") : ""}</span></div>
           </div>
         </div>
@@ -1034,13 +1088,43 @@
                 <input type="number" min="1" max={mostLicensedRuns(startingBlueprint)} bind:value={chosenLicensedRuns} disabled={busy} onchange={rePreview} /></label>
             {/if}
           {/if}
-          {#each [{ k: "me", v: startingBlueprint?.materialEfficiency ?? 0, max: 10 }, { k: "te", v: startingBlueprint?.timeEfficiency ?? 0, max: 20 }] as m (m.k)}
-            <div class={`ind-cv-mete ${m.k}`}>
-              <img alt="" src={`/client-res/ui/texture/classes/industry/icon${m.k}.png`} />
-              <b class:ready={m.v > 0}>{m.v}%</b>
-              <span class="gauge"><span style={`width: ${Math.max(0, m.v) / m.max * 100}%`}></span></span>
-            </div>
-          {/each}
+          {#if showEfficiency}
+            {#each EFFICIENCIES as { key, icon, label, own, min, max } (key)}
+              {@const value = key === "materialEfficiency" ? effectiveME : effectiveTE}
+              {@const name = industryWord(`UI/Industry/${label}`) || own}
+              {@const hint = industryWord(`UI/Industry/${label}Hint`)}
+              {@const editing = efficiencyPreview[key] !== undefined}
+              <div class={`ind-cv-mete ${icon}`} class:editing>
+                <img alt="" src={`/client-res/ui/texture/classes/industry/icon${icon}.png`} />
+                {#if editing}
+                  <input class="ind-cv-mete-edit" type="number" aria-label={name}
+                    min="0" {max} step="1" {value} use:focusEfficiencyEditor
+                    oninput={(event) => {
+                      const input = event.currentTarget;
+                      if (input.value !== "" && input.validity.valid) efficiencyPreview[key] = input.valueAsNumber;
+                    }}
+                    onblur={(event) => {
+                      if (event.currentTarget.value === "" || !event.currentTarget.validity.valid) event.currentTarget.value = String(value);
+                    }}
+                    onkeydown={(event) => { if (event.key === "Escape") closeEfficiencyPreview(key); }} />
+                  <button class="ind-cv-mete-reset" type="button" aria-label={`Reset ${name} preview`}
+                    title={industryWord("UI/Industry/PreviewModeHint") || "Preview mode"}
+                    onclick={() => closeEfficiencyPreview(key)}>×</button>
+                {:else if canEditEfficiency}
+                  <button class="ind-cv-mete-open" type="button" aria-label={`${name} ${value}%`}
+                    title={[name, hint, industryWord("UI/Industry/EnterPreviewModeHint") || "Click to preview"].filter(Boolean).join("\n")}
+                    onclick={() => { efficiencyPreview[key] = value; }}>
+                    <b class:ready={value > 0} class:negative={value < 0}>{value}%</b>
+                  </button>
+                {:else}
+                  <b class:ready={value > 0} class:negative={value < 0} title={[name, hint].filter(Boolean).join("\n")}>{value}%</b>
+                {/if}
+                <span class="gauge" class:negative={value < 0} aria-hidden="true">
+                  <span style:width={`${Math.min(1, value / (value < 0 ? min : max)) * 100}%`}></span>
+                </span>
+              </div>
+            {/each}
+          {/if}
         </div>
       </div>
     </div>
@@ -1066,8 +1150,9 @@
         {/each}
       </div>
       {#if startingBlueprint}
-        <button type="button" class="ind-js-submit" style={`--job: ${viewColor}`} disabled={busy || cannotAsk || !confirming}
-          title={confirming ? "" : "Waiting for the job's preview"} onclick={confirmInstall}>{industryWord("UI/Industry/Start") || "Start"}</button>
+        <button type="button" class="ind-js-submit" style={`--job: ${viewColor}`} disabled={busy || cannotAsk || !confirming || efficiencyOpen}
+          title={efficiencyOpen ? industryWord("UI/Industry/PreviewModeHint") || "Preview mode" : confirming ? "" : "Waiting for the job's preview"}
+          onclick={confirmInstall}>{industryWord("UI/Industry/Start") || "Start"}</button>
       {/if}
     </div>
     <nav class="ind-tabs">

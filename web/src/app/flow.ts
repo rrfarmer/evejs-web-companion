@@ -2437,6 +2437,8 @@ export interface AppFlow {
    * the confirm step so the decision is informed.
    */
   previewIndustryJob(request: api.IndustryJobRequest): Promise<api.IndustryPreviewResult>;
+  /** A preview with hypothetical ME/TE, reckoned locally without connecting a job monitor. */
+  estimateIndustryJob(request: api.IndustryJobRequest): Promise<Pick<api.IndustryPreviewResult, "timeSeconds" | "materials">>;
   /**
    * Each type's inventory group and category (the game's data, kept once read): the industry window sorts a job's
    * materials into its groups by them (industryUIConst.GetIndustryGroupID). Null where the type is not known.
@@ -34158,6 +34160,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // (An invention's empty optional place is nothing taken, and is not listed.)
       const listed = own?.materials ? Object.fromEntries(Object.entries(own.materials).filter(([name]) => name !== NO_OPTIONAL_MATERIAL)) : null;
       return { available, timeSeconds: own?.timeSeconds ?? null, fee: own?.fee ?? null, materials: listed, monitorID: monitored.monitorID };
+    },
+    async estimateIndustryJob(request) {
+      const own = await reckonedHere(request);
+      return { timeSeconds: own?.timeSeconds ?? null, materials: own?.materials ?? null };
     },
 
     async loadDecryptors() {

@@ -191,6 +191,46 @@ function called(body: Record<string, unknown>, result: unknown): { status: numbe
   return { status: 200, body: { ok: true, service: body.service, method: body.method, result, notifications: [] } };
 }
 
+test("hypothetical manufacturing efficiency uses the job reckoner without monitoring or installing the job", async () => {
+  const store = createClientStore();
+  store.apply({
+    type: "character/online",
+    character: {
+      characterID: 7,
+      characterName: "Builder",
+      stationID: STATION_ID,
+      solarSystemID: SOLAR_SYSTEM_ID,
+      structureID: null,
+      corporationID: null,
+    },
+    station: null,
+  });
+  const { fetch, requests } = makeFakeFetch(respondOk((path, _method, body) => {
+    if (path !== "/api/bridge/call") return null;
+    if (body.method === "GetFacilities") return called(body, list([keyVal({ facilityID: STATION_ID })]));
+    if (body.method === "QueryAttributeValue") return called(body, 1);
+    return called(body, null);
+  }));
+  const flow = createAppFlow(store, { fetch });
+  const job = {
+    blueprintItemID: BLUEPRINT_ITEM_ID,
+    blueprintTypeID: BLUEPRINT_TYPE_ID,
+    activity: "manufacturing" as const,
+    facilityID: STATION_ID,
+    runs: 1,
+  };
+  assert.deepEqual(await flow.estimateIndustryJob({ ...job, materialEfficiency: 3, timeEfficiency: 6 }), {
+    timeSeconds: 564,
+    materials: { 38: 84 },
+  });
+  assert.deepEqual(await flow.estimateIndustryJob({ ...job, materialEfficiency: 10, timeEfficiency: 20 }), {
+    timeSeconds: 480,
+    materials: { 38: 78 },
+  });
+  assert.ok(requests.some(({ body }) => body.method === "QueryAttributeValue"));
+  assert.ok(requests.every(({ body }) => body.service !== "industryMonitor" && body.method !== "InstallJob"));
+});
+
 /** Let the microtask-batched name queue flush. */
 async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));

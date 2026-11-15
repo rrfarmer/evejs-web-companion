@@ -1893,15 +1893,24 @@
   .fly-windows :global(.ind-cv-runs) { position: absolute; left: -38px; top: 88px; width: 76px; text-align: center; }
   .fly-windows :global(.ind-cv-runs input) { width: 76px; box-sizing: border-box; text-align: center; font-size: 13px; padding: 2px; }
   .fly-windows :global(.ind-cv-mete) { position: absolute; left: 73.5px; width: 79px; height: 30px; box-sizing: border-box;
-    background: url(/client-res/ui/texture/classes/industry/center/bgmete.png) center / 100% 23px no-repeat; transition: opacity 0.7s; }
-  .fly-windows :global(.ind-cv:not(.job) .ind-cv-mete) { opacity: 0; }
+    background: url(/client-res/ui/texture/classes/industry/center/bgmete.png) center / 100% 23px no-repeat; }
   .fly-windows :global(.ind-cv-mete.me) { top: -40px; }
   .fly-windows :global(.ind-cv-mete.te) { top: 10px; }
   .fly-windows :global(.ind-cv-mete img) { position: absolute; left: 8px; top: 3px; width: 16px; height: 16px; opacity: 0.6; }
+  .fly-windows :global(.ind-cv-mete.me img) { width: 17px; height: 17px; }
   .fly-windows :global(.ind-cv-mete b) { position: absolute; right: 8px; top: 4px; font-size: 13px; color: #666666; }
   .fly-windows :global(.ind-cv-mete b.ready) { color: #3372b6; }
-  .fly-windows :global(.ind-cv-mete .gauge) { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(255, 255, 255, 0.05); }
+  .fly-windows :global(.ind-cv-mete b.negative) { color: #e26758; }
+  .fly-windows :global(.ind-cv-mete .gauge) { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(255, 255, 255, 0.05); pointer-events: none; }
   .fly-windows :global(.ind-cv-mete .gauge span) { display: block; height: 100%; background: #3372b6; }
+  .fly-windows :global(.ind-cv-mete .gauge.negative span) { margin-left: auto; background: #e26758; }
+  .fly-windows :global(.ind-cv-mete.editing::after) { content: ""; position: absolute; inset: 1px 1px 8px; border: 1px solid #bc574b; pointer-events: none; }
+  .fly-windows :global(.ind-cv-mete .ind-cv-mete-open) { position: absolute; inset: 0; padding: 0; border: 0; background: none; cursor: pointer; }
+  .fly-windows :global(.ind-cv-mete .ind-cv-mete-open:hover) { background: rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.ind-cv-mete .ind-cv-mete-edit) { position: absolute; top: 5px; right: 10px; width: 50px; height: 20px;
+    box-sizing: border-box; padding: 0 3px; font-size: 13px; text-align: right; }
+  .fly-windows :global(.ind-cv-mete .ind-cv-mete-reset) { position: absolute; top: 9px; right: 0; width: 12px; height: 12px;
+    box-sizing: border-box; padding: 0; border: 0; background: none; color: #e26758; font-size: 14px; line-height: 12px; cursor: pointer; }
   .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
