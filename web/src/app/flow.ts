@@ -3790,6 +3790,7 @@ export interface AppFlow {
   agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
   agencyFactionWarfareSystems(filters: AgencyFactionWarfareFilters): Promise<readonly AgencyFactionWarfareSystem[]>;
   agencyFactionWarfareSystemLP(systemID: number): Promise<number | null>;
+  agencyFactionWarfareHub(): Promise<number | null>;
   agencyInsurgencySystems(filters: AgencyInsurgencyFilters): Promise<{ systems: readonly AgencyInsurgencySystem[]; activeCampaign: boolean }>;
   agencyEssSystems(filters: AgencyEssFilters): Promise<readonly AgencyEssSystem[]>;
   agencyEssSettings(): Promise<EssSettings | null>;
@@ -35326,6 +35327,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyTrackerSites,
     agencyFactionWarfareSystems,
     agencyFactionWarfareSystemLP,
+    agencyFactionWarfareHub: async () => {
+      const id = unwrapLong(await bridgeAsk("facWarMgr", "GetControlBunkerIDInSystem", []));
+      const number = id === null ? 0 : Number(id);
+      return Number.isSafeInteger(number) && number > 0 ? number : null;
+    },
     agencyInsurgencySystems,
     agencyEssSystems,
     agencyEssSettings: async () => essSettings(await bridgeAsk("dynamicResourceCacheMgr", "GetDynamicResourceSettings", [])),

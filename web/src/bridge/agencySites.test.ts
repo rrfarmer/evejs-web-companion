@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DISTANCE } from "./agencyAgents.ts";
-import { agencyFactionWarfareSystems, agencyFactionWarfareUpgrade, agencyInsurgencySystems, insurgencySiteCandidates,
+import { agencyFactionWarfareBenefits, agencyFactionWarfareSystems, agencyFactionWarfareUpgrade, agencyInsurgencySystems, insurgencySiteCandidates,
   DEFAULT_AGENCY_FW_FILTERS, DEFAULT_AGENCY_INSURGENCY_FILTERS, type InsurgencyStages } from "./agencySites.ts";
 import { insurgencyCampaigns, type MilitiaSystem } from "./militiaEnlistment.ts";
 import type { JsonValue } from "./wire.ts";
@@ -40,9 +40,13 @@ test("Agency factional warfare shows only an occupier's complexes and applies th
 });
 
 test("factional warfare upgrade progress uses the LP thresholds and maximum level from the client", () => {
-  assert.deepEqual(agencyFactionWarfareUpgrade(0), { level: 0, next: 40000, progress: 0 });
-  assert.deepEqual(agencyFactionWarfareUpgrade(50000), { level: 1, next: 60000, progress: 0.5 });
-  assert.deepEqual(agencyFactionWarfareUpgrade(300000), { level: 5, next: 300000, progress: 1 });
+  assert.deepEqual(agencyFactionWarfareUpgrade(0), { level: 0, previous: 0, next: 40000, progress: 0, capped: false });
+  assert.deepEqual(agencyFactionWarfareUpgrade(50000), { level: 1, previous: 40000, next: 60000, progress: 0.5, capped: false });
+  assert.deepEqual(agencyFactionWarfareUpgrade(300000), { level: 5, previous: 200000, next: 300000, progress: 1, capped: true });
+  assert.deepEqual(agencyFactionWarfareBenefits(0), [{ kind: "industry", value: 0 }, { kind: "market", value: 0 }]);
+  assert.deepEqual(agencyFactionWarfareBenefits(4), [{ kind: "industry", value: -40 }, { kind: "market", value: 40 }]);
+  assert.deepEqual(agencyFactionWarfareBenefits(5), [{ kind: "industry", value: -50 }, { kind: "market", value: 50 }]);
+  assert.deepEqual(agencyFactionWarfareBenefits(6), []);
 });
 
 test("Agency keeps the most contested systems in a bucket before ordering the selected cards by distance", () => {

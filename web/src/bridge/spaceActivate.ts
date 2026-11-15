@@ -17,7 +17,7 @@ export const MAX_DOCKING_DISTANCE_M = 50_000;
 /** inventorycommon.const. */
 const GROUP_CAPSULE = 29;
 const GROUP_STATION = 15;
-const GROUP_CONTROL_BUNKER = 925;
+export const GROUP_CONTROL_BUNKER = 925;
 const GROUP_MISSION_CONTAINER = 952;
 /** menu.CONTAINERGROUPS: wreck, cargo, spawn, spew, secure, audit log and freight containers, overseer's belongings, mission container. */
 const CONTAINER_GROUPS: ReadonlySet<number> = new Set([186, 12, 306, 1207, 340, 448, 649, 496, GROUP_MISSION_CONTAINER]);

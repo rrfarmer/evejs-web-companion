@@ -122,11 +122,17 @@ export function agencyInsurgencySystems(candidates: ReadonlyMap<number, readonly
 
 /** facwarSolarSystemUpgradeThresholds in build 3698585's appConst. */
 const FW_LP_THRESHOLDS = [0, 40000, 60000, 90000, 140000, 200000, 300000];
-export function agencyFactionWarfareUpgrade(lp: number): { level: number; next: number; progress: number } {
+export function agencyFactionWarfareUpgrade(lp: number): { level: number; previous: number; next: number; progress: number; capped: boolean } {
   const level = FW_LP_THRESHOLDS.slice(1, -1).filter((threshold) => threshold <= lp).length;
   const previous = FW_LP_THRESHOLDS[level]!;
   const next = FW_LP_THRESHOLDS[level + 1]!;
-  return { level, next, progress: Math.max(0, Math.min((lp - previous) / (next - previous), 1)) };
+  return { level, previous, next, progress: Math.max(0, Math.min((lp - previous) / (next - previous), 1)), capped: lp >= FW_LP_THRESHOLDS.at(-1)! };
+}
+
+/** facwarCommon.BENEFITS_BY_LEVEL, in the system detail's displayed order. */
+export function agencyFactionWarfareBenefits(level: number): readonly { kind: "industry" | "market"; value: number }[] {
+  if (!Number.isInteger(level) || level < 0 || level > 5) return [];
+  return [{ kind: "industry", value: level === 0 ? 0 : -level * 10 }, { kind: "market", value: level * 10 }];
 }
 /** agencyConst.SECURITY_THRESHOLDS. */
 const SECURITY_THRESHOLDS = [0.9, 0.7, 0.4, 0.2, 0.0];

@@ -711,6 +711,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // fwVictoryPointSvc.GetVictoryPointState of another system).
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances", "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates", "fwVictoryPointMgr.GetAllVictoryPointStates",
   "facWarMgr.GetSolarSystemLPs",
+  "facWarMgr.GetControlBunkerIDInSystem",
   "dungeonInstanceCacheMgr.GetFactionWarfareBattlefieldInstances", "fwWarzoneSolarsystem.GetHQSystemIDs",
   "shipCasterLandingPadMgr.GetAllLandingPads", "shipCasterLauncherMgr.GetFactionsWithShipcaster",
   "facWarMgr.GetStats_FactionInfo", "facWarMgr.GetStats_TopAndAllKillsAndVPs", "facWarMgr.GetStats_Character",
@@ -2798,6 +2799,7 @@ const RETAIL_CALLS = Object.freeze({
   "essMgr.GetDataForClientSolarSystem": judged("eve/client/script/ui/shared/dynamicResource/dynamicResourceSvc.py:74", sentWithNothing, "GetDataForClientSolarSystem(), without arguments: the local ESS data and entrance beacon."),
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances": same("evedungeons/client/anomalyTracker.py:293", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetFactionWarfareInstances(), no arguments: by solar system the factional warfare complexes' KeyVals; the tracker keeps the occupier's."),
   "facWarMgr.GetSolarSystemLPs": judged("eve/client/script/ui/services/facWarSvc.py:449", oneIDAlone("solar system"), "facWarMgr.GetSolarSystemLPs(solarSystemID) reads the specified warzone system's infrastructure hub loyalty point pool."),
+  "facWarMgr.GetControlBunkerIDInSystem": judged("eve/client/script/ui/shared/agencyNew/ui/contentPageInfoConts/factionWarfareSystemInfoContainer.py:54", sentWithNothing, "facWarMgr.GetControlBunkerIDInSystem(), no arguments; the detail pane resolves the returned item ID in the local ballpark."),
   "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates": same("eve/client/script/ui/services/fwWarzoneSvc.py:73", "sm.RemoteSvc('fwWarzoneSolarsystem').GetAllWarzonesOccupationStates(), no arguments: by warzone, by solar system, its OccupationState."),
   "fwVictoryPointMgr.GetAllVictoryPointStates": same("eve/client/script/ui/services/fwVictoryPointSvc.py:47", "sm.RemoteSvc('fwVictoryPointMgr').GetAllVictoryPointStates(), no arguments: by solar system its VictoryPointState; GetVictoryPointState of a system not the session's takes that system's."),
   "fwWarzoneSolarsystem.GetHQSystemIDs": same("eve/client/script/ui/services/fwWarzoneSvc.py:212", "GetAllHQSystems asks GetHQSystemIDs(), a dictionary of the HQ solar system by empire faction."),
