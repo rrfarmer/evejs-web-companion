@@ -206,6 +206,9 @@ button { font: inherit; color: inherit; }
 .dscan-scroll .ov-table th:nth-child(2) { width: 160px; }
 .dscan-scroll .ov-table th:nth-child(3) { width: 130px; }
 .dscan-scroll .ov-table th:nth-child(4) { width: 100px; }
+.dscan-scroll .ov-table th[data-sort] button { width: 100%; min-height: 16px; text-align: inherit; }
+.dscan-scroll .ov-table th.ov-icon, .dscan-scroll .ov-table td.ov-icon { padding-inline: 2px; }
+.dscan-scroll .ov-table th.ov-icon button { min-width: 16px; text-align: center; }
 .dscan-bracket { width: 16px; height: 16px; display: block; }
 .dscan-status { font-size: 11px; color: var(--text-dim); padding: 2px 6px; min-height: 14px; }
 .dscan-bottom { display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255, 255, 255, 0.04); border-top: 1px solid rgba(255, 255, 255, 0.08); }

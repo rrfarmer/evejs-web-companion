@@ -1,7 +1,7 @@
 // The directional scanner, as the client's (parklife/directionalScanSvc.py DirectionalScan; inflight/scannerFiles):
 // scanMgr.ConeScan(scanAngle, scanRange, *direction), the direction the camera looks (GetScanDirection: the space
 // camera's look-at direction negated), the angle in radians and the range in metres; the server answers with a row
-// for each thing it saw ({id, typeID, groupID}), nearest first. Opened with Alt+D, scanned with V or its button
+// for each thing it saw ({id, typeID, groupID}). Opened with Alt+D, scanned with V or its button
 // (eveCommands: OpenDirectionalScanner, CmdRefreshDirectionalScan).
 
 import { playUiEvent } from "./uiAudio.ts";
@@ -67,7 +67,7 @@ export interface DScanHooks {
 /** The labels the window asks the install for (directionalScannerPalette.py, directionalScanResultEntry.py). */
 export const DSCAN_WORDS: readonly string[] = ["UI/Inflight/Scanner/DirectionalScanner", "UI/Inflight/Scanner/ScanResults",
   "UI/Inflight/Scanner/Range", "UI/Inflight/Scanner/UnitAU", "UI/Inflight/Scanner/UnitKm", "UI/Inflight/Scanner/Angle",
-  "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
+  "UI/Inflight/Scanner/AngleDegrees", "UI/Inflight/Scanner/Scan", "UI/Common/Group", "UI/Common/Name", "UI/Common/Type", "UI/Common/Distance",
   "UI/Inflight/Scanner/AlignWithCamera", "UI/Inflight/Scanner/ShowScanCone", "UI/Map/MapPallet/btnSolarsystemMap",
   "UI/Inflight/Scanner/Filtered", "UI/Inflight/Scanner/DirectionalNoResult", "UI/Inflight/Scanner/UseActiveOverviewSettings"];
 /**
@@ -88,6 +88,20 @@ const SHOW_CONE_KEY = "evejs.play.directionalScannerShowCone";
 const SCAN_MODE_KEY = "evejs.play.directionalScannerMode";
 /** settings.user.ui scanner_presetInUse: the scanner's own preset, none for the active overview's. */
 const PRESET_KEY = "evejs.play.scanner_presetInUse";
+/** The native scroll's user setting for scanner_dirscroll. The blank icon column sorts by group name. */
+const SORT_KEY = "evejs.play.scanner_dirscroll";
+const SORT_COLUMNS = ["group", "name", "type", "distance"] as const;
+type SortColumn = typeof SORT_COLUMNS[number];
+interface DScanSort { column: SortColumn; reversed: boolean }
+
+function readSort(): DScanSort {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SORT_KEY) ?? "null");
+    if (SORT_COLUMNS.includes(saved?.column) && typeof saved.reversed === "boolean") return saved;
+  } catch { /* use the default */ }
+  return { column: "group", reversed: false };
+}
+
 /** inventorycommon groupCloud: hidden from the scan's rows but for a GM / world mod (UpdateScroll). */
 const GROUP_CLOUD = 227;
 
@@ -105,6 +119,8 @@ export class DScanWindow {
   private readonly rangeSlider: HTMLInputElement;
   private readonly unit: HTMLButtonElement;
   private inKm = false;
+  private sort = readSort();
+  private readonly sortHeaders: NodeListOf<HTMLTableCellElement>;
   private readonly tbody: HTMLTableSectionElement;
   private readonly status: HTMLDivElement;
   private readonly filterBox: HTMLSpanElement;
@@ -131,7 +147,12 @@ export class DScanWindow {
         ${icon("ui/texture/classes/mapview/alignwithcamera.png", w("UI/Inflight/Scanner/AlignWithCamera", "Align with camera"))}
         ${icon("ui/texture/classes/mapview/dscanicon.png", w("UI/Inflight/Scanner/ShowScanCone", "Show scan cone"))}
         ${icon("ui/texture/shared/brackets/solarsystem.png", w("UI/Map/MapPallet/btnSolarsystemMap", "Solar system map"))}</div>
-      <div class="ov-scroll dscan-scroll"><table class="ov-table"><thead><tr><th class="ov-icon"></th><th>${w("UI/Common/Name", "Name")}</th><th>${w("UI/Common/Type", "Type")}</th><th class="ov-dist">${w("UI/Common/Distance", "Distance")}</th></tr></thead><tbody></tbody></table></div>
+      <div class="ov-scroll dscan-scroll"><table class="ov-table"><thead><tr>
+        <th scope="col" class="ov-icon" data-sort="group"><button type="button"></button></th>
+        <th scope="col" data-sort="name"><button type="button">${w("UI/Common/Name", "Name")}</button></th>
+        <th scope="col" data-sort="type"><button type="button">${w("UI/Common/Type", "Type")}</button></th>
+        <th scope="col" class="ov-dist" data-sort="distance"><button type="button">${w("UI/Common/Distance", "Distance")}</button></th>
+      </tr></thead><tbody></tbody></table></div>
       <div class="dscan-status"></div>
       <div class="dscan-bottom">
         <div class="dscan-half"><div class="dscan-top"><span>${w("UI/Inflight/Scanner/Range", "Range")}</span><input class="dscan-range" type="number" min="${MIN_RANGE_M / AU}" step="0.1" value="${MAX_RANGE_AU}"><button type="button" class="dscan-unit"></button></div>
@@ -144,6 +165,19 @@ export class DScanWindow {
     this.range = this.window.body.querySelector(".dscan-range")!;
     this.rangeSlider = this.window.body.querySelector(".dscan-range-slider")!;
     this.unit = this.window.body.querySelector(".dscan-unit")!;
+    this.sortHeaders = this.window.body.querySelectorAll("th[data-sort]");
+    const groupButton = this.window.body.querySelector('th[data-sort="group"] button')!;
+    groupButton.setAttribute("aria-label", w("UI/Common/Group", "Group"));
+    for (const th of this.sortHeaders) {
+      const column = th.dataset.sort as SortColumn;
+      th.querySelector("button")!.addEventListener("click", () => {
+        this.sort = { column, reversed: column === this.sort.column && !this.sort.reversed };
+        try { localStorage.setItem(SORT_KEY, JSON.stringify(this.sort)); } catch { /* kept for the page's life only */ }
+        this.drawSortHeaders();
+        this.draw();
+      });
+    }
+    this.drawSortHeaders();
     this.tbody = this.window.body.querySelector("tbody")!;
     this.status = this.window.body.querySelector(".dscan-status")!;
     const angleLabel = this.window.body.querySelector(".dscan-angle-label")!;
@@ -276,7 +310,7 @@ export class DScanWindow {
       radio.addEventListener("change", () => {
         try { if (o.id === null) localStorage.removeItem(PRESET_KEY); else localStorage.setItem(PRESET_KEY, o.id); } catch { /* kept for the page's life only */ }
         if (this.rows.length) this.draw(); else void this.scan();
-        this.showFilters();
+        this.hideFilters();
       });
       list.appendChild(row);
     });
@@ -284,6 +318,16 @@ export class DScanWindow {
     this.filterList = list;
   }
   private hideFilters(): void { this.filterList?.remove(); this.filterList = null; }
+
+  private drawSortHeaders(): void {
+    for (const th of this.sortHeaders) {
+      const sorted = th.dataset.sort === this.sort.column;
+      th.classList.toggle("sorted", sorted);
+      th.classList.toggle("down", sorted && this.sort.reversed);
+      if (sorted) th.setAttribute("aria-sort", this.sort.reversed ? "descending" : "ascending");
+      else th.removeAttribute("aria-sort");
+    }
+  }
 
   get isOpen(): boolean { return !this.detached && this.window.root.style.display !== "none"; }
   toggle(): void { if (this.isOpen) this.window.root.style.display = "none"; else this.open(); }
@@ -342,16 +386,33 @@ export class DScanWindow {
       tr.firstElementChild!.textContent = this.word("UI/Inflight/Scanner/DirectionalNoResult", "No results");
       this.tbody.appendChild(tr);
     }
-    for (const r of shown) {
-      const known = this.hooks.known(r.id);
+    const entries = shown.map((row) => {
+      const known = this.hooks.known(row.id);
+      const type = this.hooks.typeName(row.typeID) ?? `Type ${row.typeID}`;
+      return {
+        row,
+        group: this.hooks.groupName(row.groupID) ?? "",
+        name: known.name ?? type,
+        type,
+        distance: known.distance,
+      };
+    });
+    // GetScrollEntry assigns zero to off-grid distances while displaying a dash. Scroll sorts the
+    // underlying values case-sensitively, then reverses the sorted rows for descending order.
+    const column = this.sort.column;
+    entries.sort((a, b) => {
+      if (column === "distance") return (a.distance ?? 0) - (b.distance ?? 0);
+      return a[column] < b[column] ? -1 : a[column] > b[column] ? 1 : 0;
+    });
+    if (this.sort.reversed) entries.reverse();
+    for (const { row, name, type, distance } of entries) {
       const tr = document.createElement("tr");
-      const type = this.hooks.typeName(r.typeID) ?? `Type ${r.typeID}`;
       const iconCell = document.createElement("td");
       iconCell.className = "ov-icon";
-      const path = bracketIcon({ typeID: r.typeID, groupID: r.groupID, categoryID: null });
+      const path = bracketIcon({ typeID: row.typeID, groupID: row.groupID, categoryID: null });
       if (path) { const img = document.createElement("img"); img.src = path; img.alt = ""; img.className = "dscan-bracket"; iconCell.appendChild(img); }
       tr.appendChild(iconCell);
-      for (const text of [known.name ?? type, type, distanceWords(known.distance)]) {
+      for (const text of [name, type, distanceWords(distance)]) {
         const td = document.createElement("td");
         td.textContent = text;
         tr.appendChild(td);
