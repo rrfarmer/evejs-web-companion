@@ -84,6 +84,7 @@ import {
   type SimulatedShip,
 } from "../bridge/dogma/simulation.ts";
 import { moduleInSlot, moduleKind, moduleState, offlineSlots, RIG_SLOT_FLAGS, switchModuleState } from "../bridge/dogma/moduleStates.ts";
+import { affectedBy, type AttributeModification } from "../bridge/dogma/affectedBy.ts";
 import {
   DAMAGE_STATE_ATTRIBUTES,
   decodeBrain,
@@ -2217,6 +2218,8 @@ export interface AppFlow {
    * refresh too.
    */
   loadDogma(): Promise<void>;
+  /** Show Info's base and incoming modifiers for an item in the pilot's loaded dogma location. */
+  fittingAttributeModifiers(itemID: number, typeID: number, attributeIDs: readonly number[]): ReadonlyMap<number, AttributeModification>;
   /**
    * Fit a module from the station hangar or the ship's cargo. `slot` picks a
    * specific slot by family + index, or "auto" to let the SERVER choose one.
@@ -9219,6 +9222,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * drones are the ship's drones out in space under its control (clientDogmaLocation.GetActiveDrones); a module's
    * running effects are godma's figures, the location's holding only its online state (IsModuleIncludedInCalculation).
    */
+  let attributeModifierRead: {
+    readonly allInfo: NonNullable<ReturnType<typeof store.dogma.get>["allInfo"]>;
+    readonly shipID: number;
+    readonly location: DogmaLocation;
+    readonly items: ReadonlyMap<string, DogmaItem>;
+    readonly godmaRows: ReadonlyMap<string, ReadonlyMap<number, number>>;
+  } | null = null;
+
+  function fittingAttributeModifiers(itemID: number, typeID: number, attributeIDs: readonly number[]): ReadonlyMap<number, AttributeModification> {
+    const current = attributeModifierRead;
+    const item = current?.items.get(String(itemID));
+    if (!current || !item || item.typeID !== typeID ||
+        current.shipID !== store.fitting.get().activeShipID || current.allInfo !== store.dogma.get().allInfo) return new Map();
+    const base = new Map(current.location.static.types[typeID]?.attributes ?? []);
+    const live = current.godmaRows.get(item.key);
+    return new Map(attributeIDs.map(id => [id, {
+      baseValue: base.get(id) ?? null,
+      sources: affectedBy(current.location, item, id, live?.get(id)),
+    }]));
+  }
+
   async function reckonActiveShip(): Promise<void> {
     const status = store.flight.get().status;
     if (status?.docked !== true && status?.inSpace !== true) return;
@@ -9377,6 +9401,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       requiredSkillsOf,
     });
     const skillWarning = skillWarningOf(skillTypes, skillItems);
+    if (store.dogma.get().allInfo === allInfo) {
+      attributeModifierRead = {
+        allInfo, shipID, location: reckoned.location, godmaRows,
+        items: new Map([[String(shipID), reckoned.ship], ...reckoned.modules]),
+      };
+    }
     store.apply({ type: "fitting/reckoned", shipID, ...figures, bayReadout, warnings, skillWarning });
   }
 
@@ -33468,6 +33498,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadFitting,
 
     loadDogma,
+    fittingAttributeModifiers,
 
     // A module fitted and unfitted: the page's own calls on an inventory's own object (bridge/fitModule.ts), as
     // the client's dogma location and its fitting slot make them, judged by the page's own read of the slots.

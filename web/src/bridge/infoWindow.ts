@@ -4,6 +4,7 @@ import type { CorporationDecorationGraphic } from "./corporationDecorations.ts";
 export type InfoSubject =
   | { readonly kind: "type"; readonly typeID: number }
   | { readonly kind: "spaceObject"; readonly itemID: number; readonly typeID: number | null }
+  | { readonly kind: "ship"; readonly itemID: number; readonly typeID: number }
   | { readonly kind: "module"; readonly itemID: number; readonly typeID: number }
   | { readonly kind: "medal"; readonly typeID: 29496; readonly itemID: number; readonly graphics: readonly CorporationDecorationGraphic[] }
   | { readonly kind: "character"; readonly characterID: number }

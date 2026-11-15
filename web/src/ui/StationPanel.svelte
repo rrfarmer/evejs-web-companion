@@ -1975,7 +1975,9 @@
               </span>
               <span class="stn-cell-name">
                 <button type="button" class="stn-name stn-ship-name evelink showInfo" title="Show Info"
-                  onclick={() => showInfo({ kind: "type", typeID: ship.typeID })}>{nameOf(ship)}</button>
+                  onclick={() => showInfo(ship.singleton
+                    ? { kind: "ship", typeID: ship.typeID, itemID: ship.itemID }
+                    : { kind: "type", typeID: ship.typeID })}>{nameOf(ship)}</button>
                 <span class="stn-meta">{flying ? "You are flying this" : shipState(ship)}</span>
               </span>
               <span class="stn-cell-bays">{ship.singleton ? cargoSummary(ship.itemID) : ""}</span>

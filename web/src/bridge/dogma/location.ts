@@ -500,7 +500,7 @@ export function decodeBrain(raw: JsonValue | null | undefined): Brain | null {
 /** What a modifier comes from: another attribute, or a literal (the brain's). */
 type ModifierSource =
   | { readonly kind: "attribute"; readonly key: string; readonly itemKey: string; readonly attributeID: number }
-  | { readonly kind: "literal"; readonly key: string; readonly value: number; readonly forceUnnurfed: boolean };
+  | { readonly kind: "literal"; readonly key: string; readonly value: number; readonly forceUnnurfed: boolean; readonly skills?: readonly number[]; readonly itemKey?: string };
 
 /** (operation, fromAttrib), as the location's and owner's modifier sets hold them. */
 interface HeldModifier {
@@ -805,7 +805,7 @@ export class DogmaLocation {
 
   /** brainLiterals[(skills, value)]: one BrainLiteralAttribute for each set of skills and value. */
   private brainLiteral(effect: BrainEffect): ModifierSource {
-    return { kind: "literal", key: `b|${effect.skills.join(",")}|${effect.value}`, value: effect.value, forceUnnurfed: true };
+    return { kind: "literal", key: `b|${effect.skills.join(",")}|${effect.value}`, value: effect.value, forceUnnurfed: true, skills: effect.skills };
   }
 
   /**
@@ -944,7 +944,7 @@ export class DogmaLocation {
     const shipMass = this.value(ship, ATTRIBUTE_MASS);
     const speedMultiplier = 1 + SPEED_BOOST_FACTOR_CALC * speedFactor * speedBoostFactor / shipMass;
     this.literals += 1;
-    const source: ModifierSource = { kind: "literal", key: `l|${this.literals}`, value: speedMultiplier, forceUnnurfed: false };
+    const source: ModifierSource = { kind: "literal", key: `l|${this.literals}`, value: speedMultiplier, forceUnnurfed: false, itemKey: item.key };
     item.speedMultiplier = { source, mass: shipMass, speedFactor };
     this.addModifier(OP_POST_MUL, ship, ATTRIBUTE_MAX_VELOCITY, source);
   }

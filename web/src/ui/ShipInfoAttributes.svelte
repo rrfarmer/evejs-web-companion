@@ -4,10 +4,12 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { shortWrittenInterval, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { ATTRIBUTE_VALUE_LABELS, formatAttributeValue, type AttributeWords } from "../bridge/typeComparison.ts";
-  import { BASE_WARP_SPEED, SHIP_INFO_GROUPS, shipInfoValues } from "../bridge/shipInfoAttributes.ts";
+  import { BASE_WARP_SPEED, WARP_SPEED_MULTIPLIER, SHIP_INFO_GROUPS, shipInfoValues } from "../bridge/shipInfoAttributes.ts";
+  import { attributeChanged } from "../bridge/dogma/affectedBy.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { showInfo } from "./showInfo.ts";
+  import InfoAttributeHint from "./InfoAttributeHint.svelte";
 
   let { typeID, itemID, store, flow }: { typeID: number; itemID: number | null; store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -38,6 +40,17 @@
     row.sublocation == null && Number(row.itemID) === itemID && row.typeID === typeID)?.attributes);
   const base = $derived(shipInfoValues(rows));
   const values = $derived(shipInfoValues(rows, live));
+  const modifiers = $derived.by(() => {
+    // fitting/reckoned publishes after the location and its source attributes are ready.
+    const fit = $fitting;
+    if (itemID === null || fit.activeShipID !== itemID) return null;
+    const changed = [...values].flatMap(([id, value]) => {
+      const original = base.get(id);
+      return original !== undefined && attributeChanged(original, value) ? [id] : [];
+    });
+    if (changed.includes(BASE_WARP_SPEED)) changed.push(WARP_SPEED_MULTIPLIER);
+    return flow.fittingAttributeModifiers(itemID, typeID, changed);
+  });
   const align = $derived.by(() => {
     const mass = values.get(4), agility = values.get(70);
     return mass && mass > 0 && agility && agility > 0 ? Math.log(4) * mass * agility / 1_000_000 : null;
@@ -68,14 +81,17 @@
         ? text(WARP, "{distText}/s", { distText: amount.toLocaleString("en-US", { maximumFractionDigits: 2 }) + " AU" })
         : formatAttributeValue(id, record, amount, units);
       const unmodified = base.get(id);
-      return [{ id, value, label, formatted: format(value), compared: unmodified === undefined || unmodified === value ? "" : format(unmodified),
+      return [{ id, value, label, formatted: format(value), compared: unmodified === undefined || !attributeChanged(unmodified, value) ? "" : format(unmodified),
         tooltip: message(record.tooltipDescriptionID), typeID: record.unitID === 116 ? Math.trunc(value) : null }];
     }),
     protections: (group.resistance ?? []).flatMap((id, index) => {
       const value = values.get(id);
-      return value === undefined ? [] : [{ id, damage: damage[index]!, percent: (1 - value) * 100, hint: message(read?.attributes.get(id)?.displayNameID) }];
+      const original = base.get(id);
+      return value === undefined ? [] : [{ id, damage: damage[index]!, percent: (1 - value) * 100, hint: message(read?.attributes.get(id)?.displayNameID),
+        compared: original === undefined || !attributeChanged(original, value) ? "" : resistancePercent((1 - original) * 100) }];
     }),
   })).filter(group => group.items.length > 0 || group.protections.length > 0));
+  const resistancePercent = (percent: number) => percent.toLocaleString("en-US", { maximumFractionDigits: 1 }) + "%";
 </script>
 
 {#if loading}
@@ -96,7 +112,10 @@
             {#each group.protections as row (row.id)}
               <span class="resistance" title={row.hint || row.damage.title} style:--damage={row.damage.color} style:--fill={`${Math.max(0, Math.min(100, row.percent))}%`}>
                 <img src={clientTexture(`res:/UI/Texture/Icons/22_32_${row.damage.icon}.png`)} width="16" height="16" alt={row.damage.title + " "} />
-                {row.percent.toLocaleString("en-US", { maximumFractionDigits: 1 })}%
+                {#if row.compared}
+                  <InfoAttributeHint {store} {flow} label={row.hint || row.damage.title} value={resistancePercent(row.percent)}
+                    base={row.compared} sources={modifiers?.get(row.id)?.sources} />
+                {:else}{resistancePercent(row.percent)}{/if}
               </span>
             {/each}
           </div>
@@ -104,9 +123,13 @@
         <dl>
           {#each group.items as row (row.id)}
             <dt title={row.tooltip || undefined}>{row.label}</dt>
-            <dd class:modified={row.compared} title={row.compared ? "Base value " + row.compared : undefined}>
+            <dd>
               {#if row.typeID !== null && row.formatted}
                 {@const related = row.typeID}<button type="button" class="evelink" onclick={() => showInfo({ kind: "type", typeID: related })}>{row.formatted}</button>
+              {:else if row.compared}
+                {@const extra = row.id === BASE_WARP_SPEED ? modifiers?.get(WARP_SPEED_MULTIPLIER)?.sources ?? [] : []}
+                <InfoAttributeHint {store} {flow} label={row.label} value={row.formatted} base={row.compared}
+                  sources={[...(modifiers?.get(row.id)?.sources ?? []), ...extra]} />
               {:else}{row.formatted}{/if}
             </dd>
           {/each}
@@ -124,7 +147,6 @@
   dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin: 0; }
   dt, dd { margin: 0; padding: 4px 8px; border-top: 1px solid #ffffff0d; }
   dd { text-align: right; font-variant-numeric: tabular-nums; }
-  dd.modified { color: #8bcfe8; }
   .resistances { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 5px 8px; }
   .resistance { display: flex; align-items: center; gap: 2px; padding: 2px; font-size: 11px; background: linear-gradient(to right, var(--damage) var(--fill), #ffffff0d var(--fill)); }
   .evelink { padding: 0; border: 0; background: transparent; }

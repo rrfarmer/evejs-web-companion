@@ -80,6 +80,7 @@ export function subjectTypeID(subject: InfoSubject | null): number | null {
   }
   switch (subject.kind) {
     case "type":
+    case "ship":
     case "module":
     case "medal":
       return subject.typeID;

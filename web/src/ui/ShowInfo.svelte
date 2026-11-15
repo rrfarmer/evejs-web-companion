@@ -17,6 +17,7 @@
   import InfoFreelanceProjects from "./InfoFreelanceProjects.svelte";
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
+  import InfoAttributeHint from "./InfoAttributeHint.svelte";
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
@@ -46,7 +47,8 @@
   } from "../bridge/ownerInfo.ts";
   import type { AllianceInfoExtra } from "../bridge/allianceInfo.ts";
   import type { JsonValue } from "../bridge/wire.ts";
-  import { moduleEffectiveStats } from "../bridge/moduleAttributes.ts";
+  import { MODULE_ATTRIBUTES, moduleEffectiveStats } from "../bridge/moduleAttributes.ts";
+  import { attributeChanged } from "../bridge/dogma/affectedBy.ts";
   import { securityStatusColor, shownSecurity } from "../bridge/systemSecurity.ts";
   import type { FactionInfo, FactionPlaceRow, MapLocationInfo, MapPlaceRow, SystemObjectRow } from "../app/api.ts";
   import { fmtDist, hostileLabel, isHostile, ratioPercent, surfaceDistanceMeters } from "../space/overview.ts";
@@ -175,7 +177,18 @@
     const entry = $fitting.dogma?.ships.find(
       (item) => Number(item.itemID) === current.itemID && item.sublocation == null,
     );
-    return moduleEffectiveStats(entry?.attributes);
+    const stats = moduleEffectiveStats(entry?.attributes);
+    const modifiers = flow.fittingAttributeModifiers(current.itemID, current.typeID, stats.map(stat => stat.id));
+    const values = new Map(entry?.attributes.map(row => [row.attributeID, row.value]));
+    return stats.map(stat => {
+      const mod = modifiers.get(stat.id);
+      const live = values.get(stat.id);
+      const base = mod?.baseValue;
+      const compared = base != null && typeof live === "number" && attributeChanged(base, live)
+        ? MODULE_ATTRIBUTES.find(attr => attr.id === stat.id)?.format(base) ?? ""
+        : "";
+      return { ...stat, compared, sources: mod?.sources };
+    });
   });
 
   /**
@@ -643,7 +656,7 @@
     contactStandingsRead = null;
     standingTargetsRead = null;
     agentRead = null;
-    if (current === null || current.kind === "type" || current.kind === "module" || current.kind === "spaceObject" || current.kind === "mapLocation") return;
+    if (current === null || current.kind === "type" || current.kind === "module" || current.kind === "spaceObject" || current.kind === "mapLocation" || current.kind === "ship") return;
     const npcOwner = current.kind === "faction" || (current.kind === "corporation" && isNpcCorporation(current.corporationID)) || (current.kind === "character" && isNpcOwner(current.characterID));
     if (npcOwner) {
       if (store.standings.get().char === null && store.standings.get().charError === null) void flow.loadStandings().catch(() => {});
@@ -1451,7 +1464,11 @@
         <dl class="kv">
           {#each moduleStats as stat (stat.id)}
             <dt>{stat.label}</dt>
-            <dd>{stat.value}</dd>
+            <dd>
+              {#if stat.compared}
+                <InfoAttributeHint {store} {flow} label={stat.label} value={stat.value} base={stat.compared} sources={stat.sources} />
+              {:else}{stat.value}{/if}
+            </dd>
           {/each}
         </dl>
       {:else}

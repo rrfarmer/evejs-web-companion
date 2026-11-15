@@ -3736,9 +3736,13 @@
             <div class="fit-detail">
               <div class="fit-detail-head">
                 <span class="fit-detail-slot">{slotName(selectedSlot)}</span>
-                <span class="fit-detail-name">
-                  {selectedSlot.module ? moduleName(selectedSlot.module.typeID) : "Empty"}
-                </span>
+                {#if selectedSlot.module}
+                  {@const { itemID, typeID } = selectedSlot.module}
+                  <button type="button" class="fit-detail-name evelink" title={fitWord("UI/Commands/ShowInfo")}
+                    onclick={() => showInfo({ kind: "module", itemID, typeID })}>{moduleName(typeID)}</button>
+                {:else}
+                  <span class="fit-detail-name">Empty</span>
+                {/if}
                 {#if selectedSlot.module && selectedSlot.family !== "rig" && selectedSlot.family !== "subsystem"}
                   <span class="badge {selectedSlot.module.online ? 'good' : 'warn'}">
                     {selectedSlot.module.online ? "Online" : "Offline"}

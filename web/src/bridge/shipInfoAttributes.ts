@@ -2,7 +2,7 @@ import type { DogmaAttribute } from "./boundDogma.ts";
 
 export const BASE_UPWELL_JUMP_COST = 6364;
 export const BASE_WARP_SPEED = 1281;
-const WARP_SPEED_MULTIPLIER = 600;
+export const WARP_SPEED_MULTIPLIER = 600;
 
 /** PanelAttributes.get_ship_attributes, in the order used by the 24.02 ship window. */
 export const SHIP_INFO_GROUPS: readonly {

@@ -53,8 +53,10 @@
   let tallDescription = $state(false);
   let descriptionBox = $state<HTMLElement | undefined>(undefined);
   const title = $derived(resolvedName($names.resolved, "type", typeID, ""));
-  const itemID = $derived($subject?.kind === "spaceObject" ? $subject.itemID : null);
-  const customName = $derived(itemID === null ? null : $space.snapshot?.entities.find(ship => ship.itemID === itemID)?.name ?? null);
+  const itemID = $derived($subject?.kind === "spaceObject" || $subject?.kind === "ship" ? $subject.itemID : null);
+  const customName = $derived(itemID === null ? null :
+    $space.snapshot?.entities.find(ship => ship.itemID === itemID)?.name ??
+    resolvedName($names.resolved, "evelocation", itemID, ""));
   const classIcon = $derived(bracketsReady && overview ? bracketIcon({ typeID, groupID: overview.groupID, categoryID: 6 }) : null);
   const shipTraits = $derived($traits.traits.get(typeID) ?? null);
   const visibleTabs = $derived(NAV.filter(item => item.id !== "skills" || overview?.groupID !== 29));
@@ -63,7 +65,7 @@
     const id = typeID;
     const options = flow.requestOptions();
     let current = true;
-    flow.requestNames([{ kind: "type", id }]);
+    flow.requestNames([{ kind: "type", id }, ...($subject?.kind === "ship" ? [{ kind: "evelocation" as const, id: $subject.itemID }] : [])]);
     flow.requestWords([...NAV.map(item => item.label), ...Object.keys(LINK_WORDS), MARKET, PRICE, TRY, LICENSE, HINT, SKILL_BONUS, ROLE_BONUS, MISC_BONUS, NUMBERED, UNNUMBERED]);
     void flow.requestShipTraits([id]);
     void loadBrackets().then(() => { if (current) bracketsReady = true; }).catch(() => {});
