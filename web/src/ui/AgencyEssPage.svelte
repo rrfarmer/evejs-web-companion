@@ -245,7 +245,7 @@
       <input type="number" min="0" value={filters.reserveMinimum} aria-label={word(A + "MinReserveBankAmount")}
         oninput={(e) => changeAmount("reserveMinimum", e.currentTarget)} onblur={(e) => (e.currentTarget.value = String(filters.reserveMinimum))} />
     </div>
-    <p class="notice">{word(A + "DataDelayNotice")}</p>
+    <p class="data-delay">{word(A + "DataDelayNotice")}</p>
     <div class="reset"><button type="button" onclick={() => (filters = DEFAULT_ESS_FILTERS)}>{word("UI/Commands/ResetAll")}</button></div>
     <ul class="help">
       {#each explanation as [label, hint] (label)}
@@ -324,7 +324,7 @@
   .bank-filter { display: grid; grid-template-columns: 1fr 88px; gap: 6px; align-items: center; margin: 5px 0; }
   .number-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .number-pair label { display: flex; align-items: center; gap: 3px; }
-  .notice { opacity: 0.7; white-space: normal; }
+  .data-delay { opacity: 0.7; white-space: normal; }
   .reset { display: flex; justify-content: flex-end; }
   .help { margin: 12px 0 0; padding: 8px 0 0; border-top: 1px solid rgb(255 255 255 / 0.14); display: grid; grid-template-columns: 1fr 1fr; list-style: none; gap: 6px; white-space: normal; }
   .results, .cards { display: flex; flex-direction: column; min-height: 0; }
