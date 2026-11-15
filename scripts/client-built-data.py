@@ -118,7 +118,14 @@ if KEYS:
 elif ATTRIBUTE:
     __parts = []
     for __key, __row in __data.iteritems():
-        __item = getattr(__row, ATTRIBUTE, None)
+        if LOADER == 'typeDogmaLoader' and ATTRIBUTE == 'chargeGroups':
+            # InfoSvc._AddUsedWithTypeIDs only reads chargeGroup1 through chargeGroup4.
+            __item = [int(attr.value) for attr in (getattr(__row, 'dogmaAttributes', None) or [])
+                      if attr.attributeID in (604, 605, 606, 609) and attr.value > 0]
+            if not __item:
+                continue
+        else:
+            __item = getattr(__row, ATTRIBUTE, None)
         if __item is not None:
             __parts.append(text(str(__key)) + ':' + walk(__item, 1))
     __out.write('{' + ','.join(__parts) + '}')

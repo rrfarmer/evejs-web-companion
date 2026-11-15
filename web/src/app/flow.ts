@@ -19,6 +19,7 @@ import { decodeShipBays, decodeShipBaysChecked } from "../bridge/shipBays.ts";
 import { CARGO_HOLD, SHIP_HOLDS, SHIP_HOLD_ATTRIBUTES, trackedShipHolds } from "../bridge/shipHolds.ts";
 import { decodeShipFighters, squadronsByTube } from "../bridge/shipFighters.ts";
 import { evaluateFit, PYTHON_EFFECT_ATTRIBUTES, usedWithTypeIDs, WARNING_TYPE_LISTS } from "../bridge/dogma/fittingWarnings.ts";
+import { usedWithCandidate, usedWithChargeGroups, usedWithPair } from "../bridge/dogma/chargeCompatibility.ts";
 import { fittingSkillWarning, type FittingSkillRequirements, type FittingSkillWarning } from "../bridge/fittingSkills.ts";
 import { FREIGHT_BAYS, planLootTransfers } from "../bridge/bayRouting.ts";
 import { holdFreeM3 } from "../bridge/holdFit.ts";
@@ -2053,7 +2054,14 @@ export interface PilotFlying {
   loadRefitLibrary(): Promise<readonly SourcedFitting[]>;
 }
 
+export interface TypeUsedWithGroup {
+  readonly metaGroupID: number;
+  readonly nameID: number | null;
+  readonly items: readonly { readonly typeID: number; readonly metaLevel: number }[];
+}
+
 export interface AppFlow {
+  infoUsedWith(typeID: number): Promise<readonly TypeUsedWithGroup[]>;
   /** What a plugin's loop flies this pilot with. */
   readonly flying: PilotFlying;
   /** A player's Stop for whatever plugin's loop holds this ship in this tab. Nothing happens if none does. */
@@ -9456,27 +9464,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await Promise.allSettled(reads);
     return read;
   }
-  /**
-   * The used-with table's makings of the types (InfoSvc._AddUsedWithTypeIDs): the types of their charge groups and those
-   * types' static facts; and the skills of the types and of the charges their launchers may use (GetUsedWithTypeIDs),
-   * for GetRequiredSkillsRecursive. True where any were read.
-   */
-  async function ensureUsedWithAndSkills(typeIDs: readonly number[]): Promise<boolean> {
+  /** Read a module's charge groups and the charges' static facts (InfoSvc._AddUsedWithTypeIDs). */
+  async function ensureUsedWithTypes(typeIDs: readonly number[], staticData: DogmaStatic): Promise<boolean> {
     let read = false;
-    const staticData = await dogmaStaticFor(typeIDs, []);
-    if (!staticData) return false;
-    const groupsOf = (typeID: number) => (staticData.types[typeID]?.chargeGroups ?? []).filter((groupID) => groupID > 0).map(Math.trunc);
-    const groups = [...new Set(typeIDs.flatMap(groupsOf))].filter((groupID) => !groupTypesKept.has(groupID));
-    for (let at = 0; at < groups.length; at += 32) {
-      const chunk = groups.slice(at, at + 32);
+    const groups = [...new Set(typeIDs.flatMap(typeID => usedWithChargeGroups(staticData.types[typeID])))];
+    const missing = groups.filter(groupID => !groupTypesKept.has(groupID));
+    for (let at = 0; at < missing.length; at += 32) {
+      const chunk = missing.slice(at, at + 32);
       const answer = await api.getGroupTypes(chunk, callOptions);
       if (!answer.available) break;
       for (const groupID of chunk) groupTypesKept.set(groupID, answer.groups[groupID] ?? []);
       read = true;
     }
-    const groupTypes = [...new Set(typeIDs.flatMap((typeID) => groupsOf(typeID).flatMap((groupID) => groupTypesKept.get(groupID) ?? [])))];
+    const groupTypes = [...new Set(groups.flatMap(groupID => groupTypesKept.get(groupID) ?? []))];
     const unread = groupTypes.filter((typeID) => !Object.hasOwn(staticData.types, typeID));
     if (unread.length > 0 && (await dogmaStaticFor(unread, []))) read = true;
+    return read;
+  }
+
+  /** GetRequiredSkillsRecursive includes the catalogue of charges for launchers. */
+  async function ensureUsedWithAndSkills(typeIDs: readonly number[]): Promise<boolean> {
+    const staticData = await dogmaStaticFor(typeIDs, []);
+    if (!staticData) return false;
+    let read = await ensureUsedWithTypes(typeIDs, staticData);
     const launcherCharges = typeIDs
       .filter((typeID) => staticData.types[typeID]?.effects.includes(40))
       .flatMap((typeID) => usedWithTypeIDs(staticData, typeID, groupTypesOf) ?? []);
@@ -9492,6 +9502,41 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return read;
   }
   const groupTypesOf = (groupID: number): readonly number[] | undefined => groupTypesKept.get(groupID);
+
+  /** Show Info's dynamic Used With tab: both directions of the client's module/charge table. */
+  async function infoUsedWith(typeID: number): Promise<readonly TypeUsedWithGroup[]> {
+    const type = (await infoTypeFacts([typeID]))[typeID];
+    if (!usedWithCandidate(type)) return [];
+    let matches: readonly number[] = [];
+    if (type.categoryID === 8 && type.groupID !== null) {
+      const candidates = await api.getChargeGroupModules(type.groupID, callOptions);
+      if (!candidates?.length) return [];
+      const data = await dogmaStaticFor(candidates, []);
+      if (data) matches = candidates.filter(id => usedWithPair(data.types[id], type));
+    } else if ((type.categoryID === 7 || type.categoryID === 66) && usedWithChargeGroups(type).length) {
+      const data = await dogmaStaticFor([typeID], []);
+      if (!data) return [];
+      await ensureUsedWithTypes([typeID], data);
+      matches = usedWithTypeIDs(data, typeID, groupTypesOf) ?? [];
+    }
+    if (!matches.length) return [];
+    const groups = new Map<number, TypeUsedWithGroup & { items: { typeID: number; metaLevel: number }[] }>();
+    for (let offset = 0; offset < matches.length; offset += 500) {
+      const batch = matches.slice(offset, offset + 500);
+      const meta = await api.getTypeMeta(batch, callOptions);
+      if (!meta.available) return [];
+      for (const id of batch) {
+        const item = meta.types.get(id);
+        const metaGroupID = item?.metaGroupID || 1;
+        const group = groups.get(metaGroupID) ?? { metaGroupID, nameID: meta.metaGroupNameIDs.get(metaGroupID) ?? null, items: [] };
+        group.items.push({ typeID: id, metaLevel: item?.metaLevel ?? 0 });
+        groups.set(metaGroupID, group);
+      }
+    }
+    requestNames(matches.map(id => ({ kind: "type", id })));
+    requestWords([...groups.values()].flatMap(group => group.nameID === null ? [] : [`#${group.nameID}`]));
+    return [...groups.values()].sort((a, b) => a.metaGroupID - b.metaGroupID);
+  }
   // The pilot's skills as the skill service holds them (GetSkills, GetAllSkills), for the skill warning; kept for the
   // pilot until the server says they changed.
   let pilotSkillsHeld: {
@@ -35388,6 +35433,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       store.apply({ type: "chat/active", channel });
     },
 
+    infoUsedWith,
     requestNames,
     requestWords,
     requestMissionKeywords,

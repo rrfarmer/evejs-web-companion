@@ -21,7 +21,7 @@
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
-  import type { MapRouteStep } from "../app/flow.ts";
+  import type { MapRouteStep, TypeUsedWithGroup } from "../app/flow.ts";
   import type { ContactStandings, NpcNpcStanding } from "../bridge/standingsReads.ts";
   import { applyStandingBonus, standingBonusSkill } from "../bridge/effectiveStanding.ts";
   import { showInfo, subjectTypeID, type InfoSubject } from "./showInfo.ts";
@@ -131,6 +131,26 @@
   const typeID = $derived(subjectTypeID($subject));
   // 3698585 type group 1408: Custom gate 1 (unpublished) and Ansiblex Jump Bridge.
   const jumpBridge = $derived(typeID === 35837 || typeID === 35841);
+  const usedWithLabel = "UI/InfoWindow/TabNames/UsedWith";
+  let usedWith = $state.raw<readonly TypeUsedWithGroup[]>([]);
+  let showUsedWith = $state(false);
+  $effect(() => {
+    const id = typeID;
+    const kind = $subject?.kind;
+    if (shipLiveOnly || id === null || (kind !== "type" && kind !== "module")) return;
+    let current = true;
+    void flow.infoUsedWith(id).then(groups => {
+      if (!current || !groups.length) return;
+      usedWith = groups;
+      flow.requestWords([usedWithLabel, "UI/InfoWindow/TabNames/Attributes", "UI/InfoWindow/TabNames/Requirements"]);
+    }).catch(() => {});
+    return () => { current = false; usedWith = []; showUsedWith = false; };
+  });
+  const usedWithRows = $derived(usedWith.map(group => ({
+    ...group,
+    items: group.items.map(item => ({ ...item, name: resolvedName($names.resolved, "type", item.typeID, "") }))
+      .sort((a, b) => a.metaLevel - b.metaLevel || (a.name < b.name ? -1 : a.name > b.name ? 1 : a.typeID - b.typeID)),
+  })));
 
   /** The live snapshot row for a space subject, or null once it has left grid. */
   const entity = $derived.by<SpaceEntity | null>(() => {
@@ -1396,7 +1416,33 @@
     </header>
     {/if}
 
-    {#if $subject.kind === "spaceObject"}
+    {#if usedWithRows.length}
+      <nav class="character-info-tabs" aria-label="Item information">
+        <button type="button" aria-pressed={!showUsedWith} onclick={() => showUsedWith = false}>
+          {$subject.kind === "module" ? word("UI/InfoWindow/TabNames/Attributes") || "Attributes" : word("UI/InfoWindow/TabNames/Requirements") || "Requirements"}
+        </button>
+        <button type="button" aria-pressed={showUsedWith} onclick={() => showUsedWith = true}>{word(usedWithLabel) || "Used With"}</button>
+      </nav>
+    {/if}
+    {#if showUsedWith}
+      <div class="info-used-with">
+        {#each usedWithRows as group (group.metaGroupID)}
+          <h3>{group.nameID === null ? "" : word(`#${group.nameID}`)}</h3>
+          <ul>
+            {#each group.items as item (item.typeID)}
+              <li>
+                <button type="button" title={word("UI/Commands/ShowInfo") || "Show Info"} aria-label={`${word("UI/Commands/ShowInfo") || "Show Info"} ${item.name}`}
+                  draggable="true" ondragstart={(event) => startLinkDrag(event, `showinfo:${item.typeID}`, item.name)}
+                  onclick={() => showInfo({ kind: "type", typeID: item.typeID })}>
+                  <TypeIcon typeID={item.typeID} name={item.name} size="sm" />
+                  <span>{item.name || "…"}</span><span aria-hidden="true">ⓘ</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/each}
+      </div>
+    {:else if $subject.kind === "spaceObject"}
       {#if entity}
         <h3>Where it is</h3>
         <dl class="kv">
@@ -1683,4 +1729,10 @@
   .character-info-tabs button { padding: 5px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
   .character-info-tabs button:hover, .character-info-tabs button[aria-pressed="true"] { background: #ffffff12; }
   .character-info-tabs button[aria-pressed="true"] { border-bottom-color: #9ec2da; }
+  .info-used-with h3 { margin: 8px 0 2px; }
+  .info-used-with ul { list-style: none; margin: 0; padding: 0 0 8px; border-bottom: 1px solid #ffffff26; }
+  .info-used-with li:nth-child(odd) { background: #ffffff0a; }
+  .info-used-with li button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 27px; padding: 0 4px; text-align: left; cursor: pointer; background: transparent; border: 0; color: inherit; }
+  .info-used-with li button > span:nth-child(2) { flex: 1; }
+  .info-used-with li > button:hover { background: #ffffff23; }
 </style>

@@ -3937,6 +3937,14 @@ export async function getGroupTypes(
   return { available: data.available === true, groups };
 }
 
+/** Module and structure module type IDs whose dogma names the given charge group. */
+export async function getChargeGroupModules(groupID: number, options: ApiOptions = {}): Promise<readonly number[] | null> {
+  const data = await getJson(`/api/client-data/charge-group-modules/${groupID}`, options);
+  return data.available === true && Array.isArray(data.typeIDs)
+    ? data.typeIDs.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0)
+    : null;
+}
+
 export async function getInfoBubbleElements(
   typeIDs: readonly number[],
   options: ApiOptions = {},

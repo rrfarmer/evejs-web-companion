@@ -15349,6 +15349,38 @@ app.get("/api/client-data/group-types", requireAuth, async (req, res, next) => {
   }
 });
 
+// InfoSvc.ConstructUsedWithAllTypeIDs gives the inverse of the module's charge groups, including launchers
+// that the charge's immediate launcherGroup attributes omit. Capacity, size and Academy eligibility are
+// checked against the candidate types in the client, through the same predicate as Fitting.
+let modulesByChargeGroup;
+app.get("/api/client-data/charge-group-modules/:groupID", requireAuth, async (req, res, next) => {
+  try {
+    const groupID = Number(req.params.groupID);
+    if (!Number.isSafeInteger(groupID) || groupID < 1) return res.status(400).json({ ok: false, error: "Invalid charge group." });
+    modulesByChargeGroup ??= Promise.all([
+      clientBuiltData.table("typeChargeGroups"), clientBuiltData.table("typeGroups"), clientBuiltData.table("groupCategories"),
+    ]).then(([chargeGroups, typeGroups, groupCategories]) => {
+      if (!chargeGroups || !typeGroups || !groupCategories) return null;
+      const index = new Map();
+      for (const [typeID, groups] of Object.entries(chargeGroups)) {
+        const categoryID = Number(groupCategories[typeGroups[typeID]]);
+        if (categoryID !== 7 && categoryID !== 66) continue;
+        for (const group of new Set(groups)) {
+          if (!index.has(group)) index.set(group, []);
+          index.get(group).push(Number(typeID));
+        }
+      }
+      return index;
+    });
+    const index = await modulesByChargeGroup;
+    if (!index) modulesByChargeGroup = undefined;
+    return res.json({ ok: true, available: index !== null, typeIDs: index?.get(groupID) ?? [] });
+  } catch (error) {
+    modulesByChargeGroup = undefined;
+    next(error);
+  }
+});
+
 app.get("/api/client-data/info-bubble-elements", requireAuth, async (req, res, next) => {
   try {
     const asked = [];

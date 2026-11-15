@@ -167,6 +167,7 @@ const TABLES = Object.freeze({
   // own record (evetypes: types.fsdbinary, its mass, capacity, volume and radius among them). Both too big to walk
   // whole, so read by the rows asked for only (rows(), never table()).
   typeDogma: Object.freeze({ loader: "typeDogmaLoader", resource: "res:/staticdata/typedogma.fsdbinary", rowsOnly: true }),
+  typeChargeGroups: Object.freeze({ loader: "typeDogmaLoader", resource: "res:/staticdata/typedogma.fsdbinary", attribute: "chargeGroups" }),
   // Full raw effect vectors in native OUTER loader order for static indexes;
   // preserve empty vectors and their relation order, not only warmed types.
   typeDogmaEffectsOrdered: Object.freeze({ loader: "typeDogmaLoader", resource: "res:/staticdata/typedogma.fsdbinary", attribute: "dogmaEffects", keyOrder: true }),
