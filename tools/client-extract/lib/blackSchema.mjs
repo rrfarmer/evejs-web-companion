@@ -343,7 +343,8 @@ export const CLASSES = {
 // after the listed fields (zero in every file of this build).
 export const STRUCTS = {
   "EveDistributionPlacementGeneratorLocators.locators": { stride: 44, fields: [["position", 68, 0], ["direction", 100, 12], ["scale", 68, 28], ["boneIndex", 2, 40]] },
-  "EveLocatorSets.locators": { stride: 44, fields: [["position", 68, 0], ["direction", 100, 12], ["scale", 68, 28], ["boneIndex", 2, 40]] },
+  // The 24.02 Jita steam locators have another four trailing bytes.
+  "EveLocatorSets.locators": { stride: 44, compatibleStrides: [48], fields: [["position", 68, 0], ["direction", 100, 12], ["scale", 68, 28], ["boneIndex", 2, 40]] },
   "EveSOFDataInstancedMesh.instances": { stride: 44, fields: [["rotation", 100, 0], ["scaling", 68, 16], ["translation", 68, 28], ["boneIndex", 2, 40]] },
   "Tr2CurveScalar.keys": { stride: 20, fields: [["time", 4, 0], ["value", 4, 4], ["leftTangent", 4, 8], ["rightTangent", 4, 12], ["id", 9, 16], ["interpolation", 8, 18], ["tangentType", 8, 19]] },
   "Tr2Effect.constParameters": { stride: 24, fields: [["name", 5, 0], ["value", 100, 8]] },

@@ -258,7 +258,10 @@ export function readBlack(buffer, name = "<buffer>") {
     need(2);
     const stride = view.getUint16(pos, true);
     pos += 2;
-    if (stride !== st.stride) fail(`${cls}.${attr}: structure stride ${stride} in file, expected ${st.stride}`);
+    if (stride !== st.stride && !st.compatibleStrides?.includes(stride)) {
+      const expected = [st.stride, ...(st.compatibleStrides ?? [])].join(" or ");
+      fail(`${cls}.${attr}: structure stride ${stride} in file, expected ${expected}`);
+    }
     need(count * stride);
     const items = new Array(count);
     for (let r = 0; r < count; r++) {

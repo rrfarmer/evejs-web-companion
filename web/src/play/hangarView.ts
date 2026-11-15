@@ -27,6 +27,10 @@ interface HangarScene {
 
 /** hangarRegistry.py HANGAR_VFX_TRIGGERS_MULTIEFFECT_GID: the hangar's VFX multi-effect (me_generic_hangar_vfx_01a). */
 const HANGAR_VFX_GID = 28022;
+
+// hangarView.py sets these on the hangar model before starting its controllers.
+const HANGAR_DOCKING_STATE = 0;
+const HANGAR_DOCKED_STATE = 1;
 /**
  * An EveMultiEffect's binding from a parameter's inherited properties (its faction colour set's colour) into a curve
  * of a child effect another parameter's object holds (children.mjs joinDynamicBindings).
@@ -84,6 +88,7 @@ export class HangarView {
   private readonly studioEnvironment: THREE.Texture | null;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 0);
   private hangar: THREE.Object3D | null = null;
+  private loadedHangar: string | null = null;
   private readonly studio: THREE.Light[] = [];
   private stopped = false;
   /** The hangar scenes' bloom (their Tr2PPBloomEffect, luminanceThreshold 0): glow maps, panels and lights bleed. */
@@ -180,17 +185,26 @@ export class HangarView {
     this.shownHangar = hangarKey;
     if (!typeID) { this.turntable.clear(); return; }
     if (switching) this.fadeToFromBlack(true, true);
+    // The station keeps its model and controller state when the pilot boards a different ship.
+    const loadHangar = hangarKey !== this.loadedHangar;
+    const currentHangar = loadHangar ? null : this.hangar;
     const [model, hangar, scene] = await Promise.all([
       typeModel(typeID).catch(() => null),
-      hangarGraphics ? graphicModel(hangarGraphics.model).catch(() => null) : Promise.resolve(null),
-      hangarGraphics ? fetch(`/client-assets/graphic/${hangarGraphics.scene}`).then((r) => r.json()).then((g: { scene?: HangarScene }) => g.scene ?? null).catch(() => null) : Promise.resolve(null),
+      loadHangar && hangarGraphics ? graphicModel(hangarGraphics.model).catch(() => null) : Promise.resolve(currentHangar),
+      loadHangar && hangarGraphics ? fetch(`/client-assets/graphic/${hangarGraphics.scene}`).then((r) => r.json()).then((g: { scene?: HangarScene }) => g.scene ?? null).catch(() => null) : Promise.resolve(null),
       switching ? new Promise<void>((r) => setTimeout(r, 200)) : null,
     ]);
     if (!model || this.stopped || this.shownType !== typeID || this.shownHangar !== hangarKey) return;
     // in the hangar the engines are at rest
     setThrust(model, 0);
-    this.setHangar(hangar);
-    await this.setScene(hangar ? scene : null);
+    const dynamicCamera = gfx().dynamicCameraMovement;
+    if (loadHangar && this.loadedHangar !== hangarKey) {
+      if (hangar) setControllerVariable(hangar, "Docking_State", dynamicCamera ? HANGAR_DOCKING_STATE : HANGAR_DOCKED_STATE);
+      this.loadedHangar = hangar ? hangarKey : null;
+      this.setHangar(hangar);
+      await this.setScene(hangar ? scene : null);
+      if (this.stopped || this.shownType !== typeID || this.shownHangar !== hangarKey) return;
+    }
     // DefaultHangarShipBehaviour.PlaceShip: turned half round about y, its bounding box's bottom on the hangar's anchor
     // point (SHIP_FLOATING_HEIGHT up where the hangar has none), moved by half its bounding sphere's centre.
     model.rotation.y = Math.PI;
@@ -232,7 +246,7 @@ export class HangarView {
     this.lastBob = 0;
     // the first ship shown is the docking: the camera swings in (AnimEnterHangar); a ship boarded after is placed
     // where that swing ends
-    const first = this.entryFrom === null && !this.shownBefore;
+    const first = dynamicCamera && this.entryFrom === null && !this.shownBefore;
     this.shownBefore = true;
     this.entryFrom = first ? performance.now() : null;
     this.idle = null;
