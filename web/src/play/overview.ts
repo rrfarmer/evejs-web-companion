@@ -7,8 +7,26 @@ import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { distanceWords } from "./spaceView.ts";
 import { playUiEvent } from "./uiAudio.ts";
+import { overviewRowWanted, type OverviewRelationships, type PresetMask } from "./overviewFilters.ts";
 
-interface OverviewPresets { tabs: { name: string; preset: string }[]; presets: Record<string, { name: string; groups: number[]; categoryID?: number; categoryName?: string | null }>; categoryOrder?: number[] }
+interface OverviewPresetData {
+  name: string;
+  groups: number[];
+  categoryID?: number;
+  categoryName?: string | null;
+  filteredStates?: number[];
+  alwaysShownStates?: number[];
+}
+interface OverviewPresets {
+  tabs: { name: string; preset: string; bracket?: string | null }[];
+  presets: Record<string, OverviewPresetData | undefined>;
+  categoryOrder?: number[];
+}
+interface OverviewTab {
+  name: string;
+  overview: (PresetMask & { name: string }) | null;
+  bracket: PresetMask | null;
+}
 /** A default preset as a chooser lists it (GetPresetDisplayName with its category: "Category: Name"). */
 export interface PresetChoice { readonly id: string; readonly name: string; readonly label: string; readonly groups: ReadonlySet<number> }
 let presetsRead: Promise<OverviewPresets | null> | null = null;
@@ -28,12 +46,22 @@ const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
 export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED];
 const DISABLED_TEXT = "Header sorting is disabled";
 
-function readSort(key: string): OverviewSort {
+function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewSort {
   try {
-    const saved = JSON.parse(localStorage.getItem(key) ?? localStorage.getItem(SORT_KEY) ?? "null");
+    const saved = JSON.parse(localStorage.getItem(key) ?? "null");
     if (["distance", "name", "type", "velocity"].includes(saved?.column) && typeof saved.down === "boolean") return saved;
   } catch { /* use the default */ }
-  return DEFAULT_SORT;
+  return fallback;
+}
+
+function presetMask(data: OverviewPresetData | undefined): OverviewTab["overview"] {
+  if (!data) return null;
+  return {
+    name: data.name,
+    groups: new Set(data.groups),
+    filteredStates: data.filteredStates ?? [],
+    alwaysShownStates: data.alwaysShownStates ?? [],
+  };
 }
 
 let names: Promise<{ types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null> | null = null;
@@ -58,13 +86,14 @@ export class Overview {
   private types: Record<string, [string | null, number | null]> = {};
   private lastDraw = 0;
   private selected: number | null = null;
-  private groupsOfType: Record<string, number | null> = {};
-  private tabs: { name: string; presetName: string; groups: Set<number> }[] = [];
+  private tabs: OverviewTab[] = [];
   private presetChoices: PresetChoice[] = [];
   private tab = 0;
   private readonly tabsEl: HTMLDivElement;
+  private readonly tabKey: string;
   private readonly sortKey: string;
   private readonly sortEnabledKey: string;
+  private readonly tabSorts = new Map<number, OverviewSort>();
   private sort: OverviewSort;
   private sortEnabled = true;
   private readonly lockIcon = document.createElement("img");
@@ -84,9 +113,10 @@ export class Overview {
     this.table.className = "ov-table";
     this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th></tr></thead>`;
     const pilotSuffix = hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`;
+    this.tabKey = TAB_KEY + pilotSuffix;
     this.sortKey = SORT_KEY + pilotSuffix;
     this.sortEnabledKey = SORT_ENABLED_KEY + pilotSuffix;
-    this.sort = readSort(this.sortKey);
+    this.sort = readSort(this.sortKey, readSort(SORT_KEY));
     try { this.sortEnabled = localStorage.getItem(this.sortEnabledKey) !== "false"; } catch { /* enabled by default */ }
     this.setupHeaders();
     this.table.appendChild(this.tbody);
@@ -105,21 +135,26 @@ export class Overview {
     void typeNames().then((n) => {
       if (!n) return;
       this.types = n.types;
-      for (const [id, [, group]] of Object.entries(n.types)) this.groupsOfType[id] = group;
+      this.lastDraw = 0;
     });
     void overviewPresets().then((p) => {
       if (!p) return;
-      this.tabs = p.tabs.map((t) => ({ name: t.name, presetName: p.presets[t.preset]?.name ?? t.name, groups: new Set(p.presets[t.preset]?.groups ?? []) }));
+      const masks = new Map(Object.entries(p.presets).map(([id, preset]) => [id, presetMask(preset)]));
+      this.tabs = p.tabs.map((t) => ({
+        name: t.name,
+        overview: masks.get(t.preset) ?? null,
+        bracket: t.bracket ? masks.get(t.bracket) ?? null : null,
+      }));
       // overviewUtil.GetDefaultFiltersSorted: by category (CATEGORY_ORDER), each sorted by its display name with category
       const order = p.categoryOrder ?? [0, 1, 2, 3, 4, 5];
       this.presetChoices = Object.entries(p.presets)
-        .map(([id, preset]) => ({ id, name: preset.name, label: preset.categoryName ? `${preset.categoryName}: ${preset.name}` : preset.name,
-          groups: new Set(preset.groups), category: preset.categoryID ?? 0 }))
+        .flatMap(([id, preset]) => preset ? [{ id, name: preset.name, label: preset.categoryName ? `${preset.categoryName}: ${preset.name}` : preset.name,
+          groups: masks.get(id)!.groups, category: preset.categoryID ?? 0 }] : [])
         .sort((a, b) => (order.indexOf(a.category) - order.indexOf(b.category)) || a.label.localeCompare(b.label))
         .map(({ id, name, label, groups }) => ({ id, name, label, groups }));
       let saved = 0;
-      try { saved = Number(localStorage.getItem(TAB_KEY)) || 0; } catch { /* no storage: the first tab */ }
-      this.choose(saved < this.tabs.length ? saved : 0);
+      try { saved = Number(localStorage.getItem(this.tabKey) ?? localStorage.getItem(TAB_KEY)); } catch { /* no storage: the first tab */ }
+      this.choose(Number.isInteger(saved) && this.tabs[saved] ? saved : 0, true);
     });
   }
 
@@ -193,7 +228,7 @@ export class Overview {
       }
       // SortHeaders.SetCurrentActive carries the direction to a new column.
       this.sort = { column, down: this.sort.column === column ? !this.sort.down : this.sort.down };
-      try { localStorage.setItem(this.sortKey, JSON.stringify(this.sort)); } catch { /* kept for this visit */ }
+      this.keepSort();
       this.markSort();
       this.lastDraw = 0;
     });
@@ -223,40 +258,47 @@ export class Overview {
   }
 
   /** A tab chosen: its name lit, the rows its preset shows, kept for the next visit. */
-  private choose(i: number): void {
+  private choose(i: number, initial = false): void {
+    if ((!initial && this.tab === i) || !this.tabs[i]) return;
     this.tab = i;
     this.tabsEl.innerHTML = this.tabs.map((t, n) => `<span class="ov-tab${n === i ? " active" : ""}" data-tab="${n}">${esc(t.name)}</span>`).join("");
-    try { localStorage.setItem(TAB_KEY, String(i)); } catch { /* not kept */ }
+    this.sort = this.tabSorts.get(i) ?? readSort(this.tabSortKey(), initial ? this.sort : DEFAULT_SORT);
+    this.keepSort();
+    this.markSort();
+    try { localStorage.setItem(this.tabKey, String(i)); } catch { /* not kept */ }
     this.lastDraw = 0;
+  }
+
+  private tabSortKey(): string { return `${this.sortKey}:tab:${this.tab}`; }
+
+  private keepSort(): void {
+    if (this.tabs.length) this.tabSorts.set(this.tab, this.sort);
+    try { localStorage.setItem(this.tabs.length ? this.tabSortKey() : this.sortKey, JSON.stringify(this.sort)); }
+    catch { /* kept for this visit */ }
   }
 
   /** The default presets in the order the client's choosers list them; empty until read. */
   presetList(): readonly PresetChoice[] { return this.presetChoices; }
 
   /** overviewPresetSvc.GetActiveOverviewPresetName: the chosen tab's preset - its display name and groups; null until read. */
-  activePreset(): { readonly name: string; readonly groups: ReadonlySet<number> } | null {
-    const t = this.tabs[this.tab];
-    return t ? { name: t.presetName, groups: t.groups } : null;
-  }
+  activePreset(): OverviewTab["overview"] { return this.tabs[this.tab]?.overview ?? null; }
+
+  activeBracketPreset(): PresetMask | null { return this.tabs[this.tab]?.bracket ?? null; }
+
+  groupOf(e: Entity): number | null { return e.groupID ?? (e.typeID === null ? null : this.types[String(e.typeID)]?.[1] ?? null); }
 
   setSelected(itemID: number | null): void { this.selected = itemID; this.lastDraw = 0; }
 
   /** Redrawn a few times a second: the client's overview is not repainted every frame either. */
-  update(entities: readonly Entity[], distanceTo: (e: Entity) => number): void {
+  update(entities: readonly Entity[], distanceTo: (e: Entity) => number, relations?: OverviewRelationships): void {
     const now = performance.now();
     if (now - this.lastDraw < 400) return;
     this.lastDraw = now;
-    // the chosen tab's preset: a thing shows when its type's group is one of the preset's (all, until they are read)
-    const groups = this.tabs[this.tab]?.groups ?? null;
-    const shown = (e: Entity) => {
-      if (!groups || !e.typeID) return true;
-      const group = this.groupsOfType[String(e.typeID)];
-      return group == null || groups.has(group);
-    };
+    const mask = this.activePreset();
     const speed = (e: Entity) => Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z);
     const typeName = (e: Entity) => (e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "");
     const key = this.sort.column;
-    const rows = entities.filter((e) => !e.isSelf && shown(e)).map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
+    const rows = entities.filter((e) => overviewRowWanted(e, this.groupOf(e), mask, relations)).map((e) => ({ e, d: distanceTo(e) })).sort((a, b) => {
       const by = key === "distance" ? a.d - b.d
         : key === "velocity" ? speed(a.e) - speed(b.e)
         : key === "type" ? typeName(a.e).localeCompare(typeName(b.e))

@@ -68,6 +68,8 @@
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
   import { OVERVIEW_WORDS, typeNames as typeData } from "../play/overview.ts";
+  import type { OverviewRelationships } from "../play/overviewFilters.ts";
+  import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
   import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
@@ -809,6 +811,58 @@
     const st = s.store.station.get().station;
     const enteringSpace = entryWarpHistory;
     entryWarpHistory = null;
+    let overviewScope = "";
+    let contactsKey = "";
+    let warsKey = "";
+    let contacts: OverviewRelationships["contacts"] = null;
+    let wars: OverviewRelationships["wars"] = [];
+    let lastFleet: ReturnType<typeof s.store.fleet.get>["fleet"] = null;
+    let fleetMembers = new Set<number>();
+    let disposed = false;
+
+    // Read relationships on demand for tabs with state exclusions. Refresh the held readings on the same
+    // contact, fleet and war changes used by their windows.
+    function overviewRelationships(): OverviewRelationships | undefined {
+      const online = s.store.station.get().online;
+      if (!online) return;
+      const { characterID, corporationID } = online;
+      const allianceID = online.allianceID ?? null;
+      const fleet = s.store.fleet.get();
+      const scope = `${characterID}:${corporationID}:${allianceID}`;
+      if (scope !== overviewScope) {
+        overviewScope = scope;
+        contacts = null;
+        wars = [];
+        lastFleet = null;
+        fleetMembers = new Set();
+        if (!fleet.loaded) void s.flow.loadFleet(true).catch(() => {});
+      }
+      const nextContactsKey = `${scope}:${s.flow.contactStandingsChanged.get()}`;
+      if (nextContactsKey !== contactsKey) {
+        contactsKey = nextContactsKey;
+        void s.flow.contactStandings().then(read => {
+          if (!disposed && contactsKey === nextContactsKey) contacts = read;
+        }).catch(() => {});
+      }
+      const nextWarsKey = `${scope}:${s.flow.warsChanged.get()}`;
+      const warOwner = allianceID ?? corporationID;
+      if (warOwner !== null && nextWarsKey !== warsKey) {
+        warsKey = nextWarsKey;
+        void s.flow.ownerWars(warOwner).then(read => {
+          if (!disposed && warsKey === nextWarsKey) wars = read;
+        }).catch(() => {});
+      }
+      const roster = fleet.availability === "ready" ? fleet.fleet : null;
+      if (lastFleet !== roster) {
+        lastFleet = roster;
+        fleetMembers = new Set(roster ? authoritativeFleetMemberCharacterIDs({ availability: "ready", fleet: roster }) ?? [] : []);
+      }
+      return {
+        corporationID, allianceID, warFactionID: online.warFactionID ?? null, fleetMembers, contacts, wars,
+        now: BigInt(Date.now()) * 10000n + 116444736000000000n,
+      };
+    }
+
     const v = new SpaceView(live, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
       setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
@@ -944,6 +998,7 @@
       recordCameraTask: s.flow.recordCameraTask,
       overviewPilotID: s.store.station.get().online?.characterID,
       overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
+      overviewRelationships,
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
       reloads: () => s.store.fitting.get().reloads ?? {},
       corpTickers: (corpIDs) => corpTickers(corpIDs, false, s.flow.requestOptions()).then((r) => r.tickers),
@@ -1031,7 +1086,7 @@
       for (const d of t.damageLog) if (d.id > lastDamageID) { v.showDamage(d); logCombatLine(d); }
       lastDamageID = t.damageLog.at(-1)?.id ?? lastDamageID;
     });
-    return () => { stopCargo(); stopDamage(); v.dispose(); view = null; };
+    return () => { disposed = true; stopCargo(); stopDamage(); v.dispose(); view = null; };
   });
 
   // The client's view transitions (ui/view/transitions.py, viewStateConfig.py): docking (ToHangarTransition) fades to

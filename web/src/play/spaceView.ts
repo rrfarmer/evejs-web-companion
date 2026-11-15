@@ -42,7 +42,8 @@ import { Overview, typeNames } from "./overview.ts";
 import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
 import { Neocom } from "./neocom.ts";
-import { bracketIcon, loadBrackets } from "./brackets.ts";
+import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
+import { gridBracketWanted, type BracketOverride, type OverviewRelationships } from "./overviewFilters.ts";
 import { panelErrorWords } from "../bridge/refusals.ts";
 import { PlayWindow, clientTexture } from "./window.ts";
 import { bloomFor, type Bloom } from "../three/bloom.ts";
@@ -56,6 +57,10 @@ export interface Entity {
   isSelf: boolean; mode?: string | null; maxVelocity?: number | null; isNpc?: boolean; targetEntityID?: number | null;
   /** Its slim item's corporation (spaceProjection), or null. */
   corporationID?: number | null;
+  ownerID?: number | null;
+  characterID?: number | null;
+  allianceID?: number | null;
+  warFactionID?: number | null;
 }
 interface Snapshot {
   entities: Entity[];
@@ -98,6 +103,7 @@ export interface SpaceViewOptions {
   recordCameraTask?: (event: CameraTaskEvent) => void;
   overviewPilotID?: number;
   overviewNotice?: (text: string) => void;
+  overviewRelationships?: () => OverviewRelationships | undefined;
   /**
    * A Sov Hub's menu entries (celestialCheckers): Deposit Reagents (OfferOpenSovFuelDepositWindow: an infrastructure hub,
    * the pilot in a ship in space, not warping, within transfer range - 2,500 m surface to surface) and Open Sov Hub
@@ -468,7 +474,8 @@ export class SpaceView {
   /** The combat command loaded (LoadCombatCommand): its name and the key that holds it. */
   private combat: { cmd: CombatCommand; code: string } | null = null;
   /** bracketSettings' display override (bracketConst SHOW_DEFAULT / SHOW_NONE / SHOW_ALL): Alt+Z, Alt+Shift+Z. */
-  private bracketOverride: "default" | "none" | "all" = "default";
+  private bracketOverride: BracketOverride = "default";
+  private showSpecialBrackets = false;
   /** Warp.py's sound flags for the ship's own warp: the explosion played (hasExploded), the wind playing (hasWind). */
   private warpSound = { exploded: false, wind: false };
   private shortcutIndication: { header: string; sub: string } | null = null;
@@ -1399,13 +1406,16 @@ export class SpaceView {
     if (cmd === "OpenDirectionalScanner" && this.dscan) { e.preventDefault(); this.dscan.toggle(); return; }
     if (cmd === "CmdToggleSolarSystemMap" && this.systemMap) { e.preventDefault(); this.systemMap.toggle(); return; }
     if (cmd === "CmdRefreshDirectionalScan" && this.dscan) { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); return; }
-    // bracketSettings.toggle_show_no_brackets / toggle_show_all_brackets: the override to it, or back to the default
-    // (every bracket here is the overview's whole grid already: "all" draws as the default does)
+    // bracketSettings: switch the space-bracket override or restore the tab's preset.
     if (cmd === "CmdToggleShowNoBrackets" || cmd === "CmdToggleShowAllBrackets") {
       e.preventDefault();
       const want = cmd === "CmdToggleShowNoBrackets" ? "none" : "all";
       this.bracketOverride = this.bracketOverride === want ? "default" : want;
-      this.brackets.style.display = this.bracketOverride === "none" ? "none" : "";
+      return;
+    }
+    if (cmd === "CmdToggleShowSpecialBrackets") {
+      e.preventDefault();
+      this.showSpecialBrackets = !this.showSpecialBrackets;
       return;
     }
     // targetMgr.SelectNext/PrevTarget: the active target moved along the locked targets, wrapping (FindNextTarget;
@@ -1691,6 +1701,11 @@ export class SpaceView {
     const seen = new Set<number>();
     const tmp = new THREE.Vector3();
     const w = innerWidth, h = innerHeight;
+    const overviewMask = this.overview.activePreset();
+    const bracketMask = this.overview.activeBracketPreset();
+    const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
+      ? this.options.overviewRelationships?.()
+      : undefined;
     for (const e of snap?.entities ?? []) {
       seen.add(e.itemID);
       if (e.typeID) this.typeOfID.set(e.itemID, e.typeID);
@@ -1709,8 +1724,20 @@ export class SpaceView {
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") this.sunDir.copy(rel).normalize();
-      if (e.isSelf) continue;
       let el = this.bracketEls.get(e.itemID);
+      const selectedOrTargeted = this.selected === e.itemID || this.activeTarget === e.itemID ||
+        this.locked.has(e.itemID) || this.lockingIDs.has(e.itemID);
+      const groupID = this.overview.groupOf(e);
+      const wanted = gridBracketWanted(e, groupID, bracketMask, overviewMask, {
+        override: this.bracketOverride,
+        showSpecials: this.showSpecialBrackets,
+        selectedOrTargeted,
+        hasBracketData: hasBracketData(groupID === e.groupID ? e : { ...e, groupID }),
+      }, relations);
+      if (!wanted) {
+        if (el) el.style.display = "none";
+        continue;
+      }
       if (!el) {
         el = document.createElement("div");
         el.className = "bracket";
@@ -1721,6 +1748,7 @@ export class SpaceView {
         el.addEventListener("dblclick", (ev) => { ev.stopPropagation(); void this.act("Approach", () => this.actions.approach(id)); });
         el.classList.toggle("locked", this.locked.has(id));
         el.classList.toggle("targeting-me", this.targeters.has(id));
+        el.classList.toggle("selected", this.selected === id);
         this.brackets.appendChild(el);
         this.bracketEls.set(e.itemID, el);
       }
@@ -1735,7 +1763,7 @@ export class SpaceView {
       }
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
-    if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x));
+    if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x), relations);
     if (!this.stepJumpCamera(now, ego)) {
       if (ego && this.framedFor !== ego.itemID) {
         this.framedFor = ego.itemID;

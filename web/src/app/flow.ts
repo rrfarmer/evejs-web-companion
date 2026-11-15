@@ -3172,6 +3172,8 @@ export interface AppFlow {
   giveCorporationShares(characterID: number, current?: () => void): Promise<void>;
   /** The client's online status service primed, where it is not: the watched contacts' online state in the store. */
   primeContactsOnline(): Promise<void>;
+  /** Invalidation for the overview's standings, including changes received when the address book is closed. */
+  readonly contactStandingsChanged: ReadableSignal<number>;
   /** A contact added, or edited where `edit` (charMgr.AddContact, EditContact); fails with the server's words. */
   addOrEditContact(contact: ContactWrite, edit: boolean, contactType?: ContactScope): Promise<void>;
   /** Contacts taken away (charMgr.DeleteContacts); fails with the server's words. */
@@ -6874,6 +6876,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     insideMultiEvent = false,
   ): void {
     directTrades.receive(method, args);
+    if (method && OVERVIEW_CONTACT_NOTIFICATIONS.has(method)) contactStandingsChangedSignal.update(n => n + 1);
     if (method === "OnLockedItemChange") inventoryMoves.invalidate(Number(args[2]));
     if (method === "OnDuelChallenge") {
       const incoming = duelChallengeOf(args);
@@ -17662,6 +17665,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const corporationDecorationsChangedSignal = createSignal(0);
   const mutualWarsChangedSignal = createSignal(0);
   const warsChangedSignal = createSignal(0);
+  const contactStandingsChangedSignal = createSignal(0);
+  const OVERVIEW_CONTACT_NOTIFICATIONS = new Set([
+    "OnContactChange", "OnContactNoLongerContact", "OnContactSlashCommand", "OnPersonalContactsUpdated",
+    "OnPersonalContactsAdded", "OnPersonalContactsDeleted", "OnOrganizationContactsUpdated",
+  ]);
   const medalDesignerSignal = createSignal<{ readonly n: number; readonly instance: number; readonly characterID: number; readonly corporationID: number } | null>(null);
   let medalDesignerRequests = 0;
   function showMedalDesigner(): void {
@@ -22060,7 +22068,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // told in the server's words, as the mail's are.
   async function contactWrite(method: string, args: readonly JsonValue[], contactType: ContactScope = "contact"): Promise<JsonValue> {
     try {
-      return await bridgeDo(contactService(contactType), method, [...args]);
+      const result = await bridgeDo(contactService(contactType), method, [...args]);
+      if (/(?:Add|Edit|Delete|Remove).*Contact/.test(method)) contactStandingsChangedSignal.update(n => n + 1);
+      return result;
     } catch (error) {
       throwIfRequestRetired(error);
       if (isSessionLost(error)) {
@@ -34941,6 +34951,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     saveCorporationMember,
     giveCorporationShares,
     primeContactsOnline,
+    contactStandingsChanged: readonlySignal(contactStandingsChangedSignal),
     addOrEditContact,
     deleteContacts,
     blockOwners,

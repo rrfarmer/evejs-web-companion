@@ -10,6 +10,12 @@ interface BracketTables {
   brackets: Record<string, { name: string | null; texturePath: string | null }>;
 }
 
+interface BracketType {
+  typeID: number | null;
+  groupID: number | null;
+  categoryID: number | null;
+}
+
 let tables: BracketTables | null = null;
 let loading: Promise<void> | null = null;
 
@@ -19,12 +25,19 @@ export function loadBrackets(): Promise<void> {
   return loading;
 }
 
-/** The thing's bracket icon as a /client-res URL, or null. */
-export function bracketIcon(thing: { typeID: number | null; groupID: number | null; categoryID: number | null }): string | null {
+function bracketEntry(thing: BracketType) {
   if (!tables) return null;
-  const id = (thing.typeID !== null ? tables.byType[String(thing.typeID)] : undefined)
-    ?? (thing.groupID !== null ? tables.byGroup[String(thing.groupID)] : undefined)
-    ?? (thing.categoryID !== null ? tables.byCategory[String(thing.categoryID)] : undefined);
-  const path = id === undefined ? null : tables.brackets[String(id)]?.texturePath ?? null;
+  const id = tables.byType[String(thing.typeID)] ?? tables.byGroup[String(thing.groupID)] ?? tables.byCategory[String(thing.categoryID)];
+  return id === undefined ? null : tables.brackets[String(id)] ?? null;
+}
+
+/** Once the client table is available, only types with a bracket entry can show a bracket. */
+export function hasBracketData(thing: BracketType): boolean {
+  return !tables || thing.typeID === null || bracketEntry(thing) !== null;
+}
+
+/** The thing's bracket icon as a /client-res URL, or null. */
+export function bracketIcon(thing: BracketType): string | null {
+  const path = bracketEntry(thing)?.texturePath;
   return path ? `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}` : null;
 }
