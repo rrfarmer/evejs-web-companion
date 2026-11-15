@@ -12681,6 +12681,608 @@
      "typeName": "google.protobuf.Timestamp"
     }
    ]
+  },
+  "eve_public.achievement.api.CompletedNotice": {
+   "fields": [
+    {
+     "name": "achievement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.api.GetRequest": {
+   "fields": [
+    {
+     "name": "achievement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.api.GetResponse": {
+   "fields": [
+    {
+     "name": "completed_date",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "completion"
+    },
+    {
+     "name": "not_completed",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "completion"
+    },
+    {
+     "name": "progress_value",
+     "number": 3,
+     "type": 4,
+     "label": 1,
+     "oneof": "progress"
+    },
+    {
+     "name": "checklist",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.contribution.ChecklistProgress",
+     "oneof": "progress"
+    },
+    {
+     "name": "reached_milestones",
+     "number": 5,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.achievement.api.GetResponse.ReachedMilestone"
+    }
+   ]
+  },
+  "eve_public.achievement.api.GetResponse.ReachedMilestone": {
+   "fields": [
+    {
+     "name": "milestone",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.milestone.definition.Identifier"
+    },
+    {
+     "name": "reached_date",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "category_points_awarded",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.achievement.api.ProgressedNotice": {
+   "fields": [
+    {
+     "name": "achievement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.definition.Identifier"
+    },
+    {
+     "name": "value",
+     "number": 2,
+     "type": 4,
+     "label": 1,
+     "oneof": "progress"
+    },
+    {
+     "name": "items",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.contribution.ChecklistProgress",
+     "oneof": "progress"
+    }
+   ]
+  },
+  "eve_public.achievement.category.api.GetRequest": {
+   "fields": [
+    {
+     "name": "category",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.category.api.GetResponse": {
+   "fields": [
+    {
+     "name": "score",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "reached_milestones",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.achievement.category.api.GetResponse.ReachedMilestone"
+    }
+   ]
+  },
+  "eve_public.achievement.category.api.GetResponse.ReachedMilestone": {
+   "fields": [
+    {
+     "name": "milestone",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.milestone.definition.Identifier"
+    },
+    {
+     "name": "reached_date",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.achievement.category.api.ProgressedNotice": {
+   "fields": [
+    {
+     "name": "category",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.definition.Identifier"
+    },
+    {
+     "name": "score",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.achievement.category.definition.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.achievement.category.milestone.api.ReachedNotice": {
+   "fields": [
+    {
+     "name": "category",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.definition.Identifier"
+    },
+    {
+     "name": "milestone",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.milestone.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.category.milestone.definition.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.achievement.contribution.ChecklistProgress": {
+   "fields": [
+    {
+     "name": "values",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.achievement.contribution.ChecklistProgress.ValueEntry"
+    }
+   ]
+  },
+  "eve_public.achievement.contribution.ChecklistProgress.ValueEntry": {
+   "fields": [
+    {
+     "name": "value_type",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "values",
+     "number": 2,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
+  "eve_public.achievement.contribution.MatcherParameterConfiguration": {
+   "fields": [
+    {
+     "name": "values",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.achievement.contribution.MatcherParameterConfiguration.ValueEntry"
+    }
+   ]
+  },
+  "eve_public.achievement.contribution.MatcherParameterConfiguration.ValueEntry": {
+   "fields": [
+    {
+     "name": "value_type",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "values",
+     "number": 2,
+     "type": 9,
+     "label": 3
+    }
+   ]
+  },
+  "eve_public.achievement.contribution.ParameterConfiguration": {
+   "fields": [
+    {
+     "name": "key",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "matcher",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.contribution.MatcherParameterConfiguration"
+    }
+   ]
+  },
+  "eve_public.achievement.definition.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.achievement.definition.api.cdn.GetLatestRequest": {
+   "fields": [
+    {
+     "name": "current_version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification",
+     "oneof": "specified_version"
+    },
+    {
+     "name": "no_local_version_available",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "specified_version"
+    }
+   ]
+  },
+  "eve_public.achievement.definition.api.cdn.GetLatestResponse": {
+   "fields": [
+    {
+     "name": "checkpoint",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cdn.Checkpoint"
+    }
+   ]
+  },
+  "eve_public.achievement.milestone.api.ReachedNotice": {
+   "fields": [
+    {
+     "name": "achievement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.definition.Identifier"
+    },
+    {
+     "name": "milestone",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.milestone.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.milestone.definition.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.ClaimRequest": {
+   "fields": [
+    {
+     "name": "achievement_source",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.reward.api.ClaimRequest.AchievementSource",
+     "oneof": "source"
+    },
+    {
+     "name": "category_source",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.reward.api.ClaimRequest.CategorySource",
+     "oneof": "source"
+    },
+    {
+     "name": "all_rewards",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "reward_selection"
+    },
+    {
+     "name": "selected_rewards",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.reward.api.ClaimRequest.RewardSelection",
+     "oneof": "reward_selection"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.ClaimRequest.AchievementSource": {
+   "fields": [
+    {
+     "name": "achievement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.definition.Identifier"
+    },
+    {
+     "name": "milestone",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.milestone.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.ClaimRequest.CategorySource": {
+   "fields": [
+    {
+     "name": "category",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.definition.Identifier"
+    },
+    {
+     "name": "milestone",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.milestone.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.ClaimRequest.RewardSelection": {
+   "fields": [
+    {
+     "name": "rewards",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.achievement.reward.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.ClaimResponse": {
+   "fields": []
+  },
+  "eve_public.achievement.reward.api.GetUnclaimedRequest": {
+   "fields": [
+    {
+     "name": "page",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.Page"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.GetUnclaimedResponse": {
+   "fields": [
+    {
+     "name": "rewards",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.achievement.reward.api.GetUnclaimedResponse.Reward"
+    },
+    {
+     "name": "next_page",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.NextPage"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.GetUnclaimedResponse.Reward": {
+   "fields": [
+    {
+     "name": "achievement_source",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.reward.api.GetUnclaimedResponse.Reward.AchievementSource",
+     "oneof": "source"
+    },
+    {
+     "name": "category_source",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.reward.api.GetUnclaimedResponse.Reward.CategorySource",
+     "oneof": "source"
+    },
+    {
+     "name": "unclaimed_rewards",
+     "number": 3,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.achievement.reward.definition.Identifier"
+    },
+    {
+     "name": "expiry_date",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.GetUnclaimedResponse.Reward.AchievementSource": {
+   "fields": [
+    {
+     "name": "achievement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.definition.Identifier"
+    },
+    {
+     "name": "milestone",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.milestone.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.api.GetUnclaimedResponse.Reward.CategorySource": {
+   "fields": [
+    {
+     "name": "category",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.definition.Identifier"
+    },
+    {
+     "name": "milestone",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.achievement.category.milestone.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.reward.definition.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.achievement.showcase.api.GetCharacterScoreRequest": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    }
+   ]
+  },
+  "eve_public.achievement.showcase.api.GetCharacterScoreResponse": {
+   "fields": [
+    {
+     "name": "score",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cdn.Checkpoint": {
+   "fields": [
+    {
+     "name": "url",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "version",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification"
+    },
+    {
+     "name": "crc",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cdn.Checksum"
+    }
+   ]
+  },
+  "eve_public.cdn.Checksum": {
+   "fields": [
+    {
+     "name": "crc",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {

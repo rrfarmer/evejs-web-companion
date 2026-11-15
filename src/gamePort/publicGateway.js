@@ -31,6 +31,7 @@ const { RETAIL_CLIENT } = require("./session");
 
 const SEND_PATH = "/eve_public.gateway.Requests/Send";
 const CONSUME_PATH = "/eve_public.gateway.Notices/Consume";
+const ACHIEVEMENT_DEFINITIONS_PATH = "/elysian-eve/achievements/latest.achv";
 const TYPE_URL_PREFIX = "type.googleapis.com/";
 /** stackless_response_router DEFAULT_TIMEOUT_SECONDS: a request with no timeout of its own waits this long. */
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -338,11 +339,48 @@ function createPublicGateway({
     };
   }
 
+  // The checkpoint advertises the public CDN hostname, which can differ
+  // from the name the BFF uses on the Docker network. Read the same resource
+  // over the configured EveJS connection; never follow arbitrary URLs.
+  function achievementDefinitions(pilot) {
+    const who = pilotOf(pilot);
+    const line = lineFor(who.key);
+    touch(who.key, line);
+    return new Promise((resolve, reject) => {
+      const stream = line.session.request({ ":method": "GET", ":path": ACHIEVEMENT_DEFINITIONS_PATH });
+      const chunks = [];
+      let size = 0;
+      const limit = 4 * 1024 * 1024;
+      const fail = (code, message) => {
+        reject(gatewayError(code, message));
+        stream.close();
+      };
+      let status;
+      stream.on("response", (headers) => {
+        status = headers[":status"];
+        if (status !== 200) fail("GATEWAY_ASSET_STATUS", `EveJS's achievement CDN answered ${status}.`);
+      });
+      stream.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > limit) fail("GATEWAY_ASSET_TOO_LARGE", "EveJS's achievement definitions exceed 4 MiB.");
+        else chunks.push(chunk);
+      });
+      stream.on("end", () => {
+        if (status === 200 && size <= limit) resolve(Buffer.concat(chunks, size));
+        else fail("GATEWAY_ASSET_STATUS", "EveJS did not return the achievement definitions.");
+      });
+      stream.setTimeout(timeoutMs, () => fail("GATEWAY_TIMEOUT", "EveJS's achievement CDN timed out."));
+      stream.on("error", (error) => reject(gatewayError("GATEWAY_UNREACHABLE", error.message)));
+      stream.on("close", () => reject(gatewayError("GATEWAY_CLOSED", "EveJS closed the achievement CDN response.")));
+      stream.end();
+    });
+  }
+
   function close() {
     for (const key of [...lines.keys()]) closeLine(key);
   }
 
-  return { request, consume, close, STATUS_OK };
+  return { request, consume, achievementDefinitions, close, STATUS_OK };
 }
 
 module.exports = { STATUS_OK, createPublicGateway, eveProtoSchema, noticeTargetMatches, publicGatewayUrl };

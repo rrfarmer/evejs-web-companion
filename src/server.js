@@ -5,12 +5,14 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const { randomUUID, createHash } = require("crypto");
+const { crc32 } = require("node:zlib");
 const { spawn } = require("child_process");
 const eveStore = require("./eveStore");
 const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
 const { createClientWords } = require("./clientData/clientWords");
+const { readAchievementDefinitions } = require("./clientData/achievementDefinitions");
 const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
@@ -14852,6 +14854,11 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
 // by the client's own message of that type. The requests are those the page makes; a write among them only with
 // confirm said. The pilot is the held session's, never the page's to name.
 const PUBLIC_GATEWAY_READS = new Set([
+  // achievement_system/client/repository/message_bus/request_messenger.py.
+  "eve_public.achievement.api.GetRequest",
+  "eve_public.achievement.category.api.GetRequest",
+  "eve_public.achievement.showcase.api.GetCharacterScoreRequest",
+  "eve_public.achievement.reward.api.GetUnclaimedRequest",
   // skills/skillplan/grpc/message_bus/skillPlanRequestsMessenger.py
   "eve_public.character.skill.plan.GetAllRequest",
   "eve_public.character.skill.plan.GetRequest",
@@ -14991,6 +14998,36 @@ function sharedPublicGateway() {
   if (!publicGatewayClient) publicGatewayClient = createPublicGateway({ url: publicGatewayUrl(process.env, gameEndpoint(process.env).host) });
   return publicGatewayClient;
 }
+
+// The 24.02 client checks the published version and CRC before loading its
+// definition cache. These definitions are shared; pilot state uses separate
+// requests to the public gateway and is never included in this cache.
+let achievementCatalogue = null;
+app.get("/api/client-data/achievement-definitions", requireAuth, async (req, res) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const pilot = { userID: held.accountID };
+  const gateway = sharedPublicGateway();
+  try {
+    const answer = await gateway.request(pilot, "eve_public.achievement.definition.api.cdn.GetLatestRequest");
+    const checkpoint = answer.payload?.checkpoint;
+    const crc = checkpoint?.crc?.crc;
+    const version = checkpoint?.version;
+    if (answer.statusCode !== 200 || !version || !Number.isInteger(crc)) throw new Error("EveJS did not publish an achievement checkpoint.");
+    const key = `${version.major ?? 0}.${version.minor ?? 0}.${version.patch ?? 0}:${crc}`;
+    if (achievementCatalogue?.key !== key) {
+      const read = gateway.achievementDefinitions(pilot).then((bytes) => {
+        if (crc32(bytes) !== crc) throw new Error("EveJS's achievement definitions do not match the checkpoint CRC.");
+        return readAchievementDefinitions(bytes);
+      });
+      achievementCatalogue = { key, read };
+      read.catch(() => { if (achievementCatalogue?.read === read) achievementCatalogue = null; });
+    }
+    res.json({ ok: true, ...(await achievementCatalogue.read) });
+  } catch (error) {
+    res.status(502).json({ ok: false, error: "ACHIEVEMENT_DEFINITIONS_UNAVAILABLE", message: error.message });
+  }
+});
 app.post("/api/public-gateway/request", requireAuth, async (req, res, next) => {
   try {
     const body = req.body || {};
