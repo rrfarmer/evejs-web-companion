@@ -16,6 +16,7 @@
   import CorpLogo from "./CorpLogo.svelte";
   import InfoFreelanceProjects from "./InfoFreelanceProjects.svelte";
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
+  import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MapRouteStep } from "../app/flow.ts";
@@ -121,6 +122,8 @@
   const skills = store.skills;
 
   const typeID = $derived(subjectTypeID($subject));
+  // 3698585 type group 1408: Custom gate 1 (unpublished) and Ansiblex Jump Bridge.
+  const jumpBridge = $derived(typeID === 35837 || typeID === 35841);
 
   /** The live snapshot row for a space subject, or null once it has left grid. */
   const entity = $derived.by<SpaceEntity | null>(() => {
@@ -1583,15 +1586,17 @@
       {:else if !ownerReadDone}
         <p class="note">Reading…</p>
       {/if}
-    {:else if $subject.kind === "type" && typeID !== null}
+    {:else if $subject.kind === "type" && typeID !== null && !jumpBridge}
       <InfoShipRequirements {store} {flow} {typeID} showEmpty />
-    {:else}
+    {:else if !jumpBridge}
       <p class="note">
         Nothing further is loaded about this item. Fit one to your ship to see its effective
         attributes.
       </p>
     {/if}
-    {#if typeID !== null && $subject.kind === "spaceObject"}
+    {#if jumpBridge}
+      <InfoJumpBridgeMechanics {store} {flow} />
+    {:else if typeID !== null && $subject.kind === "spaceObject"}
       <InfoShipRequirements {store} {flow} {typeID} />
     {/if}
   {/if}
