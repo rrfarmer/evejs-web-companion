@@ -98,7 +98,7 @@
 
   async function moveToSafety(row: CorpAssetLocation): Promise<void> {
     menuFor = null;
-    try { if (await flow.moveCorpAssetsToSafety(row.solarSystemID, row.locationID)) await show(which); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+    try { if (await flow.moveCorpAssetsToSafety(row.solarSystemID, row.locationID, row.typeID)) await show(which); } catch (e) { error = e instanceof Error ? e.message : String(e); }
   }
   const isStructure = (row: CorpAssetLocation) => row.typeID !== null && facts.get(row.typeID)?.categoryID === 65;
   const isWormholeOrTrig = (row: CorpAssetLocation) => row.solarSystemID >= 31_000_000 && row.solarSystemID <= 31_999_999;

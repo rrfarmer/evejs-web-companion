@@ -9,7 +9,8 @@
   // Deliver (disabled before the manual delivery time), Cancel.
   import { onDestroy, onMount } from "svelte";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow, SafetyWrap } from "../app/flow.ts";
+  import type { AppFlow } from "../app/flow.ts";
+  import type { SafetyDestination, SafetyWrap } from "../bridge/structureAssetSafety.ts";
   import { shortWrittenInterval, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
@@ -40,23 +41,27 @@
       "UI/Generic/Cancel", "UI/Corporations/Assets/NoItemsFound", ...SHORT_INTERVAL_WORD_LABELS, ...Object.keys(LINK_WORDS)]);
     void reload();
   });
-  let delivering = $state<{ wrap: SafetyWrap; targets: readonly { itemID: number; typeID: number; name: string }[] | null } | null>(null);
+  let delivering = $state.raw<{ wrap: SafetyWrap; targets: readonly SafetyDestination[] | null } | null>(null);
   async function openDeliver(wrap: SafetyWrap): Promise<void> {
     delivering = { wrap, targets: null };
-    try { const targets = await flow.safetyDeliveryTargets(wrap.solarSystemID); if (delivering?.wrap === wrap) delivering = { wrap, targets }; }
+    try { const targets = await flow.safetyDeliveryTargets(wrap.solarSystemID, wrap.structureTypeID); if (delivering?.wrap === wrap) delivering = { wrap, targets }; }
     catch (e) { error = e instanceof Error ? e.message : String(e); delivering = null; }
   }
-  async function deliver(wrap: SafetyWrap, destinationID: number): Promise<void> {
+  async function deliver(wrap: SafetyWrap, destination: SafetyDestination): Promise<void> {
     try {
-      const done = await flow.deliverSafetyWrap(wrap.assetWrapID, wrap.solarSystemID, destinationID);
+      const done = await flow.deliverSafetyWrap(wrap.assetWrapID, destination.solarSystemID, destination.itemID);
       // DoDeliver closes the window whether or not the move went through, once asked.
       if (done) { delivering = null; await reload(); }
     } catch (e) { error = e instanceof Error ? e.message : String(e); delivering = null; }
   }
+  function defaultDestinationLink(wrap: SafetyWrap): string {
+    const d = wrap.defaultDestination;
+    return `<url=showinfo:${d.typeID}//${d.itemID}>${nameOf("station", d.itemID) || d.name}</url>`;
+  }
   function explanation(wrap: SafetyWrap, stationsInSystem: number): string {
     const manual = wrap.ejectTime + BigInt(wrap.daysUntilCanDeliver) * DAY - nowTicks, auto = wrap.ejectTime + BigInt(wrap.daysUntilAutoMove) * DAY - nowTicks;
     const args = { solarSystemName: `<url=showinfo:5//${wrap.solarSystemID}>${nameOf("system", wrap.solarSystemID)}</url>`,
-      npcStationName: `<url=showinfo:${wrap.nearestStationTypeID}//${wrap.nearestStationID}>${nameOf("station", wrap.nearestStationID)}</url>`,
+      npcStationName: defaultDestinationLink(wrap),
       timeUntil: interval(auto), timeUntilAutoDelivery: interval(auto), timUntilManualDelivery: interval(manual) };
     const label = manual < 0n ? (stationsInSystem ? S + "DeliveryExplanationText" : S + "DeliveryExplanationTextNoStations") : (stationsInSystem ? S + "DeliveryNotAvailableNowExplanationText" : S + "DeliveryNotAvailableTextNoStations");
     return text(label, args);
@@ -73,7 +78,7 @@
       <div class="asl-window-list">
         {#each d.targets as t (t.itemID)}
           <div class="asl-deliver-row"><LabelText markup={`<url=showinfo:${t.typeID}//${t.itemID}>${t.name}</url>`} {followerOf} />
-            <button disabled={manualLeft > 0n} onclick={() => void deliver(d.wrap, t.itemID)}>{plainText(text(S + "DeliverBtn"))}</button></div>
+            <button disabled={manualLeft > 0n} onclick={() => void deliver(d.wrap, t)}>{plainText(text(S + "DeliverBtn"))}</button></div>
         {/each}
       </div>
     {/if}
@@ -93,11 +98,11 @@
       <!-- SetDeliverBtnState: Disable(), then disabled = False - drawn disabled, still opening the window. -->
       <span><button class="asl-deliver" class:asl-dim={manual > 0n} aria-disabled={manual > 0n} onclick={() => void openDeliver(w)}
         title={manual < 0n ? plainText(text(S + "DeliverBtnAvailableHint")) : plainText(text(S + "DeliverBtnNotAvailableNowHint", { timeUntil: interval(manual) }))}>
-        <span class="asl-progress" style:width={`${Math.min(1, Math.max(0, 1 - Number(manual) / (864000000000 * w.daysUntilCanDeliver))) * 100}%`}></span>
+        <span class="asl-progress" style:width={`${(w.daysUntilCanDeliver === 0 ? 1 : Math.min(1, Math.max(0, 1 - Number(manual) / (864000000000 * w.daysUntilCanDeliver)))) * 100}%`}></span>
         <span class="asl-deliver-label">{plainText(text(S + "DeliverTo"))}</span></button></span>
       <span class="asl-auto"><img class="asl-hourglass" alt="" title={plainText(text(S + "AutoDeliveryHint"))} src="/client-res/ui/texture/classes/inventory/hourglass.png" />
         <span class="asl-auto-left">{interval(auto)}</span>
-        <LabelText markup={`<url=showinfo:${w.nearestStationTypeID}//${w.nearestStationID}>${nameOf("station", w.nearestStationID)}</url>`} {followerOf} /></span>
+        <LabelText markup={defaultDestinationLink(w)} {followerOf} /></span>
     </div>
   {:else}
     {#if wraps}<p class="asl-hint">{plainText(text("UI/Corporations/Assets/NoItemsFound"))}</p>{/if}

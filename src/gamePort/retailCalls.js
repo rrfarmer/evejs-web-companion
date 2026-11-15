@@ -667,6 +667,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "structureAssetSafety.GetDefaultAssetSafetyDestination",
   "invCache.FetchItem",
   "invCache.InvalidateLocationCache",
   "invbroker.EnterPassword",
@@ -2173,6 +2174,12 @@ const RETAIL_CALLS = Object.freeze({
   "itemLocking.GetLockedItemLocations": judged("eve/client/script/ui/services/corporation/itemLocking.py:36-40", sentWithNothing, "lockedItems.GetLockedItemLocations: once, then kept and amended by OnLockedItemChange; the corporation assets' Lockdown tab (corp_ui_accounts.ShowLockdown 528)."),
   "invbroker.GetPriceForItems": reshaped(`${INV_CACHE}:769`, (args, kwargs) => ({ args: [list(args[0] ?? [])], kwargs }), "Asset Safety wrap GetPriceForItems([itemIDs]), before the recovery question and quantity popup."),
   "structureAssetSafety.GetWrapNames": reshaped("eve/client/script/ui/shared/assets/assetSafetySvc.py:79", (args, kwargs) => ({ args: [list(args[0] ?? [])], kwargs }), "GetWrapNames(wrapIDs), a list of all requested wraps when any name is uncached."),
+  "structureAssetSafety.GetItemsInSafetyForCharacter": same("eve/client/script/ui/shared/assets/assetSafetySvc.py:27", "24.02: no arguments; wraps with their default destination and source structure type."),
+  "structureAssetSafety.GetItemsInSafetyForCorp": same("eve/client/script/ui/shared/assets/assetSafetySvc.py:31", "24.02: no arguments; cached list of corporate wraps."),
+  "structureAssetSafety.GetStructuresICanDeliverTo": same("eve/client/script/ui/shared/assets/assetSafetyDeliverWindow.py:111", "24.02: origin solarSystemID, source structureTypeID; one list of destination rows."),
+  "structureAssetSafety.GetDefaultAssetSafetyDestination": same("eve/client/script/ui/shared/assets/assetSafetySvc.py:68", "24.02: origin solarSystemID and source structureTypeID; the default destination when there are multiple delivery systems."),
+  "structureAssetSafety.MoveSafetyWrapToStructure": same("eve/client/script/ui/shared/assets/assetSafetyDeliverWindow.py:153", "Wrap ID and the selected destination's solar system ID, with destinationID as a keyword."),
+  "structureAssetSafety.MoveCorpAssetsToSafety": same("eve/client/script/ui/shared/assets/assetSafetySvc.py:77", "Origin solar system and structure IDs after confirmation."),
   "invbroker.GetAvailableTurretSlots": judged("achievements/client/eventHandler.py:427", sentWithNothing, "invCache.GetInventoryFromId(shipID).GetAvailableTurretSlots(), nothing sent, on the ship's own inventory: how many of its turret hardpoints are free. The achievements' event handler asks it at every change of the session's ship to a ship (251 to 260, 419 to 429: godma's item of the ship first, and only for one of the ship category) and when what is fitted high changes (inventorysvc.py 124). Tranquility's recordings have it in 20: at a login, an ejection, a boarding."),
   "invbroker.List": reshaped(
     `${INV_CACHE}:1138`,

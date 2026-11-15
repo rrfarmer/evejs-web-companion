@@ -14,6 +14,7 @@ import {
 } from "../bridge/stationPanel.ts";
 import { decodeCapacity, decodeContainer, decodeInventoryRows, decodeInventoryRowsChecked } from "../bridge/inventoryShip.ts";
 import { readSafetyDeliveries, acceptSafetyRecovery, safetyWrapAncestor, safetyDivisionRows, SAFETY_DIVISION_LABELS, type SafetyDeliveries } from "../bridge/assetSafetyInventory.ts";
+import { INSURGENCY_FOB_TYPES, ZARZAKH_SYSTEM_ID, readSafetyDestination, readSafetyTargets, readSafetyWraps, type SafetyDestination, type SafetyWrap } from "../bridge/structureAssetSafety.ts";
 import { decodeShipBays, decodeShipBaysChecked } from "../bridge/shipBays.ts";
 import { CARGO_HOLD, SHIP_HOLDS, SHIP_HOLD_ATTRIBUTES, trackedShipHolds } from "../bridge/shipHolds.ts";
 import { decodeShipFighters, squadronsByTube } from "../bridge/shipFighters.ts";
@@ -490,9 +491,6 @@ export interface CorpAssetLocation { readonly locationID: number; readonly solar
  * power slot its effects fit (12 high, 13 medium, 11 low, 2663 rig), its volume and packaged volume, meta and tech
  * level, and the cfg's average price. */
 export interface AssetTypeFacts { readonly categoryID: number | null; readonly chargeSize: number | null; readonly implantness: number | null; readonly boosterness: number | null; readonly slotEffect: number | null; readonly volume: number | null; readonly packagedVolume: number | null; readonly metaLevel: number | null; readonly techLevel: number | null; readonly averagePrice: number | null }
-/** structureAssetSafety.GetItemsInSafetyForCorp's KeyVal: a wrap, its system, its eject time (FILETIME), the days until
- * it may be delivered and until it moves itself, and the nearest NPC station's item and type. */
-export interface SafetyWrap { readonly assetWrapID: number; readonly wrapName: string; readonly solarSystemID: number; readonly ejectTime: bigint; readonly daysUntilCanDeliver: number; readonly daysUntilAutoMove: number; readonly nearestStationID: number; readonly nearestStationTypeID: number }
 /** cosmetics.common.structures.const.PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS, in its order: Astrahus, Fortizar, Keepstar,
  * Raitaru, Azbel, Sotiyo, Athanor, Tatara, Pharolux Cyno Beacon, Tenebrex Cyno Jammer, Ansiblex Jump Gate. */
 export const PAINT_ELIGIBLE_STRUCTURE_TYPE_IDS: readonly number[] = [35832, 35833, 35834, 35825, 35826, 35827, 35835, 35836, 35840, 37534, 35841];
@@ -3083,11 +3081,11 @@ export interface AppFlow {
   characterSafetyWraps(): Promise<readonly SafetyWrap[]>;
   /** assetSafetySvc.MoveItemsInStructureToAssetSafetyForCorp: ConfirmAssetSafetyCorp (ConfirmAssetEjectionCorp in a
    * wormhole or Triglavian system), Yes - MoveCorpAssetsToSafety. True where it was asked of the server. */
-  moveCorpAssetsToSafety(solarSystemID: number, structureID: number): Promise<boolean>;
-  /** AssetSafetyDeliverWindow.ReloadContent: GetStructuresICanDeliverTo(solarSystemID) - the structures first, in the
+  moveCorpAssetsToSafety(solarSystemID: number, structureID: number, structureTypeID: number | null): Promise<boolean>;
+  /** AssetSafetyDeliverWindow.ReloadContent: GetStructuresICanDeliverTo(solarSystemID, structureTypeID) - structures first, in the
    * answer's order (GetSortedStructures returns its list unsorted), named by cfg.evelocations or "<system> - <type>",
    * then the stations by celestial index, orbit index and name. */
-  safetyDeliveryTargets(solarSystemID: number): Promise<readonly { readonly itemID: number; readonly typeID: number; readonly name: string }[]>;
+  safetyDeliveryTargets(solarSystemID: number, structureTypeID: number): Promise<readonly SafetyDestination[]>;
   /** DoDeliver: SureYouWantToMoveAssetSafetyItemsToLocation, Yes - MoveSafetyWrapToStructure(wrap, system, destinationID=). */
   deliverSafetyWrap(assetWrapID: number, solarSystemID: number, destinationID: number): Promise<boolean>;
   /** CorpAccounts.TrashImpoundedItems: the impounded items listed ("<t>- <qty> x <type>") in ConfirmTrashingPlu /
@@ -19141,22 +19139,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function safetyWraps(method: "GetItemsInSafetyForCorp" | "GetItemsInSafetyForCharacter"): Promise<readonly SafetyWrap[]> {
     const scope = captureMemberOperation();
     const answer = await scope.ask("structureAssetSafety", method, []); scope.current();
-    const rows: readonly JsonValue[] = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
-    const field = (row: JsonValue, key: string): JsonValue => readKeyVal(row, key) ?? readDictPairs(row).find(([k]) => k === key)?.[1] ?? null;
-    const num = (value: JsonValue) => Number(unwrapLong(value) ?? 0n);
-    const wraps = rows.map(row => {
-      const station = field(row, "nearestNPCStationInfo");
-      const stationField = (key: string) => num(field(station, key));
-      const name = field(row, "wrapName");
-      return { assetWrapID: num(field(row, "assetWrapID")), wrapName: typeof name === "string" ? name : name && typeof name === "object" && "value" in name ? String((name as { value: unknown }).value) : "",
-        solarSystemID: num(field(row, "solarSystemID")), ejectTime: unwrapLong(field(row, "ejectTime")) ?? 0n,
-        daysUntilCanDeliver: num(field(row, "daysUntilCanDeliverConst")), daysUntilAutoMove: num(field(row, "daysUntilAutoMoveConst")),
-        nearestStationID: stationField("itemID"), nearestStationTypeID: stationField("typeID") };
-    });
-    await memberNames(scope, wraps.flatMap(wrap => [{ kind: "system" as const, id: wrap.solarSystemID }, { kind: "station" as const, id: wrap.nearestStationID }]));
+    const wraps = readSafetyWraps(answer);
+    await memberNames(scope, wraps.flatMap(wrap => [{ kind: "system" as const, id: wrap.solarSystemID }, { kind: "station" as const, id: wrap.defaultDestination.itemID }]));
     return wraps;
   }
-  async function moveCorpAssetsToSafety(solarSystemID: number, structureID: number): Promise<boolean> {
+  async function moveCorpAssetsToSafety(solarSystemID: number, structureID: number, structureTypeID: number | null): Promise<boolean> {
     const scope = captureMemberOperation(), online = scope.online;
     // _IsAssetSafetyDisabledInSystem: a wormhole system (31000000-31999999) or a Triglavian one (factionTriglavian 500026).
     const map = await (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; }));
@@ -19164,41 +19151,62 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const disabled = (solarSystemID >= 31_000_000 && solarSystemID <= 31_999_999) || faction === 500026;
     await memberNames(scope, [{ kind: "owner", id: online.corporationID }, { kind: "structure", id: structureID }, { kind: "system", id: solarSystemID }]);
     const corpName = resolvedName(store.names.get().resolved, "owner", online.corporationID, "");
-    const yes = await askDialog(disabled ? "ConfirmAssetEjectionCorp" : "ConfirmAssetSafetyCorp", { type: "dict", entries: [["corpName", corpName], ["structureID", structureID], ["solarsystemID", solarSystemID]] } as JsonValue,
+    let dialog = disabled ? "ConfirmAssetEjectionCorp" : "ConfirmAssetSafetyCorp";
+    const entries: [string, JsonValue][] = [["corpName", corpName], ["structureID", structureID], ["solarsystemID", solarSystemID]];
+    if (!disabled && structureTypeID !== null && INSURGENCY_FOB_TYPES.includes(structureTypeID)) {
+      const taxLabel = "UI/Inventory/AssetSafety/TaxTextForFobConfirmationMsg";
+      const [answer] = await Promise.all([
+        scope.ask("structureAssetSafety", "GetDefaultAssetSafetyDestination", [solarSystemID, structureTypeID]),
+        memberNames(scope, [{ kind: "system", id: ZARZAKH_SYSTEM_ID }]),
+        wordsNow([taxLabel]),
+      ]);
+      scope.current();
+      const defaultDestination = readSafetyDestination(answer);
+      const links = [solarSystemID, ZARZAKH_SYSTEM_ID].map(id =>
+        `<url=showinfo:5//${id}>${resolvedName(store.names.get().resolved, "system", id, String(id))}</url>`);
+      dialog = "ConfirmAssetSafetyCorpMultiLocations";
+      entries.push(["defaultSolarSystemID", defaultDestination.solarSystemID],
+        ["destinationList", new Intl.ListFormat("en", { type: "disjunction" }).format(links)],
+        ["extraTaxText", store.words.get().templates[taxLabel] ?? ""]);
+    }
+    const yes = await askDialog(dialog, { type: "dict", entries },
       "Move all of the corporation's things in this structure into asset safety?");
     if (!yes) return false;
+    scope.current();
     try { await scope.write("structureAssetSafety", "MoveCorpAssetsToSafety", [solarSystemID, structureID]); scope.current(); }
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
     return true;
   }
-  async function safetyDeliveryTargets(solarSystemID: number): Promise<readonly { readonly itemID: number; readonly typeID: number; readonly name: string }[]> {
+  async function safetyDeliveryTargets(solarSystemID: number, structureTypeID: number): Promise<readonly SafetyDestination[]> {
     const scope = captureMemberOperation();
-    const answer = await scope.ask("structureAssetSafety", "GetStructuresICanDeliverTo", [solarSystemID]); scope.current();
-    const parts: readonly JsonValue[] = Array.isArray(answer) ? answer : isListValue(answer) ? answer.items : [];
-    const list = parts[0] ?? null, rows: readonly JsonValue[] = isListValue(list) ? list.items : Array.isArray(list) ? list : [];
-    const num = (row: JsonValue, key: string) => Number(unwrapLong(readKeyVal(row, key) ?? readDictPairs(row).find(([k]) => k === key)?.[1] ?? null) ?? 0n);
-    const targets = rows.map(row => ({ itemID: num(row, "itemID"), typeID: num(row, "typeID") })).filter(row => row.itemID > 0);
-    const meta = await api.getTypeMeta([...new Set(targets.map(t => t.typeID))], callOptions).catch(() => null); scope.current();
+    const answer = await scope.ask("structureAssetSafety", "GetStructuresICanDeliverTo", [solarSystemID, structureTypeID]); scope.current();
+    const targets = readSafetyTargets(answer);
+    if (!targets.length) return [];
+    const meta = await api.getTypeMeta([...new Set(targets.map(t => t.typeID))], scope.options).catch(() => null); scope.current();
     // evetypes.GetCategoryID(typeID) == categoryStation (3)
-    const isStation = (typeID: number) => (meta?.types.get(typeID)?.categoryID ?? null) === 3;
-    await memberNames(scope, [{ kind: "system", id: solarSystemID }, ...targets.flatMap(t => [isStation(t.typeID) ? { kind: "station" as const, id: t.itemID } : { kind: "structure" as const, id: t.itemID }, { kind: "type" as const, id: t.typeID }])]);
+    const isStation = (t: SafetyDestination) => {
+      const categoryID = meta?.types.get(t.typeID)?.categoryID;
+      return categoryID == null ? t.itemID >= 60_000_000 && t.itemID < 64_000_000 : categoryID === 3;
+    };
+    await memberNames(scope, [{ kind: "system", id: solarSystemID }, ...targets.flatMap(t => [isStation(t) ? { kind: "station" as const, id: t.itemID } : { kind: "structure" as const, id: t.itemID }, { kind: "type" as const, id: t.typeID }])]);
     const names = store.names.get().resolved;
-    const structures = targets.filter(t => !isStation(t.typeID)).map(t => ({ ...t, name: resolvedName(names, "structure", t.itemID, "") || `${resolvedName(names, "system", solarSystemID, "")} - ${resolvedName(names, "type", t.typeID, "")}` }));
-    const stationRows = targets.filter(t => isStation(t.typeID));
-    let stations: { itemID: number; typeID: number; name: string }[] = [];
-    if (stationRows.length) {
-      // GetSortedStationList: the system's items (map.GetSolarsystemItems); a station not among them is left out.
-      const system = await api.getSystemStations(solarSystemID, callOptions).catch(() => null);
-      const byID = new Map((system?.stations ?? []).map(s => [s.stationID, s] as const));
-      stations = stationRows.flatMap(t => { const info = byID.get(t.itemID); return info ? [{ ...t, name: resolvedName(names, "station", t.itemID, ""), c: info.celestialIndex ?? 0, o: info.orbitIndex ?? 0 }] : []; })
-        .sort((a, b) => a.c - b.c || a.o - b.o || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0))
-        .map(({ itemID, typeID, name }) => ({ itemID, typeID, name }));
-    }
+    const structures = targets.filter(t => !isStation(t)).map(t => ({ ...t, name: resolvedName(names, "structure", t.itemID, "") || t.name || `${resolvedName(names, "system", solarSystemID, "")} - ${resolvedName(names, "type", t.typeID, "")}` }));
+    const stationRows = targets.filter(isStation);
+    // 24.02 GetSortedStationList reads each candidate's own solar system before sorting all the stations.
+    const systems = await Promise.all([...new Set(stationRows.map(t => t.solarSystemID))].map(id => api.getSystemStations(id, scope.options)));
+    scope.current();
+    const byID = new Map(systems.flatMap(system => system.stations.map(s => [s.stationID, s] as const)));
+    const stations = stationRows.flatMap(t => {
+      const info = byID.get(t.itemID);
+      return info ? [{ ...t, name: resolvedName(names, "station", t.itemID, "") || t.name, c: info.celestialIndex ?? 0, o: info.orbitIndex ?? 0 }] : [];
+    }).sort((a, b) => a.c - b.c || a.o - b.o || a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
+      .map(({ itemID, typeID, solarSystemID: systemID, name }) => ({ itemID, typeID, solarSystemID: systemID, name }));
     return [...structures, ...stations];
   }
   async function deliverSafetyWrap(assetWrapID: number, solarSystemID: number, destinationID: number): Promise<boolean> {
     const scope = captureMemberOperation();
     if (!(await askDialog("SureYouWantToMoveAssetSafetyItemsToLocation", { type: "dict", entries: [] }, "Are you sure you want to move the items to this location?"))) return false;
+    scope.current();
     try { await scope.write("structureAssetSafety", "MoveSafetyWrapToStructure", [assetWrapID, solarSystemID], { destinationID }); scope.current(); }
     catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; return false; }
     return true;
