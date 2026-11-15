@@ -18,6 +18,8 @@ const CONVOY_HINT = "UI/Map/StarModeHandler/Hints/VanguardNemesisConvoysTooltip"
 const NO_DATA = "UI/Common/NoDataAvailable";
 const AGENCY = "UI/Agency/TheAgency";
 const HERE = "UI/Map/StarMap/lblYouAreHere";
+// MapTagConsumer inherits BaseRefreshingContentConsumer's 60-second update interval.
+const PHASED_REFRESH_MS = 60_000;
 
 export function mountStarMapFilterControls(map: StarMap, session: Session): () => void {
   const controls = document.createElement("div");
@@ -49,7 +51,8 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
 
   let mode: StarMapColorMode = "empire";
   let request = 0;
-  let refreshAfterJump: ReturnType<typeof setTimeout> | undefined;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let phasedSystems = "";
   let state: "idle" | "loading" | "empty" | "error" = "idle";
   let error = "";
   const word = (key: string, fallback: string, args: TemplateArguments = {}) => {
@@ -78,24 +81,38 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
     }, count => mode === "ore" ? word(ORE_CLUSTER_HINT, `${count} sites detected`, { num: count })
       : word(FILTER_CLUSTER_HINT, word(MAP_COLOR_MODES.phased.label, MAP_COLOR_MODES.phased.fallback), { num: count }));
   }
-  async function refresh(resetMarkers = true): Promise<void> {
-    clearTimeout(refreshAfterJump);
+  async function refresh(reason: "filter" | "arrival" | "checkpoint" = "filter"): Promise<void> {
+    clearTimeout(refreshTimer);
     const selected = mode;
     const serial = ++request;
-    error = "";
-    if (resetMarkers) map.setColorMode(selected);
-    state = selected === "empire" ? "idle" : "loading";
-    render();
+    if (reason !== "checkpoint") {
+      error = "";
+      if (reason === "filter") map.setColorMode(selected);
+      state = selected === "empire" ? "idle" : "loading";
+      render();
+    }
     if (selected === "empire") return;
     try {
       const { systems, homeSystemID } = await session.flow.starMapActivity(selected);
       if (serial !== request) return;
-      map.setColorMode(selected, systems, homeSystemID);
+      if (selected === "phased") {
+        const next = systems.map(row => row.systemID).sort((a, b) => a - b).join(",");
+        if (reason !== "checkpoint" || next !== phasedSystems) map.setColorMode(selected, systems, homeSystemID);
+        phasedSystems = next;
+      } else {
+        map.setColorMode(selected, systems, homeSystemID);
+      }
       state = systems.length ? "idle" : "empty";
+      error = "";
     } catch (cause) {
-      if (serial !== request) return;
+      // An unavailable refresh leaves the last checkpoint's pins in place.
+      if (serial !== request || reason === "checkpoint") return;
       state = "error";
       error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (serial === request && selected === "phased") {
+        refreshTimer = setTimeout(() => void refresh("checkpoint"), PHASED_REFRESH_MS);
+      }
     }
     render();
   }
@@ -112,9 +129,9 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
     current = next;
     map.setPilotSystem(current);
     ++request;
-    clearTimeout(refreshAfterJump);
+    clearTimeout(refreshTimer);
     // MapViewFiltered.OnSessionChanged waits a half second before reading the destination's filters.
-    if (mode !== "empire") refreshAfterJump = setTimeout(() => void refresh(false), 500);
+    if (mode !== "empire") refreshTimer = setTimeout(() => void refresh("arrival"), 500);
   };
   const stopFlight = session.store.flight.subscribe(onLocation);
   const stopStation = session.store.station.subscribe(onLocation);
@@ -123,7 +140,7 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
     ...options.map(({ definition }) => definition.label)]);
   return () => {
     ++request;
-    clearTimeout(refreshAfterJump);
+    clearTimeout(refreshTimer);
     stopFlight();
     stopWords();
     stopStation();
