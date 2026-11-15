@@ -90,7 +90,10 @@ const WIDGET_CASES: readonly { macro: string; key: string; expect: RegExp; why: 
   { macro: "fight-the-rats", key: "targets", expect: /tacklers/, why: "target-list-picker" },
   { macro: "fight-the-rats", key: "squad", expect: /shoot what the fleet calls/, why: "squad-role-select" },
   { macro: "request-mission", key: "agent", expect: /use the agent your bot finds/, why: "agent-picker" },
-  { macro: "find-distribution-agent", key: "corporation", expect: /placeholder="any corporation"/, why: "corp-picker" },
+  // A list, not a text box: the finder filters by corporation ID, and a typed
+  // name carried none, so every name typed there failed the step's check.
+  { macro: "find-distribution-agent", key: "corporation", expect: /<select[^>]*>\s*<option value=""[^>]*>any corporation<\/option>/, why: "corp-picker" },
+  { macro: "find-combat-agent", key: "corporation", expect: /<select[^>]*>\s*<option value=""[^>]*>any corporation<\/option>/, why: "corp-picker" },
   { macro: "refit-ship", key: "fitting", expect: /Test Fitting/, why: "fitting-picker" },
   { macro: "warp-to-bookmark", key: "bookmark", expect: /Test Spot/, why: "bookmark-picker" },
   { macro: "move-items", key: "from", expect: /station hangar/, why: "place-select" },
@@ -502,4 +505,22 @@ test("a class already in the ladder is not offered again", () => {
   });
   const offers = html.match(/pick-name">tacklers</g) ?? [];
   assert.equal(offers.length, 0, "a chosen class was still offered as something to add");
+});
+
+test("a finder step saved with a typed corporation name shows it, and offers the list", () => {
+  // Saved before the list existed: a name and no id, which the step's check
+  // refuses. The player has to see what is held to know what to change.
+  const html = renderInspector({
+    kind: "step",
+    step: step("find-distribution-agent", { args: { corporation: { kind: "corp", id: null, name: "Typed Corp" } } }),
+  });
+  assert.match(html, /<option value="typed" disabled[^>]*>Typed Corp \(typed, choose from the list\)<\/option>/);
+});
+
+test("a chosen corporation stays selected under its saved name before the list is read", () => {
+  const html = renderInspector({
+    kind: "step",
+    step: step("find-distribution-agent", { args: { corporation: { kind: "corp", id: 1000001, name: "Saved Corp" } } }),
+  });
+  assert.match(html, /<option value="1000001"[^>]*>Saved Corp<\/option>/);
 });
