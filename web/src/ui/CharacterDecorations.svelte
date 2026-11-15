@@ -92,7 +92,7 @@
           {@const linked = titleLinks.get(title.id)}
           <article class:locked={!group.owned} class:equipped>
             <span>{title.name}</span>
-            {#if linked}<button type="button" onclick={() => achievementRequest.set(linked)}>{word("Titles/ViewAchievementButtonLabel", "View Achievement")}</button>{/if}
+            {#if linked}<button type="button" onclick={() => achievementRequest.set({ kind: "achievement", id: linked })}>{word("Titles/ViewAchievementButtonLabel", "View Achievement")}</button>{/if}
             {#if group.owned}<button type="button" disabled={busy} onclick={() => write(() => flow.setCharacterTitle(equipped ? null : title.id), "Titles")}>{equipped ? word("Titles/UnequipButtonLabel", "Unequip") : word("Titles/EquipButtonLabel", "Equip")}</button>{/if}
           </article>
         {/each}

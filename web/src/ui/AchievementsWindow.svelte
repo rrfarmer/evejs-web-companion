@@ -10,14 +10,22 @@
   import { clientTexture } from "../play/window.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { achievementRequest } from "./achievementRequests.ts";
+  import { achievementMilestone, achievementTrackingFor } from "./achievementTracking.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const tracking = $derived(achievementTrackingFor($station.online?.characterID ?? null));
+  const tracked = $derived(tracking.state);
   const W = "UI/Achievements/Window/";
   const N = `${W}SideNavigation/`;
   const C = `${W}CareerProgram/`;
   const hiddenDescription = `${W}Card/DiscoverableAchievementDescription`;
+  const trackLabel = `${W}Card/TrackButtonLabel`, untrackLabel = `${W}Card/UntrackButtonLabel`;
+  const trackLimit = "UI/Achievements/Error/TrackedAchievementLimitReached";
+  const claimAllLabel = `${W}Rewards/ClaimAll`;
   const art = "res:/UI/Texture/classes/Achievements/";
   const labels = {
     achievements: `${W}Tab/Achievements`, pinned: `${W}Tab/Pinned`, rewards: `${W}Tab/Rewards`,
@@ -40,7 +48,7 @@
   const goal = (c: AchievementCategory) => c.milestones.at(-1)?.target ?? 0;
   const describe = (a: AchievementDefinition, progress?: AchievementProgress) => {
     if (a.visibility === 1 && !progress?.completed) return label(hiddenDescription, "Discover this achievement by completing it.");
-    const amount = (a.milestones.find(m => m.target > (progress?.current ?? 0)) ?? a.milestones.at(-1))?.target ?? 0;
+    const amount = achievementMilestone(a, progress)?.target ?? 0;
     return plainText(formatTemplate($words.templates[`#${a.description}`] ?? "", { amount }, { nameOf: () => "" }));
   };
   const rewardText = (r: AchievementReward) => label(r.description, r.kind === "title" ? titleNames.get(r.titleID ?? "") ?? "Character title" : `${number(r.amount ?? 0)} ${r.kind ?? ""}`);
@@ -118,7 +126,7 @@
       const ids = [...data.categories.flatMap(row => [row.name, row.description]),
         ...data.achievements.flatMap(row => [row.name, row.description, row.flavor]),
         ...[...data.categories, ...data.achievements].flatMap(row => row.milestones.flatMap(m => m.rewards.map(r => r.description)))];
-      flow.requestWords([hiddenDescription, ...Object.values(labels), ...Object.values(careers).map(row => row.desc), ...ids.filter(Boolean).map(id => `#${id}`)]);
+      flow.requestWords([hiddenDescription, trackLabel, untrackLabel, trackLimit, claimAllLabel, ...Object.values(labels), ...Object.values(careers).map(row => row.desc), ...ids.filter(Boolean).map(id => `#${id}`)]);
       if (c) void loadScores([c, ...data.categories.filter(row => row.parent === c.id)]);
       void loadScore().catch(() => {});
       void loadRewards().catch(() => {});
@@ -161,8 +169,12 @@
   $effect(() => {
     const requested = $achievementRequest;
     if (!catalogue || requested === null) return;
-    const row = definitions.get(requested);
-    if (row) { show(row.category); selected = row; fetchProgress(row.id); }
+    if (requested.kind === "rewards") selectTab("rewards");
+    if (requested.kind === "category") show(requested.id);
+    if (requested.kind === "achievement") {
+      const row = definitions.get(requested.id);
+      if (row) { show(row.category); selected = row; fetchProgress(row.id); }
+    }
     achievementRequest.set(null);
   });
   function pin(id: string) {
@@ -172,13 +184,48 @@
   function rewardMilestone(r: UnclaimedAchievementReward): AchievementMilestone | undefined {
     return (r.kind === "category" ? categories.get(r.source) : definitions.get(r.source))?.milestones.find(m => m.id === r.milestone);
   }
-  async function claim(row: UnclaimedAchievementReward) {
+  function canTrack(a: AchievementDefinition) {
+    return $tracked.ids.includes(a.id) || Boolean(progress[a.id] && !progress[a.id]?.completed && a.visibility === 0 && visible(a));
+  }
+  function toggleTracking(id: string) {
+    error = "";
+    if ($tracked.ids.includes(id)) tracking.untrack(id);
+    else if (!tracking.track(id)) error = label(trackLimit, "You can track up to five achievements.");
+  }
+  async function claim(rows: readonly UnclaimedAchievementReward[], all = false) {
+    if (claiming) return;
     claiming = true; error = "";
-    try { await flow.claimAchievementReward(row); await loadRewards(); }
-    catch (e) { if (!disposed) error = e instanceof Error ? e.message : String(e); }
-    finally { if (!disposed) claiming = false; }
+    const activeTracking = tracking;
+    const claimed = new Set<string>();
+    try {
+      for (const row of rows) {
+        if (disposed || activeTracking !== tracking) break;
+        try {
+          await flow.claimAchievementReward(row);
+          if (row.kind === "achievement") claimed.add(row.source);
+        } catch (e) {
+          if (!disposed) error = e instanceof Error ? e.message : String(e);
+        }
+      }
+      if (activeTracking !== tracking) return;
+      const remaining = await flow.achievementRewards();
+      if (!disposed) rewards = remaining;
+      const candidates = activeTracking.state.get().ids.filter(id => (all || claimed.has(id)) && !remaining.some(row => row.kind === "achievement" && row.source === id));
+      await Promise.allSettled(candidates.map(async id => {
+        if ((await flow.achievementProgress(id)).completed && activeTracking === tracking) activeTracking.untrack(id);
+      }));
+    } catch (e) {
+      if (!disposed) error = e instanceof Error ? e.message : String(e);
+    } finally { if (!disposed) claiming = false; }
   }
 </script>
+
+{#snippet trackButton(a: AchievementDefinition)}
+  {@const isTracked = $tracked.ids.includes(a.id)}
+  <button type="button" class="ach-track" aria-pressed={isTracked} disabled={!canTrack(a)} onclick={() => toggleTracking(a.id)}>
+    {isTracked ? label(untrackLabel, "Untrack") : label(trackLabel, "Track")}
+  </button>
+{/snippet}
 
 <section class="ach-window" aria-label="Achievements">
   <header class="ach-tabs" aria-label="Achievements tabs">
@@ -238,7 +285,9 @@
         <p role="status">Loading achievements…</p>
       {:else if catalogue && tab === "rewards"}
         <h2>{label(labels.rewards, "Rewards")}</h2>
-        {#if !rewards.length}<p>No unclaimed rewards.</p>{/if}
+        {#if rewards.length}
+          <button type="button" disabled={claiming} onclick={() => claim(rewards, true)}>{label(claimAllLabel, "Claim All")}</button>
+        {:else}<p>No unclaimed rewards.</p>{/if}
         {#each rewards as row (`${row.kind}:${row.source}:${row.milestone}`)}
           {@const name = (row.kind === "category" ? categories.get(row.source) : definitions.get(row.source))?.name}
           <article class="ach-reward">
@@ -247,7 +296,7 @@
                 <div>{rewardText(reward)}{reward.omega ? " · Omega" : ""}</div>
               {/each}
             </div>
-            <button type="button" disabled={claiming} onclick={() => claim(row)}>Claim</button>
+            <button type="button" disabled={claiming} onclick={() => claim([row])}>Claim</button>
           </article>
         {/each}
       {:else if catalogue && isCareer && career}
@@ -303,7 +352,10 @@
                   <span>{p.completed ? "Completed" : `${number(p.current)} / ${number(a.milestones.at(-1)?.target ?? 0)}`}</span>
                 {/if}
               </button>
-              <button type="button" class="ach-pin" aria-label={pins.includes(a.id) ? "Unpin achievement" : "Pin achievement"} aria-pressed={pins.includes(a.id)} onclick={() => pin(a.id)}>{pins.includes(a.id) ? "★" : "☆"}</button>
+              <div class="ach-card-actions">
+                <button type="button" class="ach-pin" aria-label={pins.includes(a.id) ? "Unpin achievement" : "Pin achievement"} aria-pressed={pins.includes(a.id)} onclick={() => pin(a.id)}>{pins.includes(a.id) ? "★" : "☆"}</button>
+                {@render trackButton(a)}
+              </div>
             </article>
           {:else}<p>No achievements to display.</p>{/each}
         </div>
@@ -318,6 +370,8 @@
     <div class="ach-detail" role="dialog" aria-label={label(selected.name, selected.icon)}>
       <button type="button" aria-label="Close achievement" onclick={() => selected = null}>✕</button>
       <h2>{label(selected.name, selected.icon)}</h2>
+      {@render trackButton(selected)}
+      {#if error}<p class="ach-error" role="alert">{error}</p>{/if}
       <p>{describe(selected, progress[selected.id])}</p><p>{label(selected.flavor)}</p>
       {#each selected.milestones as m (m.id)}
         <article><strong>{number(m.target)}</strong> · {number(m.points ?? 0)} points
@@ -369,11 +423,15 @@
   .ach-card { display: flex; align-items: start; border: 1px solid #ffffff22; background: #ffffff08; }
   .ach-card-open { flex: 1; align-self: stretch; background: transparent; border: 0; text-align: left; min-width: 0; min-height: 85px; }
   .ach-card-open small { margin: 4px 0; }
+  .ach-card-actions { display: grid; justify-items: end; padding: 4px; }
   .ach-pin { border: 0; background: transparent; padding: 6px; }
   .ach-pin[aria-pressed="true"] { color: #f0c576; }
+  .ach-track { font-size: 12px; padding: 3px 6px; }
+  .ach-track:disabled { opacity: .45; cursor: default; }
+  .ach-track[aria-pressed="true"] { color: #a4d4e5; }
   .ach-reward { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 8px 0; padding: 12px; border: 1px solid #ffffff22; }
   .ach-detail { position: absolute; z-index: 1; inset: 12% 12% auto; max-height: 80%; overflow: auto; background: #141d25; border: 1px solid #658496; padding: 18px; box-shadow: 0 12px 40px #000; }
-  .ach-detail button { float: right; }
+  .ach-detail > button:first-child { float: right; }
   .ach-detail article { padding-top: 8px; }
   @container (min-width: 960px) { .ach-careers { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   @container (max-width: 410px) { .ach-careers, .ach-cards { grid-template-columns: 1fr; } }

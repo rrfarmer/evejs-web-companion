@@ -21,6 +21,7 @@
   import InfoPanelFactionalWarfare from "./InfoPanelFactionalWarfare.svelte";
   import InfoPanelIncursions from "./InfoPanelIncursions.svelte";
   import InfoPanelInsurgency from "./InfoPanelInsurgency.svelte";
+  import InfoPanelAchievement from "./InfoPanelAchievement.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
   let { store, flow, showAgents, openRouteWindow }: { store: ClientStore; flow: AppFlow; showAgents?: () => void; openRouteWindow?: () => void } = $props();
   // svelte-ignore state_referenced_locally
@@ -33,7 +34,7 @@
   let modes = $state<Record<number, boolean>>({}), count = $state(0);
   $effect(() => {
     const read: Record<number, boolean> = {};
-    for (const panel of [1, 2, 4, 5, 24, 25]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
+    for (const panel of [1, 2, 4, 5, 24, 25, 30]) { const k = modeKey(panel); try { read[panel] = k ? localStorage.getItem(k) === "compact" : false; } catch { read[panel] = false; } }
     modes = read;
   });
   function toggleMode(panel: number): void {
@@ -67,6 +68,7 @@
     </div>
   </section>
   <InfoPanelInsurgency {store} {flow} compact={modes[25] === true} onToggle={() => toggleMode(25)} />
+  <InfoPanelAchievement {store} {flow} compact={modes[30] === true} onToggle={() => toggleMode(30)} />
 </div>
 
 <style>
