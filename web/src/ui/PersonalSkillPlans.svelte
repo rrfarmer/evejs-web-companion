@@ -227,6 +227,7 @@
     "UI/SkillPlan/AlreadyTrained": "This level is trained.",
     "UI/SkillPlan/AddToQueue": "Queue it to level {skillLevel}",
     "UI/Skills/SkillPointsRequired": "Points still needed",
+    "UI/SkillPlan/TrainedAndTotalSP": "{trainedSp} / {totalSp} SP",
     "UI/CharacterSheet/CharacterSheetWindow/SkillTabs/SpPerMinute": "{spPerMin} points a minute",
     "UI/SkillPlan/BuyMissingSkillbooks": "Buy the books not held ({numMissing})",
     "UI/SkillPlan/CorpPlanCreateRequiresRoleHint": "Making your corporation's plans needs its skill plan manager role.",
@@ -1195,6 +1196,13 @@
           {/each}
         </div>
       {/if}
+      {#if plan.progress}
+        {@const total = plan.progress.total}
+        {@const trained = Math.floor(planProgressAt(plan.progress, now).progress * total + 1e-9)}
+        <p class="skill-plan-sp">{word("UI/SkillPlan/TrainedAndTotalSP", {
+          trainedSp: trained.toLocaleString("en-US"), totalSp: total.toLocaleString("en-US"),
+        })}</p>
+      {/if}
       <div class="skill-plan-view-buttons">
         <!-- UpdateInformation: Edit and Delete only where the plan is editable (IsEditable: not a certified one; a
              corporation's only with corpRoleSkillPlanManager). -->
@@ -1548,6 +1556,7 @@
   .circular.selected .circular-icon { filter: brightness(0); }
   .circular.selected .circular-label { color: #000000; }
   /* The opened plan's faction and career path icons (ConstructIconCont: 32 high, 6 above, each at half opacity). */
+  .skill-plan-sp { margin: 8px 0 0; text-align: center; font-size: 0.8rem; opacity: 0.7; }
   .skill-plan-view-icons { display: flex; justify-content: space-between; height: 32px; margin-top: 6px; }
   .skill-plan-view-icons img { opacity: 0.5; }
   .skill-plan-view-icons img.career { margin-left: auto; }
