@@ -750,7 +750,8 @@ async function main() {
     const textures = {};
     for (const [name, res] of Object.entries({ star: "res:/Texture/Particle/mapStarNew5.dds", heat: "res:/Texture/Particle/mapStarNewHeat.dds", iconAtlas: "res:/Texture/Particle/MapStaticDataCircles_01h.dds",
       line: "res:/UI/Texture/classes/LineSet/lineSegment.dds", lineOverlay: "res:/UI/Texture/classes/MapView/lineSegmentConstellation.dds",
-      tube: "res:/Texture/Particle/disk.dds", extra: "res:/Texture/Particle/circleScalingOpacity25.dds" })) {
+      tube: "res:/Texture/Particle/disk.dds", extra: "res:/Texture/Particle/circleScalingOpacity25.dds",
+      convoys: "res:/Texture/Particle/mapStatData_Circle_vanguard_nemesis.dds" })) {
       textures[name] = rf.has(res) ? copyRes(rf, res, outRoot) : null;
     }
     // the abstract layout's positions (evemap/map2d/overriddenCoordinates.py: the packaged
@@ -764,7 +765,7 @@ async function main() {
       fs.writeFileSync(path.join(outRoot, "starmap-abstract.json"), JSON.stringify(out));
       abstract = "/client-assets/starmap-abstract.json";
     }
-    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 4, textures, abstract }));
+    fs.writeFileSync(path.join(outRoot, "starmap.json"), JSON.stringify({ starMapBuild: 5, textures, abstract }));
     console.log("starmap.json");
   }
   for (const guid of args.fx) {

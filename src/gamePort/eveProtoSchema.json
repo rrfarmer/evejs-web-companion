@@ -13504,6 +13504,36 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.space.api.cdn.GetUpdateRequest": {
+   "fields": [
+    {
+     "name": "current_version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification",
+     "oneof": "specified_version"
+    },
+    {
+     "name": "no_local_version_available",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "specified_version"
+    }
+   ]
+  },
+  "eve_public.space.api.cdn.GetUpdateResponse": {
+   "fields": [
+    {
+     "name": "checkpoint",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cdn.Checkpoint"
+    }
+   ]
   }
  },
  "enums": {

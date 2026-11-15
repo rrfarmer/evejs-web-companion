@@ -22,6 +22,7 @@
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
   import { bridgeDo, corpTickers } from "../app/api.ts";
   import { StarMap } from "../play/starMap.ts";
+  import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
   import { FittingShipScene } from "../play/fittingScene.ts";
   import { setContext } from "svelte";
   // The app panels in this page's windows draw as the client's where they know how (Fitting.svelte's ring).
@@ -727,7 +728,8 @@
       void m.setLayout(true);
       route();
       const stop = s.flow.waypoints.subscribe(() => route());
-      m.root.addEventListener("star-map-closed", () => stop(), { once: true });
+      const stopFilters = mountStarMapFilterControls(m, s);
+      m.root.addEventListener("star-map-closed", () => { stop(); stopFilters(); }, { once: true });
     }).catch((e) => {
       notify({ kind: "danger", title: "Map", detail: e instanceof Error ? e.message : String(e) });
     });
@@ -1939,6 +1941,25 @@
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
   .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
     color: #ccc; border: 1px solid rgba(255,255,255,0.2); width: 22px; height: 22px; cursor: pointer; }
+  .fly-map :global(.star-map-filters) { position: absolute; top: 34px; left: 12px; z-index: 1; display: grid;
+    gap: 4px; padding: 6px 8px; color: #ddd; background: #111d; border: 1px solid #fff3; font-size: 12px; }
+  .fly-map :global(.star-map-filters label) { display: flex; align-items: center; gap: 8px; }
+  .fly-map :global(.star-map-filters select),
+  .fly-map :global(.star-map-filters button) { color: #eee; border: 1px solid #fff4; background: #232525; font: inherit; }
+  .fly-map :global(.star-map-filters [role="status"]:empty) { display: none; }
+  .fly-map :global(.star-map-filter-legend span) { margin-right: 8px; }
+  .fly-map :global(.star-map-filter-legend span::before) { content: ""; display: inline-block; margin-right: 4px;
+    width: 8px; height: 8px; background: #305665; }
+  .fly-map :global(.star-map-filter-legend .precise::before) { background: #58a7bf; }
+  .fly-map :global(.star-map-activity-markers) { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .fly-map :global(.star-map-activity-marker) { position: absolute; top: 0; left: 0; pointer-events: auto; cursor: pointer;
+    border: 1px solid #72a2b5; background: #101d25d9; color: #fff; border-radius: 8px; line-height: 14px;
+    min-width: 16px; padding: 0 3px; font-size: 11px; }
+  .fly-map :global(.star-map-activity-marker[data-kind="precise"]) { border-color: #58a7bf; background: #264451e8; }
+  .fly-map :global(.star-map-activity-marker[data-kind="phased"]) { border-color: #f8faa6; background: #f8faa633; }
+  .fly-map :global(.star-map-activity-marker[data-kind="phased"] img) { display: block; width: 16px; height: 16px; }
+  .fly-map :global(.star-map-activity-marker[data-kind="convoys"]) { border-color: #956bec; background: #392c56e8; }
+  .fly-map :global(.star-map-activity-marker[data-local="true"]) { box-shadow: 0 0 0 1px #fff9; }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
   .lobby-body { padding: 10px 12px 14px; }
   .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }

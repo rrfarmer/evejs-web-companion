@@ -231,6 +231,7 @@ import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification }
 import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
 import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type MilitiaVictoryPoints, type MilitiaWarzoneMarkers } from "../bridge/militiaEnlistment.ts";
 import { warzoneStatistics, type WarzoneStatistics, type WarzoneStatisticsScope } from "../bridge/warzoneStatistics.ts";
+import { convoyActivities, oreActivities, type StarMapActivity, type StarMapActivityMode } from "../bridge/starMapFilters.ts";
 import { readTrackedMilitiaJob, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
@@ -4048,6 +4049,7 @@ export interface AppFlow {
   setModuleOverload(itemID: number, overloaded: boolean): Promise<void>;
   /** The star map's universe (api.loadStarMap), read once a flow. */
   loadStarMap(): Promise<import("./api.ts").StarMapData>;
+  starMapActivity(mode: StarMapActivityMode): Promise<{ systems: readonly StarMapActivity[]; homeSystemID: number | null }>;
   /** A module's repair begun by this page (its bank's: the module's own, else a slave's), or null. */
   moduleRepairOf(itemID: number): { readonly startedAtMs: number; readonly durationMs: number } | null;
   /** A module type's effect of the overload category (null: it has none), asked once a type and kept. */
@@ -21333,6 +21335,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { jumps: distances?.get(systemID) ?? null, advantage };
   }
 
+  async function starMapActivity(mode: StarMapActivityMode) {
+    if (mode === "phased") {
+      const ids = await api.loadPhasedFieldSystems(callOptions);
+      return { systems: ids.map(systemID => ({ systemID, count: 1 })), homeSystemID: null };
+    }
+    if (mode === "convoys") {
+      const templates = await api.loadVanguardConvoyTemplates(callOptions);
+      if (!templates) throw new Error("The client's Vanguard Nemesis templates could not be read.");
+      const results = await Promise.all(templates.map(id => bridgeAsk("taleMgr", "get_active_tales_by_template", [id])));
+      if (results.some(result => !Array.isArray(result) && !isListValue(result))) throw new Error("EveJS did not return the active tales.");
+      return { systems: convoyActivities(results), homeSystemID: null };
+    }
+    const [counts, precise, home] = await Promise.all([
+      bridgeAsk("dungeonInstanceCacheMgr", "GetOreAnomaliesCountInRange", []),
+      bridgeAsk("dungeonInstanceCacheMgr", "GetOreAnomalyInstances", []),
+      bridgeAsk("charMgr", "GetHomeStationRow", []).catch(() => null),
+    ]);
+    if (counts === null || precise === null) throw new Error("EveJS did not return the ore anomalies.");
+    const systems = oreActivities(counts, precise, store.station.get().online?.solarSystemID ?? null);
+    requestWords([...new Set(systems.flatMap(row => row.dungeonNameIDs ?? []))].map(id => `#${id}`));
+    const homeSystem = readKeyVal(home, "solarSystemID");
+    return { systems, homeSystemID: typeof homeSystem === "number" ? homeSystem : null };
+  }
+
   async function theatersSystemMetrics(systems: readonly number[]) {
     const here = store.station.get().online?.solarSystemID ?? null;
     const [distances, scores] = await Promise.all([
@@ -35392,6 +35418,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return staticData === null ? null : chargePortion(staticData, moduleTypeID, chargeTypeID, quantity);
     },
     loadStarMap: () => (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; })),
+    starMapActivity,
     moduleRepairOf: (itemID: number) => moduleRepairs.repairOf(itemID)
       ?? (heldWeaponBanks().get(itemID) ?? []).map((slave) => moduleRepairs.repairOf(slave)).find((r) => r !== null) ?? null,
     repairModule,

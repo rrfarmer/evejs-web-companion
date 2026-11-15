@@ -13,7 +13,7 @@ const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
 const { createClientAssets } = require("./clientData/clientAssets");
 const { createClientWords } = require("./clientData/clientWords");
-const { readAchievementDefinitions, readCharacterTitleDefinitions } = require("./clientData/achievementDefinitions");
+const { readAchievementDefinitions, readCharacterTitleDefinitions, readPhasedFieldSystems } = require("./clientData/achievementDefinitions");
 const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
@@ -14212,6 +14212,15 @@ app.get("/api/client-data/warzone-positions", requireAuth, async (_req, res, nex
   } catch (error) { next(error); }
 });
 
+app.get("/api/client-data/vanguard-convoy-templates", requireAuth, async (_req, res, next) => {
+  try {
+    // MapFilterVanguardNemesisConvoys reads community track definition 1's tales.
+    const table = await clientBuiltData.table("communityTrackTemplates");
+    const templates = table?.[1]?.tale_templates;
+    res.json({ ok: true, templates: Array.isArray(templates) ? templates : null });
+  } catch (error) { next(error); }
+});
+
 // The Agency's Help Section (ContentProviderHelp): the video groups in the table's order, each its name message and its
 // videos; each video its name and description messages and its path. `available` false where the data is unread.
 app.get("/api/client-data/agency-help-videos", requireAuth, async (req, res, next) => {
@@ -15124,6 +15133,8 @@ registerDefinitionCatalogue({ route: "/api/client-data/achievement-definitions",
 registerDefinitionCatalogue({ route: "/api/client-data/character-title-definitions", asset: "characterTitleDefinitions",
   request: "eve_public.cosmetic.character.title.definition.api.GetLatestRequest", payload: { language: { code: "en-us" } },
   decode: (bytes) => ({ titles: readCharacterTitleDefinitions(bytes) }), code: "CHARACTER_TITLE_DEFINITIONS_UNAVAILABLE" });
+registerDefinitionCatalogue({ route: "/api/map/phased-fields", asset: "mapTags", request: "eve_public.space.api.cdn.GetUpdateRequest",
+  payload: { no_local_version_available: true }, decode: readPhasedFieldSystems, code: "MAP_TAGS_UNAVAILABLE" });
 app.post("/api/public-gateway/request", requireAuth, async (req, res, next) => {
   try {
     const body = req.body || {};

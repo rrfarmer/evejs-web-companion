@@ -32,6 +32,7 @@ const { RETAIL_CLIENT } = require("./session");
 const SEND_PATH = "/eve_public.gateway.Requests/Send";
 const CONSUME_PATH = "/eve_public.gateway.Notices/Consume";
 const ACHIEVEMENT_DEFINITIONS_PATH = "/elysian-eve/achievements/latest.achv";
+const MAP_TAGS_PATH = "/elysian-eve/map-tags/latest.maptags";
 const TITLE_DEFINITIONS_PATH = "/elysian-eve/character-titles/latest.chti";
 const TYPE_URL_PREFIX = "type.googleapis.com/";
 /** stackless_response_router DEFAULT_TIMEOUT_SECONDS: a request with no timeout of its own waits this long. */
@@ -382,6 +383,7 @@ function createPublicGateway({
   }
 
   return { request, consume, achievementDefinitions: pilot => readCatalogue(pilot, ACHIEVEMENT_DEFINITIONS_PATH),
+    mapTags: pilot => readCatalogue(pilot, MAP_TAGS_PATH),
     characterTitleDefinitions: pilot => readCatalogue(pilot, TITLE_DEFINITIONS_PATH), close, STATUS_OK };
 }
 

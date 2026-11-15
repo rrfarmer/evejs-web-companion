@@ -2653,6 +2653,16 @@ export async function loadStarMap(options: ApiOptions = {}): Promise<StarMapData
   };
 }
 
+export async function loadPhasedFieldSystems(options: ApiOptions = {}): Promise<readonly number[]> {
+  const { systems } = await getJson("/api/map/phased-fields", options);
+  return Array.isArray(systems) ? systems.filter((id): id is number => typeof id === "number") : [];
+}
+
+export async function loadVanguardConvoyTemplates(options: ApiOptions = {}): Promise<readonly number[] | null> {
+  const { templates } = await getJson("/api/client-data/vanguard-convoy-templates", options);
+  return Array.isArray(templates) ? templates.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0) : null;
+}
+
 export interface WarzonePosition {
   readonly isVisible: boolean | number;
   readonly xpos: number;

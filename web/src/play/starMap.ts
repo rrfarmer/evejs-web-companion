@@ -110,6 +110,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadDds } from "../three/ddsTexture.ts";
 import { logDepth } from "../three/logDepth.ts";
 import { securityStatusColor, securityStatusRgb, shownSecurity } from "../bridge/systemSecurity.ts";
+import type { StarMapActivity, StarMapColorMode } from "../bridge/starMapFilters.ts";
 
 /** mapViewConst.py */
 const UNIVERSE_SCALE = 1.5e-13;
@@ -140,6 +141,11 @@ const FACTION_COLOR: Record<number, [number, number, number]> = {
 };
 /** mapViewConst STAR_SIZE_AFFECTED x mapFilterConst STAR_SIZE_FACTOR_STANDARD; STAR_SIZE_UNIMPORTANT. */
 const STAR_SIZE_FACTION = 60 * 0.5, STAR_SIZE_UNIMPORTANT = 8;
+const ORE_PROJECTED = rgb("305665");
+const ORE_PRECISE = rgb("58a7bf");
+const PHASED = rgb("f8faa6");
+const CONVOY_STAR = rgb("ffffff");
+const CONVOY_LINE = rgb("956bec");
 /** mapViewUtil CAMERA_DISTANCE_SCALING_FACTOR = 1 / SIZE_FACTOR_VALUE; BUBBLE_BASE_SIZE_MULTIPLIER. */
 const CAMERA_DISTANCE_SCALING_FACTOR = 1 / 5000, BUBBLE_BASE_SIZE_MULTIPLIER = 1;
 /** GetBase11ColorByID, for an NPC faction (idCheckers.IsNPC: every factionID); none: NEUTRAL_COLOR. */
@@ -292,6 +298,8 @@ export class StarMap {
   /** The filter's heat texture and the tube texture (the bubble pass's HeatTexture by the sprite values). */
   private heatTex: THREE.Texture | null = null;
   private tubeTex: THREE.Texture | null = null;
+  private convoyTex: THREE.Texture | null = null;
+  private closed = false;
   private shapes: THREE.InstancedBufferAttribute | null = null;
   private extraMesh: THREE.Mesh | null = null;
   /** The marker size type the abstract sprites are at (MARKER_NONE / MEDIUM / BIG), and the big markers' names. */
@@ -309,6 +317,10 @@ export class StarMap {
   private readonly layouts = { own: new Map<number, THREE.Vector3>(), abstract: new Map<number, THREE.Vector3>() };
   private abstractUrl: string | null = null;
   private starPos: THREE.InstancedBufferAttribute | null = null;
+  private starColors: THREE.InstancedBufferAttribute | null = null;
+  private starSizes: THREE.InstancedBufferAttribute | null = null;
+  private colorMode: StarMapColorMode = "empire";
+  private readonly activity = new Map<number, StarMapActivity>();
   private starOrder: number[] = [];
   private linePos: THREE.BufferAttribute | null = null;
   /** The layout shown, and its change under way (from each star's place then, since when). */
@@ -320,6 +332,8 @@ export class StarMap {
   private running = false;
   /** The markers' layer over the canvas, the labels of the active systems and the my-location marker. */
   private readonly markers = document.createElement("div");
+  private readonly activityMarkers = document.createElement("div");
+  private activityLabels: { row: StarMapActivity; button: HTMLButtonElement }[] = [];
   private labels: { id: number; at: THREE.Vector3; el: HTMLDivElement; selected: boolean; hover?: boolean }[] = [];
   /** What the map was built of, for selecting: the data, each system's region and constellation, each name. */
   private data: StarMapSystems | null = null;
@@ -357,6 +371,8 @@ export class StarMap {
     this.renderer.domElement.style.cssText = "width:100%;height:100%;display:block;";
     this.markers.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:hidden;";
     this.root.appendChild(this.markers);
+    this.activityMarkers.className = "star-map-activity-markers";
+    this.root.appendChild(this.activityMarkers);
     // a click (not a drag) selects the star under it; a move hovers one
     const canvas = this.renderer.domElement;
     let down: { x: number; y: number } | null = null;
@@ -388,7 +404,7 @@ export class StarMap {
     void fetch("/client-assets/starmap.json").then((r) => r.json()).then(async (m: { textures?: Record<string, string | null>; abstract?: string | null }) => {
       this.abstractUrl = m.abstract ?? null;
       if (m.textures?.star) { this.starUniforms.texMap.value = await level(m.textures.star); this.starUniforms.hasTex.value = 1; }
-      if (m.textures?.heat) { this.heatTex = await level(m.textures.heat); this.bubbleUniforms.heat.value = this.heatTex; this.bubbleUniforms.hasHeat.value = 1; }
+      if (m.textures?.heat) { this.heatTex = await level(m.textures.heat); this.updateFilterHeat(); }
       if (m.textures?.tube) this.tubeTex = await level(m.textures.tube);
       if (m.textures?.iconAtlas) { const t = await level(m.textures.iconAtlas); this.bubbleUniforms.iconAtlas.value = t; this.bubbleUniforms.hasAtlas.value = 1; }
       if (m.textures?.extra) { this.extraUniforms.heat.value = await level(m.textures.extra); this.extraUniforms.hasHeat.value = 1; }
@@ -397,6 +413,11 @@ export class StarMap {
         // (the samplers wrap: EveSpaceSceneEnvMapSampler's address wrap, wrap)
         for (const t of [line, overlay]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
         this.lineUniforms.texMap.value = line; this.lineUniforms.overlayTexMap.value = overlay; this.lineUniforms.hasTex.value = 1;
+      }
+      if (m.textures?.convoys) {
+        const texture = await level(m.textures.convoys);
+        if (this.closed) texture.dispose();
+        else { this.convoyTex = texture; this.updateFilterHeat(); }
       }
     }).catch((e) => console.warn("star map textures", e));
   }
@@ -427,8 +448,10 @@ export class StarMap {
     geometry.setAttribute("uv", plane.getAttribute("uv"));
     this.starPos = new THREE.InstancedBufferAttribute(new Float32Array(iPos), 3);
     geometry.setAttribute("iPos", this.starPos);
-    geometry.setAttribute("iColour", new THREE.InstancedBufferAttribute(new Float32Array(iColour), 3));
-    geometry.setAttribute("iSize", new THREE.InstancedBufferAttribute(new Float32Array(iSize), 1));
+    this.starColors = new THREE.InstancedBufferAttribute(new Float32Array(iColour), 3);
+    this.starSizes = new THREE.InstancedBufferAttribute(new Float32Array(iSize), 1);
+    geometry.setAttribute("iColour", this.starColors);
+    geometry.setAttribute("iSize", this.starSizes);
     this.shapes = new THREE.InstancedBufferAttribute(new Float32Array(iSize.length), 1);
     geometry.setAttribute("iShape", this.shapes);
     geometry.instanceCount = data.systems.length;
@@ -701,7 +724,7 @@ export class StarMap {
     const b = this.bubbleUniforms;
     if (size === "none") {
       b.spriteMode.value = 0; b.staticSize.value = 0; b.sizeFactor.value = 1;
-      b.heat.value = this.heatTex; b.hasHeat.value = this.heatTex ? 1 : 0;
+      this.updateFilterHeat();
       this.extraUniforms.sizeFactor.value = 0;
       if (this.extraMesh) this.extraMesh.visible = false;
     } else {
@@ -713,6 +736,67 @@ export class StarMap {
     }
     if (size === "none") { for (const el of this.bigNames.values()) el.remove(); this.bigNames.clear(); }
     this.pickNearMouse();
+  }
+
+  private updateFilterHeat(): void {
+    if (this.markerSize !== "none") return;
+    const texture = this.colorMode === "convoys" ? this.convoyTex ?? this.heatTex : this.heatTex;
+    this.bubbleUniforms.heat.value = texture;
+    this.bubbleUniforms.hasHeat.value = texture ? 1 : 0;
+  }
+
+  private activityColor(systemID: number, line = false): [number, number, number] {
+    const row = this.activity.get(systemID);
+    if (!row) return NEUTRAL;
+    if (this.colorMode === "ore") return row.dungeonNameIDs ? ORE_PRECISE : ORE_PROJECTED;
+    if (this.colorMode === "phased") return PHASED;
+    return line ? CONVOY_LINE : CONVOY_STAR;
+  }
+
+  setColorMode(mode: StarMapColorMode, rows: readonly StarMapActivity[] = [], homeSystemID: number | null = null): void {
+    if (!this.data || !this.starColors || !this.starSizes) return;
+    this.colorMode = mode;
+    this.activity.clear();
+    for (const row of rows) {
+      if (this.positions.has(row.systemID)) this.activity.set(row.systemID, row);
+    }
+    const colors = this.starColors, sizes = this.starSizes;
+    this.data.systems.forEach(([id, , , , factionID], i) => {
+      const [r, g, b] = mode === "empire" ? starColour(factionID) : this.activityColor(id);
+      const affected = mode === "empire" ? factionID !== 0 : this.activity.has(id);
+      colors.setXYZ(i, r, g, b);
+      sizes.setX(i, affected ? (mode === "convoys" ? 120 : STAR_SIZE_FACTION) : STAR_SIZE_UNIMPORTANT);
+    });
+    colors.needsUpdate = sizes.needsUpdate = true;
+    this.lineEnds.forEach((_, i) => this.writeLine(i));
+    this.updateLineOpacity();
+    this.updateFilterHeat();
+    this.activityLabels = [];
+    if (mode !== "empire") for (const row of this.activity.values()) {
+      const button = document.createElement("button");
+      button.className = "star-map-activity-marker";
+      button.dataset.systemId = String(row.systemID);
+      button.dataset.kind = mode === "ore" ? (row.dungeonNameIDs ? "precise" : "projected") : mode;
+      if (row.systemID === homeSystemID || row.systemID === this.hereID) button.dataset.local = "true";
+      if (mode === "phased") {
+        const icon = document.createElement("img");
+        icon.src = "/client-res/ui/texture/eveicon/control_icons/phased_site_32px.png";
+        icon.alt = "";
+        button.appendChild(icon);
+      } else button.textContent = String(row.count);
+      button.onclick = () => this.select(row.systemID);
+      this.activityLabels.push({ row, button });
+    }
+    this.activityMarkers.replaceChildren(...this.activityLabels.map(({ button }) => button));
+  }
+
+  setActivityHints(hint: (row: StarMapActivity) => string): void {
+    for (const { row, button } of this.activityLabels) {
+      const system = this.names.get(row.systemID) || String(row.systemID);
+      const detail = hint(row);
+      button.title = detail ? `${system}\n${detail}` : system;
+      button.setAttribute("aria-label", button.title);
+    }
   }
 
   /** The destination path, the pilot's system first (UpdateAutopilotJumpRoute): its lines drawn as the route. */
@@ -746,7 +830,8 @@ export class StarMap {
     for (let k = 0; k < 6; k++) {
       const v = i * 6 + k;
       const end = k === 2 || k === 4 || k === 5 ? 1 : 0;
-      const rgb = from !== undefined ? secRgb(end ? b : a) : look.rgb;
+      const id = end ? b : a;
+      const rgb = from !== undefined ? secRgb(id) : this.colorMode === "empire" ? look.rgb : this.activityColor(id, true);
       col[v * 4] = rgb[0]!; col[v * 4 + 1] = rgb[1]!; col[v * 4 + 2] = rgb[2]!;
       dir[v * 4 + 3] = Math.sign(dir[v * 4 + 3]!) * width;
       anim[v * 2] = speed; anim[v * 2 + 1] = scale;
@@ -841,6 +926,12 @@ export class StarMap {
       return v.z < 1 && v.z > -1 ? { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h } : null;
     };
     const eye = this.camera.position;
+    for (const { row, button } of this.activityLabels) {
+      const at = this.positions.get(row.systemID)!;
+      const p = project(at);
+      button.hidden = !p || p.x < 0 || p.x > w || p.y < 0 || p.y > h;
+      if (p && !button.hidden) button.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -130%)`;
+    }
     // the abstract markers' content: big - every on-screen system's name under its bubble; else only the selected's
     if (this.markerSize === "big" || this.markerSize === "medium") {
       const big = this.markerSize === "big";
@@ -1005,7 +1096,9 @@ export class StarMap {
   }
 
   dispose(): void {
+    this.closed = true;
     this.stop();
+    this.convoyTex?.dispose();
     this.controls.dispose();
     this.renderer.dispose();
     this.root.remove();

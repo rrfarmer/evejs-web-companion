@@ -1,11 +1,11 @@
 "use strict";
 
-// Both 24.02 catalogues are FlatBuffers. Resource-specific readers below use
+// The 24.02 catalogues are FlatBuffers. Resource-specific readers below use
 // the field numbers from the corresponding generated client schemas.
 function openCatalogue(bytes, tag, name) {
   const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let remainingTables = 50_000;
-  const fail = () => { throw new Error(`Invalid ${name} definitions (${tag}).`); };
+  const fail = () => { throw new Error(`Invalid ${name} definitions${tag ? ` (${tag})` : ""}.`); };
   const check = (at, size) => {
     if (!Number.isSafeInteger(at) || at < 0 || size < 0 || at + size > b.length) fail();
     return at;
@@ -36,6 +36,20 @@ function openCatalogue(bytes, tag, name) {
       const f = field(slot, 4);
       return f === null ? null : indirect(f);
     };
+    const text = (p) => {
+      const n = u32(p);
+      check(p + 4, n + 1);
+      if (b[p + 4 + n] !== 0) fail();
+      return b.toString("utf8", p + 4, p + 4 + n);
+    };
+    const vector = (slot, read) => {
+      const p = ref(slot);
+      if (p === null) return [];
+      const n = u32(p);
+      if (n > remainingTables) fail();
+      check(p + 4, n * 4);
+      return Array.from({ length: n }, (_, i) => read(indirect(p + 4 + i * 4)));
+    };
     function integer(slot, width, read) {
       const f = field(slot, width);
       if (f === null) return 0;
@@ -50,27 +64,17 @@ function openCatalogue(bytes, tag, name) {
       date: (slot) => integer(slot, 8, b.readBigInt64LE),
       text(slot) {
         const p = ref(slot);
-        if (p === null) return "";
-        const n = u32(p);
-        check(p + 4, n + 1);
-        if (b[p + 4 + n] !== 0) fail();
-        return b.toString("utf8", p + 4, p + 4 + n);
+        return p === null ? "" : text(p);
       },
+      texts: (slot) => vector(slot, text),
       child(slot) {
         const p = ref(slot);
         return p === null ? null : table(p);
       },
-      list(slot, read) {
-        const p = ref(slot);
-        if (p === null) return [];
-        const n = u32(p);
-        if (n > remainingTables) fail();
-        check(p + 4, n * 4);
-        return Array.from({ length: n }, (_, i) => read(table(indirect(p + 4 + i * 4))));
-      },
+      list: (slot, read) => vector(slot, (p) => read(table(p))),
     };
   }
-  if (b.length < 8 || b.toString("ascii", 4, 8) !== tag) fail();
+  if (tag && (b.length < 8 || b.toString("ascii", 4, 8) !== tag)) fail();
   const identifier = (t) => {
     const id = t.text(0).toLowerCase();
     if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) fail();
@@ -139,4 +143,13 @@ function readCharacterTitleDefinitions(bytes) {
   });
 }
 
-module.exports = { readAchievementDefinitions, readCharacterTitleDefinitions };
+// maptags.generated.eve_public.map.Universe: slot 2 lists Systems. Regions and
+// constellations can carry this tag too, but the map filter marks only systems.
+function readPhasedFieldSystems(bytes) {
+  const { root } = openCatalogue(bytes, null, "map tag");
+  const tag = "high_mining_content_availability.has_phased_field_exposed";
+  return { systems: root.list(2, (row) => row.texts(1).includes(tag) ? row.long(0) : 0)
+    .filter(id => id >= 30000000 && id < 40000000) };
+}
+
+module.exports = { readAchievementDefinitions, readCharacterTitleDefinitions, readPhasedFieldSystems };

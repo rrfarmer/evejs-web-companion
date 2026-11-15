@@ -20,7 +20,7 @@ const GENERATED = new Map([
   ["/overviewPresets.json", ["--overview"]],
   ["/sofMaterials.json", ["--sof-materials"]],
   ["/ammoColors.json", ["--ammo-colors"]],
-  ["/starmap.json", ["--star-map", '"starMapBuild":4']],
+  ["/starmap.json", ["--star-map", '"starMapBuild":5']],
 ]);
 
 function fileExists(file) {
