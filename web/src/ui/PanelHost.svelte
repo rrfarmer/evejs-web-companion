@@ -45,6 +45,7 @@
   import CharacterSheet from "./CharacterSheet.svelte";
   import CorporationWindow from "./CorporationWindow.svelte";
   import CorporationMemberDetails from "./CorporationMemberDetails.svelte";
+  import FleetComposition from "./FleetComposition.svelte";
   import CorporationMedalDesigner from "./CorporationMedalDesigner.svelte";
   import Settings from "./Settings.svelte";
   import NoticeLog from "./NoticeLog.svelte";
@@ -148,7 +149,9 @@
 {:else if tab === "activity"}
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}
-  <FleetCenter {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
+  <FleetCenter {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} openComposition={onOpen ? () => onOpen?.("fleetComposition") : undefined} />
+{:else if tab === "fleetComposition"}
+  <FleetComposition {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
 {:else if tab === "scanner"}
   <Scanner {store} {flow} />
 {:else if tab === "mail"}

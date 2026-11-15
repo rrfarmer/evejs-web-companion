@@ -42,6 +42,7 @@ export type CoreTabID =
   | "miningOperations"
   | "activity"
   | "fleet"
+  | "fleetComposition"
   | "watchlist"
   | "scanner"
   | "mail"
@@ -212,6 +213,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "miningOperations", label: "Mining Command Center", where: "both", launchable: false },
   { id: "activity", label: "Activity", where: "both" },
   { id: "fleet", label: "Fleet", where: "both" },
+  { id: "fleetComposition", label: "Fleet Composition", where: "both", launchable: false },
   // The fleet's watch list opens from a fleet action or the fleet window.
   { id: "watchlist", label: "Watch List", where: "both", launchable: false },
   { id: "mail", label: "Mail", where: "both" },

@@ -4,13 +4,16 @@
   import { nameKey, resolvedName } from "../store/names.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { memberWhereabouts } from "../bridge/fleetCenter.ts";
+  import { isFleetCommander } from "../bridge/fleetCommand.ts";
   import FleetHistory from "./FleetHistory.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
   import type { FleetAdvert } from "../bridge/fleetAds.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, openWatchlist }: { store: ClientStore; flow: AppFlow; openWatchlist?: () => void } = $props();
+  let { store, flow, openWatchlist, openComposition }: {
+    store: ClientStore; flow: AppFlow; openWatchlist?: () => void; openComposition?: () => void;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   const fleet = store.fleet;
@@ -87,6 +90,7 @@
       "UI/Fleet/FleetWindow/FormFleetHeader", "UI/Fleet/FleetWindow/FormFleetDescription", "UI/Fleet/FleetWindow/FormFleet", "UI/Fleet/FleetWindow/DefaultSetup",
       ...FINDER_WORDS]);
     if (openWatchlist) flow.requestWords(["UI/Fleet/FleetWindow/OpenFleetWatchlist"]);
+    if (openComposition) flow.requestWords(["UI/Fleet/FleetWindow/ShowFleetComposition"]);
   });
   // svelte-ignore state_referenced_locally
   const names = store.names;
@@ -97,6 +101,7 @@
   let inviteeText = $state("");
 
   const roster = $derived($fleet.fleet?.initState.value.members ?? []);
+  const ownMember = $derived(roster.find(member => Number(member.charID) === $station.online?.characterID));
   // Shared by the strip's stat-line and the fleet-summary count below so the
   // two can never drift into naming the same roster two different ways.
   const rosterCountWords = $derived(`${roster.length} ${roster.length === 1 ? "member" : "members"}`);
@@ -443,6 +448,9 @@
       </div>
       {#if openWatchlist}
         <button type="button" onclick={openWatchlist}>{fleetWord("UI/Fleet/FleetWindow/OpenFleetWatchlist") || "Open Fleet Watchlist"}</button>
+      {/if}
+      {#if openComposition && ownMember && isFleetCommander(ownMember)}
+        <button type="button" onclick={openComposition}>{fleetWord("UI/Fleet/FleetWindow/ShowFleetComposition") || "Show Fleet Composition"}</button>
       {/if}
       <button type="button" class="danger" disabled={busy} onclick={() => void leaveFleet()}>
         Leave fleet
