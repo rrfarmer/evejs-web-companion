@@ -1439,6 +1439,7 @@ export interface MarketTypeMatch {
   readonly typeID: number;
   readonly name: string;
   readonly groupName: string;
+  readonly variantGroup?: { readonly metaGroupID: number; readonly categoryID: number | null; readonly name: string } | null;
 }
 
 /** One branch of the market tree. */
@@ -1492,11 +1493,12 @@ export async function loadMarketGroupTypes(
     : [];
   return {
     types: rows.map((row) => {
-      const entry = row as Record<string, unknown>;
+      const entry = row as Partial<MarketTypeMatch>;
       return {
         typeID: Number(entry.typeID) || 0,
         name: String(entry.name ?? ""),
         groupName: String(entry.groupName ?? "Unknown"),
+        variantGroup: entry.variantGroup ?? null,
       };
     }),
     total: Number((data as { total?: unknown }).total) || 0,

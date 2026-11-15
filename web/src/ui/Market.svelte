@@ -151,6 +151,7 @@
     "UI/Commands/OpenWallet": "Open the wallet",
     "UI/Market/WalletBalanceUnavailable": "Unavailable",
     "UI/Market/QuickBar": "Quickbar",
+    "UI/Market/FactionAndStoryline": "Faction & Storyline",
     "Tooltips/Market/MarketQuickbarNewFolder": "Make a folder",
     "Tooltips/Market/MarketQuickbarReset": "Empty it",
     "UI/Market/Marketbase/FolderName": "Folder",
@@ -844,6 +845,25 @@
   let groupTypesCapped = $state(false);
   let browsing = $state(false);
 
+  type VariantFolder = { id: string; metaGroupID: number; name: string; items: MarketTypeMatch[] };
+  function marketRows(items: readonly MarketTypeMatch[], searching: boolean): (MarketTypeMatch | VariantFolder)[] {
+    const rows: (MarketTypeMatch | VariantFolder)[] = [];
+    const folders = new Map<string, VariantFolder>();
+    for (const item of items) {
+      const group = item.variantGroup;
+      if (!retail || !group) { rows.push(item); continue; }
+      const id = `${searching ? group.categoryID ?? 0 : 0}:${group.metaGroupID}`;
+      let folder = folders.get(id);
+      if (!folder) {
+        folder = { id, metaGroupID: group.metaGroupID, name: group.name, items: [] };
+        folders.set(id, folder);
+        rows.push(folder);
+      }
+      folder.items.push(item);
+    }
+    return rows;
+  }
+
   /** Where in the tree we are — 0 is the root. */
   const currentGroupID = $derived(crumbs.length === 0 ? 0 : crumbs[crumbs.length - 1]!.marketGroupID);
 
@@ -1037,6 +1057,34 @@
       <div class="qb-tree">{@render qbLevel(0, 0)}</div>
     {/if}
   {:else}
+  {#snippet marketItem(item: MarketTypeMatch)}
+    <li>
+      <button type="button" class="pick-row" disabled={busy} onclick={() => chooseItem(item)} oncontextmenu={(event) => openQbMenu({ kind: "browse", typeID: item.typeID }, event)}>
+        <TypeIcon typeID={item.typeID} name={item.name} />
+        <span class="pick-main">
+          <span class="pick-name">{item.name}</span>
+          <span class="pick-meta">{item.groupName}</span>
+        </span>
+      </button>
+    </li>
+  {/snippet}
+  {#snippet marketItems(items: readonly MarketTypeMatch[], searching: boolean)}
+    {#each marketRows(items, searching) as row ("items" in row ? row.id : row.typeID)}
+      {#if "items" in row}
+        <li>
+          <details class="mkt-variant-folder">
+            <summary class="pick-row pick-group">
+              <img class="mkt-expander" alt="" src="/client-res/ui/texture/shared/expanderdown.png" />
+              <span class="pick-name">{row.metaGroupID === 4 ? qbWord("UI/Market/FactionAndStoryline") : row.name}</span>
+            </summary>
+            <ul class="market-picker">{#each row.items as item (item.typeID)}{@render marketItem(item)}{/each}</ul>
+          </details>
+        </li>
+      {:else}
+        {@render marketItem(row)}
+      {/if}
+    {/each}
+  {/snippet}
   <nav class="market-crumbs" aria-label="Where you are in the market">
     <button type="button" class="crumb" disabled={busy || browsing} onclick={() => goToCrumb(-1)}>
       All items
@@ -1058,17 +1106,7 @@
          above is still the way back to browsing. -->
     <h3>Search results</h3>
     <ul class="market-picker">
-      {#each matches as match (match.typeID)}
-        <li>
-          <button type="button" class="pick-row" disabled={busy} onclick={() => chooseItem(match)} oncontextmenu={(event) => openQbMenu({ kind: "browse", typeID: match.typeID }, event)}>
-            <TypeIcon typeID={match.typeID} name={match.name} />
-            <span class="pick-main">
-              <span class="pick-name">{match.name}</span>
-              <span class="pick-meta">{match.groupName}</span>
-            </span>
-          </button>
-        </li>
-      {/each}
+      {@render marketItems(matches, true)}
     </ul>
   {:else if browsing}
     <p class="note">Opening…</p>
@@ -1093,17 +1131,7 @@
           </button>
         </li>
       {/each}
-      {#each groupTypes as item (item.typeID)}
-        <li>
-          <button type="button" class="pick-row" disabled={busy} onclick={() => chooseItem(item)} oncontextmenu={(event) => openQbMenu({ kind: "browse", typeID: item.typeID }, event)}>
-            <TypeIcon typeID={item.typeID} name={item.name} />
-            <span class="pick-main">
-              <span class="pick-name">{item.name}</span>
-              <span class="pick-meta">{item.groupName}</span>
-            </span>
-          </button>
-        </li>
-      {/each}
+      {@render marketItems(groupTypes, false)}
     </ul>
     {#if groupTypesCapped}
       <!-- Never a silent slice: the panel says it capped so a player can narrow
@@ -1798,6 +1826,9 @@
 </div>
 
 <style>
+  .mkt-variant-folder summary { cursor: pointer; }
+  .mkt-variant-folder > ul { margin-left: 16px; }
+  .mkt-variant-folder[open] > summary .mkt-expander { transform: none; }
   /* The quickbar (QuickbarItem.Load fades a type the market does not sell), its question and its folders. */
   .qb-type.qb-unsold { opacity: 0.5; }
   .qb-question { border: 1px solid rgba(255, 255, 255, 0.15); padding: 0.5rem 0.75rem; margin: 0.5rem 0; }

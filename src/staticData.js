@@ -1707,6 +1707,19 @@ function findMapLocations(filters = {}) {
 const MARKET_FIND_DEFAULT_LIMIT = 25;
 const MARKET_FIND_MAX_LIMIT = 100;
 const MARKET_FIND_MIN_QUERY = 2;
+// marketbase.GetTypesByMetaGroups: only variations get a meta folder.
+const MARKET_VARIANT_GROUPS = new Set([3, 4, 5, 6, 63]);
+const MARKET_BROWSE_VARIANT_CATEGORIES = new Set([7, 18, 23, 66, 87]);
+
+function marketVariantGroup(typeID, browse) {
+  const type = buildJsonlIndex("types.jsonl").get(typeID);
+  if (!type?.variationParentTypeID || !MARKET_VARIANT_GROUPS.has(type.metaGroupID)) return null;
+  const categoryID = getGroup(type.groupID)?.categoryID;
+  if (browse && !MARKET_BROWSE_VARIANT_CATEGORIES.has(categoryID)) return null;
+  const metaGroupID = type.metaGroupID === 3 ? 4 : type.metaGroupID;
+  const name = metaGroupID === 4 ? "Faction & Storyline" : getLocalizedName(buildJsonlIndex("metaGroups.jsonl").get(metaGroupID), "");
+  return name ? { metaGroupID, categoryID: categoryID ?? null, name } : null;
+}
 
 function findMarketTypes(filters = {}) {
   const q = filters.q === undefined || filters.q === null ? "" : String(filters.q).trim();
@@ -1751,7 +1764,9 @@ function findMarketTypes(filters = {}) {
 
   const total = scored.length;
   const capped = total > limit;
-  const matches = (capped ? scored.slice(0, limit) : scored).map((s) => s.entry);
+  const matches = (capped ? scored.slice(0, limit) : scored).map(({ entry }) => ({
+    ...entry, variantGroup: marketVariantGroup(entry.typeID, false),
+  }));
   return { matches, total, capped, q, limit };
 }
 
@@ -2001,7 +2016,9 @@ function getMarketGroupTypes(marketGroupID) {
   const total = matches.length;
   const capped = total > MARKET_GROUP_TYPES_MAX;
   return {
-    types: capped ? matches.slice(0, MARKET_GROUP_TYPES_MAX) : matches,
+    types: (capped ? matches.slice(0, MARKET_GROUP_TYPES_MAX) : matches).map((entry) => ({
+      ...entry, variantGroup: marketVariantGroup(entry.typeID, true),
+    })),
     total,
     capped,
   };
