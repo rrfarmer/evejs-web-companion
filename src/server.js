@@ -14230,9 +14230,13 @@ app.get("/api/client-data/contribution-methods", requireAuth, async (req, res, n
   } catch (error) { next(error); }
 });
 
-// A type list's types as evetypes.GetTypeIDsFromTypeList makes them (included categories less excluded, with included
-// groups less excluded, with included types less excluded), or ?list=manufacturable: industry's
-// is_manufacturable_item set. `available` false where the client's data could not be read.
+app.get("/api/client-data/jump-bridge-attributes/:typeID", requireAuth, (req, res, next) => {
+  try {
+    res.json({ ok: true, attributes: staticData.getJumpBridgeAttributes(Number(req.params.typeID)) });
+  } catch (error) { next(error); }
+});
+
+// Type lists expand groups and categories and apply exclusions. This route also serves industry's manufacturable set.
 app.get("/api/client-data/type-list/:listID", requireAuth, async (req, res, next) => {
   try {
     if (req.params.listID === "manufacturable") {

@@ -5850,6 +5850,21 @@ export async function loadContributionMethods(options: ApiOptions = {}): Promise
   return data.available && data.methods && typeof data.methods === "object" ? data.methods as Record<string, { titleID?: number; descriptionID?: number; icon?: string; unit?: number; progressDescriptionID?: number; rewardingDescriptionID?: number }> : null;
 }
 
+export interface JumpBridgeAttributes {
+  readonly restrictionTypeList: number;
+  readonly zoneModifiers: readonly number[];
+}
+
+export async function loadJumpBridgeAttributes(typeID: number, options: ApiOptions = {}): Promise<JumpBridgeAttributes | null> {
+  const { attributes } = await getJson(`/api/client-data/jump-bridge-attributes/${typeID}`, options);
+  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) return null;
+  const row = attributes as Record<string, JsonValue>;
+  if (typeof row.restrictionTypeList !== "number" || !Number.isSafeInteger(row.restrictionTypeList) || row.restrictionTypeList <= 0) return null;
+  if (!Array.isArray(row.zoneModifiers) || row.zoneModifiers.length !== 5 ||
+      !row.zoneModifiers.every((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)) return null;
+  return { restrictionTypeList: row.restrictionTypeList, zoneModifiers: row.zoneModifiers };
+}
+
 /** GET /api/client-data/type-list/:listID: a type list's types (or "manufacturable"); null where unreadable. */
 export async function loadTypeList(listID: number | "manufacturable", options: ApiOptions = {}): Promise<readonly number[] | null> {
   const data = await getJson(`/api/client-data/type-list/${listID}`, options);

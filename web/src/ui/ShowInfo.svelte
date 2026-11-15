@@ -1594,8 +1594,8 @@
         attributes.
       </p>
     {/if}
-    {#if jumpBridge}
-      <InfoJumpBridgeMechanics {store} {flow} />
+    {#if jumpBridge && typeID !== null}
+      {#key typeID}<InfoJumpBridgeMechanics {store} {flow} {typeID} />{/key}
     {:else if typeID !== null && $subject.kind === "spaceObject"}
       <InfoShipRequirements {store} {flow} {typeID} />
     {/if}

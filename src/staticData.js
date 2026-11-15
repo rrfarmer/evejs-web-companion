@@ -37,6 +37,15 @@ function readStaticTable(tableName) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+/** JumpBridge.GetAttributeInfo reads these values from spacecomponentsbytype. */
+function getJumpBridgeAttributes(typeID) {
+  const row = buildIndex("clientJumpBridgeComponents", "types", "typeID").get(typeID);
+  if (!Number.isSafeInteger(row?.restrictionTypeList) || row.restrictionTypeList <= 0) return null;
+  const zoneModifiers = [1, 2, 3, 4, 5].map(zone => row[`zone${zone}Modifier`]);
+  if (!zoneModifiers.every(value => Number.isFinite(value) && value >= 0)) return null;
+  return { restrictionTypeList: row.restrictionTypeList, zoneModifiers };
+}
+
 function readJsonlTable(fileName) {
   const filePath = path.join(SDE_DIR, fileName);
   if (!fs.existsSync(filePath)) {
@@ -2568,6 +2577,7 @@ module.exports = {
   getClientTypeList,
   getTypeListsHolding,
   getTypeIDsByListID,
+  getJumpBridgeAttributes,
   getClientDungeon,
   getClientDungeonResourceTypes,
   getAsteroidBeltSystems,
