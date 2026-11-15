@@ -5900,6 +5900,13 @@ export async function loadAchievementCatalogue(options: ApiOptions = {}): Promis
   return data as unknown as AchievementCatalogue;
 }
 
+export interface CharacterTitleDefinition { readonly id: string; readonly name: string; readonly visibility: number; readonly releasedAt: number }
+export async function loadCharacterTitleDefinitions(options: ApiOptions = {}): Promise<readonly CharacterTitleDefinition[]> {
+  const data = await getJson("/api/client-data/character-title-definitions", options);
+  if (!Array.isArray(data.titles)) throw new Error("EveJS did not return a title catalogue.");
+  return data.titles as unknown as readonly CharacterTitleDefinition[];
+}
+
 export async function publicGatewayRequest(request: string, payload: Record<string, JsonValue>, options: ApiOptions & { confirm?: boolean } = {}): Promise<PublicGatewayAnswer> {
   const data = await postJson("/api/public-gateway/request", { request, payload, ...(options.confirm ? { confirm: true } : {}) }, options);
   return {

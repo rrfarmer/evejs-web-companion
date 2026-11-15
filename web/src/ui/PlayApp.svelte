@@ -44,6 +44,7 @@
   import { jobBoardRequests } from "./jobBoardRequests.ts";
   import { agencyRequests } from "./agencyRequests.ts";
   import { skillPlanCareerRequests } from "./skillPlanCareerRequests.ts";
+  import { achievementRequest } from "./achievementRequests.ts";
   import { locationSearchRequests } from "./locationSearchRequests.ts";
   import { notify } from "./notices.ts";
   import { orderableDroneIDs } from "./droneFlight.ts";
@@ -304,6 +305,7 @@
   // The route panel's search (GetResultsInNewWindow): the search results window, which takes the request.
   $effect(() => locationSearchRequests.subscribe((request) => { if (request) open("locationSearch"); }));
   $effect(() => agencyRequests.subscribe((request) => { if (request) open("finder"); }));
+  $effect(() => achievementRequest.subscribe(id => { if (id) open("achievements"); }));
   $effect(() => skillPlanCareerRequests.subscribe((request) => { if (request) open("skills"); }));
 
   // The lobby's services, each opening the app's window for it (the client's service buttons, serviceBtn.py, with

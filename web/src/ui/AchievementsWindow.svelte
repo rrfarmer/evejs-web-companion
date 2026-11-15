@@ -4,11 +4,12 @@
   // CDN; progress and unclaimed rewards come from the selected pilot's gateway.
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
-  import type { AchievementCatalogue, AchievementCategory, AchievementDefinition, AchievementMilestone, AchievementProgress, UnclaimedAchievementReward } from "../bridge/achievements.ts";
-  import { plainText } from "../bridge/clientWords.ts";
+  import type { AchievementCatalogue, AchievementCategory, AchievementDefinition, AchievementMilestone, AchievementProgress, AchievementReward, UnclaimedAchievementReward } from "../bridge/achievements.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { uuidFromBytes } from "../bridge/skillPlans.ts";
   import { clientTexture } from "../play/window.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { achievementRequest } from "./achievementRequests.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -16,6 +17,7 @@
   const W = "UI/Achievements/Window/";
   const N = `${W}SideNavigation/`;
   const C = `${W}CareerProgram/`;
+  const hiddenDescription = `${W}Card/DiscoverableAchievementDescription`;
   const art = "res:/UI/Texture/classes/Achievements/";
   const labels = {
     achievements: `${W}Tab/Achievements`, pinned: `${W}Tab/Pinned`, rewards: `${W}Tab/Rewards`,
@@ -36,6 +38,12 @@
   const categoryName = (c: AchievementCategory) => label(c.name, careers[c.style]?.name ?? c.icon);
   const number = (value: number) => value.toLocaleString("en-US");
   const goal = (c: AchievementCategory) => c.milestones.at(-1)?.target ?? 0;
+  const describe = (a: AchievementDefinition, progress?: AchievementProgress) => {
+    if (a.visibility === 1 && !progress?.completed) return label(hiddenDescription, "Discover this achievement by completing it.");
+    const amount = (a.milestones.find(m => m.target > (progress?.current ?? 0)) ?? a.milestones.at(-1))?.target ?? 0;
+    return plainText(formatTemplate($words.templates[`#${a.description}`] ?? "", { amount }, { nameOf: () => "" }));
+  };
+  const rewardText = (r: AchievementReward) => label(r.description, r.kind === "title" ? titleNames.get(r.titleID ?? "") ?? "Character title" : `${number(r.amount ?? 0)} ${r.kind ?? ""}`);
 
   let catalogue = $state.raw<AchievementCatalogue | null>(null);
   let scores = $state<Record<string, number>>({});
@@ -54,6 +62,16 @@
   let claiming = $state(false);
   let disposed = false;
   let hovered = $state<string | null>(null);
+  let titleNames = $state.raw<ReadonlyMap<string, string>>(new Map());
+  let askedTitles = false;
+  $effect(() => {
+    if (!askedTitles && (selected?.milestones.some(m => m.rewards.some(r => r.kind === "title")) || tab === "rewards")) {
+      askedTitles = true;
+      void flow.characterTitleDefinitions().then(rows => {
+        if (!disposed) titleNames = new Map(rows.map(r => [r.id, r.name]));
+      }).catch(() => { askedTitles = false; });
+    }
+  });
 
   const categories = $derived(new Map(catalogue?.categories.map(c => [c.id, c])));
   const definitions = $derived(new Map(catalogue?.achievements.map(a => [a.id, a])));
@@ -100,7 +118,7 @@
       const ids = [...data.categories.flatMap(row => [row.name, row.description]),
         ...data.achievements.flatMap(row => [row.name, row.description, row.flavor]),
         ...[...data.categories, ...data.achievements].flatMap(row => row.milestones.flatMap(m => m.rewards.map(r => r.description)))];
-      flow.requestWords([...Object.values(labels), ...Object.values(careers).map(row => row.desc), ...ids.filter(Boolean).map(id => `#${id}`)]);
+      flow.requestWords([hiddenDescription, ...Object.values(labels), ...Object.values(careers).map(row => row.desc), ...ids.filter(Boolean).map(id => `#${id}`)]);
       if (c) void loadScores([c, ...data.categories.filter(row => row.parent === c.id)]);
       void loadScore().catch(() => {});
       void loadRewards().catch(() => {});
@@ -140,6 +158,13 @@
     if (next === "rewards") void loadRewards().catch(e => { error = String(e.message ?? e); });
   }
   function show(id: string) { page = id; selectTab("achievements"); }
+  $effect(() => {
+    const requested = $achievementRequest;
+    if (!catalogue || requested === null) return;
+    const row = definitions.get(requested);
+    if (row) { show(row.category); selected = row; fetchProgress(row.id); }
+    achievementRequest.set(null);
+  });
   function pin(id: string) {
     pins = pins.includes(id) ? pins.filter(p => p !== id) : [...pins, id];
     try { localStorage.setItem(pinKey, JSON.stringify(pins)); } catch { /* optional storage */ }
@@ -219,7 +244,7 @@
           <article class="ach-reward">
             <div><h3>{label(name ?? 0, "Milestone reward")}</h3>
               {#each rewardMilestone(row)?.rewards.filter(r => row.rewards.includes(r.id)) ?? [] as reward (reward.id)}
-                <div>{label(reward.description, `${number(reward.amount ?? 0)} ${reward.kind ?? ""}`)}{reward.omega ? " · Omega" : ""}</div>
+                <div>{rewardText(reward)}{reward.omega ? " · Omega" : ""}</div>
               {/each}
             </div>
             <button type="button" disabled={claiming} onclick={() => claim(row)}>Claim</button>
@@ -273,7 +298,7 @@
             <article class="ach-card">
               <button type="button" class="ach-card-open" onclick={() => selected = a}>
                 <strong>{label(a.name, a.icon)}</strong>
-                <small>{label(a.description)}</small>
+                <small>{describe(a, p)}</small>
                 {#if p && a.milestones.length}
                   <span>{p.completed ? "Completed" : `${number(p.current)} / ${number(a.milestones.at(-1)?.target ?? 0)}`}</span>
                 {/if}
@@ -293,10 +318,10 @@
     <div class="ach-detail" role="dialog" aria-label={label(selected.name, selected.icon)}>
       <button type="button" aria-label="Close achievement" onclick={() => selected = null}>✕</button>
       <h2>{label(selected.name, selected.icon)}</h2>
-      <p>{label(selected.description)}</p><p>{label(selected.flavor)}</p>
+      <p>{describe(selected, progress[selected.id])}</p><p>{label(selected.flavor)}</p>
       {#each selected.milestones as m (m.id)}
         <article><strong>{number(m.target)}</strong> · {number(m.points ?? 0)} points
-          {#each m.rewards as r (r.id)}<div>{label(r.description, `${number(r.amount ?? 0)} ${r.kind ?? ""}`)}{r.omega ? " · Omega" : ""}</div>{/each}
+          {#each m.rewards as r (r.id)}<div>{rewardText(r)}{r.omega ? " · Omega" : ""}</div>{/each}
         </article>
       {/each}
     </div>

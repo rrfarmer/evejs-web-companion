@@ -3861,6 +3861,12 @@ export interface AppFlow {
   achievementProgress(id: string): Promise<import("../bridge/achievements.ts").AchievementProgress>;
   achievementRewards(): Promise<readonly import("../bridge/achievements.ts").UnclaimedAchievementReward[]>;
   claimAchievementReward(reward: import("../bridge/achievements.ts").UnclaimedAchievementReward): Promise<void>;
+  characterTitles(): Promise<{ readonly definitions: readonly api.CharacterTitleDefinition[]; readonly owned: readonly string[]; readonly equipped: string | null }>;
+  characterTitleDefinitions(): Promise<readonly api.CharacterTitleDefinition[]>;
+  setCharacterTitle(titleID: string | null): Promise<void>;
+  personalMedals(): Promise<readonly { readonly id: number; readonly title: string; readonly description: string; readonly status: 2 | 3 }[]>;
+  personalRanks(): Promise<readonly { readonly factionID: number; readonly rank: number }[]>;
+  savePersonalMedalPermissions(changes: readonly (readonly [number, 1 | 2 | 3])[]): Promise<void>;
   /**
    * The career goals the pilot tracks (careerControllerUI: careerPortal_trackedGoals in settings.char.ui), kept for the
    * character in this browser. track / untrack as the controller's track_goal / untrack_goal.
@@ -12908,6 +12914,65 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       all_rewards: true,
     }, true);
   }
+  const TITLE_GATEWAY = "eve_public.cosmetic.character.title.api.";
+  const characterTitleDefinitions = () => api.loadCharacterTitleDefinitions(callOptions);
+  async function characterTitles(): ReturnType<AppFlow["characterTitles"]> {
+    const characterID = store.station.get().online?.characterID;
+    if (!characterID) throw new Error("Select a pilot to read their titles.");
+    const uuid = (value: unknown) => uuidFromBytes(String(achievementObject(value).uuid ?? ""));
+    const [definitions, equipped, owned] = await Promise.all([
+      characterTitleDefinitions(),
+      gatewayAsk(TITLE_GATEWAY + "GetEquippedForCharacterRequest", { character: { sequential: characterID } }).then(body => uuid(achievementObject(body).title)),
+      (async () => {
+        const result: string[] = [], seen = new Set<string>();
+        let token = "";
+        do {
+          const response = achievementObject(await gatewayAsk(TITLE_GATEWAY + "GetOwnedRequest", { page: { size: 100, ...(token ? { token } : {}) } }));
+          const ids = Array.isArray(response.titles) ? response.titles.map(uuid) : [];
+          result.push(...ids.filter((id): id is string => id !== null));
+          token = String(achievementObject(response.next_page).token ?? "");
+          if (!token || seen.has(token)) break;
+          seen.add(token);
+        } while (seen.size < 100);
+        return result;
+      })(),
+    ]);
+    return { definitions, equipped, owned };
+  }
+  async function setCharacterTitle(titleID: string | null): Promise<void> {
+    await gatewayAsk(TITLE_GATEWAY + (titleID ? "EquipRequest" : "UnequipRequest"), titleID ? { title: { uuid: bytesFromUuid(titleID) } } : {}, true);
+  }
+  async function personalMedals(): ReturnType<AppFlow["personalMedals"]> {
+    const characterID = store.station.get().online?.characterID;
+    if (!characterID) return [];
+    const result = await bridgeAsk("corporationSvc", "GetMedalsReceived", [characterID]);
+    const rows = readRowsetRows(isListValue(result) ? result.items[0] : Array.isArray(result) ? result[0] : undefined);
+    const medals = new Map<number, { id: number; title: string; description: string; status: 2 | 3 }>();
+    const text = (v: JsonValue | undefined) => typeof v === "string" ? v : typeof achievementObject(v).value === "string" ? String(achievementObject(v).value) : "";
+    for (const row of rows) {
+      const id = Number(unwrapLong(row.medalID) ?? 0n), status = Number(unwrapLong(row.status) ?? 0n);
+      if (id && (status === 2 || status === 3) && !row.isDeleted && (!medals.has(id) || status === 3)) {
+        medals.set(id, { id, title: text(row.title), description: text(row.description), status });
+      }
+    }
+    return [...medals.values()];
+  }
+  async function personalRanks(): ReturnType<AppFlow["personalRanks"]> {
+    const answer = await bridgeAsk("facWarMgr", "GetMyCharacterRankOverview", []);
+    const rows = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : [];
+    const ranks = rows.flatMap(row => {
+      const factionID = unwrapLong(readRowField(row, "factionID")), rank = unwrapLong(readRowField(row, "currentRank"));
+      return factionID && rank !== null ? [{ factionID: Number(factionID), rank: Number(rank) }] : [];
+    });
+    requestNames(ranks.map(row => ({ kind: "owner", id: row.factionID })));
+    return ranks;
+  }
+  async function savePersonalMedalPermissions(changes: readonly (readonly [number, 1 | 2 | 3])[]): Promise<void> {
+    if (!changes.length) return;
+    if (changes.some(([, status]) => status === 1) && !await askDialog("DeleteMedalConfirmation", null, "Remove the selected decorations?", "yesno")) return;
+    const write = api.bridgeDo(callOptions);
+    for (let i = 0; i < changes.length; i += 256) await write("corporationSvc", "SetMedalStatus", [{ type: "dict", entries: changes.slice(i, i + 256).map(([id, status]) => [id, status]) }]);
+  }
 
   async function personalSkillPlanCount(): Promise<number | null> {
     try {
@@ -18726,7 +18791,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       playerCorporation ? scope.ask("corpRegistry", "GetCorporation", []) : Promise.resolve(null),
       playerCorporation ? readCorporationMember(characterID, scope) : Promise.resolve(null),
       allianceID ? scope.ask("allianceRegistry", "GetEmploymentRecord", [corporationID]) : Promise.resolve(null),
-      warFactionID ? scope.ask("facWarMgr", "GetCharacterRankInfo", [characterID]) : Promise.resolve(null),
+      warFactionID ? scope.ask("facWarMgr", "GetMyCharacterRankInfo", []) : Promise.resolve(null),
     ]);
     scope.current();
     const first = (row: JsonValue) => isListValue(row) ? row.items[0] ?? null : Array.isArray(row) ? row[0] ?? null : row;
@@ -34500,6 +34565,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     achievementProgress,
     achievementRewards,
     claimAchievementReward,
+    characterTitles,
+    characterTitleDefinitions,
+    setCharacterTitle,
+    personalMedals,
+    personalRanks,
+    savePersonalMedalPermissions,
     trackedCareerGoals: trackedCareerView,
     trackCareerGoal,
     claimCareerReward,

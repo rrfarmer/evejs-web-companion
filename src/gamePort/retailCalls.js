@@ -687,7 +687,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "charMgr.GetPrivateInfo",
   "bannedwords.check_search_words_allowed",
   "facWarMgr.GetCorporationWarFactionID",
-  "facWarMgr.GetCharacterRankInfo", "corpRegistry.GetInfoWindowDataForChar", "allianceRegistry.GetEmploymentRecord",
+  "facWarMgr.GetMyCharacterRankInfo", "facWarMgr.GetMyCharacterRankOverview", "corpRegistry.GetInfoWindowDataForChar", "allianceRegistry.GetEmploymentRecord",
   "invbroker.ImportExportWithPlanet", "officeManager.GetCorporationsWithOffices", "officeManager.GetEmptyOfficeCount",
   // The lobby's buttons, on the station's own office object. (The BFF's list of writes names the renting; the
   // gateway's list of what it will carry has none of these.)
@@ -887,6 +887,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "corporationSvc.GetEmployementRecordAndCharacterTransfers",
   // medals.py60/64/87/89/108: catalogue, recipients, received medals, details and awards on RemoteSvc.
   "corporationSvc.GetAllCorpMedals", "corporationSvc.GetRecipientsOfMedal", "corporationSvc.GetMedalDetails", "corporationSvc.GetMedalsReceived", "corporationSvc.CreateMedal", "corporationSvc.GiveMedalToCharacters",
+  "corporationSvc.SetMedalStatus",
   // A folder of the mail window marked read, trashed, and the trash restored (evemail.py StaticMenu). The gateway's
   // list has the mail manager's others, not these.
   "mailMgr.MarkAsReadByLabel", "mailMgr.MoveToTrashByLabel", "mailMgr.MoveAllFromTrash",
@@ -2974,7 +2975,8 @@ const RETAIL_CALLS = Object.freeze({
   "corpRegistry.GetMember": same(`${CORP_SVC}/bco_members.py:168`, "GetCorpRegistry().GetMember(charID), positional on the corporation moniker. EditMemberDialog reads the viewer's grantable state and the target member."),
   "corpRegistry.GetInfoWindowDataForChar": same(`${CORP_SVC}/base_corporation.py:830`, "24.02 Memberships reads the character's corporation title on the registry moniker."),
   "allianceRegistry.GetEmploymentRecord": same("eve/client/script/ui/shared/neocom/charsheet/membership.py:438", "24.02 Memberships reads the character's corporation's alliance employment record."),
-  "facWarMgr.GetCharacterRankInfo": same("eve/client/script/ui/shared/neocom/charsheet/membership.py:453", "24.02 Memberships reads the character's current factional warfare rank."),
+  "facWarMgr.GetMyCharacterRankInfo": same("eve/client/script/ui/services/facWarSvc.py:278", "24.02 Memberships reads the pilot's factional warfare rank with no arguments."),
+  "facWarMgr.GetMyCharacterRankOverview": same("eve/client/script/ui/services/facWarSvc.py:286", "Character Sheet Decorations reads the pilot's ranks with no arguments."),
   "corpRegistry.MoveCompanyShares": same(`${CORP_SVC}/bco_shares.py:43`, "Compiled EditMemberDialog.OnGiveShares526 uses QtyPopup(2147483647,1,'1',HowManySharesToGive(player=charID),GiveShares), then MoveCompanyShares(session.corpid,charID,qty); Cancel sends nothing, no role gate or profile Apply. Wallet GiveSharesDialog.TransferShares104 passes the holding's issuerID as first argument; CorpSharesPanel.GetOwnerID supplies session.corpid as owner. Both send three unchanged positional arguments on the current corporation moniker; no TQ transfer recording found."),
   "charMgr.GetPrivateInfo": same("eve/client/script/ui/shared/neocom/corporation/corp_dlg_edit_member.py:148", "RemoteSvc('charMgr').GetPrivateInfo(charID), the one positional character ID, when Member Details loads the character."),
   "corpRegistry.UpdateMember": same(`${CORP_SVC}/bco_members.py:243`, "UpdateMember(charID,title,divisionID,squadronID,roles,grantableRoles,rolesAtHQ,grantableRolesAtHQ,rolesAtBase,grantableRolesAtBase,rolesAtOther,grantableRolesAtOther,baseID,titleMask,blockRoles), all 15 positional. Member Details General preserves role masks, titleMask=None, blockRoles=None; typed title Unicode."),
@@ -2983,6 +2985,7 @@ const RETAIL_CALLS = Object.freeze({
   "corporationSvc.GetRecipientsOfMedal": same("eve/client/script/ui/services/medals.py:64", "RemoteSvc('corporationSvc').GetRecipientsOfMedal(medalID), lazily from corp_ui_member_decorations.GetMedalSubContent112-149; repeated recepientID rows form one awardee entry."),
   "corporationSvc.GetMedalDetails": same("eve/client/script/ui/services/medals.py:89", "RemoteSvc('corporationSvc').GetMedalDetails(medalID); infoContentBase1450-1453 and675-687 read info[0] separately for caption/description and corporation/count header."),
   "corporationSvc.GetMedalsReceived": same("eve/client/script/ui/services/medals.py:87", "GetMedalsReceived(characterID), received medal and graphics rowsets, invalidated by OnMedalIssued/OnMedalStatusChanged."),
+  "corporationSvc.SetMedalStatus": same("eve/client/script/ui/services/medals.py:57", "SetMedalStatus(dict of medalID to visibility), including removal confirmation on the Decorations page."),
   "corporationSvc.CreateMedal": typing(reshaped("eve/client/script/ui/services/medals.py:31-53", ([title, description, graphics, ...rest], kwargs) => ({ args: [title, description, medalGraphics(graphics), ...rest], kwargs }), "Unicode title/description and nested Python graphics lists from MedalRibbonPickerWindow.SubmitData553-560. Initial three arguments; fourth True only after ConfirmCreatingMedal and Yes. No recorded TQ fee or confirmation policy."), [0, 1]),
   "corporationSvc.GiveMedalToCharacters": typing(reshaped("eve/client/script/ui/services/medals.py:108", ([medalID, recipients, ...rest], kwargs) => ({ args: [medalID, list(recipients), ...rest], kwargs }), "Scalar medal ID, Python list of recipients, Unicode reason; fourth True only after a ConfirmGivingMedal* refusal and Yes. Top-level RemoteSvc, not the corporation moniker. No TQ award capture found."), [2]),
   "facWarMgr.GetCorporationWarFactionID": same("eve/client/script/ui/services/facWarSvc.py:92", "facWarMgr.GetCorporationWarFactionID(corpID), for a player corporation. CorpMemberTracking.ShowMemberTracking asks after its tracking rows; the recorded director panel takes a cached result of 0."),

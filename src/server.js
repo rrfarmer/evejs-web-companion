@@ -12,7 +12,7 @@ const eveGatewayClient = require("./eveGatewayClient");
 const webAuth = require("./webAuth");
 const staticDataModule = require("./staticData");
 const { createClientWords } = require("./clientData/clientWords");
-const { readAchievementDefinitions } = require("./clientData/achievementDefinitions");
+const { readAchievementDefinitions, readCharacterTitleDefinitions } = require("./clientData/achievementDefinitions");
 const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
@@ -1279,6 +1279,15 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     const why = notAClientsWarp(body.args, body.kwargs ?? null);
     if (why !== null) {
       res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: `That is no warp the page makes. ${why}` });
+      return;
+    }
+  }
+  if (body.service === "corporationSvc" && body.method === "SetMedalStatus") {
+    const changes = body.args?.[0];
+    if (body.pilot !== true || body.args?.length !== 1 || body.kwargs != null || changes?.type !== "dict"
+      || !Array.isArray(changes.entries) || changes.entries.length < 1 || changes.entries.length > 256
+      || !changes.entries.every(row => Array.isArray(row) && row.length === 2 && strictPositiveID(row[0]) !== null && [1, 2, 3].includes(row[1]))) {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Decoration permissions require a dictionary of medals and visibility settings." });
       return;
     }
   }
@@ -14860,6 +14869,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.achievement.category.api.GetRequest",
   "eve_public.achievement.showcase.api.GetCharacterScoreRequest",
   "eve_public.achievement.reward.api.GetUnclaimedRequest",
+  "eve_public.cosmetic.character.title.api.GetOwnedRequest",
+  "eve_public.cosmetic.character.title.api.GetEquippedForCharacterRequest",
   // skills/skillplan/grpc/message_bus/skillPlanRequestsMessenger.py
   "eve_public.character.skill.plan.GetAllRequest",
   "eve_public.character.skill.plan.GetRequest",
@@ -14943,6 +14954,8 @@ const PUBLIC_GATEWAY_READS = new Set([
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.achievement.reward.api.ClaimRequest",
+  "eve_public.cosmetic.character.title.api.EquipRequest",
+  "eve_public.cosmetic.character.title.api.UnequipRequest",
   // The Career Portal's Claim Reward (PublicCareerGoalRequestMessenger.claim_reward_request: a goal's reward label).
   "eve_public.career.goal.api.ClaimRewardRequest",
   // A daily goal's Claim (DailyGoalsMessenger.redeem: RedeemRequest).
@@ -15004,32 +15017,39 @@ function sharedPublicGateway() {
 // The 24.02 client checks the published version and CRC before loading its
 // definition cache. These definitions are shared; pilot state uses separate
 // requests to the public gateway and is never included in this cache.
-let achievementCatalogue = null;
-app.get("/api/client-data/achievement-definitions", requireAuth, async (req, res) => {
-  const held = requireHeldBridgeSession(req, res);
-  if (!held) return;
-  const pilot = { userID: held.accountID };
-  const gateway = sharedPublicGateway();
-  try {
-    const answer = await gateway.request(pilot, "eve_public.achievement.definition.api.cdn.GetLatestRequest");
-    const checkpoint = answer.payload?.checkpoint;
-    const crc = checkpoint?.crc?.crc;
-    const version = checkpoint?.version;
-    if (answer.statusCode !== 200 || !version || !Number.isInteger(crc)) throw new Error("EveJS did not publish an achievement checkpoint.");
-    const key = `${version.major ?? 0}.${version.minor ?? 0}.${version.patch ?? 0}:${crc}`;
-    if (achievementCatalogue?.key !== key) {
-      const read = gateway.achievementDefinitions(pilot).then((bytes) => {
-        if (crc32(bytes) !== crc) throw new Error("EveJS's achievement definitions do not match the checkpoint CRC.");
-        return readAchievementDefinitions(bytes);
-      });
-      achievementCatalogue = { key, read };
-      read.catch(() => { if (achievementCatalogue?.read === read) achievementCatalogue = null; });
+function registerDefinitionCatalogue({ route, request, payload, asset, decode, code }) {
+  let cache = null;
+  app.get(route, requireAuth, async (req, res) => {
+    const held = requireHeldBridgeSession(req, res);
+    if (!held) return;
+    const pilot = { userID: held.accountID };
+    const gateway = sharedPublicGateway();
+    try {
+      const answer = await gateway.request(pilot, request, payload);
+      const checkpoint = answer.payload?.checkpoint;
+      const crc = checkpoint?.crc?.crc;
+      const version = checkpoint?.version;
+      if (answer.statusCode !== 200 || !version || !Number.isInteger(crc)) throw new Error("EveJS did not publish a catalogue checkpoint.");
+      const key = `${version.major ?? 0}.${version.minor ?? 0}.${version.patch ?? 0}:${crc}`;
+      if (cache?.key !== key) {
+        const read = gateway[asset](pilot).then((bytes) => {
+          if (crc32(bytes) !== crc) throw new Error("EveJS's catalogue does not match the checkpoint CRC.");
+          return decode(bytes);
+        });
+        cache = { key, read };
+        read.catch(() => { if (cache?.read === read) cache = null; });
+      }
+      res.json({ ok: true, ...(await cache.read) });
+    } catch (error) {
+      res.status(502).json({ ok: false, error: code, message: error.message });
     }
-    res.json({ ok: true, ...(await achievementCatalogue.read) });
-  } catch (error) {
-    res.status(502).json({ ok: false, error: "ACHIEVEMENT_DEFINITIONS_UNAVAILABLE", message: error.message });
-  }
-});
+  });
+}
+registerDefinitionCatalogue({ route: "/api/client-data/achievement-definitions", asset: "achievementDefinitions",
+  request: "eve_public.achievement.definition.api.cdn.GetLatestRequest", decode: readAchievementDefinitions, code: "ACHIEVEMENT_DEFINITIONS_UNAVAILABLE" });
+registerDefinitionCatalogue({ route: "/api/client-data/character-title-definitions", asset: "characterTitleDefinitions",
+  request: "eve_public.cosmetic.character.title.definition.api.GetLatestRequest", payload: { language: { code: "en-us" } },
+  decode: (bytes) => ({ titles: readCharacterTitleDefinitions(bytes) }), code: "CHARACTER_TITLE_DEFINITIONS_UNAVAILABLE" });
 app.post("/api/public-gateway/request", requireAuth, async (req, res, next) => {
   try {
     const body = req.body || {};
@@ -15048,7 +15068,8 @@ app.post("/api/public-gateway/request", requireAuth, async (req, res, next) => {
     const payload = body.payload && typeof body.payload === "object" && !Array.isArray(body.payload) ? body.payload : {};
     let answer;
     try {
-      const forAccount = request === "eve_public.achievement.showcase.api.GetCharacterScoreRequest";
+      const forAccount = request === "eve_public.achievement.showcase.api.GetCharacterScoreRequest"
+        || request === "eve_public.cosmetic.character.title.api.GetEquippedForCharacterRequest";
       answer = await sharedPublicGateway().request({ userID: held.accountID, ...(forAccount ? {} : { characterID: held.characterID }) }, request, payload);
     } catch (error) {
       if (!String(error && error.code).startsWith("GATEWAY_")) throw error;

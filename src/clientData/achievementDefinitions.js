@@ -1,12 +1,11 @@
 "use strict";
 
-// The 24.02 AchievementData flatbuffer (ACHV). Field numbers are from
-// achievement_system/client/model/flatbuffer/generated.py. Keep localization
-// IDs so the browser can use the language of the installed client.
-function readAchievementDefinitions(bytes) {
+// Both 24.02 catalogues are FlatBuffers. Resource-specific readers below use
+// the field numbers from the corresponding generated client schemas.
+function openCatalogue(bytes, tag, name) {
   const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let remainingTables = 50_000;
-  const fail = () => { throw new Error("Invalid achievement definitions (ACHV)."); };
+  const fail = () => { throw new Error(`Invalid ${name} definitions (${tag}).`); };
   const check = (at, size) => {
     if (!Number.isSafeInteger(at) || at < 0 || size < 0 || at + size > b.length) fail();
     return at;
@@ -71,13 +70,20 @@ function readAchievementDefinitions(bytes) {
       },
     };
   }
-  if (b.length < 8 || b.toString("ascii", 4, 8) !== "ACHV") fail();
-  const categories = [], achievements = [], seen = new Set();
+  if (b.length < 8 || b.toString("ascii", 4, 8) !== tag) fail();
   const identifier = (t) => {
     const id = t.text(0).toLowerCase();
     if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) fail();
     return id;
   };
+  return { root: table(indirect(0)), fail, identifier };
+}
+
+// AchievementData, achievement_system/client/model/flatbuffer/generated.py.
+// Keep localization IDs for the installed client's language.
+function readAchievementDefinitions(bytes) {
+  const { root, fail, identifier } = openCatalogue(bytes, "ACHV", "achievement");
+  const categories = [], achievements = [], seen = new Set();
   const reward = (t) => {
     const kind = [null, "ISK", "SP", "item", "title"][t.byte(1)] ?? null;
     const payload = t.child(2);
@@ -111,7 +117,6 @@ function readAchievementDefinitions(bytes) {
     row.achievements = t.list(6, (child) => achievement(child, id));
     return id;
   }
-  const root = table(indirect(0));
   const roots = {};
   for (const [name, slot] of Object.entries({ career: 0, challenges: 1, timeLimited: 2, manual: 4 })) {
     const t = root.child(slot);
@@ -121,4 +126,17 @@ function readAchievementDefinitions(bytes) {
   return { roots, categories, achievements };
 }
 
-module.exports = { readAchievementDefinitions };
+// Titles, cosmetics/client/character/title/model/flatbuffer/generated.py.
+// These names are already localized by the published CDN asset.
+function readCharacterTitleDefinitions(bytes) {
+  const { root, fail, identifier } = openCatalogue(bytes, "TITL", "character title");
+  const seen = new Set();
+  return root.list(0, t => {
+    const id = identifier(t), name = t.text(1);
+    if (seen.has(id) || !name) fail();
+    seen.add(id);
+    return { id, name, visibility: t.byte(3), releasedAt: t.date(4) };
+  });
+}
+
+module.exports = { readAchievementDefinitions, readCharacterTitleDefinitions };

@@ -13283,6 +13283,227 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.cosmetic.character.title.api.EquipRequest": {
+   "fields": [
+    {
+     "name": "title",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.character.title.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.EquipResponse": {
+   "fields": []
+  },
+  "eve_public.cosmetic.character.title.api.GetEquippedForCharacterRequest": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.GetEquippedForCharacterResponse": {
+   "fields": [
+    {
+     "name": "title",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.character.title.definition.Identifier",
+     "oneof": "equipped"
+    },
+    {
+     "name": "no_title",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "equipped"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.GetOwnedRequest": {
+   "fields": [
+    {
+     "name": "page",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.Page"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.GetOwnedResponse": {
+   "fields": [
+    {
+     "name": "titles",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.character.title.definition.Identifier"
+    },
+    {
+     "name": "next_page",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.NextPage"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.GrantedNotice": {
+   "fields": [
+    {
+     "name": "title",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.character.title.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.RevokedNotice": {
+   "fields": [
+    {
+     "name": "title",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.character.title.definition.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.SetAllInBubbleNotice": {
+   "fields": [
+    {
+     "name": "titles",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.character.title.api.SetAllInBubbleNotice.CharacterTitle"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.SetAllInBubbleNotice.CharacterTitle": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "title",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.character.title.definition.Identifier",
+     "oneof": "equipped"
+    },
+    {
+     "name": "no_title",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "equipped"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.SetNotice": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "title",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.character.title.definition.Identifier",
+     "oneof": "equipped"
+    },
+    {
+     "name": "no_title",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "equipped"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.api.UnequipRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.character.title.api.UnequipResponse": {
+   "fields": []
+  },
+  "eve_public.cosmetic.character.title.definition.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.definition.api.GetLatestRequest": {
+   "fields": [
+    {
+     "name": "current_version",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.semanticversion.Specification",
+     "oneof": "specified_version"
+    },
+    {
+     "name": "no_local_version_available",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "specified_version"
+    },
+    {
+     "name": "language",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.Language"
+    }
+   ]
+  },
+  "eve_public.cosmetic.character.title.definition.api.GetLatestResponse": {
+   "fields": [
+    {
+     "name": "checkpoint",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cdn.Checkpoint"
+    }
+   ]
+  },
+  "eve_public.localization.Language": {
+   "fields": [
+    {
+     "name": "code",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {
