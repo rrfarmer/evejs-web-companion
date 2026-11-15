@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getCategories, getCategoryGroups, getTypeMeta, resolveNames } from "../app/api.ts";
+  import { getCategories, getCategoryGroups, getTypeMeta, importMultibuy, resolveNames } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import {
@@ -28,6 +28,7 @@
     my: ["UI/Inventory/MyFilters", "My Filters"], create: ["UI/Inventory/CreateFilter", "Create Filter"],
     editor: [PREFIX + "ItemFilterCaption", "Item Filter"], match: [PREFIX + "Match", "Match"],
     name: [PREFIX + "FilterName", "Filter Name"], all: [PREFIX + "All", "All"], any: [PREFIX + "Any", "Any"],
+    importItems: [PREFIX + "ImportFilterItems", "Import Items"], failedLines: ["UI/SkillQueue/CouldNotReadLines", "Could not read these lines:"],
   } as const;
   const fields = [
     [F.assembled, "ConditionAssembled", "Assembled"], [F.category, "", "Category"], [F.group, "ConditionGroup", "Group"],
@@ -64,7 +65,11 @@
   let error = $state("");
   let saved = $state<readonly InventoryFilter[] | null>(null);
   let checked = $state<readonly string[]>([]);
-  let draft = $state<{ original: string | null; name: string; match: 1 | 2; conditions: readonly InventoryCondition[] } | null>(null);
+  type FilterDraft = { original: string | null; name: string; match: 1 | 2; conditions: readonly InventoryCondition[] };
+  let draft = $state<FilterDraft | null>(null);
+  let importOpen = $state(false);
+  let importText = $state("");
+  let importFailures = $state<readonly string[]>([]);
   let confirm = $state<{ kind: "replace" | "remove"; name: string } | null>(null);
   let active = false;
 
@@ -109,6 +114,9 @@
   function edit(filter?: InventoryFilter) {
     confirm = null;
     error = "";
+    importOpen = false;
+    importText = "";
+    importFailures = [];
     draft = filter ? { original: filter[0], name: filter[0], match: filter[1], conditions: filter[2] }
       : { original: null, name: "", match: 1, conditions: [] };
     groupCategories = (filter?.[2] ?? []).map(() => null);
@@ -165,6 +173,20 @@
     return [O.less, O.equal, O.greater];
   }
 
+  async function appendTypes(held: FilterDraft, ids: readonly number[]) {
+    const ordered = [...new Set(ids)];
+    const unresolved = ordered.filter(id => !resolvedName($names.resolved, "type", id, ""));
+    const fetched: Record<string, string | null> = {};
+    const request = flow.requestOptions();
+    for (let start = 0; start < unresolved.length && active && draft === held; start += 100) {
+      const result = await resolveNames(unresolved.slice(start, start + 100).map(id => ({ kind: "type", id })), request);
+      Object.assign(fetched, result.names);
+    }
+    if (active && draft === held) {
+      held.conditions = addInventoryFilterTypes(held.conditions, ordered.map(id => resolvedName($names.resolved, "type", id, "") || fetched[`type:${id}`] || ""));
+    }
+  }
+
   async function drop(event: DragEvent) {
     const held = draft;
     if (!held) return;
@@ -177,13 +199,25 @@
       if (dropped && !fitting) throw new Error("Unknown fitting");
       const ids = fitting ? [fitting.shipTypeID, ...fitting.fitData.map(([id]) => id)]
         : item?.kind === "inventoryItem" ? [...selectedTypes(item.itemID), item.typeID] : item ? [item.typeID] : [];
-      const ordered = [...new Set(ids)];
-      const unresolved = ordered.filter(id => !resolvedName($names.resolved, "type", id, ""));
-      const read = unresolved.length ? (await resolveNames(unresolved.map(id => ({ kind: "type", id })), flow.requestOptions())).names : {};
-      if (active && draft === held) {
-        held.conditions = addInventoryFilterTypes(held.conditions, ordered.map(id => resolvedName($names.resolved, "type", id, "") || read[`type:${id}`] || ""));
-      }
+      await appendTypes(held, ids);
     } catch { if (active && draft === held) error = "The dropped item names could not be read."; }
+  }
+
+  async function importItems() {
+    const held = draft;
+    if (!held || busy || !importText.trim()) return;
+    busy = true;
+    importFailures = [];
+    error = "";
+    try {
+      const read = await importMultibuy(importText, flow.requestOptions());
+      await appendTypes(held, read.found.map(([typeID]) => typeID));
+      if (!active || draft !== held) return;
+      importFailures = read.failedLines;
+      importText = "";
+      importOpen = false;
+    } catch { if (active && draft === held) error = "The item list could not be imported."; }
+    finally { if (active) busy = false; }
   }
 
   const complete = (conditions: readonly InventoryCondition[]) => conditions.length > 0 &&
@@ -322,9 +356,22 @@
             <label><input type="radio" value={2} bind:group={draft.match} /> {label(controls.any)}</label>
           </fieldset>
           <label>{label(controls.name)} <input type="text" maxlength={100} bind:value={draft.name} /></label>
+          <button type="button" disabled={busy} aria-expanded={importOpen} onclick={() => { importOpen = !importOpen; }}>{label(controls.importItems)}</button>
           <button type="button" disabled={busy || !draft.name.trim() || !complete(draft.conditions)} onclick={() => void persist()}>Save</button>
           <button type="button" disabled={busy} onclick={() => { draft = null; if (confirm?.kind === "replace") confirm = null; }}>Close</button>
         </footer>
+        {#if importOpen}
+          <div class="import-items">
+            <label>Item list <textarea rows="3" bind:value={importText} placeholder="Veldspar&#10;Tritanium" /></label>
+            <button type="button" disabled={busy || !importText.trim()} onclick={() => void importItems()}>Import</button>
+          </div>
+        {/if}
+        {#if importFailures.length}
+          <div role="status" class="import-failures">
+            {label(controls.failedLines)}
+            <ul>{#each importFailures as line}<li>{line}</li>{/each}</ul>
+          </div>
+        {/if}
       </section>
     {/if}
     {#if confirm}
@@ -352,4 +399,8 @@
   footer { padding-top: 6px; }
   fieldset { display: flex; gap: 6px; margin: 0; border: 0; padding: 0; }
   footer > label { display: grid; gap: 2px; }
+  .import-items { display: flex; align-items: end; gap: 6px; margin-top: 6px; }
+  .import-items label { display: grid; flex: 1; gap: 2px; }
+  .import-items textarea { border: 1px solid var(--line, #444); background: rgb(0 0 0 / 35%); }
+  .import-failures { margin-top: 6px; overflow: auto; max-height: 6rem; }
 </style>
