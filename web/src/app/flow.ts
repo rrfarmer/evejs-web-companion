@@ -441,6 +441,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
+import { decodeAgencySeason, decodeAgencySeasonProgress, type AgencySeason } from "../bridge/agencySeason.ts";
 import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from "../bridge/serverDialogs.ts";
 import { convertTyped, DATE_LABELS, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
@@ -939,7 +940,7 @@ import { CRIMEWATCH_NOTICES, CRIMEWATCH_SESSION_NAMES } from "../space/crimewatc
 import type { SafetyLevel } from "../space/crimewatch.ts";
 import { CLONE_GRADE_ALPHA, CLONE_GRADE_NOTICE, cloneGradeOf } from "../bridge/cloneGrade.ts";
 import type { AgentFinderRow, AgentRow, HoldItem, JournalMission, MissionSpot, SpaceEntity } from "../store/types.ts";
-import { readCharacterBloodline, readCharacterInfoHeader, readNpcCharacterCorporation, type CharacterInfoHeader } from "../bridge/characterInfo.ts";
+import { publicInfoRow, readCharacterBloodline, readCharacterInfoHeader, readNpcCharacterCorporation, type CharacterInfoHeader } from "../bridge/characterInfo.ts";
 import { GATE_ACTIVATION_RANGE_M, TYPE_ABYSS_ENTRANCE_GATE, activateGate as activateGateCall, gateCallFor } from "../bridge/gateActivation.ts";
 import {
   ABYSS_LOOTABLE_OBJECTIVE,
@@ -2764,6 +2765,12 @@ export interface AppFlow {
   corporationMemberMenu(characterID: number): Promise<"view" | "edit" | null>;
   corporationRoleAllowance(characterID: number): Promise<{ readonly confirm: () => Promise<void> } | null>;
   corporationQuitMenu(ownerIDs: readonly number[]): Promise<{ readonly removeRoles: () => Promise<void>; readonly quit: () => Promise<void> } | null>;
+  characterMembership(): Promise<{
+    readonly corporationSince: string | null; readonly allianceSince: string | null; readonly rank: number | null;
+    readonly title: string; readonly playerCorporation: boolean; readonly ceo: boolean; readonly director: boolean;
+    readonly roles: readonly string[]; readonly acceptsRoles: boolean | null;
+  }>;
+  setMembershipAllowsRoles(allow: boolean): Promise<boolean>;
   corporationExpelMenu(ownerIDs: readonly number[]): Promise<{ readonly multiple: boolean; readonly confirm: () => Promise<void> } | null>;
   corporationCEOMenu(ownerIDs: readonly number[]): Promise<{ readonly confirm: () => Promise<void> } | null>;
   readonly corporationCEOChoice: ReadableSignal<CorporationCEOChoice | null>;
@@ -3811,7 +3818,8 @@ export interface AppFlow {
    * asked once for the character - its title's message and navigation card picture. Null where it answers nothing (no
    * season runs) or a list (a season to choose: its texts are the client's multiple-seasons FSD data, not read here).
    */
-  agencySeason(): Promise<{ readonly titleID: number | null; readonly cardPicture: string | null } | null>;
+  agencySeason(): Promise<AgencySeason | null>;
+  agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>>;
   agencyFleetUp(): Promise<{ readonly ads: readonly FleetAdvert[]; readonly jumps: Readonly<Record<string, number | null>>; readonly noRoute: Readonly<Record<string, string>>;
     readonly nowTicks: bigint; readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } | null>;
   agencyPlanetaryProduction(filters: AgencySiteFilters, planetTypes: readonly number[]): Promise<readonly { readonly solarSystemID: number; readonly jumps: number | null; readonly security: number | null; readonly planets: readonly { readonly planetID: number; readonly typeID: number; readonly celestialIndex: number }[] }[] | null>;
@@ -7293,7 +7301,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     contactLoggedOnOrOff(method, args);
     // The client's session takes the new corporation, alliance and roles as the change says them; so does the
     // page's pilot, for what goes by them (the compose window's ValidateCorpOrAlliance and its offers).
-    if (sessionNames?.some((name) => name === "corpid" || name === "allianceid" || name === "corprole" || name === "corpAccountKey" || name === "role")) {
+    if (sessionNames?.some((name) => name === "corpid" || name === "allianceid" || name === "corprole" || name === "corpAccountKey" || name === "role" || name === "warfactionid")) {
       for (const [name, scope] of [["corpid", "corpcontact"], ["allianceid", "alliancecontact"]] as const) {
         if (sessionNames.includes(name)) { organizationLabelEpoch[scope]++; organizationLabelReads.delete(scope); }
       }
@@ -7307,6 +7315,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         ...(sessionNames.includes("allianceid") ? { allianceID: ownerOf(sessionChangeValue(method, args, "allianceid")) } : {}),
         ...(sessionNames.includes("corprole") ? { corpRole: wholeDigits(sessionChangeValue(method, args, "corprole")) } : {}),
         ...(sessionNames.includes("corpAccountKey") ? { corpAccountKey: ownerOf(sessionChangeValue(method, args, "corpAccountKey")) } : {}),
+        ...(sessionNames.includes("warfactionid") ? { warFactionID: ownerOf(sessionChangeValue(method, args, "warfactionid")) } : {}),
         ...(sessionNames.includes("role") ? { role: wholeDigits(sessionChangeValue(method, args, "role")) } : {}),
       });
       if (sessionNames.some(name => name === "corpid" || name === "corprole")) {
@@ -18708,6 +18717,64 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       },
     };
   }
+  async function characterMembership(): ReturnType<AppFlow["characterMembership"]> {
+    const scope = captureMemberOperation();
+    const { characterID, corporationID, allianceID, warFactionID } = scope.online;
+    const playerCorporation = !isNpcCorporation(corporationID);
+    const [publicInfo, info, corporation, member, alliance, fw] = await Promise.all([
+      scope.ask("charMgr", "GetPublicInfo3", [characterID]), scope.ask("corpRegistry", "GetInfoWindowDataForChar", [characterID]),
+      playerCorporation ? scope.ask("corpRegistry", "GetCorporation", []) : Promise.resolve(null),
+      playerCorporation ? readCorporationMember(characterID, scope) : Promise.resolve(null),
+      allianceID ? scope.ask("allianceRegistry", "GetEmploymentRecord", [corporationID]) : Promise.resolve(null),
+      warFactionID ? scope.ask("facWarMgr", "GetCharacterRankInfo", [characterID]) : Promise.resolve(null),
+    ]);
+    scope.current();
+    const first = (row: JsonValue) => isListValue(row) ? row.items[0] ?? null : Array.isArray(row) ? row[0] ?? null : row;
+    const corpStart = memberInteger(publicInfoRow(publicInfo), "startDateTime");
+    const allianceStart = memberInteger(readRowsetRows(alliance)[0] ?? publicInfoRow(alliance) ?? first(alliance), "startDate");
+    const text = readKeyVal(info, "title") ?? memberField(info, "title");
+    const roleMask = BigInt(scope.online.corpRole ?? "0"), director = (roleMask & 1n) !== 0n;
+    const ceo = memberInteger(corporation, "ceoID") === BigInt(characterID);
+    const roles: string[] = [];
+    if (playerCorporation && member !== null && !ceo && !director && roleMask) {
+      const definitions = await api.getCorporationRoleData(scope.options);
+      const model = corporationMemberOf(member);
+      const keys = Object.entries(definitions.roles).filter(([bit]) =>
+        (["roles", "rolesAtHQ", "rolesAtBase", "rolesAtOther"] as const).some(field => (model.masks[field] & (1n << BigInt(bit))) !== 0n));
+      await wordsNow(keys.map(([, r]) => `#${r.nameID}`)); scope.current();
+      for (const [, role] of keys) {
+        const word = plainText(store.words.get().templates[`#${role.nameID}`] ?? "");
+        if (word && !roles.includes(word)) roles.push(word);
+      }
+      roles.sort();
+    }
+    const blocked = memberField(member, "blockRoles");
+    const rank = unwrapLong(readKeyVal(fw, "currentRank")) ?? memberInteger(fw, "currentRank");
+    return { corporationSince: corpStart?.toString() ?? null,
+      allianceSince: allianceStart ? (corpStart && corpStart > allianceStart ? corpStart : allianceStart).toString() : null,
+      rank: rank === null ? null : Number(rank), title: typeof text === "string" ? text : "", playerCorporation, ceo, director,
+      acceptsRoles: playerCorporation && member !== null ? (typeof blocked === "boolean" ? !blocked : (memberInteger(member, "blockRoles") ?? 0n) === 0n) : null, roles };
+  }
+  async function setMembershipAllowsRoles(allow: boolean): Promise<boolean> {
+    const scope = captureMemberOperation();
+    if (isNpcCorporation(scope.online.corporationID)) return false;
+    const blockHeader = "UI/Corporations/Common/BlockNewRolesQuestionHeader", blockBody = "UI/Corporations/Common/BlockNewRolesQuestionBody";
+    if (!allow) await wordsNow([blockHeader, blockBody]);
+    const templates = store.words.get().templates;
+    const header = plainText(templates[blockHeader] ?? "Block new roles?");
+    const body = plainText(templates[blockBody] ?? "Block new corporation roles?");
+    scope.current();
+    const accepted = allow ? await askDialog("ConfirmAllowRoles", null, "Allow new corporation roles?", "okcancel")
+      : await askDialog("CustomQuestion", { type: "dict", entries: [["header", header], ["question", body]] }, body, "yesno");
+    scope.current();
+    if (!accepted) return false;
+    const self = scope.online.characterID;
+    await scope.write("corpRegistry", "UpdateMember", [self, null, null, null, null, null, null, null, null, null, null, null, null, null, allow ? 0 : 1]);
+    scope.current();
+    memberReads.delete(memberReadKey(self));
+    if (allow) sayDialog("NotifyRolesAllowed", null, "You can now receive new corporation roles.");
+    return true;
+  }
   // bco_members.GetMember @Memoize(0.1): caching.Memoize takes minutes, so six seconds after the reply.
   const memberReads = new Map<string, { value: JsonValue; savedAt: number }>();
   const memberTitleReads = new Map<number, Map<number, CorporationTitle>>();
@@ -20327,18 +20394,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (agencySeasonHeld?.characterID === characterID) return agencySeasonHeld.season;
     const season = (async () => {
       const answer = await bridgeAsk("seasonManager", "get_season_data_for_character", []).catch(() => undefined);
-      const v = (answer && typeof answer === "object" && !Array.isArray(answer) && "result" in answer ? (answer as { result: unknown }).result : answer) as
-        { type?: unknown; args?: { type?: unknown; entries?: unknown } } | null | undefined;
-      // A season of the character's own is a util.KeyVal; nothing, or a list of seasons to choose, is none here.
-      if (!v || typeof v !== "object" || v.type !== "object" || !v.args || !Array.isArray(v.args.entries)) return null;
-      const fields = new Map((v.args.entries as unknown[]).filter(Array.isArray).map((e) => [String((e as unknown[])[0]), (e as unknown[])[1]]));
-      const num = (x: unknown): number | null => (typeof x === "number" ? x : x && typeof x === "object" && "value" in x && /^-?\d+$/.test(String((x as { value: unknown }).value)) ? Number((x as { value: unknown }).value) : null);
-      const picture = fields.get("navigation_card_picture_path");
-      return { titleID: num(fields.get("title")), cardPicture: typeof picture === "string" && picture ? picture : null };
+      const row = decodeAgencySeason(answer);
+      if (row) requestWords([row.titleID, row.newsID].filter(Boolean).map(id => `#${id}`));
+      return row;
     })();
     agencySeasonHeld = { characterID, season };
-    void season.then((s) => { if (s?.titleID) requestWords([`#${s.titleID}`]); });
     return season;
+  }
+  async function agencySeasonProgress(): Promise<ReturnType<typeof decodeAgencySeasonProgress>> {
+    const row = decodeAgencySeasonProgress(await bridgeAsk("seasonManager", "get_character_progress_by_character_id", []));
+    if (row) requestWords(row.challenges.flatMap(c => [c.name, c.detail].filter(Boolean).map(id => `#${id}`)));
+    return row;
   }
   let corporationFactionsHeld: Readonly<Record<string, number>> | null = null;
   async function agencyPirateStrongholds(filters: AgencySiteFilters): Promise<Awaited<ReturnType<AppFlow["agencyPirateStrongholds"]>>> {
@@ -34134,6 +34200,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     showMemberDetails,
     corporationMemberMenu,
     corporationQuitMenu,
+    characterMembership,
+    setMembershipAllowsRoles,
     corporationExpelMenu,
     corporationCEOMenu,
     corporationAwardMenu,
@@ -34416,6 +34484,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyFleetUp,
     agencyPirateStrongholds,
     agencySeason,
+    agencySeasonProgress,
     agencyAsteroidBelts,
     agencyTriglavianStandings,
     agencyFleetRegistration,

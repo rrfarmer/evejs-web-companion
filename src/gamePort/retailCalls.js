@@ -687,6 +687,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "charMgr.GetPrivateInfo",
   "bannedwords.check_search_words_allowed",
   "facWarMgr.GetCorporationWarFactionID",
+  "facWarMgr.GetCharacterRankInfo", "corpRegistry.GetInfoWindowDataForChar", "allianceRegistry.GetEmploymentRecord",
   "invbroker.ImportExportWithPlanet", "officeManager.GetCorporationsWithOffices", "officeManager.GetEmptyOfficeCount",
   // The lobby's buttons, on the station's own office object. (The BFF's list of writes names the renting; the
   // gateway's list of what it will carry has none of these.)
@@ -2971,6 +2972,9 @@ const RETAIL_CALLS = Object.freeze({
   "corpRegistry.GetMemberIDsByQuery": same(`${CORP_SVC}/base_corporation.py:492`, "CorpQueryMembersForm.ExecuteQuery276-293 forwards the native criteria list and includeImplied/searchTitles booleans on the corporation moniker. The first term has three fields; joined terms have four. TQ admin panels2673-2674 records empty list/False/False -> empty list."),
   "corpRegistry.SetAccountKey": same(`${CORP_SVC}/bco_members.py:249`, "One unchanged wallet account key on the corporation moniker. base_corporation.SetAccountKey165 uses PerformSessionChange with violateSafetyTimer=True. TQ Receiving Corp Roles1899/1918/2107 records key1000, corpAccountKey notification and True reply."),
   "corpRegistry.GetMember": same(`${CORP_SVC}/bco_members.py:168`, "GetCorpRegistry().GetMember(charID), positional on the corporation moniker. EditMemberDialog reads the viewer's grantable state and the target member."),
+  "corpRegistry.GetInfoWindowDataForChar": same(`${CORP_SVC}/base_corporation.py:830`, "24.02 Memberships reads the character's corporation title on the registry moniker."),
+  "allianceRegistry.GetEmploymentRecord": same("eve/client/script/ui/shared/neocom/charsheet/membership.py:438", "24.02 Memberships reads the character's corporation's alliance employment record."),
+  "facWarMgr.GetCharacterRankInfo": same("eve/client/script/ui/shared/neocom/charsheet/membership.py:453", "24.02 Memberships reads the character's current factional warfare rank."),
   "corpRegistry.MoveCompanyShares": same(`${CORP_SVC}/bco_shares.py:43`, "Compiled EditMemberDialog.OnGiveShares526 uses QtyPopup(2147483647,1,'1',HowManySharesToGive(player=charID),GiveShares), then MoveCompanyShares(session.corpid,charID,qty); Cancel sends nothing, no role gate or profile Apply. Wallet GiveSharesDialog.TransferShares104 passes the holding's issuerID as first argument; CorpSharesPanel.GetOwnerID supplies session.corpid as owner. Both send three unchanged positional arguments on the current corporation moniker; no TQ transfer recording found."),
   "charMgr.GetPrivateInfo": same("eve/client/script/ui/shared/neocom/corporation/corp_dlg_edit_member.py:148", "RemoteSvc('charMgr').GetPrivateInfo(charID), the one positional character ID, when Member Details loads the character."),
   "corpRegistry.UpdateMember": same(`${CORP_SVC}/bco_members.py:243`, "UpdateMember(charID,title,divisionID,squadronID,roles,grantableRoles,rolesAtHQ,grantableRolesAtHQ,rolesAtBase,grantableRolesAtBase,rolesAtOther,grantableRolesAtOther,baseID,titleMask,blockRoles), all 15 positional. Member Details General preserves role masks, titleMask=None, blockRoles=None; typed title Unicode."),

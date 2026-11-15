@@ -15,9 +15,7 @@
   import OwnerDuelMenu from "./OwnerDuelMenu.svelte";
   import OwnerTradeMenu from "./OwnerTradeMenu.svelte";
   import OwnerMemberMenu from "./OwnerMemberMenu.svelte";
-  import OwnerQuitMenu from "./OwnerQuitMenu.svelte";
   import OwnerExpelMenu from "./OwnerExpelMenu.svelte";
-  import OwnerCEOMenu from "./OwnerCEOMenu.svelte";
   import OwnerDecorationMenu from "./OwnerDecorationMenu.svelte";
   import OwnerCorporationInviteMenu from "./OwnerCorporationInviteMenu.svelte";
   import OwnerCorporationCashMenu from "./OwnerCorporationCashMenu.svelte";
@@ -329,9 +327,7 @@
           <OwnerFleetMenu {store} {flow} ownerID={selected[0]!.member.characterID} {openWatchlist} onDone={() => menuFor = null} />
         {/if}
         {#if selected.length === 1}<OwnerMemberMenu {store} {flow} ownerID={selected[0]!.member.characterID} onDone={() => menuFor = null} />{/if}
-        <OwnerQuitMenu {store} {flow} ownerIDs={selected.map(row => row.member.characterID)} onDone={() => menuFor = null} />
         <OwnerExpelMenu {store} {flow} ownerIDs={selected.map(row => row.member.characterID)} onDone={() => menuFor = null} />
-        <OwnerCEOMenu {store} {flow} ownerIDs={selected.map(row => row.member.characterID)} onDone={() => menuFor = null} />
         <OwnerDecorationMenu {store} {flow} ownerIDs={selected.map(row => row.member.characterID)} onDone={() => menuFor = null} />
         <OwnerCorporationInviteMenu {store} {flow} ownerIDs={selected.map(row => row.member.characterID)} onDone={() => menuFor = null} />
         <OwnerCorporationCashMenu {store} {flow} ownerIDs={selected.map(row => row.member.characterID)} onDone={() => menuFor = null} />

@@ -43,7 +43,7 @@ const textOf = (value: JsonValue | undefined): string => {
 };
 
 /** GetPublicInfo3's row: the first of its rows (char_info[0]), a CRowset's packed row (a list's or a KeyVal's read too). */
-function publicInfoRow(answer: JsonValue): JsonValue | null {
+export function publicInfoRow(answer: JsonValue): JsonValue | null {
   if (answer !== null && typeof answer === "object" && !Array.isArray(answer) && (answer as { type?: unknown }).type === "objectex2") {
     const rows = (answer as { list?: unknown }).list;
     return Array.isArray(rows) ? ((rows[0] as JsonValue | undefined) ?? null) : null;

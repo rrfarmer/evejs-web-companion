@@ -27,7 +27,6 @@
   import WalletOverview from "./WalletOverview.svelte";
   import WalletGiveIsk from "./WalletGiveIsk.svelte";
   import WalletShares from "./WalletShares.svelte";
-  import WalletAutoPayment from "./WalletAutoPayment.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
 
@@ -44,7 +43,6 @@
     transactions: "UI/Wallet/WalletWindow/TabTransactions",
     market: "UI/Wallet/WalletWindow/MarketTransactions",
     shares: "UI/Wallet/WalletWindow/TabShares",
-    autoPayment: "UI/Wallet/WalletWindow/PersonalAutoPayment",
     give: "UI/Wallet/WalletWindow/GiveMoney",
   } as const;
   $effect(() => {
@@ -54,13 +52,13 @@
     const template = $words.templates[label];
     return typeof template === "string" && template !== "" ? plainText(template) : own;
   }
-  let tab = $state<"overview" | "transactions" | "market" | "shares" | "autoPayment" | "give">("overview");
+  let tab = $state<"overview" | "transactions" | "market" | "shares" | "give">("overview");
   /**
    * On the play page the window as WalletWindow lays it out (walletWnd.py: 900 x 600; its header's tabs My Wallet,
    * [Corporation Wallet,] Settings; personalWalletPanel.py: a WalletTabGroup 76 high - ISK and PLEX a third each,
    * Loyalty Points and EverMarks stacked in the last third (TOTOP_PROP) - each a BaseWalletTab: the icon 56 in a 64
    * column on black at 0.25, the name (EveHeaderMediumBold) and the info mark over a divider, the amount at 17 (PLEX's
-   * #FAB400); the ISK panel 16 below: its TabGroup - Overview, Transactions, Market Transactions, Shares, Auto Payment,
+   * #FAB400); the ISK panel 16 below: its TabGroup - Overview, Transactions, Market Transactions, Shares,
    * Give ISK). The page reads the ISK balance only: the others show a dash. The corporation's tab is not built.
    */
   const retail = getContext("retailChrome") === true;
@@ -165,7 +163,6 @@
     <button type="button" class:active={tab === "transactions"} onclick={() => (tab = "transactions")}>{tabWord(TAB_WORDS.transactions, "Transactions")}</button>
     <button type="button" class:active={tab === "market"} onclick={() => (tab = "market")}>{tabWord(TAB_WORDS.market, "Market Transactions")}</button>
     <button type="button" class:active={tab === "shares"} onclick={() => (tab = "shares")}>{tabWord(TAB_WORDS.shares, "Shares")}</button>
-    <button type="button" class:active={tab === "autoPayment"} onclick={() => (tab = "autoPayment")}>{tabWord(TAB_WORDS.autoPayment, "Auto Payment")}</button>
     <button type="button" class:active={tab === "give"} onclick={() => (tab = "give")}>{tabWord(TAB_WORDS.give, "Give ISK")}</button>
   </nav>
 
@@ -175,8 +172,6 @@
     <WalletMarketTransactions {store} {flow} />
   {:else if tab === "shares"}
     <WalletShares {store} {flow} />
-  {:else if tab === "autoPayment"}
-    <WalletAutoPayment {store} {flow} />
   {:else if tab === "give"}
     <WalletGiveIsk {store} {flow} />
   {:else}

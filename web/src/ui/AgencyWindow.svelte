@@ -46,6 +46,7 @@
   import AgencyProjectDiscoveryPage from "./AgencyProjectDiscoveryPage.svelte";
   import AgencyTriglavianPage from "./AgencyTriglavianPage.svelte";
   import AgencyPhasedFieldsPage from "./AgencyPhasedFieldsPage.svelte";
+  import AgencySeasonPage from "./AgencySeasonPage.svelte";
   import { corporationPanelTarget } from "./corporationPanel.ts";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
@@ -205,6 +206,8 @@
       <div class="ag-page"><AgencyPirateStrongholdsPage {store} {flow} filters={siteFilters[groupID] ?? DEFAULT_SITE_FILTERS} /></div>
     {:else if groupID === CAMPAIGNS}
       <div class="ag-page"><AgencyCampaignsPage {store} {flow} {onOpenTab} /></div>
+    {:else if groupID === SEASONS && season}
+      <div class="ag-page"><AgencySeasonPage {store} {flow} {season} /></div>
     {:else if groupID === FLEET_UP_REGISTER}
       <div class="ag-page ag-help-page"><AgencyFleetUpRegisterPage {store} {flow} onShow={(id) => show(id)} /></div>
     {:else if groupID === FLEET_UP}

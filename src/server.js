@@ -1974,6 +1974,7 @@ function selectedCharacterAnswer(characterID, session) {
     // does.
     role: typeof session.role === "string" && /^\d+$/.test(session.role) ? session.role : null,
     corpAccountKey: Number.isSafeInteger(session.corpAccountKey) ? session.corpAccountKey : null,
+    ...(Number.isSafeInteger(session.warFactionID) && session.warFactionID > 0 ? { warFactionID: session.warFactionID } : {}),
     raceID: Number.isSafeInteger(session.raceID) ? session.raceID : null,
   };
 }

@@ -430,6 +430,7 @@ export async function selectCharacter(
       corpRole: typeof character.corpRole === "string" && /^\d+$/.test(character.corpRole) ? character.corpRole : null,
       role: typeof character.role === "string" && /^\d+$/.test(character.role) ? character.role : null,
       corpAccountKey: asNumberOrNull(character.corpAccountKey),
+      ...(character.warFactionID == null ? {} : { warFactionID: asNumberOrNull(character.warFactionID) }),
       raceID: asNumberOrNull(character.raceID),
     },
     station:

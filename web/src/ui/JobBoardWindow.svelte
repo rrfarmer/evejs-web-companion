@@ -48,6 +48,8 @@
   import { ARC_AVAILABLE, ARC_STARTED } from "../bridge/epicArcs.ts";
   import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
+  import { openAgencyGroup } from "./agencyRequests.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, FreelanceJob } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -61,12 +63,14 @@
   // svelte-ignore state_referenced_locally
   const names = store.names;
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
+  const REWARDS_COUNT = "UI/Achievements/Window/Rewards/RewardsCount";
   const LABELS = [O + "WindowTitle", O + "TabNameActive", O + "TabNameUnclaimedRewards", O + "VisibilityFreelanceProjects", O + "NoOpportunitiesFound", O + "ClaimAll", O + "FailedToLoad",
-    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK", "UI/Common/Track", "UI/Common/Untrack"];
+    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK", "UI/Common/Track", "UI/Common/Untrack", REWARDS_COUNT, "#1056273", "#1056274"];
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   let tab = $state<"browse" | "active" | "unclaimed">("browse"), open = $state<string | null>(null), busy = $state(false);
   let board = $state<Awaited<ReturnType<AppFlow["freelanceBoard"]>> | undefined>(undefined);
+  let seasonVisible = $state(false);
   let goals = $state<CorporationGoals | null>(null), openGoal = $state<string | null>(null);
   let daily = $state<readonly DailyGoal[]>([]), openDaily = $state<string | null>(null);
   const dailyDone = (d: DailyGoal) => d.target > 0 && d.current >= d.target;
@@ -99,6 +103,7 @@
     try { for (const d of dailyLists.unclaimed) await flow.redeemDailyGoal(d.goalID); daily = (await flow.dailyGoals()) ?? daily; } finally { busy = false; }
   }
   async function load(): Promise<void> {
+    void flow.agencySeason().then(s => { seasonVisible = s !== null; }, () => { seasonVisible = false; });
     void flow.loadJournal().catch(() => {});
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
     void flow.dailyGoals().then((d) => { daily = d ?? []; }, () => { daily = []; });
@@ -129,6 +134,7 @@
   async function openMissionPage(agentID: number): Promise<void> { openMission = agentID; open = null; await flow.openMissionDetails(agentID); }
   onMount(() => { flow.requestWords(LABELS); void load(); });
   const jobs = $derived(board ? (tab === "browse" ? board.browse : tab === "active" ? board.active : board.unclaimed) : []);
+  const unclaimedCount = $derived((board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length);
   // freelanceprojects util.is_project_manager_for_corporation.
   // svelte-ignore state_referenced_locally
   const station = store.station;
@@ -163,7 +169,7 @@
   <div class="jb-tabs">
     <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "WindowTitle")}</button>
     <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length}</span>{/if}</button>
-    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if (board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}<span class="jb-count gold">{(board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length}</span>{/if}</button>
+    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if unclaimedCount}<span class="jb-count gold">{unclaimedCount}</span>{/if}</button>
   </div>
   <div class="jb-body">
     {#if dungeonOpen}
@@ -187,7 +193,15 @@
     {:else if board === undefined}<p class="jb-hint">…</p>
     {:else if board === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
-      {#if tab === "unclaimed" && (jobs.length || goalLists.unclaimed.length || dailyLists.unclaimed.length)}<div class="jb-claim"><button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button></div>{/if}
+      {#if tab === "unclaimed" && unclaimedCount}
+        <div class="jb-claim"><strong>{word(REWARDS_COUNT, { amount: unclaimedCount }) || `${unclaimedCount} rewards`}</strong>
+          {#if unclaimedCount > 1}<button disabled={busy} onclick={() => void claimAll()}>{word(O + "ClaimAll")}</button>{/if}
+        </div>
+      {/if}
+      {#if tab === "browse" && seasonVisible}
+        <button class="jb-season" type="button" style:background-image={`linear-gradient(transparent, #000b), url('${clientTexture("res:/UI/Texture/classes/Opportunities/CH26_Air-Opportunities-Window_700x242.png")}')`}
+          onclick={() => openAgencyGroup(34)}><strong>{word("#1056273")}</strong><span>{word("#1056274")}</span></button>
+      {/if}
       {#if !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length && !shownArcs.length && !shownDungeons.length}
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
@@ -232,6 +246,8 @@
   .jb { position: relative; }
   .jb-notice { color: #d4534f; }
   .jb-empty { display: flex; flex-direction: column; gap: 4px; padding: 16px; border-left: 4px solid var(--theme-focus, #58a6dc); background: rgba(255, 255, 255, 0.04); }
-  .jb-claim { display: flex; justify-content: flex-end; padding-bottom: 8px; }
+  .jb-claim { min-height: 32px; display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; }
+  .jb-season { width: 100%; height: 242px; display: flex; flex-direction: column; align-items: start; justify-content: end; padding: 20px 40px 20px 20px; margin-bottom: 8px; background-size: cover; background-position: center; color: #fff; text-align: left; }
+  .jb-season strong { font-size: 24px; }
   .jb-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 </style>

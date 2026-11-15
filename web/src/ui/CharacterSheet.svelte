@@ -39,6 +39,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import ExpertSystems from "./ExpertSystems.svelte";
+  import CharacterMembership from "./CharacterMembership.svelte";
   import Standings from "./Standings.svelte";
   import { sheetPanelRequest, type SheetPanel } from "./characterSheetPanels.ts";
 
@@ -54,6 +55,7 @@
     "Tooltips/CharacterSheet/Interactions": "Dealings",
     "Tooltips/CharacterSheet/History": "Past",
     "Tooltips/CharacterSheet/HomeStation": "Home",
+    "Tooltips/CharacterSheet/Memberships": "Memberships",
     "Tooltips/CharacterSheet/Augmentations": "Implants",
     "Tooltips/CharacterSheet/Bio": "Bio",
     "Tooltips/CharacterSheet/ExpertSystems": "Expert systems",
@@ -70,7 +72,7 @@
   // svelte-ignore state_referenced_locally
   const opening = panel;
   let sheetTab = $state<SheetTab>(opening === "standings" ? "interactions" : opening === "employment" || opening === "skills" ? "history" : "character");
-  let characterTab = $state<"home" | "implants" | "bio" | "expert">(opening === "implants" || opening === "bio" || opening === "expert" ? opening : "home");
+  let characterTab = $state<"home" | "memberships" | "implants" | "bio" | "expert">(opening === "implants" || opening === "bio" || opening === "expert" || opening === "memberships" ? opening : "home");
   let historyTab = $state<"employment" | "skills">(opening === "skills" ? "skills" : "employment");
   /** _StartLoadingPanel: a panel asked for while the window is open, or as it opens (characterSheetPanels.ts). */
   function loadPanel(panel: SheetPanel): void {
@@ -277,7 +279,7 @@
   </nav>
   {#if sheetTab === "character"}
   <nav class="sheet-tabs sub" aria-label="Character">
-    {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["bio", "Tooltips/CharacterSheet/Bio"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}
+    {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["memberships", "Tooltips/CharacterSheet/Memberships"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["bio", "Tooltips/CharacterSheet/Bio"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}
       <button type="button" class:active={characterTab === id} aria-pressed={characterTab === id} onclick={() => (characterTab = id as typeof characterTab)}>{tabWord(label!)}</button>
     {/each}
   </nav>
@@ -292,6 +294,9 @@
     <p>{resolvedName($names.resolved, "station", $sheet.homeStationID, "Unknown station")}</p>
   {/if}
 
+  {/if}
+  {#if characterTab === "memberships"}
+    <CharacterMembership {store} {flow} />
   {/if}
   {#if characterTab === "bio"}
   <!-- Bio. An empty bio is a real answer, not a failure. -->

@@ -66,9 +66,7 @@
   import OwnerFleetMenu from "./OwnerFleetMenu.svelte";
   import OwnerChatMenu from "./OwnerChatMenu.svelte";
   import OwnerMemberMenu from "./OwnerMemberMenu.svelte";
-  import OwnerQuitMenu from "./OwnerQuitMenu.svelte";
   import OwnerExpelMenu from "./OwnerExpelMenu.svelte";
-  import OwnerCEOMenu from "./OwnerCEOMenu.svelte";
   import OwnerDecorationMenu from "./OwnerDecorationMenu.svelte";
   import OwnerCorporationInviteMenu from "./OwnerCorporationInviteMenu.svelte";
   import OwnerCorporationCashMenu from "./OwnerCorporationCashMenu.svelte";
@@ -2331,9 +2329,7 @@
                       {/if}
                       <OwnerChatMenu {store} {flow} ownerID={owner.id} onDone={fleetDone} />
                       <OwnerMemberMenu {store} {flow} ownerID={owner.id} onDone={fleetDone} />
-                      <OwnerQuitMenu {store} {flow} ownerIDs={[owner.id]} onDone={fleetDone} />
                       <OwnerExpelMenu {store} {flow} ownerIDs={[owner.id]} onDone={fleetDone} />
-                      <OwnerCEOMenu {store} {flow} ownerIDs={[owner.id]} onDone={fleetDone} />
                       <OwnerDecorationMenu {store} {flow} ownerIDs={[owner.id]} onDone={fleetDone} />
                       {#if isCharacterContact(owner.id)}<OwnerCorporationInviteMenu {store} {flow} ownerIDs={[owner.id]} onDone={fleetDone} /><OwnerCorporationCashMenu {store} {flow} ownerIDs={[owner.id]} onDone={fleetDone} />{/if}
                       {#if fleetMenuOffered(owner.id)}
@@ -2542,9 +2538,7 @@
                     {/if}
                     {#if selectedRows.length <= 1}<OwnerChatMenu {store} {flow} ownerID={row.id} onDone={fleetDone} />{/if}
                     {#if selectedRows.length <= 1}<OwnerMemberMenu {store} {flow} ownerID={row.id} onDone={fleetDone} />{/if}
-                    {#if selectedRows.length <= 1}<OwnerQuitMenu {store} {flow} ownerIDs={[row.id]} onDone={fleetDone} />{/if}
                     {#if selectedRows.length <= 1}<OwnerExpelMenu {store} {flow} ownerIDs={[row.id]} onDone={fleetDone} />{/if}
-                    {#if selectedRows.length <= 1}<OwnerCEOMenu {store} {flow} ownerIDs={[row.id]} onDone={fleetDone} />{/if}
                     {#if selectedRows.length <= 1}<OwnerDecorationMenu {store} {flow} ownerIDs={[row.id]} onDone={fleetDone} />{/if}
                     {#if selectedRows.length <= 1 && isCharacterContact(row.id)}<OwnerCorporationInviteMenu {store} {flow} ownerIDs={[row.id]} onDone={fleetDone} /><OwnerCorporationCashMenu {store} {flow} ownerIDs={[row.id]} onDone={fleetDone} />{/if}
                     {#if fleetMenuOffered(row.id)}
