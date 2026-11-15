@@ -98,9 +98,13 @@ const EARLIER_WRITE_METHODS = freezeMethodMap({
   fleetObjectHandler: ["Init"],
 });
 
+const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
+  "JoinFactionAsCorporation", "JoinFactionAsAlliance", "LeaveFactionAsCorporation", "LeaveFactionAsAlliance",
+  "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
+]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
   // facWarSvc and fwEnlistmentSvc send the pilot's own enlistment changes.
-  facWarMgr: ["JoinFactionAsCharacter"],
+  facWarMgr: ["JoinFactionAsCharacter", ...ORGANIZATION_ENLISTMENT_METHODS],
   fwCharacterEnlistmentMgr: ["CreateMyDirectEnlistment", "RemoveMyDirectEnlistment"],
   // Original invCache596-605: local client cache mutation, never a server RPC.
   invCache: ["InvalidateLocationCache"],
@@ -912,6 +916,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  ...ORGANIZATION_ENLISTMENT_METHODS.map(method => `facWarMgr.${method}`),
   "facWarMgr.JoinFactionAsCharacter", "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment", "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
   "charFittingMgr.SaveManyFittings", "corpFittingMgr.SaveManyFittings", "allianceFittingMgr.SaveManyFittings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID",
@@ -1312,6 +1317,7 @@ function pickSafeBrowserSessionFields(sessionFields) {
 }
 
 module.exports = {
+  ORGANIZATION_ENLISTMENT_METHODS,
   BRIDGE_WRITE_PAIR_KEYS,
   EARLIER_WRITE_METHODS,
   EARLIER_WRITE_PAIR_KEYS,

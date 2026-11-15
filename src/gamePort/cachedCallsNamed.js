@@ -30,7 +30,7 @@
 // Not here, each for its reason:
 //
 //   Calls the BFF cannot make. The mailing lists' members (mailingListsSvc.py
-//   100 to 134), the militia's joining and leaving (facWarSvc.py 212 to 269),
+//   100 to 134),
 //   a character's looks (ccSvc.py 115 to 139), the access
 //   groups' (accessGroupsController.py), the development indices' (sovSvc.py
 //   131). A row for a call nothing here makes would be dead.
@@ -74,9 +74,15 @@ function fieldOf(value, name) {
 const KILL_RIGHTS = Object.freeze([["bountyProxy", "GetMyKillRights", []]]);
 const medalsReceived = (args, session) => [["corporationSvc", "GetMedalsReceived", [session.charid]]];
 const RANKS = Object.freeze([["facWarMgr", "GetMyCharacterRankInfo", []], ["facWarMgr", "GetMyCharacterRankOverview", []]]);
+const { ORGANIZATION_ENLISTMENT_METHODS } = require("../bridgeCallPolicy");
+const organizationEnlistmentReads = (_, session) => [
+  ["facWarMgr", "GetCorpFactionalWarStatus", []],
+  ["facWarMgr", "GetCorporationWarFactionID", [session.corpid]],
+];
 
 /** On a notice from the server, by its name: (the notice's arguments, the session's attributes) => the calls named. */
 const NAMED_ON_NOTICE = Object.freeze({
+  OnEnlistmentStateUpdated: organizationEnlistmentReads,
   // marketsvc.py 113, MarketQuote.OnOwnOrdersChanged(orders, reason, isCorp). The plex orders are named once
   // for each order, as the loop there has it.
   OnOwnOrdersChanged: ([orders = null]) => [
@@ -127,6 +133,7 @@ const NAMED_ON_NOTICE = Object.freeze({
 /** Beside one of the client's own calls, once it is done, by the call: (its arguments, the session's attributes, what
  * the call's object was bound by, for a call on a moniker) => the calls named. */
 const NAMED_AFTER_CALL = Object.freeze({
+  ...Object.fromEntries(ORGANIZATION_ENLISTMENT_METHODS.map(method => [`facWarMgr.${method}`, organizationEnlistmentReads])),
   // corp_ui_accounts.py 411, TrashImpoundedItems: the impounded items at the station, named before
   // Moniker('officeManager', stationID).TrashImpoundedOffice(). Here once it is done: a trashing refused changed nothing.
   "officeManager.TrashImpoundedOffice": (args, session, bound) => [["corpmgr", "GetAssetInventoryForLocation", [session.corpid, Array.isArray(bound) ? bound[0] : bound ?? undefined, "impounded"]]],

@@ -1,5 +1,5 @@
 import { exactInt } from "./boundDogma.ts";
-import { isListValue, readDictPairs, readRowsetRows, unwrapLong, type JsonValue } from "./wire.ts";
+import { isListValue, readDictPairs, readKeyVal, readRowsetRows, unwrapLong, type JsonValue } from "./wire.ts";
 
 export const MILITIA_FACTIONS = {
   500003: { corporationID: 1000179, name: "Amarr Empire", banner: "Amarr", logo: "amarr" },
@@ -30,6 +30,42 @@ export interface MilitiaEligibility extends MilitiaAffiliation {
   readonly allowedFactions: readonly MilitiaFactionID[] | null;
   readonly standings: ReadonlyMap<number, number>;
   readonly cooldown: boolean;
+  readonly organization?: MilitiaOrganization;
+}
+
+interface MilitiaOrganization {
+  readonly status: 0 | 1 | 2 | null;
+  readonly factionID: MilitiaFactionID | null;
+  readonly allianceID: number | null;
+  readonly isExecutor: boolean;
+}
+
+export function militiaOrganization(value: JsonValue, allianceID: number | null, isExecutor: boolean): MilitiaOrganization {
+  const status = readKeyVal(value, "status");
+  return { status: status === 0 || status === 1 || status === 2 ? status : null,
+    factionID: militiaFactionID(readKeyVal(value, "factionID")), allianceID, isExecutor };
+}
+
+export const MILITIA_ORGANIZATION_METHODS = {
+  joinCorporation: "JoinFactionAsCorporation", joinAlliance: "JoinFactionAsAlliance",
+  retireCorporation: "LeaveFactionAsCorporation", retireAlliance: "LeaveFactionAsAlliance",
+  withdrawCorporation: "WithdrawJoinFactionAsCorporation", withdrawAlliance: "WithdrawJoinFactionAsAlliance",
+  cancelRetireCorporation: "WithdrawLeaveFactionAsCorporation", cancelRetireAlliance: "WithdrawLeaveFactionAsAlliance",
+} as const;
+export type MilitiaOrganizationAction = keyof typeof MILITIA_ORGANIZATION_METHODS;
+
+export function militiaOrganizationActions(read: MilitiaEligibility, factionID: MilitiaFactionID): readonly MilitiaOrganizationAction[] {
+  const org = read.organization;
+  if (!org) return [];
+  const alliance = org.allianceID !== null;
+  if (org.status === null && read.factionID === null && read.stationFactions.includes(factionID)) {
+    return org.isExecutor ? ["joinCorporation", "joinAlliance"] : ["joinCorporation"];
+  }
+  if (org.factionID !== factionID || (alliance && !org.isExecutor)) return [];
+  if (org.status === 0) return [alliance ? "withdrawAlliance" : "withdrawCorporation"];
+  if (read.factionID !== factionID || read.directFactionID !== null) return [];
+  if (org.status === 1) return [alliance ? "retireAlliance" : "retireCorporation"];
+  return org.status === 2 ? [alliance ? "cancelRetireAlliance" : "cancelRetireCorporation"] : [];
 }
 
 export function militiaFactionID(value: unknown): MilitiaFactionID | null {
@@ -69,8 +105,9 @@ export function militiaCooldown(direct: JsonValue, employment: JsonValue, now: b
   });
 }
 
-export function militiaEnlistmentWarning(read: MilitiaEligibility, factionID: MilitiaFactionID): "enlisted" | "location" | "disallowed" | "standing" | "cooldown" | null {
+export function militiaEnlistmentWarning(read: MilitiaEligibility, factionID: MilitiaFactionID): "enlisted" | "location" | "disallowed" | "standing" | "cooldown" | "pending" | null {
   if (read.factionID !== null) return "enlisted";
+  if (read.corpFactionID !== null) return "pending";
   if (read.allowedFactions !== null && !read.allowedFactions.includes(factionID)) return "disallowed";
   if ((read.standings.get(factionID) ?? 0) < -0.0001) return "standing";
   if (read.cooldown) return "cooldown";

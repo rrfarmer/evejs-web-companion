@@ -960,6 +960,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "fwCharacterEnlistmentMgr.GetMyEnlistment", "fwCharacterEnlistmentMgr.GetMyDirectEnlistmentCooldownTimestamp",
   "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment", "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
   "facWarMgr.JoinFactionAsCharacter", "corporationSvc.GetEmploymentRecord", "corpRegistry.CanBeKickedOut", "corpRegistry.KickOutMember",
+  "facWarMgr.GetCorpFactionalWarStatus", ...require("../bridgeCallPolicy").ORGANIZATION_ENLISTMENT_METHODS.map(method => `facWarMgr.${method}`),
   // The corporation window's Direct Enlistment (corp_ui_direct_enlistment_mgt.WhitelistManagement.ApplyChanges:
   // fwEnlistmentSvc.SetCorpAllowedEnlistmentFactions - SetMyCorpAllowedEnlistmentFactions(allowedFactionIDs)).
   "fwCharacterEnlistmentMgr.SetMyCorpAllowedEnlistmentFactions",
@@ -2470,6 +2471,15 @@ const RETAIL_CALLS = Object.freeze({
   "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment": same("eve/client/script/ui/services/fwEnlistmentSvc.py:94", "Player corporation member's confirmed direct enlistment, with one faction ID."),
   "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment": same("eve/client/script/ui/services/fwEnlistmentSvc.py:100", "Confirmed retirement from the pilot's direct enlistment, with no arguments."),
   "facWarMgr.JoinFactionAsCharacter": same("eve/client/script/ui/services/facWarSvc.py:198", "Confirmed enlistment in an NPC militia, with one faction ID."),
+  "facWarMgr.GetCorpFactionalWarStatus": same("eve/client/script/ui/services/facWarSvc.py:274", "Read the current corporation's pending, active or leaving affiliation with no arguments."),
+  "facWarMgr.JoinFactionAsAlliance": same("eve/client/script/ui/services/facWarSvc.py:224", "Submit the alliance's application for the given faction."),
+  "facWarMgr.JoinFactionAsCorporation": same("eve/client/script/ui/services/facWarSvc.py:239", "Submit the corporation's application for the given faction."),
+  "facWarMgr.LeaveFactionAsAlliance": same("eve/client/script/ui/services/facWarSvc.py:245", "Request alliance retirement from the given faction."),
+  "facWarMgr.LeaveFactionAsCorporation": same("eve/client/script/ui/services/facWarSvc.py:250", "Request corporation retirement from the given faction."),
+  "facWarMgr.WithdrawJoinFactionAsAlliance": same("eve/client/script/ui/services/facWarSvc.py:255", "Withdraw the alliance's pending application."),
+  "facWarMgr.WithdrawJoinFactionAsCorporation": same("eve/client/script/ui/services/facWarSvc.py:260", "Withdraw the corporation's pending application."),
+  "facWarMgr.WithdrawLeaveFactionAsAlliance": same("eve/client/script/ui/services/facWarSvc.py:265", "Withdraw the alliance's pending retirement."),
+  "facWarMgr.WithdrawLeaveFactionAsCorporation": same("eve/client/script/ui/services/facWarSvc.py:270", "Withdraw the corporation's pending retirement."),
   "corporationSvc.GetEmploymentRecord": same("eve/client/script/ui/services/facWarSvc.py:296", "Read the pilot's own employment rows by character ID for the militia cooldown."),
   "corpRegistry.CanBeKickedOut": same(`${CORP_SVC}/base_corporation.py:404`, "Check the pilot's own retirement by character ID on the current corporation moniker."),
   "corpRegistry.KickOutMember": same(`${CORP_SVC}/base_corporation.py:414`, "Retire from the pilot's militia by character ID on the current corporation moniker."),

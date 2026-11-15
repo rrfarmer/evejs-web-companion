@@ -110,12 +110,15 @@ test("a notice the client names nothing on names nothing, and so does a name tha
 test("the notices with a row are the ones read out of the client", () => {
   assert.deepEqual(Object.keys(NAMED_ON_NOTICE).sort(), [
     "OnAssetSafetyCreated", "OnAssetSafetyDelivered", "OnBrowserLockdownChange", "OnCommunityFittingsUpdated", "OnCorporationMedalAdded",
-    "OnEditCalendarEvent", "OnEventResponseByExternal", "OnFlaggedListsChange", "OnKillNotification", "OnKillRightCreated", "OnKillRightForYouSold",
+    "OnEditCalendarEvent", "OnEnlistmentStateUpdated", "OnEventResponseByExternal", "OnFlaggedListsChange", "OnKillNotification", "OnKillRightCreated", "OnKillRightForYouSold",
     "OnKillRightUsed", "OnMedalIssued", "OnMedalStatusChanged", "OnNPCStandingChange", "OnOwnOrdersChanged", "OnStationInformationUpdated",
   ]);
   assert.deepEqual(Object.keys(NAMED_AFTER_CALL).sort(), [
     "bountyProxy.AddToBounty", "bountyProxy.CancelSellKillRight", "bountyProxy.SellKillRight",
-    "calendarMgr.SendEventResponse", "calendarMgr.UpdateEventParticipants", "officeManager.TrashImpoundedOffice", "officeManager.UnrentOffice", "structureAssetSafety.MoveSafetyWrapToStructure",
+    "calendarMgr.SendEventResponse", "calendarMgr.UpdateEventParticipants",
+    "facWarMgr.JoinFactionAsAlliance", "facWarMgr.JoinFactionAsCorporation", "facWarMgr.LeaveFactionAsAlliance", "facWarMgr.LeaveFactionAsCorporation",
+    "facWarMgr.WithdrawJoinFactionAsAlliance", "facWarMgr.WithdrawJoinFactionAsCorporation", "facWarMgr.WithdrawLeaveFactionAsAlliance", "facWarMgr.WithdrawLeaveFactionAsCorporation",
+    "officeManager.TrashImpoundedOffice", "officeManager.UnrentOffice", "structureAssetSafety.MoveSafetyWrapToStructure",
   ]);
 });
 

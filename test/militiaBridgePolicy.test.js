@@ -2,8 +2,9 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { isBridgeWritePair, isPageWritePair, objectOfPageCall } = require("../src/bridgeCallPolicy");
+const { isBridgeWritePair, isPageWritePair, objectOfPageCall, ORGANIZATION_ENLISTMENT_METHODS } = require("../src/bridgeCallPolicy");
 const { GAME_PORT_ONLY_CALLS, madeOnMoniker, retailForm } = require("../src/gamePort/retailCalls");
+const { namedAfterCall, namedOnNotice } = require("../src/gamePort/cachedCallsNamed");
 
 test("personal militia writes require the pilot's confirmation and leave the native calls unchanged", () => {
   for (const [service, method, args] of [
@@ -21,4 +22,16 @@ test("personal militia writes require the pilot's confirmation and leave the nat
   assert.equal(madeOnMoniker("corpRegistry", "KickOutMember"), true);
   assert.equal(madeOnMoniker("corpRegistry", "CanBeKickedOut"), true);
   assert.equal(isBridgeWritePair("fwCharacterEnlistmentMgr", "GetMyEnlistment"), false);
+});
+
+test("organization writes and server updates forget the native militia status cache", () => {
+  const reads = [["facWarMgr", "GetCorpFactionalWarStatus", []], ["facWarMgr", "GetCorporationWarFactionID", [98000000]]];
+  for (const method of ORGANIZATION_ENLISTMENT_METHODS) {
+    assert.equal(isBridgeWritePair("facWarMgr", method), true);
+    assert.equal(isPageWritePair("facWarMgr", method), true);
+    assert.ok(GAME_PORT_ONLY_CALLS.includes(`facWarMgr.${method}`));
+    assert.deepEqual(retailForm("facWarMgr", method, [500001], null).args, [500001]);
+    assert.deepEqual(namedAfterCall("facWarMgr", method, [500001], { corpid: 98000000 }), reads);
+  }
+  assert.deepEqual(namedOnNotice("OnEnlistmentStateUpdated", [], { corpid: 98000000 }), reads);
 });

@@ -229,7 +229,7 @@ import { decodeSkillHistory, decodeSkills } from "../bridge/boundSkills.ts";
 import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
 import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification } from "../bridge/skillNotifications.ts";
 import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
-import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaStationFactions, militiaWarzones, MILITIA_FACTIONS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaSystem } from "../bridge/militiaEnlistment.ts";
+import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem } from "../bridge/militiaEnlistment.ts";
 import { readTrackedMilitiaJob, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
@@ -3870,7 +3870,9 @@ export interface AppFlow {
    */
   insurgencyLocal(): Promise<InsurgencyLocal | null>;
   readMilitiaEnlistment(): Promise<MilitiaEligibility>;
+  readonly militiaEnlistmentChanged: ReadableSignal<number>;
   changeMilitiaEnlistment(characterID: number, factionID: MilitiaFactionID, retire: boolean): Promise<MilitiaAffiliation>;
+  changeMilitiaOrganization(expected: { characterID: number; corporationID: number; allianceID: number | null }, factionID: MilitiaFactionID, action: MilitiaOrganizationAction): Promise<void>;
   nearestMilitiaOffice(factionID: MilitiaFactionID, fallbackToLightYears?: boolean): Promise<MilitiaOffice | null>;
   theatersWarzones(): Promise<ReadonlyMap<number, readonly MilitiaSystem[]>>;
   theatersInsurgencies(): Promise<MilitiaInsurgency[]>;
@@ -7368,7 +7370,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         void loadSafetyDeliveries().catch(() => {});
       }
     }
-    if (method === "OnEnlistmentStateUpdated") untrackMilitiaJob(store.station.get().online?.characterID ?? null);
+    if (method === "OnEnlistmentStateUpdated") {
+      untrackMilitiaJob(store.station.get().online?.characterID ?? null);
+      militiaEnlistmentChanged.set(militiaEnlistmentChanged.get() + 1);
+    }
     // invCache.ProcessSessionChange143-170: these place changes invalidate
     // cached parent inventories as well as any read still coming from them.
     if (sessionNames?.some(name => name === "stationid" || name === "structureid" || name === "solarsystemid")) {
@@ -21144,18 +21149,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { ...base, corruptionStages: stages(cStages), suppressionStages: stages(sStages), corruption: info(cInfo), suppression: info(sInfo) };
   }
   const FW_ENLISTMENT = "fwCharacterEnlistmentMgr";
+  const militiaEnlistmentChanged = createSignal(0);
   async function readMilitiaEnlistment(): Promise<MilitiaEligibility> {
     const pilot = store.station.get().online;
     if (!pilot?.corporationID) throw new Error("Select a pilot to view enlistment.");
     const { characterID, corporationID, stationID, solarSystemID } = pilot;
     const npc = isNpcOwnerCorporation(corporationID);
-    const [factions, cooldown, employment, standings, allowed, places] = await Promise.all([
+    const director = !npc && (BigInt(pilot.corpRole ?? "0") & 1n) === 1n;
+    const allianceID = pilot.allianceID ?? null;
+    const [factions, cooldown, employment, standings, allowed, places, organization, alliance] = await Promise.all([
       bridgeAsk(FW_ENLISTMENT, "GetMyEnlistment", []),
       bridgeAsk(FW_ENLISTMENT, "GetMyDirectEnlistmentCooldownTimestamp", []),
       bridgeAsk("corporationSvc", "GetEmploymentRecord", [characterID]),
       bridgeAsk("standingMgr", "GetCharStandings", []),
       npc ? Promise.resolve(null) : bridgeAsk(FW_ENLISTMENT, "GetCorpAllowedEnlistmentFactions", [corporationID]),
       stationID ? (agentPlacesHeld ?? api.loadAgentPlaces(callOptions)) : null,
+      director ? bridgeAsk("facWarMgr", "GetCorpFactionalWarStatus", []) : null,
+      director && allianceID ? bridgeAsk("allianceRegistry", "GetAlliance", [allianceID]) : null,
     ]);
     agentPlacesHeld ??= places;
     const owner = stationID ? places?.stations[stationID]?.[1] ?? null : null;
@@ -21166,6 +21176,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       stationFactions: militiaStationFactions(stationID, solarSystemID, ownerFaction),
       standings: new Map(decodeCharStandings(standings).map((row) => [row.fromID, row.standing])),
       cooldown: militiaCooldown(cooldown, employment, filetimeOf(Date.now() + (serverClockAheadMs ?? 0))),
+      organization: director ? militiaOrganization(organization, allianceID, decodeAllianceInfo(alliance)?.executorCorpID === corporationID) : undefined,
     };
   }
 
@@ -21194,6 +21205,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       await (npc ? bridgeDo("facWarMgr", "JoinFactionAsCharacter", [factionID]) : bridgeDo(FW_ENLISTMENT, "CreateMyDirectEnlistment", [factionID]));
     }
     return militiaAffiliation(await bridgeAsk(FW_ENLISTMENT, "GetMyEnlistment", []));
+  }
+
+  async function changeMilitiaOrganization(expected: { characterID: number; corporationID: number; allianceID: number | null }, factionID: MilitiaFactionID, action: MilitiaOrganizationAction): Promise<void> {
+    const stationID = store.station.get().online?.stationID;
+    const read = await readMilitiaEnlistment();
+    const current = store.station.get().online;
+    if (read.characterID !== expected.characterID || read.corporationID !== expected.corporationID ||
+        current?.characterID !== expected.characterID || current.corporationID !== expected.corporationID ||
+        (current.allianceID ?? null) !== expected.allianceID || current.stationID !== stationID ||
+        !militiaOrganizationActions(read, factionID).includes(action)) {
+      throw new Error("The pilot's enlistment or organization changed. Check the current status.");
+    }
+    await bridgeDo("facWarMgr", MILITIA_ORGANIZATION_METHODS[action], [factionID]);
   }
 
   let trackedOffice: { readonly key: string; readonly office: MilitiaOffice } | null = null;
@@ -34886,7 +34910,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     factionWarfareLocal,
     insurgencyLocal,
     readMilitiaEnlistment,
+    militiaEnlistmentChanged: readonlySignal(militiaEnlistmentChanged),
     changeMilitiaEnlistment,
+    changeMilitiaOrganization,
     nearestMilitiaOffice,
     theatersWarzones,
     theatersInsurgencies,

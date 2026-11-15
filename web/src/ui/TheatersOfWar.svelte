@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { afterMilitiaEnlistment, EMPIRE_MILITIAS, MILITIA_FACTIONS, militiaEnlistmentWarning, militiaFactionID, militiaIsPirate, PIRATE_MILITIAS, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaSystem, type TheatersPage } from "../bridge/militiaEnlistment.ts";
+  import { afterMilitiaEnlistment, EMPIRE_MILITIAS, MILITIA_FACTIONS, militiaEnlistmentWarning, militiaFactionID, militiaIsPirate, militiaOrganizationActions, PIRATE_MILITIAS, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type TheatersPage } from "../bridge/militiaEnlistment.ts";
   import { clientTexture } from "../play/window.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -15,6 +15,8 @@
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  // svelte-ignore state_referenced_locally
+  const enlistmentChanged = flow.militiaEnlistmentChanged;
   const TOW = "UI/TheatersOfWar/", FW = "UI/FactionWarfare/", E = `${FW}Enlistment/`;
   const art = (asset: string) => clientTexture(`res:/UI/Texture/Classes/Enlistment/${asset}.png`);
   const panels = [
@@ -33,7 +35,18 @@
     disallowed: "Your corporation does not allow direct enlistment with this faction.",
     standing: "Your standing with this faction is too low to enlist.",
     cooldown: "Your militia enlistment cooldown is still active.",
+    pending: "Your organization has a pending enlistment application.",
   } as const;
+  const orgLabels: Record<MilitiaOrganizationAction, readonly [string, string, string, string]> = {
+    joinCorporation: ["EnlistCorporation", "Enlist Corporation", "JoinConfirmationHeader", "JoinConfirmationQuestionCorp"],
+    joinAlliance: ["EnlistAlliance", "Enlist Alliance", "JoinConfirmationHeader", "JoinConfirmationQuestionAlliance"],
+    retireCorporation: ["RetireCorporation", "Retire Corporation", "ConfirmRetireHeader", "ConfirmRetire"],
+    retireAlliance: ["RetireAlliance", "Retire Alliance", "ConfirmRetireHeader", "ConfirmRetire"],
+    withdrawCorporation: ["WithdrawApplication", "Withdraw Application", "ConfirmCancelApplicationHeader", "ConfirmCancelApplicationAlliance"],
+    withdrawAlliance: ["WithdrawApplication", "Withdraw Application", "ConfirmCancelApplicationHeader", "ConfirmCancelApplicationAlliance"],
+    cancelRetireCorporation: ["CancelRetirement", "Cancel Retirement", "ConfirmCancelRetirementHeader", "ConfirmCancelRetirement"],
+    cancelRetireAlliance: ["CancelRetirement", "Cancel Retirement", "ConfirmCancelRetirementHeader", "ConfirmCancelRetirement"],
+  };
   type Side = "empire" | "pirates";
   let page = $state<TheatersPage>("overview");
   let side = $state<Side | null>(null);
@@ -48,12 +61,15 @@
   let actionError = $state("");
   let writing = $state(false);
   let revision = $state(0);
-  let question = $state<{ id: MilitiaFactionID; characterID: number; retire: boolean; direct: boolean } | null>(null);
+  let question = $state<{ id: MilitiaFactionID; characterID: number; retire: boolean; direct: boolean;
+    organization?: { action: MilitiaOrganizationAction; corporationID: number; allianceID: number | null } } | null>(null);
+  const orgQuestion = $derived(question?.organization ? orgLabels[question.organization.action] : null);
   let faction = $derived(selected === null ? null : MILITIA_FACTIONS[selected]);
   let enlisted = $derived(militiaFactionID($station.online?.warFactionID) ?? eligibility?.factionID ?? null);
   let sameFaction = $derived(selected !== null && eligibility?.factionID === selected);
   let canRetire = $derived(sameFaction && (eligibility?.directFactionID === selected || eligibility?.corporationID === faction?.corporationID));
   let warning = $derived(eligibility && selected !== null && !sameFaction ? militiaEnlistmentWarning(eligibility, selected) : null);
+  const orgActions = $derived(eligibility && selected !== null ? militiaOrganizationActions(eligibility, selected) : []);
   const tracked = $derived.by(() => { void $trackedJobsChanged; return trackedMilitiaJob($station.online?.characterID ?? null); });
 
   function say(label: string, fallback: string, values: Record<string, string> = {}): string {
@@ -82,6 +98,8 @@
       FW + "ConfirmRetireHeader", FW + "ConfirmRetire", "UI/Common/Buttons/Yes", "UI/Common/Buttons/No",
       ...["ChooseYourSide", "FrontpageEmpires", "FrontpagePirates", "FactionalWarfareHeader", "PiratesHeader", "ClickOnEmpireFaction", "ClickOnPirateFaction", "InitiateEnlistment"].map((label) => E + label),
       "UI/Agency/FactionWarfare/nearestMilitiaOffice",
+      E + "WarningPendingSameFactionLong", E + "WarningPendingAnotherFactionLong",
+      ...Object.values(orgLabels).flatMap(([button, , header, body]) => [button, header, body].map((label) => FW + label)),
     ]);
     flow.requestNames(Object.keys(MILITIA_FACTIONS).map((id) => ({ kind: "owner", id: Number(id) })));
   });
@@ -93,6 +111,7 @@
     const online = $station.online;
     const visiblePage = page;
     const version = revision;
+    void $enlistmentChanged;
     if (!online || (visiblePage !== "overview" && visiblePage !== "enlistment")) return;
     let current = true;
     eligibility = null;
@@ -100,9 +119,10 @@
     void flow.readMilitiaEnlistment().then((data) => {
       if (!current || version !== revision) return;
       eligibility = data;
-      if (visiblePage === "enlistment" && data.factionID && side === null) {
-        side = militiaIsPirate(data.factionID) ? "pirates" : "empire";
-        selected = data.factionID;
+      const affiliation = data.factionID ?? data.corpFactionID;
+      if (visiblePage === "enlistment" && affiliation && side === null) {
+        side = militiaIsPirate(affiliation) ? "pirates" : "empire";
+        selected = affiliation;
       }
     }, (error: unknown) => {
       if (current) readError = error instanceof Error ? error.message : String(error);
@@ -136,6 +156,11 @@
     if (!eligibility || selected === null) return;
     question = { id: selected, characterID: eligibility.characterID, retire, direct: eligibility.allowedFactions !== null };
   }
+  function askOrganization(action: MilitiaOrganizationAction) {
+    if (!eligibility?.organization || selected === null) return;
+    question = { id: selected, characterID: eligibility.characterID, retire: false, direct: false,
+      organization: { action, corporationID: eligibility.corporationID, allianceID: eligibility.organization.allianceID } };
+  }
   function initiate() {
     if (!eligibility || selected === null || warning !== "location" || selected === tracked) return;
     actionError = "";
@@ -150,6 +175,11 @@
     actionError = "";
     const previous = eligibility?.factionID ?? null;
     try {
+      if (asked.organization) {
+        const { action, corporationID, allianceID } = asked.organization;
+        await flow.changeMilitiaOrganization({ characterID: asked.characterID, corporationID, allianceID }, asked.id, action);
+        return;
+      }
       const next = await flow.changeMilitiaEnlistment(asked.characterID, asked.id, asked.retire);
       if (store.station.get().online?.characterID !== asked.characterID) return;
       if (asked.retire ? next.factionID === asked.id : next.factionID !== asked.id) throw new Error("The server did not confirm the change in militia affiliation.");
@@ -267,7 +297,7 @@
               {#if canRetire}<button type="button" disabled={writing} onclick={() => ask(true)}>{say(FW + "Retire", "Retire")}</button>
               {:else}<p>{say(TOW + "PersonalEnlistedWith", `Enlisted with ${factionName(selected)}`, { factionName: factionName(selected) })}</p>{/if}
             {:else if warning}
-              <p role="status">{warnings[warning]}</p>
+              <p role="status">{warning === "pending" ? say(E + (eligibility.corpFactionID === selected ? "WarningPendingSameFactionLong" : "WarningPendingAnotherFactionLong"), warnings.pending) : warnings[warning]}</p>
               {#if warning === "location"}
                 <button type="button" disabled={selected === tracked || writing} onclick={initiate}>
                   {say(E + "InitiateEnlistment", "Initiate Enlistment")}
@@ -279,6 +309,9 @@
             {:else}
               <button type="button" class="accent" disabled={writing} onclick={() => ask(false)}>{say(FW + "EnlistMe", "Enlist Me")}</button>
             {/if}
+            {#each orgActions as action (action)}
+              <button class="organization-action" type="button" disabled={writing} onclick={() => askOrganization(action)}>{say(FW + orgLabels[action][0], orgLabels[action][1])}</button>
+            {/each}
             {#if actionError}<p role="alert">{actionError}</p>{/if}
           </article>
         {:else}<p>{side === "empire" ? say(E + "ClickOnEmpireFaction", "Select an empire") : say(E + "ClickOnPirateFaction", "Select a pirate faction")}</p>{/if}
@@ -288,8 +321,8 @@
   {#if question}
     <div class="question-backdrop">
       <div class="question" role="alertdialog" aria-modal="true" aria-labelledby="militia-question-title">
-        <h2 id="militia-question-title">{question.retire ? say(FW + "ConfirmRetireHeader", "Retire from militia") : say(FW + "JoinConfirmationHeader", "Confirm Enlistment")}</h2>
-        <p>{question.retire
+        <h2 id="militia-question-title">{orgQuestion ? say(FW + orgQuestion[2], orgQuestion[1]) : question.retire ? say(FW + "ConfirmRetireHeader", "Retire from militia") : say(FW + "JoinConfirmationHeader", "Confirm Enlistment")}</h2>
+        <p>{orgQuestion ? say(FW + orgQuestion[3], `${orgQuestion[1]} for ${factionName(question.id)}?`, { factionName: factionName(question.id) }) : question.retire
           ? say(FW + "ConfirmRetire", `Retire from ${factionName(question.id)}?`, { factionName: factionName(question.id) })
           : question.direct ? say(FW + "JoinConfirmationQuestionDirectEnlistment", `Enlist directly with ${factionName(question.id)}?`, { factionName: factionName(question.id) })
           : say(FW + "JoinConfirmationQuestionPlayer", `Join the militia for ${factionName(question.id)}?`, { factionName: factionName(question.id) })}</p>
@@ -329,6 +362,7 @@
   .enlist { min-height: 210px; padding: 26px 16px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: linear-gradient(#080a0da0, #080a0dec), var(--banner) center / cover, #20282b; }
   p { margin: 4px 0 10px; line-height: 1.45; }
   .accent { border-color: #8bb4bd; background: #48778240; }
+  .organization-action { margin-top: 6px; }
   table { width: 100%; border-collapse: collapse; text-align: start; }
   th, td { border-bottom: 1px solid #ffffff1d; padding: 8px; text-align: start; }
   .question-backdrop { position: absolute; z-index: 2; inset: 0; display: grid; place-items: center; background: #0009; padding: 12px; }
