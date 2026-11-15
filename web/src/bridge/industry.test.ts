@@ -40,6 +40,7 @@ import {
   isActiveJob,
   jobAsChosen,
   jobCannotBeAsked,
+  matchesIndustryFilter,
   mostRunsToAsk,
   previewMaterials,
   previewTimeSeconds,
@@ -48,6 +49,14 @@ import {
   secondsUntil,
 } from "./industry.ts";
 import type { JsonValue } from "./wire.ts";
+
+test("Industry filters match an exact blueprint item ID or the joined retail row text", () => {
+  const fields = ["Antimatter Charge S Blueprint", "Jita IV", "Test Pilot"];
+  assert.equal(matchesIndustryFilter(" +07100000001 ", 7_100_000_001, fields), true);
+  assert.equal(matchesIndustryFilter("710000000", 7_100_000_001, fields), false);
+  assert.equal(matchesIndustryFilter("7100000001", 7_100_000_002, fields), false);
+  assert.equal(matchesIndustryFilter(" blueprintjita ivtest ", 7_100_000_001, fields), true);
+});
 
 // --- fixtures ---------------------------------------------------------------
 

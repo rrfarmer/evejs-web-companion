@@ -680,7 +680,13 @@
   let bpFilter = $state("");
   $effect(() => {
     if (!retail || browserTab !== "blueprints") return;
-    const refs = $industry.blueprints.flatMap((b) => [{ kind: "type" as const, id: b.typeID }, { kind: "typeGroup" as const, id: b.typeID }]);
+    const refs = $industry.blueprints.flatMap(b => {
+      const product = $industry.definitions[b.typeID]?.productTypeID;
+      return [
+        { kind: "type" as const, id: b.typeID },
+        ...(product ? [{ kind: "typeGroup" as const, id: product }, { kind: "typeCategory" as const, id: product }] : []),
+      ];
+    });
     if (refs.length) flow.requestNames(refs);
   });
   const bpFacilityCounts = $derived.by(() => {
@@ -693,11 +699,13 @@
     return $industry.blueprints.filter((b) => {
       if (bpFacility !== null && b.facilityID !== bpFacility) return false;
       if (bpKind !== "all" && b.original !== (bpKind === "original")) return false;
+      const product = $industry.definitions[b.typeID]?.productTypeID;
       if (q && !matchesIndustryFilter(q, b.itemID, [
         typeName(b.typeID),
         b.facilityID === null ? "" : facilityName(b.facilityID),
         resolvedName($names.resolved, "station", b.locationID, ""),
-        resolvedName($names.resolved, "typeGroup", b.typeID, ""),
+        product ? resolvedName($names.resolved, "typeGroup", product, "") : "",
+        product ? resolvedName($names.resolved, "typeCategory", product, "") : "",
       ])) return false;
       return true;
     }).sort((x, y) => typeName(x.typeID).localeCompare(typeName(y.typeID)));
@@ -1391,6 +1399,7 @@
         <tbody>
           {#each shownBlueprints as b (b.itemID)}
             {@const acts = blueprintActivities(b)}
+            {@const product = $industry.definitions[b.typeID]?.productTypeID}
             <tr class={b.jobID !== null ? "ind-busy" : ""} ondblclick={() => { if (b.jobID === null) chooseBlueprint(b); }}>
               <td><span class="ind-bp-name"><TypeIcon typeID={b.typeID} name={typeName(b.typeID)} />{typeName(b.typeID)}</span></td>
               <td><span class="ind-gauge" title={`${b.materialEfficiency}`}><span style={`width: ${b.materialEfficiency * 10}%`}></span></span> {b.materialEfficiency}</td>
@@ -1405,7 +1414,7 @@
                 {/each}
               </td>
               {#if bpFacility === null}<td class="r">—</td><td>{b.facilityID !== null ? facilityName(b.facilityID) : "—"}</td>{/if}
-              <td>{resolvedName($names.resolved, "typeGroup", b.typeID, "")}</td>
+              <td>{product ? resolvedName($names.resolved, "typeGroup", product, "") : ""}</td>
               <td>{b.jobID !== null ? "In use" : ""}</td>
             </tr>
           {:else}

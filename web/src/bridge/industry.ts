@@ -883,10 +883,10 @@ export function secondsUntil(endDate: bigint | null, nowMs: number): number | nu
   const nowSeconds = BigInt(Math.floor(nowMs / 1000));
   return Number(endUnixSeconds - nowSeconds);
 }
-/** MatchesItemID in 24.02 Industry: an exact instance ID, or the ordinary text filter. */
+/** BrowserBlueprints and BrowserJobs match an exact item ID or scan the concatenated names. */
 export function matchesIndustryFilter(query: string, itemID: number, fields: readonly string[]): boolean {
   const text = query.trim().toLowerCase();
   if (!text) return true;
   if (itemID > 0 && /^\+?\d+$/.test(text) && Number(text) === itemID) return true;
-  return fields.some(field => field.toLowerCase().includes(text));
+  return fields.join("").toLowerCase().includes(text);
 }
