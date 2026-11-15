@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 469,
-    "sha256": "31e232e3bd71ad137b5b9b6cf9119abdb9654b261c6a37aa5d4d17bc48e72f29",
+    "count": 470,
+    "sha256": "13ee5d96bebfc1dd328a0dc85308cffc29e43c2f5a6f193a76be728dbc1258e0",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -747,6 +747,7 @@
       "abyssalMgr.AbyssalEntranceGateActivation",
       "abyssalMgr.AbyssalGateActivation",
       "abyssalMgr.ClientIsReady",
+      "academy_ship.borrow_academy_ship",
       "accessGroupBookmarkMgr.AddFolder",
       "accessGroupBookmarkMgr.AddToKnownFolders",
       "accessGroupBookmarkMgr.BookmarkStaticLocation",
@@ -1214,6 +1215,7 @@
       "abyssalMgr.AbyssalEntranceDeployment",
       "abyssalMgr.AbyssalEntranceGateActivation",
       "abyssalMgr.AbyssalGateActivation",
+      "academy_ship.borrow_academy_ship",
       "accessGroupBookmarkMgr.AddFolder",
       "accessGroupBookmarkMgr.AddToKnownFolders",
       "accessGroupBookmarkMgr.BookmarkStaticLocation",

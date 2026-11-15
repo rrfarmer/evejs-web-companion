@@ -1250,6 +1250,14 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Signal Tracker registration takes no arguments." });
     return;
   }
+  const academyBorrow = body.service === "academy_ship" && body.method === "borrow_academy_ship";
+  const academyRead = (body.service === "academy_ship" && body.method === "get_academy_ship_state")
+    || (body.service === "air_npe" && ["get_air_npe_state", "get_air_npe_checkpoint_for_player"].includes(body.method));
+  if ((academyBorrow || academyRead) && (!Array.isArray(body.args) || body.kwargs != null
+      || (academyBorrow ? body.args.length !== 1 || strictPositiveID(body.args[0]) === null : body.args.length !== 0))) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The Academy call does not use those arguments." });
+    return;
+  }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,
   // which that gate lets through, is CmdStop. So was every change of place the page makes (the undock, a flight
@@ -14197,6 +14205,41 @@ function eveiconTexture(iconID, size = 16) {
   }
   return eveiconIndex.get(`${iconID}:${size}`) ?? null;
 }
+
+// academyships/common/{data,fit_layout,identity}. The offer IDs are keys into the installed fittings table.
+app.get("/api/client-data/academy-ships", requireAuth, async (req, res, next) => {
+  try {
+    const offers = await clientBuiltData.table("academyShips");
+    if (!offers) return res.json({ ok: true, academy: null });
+    const fittings = await clientBuiltData.rows("fittings", Object.keys(offers).map(Number));
+    if (!fittings || Object.keys(offers).some(id => !fittings[id]?.shipTypeID)) {
+      return res.json({ ok: true, academy: null });
+    }
+    const typeIDs = [...new Set(Object.values(fittings).flatMap(fit =>
+      [fit.shipTypeID, ...fit.modules.map(item => item.typeID), ...fit.cargo.map(item => item.typeID)]))];
+    const [types, dogma, groupCategories] = await Promise.all([
+      clientBuiltData.rows("types", typeIDs),
+      clientBuiltData.rows("typeDogma", typeIDs),
+      clientBuiltData.table("groupCategories"),
+    ]);
+    if (!types || !dogma || !groupCategories) return res.json({ ok: true, academy: null });
+    const facts = Object.fromEntries(typeIDs.map(id => [id, {
+      factionID: types[id]?.factionID ?? null,
+      categoryID: groupCategories[types[id]?.groupID] ?? null,
+      effects: (dogma[id]?.dogmaEffects ?? []).map(effect => effect.effectID),
+      standardTypeID: dogma[id]?.dogmaAttributes?.find(attribute => attribute.attributeID === 6326)?.value ?? id,
+    }]));
+    res.json({ ok: true, academy: {
+      offers: Object.entries(offers).map(([id, offer]) => {
+        const { shipTypeID, nameID, modules, cargo } = fittings[id];
+        return { fittingID: Number(id), shipTypeID, nameID, ...offer, modules, cargo };
+      }),
+      facts,
+    } });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Dungeons as the client's built data has them (evedungeons/client/data GetDungeon): name, description, gameplay
 // description, archetype (its title and description, evearchetypes), faction, difficulty, entry type, and the content

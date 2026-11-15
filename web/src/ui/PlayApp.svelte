@@ -24,6 +24,7 @@
   import { StarMap } from "../play/starMap.ts";
   import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
+  import { ACADEMY_BUTTON, ACADEMY_TITLE } from "../bridge/academyShips.ts";
   import { FittingShipScene } from "../play/fittingScene.ts";
   import { setContext } from "svelte";
   // The app panels in this page's windows draw as the client's where they know how (Fitting.svelte's ring).
@@ -155,6 +156,29 @@
     }
   });
   const docked = $derived(stage === "game" && session ? deriveDocked($flight?.status ?? null, $station?.online ?? null) : true);
+  const academyStationID = $derived(sessionPlace($flight?.status ?? null, $station?.online ?? null).stationID);
+  const academySystemID = $derived(sessionPlace($flight?.status ?? null, $station?.online ?? null).solarSystemID);
+  const academyChanged = $derived(session?.flow.academyChanged);
+  const academyWords = $derived(session?.store.words);
+  const academyLabel = $derived(plainText($academyWords?.templates[ACADEMY_BUTTON] ?? "Academy Ship Service"));
+  let academyAccess = $state<"hidden" | "locked" | "available">("hidden");
+  $effect(() => {
+    const s = session;
+    const stationID = academyStationID, systemID = academySystemID;
+    void $academyChanged;
+    if (!s || !docked || stationID === null || systemID === null) {
+      academyAccess = "hidden";
+      if (s && untrack(() => wins.some(win => win.id === "academyShips"))) wins = closeWindow(untrack(() => wins), "academyShips");
+      return;
+    }
+    let current = true;
+    void s.flow.academyAvailability(stationID, systemID).then(access => {
+      if (!current) return;
+      academyAccess = access;
+      if (access !== "available") wins = closeWindow(wins, "academyShips");
+    }).catch(() => { if (current) academyAccess = "hidden"; });
+    return () => { current = false; };
+  });
 
   // The music as the client's Master Music Graph (805) runs it, one subgraph at a time (exclusive "music_system":
   // the one stopping sends its stop): at login and character selection 806 (music_login_play / _stop), in the hangar
@@ -426,6 +450,7 @@
     fleetComposition: { w: 680, h: 420 },
     memberDetails: { w: 420, h: 480 },
     theatersOfWar: { w: 1600, h: 880 },
+    academyShips: { w: 1280, h: 688 },
   };
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
@@ -542,12 +567,13 @@
     fleetComposition: "UI/Fleet/FleetComposition/FleetComposition",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
     theatersOfWar: "UI/TheatersOfWar/TheatersOfWarCaption",
+    academyShips: ACADEMY_TITLE,
   };
   let captions = $state<Partial<Record<TabID, string>>>({});
   $effect(() => {
     if (!session) return;
     const s = session;
-    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS]);
+    s.flow.requestWords([...Object.values(CAPTION_LABELS) as string[], ...DSCAN_WORDS, ...COMBAT_WORDS, ACADEMY_BUTTON]);
     return s.store.words.subscribe((w) => {
       const next: Partial<Record<TabID, string>> = {};
       for (const [tab, label] of Object.entries(CAPTION_LABELS) as [TabID, string][]) {
@@ -1207,6 +1233,12 @@
           <div class="station-name">{$station?.station?.stationName ?? "Station"}</div>
           <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
           <button class="undock" disabled={undockPending} onclick={undock}>Undock</button>
+          {#if academyAccess !== "hidden"}
+            <button class="academy-service" disabled={academyAccess === "locked"}
+              onclick={() => wins.some(win => win.id === "academyShips") ? wins = closeWindow(wins, "academyShips") : open("academyShips")}>
+              {academyLabel}
+            </button>
+          {/if}
           {#if error}<div class="error lobby-error">{error}</div>{/if}
           <div class="lobby-services">
             {#each LOBBY_SERVICES as svc (svc.label)}
@@ -2095,6 +2127,10 @@
   .lobby-sec { color: #5fd38c; }
   .lobby-body .undock { position: static; display: block; width: 100%; margin: 12px 0 10px; }
   .lobby-error { position: static; margin: 0 0 8px; }
+  .academy-service { width: 100%; margin-bottom: 10px; padding: 7px; border: 1px solid #6b939e;
+    border-radius: 0 0 8px 8px; background: #13282f; color: #d5eef2; cursor: pointer; }
+  .academy-service:hover:enabled { background: #26434b; }
+  .academy-service:disabled { opacity: 0.5; cursor: default; }
   .lobby-services { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .lobby-svc { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08); color: #c8ccc8; font: 11px/1.2 var(--font); cursor: pointer; }

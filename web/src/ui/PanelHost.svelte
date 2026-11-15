@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AcademyShips from "./AcademyShips.svelte";
   // The main-area host for a SELECTED tab — static (a Neocom pick) or
   // state-specific (a shell control). One place the tab -> real component
   // mapping lives, so App and both shells stay thin routers. Every panel here is
@@ -145,6 +146,8 @@
   <ProvisioningPanel {store} {flow} />
 {:else if tab === "industry"}
   <Industry {store} {flow} />
+{:else if tab === "academyShips"}
+  <AcademyShips {store} {flow} />
 {:else if tab === "market"}
   <Market {store} {flow} />
 {:else if tab === "activity"}

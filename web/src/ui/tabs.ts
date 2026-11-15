@@ -27,6 +27,7 @@ export type CoreTabID =
   | "inventory"
   | "market"
   | "industry"
+  | "academyShips"
   | "contracts"
   | "assets"
   | "compare"
@@ -112,6 +113,7 @@ export interface CoreTabDef extends TabDef {
 // ⚠ THE TAB TABLE — the one place tab visibility is decided. Render order is the
 // order of this list (state-specific tabs first, then the shared ones).
 export const TABS: readonly CoreTabDef[] = [
+  { id: "academyShips", label: "Academy Ships", where: "docked", launchable: false },
   { id: "provisioning", label: "Ready Fit", where: "both" },
   // The Fitting window opens in space as well as docked, as the client's does
   // (eveCommands._OpenNewFittingWnd: `session.stationid is None or

@@ -48,6 +48,8 @@ const TABLES = Object.freeze({
   // evedungeons/client/data GetDungeon: a dungeon's name, description, gameplay description, archetype, faction,
   // difficulty, entry type, content tags. Read by the dungeons asked.
   dungeons: Object.freeze({ loader: "dungeonsLoader", resource: "res:/staticdata/dungeons.fsdbinary", rowsOnly: true }),
+  academyShips: Object.freeze({ loader: "academyShipLoader", resource: "res:/staticdata/academyship.fsdbinary" }),
+  fittings: Object.freeze({ loader: "fittingsLoader", resource: "res:/staticdata/fittings.fsdbinary", rowsOnly: true }),
   // An NPC corporation's own record: the client takes an agent's faction from its corporation's (npcs/npccorporations.py).
   npcCorporations: Object.freeze({ loader: "npcCorporationsLoader", resource: "res:/staticdata/npccorporations.fsdbinary" }),
   // The Agency's help videos (fsdBuiltData/client/agency): each video's name and description messages and its path; the

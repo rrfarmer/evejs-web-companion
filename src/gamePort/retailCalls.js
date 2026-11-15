@@ -667,6 +667,8 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "academy_ship.get_academy_ship_state", "academy_ship.borrow_academy_ship",
+  "air_npe.get_air_npe_state", "air_npe.get_air_npe_checkpoint_for_player",
   "structureAssetSafety.GetDefaultAssetSafetyDestination",
   "invCache.FetchItem",
   "invCache.InvalidateLocationCache",
@@ -2150,6 +2152,10 @@ function scanProbes(given) {
 }
 
 const RETAIL_CALLS = Object.freeze({
+  "academy_ship.get_academy_ship_state": same("academyships/client/repository.py", "get_academy_ship_state()"),
+  "academy_ship.borrow_academy_ship": same("academyships/client/repository.py", "borrow_academy_ship(fittingID)"),
+  "air_npe.get_air_npe_state": same("storylines/client/airnpe.py", "Get the active pilot's AIR tutorial state"),
+  "air_npe.get_air_npe_checkpoint_for_player": same("storylines/client/airnpe.py", "Get the active pilot's AIR tutorial checkpoint"),
   // ── character selection (made by the transport itself) ────────────────────
   "charUnboundMgr.GetCharacterSelectionData": same(`${CHAR_SELECT}`, "no arguments"),
   "charUnboundMgr.GetCharacterLockType": same(`${CHAR_SELECT}:695`, "GetCharacterLockType(charID)"),

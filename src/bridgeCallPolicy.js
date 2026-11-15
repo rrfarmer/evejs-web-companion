@@ -103,6 +103,7 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  academy_ship: ["borrow_academy_ship"],
   // Only the camera event route builds the full tracker dictionaries from the held pilot's state.
   monolithTaskTrackerMgr: ["UpdateClientAchievmentsAndCounters"],
   // facWarSvc and fwEnlistmentSvc send the pilot's own enlistment changes.
@@ -918,6 +919,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "academy_ship.borrow_academy_ship",
   ...ORGANIZATION_ENLISTMENT_METHODS.map(method => `facWarMgr.${method}`),
   "facWarMgr.JoinFactionAsCharacter", "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment", "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
   "charFittingMgr.SaveManyFittings", "corpFittingMgr.SaveManyFittings", "allianceFittingMgr.SaveManyFittings",

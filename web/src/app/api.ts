@@ -8,6 +8,7 @@
 
 import { BridgeCallError, callMethod, refusalOfBody } from "../bridge/callMethod.ts";
 import type { Ask } from "../bridge/ask.ts";
+import type { AcademyCatalogue } from "../bridge/academyShips.ts";
 import type { AchievementCatalogue } from "../bridge/achievements.ts";
 import type { CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import type { CorporationRoleData, CorporationRoleGroupSpec } from "../bridge/corporationRoles.ts";
@@ -4091,6 +4092,12 @@ export async function getShipTraits(
     if (Number.isSafeInteger(unitID) && unitID > 0) unitNameIDs[unitID] = orNull(value);
   }
   return { available: data.available === true, traits, unitNameIDs };
+}
+
+/** The installed client's Academy offers, fittings and dogma facts. */
+export async function getAcademyCatalogue(options: ApiOptions = {}): Promise<AcademyCatalogue | null> {
+  const data = await getJson("/api/client-data/academy-ships", options);
+  return (data.academy ?? null) as unknown as AcademyCatalogue | null;
 }
 
 /**

@@ -20,7 +20,7 @@ import { CARGO_HOLD, SHIP_HOLDS, SHIP_HOLD_ATTRIBUTES, trackedShipHolds } from "
 import { decodeShipFighters, squadronsByTube } from "../bridge/shipFighters.ts";
 import { evaluateFit, PYTHON_EFFECT_ATTRIBUTES, usedWithTypeIDs, WARNING_TYPE_LISTS } from "../bridge/dogma/fittingWarnings.ts";
 import { usedWithCandidate, usedWithChargeGroups, usedWithPair } from "../bridge/dogma/chargeCompatibility.ts";
-import { fittingSkillWarning, type FittingSkillRequirements, type FittingSkillWarning } from "../bridge/fittingSkills.ts";
+import { fittingSkillRequirements, fittingSkillWarning, type FittingSkillRequirements, type FittingSkillWarning } from "../bridge/fittingSkills.ts";
 import { FREIGHT_BAYS, planLootTransfers } from "../bridge/bayRouting.ts";
 import { holdFreeM3 } from "../bridge/holdFit.ts";
 import { dispatchSupportCollectionAction } from "./supportCollectionFlow.ts";
@@ -414,6 +414,7 @@ import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, ep
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
 import { ACADEMY_UNDOCK_DIALOG, academyShipDeclineDialog } from "../bridge/academyShipNotices.ts";
+import { EXORDIUM_REGION, academyFit, academyStandardType, academyStateOf, academyTutorialLocked, type AcademyCatalogue, type AcademyOffer, type AcademyShipState } from "../bridge/academyShips.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
 import {
@@ -1874,10 +1875,10 @@ export interface SaidDialog {
    * AppFlow.answerDialog (Yes and OK true); else OK alone.
    */
   readonly answers?: "yesno" | "okcancel";
-  /** An explicit native default (fleetSvc.MakeLeader uses ID_NO). */
-  readonly defaultAnswer?: "no";
+  /** An explicit native default, such as No for a swap or OK for the first Academy claim. */
+  readonly defaultAnswer?: "no" | "ok";
   /** An explicit prompt_player_fsd_dialog suppress argument, where the dialog is suppressable. */
-  readonly suppressAnswer?: "yes";
+  readonly suppressAnswer?: "yes" | "ok";
   /** A custom message box's body (messageboxCustom.CUSTOM_MESSAGE_BOXES), as label markup, in place of the dialog's. */
   readonly bodyMarkup?: string;
 }
@@ -4351,6 +4352,12 @@ export interface AppFlow {
   wantBuffBar(): void;
   /** A region, constellation or solar system as the info window shows it, or null for none (api.getMapLocation). */
   mapLocationShowInfo(itemID: number): Promise<api.MapLocationInfo | null>;
+  readonly academyChanged: ReadableSignal<number>;
+  academyAvailability(stationID: number, solarSystemID: number): Promise<"hidden" | "locked" | "available">;
+  academyShipState(): Promise<AcademyShipState | null>;
+  boardAcademyShip(offer: AcademyOffer): Promise<void>;
+  saveAcademyStandardFit(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<void>;
+  academyStandardSkills(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<FittingSkillRequirements | null>;
   /** A faction as the info window shows it, or null for none (api.getFaction). */
   factionShowInfo(factionID: number): Promise<api.FactionInfo | null>;
   /** The NPCs' standings with each other (standingMgr.GetNPCNPCStandings), read once and kept, as the standing service keeps them. */
@@ -5594,6 +5601,80 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   });
   /** The pilot's own character, as the page has it. Null with none chosen. */
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
+  const academyChangedSignal = createSignal(0);
+  let academyBorrowPending = false;
+  const academyShipState = async () => academyStateOf(await bridgeAsk("academy_ship", "get_academy_ship_state", []));
+  async function academyAvailability(stationID: number, solarSystemID: number): Promise<"hidden" | "locked" | "available"> {
+    const place = await api.getSystemStations(solarSystemID, callOptions);
+    if (place.regionID !== EXORDIUM_REGION || !place.stations.some(station => station.stationID === stationID)) return "hidden";
+    if (await academyShipState() === null) return "hidden";
+    const state = await bridgeAsk("air_npe", "get_air_npe_state", []);
+    const checkpoint = state === 1 ? await bridgeAsk("air_npe", "get_air_npe_checkpoint_for_player", []) : null;
+    return academyTutorialLocked(state, checkpoint) ? "locked" : "available";
+  }
+
+  async function boardAcademyShip(offer: AcademyOffer): Promise<void> {
+    const stationID = dockedNow();
+    const characterID = onlineCharacterID();
+    if (academyBorrowPending || stationID === null || characterID === null) return;
+    const guard = callOptions.captureRequestGuard!();
+    const current = () => {
+      guard();
+      if (sessionClosing || characterID !== onlineCharacterID() || stationID !== dockedNow()) {
+        throw new Error("The docking location changed before the Academy ship could be boarded.");
+      }
+    };
+    academyBorrowPending = true;
+    try {
+      const loan = await academyShipState();
+      current();
+      if (loan === null) throw new Error("The Academy Ship Service is unavailable.");
+      const confirmed = loan.shipID === null
+        ? await askDialog("AcademyShipClaim", { type: "dict", entries: [["shipTypeID", offer.shipTypeID]] },
+          `Board the Academy ${offer.name}?`, "okcancel", { defaultAnswer: "ok", suppressAnswer: "ok" })
+        : await askDialog("AcademyShipAlreadyActive", null,
+          "Return your current Academy ship and board this one?", "yesno", { defaultAnswer: "no", suppressAnswer: "yes" });
+      if (!confirmed) return;
+      if (await fencedDo(current)("academy_ship", "borrow_academy_ship", [offer.fittingID]) !== true) {
+        sayAcademyBorrowFailure();
+        academyChangedSignal.update(n => n + 1);
+      }
+      // The accepted request finishes on OnAcademyShipBorrowed or OnAcademyShipBorrowFailed.
+    } finally {
+      academyBorrowPending = false;
+    }
+  }
+
+  function sayAcademyBorrowFailure(): void {
+    void wordsNow(["#1015145"]).catch(() => {}).then(() => {
+      const message = templateWords("#1015145", {}, "The Academy ship could not be boarded.");
+      sayDialog("CustomNotify", { type: "dict", entries: [["notify", message]] }, message, "notify");
+    });
+  }
+
+  async function saveAcademyStandardFit(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<void> {
+    const shipTypeID = academyStandardType(offer.shipTypeID, facts);
+    await resolveNamesNow([{ kind: "type", id: shipTypeID }]);
+    const name = nameCache.get(nameKey("type", shipTypeID)) ?? offer.name;
+    const modules = academyFit(offer, facts).map(({ typeID, flag, amount }) =>
+      ({ typeID: academyStandardType(typeID, facts), flagID: flag, quantity: amount }));
+    await openViewFitting({
+      fittingID: 0, ownerID: 0, name, description: "", shipTypeID, savedDate: null, source: "personal", modules,
+    }, false, `Save_ViewFitting_${shipTypeID}`);
+  }
+
+  async function academyStandardSkills(offer: AcademyOffer, facts: AcademyCatalogue["facts"]): Promise<FittingSkillRequirements | null> {
+    const standard = (id: number) => academyStandardType(id, facts);
+    const shipAndFit = [...new Set([standard(offer.shipTypeID), ...offer.modules.map(item => standard(item.typeID))])];
+    const cargo = [...new Set(offer.cargo.map(item => standard(item.typeID)))];
+    const [types] = await Promise.all([skillPlanTypeFacts([...new Set([...shipAndFit, ...cargo])]), ensurePilotSkills()]);
+    const held = pilotSkillsHeld;
+    if (!types || !held || held.characterID !== onlineCharacterID()) return null;
+    return fittingSkillRequirements(shipAndFit, cargo, {
+      required: types.required, mine: held.mine, lapsed: held.lapsed,
+      categoryOf: typeID => types.categoryID.get(typeID) ?? null,
+    });
+  }
   const conversations = createChatConversations({
     capture: () => {
       const online = store.station.get().online;
@@ -6921,6 +7002,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method === "OnAcademyShipBorrowed" || method === "OnAcademyShipReturned" || method === "OnAcademyShipBorrowFailed") {
+      academyChangedSignal.update(n => n + 1);
+      if (method === "OnAcademyShipBorrowFailed" && args[0] !== "no_ship_to_return") sayAcademyBorrowFailure();
+      if (method !== "OnAcademyShipBorrowFailed") void loadFlightStatus().catch(() => {});
+    }
+    if (method === "OnAirNpeStateChanged" || method === "OnAirNpeCheckpointChanged" || method === "OnGlobalConfigChanged") {
+      academyChangedSignal.update(n => n + 1);
+    }
     directTrades.receive(method, args);
     if (method && OVERVIEW_CONTACT_NOTIFICATIONS.has(method)) contactStandingsChangedSignal.update(n => n + 1);
     if (method === "OnNewCalendarEvent" || method === "OnEditCalendarEvent" || method === "OnRemoveCalendarEvent" || method === "OnEventResponseByExternal") {
@@ -11973,7 +12062,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const kept = dialogAnswerKept(dialog);
     // A question's kept answer: Yes, or OK where the question is OK and Cancel (suppress=uiconst.ID_OK).
     // dialog_handler59-64: an explicit suppress argument overrides the saved result.
-    if (kept !== null) return Promise.resolve(prompt.suppressAnswer === "yes" || kept === "yes" || kept === "ok");
+    if (kept !== null) return Promise.resolve(prompt.suppressAnswer !== undefined || kept === "yes" || kept === "ok");
     dialogsSaidCount += 1;
     const n = dialogsSaidCount;
     return new Promise((resolve) => {
@@ -33498,6 +33587,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     mapLocationShowInfo(itemID) {
       return api.getMapLocation(itemID, callOptions);
     },
+    academyChanged: readonlySignal(academyChangedSignal),
+    academyAvailability,
+    academyShipState,
+    boardAcademyShip,
+    saveAcademyStandardFit,
+    academyStandardSkills,
     factionShowInfo(factionID) {
       return api.getFaction(factionID, callOptions);
     },

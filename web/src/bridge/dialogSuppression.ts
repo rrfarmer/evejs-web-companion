@@ -61,7 +61,7 @@ export const suppressKey = (dialog: string): string => `dialog:${dialog}/suppres
  * 132, with no suppress given): where the dialog lets any be kept, or the answer is the one it lets be kept.
  */
 export function answerKept(suppress: string | null | undefined, answer: "ok" | "yes" | "no"): boolean {
-  return suppress === "any" || (suppress === "yes" && answer === "yes") || (suppress === "no" && answer === "no");
+  return suppress === "any" || suppress === answer;
 }
 
 /** Where the words store keeps whether a dialog may be kept: "1" where the install marks it suppressable. */

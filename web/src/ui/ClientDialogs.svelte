@@ -1770,7 +1770,8 @@
           <button type="button" use:focusDefault={inFront && box.said.defaultAnswer === "no" ? box.said.n : null} onclick={() => answerBox("no")}>{wordOf("UI/Common/Buttons/No", "No")}</button>
         {:else if box.said.answers === "okcancel"}
           <!-- uiconst.OKCANCEL: OK the question's yes, Cancel its no. -->
-          <button type="button" onclick={() => answerBox("ok")}>{wordOf("UI/Common/Buttons/OK", "OK")}</button>
+          <button type="button" use:focusDefault={inFront && box.said.defaultAnswer === "ok" ? box.said.n : null}
+            onclick={() => answerBox("ok")}>{wordOf("UI/Common/Buttons/OK", "OK")}</button>
           <button type="button" onclick={() => answerBox("no")}>{wordOf("UI/Common/Buttons/Cancel", "Cancel")}</button>
         {:else}
           <button type="button" onclick={() => answerBox("ok")}>OK</button>
