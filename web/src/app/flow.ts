@@ -195,7 +195,7 @@ import {
   decodeActivityCalendar,
   decodeActivityNotifications,
 } from "../bridge/activity.ts";
-import { decodeEventDetails, decodeEventList, decodeResponsesForCharacter, decodeResponsesToEvent, type CalendarAgenda, type CalendarEvent, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
+import { decodeEventDetails, decodeEventList, decodeResponsesForCharacter, decodeResponsesToEvent, type CalendarAgenda, type CalendarEvent, type CalendarReply, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
 import {
   contractRefusalMessage,
   decodeContractDetail,
@@ -2536,6 +2536,8 @@ export interface AppFlow {
   readonly calendarUpdated: ReadableSignal<number>;
   loadCalendarEvent(eventID: number, ownerID: number): Promise<EventDetails | null>;
   loadCalendarInvitees(eventID: number, ownerID: number): Promise<readonly EventResponse[]>;
+  calendarNow(): number;
+  respondToCalendarEvent(eventID: number, ownerID: number, reply: CalendarReply): Promise<void>;
   /** Refresh current-system scan sites and the probes' state. */
   loadScanner(): Promise<void>;
   /** Launch every probe EveJS currently says is safe to launch. */
@@ -10843,6 +10845,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const rows = decodeResponsesToEvent(await bridgeAsk("calendarMgr", "GetResponsesToEvent", [eventID, ownerID]));
     requestNames(rows.map(row => ({ kind: "character", id: row.characterID })));
     return rows;
+  }
+
+  async function respondToCalendarEvent(eventID: number, ownerID: number, reply: CalendarReply): Promise<void> {
+    try {
+      await bridgeDo("calendarMgr", "SendEventResponse", [eventID, ownerID, reply]);
+    } finally {
+      // EveJS excludes the responder from OnEventResponseByExternal. Read back even if the call's reply was lost.
+      calendarUpdatedSignal.update(n => n + 1);
+    }
   }
 
   async function loadActivity(): Promise<void> {
@@ -34688,6 +34699,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     calendarUpdated: readonlySignal(calendarUpdatedSignal),
     loadCalendarEvent,
     loadCalendarInvitees,
+    calendarNow: serverNow,
+    respondToCalendarEvent,
     loadScanner,
     launchScannerProbes,
     analyzeScannerSignatures,

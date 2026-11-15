@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
-  import type { CalendarEvent, EventDetails, EventResponse } from "../bridge/calendar.ts";
+  import type { CalendarEvent, CalendarReply, EventDetails, EventResponse } from "../bridge/calendar.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
-  import { CALENDAR_GROUPS, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, CALENDAR_TAGS, calendarDateTime, calendarResponses, calendarView } from "./calendarView.ts";
+  import { CALENDAR_GROUPS, CALENDAR_REPLY_CHOICES, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, CALENDAR_TAGS,
+    calendarDateTime, calendarReplyChoices, calendarResponses, calendarView } from "./calendarView.ts";
   import LabelText from "./LabelText.svelte";
   import { LINK_WORDS, linkFollowerOf } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
@@ -15,7 +16,8 @@
   // svelte-ignore state_referenced_locally
   const { names, station, words } = store;
   // svelte-ignore state_referenced_locally
-  const agenda = calendarView(flow).agenda;
+  const model = calendarView(flow);
+  const { agenda, replying } = model;
   // svelte-ignore state_referenced_locally
   const calendarUpdated = flow.calendarUpdated;
   const LABEL = {
@@ -42,7 +44,7 @@
   const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, key => word(key, LINK_WORDS[key] ?? ""), text);
 
   $effect(() => {
-    flow.requestWords([...Object.values(LABEL), ...Object.keys(LINK_WORDS),
+    flow.requestWords([...Object.values(LABEL), ...Object.keys(LINK_WORDS), ...CALENDAR_REPLY_CHOICES.map(([, key]) => key),
       ...CALENDAR_RESPONSES.map(([key]) => CALENDAR_RESPONSE_PATH + key),
       ...Object.values(CALENDAR_GROUPS).map(group => `UI/Calendar/CalendarWindow/${group.label}`)]);
   });
@@ -65,7 +67,24 @@
   const creatorID = $derived(detail?.creatorID ?? null);
   const ccp = $derived(event.flag === CALENDAR_TAGS.ccp);
   const creator = $derived(ccp ? groupName(CALENDAR_TAGS.ccp) : resolvedName($names.resolved, "owner", creatorID));
-  const response = $derived(responseOf(event.isDeleted ? 1 : calendarResponses($agenda).get(eventID) ?? 3));
+  const currentEvent = $derived($agenda.status === "ready" ? $agenda.data.events.find(row => row.eventID === eventID) ?? event : event);
+  const responseStatus = $derived(currentEvent.isDeleted ? 1 : calendarResponses($agenda).get(eventID) ?? 3);
+  const response = $derived(responseOf(responseStatus));
+  const characterID = $derived($station.online?.characterID ?? null);
+  const replies = $derived($agenda.status === "ready" ? calendarReplyChoices(currentEvent, characterID, responseStatus, flow.calendarNow()) : []);
+  let replyError = $state<string | null>(null);
+  async function respond(status: CalendarReply): Promise<void> {
+    if (!calendarReplyChoices(currentEvent, characterID, responseStatus, flow.calendarNow()).some(([choice]) => choice === status)) {
+      replyError = "This event no longer accepts that reply.";
+      return;
+    }
+    replyError = null;
+    try {
+      await model.reply(currentEvent, status);
+    } catch (error) {
+      replyError = error instanceof Error ? error.message : "The Calendar reply could not be saved.";
+    }
+  }
   const durationHours = $derived(event.eventDuration === null ? null : Math.trunc(event.eventDuration / 60));
   const personal = $derived(event.flag === CALENDAR_TAGS.personal);
   const canSeeInvitations = $derived(personal || ((event.flag === CALENDAR_TAGS.corp || event.flag === CALENDAR_TAGS.alliance)
@@ -133,7 +152,13 @@
       <p role="status">{inviteStatus === "error" ? "Invitations could not be read." : "Loading…"}</p>
     {/if}
   </div>
-  <footer><button type="button" onclick={close}>{word(LABEL.close, "Close")}</button></footer>
+  {#if replyError}<p role="alert">{replyError}</p>{/if}
+  <footer>
+    {#each replies as [status, key, fallback] (status)}
+      <button type="button" disabled={$replying.has(eventID)} onclick={() => respond(status)}>{word(key, fallback)}</button>
+    {/each}
+    <button type="button" onclick={close}>{word(LABEL.close, "Close")}</button>
+  </footer>
 </div>
 
 <style>
@@ -152,5 +177,5 @@
   .calendar-event-panel { flex: 1; min-height: 0; overflow: auto; border: 1px solid #fff2; padding: 5px; }
   .calendar-event-panel p, ul { margin: 4px 0; }
   input { display: block; margin: 0 0 5px auto; }
-  footer { display: flex; justify-content: center; }
+  footer { display: flex; justify-content: center; gap: 4px; }
 </style>

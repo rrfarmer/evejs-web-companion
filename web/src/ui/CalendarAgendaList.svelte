@@ -1,11 +1,11 @@
 <script lang="ts">
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import { CALENDAR_GROUPS, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, calendarDateTime, type AgendaState, type CalendarRow } from "./calendarView.ts";
+  import { CALENDAR_GROUPS, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, calendarDateTime, isCalendarMenuKey, type AgendaState, type CalendarRow } from "./calendarView.ts";
 
-  let { words, title, rows, status, openEvent, openMore }: {
+  let { words, title, rows, status, openEvent, openMenu, openMore }: {
     words: ClientStore["words"]; title: string; rows: readonly CalendarRow[]; status: AgendaState["status"];
-    openEvent: (row: CalendarRow) => void; openMore: (shift: boolean) => void;
+    openEvent: (row: CalendarRow) => void; openMenu: (input: MouseEvent | KeyboardEvent, row: CalendarRow) => void; openMore: (shift: boolean) => void;
   } = $props();
   const id = $props.id();
   const texture = "/client-res/ui/texture/";
@@ -34,7 +34,8 @@
         {#each rows.slice(0, 25) as row (row.event.eventID)}
           {@const [response, fallback, icon] = CALENDAR_RESPONSES[row.response] ?? CALENDAR_RESPONSES[3]}
           {@const tag = CALENDAR_GROUPS[row.event.flag as keyof typeof CALENDAR_GROUPS]}
-          <button type="button" class="agenda-event" onclick={event => { if (event.detail === 0) openEvent(row); }} ondblclick={() => openEvent(row)}>
+          <button type="button" class="agenda-event" aria-haspopup="menu" onclick={event => { if (event.detail === 0) openEvent(row); }} ondblclick={() => openEvent(row)}
+            oncontextmenu={event => openMenu(event, row)} onkeydown={event => { if (isCalendarMenuKey(event)) openMenu(event, row); }}>
             <img class="response-icon" src={`${texture}icons/38_16_${icon}.png`} width="16" height="16"
               alt={word(CALENDAR_RESPONSE_PATH + response, fallback)} title={word(CALENDAR_RESPONSE_PATH + response, fallback)} />
             <span class="event-title" title={row.event.eventTitle}>{#if row.event.importance > 0}<strong>!</strong>{/if}{row.event.eventTitle}</span>

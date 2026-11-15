@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppFlow } from "../app/flow.ts";
 import type { CalendarEvent } from "../bridge/calendar.ts";
-import { calendarAgendaRows, calendarRows, calendarView } from "./calendarView.ts";
+import { CALENDAR_TAGS, calendarAgendaRows, calendarReplyChoices, calendarRows, calendarView } from "./calendarView.ts";
 
 test("calendar day windows reopen by date, stack with Shift, and replace other days by default", () => {
   const flow = {} as AppFlow;
@@ -78,4 +78,24 @@ test("an expanded agenda shares the day window's replace and Shift rules", () =>
   assert.deepEqual(view.windows.get().map(win => win.id), ["2026.11.11", "upcoming"]);
   view.openAgenda("updates", false);
   assert.deepEqual(view.windows.get().map(win => win.id), ["updates"]);
+});
+
+test("Calendar replies omit the current response and follow 24.02 event and menu eligibility", () => {
+  const now = Date.UTC(2026, 10, 15, 14);
+  const event: CalendarEvent = {
+    eventID: 17, ownerID: 140_000_002, eventDateTime: BigInt(now) * 10_000n + 116444736000000000n,
+    eventDuration: 60, eventTitle: "Invitation", importance: 0, dateModified: null, isDeleted: false,
+    flag: CALENDAR_TAGS.personal, autoEventType: null,
+  };
+  const pilot = 140_000_001;
+  assert.deepEqual(calendarReplyChoices(event, pilot, 3, now).map(([status]) => status), [4, 5, 2]);
+  assert.deepEqual(calendarReplyChoices(event, pilot, 4, now).map(([status]) => status), [5, 2]);
+  assert.deepEqual(calendarReplyChoices(event, pilot, 1, now), []);
+  assert.deepEqual(calendarReplyChoices(event, event.ownerID, 3, now), []);
+  assert.deepEqual(calendarReplyChoices(event, pilot, 3, now + 1), []);
+  assert.deepEqual(calendarReplyChoices({ ...event, isDeleted: true }, pilot, 3, now, true), []);
+  assert.deepEqual(calendarReplyChoices({ ...event, flag: CALENDAR_TAGS.ccp }, pilot, 3, now, true), []);
+  const automated = { ...event, flag: CALENDAR_TAGS.automated };
+  assert.deepEqual(calendarReplyChoices(automated, pilot, 3, now), []);
+  assert.deepEqual(calendarReplyChoices(automated, pilot, 5, now, true).map(([status]) => status), [4, 2]);
 });

@@ -51,6 +51,7 @@
       ...Object.values(CALENDAR_GROUPS).map(tag => `UI/Calendar/CalendarWindow/${tag.label}`),
       ...CALENDAR_RESPONSES.map(([key]) => CALENDAR_RESPONSE_PATH + key),
       ...MONTHS.map((m) => `/Carbon/UI/Common/MonthsWithYear/${m}`), ...DAYS.map((d) => `UI/Moonmining/${d}Short`)]);
+    return model.registerDayJump(day => selectDay(day, true));
   });
 
   const today = calendarDate(new Date());
@@ -135,9 +136,11 @@
     <button type="button" class="cal-new" disabled title="Not on the play page yet">{word(WORDS.newEvent, "New Event")}</button>
     <div class="cal-lists">
       <CalendarAgendaList {words} title={word(...CALENDAR_AGENDA_LABELS.upcoming)} rows={agendaRows.upcoming} status={$agenda.status}
-        openMore={keep => model.openAgenda("upcoming", keep)} openEvent={row => model.openEvent(row.event)} />
+        openMore={keep => model.openAgenda("upcoming", keep)} openEvent={row => model.openEvent(row.event)}
+        openMenu={(event, row) => model.showEventMenu(event, row, true)} />
       <CalendarAgendaList {words} title={word(...CALENDAR_AGENDA_LABELS.updates)} rows={agendaRows.updates} status={$agenda.status}
-        openMore={keep => model.openAgenda("updates", keep)} openEvent={row => model.openEvent(row.event)} />
+        openMore={keep => model.openAgenda("updates", keep)} openEvent={row => model.openEvent(row.event)}
+        openMenu={(event, row) => model.showEventMenu(event, row, true)} />
     </div>
     <div class="cal-filters">
       <b>{word(WORDS.filters, "Filters")}</b>
@@ -178,7 +181,8 @@
               <span class="num">{day.d}</span>
               {#if dayRows.length}
                 <CalendarCellEvents rows={dayRows} timestamp={$filters.timestamp} more={word(WORDS.viewDay, "View Day")}
-                  open={shift => model.openDay(day, shift)} openEvent={row => model.openEvent(row.event)} />
+                  open={shift => model.openDay(day, shift)} openEvent={row => model.openEvent(row.event)}
+                  openMenu={(event, row) => model.showEventMenu(event, row, false)} />
               {/if}
             </div>
           {/each}

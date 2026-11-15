@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { calendarTime, type CalendarRow } from "./calendarView.ts";
+  import { calendarTime, isCalendarMenuKey, type CalendarRow } from "./calendarView.ts";
 
-  let { rows, timestamp, more, open, openEvent }: {
+  let { rows, timestamp, more, open, openEvent, openMenu }: {
     rows: readonly CalendarRow[]; timestamp: boolean; more: string;
     open: (shift: boolean) => void; openEvent: (row: CalendarRow) => void;
+    openMenu: (input: MouseEvent | KeyboardEvent, row: CalendarRow) => void;
   } = $props();
   let area: HTMLElement | undefined = $state();
   let list: HTMLElement | undefined = $state();
@@ -24,9 +25,10 @@
   <div class="event-viewport">
     <div bind:this={list}>
       {#each rows as row (row.event.eventID)}
-        <button type="button" class="calendar-event-row" title={row.event.eventTitle}
+        <button type="button" class="calendar-event-row" title={row.event.eventTitle} aria-haspopup="menu"
           onclick={event => { event.stopPropagation(); if (event.detail === 0) openEvent(row); }}
-          ondblclick={event => { event.stopPropagation(); openEvent(row); }}>
+          ondblclick={event => { event.stopPropagation(); openEvent(row); }}
+          oncontextmenu={event => openMenu(event, row)} onkeydown={event => { if (isCalendarMenuKey(event)) openMenu(event, row); }}>
           {#if row.event.importance > 0}<strong>!</strong>{/if}{timestamp ? `${calendarTime(row.at)} ` : ""}{row.event.eventTitle}
         </button>
       {/each}

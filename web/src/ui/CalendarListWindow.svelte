@@ -4,7 +4,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { CALENDAR_AGENDA_LABELS, CALENDAR_GROUPS, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, calendarAgendaRows, calendarCaption,
-    calendarDateTime, calendarResponses, calendarRows, calendarTime, calendarView, type CalendarListSubject } from "./calendarView.ts";
+    calendarDateTime, calendarResponses, calendarRows, calendarTime, calendarView, isCalendarMenuKey, type CalendarListSubject } from "./calendarView.ts";
 
   let { flow, store, subject, title, close }: { flow: AppFlow; store: ClientStore; subject: CalendarListSubject; title: string; close: () => void } = $props();
   // svelte-ignore state_referenced_locally
@@ -65,11 +65,12 @@
           {@const flag = CALENDAR_GROUPS[row.event.flag as keyof typeof CALENDAR_GROUPS]}
           <!-- The same row opens from the keyboard through the title button. -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <tr ondblclick={() => model.openEvent(row.event)}>
+          <tr ondblclick={() => model.openEvent(row.event)} oncontextmenu={event => model.showEventMenu(event, row, true)}>
             <td class="when"><img src={`${texture}icons/38_16_${icon}.png`} width="16" height="16"
               alt={word(CALENDAR_RESPONSE_PATH + response, fallback)} title={word(CALENDAR_RESPONSE_PATH + response, fallback)} />{day ? calendarTime(row.at) : calendarDateTime(row.at)}</td>
             <td class="event-name" title={row.event.eventTitle}>
-              <button type="button" class="event-title" onclick={event => { if (event.detail === 0) model.openEvent(row.event); }}>
+              <button type="button" class="event-title" aria-haspopup="menu" onclick={event => { if (event.detail === 0) model.openEvent(row.event); }}
+                onkeydown={event => { if (isCalendarMenuKey(event)) model.showEventMenu(event, row, true); }}>
                 {#if row.event.importance > 0}<strong class="important">!</strong>{/if}{row.event.eventTitle}
               </button>
               {#if flag && "icon" in flag}

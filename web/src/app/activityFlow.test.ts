@@ -145,3 +145,24 @@ test("Calendar agenda reads the year boundary months and retains cancellation an
   assert.deepEqual(agenda.responses, [{ eventID: 17, status: 4 }]);
   assert.equal(agenda.nowMs, nowMs);
 });
+
+test("Calendar replies send the native IDs and chosen status and re-read after a lost reply", async () => {
+  const calls: unknown[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "/api/bridge/call");
+    const { service, method, args, pilot, confirm } = JSON.parse(String(init?.body));
+    calls.push([service, method, args, pilot, confirm]);
+    if (calls.length === 2) return json({ ok: false, message: "Connection lost" }, 502);
+    return json({ ok: true, service, method, result: null });
+  };
+  const flow = createAppFlow(createClientStore(), { fetch });
+  const initial = flow.calendarUpdated.get();
+  await flow.respondToCalendarEvent(980000000006, 140_000_002, 4);
+  assert.equal(flow.calendarUpdated.get(), initial + 1);
+  await assert.rejects(flow.respondToCalendarEvent(980000000006, 140_000_002, 2));
+  assert.equal(flow.calendarUpdated.get(), initial + 2);
+  assert.deepEqual(calls, [
+    ["calendarMgr", "SendEventResponse", [980000000006, 140_000_002, 4], true, true],
+    ["calendarMgr", "SendEventResponse", [980000000006, 140_000_002, 2], true, true],
+  ]);
+});

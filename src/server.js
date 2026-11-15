@@ -1190,6 +1190,14 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     });
     return;
   }
+  if (body.service === "calendarMgr" && body.method === "SendEventResponse") {
+    const args = body.args;
+    if (!Array.isArray(args) || args.length !== 3 || !Number.isSafeInteger(args[0]) || args[0] <= 0 ||
+        !Number.isSafeInteger(args[1]) || args[1] <= 0 || ![2, 4, 5].includes(args[2])) {
+      res.status(400).json({ ok: false, error: "INVALID_CALENDAR_RESPONSE", message: "Choose Accept, Tentative, or Decline for a calendar invitation." });
+      return;
+    }
+  }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,
   // which that gate lets through, is CmdStop. So was every change of place the page makes (the undock, a flight

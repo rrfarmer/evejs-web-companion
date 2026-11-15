@@ -2,6 +2,7 @@
   import { tick, untrack } from "svelte";
   import type { Session } from "../app/sessions.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import CalendarEventMenu from "./CalendarEventMenu.svelte";
   import CalendarListWindow from "./CalendarListWindow.svelte";
   import CalendarEventWindow from "./CalendarEventWindow.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
@@ -14,7 +15,7 @@
   const model = calendarView(session.flow);
   // svelte-ignore state_referenced_locally
   const words = session.store.words;
-  const { windows, raised } = model;
+  const { windows, raised, eventMenu } = model;
   const eventCaption = $derived(plainText($words.templates[CALENDAR_EVENT_CAPTION] ?? "") || "Event");
   function titleOf(win: (typeof $windows)[number]): string {
     if (win.kind === "event") return eventCaption;
@@ -24,6 +25,7 @@
   }
   let layer: HTMLElement | undefined = $state();
   const visible = $derived(inFront && host !== null);
+  $effect(() => { if (!visible) model.closeEventMenu(); });
   const front = $derived($windows.filter(win => !win.minimized).reduce<(typeof $windows)[number] | null>(
     (prev, win) => !prev || win.z > prev.z ? win : prev, null));
 
@@ -56,10 +58,14 @@
       fit();
     });
     void tick().then(() => {
-      if (served === request) layer?.querySelector<HTMLElement>(`[data-calendar-window="${request.id}"] footer button`)?.focus();
+      if (served === request) layer?.querySelector<HTMLElement>(`[data-calendar-window="${request.id}"] footer button:last-child`)?.focus();
     });
   });
 </script>
+
+{#if visible && $eventMenu}
+  <CalendarEventMenu flow={session.flow} store={session.store} menu={$eventMenu} />
+{/if}
 
 {#if visible && $windows.length > 0}
 <div class="calendar-window-layer" use:portal={host!.element} bind:this={layer}>

@@ -83,6 +83,9 @@ export interface CalendarAgenda {
   readonly nowMs: number;
 }
 
+/** CalendarNewEventWnd.AddAcceptDeclineBtns passes one of these response constants. */
+export type CalendarReply = 4 | 5 | 2;
+
 /** An integer tolerant of a {type:"long"} wrapper and a numeric string; 0 otherwise. */
 function toNumber(value: JsonValue | undefined): number {
   if (typeof value === "number" && Number.isFinite(value)) {

@@ -101,6 +101,7 @@ test("the writes the page makes itself are writes, each named once", () => {
   // The queue's saving is the client's own call, on its skill handler. The gateway's save of a queue is another
   // pair, a write as it always was, and its route's alone.
   assert.deepEqual([isBridgeWritePair("skillMgr", "SaveNewQueue"), isPageWritePair("skillMgr", "SaveNewQueue")], [true, false]);
+  assert.deepEqual(PAGE_WRITE_PAIR_KEYS.filter(key => key.startsWith("calendarMgr.")), ["calendarMgr.SendEventResponse"]);
   assert.equal(new Set(PAGE_WRITE_PAIR_KEYS).size, PAGE_WRITE_PAIR_KEYS.length);
   for (const pair of PAGE_WRITE_PAIR_KEYS) {
     const [service, method] = pair.split(".");

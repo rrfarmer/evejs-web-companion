@@ -1,7 +1,7 @@
 import { readable } from "svelte/store";
 import type { AppFlow } from "../app/flow.ts";
 import { filetimeToUnixMs } from "../bridge/activity.ts";
-import type { CalendarAgenda, CalendarEvent } from "../bridge/calendar.ts";
+import type { CalendarAgenda, CalendarEvent, CalendarReply } from "../bridge/calendar.ts";
 import { createSignal, readonlySignal } from "../store/signals.ts";
 import type { WinState } from "./desktop.ts";
 import { calendarDate, type CalendarDate } from "./calendarSelection.ts";
@@ -19,6 +19,11 @@ export const CALENDAR_RESPONSES = [
 ] as const;
 export const CALENDAR_RESPONSE_PATH = "UI/Calendar/ResponseTypes/";
 export const CALENDAR_EVENT_CAPTION = "UI/Calendar/EventWindow/CaptionRead";
+export const CALENDAR_REPLY_CHOICES = [
+  [4, "/Carbon/UI/Calendar/Accept", "Accept"],
+  [5, "/Carbon/UI/Calendar/MaybeReply", "Tentative"],
+  [2, "/Carbon/UI/Calendar/Decline", "Decline"],
+] as const;
 export const CALENDAR_AGENDA_LABELS = {
   upcoming: ["UI/Calendar/CalendarWindow/UpcomingEvents", "Upcoming Events"],
   updates: ["UI/Calendar/CalendarWindow/LatestUpdates", "Latest Updates"],
@@ -66,6 +71,18 @@ export function calendarRows(events: readonly CalendarEvent[], filters: Filters,
 }
 
 export type CalendarRow = ReturnType<typeof calendarRows>[number];
+export function calendarReplyChoices(event: CalendarEvent, characterID: number | null, response: number, now: number, fromMenu = false) {
+  const start = filetimeToUnixMs(event.eventDateTime);
+  if (!characterID || event.ownerID === characterID || event.isDeleted || response === 1 || start === null || start < now) return [];
+  const { personal, corp, alliance, automated } = CALENDAR_TAGS;
+  const tags: readonly number[] = fromMenu ? [personal, corp, alliance, automated] : [personal, corp, alliance];
+  return tags.includes(event.flag) ? CALENDAR_REPLY_CHOICES.filter(([status]) => status !== response) : [];
+}
+
+export function isCalendarMenuKey(event: KeyboardEvent): boolean {
+  return event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
+}
+
 export type AgendaState = { readonly status: "loading" | "error" } | { readonly status: "ready"; readonly data: CalendarAgenda };
 
 export function calendarResponses(state: AgendaState): ReadonlyMap<number, number> {
@@ -89,6 +106,7 @@ export const CALENDAR_WINDOW_SIZES = { day: { w: 315, h: 300 }, agenda: { w: 315
 export type CalendarListSubject = { readonly kind: "day"; readonly day: CalendarDate } | { readonly kind: "agenda"; readonly agendaKind: CalendarAgendaKind };
 type CalendarSubject = CalendarListSubject | { readonly kind: "event"; readonly event: CalendarEvent };
 type CalendarWindow = Omit<WinState, "id"> & { readonly id: string } & CalendarSubject;
+export type CalendarMenu = { readonly row: CalendarRow; readonly x: number; readonly y: number; readonly anchor: HTMLElement; readonly allowJump: boolean };
 
 function createCalendarView(flow: AppFlow) {
   const filters = createSignal(DEFAULT_FILTERS);
@@ -106,6 +124,9 @@ function createCalendarView(flow: AppFlow) {
   });
   const windows = createSignal<readonly CalendarWindow[]>([]);
   const raised = createSignal<{ readonly id: string } | null>(null);
+  const replying = createSignal<ReadonlySet<number>>(new Set());
+  const eventMenu = createSignal<CalendarMenu | null>(null);
+  let selectDay: ((day: CalendarDate) => void) | null = null;
   const topZ = () => Math.max(0, ...windows.get().filter(win => !win.minimized).map(win => win.z));
   const update = (id: string, patch: Partial<Omit<WinState, "id">>) => {
     windows.update(wins => wins.map(win => win.id === id ? { ...win, ...patch } : win));
@@ -133,6 +154,8 @@ function createCalendarView(flow: AppFlow) {
     agenda,
     windows: readonlySignal(windows),
     raised: readonlySignal(raised),
+    replying: readonlySignal(replying),
+    eventMenu: readonlySignal(eventMenu),
     topZ,
     setFilter(key: Filter, checked: boolean) { filters.update(current => ({ ...current, [key]: checked })); },
     openDay(day: CalendarDate, keepOtherDays: boolean) {
@@ -142,6 +165,32 @@ function createCalendarView(flow: AppFlow) {
       open(agendaKind, { kind: "agenda", agendaKind }, keepOtherLists);
     },
     openEvent(event: CalendarEvent) { open(`event-${event.eventID}`, { kind: "event", event }, true); },
+    showEventMenu(input: MouseEvent | KeyboardEvent, row: CalendarRow, allowJump: boolean) {
+      if (!(input.currentTarget instanceof HTMLElement)) return;
+      input.preventDefault();
+      input.stopPropagation();
+      const anchor = input.currentTarget.querySelector("button") ?? input.currentTarget;
+      const rect = anchor.getBoundingClientRect();
+      const mouse = input instanceof MouseEvent && input.button === 2;
+      eventMenu.set({ row, x: mouse ? input.clientX : rect.left, y: mouse ? input.clientY : rect.bottom, anchor, allowJump });
+    },
+    closeEventMenu() { eventMenu.set(null); },
+    registerDayJump(select: (day: CalendarDate) => void) {
+      selectDay = select;
+      return () => { if (selectDay === select) selectDay = null; };
+    },
+    jumpToDay(day: CalendarDate) { selectDay?.(day); },
+    async reply(event: CalendarEvent, status: CalendarReply) {
+      const { eventID, ownerID } = event;
+      if (replying.get().has(eventID)) return;
+      replying.update(ids => new Set([...ids, eventID]));
+      try {
+        await flow.respondToCalendarEvent(eventID, ownerID, status);
+        windows.update(wins => wins.filter(win => win.id !== `event-${eventID}`));
+      } finally {
+        replying.update(ids => new Set([...ids].filter(id => id !== eventID)));
+      }
+    },
     focus(id: string, z: number) { update(id, { z: Math.max(z, topZ() + 1), minimized: false }); },
     reveal,
     toggleMinimize(id: string) {
