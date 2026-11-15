@@ -5,10 +5,10 @@
   import { DEFAULT_AGENCY_FW_FILTERS, agencyFactionWarfareUpgrade, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem } from "../bridge/agencySites.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
   import { EMPIRE_MILITIAS, MILITIA_FACTIONS, WARZONE_FACTION_COLORS } from "../bridge/militiaEnlistment.ts";
-  import { panelErrorWords } from "../bridge/refusals.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { resolvedName } from "../store/names.ts";
   import { factionIcon } from "./skillPlanIcons.ts";
+  import AgencySystemSiteList from "./AgencySystemSiteList.svelte";
 
   let { flow, store, filters = $bindable(DEFAULT_AGENCY_FW_FILTERS) }: {
     flow: AppFlow; store: ClientStore; filters?: AgencyFactionWarfareFilters;
@@ -21,12 +21,6 @@
   const station = store.station;
   // svelte-ignore state_referenced_locally
   const flight = store.flight;
-  // svelte-ignore state_referenced_locally
-  const space = store.space;
-  // svelte-ignore state_referenced_locally
-  const waypoints = flow.waypoints;
-  // svelte-ignore state_referenced_locally
-  const warpDistance = flow.warpDistance;
   // svelte-ignore state_referenced_locally
   const warzoneChanged = flow.theatersWarzoneChanged;
   // svelte-ignore state_referenced_locally
@@ -46,10 +40,8 @@
     "UI/Common/WithinJumps", "UI/Agency/ContentOfAnyDistance", "UI/Generic/NoGateToGateRoute", "UI/Common/NumJumps",
     "UI/Common/Faction", "UI/Agency/AnyFaction", "UI/Agency/Adjacency", "UI/Agency/AnyAdjacency", "UI/Commands/ResetAll",
     "UI/Agency/ShowingXResults", "UI/Agency/Location", "UI/Common/NothingFound", "UI/Agency/currentlyUnavailable",
-    "UI/Inflight/SetDestination", "UI/Inflight/DestinationSet", "UI/Inflight/WarpToBookmark", "UI/Inflight/Warping",
-    "UI/Neocom/UndockBtn", "UI/Common/Unknown",
     "UI/LPStore/AmountLP", F + "StatusStable", F + "StatusContested", F + "StatusVulnerable",
-    ...[...information, "systemUpgradeLevel", "systemStatusLabel", "systemOccupierLabel", "sitesInSystem"].map((key) => A + key),
+    ...[...information, "systemUpgradeLevel", "systemStatusLabel", "systemOccupierLabel"].map((key) => A + key),
     ...Object.values(adjacencies).flat(),
   ];
   const word = (label: string, args: TemplateArguments = {}) => plainText(formatTemplate($words.templates[label] ?? "", args, {
@@ -59,16 +51,10 @@
   const factions = $derived([...EMPIRE_MILITIAS].sort((a, b) => factionName(a).localeCompare(factionName(b))));
   const here = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
   const inSpace = $derived($flight.status?.inSpace === true);
-  const docked = $derived($flight.status?.docked ?? !!$station.online?.stationID);
-  const inWarp = $derived(($space.snapshot?.ship?.mode ?? $flight.status?.shipMode) === "WARP");
   let systems = $state<readonly AgencyFactionWarfareSystem[] | null | undefined>(undefined);
   let selectedID = $state<number | null>(null);
-  let selectedSiteID = $state<number | null>(null);
   let lp = $state<number | null>(null);
-  let busy = $state(false);
-  let travelError = $state<string | null>(null);
   const selected = $derived(systems?.find((system) => system.solarSystemID === selectedID) ?? systems?.[0] ?? null);
-  const selectedSite = $derived(selected?.sites.find((site) => site.instanceID === selectedSiteID) ?? selected?.sites[0]);
   const upgrade = $derived(lp === null ? null : agencyFactionWarfareUpgrade(lp));
 
   $effect(() => {
@@ -93,16 +79,11 @@
   $effect(() => {
     const systemID = selected?.solarSystemID;
     void $warzoneChanged;
-    travelError = null;
     lp = null;
     if (systemID === undefined) return;
     let current = true;
     void flow.agencyFactionWarfareSystemLP(systemID).then((answer) => { if (current) lp = answer; }, () => {});
     return () => { current = false; };
-  });
-  $effect(() => {
-    const ids = (selected?.sites ?? []).flatMap((site) => site.dungeonNameID ? ["#" + site.dungeonNameID] : []);
-    if (ids.length) flow.requestWords(ids);
   });
 
   const set = (patch: Partial<AgencyFactionWarfareFilters>) => { filters = { ...filters, ...patch }; };
@@ -133,17 +114,6 @@
   }
   function lpText(value: number): string {
     return word("UI/LPStore/AmountLP", { lpAmount: new Intl.NumberFormat("en-US").format(value) });
-  }
-  async function travel(targetID?: string): Promise<void> {
-    if (busy) return;
-    busy = true;
-    travelError = null;
-    try {
-      if (targetID) await flow.warpToProbeResult(targetID, $warpDistance || 0);
-      else await flow.undock();
-    } catch (cause) {
-      travelError = panelErrorWords(cause);
-    } finally { busy = false; }
   }
 </script>
 
@@ -203,8 +173,6 @@
   <section class="panel details">
     {#if selected}
       {@const icon = factionIcon(selected.occupation.occupierID)}
-      {@const destinationSet = $waypoints.at(-1) === selected.solarSystemID}
-      {@const localTarget = selectedSite?.targetID}
       <h3>{location(selected)}</h3>
       <div class="occupier">
         {#if icon}<img alt="" src={icon} />{/if}
@@ -219,24 +187,7 @@
         <div class="lp"><span>{lpText(lp)}</span><span>{lpText(upgrade.next)}</span></div>
         <progress value={upgrade.progress} max="1" aria-label={word(A + "systemUpgradeLevel", { level: upgrade.level })}></progress>
       {/if}
-      <h4>{word(A + "sitesInSystem")}</h4>
-      <ul>{#each selected.sites as site (site.instanceID)}
-        <li><button type="button" aria-pressed={selectedSite?.instanceID === site.instanceID} onclick={() => { selectedSiteID = site.instanceID; travelError = null; }}>
-          {(site.dungeonNameID && word("#" + site.dungeonNameID)) || word("UI/Common/Unknown")}
-        </button></li>
-      {/each}</ul>
-      {#if selected.solarSystemID !== here}
-        <button class="primary" type="button" disabled={destinationSet} onclick={() => flow.setDestination(selected.solarSystemID)}>
-          {word(destinationSet ? "UI/Inflight/DestinationSet" : "UI/Inflight/SetDestination")}
-        </button>
-      {:else if docked}
-        <button class="primary" type="button" disabled={busy} onclick={() => void travel()}>{word("UI/Neocom/UndockBtn")}</button>
-      {:else if localTarget}
-        <button class="primary" type="button" disabled={busy || inWarp} onclick={() => void travel(localTarget)}>
-          {word(inWarp ? "UI/Inflight/Warping" : "UI/Inflight/WarpToBookmark")}
-        </button>
-      {/if}
-      {#if travelError}<p role="status">{travelError}</p>{/if}
+      <AgencySystemSiteList {flow} {store} system={selected} label={A + "sitesInSystem"} {word} />
     {/if}
   </section>
 </div>
@@ -263,9 +214,4 @@
   .occupier img { width: 64px; height: 64px; flex: none; }
   .lp { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; }
   progress { width: 100%; height: 8px; accent-color: var(--eve-accent, #80a4c3); }
-  h4 { margin: 12px 0 5px; font-size: 13px; }
-  ul { max-height: 110px; overflow: auto; list-style: none; padding: 0; margin: 0; background: rgb(0 0 0 / 0.3); }
-  li button { width: 100%; padding: 4px 8px; text-align: left; font-size: 12px; }
-  li button[aria-pressed="true"] { background: rgb(255 255 255 / 0.14); }
-  .primary { width: 100%; margin-top: 10px; }
 </style>

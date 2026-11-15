@@ -17,7 +17,7 @@
 import type { JsonValue } from "./wire.ts";
 import { shownSecurity } from "./systemSecurity.ts";
 import { DISTANCE, ANY, SECURITY_FILTER, MAX_AGENT_PIECES } from "./agencyAgents.ts";
-import type { MilitiaFactionID, MilitiaSystem, MilitiaVictoryPoints } from "./militiaEnlistment.ts";
+import type { InsurgencyCampaign, MilitiaFactionID, MilitiaSystem, MilitiaVictoryPoints } from "./militiaEnlistment.ts";
 
 export interface AgencySite {
   readonly instanceID: number; readonly dungeonID: number | null; readonly archetypeID: number | null; readonly factionID: number | null;
@@ -69,6 +69,55 @@ export interface AgencyFactionWarfareSystem extends AgencySiteSystem {
   readonly sites: readonly AgencySite[];
   readonly occupation: MilitiaSystem & { readonly occupierID: MilitiaFactionID };
   readonly victory: MilitiaVictoryPoints | null;
+}
+
+export interface AgencyInsurgencyFilters {
+  readonly distance: number;
+  readonly faction: number;
+  readonly corruption: number;
+  readonly suppression: number;
+}
+export const DEFAULT_AGENCY_INSURGENCY_FILTERS: AgencyInsurgencyFilters = Object.freeze({
+  distance: DISTANCE.any, faction: ANY, corruption: ANY, suppression: ANY,
+});
+export interface InsurgencyStages {
+  readonly corruption: number | null;
+  readonly suppression: number | null;
+}
+export interface AgencyInsurgencySystem extends AgencySiteSystem {
+  readonly stages: InsurgencyStages;
+  readonly pirateFactionID: MilitiaFactionID | null;
+  readonly occupierID: MilitiaFactionID | null;
+  readonly isFobSystem: boolean;
+}
+
+/** A faction filter tests whether the system has such a site and leaves its other site rows in place. */
+export function insurgencySiteCandidates(known: JsonValue, filters: AgencyInsurgencyFilters, here: number | null,
+  jumpsTo: (systemID: number) => number | undefined): Map<number, (AgencySite | null)[]> {
+  return new Map([...trackerSites(known, undefined, null)].filter(([id, sites]) =>
+    (here === null || here < 31000000 || id === here) &&
+    distanceMatches(id, here, id === here ? 0 : jumpsTo(id), filters.distance) &&
+    sites.some((site) => site !== null && (filters.faction === ANY || site.factionID === filters.faction))));
+}
+
+export function agencyInsurgencySystems(candidates: ReadonlyMap<number, readonly (AgencySite | null)[]>,
+  campaigns: readonly InsurgencyCampaign[], occupiers: ReadonlyMap<number, MilitiaFactionID | null>,
+  progress: ReadonlyMap<number, InsurgencyStages>, here: number | null, jumpsTo: (id: number) => number | undefined,
+  securityOf: (id: number) => number | null, filters: AgencyInsurgencyFilters): AgencyInsurgencySystem[] {
+  const stageMatches = (stage: number | null | undefined, selected: number) => stage == null || selected < 0 || stage === selected;
+  const matching = new Map([...candidates].filter(([id]) => {
+    const stages = progress.get(id);
+    return stageMatches(stages?.corruption, filters.corruption) && stageMatches(stages?.suppression, filters.suppression);
+  }));
+  return agencySiteSystems(matching, here, here === null || here < 31000000, jumpsTo, securityOf,
+    { distance: filters.distance, security: ANY }).map((system) => {
+    const campaign = campaigns.find((campaign) => campaign.coveredSystemIDs.includes(system.solarSystemID));
+    return {
+      ...system, stages: progress.get(system.solarSystemID) ?? { corruption: null, suppression: null },
+      pirateFactionID: campaign?.factionID ?? null, occupierID: occupiers.get(system.solarSystemID) ?? null,
+      isFobSystem: campaigns.some((campaign) => campaign.originSystemID === system.solarSystemID),
+    };
+  });
 }
 
 /** facwarSolarSystemUpgradeThresholds in build 3698585's appConst. */
@@ -142,6 +191,11 @@ export function signatureSites(counts: JsonValue | undefined, here: number | nul
 }
 
 /** BaseContentProviderDungeons._ConstructContentPieces' systems. */
+function distanceMatches(id: number, here: number | null, jumps: number | undefined, filter: number): boolean {
+  if (filter === DISTANCE.currentSystem) return id === here;
+  return filter === DISTANCE.any || (jumps !== undefined && jumps <= filter);
+}
+
 export function agencySiteSystems(sites: ReadonlyMap<number, readonly (AgencySite | null)[]>, here: number | null, knownSpace: boolean,
   jumpsTo: (systemID: number) => number | undefined, securityOf: (systemID: number) => number | null, filters: AgencySiteFilters,
   bucketOrder?: (systemID: number) => number): AgencySiteSystem[] {
@@ -154,7 +208,7 @@ export function agencySiteSystems(sites: ReadonlyMap<number, readonly (AgencySit
     // CheckCriteria: the security filter, then the distance.
     const sec = shown(id);
     if (filters.security === SECURITY_FILTER.high ? sec < 0.45 : filters.security === SECURITY_FILTER.nul ? sec > 0 : filters.security === SECURITY_FILTER.low ? !(sec > 0 && sec < 0.45) : false) continue;
-    if (filters.distance === DISTANCE.currentSystem ? id !== here : filters.distance !== DISTANCE.any && (jumpsOf(id) === undefined || jumpsOf(id)! > filters.distance)) continue;
+    if (!distanceMatches(id, here, jumpsOf(id), filters.distance)) continue;
     let key = SECURITY_THRESHOLDS.findIndex((t) => sec > t);
     if (key < 0) key = SECURITY_THRESHOLDS.length;
     buckets.set(key, [...(buckets.get(key) ?? []), id]);

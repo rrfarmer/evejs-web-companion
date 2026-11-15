@@ -203,8 +203,14 @@ export function militiaWarzoneMarkers(hqs: JsonValue, launchers: JsonValue, pads
   };
 }
 
-export function militiaInsurgencies(value: JsonValue): MilitiaInsurgency[] {
-  return listItems(value).flatMap((row): MilitiaInsurgency[] => {
+export interface InsurgencyCampaign extends MilitiaInsurgency {
+  readonly coveredSystemIDs: readonly number[];
+  readonly fsmState: number | null;
+  readonly stateExpiryMs: number | null;
+}
+
+export function insurgencyCampaigns(value: JsonValue): InsurgencyCampaign[] {
+  return listItems(value).flatMap((row): InsurgencyCampaign[] => {
     if (!row || typeof row !== "object" || !("header" in row) || !Array.isArray(row.header)) return [];
     const attrs = new Map(row.header.flatMap((part: JsonValue) => readDictPairs(part)));
     const campaignID = Number(unwrapLong(attrs.get("_campaignID")));
@@ -212,6 +218,21 @@ export function militiaInsurgencies(value: JsonValue): MilitiaInsurgency[] {
     const warzoneID = Number(unwrapLong(attrs.get("_warzoneID"))) || null;
     const originSystemID = Number(unwrapLong(attrs.get("_originSolarsystemID"))) || null;
     const fobSystemID = Number(unwrapLong(attrs.get("_structureID"))) > 0 ? originSystemID : null;
-    return campaignID > 0 && factionID ? [{ campaignID, factionID, warzoneID, originSystemID, fobSystemID }] : [];
+    const covered = attrs.get("_coveredSolarsystemIDs");
+    const coveredSystemIDs = listItems(objectArguments(covered)?.[0] ?? covered)
+      .map((system) => Number(unwrapLong(system))).filter((id) => Number.isSafeInteger(id) && id > 0);
+    const expiry = unwrapLong(attrs.get("_stateExpiryTimestamp"));
+    const state = unwrapLong(attrs.get("_fsmState"));
+    return campaignID > 0 && factionID ? [{
+      campaignID, factionID, warzoneID, originSystemID, fobSystemID, coveredSystemIDs,
+      fsmState: state === null ? null : Number(state),
+      stateExpiryMs: expiry === null ? null : Number((expiry - 116_444_736_000_000_000n) / 10_000n),
+    }] : [];
   });
+}
+
+export function militiaInsurgencies(value: JsonValue): MilitiaInsurgency[] {
+  return insurgencyCampaigns(value).map(({ campaignID, factionID, warzoneID, originSystemID, fobSystemID }) => ({
+    campaignID, factionID, warzoneID, originSystemID, fobSystemID,
+  }));
 }

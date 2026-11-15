@@ -234,7 +234,7 @@ import { decodeSkillHistory, decodeSkills } from "../bridge/boundSkills.ts";
 import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
 import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification } from "../bridge/skillNotifications.ts";
 import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
-import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type MilitiaVictoryPoints, type MilitiaWarzoneMarkers } from "../bridge/militiaEnlistment.ts";
+import { allowedMilitiaFactions, insurgencyCampaigns, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type MilitiaVictoryPoints, type MilitiaWarzoneMarkers } from "../bridge/militiaEnlistment.ts";
 import { warzoneStatistics, type WarzoneStatistics, type WarzoneStatisticsScope } from "../bridge/warzoneStatistics.ts";
 import { convoyActivities, oreActivities, type StarMapActivity, type StarMapActivityMode } from "../bridge/starMapFilters.ts";
 import { readTrackedMilitiaJob, untrackMilitiaJob } from "../ui/jobTracking.ts";
@@ -407,7 +407,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
-import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencySiteSystems, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
+import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencyInsurgencySystems as insurgencySystemsForAgency, agencySiteSystems, insurgencySiteCandidates, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencyInsurgencyFilters, type AgencyInsurgencySystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type InsurgencyStages, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
@@ -3781,6 +3781,7 @@ export interface AppFlow {
   agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
   agencyFactionWarfareSystems(filters: AgencyFactionWarfareFilters): Promise<readonly AgencyFactionWarfareSystem[]>;
   agencyFactionWarfareSystemLP(systemID: number): Promise<number | null>;
+  agencyInsurgencySystems(filters: AgencyInsurgencyFilters): Promise<{ systems: readonly AgencyInsurgencySystem[]; activeCampaign: boolean }>;
   agencyRegisterLocalSignalTracker(): Promise<void>;
   readonly agencyAnomaliesChanged: ReadableSignal<number>;
   /**
@@ -21091,6 +21092,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const amount = lp === null ? null : Number(lp);
     return amount !== null && Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
   }
+  async function agencyInsurgencySystems(filters: AgencyInsurgencyFilters): ReturnType<AppFlow["agencyInsurgencySystems"]> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [known, occupation, snapshots, jumps, graph] = await Promise.all([
+      bridgeAsk("dungeonInstanceCacheMgr", "GetPirateInsurgencyInstances", []), theatersWarzones(),
+      bridgeAsk("insurgencySolarsystem", "GetAllVisibleCampaigns", []),
+      here === null ? null : autopilotDistancesFrom(here).catch(() => null), loadRouteGraph().catch(() => null),
+    ]);
+    const campaigns = insurgencyCampaigns(snapshots);
+    const occupiers = new Map([...occupation.values()].flatMap((rows) => rows.map((row) => [row.systemID, row.occupierID] as const)));
+    const jumpsTo = (systemID: number) => jumps?.get(systemID);
+    const candidates = insurgencySiteCandidates(known, filters, here, jumpsTo);
+    const stageFilter = filters.corruption >= 0 || filters.suppression >= 0;
+    const progress = stageFilter ? await insurgencyStagesBySystem([...candidates.keys()]) : new Map<number, InsurgencyStages>();
+    let systems = insurgencySystemsForAgency(candidates, campaigns, occupiers, progress, here,
+      jumpsTo, (id) => graph?.security(id) ?? null, filters);
+    if (!stageFilter) {
+      const displayed = await insurgencyStagesBySystem(systems.map((row) => row.solarSystemID));
+      systems = systems.map((row) => ({ ...row, stages: displayed.get(row.solarSystemID) ?? row.stages }));
+    }
+    requestNames(systems.map((row) => ({ kind: "system", id: row.solarSystemID })));
+    return { systems, activeCampaign: campaigns.some((campaign) => campaign.fsmState === 3) };
+  }
   async function agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [known, counts, jumps, graph] = await Promise.all([
@@ -21288,51 +21311,47 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try { if (k) settingsStorage?.setItem(k, JSON.stringify(next)); } catch { /* kept for the page's life */ }
     trackedCareerSignal.set(next);
   }
+  const pirateRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+  type InsurgencyTrack = "corruption" | "suppression";
+  async function readInsurgencyProgress(kind: InsurgencyTrack, systemID: number): Promise<InsurgencyProgress | null> {
+    const result = await api.publicGatewayRequest(`eve_public.pirate.${kind}.api.GetSystemInfoRequest`,
+      { system: { sequential: systemID } }, callOptions).catch(() => null);
+    if (result?.statusCode !== 200) return null;
+    const payload = pirateRecord(result.payload), total = pirateRecord(payload.total_progress), vanguard = pirateRecord(payload.vanguard_contribution);
+    return {
+      numerator: Number(total.numerator ?? 0), denominator: Number(total.denominator ?? 0), stage: Number(payload.stage ?? 0),
+      vanguardNumerator: Number(vanguard.numerator ?? 0), vanguardDenominator: Number(vanguard.denominator ?? 0),
+    };
+  }
+  async function insurgencyStagesBySystem(systems: readonly number[]): Promise<ReadonlyMap<number, InsurgencyStages>> {
+    const rows = await Promise.all(systems.map(async (id) => {
+      const [corruption, suppression] = await Promise.all([readInsurgencyProgress("corruption", id), readInsurgencyProgress("suppression", id)]);
+      return [id, { corruption: corruption?.stage ?? null, suppression: suppression?.stage ?? null }] as const;
+    }));
+    return new Map(rows);
+  }
   async function insurgencyLocal(): Promise<InsurgencyLocal | null> {
-    const here = store.station.get().online?.solarSystemID ?? null;
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     if (here === null) return null;
-    const answer = await bridgeAsk("insurgencySolarsystem", "GetAllVisibleCampaigns", []).catch(() => null);
-    if (answer === null) return null;
-    const list = Array.isArray(answer) ? answer : answer && typeof answer === "object" && Array.isArray((answer as { items?: unknown }).items) ? (answer as { items: unknown[] }).items : [];
-    const num = (v: unknown): number => (typeof v === "number" ? v : v && typeof v === "object" && "value" in v ? Number((v as { value: unknown }).value) : NaN);
-    const itemsOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : v && typeof v === "object" ? (Array.isArray((v as { items?: unknown }).items) ? (v as { items: unknown[] }).items
-      : Array.isArray((v as { args?: unknown }).args) ? itemsOf((v as { args: unknown[] }).args[0])
-      // A Python set as an objectex1 (__builtin__.set, its one argument the list).
-      : Array.isArray((v as { header?: unknown }).header) && Array.isArray((v as { header: unknown[] }).header[1]) ? itemsOf(((v as { header: unknown[] }).header[1] as unknown[])[0]) : []) : []);
-    // A CampaignClientSnapshot (an objectex2: its state dict, the attributes named with a leading underscore).
-    const attrsOf = (snapshot: unknown): Map<string, unknown> => {
-      const header = snapshot && typeof snapshot === "object" && Array.isArray((snapshot as { header?: unknown }).header) ? (snapshot as { header: unknown[] }).header : [];
-      const dict = header.find((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "dict") as { entries?: [unknown, unknown][] } | undefined;
-      return new Map((dict?.entries ?? []).map(([k, v]) => [String(k).replace(/^_/, ""), v]));
-    };
-    // InfoPanelInsurgency: the first snapshot whose coveredSolarsystemIDs has the pilot's system.
-    const snapshot = list.map(attrsOf).find((a) => itemsOf(a.get("coveredSolarsystemIDs")).map(num).includes(here));
-    if (!snapshot) return null;
-    const expiry = snapshot.get("stateExpiryTimestamp");
-    const expiryRaw = expiry && typeof expiry === "object" && "value" in expiry ? String((expiry as { value: unknown }).value) : "";
-    const fsmState = num(snapshot.get("fsmState"));
-    const base = {
-      campaignID: num(snapshot.get("campaignID")), fsmState, warzoneID: num(snapshot.get("warzoneID")),
-      pirateFactionID: Number.isFinite(num(snapshot.get("pirateFactionID"))) ? num(snapshot.get("pirateFactionID")) : null,
-      stateExpiryMs: /^\d+$/.test(expiryRaw) ? Number((BigInt(expiryRaw) - 116_444_736_000_000_000n) / 10_000n) : null,
-    };
-    // CAMPAIGN_STATE_FORECASTING (2): the next insurgency's time only.
+    const answer = await bridgeAsk("insurgencySolarsystem", "GetLocalCampaignClientSnapshot", []).catch(() => null);
+    if (!Array.isArray(answer) || Number(unwrapLong(answer[0])) !== here) return null;
+    const [snapshot] = insurgencyCampaigns([answer[1] ?? null]);
+    if (!snapshot || snapshot.fsmState === null) return null;
+    const { campaignID, fsmState, stateExpiryMs } = snapshot;
+    const base = { campaignID, fsmState, warzoneID: snapshot.warzoneID ?? 0, pirateFactionID: snapshot.factionID, stateExpiryMs };
+    // CAMPAIGN_STATE_FORECASTING: the next insurgency's time only.
     if (fsmState === 2) return { ...base, corruptionStages: null, suppressionStages: null, corruption: null, suppression: null };
-    const ask = (request: string, payload: Record<string, unknown>) => api.publicGatewayRequest(request, payload as unknown as Record<string, JsonValue>, callOptions).catch(() => null);
-    const P = "eve_public.pirate.";
-    const [cStages, sStages, cInfo, sInfo] = await Promise.all([
-      ask(P + "corruption.api.GetStageThresholdsRequest", {}), ask(P + "suppression.api.GetStageThresholdsRequest", {}),
-      ask(P + "corruption.api.GetSystemInfoRequest", { system: { sequential: here } }), ask(P + "suppression.api.GetSystemInfoRequest", { system: { sequential: here } }),
+    async function thresholds(kind: InsurgencyTrack): Promise<readonly number[] | null> {
+      const result = await api.publicGatewayRequest(`eve_public.pirate.${kind}.api.GetStageThresholdsRequest`, {}, callOptions).catch(() => null);
+      if (result?.statusCode !== 200) return null;
+      const values = pirateRecord(result.payload).thresholds;
+      return Array.isArray(values) ? values.map((fraction) => Number(pirateRecord(fraction).numerator ?? 0) /
+        Number(pirateRecord(fraction).denominator ?? 1)) : [];
+    }
+    const [corruptionStages, suppressionStages, corruption, suppression] = await Promise.all([
+      thresholds("corruption"), thresholds("suppression"), readInsurgencyProgress("corruption", here), readInsurgencyProgress("suppression", here),
     ]);
-    const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
-    // _BlockingRequestStageThreasholds: each threshold's numerator / denominator.
-    const stages = (a: typeof cStages) => (a && a.statusCode === 200 ? (Array.isArray(rec(a.payload).thresholds) ? rec(a.payload).thresholds as unknown[] : []).map((f) => Number(rec(f).numerator ?? 0) / Number(rec(f).denominator ?? 1)) : null);
-    const info = (a: typeof cInfo): InsurgencyProgress | null => {
-      if (!a || a.statusCode !== 200) return null;
-      const p = rec(a.payload), total = rec(p.total_progress), vanguard = rec(p.vanguard_contribution);
-      return { numerator: Number(total.numerator ?? 0), denominator: Number(total.denominator ?? 0), stage: Number(p.stage ?? 0), vanguardNumerator: Number(vanguard.numerator ?? 0), vanguardDenominator: Number(vanguard.denominator ?? 0) };
-    };
-    return { ...base, corruptionStages: stages(cStages), suppressionStages: stages(sStages), corruption: info(cInfo), suppression: info(sInfo) };
+    return { ...base, corruptionStages, suppressionStages, corruption, suppression };
   }
   const FW_ENLISTMENT = "fwCharacterEnlistmentMgr";
   const militiaEnlistmentChanged = createSignal(0);
@@ -35201,6 +35220,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyTrackerSites,
     agencyFactionWarfareSystems,
     agencyFactionWarfareSystemLP,
+    agencyInsurgencySystems,
     async agencyRegisterLocalSignalTracker() { await bridgeDo("scanMgr", "SignalTrackerRegister", []); },
     agencyAnomaliesChanged: readonlySignal(agencyAnomaliesChanged),
     agencySignatures,

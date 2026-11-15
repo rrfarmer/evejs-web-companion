@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DISTANCE } from "./agencyAgents.ts";
-import { agencyFactionWarfareSystems, agencyFactionWarfareUpgrade, DEFAULT_AGENCY_FW_FILTERS } from "./agencySites.ts";
-import type { MilitiaSystem } from "./militiaEnlistment.ts";
+import { agencyFactionWarfareSystems, agencyFactionWarfareUpgrade, agencyInsurgencySystems, insurgencySiteCandidates,
+  DEFAULT_AGENCY_FW_FILTERS, DEFAULT_AGENCY_INSURGENCY_FILTERS, type InsurgencyStages } from "./agencySites.ts";
+import { insurgencyCampaigns, type MilitiaSystem } from "./militiaEnlistment.ts";
 import type { JsonValue } from "./wire.ts";
 
 const HEYDIELES = 30004979;
@@ -62,4 +63,54 @@ test("Agency keeps the most contested systems in a bucket before ordering the se
   assert.equal(rows.length, 30);
   assert.equal(rows.some((row) => row.solarSystemID === farthest - 1), false);
   assert.equal(rows.at(-1)?.solarSystemID, farthest);
+});
+
+test("Agency insurgency cards join native campaign coverage and filter by site faction and known system stages", () => {
+  const roushzar = 30002975;
+  const immuri = 30045343;
+  const other = 30002976;
+  const angels = 500011;
+  const guristas = 500010;
+  const snapshots: JsonValue = { type: "list", items: [{
+    type: "objectex2",
+    header: [[{ type: "token", value: "pirateinsurgency.campaignClientSnapshot.CampaignClientSnapshot" }], {
+      type: "dict", entries: [
+        ["_campaignID", 146], ["_pirateFactionID", angels], ["_fsmState", 3], ["_originSolarsystemID", roushzar],
+        ["_structureID", 1054048106597], ["_coveredSolarsystemIDs", {
+          type: "objectex1",
+          header: [{ type: "token", value: "__builtin__.set" }, [{ type: "list", items: [roushzar, other] }]],
+          list: [], dict: [],
+        }],
+      ],
+    }],
+    list: [], dict: [],
+  }] };
+  const rawSites: JsonValue = { type: "dict", entries: [
+    [roushzar, { type: "list", items: [complex(1, angels, "ANG-111"), complex(2, guristas, "GUR-222")] }],
+    [immuri, { type: "list", items: [complex(3, guristas, "GUR-333")] }],
+    [other, { type: "list", items: [complex(4, angels, "ANG-444")] }],
+  ] };
+  const campaigns = insurgencyCampaigns(snapshots);
+  assert.deepEqual(campaigns[0]?.coveredSystemIDs, [roushzar, other]);
+  const progress = new Map<number, InsurgencyStages>([
+    [roushzar, { corruption: 0, suppression: 2 }],
+    [immuri, { corruption: 1, suppression: 0 }],
+    [other, { corruption: null, suppression: 2 }],
+  ]);
+  const distance = (id: number) => id === other ? 1 : 8;
+  const get = (filters = DEFAULT_AGENCY_INSURGENCY_FILTERS) => agencyInsurgencySystems(
+    insurgencySiteCandidates(rawSites, filters, roushzar, distance), campaigns, new Map([[roushzar, CALDARI]]),
+    progress, roushzar, distance, () => 0.4, filters);
+  const [fob, neighbor, distant] = get();
+  assert.equal(fob?.pirateFactionID, angels);
+  assert.equal(fob?.occupierID, CALDARI);
+  assert.equal(fob?.isFobSystem, true);
+  assert.equal(neighbor?.pirateFactionID, angels);
+  assert.equal(neighbor?.isFobSystem, false);
+  assert.equal(distant?.pirateFactionID, null);
+  assert.deepEqual(get({ ...DEFAULT_AGENCY_INSURGENCY_FILTERS, faction: guristas }).map((row) => [row.solarSystemID, row.sites.length]),
+    [[roushzar, 2], [immuri, 1]]);
+  assert.deepEqual(get({ ...DEFAULT_AGENCY_INSURGENCY_FILTERS, corruption: 0, suppression: 2 }).map((row) => row.solarSystemID),
+    [roushzar, other]);
+  assert.deepEqual(get({ ...DEFAULT_AGENCY_INSURGENCY_FILTERS, distance: DISTANCE.currentSystem }).map((row) => row.solarSystemID), [roushzar]);
 });
