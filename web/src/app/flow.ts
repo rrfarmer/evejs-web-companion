@@ -20581,12 +20581,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     let outcome = decodeDroneEngageOutcome(result, read, droneIDs, targetID);
     // A drone's new target reaches the pilot's park with the server's next tick (OnDroneStateChange is queued into
     // the tick's update, droneRuntime.js queueDroneGameplayEvent), and the read just after the answer is often ahead
-    // of it: every drone taken still shows its old target or none. So while a drone is unconfirmed and the read was
-    // good, the drones are read again, as a launch's are (LAUNCH_ARRIVAL_*). A read that failed is not waited on.
-    for (let waited = 0; waited < ENGAGE_SETTLE_WAIT_MS && outcome.status === "uncertain" && Array.isArray(read);
-      waited += ENGAGE_SETTLE_STEP_MS) {
+    // of it: every drone taken still shows its old target or none. So while an unconfirmed drone is read in space
+    // under this ship and not yet on the target, the drones are read again, as a launch's are (LAUNCH_ARRIVAL_*).
+    // Nothing else can settle by waiting: a drone gone from space, an answer that could not be read with the drones
+    // already on the target, or a read that failed. Three seconds of the clock, not of steps, as a slow read must
+    // not hold the bot's next decision longer; a re-read that fails ends the wait with what was last read.
+    const settling = (): boolean => outcome.status === "uncertain" && Array.isArray(read) &&
+      (decodeDronesInSpace(read) ?? []).some((drone) => outcome.uncertainDroneIDs.includes(drone.itemID) &&
+        drone.controlled && drone.targetID !== targetID);
+    const deadline = Date.now() + ENGAGE_SETTLE_WAIT_MS;
+    while (settling() && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, ENGAGE_SETTLE_STEP_MS));
-      read = (await api.getDrones(callOptions)).inSpace;
+      try {
+        read = (await api.getDrones(callOptions)).inSpace;
+      } catch {
+        break;
+      }
       outcome = decodeDroneEngageOutcome(result, read, droneIDs, targetID);
     }
     if (outcome.status !== "accepted") throw new api.DroneEngageOutcomeError(outcome);

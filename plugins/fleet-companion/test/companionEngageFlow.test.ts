@@ -32,10 +32,10 @@ const dict = (entries: unknown[][] = []) => ({ type: "dict", entries });
 const keyVal = (entries: unknown[][]) => ({ type: "object", name: "util.KeyVal", args: dict(entries) });
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function harness(role: "combat" | "repair", unreadable = false, lagging = false) {
+function harness(role: "combat" | "repair", unreadable = false, lagging = false, neverSettles = false) {
   const targets = new Map<number, number>();
   // A lagging park: the drones' new target is read only from the second read after the order on, as the server
-  // sends it with its next tick (OnDroneStateChange queued into the tick's update).
+  // sends it with its next tick (OnDroneStateChange queued into the tick's update). With `neverSettles` it never is.
   const pending = new Map<number, number>();
   // Whether the drones' next read is the one an engagement makes after its call (app/flow.ts, orderedThenRead).
   let readAfterOrder = false;
@@ -77,7 +77,7 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false)
     } };
     if (path === "/api/bridge/drones") {
       answer = { ok: true, activeShipID: SHIP_ID, bay: [], inSpace: readAfterOrder && unreadable ? null : inSpace(), notifications: [] };
-      if (readAfterOrder) for (const [id, target] of pending) targets.set(id, target);
+      if (readAfterOrder && !neverSettles) for (const [id, target] of pending) targets.set(id, target);
       pending.clear();
       readAfterOrder = false;
     }
@@ -101,7 +101,7 @@ function harness(role: "combat" | "repair", unreadable = false, lagging = false)
       assert.equal(targetID, TARGET);
       orders.push(ids);
       const refused = role === "combat" && orders.length === 1 ? [602] : [];
-      for (const id of ids) if (!refused.includes(id)) (lagging ? pending : targets).set(id, TARGET);
+      for (const id of ids) if (!refused.includes(id)) (lagging || neverSettles ? pending : targets).set(id, TARGET);
       answer = { ok: true, service: "entity", method: "CmdEngage", result: dict(refused.map((id) => [id, ["CustomNotify",
         dict([["notify", "That target is out of drone control range."]])]])), notifications: [] };
       readAfterOrder = true;
@@ -159,5 +159,18 @@ test("an engagement whose drones show their new target only on the next read is 
     for (let tick = 0; tick < 8; tick += 1) { await turn(); t.mock.timers.tick(250); await turn(); t.mock.timers.tick(2000); }
     assert.deepEqual(orders, [[601, 602]], "the drones are read again until they show the target, and the order is not resent");
     assert.equal(companionState(store).get().status, "running");
+  } finally { companionOf(flow).stopFleetCompanion(); t.mock.timers.reset(); }
+});
+
+test("an engagement whose drones never show the target stops waiting and is sent again", async t => {
+  // The wait is three seconds of the clock; past it the order is unconfirmed, as before, and the companion resends it.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { flow, store, orders } = harness("repair", false, false, true);
+  try {
+    await companionOf(flow).startFleetCompanion(DEFAULT_COMPANION_SETUP);
+    for (let tick = 0; tick < 60 && orders.length < 2; tick += 1) { await turn(); t.mock.timers.tick(250); }
+    assert.ok(orders.length >= 2, "the wait ended and the unconfirmed order was sent again");
+    assert.deepEqual(orders[0], [601, 602]);
+    assert.equal(companionState(store).get().status, "running", "an unknown outcome is never a pause for a companion");
   } finally { companionOf(flow).stopFleetCompanion(); t.mock.timers.reset(); }
 });
