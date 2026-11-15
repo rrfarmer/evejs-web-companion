@@ -1,0 +1,41 @@
+{
+  "description": "A companion in a fight sets its drones on a rat it has locked, and the order is confirmed. The boss undocks and the companion follows it out; rats are spawned on the companion; the page locks the first of them. The server sends the drones' new target with its next tick, after CmdEngage has answered, so a page that reads the drones only once straight after the order finds them still on no target and calls the order unconfirmed (issue 177).",
+  "recipe": "companion-fight",
+  "watch": { "pilot": "e2eflee" },
+  "setup": [
+    { "login": { "user": "e2efc", "name": "Fleet Boss" }, "note": "the held session, and the fleet's boss: never a pilot the web client flies" },
+    { "slash": "/invu on", "note": "rats leave the boss alone" },
+    "webUp",
+    { "webLogin": "e2eflee" },
+    { "webClick": { "role": "button", "name": "▶ ALL", "index": 0 } },
+    { "webClick": { "role": "button", "name": "Go to first pilot" } },
+    { "wait": 8, "note": "drone recovery checks a pilot that has just signed in" },
+    { "fleetForm": ["e2eflee"], "note": "the held character is the boss, so the companion has a commander who is not a server run" },
+    { "webClick": { "role": "button", "name": "Yes", "exact": true, "within": { "role": "alertdialog" } }, "timeout": 20, "note": "the page answers the invitation, so it holds the fleet as a player's client does" },
+    { "webExpect": { "role": "alertdialog" }, "hidden": true, "timeout": 20 },
+    { "webClick": { "role": "button", "name": "Companions", "index": 0 } },
+    { "webSelect": { "role": "combobox", "name": "Add a pilot" }, "option": "Flee Pilot" },
+    { "webClick": { "role": "button", "name": "Add", "exact": true } },
+    { "webClick": { "role": "button", "name": "Start", "exact": true, "within": { "role": "region", "name": "Fleet companions" } } },
+    { "webExpect": { "role": "button", "name": "Fleet companions - 1 flying", "index": 0 }, "timeout": 60 },
+    "undock",
+    { "waitFor": "GRID", "timeout": 120, "note": "the companion followed its boss out" },
+    { "wait": 5 },
+    { "slash": "/tr me offset=0,0,2000000000", "note": "off the station's grid, as in companion-flee" },
+    { "pilotSlash": "/tr me offset=0,0,2000000000", "user": "e2eflee", "note": "the same jump from the same undock, so the two land together" },
+    { "wait": 8 },
+    { "pilotSlash": "/npc 5 parity_blood_raider_pulse_frigate", "user": "e2eflee", "note": "enough frigates that the fight outlasts the lock and the order" },
+    { "wait": 14, "note": "the companion's drones go out about 9 s after the rats arrive" },
+    { "webClick": { "role": "button", "name": "Lock", "exact": true, "index": 0 }, "timeout": 20, "note": "the first rat in the hostiles box: the companion sets its drones on a hostile it has locked" },
+    { "wait": 25, "note": "the lock, the order, and the reads after it" },
+    { "webShot": "drones on the locked rat" },
+    { "webClick": { "role": "button", "name": "Stop all" } },
+    { "botWait": "e2eflee", "timeout": 60 }
+  ],
+  "until": { "any": ["BOT what=end"], "from": "start", "timeout": 30, "grace": 1 },
+  "expect": [
+    { "match": "BOT what=issue says~engageDrones", "note": "the companion set its drones on the rat" },
+    { "match": "no BOT what=result says~engageDrones ok=false", "note": "and every such order was confirmed" },
+    { "match": "no WEB_ERROR what=exception", "note": "the page threw nothing" }
+  ]
+}
