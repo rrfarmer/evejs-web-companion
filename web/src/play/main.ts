@@ -142,7 +142,7 @@ function showSpace(): void {
     setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
     alignTo: (id) => alignTo(act, flightNow, id),
     keepAtRange: (id, range) => keepAtRange(act, flightNow, id, range ?? 1000),
-    jump: async (id, onJumping) => { onJumping?.(); await jump(act, flightNow, id); },
+    jump: (id) => jump(act, flightNow, id),
     lock: async (id) => { await lockTarget(act, id, null); },
     unlock: (id) => unlockTarget(act, id, "locked"),
     targets: async () => {

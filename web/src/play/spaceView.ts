@@ -25,7 +25,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
-import { MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
+import { isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
@@ -105,8 +105,7 @@ export interface SpaceActions {
   setSpeedFraction(fraction: number): Promise<void>;
   alignTo(itemID: number): Promise<void>;
   keepAtRange(itemID: number, range?: number): Promise<void>;
-  /** The jump; `onJumping` said as the jump itself is asked (after any closing in), which starts the gate effect. */
-  jump(itemID: number, onJumping?: () => void): Promise<void>;
+  jump(itemID: number): Promise<void>;
   lock(itemID: number): Promise<void>;
   unlock(itemID: number): Promise<void>;
   /** What is locked, and what has the pilot locked: the BFF's read (GET /api/bridge/targets). */
@@ -344,8 +343,10 @@ export class SpaceView {
     if (name === "OnSpecialFX") {
       const guids = fxGuid(args[5]).split(",").map((g) => g.trim()).filter(Boolean);
       const ship = Number(args[0]), target = Number(args[3]);
+      const start = Number(args[7]) === 1;
+      if (!this.gateJump && isOwnStargateDeparture(guids, ship, start, this.live.hello?.shipID ?? null)) this.beginJumpCamera();
       const emitterOf = (g: string) => `fx:${g}:${ship}:${String(args[1])}`;
-      if (Number(args[7]) !== 1) {
+      if (!start) {
         for (const g of guids) { this.fxEmitters.delete(emitterOf(g)); stopEmitter(emitterOf(g)); }
       } else {
         for (const g of guids) this.fxEmitters.add(emitterOf(g));
@@ -397,8 +398,8 @@ export class SpaceView {
   };
   /**
    * The gate jump, drawn in our own way where the client plays its gate effect (SpaceToSpaceTransition: no fade, the
-   * destination's scene swapped in during the effect): the tunnel builds from the jump order, flashes as the new
-   * system's park comes (the feed's reset), and eases out.
+   * destination's scene swapped in during the effect): the tunnel builds from the pilot's JumpOut effect, flashes
+   * as the new system's park comes (the feed's reset), and eases out.
    */
   private gateJump: {
     orderedAt: number;
@@ -496,22 +497,7 @@ export class SpaceView {
     this.root.appendChild(this.flashEl);
     this.seenResets = live.resets;
     this.seenSystem = live.hello?.solarSystemID ?? null;
-    // The jump order starts the gate effect.
-    const jump = actions.jump.bind(actions);
-    // The call returns once the session has changed, after the new system's park has come: the effect starts as the
-    // jump itself is asked (not while the ship is still flown to the gate), and is let go if the order is refused.
-    this.actions = {
-      ...actions,
-      jump: async (id) => {
-        let started: SpaceView["gateJump"] = null;
-        try {
-          await jump(id, () => { started = this.beginJumpCamera(); });
-        } catch (e) {
-          if (started && this.gateJump === started) this.endJumpCamera();
-          throw e;
-        }
-      },
-    };
+    this.actions = actions;
     this.modeEl = this.root.querySelector(".ship-mode")!;
     this.root.insertBefore(this.shipHud.root, this.modeEl);
     this.shipHud.onStop = () => void this.stopShip();
@@ -997,7 +983,7 @@ export class SpaceView {
     }
   }
 
-  private beginJumpCamera(): NonNullable<SpaceView["gateJump"]> {
+  private beginJumpCamera(): void {
     const eye = this.camera.position, target = this.controls.target;
     // JumpCamera.OnActivated copies the orbit pose only when both points are valid.
     if (!setCameraPose(eye, target, eye, target, MAX_JUMP_CAMERA_COORDINATE)) {
@@ -1010,7 +996,6 @@ export class SpaceView {
     };
     this.undockCam = null;
     this.controls.enabled = false;
-    return this.gateJump;
   }
 
   private endJumpCamera(): void {

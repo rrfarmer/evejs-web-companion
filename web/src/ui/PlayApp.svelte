@@ -913,11 +913,10 @@
         return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args ?? {}, { nameOf: () => "" })) : null;
       },
       openCargo: (id) => s.flow.openCargo(id),
-      // The flow says a refused order as the client does (its dialog: "You are not within maximum jumping distance")
-      // and does not throw; a jump it refused is one the view's gate effect must not wait on.
+      // The flow says a refused order as the client does and does not throw.
       // menusvc.StargateJump: flown to within 2,500 m of the gate first (GetCloseAndTryCommand), then the jump.
-      jump: async (id, onJumping) => {
-        await s.flow.stargateJump(id, onJumping);
+      jump: async (id) => {
+        await s.flow.stargateJump(id);
         const refused = s.store.flight.get().actionError;
         if (refused) throw Object.assign(new Error(refused), { said: s.store.flight.get().actionErrorSaid === true });
       },

@@ -1,7 +1,16 @@
 import { Vector3 } from "three";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose } from "./spaceCameraPose.ts";
+import { isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose } from "./spaceCameraPose.ts";
+
+test("the jump camera starts only on the pilot's own stargate departure effect", () => {
+  const shipID = 9988400000871;
+  assert.equal(isOwnStargateDeparture(["effects.JumpOut"], shipID, true, shipID), true);
+  assert.equal(isOwnStargateDeparture(["effects.JumpOut"], shipID + 1, true, shipID), false);
+  assert.equal(isOwnStargateDeparture(["effects.JumpOut"], shipID, true, null), false);
+  assert.equal(isOwnStargateDeparture(["effects.JumpOut"], shipID, false, shipID), false);
+  assert.equal(isOwnStargateDeparture(["effects.JumpIn"], shipID, true, shipID), false);
+});
 
 test("a jump rebases both camera points and preserves the sightline", () => {
   const eye = new Vector3(80, 12, -50), target = new Vector3(10, 0, -3);

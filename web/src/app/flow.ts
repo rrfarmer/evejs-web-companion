@@ -4220,10 +4220,10 @@ export interface AppFlow {
   /**
    * Jump as the client's menu gives it (menusvc.StargateJump: GetCloseAndTryCommand(stargateID,
    * gateJumpSvc.JumpThroughGate, interactionRange=maxStargateJumpingDistance)): the system navigation to within
-   * 2,500 m of the gate (warp, approach), then the jump. `onJumping` is said as the jump itself is asked. Refusals
+   * 2,500 m of the gate (warp, approach), then the jump. Refusals
    * are the flight's, as `jump`'s.
    */
-  stargateJump(gateID: number, onJumping?: () => void): Promise<void>;
+  stargateJump(gateID: number): Promise<void>;
   /**
    * JUMP, the way Dock means it: close the distance and then jump. Runs the
    * same browser decide-loop as `dockAt` over a ONE-hop plan through this gate,
@@ -35455,11 +35455,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async jump(fromGateID, toGateID) {
       await runFlightStep("Jump", () => jumpStep(fromGateID, toGateID));
     },
-    async stargateJump(gateID, onJumping) {
-      await navigateSystemTo(gateID, GATE_ACTIVATION_RANGE_M, async () => {
-        onJumping?.();
-        await runFlightStep("Jump", () => jumpStep(gateID, 0));
-      });
+    async stargateJump(gateID) {
+      await navigateSystemTo(gateID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpStep(gateID, 0)));
     },
     jumpThrough,
     activateGate,
