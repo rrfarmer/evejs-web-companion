@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { getHullBrowser } from "../app/api.ts";
-  import type { AppFlow } from "../app/flow.ts";
   import type { ShipInfoScene } from "../play/shipInfoScene.ts";
 
-  let { typeID, active, expanded, flow }: { typeID: number; active: boolean; expanded: boolean; flow: AppFlow } = $props();
+  let { typeID, factionID, active, expanded }: {
+    typeID: number; factionID: number | null | undefined; active: boolean; expanded: boolean;
+  } = $props();
   const keyboardHelp = $props.id();
   let host = $state<HTMLElement | null>(null);
   let scene = $state.raw<ShipInfoScene | null>(null);
@@ -23,13 +23,12 @@
   $effect(() => { scene?.setExpanded(expanded); });
   $effect(() => {
     const id = typeID;
+    const faction = factionID;
     const view = scene;
-    if (!view) return;
+    if (!view || faction === undefined) return;
     let current = true;
     load = "waiting";
-    void getHullBrowser([id], flow.requestOptions()).catch(() => null).then(facts => {
-      if (current) return view.show(id, facts?.types[id]?.factionID ?? null);
-    }).then(shown => {
+    void view.show(id, faction).then(shown => {
       if (current) load = shown ? "shown" : "unavailable";
     }).catch(() => { if (current) load = "unavailable"; });
     return () => { current = false; };

@@ -176,6 +176,7 @@ const TABLES = Object.freeze({
   // A meta group's name, the number of its message (metaGroups/data.py get_name: the meta group's nameID), which the
   // assets search's metagroup keyword matches (assetSearchUtil.MatchMetagroup).
   metaGroupNameIDs: Object.freeze({ loader: "metaGroupsLoader", resource: "res:/staticdata/metagroups.fsdbinary", attribute: "nameID" }),
+  metaGroupIcons: Object.freeze({ loader: "metaGroupsLoader", resource: "res:/staticdata/metagroups.fsdbinary", attribute: "iconID" }),
   types: Object.freeze({ loader: "typesLoader", resource: "res:/staticdata/types.fsdbinary", rowsOnly: true }),
   // A graphic's own record (fsdBuiltData/common/graphicIDs: graphicIDs.fsdbinary - its animationStateObjects among
   // them, GetAnimationStateObjects), read by the rows asked for only.

@@ -17,6 +17,7 @@ const { readResourceIndex } = require("./clientWords");
 const { dds32Png } = require("./dds32Png");
 
 const TEXTURE_PATH = /^res:\/ui\/texture\/[a-z0-9_./-]+\.(?:png|jpg)$/;
+const FACTION_FONT_PATH = /^res:\/ui\/fonts\/factions\/[a-z]+\/[a-z0-9_-]+\.ttf$/;
 // A graphic's pictures the client renders ahead (eveGraphicIDs iconFolder: res:/dx9/model/.../icons/<graphicID>_64.png),
 // which evePhotosvc.GetRenderPath loads for a renderable type: a drone's, a ship's, a structure's.
 const RENDER_PATH = /^res:\/dx9\/model\/[a-z0-9_./-]+\/icons\/[0-9]+_(?:64|128)\.png$/;
@@ -36,7 +37,7 @@ function createClientTextures({ clientRoot = null, readFile = fs.readFileSync } 
   function fileFor(resPath) {
     if (!clientRoot) return null;
     const asked = String(resPath || "").toLowerCase();
-    if (!(TEXTURE_PATH.test(asked) || RENDER_PATH.test(asked)) || asked.includes("..")) return null;
+    if (!(TEXTURE_PATH.test(asked) || RENDER_PATH.test(asked) || FACTION_FONT_PATH.test(asked)) || asked.includes("..")) return null;
     if (index === null) index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
     const relative = index.get(asked);
     return relative ? path.join(clientRoot, "ResFiles", relative) : null;

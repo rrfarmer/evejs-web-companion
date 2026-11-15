@@ -4,7 +4,8 @@
   import { isSessionLost, type AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
   import { FLEET_JOB_CREATOR, isFleetCommander } from "../bridge/fleetCommand.ts";
-  import { BASE_UPWELL_JUMP_COST, canSeeCompositionMember, compositionID, summarizeFleetComposition } from "../bridge/fleetComposition.ts";
+  import { canSeeCompositionMember, compositionID, summarizeFleetComposition } from "../bridge/fleetComposition.ts";
+  import { BASE_UPWELL_JUMP_COST } from "../bridge/shipInfoAttributes.ts";
   import { rankLabel } from "../bridge/fleetMemberMenu.ts";
   import type { FleetMember } from "../bridge/boundFleet.ts";
   import type { ClientStore } from "../store/clientStore.ts";

@@ -14485,6 +14485,38 @@ app.get("/api/client-data/ship-traits", requireAuth, async (req, res, next) => {
   }
 });
 
+// PanelOverview reads the hull's description, quote, faction, ship class and tier from the installed client.
+app.get("/api/client-data/ship-info-overview/:typeID", requireAuth, async (req, res, next) => {
+  const typeID = strictPositiveID(req.params.typeID);
+  if (typeID === null) return res.status(400).json({ ok: false, error: "INVALID_TYPE_ID" });
+  try {
+    const [types, groups, tierNames, tierIcons, icons] = await Promise.all([
+      clientBuiltData.rows("types", [typeID]),
+      clientBuiltData.infoBubbleGroups(),
+      clientBuiltData.table("metaGroupNameIDs"),
+      clientBuiltData.table("metaGroupIcons"),
+      clientBuiltData.table("iconFiles"),
+    ]);
+    const type = types?.[typeID];
+    if (!type) return res.json({ ok: true, overview: null });
+    const tierID = strictPositiveID(type.metaGroupID);
+    const iconID = tierID === null ? null : strictPositiveID(tierIcons?.[tierID]);
+    res.json({ ok: true, overview: {
+      factionID: strictPositiveID(type.factionID),
+      groupID: strictPositiveID(type.groupID),
+      classNameID: strictPositiveID(groups?.[type.isisGroupID]?.nameID),
+      descriptionID: strictPositiveID(type.descriptionID),
+      quoteID: strictPositiveID(type.quoteID),
+      quoteAuthorID: strictPositiveID(type.quoteAuthorID),
+      marketGroupID: strictPositiveID(type.marketGroupID),
+      tierNameID: tierID === null ? null : strictPositiveID(tierNames?.[tierID]),
+      tierIcon: iconID === null ? null : icons?.[iconID] || null,
+    } });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // The compare tool's types (comparisonWindow.py, comparableType.py), from the client's own tables: each type's dogma
 // attributes as dogma/data.py get_type_attributes lists them (its typeDogma rows in their order, then its mass,
 // capacity, volume and radius from its types record: evetypes.GetMass and the rest), its group and category
@@ -14668,6 +14700,7 @@ app.get("/api/client-data/type-attributes", requireAuth, async (req, res, next) 
       }
       const groupID = whole(type.groupID);
       const categoryID = groupID !== null && groupCategories && groupCategories[String(groupID)] !== undefined ? whole(groupCategories[String(groupID)]) : null;
+      if (categoryID === 6) keep(1281); // PanelAttributes constructs warp speed even for ships without a base row.
       types[typeID] = {
         attributes: rows,
         groupID,
@@ -18268,6 +18301,15 @@ app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds))$/, (req
   }
   res.set("Cache-Control", "public, max-age=2592000, immutable");
   res.type(/\.jpg$/i.test(req.params[0]) ? "jpeg" : "png").sendFile(file, (error) => {
+    if (error && !res.headersSent) res.status(404).end();
+  });
+});
+
+app.get(/^\/client-res\/(ui\/fonts\/factions\/[a-z]+\/[a-z0-9_-]+\.ttf)$/, (req, res) => {
+  const file = clientTextures.fileFor(`res:/${req.params[0]}`);
+  if (!file) { res.status(404).end(); return; }
+  res.set("Cache-Control", "public, max-age=2592000, immutable");
+  res.type("ttf").sendFile(file, (error) => {
     if (error && !res.headersSent) res.status(404).end();
   });
 });

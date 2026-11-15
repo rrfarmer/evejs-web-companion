@@ -56,7 +56,10 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { AgentRow, SpaceEntity } from "../store/types.ts";
 
-  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult }: { store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>; corporationResult?: ReadableSignal<CorporationInfoRead | null | undefined> | null } = $props();
+  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult, shipLiveOnly = false }: {
+    store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>;
+    corporationResult?: ReadableSignal<CorporationInfoRead | null | undefined> | null; shipLiveOnly?: boolean;
+  } = $props();
   // A component belongs to one native window for its lifetime. Capture these
   // handles so chrome/focus changes cannot become dependencies of its reads.
   // The captured subject signal itself changes only on reconstruction.
@@ -1214,6 +1217,7 @@
       target, or a fitting socket.
     </p>
   {:else}
+    {#if !shipLiveOnly}
     <header class="info-head">
       {#if playerCorpLogo !== null}
         <!-- GetLogoIcon for a player corporation: its own logo, eveIcon.CorpIcon's three layers. -->
@@ -1328,6 +1332,7 @@
         </div>
       {/if}
     </header>
+    {/if}
 
     {#if $subject.kind === "spaceObject"}
       {#if entity}
@@ -1596,7 +1601,7 @@
     {/if}
     {#if jumpBridge && typeID !== null}
       {#key typeID}<InfoJumpBridgeMechanics {store} {flow} {typeID} />{/key}
-    {:else if typeID !== null && $subject.kind === "spaceObject"}
+    {:else if !shipLiveOnly && typeID !== null && $subject.kind === "spaceObject"}
       <InfoShipRequirements {store} {flow} {typeID} />
     {/if}
   {/if}

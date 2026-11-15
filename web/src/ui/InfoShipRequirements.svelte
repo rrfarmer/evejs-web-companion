@@ -3,12 +3,15 @@
   import { fetchTypeDogma, loadTypeListsHolding } from "../app/api.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { romanLevel } from "../bridge/skills.ts";
+  import { BASE_UPWELL_JUMP_COST } from "../bridge/shipInfoAttributes.ts";
   import type { RequiredSkills } from "../bridge/missingSkills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
 
-  let { store, flow, typeID, showEmpty = false }: { store: ClientStore; flow: AppFlow; typeID: number; showEmpty?: boolean } = $props();
+  let { store, flow, typeID, showEmpty = false, includeNavigation = true }: {
+    store: ClientStore; flow: AppFlow; typeID: number; showEmpty?: boolean; includeNavigation?: boolean;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -16,10 +19,10 @@
   const REQUIREMENTS = "UI/InfoWindow/TabNames/Requirements";
   const NO_ACADEMY_SKILLS = "UI/AcademyShips/NoSkillsRequired";
   const NAVIGATION = "UI/Fitting/Navigation";
-  const ACTIVATION_COST = 6364;
   let read = $state<{ required: RequiredSkills; academy: boolean; activationCost: number | null } | null>(null);
   $effect(() => {
     const id = typeID;
+    const navigation = includeNavigation;
     let current = true;
     read = null;
     void (async () => {
@@ -29,13 +32,13 @@
       const options = flow.requestOptions();
       const [lists, dogma] = await Promise.all([
         skills === 0 ? loadTypeListsHolding([id], [992], options) : {},
-        fetchTypeDogma([id], [ACTIVATION_COST], options).catch(() => null),
+        navigation ? fetchTypeDogma([id], [BASE_UPWELL_JUMP_COST], options).catch(() => null) : null,
       ]);
       if (!current) return;
       flow.requestWords([REQUIREMENTS, NO_ACADEMY_SKILLS, NAVIGATION]);
       const skillIDs = [...new Set(Object.values(facts.required).flatMap(branch => branch.map(([skillID]) => skillID)))];
       flow.requestNames(skillIDs.map(skillID => ({ kind: "type", id: skillID })));
-      read = { required: facts.required, academy: lists[id]?.includes(992) === true, activationCost: dogma?.[id]?.[ACTIVATION_COST] ?? null };
+      read = { required: facts.required, academy: lists[id]?.includes(992) === true, activationCost: dogma?.[id]?.[BASE_UPWELL_JUMP_COST] ?? null };
     })().catch(() => {});
     return () => { current = false; };
   });

@@ -4088,6 +4088,35 @@ export interface TypeMetaRead {
   readonly metaGroupNameIDs: ReadonlyMap<number, number | null>;
 }
 
+/** The source records for a ship's Overview panel. */
+export interface ShipInfoOverview {
+  readonly factionID: number | null;
+  readonly groupID: number | null;
+  readonly classNameID: number | null;
+  readonly descriptionID: number | null;
+  readonly quoteID: number | null;
+  readonly quoteAuthorID: number | null;
+  readonly marketGroupID: number | null;
+  readonly tierNameID: number | null;
+  readonly tierIcon: string | null;
+}
+
+export async function getShipInfoOverview(typeID: number, options: ApiOptions = {}): Promise<ShipInfoOverview | null> {
+  const { overview } = await getJson(`/api/client-data/ship-info-overview/${typeID}`, options);
+  if (overview === null || typeof overview !== "object" || Array.isArray(overview)) return null;
+  const row = overview as Readonly<Record<string, JsonValue>>;
+  const id = (key: string) => {
+    const value = row[key];
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+  };
+  return {
+    factionID: id("factionID"), groupID: id("groupID"), classNameID: id("classNameID"),
+    descriptionID: id("descriptionID"), quoteID: id("quoteID"), quoteAuthorID: id("quoteAuthorID"),
+    marketGroupID: id("marketGroupID"),
+    tierNameID: id("tierNameID"), tierIcon: typeof row.tierIcon === "string" ? row.tierIcon : null,
+  };
+}
+
 /** The client's types records' meta level, meta group and tech level, at most 500 types at once. */
 export async function getTypeMeta(typeIDs: readonly number[], options: ApiOptions = {}): Promise<TypeMetaRead> {
   const data = await getJson(`/api/client-data/type-meta?typeIDs=${typeIDs.join(",")}`, options);

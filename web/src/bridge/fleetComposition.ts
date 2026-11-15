@@ -2,8 +2,6 @@ import type { FleetCompositionEntry, FleetMember } from "./boundFleet.ts";
 import { FLEET_JOB_CREATOR } from "./fleetCommand.ts";
 import { FLEET_ROLE } from "./fleetMemberMenu.ts";
 
-export const BASE_UPWELL_JUMP_COST = 6364;
-
 export function compositionID(id: number | string | null): number | null {
   const value = Number(id);
   return Number.isSafeInteger(value) && value > 0 ? value : null;
