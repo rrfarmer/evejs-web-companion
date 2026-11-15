@@ -445,6 +445,7 @@ export class SpaceView {
     if (raise) el.addEventListener("pointerdown", () => raise(el), true);
   }
   private dscan: DScanWindow | null = null;
+  private dscanKey: { code: string; targeted: boolean } | null = null;
   private systemMap: SolarSystemMapWindow | null = null;
   /**
    * A thing's name as the client gives it (uix.GetSlimItemName): its own name where it has one (a pilot's, a
@@ -479,10 +480,19 @@ export class SpaceView {
   }
   private readonly onKey = (e: KeyboardEvent) => this.key(e);
   /** CombatKeyUnloadListener: the loaded combat command let go when its key comes up, or the window loses focus. */
-  private readonly onKeyUp = (e: KeyboardEvent) => { if (this.combat && e.code === this.combat.code) this.unloadCombat(); };
-  private readonly onBlur = () => this.unloadCombat();
+  private readonly onKeyUp = (e: KeyboardEvent) => {
+    if (this.combat && e.code === this.combat.code) this.unloadCombat();
+    if (this.dscanKey?.code !== e.code) return;
+    const { targeted } = this.dscanKey;
+    this.dscanKey = null;
+    if (!targeted) void this.dscan?.scan();
+  };
+  private readonly onBlur = () => { this.unloadCombat(); this.dscanKey = null; };
   /** The modifiers held at the last press of a pointer (a modifier-only combat command is a click with them). */
-  private readonly onPointer = (e: PointerEvent) => { this.clickMods = { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, at: performance.now() }; };
+  private readonly onPointer = (e: PointerEvent) => {
+    this.clickMods = { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, at: performance.now() };
+    this.systemMap?.setActive(this.systemMap.window.root.contains(e.target as Node));
+  };
   private clickMods = { ctrl: false, shift: false, alt: false, at: 0 };
   /** The combat command loaded (LoadCombatCommand): its name and the key that holds it. */
   private combat: { cmd: CombatCommand; code: string } | null = null;
@@ -623,15 +633,14 @@ export class SpaceView {
       resultLabel: (siteID) => this.actions.resultLabel?.(siteID) ?? siteID,
       resultMenu: (siteID) => this.actions.resultMenu?.(siteID) ?? [],
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
-      aimSpaceCamera: (direction) => {
-        if (!this.controls.enabled) return;
-        const dist = this.camera.position.distanceTo(this.controls.target);
-        if (setCameraDistance(this.camera.position, this.controls.target, direction.clone().negate(), dist)) this.controls.update();
-      },
+      aimSpaceCamera: (direction) => this.aimSpaceCamera(direction),
+      scanShortcutHeld: () => this.dscanKey !== null,
+      scanTowards: (position) => this.scanTowards(position),
+      selectCelestial: () => this.dscan?.setCameraMode(false),
       // the scan's shape: the d-scan window's angle and range, the way the space camera looks (GetScanDirection)
       dscanCone: () => {
-        const state = this.dscan?.coneState() ?? null;
-        if (!state) return null;
+        if (!this.dscan?.isOpen) return null;
+        const state = this.dscan.coneState();
         const d = this.camera.getWorldDirection(new THREE.Vector3());
         return { ...state, direction: { x: d.x, y: d.y, z: -d.z } };
       },
@@ -655,7 +664,7 @@ export class SpaceView {
         activePreset: () => this.overview?.activePreset() ?? null,
         presets: () => this.overview?.presetList() ?? [],
         maxRangeMetres: () => this.actions.shipAttribute?.(5796) ?? null,
-        openMap: () => this.systemMap?.open(),
+        openMap: () => this.systemMap?.toggle(),
         scanned: () => this.systemMap?.scanEffect(),
       }, this.layer);
       this.layer.appendChild(this.dscan.window.root);
@@ -676,7 +685,7 @@ export class SpaceView {
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
     // a click in space: with a combat command loaded, on the object under it (its pick); else the selection cleared
     this.renderer.domElement.addEventListener("click", (e) => {
-      const id = this.combat || this.modifierCombat(false) ? this.pickAt(e.clientX, e.clientY) : null;
+      const id = this.dscanKey || this.combat || this.modifierCombat(false) ? this.pickAt(e.clientX, e.clientY) : null;
       this.select(id);
     });
     addEventListener("resize", () => this.resize());
@@ -704,6 +713,7 @@ export class SpaceView {
     this.live.fxListeners.delete(this.hearFx);
     this.turretFx.dispose();
     this.combatMessage.dispose();
+    this.systemMap?.dispose();
     for (const off of this.unhold) off();
     // the windows in the shared layer are the view's to take away
     for (const el of [this.selectedEl, this.overview.window.root, this.dscan?.window.root, this.radial.root]) el?.remove();
@@ -911,6 +921,10 @@ export class SpaceView {
   }
 
   private select(itemID: number | null): void {
+    if (this.dscanKey && itemID !== null) {
+      const target = this.snapshot?.entities.find((entity) => entity.itemID === itemID);
+      if (target && this.scanTowards(target.position)) return;
+    }
     // ExecuteCombatCommand: a click on an object while a combat command is loaded runs it on the object
     const combat = itemID !== null ? this.combat?.cmd ?? this.modifierCombat() : null;
     if (combat && combat !== "CmdSelectTargetItem" && itemID !== null) { this.runCombat(combat, itemID); return; }
@@ -918,6 +932,27 @@ export class SpaceView {
     for (const [id, el] of this.bracketEls) el.classList.toggle("selected", id === itemID);
     this.overview.setSelected(itemID);
     this.renderSelected();
+  }
+
+  private aimSpaceCamera(direction: THREE.Vector3): void {
+    if (!this.controls.enabled) return;
+    const dist = this.camera.position.distanceTo(this.controls.target);
+    if (setCameraDistance(this.camera.position, this.controls.target, direction.clone().negate(), dist)) this.controls.update();
+  }
+
+  /** ScanTowardsItem sends the pilot-to-target vector directly, before the camera turns. */
+  private scanTowards(position: Entity["position"]): boolean {
+    const ego = this.snapshot?.ship?.position;
+    if (!this.dscanKey || !this.dscan || !ego) return false;
+    const direction = new THREE.Vector3(position.x - ego.x, position.y - ego.y, position.z - ego.z);
+    if (!direction.lengthSq()) return false;
+    if (this.dscan.scanning) return true;
+    direction.normalize();
+    this.dscanKey.targeted = true;
+    void this.dscan.scan([direction.x, direction.y, direction.z]);
+    direction.z *= -1;
+    this.aimSpaceCamera(direction);
+    return true;
   }
 
 /**
@@ -1417,17 +1452,25 @@ export class SpaceView {
    */
   private key(e: KeyboardEvent): void {
     const t = e.target as HTMLElement | null;
-    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     const cmd = commandForKey(e);
     if (cmd === null) return;
+    const scanFromSlider = cmd === "CmdRefreshDirectionalScan" && t instanceof HTMLInputElement
+      && t.type === "range" && this.dscan?.window.root.contains(t);
+    if (!scanFromSlider && t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     if (isCombatCommand(cmd)) {
       e.preventDefault();
-      if (!this.combat) this.loadCombat(cmd, e.code);
+      if (!this.combat && !this.dscanKey) this.loadCombat(cmd, e.code);
       return;
     }
     if (cmd === "OpenDirectionalScanner" && this.dscan) { e.preventDefault(); this.dscan.toggle(); return; }
     if (cmd === "CmdToggleSolarSystemMap" && this.systemMap) { e.preventDefault(); this.systemMap.toggle(); return; }
-    if (cmd === "CmdRefreshDirectionalScan" && this.dscan) { e.preventDefault(); this.dscan.open(); void this.dscan.scan(); return; }
+    if (cmd === "CmdRefreshDirectionalScan" && this.dscan) {
+      e.preventDefault();
+      if (e.repeat) return;
+      if (!this.dscan.isOpen) this.dscan.open();
+      else if (!this.combat) this.dscanKey = { code: e.code, targeted: false };
+      return;
+    }
     // bracketSettings: switch the space-bracket override or restore the tab's preset.
     if (cmd === "CmdToggleShowNoBrackets" || cmd === "CmdToggleShowAllBrackets") {
       e.preventDefault();

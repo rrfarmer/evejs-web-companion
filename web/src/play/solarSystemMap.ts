@@ -126,6 +126,11 @@ export interface SolarSystemMapHooks {
   dscanCone?(): { angleDeg: number; rangeMetres: number; direction: { x: number; y: number; z: number }; shown: boolean; cameraMode?: boolean } | null;
   /** AlignSpaceCameraToViewVector: the space camera turned to look along the direction (the map's / space view's axes). */
   aimSpaceCamera?(direction: THREE.Vector3): void;
+  scanShortcutHeld?(): boolean;
+  /** CheckDirectionalScanItem: use a marker's position even when its ball is off grid. */
+  scanTowards?(position: MapCelestial["position"]): boolean;
+  /** SetSelectedMarker switches the scan camera to target mode. */
+  selectCelestial?(): void;
   /** The pilot's active probes (the scanner's operations): place and destination (EVE's coordinates), range in metres. */
   probes?(): readonly { readonly probeID: number; readonly pos: readonly [number, number, number]; readonly destination: readonly [number, number, number]; readonly scanRange: number; readonly state?: number; readonly rangeSteps?: readonly number[] | null }[];
   /** The probe scan's results shown (the scanner's list less the ignored and the filtered). */
@@ -319,6 +324,11 @@ export class SolarSystemMapWindow {
   private shiftHeld = false;
   private ctrlHeld = false;
   private altHeld = false;
+  private readonly onModifiers = (e: KeyboardEvent) => {
+    this.shiftHeld = e.shiftKey;
+    this.ctrlHeld = e.ctrlKey;
+    this.altHeld = e.altKey;
+  };
   private hover: Picked | null = null;
   /** A move or scaling under way: what was pressed, its plane, where the mouse met it at the probe and at the centre,
    * and the idle probes as they were. */
@@ -351,8 +361,10 @@ export class SolarSystemMapWindow {
   private pitchTween: { from: number; to: number; start: number; duration: number } | null = null;
   /** The camera's point of interest (the sun's, the ship's in align-with-camera mode), and its move there. */
   private readonly poi = new THREE.Vector3();
+  private markerPoi: THREE.Vector3 | null = null;
   private poiTween: { from: THREE.Vector3; start: number; duration: number } | null = null;
   private wasCameraMode = false;
+  private active = false;
   private distance = 100;
   private frame = 0;
   private detached = false;
@@ -366,7 +378,7 @@ export class SolarSystemMapWindow {
     const caption = hooks.word?.("UI/Map/MapPallet/btnSolarsystemMap") ?? "Solar System Map";
     this.window = new PlayWindow({ id: "solarSystemMap", caption, icon: clientTexture("res:/ui/texture/shared/brackets/solarsystem.png"),
       left: Math.max(16, Math.round(innerWidth / 2 - 450)), top: 60, width: 900, height: 600, minWidth: 400, minHeight: 300, closable: true },
-    () => { this.detached = true; this.stop(); });
+    () => { this.detached = true; this.active = false; this.stop(); });
     this.window.body.classList.add("ssm");
     this.canvas.className = "ssm-canvas";
     this.window.body.appendChild(this.canvas);
@@ -399,9 +411,8 @@ export class SolarSystemMapWindow {
       // HighlightProbeBorder: a sphere's edge under the mouse, moving the probes
       if (!this.hover && this.editMode() === "position") { const id = this.pickBorder(e); if (id !== null) this.hover = { id, axis: "z", kind: "range" }; }
     });
-    const keys = (e: KeyboardEvent) => { this.shiftHeld = e.shiftKey; this.ctrlHeld = e.ctrlKey; this.altHeld = e.altKey; };
-    addEventListener("keydown", keys);
-    addEventListener("keyup", keys);
+    addEventListener("keydown", this.onModifiers);
+    addEventListener("keyup", this.onModifiers);
     this.canvas.addEventListener("dblclick", () => this.toggleView());
     const word = (label: string, own: string) => hooks.word?.(label) ?? own;
     const views = document.createElement("div");
@@ -420,11 +431,20 @@ export class SolarSystemMapWindow {
   }
 
   get isOpen(): boolean { return !this.detached && this.window.root.style.display !== "none"; }
+  setActive(active: boolean): void { this.active = active; }
   toggle(): void { if (this.isOpen) this.close(); else this.open(); }
-  close(): void { this.window.root.style.display = "none"; this.stop(); }
+  close(): void { this.window.root.style.display = "none"; this.active = false; this.stop(); }
+  dispose(): void {
+    this.stop();
+    removeEventListener("keydown", this.onModifiers);
+    removeEventListener("keyup", this.onModifiers);
+    this.renderer?.dispose();
+    this.window.root.remove();
+  }
   open(): void {
     if (this.detached) { this.host.appendChild(this.window.root); this.detached = false; }
     this.window.root.style.display = "";
+    this.active = true;
     this.renderer ??= new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.build();
     this.start();
@@ -437,6 +457,7 @@ export class SolarSystemMapWindow {
     if (key === this.builtFor) return;
     this.builtFor = key;
     this.root.clear();
+    this.markerPoi = null;
     this.counts = { planets: 0, moons: 0, orbits: 0, stargates: 0 };
     this.markersLayer.innerHTML = "";
     this.markers = [];
@@ -488,8 +509,15 @@ export class SolarSystemMapWindow {
         (el.querySelector(".ssm-label") as HTMLElement).textContent = this.hooks.label?.(c.itemID) ?? "";
       });
       el.addEventListener("mouseleave", () => el.classList.remove("hover"));
+      const at = mapPoint(c.position);
+      el.addEventListener("click", () => {
+        if (this.hooks.scanTowards?.(c.position)) return;
+        this.hooks.selectCelestial?.();
+        this.markerPoi = at;
+        this.poiTween = { from: this.poi.clone(), start: performance.now(), duration: 350 };
+      });
       this.markersLayer.appendChild(el);
-      this.markers.push({ itemID: c.itemID, at: mapPoint(c.position), el });
+      this.markers.push({ itemID: c.itemID, at, el });
     }
     this.hooks.primeNames?.(this.markers.map((m) => m.itemID));
     this.radius = radius;
@@ -545,24 +573,40 @@ export class SolarSystemMapWindow {
       this.pitch = this.pitchTween.from + (this.pitchTween.to - this.pitchTween.from) * eased;
       if (t >= 1) this.pitchTween = null;
     }
-    // the point of interest: the ship's in align-with-camera mode (LookAtEgoMarker), the sun's otherwise
-    const cameraMode = this.hooks.dscanCone?.()?.cameraMode === true && ego !== null;
-    const target = cameraMode && ego ? mapPoint(ego) : new THREE.Vector3();
+    const cone = this.hooks.dscanCone?.() ?? null;
+    const cameraMode = cone?.cameraMode === true && ego !== null;
     if (cameraMode !== this.wasCameraMode) {
       this.wasCameraMode = cameraMode;
+      if (cameraMode) this.markerPoi = null;
       this.poiTween = { from: this.poi.clone(), start: performance.now(), duration: 350 };
     }
+    const target = this.markerPoi ?? (cameraMode && ego ? mapPoint(ego) : new THREE.Vector3());
     if (this.poiTween) {
       const t = Math.min(1, (performance.now() - this.poiTween.start) / this.poiTween.duration);
       this.poi.lerpVectors(this.poiTween.from, target, t * t * (3 - 2 * t));
       if (t >= 1) this.poiTween = null;
     } else this.poi.copy(target);
+    // In Camera mode the active map drives the space camera. While V is held or the map is inactive,
+    // the space camera drives the map instead.
+    let direction = cone ? mapPoint(cone.direction).normalize() : null;
+    const mapDrivesCamera = cameraMode && this.active && !this.window.root.classList.contains("minimized")
+      && !this.hooks.scanShortcutHeld?.();
+    if (cameraMode && !mapDrivesCamera && direction?.lengthSq()) {
+      this.pitchTween = null;
+      const sideways = Math.hypot(direction.x, direction.z);
+      if (sideways > 1e-7) this.yaw = Math.atan2(-direction.x, -direction.z);
+      this.pitch = Math.atan2(sideways, -direction.y);
+    }
     // the pitch from straight above: the camera's height the cosine, its reach out the sine
     const out = Math.sin(this.pitch);
     this.camera.position.set(Math.sin(this.yaw) * out * this.distance, Math.cos(this.pitch) * this.distance, Math.cos(this.yaw) * out * this.distance).add(this.poi);
     this.camera.lookAt(this.poi);
     this.camera.updateMatrixWorld();
-    this.updateCone(ego);
+    if (mapDrivesCamera) {
+      direction = this.camera.getWorldDirection(new THREE.Vector3());
+      this.hooks.aimSpaceCamera?.(direction);
+    }
+    this.updateCone(ego, cone, direction);
     this.updateProbes();
     this.renderer.render(this.scene, this.camera);
     // the markers on their map points (behind the camera: hidden)
@@ -577,20 +621,25 @@ export class SolarSystemMapWindow {
 
   /** DrawDirectionalScanCone: the shape by the angle, rebuilt where the angle or range changes; placed at the ship and
    * turned to the scan's direction each frame. */
-  private updateCone(ego: { x: number; y: number; z: number } | null): void {
-    const cone = this.hooks.dscanCone?.() ?? null;
+  private updateCone(ego: MapCelestial["position"] | null,
+    cone: ReturnType<NonNullable<SolarSystemMapHooks["dscanCone"]>>, direction: THREE.Vector3 | null): void {
     this.coneGroup.visible = !!cone && cone.shown && ego !== null;
-    if (!cone || !ego) return;
+    if (!cone || !ego || !this.coneGroup.visible) return;
     const key = `${cone.angleDeg}:${Math.round(cone.rangeMetres)}`;
     if (key !== this.coneFor) {
       this.coneFor = key;
+      const materials = new Set<THREE.Material>();
+      for (const child of this.coneGroup.children as (THREE.Mesh | THREE.Line)[]) {
+        child.geometry.dispose();
+        for (const material of Array.isArray(child.material) ? child.material : [child.material]) materials.add(material);
+      }
+      for (const material of materials) material.dispose();
       this.coneGroup.clear();
       const range = cone.rangeMetres * SOLARSYSTEM_SCALE;
       const surface = new THREE.MeshBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0.12, side: THREE.DoubleSide,
         depthWrite: false, blending: THREE.AdditiveBlending });
       this.coneSurface = surface;
       this.sweepRing = null;
-      const line = new THREE.LineBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending });
       if (cone.angleDeg < 180) {
         const half = ((cone.angleDeg * Math.PI) / 180) / 2;
         const length = range * Math.cos(half);
@@ -601,6 +650,7 @@ export class SolarSystemMapWindow {
         g.translate(0, length / 2, 0);
         this.coneGroup.add(new THREE.Mesh(g, surface));
         let rings = 0;
+        const line = new THREE.LineBasicMaterial({ color: COLOR_DSCAN, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending });
         for (let d = AU_M; d < cone.rangeMetres; d += 2 * AU_M) {
           const step = d * Math.cos(half) * SOLARSYSTEM_SCALE;
           const r = Math.tan(half) * step;
@@ -609,6 +659,25 @@ export class SolarSystemMapWindow {
           this.coneGroup.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), line));
           rings += 1;
         }
+        if (!rings) line.dispose();
+        // DrawConeSphereLineSegments places eight tapered meridians on the scan's outer radius.
+        const arcMaterial = new THREE.LineBasicMaterial({ color: COLOR_DSCAN, transparent: true, vertexColors: true,
+          depthWrite: false, blending: THREE.AdditiveBlending });
+        const points: THREE.Vector3[] = [], colors: number[] = [];
+        for (let i = 0; i < 8; i++) {
+          const azimuth = (i / 8) * Math.PI * 2;
+          for (let j = 0; j < 16; j++) {
+            for (const u of [j / 16, (j + 1) / 16]) {
+              const polar = (0.08 + 0.82 * u) * half;
+              const radial = range * Math.sin(polar);
+              points.push(new THREE.Vector3(radial * Math.cos(azimuth), range * Math.cos(polar), radial * Math.sin(azimuth)));
+              colors.push(1, 1, 1, Math.sin(Math.PI * u) * 0.75);
+            }
+          }
+        }
+        const arcs = new THREE.BufferGeometry().setFromPoints(points);
+        arcs.setAttribute("color", new THREE.Float32BufferAttribute(colors, 4));
+        this.coneGroup.add(new THREE.LineSegments(arcs, arcMaterial));
         this.coneInfo = { kind: "cone", rings, length, radius };
         this.coneLength = length;
         this.coneHalfAngle = half;
@@ -629,10 +698,7 @@ export class SolarSystemMapWindow {
     }
     this.stepScanEffect();
     this.coneGroup.position.copy(mapPoint(ego));
-    // SCANMODE_CAMERA with the map open: the map camera's look, and the space camera turned to it
-    const dir = cone.cameraMode && this.isOpen ? this.camera.getWorldDirection(new THREE.Vector3()) : mapPoint(cone.direction).normalize();
-    if (cone.cameraMode && this.isOpen) this.hooks.aimSpaceCamera?.(dir.clone());
-    if (dir.lengthSq() > 0) this.coneGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    if (direction?.lengthSq()) this.coneGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
   }
 
   /** The markers drawn, for checks: how many, and how many in the view. */

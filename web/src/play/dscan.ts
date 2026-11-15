@@ -17,6 +17,7 @@ const ANGLES = [5, 15, 30, 60, 90, 180, 360] as const;
 const MAX_RANGE_AU = 14.3;
 const MIN_RANGE_M = 10_000;
 const DEFAULT_ANGLE_INDEX = ANGLES.indexOf(90);
+const SCAN_COOLDOWN_MS = 1500;
 
 export interface DScanRow { id: number; typeID: number; groupID: number }
 
@@ -124,8 +125,10 @@ export class DScanWindow {
   private readonly tbody: HTMLTableSectionElement;
   private readonly status: HTMLDivElement;
   private readonly filterBox: HTMLSpanElement;
+  private readonly alignButton: HTMLButtonElement;
   private readonly word: (label: string, own: string, args?: Readonly<Record<string, string | number>>) => string;
   private busy = false;
+  private nextScanAt = 0;
   rows: DScanRow[] = [];
 
   /** Whether the window's close button has taken it off the page (it is put back on opening). */
@@ -214,8 +217,12 @@ export class DScanWindow {
       showAngle();
       writeSetting("scan_angleSlider", ((ANGLES[Number(this.angle.value)] ?? 90) * Math.PI) / 180);
     });
+    this.angle.addEventListener("change", () => void this.scan());
     this.rangeSlider.addEventListener("input", showUnit);
-    this.rangeSlider.addEventListener("change", keepRange);
+    this.rangeSlider.addEventListener("change", () => {
+      keepRange();
+      void this.scan();
+    });
     this.range.addEventListener("change", () => {
       const n = Number(this.range.value) || 0;
       const au = this.inKm ? n * 1000 / AU : n;
@@ -223,6 +230,11 @@ export class DScanWindow {
       this.rangeSlider.value = String(Math.min(this.maxRangeAU(), Math.max(MIN_RANGE_M / AU, au)));
       showUnit();
       keepRange();
+    });
+    this.range.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      this.range.dispatchEvent(new Event("change"));
+      void this.scan();
     });
     this.unit.addEventListener("click", () => {
       this.inKm = !this.inKm;
@@ -233,27 +245,24 @@ export class DScanWindow {
     this.filterBox = this.window.body.querySelector(".dscan-filter")!;
     this.word = w;
     // MapBtnClicked: the solar system map; OnShowConeBtn: SetScanConeDisplayState(not IsDscanConeShown()), the button
-    // selected while it shows (UpdateShowConeButton). Align with camera waits on the map's own camera mode.
+    // selected while it shows (UpdateShowConeButton).
     const heads = this.window.body.querySelectorAll<HTMLButtonElement>(".dscan-ic");
     const mapBtn = heads[2];
     if (mapBtn && hooks.openMap) { mapBtn.disabled = false; mapBtn.addEventListener("click", () => hooks.openMap?.()); }
     // OnAlignWithCameraBtn: ToggleScanMode, the button selected in SCANMODE_CAMERA (UpdateAlignWithCameraBtn)
-    const alignBtn = heads[0];
-    if (alignBtn) {
-      alignBtn.disabled = false;
-      alignBtn.classList.toggle("on", this.cameraMode());
-      alignBtn.addEventListener("click", () => {
-        try { localStorage.setItem(SCAN_MODE_KEY, this.cameraMode() ? "1" : "2"); } catch { /* not kept */ }
-        alignBtn.classList.toggle("on", this.cameraMode());
-      });
-    }
+    this.alignButton = heads[0]!;
+    this.alignButton.disabled = false;
+    this.showCameraMode();
+    this.alignButton.addEventListener("click", () => this.setCameraMode(!this.cameraMode()));
     const coneBtn = heads[1];
     if (coneBtn) {
       coneBtn.disabled = false;
       coneBtn.classList.toggle("on", this.coneShown());
+      coneBtn.setAttribute("aria-pressed", String(this.coneShown()));
       coneBtn.addEventListener("click", () => {
         try { localStorage.setItem(SHOW_CONE_KEY, this.coneShown() ? "0" : "1"); } catch { /* not kept */ }
         coneBtn.classList.toggle("on", this.coneShown());
+        coneBtn.setAttribute("aria-pressed", String(this.coneShown()));
       });
     }
     // LoadFilterTooltipPanel: the box's tooltip, a list (210 wide, at most 200 high) - UseActiveOverviewSettings, then
@@ -269,18 +278,32 @@ export class DScanWindow {
   private showUnit: () => void = () => {};
   /** GetActiveScanMode() == SCANMODE_CAMERA. */
   cameraMode(): boolean { try { return localStorage.getItem(SCAN_MODE_KEY) === "2"; } catch { return false; } }
+  setCameraMode(enabled: boolean): void {
+    try { localStorage.setItem(SCAN_MODE_KEY, enabled ? "2" : "1"); } catch { /* not kept */ }
+    this.showCameraMode();
+  }
+  private showCameraMode(): void {
+    const enabled = this.cameraMode();
+    this.alignButton.classList.toggle("on", enabled);
+    this.alignButton.setAttribute("aria-pressed", String(enabled));
+  }
   /** IsDscanConeShown: kept, true by default. */
   coneShown(): boolean { try { return localStorage.getItem(SHOW_CONE_KEY) !== "0"; } catch { return true; } }
   /** The scan's angle (degrees) and range (metres) as the window has them now (GetScanAngle, GetScanRangeInMeters). */
   coneState(): { angleDeg: number; rangeMetres: number; shown: boolean; cameraMode: boolean } {
     const angleDeg = ANGLES[Number(this.angle.value)] ?? 90;
-    const au = Math.min(this.maxRangeAU(), Math.max(MIN_RANGE_M / AU, Number(this.rangeSlider.value) || this.maxRangeAU()));
-    return { angleDeg, rangeMetres: au * AU, shown: this.coneShown(), cameraMode: this.cameraMode() };
+    return { angleDeg, rangeMetres: this.rangeMetres(), shown: this.coneShown(), cameraMode: this.cameraMode() };
   }
   /** GetMaxRangeAU: the ship's maxDirectionalScanRange, else _MAX_RANGE_AU. */
   private maxRangeAU(): number {
     const metres = this.hooks.maxRangeMetres?.() ?? null;
     return metres !== null && metres > 0 ? metres / AU : MAX_RANGE_AU;
+  }
+
+  private rangeMetres(): number {
+    const max = this.maxRangeAU();
+    const chosen = Number(this.rangeSlider.value) || max;
+    return Math.round(Math.min(max, Math.max(MIN_RANGE_M / AU, chosen)) * AU);
   }
   /** UpdateMaxValue: the slider's top at the ship's range, the range kept within it; a range at the old top follows it. */
   private updateMaxValue(): void {
@@ -337,19 +360,17 @@ export class DScanWindow {
     this.updateMaxValue();
   }
 
-  async scan(): Promise<void> {
-    if (this.busy) return;
+  get scanning(): boolean { return this.busy || performance.now() < this.nextScanAt; }
+
+  async scan(direction?: [number, number, number]): Promise<void> {
+    if (this.scanning) return;
     this.busy = true;
     const angle = ((ANGLES[Number(this.angle.value)] ?? 360) * Math.PI) / 180;
     this.updateMaxValue();
-    // GetScanRangeInMeters: the range in whole metres (the client keeps km, the wire metres)
-    const chosenAU = Number(this.rangeSlider.value) || this.maxRangeAU();
-    const range = chosenAU >= this.maxRangeAU() - 1e-9
-      ? Math.round(this.hooks.maxRangeMetres?.() ?? MAX_RANGE_AU * AU)
-      : Math.round(Math.max(MIN_RANGE_M / AU, chosenAU) * AU);
+    const range = this.rangeMetres();
     this.status.textContent = "Scanning…";
     try {
-      this.rows = dscanRows(await this.hooks.scan(angle, range, this.hooks.direction()));
+      this.rows = dscanRows(await this.hooks.scan(angle, range, direction ?? this.hooks.direction()));
       this.draw();
       this.hooks.scanned?.();
       // directionalScanSvc.PlayResultSound: results, or none
@@ -360,6 +381,7 @@ export class DScanWindow {
       this.status.textContent = (e as Error).message;
     } finally {
       this.busy = false;
+      this.nextScanAt = performance.now() + SCAN_COOLDOWN_MS;
     }
   }
 
