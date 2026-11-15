@@ -2003,6 +2003,29 @@
   .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
+  .fly-map :global(.star-map-location-pulse) {
+    position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 300px; height: 300px;
+    opacity: 0; pointer-events: none; background-color: var(--theme-focus-glow, #ccf3ff);
+    mask: url('/client-res/ui/texture/classes/hexmap/circlefilled256.png') center / contain no-repeat;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    /* MarkerMyLocation starts each three-second pulse 600 ms apart after a 4.8-second wait. */
+    .fly-map :global(.star-map-location-pulse) {
+      --pulse-delay: 4.8s;
+      animation: map-location-size 4.8s cubic-bezier(.333, 0, .667, 1) var(--pulse-delay) infinite,
+        map-location-opacity 4.8s cubic-bezier(.333, 0, .667, 1) var(--pulse-delay) infinite;
+    }
+    .fly-map :global(.star-map-location-pulse:nth-child(2)) { --pulse-delay: 5.4s; }
+    .fly-map :global(.star-map-location-pulse:nth-child(3)) { --pulse-delay: 6s; }
+  }
+  @keyframes map-location-size {
+    from { scale: 0; }
+    62.5%, to { scale: 1; }
+  }
+  @keyframes map-location-opacity {
+    from, 62.5%, to { opacity: 0; }
+    31.25% { opacity: .02; }
+  }
   .fly-map :global(.star-map-layout) { position: absolute; top: 10px; right: 42px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
   .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
     color: #ccc; border: 1px solid rgba(255,255,255,0.2); width: 22px; height: 22px; cursor: pointer; }

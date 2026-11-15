@@ -4,7 +4,7 @@
 // cameraShakeEnabled) as the play page keeps them: in the browser's storage, the system menu writing them and the views
 // reading them each frame. Defaults as a high-classification device gets them.
 
-import { colorTheme, DEFAULT_COLORTHEMEID, lighten, scaleSaturation } from "./colorThemes.ts";
+import { colorTheme, DEFAULT_COLORTHEMEID, highlightGlow, lighten, scaleSaturation } from "./colorThemes.ts";
 
 export interface GfxSettings {
   /** 1 low (SM_3_0_LO), 2 medium (SM_3_0_HI), 3 high (SM_3_0_DEPTH): device.GetShaderModelForShaderQuality. */
@@ -143,6 +143,7 @@ function applyWindowAppearance(s: Readonly<GfxSettings>): void {
   root.style.setProperty("--theme-focus", theme.focus);
   root.style.setProperty("--theme-focus-dark", theme.focusDark);
   root.style.setProperty("--theme-focus-bright", theme.id === DEFAULT_COLORTHEMEID ? "#8fd0e6" : lighten(theme.focus, 0.4));
+  root.style.setProperty("--theme-focus-glow", highlightGlow(theme.focus));
   root.style.setProperty("--theme-accent", theme.accent);
   root.style.setProperty("--theme-alert", theme.alert);
   root.style.setProperty("--theme-tint", theme.tint);

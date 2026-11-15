@@ -33,6 +33,16 @@ function rgbOf(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255) as [number, number, number];
 }
 
+/** uiColorThemeMixer.GetHilightGlowColor sets brightness to one and caps saturation at 0.2. */
+export function highlightGlow(hex: string): string {
+  const channels = rgbOf(hex);
+  const max = Math.max(...channels);
+  const range = max - Math.min(...channels);
+  const saturation = range > 0 ? Math.min(range / max, 0.2) : 0;
+  const rgb = channels.map(value => Math.round(255 * (1 - saturation * (max - value) / (range || 1))));
+  return `rgb(${rgb.join(", ")})`;
+}
+
 /** carbonui Color.from_hsb(h, s * scale, b) of a colour: its saturation scaled, its hue and brightness kept. */
 export function scaleSaturation(hex: string, scale: number): [number, number, number] {
   const [r, g, b] = rgbOf(hex);

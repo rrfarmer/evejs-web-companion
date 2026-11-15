@@ -102,8 +102,6 @@
 //   its point, "name <colour>security" (the systems' mean, FmtSystemSecStatus) unless selected; 3D: selected 1.3,
 //   active GetMarkerBaseOpacity(d, x 0.07, x 0.3) x the near factor; abstract (_GetMarkerOpacity_Abstract): 0.6
 //   between MAP2D_ZOOM_TUBE_BUBBLE 0.75 and MAP2D_ZOOM_CONSTELLATION_NAME_MAX 0.81, else nothing, 20 px lower.
-// Not yet: constellation and region markers; the my-location marker's pulse
-// circles (three circleFilled256 rings, alpha to 0.02).
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -1075,6 +1073,13 @@ export class StarMap {
     here.className = "star-map-my-location";
     here.dataset.systemId = String(this.hereID);
     here.style.cssText = "position:absolute;width:14px;height:14px;";
+    // MarkerMyLocation.ConstructCircles creates three centered, noninteractive sprites.
+    for (let i = 0; i < 3; ++i) {
+      const pulse = document.createElement("span");
+      pulse.className = "star-map-location-pulse";
+      pulse.setAttribute("aria-hidden", "true");
+      here.appendChild(pulse);
+    }
     const bg = document.createElement("img");
     bg.src = "/client-res/ui/texture/classes/mapview/tagbackground.png";
     bg.alt = "";
