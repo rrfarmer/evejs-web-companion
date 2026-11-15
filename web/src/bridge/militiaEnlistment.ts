@@ -1,5 +1,5 @@
 import { exactInt } from "./boundDogma.ts";
-import { isListValue, readDictPairs, readKeyVal, readRowsetRows, unwrapLong, type JsonValue } from "./wire.ts";
+import { isListValue, readDictPairs, readKeyVal, readRowsetRows, unwrapLong, unwrapReal, type JsonValue } from "./wire.ts";
 
 export const MILITIA_FACTIONS = {
   500003: { corporationID: 1000179, name: "Amarr Empire", banner: "Amarr", logo: "amarr" },
@@ -15,6 +15,7 @@ export interface MilitiaOffice { readonly stationID: number; readonly systemID: 
 export type TheatersPage = "overview" | "warfare" | "insurgencies" | "enlistment";
 export const EMPIRE_MILITIAS = [500003, 500001, 500004, 500002] as const;
 export const PIRATE_MILITIAS = [500011, 500010] as const;
+export const WARZONE_FACTION_COLORS: Readonly<Record<number, string>> = { 500001: "#00acd1", 500002: "#fe3743", 500003: "#e7b815", 500004: "#40aa5e" };
 const militiaCorporations = new Set<number>(Object.values(MILITIA_FACTIONS).map((faction) => faction.corporationID));
 
 export interface MilitiaAffiliation {
@@ -128,19 +129,30 @@ export function afterMilitiaEnlistment(previous: number | null, confirmed: numbe
 export interface MilitiaSystem {
   readonly systemID: number;
   readonly occupierID: MilitiaFactionID | null;
+  readonly attackerID: MilitiaFactionID | null;
   readonly adjacency: string;
   readonly dateTaken: bigint | null;
+}
+
+function objectArguments(value: JsonValue | undefined): JsonValue[] | null {
+  if (!value || typeof value !== "object" || !("header" in value) || !Array.isArray(value.header)) return null;
+  return Array.isArray(value.header[1]) ? value.header[1] : null;
+}
+
+function listItems(value: JsonValue | undefined): readonly JsonValue[] {
+  return isListValue(value) ? value.items : Array.isArray(value) ? value : [];
 }
 
 export function militiaWarzones(value: JsonValue): ReadonlyMap<number, readonly MilitiaSystem[]> {
   return new Map(readDictPairs(value).flatMap(([zone, states]) => {
     if (typeof zone !== "number") return [];
     const systems = readDictPairs(states).flatMap(([systemID, state]): MilitiaSystem[] => {
-      if (typeof systemID !== "number" || !state || typeof state !== "object" || !("header" in state) || !Array.isArray(state.header)) return [];
-      const args = state.header[1];
-      if (!Array.isArray(args)) return [];
+      const args = objectArguments(state);
+      if (typeof systemID !== "number" || !args) return [];
+      const occupierID = militiaFactionID(args[0]);
+      const attackerID = listItems(args[2]).map(militiaFactionID).find(id => id !== null && id !== occupierID) ?? null;
       const date = exactInt(args[4]);
-      return [{ systemID, occupierID: militiaFactionID(args[0]), adjacency: typeof args[1] === "string" ? args[1] : "",
+      return [{ systemID, occupierID, attackerID, adjacency: typeof args[1] === "string" ? args[1] : "",
         dateTaken: date === null ? null : BigInt(date) }];
     });
     return [[zone, systems] as const];
@@ -150,18 +162,56 @@ export function militiaWarzones(value: JsonValue): ReadonlyMap<number, readonly 
 export interface MilitiaInsurgency {
   readonly campaignID: number;
   readonly factionID: MilitiaFactionID;
+  readonly warzoneID: number | null;
+  readonly originSystemID: number | null;
   readonly fobSystemID: number | null;
 }
 
+export interface MilitiaVictoryPoints {
+  readonly score: number;
+  readonly threshold: number;
+}
+
+export function militiaVictoryPoints(value: JsonValue | undefined): MilitiaVictoryPoints | null {
+  const args = objectArguments(value);
+  const score = unwrapReal(args?.[0]), threshold = unwrapReal(args?.[1]);
+  return score !== null && score >= 0 && threshold !== null && threshold > 0 ? { score, threshold } : null;
+}
+
+export interface MilitiaWarzoneMarkers {
+  readonly headquarters: ReadonlyMap<number, number>;
+  readonly launchers: ReadonlySet<number>;
+  readonly pads: readonly { systemID: number; factionID: number }[];
+  readonly battlefields: ReadonlyMap<number, number>;
+}
+
+export function militiaWarzoneMarkers(hqs: JsonValue, launchers: JsonValue, pads: JsonValue, battlefields: JsonValue): MilitiaWarzoneMarkers {
+  return {
+    headquarters: new Map(readDictPairs(hqs).flatMap(([faction, system]) =>
+      typeof faction === "number" && typeof system === "number" ? [[faction, system] as const] : [])),
+    launchers: new Set(listItems(launchers).filter((id): id is number => typeof id === "number")),
+    pads: listItems(pads).flatMap((pad) => {
+      const args = objectArguments(pad);
+      const systemID = args?.[1], factionID = args?.[2];
+      return typeof systemID === "number" && typeof factionID === "number" && (unwrapLong(args?.[4]) ?? 0n) !== 0n ? [{ systemID, factionID }] : [];
+    }),
+    battlefields: new Map(readDictPairs(battlefields).flatMap(([system, dungeons]) => {
+      const first = listItems(dungeons)[0];
+      const nameID = readKeyVal(first, "dungeonNameID");
+      return typeof system === "number" && first !== undefined ? [[system, typeof nameID === "number" ? nameID : 0] as const] : [];
+    })),
+  };
+}
+
 export function militiaInsurgencies(value: JsonValue): MilitiaInsurgency[] {
-  const rows = isListValue(value) ? value.items : value;
-  if (!Array.isArray(rows)) return [];
-  return rows.flatMap((row): MilitiaInsurgency[] => {
+  return listItems(value).flatMap((row): MilitiaInsurgency[] => {
     if (!row || typeof row !== "object" || !("header" in row) || !Array.isArray(row.header)) return [];
     const attrs = new Map(row.header.flatMap((part: JsonValue) => readDictPairs(part)));
     const campaignID = Number(unwrapLong(attrs.get("_campaignID")));
     const factionID = militiaFactionID(attrs.get("_pirateFactionID"));
-    const fobSystemID = Number(unwrapLong(attrs.get("_structureID"))) > 0 ? Number(unwrapLong(attrs.get("_originSolarsystemID"))) || null : null;
-    return campaignID > 0 && factionID ? [{ campaignID, factionID, fobSystemID }] : [];
+    const warzoneID = Number(unwrapLong(attrs.get("_warzoneID"))) || null;
+    const originSystemID = Number(unwrapLong(attrs.get("_originSolarsystemID"))) || null;
+    const fobSystemID = Number(unwrapLong(attrs.get("_structureID"))) > 0 ? originSystemID : null;
+    return campaignID > 0 && factionID ? [{ campaignID, factionID, warzoneID, originSystemID, fobSystemID }] : [];
   });
 }

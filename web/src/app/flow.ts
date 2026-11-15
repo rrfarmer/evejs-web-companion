@@ -229,7 +229,7 @@ import { decodeSkillHistory, decodeSkills } from "../bridge/boundSkills.ts";
 import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
 import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification } from "../bridge/skillNotifications.ts";
 import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
-import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem } from "../bridge/militiaEnlistment.ts";
+import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type MilitiaVictoryPoints, type MilitiaWarzoneMarkers } from "../bridge/militiaEnlistment.ts";
 import { readTrackedMilitiaJob, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
@@ -3875,6 +3875,11 @@ export interface AppFlow {
   changeMilitiaOrganization(expected: { characterID: number; corporationID: number; allianceID: number | null }, factionID: MilitiaFactionID, action: MilitiaOrganizationAction): Promise<void>;
   nearestMilitiaOffice(factionID: MilitiaFactionID, fallbackToLightYears?: boolean): Promise<MilitiaOffice | null>;
   theatersWarzones(): Promise<ReadonlyMap<number, readonly MilitiaSystem[]>>;
+  theatersStationFaction(): Promise<MilitiaFactionID | null>;
+  readonly theatersWarzoneChanged: ReadableSignal<number>;
+  theatersWarzoneMarkers(): Promise<MilitiaWarzoneMarkers>;
+  theatersVictoryPoints(): Promise<ReadonlyMap<number, MilitiaVictoryPoints>>;
+  theatersSystemDetails(systemID: number, occupied: boolean): Promise<{ jumps: number | null; advantage: FactionWarfareLocal["advantage"] }>;
   loadWarzonePositions(): ReturnType<typeof api.loadWarzonePositions>;
   theatersInsurgencies(): Promise<MilitiaInsurgency[]>;
   /**
@@ -7374,6 +7379,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === "OnEnlistmentStateUpdated") {
       untrackMilitiaJob(store.station.get().online?.characterID ?? null);
       militiaEnlistmentChanged.set(militiaEnlistmentChanged.get() + 1);
+    }
+    if (method === "OnWarzoneOccupationStateUpdated" || method === "OnVictoryPointStateUpdated") {
+      theatersWarzoneChanged.set(theatersWarzoneChanged.get() + 1);
     }
     // invCache.ProcessSessionChange143-170: these place changes invalidate
     // cached parent inventories as well as any read still coming from them.
@@ -21151,6 +21159,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
   const FW_ENLISTMENT = "fwCharacterEnlistmentMgr";
   const militiaEnlistmentChanged = createSignal(0);
+  const theatersWarzoneChanged = createSignal(0);
   async function readMilitiaEnlistment(): Promise<MilitiaEligibility> {
     const pilot = store.station.get().online;
     if (!pilot?.corporationID) throw new Error("Select a pilot to view enlistment.");
@@ -21269,6 +21278,56 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return zones;
   }
 
+  async function theatersStationFaction(): Promise<MilitiaFactionID | null> {
+    const here = store.station.get().online;
+    if (!here?.stationID) return null;
+    const places = agentPlacesHeld ?? await api.loadAgentPlaces(callOptions);
+    if (!places) return null;
+    agentPlacesHeld ??= places;
+    const ownerID = places.stations[here.stationID]?.[1];
+    return militiaStationFactions(here.stationID, here.solarSystemID, ownerID ? places.factions[ownerID] ?? null : null)[0] ?? null;
+  }
+
+  async function theatersWarzoneMarkers(): Promise<MilitiaWarzoneMarkers> {
+    const [headquarters, launchers, pads, battlefields] = await Promise.all([
+      bridgeAsk("fwWarzoneSolarsystem", "GetHQSystemIDs", []),
+      bridgeAsk("shipCasterLauncherMgr", "GetFactionsWithShipcaster", []),
+      bridgeAsk("shipCasterLandingPadMgr", "GetAllLandingPads", []),
+      bridgeAsk("dungeonInstanceCacheMgr", "GetFactionWarfareBattlefieldInstances", []),
+    ]);
+    return militiaWarzoneMarkers(headquarters, launchers, pads, battlefields);
+  }
+
+  async function theatersVictoryPoints(): Promise<ReadonlyMap<number, MilitiaVictoryPoints>> {
+    const states = await bridgeAsk("fwVictoryPointMgr", "GetAllVictoryPointStates", []);
+    return new Map(readDictPairs(states).flatMap(([system, state]) => {
+      const points = militiaVictoryPoints(state);
+      return typeof system === "number" && points ? [[system, points] as const] : [];
+    }));
+  }
+
+  async function factionWarfareAdvantage(systemID: number): Promise<FactionWarfareLocal["advantage"]> {
+    const scores = await api.publicGatewayRequest("eve_public.faction.activity.GetSolarSystemScoresRequest", { solar_system: { sequential: systemID } } as unknown as Record<string, JsonValue>, callOptions).catch(() => null);
+    if (scores?.statusCode !== 200) return null;
+    // advantageState.CreateAdvantageStateFromActivityState: points over MAX_ACTIVITY_POINTS.
+    const advantage: Record<number, { contribution: number; floor: number }> = {};
+    const payload = (scores.payload && typeof scores.payload === "object" ? scores.payload : {}) as Record<string, unknown>;
+    for (const row of Array.isArray(payload.scores) ? payload.scores as Record<string, unknown>[] : []) {
+      const factionID = Number((row.faction as Record<string, unknown> | undefined)?.sequential ?? 0);
+      if (factionID > 0) advantage[factionID] = { contribution: Number(row.contribution ?? 0) / 100000, floor: Number(row.floor ?? 0) / 100000 };
+    }
+    return advantage;
+  }
+
+  async function theatersSystemDetails(systemID: number, occupied: boolean) {
+    const here = store.station.get().online?.solarSystemID ?? null;
+    const [distances, advantage] = await Promise.all([
+      here ? autopilotDistancesFrom(here).catch(() => null) : null,
+      occupied ? factionWarfareAdvantage(systemID) : null,
+    ]);
+    return { jumps: distances?.get(systemID) ?? null, advantage };
+  }
+
   async function theatersInsurgencies(): Promise<MilitiaInsurgency[]> {
     const campaigns = militiaInsurgencies(await bridgeAsk("insurgencySolarsystem", "GetAllVisibleCampaigns", []));
     requestNames(campaigns.flatMap(({ fobSystemID }) => fobSystemID ? [{ kind: "system", id: fobSystemID }] : []));
@@ -21277,23 +21336,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function factionWarfareLocal(): Promise<FactionWarfareLocal | null> {
     const here = store.station.get().online?.solarSystemID ?? null;
-    const [occupation, victory, scores, raceNames] = await Promise.all([
+    const [occupation, victory, advantage, raceNames] = await Promise.all([
       bridgeAsk("fwWarzoneSolarsystem", "GetLocalOccupationState", []).catch(() => null),
       bridgeAsk("fwVictoryPointMgr", "GetLocalVictoryPointState", []).catch(() => null),
-      here ? api.publicGatewayRequest("eve_public.faction.activity.GetSolarSystemScoresRequest", { solar_system: { sequential: here } } as unknown as Record<string, JsonValue>, callOptions).catch(() => null) : Promise.resolve(null),
+      here ? factionWarfareAdvantage(here) : null,
       api.getRaceNameIDs(callOptions).catch(() => ({} as Readonly<Record<number, number>>)),
     ]);
     if (!Array.isArray(occupation) || !Array.isArray(victory)) return null;
-    // advantageState.CreateAdvantageStateFromActivityState: points over MAX_ACTIVITY_POINTS.
-    let advantage: Record<number, { contribution: number; floor: number }> | null = null;
-    if (scores && scores.statusCode === 200) {
-      advantage = {};
-      const payload = (scores.payload && typeof scores.payload === "object" ? scores.payload : {}) as Record<string, unknown>;
-      for (const row of Array.isArray(payload.scores) ? payload.scores as Record<string, unknown>[] : []) {
-        const factionID = Number((row.faction as Record<string, unknown> | undefined)?.sequential ?? 0);
-        if (factionID > 0) advantage[factionID] = { contribution: Number(row.contribution ?? 0) / 100000, floor: Number(row.floor ?? 0) / 100000 };
-      }
-    }
     // appConst.factionByRace (Caldari 1, Minmatar 2, Amarr 4, Gallente 8), turned about.
     const RACE_BY_FACTION: Record<number, number> = { 500001: 1, 500002: 2, 500003: 4, 500004: 8 };
     const raceNameIDs = Object.fromEntries(Object.entries(RACE_BY_FACTION).map(([factionID, raceID]) => [Number(factionID), Number(raceNames[raceID] ?? 0)]).filter(([, id]) => (id ?? 0) > 0));
@@ -34916,6 +34965,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     changeMilitiaOrganization,
     nearestMilitiaOffice,
     theatersWarzones,
+    theatersStationFaction,
+    theatersWarzoneChanged: readonlySignal(theatersWarzoneChanged),
+    theatersWarzoneMarkers,
+    theatersVictoryPoints,
+    theatersSystemDetails,
     loadWarzonePositions: () => api.loadWarzonePositions(callOptions),
     theatersInsurgencies,
     careerGoals,

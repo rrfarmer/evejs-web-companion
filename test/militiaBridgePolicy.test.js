@@ -35,3 +35,18 @@ test("organization writes and server updates forget the native militia status ca
   }
   assert.deepEqual(namedOnNotice("OnEnlistmentStateUpdated", [], { corpid: 98000000 }), reads);
 });
+
+test("24.02 dashboard uses the native marker reads and refreshes occupation and victory state on notice", () => {
+  for (const [service, method] of [
+    ["fwWarzoneSolarsystem", "GetHQSystemIDs"],
+    ["shipCasterLandingPadMgr", "GetAllLandingPads"],
+    ["shipCasterLauncherMgr", "GetFactionsWithShipcaster"],
+    ["dungeonInstanceCacheMgr", "GetFactionWarfareBattlefieldInstances"],
+  ]) {
+    assert.equal(isBridgeWritePair(service, method), false);
+    assert.ok(GAME_PORT_ONLY_CALLS.includes(`${service}.${method}`));
+    assert.deepEqual(retailForm(service, method, [], null).args, []);
+  }
+  assert.deepEqual(namedOnNotice("OnWarzoneOccupationStateUpdated", []), [["fwWarzoneSolarsystem", "GetAllWarzonesOccupationStates", []]]);
+  assert.deepEqual(namedOnNotice("OnVictoryPointStateUpdated", []), [["fwVictoryPointMgr", "GetAllVictoryPointStates", []]]);
+});

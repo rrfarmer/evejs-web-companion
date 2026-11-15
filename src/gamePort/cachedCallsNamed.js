@@ -83,6 +83,8 @@ const organizationEnlistmentReads = (_, session) => [
 /** On a notice from the server, by its name: (the notice's arguments, the session's attributes) => the calls named. */
 const NAMED_ON_NOTICE = Object.freeze({
   OnEnlistmentStateUpdated: organizationEnlistmentReads,
+  OnWarzoneOccupationStateUpdated: () => [["fwWarzoneSolarsystem", "GetAllWarzonesOccupationStates", []]],
+  OnVictoryPointStateUpdated: () => [["fwVictoryPointMgr", "GetAllVictoryPointStates", []]],
   // marketsvc.py 113, MarketQuote.OnOwnOrdersChanged(orders, reason, isCorp). The plex orders are named once
   // for each order, as the loop there has it.
   OnOwnOrdersChanged: ([orders = null]) => [

@@ -10,7 +10,8 @@
   import { resolvedName } from "../store/names.ts";
   import { serveTheatersOfWarRequest, theatersOfWarRequests } from "./theatersOfWarRequests.ts";
   import { trackMilitiaJob, trackedJobsChanged, trackedMilitiaJob, untrackMilitiaJob } from "./jobTracking.ts";
-  import WarzonePreview from "./WarzonePreview.svelte";
+  import WarzoneDashboard from "./WarzoneDashboard.svelte";
+  import WarzoneMap from "./WarzoneMap.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -21,6 +22,8 @@
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const enlistmentChanged = flow.militiaEnlistmentChanged;
+  // svelte-ignore state_referenced_locally
+  const warzoneChanged = flow.theatersWarzoneChanged;
   const TOW = "UI/TheatersOfWar/", FW = "UI/FactionWarfare/", E = `${FW}Enlistment/`;
   const recentAllianceDenial = "DeniedRecentlyInAlliance";
   const art = (asset: string) => clientTexture(`res:/UI/Texture/Classes/Enlistment/${asset}.png`);
@@ -31,9 +34,10 @@
     { id: "enlistment", label: "EnlistPanel", fallback: "Enlistment", icon: "flag" },
   ] as const;
   const zones = [
-    { id: 2, label: "FwCaldariGallenteWarzone", fallback: "Caldari–Gallente Warzone" },
-    { id: 1, label: "FwAmarrMinmatarWarzone", fallback: "Amarr–Minmatar Warzone" },
+    { id: 2, label: "FwCaldariGallenteWarzone", fallback: "Caldari–Gallente Warzone", factions: [500001, 500004] },
+    { id: 1, label: "FwAmarrMinmatarWarzone", fallback: "Amarr–Minmatar Warzone", factions: [500003, 500002] },
   ] as const;
+  const factionByRace: Readonly<Record<number, MilitiaFactionID>> = { 1: 500001, 2: 500002, 4: 500003, 8: 500004 };
   const warnings = {
     enlisted: "You are already enlisted with another militia.",
     location: "Dock at a station that offers enlistment with this faction.",
@@ -56,7 +60,9 @@
   let page = $state<TheatersPage>("overview");
   let side = $state<Side | null>(null);
   let selected = $state<MilitiaFactionID | null>(null);
-  let zone = $state(2);
+  let viewingFaction = $state<MilitiaFactionID>(500001);
+  let automaticFaction = $state(false);
+  const theater = $derived(zones.find(entry => entry.factions.some(id => id === viewingFaction)) ?? zones[0]);
   let eligibility = $state<MilitiaEligibility | null>(null);
   let occupations = $state<ReadonlyMap<number, readonly MilitiaSystem[]> | null>(null);
   let warzonePositions = $state<Readonly<Record<number, WarzonePositions>> | null>(null);
@@ -87,10 +93,18 @@
   function factionName(id: MilitiaFactionID) {
     return resolvedName($names.resolved, "owner", id, MILITIA_FACTIONS[id].name);
   }
-  function choosePage(next: TheatersPage) {
+  function choosePage(next: TheatersPage, zoneID?: number) {
     if (next === "enlistment" && page !== next) {
       selected = enlisted;
       side = enlisted ? (militiaIsPirate(enlisted) ? "pirates" : "empire") : null;
+    }
+    if (next === "warfare" && (page !== next || zoneID !== undefined)) {
+      const active = enlisted === 500010 ? 500001 : enlisted === 500011 ? 500003 : enlisted;
+      const stationFaction = eligibility?.stationFactions[0];
+      const preferred = active ?? (stationFaction && !militiaIsPirate(stationFaction) ? stationFaction : null) ?? factionByRace[$station.online?.raceID ?? 0] ?? 500001;
+      const target = zoneID === undefined ? null : zones.find(zone => zone.id === zoneID);
+      viewingFaction = target && !target.factions.some(id => id === preferred) ? target.factions[0] : preferred;
+      automaticFaction = zoneID === undefined && active === null;
     }
     question = null;
     actionError = "";
@@ -147,7 +161,19 @@
     return () => { current = false; };
   });
   $effect(() => {
-    if (page !== "overview") return;
+    const pilot = $station.online;
+    if (page !== "warfare" || !automaticFaction || !pilot) return;
+    const occupying = [...(occupations?.values() ?? [])].flat().find(system => system.systemID === pilot.solarSystemID)?.occupierID;
+    let current = true;
+    void flow.theatersStationFaction().then((stationFaction) => {
+      if (!current) return;
+      const faction = stationFaction ?? occupying;
+      viewingFaction = faction && !militiaIsPirate(faction) ? faction : factionByRace[pilot.raceID ?? 0] ?? 500001;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+  $effect(() => {
+    if (page !== "overview" && page !== "warfare") return;
     let current = true;
     void Promise.all([flow.loadWarzonePositions(), flow.loadStarMap()]).then(([positions, map]) => {
       if (!current) return;
@@ -158,13 +184,15 @@
   });
   $effect(() => {
     if (page === "enlistment") return;
+    void $warzoneChanged;
+    void $station.online?.characterID;
     let current = true;
     panelError = "";
     const report = (error: unknown) => { if (current) panelError = error instanceof Error ? error.message : String(error); };
     if (page === "overview" || page === "warfare") {
       void flow.theatersWarzones().then((answer) => { if (current) occupations = answer; }, report);
     }
-    if (page === "overview" || page === "insurgencies") {
+    if (page === "overview" || page === "warfare" || page === "insurgencies") {
       void flow.theatersInsurgencies().then((answer) => { if (current) insurgencies = answer; }, report);
     }
     return () => { current = false; };
@@ -244,9 +272,9 @@
           {@const security = system?.[8] ?? null}
           {@const date = filetimeToUnixMs(latest?.dateTaken ?? null)}
           {@const layout = warzonePositions?.[theater.id]}
-          <button type="button" class="occupancy-card" onclick={() => { zone = theater.id; choosePage("warfare"); }}>
+          <button type="button" class="occupancy-card" onclick={() => choosePage("warfare", theater.id)}>
             <span class="occupancy-title">{say(TOW + theater.label, theater.fallback)}</span>
-            {#if layout && starMap}<WarzonePreview positions={layout} jumps={starMap.jumps} occupations={systems} focusID={latest?.systemID ?? null} focusName={name} />{/if}
+            {#if layout && starMap}<WarzoneMap positions={layout} jumps={starMap.jumps} occupations={systems} focusID={latest?.systemID ?? null} focusName={name} />{/if}
             {#if occupations}
               <span class="occupancy-footer">
                 {#if latest}
@@ -276,22 +304,13 @@
         </button>
       </section>
     {:else if page === "warfare"}
-      <div class="zone-tabs">
-        {#each zones as theater (theater.id)}
-          <button type="button" class:active={theater.id === zone} onclick={() => zone = theater.id}>{say(TOW + theater.label, theater.fallback)}</button>
-        {/each}
-      </div>
-      {#if occupations === null}{#if !panelError}<p>Loading warzones…</p>{/if}
-      {:else if !occupations.get(zone)?.length}<p>No systems are reported in this warzone.</p>
-      {:else}
-        <table>
-          <thead><tr><th>Solar System</th><th>Occupier</th><th>Frontline</th></tr></thead>
-          <tbody>
-            {#each occupations.get(zone) ?? [] as system (system.systemID)}
-              <tr><td>{resolvedName($names.resolved, "system", system.systemID, String(system.systemID))}</td><td>{system.occupierID ? factionName(system.occupierID) : ""}</td><td>{{ FL: "Frontline", SL: "Command Operations", BL: "Rearguard" }[system.adjacency] ?? ""}</td></tr>
-            {/each}
-          </tbody>
-        </table>
+      {@const layout = warzonePositions?.[theater.id]}
+      <h2>{say(TOW + theater.label, theater.fallback)}</h2>
+      {#if occupations && layout && starMap}
+        <WarzoneDashboard {flow} {store} zone={theater.id} faction={viewingFaction} positions={layout} {starMap}
+          occupations={occupations.get(theater.id) ?? []} campaigns={insurgencies ?? []} chooseFaction={(id) => { automaticFaction = false; viewingFaction = id; }} />
+      {:else if !panelError}
+        {#if starMap && warzonePositions === null}<p>Warzone map data is unavailable.</p>{:else}<p>Loading warzones…</p>{/if}
       {/if}
     {:else if page === "insurgencies"}
       {#if insurgencies === null}{#if !panelError}<p>Loading insurgencies…</p>{/if}
@@ -403,7 +422,7 @@
   .side-card { min-height: clamp(160px, 43vh, 460px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 19px; background: linear-gradient(#0002, #000a), var(--banner) center / cover, #242b31; }
   .side-card:hover { background: linear-gradient(#ffffff13, #0008), var(--banner) center / cover, #333940; }
   .side-card img { width: min(72px, 55%); }
-  .faction-picker, .zone-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .faction-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .faction-picker button { min-height: 80px; display: flex; flex-direction: column; gap: 6px; align-items: center; flex: 1 1 94px; justify-content: center; }
   .faction-picker img { width: 38px; height: 38px; object-fit: contain; }
   .back { margin-bottom: 12px; }
@@ -411,8 +430,6 @@
   p { margin: 4px 0 10px; line-height: 1.45; }
   .accent { border-color: #8bb4bd; background: #48778240; }
   .organization-action { margin-top: 6px; }
-  table { width: 100%; border-collapse: collapse; text-align: start; }
-  th, td { border-bottom: 1px solid #ffffff1d; padding: 8px; text-align: start; }
   .question-backdrop { position: absolute; z-index: 2; inset: 0; display: grid; place-items: center; background: #0009; padding: 12px; }
   .question { width: min(420px, 100%); padding: 18px; background: #1e2328; border: 1px solid #ffffff4d; box-shadow: 0 8px 24px #000a; }
   .question footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { afterMilitiaEnlistment, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaWarzones, relevantMilitiaPage, type MilitiaEligibility } from "./militiaEnlistment.ts";
+import { afterMilitiaEnlistment, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, relevantMilitiaPage, type MilitiaEligibility } from "./militiaEnlistment.ts";
 import type { JsonValue } from "./wire.ts";
 
 test("24.02 routes confirmed pirate enlistment to Insurgencies and an unregistered Conquest Overview to Overview", () => {
@@ -75,7 +75,27 @@ test("warzone occupation preserves FILETIME precision and unknown capture dates"
     [30000142, state({ type: "long", value: String(captured) })], [30000143, state(null)],
   ] }]] };
   assert.deepEqual(militiaWarzones(payload).get(2), [
-    { systemID: 30000142, occupierID: 500001, adjacency: "FL", dateTaken: captured },
-    { systemID: 30000143, occupierID: 500001, adjacency: "FL", dateTaken: null },
+    { systemID: 30000142, occupierID: 500001, attackerID: 500004, adjacency: "FL", dateTaken: captured },
+    { systemID: 30000143, occupierID: 500001, attackerID: 500004, adjacency: "FL", dateTaken: null },
   ]);
+});
+
+test("dashboard markers match linked pads, active battlefields and visible campaign origins", () => {
+  const object = (args: JsonValue[]): JsonValue => ({ type: "objectex1", header: [null, args] });
+  const markers = militiaWarzoneMarkers(
+    { type: "dict", entries: [[500001, 30045324]] },
+    { type: "list", items: [500001] },
+    { type: "list", items: [object([1, 30004979, 500001, true, { type: "long", value: "134000000000000000" }, false]), object([2, 30004980, 500001, true, null, false])] },
+    { type: "dict", entries: [[30004979, { type: "list", items: [{ type: "object", name: "util.KeyVal", args: { type: "dict", entries: [["dungeonNameID", 999]] } }] }], [30004980, []]] },
+  );
+  assert.deepEqual([...markers.headquarters], [[500001, 30045324]]);
+  assert.deepEqual([...markers.launchers], [500001]);
+  assert.deepEqual(markers.pads, [{ systemID: 30004979, factionID: 500001 }]);
+  assert.deepEqual([...markers.battlefields], [[30004979, 999]]);
+  assert.deepEqual(militiaVictoryPoints(object([37500, 75000])), { score: 37500, threshold: 75000 });
+  assert.equal(militiaVictoryPoints(object([37500, 0])), null);
+  const campaign: JsonValue = { type: "objectex1", header: [null, { type: "dict", entries: [
+    ["_campaignID", 21], ["_pirateFactionID", 500010], ["_warzoneID", 2], ["_originSolarsystemID", 30004979], ["_structureID", null],
+  ] }] };
+  assert.deepEqual(militiaInsurgencies([campaign]), [{ campaignID: 21, factionID: 500010, warzoneID: 2, originSystemID: 30004979, fobSystemID: null }]);
 });
