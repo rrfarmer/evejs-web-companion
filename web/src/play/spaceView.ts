@@ -25,6 +25,7 @@ import { impactOverlayOf, IMPACT_ANIMATIONS, type ImpactOverlay } from "../three
 import { MissileFx } from "./missileFx.ts";
 import { ShipFx } from "./shipFx.ts";
 import { CameraShake } from "./cameraShake.ts";
+import { MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
 import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
@@ -399,8 +400,13 @@ export class SpaceView {
    * destination's scene swapped in during the effect): the tunnel builds from the jump order, flashes as the new
    * system's park comes (the feed's reset), and eases out.
    */
-  private jumpOrderedAt: number | null = null;
-  private jumpArrivedAt: number | null = null;
+  private gateJump: {
+    orderedAt: number;
+    arrivedAt: number | null;
+    origin: THREE.Vector3 | null;
+    returning: { startedAt: number; target: THREE.Vector3 } | null;
+    returned: boolean;
+  } | null = null;
   private seenResets = 0;
   private seenSystem: number | null = null;
   private readonly flashEl = document.createElement("div");
@@ -497,9 +503,13 @@ export class SpaceView {
     this.actions = {
       ...actions,
       jump: async (id) => {
+        let started: SpaceView["gateJump"] = null;
         try {
-          await jump(id, () => { this.jumpOrderedAt = performance.now(); this.jumpArrivedAt = null; });
-        } catch (e) { this.jumpOrderedAt = null; throw e; }
+          await jump(id, () => { started = this.beginJumpCamera(); });
+        } catch (e) {
+          if (started && this.gateJump === started) this.endJumpCamera();
+          throw e;
+        }
       },
     };
     this.modeEl = this.root.querySelector(".ship-mode")!;
@@ -549,6 +559,7 @@ export class SpaceView {
     this.controls.minDistance = 30;
     this.controls.maxDistance = 1e6;
     this.controls.zoomSpeed = 1.2;
+    this.controls.addEventListener("start", () => { this.undockCam = null; });
     this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
     this.layer.appendChild(this.overview.window.root);
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
@@ -588,9 +599,9 @@ export class SpaceView {
       resultMenu: (siteID) => this.actions.resultMenu?.(siteID) ?? [],
       // AlignSpaceCameraToViewVector: the space camera put behind the ship along the direction, at its distance
       aimSpaceCamera: (direction) => {
+        if (!this.controls.enabled) return;
         const dist = this.camera.position.distanceTo(this.controls.target);
-        this.camera.position.copy(this.controls.target).addScaledVector(direction.normalize(), -dist);
-        this.controls.update();
+        if (setCameraDistance(this.camera.position, this.controls.target, direction.clone().negate(), dist)) this.controls.update();
       },
       // the scan's shape: the d-scan window's angle and range, the way the space camera looks (GetScanDirection)
       dscanCone: () => {
@@ -657,6 +668,7 @@ export class SpaceView {
     this.sceneEnv?.dispose();
     this.bloom?.dispose();
     this.exposure.dispose();
+    this.controls.dispose();
     this.renderer.dispose();
     this.shipHud.dispose();
     this.alertVignetteFlash?.cancel();
@@ -947,12 +959,11 @@ export class SpaceView {
   private undockCam: { start: number; spherical: THREE.Spherical } | null = null;
   private startUndockCamera(ego: { velocity: { x: number; y: number; z: number }; radius: number }): void {
     const v = new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z);
-    if (v.lengthSq() < 1e-6) return;
+    if (!validCameraPosition(v) || v.lengthSq() < 1e-6 || !Number.isFinite(ego.radius)) return;
     const eye = v.normalize().multiplyScalar(2 * Math.max(ego.radius, 10));
     const spherical = new THREE.Spherical().setFromVector3(eye);
     spherical.phi = Math.min(Math.PI - 0.01, spherical.phi + Math.PI / 40);
     this.undockCam = { start: performance.now(), spherical };
-    this.controls.addEventListener("start", () => { this.undockCam = null; });
   }
   private stepUndockCamera(): void {
     const cam = this.undockCam;
@@ -965,21 +976,79 @@ export class SpaceView {
       Math.min(Math.PI - 0.01, s.phi + (Math.PI / 10) * t),
       s.theta + (Math.PI / 3) * t,
     );
-    this.camera.position.copy(this.controls.target).add(new THREE.Vector3().setFromSpherical(now));
+    const eye = this.controls.target.clone().add(new THREE.Vector3().setFromSpherical(now));
+    setCameraPose(this.camera.position, this.controls.target, eye, this.controls.target);
   }
 
-  private frameShip(radius: number): void {
+  private frameShip(radius: number, keepZoom = false): void {
+    if (!Number.isFinite(radius) || radius < 0) return;
     // the farthest the camera goes: 800 km, or ten times what it looks at where that is larger (a planet looked at)
     const farthest = Math.max(800000, radius * 10);
     const nearest = (radius + this.camera.near) * 1.5 + 2;
     const a = 1 / farthest ** 0.95, b = 0.55 / 2, c = -Math.max(radius, nearest);
     const d = Math.sqrt(b * b - 4 * a * c);
-    const initial = Math.max(-2 * c / (b + d), -2 * c / (b - d));
-    this.controls.minDistance = nearest;
-    this.controls.maxDistance = farthest;
-    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
-    if (dir.lengthSq() === 0) dir.set(-0.5, 0.25, 0.83).normalize();
-    this.camera.position.copy(this.controls.target).addScaledVector(dir, initial);
+    const dir = this.camera.position.clone().sub(this.controls.target);
+    const validDirection = validCameraPosition(dir) && dir.lengthSq() !== 0;
+    const initial = keepZoom && validDirection ? THREE.MathUtils.clamp(dir.length(), nearest, farthest) : -2 * c / (b + d);
+    if (!validDirection) dir.set(-0.5, 0.25, 0.83);
+    if (setCameraDistance(this.camera.position, this.controls.target, dir, initial)) {
+      this.controls.minDistance = nearest;
+      this.controls.maxDistance = farthest;
+    }
+  }
+
+  private beginJumpCamera(): NonNullable<SpaceView["gateJump"]> {
+    const eye = this.camera.position, target = this.controls.target;
+    // JumpCamera.OnActivated copies the orbit pose only when both points are valid.
+    if (!setCameraPose(eye, target, eye, target, MAX_JUMP_CAMERA_COORDINATE)) {
+      setCameraPose(eye, target, new THREE.Vector3(-600, 250, 900), new THREE.Vector3());
+    }
+    const ego = this.snapshot?.ship;
+    this.gateJump = {
+      orderedAt: performance.now(), arrivedAt: null, returning: null, returned: false,
+      origin: ego ? new THREE.Vector3(ego.position.x, ego.position.y, -ego.position.z) : null,
+    };
+    this.undockCam = null;
+    this.controls.enabled = false;
+    return this.gateJump;
+  }
+
+  private endJumpCamera(): void {
+    this.gateJump = null;
+    this.controls.enabled = true;
+  }
+
+  /** JumpCamera keeps the old view still in space while the ship-relative origin moves. */
+  private stepJumpCamera(now: number, ego: Snapshot["ship"]): boolean {
+    const jump = this.gateJump;
+    if (!jump || jump.returned) return false;
+    const eye = this.camera.position, target = this.controls.target;
+    if (jump.arrivedAt === null && ego) {
+      const p = ego.position;
+      const origin = new THREE.Vector3(p.x, p.y, -p.z);
+      if (validCameraPosition(origin)) {
+        if (jump.origin) translateCameraPose(eye, target, jump.origin.clone().sub(origin), MAX_JUMP_CAMERA_COORDINATE);
+        jump.origin = origin;
+      }
+    } else if (ego) {
+      // ShipOrbitCamera.OnActivated takes the valid outgoing direction and zoom
+      // and moves back to the pilot once its new-system ball is present.
+      if (!jump.returning) {
+        jump.returning = { startedAt: now, target: target.clone() };
+        this.lookAt = this.framedLook = null;
+        this.framedFor = ego.itemID;
+        this.frameShip(ego.radius, true);
+      }
+      const elapsed = THREE.MathUtils.clamp((now - jump.returning.startedAt) / 700, 0, 1);
+      const nextTarget = jump.returning.target.clone().multiplyScalar(1 - elapsed);
+      translateCameraPose(eye, target, nextTarget.sub(target), MAX_JUMP_CAMERA_COORDINATE);
+      if (elapsed === 1) {
+        jump.returned = true;
+        this.controls.enabled = true;
+      }
+    }
+    this.camera.lookAt(target);
+    return true;
   }
 
   private async refreshTargets(): Promise<void> {
@@ -1514,6 +1583,17 @@ export class SpaceView {
     }
     this.snapshot = snap;
     const ego = snap?.ship ?? null;
+    const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);
+    this.lastFrameAt = now;
+    // A new park in another system marks the arrival. Observe it before using
+    // a new ego position to rebase the old camera.
+    if (this.live.resets !== this.seenResets) {
+      this.seenResets = this.live.resets;
+      if (this.gateJump && systemID !== null && this.seenSystem !== null && systemID !== this.seenSystem) {
+        this.gateJump.arrivedAt = now;
+      }
+    }
+    if (systemID !== null) this.seenSystem = systemID;
     // the ship's place is the scene's origin; with no ship (blown up, the capsule not yet in the park) the last one stays
     const origin = ego ? ego.position : this.lastOrigin;
     // the world moved under the GPU particles (they live in our space, which follows the ship): by the origin's move,
@@ -1569,25 +1649,26 @@ export class SpaceView {
     }
     for (const [id, el] of this.bracketEls) if (!seen.has(id)) { el.remove(); this.bracketEls.delete(id); }
     if (snap) this.overview.update(snap.entities, (x) => this.distanceTo(x));
-    if (ego && this.framedFor !== ego.itemID) {
-      this.framedFor = ego.itemID;
-      this.frameShip(ego.radius);
-      if (this.options.undocking?.()) this.startUndockCamera(ego);
-    }
-    this.stepUndockCamera();
-    // Look At (the client's camera lookAt): the camera turns about the thing looked at, and follows it, until it
-    // is gone or the pilot's own ship is looked at again; the camera keeps its offset as the point moves.
-    const looked = this.lookAt === null ? null : this.marks.get(this.lookAt) ?? null;
-    if (this.lookAt !== null && !looked) this.lookAt = null;
-    const want = looked ? looked.position : new THREE.Vector3();
-    const shift = want.clone().sub(this.controls.target);
-    if (shift.lengthSq() > 0) { this.camera.position.add(shift); this.controls.target.copy(want); }
-    // a new thing looked at is framed for its size as the ship is (a planet from outside it, not from the ship's
-    // offset at its centre); looking back at the ship frames the ship again
-    if (this.lookAt !== this.framedLook) {
-      this.framedLook = this.lookAt;
-      const size = this.lookAt !== null ? snap?.entities.find((e) => e.itemID === this.lookAt)?.radius ?? null : ego?.radius ?? null;
-      if (size !== null) this.frameShip(size);
+    if (!this.stepJumpCamera(now, ego)) {
+      if (ego && this.framedFor !== ego.itemID) {
+        this.framedFor = ego.itemID;
+        this.frameShip(ego.radius);
+        if (this.options.undocking?.()) this.startUndockCamera(ego);
+      }
+      this.stepUndockCamera();
+      // Keep the eye and target together as the looked-at ball moves.
+      if (this.lookAt !== null && !seen.has(this.lookAt)) this.lookAt = null;
+      const looked = this.lookAt === null ? null : this.marks.get(this.lookAt);
+      const want = looked?.position ?? new THREE.Vector3();
+      const shift = want.clone().sub(this.controls.target);
+      const focused = shift.lengthSq() === 0
+        || translateCameraPose(this.camera.position, this.controls.target, shift);
+      // Use the new ball's radius once it has a valid focus position.
+      if (focused && this.lookAt !== this.framedLook) {
+        this.framedLook = this.lookAt;
+        const size = this.lookAt !== null ? snap?.entities.find((e) => e.itemID === this.lookAt)?.radius ?? null : ego?.radius ?? null;
+        if (size !== null) this.frameShip(size);
+      }
     }
     for (const [id, m] of this.marks) if (!seen.has(id)) {
       // where it went from, for a moment, in the system's own frame (an explosion is drawn where a ball was)
@@ -1615,19 +1696,8 @@ export class SpaceView {
     }
     // The warp tunnel, along the ship's way (mirrored into three's handedness as positions are), as strong as the
     // client's binding of the ship's speed makes it.
-    const now = performance.now(), dt = Math.min(0.1, (now - this.lastFrameAt) / 1000);
-    this.lastFrameAt = now;
     const egoSpeed = ego ? Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z) : 0;
     const way = ego && egoSpeed > 0 ? new THREE.Vector3(ego.velocity.x, ego.velocity.y, -ego.velocity.z).divideScalar(egoSpeed) : new THREE.Vector3();
-    // The jump: a new park in another system is the arrival.
-    // the system the view is in, once the feed has said (the view can be made before its first hello)
-    if (this.seenSystem === null && this.live.resets === this.seenResets) this.seenSystem = this.live.hello?.solarSystemID ?? null;
-    if (this.live.resets !== this.seenResets) {
-      this.seenResets = this.live.resets;
-      const system = this.live.hello?.solarSystemID ?? null;
-      if (system !== null && this.seenSystem !== null && system !== this.seenSystem) this.jumpArrivedAt = now;
-      if (system !== null) this.seenSystem = system;
-    }
     let share = WarpTunnel.share(ego?.mode === "WARP", egoSpeed);
     // Warp.py: once the warp's speed fraction passes 0.005, ship_warp_explosion_play and ship_warp_wind_play (sent as UI
     // events); at its end ship_warp_wind_stop. (The tunnel's share is that binding of the ship's speed.)
@@ -1643,13 +1713,13 @@ export class SpaceView {
     }
     let tunnelWay = way;
     let flash = 0;
-    if (this.jumpOrderedAt !== null) {
-      const since = now - this.jumpOrderedAt;
-      const after = this.jumpArrivedAt === null ? null : now - this.jumpArrivedAt;
+    if (this.gateJump) {
+      const since = now - this.gateJump.orderedAt;
+      const after = this.gateJump.arrivedAt === null ? null : now - this.gateJump.arrivedAt;
       // building over 1.5 s until the arrival; easing out over 2 s after it; given up after 20 s without one
       const strength = after === null ? Math.min(1, since / 1500) : Math.max(0, 1 - after / 2000);
       flash = after === null ? 0 : Math.max(0, 0.85 - after / 700);
-      if ((after !== null && after > 2000) || (after === null && since > 20_000)) { this.jumpOrderedAt = null; this.jumpArrivedAt = null; }
+      if ((after !== null && after > 2000) || (after === null && since > 20_000)) this.endJumpCamera();
       share = Math.max(share, strength);
     }
     // a ship that is not moving (at a gate, or come out of one) has no way of its own: the camera's, so the tunnel eases out
@@ -1744,7 +1814,7 @@ export class SpaceView {
       this.feedEl.textContent = `${this.live.status} · tick ${park.currentTime % 100000} · ${snap?.entities.length ?? 0} on grid · ${this.live.items} updates${this.live.failures.length ? ` · ${this.live.failures.length} failed` : ""}`;
     }
     this.updateTargetBar();
-    this.controls.update();
+    if (this.controls.enabled) this.controls.update();
     // the shake: the point looked at moved across the view for this frame (the controls look at their target again next)
     const shaken = this.shake.offset(this.camera.position, this.controls.target, dt);
     if (shaken) this.camera.lookAt(this.controls.target.clone().add(shaken));
