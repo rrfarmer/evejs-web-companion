@@ -9,6 +9,7 @@ const { clientBuild } = require("../../tools/client-extract/lib/resfiles.mjs");
 const { droneTurret } = require("../../tools/client-extract/lib/droneTurrets.mjs");
 const { SOF_BUILD } = require("../../tools/client-extract/lib/sof.mjs");
 const { TURRET_BUILD } = require("../../tools/client-extract/lib/turret.mjs");
+const { CELESTIAL_BUILD } = require("../../tools/client-extract/lib/typeGraphics.mjs");
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const EXTRACTOR = path.join(REPO_ROOT, "tools", "client-extract", "extract.mjs");
@@ -115,7 +116,11 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
     return { json: { scene: resource, maps: await sceneMaps(dir, resource, ensure) } };
   }
   const celestials = /^\/celestials\/(\d+)\.json$/.exec(rel);
-  if (celestials) return { file: await ensure(`celestials/${celestials[1]}.json`, ["--system-celestials", celestials[1]], '"celestialBuild":2') };
+  if (celestials) {
+    const id = celestials[1];
+    const marker = canExtract() ? `"celestialBuild":${CELESTIAL_BUILD}` : null;
+    return { file: await ensure(`celestials/${id}.json`, ["--system-celestials", id], marker) };
+  }
   const missile = /^\/missile\/(\d+)$/.exec(rel);
   if (missile) return { file: await ensure(`missiles/${missile[1]}.json`, ["--missile", missile[1]], '"missileBuild":2') };
   const effect = /^\/effect\/(\d+)\.json$/.exec(rel);

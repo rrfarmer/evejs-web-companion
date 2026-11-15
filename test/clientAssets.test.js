@@ -8,9 +8,9 @@ const path = require("node:path");
 const test = require("node:test");
 const { createClientAssets } = require("../src/clientData/clientAssets");
 const { createApp } = require("../src/server");
-const { extractOverviewPresets } = require("../tools/client-extract/extract.mjs");
+const { extractOverviewPresets, extractSystemCelestials } = require("../tools/client-extract/extract.mjs");
 const { SOF_BUILD } = require("../tools/client-extract/lib/sof.mjs");
-const { indexedHullGeometry } = require("../tools/client-extract/lib/typeGraphics.mjs");
+const { indexedHullGeometry, CELESTIAL_BUILD } = require("../tools/client-extract/lib/typeGraphics.mjs");
 
 async function put(root, name, value) {
   const file = path.join(root, name);
@@ -154,5 +154,49 @@ test("an older type index learns the authored mesh once, including for concurren
       assert.equal(body.sof, `/client-assets/${stem}.amarrbase.sof.json`);
     }
     assert.equal(extracted, 1);
+  });
+});
+
+test("celestial caches refresh the installed population flags and keep legacy files readable", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-planets-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const clientRoot = path.join(temp, "install"), root = path.join(temp, "assets"), dir = path.join(root, "3698585");
+  const sde = path.join(temp, "sde");
+  const solarSystemID = 30000144;
+  const file = "celestials/30000144.json";
+  const legacy = { solarSystemID, celestialBuild: 2, items: { 40009235: { typeID: 11, kind: "planet" } } };
+  await put(dir, file, JSON.stringify(legacy));
+  await withAssets({ root, build: "3698585" }, async url => {
+    const old = await fetch(url("/client-assets/" + file));
+    assert.equal(old.status, 200);
+    assert.deepEqual(await old.json(), legacy);
+  });
+
+  await put(clientRoot, "tq/start.ini", "build=3698585\n");
+  await put(sde, "graphics.jsonl", "");
+  await put(sde, "mapPlanets.jsonl", [
+    { _key: 40009235, solarSystemID, typeID: 11, attributes: { population: true } },
+    { _key: 40009238, solarSystemID, typeID: 11, attributes: { population: false } },
+    { _key: 40009241, solarSystemID, typeID: 11 },
+  ].map(row => JSON.stringify(row)).join("\n"));
+  await put(sde, "mapMoons.jsonl", "");
+  let bakes = 0;
+  await withAssets({
+    root,
+    clientRoot,
+    async extract(args) {
+      assert.deepEqual(args.slice(-2), ["--system-celestials", "30000144"]);
+      bakes++;
+      await extractSystemCelestials({ has: () => false }, sde, solarSystemID, dir);
+    },
+  }, async url => {
+    for (let i = 0; i < 2; i++) {
+      const response = await fetch(url("/client-assets/" + file));
+      assert.equal(response.status, 200);
+      const data = await response.json();
+      assert.equal(data.celestialBuild, CELESTIAL_BUILD);
+      assert.deepEqual(Object.values(data.items).map(item => item.population), [true, false, null]);
+    }
+    assert.equal(bakes, 1);
   });
 });

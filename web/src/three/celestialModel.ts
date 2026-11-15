@@ -31,6 +31,8 @@ const SURFACE = ["FillTexture", "DetailTexture", "DistortionMap", "DiffuseMap", 
 /** A planet or moon's own build: its preset's object file and its height maps (extract.mjs --system-celestials). */
 export interface CelestialItem {
   typeID?: number | null; kind?: string; celestial: string | null; NormalHeight1: string | null; NormalHeight2: string | null;
+  /** The native planet attribute. A legacy cache can omit it. */
+  population?: boolean | null;
   /** the preset's sphere mesh (PlanetSphere.glb): its UVs are the client's, its second set the polar projection */
   geometry?: string | null;
 }
@@ -99,6 +101,13 @@ function texture(url: string, colour = false): Promise<THREE.Texture | null> {
   return textures.get(url)!;
 }
 
+
+function wrapTexture(tex: THREE.Texture | null, wrapping: THREE.Wrapping): void {
+  if (tex && (tex.wrapS !== wrapping || tex.wrapT !== wrapping)) {
+    tex.wrapS = tex.wrapT = wrapping;
+    tex.needsUpdate = true;
+  }
+}
 
 const isGasGiant = (c: Celestial) => c.effects.some((e) => /\/gasgiant\.fx$/i.test(e));
 
@@ -224,25 +233,30 @@ function atmosphereShell(c: Celestial, radius: number): THREE.Object3D {
 /**
  * The cloud shell (earthlikeclouds.fx, its sm_hi pixel shader; Time c2.x, CloudsColor c3, CloudsFactors c4): a sphere
  * just over the surface, its cover pow(cloud, CloudsFactors.z) (CloudsTexture tiled by CloudsFactors.w, turning once
- * an hour), its colour cover x (GroundScattering1 + ambient) x CloudsColor x CloudsFactors.y plus GroundScattering2,
- * laid over the surface with the cover as its alpha. The polar cloud cap's projection is not ported.
+ * an hour). The cap is sampled on the mesh's polar UVs and the denser of the two samples drives the cover.
+ * Its colour is cover x (GroundScattering1 + ambient) x CloudsColor x CloudsFactors.y plus GroundScattering2.
  */
 async function cloudShell(c: Celestial, radius: number): Promise<THREE.Object3D | null> {
-  const [clouds, s1, s2] = await Promise.all([
+  const [clouds, cap, s1, s2] = await Promise.all([
     texture(c.textures.CloudsTexture!),
+    c.textures.CloudCapTexture ? texture(c.textures.CloudCapTexture) : Promise.resolve(null),
     c.textures.GroundScattering1 ? texture(c.textures.GroundScattering1) : Promise.resolve(null),
     c.textures.GroundScattering2 ? texture(c.textures.GroundScattering2) : Promise.resolve(null),
   ]);
   if (!clouds) return null;
-  if (clouds.wrapS !== THREE.RepeatWrapping) { clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping; clouds.needsUpdate = true; }
+  wrapTexture(clouds, THREE.RepeatWrapping);
+  wrapTexture(cap, THREE.ClampToEdgeWrapping);
   const f = c.params.CloudsFactors ?? [0.5, 1, 1, 1];
   const k = c.params.CloudsColor ?? [1, 1, 1, 1];
   const mat = scatterMaterial(s1, s2, {
-    clouds: { value: clouds }, hasScatter: { value: s1 ? 1 : 0 },
+    clouds: { value: clouds }, cloudCap: { value: cap }, hasCloudCap: { value: cap ? 1 : 0 }, hasScatter: { value: s1 ? 1 : 0 },
     cloudColour: { value: new THREE.Vector3(k[0] ?? 1, k[1] ?? 1, k[2] ?? 1) },
     cloudF: { value: new THREE.Vector4(f[0] ?? 0.5, f[1] ?? 1, f[2] ?? 1, f[3] ?? 1) },
-  }, `uniform sampler2D clouds; uniform float hasScatter; uniform vec3 cloudColour; uniform vec4 cloudF;`, `
-        float cover = pow(abs(texture2D(clouds, vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0)).r), cloudF.z);
+  }, `uniform sampler2D clouds; uniform sampler2D cloudCap; uniform float hasCloudCap; uniform float hasScatter;
+      uniform vec3 cloudColour; uniform vec4 cloudF;`, `
+        float density = texture2D(clouds, vUv * cloudF.w * vec2(2.0, 1.0) + vec2(fract(time * 0.000278), 0.0)).r;
+        if (hasCloudCap > 0.5) density = max(density, texture2D(cloudCap, vUv1 * cloudF.w).r);
+        float cover = pow(abs(density), cloudF.z);
         vec3 light = hasScatter > 0.5 ? lit : vec3(max(NL, 0.0)) + ambient;
         g = cover * light * cloudColour * cloudF.y + (hasScatter > 0.5 ? S2 : vec3(0.0));
         alpha = cover;`, true);
@@ -257,7 +271,7 @@ async function celestialSurface(typeID: number, kind: string, radius: number, it
   if (!c) return null;
   if (kind === "sun") return sunModel(c, radius);
   if (item?.NormalHeight1 && isGasGiant(c)) return gasGiantModel(c, item.NormalHeight1, radius, itemID);
-  if (item?.NormalHeight1 && c.params.FillTint && c.textures.FillTexture) return rockyModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
+  if (item?.NormalHeight1 && c.params.FillTint && c.textures.FillTexture) return rockyModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID, item.population !== false);
   if (item?.NormalHeight1 && c.params.LavaColor1 && c.textures.FillTexture) return lavaModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   if (item?.NormalHeight1 && c.params.IceFactors && c.textures.FillTexture) return iceModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
   if (item?.NormalHeight1 && c.params.Ramp1 && c.params.RampBias && c.textures.DetailTexture) return moonModel(c, item.NormalHeight1, item.NormalHeight2, radius, itemID);
@@ -354,22 +368,25 @@ async function gasGiantModel(c: Celestial, bandMap: string, radius: number, item
  *   CloudsFactors.x x GroundScattering2 (the white clouds are the cloud shell); sandstormplanet.fx gives the land
  *   albedo x (S1' / 2 + N.L) plus the rim, both cloud layers (the tint, then CloudsColor x CloudsFactors.y x S1'),
  *   and GroundScattering2 added; the colour in gamma space, taken to linear.
- * Not drawn: the slope's share (the shader takes it from the heights' gradient; flat here), the bumped normal, the
- * polar cloud cap, the earthlike planets' city lights on the night side.
+ * The earthlike surface adds city lights on populated land on the night side. The slope still uses the flat normal.
  */
-async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null): Promise<THREE.Object3D> {
+async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string | null, radius: number, itemID: number | null, populated: boolean): Promise<THREE.Object3D> {
   const opt = (url: string | null | undefined) => (url ? texture(url) : Promise.resolve(null));
-  const [h1, h2, detail, s1, s2, clouds, cap, cityLight, cityUv, cityMask, rockPoles] = await Promise.all([
+  // planet.py AdjustShaderPopulation clears the city resources on uninhabited planets.
+  const cityTexture = (name: string) => opt(populated ? c.textures[name] : null);
+  const [h1, h2, detail, s1, s2, clouds, cityLight, cityUv, cityMask, rockPoles] = await Promise.all([
     texture(heightMap1),
     heightMap2 ? texture(heightMap2) : Promise.resolve(null),
     texture(c.textures.FillTexture!),
     opt(c.textures.GroundScattering1), opt(c.textures.GroundScattering2),
-    opt(c.textures.CloudsTexture), opt(c.textures.CloudCapTexture),
-    opt(c.textures.CityLight), opt(c.textures.CityDistributionTexture), opt(c.textures.CityDistributionMask),
+    opt(c.textures.CloudsTexture),
+    cityTexture("CityLight"), cityTexture("CityDistributionTexture"), cityTexture("CityDistributionMask"),
     opt(c.textures.PolesGradient),
   ]);
-  const hasCity = !!(cityLight && cityUv && cityMask && c.params.CityLightColor);
-  for (const t of [h1, h2, detail, clouds, cityLight, cityUv, cityMask]) if (t && t.wrapS !== THREE.RepeatWrapping) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  const hasCity = !!(cityLight && cityUv && cityMask && c.params.CityLightColor) && (c.params.CoverageFactors?.[3] ?? 0.65) > 0;
+  for (const t of [h1, h2, detail, clouds, cityLight]) wrapTexture(t, THREE.RepeatWrapping);
+  // earthlikeplanet uses its clamped s3 sampler for the distribution maps.
+  for (const t of [cityUv, cityMask]) wrapTexture(t, THREE.ClampToEdgeWrapping);
   const v4 = (v: number[] | undefined, d: number[]) => new THREE.Vector4(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2], v?.[3] ?? d[3]);
   const v3 = (v: number[] | undefined, d: number[]) => new THREE.Vector3(v?.[0] ?? d[0], v?.[1] ?? d[1], v?.[2] ?? d[2]);
   const random = itemID === null ? 0 : itemID % 100;
@@ -380,7 +397,7 @@ async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string |
     h1: { value: h1 }, heightMap2: { value: h2 ?? h1 }, detailMap: { value: detail },
     clouds: { value: clouds }, hasClouds: { value: clouds && c.params.CloudsFactors ? 1 : 0 }, hasScatter: { value: s1 ? 1 : 0 },
     detailF: { value: v4(c.params.DetailFactors, [4, 0, 0, 0]) }, miscF: { value: v4(c.params.MiscFactors, [0, 0, 0, 0]) },
-    sharpF: { value: v4(c.params.SharpnessFactors, [4, 4, 4, 0]) }, coverF: { value: v4(c.params.CoverageFactors, [0.5, 0.2, 0.05, 0]) },
+    sharpF: { value: v4(c.params.SharpnessFactors, [4, 4, 4, 0]) }, coverF: { value: v4(c.params.CoverageFactors, [0.5, 0.2, 0.05, 0.65]) },
     fillTint: { value: v3(c.params.FillTint, [0.5, 0.45, 0.4]) }, vegTint: { value: v3(c.params.VegetationTint, [0.4, 0.35, 0.25]) },
     eqTint: { value: v3(c.params.EquatorTint, [0.5, 0.45, 0.35]) }, mountTint: { value: v3(c.params.mountainTint, [0.6, 0.58, 0.55]) },
     water: { value: v3(c.params.WaterColor, [0.05, 0.07, 0.08]) }, shallow: { value: v3(c.params.shallowWaterColor, [0.07, 0.15, 0.15]) },
@@ -448,7 +465,6 @@ async function rockyModel(c: Celestial, heightMap1: string, heightMap2: string |
         city = pow(abs(city), 1.0 / coverF.w) * max(-NL, 0.0);
         g += clamp(city * cityColour * (1.0 - ${hasWater ? "sea" : "0.0"}), 0.0, 1.0);`
           : ""}`}`);
-  void cap;
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 64), mat);
   m.name = "celestial";
   return m;

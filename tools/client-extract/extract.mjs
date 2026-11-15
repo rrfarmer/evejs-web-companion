@@ -33,7 +33,7 @@ import { readGranny } from "./lib/granny.mjs";
 import { readAnimations } from "./lib/grannyAnim.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
-import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry } from "./lib/typeGraphics.mjs";
+import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
@@ -427,8 +427,8 @@ export async function extractTurret(rf, graphicFile, outRoot) {
 /**
  * A system's planets and moons, each as the client builds it (lib/typeGraphics.mjs findSystemCelestials): its preset's
  * object file extracted (extractCelestial) and its height maps copied, written as celestials/<solarSystemID>.json:
- * { solarSystemID, items: { itemID: { typeID, kind, celestial, NormalHeight1, NormalHeight2, geometry } } }, each a
- * URL or null; the geometry (the preset's sphere mesh) extracted as a .glb once.
+ * { solarSystemID, items: { itemID: { typeID, kind, population, celestial, NormalHeight1, NormalHeight2, geometry } } }.
+ * The asset paths are URLs or null. The preset's sphere mesh is extracted as a .glb once.
  */
 export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot) {
   const items = {};
@@ -451,12 +451,11 @@ export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot
     }
     const tex = (res) => (res && rf.has(res.toLowerCase()) ? copyRes(rf, res, outRoot) : null);
     const geometry = celestial ? await meshOf(JSON.parse(fs.readFileSync(done.get(c.preset), "utf8")).geometry ?? null) : null;
-    items[c.itemID] = { typeID: c.typeID, kind: c.kind, celestial, NormalHeight1: tex(c.heightMap1), NormalHeight2: tex(c.heightMap2), geometry };
+    items[c.itemID] = { typeID: c.typeID, kind: c.kind, population: c.population, celestial, NormalHeight1: tex(c.heightMap1), NormalHeight2: tex(c.heightMap2), geometry };
   }
   const file = path.join(outRoot, "celestials", `${solarSystemID}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  // what the dev server checks a list is current by (vite.config.ts looks for "celestialBuild":2)
-  fs.writeFileSync(file, JSON.stringify({ solarSystemID, celestialBuild: 2, items }));
+  fs.writeFileSync(file, JSON.stringify({ solarSystemID, celestialBuild: CELESTIAL_BUILD, items }));
   return file;
 }
 

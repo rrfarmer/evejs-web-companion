@@ -10,6 +10,8 @@ import path from "node:path";
 import readline from "node:readline";
 import { loadSof } from "./sof.mjs";
 
+export const CELESTIAL_BUILD = 3;
+
 async function* jsonl(file) {
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   for await (const line of rl) if (line.trim()) yield JSON.parse(line);
@@ -100,7 +102,7 @@ export function indexedHullGeometry(rf, hull) {
  * shader preset's object file (planetAttributes.shaderPreset, a graphic), with the planet's own height maps
  * (heightMap1 and heightMap2, graphics too) given to its effects as NormalHeight1 and NormalHeight2. The client reads
  * the attributes from cfg.mapSolarSystemContentCache; the SDE's mapPlanets and mapMoons carry the same.
- * [{ itemID, typeID, kind, preset, heightMap1, heightMap2 }], the graphics as their files (null where none).
+ * The rows keep each planet's population and resolve the graphics to their files (null where absent).
  */
 export async function findSystemCelestials(sdeDir, solarSystemID) {
   const graphics = new Map();
@@ -114,7 +116,8 @@ export async function findSystemCelestials(sdeDir, solarSystemID) {
       const row = JSON.parse(line);
       const a = row.attributes ?? {};
       const g = (id) => (id ? graphics.get(id) ?? null : null);
-      out.push({ itemID: row._key, typeID: row.typeID ?? null, kind, preset: g(a.shaderPreset), heightMap1: g(a.heightMap1), heightMap2: g(a.heightMap2) });
+      const population = typeof a.population === "boolean" ? a.population : null;
+      out.push({ itemID: row._key, typeID: row.typeID ?? null, kind, population, preset: g(a.shaderPreset), heightMap1: g(a.heightMap1), heightMap2: g(a.heightMap2) });
     }
   }
   return out;
