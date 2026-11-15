@@ -8,6 +8,8 @@
 
 import { readBlack } from "./black.mjs";
 
+export const SOF_BUILD = 86;
+
 /**
  * EveSOFDataFactionColorSet's colour types by index, as an item names its colour (colorType, lightColor,
  * glowColorType): the client's own enum, trinity.EveSOFDataFactionColorSetType (read in the client's Python, build
@@ -206,8 +208,8 @@ export function buildHull(sof, hullName, factionName, raceName = null) {
     hull: hull.name,
     faction: faction?.name ?? null,
     race: raceName ?? null,
-    // what the dev server checks a SOF file is current by (vite.config.ts looks for "sofBuild":85)
-    sofBuild: 85,
+    // Reader and extractor share the version kept in the asset cache.
+    sofBuild: SOF_BUILD,
     booster,
     pattern,
     areas,

@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
+import { loadSof } from "./sof.mjs";
 
 async function* jsonl(file) {
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
@@ -62,6 +63,7 @@ export async function buildTypeNames(sdeDir) {
 export async function buildTypeGraphics(sdeDir, rf) {
   const graphics = new Map();
   for await (const g of jsonl(path.join(sdeDir, "graphics.jsonl"))) graphics.set(g._key, g);
+  const hulls = loadSof(rf).hulls;
   // hull name -> its geometry, from the client's index (a hull's .gr2 is named for it)
   const gr2ByName = new Map();
   for (const [key] of rf.entries) {
@@ -80,11 +82,17 @@ export async function buildTypeGraphics(sdeDir, rf) {
       hull,
       faction: g.sofFactionName ?? null,
       race: g.sofRaceName ?? null,
-      gr2: hull ? gr2ByName.get(hull.toLowerCase()) ?? null : null,
+      gr2: hull ? indexedHullGeometry(rf, hulls.get(hull.toLowerCase())) ?? gr2ByName.get(hull.toLowerCase()) ?? null : null,
       graphicFile: g.graphicFile ?? null,
     };
   }
   return out;
+}
+
+/** EveSOFDataHull.geometryResFilePath can name a Granny file with a different stem. */
+export function indexedHullGeometry(rf, hull) {
+  const mesh = String(hull?.geometryResFilePath ?? "").replace(/\\/g, "/").toLowerCase();
+  return mesh.startsWith("res:/") && mesh.endsWith(".gr2") && rf.has(mesh) ? mesh : null;
 }
 
 /**

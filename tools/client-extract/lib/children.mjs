@@ -274,6 +274,10 @@ function readController(c, skipped, owner) {
     }
     if (a.type === "Tr2ActionSetValue") {
       const value = String(a.value ?? "");
+      if (a.attribute === "regenerateDrones") {
+        const spawn = setValueObject(owner, a);
+        if (spawn?.type === "SpawnDrones") return { k: "setValue", target: idOf(spawn), attribute: a.attribute, value };
+      }
       if (a.attribute === "value" && a.path && varNames.has(a.path)) return { k: "setVar", variable: a.path, value };
       if (a.attribute === "value" && !a.path && a.destination?.type === "Tr2ControllerFloatVariable") return { k: "setVar", variable: a.destination.name, value };
       const target = a.attribute === "display" ? setValueObject(owner, a) : null;

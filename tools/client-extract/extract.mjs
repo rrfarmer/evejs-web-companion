@@ -33,7 +33,7 @@ import { readGranny } from "./lib/granny.mjs";
 import { readAnimations } from "./lib/grannyAnim.mjs";
 import { meshArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
-import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets } from "./lib/typeGraphics.mjs";
+import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
@@ -622,11 +622,15 @@ async function main() {
     const glb = stem + ".glb";
     return !fs.existsSync(stem + ".json") || !fs.existsSync(glb) || glbBuildOf(fs.readFileSync(glb)) < GLB_BUILD;
   };
+  const resolvedGeometry = new Map();
   for (const typeID of args.types) {
     const tg = typeGraphics?.[typeID];
-    if (!tg?.gr2) throw new Error(`--type ${typeID}: no SOF hull model known (run --type-graphics with --sde first)`);
-    if (meshMissing(tg.gr2)) specs.push(tg.gr2);
-    const sofFile = await extractSof(rf, tg.gr2, tg.hull, tg.faction, outRoot, tg.race);
+    if (!tg?.gr2 && !tg?.hull) throw new Error(`--type ${typeID}: no SOF hull model known (run --type-graphics with --sde first)`);
+    const gr2 = tg.gr2 ?? indexedHullGeometry(rf, loadSof(rf).hulls.get(tg.hull.toLowerCase()));
+    if (!tg.gr2) resolvedGeometry.set(typeID, gr2);
+    if (!gr2) continue;
+    if (meshMissing(gr2)) specs.push(gr2);
+    const sofFile = await extractSof(rf, gr2, tg.hull, tg.faction, outRoot, tg.race);
     console.log(`type ${typeID}: ${tg.hull} as ${tg.faction}${sofFile ? " -> " + path.relative(outRoot, sofFile) : " (no SOF hull)"}`);
   }
   // --graphic: a SOF graphic that is no type's (a station hangar: hangarRegistry's hangarModelGraphicID), its hull and
@@ -707,6 +711,11 @@ async function main() {
     done.push(r.res);
   }
   if (done.length) addToManifest(outRoot, build, client, done);
+  for (const [id, gr2] of resolvedGeometry) {
+    const file = path.join(outRoot, "typeGeometry", `${id}.json`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ gr2 }));
+  }
   for (const c of args.celestials) console.log(`${c} -> ${path.relative(outRoot, extractCelestial(rf, c, outRoot))}`);
   for (const t of args.turrets) console.log(`${t} -> ${path.relative(outRoot, await extractTurret(rf, t, outRoot))}`);
   for (const scene of args.scenes) console.log(`${scene}: ${Object.keys(extractScene(rf, scene, outRoot)).join(", ")}`);

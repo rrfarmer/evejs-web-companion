@@ -19,6 +19,7 @@
 
 import * as THREE from "three";
 import { colorValue, curveValue, rotationValue, vector3Value, type Curve } from "./curves.ts";
+import type { AgentGridState } from "./behaviorAgents.ts";
 
 export interface SofCurveSet {
   /** Its id (a controller's AnimateCurveSet names it). */
@@ -113,7 +114,11 @@ interface ValueTarget { kind: "value"; get(attr: string): Value | undefined; set
 type Target = QuadTarget | UniformTarget | LinesTarget | ObjectTarget | ContainerTarget | SrtTarget | ValueTarget;
 interface Xform { t: number[]; r: number[]; s: number[]; dirty: number }
 /** A set's play state: its owners (the containers it is under, its own first-to-last), time and range. */
-interface SetRun { set: SofCurveSet; owners: number[]; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null; scale: number }
+interface SetRun { set: SofCurveSet; owners: number[]; perObject: boolean; playing: boolean; last: number; time: number; range: { min: number; max: number; looped: boolean } | null; applyAt: number | null; scale: number }
+
+const GRID_ATTRIBUTES: Partial<Record<string, "fullness" | "info" | "spacing">> = {
+  gridFullnessFactor: "fullness", gridInfo: "info", gridSpacing: "spacing",
+};
 
 /** A curve's length (Tr2CurveScalar::Length: its last key's time; a composite's, its parts' longest). */
 function curveLength(c: unknown): number {
@@ -133,6 +138,7 @@ export class ChildAnimator {
   readonly key = THREE.MathUtils.generateUUID();
   private readonly targets = new Map<number, Target>();
   private readonly sets: SetRun[] = [];
+  private readonly objectRuns = new WeakMap<object, Map<SetRun, SetRun>>();
   private readonly xforms = new Map<number, Xform>();
   /** The curves and bindings by id, for the bindings that drive a curve's timeOffset or a binding's scale. */
   private readonly curvesById = new Map<number, Record<string, unknown>>();
@@ -178,7 +184,8 @@ export class ChildAnimator {
     };
     for (const s of sets ?? []) {
       const onLoad = s.playOnLoad !== false;
-      this.sets.push({ set: s, owners, playing: onLoad, last: performance.now(), time: 0, range: null, applyAt: null, scale: s.scale });
+      const perObject = s.bindings.some(b => b.destinationType === "SpawnDrones" && GRID_ATTRIBUTES[b.destinationAttribute.split(".")[0] ?? ""] !== undefined);
+      this.sets.push({ set: s, owners, perObject, playing: onLoad, last: performance.now(), time: 0, range: null, applyAt: null, scale: s.scale });
       index(s.curves);
       for (const b of s.bindings) { if (b.id !== undefined) this.bindingsById.set(b.id, b); if (b.sourceCurve) index(b.sourceCurve); }
     }
@@ -195,12 +202,24 @@ export class ChildAnimator {
   }
 
   /** The sets of a name under an owner: a container (by id), or HULL_OWNER - the space object, every set. */
-  private under(owner: number, name: string): SetRun[] {
-    return this.sets.filter((r) => r.set.name === name && (owner === HULL_OWNER || r.owners.includes(owner)));
+  private runFor(run: SetRun, instance?: object): SetRun {
+    if (!run.perObject || !instance) return run;
+    let local = this.objectRuns.get(instance);
+    if (!local) { local = new Map(); this.objectRuns.set(instance, local); }
+    let current = local.get(run);
+    if (!current) {
+      current = { ...run, playing: run.set.playOnLoad !== false, last: performance.now(), time: 0, range: null, applyAt: null, scale: run.set.scale };
+      local.set(run, current);
+    }
+    return current;
+  }
+
+  private under(owner: number, name: string, instance?: object): SetRun[] {
+    return this.sets.filter((r) => r.set.name === name && (owner === HULL_OWNER || r.owners.includes(owner))).map(r => this.runFor(r, instance));
   }
   /** TriCurveSet::Play (no range: ResetTimeRange) or PlayTimeRange (a range it lacks: left as it is). */
-  play(owner: number, name: string, range = ""): void {
-    for (const r of this.under(owner, name)) {
+  play(owner: number, name: string, range = "", instance?: object): void {
+    for (const r of this.under(owner, name, instance)) {
       if (range) {
         const found = r.set.ranges?.find((x) => x.name === range);
         if (!found) continue;
@@ -211,12 +230,13 @@ export class ChildAnimator {
       r.last = performance.now();
     }
   }
-  stop(owner: number, name: string): void { for (const r of this.under(owner, name)) r.playing = false; }
+  stop(owner: number, name: string, instance?: object): void { for (const r of this.under(owner, name, instance)) r.playing = false; }
   /** TriCurveSet::Play on every set of a name, at a speed (TriCurveSet.scale) where one is given. */
-  playNamed(name: string | null, scale?: number): void {
+  playNamed(name: string | null, scale?: number, instance?: object): void {
     const now = performance.now();
-    for (const r of this.sets) {
-      if (r.set.name !== name) continue;
+    for (const source of this.sets) {
+      if (source.set.name !== name) continue;
+      const r = this.runFor(source, instance);
       r.playing = true; r.time = 0; r.last = now; r.range = null; r.applyAt = null;
       if (scale !== undefined) r.scale = scale;
     }
@@ -241,24 +261,25 @@ export class ChildAnimator {
    * EveEffectRoot2::Start (EveEffectRoot2.cpp:580-596): every curve set played from its start (the root's own and its
    * children's, PlayAllCurveSets), at its own speed - an effect copy made beforehand begins now.
    */
-  restart(skip?: (name: string | null) => boolean): void {
+  restart(skip?: (name: string | null) => boolean, instance?: object): void {
     const now = performance.now();
-    for (const r of this.sets) {
-      if (skip?.(r.set.name)) continue;
+    for (const source of this.sets) {
+      if (skip?.(source.set.name)) continue;
+      const r = this.runFor(source, instance);
       r.playing = true; r.time = 0; r.last = now; r.range = null; r.applyAt = null; r.scale = r.set.scale;
     }
   }
   /** TriCurveSet::ApplyTime: the set's curves and bindings at that time, next step (a playing set goes on from it). */
-  applyTime(id: number, time: number): void {
-    for (const r of this.sets) if (r.set.id === id) r.applyAt = time;
+  applyTime(id: number, time: number, instance?: object): void {
+    for (const r of this.sets) if (r.set.id === id) this.runFor(r, instance).applyAt = time;
   }
   /** The particle emitters a controller's Tr2ActionSpawnParticles may fire, by id. */
   private readonly spawners = new Map<number, (rate: number) => void>();
   spawner(id: number, spawn: (rate: number) => void): void { this.spawners.set(id, spawn); }
   spawn(id: number, rate: number): void { this.spawners.get(id)?.(rate); }
   /** A controller's SetValue on a set's scale: its time advances by this x the time passed. */
-  setScale(id: number, scale: number): void {
-    for (const r of this.sets) if (r.set.id === id) r.scale = scale;
+  setScale(id: number, scale: number, instance?: object): void {
+    for (const r of this.sets) if (r.set.id === id) this.runFor(r, instance).scale = scale;
   }
   /** A controller's SetValue on an object's display (a container, mesh, quad or line set). */
   setDisplay(id: number, on: boolean): void {
@@ -279,9 +300,10 @@ export class ChildAnimator {
   }
 
   /** One frame: every set's curves at its time, every binding copied; visibility to the given objects (a clone's). */
-  step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number>; srts?: Map<number, number> }): void {
+  step(objects: Map<number, THREE.Object3D[]>, seen: { visibility: number; xforms?: Map<number, number>; srts?: Map<number, number> }, instance?: object): void {
     const now = performance.now();
-    for (const run of this.sets) {
+    for (const source of this.sets) {
+      const run = this.runFor(source, instance);
       if (!run.playing && run.applyAt === null) continue;
       const set = run.set;
       if (run.applyAt !== null) { run.time = run.applyAt; run.applyAt = null; run.last = now; }
@@ -318,8 +340,11 @@ export class ChildAnimator {
         // (its holder is also a display target: the trigger is looked at first)
         const triggers = b.destinationType === "EveChildEffectPropagator" && attr0 === "trigger"
           ? (objects.get(b.destination) ?? []).filter((o) => typeof o.userData.onTrigger === "function") : [];
+        const gridAttribute = b.destinationType === "SpawnDrones" ? GRID_ATTRIBUTES[attr0 ?? ""] : undefined;
+        const grids = gridAttribute === undefined ? [] : (objects.get(b.destination) ?? [])
+          .flatMap(o => (o.userData.agentGrid as AgentGridState | undefined)?.grid ?? []);
         const output = b.destinationType === "PostProcessOutput";
-        if (!output && !triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
+        if (!output && !grids.length && !triggers.length && !lightRecords.length && !target && !xf && !curve && !binding && !sinks.length && !setScale) continue;
         let src: Value;
         const srcCurve = b.source !== null ? set.curves[b.source] : b.sourceCurve;
         if (b.sourceConst) src = b.sourceConst;
@@ -340,7 +365,16 @@ export class ChildAnimator {
         const srcC = srcComp !== undefined ? COMPONENT[srcComp] ?? null : null;
         if (output) { this.outputs.set(b.destinationAttribute, copied(src, srcC, b.scale, b.offset, 0, null) as number); continue; }
         if (sinks.length) { const v = copied(src, srcC, b.scale, b.offset, 0, null) as number; for (const o of sinks) (o.userData.setVariable as (v: number) => void)(v); continue; }
-        if (setScale) { this.setScale(b.destination, copied(src, srcC, b.scale, b.offset, 0, null) as number); continue; }
+        if (setScale) { this.setScale(b.destination, copied(src, srcC, b.scale, b.offset, 0, null) as number, instance); continue; }
+        if (gridAttribute !== undefined && grids.length) {
+          const component = comp !== undefined ? COMPONENT[comp] ?? null : null;
+          for (const grid of grids) {
+            const value = copied(src, srcC, b.scale, b.offset, grid[gridAttribute], component);
+            if (gridAttribute === "fullness" && typeof value === "number") grid.fullness = value;
+            else if (gridAttribute !== "fullness" && Array.isArray(value)) grid[gridAttribute] = value;
+          }
+          continue;
+        }
         if (triggers.length) { if ((copied(src, srcC, b.scale, b.offset, 0, null) as number) !== 0) for (const o of triggers) (o.userData.onTrigger as () => void)(); continue; }
         if (lightRecords.length) {
           for (const r of lightRecords) {

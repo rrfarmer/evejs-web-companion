@@ -2163,7 +2163,10 @@ export class SpaceView {
         holder.add(model);
       }).catch(() => { /* the stand-in stays */ });
     }
-    const modelled = !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
+    // spaceObject/repository.py loads SOF models for Large Collidable Objects
+    // and Structures. The live projection classifies both as celestials.
+    const collidable = e.groupID === 226 || e.groupID === 319;
+    const modelled = collidable || !["planet", "moon", "sun", "asteroid", "celestial", "billboard"].includes(e.kind);
     if (modelled && e.typeID) {
       if (e.isSelf) holder.userData.loadingModel = true;
       void typeModel(e.typeID).then((model) => {

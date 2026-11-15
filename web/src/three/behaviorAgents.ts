@@ -32,6 +32,12 @@ export interface SofAgentGrid {
   fullness: number;
 }
 
+/** A SpawnDrones binding target carried on each cloned behaviour model. */
+export interface AgentGridState {
+  grid: SofAgentGrid;
+  regenerate: boolean;
+}
+
 /** A SplineTunnelGroup: its Tr2CurveVector3 curves, each sampled into a tunnel. */
 export interface SofTunnelGroup {
   /** IBehavior::TunnelGroupType: 0 exit, 1 entrance, 2 other */
@@ -105,13 +111,12 @@ interface BuiltSystem { groups: BuiltGroup[]; tunnels: SofTunnelGroup[]; locator
 
 /**
  * The system's holder: each group's mesh (childMesh, as an EveChildMesh's) made instanced, its parts' instance counts
- * nought until a clone's run places the agents. The grid's numbers a curve set's binding may drive (gridFullnessFactor:
- * the construction sites' build-up), read when the grid is made.
+ * nought until a clone's run places the agents. Each clone carries its own grid
+ * inputs for curve bindings and the SpawnDrones.regenerateDrones action.
  */
 export async function buildAgents(
   node: SofChildAgents,
   childMesh: (mesh: SofChildMesh) => Promise<THREE.Object3D | null>,
-  values: (id: number, get: (attr: string) => number | number[] | undefined, set: (attr: string, v: number | number[]) => void) => void,
   locatorSets: Record<string, number[][]> = {},
 ): Promise<THREE.Group> {
   const holder = new THREE.Group();
@@ -119,12 +124,6 @@ export async function buildAgents(
   if (node.display === false) holder.visible = false;
   const built: BuiltGroup[] = [];
   const made = await Promise.all(node.groups.map(async (spec) => {
-    const grid = spec.grid;
-    if (grid?.id !== undefined) {
-      const rec = grid as unknown as Record<string, unknown>;
-      const key = (attr: string) => (attr === "gridFullnessFactor" ? "fullness" : attr === "gridInfo" ? "info" : attr === "gridSpacing" ? "spacing" : null);
-      values(grid.id, (attr) => { const k = key(attr); return k ? (rec[k] as number | number[]) : undefined; }, (attr, v) => { const k = key(attr); if (k) rec[k] = v; });
-    }
     const flames = spec.booster ? await agentBoosters(spec.booster, Math.max(1, spec.count)).catch(() => null) : null;
     // its PlayFX's firing effect (an EveStretch3): its graph built once, in EVE's space (no mirror: the holder is in it)
     const play = (spec.behaviors ?? []).findIndex((b) => b.type === "PlayFX" && !!b.stretch);
@@ -143,6 +142,11 @@ export async function buildAgents(
     const group: BuiltGroup = { spec, parts: [], stretch };
     // room for its count, or its grid (more on its timer: AgentRun grows it)
     const grid = spec.grid;
+    if (grid?.id !== undefined) {
+      const input = new THREE.Object3D();
+      input.userData = { childId: grid.id, agentGrid: { grid: structuredClone(grid), regenerate: false } satisfies AgentGridState };
+      holder.add(input);
+    }
     const capacity = Math.max(1, spec.count, grid && (spec.behaviors ?? []).some((b) => b.type === "SpawnDrones" && b.addOnGrid) ? [0, 1, 2].reduce((n, i) => n * Math.max(0, Math.trunc(grid.info[i] ?? 1)), 1) : 0);
     mesh.traverse((o) => {
       const part = o as THREE.Mesh;
@@ -262,7 +266,7 @@ class GroupRun {
   /** whether anything here moves (else its matrices are written only when they change) */
   readonly moves: boolean;
 
-  constructor(readonly built: BuiltGroup, private readonly system: { tunnels: Tunnel[] }) {
+  constructor(readonly built: BuiltGroup, private readonly system: { tunnels: Tunnel[] }, private readonly gridInput?: AgentGridState) {
     const spec = built.spec;
     this.spawnPosition = new THREE.Vector3(...(spec.spawnPosition as [number, number, number]));
     this.runs = (spec.behaviors ?? []).map((b, index) => ({ spec: b, index, state: this.initialState(b) }));
@@ -473,7 +477,12 @@ class GroupRun {
   private spawnDrones(r: Run, b: Extract<SofBehavior, { type: "SpawnDrones" }>, dt: number): void {
     if (!b.enabled) return;
     const s = r.state as { regenerate: boolean; time: number; addByCount: boolean; spawnPosition: THREE.Vector3 };
-    if (b.addOnGrid && s.regenerate) { this.updateGrid(); s.regenerate = false; return; }
+    if (b.addOnGrid && (s.regenerate || this.gridInput?.regenerate)) {
+      this.updateGrid();
+      s.regenerate = false;
+      if (this.gridInput) this.gridInput.regenerate = false;
+      return;
+    }
     if (s.addByCount) {
       for (let i = 0; i < b.count; i++) this.agents.push(this.newAgent(this.spawnPosition));
       s.addByCount = false;
@@ -495,13 +504,13 @@ class GroupRun {
 
   /** SpawnDrones::UpdateGrid: x then y then z from the spawn position, each point kept where TriRand() <= fullness */
   private updateGrid(): void {
-    const grid = this.built.spec.grid;
+    const grid = this.gridInput?.grid ?? this.built.spec.grid;
     if (!grid) return;
     this.agents = [];
     const [xc, yc, zc] = [0, 1, 2].map((i) => Math.max(0, Math.trunc(grid.info[i] ?? 1)));
     const w = grid.info[3] ?? 10;
     const spacing = grid.spacing[0] || grid.spacing[1] || grid.spacing[2] ? grid.spacing : [w, w, w];
-    const start = this.spawnPosition.clone();
+    const start = new THREE.Vector3(...(this.built.spec.spawnPosition as [number, number, number]));
     let fullness = grid.fullness;
     for (let i = 0; i < zc!; i++) {
       for (let j = 0; j < yc!; j++) {
@@ -731,12 +740,17 @@ export class AgentRun {
     systemTunnels.forEach((t, i) => (t.id = i));
     // this clone's parts, in the order built
     const inClone: THREE.InstancedMesh[] = [];
-    holder.traverse((o) => { if ((o as THREE.InstancedMesh).isInstancedMesh) inClone.push(o as THREE.InstancedMesh); });
+    const gridInputs = new Map<number, AgentGridState>();
+    holder.traverse((o) => {
+      if ((o as THREE.InstancedMesh).isInstancedMesh) inClone.push(o as THREE.InstancedMesh);
+      if (o.userData.agentGrid) gridInputs.set(o.userData.childId, o.userData.agentGrid as AgentGridState);
+    });
     let i = 0;
     for (const b of sys.groups) {
       const parts = inClone.slice(i, i + b.parts.length);
       i += b.parts.length;
-      const run = new GroupRun(b, { tunnels: systemTunnels });
+      const gridID = b.spec.grid?.id;
+      const run = new GroupRun(b, { tunnels: systemTunnels }, gridID === undefined ? undefined : gridInputs.get(gridID));
       run.systemGroups = sys.tunnels;
       run.locatorSets = sys.locatorSets;
       // this clone's flames, on a geometry of its own (the instance data is this clone's agents')

@@ -17,7 +17,7 @@ import { ChildAnimator, HULL_OWNER, animators, type SofCurveSet } from "./childA
 import { addOverlay, removeOverlay, type SofOverlay } from "./hullOverlay.ts";
 import { PropagatorRun, type PropagatorData } from "./propagator.ts";
 import { offerLights, type ChildLight } from "./dynamicLights.ts";
-import { AgentRun, buildAgents, type SofChildAgents } from "./behaviorAgents.ts";
+import { AgentRun, buildAgents, type AgentGridState, type SofChildAgents } from "./behaviorAgents.ts";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export interface SofChildQuad {
@@ -1291,7 +1291,7 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
       playedOf.set(object, played);
     }
     if (played.fx.length) gatherFx(played.fx, camera);
-    animator.step(played.objects, played.seen);
+    animator.step(played.objects, played.seen, group);
   }
   // the procedural containers, each clone's own
   let cycling = cyclingRunsOf.get(object);
@@ -1363,11 +1363,18 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
           }
           return null;
         },
-        play: (owner: number, name: string, range: string) => animator?.play(owner, name, range),
-        stop: (owner: number, name: string) => animator?.stop(owner, name),
+        play: (owner: number, name: string, range: string) => animator?.play(owner, name, range, group),
+        stop: (owner: number, name: string) => animator?.stop(owner, name, group),
         setDisplay: (target: number, on: boolean) => animator?.setDisplay(target, on),
         // the owner's own target, else one in a child effect loaded under it (its own animator, by its key)
         setValue: (target: number, attribute: string, value: number) => {
+          if (attribute === "regenerateDrones") {
+            for (const sink of playedOf.get(object)?.objects.get(target) ?? []) {
+              const grid = sink.userData.agentGrid as AgentGridState | undefined;
+              if (grid) grid.regenerate = value !== 0;
+            }
+            return;
+          }
           if (animator?.setValue(target, attribute, value)) return;
           // an effect propagator's frequency (by its id), in this clone
           if (attribute === "frequency") { for (const p of propagatorRunsOf.get(object) ?? []) if (p.id === target) p.run.setFrequency(value); return; }
@@ -1392,8 +1399,8 @@ tickerMaterial.onBeforeRender = (renderer, _s, camera, _g, object) => {
         },
         spawn: (emitter: number, rate: number) => animator?.spawn(emitter, rate),
         trigger: (target: number) => { for (const p of propagatorRunsOf.get(object) ?? []) if (p.id === target) p.run.trigger(); },
-        applyTime: (set: number, time: number) => animator?.applyTime(set, time),
-        setScale: (set: number, scale: number) => animator?.setScale(set, scale),
+        applyTime: (set: number, time: number) => animator?.applyTime(set, time, group),
+        setScale: (set: number, scale: number) => animator?.setScale(set, scale, group),
         duration: (owner: number, name: string, range: string) => animator?.duration(owner, name, range) ?? 0,
       };
       const owners: THREE.Object3D[] = [];
@@ -1530,10 +1537,10 @@ export function effectCurve(object: THREE.Object3D, setName: string, curveName: 
 
 /** A curve set of a name played from its start in a built object, at a speed where one is given (a ShipEffect's Start). */
 export function playEffectSet(object: THREE.Object3D, name: string | null, scale?: number): void {
-  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.playNamed(name, scale); });
+  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.playNamed(name, scale, o); });
 }
 export function startEffect(object: THREE.Object3D, skip?: (setName: string | null) => boolean): void {
-  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip); });
+  object.traverse((o) => { const key = o.userData.animatorKey as string | undefined; if (key) animators.get(key)?.restart(skip, o); });
 }
 
 export async function hullChildren(children: SofHullChild[] | undefined, effects: Record<string, SofChildNode | null> = {}, hullControllers: SofController[] = [],
@@ -1678,7 +1685,7 @@ export async function hullChildren(children: SofHullChild[] | undefined, effects
     }
     if (node.k === "agents") {
       // EveChildBehaviorSystem's still groups: instanced, placed per clone (behaviorAgents.ts AgentRun, from the ticker)
-      pending.push(buildAgents(node, (mesh) => childMesh(mesh, animator), (id, get, set) => animator.values(id, get, set), locatorSets).then((g) => {
+      pending.push(buildAgents(node, (mesh) => childMesh(mesh, animator), locatorSets).then((g) => {
         g.userData.agentsHolder = true;
         if (node.id !== undefined) { g.userData.childId = node.id; animator.object(node.id, ancestors, node.display !== false); }
         place(g, local.clone().multiply(new THREE.Matrix4().fromArray(node.m)), undefined);

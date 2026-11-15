@@ -7,6 +7,7 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { clientBuild } = require("../../tools/client-extract/lib/resfiles.mjs");
 const { droneTurret } = require("../../tools/client-extract/lib/droneTurrets.mjs");
+const { SOF_BUILD } = require("../../tools/client-extract/lib/sof.mjs");
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const EXTRACTOR = path.join(REPO_ROOT, "tools", "client-extract", "extract.mjs");
@@ -78,7 +79,7 @@ async function modelResponse(dir, info, args, ensure, requireSof = false) {
   const { stem, sof } = modelPaths(info);
   const sofFile = path.join(dir, sof);
   await ensure(stem + ".glb", args, null, () => fileExists(path.join(dir, stem + ".json")) &&
-    ((!requireSof && !fileExists(sofFile)) || containsVersion(sofFile, '"sofBuild":85')));
+    ((!requireSof && !fileExists(sofFile)) || containsVersion(sofFile, `"sofBuild":${SOF_BUILD}`)));
   const mesh = readJson(path.join(dir, stem + ".json"));
   return {
     model: `/client-assets/${stem}.glb`,
@@ -97,7 +98,7 @@ async function sceneMaps(dir, resource, ensure) {
 }
 
 /** Supply the extracted resources and look up model and scene data on demand. */
-async function resolveAsset(rel, dir, ensure) {
+async function resolveAsset(rel, dir, ensure, canExtract) {
   const generated = GENERATED.get(rel);
   if (generated) return { file: await ensure(rel.slice(1), [generated[0]], generated[1]) };
 
@@ -172,9 +173,20 @@ async function resolveAsset(rel, dir, ensure) {
   const type = /^\/type\/(\d+)$/.exec(rel);
   if (type) {
     const typeID = Number(type[1]);
-    const g = graphicsForType(type[1]);
+    let g = graphicsForType(type[1]);
+    const args = ["--type", type[1]];
+    // An older index recorded no mesh when the indexed file stem differed from
+    // the hull's SOF name. Re-read the authored path once and cache the answer.
+    if (g?.hull && !g.gr2) {
+      const descriptor = `typeGeometry/${typeID}.json`;
+      const file = path.join(dir, descriptor);
+      if (fileExists(file) || canExtract()) {
+        await ensure(descriptor, args);
+        g = { ...g, ...readJson(file) };
+      }
+    }
     if (!g?.gr2) return { json: { typeID, model: null, ...g } };
-    return { json: { typeID, ...await modelResponse(dir, g, ["--type", type[1]], ensure, true), ...g } };
+    return { json: { typeID, ...await modelResponse(dir, g, args, ensure, true), ...g } };
   }
   return { file: path.join(dir, rel.slice(1)) };
 }
@@ -198,16 +210,21 @@ function createClientAssets({
   const extracting = new Map();
   const buildQueue = new Map();
 
+  function installFor(dir, version) {
+    if (installedBuild === version) return clientRoot;
+    const configFile = path.join(dir, "config.json");
+    const client = fileExists(configFile) ? readJson(configFile).client : null;
+    return typeof client === "string" && client && configuredClientBuild(client) === version ? client : null;
+  }
+
   function extractOnce(dir, version, args) {
     const key = JSON.stringify([dir, ...args]);
     const active = extracting.get(key);
     if (active) return active;
     const previous = buildQueue.get(dir);
     const work = Promise.resolve(previous).catch(() => {}).then(async () => {
-      const configFile = path.join(dir, "config.json");
-      const config = fileExists(configFile) ? readJson(configFile) : {};
-      const client = installedBuild === version ? clientRoot : config.client;
-      if (typeof client !== "string" || !client || configuredClientBuild(client) !== version) {
+      const client = installFor(dir, version);
+      if (!client) {
         throw new Error(`No matching client install is configured for extracted build ${version}.`);
       }
       await extract(["--client", client, "--out", dir, ...args]);
@@ -249,7 +266,7 @@ function createClientAssets({
         else if (!containsVersion(file, marker) || !alsoReady()) await extractOnce(dir, version, args);
         return file;
       };
-      const result = await resolveAsset(rel, dir, ensure);
+      const result = await resolveAsset(rel, dir, ensure, () => installFor(dir, version) !== null);
       if ("json" in result) return res.json(result.json);
       const type = MIME.get(path.extname(result.file).toLowerCase());
       if (!type || !isWithin(dir, result.file) || !fileExists(result.file)) return res.status(404).end();
