@@ -7,6 +7,7 @@ export function infoWindowLabel(w: InfoWindowState, names: Readonly<Record<strin
     case "corporation": return resolvedName(names, "corporation", s.corporationID, "Show Info");
     case "alliance": return resolvedName(names, "alliance", s.allianceID, "Show Info");
     case "faction": return resolvedName(names, "faction", s.factionID, "Show Info");
+    case "rank": return s.name;
     case "mapLocation": return resolvedName(names, s.typeID === 3 ? "region" : s.typeID === 4 ? "constellation" : "system", s.itemID, "Show Info");
     default: return s.typeID === null ? "Show Info" : resolvedName(names, "type", s.typeID, "Show Info");
   }

@@ -711,6 +711,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances", "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates", "fwVictoryPointMgr.GetAllVictoryPointStates",
   "dungeonInstanceCacheMgr.GetFactionWarfareBattlefieldInstances", "fwWarzoneSolarsystem.GetHQSystemIDs",
   "shipCasterLandingPadMgr.GetAllLandingPads", "shipCasterLauncherMgr.GetFactionsWithShipcaster",
+  "facWarMgr.GetStats_FactionInfo", "facWarMgr.GetStats_TopAndAllKillsAndVPs", "facWarMgr.GetStats_Character",
+  "facWarMgr.GetStats_Corp", "facWarMgr.GetStats_Alliance", "facWarMgr.GetStats_Militia", "facWarMgr.GetCharacterRankInfo",
   // And its insurgencies (PirateInsurgencySiteTracker) and ESS systems (ContentProviderESS._GetSolarSystemsWithESS).
   "dungeonInstanceCacheMgr.GetPirateInsurgencyInstances", "dynamicResourceCacheMgr.GetESSAgencyData",
   // And its custom content, the pirate strongholds among it (agency/client/custom_content.get_custom_content).
@@ -2788,6 +2790,13 @@ const RETAIL_CALLS = Object.freeze({
   "dungeonInstanceCacheMgr.GetFactionWarfareBattlefieldInstances": same("eve/client/script/ui/services/fwWarzoneSvc.py:162", "GetBattlefieldInstances asks GetFactionWarfareBattlefieldInstances(), active battlefield dungeons grouped by solar system."),
   "shipCasterLandingPadMgr.GetAllLandingPads": same("eve/client/script/parklife/shipcasterSvc.py:26", "GetAllLandingPads() returns the landing pad records, including their faction and link timestamp."),
   "shipCasterLauncherMgr.GetFactionsWithShipcaster": same("eve/client/script/parklife/shipcasterSvc.py:29", "GetFactionsWithShipcaster() returns the factions with a launcher."),
+  "facWarMgr.GetStats_FactionInfo": same("eve/client/script/ui/services/facWarSvc.py:334", "GetStats_FactionInfo() returns member and system counts by faction."),
+  "facWarMgr.GetStats_TopAndAllKillsAndVPs": same("eve/client/script/ui/services/facWarSvc.py:342", "GetStats_TopAndAllKillsAndVPs() returns two dictionaries indexed by character, corporation and alliance group."),
+  "facWarMgr.GetStats_Character": same("eve/client/script/ui/services/facWarSvc.py:352", "GetStats_Character() reads the session pilot's kills and victory points."),
+  "facWarMgr.GetStats_Corp": same("eve/client/script/ui/services/facWarSvc.py:365", "GetStats_Corp() reads the session corporation's kills and victory points."),
+  "facWarMgr.GetStats_Alliance": same("eve/client/script/ui/services/facWarSvc.py:380", "GetStats_Alliance() reads the session alliance's kills and victory points."),
+  "facWarMgr.GetStats_Militia": same("eve/client/script/ui/services/facWarSvc.py:385", "GetStats_Militia() returns the faction header and kills and victory points by militia."),
+  "facWarMgr.GetCharacterRankInfo": same("fwwarzone/client/dashboard/progression.py:74", "GetCharacterRankInfo(characterID) returns the pilot's current militia rank."),
   "rewardMgr.GetDelayedRewardsByGroupIDs": same("eve/client/script/ui/shared/incursionSvc.py:259", "sm.RemoteSvc('rewardMgr').GetDelayedRewardsByGroupIDs(tuple(rewardGroupIDs)), the IDs sorted: by reward group, its delayed rewards (KeyVals of rewardTypeID and rewardQuantity); IncursionContentPiece.GetLPPayoutPool takes the LP one's (REWARD_TYPE_LP 1)."),
   "custom_agency_provider.get_content_data": same("agency/client/custom_content.py:13", "sm.RemoteSvc('custom_agency_provider').get_content_data(), no arguments: the Agency's custom content, a list of agency.common.contentdata.CustomContentData, filtered by its content_type on the client (the pirate strongholds' is 15). Recorded on Tranquility (\"Agency - Opening Resource Harvesting Planets Colony Resources\", 2026-09-10) answering [], as a cached method call."),
   "map.GetSystemsInIncursions": same("eve/client/script/ui/shared/agencyNew/contentPieces/incursionContentPiece.py:84", "sm.RemoteSvc('map').GetSystemsInIncursions(), no arguments: the rows of the systems in incursions, each its locationID and sceneType."),

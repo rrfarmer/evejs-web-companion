@@ -223,6 +223,7 @@
     if (current === null) {
       return "Show Info";
     }
+    if (current.kind === "rank") return current.name;
     if (current.kind === "character") {
       // Its own kind's name, else the owner table's (cfg.eveowners: an NPC character that is no agent, a CEO).
       const own = resolvedName($names.resolved, characterNameKind(current.characterID), current.characterID, "");
@@ -1249,6 +1250,8 @@
         return "Item";
       case "medal":
         return "Medal";
+      case "rank":
+        return "Rank";
       case "mapLocation":
         return mapTypeName(current.typeID);
       case "faction":
@@ -1307,6 +1310,8 @@
       {:else if characterPortraitUrls.length > 0}
         <!-- update_window_icon for a character: its portrait. -->
         <span class="type-icon type-icon-lg"><OwnerPicture name={title} urls={characterPortraitUrls} size={72} /></span>
+      {:else if $subject.kind === "rank"}
+        <TypeIcon typeID={null} name={title} size="lg" imageUrl={clientTexture(`res:/UI/Texture/Medals/Ranks/${$subject.factionID}_${$subject.rank}.png`)} />
       {:else}
       <TypeIcon
         {typeID}
@@ -1523,6 +1528,8 @@
           supplies them.
         </p>
       {/if}
+    {:else if $subject.kind === "rank"}
+      {@render markupLines($subject.description)}
     {:else if $subject.kind === "mapLocation"}
       {#if mapLocationRead !== null}
         {@const read = mapLocationRead}

@@ -7,6 +7,7 @@ export type InfoSubject =
   | { readonly kind: "ship"; readonly itemID: number; readonly typeID: number }
   | { readonly kind: "module"; readonly itemID: number; readonly typeID: number }
   | { readonly kind: "medal"; readonly typeID: 29496; readonly itemID: number; readonly graphics: readonly CorporationDecorationGraphic[] }
+  | { readonly kind: "rank"; readonly factionID: number; readonly rank: number; readonly name: string; readonly description: string }
   | { readonly kind: "character"; readonly characterID: number }
   | { readonly kind: "corporation"; readonly corporationID: number }
   | { readonly kind: "alliance"; readonly allianceID: number }

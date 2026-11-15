@@ -90,6 +90,7 @@ export function subjectTypeID(subject: InfoSubject | null): number | null {
     case "corporation":
     case "alliance":
     case "faction":
+    case "rank":
       return null;
     case "mapLocation":
       return subject.typeID;

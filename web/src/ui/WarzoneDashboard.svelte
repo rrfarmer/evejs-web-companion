@@ -7,11 +7,17 @@
   import { clientTexture } from "../play/window.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import WarzoneDetails from "./WarzoneDetails.svelte";
+  import WarzoneFactionSummary from "./WarzoneFactionSummary.svelte";
   import WarzoneMap from "./WarzoneMap.svelte";
+  import WarzoneObjectives from "./WarzoneObjectives.svelte";
+  import WarzoneProgression from "./WarzoneProgression.svelte";
+  import WarzoneStatisticsTable from "./WarzoneStatisticsTable.svelte";
 
-  let { flow, store, zone, faction, positions, starMap, occupations, campaigns, chooseFaction }: {
+  let { flow, store, zone, faction, positions, starMap, occupations, campaigns, chooseFaction, enlistedFaction, openEnlistment }: {
     flow: AppFlow; store: ClientStore; zone: number; faction: MilitiaFactionID; positions: WarzonePositions; starMap: StarMapData;
     occupations: readonly MilitiaSystem[]; campaigns: readonly MilitiaInsurgency[]; chooseFaction: (id: MilitiaFactionID) => void;
+    enlistedFaction: MilitiaFactionID | null; openEnlistment: () => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const station = store.station;
@@ -24,6 +30,21 @@
 
   const FW = "UI/FactionWarfare/", DASHBOARD = `${FW}frontlinesDashboard/`;
   const factions = [500001, 500004, 500003, 500002] as const;
+  const opponents = { 500001: 500004, 500004: 500001, 500002: 500003, 500003: 500002 } as const;
+  const tabs = [
+    { id: "control", label: FW + "WarzoneControl", fallback: "Warzone Control", member: false },
+    { id: "details", label: FW + "WarzoneDetails", fallback: "Warzone Details", member: false },
+    { id: "objectives", label: DASHBOARD + "objectives/objectives", fallback: "Objectives", member: false },
+    { id: "statistics", label: FW + "Statistics", fallback: "Statistics", member: true },
+    { id: "progression", label: DASHBOARD + "Progression", fallback: "Progression", member: true },
+  ] as const;
+  const scopes = [
+    { id: "personal", label: "UI/Generic/Personal", fallback: "Personal" },
+    { id: "corp", label: "UI/Generic/Corporation", fallback: "Corporation" },
+    { id: "militia", label: FW + "Militia", fallback: "Militia" },
+    { id: "alliance", label: "UI/Common/Alliance", fallback: "Alliance" },
+  ] as const;
+  type Tab = (typeof tabs)[number]["id"];
   const centers: Readonly<Record<number, number>> = { 1: 30002959, 2: 30003840 };
   const markerTextures = {
     location: "hereYou.png", pads: "shipcaster/landingpad_32.png", launcher: "shipcaster/shipcaster_icon_40.png",
@@ -47,6 +68,10 @@
   const defaults: MapSettings = { zoomedOut: false, hideLegend: false, hidden: [] };
 
   const characterID = $derived($station.online?.characterID ?? null);
+  const enlisted = $derived(enlistedFaction === faction);
+  const opponent = $derived(opponents[faction as keyof typeof opponents] ?? 500001);
+  const pilot = $derived(`${characterID}:${$station.online?.corporationID ?? ""}:${$station.online?.allianceID ?? ""}`);
+  const militiaID = $derived(MILITIA_FACTIONS[faction].corporationID);
   const settingsKey = $derived(characterID === null ? null : `evejs.fwWarzoneMap.${characterID}`);
   let settings = $state<MapSettings>(defaults);
   let mapLegendOpen = $state(true);
@@ -56,6 +81,8 @@
   let victory = $state<ReadonlyMap<number, MilitiaVictoryPoints>>(new Map());
   let details = $state<Awaited<ReturnType<AppFlow["theatersSystemDetails"]>> | null>(null);
   let mapError = $state("");
+  let tab = $state<Tab>("control");
+  let rank = $state<Awaited<ReturnType<AppFlow["theatersRank"]>> | null>(null);
   const atlas = $derived(new Map(starMap.systems.map((row) => [row[0], row])));
   const selected = $derived(selectedID === null ? null : atlas.get(selectedID));
   const selectedStatus = $derived(occupations.find((system) => system.systemID === selectedID));
@@ -106,6 +133,22 @@
   });
 
   $effect(() => {
+    flow.requestWords([...tabs.map(item => item.label), ...scopes.map(item => item.label)]);
+  });
+  $effect(() => {
+    const identity = pilot;
+    const currentFaction = faction;
+    rank = null;
+    if (!enlisted || !characterID) return;
+    flow.requestNames([{ kind: "owner", id: militiaID }]);
+    let current = true;
+    void flow.theatersRank(currentFaction).then(result => { if (current && pilot === identity) rank = result; }, reason => { if (current) mapError = (reason as Error).message; });
+    return () => { current = false; };
+  });
+  $effect(() => {
+    if (!enlisted && (tab === "statistics" || tab === "progression")) tab = "control";
+  });
+  $effect(() => {
     const key = settingsKey;
     settings = defaults;
     if (!key) return;
@@ -148,7 +191,7 @@
   });
 
   function selectFaction(id: MilitiaFactionID) {
-    if (id !== faction) selectedID = null;
+    if (id !== faction) { selectedID = null; tab = "control"; }
     chooseFaction(id);
   }
 
@@ -165,7 +208,17 @@
   }
 </script>
 
-<div class="warzone" class:details-collapsed={detailsCollapsed}>
+<div class="dashboard">
+  <WarzoneFactionSummary {flow} {faction} {opponent} {occupations} {enlisted} rank={rank?.rank ?? null} {word} {factionName}
+    militiaName={resolvedName($names.resolved, "owner", militiaID, "–")} {openEnlistment} />
+  <div class="dashboard-views">
+    <div class="dashboard-tabs" role="tablist" aria-label="Factional Warfare">
+      {#each tabs.filter(item => !item.member || enlisted) as item (item.id)}
+        <button type="button" role="tab" aria-selected={tab === item.id} onclick={() => tab = item.id}>{word(item.label, item.fallback)}</button>
+      {/each}
+    </div>
+    <div class="dashboard-panel" role="tabpanel" aria-label={tabs.find(item => item.id === tab)?.fallback}>
+<div class="warzone" hidden={tab !== "control"} class:details-collapsed={detailsCollapsed}>
   <div class="map-panel">
     {#key faction}
       <WarzoneMap {positions} jumps={starMap.jumps} {occupations} focusID={centers[zone] ?? null}
@@ -241,9 +294,35 @@
   </aside>
   {/if}
 </div>
+{#if tab === "details"}
+  <WarzoneDetails {flow} {faction} {opponent} {occupations} {victory} {systemName} {word} solarSystemID={$station.online?.solarSystemID ?? null} />
+{:else if tab === "objectives"}
+  <WarzoneObjectives {flow} {word} />
+{:else if tab === "statistics"}
+  <div class="statistics">
+    {#each scopes.filter(scope => scope.id !== "alliance" || $station.online?.allianceID) as scope (scope.id)}
+      <details>
+        <summary>{word(scope.label, scope.fallback)}</summary>
+        <WarzoneStatisticsTable {flow} scope={scope.id} {pilot} {word} copy />
+      </details>
+    {/each}
+  </div>
+{:else if tab === "progression"}
+  <WarzoneProgression {flow} {faction} rank={rank?.rank ?? null} standing={rank?.standing ?? 0} {pilot} {word} />
+{/if}
+    </div>
+  </div>
+</div>
 
 <style>
-  .warzone { display: grid; grid-template-columns: minmax(0, 1fr) 17px clamp(170px, 24%, 280px); min-height: 400px; height: calc(100% - 42px); background: #ffffff1b; }
+  .dashboard { display: grid; grid-template-columns: clamp(152px, 23%, 280px) minmax(0, 1fr); gap: 8px; min-height: 440px; height: calc(100% - 38px); }
+  .dashboard-views { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .dashboard-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding-bottom: 4px; }
+  .dashboard-tabs button { padding: 5px 8px; }
+  .dashboard-tabs button[aria-selected="true"] { border-color: #a5cbd4; background: #26424a; }
+  .dashboard-panel { flex: 1; min-height: 0; overflow: auto; }
+  .warzone { display: grid; grid-template-columns: minmax(0, 1fr) 17px clamp(135px, 28%, 265px); min-height: 400px; height: 100%; background: #ffffff1b; }
+  .warzone[hidden] { display: none; }
   .warzone.details-collapsed { grid-template-columns: minmax(0, 1fr) 17px; }
   .map-panel { position: relative; min-width: 0; min-height: 360px; }
   .legend, .map-options, .factions { position: absolute; z-index: 3; }
@@ -267,4 +346,11 @@
   progress { display: block; width: 100%; height: 8px; }
   .advantage { display: grid; grid-template-columns: 1fr auto; gap: 3px; margin-bottom: 8px; }
   .advantage progress { grid-column: 1 / -1; }
+  .statistics { padding: 12px; }
+  .statistics details { border-bottom: 1px solid #ffffff36; padding: 5px 3px; }
+  .statistics summary { padding: 6px 5px; cursor: pointer; }
+  @media (max-width: 760px) {
+    .dashboard { grid-template-columns: minmax(0, 1fr); height: auto; }
+    .dashboard-panel { min-height: 450px; }
+  }
 </style>

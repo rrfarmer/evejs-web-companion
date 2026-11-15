@@ -308,7 +308,8 @@
       <h2>{say(TOW + theater.label, theater.fallback)}</h2>
       {#if occupations && layout && starMap}
         <WarzoneDashboard {flow} {store} zone={theater.id} faction={viewingFaction} positions={layout} {starMap}
-          occupations={occupations.get(theater.id) ?? []} campaigns={insurgencies ?? []} chooseFaction={(id) => { automaticFaction = false; viewingFaction = id; }} />
+          occupations={occupations.get(theater.id) ?? []} campaigns={insurgencies ?? []} enlistedFaction={enlisted}
+          openEnlistment={() => choosePage("enlistment")} chooseFaction={(id) => { automaticFaction = false; viewingFaction = id; }} />
       {:else if !panelError}
         {#if starMap && warzonePositions === null}<p>Warzone map data is unavailable.</p>{:else}<p>Loading warzones…</p>{/if}
       {/if}

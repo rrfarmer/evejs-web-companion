@@ -230,6 +230,7 @@ import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
 import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification } from "../bridge/skillNotifications.ts";
 import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
 import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaVictoryPoints, militiaWarzoneMarkers, militiaWarzones, MILITIA_FACTIONS, MILITIA_ORGANIZATION_METHODS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type MilitiaVictoryPoints, type MilitiaWarzoneMarkers } from "../bridge/militiaEnlistment.ts";
+import { warzoneStatistics, type WarzoneStatistics, type WarzoneStatisticsScope } from "../bridge/warzoneStatistics.ts";
 import { readTrackedMilitiaJob, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
@@ -3880,6 +3881,9 @@ export interface AppFlow {
   theatersWarzoneMarkers(): Promise<MilitiaWarzoneMarkers>;
   theatersVictoryPoints(): Promise<ReadonlyMap<number, MilitiaVictoryPoints>>;
   theatersSystemDetails(systemID: number, occupied: boolean): Promise<{ jumps: number | null; advantage: FactionWarfareLocal["advantage"] }>;
+  theatersSystemMetrics(systems: readonly number[]): Promise<ReadonlyMap<number, { jumps: number | null; advantage: FactionWarfareLocal["advantage"] }>>;
+  theatersStatistics(scope: WarzoneStatisticsScope): Promise<WarzoneStatistics>;
+  theatersRank(factionID: MilitiaFactionID): Promise<{ rank: number | null; standing: number }>;
   loadWarzonePositions(): ReturnType<typeof api.loadWarzonePositions>;
   theatersInsurgencies(): Promise<MilitiaInsurgency[]>;
   /**
@@ -5571,6 +5575,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shift: () => false, // UI snapshots the live modifier into each command.
     resolve: async (subject: InfoSubject): Promise<InfoIdentity | null> => {
       const current = callOptions.captureRequestGuard!(); current();
+      if (subject.kind === "rank") return { typeID: 29495, itemID: null, content: "legacy" };
       let typeID: number | null = null, itemID: number | null = null;
       if (subject.kind === "character") {
         await ownerEntryInfo(subject.characterID, (type, item) => { typeID = type; itemID = item; });
@@ -21328,6 +21333,40 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { jumps: distances?.get(systemID) ?? null, advantage };
   }
 
+  async function theatersSystemMetrics(systems: readonly number[]) {
+    const here = store.station.get().online?.solarSystemID ?? null;
+    const [distances, scores] = await Promise.all([
+      here ? autopilotDistancesFrom(here).catch(() => null) : null,
+      Promise.all(systems.map(factionWarfareAdvantage)),
+    ]);
+    return new Map(systems.map((id, index) => [id, { jumps: distances?.get(id) ?? null, advantage: scores[index] ?? null }]));
+  }
+
+  async function theatersStatistics(scope: WarzoneStatisticsScope): Promise<WarzoneStatistics> {
+    const pilot = store.station.get().online;
+    const corporationID = pilot?.corporationID;
+    const method = { personal: "GetStats_Character", corp: "GetStats_Corp", alliance: "GetStats_Alliance", militia: "GetStats_Militia" }[scope];
+    const [own, comparison, factionInfo, corporation] = await Promise.all([
+      bridgeAsk("facWarMgr", method, []),
+      scope === "militia" ? null : bridgeAsk("facWarMgr", "GetStats_TopAndAllKillsAndVPs", []),
+      scope === "corp" || scope === "militia" ? bridgeAsk("facWarMgr", "GetStats_FactionInfo", []) : null,
+      scope === "corp" && corporationID && !isNpcOwnerCorporation(corporationID) ? bridgeAsk("corpRegistry", "GetCorporation", []) : null,
+    ]);
+    const members = memberInteger(corporation, "memberCount");
+    return warzoneStatistics(scope, own, comparison, factionInfo, pilot?.warFactionID ?? null, members === null ? null : Number(members));
+  }
+
+  async function theatersRank(factionID: MilitiaFactionID) {
+    const characterID = store.station.get().online?.characterID;
+    if (!characterID) throw new Error("Select a pilot to view militia rank.");
+    const [row, standings] = await Promise.all([
+      bridgeAsk("facWarMgr", "GetCharacterRankInfo", [characterID]), bridgeAsk("standingMgr", "GetCharStandings", []),
+    ]);
+    const rank = readKeyVal(row, "currentRank");
+    const standing = decodeCharStandings(standings).find(entry => entry.fromID === MILITIA_FACTIONS[factionID].corporationID)?.standing ?? 0;
+    return { rank: typeof rank === "number" ? rank : null, standing };
+  }
+
   async function theatersInsurgencies(): Promise<MilitiaInsurgency[]> {
     const campaigns = militiaInsurgencies(await bridgeAsk("insurgencySolarsystem", "GetAllVisibleCampaigns", []));
     requestNames(campaigns.flatMap(({ fobSystemID }) => fobSystemID ? [{ kind: "system", id: fobSystemID }] : []));
@@ -34970,6 +35009,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     theatersWarzoneMarkers,
     theatersVictoryPoints,
     theatersSystemDetails,
+    theatersSystemMetrics,
+    theatersStatistics,
+    theatersRank,
     loadWarzonePositions: () => api.loadWarzonePositions(callOptions),
     theatersInsurgencies,
     careerGoals,
