@@ -65,6 +65,8 @@
   const space = store.space;
   // svelte-ignore state_referenced_locally
   const anomaliesChanged = flow.agencyAnomaliesChanged;
+  // svelte-ignore state_referenced_locally
+  const routeSettings = flow.routeSettings;
 
   onMount(() => {
     flow.refreshMissionTracker();
@@ -91,9 +93,13 @@
   });
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob(me); });
   let warJobs = $state<readonly WarDungeonJob[]>([]);
+  let expandedWarJob = $state<string | null | undefined>(undefined);
+  const expandedWarJobID = $derived(expandedWarJob === undefined || (expandedWarJob !== null && !warJobs.some((job) => warDungeonJobID(job) === expandedWarJob))
+    ? (warJobs[0] ? warDungeonJobID(warJobs[0]) : null) : expandedWarJob);
   $effect(() => {
     void $trackedJobsChanged;
     void $anomaliesChanged;
+    void $routeSettings;
     void solarSystemID;
     void $station.online?.warFactionID;
     const order = new Map(trackedWarDungeonJobs(me).map((job, i) => [warDungeonJobID(job), i]));
@@ -378,7 +384,9 @@
   {/each}
   {#if militia !== null}<MilitiaOpportunity {store} {flow} factionID={militia} />{/if}
   {#each warJobs as job (warDungeonJobID(job))}
-    <WarDungeonOpportunity {store} {flow} {job} />
+    {@const key = warDungeonJobID(job)}
+    <WarDungeonOpportunity {store} {flow} {job} expanded={expandedWarJobID === key}
+      onToggle={() => { expandedWarJob = expandedWarJobID === key ? null : key; }} />
   {/each}
   {#each freelance as j (j.project.projectID)}
     {@const pct = Math.min(1, jobProgress(j))}

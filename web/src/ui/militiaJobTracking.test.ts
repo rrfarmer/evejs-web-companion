@@ -1,7 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isFreelanceJobTracked, readTrackedMilitiaJob, setWarDungeonTracked, trackFreelanceJob, trackedJobsChanged, trackedMilitiaJob, trackedWarDungeonJobs, trackMilitiaJob, untrackMilitiaJob } from "./jobTracking.ts";
-import { warDungeonCanBrowse, warDungeonJobID, warDungeonProviders } from "../bridge/dungeonJobs.ts";
+import { dungeonTravelAction, dungeonTravelProgress, isCurrentDungeonSite, warDungeonCanBrowse, warDungeonJobID, warDungeonProviders } from "../bridge/dungeonJobs.ts";
+
+test("war site travel uses the selected route, then the local scanner result", () => {
+  const remote = { local: false, inside: false, docked: false, destinationSet: false, jumps: 2, targetID: null };
+  assert.equal(dungeonTravelAction(remote), "destination");
+  assert.equal(dungeonTravelAction({ ...remote, destinationSet: true }), "jump");
+  assert.equal(dungeonTravelAction({ ...remote, destinationSet: true, docked: true }), "undock");
+  assert.equal(dungeonTravelAction({ ...remote, jumps: null }), null);
+  assert.equal(dungeonTravelAction({ ...remote, local: true, targetID: "VIM-273" }), "warp");
+  assert.equal(dungeonTravelAction({ ...remote, local: true, inside: true, targetID: "VIM-273" }), null);
+  assert.equal(dungeonTravelProgress(2, true, 2), 0);
+  assert.equal(dungeonTravelProgress(1, true, 2), 0.5);
+  assert.equal(dungeonTravelProgress(1, false, 2), 0);
+});
+
+test("war site arrival requires the same system, dungeon and instance", () => {
+  const site = { solarSystemID: 30004980, dungeonID: 9667, instanceID: 108 };
+  const inside = { dungeonID: 9667, roomID: 28468, instanceID: 108 };
+  assert.equal(isCurrentDungeonSite(site, 30004980, inside), true);
+  assert.equal(isCurrentDungeonSite(site, 30004980, { ...inside, instanceID: 107 }), false);
+  assert.equal(isCurrentDungeonSite(site, 30004980, { ...inside, dungeonID: 10477 }), false);
+  assert.equal(isCurrentDungeonSite(site, 30004979, inside), false);
+});
 import { enterDungeonRoom } from "../bridge/dungeonTracking.ts";
 
 test("militia initiation replaces the pilot's previous faction and leaves other jobs and pilots alone", (t) => {

@@ -406,7 +406,7 @@ import { acceptContract as acceptContractCall } from "../bridge/contractWrites.t
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
-import { decodeDungeonSites, relevantDungeonSystems, WAR_DUNGEON_PROVIDERS, warDungeonCanBrowse, warDungeonJobID, warDungeonProviders, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
+import { decodeDungeonSites, isCurrentDungeonSite, relevantDungeonSystems, WAR_DUNGEON_PROVIDERS, warDungeonCanBrowse, warDungeonJobID, warDungeonProviders, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
 import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencyInsurgencySystems as insurgencySystemsForAgency, agencySiteSystems, insurgencySiteCandidates, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencyInsurgencyFilters, type AgencyInsurgencySystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type InsurgencyStages, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { essBeacon, essDetails, essSettings, essSystems, filterEssSystems, type AgencyEssFilters, type AgencyEssSystem, type EssDetails, type EssLocation, type EssSettings, type EssSystem } from "../bridge/agencyEss.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
@@ -3641,6 +3641,8 @@ export interface AppFlow {
   readonly collapseWarning: ReadableSignal<{ readonly seconds: number } | null>;
   /** The Ship Restrictions window open (bridge/dungeonTracking.ts): its dungeon, its gate and their restrictions once read; null where closed. */
   readonly shipRestrictions: ReadableSignal<{ readonly dungeonID: number; readonly gateID: number | null; readonly restrictions: ShipRestrictions | null; readonly loaded: boolean } | null>;
+  readDungeonShipRestrictions(dungeonID: number, gateID?: number | null): Promise<ShipRestrictions | null>;
+  openShipRestrictions(dungeonID: number, gateID?: number | null): void;
   /** The Ship Restrictions window closed. */
   closeShipRestrictions(): void;
   /** The ship types of these whose skill requirements the pilot meets (skills.IsSkillRequirementMet). */
@@ -4267,6 +4269,8 @@ export interface AppFlow {
    * are the flight's, as `jump`'s.
    */
   stargateJump(gateID: number): Promise<void>;
+  /** TravelToLocationTask's next jump on the route to the selected solar system. */
+  jumpAlongWaypoints(destinationID: number): Promise<void>;
   /**
    * JUMP, the way Dock means it: close the distance and then jump. Runs the
    * same browser decide-loop as `dockAt` over a ONE-hop plan through this gate,
@@ -16778,12 +16782,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The Ship Restrictions window (ui/ShipRestrictionsWindow.svelte; evedungeons/client/ship_restrictions_window.py):
   // the dungeon and the gate it is opened for, and what the BFF answers of their restrictions.
   const shipRestrictionsSignal = createSignal<{ readonly dungeonID: number; readonly gateID: number | null; readonly restrictions: ShipRestrictions | null; readonly loaded: boolean } | null>(null);
-  function openShipRestrictions(dungeonID: number, gateID: number | null): void {
+  function readDungeonShipRestrictions(dungeonID: number, gateID: number | null = null): Promise<ShipRestrictions | null> {
+    return api.loadShipRestrictions(dungeonID, gateID, callOptions).then(decodeShipRestrictions);
+  }
+  function openShipRestrictions(dungeonID: number, gateID: number | null = null): void {
     shipRestrictionsSignal.set({ dungeonID, gateID, restrictions: null, loaded: false });
-    void api.loadShipRestrictions(dungeonID, gateID, callOptions).then((data) => {
+    void readDungeonShipRestrictions(dungeonID, gateID).then((restrictions) => {
       const open = shipRestrictionsSignal.get();
       if (open !== null && open.dungeonID === dungeonID && open.gateID === gateID) {
-        shipRestrictionsSignal.set({ ...open, restrictions: decodeShipRestrictions(data), loaded: true });
+        shipRestrictionsSignal.set({ ...open, restrictions, loaded: true });
       }
     }).catch(() => {
       const open = shipRestrictionsSignal.get();
@@ -21294,7 +21301,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       routeOfWaypoints().catch(() => null),
     ]);
     const routeSystems = (route?.markers ?? []).map((marker) => marker.solarSystemID);
-    const inside = currentDungeon.get()?.instanceID ?? null;
+    const inside = currentDungeon.get();
     const oneDayAgo = Date.now() - 86_400_000;
     const rows = providers.flatMap((kind, index) => {
       const sites = trackerSites(answers[index] ?? undefined, undefined, null);
@@ -21303,7 +21310,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (site?.dungeonID == null || site.instanceID <= 0) return [];
         const since = tracked.get(warDungeonJobID({ kind, instanceID: site.instanceID }));
         if (trackedOnly && since === undefined) return [];
-        const active = solarSystemID === here && site.instanceID === inside;
+        const active = isCurrentDungeonSite({ solarSystemID, dungeonID: site.dungeonID, instanceID: site.instanceID }, here, inside);
         if (!active && !relevant.has(solarSystemID) && !(since !== undefined && since > oneDayAgo)) return [];
         return [{
           kind, solarSystemID, instanceID: site.instanceID, dungeonID: site.dungeonID,
@@ -26811,6 +26818,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       markers: routeMarkers(data, waypoints, start, systemOf).map((marker) => ({ ...marker, security: graph.security(marker.solarSystemID) })),
       jumps: routeJumps(data, start, systemOf),
     };
+  }
+
+  async function jumpAlongWaypoints(destinationID: number): Promise<void> {
+    const waypoints = heldWaypoints();
+    if (waypoints.at(-1) !== destinationID) return;
+    const from = pilotPlace().solarSystemID;
+    const routeGraph = loadRouteGraph();
+    const [route, graph, jumpGates] = await Promise.all([
+      routeOfWaypoints(),
+      routeGraph,
+      routeGraph.then(availableJumpGates),
+    ]);
+    if (pilotPlace().solarSystemID !== from || heldWaypoints() !== waypoints) return;
+    const to = route?.markers.find((marker) => marker.solarSystemID !== from)?.solarSystemID;
+    if (from === null || to === undefined) throw new Error("No gate route to this site.");
+    const hop = routeAlong(graph, [from, to], jumpGates).hops[0];
+    if (!hop) throw new Error("No gate route to this site.");
+    if (!hop.throughJumpGate) {
+      const link = buildGateLinks(graph, from).find((gate) => gate.gateID === hop.gateToWarpID);
+      if (!link) throw new Error("The next stargate is unavailable.");
+      await jumpThrough(link);
+      return;
+    }
+    await navigateSystemTo(hop.gateToWarpID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () =>
+      jumpGateStep(hop.gateToWarpID)));
   }
 
   // The autopilot's settings, as the client keeps them: with the character, on this machine. Read when the
@@ -35709,6 +35741,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     abyssalTimer: readonlySignal(abyssalTimerSignal),
     collapseWarning: readonlySignal(collapseWarningSignal),
     shipRestrictions: readonlySignal(shipRestrictionsSignal),
+    readDungeonShipRestrictions,
+    openShipRestrictions,
     closeShipRestrictions: () => shipRestrictionsSignal.set(null),
     shipTypesUnlocked,
     abyssJump: readonlySignal(abyssJumpSignal),
@@ -35797,6 +35831,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async stargateJump(gateID) {
       await navigateSystemTo(gateID, GATE_ACTIVATION_RANGE_M, () => runFlightStep("Jump", () => jumpStep(gateID, 0)));
     },
+    jumpAlongWaypoints,
     jumpThrough,
     activateGate,
 

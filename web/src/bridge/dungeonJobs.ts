@@ -16,6 +16,7 @@
 // sensor suite's anomalies once its scan has updated them (with their scan result IDs).
 
 import type { JsonValue } from "./wire.ts";
+import type { CurrentDungeon } from "./dungeonTracking.ts";
 import { EMPIRE_MILITIAS, militiaFactionID, type MilitiaFactionID } from "./militiaEnlistment.ts";
 
 export const WAR_DUNGEON_PROVIDERS = {
@@ -45,6 +46,30 @@ export function warDungeonCanBrowse(pilotFaction: number | null, siteFaction: nu
 }
 
 export interface DungeonSite { readonly solarSystemID: number; readonly dungeonID: number; readonly instanceID: number }
+
+/** InDungeonTask uses the scanner instance to distinguish two copies of the same dungeon. */
+export function isCurrentDungeonSite(site: DungeonSite, here: number | null, current: CurrentDungeon | null): boolean {
+  return site.solarSystemID === here && current?.dungeonID === site.dungeonID && current.instanceID === site.instanceID;
+}
+
+export type DungeonTravelAction = "destination" | "jump" | "undock" | "warp";
+
+/** Visible actions of chain 48's TravelToLocationTask and InDungeonTask. */
+export function dungeonTravelAction(state: {
+  readonly local: boolean; readonly inside: boolean; readonly docked: boolean;
+  readonly destinationSet: boolean; readonly jumps: number | null; readonly targetID: string | null;
+}): DungeonTravelAction | null {
+  if (state.inside) return null;
+  if (state.local) return state.docked ? "undock" : state.targetID ? "warp" : null;
+  if (!state.jumps) return null;
+  if (!state.destinationSet) return "destination";
+  return state.docked ? "undock" : "jump";
+}
+
+/** TravelToLocationTask shows progress against the largest remaining jump count on the selected route. */
+export function dungeonTravelProgress(jumps: number | null, destinationSet: boolean, maximum: number): number {
+  return !destinationSet || jumps === null || maximum <= 0 ? 0 : Math.max(0, 1 - jumps / maximum);
+}
 
 type Entry = readonly [JsonValue, JsonValue];
 function entries(value: JsonValue | undefined): readonly Entry[] {

@@ -43,7 +43,7 @@
     <span class="dp-caption">{subtitle}</span>
     <span class="dp-caption">{resolvedName($names.resolved, "system", job.solarSystemID, "")}</span>
   </header>
-  {#if "canBrowse" in job}<WarDungeonOpportunity {store} {flow} {job} header={false} />{/if}
+  {#if "canBrowse" in job}<WarDungeonOpportunity {store} {flow} {job} />{/if}
   {#if d?.descriptionID}<section><h3>{word("UI/Common/Description")}</h3><p>{word(`#${d.descriptionID}`)}</p></section>{/if}
   {#if d?.gameplayDescriptionID || d?.difficulty || enemy || resources.length}
     <section><h3>{word("UI/Dungeons/GameplayDescriptionHeader")}</h3>

@@ -33,7 +33,12 @@
   const security = $derived($names.systemSecurity?.[job.solarSystemID] ?? null);
 </script>
 
-<div class="dj-card" role="button" tabindex="-1" style:border-left-color={job.active ? "#57b8d6" : "var(--theme-focus, #58a6dc)"} onclick={onOpen} onkeydown={() => {}}>
+<div class="dj-card" role="button" tabindex="0" style:border-left-color={job.active ? "#57b8d6" : "var(--theme-focus, #58a6dc)"} onclick={onOpen}
+  onkeydown={(event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onOpen();
+  }}>
   <div class="dj-top">
     {#if feature?.icon}<img alt="" src={clientTexture(feature.icon)} />{/if}
     <span class="dj-dim">{feature?.title ? word(`#${feature.title}`) : ""}</span>
