@@ -1145,13 +1145,27 @@
   }
 
   let undockedAt = -Infinity;
+  let undockPending = $state(false);
   async function undock() {
-    if (!session) return;
+    if (!session || undockPending) return;
+    const pilot = session;
+    undockPending = true;
     error = "";
     undockedAt = performance.now();
     fadeTo(1, 500);
     dockingSound("start");
-    try { await session.flow.undock(); } catch (err) { error = (err as Error).message; fadeTo(0, 300); dockingSound("end"); }
+    try {
+      await pilot.flow.undock();
+    } catch (err) {
+      error = (err as Error).message;
+    } finally {
+      undockPending = false;
+      if (session === pilot && pilot.store.flight.get().status?.inSpace !== true) {
+        undockedAt = -Infinity;
+        fadeTo(0, 300);
+        dockingSound("end");
+      }
+    }
   }
 
   onDestroy(() => { view?.dispose(); live?.close(); spaceClaimed?.flow.stopSpacePolling(); });
@@ -1192,7 +1206,7 @@
         <div class="pw-body lobby-body">
           <div class="station-name">{$station?.station?.stationName ?? "Station"}</div>
           <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
-          <button class="undock" onclick={undock}>Undock</button>
+          <button class="undock" disabled={undockPending} onclick={undock}>Undock</button>
           {#if error}<div class="error lobby-error">{error}</div>{/if}
           <div class="lobby-services">
             {#each LOBBY_SERVICES as svc (svc.label)}

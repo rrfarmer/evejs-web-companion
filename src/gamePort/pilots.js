@@ -1419,6 +1419,10 @@ function createGamePortPilots({
           allianceID: positive(attributes.allianceid),
         });
         if (!forPilot) return;
+        if (notice.typeName === "eve_public.academy.ships.api.DeclinedNotice" &&
+            notice.payload?.reason === "DECLINED_REASON_UNDOCK") {
+          entry.academyUndockDeclines = (entry.academyUndockDeclines ?? 0) + 1;
+        }
         publish(entry, { kind: "gateway-notice", notice: { typeName: notice.typeName, payload: notice.payload } });
       });
     } catch {
@@ -6792,6 +6796,8 @@ function createGamePortPilots({
     openSessionEventStream,
     openDestinyFeed,
     accountCall,
+    /** A count scoped to the held pilot, so an older refusal cannot finish a new undock. */
+    academyUndockDeclines: (sessionFields, bridgeSessionID) => held(bridgeSessionID, sessionFields).academyUndockDeclines ?? 0,
     /** The Abyssal pocket's timer as the pilot was last told it (keepPocketTimer): its end_time, as the notice had it, or null. */
     pocketTimer: (sessionFields = {}, bridgeSessionID = undefined) => held(bridgeSessionID, sessionFields).pocketTimer ?? null,
     /** The Abyssal pocket's room as the pilot was last told it (keepPocketTimer): OnAbyssalLocationEntered's client_data, or null. */

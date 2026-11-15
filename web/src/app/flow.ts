@@ -413,6 +413,7 @@ import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonu
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
+import { ACADEMY_UNDOCK_DIALOG, academyShipDeclineDialog } from "../bridge/academyShipNotices.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
 import {
@@ -6735,6 +6736,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (event.kind === "gateway-notice") {
       const notice = (event.notice ?? {}) as Record<string, JsonValue>;
       if (typeof notice.typeName === "string") {
+        const decline = academyShipDeclineDialog(notice.typeName, notice.payload ?? null);
+        if (decline) sayAcademyDecline(decline);
         gatewayNoticesHeard += 1;
         gatewayNoticesSignal.set({ n: gatewayNoticesHeard, typeName: notice.typeName, payload: notice.payload ?? null });
       }
@@ -11947,6 +11950,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (dialogAnswerKept(dialog) !== null) return;
     dialogsSaidCount += 1;
     putDialog({ n: dialogsSaidCount, dialog, values, fallback, ...(fallbackType === undefined ? {} : { fallbackType }) });
+  }
+
+  function sayAcademyDecline(decline: { readonly key: string; readonly fallback: string }): void {
+    if (dialogsSaidSignal.get().some((said) => said.dialog === decline.key)) return;
+    sayDialog(decline.key, null, decline.fallback, "notify");
   }
 
   /** The dialogs said, the newest twenty kept; a question that falls off them is answered No. */
@@ -26384,6 +26392,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     } catch (error) {
       throwIfRequestRetired(error);
       current();
+      // The same definite decline reaches the page through the public notice and the command response.
+      if (label === "Undock" && error instanceof BridgeCallError && error.code === "ACADEMY_SHIP_UNDOCK_DECLINED") {
+        sayAcademyDecline(ACADEMY_UNDOCK_DIALOG);
+        return;
+      }
       if (isSessionLost(error)) {
         stopLiveStream();
         store.apply({ type: "character/offline" });

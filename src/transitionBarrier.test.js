@@ -144,6 +144,27 @@ test("timeout is visible and never declares a false ready state", async () => {
   assert.match(state.transition.failure, /did not become ready/i);
 });
 
+test("an explicit undock decline releases the barrier and its cooldown", async () => {
+  const state = held();
+  state.cooldownUntilMs = 500;
+  beginHeldTransition(state, "undock", { shipID: 44 }, 1_000);
+  let clock = 1_000;
+  let declined = false;
+  const outcome = await waitForTransitionReady({
+    held: state,
+    kind: "undock",
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; declined = true; },
+    readFlight: async () => ({ flight: { inSpace: false, docked: true, shipID: 44 } }),
+    readSpace: async () => ({ space: null }),
+    readDecline: () => declined ? { code: "ACADEMY_SHIP_UNDOCK_DECLINED", message: "Declined." } : null,
+  });
+  assert.equal(outcome.code, "ACADEMY_SHIP_UNDOCK_DECLINED");
+  assert.equal(outcome.flight.docked, true);
+  assert.equal(state.transition, null);
+  assert.equal(state.cooldownUntilMs, 500);
+});
+
 test("a poll that cannot be read is a missed observation, not a failed transition", async () => {
   const state = held();
   beginHeldTransition(state, "stargate", { fromSolarSystemID: 3001, shipID: 44 }, 0);

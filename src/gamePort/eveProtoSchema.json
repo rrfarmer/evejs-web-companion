@@ -12682,6 +12682,17 @@
     }
    ]
   },
+  "eve_public.academy.ships.api.DeclinedNotice": {
+   "fields": [
+    {
+     "name": "reason",
+     "number": 1,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.academy.ships.api.DeclinedReason"
+    }
+   ]
+  },
   "eve_public.achievement.api.CompletedNotice": {
    "fields": [
     {
@@ -13537,6 +13548,16 @@
   }
  },
  "enums": {
+  "eve_public.academy.ships.api.DeclinedReason": {
+   "values": {
+    "DECLINED_REASON_UNSPECIFIED": 0,
+    "DECLINED_REASON_TRAVEL": 1,
+    "DECLINED_REASON_UNDOCK": 2,
+    "DECLINED_REASON_WARP": 3,
+    "DECLINED_REASON_EJECT": 4,
+    "DECLINED_REASON_DRONE": 5
+   }
+  },
   "eve_public.career.Path": {
    "values": {
     "CAREER_UNSPECIFIED": 0,

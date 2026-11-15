@@ -213,6 +213,7 @@ async function waitForTransitionReady({
   timeoutMs = TRANSITION_READY_TIMEOUT_MS,
   pollMs = TRANSITION_POLL_MS,
   latchOnTimeout = true,
+  readDecline = null,
 }) {
   const epoch = held && held.transition ? held.transition.epoch : null;
   const deadline = now() + timeoutMs;
@@ -221,6 +222,11 @@ async function waitForTransitionReady({
   while (now() <= deadline) {
     if (!held.transition || held.transition.epoch !== epoch) {
       return { ok: false, code: "TRANSITION_SUPERSEDED", flight: lastFlight, notifications };
+    }
+    const decline = readDecline?.();
+    if (decline) {
+      cancelHeldTransition(held);
+      return { ok: false, ...decline, flight: lastFlight, notifications };
     }
     // A poll that cannot be read is a MISSED OBSERVATION, not an outcome. The
     // gateway is busiest exactly while a destination scene loads, so these are

@@ -132,6 +132,31 @@ test("selecting a character opens the live event channel", async () => {
   assert.equal(store.get().live.status, "live");
 });
 
+test("Academy decline notices use their installed notification strips", async () => {
+  const { source, flow } = await onlineFlow();
+  const typeName = "eve_public.academy.ships.api.DeclinedNotice";
+  source.emit(gatewayFrame({ kind: "gateway-notice", notice: { typeName, payload: null } }, 1));
+  source.emit(gatewayFrame({ kind: "gateway-notice", notice: { typeName, payload: { reason: "DECLINED_REASON_TRAVEL" } } }, 2));
+  assert.deepEqual(flow.dialogsSaid.get(), []);
+
+  const expected = {
+    UNDOCK: "AcademyShipCannotUndockOutsideExordium",
+    WARP: "AcademyShipCannotWarpOutsideExordium",
+    EJECT: "AcademyShipCannotEject",
+    DRONE: "AcademyDroneNeedsAcademyShip",
+  };
+  for (const [index, [reason, key]] of Object.entries(expected).entries()) {
+    source.emit(gatewayFrame({ kind: "gateway-notice", notice: { typeName, payload: { reason: `DECLINED_REASON_${reason}` } } }, index + 3));
+    assert.equal(flow.dialogsSaid.get().at(-1)?.dialog, key);
+    assert.equal(flow.dialogsSaid.get().at(-1)?.fallbackType, "notify");
+  }
+  source.emit(gatewayFrame({
+    kind: "gateway-notice",
+    notice: { typeName, payload: { reason: "DECLINED_REASON_UNDOCK" } },
+  }, 7));
+  assert.equal(flow.dialogsSaid.get().filter((dialog) => dialog.dialog === expected.UNDOCK).length, 1);
+});
+
 test("a pushed chat message lands in the channel backlog without a poll", async () => {
   const { source, store, paths } = await onlineFlow();
   const before = paths.filter((p) => p === "/api/bridge/chat/local").length;

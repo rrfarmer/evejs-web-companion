@@ -69,6 +69,26 @@ test("loadFlightStatus reads the current status into the store", async () => {
 /** What the page asked by the generic call, in order. */
 const calls = (requests: Recorded[]) => requests.filter((request) => request.path === "/api/bridge/call").map((request) => request.body);
 
+test("a definite Academy undock refusal shows the notice even without a live stream", async () => {
+  const store = createClientStore();
+  const { fetch, requests } = makeFakeFetch((path) => {
+    if (path === "/api/bridge/flight/status") {
+      return { status: 200, body: { ok: true, flight: DOCKED, notifications: [] } };
+    }
+    if (path === "/api/bridge/call") {
+      return { status: 409, body: { ok: false, error: "ACADEMY_SHIP_UNDOCK_DECLINED", message: "The Academy ship undock was declined." } };
+    }
+    throw new Error(`unexpected ${path}`);
+  });
+  const flow = createAppFlow(store, { fetch });
+  await flow.loadFlightStatus();
+  await flow.undock();
+  assert.equal(calls(requests).length, 1);
+  assert.equal(store.flight.get().status?.docked, true);
+  assert.equal(store.flight.get().actionError, null);
+  assert.deepEqual(flow.dialogsSaid.get().map((dialog) => dialog.dialog), ["AcademyShipCannotUndockOutsideExordium"]);
+});
+
 test("a warp with no range said is the autopilot's own call and one with a range the menu's, each made by the page; the step is recorded", async () => {
   const store = createClientStore();
   const { fetch, requests } = makeFakeFetch((path, _method, body) => {

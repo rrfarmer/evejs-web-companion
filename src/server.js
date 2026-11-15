@@ -5224,6 +5224,14 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
     // A structure's Dock and Undock the web gateway's list has not: there the park's CmdDock of the structure is asked,
     // as the dock route asked it until 2026-10-14, and the ship's Undock, which this server takes from a structure.)
     const onTheGamePort = Boolean(gamePortPilots && isGamePortHandle(held.bridgeSessionID));
+    if (onTheGamePort && kind === "undock") {
+      const countDeclines = () => gamePortPilots.academyUndockDeclines({ userid: held.accountID }, held.bridgeSessionID);
+      const beforeUndock = countDeclines();
+      waiting.readDecline = () => countDeclines() > beforeUndock ? {
+        code: "ACADEMY_SHIP_UNDOCK_DECLINED",
+        message: "The Academy ship undock was declined.",
+      } : null;
+    }
     const outcome = onTheGamePort || service !== "structureDocking"
       ? await heldTopLevelCall(held, req.webSessionID, service, onTheGamePort ? method : gatewaysNameFor(service, method), args, kwargs)
       : method === "Dock"
@@ -5231,6 +5239,15 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
         : await heldTopLevelCall(held, req.webSessionID, "ship", "Undock", [shipID, Boolean(kwargs && kwargs.ignoreContraband)], null);
     markTransitionAccepted(held);
     const after = await awaitRouteTransition(held, req.webSessionID, keeping, expected, waiting);
+    if (after.code === "ACADEMY_SHIP_UNDOCK_DECLINED") {
+      res.status(409).json({
+        ok: false,
+        error: after.code,
+        message: after.message,
+        notifications: [...outcome.notifications, ...after.notifications],
+      });
+      return;
+    }
     if (!after.ok && kind === "dock") {
       // The server's silent decline, as the route took it: released (unless another change took its place) and
       // answered, the page reading the flight after.
@@ -9787,6 +9804,7 @@ async function awaitRouteTransition(held, webSessionID, kind, expected, override
     kind,
     expected,
     latchOnTimeout: overrides.latchOnTimeout !== false,
+    readDecline: overrides.readDecline,
     timeoutMs: Number(overrides.timeoutMs) || Number(options.transitionReadyTimeoutMs) || undefined,
     pollMs: Number(options.transitionPollMs) || undefined,
     sleep: options.transitionSleep,
