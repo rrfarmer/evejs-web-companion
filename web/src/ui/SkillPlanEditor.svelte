@@ -48,8 +48,8 @@
   //   the groups      SkillGroupEntry: the group's icon (ICON_BY_GROUPID), its name, how many of its skills the filters
   //                   keep (none: no number and the entry faded), its bar of levels trained of all its skills' and an
   //                   alpha clone's levels past its ceiling in omega orange
-  //   a catalogue skill  SkillGroupSkillEntry: its menu (GetMenu: GetMenuForSkill, SkillRowMenu) and its tooltip below it
-  //                   (LoadSkillEntryTooltipInfoOnly, SkillRowTip; none while dragging)
+  //   a catalogue skill  SkillGroupSkillEntry: Show Info beside the name, a context menu, and an informational
+  //                   tooltip below the row while hovering and not dragging.
   //
   //   the catalogue's rest  SkillGroupSkillEntry: the skill's bar (SkillBar) and its next level's own time, dimmed
   //                   (UpdateTrainingTimeLabel); SkillGroupEntry's tooltip (SkillGroupTip); the pilot's skill points above
@@ -69,7 +69,7 @@
   import { endSkillDrag, startSkillDrag } from "./skillDrag.ts";
   import { DRAG_MIME, decodeDrag } from "./dragDrop.ts";
   import { droppedFittingDrag, isFittingDrag, type DraggedFitting } from "./fittingDrag.ts";
-  import { skillGroupIcon } from "./skillGroupIcons.ts";
+  import { clientTexture, skillGroupIcon } from "./skillGroupIcons.ts";
   import { skillMenuEntries, type SkillMenuEntry } from "../bridge/skillMenu.ts";
   import type { SkillRowInfo } from "../bridge/skillPlans.ts";
   import { showInfo } from "./showInfo.ts";
@@ -131,6 +131,7 @@
     "UI/SkillPlan/ClearSkills": "Take every skill out",
     "UI/SkillQueue/ImportSkillplanFormatHint": "One skill to a line, its name and then its level: {[item]typeID.name} 3, or {[item]typeID.name} III",
     "UI/SkillPlan/Skills": "Skills",
+    "UI/Commands/ShowInfo": "Show Info",
     "UI/SkillPlan/SkillPlan": "Plan",
     "UI/SkillPlan/AddSkillLevelToPlan": "Put level {skillLevel} of it in the plan",
     "UI/SkillPlan/AllLevelsInPlan": "Every level of it is in the plan",
@@ -159,6 +160,7 @@
     "UI/SkillPlan/MilestoneOther": "Other",
     "Tooltips/SkillPlanner/SkillPlanNameStringWithType": "A plan for {typeName}",
   };
+  const INFO_ICON = clientTexture("res:/ui/Texture/Icons/38_16_208.png");
 
   function word(label: string, args: Readonly<Record<string, string | number>> = {}): string {
     const template = $words.templates[label];
@@ -293,21 +295,6 @@
     const rect = event.currentTarget.getBoundingClientRect();
     catalogueTip = { typeID, top: rect.bottom + 8, left: rect.left };
     await infoOf(typeID);
-  }
-  // The tooltip stays while the pointer is on it (its panel takes the pointer): taken away a moment after the pointer
-  // leaves the skill, unless it came onto the tooltip.
-  let catalogueTipHeld = false;
-  let catalogueTipTimer: ReturnType<typeof setTimeout> | null = null;
-  function hideCatalogueTip(typeID: number): void {
-    if (catalogueTipTimer !== null) clearTimeout(catalogueTipTimer);
-    catalogueTipTimer = setTimeout(() => {
-      catalogueTipTimer = null;
-      if (!catalogueTipHeld && catalogueTip !== null && catalogueTip.typeID === typeID) catalogueTip = null;
-    }, 200);
-  }
-  function catalogueTipHover(inside: boolean): void {
-    catalogueTipHeld = inside;
-    if (!inside && catalogueTip !== null) hideCatalogueTip(catalogueTip.typeID);
   }
   let catalogueMenu = $state<{ readonly typeID: number; readonly entries: readonly SkillMenuEntry[]; readonly x: number; readonly y: number } | null>(null);
   async function openCatalogueMenu(typeID: number, event: MouseEvent): Promise<void> {
@@ -951,14 +938,21 @@
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <li draggable="true" ondragstart={(event) => { catalogueTip = null; dragStart(event, skill.typeID, null); }} ondragend={dragEnd}
               oncontextmenu={(event) => void openCatalogueMenu(skill.typeID, event)}
-              onmouseenter={(event) => void showCatalogueTip(skill.typeID, event)} onmouseleave={() => hideCatalogueTip(skill.typeID)}
+              onmouseenter={(event) => void showCatalogueTip(skill.typeID, event)} onmouseleave={() => { catalogueTip = null; }}
               ondblclick={(event) => { if (!(event.target instanceof Element && event.target.closest("button"))) showInfo({ kind: "type", typeID: skill.typeID }); }}>
               <span class="plan-editor-skill-bar" aria-hidden="true">
                 {#each row?.boxes ?? [] as one, box (box)}
                   <span class="skill-box {one.box}" class:partial={one.partial}></span>
                 {/each}
               </span>
-              <span class="plan-editor-skill-name">{skill.name}</span>
+              <span class="plan-editor-skill-name">
+                <span>{skill.name}</span>
+                <button type="button" class="plan-editor-skill-info" title={word("UI/Commands/ShowInfo")}
+                  aria-label={`${word("UI/Commands/ShowInfo")} ${skill.name}`}
+                  onclick={() => { catalogueTip = null; showInfo({ kind: "type", typeID: skill.typeID }); }}>
+                  <img src={INFO_ICON} alt="" width="16" height="16" draggable="false" />
+                </button>
+              </span>
               {#if row !== undefined && row.nextTicks !== null}
                 <span class="plan-editor-skill-time">{interval(row.nextTicks)}</span>
               {/if}
@@ -970,7 +964,7 @@
           {/each}
         </ul>
         {#if catalogueTip !== null && skillInfos.get(catalogueTip.typeID) !== undefined}
-          <SkillRowTip {store} {flow} typeID={catalogueTip.typeID} info={skillInfos.get(catalogueTip.typeID)!} top={catalogueTip.top} left={catalogueTip.left} onHover={catalogueTipHover} />
+          <SkillRowTip {store} {flow} typeID={catalogueTip.typeID} info={skillInfos.get(catalogueTip.typeID)!} top={catalogueTip.top} left={catalogueTip.left} interactive={false} />
         {/if}
         {#if catalogueMenu !== null}
           {@const menuFor = catalogueMenu}
@@ -1090,6 +1084,7 @@
   .plan-editor-group-bar .omega { background: rgba(232, 179, 74, 0.6); }
   .plan-editor-filter-combo { max-width: 10rem; }
   .plan-editor-skills, .plan-editor-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; max-height: 28rem; overflow-y: auto; }
+  .plan-editor-skills { container-type: inline-size; }
   .plan-editor-skills li, .plan-editor-rows li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.2rem 0.5rem; background: rgba(255, 255, 255, 0.04); }
   .plan-editor-hint { white-space: pre-line; }
   .plan-editor-overview { display: flex; flex-direction: column; gap: 0.35rem; }
@@ -1102,8 +1097,18 @@
   .plan-editor-skills li[draggable="true"], .plan-editor-rows li[draggable="true"] { cursor: grab; }
   .plan-editor-points { margin: 0; }
   .plan-editor-skill-bar { display: inline-flex; gap: 2px; flex: none; }
-  .plan-editor-skill-name { flex: 1; min-width: 0; }
+  .plan-editor-skill-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+  .plan-editor-skill-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .plan-editor-skill-info { flex: none; padding: 0; border: 0; background: none; cursor: pointer; line-height: 0; opacity: 0; }
+  .plan-editor-skills li:hover .plan-editor-skill-info, .plan-editor-skill-info:focus-visible { opacity: 1; }
   .plan-editor-skill-time { opacity: 0.35; flex: none; }
+  @container (max-width: 16rem) {
+    .plan-editor-skills li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 0.15rem; }
+    .plan-editor-skill-name { grid-area: 1 / 1 / 2 / 3; }
+    .plan-editor-skill-bar { grid-area: 2 / 1; }
+    .plan-editor-skill-time { grid-area: 2 / 2; }
+    .plan-editor-skills .plan-editor-add { grid-area: 1 / 3 / 3 / 4; }
+  }
   .skill-box { width: 8px; height: 8px; box-sizing: border-box; }
   .skill-box.none { visibility: hidden; }
   .skill-box.trained { background: rgba(204, 204, 204, 1); }

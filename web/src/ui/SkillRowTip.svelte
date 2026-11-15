@@ -2,8 +2,7 @@
   // A skill entry's tooltip (LoadSkillEntryTooltipInfoOnly: the skill tooltip controller's information, no actions):
   // the description; the level and the points of the level V total; for a skill in the queue the level it trains to
   // (cryo blue), the time until then (day to minute) and the rate. A plan's contents rows and the plan editor's
-  // catalogue show it. Beside the description its InfoIcon (Show Info of the skill, its hint UI/Commands/ShowInfo). The
-  // panel takes the pointer (its state UI_NORMAL): it stays while the pointer is on it, which onHover tells its host.
+  // catalogue show it. The interactive version includes Show Info and stays open while the pointer is on the panel.
   // A skill an expert system gives a level of (its virtual level) has the expert systems' notice after the level and
   // points (add_expert_system_information, add_skill_provided_by_expert_systems): the expert systems' logo and
   // SkillProvidedByExpertSystems, then each of the pilot's expert systems that gives it, its name a link (Show Info).
@@ -19,7 +18,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
 
-  let { store, flow, typeID, info, top, left = null, right = null, onHover = null }: {
+  let { store, flow, typeID, info, top, left = null, right = null, onHover = null, interactive = true }: {
     store: ClientStore;
     flow: AppFlow;
     /** The skill, for its InfoIcon. */
@@ -27,6 +26,7 @@
     info: SkillRowInfo;
     /** The pointer onto the tooltip (true) and off it (false), for its host to keep it or take it away. */
     onHover?: ((inside: boolean) => void) | null;
+    interactive?: boolean;
     /** Its place: its top, and its left edge or its right edge's distance from the screen's right. */
     top: number;
     left?: number | null;
@@ -81,13 +81,15 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="skill-row-tip" role="tooltip" use:portal style:top={`${top}px`}
+<div class="skill-row-tip" class:passive={!interactive} role="tooltip" use:portal style:top={`${top}px`}
   style:left={left === null ? undefined : `${left}px`} style:right={right === null ? undefined : `${right}px`}
   onmouseenter={() => onHover?.(true)} onmouseleave={() => onHover?.(false)}>
   <span class="skill-row-tip-description">
     <p>{info.descriptionID !== null ? message(info.descriptionID) : ""}</p>
-    <button type="button" class="skill-row-tip-info" title={word("UI/Commands/ShowInfo")} aria-label={word("UI/Commands/ShowInfo")}
-      onclick={() => showInfo({ kind: "type", typeID })}><img src={INFO_ICON} alt="" width="16" height="16" /></button>
+    {#if interactive}
+      <button type="button" class="skill-row-tip-info" title={word("UI/Commands/ShowInfo")} aria-label={word("UI/Commands/ShowInfo")}
+        onclick={() => showInfo({ kind: "type", typeID })}><img src={INFO_ICON} alt="" width="16" height="16" /></button>
+    {/if}
   </span>
   <span class="skill-row-tip-pair">
     <span>{word("UI/Common/SkillLevel", { level: info.level === 0 ? "0" : romanLevel(info.level) })}</span>
@@ -99,7 +101,12 @@
       <span>{word("UI/ExpertSystem/SkillProvidedByExpertSystems")}</span>
     </span>
     {#each info.expertSystems as expertSystem (expertSystem)}
-      <button type="button" class="skill-row-tip-link" onclick={() => showInfo({ kind: "type", typeID: expertSystem })}>{resolvedName($names.resolved, "type", expertSystem, "")}</button>
+      {@const name = resolvedName($names.resolved, "type", expertSystem, "")}
+      {#if interactive}
+        <button type="button" class="skill-row-tip-link" onclick={() => showInfo({ kind: "type", typeID: expertSystem })}>{name}</button>
+      {:else}
+        <span>{name}</span>
+      {/if}
     {/each}
   {/if}
   {#if info.queued !== null}
@@ -118,6 +125,7 @@
   .skill-row-tip { position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 0.45rem; width: 17rem;
     padding: 0.6rem 0.75rem; border: 1px solid var(--line, #333); background: rgba(10, 12, 16, 0.96); }
   .skill-row-tip-description { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+  .passive { pointer-events: none; }
   .skill-row-tip-info { flex: none; padding: 0; border: 0; background: none; cursor: pointer; line-height: 0; }
   .skill-row-tip-expert { display: flex; align-items: center; gap: 0.5rem; }
   .skill-row-tip-link { align-self: flex-start; margin-left: 0.75rem; padding: 0; border: 0; background: none; color: #5ccbcb; cursor: pointer; text-align: left; }
