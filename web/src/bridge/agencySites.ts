@@ -17,6 +17,7 @@
 import type { JsonValue } from "./wire.ts";
 import { shownSecurity } from "./systemSecurity.ts";
 import { DISTANCE, ANY, SECURITY_FILTER, MAX_AGENT_PIECES } from "./agencyAgents.ts";
+import type { MilitiaFactionID, MilitiaSystem, MilitiaVictoryPoints } from "./militiaEnlistment.ts";
 
 export interface AgencySite {
   readonly instanceID: number; readonly dungeonID: number | null; readonly archetypeID: number | null; readonly factionID: number | null;
@@ -58,6 +59,26 @@ export interface AgencySiteFilters {
   readonly oreType?: number;
 }
 export const DEFAULT_SITE_FILTERS: AgencySiteFilters = Object.freeze({ distance: DISTANCE.any, security: ANY });
+export interface AgencyFactionWarfareFilters {
+  readonly distance: number;
+  readonly faction: number;
+  readonly adjacency: string;
+}
+export const DEFAULT_AGENCY_FW_FILTERS: AgencyFactionWarfareFilters = Object.freeze({ distance: DISTANCE.any, faction: ANY, adjacency: "" });
+export interface AgencyFactionWarfareSystem extends AgencySiteSystem {
+  readonly sites: readonly AgencySite[];
+  readonly occupation: MilitiaSystem & { readonly occupierID: MilitiaFactionID };
+  readonly victory: MilitiaVictoryPoints | null;
+}
+
+/** facwarSolarSystemUpgradeThresholds in build 3698585's appConst. */
+const FW_LP_THRESHOLDS = [0, 40000, 60000, 90000, 140000, 200000, 300000];
+export function agencyFactionWarfareUpgrade(lp: number): { level: number; next: number; progress: number } {
+  const level = FW_LP_THRESHOLDS.slice(1, -1).filter((threshold) => threshold <= lp).length;
+  const previous = FW_LP_THRESHOLDS[level]!;
+  const next = FW_LP_THRESHOLDS[level + 1]!;
+  return { level, next, progress: Math.max(0, Math.min((lp - previous) / (next - previous), 1)) };
+}
 /** agencyConst.SECURITY_THRESHOLDS. */
 const SECURITY_THRESHOLDS = [0.9, 0.7, 0.4, 0.2, 0.0];
 
@@ -92,8 +113,10 @@ export function trackerSites(known: JsonValue | undefined, counts: JsonValue | u
     if (num(list) !== null) { out.set(id, Array.from({ length: Math.max(0, num(list)!) }, () => null)); continue; }
     knownSites.set(id, items(list).map((row) => {
       const field = (k: string) => entries(row).find((e) => e[0] === k)?.[1];
+      const targetID = field("targetID");
       return { instanceID: num(field("instanceID")) ?? num(field("siteID")) ?? 0, dungeonID: num(field("dungeonID")), archetypeID: num(field("archetypeID")),
-        factionID: num(field("factionID")), difficulty: num(field("difficulty")), dungeonNameID: num(field("dungeonNameID")) };
+        factionID: num(field("factionID")), difficulty: num(field("difficulty")), dungeonNameID: num(field("dungeonNameID")),
+        ...(typeof targetID === "string" && targetID ? { targetID } : {}) };
     }));
   }
   if (here !== null && !knownSites.has(here)) knownSites.set(here, []);
@@ -120,7 +143,8 @@ export function signatureSites(counts: JsonValue | undefined, here: number | nul
 
 /** BaseContentProviderDungeons._ConstructContentPieces' systems. */
 export function agencySiteSystems(sites: ReadonlyMap<number, readonly (AgencySite | null)[]>, here: number | null, knownSpace: boolean,
-  jumpsTo: (systemID: number) => number | undefined, securityOf: (systemID: number) => number | null, filters: AgencySiteFilters): AgencySiteSystem[] {
+  jumpsTo: (systemID: number) => number | undefined, securityOf: (systemID: number) => number | null, filters: AgencySiteFilters,
+  bucketOrder?: (systemID: number) => number): AgencySiteSystem[] {
   const withSites = new Map([...sites].filter(([, list]) => list.length > 0));
   const jumpsOf = (id: number) => (id === here ? 0 : jumpsTo(id));
   const shown = (id: number) => { const s = securityOf(id); return s === null ? 0 : shownSecurity(s); };
@@ -139,7 +163,7 @@ export function agencySiteSystems(sites: ReadonlyMap<number, readonly (AgencySit
   const keys = [...buckets.keys()].sort((a, b) => a - b);
   const mine = keys.find((k) => here !== null && buckets.get(k)!.includes(here));
   if (mine !== undefined) { keys.splice(keys.indexOf(mine), 1); keys.unshift(mine); }
-  const lists = keys.map((k) => buckets.get(k)!.slice().sort((a, b) => far(a) - far(b)));
+  const lists = keys.map((k) => buckets.get(k)!.sort((a, b) => (bucketOrder ? bucketOrder(a) - bucketOrder(b) : 0) || far(a) - far(b)));
   const mix: number[] = [];
   const at = lists.map(() => 0);
   while (mix.length < MAX_AGENT_PIECES && lists.some((l, i) => at[i]! < l.length)) {
@@ -147,4 +171,30 @@ export function agencySiteSystems(sites: ReadonlyMap<number, readonly (AgencySit
   }
   return mix.filter((id) => withSites.has(id)).sort((a, b) => far(a) - far(b))
     .map((id) => ({ solarSystemID: id, sites: withSites.get(id)!, jumps: jumpsOf(id) ?? null, security: securityOf(id) }));
+}
+
+/** The factional warfare tracker keeps the current occupier's complexes. The provider fills each security
+ * bucket by contested fraction, then displays the selected systems in jump order. */
+export function agencyFactionWarfareSystems(known: JsonValue, zones: ReadonlyMap<number, readonly MilitiaSystem[]>,
+  victory: ReadonlyMap<number, MilitiaVictoryPoints>, here: number | null, jumpsTo: (id: number) => number | undefined,
+  securityOf: (id: number) => number | null, filters: AgencyFactionWarfareFilters): AgencyFactionWarfareSystem[] {
+  const sites = trackerSites(known, undefined, null);
+  const occupations = new Map<number, AgencyFactionWarfareSystem["occupation"]>();
+  const matching = new Map<number, readonly AgencySite[]>();
+  for (const systems of zones.values()) for (const system of systems) {
+    const { systemID, occupierID, adjacency } = system;
+    if (occupierID === null || !adjacency || (filters.faction !== ANY && filters.faction !== occupierID) || (filters.adjacency && filters.adjacency !== adjacency)) continue;
+    const ownSites = sites.get(systemID)?.filter((site): site is AgencySite => site !== null && site.factionID === occupierID);
+    if (!ownSites?.length) continue;
+    occupations.set(systemID, { ...system, occupierID });
+    matching.set(systemID, ownSites);
+  }
+  const contested = (id: number) => {
+    const points = victory.get(id);
+    return points ? -Math.min(points.score / points.threshold, 1) : 0;
+  };
+  return agencySiteSystems(matching, here, here === null || here < 31000000, jumpsTo, securityOf,
+    { distance: filters.distance, security: ANY }, contested).map((row) => ({
+    ...row, sites: matching.get(row.solarSystemID)!, occupation: occupations.get(row.solarSystemID)!, victory: victory.get(row.solarSystemID) ?? null,
+  }));
 }

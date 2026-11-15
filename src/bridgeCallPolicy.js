@@ -923,6 +923,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "charFittingMgr.SaveManyFittings", "corpFittingMgr.SaveManyFittings", "allianceFittingMgr.SaveManyFittings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID",
   "corporationSvc.SetMedalStatus",
+  "scanMgr.SignalTrackerRegister",
   // eveCalendarsvc.RespondToEvent sends the opened invitation's event ID, owner ID and reply.
   "calendarMgr.SendEventResponse",
   "calendarMgr.CreatePersonalEvent",

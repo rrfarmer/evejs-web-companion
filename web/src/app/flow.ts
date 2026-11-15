@@ -407,7 +407,7 @@ import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
 import { decodeDungeonSites, relevantDungeonSystems } from "../bridge/dungeonJobs.ts";
-import { RESOURCE_ORDER, SITE_TRACKERS, agencySiteSystems, signatureSites, trackerSites, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
+import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencySiteSystems, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type SiteTrackerKind } from "../bridge/agencySites.ts";
 import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonus, suggestedCareerAgents, type AgencyAgent, type AgencyAgentFilters, type AgencyCareerAgent, type AgencyStorylineAgent } from "../bridge/agencyAgents.ts";
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
@@ -3779,6 +3779,10 @@ export interface AppFlow {
   agencyCombatAnomalies(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
   /** The same for a tracker's kind: the combat anomalies, the ore anomalies or the ice belts (with their resource types). */
   agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null>;
+  agencyFactionWarfareSystems(filters: AgencyFactionWarfareFilters): Promise<readonly AgencyFactionWarfareSystem[]>;
+  agencyFactionWarfareSystemLP(systemID: number): Promise<number | null>;
+  agencyRegisterLocalSignalTracker(): Promise<void>;
+  readonly agencyAnomaliesChanged: ReadableSignal<number>;
   /**
    * The Agency's Asteroid Belts (ContentProviderAsteroidBelts): the systems within the filters' distance
    * (GetAllSolarSystemIDsWithinJumpRange) with belts (CheckSystemHasBelts: asteroid types) and of the filters' security,
@@ -7424,6 +7428,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     if (method === "OnWarzoneOccupationStateUpdated" || method === "OnVictoryPointStateUpdated") {
       theatersWarzoneChanged.set(theatersWarzoneChanged.get() + 1);
+    }
+    if (method === "OnSignalTrackerAnomalyUpdate") {
+      agencyAnomaliesChanged.set(agencyAnomaliesChanged.get() + 1);
     }
     // invCache.ProcessSessionChange143-170: these place changes invalidate
     // cached parent inventories as well as any read still coming from them.
@@ -21069,6 +21076,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function agencyCombatAnomalies(filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     return agencyTrackerSites("combat", filters);
   }
+  async function agencyFactionWarfareSystems(filters: AgencyFactionWarfareFilters): Promise<readonly AgencyFactionWarfareSystem[]> {
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const [known, occupations, victory, jumps, graph] = await Promise.all([
+      bridgeAsk("dungeonInstanceCacheMgr", "GetFactionWarfareInstances", []), theatersWarzones(),
+      theatersVictoryPoints(), here === null ? null : autopilotDistancesFrom(here).catch(() => null),
+      loadRouteGraph().catch(() => null),
+    ]);
+    return factionWarfareSystemsForAgency(known, occupations, victory, here,
+      (id) => jumps?.get(id), (id) => graph?.security(id) ?? null, filters);
+  }
+  async function agencyFactionWarfareSystemLP(systemID: number): Promise<number | null> {
+    const lp = unwrapLong(await bridgeAsk("facWarMgr", "GetSolarSystemLPs", [systemID]));
+    const amount = lp === null ? null : Number(lp);
+    return amount !== null && Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+  }
   async function agencyTrackerSites(kind: SiteTrackerKind, filters: AgencySiteFilters): Promise<readonly AgencySiteSystem[] | null> {
     const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     const [known, counts, jumps, graph] = await Promise.all([
@@ -21315,6 +21337,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const FW_ENLISTMENT = "fwCharacterEnlistmentMgr";
   const militiaEnlistmentChanged = createSignal(0);
   const theatersWarzoneChanged = createSignal(0);
+  const agencyAnomaliesChanged = createSignal(0);
   async function readMilitiaEnlistment(): Promise<MilitiaEligibility> {
     const pilot = store.station.get().online;
     if (!pilot?.corporationID) throw new Error("Select a pilot to view enlistment.");
@@ -35176,6 +35199,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyStorylineAgents,
     agencyCombatAnomalies,
     agencyTrackerSites,
+    agencyFactionWarfareSystems,
+    agencyFactionWarfareSystemLP,
+    async agencyRegisterLocalSignalTracker() { await bridgeDo("scanMgr", "SignalTrackerRegister", []); },
+    agencyAnomaliesChanged: readonlySignal(agencyAnomaliesChanged),
     agencySignatures,
     agencyEpicArcs,
     agencyEscalations,

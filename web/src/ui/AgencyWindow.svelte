@@ -39,6 +39,7 @@
   import AgencyColonyResourcesPage from "./AgencyColonyResourcesPage.svelte";
   import AgencyHelpPage from "./AgencyHelpPage.svelte";
   import AgencyGuidePage from "./AgencyGuidePage.svelte";
+  import AgencyFactionWarfarePage from "./AgencyFactionWarfarePage.svelte";
   import AgencyFleetUpPage from "./AgencyFleetUpPage.svelte";
   import AgencyCampaignsPage from "./AgencyCampaignsPage.svelte";
   import AgencyPirateStrongholdsPage from "./AgencyPirateStrongholdsPage.svelte";
@@ -50,7 +51,7 @@
   import { corporationPanelTarget } from "./corporationPanel.ts";
   import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import { resolvedName } from "../store/names.ts";
-  import { DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
+  import { DEFAULT_AGENCY_FW_FILTERS, DEFAULT_SITE_FILTERS, type AgencySiteFilters, type SiteTrackerKind } from "../bridge/agencySites.ts";
   import { AGENT_PROVIDERS, DEFAULT_AGENT_FILTERS, type AgencyAgentFilters } from "../bridge/agencyAgents.ts";
 
   let { store, flow, showTravel, onOpenTab }: { store: ClientStore; flow: AppFlow; showTravel?: () => void; onOpenTab?: (tab: string) => void } = $props();
@@ -64,6 +65,7 @@
   const station = store.station;
   const HOME = 1, AGENT_FINDER = 28, CAREER_AGENTS = 21, STORYLINE_AGENTS = 51, COMBAT_ANOMALIES = 38, ORE_ANOMALIES = 48, ICE_BELTS = 41, COSMIC_SIGNATURES = 39, EPIC_ARCS = 33, ESCALATIONS = 45, INCURSIONS = 72, INCURSION = 50, PLANETARY_PRODUCTION = 42, MERC_DENS = 85, COLONY_RESOURCES = 84, HELP = 69, FLEET_UP = 67, CAMPAIGNS = 89, PROJECT_DISCOVERY = 52, PHASED_FIELDS = 87, TRIGLAVIAN_SPACE = 63, TRIGLAVIAN_FILAMENTS = 64, ASTEROID_BELTS = 40, PIRATE_STRONGHOLDS = 73, ABYSSAL_DEADSPACE = 37, ABYSSAL_FILAMENTS = 44, FLEET_UP_REGISTER = 68, FW_GUIDE = 90, ZARZAKH = 83, INSURGENCY_GUIDE = 82, HOMEFRONT = 78, HERALDRY = 71, CORP = 62, SEASONS = 34;
   const HOME_LEFT = [11, 12, 13, 14];
+  const FW_SYSTEMS = 46;
   const CAROUSEL = [HOMEFRONT, HERALDRY, CORP];
   // CorpContentGroup (an ExternalContentGroup): its name and description the player corporation's ((contentGroupCorp, 1):
   // ContentGroupCorp2, Descriptions/Corp2) where the pilot's corporation is not an NPC's; its card opens the
@@ -88,6 +90,7 @@
   // agencyFilters by content group (the character's settings in the client; the window's life here).
   let agentFilters = $state<Record<number, AgencyAgentFilters>>({});
   let siteFilters = $state<Record<number, AgencySiteFilters>>({});
+  let fwFilters = $state(DEFAULT_AGENCY_FW_FILTERS);
   const SITE_PAGES: Record<number, SiteTrackerKind | "signature" | "escalation" | "belts"> = { [COMBAT_ANOMALIES]: "combat", [ORE_ANOMALIES]: "ore", [ICE_BELTS]: "ice", [COSMIC_SIGNATURES]: "signature", [ESCALATIONS]: "escalation", [HOMEFRONT]: "homefront", [ASTEROID_BELTS]: "belts" };
   const groupID = $derived(history[at] ?? HOME);
   const itemID = $derived(items[at] ?? null);
@@ -194,6 +197,8 @@
       <div class="ag-page ag-help-page"><AgencyGuidePage {store} {flow} guide="zarzakh" {onOpenTab} onShow={(id) => show(id)} /></div>
     {:else if groupID === FW_GUIDE}
       <div class="ag-page ag-help-page"><AgencyGuidePage {store} {flow} guide="factionWarfare" {onOpenTab} onShow={(id) => show(id)} /></div>
+    {:else if groupID === FW_SYSTEMS}
+      <div class="ag-page"><AgencyFactionWarfarePage {store} {flow} bind:filters={fwFilters} /></div>
     {:else if groupID === ABYSSAL_DEADSPACE || groupID === ABYSSAL_FILAMENTS}
       {#key groupID}<div class="ag-page"><AgencyAbyssalPage {store} {flow} page={groupID === ABYSSAL_DEADSPACE ? "deadspace" : "filaments"} onShow={(id) => show(id)} /></div>{/key}
     {:else if groupID === TRIGLAVIAN_SPACE || groupID === TRIGLAVIAN_FILAMENTS}

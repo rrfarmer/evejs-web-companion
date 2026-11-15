@@ -1500,6 +1500,7 @@
       "scanMgr.RequestScans",
       "scanMgr.SetProbeDestination",
       "scanMgr.SetProbeRangeStep",
+      "scanMgr.SignalTrackerRegister",
       "seasonalLoginCampaignManager.claim_reward",
       "sharedSettingsMgr.StoreSettingLinkAndGetID",
       "ship.AssembleShip",

@@ -710,6 +710,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // And its factional warfare systems (FactionalWarfareSiteTracker, fwWarzoneSvc.GetAllOccupationStates,
   // fwVictoryPointSvc.GetVictoryPointState of another system).
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances", "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates", "fwVictoryPointMgr.GetAllVictoryPointStates",
+  "facWarMgr.GetSolarSystemLPs",
   "dungeonInstanceCacheMgr.GetFactionWarfareBattlefieldInstances", "fwWarzoneSolarsystem.GetHQSystemIDs",
   "shipCasterLandingPadMgr.GetAllLandingPads", "shipCasterLauncherMgr.GetFactionsWithShipcaster",
   "facWarMgr.GetStats_FactionInfo", "facWarMgr.GetStats_TopAndAllKillsAndVPs", "facWarMgr.GetStats_Character",
@@ -2393,6 +2394,7 @@ const RETAIL_CALLS = Object.freeze({
   "beyonce.CmdSetSpeedFraction": reshaped("eve/client/script/parklife/autopilot.py:434", throttling, "park.CmdSetSpeedFraction(1.0), on the ballpark's object, before the autopilot's approach; the ship's panel sends the pilot's own fraction (activeShipController.py 227). Recorded on Tranquility as (1.0), and every fraction as a float, which is how it goes. The menu's approach, keep at range and orbit send none before theirs, and on the game port the BFF's routes send none either; through the gateway they do."),
   "scanMgr.GetFullState": same("eve/client/script/parklife/sensorSuiteService.py:718", "scanSvc.GetScanMan().GetFullState(), no arguments, on the system's scan manager: the object GetSystemScanMgr() answers. Recorded on Tranquility on that object."),
   "scanMgr.GetSystemScanMgr": same(`${SCAN_SVC}:115`, "no arguments"),
+  "scanMgr.SignalTrackerRegister": judged("eve/client/script/parklife/sensorSuiteService.py:173", sentWithNothing, "The overlay registers its current space session to receive local anomaly and signature notices."),
   "scanMgr.RequestScans": reshaped(
     `${SCAN_SVC}:195`,
     (args, kwargs) => ({ args: [scanProbes(args[0])], kwargs }),
@@ -2789,6 +2791,7 @@ const RETAIL_CALLS = Object.freeze({
   "dungeonInstanceCacheMgr.GetPirateInsurgencyInstances": same("evedungeons/client/anomalyTracker.py:314", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetPirateInsurgencyInstances(), no arguments: by solar system the insurgency sites' KeyVals."),
   "dynamicResourceCacheMgr.GetESSAgencyData": same("eve/client/script/ui/shared/agencyNew/contentProviders/contentProviderESS.py:49", "sm.RemoteSvc('dynamicResourceCacheMgr').GetESSAgencyData(), no arguments: by solar system its ESS's data (currentOutput, mainValue, reserveValue, vaultOpen)."),
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances": same("evedungeons/client/anomalyTracker.py:293", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetFactionWarfareInstances(), no arguments: by solar system the factional warfare complexes' KeyVals; the tracker keeps the occupier's."),
+  "facWarMgr.GetSolarSystemLPs": judged("eve/client/script/ui/services/facWarSvc.py:449", oneIDAlone("solar system"), "facWarMgr.GetSolarSystemLPs(solarSystemID) reads the specified warzone system's infrastructure hub loyalty point pool."),
   "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates": same("eve/client/script/ui/services/fwWarzoneSvc.py:73", "sm.RemoteSvc('fwWarzoneSolarsystem').GetAllWarzonesOccupationStates(), no arguments: by warzone, by solar system, its OccupationState."),
   "fwVictoryPointMgr.GetAllVictoryPointStates": same("eve/client/script/ui/services/fwVictoryPointSvc.py:47", "sm.RemoteSvc('fwVictoryPointMgr').GetAllVictoryPointStates(), no arguments: by solar system its VictoryPointState; GetVictoryPointState of a system not the session's takes that system's."),
   "fwWarzoneSolarsystem.GetHQSystemIDs": same("eve/client/script/ui/services/fwWarzoneSvc.py:212", "GetAllHQSystems asks GetHQSystemIDs(), a dictionary of the HQ solar system by empire faction."),

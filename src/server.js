@@ -1245,6 +1245,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (body.service === "scanMgr" && body.method === "SignalTrackerRegister"
+      && (!Array.isArray(body.args) || body.args.length !== 0 || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Signal Tracker registration takes no arguments." });
+    return;
+  }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,
   // which that gate lets through, is CmdStop. So was every change of place the page makes (the undock, a flight
