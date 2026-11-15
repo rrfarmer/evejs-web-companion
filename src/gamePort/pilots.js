@@ -3079,7 +3079,7 @@ function createGamePortPilots({
       corpToCharStanding: npc ? entry.standings.toCharacter(station.ownerID) : 0.0,
     };
     // A skill's level or a standing that is not known is null: no rate is made of a guess.
-    return Object.values(sums).every((value) => typeof value === "number") ? brokersFeeRate(sums) : null;
+    return Object.values(sums).every((value) => typeof value === "number") ? brokersFeeRate({ ...sums, stationID: placeID }) : null;
   }
 
   /**

@@ -32,6 +32,12 @@ test("with no upgrade named the system has none; a standing is the standing, goo
   assert.ok(Math.abs(brokersFeeRate({ brokerRelations: 5, factionToCharStanding: 0, corpToCharStanding: 0 }) - 0.015) < 1e-12);
 });
 
+test("Oris applies its 24.02 commission modifier before owner and faction standings", () => {
+  const pilot = { brokerRelations: 2, factionToCharStanding: 4, corpToCharStanding: 1.5 };
+  assert.equal(brokersFeeRate({ ...pilot, stationID: 60008494 }), 0.0105);
+  assert.equal(brokersFeeRate({ ...pilot, stationID: 60003760 }), 0.0225);
+});
+
 test("the rate in a structure is the client's own, to the last digit, for every case its Python was asked: the structure's tax over a hundred, True for one percent, and nothing for no tax", () => {
   assert.equal(structureOracle.cases.length, 42);
   for (const [marketTax, upgradeLevel, rate] of structureOracle.cases) {

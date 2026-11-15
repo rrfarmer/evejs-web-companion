@@ -12,6 +12,7 @@
 //     SkillLimits.GetBrokersFeeForLocation                 (skilllimits.py 25)
 //         the base, 3 percent, less 0.3 of a percent for each level of
 //         Broker Relations the pilot has in effect
+//         halve the result at Amarr VIII (Oris) in 24.02
 //     BrokerFeeProvider.GetAdjustedCommissionPercentage      (brokerFee.py 62)
 //         facwarCommon.GetAdjustedFeePercentage: a tenth off for each level
 //             the system is upgraded to, where the militias fight over it
@@ -35,14 +36,16 @@ const MARKET_COMMISSION_PERCENTAGE = 3.0;
 const BROKER_RELATIONS_SKILL_MODIFIER = 0.3;
 const MARKET_FACTION_STANDING_MULTIPLIER = 0.0003;
 const MARKET_NPC_CORP_STANDING_MULTIPLIER = 0.0002;
+const STATION_AMARR_VIII_ORIS = 60008494;
 
 /**
  * The rate, as a fraction: 0.03 is three percent. `brokerRelations` is the level in effect; the two standings
  * are the owner's faction's and the owner's to the pilot; `upgradeLevel` is the system's, nought outside a warzone.
  */
-function brokersFeeRate({ brokerRelations, factionToCharStanding, corpToCharStanding, upgradeLevel = 0 }) {
+function brokersFeeRate({ brokerRelations, factionToCharStanding, corpToCharStanding, upgradeLevel = 0, stationID = null }) {
   let rate = MARKET_COMMISSION_PERCENTAGE / 100.0;
   rate -= (brokerRelations * BROKER_RELATIONS_SKILL_MODIFIER) / 100;
+  if (stationID === STATION_AMARR_VIII_ORIS) rate *= 0.5;
   // "if not feePercentageAtLocation: return 0.0"
   if (!rate) return 0.0;
   rate *= 1 - 0.1 * upgradeLevel;
