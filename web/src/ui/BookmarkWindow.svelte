@@ -14,7 +14,7 @@
   //
   // Opened for a bookmark (EditBookmark, addressbookService.py 475 to 483: Edit Location, a double click), it is
   // "Edit Location": the bookmark's label and note, its folder and subfolder chosen (its own folder offered even where
-  // it is full), its expiry shown with Cancel automated expiry where it has one; Submit edits it
+  // it is full), its expiry shown with the option to set a new time; Submit edits it
   // (bookmarkSvc.UpdateACLBookmark, 642 to 646), the folder kept as the last used.
   //
   // The folder's choice and the times are kept for the pilot in this browser, as the client keeps them in its own
@@ -57,7 +57,8 @@
   const WORDS = {
     title: "UI/PeopleAndPlaces/NewBookmark",
     editTitle: "UI/PeopleAndPlaces/EditLocation",
-    cancelExpiry: "UI/AclBookmarks/CancelAutomatedExpiry",
+    editExpiry: "UI/AclBookmarks/EditExpiryTime",
+    expires: "UI/Common/Expires",
     dateTime: "/Carbon/UI/Common/DateTime/DateLongShort",
     label: "UI/PeopleAndPlaces/Label",
     expire: "UI/AclBookmarks/AutoExpire",
@@ -121,8 +122,7 @@
   let expiry = $state<number>(BOOKMARK_EXPIRY.none);
   let label = $state("");
   let note = $state("");
-  /** Cancel automated expiry, in an edit of a bookmark that has one. */
-  let expiryCancel = $state(false);
+  let editExpiry = $state(false);
   let error = $state("");
   let busy = $state(false);
 
@@ -175,6 +175,11 @@
   }
 
   const chosenOption = $derived(options.find((option) => option.key === chosen) ?? null);
+  const currentExpiry = $derived.by(() => {
+    if (!editExpiry) return editing?.expiry ?? null;
+    const hours = expiry === BOOKMARK_EXPIRY.twoDays ? 48 : expiry === BOOKMARK_EXPIRY.oneDay ? 24 : expiry === BOOKMARK_EXPIRY.fourHours ? 4 : 0;
+    return hours === 0 ? null : 116444736000000000n + BigInt(Date.now() + hours * 3600000) * 10000n;
+  });
 
   /** _LoadExpiryOptions (115 to 128): the time last chosen for this folder, else Never. */
   function expiryFor(option: FolderOption | null): number {
@@ -198,7 +203,8 @@
       chosen = options.some((option) => option.key === ownKey) ? ownKey : (options[0]?.key ?? "");
       label = unzipMemo(editing.memo)[0].slice(0, MAX_NAME);
       note = editing.note;
-      expiryCancel = false;
+      editExpiry = false;
+      expiry = expiryFor(options.find((option) => option.key === chosen) ?? null);
       phase = "form";
       return;
     }
@@ -238,8 +244,8 @@
 
   function chooseFolder(key: string): void {
     chosen = key;
-    // OnFolderChange (169 to 173): a new bookmark's time is the folder's.
-    if (editing === null) expiry = expiryFor(options.find((option) => option.key === key) ?? null);
+    // OnFolderChange: reload the folder's preferred mode.
+    expiry = expiryFor(options.find((option) => option.key === key) ?? null);
   }
 
   async function submit(): Promise<void> {
@@ -260,7 +266,7 @@
           note,
           subfolderID: option.subfolderID,
           newFolderID: option.folderID,
-          expiryCancel,
+          expiryMode: editExpiry ? expiry : null,
         });
         keep(keptFolderKey(), [option.folderID, option.subfolderID]);
         onDone(true);
@@ -337,27 +343,23 @@
       </label>
     </p>
     {#if editing !== null}
-      <!-- _AddExpiryContainer (102 to 113): when it expires, or Never, and Cancel automated expiry where it does. -->
       <p class="controls">
-        {word(WORDS.expire, "Expire")}:
-        {editing.expiry === null
+        {word(WORDS.expires, "Expires")}:
+        {currentExpiry === null
           ? word("UI/AclBookmarks/ExpireNever", "Kept until deleted")
-          : filled(WORDS.dateTime, "{[datetime]datetime}", { datetime: String(editing.expiry) })}
-        {#if editing.expiry !== null}
-          <label><input type="checkbox" bind:checked={expiryCancel} /> {word(WORDS.cancelExpiry, "Keep it after all")}</label>
-        {/if}
+          : filled(WORDS.dateTime, "{[datetime]datetime}", { datetime: String(currentExpiry) })}
+        <label><input type="checkbox" bind:checked={editExpiry} /> {word(WORDS.editExpiry, "Edit Expiry Time")}</label>
       </p>
-    {:else}
-      <fieldset class="bookmark-expiry">
-        <legend title={word(WORDS.expiryHelp, "")}>{word(WORDS.expire, "Expire")}</legend>
-        {#each EXPIRIES as [value, path, own] (value)}
-          <label>
-            <input type="radio" name="bookmark-expiry" checked={expiry === value} onchange={() => (expiry = value)} />
-            {word(path, own)}
-          </label>
-        {/each}
-      </fieldset>
     {/if}
+    <fieldset class="bookmark-expiry" disabled={editing !== null && !editExpiry}>
+      <legend title={word(WORDS.expiryHelp, "")}>{word(WORDS.expire, "Expire")}</legend>
+      {#each EXPIRIES as [value, path, own] (value)}
+        <label>
+          <input type="radio" name="bookmark-expiry" checked={expiry === value} onchange={() => (expiry = value)} />
+          {word(path, own)}
+        </label>
+      {/each}
+    </fieldset>
     <p class="controls">
       <label>
         {word(WORDS.folder, "Folder")}

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 import { bridgeDo } from "../app/api.ts";
 import type { Ask } from "./ask.ts";
-import { BOOKMARK_EXPIRY, bookmarkLocation } from "./bookmarkWrites.ts";
+import { BOOKMARK_EXPIRY, bookmarkLocation, updateBookmark } from "./bookmarkWrites.ts";
 import type { JsonValue } from "./wire.ts";
 
 /** A stand-in for the page's asking: what was asked, and `answer` (or what it throws) for each. */
@@ -22,6 +22,18 @@ function asking(answer: JsonValue | Error = null) {
 test("the times a bookmark is kept for are the client's four", () => {
   // bookmarkConst: BOOKMARK_EXPIRY_NONE 0, _4HOURS 1, _2DAYS 2, _24HOURS 3.
   assert.deepEqual(BOOKMARK_EXPIRY, { none: 0, fourHours: 1, twoDays: 2, oneDay: 3 });
+});
+
+test("a 24.02 bookmark edit distinguishes leaving, setting and removing its expiry", async () => {
+  const { act, asked } = asking();
+  for (const expiry of [null, BOOKMARK_EXPIRY.fourHours, BOOKMARK_EXPIRY.none]) {
+    await updateBookmark(act, 900001, 7000001, "A\tspot", "note", null, 7000002, expiry);
+  }
+  const prefix = [900001, 7000001, "A spot", "note", null, 7000002];
+  assert.deepEqual(asked, [[false, null], [true, 1], [true, 0]].map(suffix =>
+    ["accessGroupBookmarkMgr", "UpdateBookmark", [...prefix, ...suffix], null, null]));
+  await assert.rejects(updateBookmark(act, 900001, 7000001, "A spot", "", null, 7000002, 14), /Choose a bookmark expiry option/);
+  assert.equal(asked.length, 3);
 });
 
 test("a place is bookmarked by one call of beyonce: the thing, the folder, the name, the note and the time, with the subfolder by keyword; and answers the bookmark's number", async () => {

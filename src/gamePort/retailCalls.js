@@ -1543,16 +1543,14 @@ const bookmarkingStatic = (args, kwargs) => {
 };
 
 /**
- * bookmarkSvc.UpdateACLBookmark (642 to 646): UpdateBookmark(bookmarkID, folderID, name, note, subfolderID,
- * newFolderID, expiryCancel), the last the window's 0 until its Cancel automated expiry box is ticked
- * (bookmarkLocationWindow.py 55, 180 to 182), then the box's True or False.
+ * 24.02 bookmarkSvc.UpdateACLBookmark sends editExpiry and the selected mode, or None when unchanged.
  */
 const updatingBookmark = (args, kwargs) => {
-  if (args.length !== 7 || Object.keys(kwargs).length > 0) {
-    return { args, kwargs, status: "differs", note: "The client sends seven: the bookmark, its folder, the name, the note, the subfolder, the folder chosen and whether its expiry is cancelled." };
+  if (args.length !== 8 || Object.keys(kwargs).length > 0 ||
+      (args[6] !== false || args[7] !== null) && (args[6] !== true || ![0, 1, 2, 3].includes(args[7]))) {
+    return { args, kwargs, status: "differs", note: "24.02 sends eight arguments, ending with (False, None) to keep the expiry or (True, mode) to change it." };
   }
-  const cancel = args[6];
-  return cancel === true || cancel === 0 ? { args, kwargs } : { args: [...args.slice(0, 6), cancel === false ? 0 : cancel], kwargs, status: "reshaped" };
+  return { args, kwargs };
 };
 
 /**
@@ -2632,7 +2630,7 @@ const RETAIL_CALLS = Object.freeze({
   "accessGroupBookmarkMgr.UpdateBookmark": typing(Object.freeze({
     status: "same",
     source: "eve/client/script/ui/shared/bookmarks/bookmarkSvc.py:646",
-    note: "self.accessGroupBookmarkMgr.UpdateBookmark(bookmarkID, folderID, name, note, subfolderID, newFolderID, expiryCancel): the bookmark window's Submit in its edit (Edit Location, a bookmark's menu or its double click); the name the label's and the note the editor's, unicode where they hold text. In no recording.",
+    note: "24.02 UpdateBookmark(bookmarkID, folderID, name, note, subfolderID, newFolderID, editExpiry, expiryMode), with the label and note in unicode.",
     shape: updatingBookmark,
   }), [2, 3]),
   "accessGroupBookmarkMgr.DeleteBookmarks": reshaped("eve/client/script/ui/shared/bookmarks/bookmarkSvc.py:664", bookmarksOfFolder, "self.accessGroupBookmarkMgr.DeleteBookmarks(folderID, bookmarks), each folder's bookmarks a set, from Remove Location after RemoveLocation or RemoveMultipleLocation; answered the ones deleted. In no recording."),

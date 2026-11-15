@@ -4907,8 +4907,7 @@ export interface AppFlow {
   readLocations(): Promise<ActiveBookmarks>;
   /**
    * The bookmark window's Submit in its edit (bookmarkLocationWindow.py _ConfirmAclBookmark, 219 to 220;
-   * bookmarkSvc.UpdateACLBookmark): the bookmark's label, note, folder and subfolder, and its expiry taken away
-   * where `expiryCancel`. Fails as the call fails.
+   * bookmarkSvc.UpdateACLBookmark): the bookmark's label, note, folder and subfolder, and optionally a new expiry mode.
    */
   updateBookmark(change: {
     readonly bookmarkID: number;
@@ -4917,7 +4916,7 @@ export interface AppFlow {
     readonly note: string;
     readonly subfolderID: number | null;
     readonly newFolderID: number;
-    readonly expiryCancel: boolean;
+    readonly expiryMode: number | null;
   }): Promise<void>;
   /**
    * Remove Location (bookmarkSvc.DeleteBookmarks, 656 to 668): the bookmarks deleted folder by folder. Answers the
@@ -35109,7 +35108,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     updateBookmark(change) {
-      return updateBookmarkCall(bridgeDo, change.bookmarkID, change.folderID, change.label, change.note, change.subfolderID, change.newFolderID, change.expiryCancel);
+      return updateBookmarkCall(bridgeDo, change.bookmarkID, change.folderID, change.label, change.note, change.subfolderID, change.newFolderID, change.expiryMode);
     },
 
     async deleteBookmarks(bookmarks) {

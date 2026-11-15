@@ -96,11 +96,9 @@ export async function bookmarkStaticLocation(act: Ask, itemID: number, folderID:
 /**
  * Edits the bookmark `bookmarkID`, as the bookmark window's Submit edits one (bookmarkLocationWindow.py
  * _ConfirmAclBookmark, 219 to 220; bookmarkSvc.UpdateACLBookmark, 642 to 646):
- * accessGroupBookmarkMgr.UpdateBookmark(bookmarkID, folderID, name, note, subfolderID, newFolderID, expiryCancel),
- * `folderID` the folder it is in, `newFolderID` and `subfolderID` the ones chosen, `expiryCancel` whether its
- * expiry is taken away. Fails as the call fails.
+ * 24.02 sends editExpiry and a mode. A null expiryMode leaves the existing deadline untouched.
  */
-export async function updateBookmark(act: Ask, bookmarkID: number, folderID: number, name: string, note: string, subfolderID: number | null, newFolderID: number, expiryCancel: boolean): Promise<void> {
+export async function updateBookmark(act: Ask, bookmarkID: number, folderID: number, name: string, note: string, subfolderID: number | null, newFolderID: number, expiryMode: number | null): Promise<void> {
   if (!anID(bookmarkID)) {
     throw new Error("That is no bookmark.");
   }
@@ -114,7 +112,10 @@ export async function updateBookmark(act: Ask, bookmarkID: number, folderID: num
   if (label.trim() === "") {
     throw new Error("A bookmark needs a name.");
   }
-  await act("accessGroupBookmarkMgr", "UpdateBookmark", [bookmarkID, folderID, label, note, subfolderID, newFolderID, expiryCancel]);
+  if (expiryMode !== null && !(Object.values(BOOKMARK_EXPIRY) as number[]).includes(expiryMode)) {
+    throw new Error("Choose a bookmark expiry option.");
+  }
+  await act("accessGroupBookmarkMgr", "UpdateBookmark", [bookmarkID, folderID, label, note, subfolderID, newFolderID, expiryMode !== null, expiryMode]);
 }
 
 /**
