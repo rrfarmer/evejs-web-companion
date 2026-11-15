@@ -35,6 +35,8 @@
   import { onMount, tick, untrack } from "svelte";
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import InventoryFilters from "./InventoryFilters.svelte";
+  import { FILTER_FIELD, matchInventoryFilter, roundInventoryFilterPrice, type InventoryFilter } from "../bridge/inventoryFilters.ts";
   import { showInfo } from "./showInfo.ts";
   import KeyActivationWindow from "./KeyActivationWindow.svelte";
   import { ABYSS_WINDOW_LABELS, offersActivateAbyssalKey, type FilamentPlace } from "../bridge/abyssalKeys.ts";
@@ -273,6 +275,20 @@
 
   let view = $state<View>("ship");
   let query = $state("");
+  let itemFilters = $state<readonly InventoryFilter[]>([]);
+  let filterPrices = $state<ReadonlyMap<number, number | null> | null>(null);
+  let filterPriceError = $state(false);
+  const needsFilterPrices = $derived(itemFilters.some(([, , conditions]) => conditions.some(([field]) => field === FILTER_FIELD.price)));
+  $effect(() => { if (!$station.online?.characterID) itemFilters = []; });
+  $effect(() => {
+    if (!needsFilterPrices) return;
+    let current = true;
+    filterPriceError = false;
+    void flow.cfgAveragePrices().then(prices => {
+      if (current) { filterPrices = prices; filterPriceError = prices === null; }
+    }).catch(() => { if (current) filterPriceError = true; });
+    return () => { current = false; };
+  });
   let sort = $state<SortOrder>({ key: "name", dir: 1 });
   // ⚠ NUMBER, NOT TEXT. The Qty box is `<input type="number">` and Svelte binds
   // one back as a number (null while it is empty), so typing this as a string
@@ -827,7 +843,7 @@
     event.dataTransfer?.setData(DRAG_MIME, encodeDrag(payload));
     event.dataTransfer?.setData("text/plain", nameOf(row));
     if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.effectAllowed = "copyMove";
     }
   }
 
@@ -906,12 +922,16 @@
     return g.rows.length === 1 ? "1 stack" : `${g.rows.length} stacks`;
   }
 
+  function shownByFilters(row: InventoryItemRow): boolean {
+    const name = nameOf(row);
+    if (!matchesFilter(name, query)) return false;
+    const price = filterPrices?.get(row.typeID);
+    const facts = filterPrices === null ? {} : { [FILTER_FIELD.price]: price == null ? null : roundInventoryFilterPrice(price) };
+    return itemFilters.every(filter => matchInventoryFilter(row, name, filter, facts) !== false);
+  }
+
   function present(rows: readonly InventoryItemRow[]): readonly InventoryItemRow[] {
-    return sortInventoryRows(
-      rows.filter((row) => matchesFilter(nameOf(row), query)),
-      sort,
-      nameOf,
-    );
+    return sortInventoryRows(rows.filter(shownByFilters), sort, nameOf);
   }
 
   function makeGroup(over: Partial<Group> & Pick<Group, "key" | "title" | "place" | "rows">): Group {
@@ -1035,6 +1055,7 @@
     return ship.singleton ? "Docked here" : `Packaged · ${ship.quantity.toLocaleString()}`;
   }
   const ships = $derived(shipRows($inventory));
+  const shownShips = $derived(ships.filter(shownByFilters));
 
   // --- the locations --------------------------------------------------------
 
@@ -1798,6 +1819,14 @@
     </label>
   </div>
 
+  {#if $station.online?.characterID}
+    {#key $station.online.characterID}
+      <InventoryFilters {store} {flow} onFilters={filters => { itemFilters = filters; }}
+        selectedTypes={itemID => selectedRows.some(row => row.itemID === itemID) ? selectedRows.map(row => row.typeID) : []} />
+    {/key}
+  {/if}
+  {#if needsFilterPrices && filterPriceError}<p class="stn-note">Average prices could not be loaded for the filter.</p>{/if}
+
   <!-- =============================================================== notes -->
   {#if notes.length > 0}
     <div class="stn-notes">
@@ -1873,6 +1902,8 @@
         <p class="stn-note bad">Your ships could not be listed: {$inventory.hangar.error}</p>
       {:else if ships.length === 0}
         <p class="stn-note">{$inventory.loaded ? "You have no ships here." : "Looking for your ships…"}</p>
+      {:else if shownShips.length === 0}
+        <p class="stn-note">No ships match the active filters.</p>
       {:else}
         <div class="stn-colhead stn-ship-colhead">
           <span></span>
@@ -1882,7 +1913,7 @@
           <span class="stn-cell-move">Actions</span>
         </div>
         <ul class="stn-rows">
-          {#each ships as ship (ship.itemID)}
+          {#each shownShips as ship (ship.itemID)}
             {@const flying = ship.itemID === $inventory.activeShipID}
             <li class="stn-row stn-ship-row" class:flying class:picked={openShip?.itemID === ship.itemID}
               draggable="true" ondragstart={event => startDrag(event, ship, { kind: "hangar" })}>
