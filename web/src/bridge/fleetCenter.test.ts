@@ -156,13 +156,14 @@ test("each commander's place is read off the roster, the composition's word firs
 });
 
 test("fleet invite notification retains the authoritative fleet and inviter IDs", () => {
+  const parameters = { type: "dict", entries: [["autoAccept", false], ["name", { type: "tuple", items: [2, 140000002] }]] };
   assert.deepEqual(
     decodeFleetInviteNotification(
       "OnFleetInvite",
-      [{ type: "long", value: "654500010000" }, 140000002, "AskJoinFleet", {}],
+      [{ type: "long", value: "654500010000" }, 140000002, "AskJoinFleet", parameters],
       1234,
     ),
-    { fleetID: 654500010000, inviterID: 140000002, receivedAtMs: 1234 },
+    { fleetID: 654500010000, inviterID: 140000002, receivedAtMs: 1234, dialog: "AskJoinFleet", parameters, autoAccept: false },
   );
   assert.equal(decodeFleetInviteNotification("OnFleetJoin", [1, 2], 1234), null);
   assert.equal(decodeFleetInviteNotification("OnFleetInvite", [0, 2], 1234), null);
