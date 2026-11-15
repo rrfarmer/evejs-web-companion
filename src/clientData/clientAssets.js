@@ -8,6 +8,7 @@ const { promisify } = require("node:util");
 const { clientBuild } = require("../../tools/client-extract/lib/resfiles.mjs");
 const { droneTurret } = require("../../tools/client-extract/lib/droneTurrets.mjs");
 const { SOF_BUILD } = require("../../tools/client-extract/lib/sof.mjs");
+const { TURRET_BUILD } = require("../../tools/client-extract/lib/turret.mjs");
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const EXTRACTOR = path.join(REPO_ROOT, "tools", "client-extract", "extract.mjs");
@@ -144,7 +145,7 @@ async function resolveAsset(rel, dir, ensure, canExtract) {
       }
     }
     return /\/turret\//i.test(resource ?? "")
-      ? { file: await ensure(resStem(resource, /\.(red|black)$/) + ".turret.json", ["--turret", resource], '"turretBuild": 13') }
+      ? { file: await ensure(resStem(resource, /\.(red|black)$/) + ".turret.json", ["--turret", resource], `"turretBuild": ${TURRET_BUILD}`) }
       : { json: { typeID: Number(id), turret: null } };
   }
 

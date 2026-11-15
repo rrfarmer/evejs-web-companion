@@ -37,7 +37,7 @@ import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelesti
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
-import { readTurret, ammoColors } from "./lib/turret.mjs";
+import { readTurret, ammoColors, TURRET_BUILD } from "./lib/turret.mjs";
 import { spawnSync } from "node:child_process";
 import { readMissileModel, groupGraphics, graphicIdsOfType, sdeGraphic } from "./lib/missile.mjs";
 import { readBlack } from "./lib/black.mjs";
@@ -382,7 +382,7 @@ async function extractFxGraphic(rf, clientDir, sde, guid, outRoot) {
  * graphic that is no turret set: {turret: null}).
  */
 export async function extractTurret(rf, graphicFile, outRoot) {
-  const t = readTurret(rf, graphicFile) ?? { turretBuild: 4, graphicFile, turret: null };
+  const t = readTurret(rf, graphicFile) ?? { turretBuild: TURRET_BUILD, graphicFile, turret: null };
   // its model extracted as a hull's (once) and its textures copied
   if (t.geometry) {
     const stem = t.geometry.slice("res:/".length, -".gr2".length);
@@ -406,7 +406,7 @@ export async function extractTurret(rf, graphicFile, outRoot) {
         })),
         vertexBones: col ? Array.from({ length: mesh.PrimaryVertexData.Vertices.count }, (_, i) => binding[col.data[i * col.width]] ?? 0) : null,
         // its animations (Deploy, Active, Fire, Pack, Inactive, Reload...): per bone, position / orientation / scale-shear
-        // keys (lib/grannyAnim.mjs)
+        // controls and knots (lib/grannyAnim.mjs)
         animations: readAnimations(g.root).animations,
       };
     }

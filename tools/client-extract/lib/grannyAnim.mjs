@@ -1,10 +1,9 @@
 // A Granny file's animations as keys: each animation's name and duration, and per bone (its transform track) the
-// position, orientation and scale/shear keys - time and value - decoded from Granny's curve formats. The formats' layouts
+// position, orientation and scale/shear controls and knots decoded from Granny's curve formats. The formats' layouts
 // follow Norbyte's LSLib (MIT; LSLib/Granny/Model/CurveData) as a reference; the code is ours.
 //
-// Every animated curve in the client's turrets is of degree 2 (a quadratic B-spline whose control points are stored
-// one per knot). As LSLib does, each control point is taken as the key value at its knot (an approximation of the
-// spline: the controls lie close to the curve). Constant curves give one key; DaIdentity none (the track keeps the
+// The client's turret animations use quadratic B-splines, with one control per knot. The web player
+// samples the controls using their saved degree. Constant curves give one value; DaIdentity none (the track keeps the
 // component's identity: no move, no turn, unit scale).
 
 /** 16 scale and offset entries the compressed quaternion formats index (D4nK16uC15u, D4nK8uC7u). */
@@ -43,7 +42,7 @@ function quatFromControl(a, b, c, bits, scales, offsets) {
 }
 
 /**
- * One curve as keys: { times, values (flat, `width` per key), width } or null for an identity curve. `width` is the
+ * One curve as { times, values (flat, `width` per control), width, degree } or null for an identity curve. `width` is the
  * curve's dimension (3 position, 4 orientation, 9 scale/shear).
  */
 export function decodeCurve(curve, width) {
@@ -51,16 +50,17 @@ export function decodeCurve(curve, width) {
   if (!d) return null;
   const key = Object.keys(d).find((k) => k.startsWith("CurveDataHeader_")) ?? "";
   const format = key.slice("CurveDataHeader_".length);
+  const degree = Number(d[key]?.Degree ?? 0);
   switch (format) {
     case "DaIdentity": return null;
     case "D3Constant32f": case "D4Constant32f": case "DaConstant32f": {
       const v = nums(d.Controls);
-      return { times: [0], values: v.slice(0, width), width };
+      return { times: [0], values: v.slice(0, width), width, degree };
     }
     case "DaK32fC32f": {
       const times = nums(d.Knots), c = nums(d.Controls);
       const w = times.length ? Math.round(c.length / times.length) : width;
-      return { times, values: c, width: w };
+      return { times, values: c, width: w, degree };
     }
     case "D4nK16uC15u": case "D4nK8uC7u": {
       const bits = format === "D4nK16uC15u" ? 16 : 8;
@@ -74,10 +74,10 @@ export function decodeCurve(curve, width) {
       const n = Math.floor(kc.length / 4);
       const times = [], values = [];
       for (let i = 0; i < n; i++) {
-        times.push(kc[i] / scale);
+        times.push(Math.fround(kc[i] / scale));
         values.push(...quatFromControl(kc[n + i * 3], kc[n + i * 3 + 1], kc[n + i * 3 + 2], bits, scales, offsets));
       }
-      return { times, values, width: 4 };
+      return { times, values, width: 4, degree };
     }
     case "D3I1K16uC16u": case "D3I1K8uC8u": case "D3K16uC16u": case "D3K8uC8u": case "D3I1K32fC32f": {
       const kc = nums(d.KnotsControls);
@@ -87,10 +87,10 @@ export function decodeCurve(curve, width) {
       const cs = nums(d.ControlScales), co = nums(d.ControlOffsets);
       const times = [], values = [];
       for (let i = 0; i < n; i++) {
-        times.push(format === "D3I1K32fC32f" ? kc[i] : kc[i] / scale);
+        times.push(format === "D3I1K32fC32f" ? kc[i] : Math.fround(kc[i] / scale));
         for (let j = 0; j < 3; j++) values.push(kc[n + (one ? i : i * 3 + j)] * (cs[j] ?? 0) + (co[j] ?? 0));
       }
-      return { times, values, width: 3 };
+      return { times, values, width: 3, degree };
     }
     default:
       return { unsupported: format };

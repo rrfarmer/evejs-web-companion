@@ -18,9 +18,10 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadDds } from "./ddsTexture.ts";
+import { sampleGrannyTrack, type GrannyTrack } from "./grannyTrack.ts";
 import { HULL_TEXTURE_ROLES, sofHullMaterial, type SofArea, type SofMaterial } from "./hullModel.ts";
 
-/** A turret module's graphic as the extractor reads it (lib/turret.mjs, turretBuild 2; GET /client-assets/turret/<typeID>). */
+/** A turret module's graphic as the extractor reads it (lib/turret.mjs; GET /client-assets/turret/<typeID>). */
 export interface TurretModelInfo {
   turret?: null;
   model?: string | null; locatorName?: string; effect?: string | null; maxCyclingFirePos?: number;
@@ -29,26 +30,10 @@ export interface TurretModelInfo {
   aiming?: TurretAimingData | null;
   useRandomFiringDelay?: boolean; maxTrackingTime?: number;
 }
-/** A decoded key track (lib/grannyAnim.mjs): times, values `width` per key. */
-interface KeyTrack { times: number[]; values: number[]; width: number }
-interface TurretAnimation { name: string; duration: number; tracks: Record<string, { position: KeyTrack | null; orientation: KeyTrack | null; scaleShear: KeyTrack | null }> }
+interface TurretAnimation { name: string; duration: number; tracks: Record<string, { position: GrannyTrack | null; orientation: GrannyTrack | null; scaleShear: GrannyTrack | null }> }
 /** One PlayAnimation's player: its animation, when it starts and stops (ms; stop Infinity loops), once or looping. */
 interface Player { anim: TurretAnimation; start: number; stop: number; loop: boolean }
 
-/** A track's value at a time: the keys' straight interpolation (orientation slerped, its hemisphere kept). */
-function sampleTrack(k: KeyTrack, t: number, out: number[]): number[] {
-  const n = k.times.length, w = k.width;
-  if (n === 1 || t <= k.times[0]!) { for (let j = 0; j < w; j++) out[j] = k.values[j]!; return out; }
-  if (t >= k.times[n - 1]!) { for (let j = 0; j < w; j++) out[j] = k.values[(n - 1) * w + j]!; return out; }
-  let i = 1;
-  while (i < n - 1 && k.times[i]! < t) i++;
-  const t0 = k.times[i - 1]!, t1 = k.times[i]!;
-  const f = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
-  let sign = 1;
-  if (w === 4) { let d = 0; for (let j = 0; j < 4; j++) d += k.values[(i - 1) * 4 + j]! * k.values[i * 4 + j]!; if (d < 0) sign = -1; }
-  for (let j = 0; j < w; j++) out[j] = k.values[(i - 1) * w + j]! * (1 - f) + sign * k.values[i * w + j]! * f;
-  return out;
-}
 interface TurretBone { name: string; parent: number; position: number[]; orientation: number[]; scaleShear: number[]; inverseWorld: number[] | null }
 /** EveTurretAiming's numbers (degrees where angles). */
 interface TurretAimingData {
@@ -112,12 +97,12 @@ export class TurretRig {
       const rest = this.rest[i]!;
       const track = player?.anim.tracks[o.name.slice("bone:".length)];
       if (!player || !track) { o.position.copy(rest.p); o.quaternion.copy(rest.q); return; }
-      const d = player.anim.duration;
+      const loopDuration = player.loop ? player.anim.duration : 0;
       let t = (now - player.start) / 1000;
-      if (player.loop && d > 0) t %= d;
-      if (track.position) { sampleTrack(track.position, t, v); o.position.set(v[0]!, v[1]!, v[2]!); } else o.position.set(0, 0, 0);
-      if (track.orientation) { sampleTrack(track.orientation, t, v); o.quaternion.set(v[0]!, v[1]!, v[2]!, v[3]!).normalize(); } else o.quaternion.identity();
-      if (track.scaleShear) { sampleTrack(track.scaleShear, t, v); o.scale.set(v[0]!, v[4]!, v[8]!); } else o.scale.set(1, 1, 1);
+      if (loopDuration > 0) t %= loopDuration;
+      if (track.position) { sampleGrannyTrack(track.position, t, v, loopDuration); o.position.set(v[0]!, v[1]!, v[2]!); } else o.position.set(0, 0, 0);
+      if (track.orientation) { sampleGrannyTrack(track.orientation, t, v, loopDuration); o.quaternion.set(v[0]!, v[1]!, v[2]!, v[3]!).normalize(); } else o.quaternion.identity();
+      if (track.scaleShear) { sampleGrannyTrack(track.scaleShear, t, v, loopDuration); o.scale.set(v[0]!, v[4]!, v[8]!); } else o.scale.set(1, 1, 1);
     });
   }
 
