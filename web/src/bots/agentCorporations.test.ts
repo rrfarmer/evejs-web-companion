@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ApiOptions } from "../app/api.ts";
-import { agentCorporations, readAgentCorporations } from "./agentCorporations.ts";
+import { agentCorporations, createAgentCorporationsReader, readAgentCorporations, type AgentCorporation } from "./agentCorporations.ts";
 
 test("each corporation is offered once, by name, in name order", () => {
   const agents = [
@@ -42,15 +42,14 @@ function options(answer: (url: string) => unknown, seen: Seen[]): ApiOptions {
 
 test("the list is read per level for the step's kind, and named in one batch", async () => {
   const seen: Seen[] = [];
-  const result = await readAgentCorporations("courier", options((url) => {
+  const corporations = await readAgentCorporations("courier", options((url) => {
     if (url.includes("/api/agents/find")) {
       const level = Number(new URL(url, "http://x").searchParams.get("level"));
       return { ok: true, agents: [{ agentID: level, name: `Agent ${level}`, corporationID: level === 4 ? 1000002 : 1000001 }] };
     }
     return { ok: true, names: { "corporation:1000001": "Zeta Couriers", "corporation:1000002": "Alpha Freight" } };
   }, seen));
-  assert.equal(result.error, null);
-  assert.deepEqual(result.corporations, [
+  assert.deepEqual(corporations, [
     { id: 1000002, name: "Alpha Freight" },
     { id: 1000001, name: "Zeta Couriers" },
   ]);
@@ -67,12 +66,26 @@ test("the combat finder's list is read from security agents, levels 1 to 5", asy
   assert.ok(seen.every((s) => /kind=encounter/.test(s.url)));
 });
 
-test("a failed read is an error, not an empty list", async () => {
+test("a failed read throws, and is never an empty list", async () => {
   const failing: ApiOptions = {
     fetch: (async () => new Response("{}", { status: 500 })) as typeof fetch,
     token: "test-token",
   };
-  const result = await readAgentCorporations("courier", failing);
-  assert.deepEqual(result.corporations, []);
-  assert.notEqual(result.error, null);
+  await assert.rejects(readAgentCorporations("courier", failing));
+});
+
+test("the reader keeps each kind's answer, and asks again after a failure", async () => {
+  const asked: string[] = [];
+  let fail = true;
+  const read = createAgentCorporationsReader(async (kind): Promise<AgentCorporation[]> => {
+    asked.push(kind);
+    if (fail) throw new Error("down");
+    return [{ id: 1000001, name: kind }];
+  });
+  await assert.rejects(read("courier"));
+  fail = false;
+  assert.deepEqual(await read("courier"), [{ id: 1000001, name: "courier" }]);
+  await read("courier");
+  assert.deepEqual(await read("encounter"), [{ id: 1000001, name: "encounter" }]);
+  assert.deepEqual(asked, ["courier", "courier", "encounter"]);
 });

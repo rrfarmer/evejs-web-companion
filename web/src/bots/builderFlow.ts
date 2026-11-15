@@ -21,7 +21,8 @@
 import * as api from "../app/api.ts";
 import type { ApiOptions } from "../app/api.ts";
 import type { AppFlow } from "../app/flow.ts";
-import { readAgentCorporations } from "./agentCorporations.ts";
+import { refusalWords } from "../bridge/refusals.ts";
+import { createAgentCorporationsReader, readAgentCorporations } from "./agentCorporations.ts";
 
 /**
  * The slice of `AppFlow` the Builder and its pickers call.
@@ -64,6 +65,7 @@ export const NO_PILOT_FOR_CORP_OFFICES = "No pilot is in the client to read a co
  * and the Builder's library read already says so on screen.
  */
 export function createPilotlessBuilderFlow(accountOptions: () => Promise<ApiOptions>): BuilderFlow {
+  const agentCorporationsOf = createAgentCorporationsReader(async (kind) => readAgentCorporations(kind, await accountOptions()));
   return {
     requestOptions: accountOptions,
     // They belong to a character, and an account sign-in has none selected. Without the folders the Builder's
@@ -85,6 +87,13 @@ export function createPilotlessBuilderFlow(accountOptions: () => Promise<ApiOpti
     // keeps the step on the pilot's own hangar and says it could not check.
     loadCorpOffices: async () => ({ stationIDs: [], divisions: [], error: NO_PILOT_FOR_CORP_OFFICES }),
     // The agent table is static data, so the finder's corporation list needs no pilot.
-    loadAgentCorporations: async (kind) => readAgentCorporations(kind, await accountOptions()),
+    // A failed sign-in is worded here too, so the picker says why it has no list.
+    async loadAgentCorporations(kind) {
+      try {
+        return { corporations: await agentCorporationsOf(kind), error: null };
+      } catch (error) {
+        return { corporations: [], error: refusalWords(error instanceof Error ? error.message : String(error)) };
+      }
+    },
   };
 }

@@ -100,6 +100,15 @@ test("the agent finder's corporations are static data, read as the account", asy
   assert.ok(seen.every((call) => /\/api\/agents\/find\?/.test(call.url) && call.auth === "Bearer account-pass-token"));
 });
 
+test("no account to sign in is said in the corporation picker, not a bare failure", async () => {
+  const flow = createPilotlessBuilderFlow(async () => {
+    throw new Error("No account this browser knows could be signed in.");
+  });
+  const result = await flow.loadAgentCorporations("encounter");
+  assert.deepEqual(result.corporations, []);
+  assert.match(result.error ?? "", /No account/);
+});
+
 test("no account to sign in is an error the caller sees, not an empty library", async () => {
   const flow = createPilotlessBuilderFlow(async () => {
     throw new Error("No account this browser knows could be signed in.");

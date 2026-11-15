@@ -4,14 +4,14 @@
   //
   // A list, not a text field, because the finder filters by corporation ID and a
   // typed name carries none: every name a player typed used to fail the step's
-  // check. The list is read once per mount from the static agent table.
+  // check. The list is read from the static agent table, once per finder kind.
   //
   // Its own component for the reason `CorpHangarPicker.svelte` is one: Svelte
   // templates are not type-checked here, and an SSR render is the only net a
   // template has. Everything arrives as a prop.
 
   import type { AppFlow } from "../app/flow.ts";
-  import type { AgentCorporation } from "../bots/agentCorporations.ts";
+  import type { AgentCorporation, AgentFinderKind } from "../bots/agentCorporations.ts";
 
   let {
     id,
@@ -23,7 +23,7 @@
     id: string;
     flow: Pick<AppFlow, "loadAgentCorporations">;
     /** The agents the step looks for: "courier" (delivery) or "encounter" (combat). */
-    kind: "courier" | "encounter";
+    kind: AgentFinderKind;
     /** The corporation the step holds now, or null for any corporation. */
     value: { id: number | null; name: string | null } | null;
     onPick: (corporation: AgentCorporation | null) => void;
@@ -32,23 +32,34 @@
   let corporations = $state<readonly AgentCorporation[]>([]);
   let readError = $state<string | null>(null);
   let loading = $state(true);
-  let loaded = false;
+  // The inspector keeps this picker when the selection moves from one finder
+  // step to another (the argument is "corporation" on both), so the list is
+  // read again whenever the kind changes, and a late answer for the old kind is
+  // dropped rather than shown under the new one.
+  let readFor: AgentFinderKind | null = null;
 
   $effect(() => {
-    if (loaded) {
+    const wanted = kind;
+    if (readFor === wanted) {
       return;
     }
-    loaded = true;
+    readFor = wanted;
+    corporations = [];
+    readError = null;
+    loading = true;
     void (async () => {
+      let answer: { corporations: readonly AgentCorporation[]; error: string | null };
       try {
-        const result = await flow.loadAgentCorporations(kind);
-        corporations = result.corporations;
-        readError = result.error;
+        answer = await flow.loadAgentCorporations(wanted);
       } catch {
-        readError = "the read failed";
-      } finally {
-        loading = false;
+        answer = { corporations: [], error: "the read failed" };
       }
+      if (readFor !== wanted) {
+        return;
+      }
+      corporations = answer.corporations;
+      readError = answer.error;
+      loading = false;
     })();
   });
 
@@ -57,10 +68,15 @@
   // can choose a corporation from the list or "any corporation" instead.
   const typedOnly = $derived(value !== null && value.id === null ? value.name ?? "" : null);
   // A chosen corporation the list does not hold (still loading, a failed read)
-  // stays selected under the name the step saved with it.
-  const heldOutside = $derived(
-    value !== null && value.id !== null && !corporations.some((c) => c.id === value.id) ? value : null,
-  );
+  // is listed under the name the step saved with it. It is one keyed list with
+  // the read ones, so when the read lands the chosen option is the same element
+  // and stays selected, instead of being removed and added back.
+  const shown = $derived.by((): readonly AgentCorporation[] => {
+    if (value === null || value.id === null || corporations.some((c) => c.id === value.id)) {
+      return corporations;
+    }
+    return [{ id: value.id, name: value.name ?? `Corporation ${value.id}` }, ...corporations];
+  });
   const selected = $derived(value === null ? "" : value.id === null ? "typed" : String(value.id));
 
   function pick(raw: string): void {
@@ -68,7 +84,7 @@
       onPick(null);
       return;
     }
-    const match = corporations.find((c) => String(c.id) === raw);
+    const match = shown.find((c) => String(c.id) === raw);
     if (match !== undefined) {
       onPick(match);
     }
@@ -78,8 +94,7 @@
 <select {id} value={selected} onchange={(e) => pick(e.currentTarget.value)}>
   <option value="">any corporation</option>
   {#if typedOnly !== null}<option value="typed" disabled>{typedOnly} (typed, choose from the list)</option>{/if}
-  {#if heldOutside !== null && heldOutside.id !== null}<option value={String(heldOutside.id)}>{heldOutside.name ?? `Corporation ${heldOutside.id}`}</option>{/if}
-  {#each corporations as corporation (corporation.id)}<option value={String(corporation.id)}>{corporation.name}</option>{/each}
+  {#each shown as corporation (corporation.id)}<option value={String(corporation.id)} selected={String(corporation.id) === selected}>{corporation.name}</option>{/each}
 </select>
 {#if loading}<span class="inspector-unit">reading corporations...</span>{/if}
 {#if readError !== null}<p class="note">Could not read the corporations: {readError}</p>{/if}

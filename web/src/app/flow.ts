@@ -786,7 +786,7 @@ import {
 } from "../bridge/reloadNotifications.ts";
 import type { BotScript, WorldRef } from "../bots/botScript.ts";
 import { decodeScriptValue } from "../bots/scriptCodec.ts";
-import { readAgentCorporations, type AgentCorporationsResult } from "../bots/agentCorporations.ts";
+import { createAgentCorporationsReader, readAgentCorporations, type AgentCorporationsResult, type AgentFinderKind } from "../bots/agentCorporations.ts";
 import { expandSubBots, hasSubBots, type BotResolution, type SubBotReference } from "../bots/subBots.ts";
 import { autoRejectInvitations } from "./autoRejectInvitations.ts";
 import { createChatConversations, type ChatConversations } from "./chatConversations.ts";
@@ -1798,7 +1798,7 @@ export interface AppFlow {
    * comes back as `error`, never as an empty list that would look like "no
    * corporation has such agents".
    */
-  loadAgentCorporations(kind: "courier" | "encounter"): Promise<AgentCorporationsResult>;
+  loadAgentCorporations(kind: AgentFinderKind): Promise<AgentCorporationsResult>;
   /** Show a different corporation hangar division. */
   selectCorpDivision(division: number): void;
   /** Load the Fitting panel (the active ship's slots + resource readings). */
@@ -7394,8 +7394,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
-  function loadAgentCorporations(kind: "courier" | "encounter"): Promise<AgentCorporationsResult> {
-    return readAgentCorporations(kind, callOptions);
+  const agentCorporationsOf = createAgentCorporationsReader((kind) => readAgentCorporations(kind, callOptions));
+  async function loadAgentCorporations(kind: AgentFinderKind): Promise<AgentCorporationsResult> {
+    try {
+      return { corporations: await agentCorporationsOf(kind), error: null };
+    } catch (error) {
+      if (isSessionLost(error)) {
+        stopLiveStream();
+        store.apply({ type: "character/offline" });
+        throw error;
+      }
+      return { corporations: [], error: errorWords(error) };
+    }
   }
 
   // crimewatchSvc: the pilot's combat timers and its ship's safety level. The
@@ -26388,8 +26398,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
                     agentSearchFailure = selected.reason;
                   }
                 } else {
-                  // Combat finder keeps Farmer's exact-level static selection.
-                  const found = await api.findAgents({ kind, level: preferredLevel, limit: 200 }, callOptions);
+                  // Combat finder keeps Farmer's exact-level static selection. The
+                  // whole level is read: a corporation is filtered for below, and a
+                  // capped read left most corporations out before the filter ran.
+                  const found = await api.findAgents({ kind, level: preferredLevel, limit: 5000 }, callOptions);
                   let best: { agent: (typeof found.agents)[number]; jumps: number } | null = null;
                   for (const agent of found.agents) {
                     if (agent.stationID === null || agent.solarSystemID === null ||
