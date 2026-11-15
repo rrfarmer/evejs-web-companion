@@ -21,10 +21,19 @@ const DECLINE_DIALOGS = {
 } as const;
 
 export const ACADEMY_UNDOCK_DIALOG = DECLINE_DIALOGS.DECLINED_REASON_UNDOCK;
+export const ACADEMY_TRAVEL_DECLINED = "ACADEMY_SHIP_TRAVEL_DECLINED";
+
+function academyDeclineReason(typeName: string, payload: JsonValue): JsonValue | undefined {
+  if (typeName !== "eve_public.academy.ships.api.DeclinedNotice" || !payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  return (payload as Readonly<Record<string, JsonValue>>).reason;
+}
+
+export function isAcademyTravelDecline(typeName: string, payload: JsonValue): boolean {
+  return academyDeclineReason(typeName, payload) === "DECLINED_REASON_TRAVEL";
+}
 
 export function academyShipDeclineDialog(typeName: string, payload: JsonValue): { readonly key: string; readonly fallback: string } | null {
-  if (typeName !== "eve_public.academy.ships.api.DeclinedNotice" || !payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const reason = (payload as Readonly<Record<string, JsonValue>>).reason;
+  const reason = academyDeclineReason(typeName, payload);
   return typeof reason === "string" && Object.hasOwn(DECLINE_DIALOGS, reason)
     ? DECLINE_DIALOGS[reason as keyof typeof DECLINE_DIALOGS] : null;
 }

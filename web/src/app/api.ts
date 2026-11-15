@@ -4100,6 +4100,18 @@ export async function getAcademyCatalogue(options: ApiOptions = {}): Promise<Aca
   return (data.academy ?? null) as unknown as AcademyCatalogue | null;
 }
 
+/** The local Aura conversation opened by a travel decline in an Academy ship. */
+export async function getAcademyTravelConversation(options: ApiOptions = {}): Promise<{
+  readonly textID: number | null; readonly speakerID: number | null; readonly portrait: string | null;
+} | null> {
+  const read = asObject((await getJson("/api/client-data/academy-travel-conversation", options)).conversation);
+  return read ? {
+    textID: asNumberOrNull(read.textID),
+    speakerID: asNumberOrNull(read.speakerID),
+    portrait: typeof read.portrait === "string" ? read.portrait : null,
+  } : null;
+}
+
 /**
  * A solar system's region and its NPC stations, each with its celestialIndex and orbitIndex (GET
  * /api/map/system-stations/:id: the client's map data, cfg.GetLocationsLocalBySystem). Static reference data.

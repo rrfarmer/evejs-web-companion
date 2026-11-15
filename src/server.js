@@ -5232,12 +5232,15 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
     // A structure's Dock and Undock the web gateway's list has not: there the park's CmdDock of the structure is asked,
     // as the dock route asked it until 2026-10-14, and the ship's Undock, which this server takes from a structure.)
     const onTheGamePort = Boolean(gamePortPilots && isGamePortHandle(held.bridgeSessionID));
-    if (onTheGamePort && kind === "undock") {
-      const countDeclines = () => gamePortPilots.academyUndockDeclines({ userid: held.accountID }, held.bridgeSessionID);
-      const beforeUndock = countDeclines();
-      waiting.readDecline = () => countDeclines() > beforeUndock ? {
-        code: "ACADEMY_SHIP_UNDOCK_DECLINED",
-        message: "The Academy ship undock was declined.",
+    const academyAction = kind === "undock" ? "UNDOCK" : kind === "stargate" ? "TRAVEL" : null;
+    const declineCode = academyAction === null ? null : `ACADEMY_SHIP_${academyAction}_DECLINED`;
+    if (onTheGamePort && academyAction !== null) {
+      const countDeclines = () => gamePortPilots.academyDeclines(
+        { userid: held.accountID }, held.bridgeSessionID, `DECLINED_REASON_${academyAction}`);
+      const previousDeclines = countDeclines();
+      waiting.readDecline = () => countDeclines() > previousDeclines ? {
+        code: declineCode,
+        message: academyAction === "UNDOCK" ? "The Academy ship undock was declined." : "Academy ships cannot leave Exordium.",
       } : null;
     }
     const outcome = onTheGamePort || service !== "structureDocking"
@@ -5247,7 +5250,7 @@ async function dispatchPlaceChangeWrite(req, res, next, kind, service, method, a
         : await heldTopLevelCall(held, req.webSessionID, "ship", "Undock", [shipID, Boolean(kwargs && kwargs.ignoreContraband)], null);
     markTransitionAccepted(held);
     const after = await awaitRouteTransition(held, req.webSessionID, keeping, expected, waiting);
-    if (after.code === "ACADEMY_SHIP_UNDOCK_DECLINED") {
+    if (declineCode !== null && after.code === declineCode) {
       res.status(409).json({
         ok: false,
         error: after.code,
@@ -14235,6 +14238,24 @@ app.get("/api/client-data/academy-ships", requireAuth, async (req, res, next) =>
         return { fittingID: Number(id), shipTypeID, nameID, ...offer, modules, cargo };
       }),
       facts,
+    } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// academyships/client/exit_block.py opens conversation 4273 with Continue and should_close_on_continue.
+app.get("/api/client-data/academy-travel-conversation", requireAuth, async (req, res, next) => {
+  try {
+    const id = 4273;
+    const conversation = (await clientBuiltData.rows("conversations", [id]))?.[id];
+    const line = conversation?.lines?.[0];
+    if (!line) return res.json({ ok: true, conversation: null });
+    const agent = (await clientBuiltData.rows("conversationAgents", [line.agentID]))?.[line.agentID];
+    res.json({ ok: true, conversation: {
+      textID: strictPositiveID(line.text),
+      speakerID: strictPositiveID(agent?.name),
+      portrait: typeof agent?.imagePath === "string" ? agent.imagePath : null,
     } });
   } catch (err) {
     next(err);

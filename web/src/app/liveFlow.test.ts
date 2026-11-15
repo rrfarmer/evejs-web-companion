@@ -157,6 +157,21 @@ test("Academy decline notices use their installed notification strips", async ()
   assert.equal(flow.dialogsSaid.get().filter((dialog) => dialog.dialog === expected.UNDOCK).length, 1);
 });
 
+test("the Academy travel notice opens one separate conversation, including on a fresh attempt", async () => {
+  const { source, flow } = await onlineFlow();
+  const notice = { typeName: "eve_public.academy.ships.api.DeclinedNotice", payload: { reason: "DECLINED_REASON_TRAVEL" } };
+  const frame = (sequence: number) => gatewayFrame({ kind: "gateway-notice", notice }, sequence);
+  assert.equal(flow.academyTravelConversation.get(), false);
+  source.emit(frame(1));
+  assert.equal(flow.academyTravelConversation.get(), true);
+  assert.deepEqual(flow.dialogsSaid.get(), []);
+  flow.closeAcademyTravelConversation();
+  source.emit(frame(1));
+  assert.equal(flow.academyTravelConversation.get(), false, "a replay of the closed notice does not reopen it");
+  source.emit(frame(2));
+  assert.equal(flow.academyTravelConversation.get(), true, "a new attempt can open the conversation again");
+});
+
 test("a pushed chat message lands in the channel backlog without a poll", async () => {
   const { source, store, paths } = await onlineFlow();
   const before = paths.filter((p) => p === "/api/bridge/chat/local").length;

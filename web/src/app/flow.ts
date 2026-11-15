@@ -413,7 +413,7 @@ import { AGENT_FACTIONS, agencyAgents as pickAgencyAgents, standingWithSkillBonu
 import { canUseAgentAtLevel, decodeEpicArcChapterTitles, decodeEpicArcStatus, epicArcViews, type EpicArcSource, type EpicArcView } from "../bridge/epicArcs.ts";
 import { effectiveStandingWithAgent } from "../bridge/effectiveStanding.ts";
 import type { DungeonData } from "./api.ts";
-import { ACADEMY_UNDOCK_DIALOG, academyShipDeclineDialog } from "../bridge/academyShipNotices.ts";
+import { ACADEMY_TRAVEL_DECLINED, ACADEMY_UNDOCK_DIALOG, academyShipDeclineDialog, isAcademyTravelDecline } from "../bridge/academyShipNotices.ts";
 import { EXORDIUM_REGION, academyFit, academyStandardType, academyStateOf, academyTutorialLocked, type AcademyCatalogue, type AcademyOffer, type AcademyShipState } from "../bridge/academyShips.ts";
 import { readCloneGrade } from "../bridge/cloneGradeReads.ts";
 import { decodeClientStates, decodeSecurityStatus } from "../bridge/boundCrimewatch.ts";
@@ -4353,6 +4353,8 @@ export interface AppFlow {
   /** A region, constellation or solar system as the info window shows it, or null for none (api.getMapLocation). */
   mapLocationShowInfo(itemID: number): Promise<api.MapLocationInfo | null>;
   readonly academyChanged: ReadableSignal<number>;
+  readonly academyTravelConversation: ReadableSignal<boolean>;
+  closeAcademyTravelConversation(): void;
   academyAvailability(stationID: number, solarSystemID: number): Promise<"hidden" | "locked" | "available">;
   academyShipState(): Promise<AcademyShipState | null>;
   boardAcademyShip(offer: AcademyOffer): Promise<void>;
@@ -5602,6 +5604,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** The pilot's own character, as the page has it. Null with none chosen. */
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
+  const academyTravelConversation = createSignal(false);
   let academyBorrowPending = false;
   const academyShipState = async () => academyStateOf(await bridgeAsk("academy_ship", "get_academy_ship_state", []));
   async function academyAvailability(stationID: number, solarSystemID: number): Promise<"hidden" | "locked" | "available"> {
@@ -6817,7 +6820,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (event.kind === "gateway-notice") {
       const notice = (event.notice ?? {}) as Record<string, JsonValue>;
       if (typeof notice.typeName === "string") {
-        const decline = academyShipDeclineDialog(notice.typeName, notice.payload ?? null);
+        const payload = notice.payload ?? null;
+        if (isAcademyTravelDecline(notice.typeName, payload) && pushesTaken.take(record.cursor)) {
+          academyTravelConversation.set(true);
+        }
+        const decline = academyShipDeclineDialog(notice.typeName, payload);
         if (decline) sayAcademyDecline(decline);
         gatewayNoticesHeard += 1;
         gatewayNoticesSignal.set({ n: gatewayNoticesHeard, typeName: notice.typeName, payload: notice.payload ?? null });
@@ -8115,6 +8122,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   function stopLiveStream(): void {
+    academyTravelConversation.set(false);
     inventoryMoves.clear();
     if (fittingRefreshTimer !== null) clearTimeout(fittingRefreshTimer);
     fittingRefreshTimer = null;
@@ -17382,8 +17390,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   /** Jumps through a stargate by the page's own call (bridge/placeChanges.ts, the client's JumpThroughGate), between two reads of the flight. */
-  function jumpStep(fromGateID: number, toGateID = 0): Promise<FlightStepResult> {
-    return orderedStep((flightNow) => jumpCall(bridgeDo, flightNow, fromGateID, toGateID));
+  async function jumpStep(fromGateID: number, toGateID = 0): Promise<FlightStepResult> {
+    try {
+      return await orderedStep((flightNow) => jumpCall(bridgeDo, flightNow, fromGateID, toGateID));
+    } catch (error) {
+      if (error instanceof BridgeCallError && error.code === ACADEMY_TRAVEL_DECLINED) autopilot?.pause();
+      throw error;
+    }
   }
 
   /** A jump through an Ansiblex jump gate (bridge/placeChanges.ts jumpThroughJumpGate). */
@@ -26486,6 +26499,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         sayAcademyDecline(ACADEMY_UNDOCK_DIALOG);
         return;
       }
+      if (error instanceof BridgeCallError && error.code === ACADEMY_TRAVEL_DECLINED) return;
       if (isSessionLost(error)) {
         stopLiveStream();
         store.apply({ type: "character/offline" });
@@ -33588,6 +33602,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return api.getMapLocation(itemID, callOptions);
     },
     academyChanged: readonlySignal(academyChangedSignal),
+    academyTravelConversation: readonlySignal(academyTravelConversation),
+    closeAcademyTravelConversation: () => academyTravelConversation.set(false),
     academyAvailability,
     academyShipState,
     boardAcademyShip,

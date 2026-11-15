@@ -49,6 +49,8 @@ const TABLES = Object.freeze({
   // difficulty, entry type, content tags. Read by the dungeons asked.
   dungeons: Object.freeze({ loader: "dungeonsLoader", resource: "res:/staticdata/dungeons.fsdbinary", rowsOnly: true }),
   academyShips: Object.freeze({ loader: "academyShipLoader", resource: "res:/staticdata/academyship.fsdbinary" }),
+  conversations: Object.freeze({ loader: "conversationsLoader", resource: "res:/staticdata/conversations.fsdbinary", rowsOnly: true }),
+  conversationAgents: Object.freeze({ loader: "conversationAgentsLoader", resource: "res:/staticdata/conversationagents.fsdbinary", rowsOnly: true }),
   fittings: Object.freeze({ loader: "fittingsLoader", resource: "res:/staticdata/fittings.fsdbinary", rowsOnly: true }),
   // An NPC corporation's own record: the client takes an agent's faction from its corporation's (npcs/npccorporations.py).
   npcCorporations: Object.freeze({ loader: "npcCorporationsLoader", resource: "res:/staticdata/npccorporations.fsdbinary" }),

@@ -35,6 +35,7 @@
     return { update(next: number | null) { if (next !== null) node.focus(); } };
   }
   import type { Session } from "../app/sessions.ts";
+  import AcademyTravelConversation from "./AcademyTravelConversation.svelte";
   import type { MultiBuyAsk, MultiBuyRow, SaidDialog } from "../app/flow.ts";
   import type { QuestionWords } from "../store/types.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
@@ -77,6 +78,7 @@
   import { portraitUrl, portraitDefaultPath } from "./ownerImages.ts";
 
   let { session, inFront }: { session: Session; inFront: boolean } = $props();
+  const academyTravel = $derived(session.flow.academyTravelConversation);
   // svelte-ignore state_referenced_locally
   const words = session.store.words;
   // svelte-ignore state_referenced_locally
@@ -1035,6 +1037,8 @@
     if (dot >= 0) typed = typed.slice(0, dot + 1) + typed.slice(dot + 1).replace(/\./g, "").slice(0, digits);
   }
 </script>
+
+{#if $academyTravel && inFront}<AcademyTravelConversation {session} />{/if}
 
 <svelte:window onkeydown={event => {
   if (event.key !== "Escape" || !inFront) return;
