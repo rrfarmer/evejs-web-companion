@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { afterMilitiaEnlistment, EMPIRE_MILITIAS, MILITIA_FACTIONS, militiaEnlistmentWarning, militiaFactionID, militiaIsPirate, PIRATE_MILITIAS, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaSystem, type TheatersPage } from "../bridge/militiaEnlistment.ts";
+  import { afterMilitiaEnlistment, EMPIRE_MILITIAS, MILITIA_FACTIONS, militiaEnlistmentWarning, militiaFactionID, militiaIsPirate, PIRATE_MILITIAS, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaSystem, type TheatersPage } from "../bridge/militiaEnlistment.ts";
   import { clientTexture } from "../play/window.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { serveTheatersOfWarRequest, theatersOfWarRequests } from "./theatersOfWarRequests.ts";
+  import { trackMilitiaJob, trackedJobsChanged, trackedMilitiaJob, untrackMilitiaJob } from "./jobTracking.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -41,7 +42,7 @@
   let eligibility = $state<MilitiaEligibility | null>(null);
   let occupations = $state<ReadonlyMap<number, readonly MilitiaSystem[]> | null>(null);
   let insurgencies = $state<MilitiaInsurgency[] | null>(null);
-  let office = $state<{ readonly stationID: number; readonly jumps: number } | null>(null);
+  let office = $state<MilitiaOffice | null>(null);
   let readError = $state("");
   let panelError = $state("");
   let actionError = $state("");
@@ -53,6 +54,7 @@
   let sameFaction = $derived(selected !== null && eligibility?.factionID === selected);
   let canRetire = $derived(sameFaction && (eligibility?.directFactionID === selected || eligibility?.corporationID === faction?.corporationID));
   let warning = $derived(eligibility && selected !== null && !sameFaction ? militiaEnlistmentWarning(eligibility, selected) : null);
+  const tracked = $derived.by(() => { void $trackedJobsChanged; return trackedMilitiaJob($station.online?.characterID ?? null); });
 
   function say(label: string, fallback: string, values: Record<string, string> = {}): string {
     const template = $words.templates[label];
@@ -78,7 +80,8 @@
       TOW + "InsurgencyGuristas", TOW + "InsurgencyAngelCartel", TOW + "InsurgencyPirateFob",
       FW + "EnlistMe", FW + "Retire", FW + "JoinConfirmationHeader", FW + "JoinConfirmationQuestionPlayer", FW + "JoinConfirmationQuestionDirectEnlistment",
       FW + "ConfirmRetireHeader", FW + "ConfirmRetire", "UI/Common/Buttons/Yes", "UI/Common/Buttons/No",
-      ...["ChooseYourSide", "FrontpageEmpires", "FrontpagePirates", "FactionalWarfareHeader", "PiratesHeader", "ClickOnEmpireFaction", "ClickOnPirateFaction"].map((label) => E + label),
+      ...["ChooseYourSide", "FrontpageEmpires", "FrontpagePirates", "FactionalWarfareHeader", "PiratesHeader", "ClickOnEmpireFaction", "ClickOnPirateFaction", "InitiateEnlistment"].map((label) => E + label),
+      "UI/Agency/FactionWarfare/nearestMilitiaOffice",
     ]);
     flow.requestNames(Object.keys(MILITIA_FACTIONS).map((id) => ({ kind: "owner", id: Number(id) })));
   });
@@ -133,6 +136,12 @@
     if (!eligibility || selected === null) return;
     question = { id: selected, characterID: eligibility.characterID, retire, direct: eligibility.allowedFactions !== null };
   }
+  function initiate() {
+    if (!eligibility || selected === null || warning !== "location" || selected === tracked) return;
+    actionError = "";
+    try { trackMilitiaJob(eligibility.characterID, selected); }
+    catch (error) { actionError = error instanceof Error ? error.message : String(error); }
+  }
   async function confirm() {
     const asked = question;
     if (!asked || writing) return;
@@ -144,6 +153,7 @@
       const next = await flow.changeMilitiaEnlistment(asked.characterID, asked.id, asked.retire);
       if (store.station.get().online?.characterID !== asked.characterID) return;
       if (asked.retire ? next.factionID === asked.id : next.factionID !== asked.id) throw new Error("The server did not confirm the change in militia affiliation.");
+      untrackMilitiaJob(asked.characterID);
       const destination = afterMilitiaEnlistment(previous, next.factionID);
       if (destination && page === "enlistment") choosePage(destination);
     } catch (error) {
@@ -258,9 +268,14 @@
               {:else}<p>{say(TOW + "PersonalEnlistedWith", `Enlisted with ${factionName(selected)}`, { factionName: factionName(selected) })}</p>{/if}
             {:else if warning}
               <p role="status">{warnings[warning]}</p>
-              {#if office}<button type="button" onclick={() => flow.setDestination(office!.stationID)}>
-                {resolvedName($names.resolved, "station", office.stationID, String(office.stationID))} · {office.jumps} jumps · Set Destination
-              </button>{/if}
+              {#if warning === "location"}
+                <button type="button" disabled={selected === tracked || writing} onclick={initiate}>
+                  {say(E + "InitiateEnlistment", "Initiate Enlistment")}
+                </button>
+                {#if selected === tracked}<p role="status">Tracking in Opportunities.</p>{/if}
+                {#if office}<p>{say("UI/Agency/FactionWarfare/nearestMilitiaOffice", "Nearest militia office")}<br />
+                  {resolvedName($names.resolved, "station", office.stationID, String(office.stationID))}{office.jumps === null ? "" : ` · ${office.jumps} jumps`}</p>{/if}
+              {/if}
             {:else}
               <button type="button" class="accent" disabled={writing} onclick={() => ask(false)}>{say(FW + "EnlistMe", "Enlist Me")}</button>
             {/if}

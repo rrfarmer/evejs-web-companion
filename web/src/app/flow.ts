@@ -229,7 +229,8 @@ import { decodeSkillHistory, decodeSkills } from "../bridge/boundSkills.ts";
 import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
 import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification } from "../bridge/skillNotifications.ts";
 import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
-import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaStationFactions, militiaWarzones, MILITIA_FACTIONS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaSystem } from "../bridge/militiaEnlistment.ts";
+import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaStationFactions, militiaWarzones, MILITIA_FACTIONS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaSystem } from "../bridge/militiaEnlistment.ts";
+import { readTrackedMilitiaJob, untrackMilitiaJob } from "../ui/jobTracking.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
 import {
@@ -3870,7 +3871,7 @@ export interface AppFlow {
   insurgencyLocal(): Promise<InsurgencyLocal | null>;
   readMilitiaEnlistment(): Promise<MilitiaEligibility>;
   changeMilitiaEnlistment(characterID: number, factionID: MilitiaFactionID, retire: boolean): Promise<MilitiaAffiliation>;
-  nearestMilitiaOffice(factionID: MilitiaFactionID): Promise<{ readonly stationID: number; readonly jumps: number } | null>;
+  nearestMilitiaOffice(factionID: MilitiaFactionID, fallbackToLightYears?: boolean): Promise<MilitiaOffice | null>;
   theatersWarzones(): Promise<ReadonlyMap<number, readonly MilitiaSystem[]>>;
   theatersInsurgencies(): Promise<MilitiaInsurgency[]>;
   /**
@@ -7354,6 +7355,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         ...(sessionNames.includes("warfactionid") ? { warFactionID: ownerOf(sessionChangeValue(method, args, "warfactionid")) } : {}),
         ...(sessionNames.includes("role") ? { role: wholeDigits(sessionChangeValue(method, args, "role")) } : {}),
       });
+      if (sessionNames.includes("warfactionid")) untrackMilitiaJob(store.station.get().online?.characterID ?? null);
       if (sessionNames.some(name => name === "corpid" || name === "corprole")) {
         corpWalletJournalGeneration += 1;
         corpWalletJournalSignal.set(NO_CORP_WALLET_JOURNAL);
@@ -7366,6 +7368,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         void loadSafetyDeliveries().catch(() => {});
       }
     }
+    if (method === "OnEnlistmentStateUpdated") untrackMilitiaJob(store.station.get().online?.characterID ?? null);
     // invCache.ProcessSessionChange143-170: these place changes invalidate
     // cached parent inventories as well as any read still coming from them.
     if (sessionNames?.some(name => name === "stationid" || name === "structureid" || name === "solarsystemid")) {
@@ -21193,9 +21196,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return militiaAffiliation(await bridgeAsk(FW_ENLISTMENT, "GetMyEnlistment", []));
   }
 
-  async function nearestMilitiaOffice(factionID: MilitiaFactionID): Promise<{ readonly stationID: number; readonly jumps: number } | null> {
-    const here = store.station.get().online?.solarSystemID;
+  let trackedOffice: { readonly key: string; readonly office: MilitiaOffice } | null = null;
+  async function nearestMilitiaOffice(factionID: MilitiaFactionID, fallbackToLightYears = false): Promise<MilitiaOffice | null> {
+    const pilot = store.station.get().online;
+    const here = pilot?.solarSystemID;
     if (!here) return null;
+    const tracked = fallbackToLightYears ? readTrackedMilitiaJob(pilot.characterID) : null;
+    const key = tracked?.factionID === factionID ? `${pilot.characterID}:${factionID}:${tracked.since}` : null;
+    if (key !== null && trackedOffice?.key === key) return trackedOffice.office;
     const [places, distances] = await Promise.all([agentPlacesHeld ?? api.loadAgentPlaces(callOptions), autopilotDistancesFrom(here)]);
     if (!places) return null;
     agentPlacesHeld ??= places;
@@ -21205,12 +21213,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         stationsBySystem.set(systemID, Number(id));
       }
     }
-    let nearest: { stationID: number; jumps: number } | null = null;
+    let nearest: MilitiaOffice | null = null;
     for (const [systemID, stationID] of stationsBySystem) {
       const jumps = systemID === here ? 0 : distances.get(systemID);
-      if (jumps !== undefined && (!nearest || jumps <= nearest.jumps)) nearest = { stationID, jumps };
+      if (jumps !== undefined && jumps <= (nearest?.jumps ?? Infinity)) nearest = { stationID, systemID, jumps };
     }
-    if (nearest) requestNames([{ kind: "station", id: nearest.stationID }]);
+    if (!nearest && fallbackToLightYears && stationsBySystem.size) {
+      const map = await (starMapLoading ??= api.loadStarMap(callOptions).catch((error) => { starMapLoading = null; throw error; }));
+      const from = map.systems.find(([id]) => id === here);
+      let minDistance = Infinity;
+      if (from) for (const [systemID, x, y, z] of map.systems) {
+        const stationID = stationsBySystem.get(systemID);
+        if (!stationID) continue;
+        const distance = Math.hypot(x - from[1], y - from[2], z - from[3]);
+        if (distance <= minDistance) { minDistance = distance; nearest = { stationID, systemID, jumps: null }; }
+      }
+    }
+    if (nearest) {
+      // The tracked job keeps the first resolved office for this session.
+      if (key !== null && trackedOffice?.key === key) return trackedOffice.office;
+      if (key !== null) trackedOffice = { key, office: nearest };
+      requestNames([{ kind: "station", id: nearest.stationID }]);
+    }
     return nearest;
   }
 

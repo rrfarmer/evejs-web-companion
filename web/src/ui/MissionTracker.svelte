@@ -36,7 +36,8 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { JournalMission, MissionSpot } from "../store/types.ts";
   import type { FreelanceJob } from "../app/flow.ts";
-  import { trackedFreelanceJobs, trackedJobsChanged, untrackFreelanceJob } from "./jobTracking.ts";
+  import { trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, untrackFreelanceJob } from "./jobTracking.ts";
+  import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
 
   // embedded: inside the play view's info panel (PlayInfoPanels.svelte), which draws the caption and is shown only
@@ -84,7 +85,8 @@
     const ids = Object.entries(trackedFreelanceJobs(me)).sort((a, b) => a[1] - b[1]).map(([id]) => id);
     void Promise.all(ids.map((id) => flow.freelanceJob(id).catch(() => null))).then((jobs) => { freelance = jobs.filter((j): j is FreelanceJob => j !== null); });
   });
-  $effect(() => { onCount?.(missions.length + freelance.length); });
+  const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob(me); });
+  $effect(() => { onCount?.(missions.length + freelance.length + (militia === null ? 0 : 1)); });
   const jobProgress = (j: FreelanceJob) => (j.project.target ? j.project.current / j.project.target : 0);
   const jobProgressText = (j: FreelanceJob) => (!j.project.target ? "" : j.project.target >= 100 ? `${Math.floor(jobProgress(j) * 100)}%`
     : `${j.project.current.toLocaleString("en-US")}/${j.project.target.toLocaleString("en-US")}`);
@@ -327,7 +329,7 @@
 
 <section class="panel mission-tracker" class:embedded>
   {#if !embedded}<h2 class="panel-title">{word("UI/Opportunities/WindowTitle", "Tracked")}</h2>{/if}
-  {#if missions.length === 0 && freelance.length === 0 && !embedded}
+  {#if missions.length === 0 && freelance.length === 0 && militia === null && !embedded}
     <p class="empty">{$agents.journal === null ? "Reading the journal…" : "No mission is accepted."}</p>
   {/if}
   {#each missions as mission (mission.agentID)}
@@ -356,6 +358,7 @@
       {/each}
     </article>
   {/each}
+  {#if militia !== null}<MilitiaOpportunity {store} {flow} factionID={militia} />{/if}
   {#each freelance as j (j.project.projectID)}
     {@const pct = Math.min(1, jobProgress(j))}
     {@const stateColor = jobStateColor(j)}

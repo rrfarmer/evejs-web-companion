@@ -11,6 +11,7 @@ export const MILITIA_FACTIONS = {
 } as const;
 
 export type MilitiaFactionID = keyof typeof MILITIA_FACTIONS;
+export interface MilitiaOffice { readonly stationID: number; readonly systemID: number; readonly jumps: number | null }
 export type TheatersPage = "overview" | "warfare" | "insurgencies" | "enlistment";
 export const EMPIRE_MILITIAS = [500003, 500001, 500004, 500002] as const;
 export const PIRATE_MILITIAS = [500011, 500010] as const;

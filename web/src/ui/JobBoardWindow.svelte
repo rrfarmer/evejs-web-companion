@@ -55,6 +55,8 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import FreelanceJobPage from "./FreelanceJobPage.svelte";
+  import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
+  import { trackedJobsChanged, trackedMilitiaJob } from "./jobTracking.ts";
   import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
   import type { FreelanceProject } from "../app/flow.ts";
   let { store, flow, openCorporation, showAgents }: { store: ClientStore; flow: AppFlow; openCorporation?: () => void; showAgents?: () => void } = $props();
@@ -62,6 +64,9 @@
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob($station.online?.characterID ?? null); });
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
   const REWARDS_COUNT = "UI/Achievements/Window/Rewards/RewardsCount";
   const LABELS = [O + "WindowTitle", O + "TabNameActive", O + "TabNameUnclaimedRewards", O + "VisibilityFreelanceProjects", O + "NoOpportunitiesFound", O + "ClaimAll", O + "FailedToLoad",
@@ -134,10 +139,10 @@
   async function openMissionPage(agentID: number): Promise<void> { openMission = agentID; open = null; await flow.openMissionDetails(agentID); }
   onMount(() => { flow.requestWords(LABELS); void load(); });
   const jobs = $derived(board ? (tab === "browse" ? board.browse : tab === "active" ? board.active : board.unclaimed) : []);
+  const activeCount = $derived((board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length + (militia === null ? 0 : 1));
+  const shownMilitia = $derived(tab === "active" ? militia : null);
   const unclaimedCount = $derived((board?.unclaimed.length ?? 0) + goalLists.unclaimed.length + dailyLists.unclaimed.length);
   // freelanceprojects util.is_project_manager_for_corporation.
-  // svelte-ignore state_referenced_locally
-  const station = store.station;
   const managerOf = (corporationID: number) => corporationID === $station.online?.corporationID && (BigInt($station.online?.corpRole ?? "0") & (1n | 1152921504606846976n)) !== 0n;
   let openCorp = $state<number | null>(null), duplicating = $state<FreelanceProject | null>(null), notice = $state("");
   $effect(() => {
@@ -168,7 +173,7 @@
 <div class="jb">
   <div class="jb-tabs">
     <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "WindowTitle")}</button>
-    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameActive")}{#if (board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length}<span class="jb-count">{(board?.active.length ?? 0) + missions.active.length + goalLists.active.length + dailyLists.active.length + epicLists.active.length + dungeons.filter((d) => d.active).length}</span>{/if}</button>
+    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameActive")}{#if activeCount}<span class="jb-count">{activeCount}</span>{/if}</button>
     <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if unclaimedCount}<span class="jb-count gold">{unclaimedCount}</span>{/if}</button>
   </div>
   <div class="jb-body">
@@ -190,8 +195,8 @@
             onViewParticipants={(p) => { flow.requestFreelanceAdminDetails(p.projectID); openCorporation?.(); }} onCloseJob={closeJob} />
         {:else}<FreelanceJobPage {store} {flow} projectID={open} onBack={() => { open = null; notice = ""; void load(); }} />{/if}
       {/key}
-    {:else if board === undefined}<p class="jb-hint">…</p>
-    {:else if board === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
+    {:else if board === undefined && shownMilitia === null}<p class="jb-hint">…</p>
+    {:else if board === null && shownMilitia === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
       {#if tab === "unclaimed" && unclaimedCount}
         <div class="jb-claim"><strong>{word(REWARDS_COUNT, { amount: unclaimedCount }) || `${unclaimedCount} rewards`}</strong>
@@ -202,12 +207,13 @@
         <button class="jb-season" type="button" style:background-image={`linear-gradient(transparent, #000b), url('${clientTexture("res:/UI/Texture/classes/Opportunities/CH26_Air-Opportunities-Window_700x242.png")}')`}
           onclick={() => openAgencyGroup(34)}><strong>{word("#1056273")}</strong><span>{word("#1056274")}</span></button>
       {/if}
-      {#if !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length && !shownArcs.length && !shownDungeons.length}
+      {#if shownMilitia === null && !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length && !shownArcs.length && !shownDungeons.length}
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
       {#if tab === "browse"}<DailyRewardTrack {store} {flow} goals={daily} {busy} onClaimAll={() => void claimAllDaily()} />{/if}
       <div class="jb-cards" title={tab === "browse" ? word(O + "VisibilityFreelanceProjects") : ""}>
+        {#if shownMilitia !== null}<MilitiaOpportunity {store} {flow} factionID={shownMilitia} />{/if}
         {#each shownArcs as a (a.epicArcID)}
           <EpicArcCard {store} {flow} arc={a} featureTag={epic?.featureTag ?? null} onOpen={() => { openArc = a.epicArcID; open = null; openMission = null; openGoal = null; openDaily = null; }} />
         {/each}

@@ -1,10 +1,10 @@
-// jobboard job_provider tracking for the freelance jobs: the tracked jobs are a character setting
+// jobboard job_provider tracking: the tracked jobs are a character setting
 // (settings.char.ui 'tracked_opportunities_<PROVIDER_ID>', {jobID: the time it was tracked}), kept here per character
-// in the browser. FreelanceProjectJob.is_trackable: active and committed. toggle_tracked_job_by_player adds or removes
-// one; _on_participation_state_changed adds it on commit and removes it otherwise; _on_state_changed removes one no
-// longer trackable. The tracked jobs are the job board's info panel's (InfoPanelJobBoard: MissionTracker.svelte).
+// in the browser. FreelanceProjectJob tracks active, committed jobs. FactionalWarfareEnlistmentProvider tracks one
+// faction per pilot. The Opportunities info panel and board read the same settings.
 
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
+import { militiaFactionID, type MilitiaFactionID } from "../bridge/militiaEnlistment.ts";
 
 const PROVIDER_ID = "freelance_projects";
 const key = (characterID: number) => `evejs.play.${characterID}.tracked_opportunities_${PROVIDER_ID}`;
@@ -48,4 +48,34 @@ export function untrackFreelanceJob(characterID: number | null, jobID: string): 
 export function toggleTrackedFreelanceJob(characterID: number | null, jobID: string): void {
   if (isFreelanceJobTracked(characterID, jobID)) untrackFreelanceJob(characterID, jobID);
   else trackFreelanceJob(characterID, jobID);
+}
+
+const militiaKey = (characterID: number) => `evejs.play.${characterID}.tracked_opportunities_factional_warfare_enlistment`;
+
+export function readTrackedMilitiaJob(characterID: number | null): { readonly factionID: MilitiaFactionID; readonly since: number } | null {
+  if (!characterID) return null;
+  try {
+    const jobs = JSON.parse(localStorage.getItem(militiaKey(characterID)) ?? "{}");
+    const [key, since] = Object.entries(jobs)[0] ?? [];
+    const factionID = militiaFactionID(Number(key));
+    return factionID !== null && typeof since === "number" ? { factionID, since } : null;
+  } catch { return null; }
+}
+
+export function trackedMilitiaJob(characterID: number | null): MilitiaFactionID | null {
+  return readTrackedMilitiaJob(characterID)?.factionID ?? null;
+}
+
+// FactionalWarfareEnlistmentProvider tracks a single faction for a character.
+export function trackMilitiaJob(characterID: number, factionID: MilitiaFactionID): void {
+  if (trackedMilitiaJob(characterID) === factionID) return;
+  localStorage.setItem(militiaKey(characterID), JSON.stringify({ [factionID]: Date.now() }));
+  changes.set(changes.get() + 1);
+}
+
+export function untrackMilitiaJob(characterID: number | null, factionID?: MilitiaFactionID): void {
+  const tracked = trackedMilitiaJob(characterID);
+  if (!characterID || tracked === null || factionID !== undefined && factionID !== tracked) return;
+  try { localStorage.removeItem(militiaKey(characterID)); } catch { return; }
+  changes.set(changes.get() + 1);
 }
