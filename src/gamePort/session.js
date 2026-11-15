@@ -3,7 +3,7 @@
 // ── A game-port session: the connection the retail client holds ─────────────
 //
 // One of these is one login on the eve.js game port (26000), kept open, doing
-// on the wire what the retail client (build 3396210) does. It is written from
+// on the wire what the retail client (build 3698585) does. It is written from
 // the client's own source and checked against what a real server sends back:
 //
 //   handshake   carbon/common/script/net/GPS.py            Authenticate
@@ -49,9 +49,9 @@ const decodeGamePort = buffer => marshalDecode(buffer, GAME_PORT_DECODE_OPTIONS)
 const RETAIL_CLIENT = Object.freeze({
   handshakeSecret: 170472,
   machoVersion: 496,
-  version: 24.01,
-  build: 3396210,
-  codename: "V24.01",
+  version: 24.02,
+  build: 3698585,
+  codename: "V24.02",
   region: "ccp",
 });
 

@@ -20,13 +20,18 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
 const { marshalDecode, marshalDecodeExact, marshalEncode } = require("../src/gameProtocol/marshal");
-const { GamePortSession, GamePortError } = require("../src/gamePort/session");
+const { GamePortSession, GamePortError, RETAIL_CLIENT } = require("../src/gamePort/session");
 const { TYPE, buildPacket, clientAddress, nodeAddress, parsePacket, text, dictGet } = require("../src/gamePort/packets");
 const { caseFold, cryptoHash, passwordHash } = require("../src/gamePort/placebo");
 const { monikerKeywordOrder } = require("../src/gamePort/py27");
 const { retailForm } = require("../src/gamePort/retailCalls");
-const { converse, recordingSessionOptions } = require("../scripts/capture-game-frames");
+const { converse, recordingSessionOptions: captureOptions } = require("../scripts/capture-game-frames");
 const fixture = require("./fixtures/gamePortFrames.json");
+// This recording was made on 3396210. New captures use the current default profile.
+const recordingSessionOptions = () => ({ ...captureOptions(), client: {
+  handshakeSecret: 170472, machoVersion: 496, version: 24.01,
+  build: 3396210, codename: "V24.01", region: "ccp",
+} });
 const oracle = require("./fixtures/py27Oracle.json");
 
 const frames = fixture.frames.map((frame) => ({ ...frame, bytes: Buffer.from(frame.hex, "hex") }));
@@ -140,6 +145,13 @@ const callResponse = (callID, result) => marshalEncode(buildPacket(TYPE.CALL_RSP
   userID: 2,
   body: [{ type: "substream", value: result }],
 }));
+
+test("the current client profile matches 3698585 start.ini and GPS.py", () => {
+  assert.deepEqual(RETAIL_CLIENT, {
+    handshakeSecret: 170472, machoVersion: 496, version: 24.02,
+    build: 3698585, codename: "V24.02", region: "ccp",
+  });
+});
 
 // ── 1. the recording ─────────────────────────────────────────────────────────
 

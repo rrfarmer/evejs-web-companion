@@ -16,8 +16,13 @@ const wire = require("../web/src/bridge/wire.ts");
 const { marshalDecodeExact } = require("../src/gameProtocol/marshal");
 const { GamePortSession } = require("../src/gamePort/session");
 const { longKeptToBridgeJson, notificationToBridgeJson, sessionChangeToBridgeJson, wireToBridgeJson } = require("../src/gamePort/bridgeJson");
-const { converse, recordingSessionOptions } = require("../scripts/capture-game-frames");
+const { converse, recordingSessionOptions: captureOptions } = require("../scripts/capture-game-frames");
 const fixture = require("./fixtures/gamePortFrames.json");
+// This recording was made on 3396210. New captures use the current default profile.
+const recordingSessionOptions = () => ({ ...captureOptions(), client: {
+  handshakeSecret: 170472, machoVersion: 496, version: 24.01,
+  build: 3396210, codename: "V24.01", region: "ccp",
+} });
 
 const serverFrames = fixture.frames.filter((frame) => frame.from === "server").map((frame) => ({ ...frame, bytes: Buffer.from(frame.hex, "hex") }));
 
@@ -183,4 +188,21 @@ test("every recorded server frame maps without a form left over", () => {
     const text = JSON.stringify(wireToBridgeJson(marshalDecodeExact(bytes)));
     assert.ok(!text.includes('"unmapped"'), `server frame ${index} (${frame.during})`);
   }
+});
+
+
+test("24.02 Row from the EveJS encoder reads through browser row readers", () => {
+  // server/src/services/_shared/serviceHelpers.buildRow + server's marshalEncode:
+  // buildRow(["ownerID", "ownerName"], [98000001, "Example"]).
+  // These bytes were emitted by the 3698585 branch's encoder, not this codec.
+  const bytes = Buffer.from("7e00000000232c250220636172626f6e2e636f6d6d6f6e2e7363726970742e7379732e726f772e526f772c1502113f1140150204815cd70513074578616d706c652d2d", "hex");
+  const row = crossed(wireToBridgeJson(marshalDecodeExact(bytes)));
+  assert.equal(row.name, "util.Row");
+  assert.deepEqual(row.args.entries, [["header", { type: "list", items: ["ownerID", "ownerName"] }], ["line", { type: "list", items: [98000001, "Example"] }]]);
+  const nested = crossed(wireToBridgeJson({ type: "list", items: [marshalDecodeExact(bytes)] }));
+  const { decodeCorpEveOwners } = require("../web/src/bridge/corpMembers.ts");
+  assert.deepEqual(decodeCorpEveOwners(nested), [{ ownerID: 98000001, ownerName: "Example", typeID: null, gender: null, ownerNameID: null }]);
+  const malformed = marshalDecodeExact(bytes);
+  malformed.header[1][1].items.pop();
+  assert.equal(wireToBridgeJson(malformed).type, "objectex2", "invalid lengths remain visible, not a fabricated row");
 });

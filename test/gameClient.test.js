@@ -12,8 +12,13 @@ const assert = require("node:assert/strict");
 const net = require("node:net");
 const { once } = require("node:events");
 const { GameClient } = require("../src/gameClient");
-const { frameSplitter, recordingSessionOptions } = require("../scripts/capture-game-frames");
+const { frameSplitter, recordingSessionOptions: captureOptions } = require("../scripts/capture-game-frames");
 const fixture = require("./fixtures/gamePortFrames.json");
+// This recording was made on 3396210. New captures use the current default profile.
+const recordingSessionOptions = () => ({ ...captureOptions(), client: {
+  handshakeSecret: 170472, machoVersion: 496, version: 24.01,
+  build: 3396210, codename: "V24.01", region: "ccp",
+} });
 
 const serverFrames = fixture.frames.filter((frame) => frame.from === "server").map((frame) => ({
   after: frame.afterClientFrames,

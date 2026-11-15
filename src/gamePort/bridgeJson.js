@@ -72,13 +72,31 @@ function wireToBridgeJson(value) {
     case "object":
       return { type: "object", name: wireToBridgeJson(value.name), args: wireToBridgeJson(value.args) };
     case "objectex1":
-    case "objectex2":
+    case "objectex2": {
+      // 24.02's util.Row is a new-style class reduced as Row(header, line).
+      // Present it like the old Row-with-state form existing browser readers use.
+      const [constructor, args] = Array.isArray(value.header) ? value.header : [];
+      const rowClass = Array.isArray(constructor) && constructor.length === 1 ? constructor[0] : null;
+      const isRow = value.type === "objectex2" && rowClass?.type === "token" &&
+        rowClass.value === "carbon.common.script.sys.row.Row" &&
+        Array.isArray(args) && args.length === 2 &&
+        (value.list ?? []).length === 0 && (value.dict ?? []).length === 0;
+      const sequence = (item) => Array.isArray(item) ? item : item?.type === "list" && Array.isArray(item.items) ? item.items : null;
+      const columns = isRow ? sequence(args[0]) : null;
+      const cells = isRow ? sequence(args[1]) : null;
+      if (columns && cells && columns.length === cells.length) {
+        return { type: "object", name: "util.Row", args: { type: "dict", entries: [
+          ["header", { type: "list", items: columns.map(wireToBridgeJson) }],
+          ["line", { type: "list", items: cells.map(wireToBridgeJson) }],
+        ] } };
+      }
       return {
         type: value.type,
         header: wireToBridgeJson(value.header),
         list: (value.list ?? []).map(wireToBridgeJson),
         dict: (value.dict ?? []).map(([key, entry]) => [wireToBridgeJson(key), wireToBridgeJson(entry)]),
       };
+    }
     case "packedrow": {
       // The codec gives both forms the server's two row builders use: `fields`
       // by name and `values` by position. The raw packed bytes are dropped.
