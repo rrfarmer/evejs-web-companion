@@ -111,6 +111,7 @@ import { loadDds } from "../three/ddsTexture.ts";
 import { logDepth } from "../three/logDepth.ts";
 import { securityStatusColor, securityStatusRgb, shownSecurity } from "../bridge/systemSecurity.ts";
 import type { StarMapActivity, StarMapColorMode } from "../bridge/starMapFilters.ts";
+import { activityClusterCentroid, groupActivityPins, mapZoomValue, type ActivityCluster, type ActivityPin } from "./starMapActivityGroups.ts";
 
 /** mapViewConst.py */
 const UNIVERSE_SCALE = 1.5e-13;
@@ -118,6 +119,8 @@ const MIN_CAMERA_DISTANCE = 1.0;
 const MAX_CAMERA_DISTANCE = 160000.0;
 /** mapView.py ZOOM_DIST_SYSTEM: the distance the map opens at on a system. */
 const ZOOM_DIST_SYSTEM = 6000;
+const ZOOM_DIST_CONSTELLATION = 10000;
+const ZOOM_DIST_REGION = 20000;
 /** mapFilterConst.py NEUTRAL_COLOR, BASE11_COLORRANGE; eveColor.py's faction colours (#AARRGGBB, or #RRGGBB). */
 const NEUTRAL: [number, number, number] = [0.5, 0.5, 0.5];
 const BASE11: [number, number, number][] = [
@@ -315,7 +318,8 @@ export class StarMap {
   private readonly positions = new Map<number, THREE.Vector3>();
   /** Each system's place in the two layouts, and the stars' position attribute. */
   private readonly layouts = { own: new Map<number, THREE.Vector3>(), abstract: new Map<number, THREE.Vector3>() };
-  private abstractUrl: string | null = null;
+  private readonly abstractUrl: Promise<string | null>;
+  private layoutRequest = 0;
   private starPos: THREE.InstancedBufferAttribute | null = null;
   private starColors: THREE.InstancedBufferAttribute | null = null;
   private starSizes: THREE.InstancedBufferAttribute | null = null;
@@ -334,6 +338,9 @@ export class StarMap {
   private readonly markers = document.createElement("div");
   private readonly activityMarkers = document.createElement("div");
   private activityLabels: { row: StarMapActivity; button: HTMLButtonElement }[] = [];
+  private activityPins: ActivityPin[] = [];
+  private readonly activityClusters = new Map<number, { cluster: ActivityCluster; button: HTMLButtonElement }>();
+  private activityClusterHint = (value: number) => String(value);
   private labels: { id: number; at: THREE.Vector3; el: HTMLDivElement; selected: boolean; hover?: boolean }[] = [];
   /** What the map was built of, for selecting: the data, each system's region and constellation, each name. */
   private data: StarMapSystems | null = null;
@@ -355,10 +362,11 @@ export class StarMap {
   private homeID: number | null = null;
   private locationHint = "You are here";
   selectedID: number | null = null;
+  private selectedCluster: ActivityCluster | null = null;
   hoverID: number | null = null;
   private hoverLabel: { el: HTMLDivElement; at: THREE.Vector3 } | null = null;
   /** The camera's move to a newly selected system: from where, to where, since when. */
-  private move: { from: THREE.Vector3; to: THREE.Vector3; at: number } | null = null;
+  private move: { from: THREE.Vector3; to: THREE.Vector3; at: number; zoom?: { from: number; to: number } } | null = null;
   private myLocation: { at: THREE.Vector3; el: HTMLDivElement } | null = null;
   /** How many stars and jump lines are drawn (for checks). */
   stars = 0;
@@ -366,6 +374,7 @@ export class StarMap {
 
   constructor() {
     this.root.className = "star-map";
+    this.root.dataset.layout = "perspective";
     this.root.style.cssText = "position:absolute;inset:0;background:#000;z-index:5;";
     this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(2, devicePixelRatio));
@@ -403,8 +412,11 @@ export class StarMap {
       if (!t.mipmaps?.length) { t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.needsUpdate = true; }
       return t;
     };
-    void fetch("/client-assets/starmap.json").then((r) => r.json()).then(async (m: { textures?: Record<string, string | null>; abstract?: string | null }) => {
-      this.abstractUrl = m.abstract ?? null;
+    const assets = fetch("/client-assets/starmap.json").then((r) => r.json() as Promise<{
+      textures?: Record<string, string | null>; abstract?: string | null;
+    }>);
+    this.abstractUrl = assets.then(m => m.abstract ?? null, () => null);
+    void assets.then(async m => {
       if (m.textures?.star) { this.starUniforms.texMap.value = await level(m.textures.star); this.starUniforms.hasTex.value = 1; }
       if (m.textures?.heat) { this.heatTex = await level(m.textures.heat); this.updateFilterHeat(); }
       if (m.textures?.tube) this.tubeTex = await level(m.textures.tube);
@@ -544,6 +556,7 @@ export class StarMap {
   private buildAreaMarkers(data: StarMapSystems & { regions?: readonly (readonly [number, number, number, number, string])[]; constellations?: readonly (readonly [number, number, number, number, string, number])[] }): void {
     const style = "position:absolute;white-space:nowrap;font-family:'EVE Sans Neue','Barlow Semi Condensed','Segoe UI',sans-serif;";
     for (const [id, x, y, z, name] of data.regions ?? []) {
+      this.names.set(id, name);
       const el = document.createElement("div");
       el.textContent = name.toUpperCase();
       el.style.cssText = style + "font-size:10px;line-height:12px;font-weight:700;letter-spacing:3px;color:rgba(255,255,255,0.85);";
@@ -553,6 +566,7 @@ export class StarMap {
     const secBy = new Map<number, number[]>();
     for (const s of data.systems) { if (typeof s[8] === "number") secBy.set(s[6], [...(secBy.get(s[6]) ?? []), s[8]]); }
     for (const [id, x, y, z, name, regionID] of data.constellations ?? []) {
+      this.names.set(id, name);
       const el = document.createElement("div");
       el.style.cssText = style + "font-size:12px;line-height:14px;padding:0 3px;color:rgba(255,255,255,0.95);background:rgba(0,0,0,0.5);"
         + "outline:1px solid rgba(255,255,255,0.3);display:none;";
@@ -592,9 +606,37 @@ export class StarMap {
   select(systemID: number): void {
     if (!this.data || !this.positions.has(systemID)) return;
     this.selectedID = systemID;
+    this.selectedCluster = null;
     this.buildMarkers(this.data, this.within, this.names, systemID);
     this.updateLineOpacity();
     this.move = { from: this.controls.target.clone(), to: this.positions.get(systemID)!.clone(), at: performance.now() };
+  }
+
+  private get selectedRegionID(): number | null {
+    return this.selectedCluster?.regionID ?? (this.selectedID === null ? null : this.within.get(this.selectedID)?.[0] ?? null);
+  }
+
+  private get selectedConstellationID(): number | null {
+    if (this.selectedCluster) return this.selectedCluster.level === "constellation" ? this.selectedCluster.id : null;
+    return this.selectedID === null ? null : this.within.get(this.selectedID)?.[1] ?? null;
+  }
+
+  private clusterPosition(cluster: ActivityCluster): THREE.Vector3 {
+    const { x, y, z } = activityClusterCentroid(cluster.members);
+    return new THREE.Vector3(x, y, z);
+  }
+
+  private selectActivityCluster(cluster: ActivityCluster): void {
+    if (!this.data) return;
+    this.selectedID = cluster.id;
+    this.selectedCluster = cluster;
+    this.buildMarkers(this.data, this.within, this.names, null, this.selectedConstellationID);
+    this.updateLineOpacity();
+    const target = this.controls.target;
+    this.move = {
+      from: target.clone(), to: this.clusterPosition(cluster), at: performance.now(),
+      zoom: { from: this.camera.position.distanceTo(target), to: cluster.level === "region" ? ZOOM_DIST_REGION : ZOOM_DIST_CONSTELLATION },
+    };
   }
 
   /** The hilight: the hovered system's label shown, a dashed circle on it; the active constellation's lines + 0.3. */
@@ -624,9 +666,16 @@ export class StarMap {
    * is to its place in it over 500 ms, the lines with them.
    */
   async setLayout(abstract: boolean): Promise<void> {
+    const request = ++this.layoutRequest;
+    if (!this.data) return;
     if (abstract && this.layouts.abstract.size === 0) {
-      if (!this.abstractUrl) return;
-      const coords = await fetch(this.abstractUrl).then((r) => r.json()) as Record<string, [number, number]>;
+      const url = await this.abstractUrl;
+      if (!url || request !== this.layoutRequest || this.closed) return;
+      const coords = await fetch(url).then((r) => r.json() as Promise<Record<string, [number, number]>>).catch(error => {
+        console.warn("star map abstract layout", error);
+        return null;
+      });
+      if (!coords || request !== this.layoutRequest || this.closed) return;
       for (const [id, own] of this.layouts.own) {
         const c = coords[String(id)];
         this.layouts.abstract.set(id, c ? mapPosition(c[0], 0, c[1]) : own.clone());
@@ -634,6 +683,7 @@ export class StarMap {
       this.placeAreasAbstract();
     }
     this.abstract = abstract;
+    this.root.dataset.layout = abstract ? "abstract" : "perspective";
     // UpdateCameraForAbstractView: Make2DCamera / Make3DCamera
     if (abstract) {
       this.controls.enableRotate = false;
@@ -645,6 +695,7 @@ export class StarMap {
     } else {
       this.controls.enableRotate = true;
       this.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+      this.controls.screenSpacePanning = true;
       this.controls.minDistance = MIN_CAMERA_DISTANCE;
       this.controls.maxDistance = MAX_CAMERA_DISTANCE;
       this.turn = null;
@@ -661,10 +712,12 @@ export class StarMap {
     const t = Math.min(1, (now - this.morph.at) / 500);
     const target = this.abstract ? this.layouts.abstract : this.layouts.own;
     // (the camera's point of interest moves with the active item, as the map keeps its camera on it)
-    const sel = this.selectedID !== null ? this.positions.get(this.selectedID)?.clone() ?? null : null;
+    const selectedPosition = () => this.selectedCluster ? this.clusterPosition(this.selectedCluster)
+      : this.selectedID !== null ? this.positions.get(this.selectedID) : undefined;
+    const sel = selectedPosition()?.clone();
     for (const [id, p] of this.positions) p.lerpVectors(this.morph.from.get(id)!, target.get(id)!, t);
-    if (sel && this.selectedID !== null && !this.move) {
-      const delta = this.positions.get(this.selectedID)!.clone().sub(sel);
+    if (sel && !this.move) {
+      const delta = selectedPosition()!.clone().sub(sel);
       this.controls.target.add(delta);
       this.camera.position.add(delta);
     }
@@ -776,6 +829,8 @@ export class StarMap {
     this.updateLineOpacity();
     this.updateFilterHeat();
     this.activityLabels = [];
+    this.activityPins = [];
+    this.activityClusters.clear();
     if (mode !== "empire") for (const row of this.activity.values()) {
       const button = document.createElement("button");
       button.className = "star-map-activity-marker";
@@ -789,6 +844,8 @@ export class StarMap {
       } else button.textContent = String(row.count);
       button.onclick = () => this.select(row.systemID);
       this.activityLabels.push({ row, button });
+      const [regionID, constellationID] = this.within.get(row.systemID) ?? [0, 0];
+      this.activityPins.push({ systemID: row.systemID, sites: row.count, regionID, constellationID, position: this.positions.get(row.systemID)! });
     }
     this.markLocalActivities();
     this.activityMarkers.replaceChildren(...this.activityLabels.map(({ button }) => button));
@@ -816,12 +873,83 @@ export class StarMap {
     if (this.myLocation) this.myLocation.el.title = text;
   }
 
-  setActivityHints(hint: (row: StarMapActivity) => string): void {
+  setActivityHints(hint: (row: StarMapActivity) => string, clusterHint: (value: number) => string): void {
+    this.activityClusterHint = clusterHint;
     for (const { row, button } of this.activityLabels) {
       const system = this.names.get(row.systemID) || String(row.systemID);
       const detail = hint(row);
       button.title = detail ? `${system}\n${detail}` : system;
       button.setAttribute("aria-label", button.title);
+    }
+    for (const { cluster, button } of this.activityClusters.values()) this.labelActivityCluster(cluster, button);
+  }
+
+  private labelActivityCluster(cluster: ActivityCluster, button: HTMLButtonElement): void {
+    const name = this.names.get(cluster.id) ?? "";
+    const hint = this.activityClusterHint(cluster.value);
+    button.title = name ? `${name}\n${hint}` : hint;
+    button.setAttribute("aria-label", button.title);
+    button.textContent = String(cluster.value);
+    button.dataset.memberCount = String(cluster.members.length);
+  }
+
+  private placeActivityMarkers(project: (at: THREE.Vector3) => { x: number; y: number } | null, w: number, h: number): void {
+    if (this.colorMode === "empire") return;
+    const eye = this.camera.position;
+    const cameraDistance = eye.distanceTo(this.controls.target);
+    const zoom = mapZoomValue(cameraDistance, this.controls.minDistance, this.controls.maxDistance);
+    const groups = groupActivityPins(this.activityPins, this.colorMode, zoom, this.abstract, eye);
+    const inGroup = new Set<number>();
+    const seen = new Set<number>();
+    for (const cluster of groups) {
+      seen.add(cluster.id);
+      for (const pin of cluster.members) inGroup.add(pin.systemID);
+      let marker = this.activityClusters.get(cluster.id);
+      if (!marker) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "star-map-activity-cluster";
+        button.dataset.areaId = String(cluster.id);
+        button.dataset.level = cluster.level;
+        const entry = { cluster, button };
+        button.onclick = () => this.selectActivityCluster(entry.cluster);
+        this.labelActivityCluster(cluster, button);
+        this.activityMarkers.appendChild(button);
+        this.activityClusters.set(cluster.id, entry);
+        marker = entry;
+      } else if (marker.cluster.value !== cluster.value || marker.cluster.members.length !== cluster.members.length) {
+        this.labelActivityCluster(cluster, marker.button);
+      }
+      marker.cluster = cluster;
+      const at = this.clusterPosition(cluster);
+      const p = project(at);
+      const d = eye.distanceTo(at);
+      // MarkerGroup's perspective fade uses MAX_MARKER_DISTANCE * (0.015, 2).
+      const opacity = this.abstract || cluster.id === this.selectedID ? 1
+        : Math.round((d < 3300 ? d / 3300 : Math.max(0, 1 - d / 440000)) * Math.min(1, cameraDistance / d) * 100) / 100;
+      marker.button.hidden = !p || p.x < 0 || p.x > w || p.y < 0 || p.y > h || opacity <= 0.05;
+      if (p && !marker.button.hidden) {
+        marker.button.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -50%)`;
+        marker.button.style.opacity = String(opacity);
+      }
+    }
+    for (const [id, marker] of this.activityClusters) {
+      if (seen.has(id)) continue;
+      marker.button.remove();
+      this.activityClusters.delete(id);
+    }
+    for (const { row, button } of this.activityLabels) {
+      if (inGroup.has(row.systemID)) {
+        button.hidden = true;
+        continue;
+      }
+      const p = project(this.positions.get(row.systemID)!);
+      button.hidden = !p || p.x < 0 || p.x > w || p.y < 0 || p.y > h;
+      if (p && !button.hidden) {
+        // MarkerPinBase.SetUpsideDown moves markers beside the location pin below the star.
+        const offset = button.dataset.local === "true" ? "25px" : "-130%";
+        button.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, ${offset})`;
+      }
     }
   }
 
@@ -870,7 +998,7 @@ export class StarMap {
   /** LineOpacityFinder3D.GetLineOpacityByLineID, into each line's colour alpha (clamped as a UBYTE4N colour is). */
   private updateLineOpacity(): void {
     if (!this.lineColours || !this.data) return;
-    const constellation = this.selectedID !== null ? this.within.get(this.selectedID)?.[1] ?? null : null;
+    const constellation = this.selectedConstellationID;
     const inActive = (id: number) => constellation !== null && this.within.get(id)?.[1] === constellation;
     const arr = this.lineColours.array as Float32Array;
     if (this.abstract) {
@@ -880,7 +1008,7 @@ export class StarMap {
       this.lineEnds.forEach(([a, b], i) => { for (const id of [a, b]) bySystem.set(id, [...(bySystem.get(id) ?? []), i]); });
       const give = (ids: Iterable<number>, opacity: number) => { for (const id of ids) for (const i of bySystem.get(id) ?? []) add.set(i, (add.get(i) ?? 0) + opacity); };
       const def = this.abstractDefault;
-      const region = this.selectedID !== null ? this.within.get(this.selectedID)?.[0] ?? null : null;
+      const region = this.selectedRegionID;
       if (region !== null) {
         const inRegion = [...this.within].filter(([, w]) => w[0] === region).map(([id]) => id);
         const set = new Set(inRegion);
@@ -909,13 +1037,15 @@ export class StarMap {
   }
 
   /** The selected system's label and its neighbours and constellation. */
-  private buildMarkers(data: StarMapSystems, within: Map<number, [number, number]>, names: Map<number, string>, systemID: number | null): void {
+  private buildMarkers(data: StarMapSystems, within: Map<number, [number, number]>, names: Map<number, string>, systemID: number | null,
+    constellation = systemID === null ? null : within.get(systemID)?.[1] ?? null): void {
     for (const { el } of this.labels) el.remove();
     this.labels = [];
-    if (systemID === null || !this.positions.has(systemID)) return;
-    const constellation = within.get(systemID)?.[1];
-    const active = new Set<number>([systemID]);
-    for (const [a, b] of data.jumps) { if (a === systemID) active.add(b); if (b === systemID) active.add(a); }
+    const active = new Set<number>();
+    if (systemID !== null && this.positions.has(systemID)) {
+      active.add(systemID);
+      for (const [a, b] of data.jumps) { if (a === systemID) active.add(b); if (b === systemID) active.add(a); }
+    }
     for (const [id, , , , , , c] of data.systems) if (c === constellation) active.add(id);
     for (const id of active) {
       const at = this.positions.get(id);
@@ -967,16 +1097,7 @@ export class StarMap {
       return v.z < 1 && v.z > -1 ? { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h } : null;
     };
     const eye = this.camera.position;
-    for (const { row, button } of this.activityLabels) {
-      const at = this.positions.get(row.systemID)!;
-      const p = project(at);
-      button.hidden = !p || p.x < 0 || p.x > w || p.y < 0 || p.y > h;
-      if (p && !button.hidden) {
-        // MarkerPinBase.SetUpsideDown moves markers beside the location pin below the star.
-        const offset = button.dataset.local === "true" ? "25px" : "-130%";
-        button.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, ${offset})`;
-      }
-    }
+    this.placeActivityMarkers(project, w, h);
     // the abstract markers' content: big - every on-screen system's name under its bubble; else only the selected's
     if (this.markerSize === "big" || this.markerSize === "medium") {
       const big = this.markerSize === "big";
@@ -1018,8 +1139,8 @@ export class StarMap {
     // the region and constellation names (their marker opacities; a layout change hides them, _mapTransitioning)
     const zoomDist = this.camera.position.distanceTo(this.controls.target);
     const base = (d: number, near: number, far: number) => (d < near ? d / near : d < far ? Math.min(1, Math.max(0, 1 - d / far)) : 0);
-    const selRegion = this.selectedID !== null ? this.within.get(this.selectedID)?.[0] ?? null : null;
-    const selConstellation = this.selectedID !== null ? this.within.get(this.selectedID)?.[1] ?? null : null;
+    const selRegion = this.selectedRegionID;
+    const selConstellation = this.selectedConstellationID;
     for (const r of this.regionMarks) {
       const at = this.abstract ? r.abstract : r.own;
       const p = this.morph ? null : project(at);
@@ -1108,7 +1229,7 @@ export class StarMap {
     let kind: "none" | "medium" | "big" = "none";
     if (this.abstract && !this.morph) {
       const d = this.camera.position.distanceTo(this.controls.target);
-      const zoom = Math.min(1, Math.max(0, (d - 3100) / (310000 - 3100))) ** (1 / 9);
+      const zoom = mapZoomValue(d, 3100, 310000);
       const def = zoom < 0.75 ? 0.4 : 0.3;
       if (def !== this.abstractDefault) { this.abstractDefault = def; this.updateLineOpacity(); }
       kind = zoom < 0.66 ? "big" : zoom < 0.75 ? "medium" : "none";
@@ -1122,6 +1243,8 @@ export class StarMap {
       const target = this.move.from.clone().lerp(this.move.to, k);
       this.camera.position.add(target.clone().sub(this.controls.target));
       this.controls.target.copy(target);
+      const zoom = this.move.zoom;
+      if (zoom) this.camera.position.sub(target).setLength(zoom.from + (zoom.to - zoom.from) * k).add(target);
       if (t >= 1) this.move = null;
     }
     this.controls.update();

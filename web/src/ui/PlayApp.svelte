@@ -732,7 +732,7 @@
       if (starMap !== m) return;
       const here = sessionPlace(s.store.flight.get().status, s.store.station.get().online).solarSystemID ?? live?.hello?.solarSystemID ?? null;
       m.build(data, here);
-      void m.setLayout(true);
+      void m.setLayout(box.checked);
       route();
       const stop = s.flow.waypoints.subscribe(() => route());
       const stopFilters = mountStarMapFilterControls(m, s);
@@ -2003,10 +2003,10 @@
   .fly-windows :global(.ind-scroll .ind-none) { text-align: center; color: rgba(255, 255, 255, 0.5); padding: 12px; }
   .fly-map { position: fixed; left: 44px; top: 0; right: 0; bottom: 0; pointer-events: none; z-index: 5; }
   .fly-map :global(.star-map) { pointer-events: auto; }
-  .fly-map :global(.star-map-layout) { position: absolute; top: 10px; left: 12px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
+  .fly-map :global(.star-map-layout) { position: absolute; top: 10px; right: 42px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
   .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
     color: #ccc; border: 1px solid rgba(255,255,255,0.2); width: 22px; height: 22px; cursor: pointer; }
-  .fly-map :global(.star-map-filters) { position: absolute; top: 34px; left: 12px; z-index: 1; display: grid;
+  .fly-map :global(.star-map-filters) { position: absolute; top: 34px; right: 10px; z-index: 1; display: grid;
     gap: 4px; padding: 6px 8px; color: #ddd; background: #111d; border: 1px solid #fff3; font-size: 12px; }
   .fly-map :global(.star-map-filters label) { display: flex; align-items: center; gap: 8px; }
   .fly-map :global(.star-map-filters select),
@@ -2025,6 +2025,28 @@
   .fly-map :global(.star-map-activity-marker[data-kind="phased"] img) { display: block; width: 16px; height: 16px; }
   .fly-map :global(.star-map-activity-marker[data-kind="convoys"]) { border-color: #956bec; background: #392c56e8; }
   .fly-map :global(.star-map-activity-marker[data-local="true"]) { box-shadow: 0 0 0 1px #fff9; }
+  .fly-map :global(.star-map-activity-cluster) {
+    --cluster-fill: url("/client-res/ui/texture/classes/mapview/markers/clusterfill.png");
+    --cluster-stroke: url("/client-res/ui/texture/classes/mapview/markers/clusterstroke.png");
+    position: absolute; top: 0; left: 0; display: grid; place-items: center; isolation: isolate;
+    width: 32px; height: 32px; padding: 0; border: 0; background: none; pointer-events: auto; cursor: pointer;
+    color: #fff; font-size: 13px; font-weight: 600;
+  }
+  .fly-map :global(.star-map-activity-cluster[hidden]) { display: none; }
+  .fly-map :global(.star-map-activity-cluster[data-level="region"]) {
+    --cluster-fill: url("/client-res/ui/texture/classes/mapview/markers/clusterfill_64.png");
+    --cluster-stroke: url("/client-res/ui/texture/classes/mapview/markers/clusterstroke_64.png");
+    width: 64px; height: 64px; font-size: 16px;
+  }
+  .fly-map :global(.star-map-activity-cluster::before), .fly-map :global(.star-map-activity-cluster::after) {
+    content: ""; position: absolute; inset: 0; pointer-events: none; mask-size: 100% 100%;
+  }
+  .fly-map :global(.star-map-activity-cluster::before) {
+    z-index: -2; background: var(--theme-focus-dark, #305665); mask-image: var(--cluster-fill);
+  }
+  .fly-map :global(.star-map-activity-cluster::after) {
+    z-index: -1; background: var(--theme-focus, #58a7bf); mask-image: var(--cluster-stroke);
+  }
   .fly-lobby { left: auto; right: 16px; top: 16px; width: 280px; min-height: 260px; z-index: 5; }
   .lobby-body { padding: 10px 12px 14px; }
   .lobby-body .station-name { position: static; font-size: 18px; color: #f0f1ee; line-height: 1.25; }

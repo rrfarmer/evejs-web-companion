@@ -11,6 +11,8 @@ const NPC = "UI/Map/MapPallet/categoryNpcActivity";
 const PROJECTED = "UI/Map/MapPallet/legendLabelOreAnomaliesImprecise";
 const PRECISE = "UI/Map/MapPallet/legendLabelOreAnomaliesPrecise";
 const ORE_HINT = "UI/Map/MapPallet/filterOreAnomalyHintImprecise";
+const ORE_CLUSTER_HINT = "UI/Map/MapPallet/filterOreAnomalyHintImprecisePlural";
+const FILTER_CLUSTER_HINT = "UI/Map/Markers/ClusterHint_Filter";
 const PHASED_HINT = "UI/Map/PhasedFieldPinTooltip";
 const CONVOY_HINT = "UI/Map/StarModeHandler/Hints/VanguardNemesisConvoysTooltip";
 const NO_DATA = "UI/Common/NoDataAvailable";
@@ -73,7 +75,8 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
       if (mode === "convoys") return word(CONVOY_HINT, `${row.count} active Vanguard Nemesis convoys`, { amount: row.count });
       if (row.dungeonNameIDs?.length) return row.dungeonNameIDs.map(id => word(`#${id}`, `#${id}`)).join("\n");
       return word(ORE_HINT, `${row.count} ore anomalies`, { num: row.count });
-    });
+    }, count => mode === "ore" ? word(ORE_CLUSTER_HINT, `${count} sites detected`, { num: count })
+      : word(FILTER_CLUSTER_HINT, word(MAP_COLOR_MODES.phased.label, MAP_COLOR_MODES.phased.fallback), { num: count }));
   }
   async function refresh(resetMarkers = true): Promise<void> {
     clearTimeout(refreshAfterJump);
@@ -116,7 +119,7 @@ export function mountStarMapFilterControls(map: StarMap, session: Session): () =
   const stopFlight = session.store.flight.subscribe(onLocation);
   const stopStation = session.store.station.subscribe(onLocation);
   const stopWords = session.store.words.subscribe(render);
-  session.flow.requestWords([LABEL, MINING, NPC, PROJECTED, PRECISE, ORE_HINT, PHASED_HINT, CONVOY_HINT, NO_DATA, AGENCY, HERE,
+  session.flow.requestWords([LABEL, MINING, NPC, PROJECTED, PRECISE, ORE_HINT, ORE_CLUSTER_HINT, FILTER_CLUSTER_HINT, PHASED_HINT, CONVOY_HINT, NO_DATA, AGENCY, HERE,
     ...options.map(({ definition }) => definition.label)]);
   return () => {
     ++request;
