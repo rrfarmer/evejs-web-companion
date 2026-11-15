@@ -3294,12 +3294,14 @@ function decodeInventoryRows(result) {
     }
     const itemID = Number(fields.itemID) || 0;
     if (itemID > 0) {
+      const singletonCode = Number(fields.singleton);
+      const blueprintCopy = singletonCode === 2;
       rows.push({
         itemID,
         typeID: Number(fields.typeID) || 0,
         locationID: Number(fields.locationID) || 0,
         flagID: Number(fields.flagID) || 0,
-        quantity: Number(fields.quantity) || Number(fields.stacksize) || 0,
+        quantity: blueprintCopy ? 1 : Number(fields.quantity) || Number(fields.stacksize) || 0,
         // R40: what a row IS, not just where it sits. The ship bays route needs
         // these to tell a ship from a container from a stack of ore without a
         // second read. Additive — every existing caller picks the fields it
@@ -3310,7 +3312,8 @@ function decodeInventoryRows(result) {
           fields.categoryID === undefined || fields.categoryID === null
             ? null
             : Number(fields.categoryID),
-        singleton: Number(fields.singleton) === 1,
+        singleton: singletonCode === 1 || blueprintCopy,
+        ...(blueprintCopy ? { blueprintCopy } : {}),
       });
     }
   }
@@ -10940,6 +10943,7 @@ app.get("/api/bridge/ship/:shipID/bays", requireAuth, async (req, res, next) => 
               categoryID: row.categoryID,
               quantity: row.quantity,
               singleton: row.singleton,
+              ...(row.blueprintCopy ? { blueprintCopy: true } : {}),
               volume: (!row.singleton ? volumes[`p${row.typeID}`] : undefined) ?? volumes[String(row.typeID)] ?? null,
             });
           }

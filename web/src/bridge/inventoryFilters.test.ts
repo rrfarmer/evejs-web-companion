@@ -41,3 +41,11 @@ test("prices use retail rounding, with missing and pending values kept distinct"
   assert.equal(matchInventoryFilter(ore, "Veldspar", filter, { [F.price]: null }), false);
   assert.equal(matchInventoryFilter(ore, "Veldspar", filter, { [F.price]: 101_000 }), true);
 });
+
+test("the copy flag and assembled test distinguish singleton 2 from an original", () => {
+  const original = { ...ore, quantity: 1, singleton: true, categoryID: 9 };
+  const copy = { ...original, blueprintCopy: true } as const;
+  assert.equal(matchInventoryFilter(original, "Merlin Blueprint", ["Copies", 1, [[F.blueprintCopy, O.is, true]]]), false);
+  assert.equal(matchInventoryFilter(copy, "Merlin Blueprint", ["Copies", 1, [[F.blueprintCopy, O.is, true]]]), true);
+  assert.equal(matchInventoryFilter(copy, "Merlin Blueprint", ["Assembled", 1, [[F.assembled, O.is, true]]]), false);
+});

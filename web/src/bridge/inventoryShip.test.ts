@@ -20,6 +20,15 @@ function packedRow(fields: Record<string, JsonValue>): JsonValue {
   return { type: "packedrow", fields };
 }
 
+test("the native blueprint-copy singleton stays identified and counts as one item", () => {
+  const [copy] = decodeInventoryRows({ type: "list", items: [
+    packedRow({ itemID: 700, typeID: 950, groupID: 105, categoryID: 9, flagID: 4, quantity: -2, stacksize: 1, singleton: 2 }),
+  ] });
+  assert.equal(copy?.blueprintCopy, true);
+  assert.equal(copy?.singleton, true);
+  assert.equal(copy?.quantity, 1);
+});
+
 const HANGAR_LIST: JsonValue = {
   type: "list",
   items: [

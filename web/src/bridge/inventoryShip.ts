@@ -89,10 +89,9 @@ function decodeRowFields(fields: Record<string, JsonValue>, volumes: VolumeMap |
   const quantity = toNumber(fields.quantity);
   const stacksize = toNumber(fields.stacksize);
   const typeID = toNumber(fields.typeID);
-  // 1 for an assembled item, whether the wire spells it as a number or a
-  // boolean — boundInventory accepts both shapes for this same field and the
-  // two decoders must not disagree about what a singleton is.
-  const singleton = fields.singleton === true || toNumber(fields.singleton) === 1;
+  const singletonCode = toNumber(fields.singleton);
+  const blueprintCopy = singletonCode === 2;
+  const singleton = fields.singleton === true || singletonCode === 1 || blueprintCopy;
   return {
     itemID: toNumber(fields.itemID),
     ...(toNumberOrNull(fields.ownerID) !== null ? { ownerID: toNumber(fields.ownerID) } : {}),
@@ -121,6 +120,7 @@ function decodeRowFields(fields: Record<string, JsonValue>, volumes: VolumeMap |
     // it — it exists for the arithmetic, and the arithmetic wants a count.
     quantity: singleton ? 1 : quantity || stacksize,
     singleton,
+    ...(blueprintCopy ? { blueprintCopy: true as const } : {}),
     volume: volumeFor(typeID, volumes, !singleton),
   };
 }

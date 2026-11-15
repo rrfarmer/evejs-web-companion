@@ -36,6 +36,7 @@
     [F.slot, "ConditionSlotType", "Slot Type"], [F.metaGroup, "ConditionMetaGroup", "Meta Group"],
     [F.metaLevel, "ConditionMetaLevel", "Meta Level"], [F.power, "ConditionPowerUsage", "Powergrid Use"],
     [F.cpu, "ConditionCpuUsage", "CPU Use"],
+    [F.blueprintCopy, "ConditionBlueprintCopy", "Blueprint Copy"], [F.clone, "ConditionCloneState", "Clone State"],
   ] as const;
   const operators: Readonly<Record<number, readonly [string, string]>> = {
     [O.is]: ["CritIs", "Is"], [O.isnt]: ["CritIsNot", "Is Not"],
@@ -50,6 +51,7 @@
   const metaOptions = [[1, "Tech I"], [2, "Tech II"], [3, "Storyline"], [4, "Faction"], [5, "Officer"], [6, "Deadspace"], [14, "Tech III"]] as const;
   const idFields = new Set<number>([F.category, F.group, F.slot, F.metaGroup]);
   const integerFields = new Set<number>([F.size, F.metaLevel]);
+  const booleanFields = new Set<number>([F.assembled, F.blueprintCopy]);
 
   type Option = { readonly id: number; readonly nameID: number; readonly published: boolean };
   let categories = $state<readonly Option[]>([]);
@@ -152,14 +154,14 @@
   function add(field: number) {
     if (!draft || !fields.some(([id]) => id === field)) return;
     if (field === F.metaGroup) void readMetaGroups();
-    const boolean = field === F.assembled;
-    change(draft.conditions.length, [field, field === F.name ? O.starts : idFields.has(field) ? O.is : boolean ? O.isnt : O.greater,
+    const boolean = booleanFields.has(field);
+    change(draft.conditions.length, [field, field === F.name ? O.starts : idFields.has(field) || field === F.clone ? O.is : boolean ? O.isnt : O.greater,
       field === F.name ? "" : boolean ? true : 0]);
   }
 
   function options(field: number): readonly number[] {
     if (field === F.name) return [O.starts, O.notStarts, O.is, O.isnt, O.contains, O.notContains];
-    if (idFields.has(field) || field === F.assembled) return [O.is, O.isnt];
+    if (idFields.has(field) || booleanFields.has(field) || field === F.clone) return [O.is, O.isnt];
     return [O.less, O.equal, O.greater];
   }
 
@@ -259,7 +261,7 @@
                 <select aria-label={`Condition ${index + 1} operator`} value={operator} onchange={event => change(index, [field, Number(event.currentTarget.value), value])}>
                   {#each options(field) as op (op)}
                     {@const [key, fallback] = operators[op]!}
-                    <option value={op}>{field === F.assembled ? label([PREFIX + (op === O.is ? "CritIsTrue" : "CritIsFalse"), op === O.is ? "Is True" : "Is False"]) : label([PREFIX + key, fallback])}</option>
+                    <option value={op}>{booleanFields.has(field) ? label([PREFIX + (op === O.is ? "CritIsTrue" : "CritIsFalse"), op === O.is ? "Is True" : "Is False"]) : label([PREFIX + key, fallback])}</option>
                   {/each}
                 </select>
                 {#if field === F.category || field === F.group}
@@ -286,7 +288,12 @@
                     {#if typeof value === "number" && value > 0 && !choices.some(([id]) => id === value)}<option value={value}>Saved value</option>{/if}
                     {#each choices as [id, text] (id)}<option value={id}>{text}</option>{/each}
                   </select>
-                {:else if field !== F.assembled}
+                {:else if field === F.clone}
+                  <select aria-label={`Condition ${index + 1} value`} value={value} onchange={event => change(index, [field, operator, Number(event.currentTarget.value)])}>
+                    <option value={0}>Alpha</option>
+                    <option value={1}>Omega</option>
+                  </select>
+                {:else if !booleanFields.has(field)}
                   <input aria-label={`Condition ${index + 1} value`} type={field === F.name ? "text" : "number"}
                     min={field === F.name ? undefined : 0} step={integerFields.has(field) ? 1 : "any"} value={String(value)}
                     oninput={event => {

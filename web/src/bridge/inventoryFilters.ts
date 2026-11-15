@@ -102,7 +102,9 @@ export function matchInventoryFilter(
   row: InventoryItemRow, name: string, filter: InventoryFilter, facts: InventoryFilterFacts = {},
 ): boolean | undefined {
   const values: InventoryFilterFacts = {
-    [F.category]: row.categoryID, [F.group]: row.groupID, [F.size]: row.quantity, [F.assembled]: row.singleton,
+    [F.category]: row.categoryID, [F.group]: row.groupID, [F.size]: row.quantity,
+    // The client's boolean test treats singleton 1 as true. A copy carries 2 and uses its own condition.
+    [F.assembled]: row.singleton && row.blueprintCopy !== true, [F.blueprintCopy]: row.blueprintCopy === true,
     [F.name]: name, [F.volume]: row.volume == null ? null : row.volume * row.quantity, ...facts,
   };
   const matchAll = filter[1] === FILTER_MATCH.all;

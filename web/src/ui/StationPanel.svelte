@@ -472,10 +472,11 @@
     const ids = filterTypeIDs;
     const fields = typeFilterFields;
     if (!fields || !ids) return;
+    const wanted = new Set(fields.split(",").map(Number));
+    const raceID = wanted.has(FILTER_FIELD.clone) ? $station.online?.raceID ?? null : null;
     let current = true;
     filterTypeError = false;
-    const wanted = new Set(fields.split(",").map(Number));
-    void loadInventoryFilterFacts(ids.split(",").map(Number), wanted, flow.requestOptions()).then(facts => {
+    void loadInventoryFilterFacts(ids.split(",").map(Number), wanted, flow.requestOptions(), raceID).then(facts => {
       if (!current) return;
       filterTypeFacts = facts;
       filterTypeError = [...facts.values()].some(row => [...wanted].some(field => row[field] === undefined));

@@ -99,6 +99,7 @@ function decodeBayItems(value: JsonValue | undefined): readonly InventoryItemRow
       // caption it, and this number is never shown for such a row.
       quantity: singleton ? 1 : Math.max(0, numberOrNull(raw.quantity) ?? 0),
       singleton,
+      ...(raw.blueprintCopy === true ? { blueprintCopy: true as const } : {}),
       ...(volume !== null && volume >= 0 ? { volume } : {}),
     });
   }
