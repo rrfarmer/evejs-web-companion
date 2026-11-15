@@ -77,6 +77,12 @@ export interface EventDetails {
   readonly creatorID: number;
 }
 
+export interface CalendarAgenda {
+  readonly events: readonly CalendarEvent[];
+  readonly responses: readonly CharacterResponse[];
+  readonly nowMs: number;
+}
+
 /** An integer tolerant of a {type:"long"} wrapper and a numeric string; 0 otherwise. */
 function toNumber(value: JsonValue | undefined): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -102,7 +108,7 @@ function toNullableNumber(value: JsonValue | undefined): number | null {
 
 /** The `items` of a {type:"list"} wrapper; [] for anything else. */
 function listItems(value: JsonValue | undefined): readonly JsonValue[] {
-  return isListValue(value) ? value.items : [];
+  return Array.isArray(value) ? value : isListValue(value) ? value.items : [];
 }
 
 function calendarText(value: JsonValue | undefined): string {

@@ -25,7 +25,7 @@
   import type { Session } from "../app/sessions.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { infoWindowLabel } from "./infoWindowLabel.ts";
-  import { calendarView } from "./calendarView.ts";
+  import { CALENDAR_AGENDA_LABELS, calendarView } from "./calendarView.ts";
 
   let {
     store,
@@ -218,7 +218,7 @@
           onclick={() => flow.infoWindows.minimize(win.id)}><span class="win-chip-dot" aria-hidden="true"></span>{infoWindowLabel(win, $names.resolved)}</button>
       {/each}
       {#each $calendarWindows as win (win.id)}
-        {@const title = win.kind === "day" ? win.id : win.event.eventTitle}
+        {@const title = win.kind === "event" ? win.event.eventTitle : win.kind === "agenda" ? CALENDAR_AGENDA_LABELS[win.agendaKind][1] : win.id}
         <button type="button" class="win-chip" class:away={win.minimized} aria-pressed={!win.minimized}
           title={win.minimized ? `Bring back ${title}` : `Put away ${title}`}
           onclick={() => calendar.toggleMinimize(win.id)}><span class="win-chip-dot" aria-hidden="true"></span>{title}</button>

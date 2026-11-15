@@ -5,35 +5,35 @@
   // Show Timestamp). At the right the month (Calendar): the back / forward arrows, the month and year
   // (MonthsWithYear), Today at the right; the day names' header row (UI/Moonmining/<Day>Short, Monday first:
   // calendar.Calendar()) and NUM_DAYROWS 6 rows of days, the days out of the month dimmed, today marked, each day's
-  // events listed in it. The month uses calendarProxy.GetEventList for the month in view; the upcoming list uses
-  // the Activity Center's agenda.
+  // events listed in it. The month uses calendarProxy.GetEventList for the month in view; the sidebar reads the
+  // current and next months with the pilot's responses.
   import { onMount, tick } from "svelte";
   import { plainText, formatTemplate } from "../bridge/clientWords.ts";
-  import { filetimeToUnixMs } from "../bridge/activity.ts";
   import type { CalendarEvent } from "../bridge/calendar.ts";
   import { isNpcCorporation } from "../bridge/standingsReads.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { calendarDate, calendarGrid, calendarMonthOffset, stepCalendarDate, type CalendarDate } from "./calendarSelection.ts";
-  import { CALENDAR_FILTERS, calendarCaption, calendarRows, calendarTime, calendarView, type CalendarRow } from "./calendarView.ts";
+  import { CALENDAR_AGENDA_LABELS, CALENDAR_FILTERS, CALENDAR_GROUPS, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH,
+    calendarAgendaRows, calendarResponses, calendarRows, calendarView, type CalendarRow } from "./calendarView.ts";
+  import CalendarAgendaList from "./CalendarAgendaList.svelte";
   import CalendarCellEvents from "./CalendarCellEvents.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const monthHeading = $props.id();
-  // svelte-ignore state_referenced_locally
-  const activity = store.activity;
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const station = store.station;
   // svelte-ignore state_referenced_locally
   const model = calendarView(flow);
-  const { filters } = model;
+  const { filters, agenda } = model;
+  // svelte-ignore state_referenced_locally
+  const calendarUpdated = flow.calendarUpdated;
   const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const WORDS = {
-    newEvent: "UI/Calendar/CalendarWindow/NewEvent", upcoming: "UI/Calendar/CalendarWindow/UpcomingEvents",
-    updates: "UI/Calendar/CalendarWindow/LatestUpdates", filters: "UI/Calendar/CalendarWindow/Filters", today: "UI/Calendar/CalendarWindow/Today",
+    newEvent: "UI/Calendar/CalendarWindow/NewEvent", filters: "UI/Calendar/CalendarWindow/Filters", today: "UI/Calendar/CalendarWindow/Today",
     personal: "UI/Calendar/CalendarWindow/GroupPersonal", corp: "UI/Calendar/CalendarWindow/GroupCorp", alliance: "UI/Calendar/CalendarWindow/GroupAlliance",
     ccp: "UI/Calendar/CalendarWindow/GroupCcp", automated: "UI/Calendar/CalendarWindow/GroupAutomated", declined: "UI/Calendar/CalendarWindow/DeclinedEvents",
     timestamp: "UI/Calendar/CalendarWindow/ShowTimestamp",
@@ -47,10 +47,10 @@
     return typeof t === "string" && t !== "" ? plainText(formatTemplate(t, args, { nameOf: () => "" })) : own;
   };
   onMount(() => {
-    flow.requestWords([...Object.values(WORDS), ...MONTHS.map((m) => `/Carbon/UI/Common/MonthsWithYear/${m}`), ...DAYS.map((d) => `UI/Moonmining/${d}Short`)]);
-    if ($activity.calendarEvents.status !== "ready" || $activity.calendarResponses.status !== "ready") {
-      void flow.loadActivity().catch(() => {});
-    }
+    flow.requestWords([...Object.values(WORDS), ...Object.values(CALENDAR_AGENDA_LABELS).map(([key]) => key),
+      ...Object.values(CALENDAR_GROUPS).map(tag => `UI/Calendar/CalendarWindow/${tag.label}`),
+      ...CALENDAR_RESPONSES.map(([key]) => CALENDAR_RESPONSE_PATH + key),
+      ...MONTHS.map((m) => `/Carbon/UI/Common/MonthsWithYear/${m}`), ...DAYS.map((d) => `UI/Moonmining/${d}Short`)]);
   });
 
   const today = calendarDate(new Date());
@@ -70,6 +70,7 @@
   let monthEvents = $state<readonly CalendarEvent[]>([]);
   let monthStatus = $state<"loading" | "ready" | "error">("loading");
   $effect(() => {
+    $calendarUpdated;
     const { y, m } = view;
     let current = true;
     monthEvents = [];
@@ -84,8 +85,7 @@
     return () => { current = false; };
   });
 
-  const events = $derived($activity.calendarEvents.status === "ready" ? $activity.calendarEvents.value : []);
-  const responses = $derived(new Map($activity.calendarResponses.value?.map(row => [row.eventID, row.status])));
+  const responses = $derived(calendarResponses($agenda));
   const eventsByDay = $derived.by(() => {
     const map = new Map<number, CalendarRow[]>();
     for (const row of calendarRows(monthEvents, $filters, responses)) {
@@ -96,8 +96,7 @@
     }
     return map;
   });
-  const upcoming = $derived(events.map((e) => ({ title: e.title, at: filetimeToUnixMs(e.eventDateTime) })).filter((e): e is { title: string; at: number } => e.at !== null && e.at >= Date.now())
-    .sort((a, b) => a.at - b.at).slice(0, 20));
+  const agendaRows = $derived(calendarAgendaRows($agenda, $filters));
   const grid = $derived(calendarGrid(view.y, view.m));
   const weeks = $derived(Array.from({ length: 6 }, (_, i) => grid.slice(i * 7, (i + 1) * 7)));
   const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" });
@@ -135,12 +134,10 @@
   <div class="cal-left">
     <button type="button" class="cal-new" disabled title="Not on the play page yet">{word(WORDS.newEvent, "New Event")}</button>
     <div class="cal-lists">
-      <b>{word(WORDS.upcoming, "Upcoming Events")}</b>
-      <div class="cal-list">
-        {#each upcoming as e, i (i)}<div class="cal-entry"><small>{calendarCaption(calendarDate(new Date(e.at)))} {calendarTime(e.at)}</small><span>{e.title}</span></div>{/each}
-      </div>
-      <b>{word(WORDS.updates, "Latest Updates")}</b>
-      <div class="cal-list short"></div>
+      <CalendarAgendaList {words} title={word(...CALENDAR_AGENDA_LABELS.upcoming)} rows={agendaRows.upcoming} status={$agenda.status}
+        openMore={keep => model.openAgenda("upcoming", keep)} openEvent={row => model.openEvent(row.event)} />
+      <CalendarAgendaList {words} title={word(...CALENDAR_AGENDA_LABELS.updates)} rows={agendaRows.updates} status={$agenda.status}
+        openMore={keep => model.openAgenda("updates", keep)} openEvent={row => model.openEvent(row.event)} />
     </div>
     <div class="cal-filters">
       <b>{word(WORDS.filters, "Filters")}</b>
@@ -196,11 +193,7 @@
   .cal-left { flex: 0 0 150px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .cal-new { margin-top: 7px; font-size: 12px; padding: 2px 6px; }
   .cal-lists { flex: 1; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
-  .cal-lists b, .cal-filters b { font-size: 12px; height: 18px; }
-  .cal-list { flex: 1; min-height: 60px; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 11px; }
-  .cal-list.short { flex: 0 0 60px; }
-  .cal-entry { display: flex; flex-direction: column; padding: 2px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-  .cal-entry small { opacity: 0.6; }
+  .cal-filters b { font-size: 12px; height: 18px; }
   .cal-filters { display: flex; flex-direction: column; font-size: 12px; gap: 0; padding-top: 3px; }
   .cal-filters label { display: flex; align-items: center; gap: 4px; height: 17px; white-space: nowrap; overflow: hidden; }
   .cal-filters input { width: 12px; height: 12px; margin: 0; }

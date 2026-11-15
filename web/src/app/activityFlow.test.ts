@@ -123,3 +123,25 @@ test("Calendar event and invitation reads use the opened row's event and owner I
   assert.deepEqual(calls, [["calendarProxy", "GetEventDetails", [980000000006, 140_000_002]],
     ["calendarMgr", "GetResponsesToEvent", [980000000006, 140_000_002]]]);
 });
+
+test("Calendar agenda reads the year boundary months and retains cancellation and response fields", async t => {
+  const nowMs = Date.UTC(2026, 11, 31, 20);
+  t.mock.timers.enable({ apis: ["Date"], now: nowMs });
+  const calls: unknown[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "/api/bridge/call");
+    const { service, method, args } = JSON.parse(String(init?.body));
+    calls.push([service, method, args]);
+    const event = keyVal({ eventID: args[0] === 12 ? 17 : 18, flag: 1, isDeleted: args[0] === 12 });
+    const result = method === "GetEventList" ? [{ type: "list", items: [event] }, null, null]
+      : [keyVal({ eventID: 17, status: 4 })];
+    return json({ ok: true, service, method, result });
+  };
+  const flow = createAppFlow(createClientStore(), { fetch });
+  const agenda = await flow.loadCalendarAgenda();
+  assert.deepEqual(calls, [["calendarProxy", "GetEventList", [12, 2026]], ["calendarProxy", "GetEventList", [1, 2027]],
+    ["calendarMgr", "GetResponsesForCharacter", []]]);
+  assert.deepEqual(agenda.events.map(event => [event.eventID, event.isDeleted, event.flag]), [[17, true, 1], [18, false, 1]]);
+  assert.deepEqual(agenda.responses, [{ eventID: 17, status: 4 }]);
+  assert.equal(agenda.nowMs, nowMs);
+});

@@ -5,8 +5,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
-  import { calendarDate } from "./calendarSelection.ts";
-  import { CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, CALENDAR_TAGS, calendarCaption, calendarTime } from "./calendarView.ts";
+  import { CALENDAR_GROUPS, CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, CALENDAR_TAGS, calendarDateTime, calendarResponses, calendarView } from "./calendarView.ts";
   import LabelText from "./LabelText.svelte";
   import { LINK_WORDS, linkFollowerOf } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
@@ -14,7 +13,11 @@
   let { flow, store, event, close }: { flow: AppFlow; store: ClientStore; event: CalendarEvent; close: () => void } = $props();
   const tabID = $props.id();
   // svelte-ignore state_referenced_locally
-  const { activity, names, station, words } = store;
+  const { names, station, words } = store;
+  // svelte-ignore state_referenced_locally
+  const agenda = calendarView(flow).agenda;
+  // svelte-ignore state_referenced_locally
+  const calendarUpdated = flow.calendarUpdated;
   const LABEL = {
     start: "UI/Calendar/EventWindow/StartTime", duration: "UI/Calendar/EventWindow/Duration", type: "UI/Calendar/EventWindow/EventType",
     creator: "UI/Calendar/EventWindow/Creator", status: "UI/Calendar/EventWindow/Status", updated: "UI/Calendar/EventWindow/LastUpdated",
@@ -23,21 +26,17 @@
     noCharacter: "UI/Calendar/EventWindow/NoCharacter", close: "UI/Generic/Close", search: "UI/Common/Search",
     date: "/Carbon/UI/Common/DateTime/DateLongShort",
   } as const;
-  const GROUP = {
-    1: ["GroupPersonal", "Personal"], 2: ["GroupCorp", "Corporation"], 4: ["GroupAlliance", "Alliance"],
-    8: ["GroupCcp", "CCP"], 16: ["GroupAutomated", "Automated"],
-  } as const;
   function word(key: string, fallback: string, args: Record<string, number> = {}): string {
     return plainText(formatTemplate($words.templates[key] ?? "", args, { nameOf: () => "" })) || fallback;
   }
   function dateText(filetime: bigint | null): string {
     const timestamp = filetimeToUnixMs(filetime);
     if (timestamp === null) return "—";
-    return word(LABEL.date, `${calendarCaption(calendarDate(new Date(timestamp)))} ${calendarTime(timestamp)}`, { datetime: Number(filetime) });
+    return word(LABEL.date, calendarDateTime(timestamp), { datetime: Number(filetime) });
   }
   function groupName(flag: number): string {
-    const group = GROUP[flag as keyof typeof GROUP];
-    return group ? word(`UI/Calendar/CalendarWindow/${group[0]}`, group[1]) : "—";
+    const group = CALENDAR_GROUPS[flag as keyof typeof CALENDAR_GROUPS];
+    return group ? word(`UI/Calendar/CalendarWindow/${group.label}`, group.fallback) : "—";
   }
   const responseOf = (status: number) => CALENDAR_RESPONSES[status] ?? CALENDAR_RESPONSES[3];
   const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, key => word(key, LINK_WORDS[key] ?? ""), text);
@@ -45,7 +44,7 @@
   $effect(() => {
     flow.requestWords([...Object.values(LABEL), ...Object.keys(LINK_WORDS),
       ...CALENDAR_RESPONSES.map(([key]) => CALENDAR_RESPONSE_PATH + key),
-      ...Object.values(GROUP).map(([key]) => `UI/Calendar/CalendarWindow/${key}`)]);
+      ...Object.values(CALENDAR_GROUPS).map(group => `UI/Calendar/CalendarWindow/${group.label}`)]);
   });
 
   let detail = $state<EventDetails | null>(null);
@@ -66,7 +65,7 @@
   const creatorID = $derived(detail?.creatorID ?? null);
   const ccp = $derived(event.flag === CALENDAR_TAGS.ccp);
   const creator = $derived(ccp ? groupName(CALENDAR_TAGS.ccp) : resolvedName($names.resolved, "owner", creatorID));
-  const response = $derived(responseOf(event.isDeleted ? 1 : $activity.calendarResponses.value?.find(row => row.eventID === eventID)?.status ?? 3));
+  const response = $derived(responseOf(event.isDeleted ? 1 : calendarResponses($agenda).get(eventID) ?? 3));
   const durationHours = $derived(event.eventDuration === null ? null : Math.trunc(event.eventDuration / 60));
   const personal = $derived(event.flag === CALENDAR_TAGS.personal);
   const canSeeInvitations = $derived(personal || ((event.flag === CALENDAR_TAGS.corp || event.flag === CALENDAR_TAGS.alliance)
@@ -77,6 +76,7 @@
   let inviteStatus = $state<"loading" | "ready" | "error">("loading");
   $effect(() => {
     if (tab !== "invitations" || !canSeeInvitations) return;
+    $calendarUpdated;
     let active = true;
     inviteStatus = "loading";
     void flow.loadCalendarInvitees(eventID, ownerID).then(result => {

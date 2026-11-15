@@ -2,10 +2,10 @@
   import { tick, untrack } from "svelte";
   import type { Session } from "../app/sessions.ts";
   import { plainText } from "../bridge/clientWords.ts";
-  import CalendarDayWindow from "./CalendarDayWindow.svelte";
+  import CalendarListWindow from "./CalendarListWindow.svelte";
   import CalendarEventWindow from "./CalendarEventWindow.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
-  import { CALENDAR_EVENT_CAPTION, CALENDAR_WINDOW_SIZES, calendarView } from "./calendarView.ts";
+  import { CALENDAR_AGENDA_LABELS, CALENDAR_EVENT_CAPTION, CALENDAR_WINDOW_SIZES, calendarView } from "./calendarView.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { portal } from "./portal.ts";
 
@@ -16,6 +16,12 @@
   const words = session.store.words;
   const { windows, raised } = model;
   const eventCaption = $derived(plainText($words.templates[CALENDAR_EVENT_CAPTION] ?? "") || "Event");
+  function titleOf(win: (typeof $windows)[number]): string {
+    if (win.kind === "event") return eventCaption;
+    if (win.kind === "day") return win.id;
+    const [key, fallback] = CALENDAR_AGENDA_LABELS[win.agendaKind];
+    return plainText($words.templates[key] ?? "") || fallback;
+  }
   let layer: HTMLElement | undefined = $state();
   const visible = $derived(inFront && host !== null);
   const front = $derived($windows.filter(win => !win.minimized).reduce<(typeof $windows)[number] | null>(
@@ -59,18 +65,19 @@
 <div class="calendar-window-layer" use:portal={host!.element} bind:this={layer}>
   {#each $windows as win (win.id)}
     {@const min = CALENDAR_WINDOW_SIZES[win.kind]}
+    {@const title = titleOf(win)}
     <DesktopWindow win={host?.mobile ? { ...win, x: 4, y: 4, w: Math.max(0, host.element.clientWidth - 8), h: min.h, minimized: win.minimized || front?.id !== win.id } : win}
-      title={win.kind === "day" ? win.id : eventCaption} focused={front?.id === win.id && win.z >= (host?.topZ() ?? 0)} resizable={!host?.mobile}
+      {title} focused={front?.id === win.id && win.z >= (host?.topZ() ?? 0)} resizable={!host?.mobile}
       onFocus={() => model.focus(win.id, (host?.topZ() ?? 0) + 1)} onClose={() => model.close(win.id)}
       onToggleMinimize={() => model.toggleMinimize(win.id)} onMove={(x, y) => model.update(win.id, { x, y })}
       onResize={(w, h) => { model.update(win.id, { w: Math.max(min.w, w), h: Math.max(min.h, h) }); fit(); }}>
-      {#if win.kind === "day"}<CalendarDayWindow flow={session.flow} store={session.store} day={win.day} close={() => model.close(win.id)} />
-      {:else}<CalendarEventWindow flow={session.flow} store={session.store} event={win.event} close={() => model.close(win.id)} />{/if}
+      {#if win.kind === "event"}<CalendarEventWindow flow={session.flow} store={session.store} event={win.event} close={() => model.close(win.id)} />
+      {:else}<CalendarListWindow flow={session.flow} store={session.store} subject={win} {title} close={() => model.close(win.id)} />{/if}
     </DesktopWindow>
   {/each}
   {#if host?.mobile}
     <nav aria-label="Open Calendar windows">
-      {#each $windows as win (win.id)}<button type="button" aria-pressed={front?.id === win.id} onclick={() => model.reveal(win.id)}>{win.kind === "day" ? win.id : win.event.eventTitle}</button>{/each}
+      {#each $windows as win (win.id)}<button type="button" aria-pressed={front?.id === win.id} onclick={() => model.reveal(win.id)}>{win.kind === "event" ? win.event.eventTitle : titleOf(win)}</button>{/each}
     </nav>
   {/if}
 </div>

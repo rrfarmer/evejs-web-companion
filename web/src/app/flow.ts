@@ -195,7 +195,7 @@ import {
   decodeActivityCalendar,
   decodeActivityNotifications,
 } from "../bridge/activity.ts";
-import { decodeEventDetails, decodeEventList, decodeResponsesToEvent, type CalendarEvent, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
+import { decodeEventDetails, decodeEventList, decodeResponsesForCharacter, decodeResponsesToEvent, type CalendarAgenda, type CalendarEvent, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
 import {
   contractRefusalMessage,
   decodeContractDetail,
@@ -2532,6 +2532,8 @@ export interface AppFlow {
    */
   loadActivity(): Promise<void>;
   loadCalendarMonth(month: number, year: number): Promise<readonly CalendarEvent[]>;
+  loadCalendarAgenda(): Promise<CalendarAgenda>;
+  readonly calendarUpdated: ReadableSignal<number>;
   loadCalendarEvent(eventID: number, ownerID: number): Promise<EventDetails | null>;
   loadCalendarInvitees(eventID: number, ownerID: number): Promise<readonly EventResponse[]>;
   /** Refresh current-system scan sites and the probes' state. */
@@ -6882,6 +6884,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   ): void {
     directTrades.receive(method, args);
     if (method && OVERVIEW_CONTACT_NOTIFICATIONS.has(method)) contactStandingsChangedSignal.update(n => n + 1);
+    if (method === "OnNewCalendarEvent" || method === "OnEditCalendarEvent" || method === "OnRemoveCalendarEvent" || method === "OnEventResponseByExternal") {
+      calendarUpdatedSignal.update(n => n + 1);
+    }
     if (method === "OnLockedItemChange") inventoryMoves.invalidate(Number(args[2]));
     if (method === "OnDuelChallenge") {
       const incoming = duelChallengeOf(args);
@@ -7384,6 +7389,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         ...(sessionNames.includes("warfactionid") ? { warFactionID: ownerOf(sessionChangeValue(method, args, "warfactionid")) } : {}),
         ...(sessionNames.includes("role") ? { role: wholeDigits(sessionChangeValue(method, args, "role")) } : {}),
       });
+      if (sessionNames.includes("corpid") || sessionNames.includes("allianceid")) calendarUpdatedSignal.update(n => n + 1);
       if (sessionNames.includes("warfactionid")) untrackMilitiaJob(store.station.get().online?.characterID ?? null);
       if (sessionNames.some(name => name === "corpid" || name === "corprole")) {
         corpWalletJournalGeneration += 1;
@@ -10800,6 +10806,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   // --- Activity Center -----------------------------------------------------
 
+  const calendarUpdatedSignal = createSignal(0);
+
+  function calendarAgendaMonths(nowMs: number): readonly [readonly [number, number], readonly [number, number]] {
+    const now = new Date(nowMs);
+    const month = now.getUTCMonth() + 1, year = now.getUTCFullYear();
+    return [[month, year], month === 12 ? [1, year + 1] : [month + 1, year]];
+  }
+
+  async function loadCalendarAgenda(): Promise<CalendarAgenda> {
+    const [current, next] = calendarAgendaMonths(serverNow());
+    const [currentEvents, nextEvents, responses] = await Promise.all([
+      bridgeAsk("calendarProxy", "GetEventList", [...current]),
+      bridgeAsk("calendarProxy", "GetEventList", [...next]),
+      bridgeAsk("calendarMgr", "GetResponsesForCharacter", []),
+    ]);
+    return {
+      events: decodeEventList(calendarEventsOfMonths([currentEvents, nextEvents])),
+      responses: decodeResponsesForCharacter(responses),
+      nowMs: serverNow(),
+    };
+  }
+
   async function loadCalendarMonth(month: number, year: number): Promise<readonly CalendarEvent[]> {
     const answer = await bridgeAsk("calendarProxy", "GetEventList", [month, year]);
     return decodeEventList(calendarEventsOfMonths([answer]));
@@ -10821,13 +10849,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const assertCurrent = callOptions.captureRequestGuard?.();
     store.apply({ type: "activity/loading" });
 
-    const now = new Date();
     // The calendar service's agenda (eveCalendarsvc.py 541 to 566): this month's events and the next's, by the
     // server's clock, which the client asks at the login and keeps by month; and the pilot's own answers to them
     // (250 to 257), which it asks once and keeps. On the game port all three are answered from what the transport
     // keeps, as the service keeps them.
-    const thisMonth = [now.getUTCMonth() + 1, now.getUTCFullYear()] as const;
-    const nextMonth = thisMonth[0] === 12 ? [1, thisMonth[1] + 1] as const : [thisMonth[0] + 1, thisMonth[1]] as const;
+    const nowMs = serverNow();
+    const [thisMonth, nextMonth] = calendarAgendaMonths(nowMs);
     const [notificationResult, unprocessedResult, thisMonthResult, nextMonthResult, responsesResult, mailResult, skillResult] = await Promise.allSettled([
       // The client's notification service's two reads (notificationSvc.py 93 and 107): all the pilot's
       // notifications, from the first, by its keyword; and the ones not yet read, for the unread count. On the game
@@ -10891,7 +10918,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         eventList: monthFailed?.status === "rejected" ? failureCode(monthFailed.reason) : null,
         responsesForCharacter: responsesResult.status === "rejected" ? failureCode(responsesResult.reason) : null,
       },
-    }, now.getTime());
+    }, nowMs);
 
     store.apply({
       type: "activity/loaded",
@@ -34657,6 +34684,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     loadActivity,
     loadCalendarMonth,
+    loadCalendarAgenda,
+    calendarUpdated: readonlySignal(calendarUpdatedSignal),
     loadCalendarEvent,
     loadCalendarInvitees,
     loadScanner,
