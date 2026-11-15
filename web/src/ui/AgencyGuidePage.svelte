@@ -24,6 +24,7 @@
   import { LINK_WORDS, linkFollowerOf } from "./linkFollowers.ts";
   import LabelText from "./LabelText.svelte";
   import { corporationPanelTarget } from "./corporationPanel.ts";
+  import { openTheatersOfWar } from "./theatersOfWarRequests.ts";
 
   type Block =
     | { readonly h: string }
@@ -58,7 +59,7 @@
       // OverviewPanel: the image 802 x 177 at top 0, the text, the Faction Warfare window's button (35 high, top 10).
       { id: "overview", label: `${F}TopicOverview`, header: `${G}OverviewTitle`, strings: [`${G}OverviewTitle`, `${G}OverviewText`], blocks: [
         { img: "res:/UI/Texture/classes/agency/factionWarfare/overview.png", w: 802, hgt: 177, top: 0 }, { t: `${G}OverviewText` },
-        { btn: `${F}openFactionWarfareWindow`, icon: "res:/UI/Texture/WindowIcons/factionalwarfare.png", open: null, top: 10 }] },
+        { btn: `${F}openFactionWarfareWindow`, icon: "res:/UI/Texture/WindowIcons/factionalwarfare.png", open: () => openTheatersOfWar("warfare"), top: 10 }] },
       // WarZonePanel: the text, the map's button (top 8), the frontlines header and text.
       { id: "war_zoneS", label: `${F}TopicWarZones`, header: `${G}WarZoneTitle`, strings: [`${G}WarZoneTitle`, `${G}WarZonesText`, `${G}WarZonesFrontlinesText`], blocks: [
         { t: `${G}WarZonesText` }, { btn: `${G}viewWarzonesOnMap`, icon: "res:/UI/Texture/WindowIcons/map.png", open: null, top: 8 },
@@ -103,7 +104,7 @@
         strings: [`${P}Factions/PiratesSectionTitle`, `${P}Factions/PirateSectionText`, `${P}Factions/ZarzakhSectionTitle`, `${P}Factions/ZarzakhSectionText`], blocks: [
         sec(`${P}Factions/PiratesSectionTitle`, `${P}Factions/PirateSectionText`, 130),
         { sec: `${P}Factions/ZarzakhSectionTitle`, padTop: 20, body: [{ t: `${P}Factions/ZarzakhSectionText`, scroll: 130, pad: 5 },
-          { btn: "UI/Agency/PirateIncursions/openPirateEnlistmentWindow", icon: "res:/UI/Texture/eveicon/system_icons/open_window_16px.png", open: null, top: 30 }] }] },
+          { btn: "UI/Agency/PirateIncursions/openPirateEnlistmentWindow", icon: "res:/UI/Texture/eveicon/system_icons/open_window_16px.png", open: () => openTheatersOfWar("enlistment"), top: 30 }] }] },
       // InsurgenciesPanel: the section (240), the image (233 high, pad 5).
       { id: "incursions", label: `${P}TopicIncursions`, header: null, strings: [`${P}Insurgencies/InsurgenciesSectionTitle`, `${P}Insurgencies/InsurgenciesSectionText`], blocks: [
         sec(`${P}Insurgencies/InsurgenciesSectionTitle`, `${P}Insurgencies/InsurgenciesSectionText`, 240),
@@ -162,7 +163,7 @@
         sec(`${ZG}Shipcaster/ShipcasterSectionTitle`, `${ZG}Shipcaster/ShipcasterSectionText`),
         { grid: [[sec(`${ZG}Shipcaster/GoalsSectionTitle`, `${ZG}Shipcaster/GoalsSectionText`)],
           [sec(`${ZG}Shipcaster/IncursionsSectionTitle`, `${ZG}Shipcaster/IncursionsSectionText`, 0, [{ card: 81 },
-            { btn: `${F}openFactionWarfareWindow`, icon: "res:/UI/Texture/WindowIcons/factionalwarfare.png", open: null, top: 15 }])]], gap: 20 }] },
+            { btn: `${F}openFactionWarfareWindow`, icon: "res:/UI/Texture/WindowIcons/factionalwarfare.png", open: () => openTheatersOfWar("warfare"), top: 15 }])]], gap: 20 }] },
     ];
   }
   const topics = $derived(guide === "factionWarfare" ? factionWarfare() : guide === "zarzakh" ? zarzakh() : pirateInsurgencies());

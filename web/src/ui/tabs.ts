@@ -32,6 +32,7 @@ export type CoreTabID =
   | "compare"
   | "agents"
   | "finder"
+  | "theatersOfWar"
   | "jobBoard"
   | "paintTool"
   | "locationSearch"
@@ -198,6 +199,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "compare", label: "Compare Tool", where: "both" },
   { id: "agents", label: "Agents & Missions", where: "both" },
   { id: "finder", label: "Agent Finder", where: "both" },
+  { id: "theatersOfWar", label: "Theaters of War", where: "both" },
   // The client's job board (JobBoardWindow, "Opportunities"): here its freelance jobs.
   { id: "jobBoard", label: "Opportunities", where: "both" },
   // The structure paint tool (PaintToolWnd, "Structure SKINR"), opened from Brand Management's Open SKINR.

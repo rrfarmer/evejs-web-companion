@@ -99,6 +99,9 @@ const EARLIER_WRITE_METHODS = freezeMethodMap({
 });
 
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  // facWarSvc and fwEnlistmentSvc send the pilot's own enlistment changes.
+  facWarMgr: ["JoinFactionAsCharacter"],
+  fwCharacterEnlistmentMgr: ["CreateMyDirectEnlistment", "RemoveMyDirectEnlistment"],
   // Original invCache596-605: local client cache mutation, never a server RPC.
   invCache: ["InvalidateLocationCache"],
   // pvptradesvc.StartTradeSession38, invControllers.AddItems489 and pvptradewnd67-164.
@@ -909,6 +912,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "facWarMgr.JoinFactionAsCharacter", "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment", "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
   "charFittingMgr.SaveManyFittings", "corpFittingMgr.SaveManyFittings", "allianceFittingMgr.SaveManyFittings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID",
   "corporationSvc.SetMedalStatus",

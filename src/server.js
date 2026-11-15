@@ -1832,6 +1832,8 @@ function buildStationStatic(stationID) {
   }
   const record = staticData.getStation(numericStationID) || {};
   const stationTypeID = Number(record.stationTypeID) || null;
+  const operationID = Number(record.operationID) || null;
+  const operation = operationID && staticData.buildJsonlIndex("stationOperations.jsonl").get(operationID);
   return {
     stationID: numericStationID,
     stationName: String(record.stationName || `Station ${numericStationID}`),
@@ -1840,7 +1842,8 @@ function buildStationStatic(stationID) {
     regionName: String(record.regionName || ""),
     stationTypeID,
     stationTypeName: stationTypeID ? staticData.getTypeName(stationTypeID) : null,
-    operationID: Number(record.operationID) || null,
+    operationID,
+    serviceIDs: Array.isArray(operation?.services) ? operation.services : null,
     security: Number(record.security) || null,
   };
 }

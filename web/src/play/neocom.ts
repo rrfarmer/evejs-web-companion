@@ -36,6 +36,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "jobboard", label: "Opportunities", icon: icon("opportunities") },
     { id: "agency", label: "Agency", icon: icon("theAgency") },
     { id: "map", label: "Map", icon: icon("map") },
+    { id: "theatersOfWar", label: "Theaters of War", icon: clientTexture("res:/UI/Texture/eveicon/product_icons/theaters_of_war_product_64px.png") },
   ] },
   { label: "Finance", icon: icon("directoryMarket"), items: [
     { id: "market", label: "Regional Market", icon: icon("market") },

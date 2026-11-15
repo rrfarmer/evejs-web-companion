@@ -46,6 +46,8 @@
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
   import { jobBoardRequests } from "./jobBoardRequests.ts";
+  import { openTheatersOfWar, theatersOfWarRequests } from "./theatersOfWarRequests.ts";
+  import { relevantMilitiaPage } from "../bridge/militiaEnlistment.ts";
   import { agencyRequests } from "./agencyRequests.ts";
   import { skillPlanCareerRequests } from "./skillPlanCareerRequests.ts";
   import { skillPlanTemplateTarget } from "./skillPlanTemplate.ts";
@@ -90,6 +92,7 @@
 
   // The Neocom's buttons (play/neocom.ts) and the app panel each opens.
   const NEOCOM_TABS: Record<string, TabID> = {
+    theatersOfWar: "theatersOfWar",
     achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
     fitting: "fitting", map: "travel", charactersheet: "characterSheet", chat: "chat",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
@@ -313,6 +316,7 @@
   // The route panel's search (GetResultsInNewWindow): the search results window, which takes the request.
   $effect(() => locationSearchRequests.subscribe((request) => { if (request) open("locationSearch"); }));
   $effect(() => agencyRequests.subscribe((request) => { if (request) open("finder"); }));
+  $effect(() => theatersOfWarRequests.subscribe((request) => { if (request) open("theatersOfWar"); }));
   $effect(() => achievementRequest.subscribe(id => { if (id) open("achievements"); }));
   $effect(() => skillPlanCareerRequests.subscribe((request) => { if (request) open("skills"); }));
   const skillPlanRequests = skillPlanTemplateTarget.requests;
@@ -334,6 +338,10 @@
     { label: "Contracts", icon: "contracts", tab: "contracts" },
     { label: "Agents", icon: "agent", tab: "finder" },
   ];
+  // stationServiceConst's navyoffices entry, for station and structure service IDs respectively.
+  const militiaOfficeAvailable = $derived($station?.online?.stationID
+    ? $station.station?.serviceIDs?.includes(26) === true
+    : $station?.structureServiceIDs?.includes(12) === true);
 
   // The hangar's ship and the Neocom while docked.
   let hangarHost = $state<HTMLDivElement | null>(null);
@@ -407,6 +415,7 @@
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
     fleetComposition: { w: 680, h: 420 },
     memberDetails: { w: 420, h: 480 },
+    theatersOfWar: { w: 1600, h: 880 },
   };
   /** openWindow for the play page: its own sizes, and a new window moved off the Neocom. */
   function openFly(list: readonly WinState[], tab: TabID): WinState[] {
@@ -522,6 +531,7 @@
     planets: "UI/InfoWindow/TabNames/PlanetaryProduction", notepad: "UI/Notepad/Notepad", calendar: "UI/Calendar/CalendarWindow/Caption",
     fleetComposition: "UI/Fleet/FleetComposition/FleetComposition",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
+    theatersOfWar: "UI/TheatersOfWar/TheatersOfWarCaption",
   };
   let captions = $state<Partial<Record<TabID, string>>>({});
   $effect(() => {
@@ -662,6 +672,7 @@
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist",
+    ToggleTheatersOfWarWindow: "theatersOfWar",
   };
   // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
   // view) open it over the view and close it again; Escape closes it.
@@ -760,6 +771,12 @@
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     const cmd = commandForKey(e);
     if (cmd === null) return;
+    if (cmd === "OpenMilitia" || cmd === "OpenFwEnlistment" || cmd === "OpenInsurgencyDashboard" || cmd === "OpenRelevantFWWindow") {
+      e.preventDefault();
+      openTheatersOfWar(cmd === "OpenMilitia" ? "warfare" : cmd === "OpenFwEnlistment" ? "enlistment" : cmd === "OpenInsurgencyDashboard" ? "insurgencies"
+        : relevantMilitiaPage(session?.store.station.get().online?.warFactionID ?? null));
+      return;
+    }
     // CmdToggleMap (F10): the map; OnEsc: the map closed first, else the system menu (EscapeCommand)
     if (cmd === "CmdToggleMap") { e.preventDefault(); toggleStarMap(); return; }
     if (spaceCommand(cmd)) { e.preventDefault(); return; }
@@ -1112,6 +1129,11 @@
             {#each LOBBY_SERVICES as svc (svc.label)}
               <button class="lobby-svc" title={svc.label} onclick={() => open(svc.tab)}><img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} /><span>{svc.label}</span></button>
             {/each}
+            {#if militiaOfficeAvailable}
+              <button class="lobby-svc" title="Militia Office" onclick={() => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null))}>
+                <img alt="" src={clientTexture("res:/UI/Texture/WindowIcons/factionalwarfare.png")} /><span>Militia Office</span>
+              </button>
+            {/if}
           </div>
           <PlayLobbyTabs {session} onOpenAgents={() => open("agents")} />
         </div>

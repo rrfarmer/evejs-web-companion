@@ -20,6 +20,7 @@
   import PersonalAssets from "./PersonalAssets.svelte";
   import AgentsMissions from "./AgentsMissions.svelte";
   import AgencyWindow from "./AgencyWindow.svelte";
+  import TheatersOfWar from "./TheatersOfWar.svelte";
   import JobBoardWindow from "./JobBoardWindow.svelte";
   import AchievementsWindow from "./AchievementsWindow.svelte";
   import PaintToolWindow from "./PaintToolWindow.svelte";
@@ -177,6 +178,8 @@
   <JobBoardWindow {store} {flow} openCorporation={() => onOpen?.("corporation")} showAgents={() => onOpen?.("agents")} />
 {:else if tab === "finder"}
   <AgencyWindow {store} {flow} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
+{:else if tab === "theatersOfWar"}
+  <TheatersOfWar {store} {flow} />
 {:else if tab === "flight"}
   <Flight {store} {flow} />
 {:else if tab === "mining"}

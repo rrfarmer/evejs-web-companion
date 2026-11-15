@@ -93,6 +93,7 @@ export interface StationStatic {
   readonly stationTypeID: number | null;
   readonly stationTypeName: string | null;
   readonly operationID: number | null;
+  readonly serviceIDs?: readonly number[] | null;
   readonly security: number | null;
 }
 

@@ -229,6 +229,7 @@ import { decodeSkillHistory, decodeSkills } from "../bridge/boundSkills.ts";
 import { skillHistoryLines } from "../bridge/skillHistoryPanel.ts";
 import { SKILL_NOTIFICATION_ROWS, skillNotificationsOf, type SkillNotification } from "../bridge/skillNotifications.ts";
 import { employmentHistoryOf, type EmploymentHistory } from "../bridge/employmentHistory.ts";
+import { allowedMilitiaFactions, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaInsurgencies, militiaStationFactions, militiaWarzones, MILITIA_FACTIONS, type MilitiaAffiliation, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaSystem } from "../bridge/militiaEnlistment.ts";
 import { filetimeOf } from "../bridge/journalWords.ts";
 import { readAllAssets, readAssetStationItems, readAssetStations, type AssetStationItemsRead, type AssetStationsRead } from "../bridge/assetReads.ts";
 import {
@@ -3867,6 +3868,11 @@ export interface AppFlow {
    * Null where no campaign covers the system or the campaigns could not be read.
    */
   insurgencyLocal(): Promise<InsurgencyLocal | null>;
+  readMilitiaEnlistment(): Promise<MilitiaEligibility>;
+  changeMilitiaEnlistment(characterID: number, factionID: MilitiaFactionID, retire: boolean): Promise<MilitiaAffiliation>;
+  nearestMilitiaOffice(factionID: MilitiaFactionID): Promise<{ readonly stationID: number; readonly jumps: number } | null>;
+  theatersWarzones(): Promise<ReadonlyMap<number, readonly MilitiaSystem[]>>;
+  theatersInsurgencies(): Promise<MilitiaInsurgency[]>;
   /**
    * The career goals (careergoals.client goal_data_controller): GetDefinitionsRequest's definitions with the pilot's
    * progress and rewards' states from GetAllRequest. Null where the definitions could not be read.
@@ -21134,6 +21140,92 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     };
     return { ...base, corruptionStages: stages(cStages), suppressionStages: stages(sStages), corruption: info(cInfo), suppression: info(sInfo) };
   }
+  const FW_ENLISTMENT = "fwCharacterEnlistmentMgr";
+  async function readMilitiaEnlistment(): Promise<MilitiaEligibility> {
+    const pilot = store.station.get().online;
+    if (!pilot?.corporationID) throw new Error("Select a pilot to view enlistment.");
+    const { characterID, corporationID, stationID, solarSystemID } = pilot;
+    const npc = isNpcOwnerCorporation(corporationID);
+    const [factions, cooldown, employment, standings, allowed, places] = await Promise.all([
+      bridgeAsk(FW_ENLISTMENT, "GetMyEnlistment", []),
+      bridgeAsk(FW_ENLISTMENT, "GetMyDirectEnlistmentCooldownTimestamp", []),
+      bridgeAsk("corporationSvc", "GetEmploymentRecord", [characterID]),
+      bridgeAsk("standingMgr", "GetCharStandings", []),
+      npc ? Promise.resolve(null) : bridgeAsk(FW_ENLISTMENT, "GetCorpAllowedEnlistmentFactions", [corporationID]),
+      stationID ? (agentPlacesHeld ?? api.loadAgentPlaces(callOptions)) : null,
+    ]);
+    agentPlacesHeld ??= places;
+    const owner = stationID ? places?.stations[stationID]?.[1] ?? null : null;
+    const ownerFaction = owner === null ? null : places?.factions[owner] ?? null;
+    return {
+      ...militiaAffiliation(factions), characterID, corporationID,
+      allowedFactions: npc ? null : allowedMilitiaFactions(allowed),
+      stationFactions: militiaStationFactions(stationID, solarSystemID, ownerFaction),
+      standings: new Map(decodeCharStandings(standings).map((row) => [row.fromID, row.standing])),
+      cooldown: militiaCooldown(cooldown, employment, filetimeOf(Date.now() + (serverClockAheadMs ?? 0))),
+    };
+  }
+
+  async function changeMilitiaEnlistment(characterID: number, factionID: MilitiaFactionID, retire: boolean): Promise<MilitiaAffiliation> {
+    const stationID = store.station.get().online?.stationID;
+    const read = await readMilitiaEnlistment();
+    const pilot = store.station.get().online;
+    if (read.characterID !== characterID || pilot?.characterID !== characterID || pilot.corporationID !== read.corporationID) {
+      throw new Error("The pilot's corporation changed. Check enlistment again.");
+    }
+    const npc = read.allowedFactions === null;
+    if (retire) {
+      if (read.factionID !== factionID) throw new Error("The pilot's militia changed. Check enlistment again.");
+      if (npc && read.corporationID === MILITIA_FACTIONS[factionID].corporationID) {
+        const canRetire = await bridgeAsk("corpRegistry", "CanBeKickedOut", [characterID]);
+        if (canRetire !== 1 && canRetire !== true) throw new Error("The corporation does not allow retirement.");
+        if (store.station.get().online?.characterID !== characterID) throw new Error("The active pilot changed.");
+        await bridgeDo("corpRegistry", "KickOutMember", [characterID], null, read.corporationID);
+      } else if (read.directFactionID === factionID) {
+        await bridgeDo(FW_ENLISTMENT, "RemoveMyDirectEnlistment", []);
+      } else {
+        throw new Error("This militia affiliation belongs to the pilot's corporation.");
+      }
+    } else {
+      if (pilot.stationID !== stationID || militiaEnlistmentWarning(read, factionID)) throw new Error("Enlistment requirements changed. Check the current warnings.");
+      await (npc ? bridgeDo("facWarMgr", "JoinFactionAsCharacter", [factionID]) : bridgeDo(FW_ENLISTMENT, "CreateMyDirectEnlistment", [factionID]));
+    }
+    return militiaAffiliation(await bridgeAsk(FW_ENLISTMENT, "GetMyEnlistment", []));
+  }
+
+  async function nearestMilitiaOffice(factionID: MilitiaFactionID): Promise<{ readonly stationID: number; readonly jumps: number } | null> {
+    const here = store.station.get().online?.solarSystemID;
+    if (!here) return null;
+    const [places, distances] = await Promise.all([agentPlacesHeld ?? api.loadAgentPlaces(callOptions), autopilotDistancesFrom(here)]);
+    if (!places) return null;
+    agentPlacesHeld ??= places;
+    const stationsBySystem = new Map<number, number>();
+    for (const [id, [systemID, ownerID]] of Object.entries(places.stations)) {
+      if (militiaStationFactions(Number(id), systemID, ownerID ? places.factions[ownerID] ?? null : null).includes(factionID)) {
+        stationsBySystem.set(systemID, Number(id));
+      }
+    }
+    let nearest: { stationID: number; jumps: number } | null = null;
+    for (const [systemID, stationID] of stationsBySystem) {
+      const jumps = systemID === here ? 0 : distances.get(systemID);
+      if (jumps !== undefined && (!nearest || jumps <= nearest.jumps)) nearest = { stationID, jumps };
+    }
+    if (nearest) requestNames([{ kind: "station", id: nearest.stationID }]);
+    return nearest;
+  }
+
+  async function theatersWarzones(): Promise<ReadonlyMap<number, readonly MilitiaSystem[]>> {
+    const zones = militiaWarzones(await bridgeAsk("fwWarzoneSolarsystem", "GetAllWarzonesOccupationStates", []));
+    requestNames([...zones.values()].flatMap((systems) => systems.map((s) => ({ kind: "system", id: s.systemID }))));
+    return zones;
+  }
+
+  async function theatersInsurgencies(): Promise<MilitiaInsurgency[]> {
+    const campaigns = militiaInsurgencies(await bridgeAsk("insurgencySolarsystem", "GetAllVisibleCampaigns", []));
+    requestNames(campaigns.flatMap(({ fobSystemID }) => fobSystemID ? [{ kind: "system", id: fobSystemID }] : []));
+    return campaigns;
+  }
+
   async function factionWarfareLocal(): Promise<FactionWarfareLocal | null> {
     const here = store.station.get().online?.solarSystemID ?? null;
     const [occupation, victory, scores, raceNames] = await Promise.all([
@@ -34769,6 +34861,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyIncursion,
     factionWarfareLocal,
     insurgencyLocal,
+    readMilitiaEnlistment,
+    changeMilitiaEnlistment,
+    nearestMilitiaOffice,
+    theatersWarzones,
+    theatersInsurgencies,
     careerGoals,
     achievementCatalogue,
     achievementCategoryScore,

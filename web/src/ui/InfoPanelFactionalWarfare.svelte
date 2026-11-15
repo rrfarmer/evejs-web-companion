@@ -15,13 +15,13 @@
   //   contribution + floor less the attacker's; a winner where it is not 0: UI/FactionWarfare/shortAdvantageLine
   //   {factionName: the winner's race's name, netAdvantagePercent: |net| as {0:.0%}}, its hint advantagebreakdownTooltip
   //   {objectives, floor: the winner's contribution and floor as {0:.0%}}; else noFactionHasAdvantageShortLine.
-  // Not here: the system upgrade's benefit icons, the battlefield scoreboards, the Bulwark systems, the title's
-  // OpenMilitia link, the gauge's tooltip.
+  // The title opens OpenMilitia in Theaters of War.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, FactionWarfareLocal } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "../play/window.ts";
+  import { openTheatersOfWar } from "./theatersOfWarRequests.ts";
   let { store, flow, compact, onToggle }: { store: ClientStore; flow: AppFlow; compact: boolean; onToggle: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -90,7 +90,7 @@
         <span class="ip-icon"><img alt="" src={clientTexture("res:/UI/Texture/Classes/InfoPanels/FactionalWarfare.png")} /></span>
       </div>
       {#if compact}<span class="fw-gauge small" style:background={gradient}><span></span></span><span class="fw-line">{status}</span>
-      {:else}<span class="fw-title">{word(F + "FactionalWarfare")}</span>{/if}
+      {:else}<button type="button" class="fw-title" onclick={() => openTheatersOfWar("warfare")}>{word(F + "FactionalWarfare")}</button>{/if}
     </div>
     {#if !compact}
       <div class="ip-main fw-main">
@@ -114,7 +114,8 @@
   .ip-expand img { width: 7px; height: 7px; transform: rotate(-90deg); }
   .ip-expand.expanded img { transform: none; }
   .ip-icon img { width: 18px; height: 18px; }
-  .fw-title { font-size: 14px; letter-spacing: 0.04em; color: rgb(255 255 255 / 0.85); }
+  .fw-title { background: none; border: 0; padding: 0; cursor: pointer; font-size: 14px; letter-spacing: 0.04em; color: rgb(255 255 255 / 0.85); }
+  .fw-title:hover { text-decoration: underline; }
   .fw-main { padding-left: 56px; display: flex; align-items: center; gap: 10px; }
   .fw-gauge { flex: none; width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
   .fw-gauge > span { width: 43px; height: 43px; border-radius: 50%; background: rgb(0 0 0 / 0.85); display: flex; align-items: center; justify-content: center; }

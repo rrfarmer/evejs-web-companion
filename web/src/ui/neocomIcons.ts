@@ -84,6 +84,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   // --- career ---
   agents: ["M11 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6", "M6 21a5 5 0 0 1 10 0", "M16 3h5v4h-5z"],
   finder: ["M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14", "M16.5 16.5L21 21"],
+  theatersOfWar: ["M12 3l7 3v5c0 4-2.5 7.5-7 10-4.5-2.5-7-6-7-10V6z", "M8 15l8-7", "M12 8l4 4"],
   skills: ["M5 20v-4M10 20v-8M15 20v-12M20 20v-16"],
   planets: ["M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12", "M3 14c6 3.5 12 3.5 18 0"],
   // Planetary Industry: a small world over a row of three, the whole roster's

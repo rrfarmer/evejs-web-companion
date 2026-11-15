@@ -957,6 +957,9 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // (infosvc.UpdateDataCorp: fwEnlistmentSvc.GetCorpAllowedEnlistmentFactions). The gateway's list has nothing of the
   // enlistment manager's.
   "fwCharacterEnlistmentMgr.GetCorpAllowedEnlistmentFactions",
+  "fwCharacterEnlistmentMgr.GetMyEnlistment", "fwCharacterEnlistmentMgr.GetMyDirectEnlistmentCooldownTimestamp",
+  "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment", "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment",
+  "facWarMgr.JoinFactionAsCharacter", "corporationSvc.GetEmploymentRecord", "corpRegistry.CanBeKickedOut", "corpRegistry.KickOutMember",
   // The corporation window's Direct Enlistment (corp_ui_direct_enlistment_mgt.WhitelistManagement.ApplyChanges:
   // fwEnlistmentSvc.SetCorpAllowedEnlistmentFactions - SetMyCorpAllowedEnlistmentFactions(allowedFactionIDs)).
   "fwCharacterEnlistmentMgr.SetMyCorpAllowedEnlistmentFactions",
@@ -2462,6 +2465,14 @@ const RETAIL_CALLS = Object.freeze({
   "corpmgr.GetAggressionSettings": same(`${CORP_SVC}/base_corporation.py:259`, "RemoteSvc('corpmgr').GetAggressionSettings(corpID): the friendly fire row of a corporation's Show Info, kept per corporation"),
   "fwCharacterEnlistmentMgr.SetMyCorpAllowedEnlistmentFactions": same("eve/client/script/ui/services/fwEnlistmentSvc.py:107", "RemoteSvc('fwCharacterEnlistmentMgr').SetMyCorpAllowedEnlistmentFactions(allowedFactionIDs): the corporation window's Direct Enlistment, Apply"),
   "fwCharacterEnlistmentMgr.GetCorpAllowedEnlistmentFactions": same("eve/client/script/ui/services/fwEnlistmentSvc.py:104", "RemoteSvc('fwCharacterEnlistmentMgr').GetCorpAllowedEnlistmentFactions(corporationID): a player corporation's Show Info"),
+  "fwCharacterEnlistmentMgr.GetMyEnlistment": same("eve/client/script/ui/services/fwEnlistmentSvc.py:80", "Read effective, direct and corporation factions as one tuple, with no arguments."),
+  "fwCharacterEnlistmentMgr.GetMyDirectEnlistmentCooldownTimestamp": same("eve/client/script/ui/services/fwEnlistmentSvc.py", "Read the pilot's direct enlistment timer with no arguments."),
+  "fwCharacterEnlistmentMgr.CreateMyDirectEnlistment": same("eve/client/script/ui/services/fwEnlistmentSvc.py:94", "Player corporation member's confirmed direct enlistment, with one faction ID."),
+  "fwCharacterEnlistmentMgr.RemoveMyDirectEnlistment": same("eve/client/script/ui/services/fwEnlistmentSvc.py:100", "Confirmed retirement from the pilot's direct enlistment, with no arguments."),
+  "facWarMgr.JoinFactionAsCharacter": same("eve/client/script/ui/services/facWarSvc.py:198", "Confirmed enlistment in an NPC militia, with one faction ID."),
+  "corporationSvc.GetEmploymentRecord": same("eve/client/script/ui/services/facWarSvc.py:296", "Read the pilot's own employment rows by character ID for the militia cooldown."),
+  "corpRegistry.CanBeKickedOut": same(`${CORP_SVC}/base_corporation.py:404`, "Check the pilot's own retirement by character ID on the current corporation moniker."),
+  "corpRegistry.KickOutMember": same(`${CORP_SVC}/base_corporation.py:414`, "Retire from the pilot's militia by character ID on the current corporation moniker."),
   "corpmgr.GetAssetInventory": same(`${CORP_ASSETS}:100`, "RemoteSvc('corpmgr').GetAssetInventory(session.corpid, which)"),
   "corpmgr.GetAssetInventoryForLocation": same(`${CORP_ASSETS}:423`, "RemoteSvc('corpmgr').GetAssetInventoryForLocation(session.corpid, locationID, which)"),
   "corpmgr.SearchAssets": Object.freeze({
