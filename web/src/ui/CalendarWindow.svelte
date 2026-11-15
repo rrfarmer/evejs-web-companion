@@ -7,15 +7,17 @@
   // calendar.Calendar()) and NUM_DAYROWS 6 rows of days, the days out of the month dimmed, today marked, each day's
   // events listed in it. The month uses calendarProxy.GetEventList for the month in view; the upcoming list uses
   // the Activity Center's agenda.
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { plainText, formatTemplate } from "../bridge/clientWords.ts";
   import { filetimeToUnixMs } from "../bridge/activity.ts";
   import type { CalendarEvent } from "../bridge/calendar.ts";
   import { isNpcCorporation } from "../bridge/standingsReads.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { calendarDate, calendarGrid, calendarMonthOffset, stepCalendarDate, type CalendarDate } from "./calendarSelection.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  const monthHeading = $props.id();
   // svelte-ignore state_referenced_locally
   const activity = store.activity;
   // svelte-ignore state_referenced_locally
@@ -49,10 +51,11 @@
     }
   });
 
-  const now = new Date();
-  const today = { y: now.getUTCFullYear(), m: now.getUTCMonth(), d: now.getUTCDate() };
+  const today = calendarDate(new Date());
   let view = $state({ y: today.y, m: today.m });
-  const monthOffset = $derived((view.y - today.y) * 12 + view.m - today.m);
+  let selected = $state(today.d);
+  let gridElement: HTMLElement | undefined = $state();
+  const monthOffset = $derived(calendarMonthOffset(view, today));
   let filters = $state<Record<(typeof FILTERS)[number], boolean>>({ personal: true, corp: true, alliance: true, ccp: true, automated: true, declined: true, timestamp: true });
   const visibleFilters = $derived(FILTERS.filter(filter => {
     if (filter === "corp") {
@@ -103,21 +106,29 @@
   });
   const upcoming = $derived(events.map((e) => ({ title: e.title, at: filetimeToUnixMs(e.eventDateTime) })).filter((e): e is { title: string; at: number } => e.at !== null && e.at >= Date.now())
     .sort((a, b) => a.at - b.at).slice(0, 20));
-  /** calendar.Calendar().monthdayscalendar, Monday first, filled out to six rows with the months either side. */
-  const grid = $derived.by(() => {
-    const first = new Date(Date.UTC(view.y, view.m, 1));
-    const lead = (first.getUTCDay() + 6) % 7;
-    const days: { y: number; m: number; d: number; out: boolean }[] = [];
-    for (let i = 0; i < 42; i++) {
-      const date = new Date(Date.UTC(view.y, view.m, 1 - lead + i));
-      days.push({ y: date.getUTCFullYear(), m: date.getUTCMonth(), d: date.getUTCDate(), out: date.getUTCMonth() !== view.m });
-    }
-    return days;
-  });
-  function browse(step: number): void {
-    if (Math.abs(monthOffset + step) > VIEW_RANGE) return;
-    const date = new Date(Date.UTC(view.y, view.m + step, 1));
-    view = { y: date.getUTCFullYear(), m: date.getUTCMonth() };
+  const grid = $derived(calendarGrid(view.y, view.m));
+  const weeks = $derived(Array.from({ length: 6 }, (_, i) => grid.slice(i * 7, (i + 1) * 7)));
+  const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" });
+
+  function selectDay(day: CalendarDate, focus = false): void {
+    if (Math.abs(calendarMonthOffset(day, today)) > VIEW_RANGE) return;
+    if (day.y !== view.y || day.m !== view.m) view = { y: day.y, m: day.m };
+    selected = day.d;
+    if (focus) void tick().then(() => gridElement?.querySelector<HTMLElement>('[tabindex="0"]')?.focus());
+  }
+
+  function browse(step: -1 | 1): void {
+    selectDay(stepCalendarDate({ ...view, d: selected }, step, "month"));
+  }
+
+  function navigateDays(event: KeyboardEvent): void {
+    const { key } = event;
+    const vertical = key === "ArrowUp" || key === "ArrowDown";
+    if ((!vertical && key !== "ArrowLeft" && key !== "ArrowRight") || event.altKey || event.ctrlKey || event.metaKey) return;
+    const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
+    event.preventDefault();
+    event.stopPropagation();
+    selectDay(stepCalendarDate({ ...view, d: selected }, step, vertical ? "week" : "day"), true);
   }
   const time = (ms: number): string => { const d = new Date(ms); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
   const dateText = (ms: number): string => { const d = new Date(ms); return `${d.getUTCFullYear()}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${String(d.getUTCDate()).padStart(2, "0")}`; };
@@ -147,19 +158,33 @@
         aria-label={word(WORDS.previous, "Previous")} title={word(WORDS.previous, "Previous")}><img src="/client-res/ui/texture/eveicon/system_icons/navigate_back_16px.png" alt="" /></button>
       <button type="button" class="cal-arrow" onclick={() => browse(1)} disabled={monthOffset >= VIEW_RANGE}
         aria-label={word(WORDS.next, "Next")} title={word(WORDS.next, "Next")}><img src="/client-res/ui/texture/eveicon/system_icons/navigate_forward_16px.png" alt="" /></button>
-      <span class="cal-title">{word(`/Carbon/UI/Common/MonthsWithYear/${MONTHS[view.m]}`, `${MONTHS[view.m]} ${view.y}`, { year: view.y })}</span>
-      <button type="button" class="cal-today" onclick={() => (view = { y: today.y, m: today.m })}>{word(WORDS.today, "Today")}</button>
+      <span class="cal-title" id={monthHeading}>{word(`/Carbon/UI/Common/MonthsWithYear/${MONTHS[view.m]}`, `${MONTHS[view.m]} ${view.y}`, { year: view.y })}</span>
+      <button type="button" class="cal-today" onclick={() => selectDay(today)}>{word(WORDS.today, "Today")}</button>
     </div>
     {#if monthStatus !== "ready"}
       <div class="cal-month-status" role="status">{monthStatus === "error" ? "Calendar events could not be read." : "Loading…"}</div>
     {/if}
-    <div class="cal-grid">
-      {#each DAYS as d (d)}<div class="cal-dayname">{word(`UI/Moonmining/${d}Short`, d.slice(0, 3))}</div>{/each}
-      {#each grid as day (`${day.y}-${day.m}-${day.d}`)}
-        <div class="cal-day" class:out={day.out} class:today={!day.out && day.y === today.y && day.m === today.m && day.d === today.d}>
-          <span class="num">{day.d}</span>
-          {#each (day.out ? [] : eventsByDay.get(day.d) ?? []) as e (e.id)}
-            <span class="ev" title={e.title}>{filters.timestamp ? `${time(e.at)} ` : ""}{e.title}</span>
+    <div class="cal-grid" role="grid" aria-labelledby={monthHeading} bind:this={gridElement}>
+      <div class="cal-week" role="row">
+        {#each DAYS as d (d)}<div class="cal-dayname" role="columnheader">{word(`UI/Moonmining/${d}Short`, d.slice(0, 3))}</div>{/each}
+      </div>
+      {#each weeks as week}
+        <div class="cal-week" role="row">
+          {#each week as day (`${day.y}-${day.m}-${day.d}`)}
+            {@const out = day.m !== view.m}
+            {@const isToday = !out && day.y === today.y && day.m === today.m && day.d === today.d}
+            {@const isSelected = !out && day.d === selected}
+            <div class="cal-day" role="gridcell" class:out class:today={isToday} class:selected={isSelected}
+              aria-label={dateLabel.format(Date.UTC(day.y, day.m, day.d))} aria-selected={isSelected}
+              aria-current={isToday ? "date" : undefined} tabindex={out ? undefined : isSelected ? 0 : -1}
+              onmousedown={event => { if (out) event.preventDefault(); }}
+              onclick={() => { if (!out) selectDay(day, true); }}
+              ondblclick={() => { if (out) selectDay(day, true); }} onkeydown={navigateDays}>
+              <span class="num">{day.d}</span>
+              {#each (out ? [] : eventsByDay.get(day.d) ?? []) as e (e.id)}
+                <span class="ev" title={e.title}>{filters.timestamp ? `${time(e.at)} ` : ""}{e.title}</span>
+              {/each}
+            </div>
           {/each}
         </div>
       {/each}
@@ -189,11 +214,14 @@
   .cal-month-status { font-size: 11px; color: var(--color-text-muted, #aab0b4); }
   .cal-today { margin-left: auto; font-size: 12px; height: 20px; padding: 0 8px; }
   .cal-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: 24px repeat(6, 1fr); gap: 2px; min-height: 0; }
+  .cal-week { display: contents; }
   .cal-dayname { display: flex; align-items: flex-end; justify-content: center; font-size: 11px; opacity: 0.7; }
   .cal-day { border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.03); padding: 2px; overflow: hidden;
     display: flex; flex-direction: column; font-size: 10px; min-height: 0; }
   .cal-day.out { opacity: 0.4; }
   .cal-day.today { border-color: rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.08); }
+  .cal-day.selected { box-shadow: inset 0 0 0 1px var(--theme-focus, #58a7bf); }
+  .cal-day:focus-visible { outline: 1px solid var(--theme-focus-bright, #8fd0e6); outline-offset: -2px; }
   .cal-day .num { align-self: flex-end; font-size: 11px; }
   .cal-day .ev { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: rgba(255, 255, 255, 0.85); }
 </style>
