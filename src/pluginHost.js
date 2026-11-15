@@ -207,6 +207,7 @@ function createPluginHost(options = {}) {
       // own earlier messages, seconds after it was written. While messages still
       // arrive the process was alive to write them; a hung one stops writing, its
       // queue drains, and the silence that follows is what the watchdog judges.
+      // 'ready' counts too: the time it took to start is not silence.
       // A process already replaced says nothing about the one that replaced it.
       if (entry.child === child) entry.lastHeard = Date.now();
       if (message.type === "ready") {
@@ -255,8 +256,8 @@ function createPluginHost(options = {}) {
 
   function watch() {
     // ⚠ A LATE BEAT MEANS THE BFF STALLED, NOT THE PLUGIN. Timers run before waiting
-    // messages are read, so after a stall this beat sees an old pong with the fresh
-    // one still unread. It passes no verdict: the next beat, on time, has read it.
+    // messages are read, so after a stall this beat sees an old message with fresh
+    // ones still unread. It passes no verdict: the next beat, on time, has read them.
     let lastBeat = Date.now();
     const timer = setInterval(() => {
       const now = Date.now();
