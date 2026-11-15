@@ -3875,6 +3875,7 @@ export interface AppFlow {
   changeMilitiaOrganization(expected: { characterID: number; corporationID: number; allianceID: number | null }, factionID: MilitiaFactionID, action: MilitiaOrganizationAction): Promise<void>;
   nearestMilitiaOffice(factionID: MilitiaFactionID, fallbackToLightYears?: boolean): Promise<MilitiaOffice | null>;
   theatersWarzones(): Promise<ReadonlyMap<number, readonly MilitiaSystem[]>>;
+  loadWarzonePositions(): ReturnType<typeof api.loadWarzonePositions>;
   theatersInsurgencies(): Promise<MilitiaInsurgency[]>;
   /**
    * The career goals (careergoals.client goal_data_controller): GetDefinitionsRequest's definitions with the pilot's
@@ -34915,6 +34916,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     changeMilitiaOrganization,
     nearestMilitiaOffice,
     theatersWarzones,
+    loadWarzonePositions: () => api.loadWarzonePositions(callOptions),
     theatersInsurgencies,
     careerGoals,
     achievementCatalogue,

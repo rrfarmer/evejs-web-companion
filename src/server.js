@@ -14206,6 +14206,12 @@ app.get("/api/client-data/career-agents", requireAuth, async (req, res, next) =>
   } catch (error) { next(error); }
 });
 
+app.get("/api/client-data/warzone-positions", requireAuth, async (_req, res, next) => {
+  try {
+    res.json({ ok: true, zones: await clientBuiltData.table("warzonePositions") });
+  } catch (error) { next(error); }
+});
+
 // The Agency's Help Section (ContentProviderHelp): the video groups in the table's order, each its name message and its
 // videos; each video its name and description messages and its path. `available` false where the data is unread.
 app.get("/api/client-data/agency-help-videos", requireAuth, async (req, res, next) => {

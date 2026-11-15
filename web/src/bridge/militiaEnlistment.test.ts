@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { afterMilitiaEnlistment, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaOrganization, militiaOrganizationActions, militiaStationFactions, relevantMilitiaPage, type MilitiaEligibility } from "./militiaEnlistment.ts";
+import { afterMilitiaEnlistment, militiaAffiliation, militiaCooldown, militiaEnlistmentWarning, militiaOrganization, militiaOrganizationActions, militiaStationFactions, militiaWarzones, relevantMilitiaPage, type MilitiaEligibility } from "./militiaEnlistment.ts";
 import type { JsonValue } from "./wire.ts";
 
 test("24.02 routes confirmed pirate enlistment to Insurgencies and an unregistered Conquest Overview to Overview", () => {
@@ -63,4 +63,19 @@ test("corporation and alliance actions follow the native pending, active and ret
   assert.deepEqual(militiaOrganizationActions(active, 500001), ["retireCorporation"]);
   assert.deepEqual(militiaOrganizationActions({ ...active, organization: status(2, 500001) }, 500001), ["cancelRetireCorporation"]);
   assert.deepEqual(militiaOrganizationActions({ ...active, organization: status(2, 500001, 99000000, false) }, 500001), []);
+});
+
+test("warzone occupation preserves FILETIME precision and unknown capture dates", () => {
+  const captured = 134_000_000_000_000_001n;
+  const state = (date: JsonValue): JsonValue => ({ type: "objectex1", header: [
+    { type: "token", name: "factionwarfare.occupationState.OccupationState" },
+    [500001, "FL", { type: "list", items: [500001, 500004] }, null, date],
+  ] });
+  const payload: JsonValue = { type: "dict", entries: [[2, { type: "dict", entries: [
+    [30000142, state({ type: "long", value: String(captured) })], [30000143, state(null)],
+  ] }]] };
+  assert.deepEqual(militiaWarzones(payload).get(2), [
+    { systemID: 30000142, occupierID: 500001, adjacency: "FL", dateTaken: captured },
+    { systemID: 30000143, occupierID: 500001, adjacency: "FL", dateTaken: null },
+  ]);
 });

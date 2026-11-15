@@ -129,6 +129,7 @@ export interface MilitiaSystem {
   readonly systemID: number;
   readonly occupierID: MilitiaFactionID | null;
   readonly adjacency: string;
+  readonly dateTaken: bigint | null;
 }
 
 export function militiaWarzones(value: JsonValue): ReadonlyMap<number, readonly MilitiaSystem[]> {
@@ -138,7 +139,9 @@ export function militiaWarzones(value: JsonValue): ReadonlyMap<number, readonly 
       if (typeof systemID !== "number" || !state || typeof state !== "object" || !("header" in state) || !Array.isArray(state.header)) return [];
       const args = state.header[1];
       if (!Array.isArray(args)) return [];
-      return [{ systemID, occupierID: militiaFactionID(args[0]), adjacency: typeof args[1] === "string" ? args[1] : "" }];
+      const date = exactInt(args[4]);
+      return [{ systemID, occupierID: militiaFactionID(args[0]), adjacency: typeof args[1] === "string" ? args[1] : "",
+        dateTaken: date === null ? null : BigInt(date) }];
     });
     return [[zone, systems] as const];
   }));

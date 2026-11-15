@@ -2653,6 +2653,30 @@ export async function loadStarMap(options: ApiOptions = {}): Promise<StarMapData
   };
 }
 
+export interface WarzonePosition {
+  readonly isVisible: boolean | number;
+  readonly xpos: number;
+  readonly ypos: number;
+  readonly territorySprite?: {
+    readonly territoryIconFile: string;
+    readonly imageWidth: number;
+    readonly imageHeight: number;
+    readonly xOffset: number;
+    readonly yOffset: number;
+  } | null;
+}
+
+export interface WarzonePositions {
+  readonly mapWidth: number;
+  readonly mapHeight: number;
+  readonly systems: Readonly<Record<number, WarzonePosition>>;
+}
+
+export async function loadWarzonePositions(options: ApiOptions = {}): Promise<Readonly<Record<number, WarzonePositions>> | null> {
+  const data = await getJson("/api/client-data/warzone-positions", options);
+  return data.zones as Readonly<Record<number, WarzonePositions>> | null;
+}
+
 export async function loadSystemGraph(options: ApiOptions = {}): Promise<SystemGraphResult> {
   const data = await getJson("/api/map/graph", options);
   return {

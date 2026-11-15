@@ -1,12 +1,16 @@
 <script lang="ts">
+  import type { StarMapData, WarzonePositions } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { filetimeToUnixMs } from "../bridge/activity.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { afterMilitiaEnlistment, EMPIRE_MILITIAS, MILITIA_FACTIONS, militiaEnlistmentWarning, militiaFactionID, militiaIsPirate, militiaOrganizationActions, PIRATE_MILITIAS, type MilitiaEligibility, type MilitiaFactionID, type MilitiaInsurgency, type MilitiaOffice, type MilitiaOrganizationAction, type MilitiaSystem, type TheatersPage } from "../bridge/militiaEnlistment.ts";
   import { clientTexture } from "../play/window.ts";
+  import { securityStatusColor, shownSecurity } from "../bridge/systemSecurity.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { serveTheatersOfWarRequest, theatersOfWarRequests } from "./theatersOfWarRequests.ts";
   import { trackMilitiaJob, trackedJobsChanged, trackedMilitiaJob, untrackMilitiaJob } from "./jobTracking.ts";
+  import WarzonePreview from "./WarzonePreview.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
@@ -18,6 +22,7 @@
   // svelte-ignore state_referenced_locally
   const enlistmentChanged = flow.militiaEnlistmentChanged;
   const TOW = "UI/TheatersOfWar/", FW = "UI/FactionWarfare/", E = `${FW}Enlistment/`;
+  const recentAllianceDenial = "DeniedRecentlyInAlliance";
   const art = (asset: string) => clientTexture(`res:/UI/Texture/Classes/Enlistment/${asset}.png`);
   const panels = [
     { id: "overview", label: "OverviewPanel", fallback: "Overview", icon: "house" },
@@ -26,8 +31,8 @@
     { id: "enlistment", label: "EnlistPanel", fallback: "Enlistment", icon: "flag" },
   ] as const;
   const zones = [
-    { id: 2, label: "FwCaldariGallenteWarzone", fallback: "Caldari–Gallente Warzone", factions: [500001, 500004] },
-    { id: 1, label: "FwAmarrMinmatarWarzone", fallback: "Amarr–Minmatar Warzone", factions: [500003, 500002] },
+    { id: 2, label: "FwCaldariGallenteWarzone", fallback: "Caldari–Gallente Warzone" },
+    { id: 1, label: "FwAmarrMinmatarWarzone", fallback: "Amarr–Minmatar Warzone" },
   ] as const;
   const warnings = {
     enlisted: "You are already enlisted with another militia.",
@@ -54,6 +59,9 @@
   let zone = $state(2);
   let eligibility = $state<MilitiaEligibility | null>(null);
   let occupations = $state<ReadonlyMap<number, readonly MilitiaSystem[]> | null>(null);
+  let warzonePositions = $state<Readonly<Record<number, WarzonePositions>> | null>(null);
+  let starMap = $state<StarMapData | null>(null);
+  const mapSystems = $derived(new Map(starMap?.systems.map((row) => [row[0], row])));
   let insurgencies = $state<MilitiaInsurgency[] | null>(null);
   let office = $state<MilitiaOffice | null>(null);
   let readError = $state("");
@@ -90,15 +98,24 @@
   }
   function chooseSide(next: Side) { side = next; selected = null; actionError = ""; }
 
+  function mostRecentChange(systems: readonly MilitiaSystem[]): MilitiaSystem | null {
+    let latest: MilitiaSystem | null = null;
+    for (const system of systems) {
+      if (system.dateTaken !== null && (latest?.dateTaken == null || system.dateTaken > latest.dateTaken)) latest = system;
+    }
+    return latest;
+  }
+
   $effect(() => {
     flow.requestWords([...panels.map(({label}) => TOW + label), ...zones.map(({label}) => TOW + label),
-      TOW + "FactionalWarfareSectionHeader", TOW + "PersonalProgress", TOW + "PersonalUnenlisted", TOW + "PersonalEnlistedWith",
+      TOW + "FactionalWarfareSectionHeader", TOW + "FwOccupancyChanges", TOW + "PersonalProgress", TOW + "PersonalUnenlisted", TOW + "PersonalEnlistedWith",
       TOW + "InsurgencyGuristas", TOW + "InsurgencyAngelCartel", TOW + "InsurgencyPirateFob",
       FW + "EnlistMe", FW + "Retire", FW + "JoinConfirmationHeader", FW + "JoinConfirmationQuestionPlayer", FW + "JoinConfirmationQuestionDirectEnlistment",
       FW + "ConfirmRetireHeader", FW + "ConfirmRetire", "UI/Common/Buttons/Yes", "UI/Common/Buttons/No",
       ...["ChooseYourSide", "FrontpageEmpires", "FrontpagePirates", "FactionalWarfareHeader", "PiratesHeader", "ClickOnEmpireFaction", "ClickOnPirateFaction", "InitiateEnlistment"].map((label) => E + label),
       "UI/Agency/FactionWarfare/nearestMilitiaOffice",
       E + "WarningPendingSameFactionLong", E + "WarningPendingAnotherFactionLong",
+      FW + "Manager/" + recentAllianceDenial,
       ...Object.values(orgLabels).flatMap(([button, , header, body]) => [button, header, body].map((label) => FW + label)),
     ]);
     flow.requestNames(Object.keys(MILITIA_FACTIONS).map((id) => ({ kind: "owner", id: Number(id) })));
@@ -127,6 +144,16 @@
     }, (error: unknown) => {
       if (current) readError = error instanceof Error ? error.message : String(error);
     });
+    return () => { current = false; };
+  });
+  $effect(() => {
+    if (page !== "overview") return;
+    let current = true;
+    void Promise.all([flow.loadWarzonePositions(), flow.loadStarMap()]).then(([positions, map]) => {
+      if (!current) return;
+      warzonePositions = positions;
+      starMap = map;
+    }).catch((error: unknown) => { if (current) panelError = error instanceof Error ? error.message : String(error); });
     return () => { current = false; };
   });
   $effect(() => {
@@ -207,12 +234,29 @@
   <section class="theaters-content" aria-label={panels.find((item) => item.id === page)?.fallback}>
     {#if panelError && page !== "enlistment"}<p role="alert">{panelError}</p>{/if}
     {#if page === "overview"}
+      <h2>{say(TOW + "FwOccupancyChanges", "Occupancy Changes")}</h2>
       <div class="zone-grid">
         {#each zones as theater (theater.id)}
-          <button type="button" class="zone-card" onclick={() => { zone = theater.id; choosePage("warfare"); }}>
-            <span class="emblems">{#each theater.factions as id}<img alt="" src={art(`logos/${MILITIA_FACTIONS[id].logo}`)} />{/each}</span>
-            <span>{say(TOW + theater.label, theater.fallback)}</span>
-            {#if occupations?.has(theater.id)}<small>{occupations.get(theater.id)?.length} systems</small>{/if}
+          {@const systems = occupations?.get(theater.id) ?? []}
+          {@const latest = mostRecentChange(systems)}
+          {@const system = latest && mapSystems.get(latest.systemID)}
+          {@const name = latest ? resolvedName($names.resolved, "system", latest.systemID, system?.[7] ?? String(latest.systemID)) : ""}
+          {@const security = system?.[8] ?? null}
+          {@const date = filetimeToUnixMs(latest?.dateTaken ?? null)}
+          {@const layout = warzonePositions?.[theater.id]}
+          <button type="button" class="occupancy-card" onclick={() => { zone = theater.id; choosePage("warfare"); }}>
+            <span class="occupancy-title">{say(TOW + theater.label, theater.fallback)}</span>
+            {#if layout && starMap}<WarzonePreview positions={layout} jumps={starMap.jumps} occupations={systems} focusID={latest?.systemID ?? null} focusName={name} />{/if}
+            {#if occupations}
+              <span class="occupancy-footer">
+                {#if latest}
+                  <span>{name}{#if security !== null}{" "}<span style:color={securityStatusColor(security)}>{shownSecurity(security).toFixed(1)}</span>{/if}</span>
+                  {#if date !== null}<span>{new Date(date).toISOString().slice(0, 10).replaceAll("-", ".")}</span>{/if}
+                {:else}
+                  <span>[ NO SYSTEM WITH OCCUPANCY-CHANGE DATE FOUND ]</span>
+                {/if}
+              </span>
+            {/if}
           </button>
         {/each}
       </div>
@@ -312,7 +356,9 @@
             {#each orgActions as action (action)}
               <button class="organization-action" type="button" disabled={writing} onclick={() => askOrganization(action)}>{say(FW + orgLabels[action][0], orgLabels[action][1])}</button>
             {/each}
-            {#if actionError}<p role="alert">{actionError}</p>{/if}
+            {#if actionError}<p role="alert">
+              {actionError === recentAllianceDenial ? say(FW + "Manager/" + recentAllianceDenial, "Wait 24 hours after your corporation leaves an alliance to join factional warfare.") : actionError}
+            </p>{/if}
           </article>
         {:else}<p>{side === "empire" ? say(E + "ClickOnEmpireFaction", "Select an empire") : say(E + "ClickOnPirateFaction", "Select a pirate faction")}</p>{/if}
       {/if}
@@ -346,10 +392,12 @@
   h2 { font: inherit; font-size: 17px; margin: 0 0 12px; }
   .zone-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
   .zone-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; min-height: 112px; background: linear-gradient(#2c383d, #191e22); text-align: center; }
+  .occupancy-card { padding: 0; min-width: 0; display: flex; flex-direction: column; text-align: start; }
+  .occupancy-title, .occupancy-footer { padding: 8px; }
+  .occupancy-title { font-size: 14px; }
+  .occupancy-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; color: #bdc7cb; font-size: 11px; }
   .zone-card img { width: 42px; height: 42px; object-fit: contain; }
-  .emblems { display: flex; gap: 8px; }
   .zone-card.pirate { background: linear-gradient(#362920, #201c1b); }
-  .zone-card small { color: #bdc7cb; }
   .personal { padding: 12px; background: #ffffff09; }
   .side-picker { max-width: 900px; margin: 5vh auto 0; text-align: center; }
   .side-card { min-height: clamp(160px, 43vh, 460px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 19px; background: linear-gradient(#0002, #000a), var(--banner) center / cover, #242b31; }

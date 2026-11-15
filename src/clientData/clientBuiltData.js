@@ -33,6 +33,8 @@ const MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 // The tables read here: the name each goes by, the client's loader for it, and its resource (in lower case, as
 // the index is kept).
 const TABLES = Object.freeze({
+  // The faction warfare dashboard's authored system and territory positions.
+  warzonePositions: Object.freeze({ loader: "warZonesPositionDataLoader", resource: "res:/staticdata/warzonespositiondata.fsdbinary" }),
   // evecorporation.roles: the role masks and group membership come from the installed client, never a copied table.
   corporationRoles: Object.freeze({ loader: "corporationRolesLoader", resource: "res:/staticdata/corporationroles.fsdbinary" }),
   corporationRoleGroups: Object.freeze({ loader: "corporationRoleGroupsLoader", resource: "res:/staticdata/corporationrolegroups.fsdbinary", keyOrder: true, longStrings: true }),
