@@ -17,7 +17,7 @@
   import DirectTradeWindows from "./DirectTradeWindows.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
   import InfoWindows from "./InfoWindows.svelte";
-  import CalendarDayWindows from "./CalendarDayWindows.svelte";
+  import CalendarWindows from "./CalendarWindows.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests, setInfoShiftPressed } from "./showInfo.ts";
   import { untrack } from "svelte";
@@ -753,9 +753,9 @@
       <InfoWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null} />
     {/each}
   </ErrorBoundary>
-  <ErrorBoundary name="Calendar days">
+  <ErrorBoundary name="Calendar windows">
     {#each sessions as session (session.id)}
-      <CalendarDayWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null} />
+      <CalendarWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null} />
     {/each}
   </ErrorBoundary>
   <!-- The Ship Restrictions window an acceleration gate's refusal opens (ShipRestrictionsWindow.svelte), the pilot in

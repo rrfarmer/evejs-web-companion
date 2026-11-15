@@ -195,7 +195,7 @@ import {
   decodeActivityCalendar,
   decodeActivityNotifications,
 } from "../bridge/activity.ts";
-import { decodeEventList, type CalendarEvent } from "../bridge/calendar.ts";
+import { decodeEventDetails, decodeEventList, decodeResponsesToEvent, type CalendarEvent, type EventDetails, type EventResponse } from "../bridge/calendar.ts";
 import {
   contractRefusalMessage,
   decodeContractDetail,
@@ -2532,6 +2532,8 @@ export interface AppFlow {
    */
   loadActivity(): Promise<void>;
   loadCalendarMonth(month: number, year: number): Promise<readonly CalendarEvent[]>;
+  loadCalendarEvent(eventID: number, ownerID: number): Promise<EventDetails | null>;
+  loadCalendarInvitees(eventID: number, ownerID: number): Promise<readonly EventResponse[]>;
   /** Refresh current-system scan sites and the probes' state. */
   loadScanner(): Promise<void>;
   /** Launch every probe EveJS currently says is safe to launch. */
@@ -10801,6 +10803,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function loadCalendarMonth(month: number, year: number): Promise<readonly CalendarEvent[]> {
     const answer = await bridgeAsk("calendarProxy", "GetEventList", [month, year]);
     return decodeEventList(calendarEventsOfMonths([answer]));
+  }
+
+  async function loadCalendarEvent(eventID: number, ownerID: number): Promise<EventDetails | null> {
+    const detail = decodeEventDetails(await bridgeAsk("calendarProxy", "GetEventDetails", [eventID, ownerID]));
+    if (detail && detail.creatorID > 0) requestNames([{ kind: "owner", id: detail.creatorID }]);
+    return detail;
+  }
+
+  async function loadCalendarInvitees(eventID: number, ownerID: number): Promise<readonly EventResponse[]> {
+    const rows = decodeResponsesToEvent(await bridgeAsk("calendarMgr", "GetResponsesToEvent", [eventID, ownerID]));
+    requestNames(rows.map(row => ({ kind: "character", id: row.characterID })));
+    return rows;
   }
 
   async function loadActivity(): Promise<void> {
@@ -34643,6 +34657,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     loadActivity,
     loadCalendarMonth,
+    loadCalendarEvent,
+    loadCalendarInvitees,
     loadScanner,
     launchScannerProbes,
     analyzeScannerSignatures,

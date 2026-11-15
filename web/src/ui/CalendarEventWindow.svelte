@@ -1,0 +1,156 @@
+<script lang="ts">
+  import type { AppFlow } from "../app/flow.ts";
+  import { filetimeToUnixMs } from "../bridge/activity.ts";
+  import type { CalendarEvent, EventDetails, EventResponse } from "../bridge/calendar.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import type { ClientStore } from "../store/clientStore.ts";
+  import { resolvedName } from "../store/names.ts";
+  import { calendarDate } from "./calendarSelection.ts";
+  import { CALENDAR_RESPONSES, CALENDAR_RESPONSE_PATH, CALENDAR_TAGS, calendarCaption, calendarTime } from "./calendarView.ts";
+  import LabelText from "./LabelText.svelte";
+  import { LINK_WORDS, linkFollowerOf } from "./linkFollowers.ts";
+  import { showInfo } from "./showInfo.ts";
+
+  let { flow, store, event, close }: { flow: AppFlow; store: ClientStore; event: CalendarEvent; close: () => void } = $props();
+  const tabID = $props.id();
+  // svelte-ignore state_referenced_locally
+  const { activity, names, station, words } = store;
+  const LABEL = {
+    start: "UI/Calendar/EventWindow/StartTime", duration: "UI/Calendar/EventWindow/Duration", type: "UI/Calendar/EventWindow/EventType",
+    creator: "UI/Calendar/EventWindow/Creator", status: "UI/Calendar/EventWindow/Status", updated: "UI/Calendar/EventWindow/LastUpdated",
+    durationNone: "UI/Calendar/EventWindow/DateNotSpecified", durationHours: "UI/Calendar/EventWindow/DateSpecified",
+    description: "UI/Calendar/EventWindow/TabDescription", invitations: "UI/Calendar/EventWindow/TabInvitations",
+    noCharacter: "UI/Calendar/EventWindow/NoCharacter", close: "UI/Generic/Close", search: "UI/Common/Search",
+    date: "/Carbon/UI/Common/DateTime/DateLongShort",
+  } as const;
+  const GROUP = {
+    1: ["GroupPersonal", "Personal"], 2: ["GroupCorp", "Corporation"], 4: ["GroupAlliance", "Alliance"],
+    8: ["GroupCcp", "CCP"], 16: ["GroupAutomated", "Automated"],
+  } as const;
+  function word(key: string, fallback: string, args: Record<string, number> = {}): string {
+    return plainText(formatTemplate($words.templates[key] ?? "", args, { nameOf: () => "" })) || fallback;
+  }
+  function dateText(filetime: bigint | null): string {
+    const timestamp = filetimeToUnixMs(filetime);
+    if (timestamp === null) return "—";
+    return word(LABEL.date, `${calendarCaption(calendarDate(new Date(timestamp)))} ${calendarTime(timestamp)}`, { datetime: Number(filetime) });
+  }
+  function groupName(flag: number): string {
+    const group = GROUP[flag as keyof typeof GROUP];
+    return group ? word(`UI/Calendar/CalendarWindow/${group[0]}`, group[1]) : "—";
+  }
+  const responseOf = (status: number) => CALENDAR_RESPONSES[status] ?? CALENDAR_RESPONSES[3];
+  const followerOf = (url: string, text: string) => linkFollowerOf(url, flow, null, key => word(key, LINK_WORDS[key] ?? ""), text);
+
+  $effect(() => {
+    flow.requestWords([...Object.values(LABEL), ...Object.keys(LINK_WORDS),
+      ...CALENDAR_RESPONSES.map(([key]) => CALENDAR_RESPONSE_PATH + key),
+      ...Object.values(GROUP).map(([key]) => `UI/Calendar/CalendarWindow/${key}`)]);
+  });
+
+  let detail = $state<EventDetails | null>(null);
+  let detailStatus = $state<"loading" | "ready" | "error">("loading");
+  const eventID = $derived(event.eventID);
+  const ownerID = $derived(event.ownerID);
+  $effect(() => {
+    let active = true;
+    detail = null;
+    detailStatus = "loading";
+    void flow.loadCalendarEvent(eventID, ownerID).then(result => {
+      if (!active) return;
+      detail = result;
+      detailStatus = result ? "ready" : "error";
+    }, () => { if (active) detailStatus = "error"; });
+    return () => { active = false; };
+  });
+  const creatorID = $derived(detail?.creatorID ?? null);
+  const ccp = $derived(event.flag === CALENDAR_TAGS.ccp);
+  const creator = $derived(ccp ? groupName(CALENDAR_TAGS.ccp) : resolvedName($names.resolved, "owner", creatorID));
+  const response = $derived(responseOf(event.isDeleted ? 1 : $activity.calendarResponses.value?.find(row => row.eventID === eventID)?.status ?? 3));
+  const durationHours = $derived(event.eventDuration === null ? null : Math.trunc(event.eventDuration / 60));
+  const personal = $derived(event.flag === CALENDAR_TAGS.personal);
+  const canSeeInvitations = $derived(personal || ((event.flag === CALENDAR_TAGS.corp || event.flag === CALENDAR_TAGS.alliance)
+    && !!$station.online?.corporationID && (BigInt($station.online?.corpRole ?? "0") & 36028797018963968n) !== 0n));
+  let tab = $state<"description" | "invitations">("description");
+  let search = $state("");
+  let invitees = $state<readonly EventResponse[]>([]);
+  let inviteStatus = $state<"loading" | "ready" | "error">("loading");
+  $effect(() => {
+    if (tab !== "invitations" || !canSeeInvitations) return;
+    let active = true;
+    inviteStatus = "loading";
+    void flow.loadCalendarInvitees(eventID, ownerID).then(result => {
+      if (!active) return;
+      invitees = result;
+      inviteStatus = "ready";
+    }, () => { if (active) inviteStatus = "error"; });
+    return () => { active = false; };
+  });
+  const inviteGroups = $derived((personal ? [4, 5, 3, 2] : [4, 5, 2]).map(status => {
+    const term = search.trim().toLocaleLowerCase();
+    const members = invitees.filter(row => row.status === status).map(({ characterID }) =>
+      ({ characterID, name: resolvedName($names.resolved, "character", characterID) }))
+      .filter(member => term.length < 2 || member.name.toLocaleLowerCase().includes(term))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { response: responseOf(status), status, members };
+  }));
+</script>
+
+<div class="calendar-event" data-calendar-window={`event-${eventID}`}>
+  <h2>{#if event.importance > 0}<strong class="important">!</strong>{/if}{event.eventTitle}</h2>
+  <dl>
+    <dt>{word(LABEL.start, "Start Time")}</dt><dd>{dateText(event.eventDateTime)}</dd>
+    <dt>{word(LABEL.type, "Event Type")}</dt><dd>{groupName(event.flag)}</dd>
+    <dt>{word(LABEL.duration, "Duration")}</dt><dd>{durationHours === null ? word(LABEL.durationNone, "Not specified") : word(LABEL.durationHours, `${durationHours} hours`, { hours: durationHours })}</dd>
+    <dt>{word(LABEL.creator, "Creator")}</dt>
+    <dd>
+      {#if creatorID !== null && creatorID > 1 && !ccp}
+        <button type="button" class="evelink showInfo" onclick={() => showInfo({ kind: "character", characterID: creatorID! })}>{creator}</button>
+      {:else}{creator}{/if}
+    </dd>
+    <dt>{word(LABEL.status, "Status")}</dt><dd class="response"><img src={`/client-res/ui/texture/icons/38_16_${response[2]}.png`} width="16" height="16" alt="" />{word(CALENDAR_RESPONSE_PATH + response[0], response[1])}</dd>
+    <dt>{word(LABEL.updated, "Last Updated")}</dt><dd>{dateText(event.dateModified)}</dd>
+  </dl>
+  <div class="calendar-event-tabs" role="tablist" aria-label={word(LABEL.type, "Event")}>
+    <button type="button" role="tab" id={`${tabID}-description`} aria-controls={`${tabID}-panel`} aria-selected={tab === "description"} onclick={() => (tab = "description")}>{word(LABEL.description, "Description")}</button>
+    {#if canSeeInvitations}<button type="button" role="tab" id={`${tabID}-invitations`} aria-controls={`${tabID}-panel`} aria-selected={tab === "invitations"} onclick={() => (tab = "invitations")}>{word(LABEL.invitations, "Invitations")}</button>{/if}
+  </div>
+  <div class="calendar-event-panel" role="tabpanel" id={`${tabID}-panel`} aria-labelledby={`${tabID}-${tab}`}>
+    {#if tab === "description" || !canSeeInvitations}
+      {#if detail}<LabelText markup={detail.eventText} {followerOf} />
+      {:else}<p role="status">{detailStatus === "error" ? "Event details could not be read." : "Loading…"}</p>{/if}
+    {:else if inviteStatus === "ready"}
+      <input type="search" bind:value={search} aria-label={word(LABEL.search, "Search")} placeholder={word(LABEL.search, "Search")} />
+      {#each inviteGroups as group (group.status)}
+        <details>
+          <summary><img src={`/client-res/ui/texture/icons/38_16_${group.response[2]}.png`} width="16" height="16" alt="" />{word(CALENDAR_RESPONSE_PATH + group.response[0], group.response[1])} ({group.members.length})</summary>
+          {#if group.members.length}
+            <ul>{#each group.members as member (member.characterID)}<li><button type="button" class="evelink showInfo" onclick={() => showInfo({ kind: "character", characterID: member.characterID })}>{member.name}</button></li>{/each}</ul>
+          {:else}<p>{word(LABEL.noCharacter, "No characters")}</p>{/if}
+        </details>
+      {/each}
+    {:else}
+      <p role="status">{inviteStatus === "error" ? "Invitations could not be read." : "Loading…"}</p>
+    {/if}
+  </div>
+  <footer><button type="button" onclick={close}>{word(LABEL.close, "Close")}</button></footer>
+</div>
+
+<style>
+  .calendar-event { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; padding: 6px 8px; box-sizing: border-box; font-size: 12px; }
+  h2 { margin: 0 0 3px; font-size: 19px; font-weight: 400; overflow-wrap: anywhere; }
+  .important { color: #e26758; margin-right: 4px; }
+  dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 20px; align-items: center; margin: 0 0 4px; }
+  dt { font-weight: 600; }
+  dd { margin: 0; min-height: 17px; overflow-wrap: anywhere; }
+  .response, summary { display: flex; align-items: center; gap: 5px; }
+  summary { cursor: pointer; }
+  summary::before { content: "▸"; }
+  details[open] summary::before { content: "▾"; }
+  .calendar-event-tabs { display: flex; gap: 2px; }
+  .calendar-event-tabs button[aria-selected="true"] { border-bottom-color: var(--theme-focus, #58a7bf); }
+  .calendar-event-panel { flex: 1; min-height: 0; overflow: auto; border: 1px solid #fff2; padding: 5px; }
+  .calendar-event-panel p, ul { margin: 4px 0; }
+  input { display: block; margin: 0 0 5px auto; }
+  footer { display: flex; justify-content: center; }
+</style>

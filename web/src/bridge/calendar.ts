@@ -105,6 +105,12 @@ function listItems(value: JsonValue | undefined): readonly JsonValue[] {
   return isListValue(value) ? value.items : [];
 }
 
+function calendarText(value: JsonValue | undefined): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "type" in value && value.type === "wstring" && typeof value.value === "string") return value.value;
+  return "";
+}
+
 /**
  * Decode calendarProxy.GetEventList. The result is a 3-tuple [list, null, null];
  * the events are the first element's `items`. A non-array result, or a first
@@ -129,7 +135,7 @@ export function decodeEventList(
       ownerID: toNumber(readKeyVal(row, "ownerID")),
       eventDateTime: unwrapLong(readKeyVal(row, "eventDateTime")),
       eventDuration: toNullableNumber(readKeyVal(row, "eventDuration")),
-      eventTitle: String(readKeyVal(row, "eventTitle") ?? ""),
+      eventTitle: calendarText(readKeyVal(row, "eventTitle")),
       importance: toNumber(readKeyVal(row, "importance")),
       dateModified: unwrapLong(readKeyVal(row, "dateModified")),
       isDeleted: readKeyVal(row, "isDeleted") === true,
@@ -196,7 +202,7 @@ export function decodeEventDetails(
     return null;
   }
   return {
-    eventText: String(readKeyVal(result, "eventText") ?? ""),
+    eventText: calendarText(readKeyVal(result, "eventText")),
     creatorID: toNumber(readKeyVal(result, "creatorID")),
   };
 }

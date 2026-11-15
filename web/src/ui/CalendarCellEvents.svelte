@@ -1,7 +1,10 @@
 <script lang="ts">
   import { calendarTime, type CalendarRow } from "./calendarView.ts";
 
-  let { rows, timestamp, more, open }: { rows: readonly CalendarRow[]; timestamp: boolean; more: string; open: (shift: boolean) => void } = $props();
+  let { rows, timestamp, more, open, openEvent }: {
+    rows: readonly CalendarRow[]; timestamp: boolean; more: string;
+    open: (shift: boolean) => void; openEvent: (row: CalendarRow) => void;
+  } = $props();
   let area: HTMLElement | undefined = $state();
   let list: HTMLElement | undefined = $state();
   let clipped = $state(false);
@@ -21,7 +24,11 @@
   <div class="event-viewport">
     <div bind:this={list}>
       {#each rows as row (row.event.eventID)}
-        <span class="ev" title={row.event.eventTitle}>{timestamp ? `${calendarTime(row.at)} ` : ""}{row.event.eventTitle}</span>
+        <button type="button" class="calendar-event-row" title={row.event.eventTitle}
+          onclick={event => { event.stopPropagation(); if (event.detail === 0) openEvent(row); }}
+          ondblclick={event => { event.stopPropagation(); openEvent(row); }}>
+          {#if row.event.importance > 0}<strong>!</strong>{/if}{timestamp ? `${calendarTime(row.at)} ` : ""}{row.event.eventTitle}
+        </button>
       {/each}
     </div>
   </div>
@@ -36,7 +43,9 @@
 <style>
   .event-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .event-viewport { flex: 1; min-height: 0; overflow: hidden; }
-  .ev { display: block; height: 14px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ffffffd9; }
+  .event-area button.calendar-event-row { display: block; width: 100%; height: 14px; padding: 0; border: 0;
+    font: inherit; line-height: 14px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ffffffd9; background: #ffffff0d; }
+  .calendar-event-row strong { color: #e26758; padding-right: 2px; }
   .event-area button.calendar-more { flex: 0 0 10px; padding: 0; height: 10px; overflow: hidden; border: 0; background: #fff1; }
   .calendar-more img { width: 16px; height: 16px; vertical-align: top; margin-top: -3px; }
 </style>

@@ -105,8 +105,8 @@
   const names = store.names;
   // svelte-ignore state_referenced_locally
   const calendar = calendarView(flow);
-  const calendarDays = calendar.days;
-  const auxiliaryTop = $derived(Math.max(0, ...[...$infoWindows, ...$calendarDays].filter(w => !w.minimized).map(w => w.z)));
+  const calendarWindows = calendar.windows;
+  const auxiliaryTop = $derived(Math.max(0, ...[...$infoWindows, ...$calendarWindows].filter(w => !w.minimized).map(w => w.z)));
   $effect(() => {
     if (!deskEl) return;
     onInfoHost?.({ element: deskEl, mobile: false,
@@ -186,7 +186,7 @@
       <PanelHost {store} {flow} tab={win.id} onOpen={onOpen} onClose={() => onClose(win.id)} {sessions} />
     </DesktopWindow>
   {/each}
-  {#if openHere.length > 0 || globalChips.length > 0 || $infoWindows.length > 0 || $calendarDays.length > 0}
+  {#if openHere.length > 0 || globalChips.length > 0 || $infoWindows.length > 0 || $calendarWindows.length > 0}
     <!-- THE WINDOW STRIP. One chip per open window, whether it is on the
          surface or put away — the dot says which. It is the only way back to a
          minimized window that does not require remembering which launcher entry
@@ -217,10 +217,11 @@
           title={win.minimized ? `Bring back ${infoWindowLabel(win, $names.resolved)}` : `Put away ${infoWindowLabel(win, $names.resolved)}`}
           onclick={() => flow.infoWindows.minimize(win.id)}><span class="win-chip-dot" aria-hidden="true"></span>{infoWindowLabel(win, $names.resolved)}</button>
       {/each}
-      {#each $calendarDays as win (win.id)}
+      {#each $calendarWindows as win (win.id)}
+        {@const title = win.kind === "day" ? win.id : win.event.eventTitle}
         <button type="button" class="win-chip" class:away={win.minimized} aria-pressed={!win.minimized}
-          title={win.minimized ? `Bring back ${win.id}` : `Put away ${win.id}`}
-          onclick={() => calendar.minimizeDay(win.id)}><span class="win-chip-dot" aria-hidden="true"></span>{win.id}</button>
+          title={win.minimized ? `Bring back ${title}` : `Put away ${title}`}
+          onclick={() => calendar.toggleMinimize(win.id)}><span class="win-chip-dot" aria-hidden="true"></span>{title}</button>
       {/each}
       {#each globalChips as win (win.id)}
         <button

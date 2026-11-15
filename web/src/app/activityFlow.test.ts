@@ -105,3 +105,21 @@ test("the Calendar reads the browsed month and keeps past events from all return
   assert.deepEqual(calls, [["calendarProxy", "GetEventList", [7, 2026]]]);
   assert.deepEqual(events.map(event => [event.eventID, event.flag, event.eventDateTime]), [[1, 8, BigInt(timestamp)], [2, 1, BigInt(timestamp)]]);
 });
+
+test("Calendar event and invitation reads use the opened row's event and owner IDs", async () => {
+  const calls: unknown[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    if (String(input) === "/api/names") return json({ ok: true, names: {} });
+    assert.equal(String(input), "/api/bridge/call");
+    const { service, method, args } = JSON.parse(String(init?.body));
+    calls.push([service, method, args]);
+    const result = method === "GetEventDetails" ? keyVal({ eventText: { type: "wstring", value: "The agenda" }, creatorID: 140_000_002 })
+      : { type: "list", items: [keyVal({ characterID: 140_000_001, status: 3 })] };
+    return json({ ok: true, service, method, result });
+  };
+  const flow = createAppFlow(createClientStore(), { fetch });
+  assert.deepEqual(await flow.loadCalendarEvent(980000000006, 140_000_002), { eventText: "The agenda", creatorID: 140_000_002 });
+  assert.deepEqual(await flow.loadCalendarInvitees(980000000006, 140_000_002), [{ characterID: 140_000_001, status: 3 }]);
+  assert.deepEqual(calls, [["calendarProxy", "GetEventDetails", [980000000006, 140_000_002]],
+    ["calendarMgr", "GetResponsesToEvent", [980000000006, 140_000_002]]]);
+});

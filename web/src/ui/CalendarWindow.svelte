@@ -180,7 +180,8 @@
               ondblclick={event => { if (out) selectDay(day, true); else model.openDay(day, event.shiftKey); }} onkeydown={navigateDays}>
               <span class="num">{day.d}</span>
               {#if dayRows.length}
-                <CalendarCellEvents rows={dayRows} timestamp={$filters.timestamp} more={word(WORDS.viewDay, "View Day")} open={shift => model.openDay(day, shift)} />
+                <CalendarCellEvents rows={dayRows} timestamp={$filters.timestamp} more={word(WORDS.viewDay, "View Day")}
+                  open={shift => model.openDay(day, shift)} openEvent={row => model.openEvent(row.event)} />
               {/if}
             </div>
           {/each}
