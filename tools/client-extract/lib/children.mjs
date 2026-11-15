@@ -891,6 +891,17 @@ function plainOf(o, ref, depth = 0) {
 const STANDALONE = 1;
 const built = (entry) => ((entry.buildFilter ?? -1) & STANDALONE) !== 0;
 
+/** Hull controllers for a standalone hull, including the faction's named visibility groups. */
+export function hullControllerEntries(sofHull, faction) {
+  const groups = new Set((faction?.visibilityGroupSet?.visibilityGroups ?? []).map((g) => String(g.str ?? "")));
+  return (sofHull?.controllers ?? []).filter((entry) => {
+    // The predecessor's native constructor defaults to primary; 3698585's
+    // reflection describes an explicitly empty group as always loaded.
+    const group = String(entry.visibilityGroup ?? "primary");
+    return built(entry) && (!group || groups.has(group));
+  });
+}
+
 /** The children EveSOF builds for this hull and faction (EveSOFDataHullChild or EveSOFDataHullChildSetItem entries). */
 export function hullChildEntries(sofHull, faction) {
   if (sofHull?.sof6) {
@@ -1083,13 +1094,13 @@ export function readTurretStretch3(rf, path) {
  * shipstandard.red and the like), read as a child's are, their owner the space object itself. Read after
  * readHullChildren, whose ids they continue. A file the client does not ship, or not a controller, is left out.
  */
-export function readHullControllers(rf, sofHull) {
+export function readHullControllers(rf, sofHull, faction = null) {
   overlayPaths = new Set();
   const out = [];
   const skipped = {};
   // all read first: one may set another's variables (Owner.controllers["name"])
   const read = [];
-  for (const c of sofHull?.controllers ?? []) {
+  for (const c of hullControllerEntries(sofHull, faction)) {
     const res = String(c?.path ?? "").toLowerCase().replace(/\.red$/, ".black");
     if (!res || !rf.has(res)) continue;
     try {

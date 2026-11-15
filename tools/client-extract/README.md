@@ -36,6 +36,16 @@ node tools/client-extract/extract.mjs --client "C:\path\to\EVE Online" --hull cb
   groups, from `res:/staticdata/defaultoverviews.fsdbinary`, decoded by `lib/defaultOverviews.mjs`) and
   its first tabs (General, Mining, WarpTo), named in the client's English from its localization file.
 
+For a new build, pass the matching SDE JSONL directory and regenerate the shared tables:
+
+```
+node tools/client-extract/extract.mjs --client "<EVE install>" --sde "<matching SDE JSONL>" --type-graphics --gfx-turrets --ammo-colors --sof-materials --overview --star-map --fitting-scene
+python tools/client-extract/shortcuts.py "<decompiled Python for this build>"
+```
+
+The extractor records the paths in the new build's `config.json`. The BFF reads the localization
+and dialog tables directly from the install named by `EVEJS_CLIENT_ROOT`.
+
 The Vite dev server serves the newest build's folder at `/client-assets`, or the one
 `EVE_CLIENT_BUILD` names, and extracts what a page asks for on first ask (a type's model, a
 system's scene and celestials). `web/hull-viewer.html?type=588` draws a type as the play view does,

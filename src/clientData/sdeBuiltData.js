@@ -5,7 +5,7 @@
 // The page's own dogma and its Show Info windows go by the client's static data
 // (GET /api/client-data/dogma-types), which clientBuiltData.js reads from the
 // install's fsdbinary files with the client's own loaders. CCP's SDE has the
-// same rows for those tables, of the same build (config.js SDE_BUILD, 3396210),
+// same rows for those tables, of the same build (config.js SDE_BUILD, 3698585),
 // in its JSONL. A BFF with no install answers them from it here, in the shapes
 // the client's loaders give them, so the route answers as it does with one
 // (docs/native-layer-optional-plan.md, phase 2). With an install the client's

@@ -167,7 +167,7 @@ export async function extractSof(rf, gr2, hullName, factionName, outRoot, raceNa
   // the object files its controllers load as child effects (each read once, by path)
   built.childEffects = childEffectRoots();
   // the hull's own controllers (their owner the whole model)
-  built.hullControllers = readHullControllers(rf, sof.hulls.get(String(hullName).toLowerCase()));
+  built.hullControllers = readHullControllers(rf, sof.hulls.get(String(hullName).toLowerCase()), factionName ? sof.factions.get(String(factionName).toLowerCase()) ?? null : null);
   // the overlays those controllers add (Tr2ActionOverlay: construction, teardown, cloaks), their textures copied
   built.overlays = hullOverlays(rf);
   for (const ov of Object.values(built.overlays)) {

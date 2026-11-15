@@ -664,22 +664,32 @@ if (nodeGraphs && musicTriggers) {
     if (!c) return false;
     let q = c.at + 4 + 4 * c.ids.length + 22 + 1;
     q += 4 + 24 * u32(b, q);
+    if (q + 12 > b.length) return false;
     const d = f64(b, q); q += 8;
     const marks = [];
-    for (let n = u32(b, (q += 4) - 4), k = 0; k < n; k++) { marks.push(f64(b, q + 4)); q += 13 + b[q + 12]; }
+    const markCount = u32(b, q); q += 4;
+    for (let k = 0; k < markCount; k++) {
+      if (q + 13 > b.length) return false;
+      marks.push(f64(b, q + 4));
+      q += 13 + b[q + 12];
+    }
+    if (q > b.length) return false;
     const tracks = [];
     for (const tid of c.ids) {
       const t = objects.get(tid).body;
       const sources = new Map();
       const n = u32(t, 5);
+      const clipsAt = 9 + 14 * n;
+      if (clipsAt + 4 > t.length) continue;
+      const clipCount = u32(t, clipsAt);
+      if (clipsAt + 4 + 44 * clipCount > t.length) continue;
       for (let k = 0; k < n; k++) {
         const at = 9 + 14 * k;
         const file = sourceFile(t[at + 4], u32(t, at + 5));
         if (file) sources.set(u32(t, at + 5), file);
       }
-      let q2 = 9 + 14 * n;
       const subs = new Map();
-      for (let cnt = u32(t, q2), k = 0, at = q2 + 4; k < cnt; k++, at += 44) {
+      for (let k = 0, at = clipsAt + 4; k < clipCount; k++, at += 44) {
         const file = sources.get(u32(t, at + 4));
         if (!file) continue;
         const sub = u32(t, at);
@@ -730,7 +740,20 @@ if (nodeGraphs && musicTriggers) {
           const p = at + 4 + 30 * k;
           items.push({ seg: u32(b, p), kids: u32(b, p + 8), type: u32(b, p + 12), loop: new DataView(b.buffer, b.byteOffset + p + 16, 2).getInt16(0, true), w: u32(b, p + 22), avoid: u16(b, p + 26) });
         }
-        if (!items.every((it) => it.seg === 0 || objects.get(it.seg)?.type === 10)) continue;
+        // Other data at the end of a container can look like a playlist count.
+        // A real pre-order tree fills each child slot exactly once; a false
+        // match can otherwise loop billions of times on a bogus child count.
+        let slots = 1;
+        const isTree = items.every((it, i) => {
+          if (!slots) return false;
+          // The v150 bank uses 0xffffffff for a segment leaf and 0..3
+          // for sequence/random groups.
+          if (it.kids ? (it.seg !== 0 || it.type > 3)
+            : (it.type !== 0xffffffff || objects.get(it.seg)?.type !== 10)) return false;
+          slots += it.kids - 1;
+          return slots <= n - i - 1;
+        });
+        if (!isTree || slots !== 0) continue;
         let k = 0;
         // the item tree from its pre-order: a leaf {s: segment, l: loop, w: weight}, a group {r: random, l, a: avoid
         // repeating the last a, w, c: children}

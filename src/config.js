@@ -10,7 +10,7 @@ const dataDir = path.resolve(process.env.EVEJS_WEB_POC_DATA_DIR || path.join(rep
 // The SDE build this POC's static reads are pinned to. It matches the build
 // EveJS's docker/entrypoint.sh downloads and extracts, which is why the two
 // layouts below can be pointed at each other.
-const SDE_BUILD = "3396210";
+const SDE_BUILD = "3698585";
 
 // Where the static gameStore tables and the SDE JSONL live.
 //

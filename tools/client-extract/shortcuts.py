@@ -6,7 +6,7 @@ k(win=..., mac=...) takes win, a darwin-only branch is skipped), its category (t
 after the list) and whether it is locked; the command's name label (labelsByFuncName, or the command's nameLabelPath).
 The files are Python 2, so only those functions and the label dictionaries are cut out and parsed.
 
-    python tools/client-extract/shortcuts.py <ClientCodeGrabber/Latest>
+    python tools/client-extract/shortcuts.py <decompiled client Python folder>
 """
 import ast
 import json
@@ -15,7 +15,9 @@ import sys
 import textwrap
 from pathlib import Path
 
-ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else r"C:/Users/Farmer/Documents/GitHub/EveOffline/tools/ClientCodeGrabber/Latest")
+if len(sys.argv) != 2:
+    sys.exit("Usage: python tools/client-extract/shortcuts.py <decompiled client Python folder>")
+ROOT = Path(sys.argv[1])
 CORE = ROOT / "carbonui/services/command.py"
 GAME = ROOT / "eve/client/script/ui/eveCommands.py"
 OUT = Path(__file__).resolve().parents[2] / "web/src/play/clientShortcuts.ts"
