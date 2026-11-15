@@ -1,12 +1,12 @@
 // The Overview, in the client's look: what is on grid nearest first, one row each with its bracket and the client's
 // default columns (overviewConst.DEFAULT_COLUMNS: icon, distance, name, type, velocity; distance and velocity right
-// aligned). Its tabs are the client's first ones (characterdata/defaultOverviews.py DEFAULT_TAB_NAMES: General, Mining,
-// WarpTo), each showing the groups of its default preset (staticData/defaultOverviews, extract.mjs --overview). A click
+// aligned). Its tabs show the groups of the client's Jotunn profile (extract.mjs --overview). A click
 // selects (as a click on the thing's bracket does), a double click approaches, as the client's overview does by default.
 
 import { PlayWindow, clientTexture } from "./window.ts";
 import type { Entity } from "./spaceView.ts";
 import { distanceWords } from "./spaceView.ts";
+import { playUiEvent } from "./uiAudio.ts";
 
 interface OverviewPresets { tabs: { name: string; preset: string }[]; presets: Record<string, { name: string; groups: number[]; categoryID?: number; categoryName?: string | null }>; categoryOrder?: number[] }
 /** A default preset as a chooser lists it (GetPresetDisplayName with its category: "Category: Name"). */
@@ -18,7 +18,23 @@ function overviewPresets() {
 }
 const TAB_KEY = "evejs-play-overview-tab";
 const SORT_KEY = "evejs-play-overview-sort";
+const SORT_ENABLED_KEY = "evejs-play-overview-headerSortingEnabled";
 type SortColumn = "distance" | "name" | "type" | "velocity";
+interface OverviewSort { column: SortColumn; down: boolean }
+const DEFAULT_SORT: OverviewSort = { column: "distance", down: false };
+const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
+const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
+const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED];
+const DISABLED_TEXT = "Header sorting is disabled";
+
+function readSort(key: string): OverviewSort {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) ?? localStorage.getItem(SORT_KEY) ?? "null");
+    if (["distance", "name", "type", "velocity"].includes(saved?.column) && typeof saved.down === "boolean") return saved;
+  } catch { /* use the default */ }
+  return DEFAULT_SORT;
+}
 
 let names: Promise<{ types: Record<string, [string | null, number | null]>; groups: Record<string, [string | null, number | null]> } | null> | null = null;
 export function typeNames() {
@@ -30,6 +46,9 @@ export interface OverviewHooks {
   select(itemID: number): void;
   approach(itemID: number): void;
   glyph(e: Entity): string;
+  pilotID?: number;
+  word?(label: string): string | null;
+  notice?(text: string): void;
 }
 
 export class Overview {
@@ -44,9 +63,12 @@ export class Overview {
   private presetChoices: PresetChoice[] = [];
   private tab = 0;
   private readonly tabsEl: HTMLDivElement;
-  /** The column the rows are sorted by and which way: the client's overview sorts by distance, nearest first, until a
-   *  column head is clicked (a second click turns the order round). */
-  private sort: { column: SortColumn; down: boolean } = { column: "distance", down: false };
+  private readonly sortKey: string;
+  private readonly sortEnabledKey: string;
+  private sort: OverviewSort;
+  private sortEnabled = true;
+  private readonly lockIcon = document.createElement("img");
+  private lockFlash?: Animation;
 
   constructor(private readonly hooks: OverviewHooks) {
     this.window = new PlayWindow({ id: "overview", caption: "Overview", icon: clientTexture("res:/UI/Texture/WindowIcons/overview.png"), left: innerWidth - 470, top: 260, width: 450, height: 380, closable: false });
@@ -60,17 +82,13 @@ export class Overview {
       if (Number.isInteger(i)) this.choose(i);
     });
     this.table.className = "ov-table";
-    this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance">Distance</th><th data-sort="name">Name</th><th data-sort="type">Type</th><th class="ov-dist" data-sort="velocity">Velocity</th></tr></thead>`;
-    try { const saved = JSON.parse(localStorage.getItem(SORT_KEY) ?? "null"); if (saved?.column) this.sort = saved; } catch { /* the default sort */ }
-    this.markSort();
-    this.table.tHead!.addEventListener("click", (e) => {
-      const column = (e.target as HTMLElement).closest<HTMLElement>("th[data-sort]")?.dataset.sort as SortColumn | undefined;
-      if (!column) return;
-      this.sort = { column, down: this.sort.column === column ? !this.sort.down : false };
-      try { localStorage.setItem(SORT_KEY, JSON.stringify(this.sort)); } catch { /* not kept */ }
-      this.markSort();
-      this.lastDraw = 0;
-    });
+    this.table.innerHTML = `<thead><tr><th class="ov-icon"></th><th class="ov-dist" data-sort="distance"><button type="button">Distance</button></th><th data-sort="name"><button type="button">Name</button></th><th data-sort="type"><button type="button">Type</button></th><th class="ov-dist" data-sort="velocity"><button type="button">Velocity</button></th></tr></thead>`;
+    const pilotSuffix = hooks.pilotID === undefined ? "" : `:${hooks.pilotID}`;
+    this.sortKey = SORT_KEY + pilotSuffix;
+    this.sortEnabledKey = SORT_ENABLED_KEY + pilotSuffix;
+    this.sort = readSort(this.sortKey);
+    try { this.sortEnabled = localStorage.getItem(this.sortEnabledKey) !== "false"; } catch { /* enabled by default */ }
+    this.setupHeaders();
     this.table.appendChild(this.tbody);
     const scroller = document.createElement("div");
     scroller.className = "ov-scroll";
@@ -105,11 +123,102 @@ export class Overview {
     });
   }
 
+  private setupHeaders(): void {
+    const head = this.table.tHead!;
+    this.lockIcon.className = "ov-sort-lock";
+    this.lockIcon.src = clientTexture("res:/UI/Texture/eveicon/system_icons/locked_16px.png");
+    this.lockIcon.alt = "";
+    for (const button of head.querySelectorAll("th[data-sort] button")) {
+      button.setAttribute("aria-label", button.textContent ?? "");
+    }
+    head.querySelector('th[data-sort="velocity"]')!.appendChild(this.lockIcon);
+    this.markSort();
+
+    const menu = document.createElement("div");
+    menu.className = "ov-header-menu";
+    menu.setAttribute("popover", "auto");
+    menu.setAttribute("role", "menu");
+    const option = document.createElement("button");
+    option.type = "button";
+    option.setAttribute("role", "menuitemcheckbox");
+    option.autofocus = true;
+    menu.appendChild(option);
+    this.window.body.appendChild(menu);
+    menu.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      menu.hidePopover();
+    });
+    option.addEventListener("click", () => {
+      this.sortEnabled = !this.sortEnabled;
+      try { localStorage.setItem(this.sortEnabledKey, String(this.sortEnabled)); } catch { /* kept for this visit */ }
+      this.markSort();
+      menu.hidePopover();
+    });
+
+    const showMenu = (button: HTMLButtonElement | null, x: number, y: number) => {
+      const label = this.hooks.word?.(SORT_ENABLED) ?? "Header sorting enabled";
+      option.textContent = label;
+      option.setAttribute("aria-label", label);
+      option.title = this.hooks.word?.(SORT_HINT) ?? "Click a column header to sort the overview by that column.";
+      option.setAttribute("aria-checked", String(this.sortEnabled));
+      if (!menu.matches(":popover-open")) menu.showPopover({ source: button ?? head });
+      const { width, height } = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(0, Math.min(x, innerWidth - width))}px`;
+      menu.style.top = `${Math.max(0, Math.min(y, innerHeight - height))}px`;
+    };
+    head.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const cell = (e.target as HTMLElement).closest("th");
+      showMenu(cell?.querySelector("button") ?? null, e.clientX, e.clientY);
+    });
+    head.addEventListener("keydown", (e) => {
+      if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const button = (e.target as HTMLElement).closest("button");
+      const rect = (button ?? head).getBoundingClientRect();
+      showMenu(button, rect.left, rect.bottom);
+    });
+    head.addEventListener("click", (e) => {
+      const column = (e.target as HTMLElement).closest<HTMLElement>("th[data-sort]")?.dataset.sort as SortColumn | undefined;
+      if (!column) return;
+      if (!this.sortEnabled) {
+        this.hooks.notice?.(this.hooks.word?.(SORT_DISABLED) ?? DISABLED_TEXT);
+        void playUiEvent("msg_uiwarning03_play");
+        this.lockFlash?.cancel();
+        this.lockFlash = this.lockIcon.animate([{ opacity: 0.75 }, { opacity: 1 }, { opacity: 0.75 }], { duration: 500 });
+        return;
+      }
+      // SortHeaders.SetCurrentActive carries the direction to a new column.
+      this.sort = { column, down: this.sort.column === column ? !this.sort.down : this.sort.down };
+      try { localStorage.setItem(this.sortKey, JSON.stringify(this.sort)); } catch { /* kept for this visit */ }
+      this.markSort();
+      this.lastDraw = 0;
+    });
+    head.addEventListener("pointerover", () => { this.lockIcon.title = this.hooks.word?.(SORT_DISABLED) ?? DISABLED_TEXT; });
+  }
+
   /** The sorted column's head marked, with the way it runs. */
   private markSort(): void {
+    this.lockIcon.hidden = this.sortEnabled;
+    const disabled = this.hooks.word?.(SORT_DISABLED) ?? DISABLED_TEXT;
+    this.lockIcon.title = disabled;
     for (const th of this.table.querySelectorAll<HTMLElement>("th[data-sort]")) {
-      th.classList.toggle("sorted", th.dataset.sort === this.sort.column);
-      th.classList.toggle("down", th.dataset.sort === this.sort.column && this.sort.down);
+      const sorted = th.dataset.sort === this.sort.column;
+      const button = th.querySelector("button")!;
+      th.classList.toggle("sorted", sorted);
+      th.classList.toggle("down", sorted && this.sort.down);
+      if (sorted) th.setAttribute("aria-sort", this.sort.down ? "descending" : "ascending");
+      else th.removeAttribute("aria-sort");
+      if (this.sortEnabled) {
+        button.removeAttribute("aria-disabled");
+        button.removeAttribute("aria-description");
+      } else {
+        button.setAttribute("aria-disabled", "true");
+        button.setAttribute("aria-description", disabled);
+      }
     }
   }
 

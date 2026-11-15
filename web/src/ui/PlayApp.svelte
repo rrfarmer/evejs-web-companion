@@ -67,7 +67,7 @@
   import { DSCAN_WORDS } from "../play/dscan.ts";
   import { LivePark } from "../three/livePark.ts";
   import { SpaceView } from "../play/spaceView.ts";
-  import { typeNames as typeData } from "../play/overview.ts";
+  import { OVERVIEW_WORDS, typeNames as typeData } from "../play/overview.ts";
   import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
@@ -942,6 +942,8 @@
       undocking: () => performance.now() - undockedAt < 20000,
       entryWarpHistory: enteringSpace ?? undefined,
       recordCameraTask: s.flow.recordCameraTask,
+      overviewPilotID: s.store.station.get().online?.characterID,
+      overviewNotice: (text) => s.flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text),
       // the reloads the server announced (turret.py OnChargeBeingLoadedToModule: the turrets play Reload)
       reloads: () => s.store.fitting.get().reloads ?? {},
       corpTickers: (corpIDs) => corpTickers(corpIDs, false, s.flow.requestOptions()).then((r) => r.tickers),
@@ -1005,7 +1007,7 @@
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
     s.flow.requestWords([
       "UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode",
-      ...INDICATION_WORD_LABELS, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
+      ...INDICATION_WORD_LABELS, ...OVERVIEW_WORDS, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
     ]);
     const combatWord = (label: string, own: string) => { const t = s.store.words.get().templates[label]; return typeof t === "string" ? plainText(t) : own; };
     v.combatMessage.exampleText = () => combatWord("UI/Accessories/Log/ExampleText", "Example Text");

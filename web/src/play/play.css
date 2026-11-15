@@ -340,9 +340,18 @@ button { font: inherit; color: inherit; }
 /* the overview's column heads: clickable, the sorted one marked with the way it runs */
 .ov-table th[data-sort] { cursor: pointer; user-select: none; }
 .ov-table th[data-sort]:hover { color: #c8ccc8; }
+.ov-table th[data-sort] button { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: inherit; }
 .ov-table th.sorted { color: #e8ebe6; }
-.ov-table th.sorted::after { content: " \25B4"; font-size: 9px; }
-.ov-table th.sorted.down::after { content: " \25BE"; }
+.ov-table th.sorted button::after { content: " \25B4"; font-size: 9px; }
+.ov-table th.sorted.down button::after { content: " \25BE"; }
+.ov-sort-lock { width: 12px; height: 12px; margin-inline-start: 4px; vertical-align: middle; opacity: .75; }
+.ov-header-menu { position: fixed; inset: auto; margin: 0; padding: 2px; background: #191d20; color: #c8ccc8;
+  border: 1px solid #41474b; box-shadow: 0 4px 18px #0009; font: 12px var(--font); }
+.ov-header-menu button { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border: 0; background: none;
+  color: inherit; font: inherit; cursor: pointer; }
+.ov-header-menu button:is(:hover, :focus-visible) { background: #ffffff19; }
+.ov-header-menu button::before { content: ""; width: 11px; height: 11px; line-height: 11px; border: 1px solid #828a8f; text-align: center; }
+.ov-header-menu button[aria-checked="true"]::before { content: "✓"; }
 
 /* the client's combat notification (combatMessage.ts, message.py CombatMessage): the box placed by the script (its
    bottom at topOffset), the lines bottom-aligned in it 20 px apart, the text aligned by the place or the setting; each

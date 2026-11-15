@@ -8,6 +8,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { createClientAssets } = require("../src/clientData/clientAssets");
 const { createApp } = require("../src/server");
+const { extractOverviewPresets } = require("../tools/client-extract/extract.mjs");
 
 async function put(root, name, value) {
   const file = path.join(root, name);
@@ -62,6 +63,20 @@ test("the production BFF serves the installed build with standard asset response
     const response = await fetch(url("/client-assets/typeNames.json"));
     assert.deepEqual(await response.json(), { build: 9999999 });
   });
+});
+
+test("overview extraction rejects a decompile for a different install build", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "evejs-client-assets-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const clientRoot = path.join(temp, "install");
+  const clientCode = path.join(temp, "python");
+  await put(clientRoot, "tq/start.ini", "build=3698585\n");
+  await put(clientCode, "MANIFEST.json", '{"build":3396210}');
+  assert.throws(
+    () => extractOverviewPresets(null, clientRoot, temp, clientCode),
+    /Overview presets need build 3698585 client code, got 3396210/,
+  );
+  await assert.rejects(fs.access(path.join(temp, "overviewPresets.json")), { code: "ENOENT" });
 });
 
 test("concurrent model requests share one extraction and produce the model and its metadata", async t => {

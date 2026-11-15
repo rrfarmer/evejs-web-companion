@@ -96,6 +96,8 @@ export interface SpaceViewOptions {
   /** Present only when character selection goes directly into space. */
   entryWarpHistory?: Promise<boolean | null>;
   recordCameraTask?: (event: CameraTaskEvent) => void;
+  overviewPilotID?: number;
+  overviewNotice?: (text: string) => void;
   /**
    * A Sov Hub's menu entries (celestialCheckers): Deposit Reagents (OfferOpenSovFuelDepositWindow: an infrastructure hub,
    * the pilot in a ship in space, not warping, within transfer range - 2,500 m surface to surface) and Open Sov Hub
@@ -556,7 +558,14 @@ export class SpaceView {
     });
     if (options.recordCameraTask) this.trackCameraTasks(options.recordCameraTask);
     void options.entryWarpHistory?.then(hasWarped => { this.entryWarped = hasWarped ?? true; });
-    this.overview = new Overview({ select: (id) => this.select(id), approach: (id) => void this.act("Approach", () => this.actions.approach(id)), glyph });
+    this.overview = new Overview({
+      select: (id) => this.select(id),
+      approach: (id) => void this.act("Approach", () => this.actions.approach(id)),
+      glyph,
+      pilotID: options.overviewPilotID,
+      word: (label) => this.actions.word?.(label) ?? null,
+      notice: options.overviewNotice,
+    });
     this.layer.appendChild(this.overview.window.root);
     // The radial menu: held or right-clicked on a bracket, an overview row or an object in space.
     if (!document.getElementById("radial-css")) {

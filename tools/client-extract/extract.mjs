@@ -466,18 +466,33 @@ export async function extractSystemCelestials(rf, sdeDir, solarSystemID, outRoot
  * { source, tabs: [{ name, preset }], presets: { shortName: { name, groups, ... } } }.
  *
  * The client's default profile is 'jotunn_default' (overview/default/const.py DEFAULT), a YAML overview in its code
- * (data/jotunn_default.py), read by overviewdefaults.py from the decompiled client tree (EVEJS_CLIENT_CODE, else its
- * own default path): 36 presets named by "DefaultPreset_<message>", each with a category (categories.py
+ * (data/jotunn_default.py), read by overviewdefaults.py from the decompiled tree for the installed build
+ * (EVEJS_CLIENT_CODE or the output directory's config.json): 36 presets named by "DefaultPreset_<message>",
+ * each with a category (categories.py
  * CATEGORY_NAME_LABELS; CATEGORY_ORDER 0 - 5), its groups and states; five tabs named by YAML_OVERVIEWS' tab_name_ids.
  * Where that tree is not had: the FSD defaultoverviews.fsdbinary ('old_default', lib/defaultOverviews.mjs).
  */
-export function extractOverviewPresets(rf, clientDir, outRoot) {
+export function extractOverviewPresets(rf, clientDir, outRoot, clientCode = process.env.EVEJS_CLIENT_CODE) {
   const { createClientWords } = createRequire(import.meta.url)("../../src/clientData/clientWords.js");
   const words = createClientWords({ clientRoot: clientDir });
   const file = path.join(outRoot, "overviewPresets.json");
-  const py = spawnSync(process.env.PYTHON ?? "python", ["-I", path.join(REPO, "tools", "client-extract", "overviewdefaults.py"),
-    ...(process.env.EVEJS_CLIENT_CODE ? [process.env.EVEJS_CLIENT_CODE] : [])], { encoding: "utf8", maxBuffer: 16 << 20, input: "" });
-  if (py.status === 0 && py.stdout.trim()) {
+  const build = clientBuild(clientDir);
+  if (clientCode) {
+    const manifest = path.join(clientCode, "MANIFEST.json");
+    if (fs.existsSync(manifest)) {
+      const codeBuild = String(JSON.parse(fs.readFileSync(manifest, "utf8")).build);
+      if (codeBuild !== build) throw new Error(`Overview presets need build ${build} client code, got ${codeBuild} in ${manifest}`);
+    }
+  }
+  // The historical default in overviewdefaults.py is a 3396210 tree.
+  const py = clientCode || build === "3396210"
+    ? spawnSync(process.env.PYTHON ?? "python", ["-I", path.join(REPO, "tools", "client-extract", "overviewdefaults.py"),
+      ...(clientCode ? [clientCode] : [])], { encoding: "utf8", maxBuffer: 16 << 20, input: "" })
+    : null;
+  if (clientCode && (py?.status !== 0 || !py.stdout?.trim())) {
+    throw new Error(`Could not read build ${build} Jotunn overview presets from ${clientCode}: ${py?.stderr?.trim() || py?.error?.message || "no data"}`);
+  }
+  if (py?.status === 0 && py.stdout.trim()) {
     const jotunn = JSON.parse(py.stdout);
     const CATEGORY_NAME_LABELS = { 1: "Overview/Default/CategoryNames/General", 2: "Overview/Default/CategoryNames/WarpTo",
       3: "Overview/Default/CategoryNames/TargetCapsuleer", 4: "Overview/Default/CategoryNames/Friendly", 5: "Overview/Default/CategoryNames/Mining" };
@@ -794,7 +809,13 @@ async function main() {
     console.log(`system ${systemID} -> ${path.relative(outRoot, file)}`);
   }
   if (args.overview) {
-    const file = extractOverviewPresets(rf, client, outRoot);
+    const configuredCode = process.env.EVEJS_CLIENT_CODE || old.clientCode;
+    const clientCode = configuredCode ? path.resolve(configuredCode) : undefined;
+    const file = extractOverviewPresets(rf, client, outRoot, clientCode);
+    if (clientCode && clientCode !== old.clientCode) {
+      const saved = JSON.parse(fs.readFileSync(configFile, "utf8"));
+      fs.writeFileSync(configFile, JSON.stringify({ ...saved, clientCode }, null, 2));
+    }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
   if (!done.length && !args.typeGraphics && !args.overview && !args.scenes.length && !args.types.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --scene or --type-graphics");
