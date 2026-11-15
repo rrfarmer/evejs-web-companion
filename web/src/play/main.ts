@@ -139,6 +139,7 @@ function showSpace(): void {
   view?.dispose();
   view = new SpaceView(live!, {
     gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
+    setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
     alignTo: (id) => alignTo(act, flightNow, id),
     keepAtRange: (id, range) => keepAtRange(act, flightNow, id, range ?? 1000),
     jump: async (id, onJumping) => { onJumping?.(); await jump(act, flightNow, id); },

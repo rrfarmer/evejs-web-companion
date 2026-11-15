@@ -31,6 +31,8 @@
   import PanelHost from "./PanelHost.svelte";
   import PlayInfoPanels from "./PlayInfoPanels.svelte";
   import FlyDronesWindow from "./FlyDronesWindow.svelte";
+  import BuffBar from "./BuffBar.svelte";
+  import { INDICATION_WORD_LABELS } from "../space/actionIndication.ts";
   import NoticeBridge from "./NoticeBridge.svelte";
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
@@ -739,6 +741,7 @@
     const st = s.store.station.get().station;
     const v = new SpaceView(live, {
       gotoDirection: (x, y, z) => act("beyonce", "CmdGotoDirection", [x, y, z]).then(() => undefined),
+      setSpeedFraction: (fraction) => act("beyonce", "CmdSetSpeedFraction", [fraction]).then(() => undefined),
       stop: () => s.flow.stopShip(),
       approach: (id) => s.flow.approach(id),
       // The client's default ranges where none is chosen (defaultRangeUtils.DEFAULT_RANGES: orbit and keep at range
@@ -863,6 +866,8 @@
       },
     }, { system: st?.solarSystemName ?? "", security: st?.security ?? null }, {
       onNeocom: neocomOpen,
+      flightSnapshot: () => s.store.space.get().snapshot,
+      indicationWords: () => s.store.words.get().templates,
       onSystem: musicSystem,
       windowLayer: windowsEl ? windowLayer : undefined,
       undocking: () => performance.now() - undockedAt < 20000,
@@ -927,7 +932,10 @@
     spaceHost.appendChild(v.root);
     view = v;
     // the combat notification's moving-mode example text (UI/Accessories/Log/ExampleText)
-    s.flow.requestWords(["UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode"]);
+    s.flow.requestWords([
+      "UI/Accessories/Log/ExampleText", "UI/Accessories/Log/ExitMessageMovingMode",
+      ...INDICATION_WORD_LABELS, "UI/Inflight/Messages/ShipFullSpeedHeader", "UI/Commands/SpeedChangedTo",
+    ]);
     const combatWord = (label: string, own: string) => { const t = s.store.words.get().templates[label]; return typeof t === "string" ? plainText(t) : own; };
     v.combatMessage.exampleText = () => combatWord("UI/Accessories/Log/ExampleText", "Example Text");
     v.combatMessage.exitHint = () => combatWord("UI/Accessories/Log/ExitMessageMovingMode", "Exit Message Moving Mode");
@@ -1066,6 +1074,7 @@
     </div>
   {:else}
     <div class="fly-space" bind:this={spaceHost}></div>
+    <div class="fly-buffs"><BuffBar store={session.store} flow={session.flow} /></div>
   {/if}
   {#if session && reagentBay}<SovReagentBay store={session.store} flow={session.flow} hubID={reagentBay.hubID} solarSystemID={reagentBay.solarSystemID} isStationMgr={reagentBay.isStationMgr} onClose={() => { reagentBay = null; }} />{/if}
   {#if session && sovHubConfig}
@@ -1117,6 +1126,8 @@
 
 <style>
   .fly-space { position: fixed; inset: 0; }
+  .fly-buffs { position: fixed; bottom: 200px; left: 50%; transform: translateX(-50%); pointer-events: none; }
+  .fly-buffs :global(.buff-slot) { pointer-events: auto; }
   .fly-sovhub { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
   .fly-sovhub > :global(*) { pointer-events: auto; }
   .fly-windows { position: fixed; inset: 0; pointer-events: none; z-index: 20; }

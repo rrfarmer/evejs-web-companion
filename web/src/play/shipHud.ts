@@ -305,6 +305,8 @@ export class ShipHud {
   private readonly gauges: { ctx: CanvasRenderingContext2D; tex: ImageData | null; morph: Morph | null; drawn: number }[] = [];
   private fill: HTMLImageElement | null = null;
   private lastHpRead = -Infinity;
+  private readonly hpFlashes = new Map<HTMLCanvasElement, Animation>();
+  private capFlash: Animation | null = null;
 
   private readonly capCtx: CanvasRenderingContext2D;
   private readonly capBlinkHost: HTMLDivElement;
@@ -429,8 +431,36 @@ export class ShipHud {
   }
 
   dispose(): void {
+    this.cancelAlerts();
     removeEventListener("pointermove", this.onPointer);
     this.root.remove();
+  }
+
+  /** HPGauges.OnDamageAlertFlash: the affected layer and every gauge outside it. */
+  flashDamage(level: number, duration: number): void {
+    for (const { ctx } of this.gauges.slice(0, level + 1)) {
+      const canvas = ctx.canvas;
+      this.hpFlashes.get(canvas)?.cancel();
+      this.hpFlashes.set(canvas, canvas.animate([
+        { filter: "drop-shadow(0 1px #000)" },
+        { filter: "drop-shadow(0 0 3px rgba(255, 102, 102, 0.8))" },
+        { filter: "drop-shadow(0 1px #000)" },
+      ], { duration, easing: "ease-in-out" }));
+    }
+  }
+
+  /** CapacitorContainer.OnCapacitorAlertFlash. */
+  flashCapacitor(duration: number): void {
+    this.capFlash?.cancel();
+    this.capFlash = this.capCtx.canvas.parentElement!.animate([{ opacity: 1 }, { opacity: 0.5 }, { opacity: 1 }], {
+      duration, easing: "ease-in-out",
+    });
+  }
+
+  cancelAlerts(): void {
+    this.capFlash?.cancel();
+    for (const flash of this.hpFlashes.values()) flash.cancel();
+    this.hpFlashes.clear();
   }
 
   /** Called every frame; work is done only where something changed. */

@@ -29,7 +29,10 @@ import { gfx, spaceRendering, lodSettings } from "./gfxSettings.ts";
 import { playUiEvent, playWorldEvent, setListener, fxSoundsOf, explosionSoundsOf, pickExplosion, typeSoundsOf, playWorldLoop, effectAudioScale, stopEmitter, type WorldLoop } from "./uiAudio.ts";
 import { commandForKey, combatForModifiers, isCombatCommand, labelOf, type CombatCommand } from "./shortcutKeys.ts";
 import { buildTurrets, slotOfFlag, turretModelInfo, turretSetCount, type HullTurretData, type TurretFit, type TurretRig, type TurretSetState } from "../three/turretModel.ts";
-import type { DamageRouting } from "../store/types.ts";
+import type { DamageRouting, SpaceSnapshot } from "../store/types.ts";
+import { healthNotificationSettings, HEALTH_NOTIFICATIONS } from "../store/notifySettings.ts";
+import { ALERT_ANIMATION_MS, ALERT_DURATION_MS, CAPACITOR, HULL, activeAlertLevel, capacitorAlerting, capacitorChanged, damageStateChanged, initialShipAlertState, isLevelActive } from "../ui/shipAlert.ts";
+import { alignText, indicationHeader, indicationText, pointText, shipIndication, shipStoppingText, warpProgress, warpText, SHIP_STOPPING_MS } from "../space/actionIndication.ts";
 import { TargetBar, type TargetBarEntry } from "./targetBar.ts";
 import { loadDds } from "../three/ddsTexture.ts";
 import { Overview, typeNames } from "./overview.ts";
@@ -76,6 +79,9 @@ export interface SpaceViewOptions {
     /** Overloading: a module's (ToggleOverload) and a rack's, by its first module (OverloadRack / StopOverloadRack). */
     overload?: { module(itemID: number, on: boolean): Promise<void>; rack(activationID: number, on: boolean): Promise<void> };
   };
+  /** The session's snapshot includes the acknowledged align and warp targets. */
+  flightSnapshot?: () => SpaceSnapshot | null;
+  indicationWords?: () => Readonly<Record<string, string | null | undefined>>;
   windowLayer?: { element: HTMLElement; raise(el: HTMLElement): void };
   showInfo?: (itemID: number, typeID: number | null) => void;
   /** Corporations' tickers (cfg.corptickernames: POST /api/corp-tickers), by corporation id; null where none. */
@@ -95,6 +101,7 @@ export interface SpaceViewOptions {
 
 export interface SpaceActions {
   gotoDirection(dx: number, dy: number, dz: number): Promise<void>;
+  setSpeedFraction(fraction: number): Promise<void>;
   alignTo(itemID: number): Promise<void>;
   keepAtRange(itemID: number, range?: number): Promise<void>;
   /** The jump; `onJumping` said as the jump itself is asked (after any closing in), which starts the gate effect. */
@@ -450,7 +457,19 @@ export class SpaceView {
   private bracketOverride: "default" | "none" | "all" = "default";
   /** Warp.py's sound flags for the ship's own warp: the explosion played (hasExploded), the wind playing (hasWind). */
   private warpSound = { exploded: false, wind: false };
-  private readonly indicationEl = document.createElement("div");
+  private shortcutIndication: { header: string; sub: string } | null = null;
+  private temporaryIndication: { header: string; sub: string; until: number } | null = null;
+  private readonly modeHeader = document.createElement("div");
+  private readonly modeSub = document.createElement("div");
+  private readonly modeProgress = document.createElement("div");
+  private readonly modeProgressFill = document.createElement("div");
+  private readonly alertVignette = document.createElement("div");
+  private alertShipID: number | null = null;
+  private alertState = initialShipAlertState();
+  private alertSettings = healthNotificationSettings.get();
+  private alertVignetteFlash: Animation | null = null;
+  private nextDamageFlash = 0;
+  private nextCapFlash = 0;
   private readonly unhold: (() => void)[] = [];
   private lastFrameAt = performance.now();
 
@@ -485,8 +504,16 @@ export class SpaceView {
     };
     this.modeEl = this.root.querySelector(".ship-mode")!;
     this.root.insertBefore(this.shipHud.root, this.modeEl);
-    this.shipHud.onStop = () => void this.act("Stop", () => this.actions.stop());
+    this.shipHud.onStop = () => void this.stopShip();
     this.shipHud.onFullSpeed = () => void this.fullSpeed();
+    this.modeHeader.className = "ship-mode-header";
+    this.modeSub.className = "ship-mode-detail";
+    this.modeProgress.className = "ship-mode-progress";
+    this.modeProgress.append(this.modeProgressFill);
+    this.modeEl.append(this.modeHeader, this.modeSub, this.modeProgress);
+    this.alertVignette.className = "ship-hud-vignette";
+    this.alertVignette.setAttribute("aria-hidden", "true");
+    this.root.append(this.alertVignette);
     // (as the eve-cs mirror has it: always on screen, 464 x 135 at the top right, its icon the client's show-info one,
     // "No object selected" while nothing is)
     this.selectedWin = new PlayWindow({ id: "selected-item", caption: "Selected Item", icon: clientTexture("res:/UI/Texture/eveicon/control_icons/show_info_32px.png"), left: innerWidth - 480, top: 15, width: 464, height: 135, closable: false });
@@ -602,8 +629,6 @@ export class SpaceView {
     addEventListener("keyup", this.onKeyUp);
     addEventListener("blur", this.onBlur);
     addEventListener("pointerdown", this.onPointer, true);
-    this.indicationEl.className = "cmd-indication";
-    this.root.appendChild(this.indicationEl);
     this.unhold.push(
       holdToOpen(this.brackets, rowID, openRadial),
       holdToOpen(this.overview.window.body, rowID, openRadial),
@@ -634,6 +659,7 @@ export class SpaceView {
     this.exposure.dispose();
     this.renderer.dispose();
     this.shipHud.dispose();
+    this.alertVignetteFlash?.cancel();
     this.targetBar.dispose();
     this.warpTunnel.dispose();
     this.live.fxListeners.delete(this.hearFx);
@@ -651,21 +677,117 @@ export class SpaceView {
   }
 
   /**
-   * The HUD's full-speed button. The client's SetMaxSpeed keeps the ship's heading; there is no set-speed action
-   * here yet, so this flies on along the way the ship is going (its velocity, else where its model points).
-   * TODO: a real SetSpeed(1.0) once SpaceActions has one.
+   * CmdSetShipFullSpeed: a stopped ship starts along its own heading; a ship in motion keeps the current order.
    */
   private async fullSpeed(): Promise<void> {
     const ego = this.snapshot?.ship;
     if (!ego) return;
-    let { x, y, z } = ego.velocity;
-    if (Math.hypot(x, y, z) < 0.5) {
-      const holder = this.marks.get(ego.itemID);
-      if (!holder) return;
-      const f = new THREE.Vector3(0, 0, 1).applyQuaternion(holder.quaternion);
-      [x, y, z] = [f.x, f.y, -f.z]; // three.js back to EVE's handedness
+    await this.act("Full speed", async () => {
+      if (ego.mode === "STOP") {
+        const holder = this.marks.get(ego.itemID);
+        if (!holder) return;
+        const f = new THREE.Vector3(0, 0, 1).applyQuaternion(holder.quaternion);
+        await this.actions.gotoDirection(f.x, f.y, -f.z);
+      }
+      await this.actions.setSpeedFraction(1);
+      const speed = ego.maxVelocity;
+      this.showTemporaryIndication(
+        this.actions.word?.("UI/Inflight/Messages/ShipFullSpeedHeader") ?? "Full speed",
+        speed === null ? "" : this.actions.word?.("UI/Commands/SpeedChangedTo", { speed: speed >= 100 ? Math.trunc(speed) : speed }) ?? `${Math.round(speed)} m/s`,
+      );
+    });
+  }
+
+  private async stopShip(): Promise<void> {
+    await this.act("Stop", async () => {
+      await this.actions.stop();
+      this.showTemporaryIndication(shipStoppingText(this.options.indicationWords?.() ?? {}));
+    });
+  }
+
+  private showTemporaryIndication(header: string, sub = ""): void {
+    this.temporaryIndication = { header, sub, until: performance.now() + SHIP_STOPPING_MS };
+    void playUiEvent("ui_radial_select_play");
+  }
+
+  private updateIndication(snapshot: Snapshot | null, now: number): void {
+    if (this.temporaryIndication && now >= this.temporaryIndication.until) this.temporaryIndication = null;
+    // The park gives the current mode. Only use the session's navigation details for that same manoeuvre.
+    const live = snapshot as SpaceSnapshot | null;
+    const reported = this.options.flightSnapshot?.() ?? null;
+    const ship = live?.ship;
+    const details = reported?.ship;
+    const flight = live && ship && details && ship.itemID === details.itemID && ship.mode === details.mode && (details.alignTarget || details.warp)
+      ? { ...live, ship: { ...ship, alignTarget: ship.alignTarget ?? details.alignTarget, warp: ship.warp ?? details.warp } }
+      : live;
+    let text = this.shortcutIndication ?? this.temporaryIndication;
+    if (!text) {
+      const words = this.options.indicationWords?.() ?? {};
+      const indication = shipIndication(flight);
+      const name = (id: number | null) => {
+        const entity = snapshot?.entities.find((row) => row.itemID === id);
+        return entity ? this.nameOf(entity) : null;
+      };
+      if (indication) {
+        const { kind } = indication;
+        const header = indicationHeader(kind, words);
+        if ("followID" in indication) text = indicationText(indication, name(indication.followID) ?? "", words);
+        else if ("destinationID" in indication) text = { header, sub: warpText(indication, indication.destinationName ?? name(indication.destinationID), words) };
+        else if ("targetID" in indication) text = { header, sub: alignText(indication, name(indication.targetID), words) };
+        else text = { header, sub: pointText(indication.kind, words) };
+      }
     }
-    await this.act("Full speed", () => this.actions.gotoDirection(x, y, z));
+    const header = text?.header ?? "", sub = text?.sub ?? "";
+    if (this.modeHeader.textContent !== header) this.modeHeader.textContent = header;
+    if (this.modeSub.textContent !== sub) this.modeSub.textContent = sub;
+    const progress = !this.shortcutIndication && !this.temporaryIndication ? warpProgress(flight) : null;
+    this.modeProgress.hidden = !progress;
+    if (progress) this.modeProgressFill.style.transform = `scaleX(${progress})`;
+  }
+
+  private updateShipAlerts(ego: Snapshot["ship"], cap: number | null, now: number): void {
+    if (this.alertShipID !== (ego?.itemID ?? null)) {
+      this.alertShipID = ego?.itemID ?? null;
+      this.alertState = initialShipAlertState();
+      this.nextDamageFlash = this.nextCapFlash = 0;
+      this.alertVignetteFlash?.cancel();
+      this.shipHud.cancelAlerts();
+    }
+    if (!ego) return;
+    const settings = healthNotificationSettings.get();
+    const shield = ego.shieldRatio, armor = ego.armorRatio, hull = ego.hullRatio;
+    if (shield != null && armor != null && hull != null &&
+        (shield !== this.alertState.oldDamage[0] || armor !== this.alertState.oldDamage[1] || hull !== this.alertState.oldDamage[2])) {
+      this.alertState = damageStateChanged(this.alertState, [shield, armor, hull], now, settings);
+    }
+    if (cap !== null && cap !== this.alertState.oldDamage[CAPACITOR]) {
+      this.alertState = capacitorChanged(this.alertState, cap, now, settings);
+    }
+    if (settings !== this.alertSettings) {
+      const startTimes = [...this.alertState.startTimes];
+      HEALTH_NOTIFICATIONS.slice(0, CAPACITOR + 1).forEach(({ name }, level) => {
+        if (settings[name] !== this.alertSettings[name]) {
+          startTimes[level] = isLevelActive(level, this.alertState.oldDamage[level]!, settings) ? now : null;
+        }
+      });
+      this.alertState = { ...this.alertState, startTimes };
+      this.alertSettings = settings;
+    }
+    const level = now >= this.nextDamageFlash ? activeAlertLevel(this.alertState, now, settings) : null;
+    if (level !== null) {
+      const duration = ALERT_ANIMATION_MS[level]!;
+      this.nextDamageFlash = now + duration;
+      this.shipHud.flashDamage(level, duration);
+      this.alertVignetteFlash = this.alertVignette.animate([{ opacity: 0 }, { opacity: level === HULL ? 1 : 0.7 }, { opacity: 0 }], {
+        duration, easing: "ease-in-out",
+      });
+      void playUiEvent(["ui_warning_shield", "ui_warning_armor", "ui_warning_hull"][level]!);
+    }
+    if (now >= this.nextCapFlash && capacitorAlerting(this.alertState, now)) {
+      this.nextCapFlash = now + ALERT_DURATION_MS;
+      this.shipHud.flashCapacitor(ALERT_DURATION_MS);
+      void playUiEvent("ui_warning_capacitor");
+    }
   }
 
   private resize(): void {
@@ -1142,7 +1264,7 @@ export class SpaceView {
       this.select(next);
       return;
     }
-    if (cmd === "CmdStopShip") { e.preventDefault(); void this.act("Stop", () => this.actions.stop()); return; }
+    if (cmd === "CmdStopShip") { e.preventDefault(); void this.stopShip(); return; }
     if (cmd === "CmdSetShipFullSpeed") { e.preventDefault(); void this.fullSpeed(); return; }
     const RACKS = { High: "high", Medium: "mid", Low: "low" } as const;
     const rack = /^CmdOverload(High|Medium|Low)PowerRack$/.exec(cmd);
@@ -1212,13 +1334,13 @@ export class SpaceView {
     const label = labelOf(cmd);
     const name = (label ? this.actions.word?.(label) : null) ?? cmd;
     const click = this.actions.word?.("UI/Commands/ClickTarget") ?? "";
-    this.indicationEl.textContent = click ? `${name} - ${click}` : name;
-    this.indicationEl.classList.add("show");
+    this.temporaryIndication = null;
+    this.shortcutIndication = { header: name, sub: click };
   }
 
   private unloadCombat(): void {
     this.combat = null;
-    this.indicationEl.classList.remove("show");
+    this.shortcutIndication = null;
   }
 
   /** The loaded command's function on the object clicked (movementFunctions / the menu's, as the page has them). */
@@ -1474,20 +1596,22 @@ export class SpaceView {
     }
     for (const [id, g] of this.gone) if (performance.now() - g.at > 5000) this.gone.delete(id);
 
+    const cap = this.options.rack?.capacitor?.().ratio ?? ego?.capacitorRatio ?? null;
+    this.updateShipAlerts(ego, cap, performance.now());
+    this.updateIndication(snap, performance.now());
     if (ego) {
       const speed = Math.hypot(ego.velocity.x, ego.velocity.y, ego.velocity.z);
       this.shipHud.update({
         shieldRatio: ego.shieldRatio ?? null, armorRatio: ego.armorRatio ?? null, hullRatio: ego.hullRatio ?? null,
         // The capacitor from the app's session where there is one (its fitting's capacitor total, the space read's
         // ratio); a ship's own capacitor is not in the park's slim item.
-        capacitorRatio: this.options.rack?.capacitor?.().ratio ?? ego.capacitorRatio ?? null,
+        capacitorRatio: cap,
         capacitorMax: this.options.rack?.capacitor?.().max ?? null,
         speed, maxSpeed: ego.maxVelocity ?? null, warping: ego.mode === "WARP",
         // the racks' heat (the ship's heatLow / heatMed / heatHi over their capacities, as the BFF's dogma reckons
         // them: the app's space snapshot, not this view's park)
         ...(() => { const h = this.options.rack?.heat?.(); return { heatLow: h?.low, heatMed: h?.mid, heatHi: h?.high }; })(),
       });
-      this.modeEl.textContent = ego.mode === "STOP" && speed < 1 ? "Stopped" : ego.mode === "WARP" ? "Warping" : ego.mode === "ORBIT" ? "Orbiting" : ego.mode === "FOLLOW" ? "Approaching" : speed > 0.5 ? "Moving" : "";
     }
     // The warp tunnel, along the ship's way (mirrored into three's handedness as positions are), as strong as the
     // client's binding of the ship's speed makes it.

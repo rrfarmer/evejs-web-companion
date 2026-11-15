@@ -1,9 +1,8 @@
-// The HUD's ship health alerts as the client's ShipAlertContainer runs them (eve/client/script/ui/inflight/shipAlert.py):
+// Ship health alerts from the 24.02 client's hud/client/ship_alert/shipAlertController.py:
 // the shield, armour and hull each alerting while below its threshold and taking damage, the capacitor while below its
 // own and draining. What is shown of an alert is the red bars at the screen's top and bottom and the glow of the
 // layer's gauge, with the layers above it (DoShieldAnimation, DoArmorAnimation, DoHullAnimation); the capacitor pulses
-// (DoCapacitorAnimation). The warning label the container keeps is never shown (its opacity is 0 save for the capsule's
-// animation), and the sounds are the client's alone.
+// (OnCapacitorFlash).
 
 import { HEALTH_NOTIFICATIONS, type HealthNotificationSetting } from "../store/notifySettings.ts";
 
@@ -18,14 +17,14 @@ export const ALERT_DURATION_MS = 2000;
 export const ALERT_ANIMATION_MS: readonly number[] = [2000, 1000, 600];
 
 export interface ShipAlertState {
-  /** oldDamageState: each level's last amount, 17 at first (nothing is ever that much). */
+  /** oldDamageState: each level's last amount, reset to full when the active ship changes. */
   readonly oldDamage: readonly number[];
   /** alertStartTimes: when each level last took damage while it was below its threshold; null where it was let go. */
   readonly startTimes: readonly (number | null)[];
 }
 
 export function initialShipAlertState(): ShipAlertState {
-  return { oldDamage: [17, 17, 17, 17, 17], startTimes: [0, 0, 0, 0, 0] };
+  return { oldDamage: [1, 1, 1, 1, 1], startTimes: [null, null, null, null, null] };
 }
 
 type Settings = Readonly<Record<string, HealthNotificationSetting>>;
