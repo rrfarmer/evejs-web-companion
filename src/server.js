@@ -1236,6 +1236,15 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_CALENDAR_EVENT", message: "The event and organizer IDs are required for cancellation." });
     return;
   }
+  if (body.service === "charMgr" && body.method === "SetNote") {
+    const args = Array.isArray(body.args) ? body.args : [];
+    const [id, note] = args;
+    if (args.length !== 2 || !Number.isSafeInteger(id) || id <= 0 || body.kwargs != null
+        || (note !== "" && !(note?.type === "wstring" && typeof note.value === "string" && note.value.length <= 3900))) {
+      res.status(400).json({ ok: false, error: "INVALID_CHARACTER_NOTE", message: "A character note needs a character and at most 3,900 characters of text." });
+      return;
+    }
+  }
   // An order to the ship was a flight route's, and those are held back while the pilot's lost drones are looked
   // for (heldBackForDroneRecovery, below): every write of the page's own on beyonce was one of them, and the stop,
   // which that gate lets through, is CmdStop. So was every change of place the page makes (the undock, a flight

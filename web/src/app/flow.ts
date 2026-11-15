@@ -4358,6 +4358,8 @@ export interface AppFlow {
   notepadEditNote(noteID: number, label: string, note?: string): Promise<void>;
   /** charMgr.RemoveOwnerNote(noteID): a note of the pilot's own gone (DeleteNote, a setting's spare part, a bad note). */
   notepadRemoveNote(noteID: number): Promise<void>;
+  notepadCharacterNote(characterID: number): Promise<string>;
+  notepadSetCharacterNote(characterID: number, markup: string): Promise<void>;
   ownCorporationDetails(): Promise<{ readonly corporationID: number; readonly name: string; readonly ceoID: number | null; readonly creatorID: number | null;
     readonly stationID: number | null; readonly ticker: string; readonly shares: number; readonly memberCount: number; readonly taxRate: number;
     readonly loyaltyPointTaxRate: number; readonly url: string } | null>;
@@ -33345,6 +33347,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     async notepadRemoveNote(noteID) {
       await bridgeDo("charMgr", "RemoveOwnerNote", [noteID]);
+    },
+    async notepadCharacterNote(characterID) {
+      return allianceText(await bridgeAsk("charMgr", "GetNote", [characterID]));
+    },
+    async notepadSetCharacterNote(characterID, markup) {
+      await bridgeDo("charMgr", "SetNote", [characterID, markup === "" ? "" : { type: "wstring", value: markup }]);
     },
     async ownCorporationDetails() {
       const corporationID = store.station.get().online?.corporationID ?? null;

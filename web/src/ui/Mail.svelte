@@ -64,6 +64,7 @@
   } from "../bridge/mail.ts";
   import { MAIL_QUOTE_LABELS, mailBodyLines, mailMarkupOfTyped, mailQuoteMarkup } from "../bridge/mailMarkup.ts";
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
+  import { dragCharacter } from "./characterDrag.ts";
   import { ASKED_KEEPING_YES, DO_NOT_ASK_AGAIN_LABEL, suppressableKey } from "../bridge/dialogSuppression.ts";
   import { pyIntDictOrder } from "../bridge/pyDict.ts";
   import { isSearchMatch } from "../bridge/searchMatch.ts";
@@ -2538,7 +2539,13 @@
         {#if openHeader}
           <p class="note">
             <!-- The date as the reading pane writes it, FmtDate(sentDate, 'ls') (mailSvc.py 1092), as the list does. -->
-            From {senderName(openHeader)}, to {audienceText(openHeader)},
+            From
+            {#if openHeader.senderID > 0 && openHeader.senderID !== openHeader.toListID
+                && !isCorporationOwner(openHeader.senderID) && !isAllianceOwner(openHeader.senderID)}
+              <span role="group" draggable="true" ondragstart={event => {
+                if (openHeader) dragCharacter(event, openHeader.senderID, senderName(openHeader));
+              }}>{senderName(openHeader)}</span>,
+            {:else}{senderName(openHeader)},{/if} to {audienceText(openHeader)},
             {dateText(openHeader.sentDate) || "—"}.
           </p>
         {/if}

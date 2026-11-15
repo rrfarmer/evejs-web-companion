@@ -26,6 +26,7 @@
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
+  import { dragCharacter } from "./characterDrag.ts";
 
   let { store, flow, openSkillPlanLink = null, openInventoryFilterLink = null }: {
     store: ClientStore;
@@ -305,7 +306,8 @@
         {:else}
           <ul class="roster-list">
             {#each active.roster as member (member.characterID)}
-              <li ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{member.name}</li>
+              <li draggable="true" ondragstart={event => dragCharacter(event, member.characterID, member.name)}
+                ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{member.name}</li>
             {/each}
           </ul>
         {/if}

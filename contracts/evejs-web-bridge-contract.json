@@ -1307,6 +1307,7 @@
       "charMgr.RemoveLabels",
       "charMgr.RemoveOwnerNote",
       "charMgr.SaveCharacterSetting",
+      "charMgr.SetNote",
       "charMgr.UnblockOwners",
       "contractProxy.AcceptContract",
       "corpFittingMgr.DeleteFitting",

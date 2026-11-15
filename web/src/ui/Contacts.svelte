@@ -99,6 +99,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { showInfo } from "./showInfo.ts";
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
+  import { dragCharacter } from "./characterDrag.ts";
   import { showOwnerInfo } from "./ownerInfo.ts";
   import { focusMail } from "./mailFocus.ts";
   import { notify } from "./notices.ts";
@@ -2457,7 +2458,9 @@
                   <!-- The entry selected or not (the scroll's multiSelect), which the page has as a box. -->
                   <input type="checkbox" aria-label={`Select ${row.name}`} checked={selectedIDs.includes(row.id)} onchange={() => toggleSelected(row.id)} />
                 </td>
-                <td>
+                <td draggable={isCharacterContact(row.id)} ondragstart={event => {
+                  if (isCharacterContact(row.id)) dragCharacter(event, row.id, row.name);
+                }}>
                   {row.name}
                   {#if row.labelNames.length > 0}
                     <!-- Its labels' names under its own (SetContactLabelText, 353 to 358), each in its colour. -->

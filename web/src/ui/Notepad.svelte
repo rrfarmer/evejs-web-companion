@@ -5,7 +5,7 @@
   //    note; New Folder and New Note under it. A note entry: note.png 24 px, 18 px high.
   //  - The Folders setting in the pilot's own notes: "S:Folders" notes in 6000-character parts (SetSetting: the parts
   //    written in order, spare ones removed; GetSetting: read and joined) of "id::type::parent::label|" entries - F a
-  //    folder, N a note (its label its noteID); Main (id 1) where there is none. LoadNotesData removes notes whose label
+  //    folder, N an owner-note ID, I a character ID; Main (id 1) where there is none. LoadNotesData removes notes whose label
   //    is not I / N / S.
   //  - New Folder / New Note: NamePopup (FolderName / TypeNewFolderName, 20; NoteName / TypeNewNoteLabel, 80), the name
   //    refused with CustomInfo FolderAlreadyExists / NoteAlreadyExists where it is taken; the button's note in no folder
@@ -19,15 +19,24 @@
   //  - The note: its icon and title over the editor (EditPlainText, 3900 counted with tags), General Information and
   //    the intro where none is open (read only); kept by EditOwnerNote(noteID, "N:" + label, text) when another is shown,
   //    every 60 s and on leaving (SaveNote; a text over 3900 asks NoteTooLong); the open note remembered (activeNote).
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { plainText } from "../bridge/clientWords.ts";
   import NamePopup from "./NamePopup.svelte";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { resolvedName } from "../store/names.ts";
+  import { CHARACTER_DRAG_MIME, dragCharacter, droppedCharacter } from "./characterDrag.ts";
+  import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
+  import { showInfo } from "./showInfo.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  // svelte-ignore state_referenced_locally
+  const { names, station } = store;
+  // svelte-ignore state_referenced_locally
+  const imageServer = flow.imageServer;
   const N = "UI/Notepad/";
   const SE = "/Carbon/UI/Controls/ScrollEntries/";
   const WORDS = {
@@ -38,6 +47,7 @@
     deleteFolder: `${SE}DeleteFolder`, typeInNewName: `${SE}TypeInNewName`, typeInNewFolderName: `${SE}TypeInNewFolderName`,
     expand: "UI/Common/Expand", collapse: "UI/Common/Collapse", ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel",
     pleaseType: "UI/Common/PleaseTypeSomething",
+    removeCharacter: `${N}RemoveCharacter`, showInfo: "UI/Commands/ShowInfo",
   } as const;
   const word = (label: string, own: string): string => {
     const t = $words.templates[label];
@@ -45,13 +55,27 @@
   };
 
   interface FolderEntry { readonly type: string; readonly parent: number; readonly data: string }
+  type NoteKey = `N:${number}` | `I:${number}`;
+  const noteKey = (id: number): NoteKey => `N:${id}`;
+  const characterKey = (id: number): NoteKey => `I:${id}`;
+  const idOf = (key: NoteKey): number => Number(key.slice(2));
+  const targetOf = (entry: FolderEntry): NoteKey => entry.type === "I" ? characterKey(Number(entry.data)) : noteKey(Number(entry.data));
   let notes = $state<Map<number, string>>(new Map());
   let folders = $state<Map<number, FolderEntry>>(new Map());
   let lastID = 0;
   let settingIDs: number[] = [];
   let settingText: string | null = null;
   let open = $state<Record<string, boolean>>({});
-  let active = $state<number | null>(null);
+  let active = $state<NoteKey | null>(null);
+  let readState = $state<"loading" | "ready" | "error">("ready");
+  let folderLoaded = $state(false);
+  let selection = 0;
+  let disposed = false;
+  let editor: HTMLTextAreaElement | undefined = $state();
+  let noteWrites = Promise.resolve(true);
+  let folderWrites = Promise.resolve();
+  const pilotID = $derived($station.online?.characterID ?? null);
+  const activeKey = $derived(`evejs.play.notepad.activeNote.${pilotID ?? "none"}`);
   /** The nav's selected entry: a folder's id ("F:3"), a note in a folder ("E:7", its folder entry), or one under All
    *  Notes ("A:noteID"). */
   let selected = $state<string | null>(null);
@@ -67,11 +91,25 @@
   const fromNote = (note: string): string => note.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
   const toNote = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
   const fail = (cause: unknown) => { error = cause instanceof Error ? cause.message : String(cause); };
+  const characterName = (id: number): string => resolvedName($names.resolved, "character", id);
+  const titleOf = (key: NoteKey): string => key.startsWith("I:") ? characterName(idOf(key)) : notes.get(idOf(key)) ?? "";
+  const fallbackPortrait = clientTexture(portraitDefaultPath(64));
+  const pictureOf = (key: NoteKey, size: number): string => key.startsWith("I:")
+    ? portraitUrl($imageServer, idOf(key), size) ?? fallbackPortrait : "/client-res/ui/texture/windowicons/note.png";
+  function restorePortrait(event: Event): void {
+    if (event.currentTarget instanceof HTMLImageElement && event.currentTarget.getAttribute("src") !== fallbackPortrait) event.currentTarget.src = fallbackPortrait;
+  }
+  const characterIDOf = (data: string): number | null => {
+    if (!/^[1-9]\d*$/.test(data)) return null;
+    const id = Number(data);
+    return Number.isSafeInteger(id) ? id : null;
+  };
 
   async function load(): Promise<void> {
     error = "";
     try {
       const labels = await flow.notepadLabels();
+      if (disposed) return;
       notes = new Map(labels.filter((l) => l.label.startsWith("N:")).map((l) => [l.noteID, l.label.slice(2)]));
       // LoadNotesData: a note whose label is not an I, N or S note is removed
       for (const bad of labels.filter((l) => !["I", "N", "S"].includes(l.label[0] ?? ""))) void flow.notepadRemoveNote(bad.noteID).catch(() => {});
@@ -81,6 +119,7 @@
         folderText = "";
         for (const id of settingIDs) folderText += (await flow.notepadNote(id))?.note ?? "";
       }
+      if (disposed) return;
       settingText = folderText;
       const parsed = new Map<number, FolderEntry>();
       lastID = 0;
@@ -89,6 +128,7 @@
           const parts = entry.split("::");
           if (parts.length !== 4) continue;
           const id = Number(parts[0]);
+          if (!Number.isSafeInteger(id) || id <= 0) continue;
           parsed.set(id, { type: parts[1]!, parent: parts[2] === "None" ? 0 : Number(parts[2]), data: parts[3]! });
           lastID = Math.max(lastID, id);
         }
@@ -97,11 +137,16 @@
         lastID = 1;
       }
       folders = parsed;
+      const characters = [...new Set([...folders.values()].filter(f => f.type === "I")
+        .map(f => characterIDOf(f.data)).filter(id => id !== null))];
+      flow.requestNames(characters.map(id => ({ kind: "character", id })));
+      folderLoaded = true;
       // the note open last (settings.char.notepad activeNote)
       let last: string | null = null;
-      try { last = localStorage.getItem("evejs.play.notepad.activeNote"); } catch { /* none */ }
-      const lastNote = last?.startsWith("N:") ? Number(last.slice(2)) : NaN;
-      if (notes.has(lastNote)) await show(lastNote);
+      try { last = localStorage.getItem(activeKey) ?? localStorage.getItem("evejs.play.notepad.activeNote"); } catch { /* none */ }
+      const id = last ? characterIDOf(last.slice(2)) : null;
+      if (id !== null && last?.startsWith("N:") && notes.has(id)) await show(noteKey(id));
+      if (id !== null && last?.startsWith("I:") && id !== pilotID && characters.includes(id)) await show(characterKey(id));
     } catch (cause) { fail(cause); }
   }
   let autosave: ReturnType<typeof setInterval> | null = null;
@@ -113,59 +158,89 @@
     addEventListener("pointerdown", closeMenu, true);
     return () => removeEventListener("pointerdown", closeMenu, true);
   });
-  onDestroy(() => { if (autosave) clearInterval(autosave); void saveActive(); });
+  onDestroy(() => {
+    disposed = true;
+    ++selection;
+    if (autosave) clearInterval(autosave);
+    if (popup) cancelPopup();
+    void saveActive();
+  });
 
   /** GetNotes(folderID): the entries directly under it. */
   function entriesOf(folderID: number): [number, FolderEntry][] {
-    return [...folders].filter(([, f]) => f.parent === folderID && (f.type === "F" || (f.type === "N" && notes.has(Number(f.data)))))
+    return [...folders].filter(([, f]) => f.parent === folderID && (f.type === "F"
+      || (f.type === "N" && notes.has(Number(f.data)))
+      || (f.type === "I" && characterIDOf(f.data) !== null && Number(f.data) !== pilotID)))
       .sort((a, b) => labelOf(a[1]).toLowerCase().localeCompare(labelOf(b[1]).toLowerCase()));
   }
   function labelOf(entry: FolderEntry): string {
-    return entry.type === "N" ? notes.get(Number(entry.data)) ?? "" : entry.data;
+    return entry.type === "F" ? entry.data : titleOf(targetOf(entry));
   }
   const allNotes = $derived([...notes].sort((a, b) => a[1].toLowerCase().localeCompare(b[1].toLowerCase())));
 
   /** SaveNote: the open note written back where it changed; false where it is too long and the pilot keeps it open. */
-  async function saveActive(): Promise<boolean> {
-    if (active === null || text === saved) return true;
-    const value = toNote(text);
-    if (value.length > 3900) return !(await flow.askClientDialogWith("NoteTooLong", { total: String(value.length) }, `The note is ${value.length} characters long. Keep editing?`));
-    const label = notes.get(active) ?? "";
-    try {
-      await flow.notepadEditNote(active, `N:${label}`, value);
-      saved = text;
-    } catch (cause) { fail(cause); }
-    return true;
+  function saveActive(): Promise<boolean> {
+    noteWrites = noteWrites.then(async () => {
+      const key = active, draft = text;
+      if (key === null || readState !== "ready" || draft === saved) return true;
+      const value = toNote(draft);
+      if (value.length > 3900) return !(await flow.askClientDialogWith("NoteTooLong", { total: String(value.length) }, `The note is ${value.length} characters long. Keep editing?`));
+      const id = idOf(key);
+      if (key.startsWith("I:")) await flow.notepadSetCharacterNote(id, value);
+      else await flow.notepadEditNote(id, `N:${notes.get(id) ?? ""}`, value);
+      if (active === key) saved = draft;
+      return true;
+    }).catch(cause => { fail(cause); return false; });
+    return noteWrites;
   }
-  async function show(noteID: number | null): Promise<void> {
-    if (active === noteID) return;
-    if (!(await saveActive())) return;
-    active = noteID;
-    try { localStorage.setItem("evejs.play.notepad.activeNote", noteID === null ? "" : `N:${noteID}`); } catch { /* not kept */ }
-    if (noteID === null) { text = ""; saved = ""; return; }
-    const note = await flow.notepadNote(noteID);
-    text = fromNote(note?.note.trim() ?? "");
-    saved = text;
+  async function show(key: NoteKey | null): Promise<boolean> {
+    if (active === key && readState !== "error") return true;
+    const current = ++selection;
+    if (!(await saveActive()) || disposed || current !== selection) return false;
+    active = key;
+    text = "";
+    saved = "";
+    error = "";
+    if (key !== null) {
+      readState = "loading";
+      try {
+        const id = idOf(key);
+        const markup = key.startsWith("I:") ? await flow.notepadCharacterNote(id) : (await flow.notepadNote(id))?.note.trim() ?? "";
+        if (current !== selection) return false;
+        text = fromNote(markup);
+        saved = text;
+      } catch (cause) {
+        if (current !== selection) return false;
+        readState = "error";
+        fail(cause);
+        return false;
+      }
+    }
+    readState = "ready";
+    try { localStorage.setItem(activeKey, key ?? ""); } catch { /* storage unavailable */ }
+    if (key) void tick().then(() => { if (active === key) editor?.focus(); });
+    return true;
   }
 
   /** SaveFolders / SetSetting: the entries in 6000-character parts, the spare parts removed. */
-  async function saveFolders(): Promise<void> {
-    let value = [...folders].map(([id, f]) => `${id}::${f.type}::${f.parent}::${f.data}|`).join("");
-    if (value === settingText) return;
-    settingText = value;
-    const ids = [...settingIDs];
-    const next: number[] = [];
-    try {
-      while (value.length > 0) {
-        const part = value.slice(0, 6000);
-        value = value.slice(6000);
-        const id = ids.shift();
-        if (id !== undefined) { await flow.notepadEditNote(id, "S:Folders", part); next.push(id); }
-        else next.push(await flow.notepadAddNote("S:Folders", part));
+  function saveFolders(): Promise<void> {
+    const value = [...folders].map(([id, f]) => `${id}::${f.type}::${f.parent}::${f.data}|`).join("");
+    folderWrites = folderWrites.then(async () => {
+      if (value === settingText) return;
+      let index = 0;
+      for (let offset = 0; offset < value.length; offset += 6000, ++index) {
+        const part = value.slice(offset, offset + 6000);
+        const id = settingIDs[index];
+        if (id !== undefined) await flow.notepadEditNote(id, "S:Folders", part);
+        else settingIDs.push(await flow.notepadAddNote("S:Folders", part));
       }
-      await Promise.all(ids.map((id) => flow.notepadRemoveNote(id)));
-      settingIDs = next;
-    } catch (cause) { fail(cause); }
+      while (settingIDs.length > index) {
+        await flow.notepadRemoveNote(settingIDs.at(-1)!);
+        settingIDs.pop();
+      }
+      settingText = value;
+    }).catch(cause => { settingText = null; fail(cause); });
+    return folderWrites;
   }
   function addEntry(parent: number, type: string, data: string): void {
     lastID += 1;
@@ -197,7 +272,7 @@
       const noteID = await flow.notepadAddNote(`N:${name}`, "<br>");
       notes = new Map([...notes, [noteID, name]]);
       if (parent) { addEntry(parent, "N", String(noteID)); open = { ...open, [`F:${parent}`]: true }; await saveFolders(); }
-      await show(noteID);
+      await show(noteKey(noteID));
     } catch (cause) { fail(cause); }
   }
   async function renameFolder(id: number): Promise<void> {
@@ -235,7 +310,7 @@
     const entry = folders.get(entryID);
     if (!entry) return;
     if (ask && !(await flow.askClientDialog("DeleteEntry", "Remove this entry?"))) return;
-    if (entry.type === "N" && active === Number(entry.data)) await show(null);
+    if (active === targetOf(entry) && !await show(null)) return;
     const next = new Map(folders);
     next.delete(entryID);
     folders = next;
@@ -244,7 +319,7 @@
   /** DeleteNote: asked (DeleteNote); every entry of it gone, and the note (RemoveOwnerNote). */
   async function deleteNote(noteID: number): Promise<void> {
     if (!(await flow.askClientDialog("DeleteNote", "Delete this note?"))) return;
-    if (active === noteID) { saved = text; await show(null); }
+    if (active === noteKey(noteID)) { saved = text; await show(null); }
     folders = new Map([...folders].filter(([, f]) => !(f.type === "N" && f.data === String(noteID))));
     try {
       await flow.notepadRemoveNote(noteID);
@@ -272,20 +347,40 @@
   }
   const allNotesKey = "All Notes";
 
-  // GroupDropNode: a note dropped on a folder goes into it unless it is there already; moved from its folder unless
-  // Shift is held
-  let dragged: { noteID: number; entryID: number | null } | null = null;
+  // GroupDropNode accepts a character or an owner note. Shift leaves the source entry as well.
+  const NOTE_DRAG_MIME = "application/x-evejs-notepad-entry";
+  let dragged: { key: NoteKey; entryID: number | null } | null = null;
+  function startNoteDrag(event: DragEvent, key: NoteKey, entryID: number | null): void {
+    dragged = { key, entryID };
+    event.dataTransfer?.setData(NOTE_DRAG_MIME, key);
+    if (key.startsWith("I:")) dragCharacter(event, idOf(key), titleOf(key));
+    else event.dataTransfer?.setData("text/plain", titleOf(key));
+  }
+  function dragOver(event: DragEvent): void {
+    const types = event.dataTransfer?.types ?? [];
+    if (types.includes(CHARACTER_DRAG_MIME) || (dragged && types.includes(NOTE_DRAG_MIME))) event.preventDefault();
+  }
   async function dropOn(folderID: number, event: DragEvent): Promise<void> {
     event.preventDefault();
-    const d = dragged;
+    const local = event.dataTransfer?.getData(NOTE_DRAG_MIME) === dragged?.key ? dragged : null;
+    const characterID = droppedCharacter(event);
     dragged = null;
-    if (!d) return;
-    const already = entriesOf(folderID).some(([, f]) => f.type === "N" && f.data === String(d.noteID));
-    if (already) return;
-    addEntry(folderID, "N", String(d.noteID));
+    const key = local?.key ?? (characterID === null ? null : characterKey(characterID));
+    if (!key || !folderLoaded || folders.get(folderID)?.type !== "F") return;
+    const id = idOf(key), kind = key.startsWith("I:") ? "I" : "N";
+    if (kind === "I" && id === pilotID) return;
+    if (kind === "N" && entriesOf(folderID).some(([, entry]) => entry.type === "N" && Number(entry.data) === id)) return;
+    const remove = local?.entryID != null && !event.shiftKey ? local.entryID : null;
+    if (remove !== null && active === key && !await show(null)) return;
+    addEntry(folderID, kind, String(id));
+    if (remove !== null) {
+      const next = new Map(folders);
+      next.delete(remove);
+      folders = next;
+    }
+    if (kind === "I") flow.requestNames([{ kind: "character", id }]);
     open = { ...open, [`F:${folderID}`]: true };
-    if (d.entryID !== null && !event.shiftKey) await removeEntry(d.entryID, false);
-    else await saveFolders();
+    await saveFolders();
   }
 
   /** OnDelete: the selected note's Remove (in a folder) or Delete (under All Notes); a folder is not deleted so. */
@@ -314,28 +409,32 @@
   {@const key = `F:${id}`}
   <button type="button" class="np-group" class:sel={selected === key} style={`padding-left: ${level * 16}px`}
     onclick={() => { open = { ...open, [key]: !open[key] }; selected = key; }} oncontextmenu={(e) => { selected = key; folderMenu(e, id, level); }}
-    ondragover={(e) => e.preventDefault()} ondrop={(e) => void dropOn(id, e)}>
+    ondragover={dragOver} ondrop={(e) => void dropOn(id, e)}>
     <span class="np-arrow">{open[key] ? "▾" : "▸"}</span><img alt="" src="/client-res/ui/texture/eveicon/system_icons/folder_16px.png" />{folder.data} <span class="np-count">[{entriesOf(id).length}]</span>
   </button>
   {#if open[key]}
     {#each entriesOf(id) as [childID, child] (childID)}
       {#if child.type === "F"}{@render group(childID, child, level + 1)}
       {:else}
-        {@const noteID = Number(child.data)}
-        {@render noteEntry(noteID, `E:${childID}`, level + 1, childID)}
+        {@render noteEntry(targetOf(child), `E:${childID}`, level + 1, childID)}
       {/if}
     {/each}
   {/if}
 {/snippet}
 
-{#snippet noteEntry(noteID: number, key: string, level: number, entryID: number | null)}
-  <button type="button" class="np-note" class:sel={selected === key} class:open-note={active === noteID} style={`padding-left: ${level * 16}px`} draggable="true"
-    ondragstart={(e) => { dragged = { noteID, entryID }; e.dataTransfer?.setData("text/plain", notes.get(noteID) ?? ""); }}
-    onclick={() => { selected = key; void show(noteID); }}
-    oncontextmenu={(e) => { selected = key; openMenu(e, entryID !== null
-      ? [{ label: word(WORDS.renameNote, "Rename Note"), run: () => void renameNote(noteID) }, { label: word(WORDS.removeNote, "Remove Note"), run: () => void removeEntry(entryID) }]
-      : [{ label: word(WORDS.renameNote, "Rename Note"), run: () => void renameNote(noteID) }, { label: word(WORDS.deleteNote, "Delete Note"), run: () => void deleteNote(noteID) }]); }}>
-    <img alt="" src="/client-res/ui/texture/windowicons/note.png" />{notes.get(noteID) ?? ""}
+{#snippet noteEntry(target: NoteKey, key: string, level: number, entryID: number | null)}
+  {@const id = idOf(target)}
+  {@const character = target.startsWith("I:")}
+  <button type="button" class="np-note" class:sel={selected === key} class:open-note={active === target} style={`padding-left: ${level * 16}px`} draggable="true"
+    ondragstart={event => startNoteDrag(event, target, entryID)} ondragend={() => { dragged = null; }}
+    onclick={() => { selected = key; void show(target); }}
+    oncontextmenu={(e) => { selected = key; openMenu(e, character && entryID !== null
+      ? [{ label: word(WORDS.showInfo, "Show Info"), run: () => showInfo({ kind: "character", characterID: id }) },
+        { label: word(WORDS.removeCharacter, "Remove Character"), run: () => void removeEntry(entryID) }]
+      : [{ label: word(WORDS.renameNote, "Rename Note"), run: () => void renameNote(id) }, entryID === null
+        ? { label: word(WORDS.deleteNote, "Delete Note"), run: () => void deleteNote(id) }
+        : { label: word(WORDS.removeNote, "Remove Note"), run: () => void removeEntry(entryID) }]); }}>
+    <img alt="" src={pictureOf(target, 32)} onerror={character ? restorePortrait : undefined} />{titleOf(target)}
   </button>
 {/snippet}
 
@@ -349,24 +448,27 @@
           <span class="np-arrow">{open[allNotesKey] ? "▾" : "▸"}</span><img alt="" src="/client-res/ui/texture/windowicons/notegroup.png" />{word(WORDS.allNotes, "All Notes")} <span class="np-count">[{notes.size}]</span>
         </button>
         {#if open[allNotesKey]}
-          {#each allNotes as [noteID] (noteID)}{@render noteEntry(noteID, `A:${noteID}`, 1, null)}{/each}
+          {#each allNotes as [noteID] (noteID)}{@render noteEntry(noteKey(noteID), `A:${noteID}`, 1, null)}{/each}
         {/if}
       </div>
       <div class="np-buttons">
-        <button type="button" onclick={() => void newFolder(0)}>{word(WORDS.newFolder, "New Folder")}</button>
-        <button type="button" onclick={() => void newNote(0)}>{word(WORDS.newNote, "New Note")}</button>
+        <button type="button" disabled={!folderLoaded} onclick={() => void newFolder(0)}>{word(WORDS.newFolder, "New Folder")}</button>
+        <button type="button" disabled={!folderLoaded} onclick={() => void newNote(0)}>{word(WORDS.newNote, "New Note")}</button>
       </div>
     </nav>
     <div class="np-divider" role="separator" aria-orientation="vertical" onpointerdown={dragDivider}></div>
     <div class="np-note-pane">
       <div class="np-title">
-        <img alt="" src={active === null ? "/client-res/ui/texture/windowicons/notepad.png" : "/client-res/ui/texture/windowicons/note.png"} />
-        <span>{active === null ? word(WORDS.general, "General Information") : notes.get(active) ?? ""}</span>
+        <img alt="" src={active === null ? "/client-res/ui/texture/windowicons/notepad.png" : pictureOf(active, 64)}
+          onerror={active?.startsWith("I:") ? restorePortrait : undefined} />
+        <span>{active === null ? word(WORDS.general, "General Information") : titleOf(active)}</span>
       </div>
       {#if active === null}
         <p class="np-intro">{word(WORDS.intro, "")}</p>
-      {:else}
-        <textarea bind:value={text} maxlength="3900" onblur={() => void saveActive()}></textarea>
+      {:else if readState === "loading"}
+        <p role="status">Loading…</p>
+      {:else if readState === "ready"}
+        <textarea aria-label={titleOf(active)} bind:this={editor} bind:value={text} maxlength="3900" onblur={() => void saveActive()}></textarea>
       {/if}
     </div>
   </div>
