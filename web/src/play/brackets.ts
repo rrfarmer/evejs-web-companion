@@ -14,6 +14,7 @@ interface BracketType {
   typeID: number | null;
   groupID: number | null;
   categoryID: number | null;
+  hackingSecurityState?: number;
 }
 
 let tables: BracketTables | null = null;
@@ -38,6 +39,12 @@ export function hasBracketData(thing: BracketType): boolean {
 
 /** The thing's bracket icon as a /client-res URL, or null. */
 export function bracketIcon(thing: BracketType): string | null {
+  // hacking_util.GetHackingIcon overrides the ordinary type lookup.
+  const state = thing.hackingSecurityState;
+  if (state !== undefined) {
+    const texture = state === 0 ? "unopened" : state === 1 ? "beinghacked" : "empty";
+    return `/client-res/ui/texture/shared/brackets/scattercontainer${texture}.png`;
+  }
   const path = bracketEntry(thing)?.texturePath;
   return path ? `/client-res/${path.replace(/^res:\//i, "").toLowerCase()}` : null;
 }

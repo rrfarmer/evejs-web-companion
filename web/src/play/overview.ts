@@ -43,7 +43,8 @@ const DEFAULT_SORT: OverviewSort = { column: "distance", down: false };
 const SORT_ENABLED = "UI/Tactical/HeaderSortingEnabledCb";
 const SORT_HINT = "UI/Tactical/HeaderSortingEnabledCbHint";
 const SORT_DISABLED = "UI/Tactical/HeaderSortingDisabled";
-export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED];
+const HACKED_HINT = "Tooltips/Overview/ScatterContainerHacked";
+export const OVERVIEW_WORDS = [SORT_ENABLED, SORT_HINT, SORT_DISABLED, HACKED_HINT];
 const DISABLED_TEXT = "Header sorting is disabled";
 
 function readSort(key: string, fallback: OverviewSort = DEFAULT_SORT): OverviewSort {
@@ -85,6 +86,7 @@ export class Overview {
   private readonly tbody = document.createElement("tbody");
   private types: Record<string, [string | null, number | null]> = {};
   private lastDraw = 0;
+  private drawnRows = "";
   private selected: number | null = null;
   private tabs: OverviewTab[] = [];
   private presetChoices: PresetChoice[] = [];
@@ -309,9 +311,15 @@ export class Overview {
     const html: string[] = [];
     for (const { e, d } of rows) {
       const typeName = e.typeID ? this.types[String(e.typeID)]?.[0] ?? "" : "";
-      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon">${this.hooks.glyph(e)}</td><td class="ov-dist">${distanceWords(d)}</td><td>${esc(e.name ?? typeName)}</td><td>${esc(typeName)}</td><td class="ov-dist">${Math.round(Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z)).toLocaleString()} m/s</td></tr>`);
+      const hackingHint = (e.hackingSecurityState ?? 0) > 1
+        ? ` title="${esc(this.hooks.word?.(HACKED_HINT) ?? "Has already been hacked")}"` : "";
+      html.push(`<tr data-id="${e.itemID}" class="${e.itemID === this.selected ? "sel" : ""}${e.isNpc ? " npc" : ""}"><td class="ov-icon"${hackingHint}>${this.hooks.glyph(e)}</td><td class="ov-dist">${distanceWords(d)}</td><td>${esc(e.name ?? typeName)}</td><td>${esc(typeName)}</td><td class="ov-dist">${Math.round(Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z)).toLocaleString()} m/s</td></tr>`);
     }
-    this.tbody.innerHTML = html.join("");
+    const markup = html.join("");
+    if (markup !== this.drawnRows) {
+      this.tbody.innerHTML = markup;
+      this.drawnRows = markup;
+    }
   }
 }
 

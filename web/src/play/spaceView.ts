@@ -64,6 +64,7 @@ export interface Entity {
   characterID?: number | null;
   allianceID?: number | null;
   warFactionID?: number | null;
+  hackingSecurityState?: number;
   jumpBridge?: JumpBridgeSlim;
 }
 export interface JumpBridgePanelState {
@@ -1884,6 +1885,7 @@ export class SpaceView {
       setShipSpeed(mark, Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z), e.maxVelocity ?? 0);
       // the ship's warp (ship.py: EnterWarp / ExitWarp set IsWarping; on load, a ball in warp mode)
       setControllerVariable(mark, "IsWarping", e.mode === "WARP" ? 1 : 0);
+      if (e.hackingSecurityState !== undefined) setControllerVariable(mark, "SecurityState", e.hackingSecurityState);
       // a ship's turrets fitted again where its slim item's modules changed (looked at now and then)
       if ((e.kind === "ship" || e.kind === "drone") && this.frameCount % 30 === 0) this.fitTurrets(e.itemID, mark);
       if (e.kind === "sun") this.sunDir.copy(rel).normalize();
@@ -1906,10 +1908,12 @@ export class SpaceView {
         }
         continue;
       }
+      const hackingState = e.hackingSecurityState?.toString() ?? "";
       if (!el) {
         el = document.createElement("div");
         el.className = "bracket";
         el.innerHTML = `${glyph(e)}<div class="label"></div>`;
+        el.dataset.hackingState = hackingState;
         const id = e.itemID;
         el.dataset.id = String(id);
         el.addEventListener("click", (ev) => { ev.stopPropagation(); this.select(id); });
@@ -1919,6 +1923,9 @@ export class SpaceView {
         el.classList.toggle("selected", this.selected === id);
         this.brackets.appendChild(el);
         this.bracketEls.set(e.itemID, el);
+      } else if (el.dataset.hackingState !== hackingState) {
+        el.firstElementChild!.outerHTML = glyph(e);
+        el.dataset.hackingState = hackingState;
       }
       el.classList.toggle("objective-highlight", highlighted);
       const p = rel.clone().project(this.camera);

@@ -195,7 +195,16 @@ test("Observatory Infiltration switches from its lobby gate to the vault counter
   assert.equal(objective.view()[0]?.rows[0]?.titleLabel, "UI/Objectives/Titles/drifterCollection");
   assert.equal(objective.view()[0]?.rows[0]?.icon, "hacking");
 
-  const updated = dungeonValuesChanged(vault, [12260, { containers_hacked_current: 1 }]);
+  const failed = dungeonValuesChanged(vault, [12260, {
+    dungeon_state: "Lockdown", containers_hacked_current: 0, containers_hacked_max: 3,
+  }]);
+  assert.ok(failed);
+  for (const [key, value] of Object.entries(dungeonObjectiveContext(failed))) objective.setContext(key, value);
+  objective.observe([{ itemID: 102, typeID: 85231, isSelf: false, hackingSecurityState: 3 } as SpaceEntity]);
+  assert.equal(objective.view()[0]?.rows[0]?.value, "0/3");
+  assert.equal(objective.view()[0]?.completed, false);
+
+  const updated = dungeonValuesChanged(failed, [12260, { containers_hacked_current: 1 }]);
   assert.ok(updated);
   for (const [key, value] of Object.entries(dungeonObjectiveContext(updated))) objective.setContext(key, value);
   assert.equal(objective.view()[0]?.rows[0]?.value, "1/3");
