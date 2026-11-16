@@ -74,6 +74,8 @@
   // svelte-ignore state_referenced_locally
   const anomaliesChanged = flow.agencyAnomaliesChanged;
   // svelte-ignore state_referenced_locally
+  const epicArcsChanged = flow.epicArcsChanged;
+  // svelte-ignore state_referenced_locally
   const waypoints = flow.waypoints;
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob($station.online?.characterID ?? null); });
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
@@ -107,6 +109,12 @@
   // The epic arcs (features/epic_arcs: EpicArcJob): in Browse those available, started or replayable; in Active the
   // started ones. Not trackable, no rewards to claim.
   let epic = $state<EpicArcsRead | null>(null), openArc = $state<number | null>(null);
+  $effect(() => {
+    void $epicArcsChanged;
+    let current = true;
+    void flow.epicArcs().then((arcs) => { if (current && arcs) epic = arcs; }, () => {});
+    return () => { current = false; };
+  });
   const epicLists = $derived.by(() => {
     const arcs = epic?.arcs ?? [];
     return { browse: arcs.filter((a) => a.state === ARC_AVAILABLE || a.state === ARC_STARTED || a.replayable), active: arcs.filter((a) => a.state === ARC_STARTED) };
@@ -164,7 +172,6 @@
     void flow.loadJournal().catch(() => {});
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
     void refreshDaily();
-    void flow.epicArcs().then((e) => { epic = e; }, () => { epic = null; });
     board = await flow.freelanceBoard();
   }
   const goalRemaining = (g: CorporationGoal) => { const left = Math.max(0, g.desired - g.current); return g.participationLimit ? Math.min(left, Math.max(0, g.participationLimit - g.myProgress)) : left; };

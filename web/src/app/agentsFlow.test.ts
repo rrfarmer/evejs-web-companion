@@ -1793,6 +1793,15 @@ test("an answer for one agent's mission is not written to another agent's page, 
   assert.equal(store.agents.get().missionPage?.objectives?.missionState, 2);
 });
 
+test("only an epic journal notice invalidates the epic arc views", async () => {
+  const { flow, push } = await listening({ null: ACCEPTED });
+  const original = flow.epicArcsChanged.get();
+  await push("OnAgentMissionChange", ["accepted", 3008416]);
+  assert.equal(flow.epicArcsChanged.get(), original);
+  await push("OnEpicJournalChange", []);
+  assert.equal(flow.epicArcsChanged.get(), original + 1);
+});
+
 // --- what the server says once, taken once ---------------------------------------------
 //
 // The stream's frames in these tests are numbered from 1 in epoch "epoch-1" (the helper's push). An answer

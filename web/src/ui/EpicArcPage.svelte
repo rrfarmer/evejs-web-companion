@@ -4,14 +4,16 @@
   // with "completed/total" and UI/Agents/MissionsCompleted; the faction's logo and name; the chapters
   // (EpicArcChapters: the arc's chapter titles in order, the current one marked). The call to action (get_cta_buttons):
   // UI/Chat/StartConversationAgent with the active agent (agents.OpenDialogueWindow: the conversation, in the Agents window), and while started UI/Opportunities/ViewActiveEpicArcMission
-  // (the active mission's page, opened by onViewMission). Not here: the chapters' mission nodes and their texts, the
-  // agency's page (UI/Opportunities/OpenAgency).
+  // (the active mission's page, opened by onViewMission). The top button opens the Agency's Epic Arcs group.
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow, EpicArcsRead } from "../app/flow.ts";
   import { ARC_STARTED, EPIC_ARC_LOOKS, type EpicArcView } from "../bridge/epicArcs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import { openAgencyGroup } from "./agencyRequests.ts";
+
+  const EPIC_ARCS_GROUP = 33; // contentGroupConst.contentGroupEpicArcs
   let { store, flow, arc, featureTag, onBack, onViewMission, onTalk }: { store: ClientStore; flow: AppFlow; arc: EpicArcView; featureTag: EpicArcsRead["featureTag"]; onBack: () => void; onViewMission: (agentID: number) => void; onTalk: (agentID: number) => Promise<void> } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -19,15 +21,21 @@
   const names = store.names;
   const look = $derived(EPIC_ARC_LOOKS[arc.epicArcID] ?? null);
   $effect(() => {
-    flow.requestWords(["UI/Commands/Back", "UI/Agents/MissionsCompleted", "UI/Chat/StartConversationAgent", "UI/Opportunities/ViewActiveEpicArcMission", ...(look ? [look.tagLine] : []),
+    flow.requestWords(["UI/Commands/Back", "UI/Agents/MissionsCompleted", "UI/Chat/StartConversationAgent", "UI/Opportunities/ViewActiveEpicArcMission", "UI/Opportunities/OpenAgency", ...(look ? [look.tagLine] : []),
       ...[arc.nameID, featureTag?.title ?? null, ...arc.chapterIDs].filter((x): x is number => x !== null).map((x) => `#${x}`)]);
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
+  const agencyLabel = $derived(word("UI/Opportunities/OpenAgency") || "Open Agency");
   const ratio = $derived(arc.missions ? arc.missionsCompleted / arc.missions : 0);
 </script>
 
 <div class="ep">
-  <div><button class="ep-ghost" onclick={onBack}>{word("UI/Commands/Back") || "Back"}</button></div>
+  <div class="ep-top">
+    <button class="ep-ghost" onclick={onBack}>{word("UI/Commands/Back") || "Back"}</button>
+    <button class="ep-ghost ep-agency" title={agencyLabel} aria-label={agencyLabel} onclick={() => openAgencyGroup(EPIC_ARCS_GROUP)}>
+      <img alt="" src={clientTexture("res:/UI/Texture/eveicon/system_icons/open_window_16px.png")} />
+    </button>
+  </div>
   <header class="ep-head">
     {#if look}<img class="ep-bg" alt="" src={clientTexture(`res:/UI/Texture/classes/Opportunities/${look.background}.png`)} />{/if}
     <div class="ep-gradient"></div>
@@ -37,8 +45,18 @@
   </header>
   <div class="ep-cta">
     <!-- EpicArcJob.get_cta_buttons: while active the active mission first, then the conversation. -->
-    {#if arc.state === ARC_STARTED && arc.activeAgentID}<button onclick={() => onViewMission(arc.activeAgentID!)}>{word("UI/Opportunities/ViewActiveEpicArcMission")}</button>{/if}
-    {#if arc.activeAgentID}<button onclick={() => void onTalk(arc.activeAgentID!)}>💬 {word("UI/Chat/StartConversationAgent")}</button>{/if}
+    {#if arc.state === ARC_STARTED && arc.activeAgentID}
+      <button onclick={() => onViewMission(arc.activeAgentID!)}>
+        <img alt="" src={clientTexture("res:/UI/Texture/eveicon/category_icons/agent_mission_16px.png")} />
+        {word("UI/Opportunities/ViewActiveEpicArcMission")}
+      </button>
+    {/if}
+    {#if arc.activeAgentID}
+      <button onclick={() => void onTalk(arc.activeAgentID!)}>
+        <img alt="" src={clientTexture("res:/UI/Texture/eveicon/control_icons/start_conversation_16px.png")} />
+        {word("UI/Chat/StartConversationAgent")}
+      </button>
+    {/if}
   </div>
   {#if look}<p class="ep-tag">{word(look.tagLine)}</p>{/if}
   <div class="ep-row">
@@ -57,6 +75,9 @@
 
 <style>
   .ep { display: flex; flex-direction: column; gap: 8px; }
+  .ep-top { display: flex; justify-content: space-between; align-items: center; }
+  .ep-agency { display: grid; place-items: center; padding: 2px; }
+  .ep-agency img, .ep-cta img { width: 16px; height: 16px; }
   .ep-ghost { background: none; border: 1px solid rgba(255, 255, 255, 0.2); }
   .ep-head { position: relative; overflow: hidden; padding: 16px; min-height: 120px; background: #000; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
   .ep-bg { position: absolute; right: 0; top: 0; height: 100%; width: auto; pointer-events: none; }
@@ -65,6 +86,7 @@
   .ep-caption img { width: 16px; height: 16px; }
   .ep-head h2 { position: relative; margin: 0; font-size: 20px; }
   .ep-cta { display: flex; gap: 8px; }
+  .ep-cta button { display: flex; align-items: center; gap: 6px; }
   .ep-tag { font-style: italic; margin: 12px 0; }
   .ep-row { display: flex; gap: 16px; align-items: center; }
   .ep-progress { flex: 1; display: flex; gap: 8px; align-items: center; }

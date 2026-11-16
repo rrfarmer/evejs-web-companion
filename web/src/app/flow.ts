@@ -3753,6 +3753,8 @@ export interface AppFlow {
    * the arcs could not be read.
    */
   epicArcs(): Promise<EpicArcsRead | null>;
+  /** The native epic arc service invalidates its controller on OnEpicJournalChange. */
+  readonly epicArcsChanged: ReadableSignal<number>;
   /**
    * The job board's dungeons (features/dungeons: the combat anomalies', ore anomalies', ice belts' and Homefront
    * operations' providers): the sites dungeonInstanceCacheMgr's GetCombatAnomalyInstances / GetOreAnomalyInstances /
@@ -5625,6 +5627,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** The pilot's own character, as the page has it. Null with none chosen. */
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
+  const epicArcsChanged = createSignal(0);
   const agencySeasonProgressChanged = createSignal(0);
   const agencySeasonCompletedReward = createSignal<AgencySeasonReward | null>(null);
   const agencyVanguardCompleted = createSignal(0);
@@ -7277,6 +7280,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (jam.active) {
         announcePush();
       }
+      return;
+    }
+    if (method === "OnEpicJournalChange") {
+      epicArcsChanged.update(n => n + 1);
       return;
     }
     const missionChange = decodeMissionChange(method, args);
@@ -35638,6 +35645,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationFreelanceJobs,
     dailyGoals,
     epicArcs,
+    epicArcsChanged: readonlySignal(epicArcsChanged),
     dungeonJobs,
     warDungeonJobs,
     activeDungeon: readonlySignal(currentDungeon),

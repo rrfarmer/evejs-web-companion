@@ -27,11 +27,22 @@
   const flight = store.flight;
   // svelte-ignore state_referenced_locally
   const waypoints = flow.waypoints;
+  // svelte-ignore state_referenced_locally
+  const epicArcsChanged = flow.epicArcsChanged;
 
   const word = (label: string, args: TemplateArguments = {}) => plainText(formatTemplate($words.templates[label] ?? "", args, { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") }));
   let arcs = $state<readonly AgencyEpicArc[] | null | undefined>(undefined);
   let chosen = $state<number | null>(null);
-  $effect(() => { void flow.agencyEpicArcs().then((list) => { arcs = list; chosen = list?.[0]?.arc.epicArcID ?? null; }); });
+  $effect(() => {
+    void $epicArcsChanged;
+    let current = true;
+    void flow.agencyEpicArcs().then((list) => {
+      if (!current || (list === null && arcs)) return;
+      arcs = list;
+      if (!list?.some((entry) => entry.arc.epicArcID === chosen)) chosen = list?.[0]?.arc.epicArcID ?? null;
+    }, () => { if (current && arcs === undefined) arcs = null; });
+    return () => { current = false; };
+  });
   const chosenArc = $derived(arcs?.find((a) => a.arc.epicArcID === chosen) ?? null);
   $effect(() => {
     flow.requestWords(["UI/Agency/ShowingXResults", "UI/Inflight/Scanner/FilteredResults", "UI/Agency/ContentInCurrentStation", "UI/Agency/ContentInCurrentSystem",

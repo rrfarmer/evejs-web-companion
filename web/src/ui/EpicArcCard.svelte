@@ -34,9 +34,9 @@
   });
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: (k, id) => resolvedName($names.resolved, k, id, "") }));
   const offered = $derived(arc.state === 2 || arc.replayable);
-  const state = $derived(offered ? { text: word("UI/Agency/EpicArcAvailable"), color: "#e6a23c", icon: "💬" }
-    : arc.state === ARC_UNAVAILABLE ? { text: word("UI/Menusvc/MenuHints/Unavailable"), color: "#e6a23c", icon: "✕" }
-    : arc.state === ARC_COMPLETE ? { text: word("UI/Agency/EpicArcComplete", { completeTime: { type: "long", value: String(BigInt(arc.completeTimeMs ?? 0) * 10000n + 116_444_736_000_000_000n) } }), color: "#5fb85f", icon: "✔" }
+  const state = $derived(offered ? { text: word("UI/Agency/EpicArcAvailable"), color: "#e6a23c", icon: "control_icons/start_conversation" }
+    : arc.state === ARC_UNAVAILABLE ? { text: word("UI/Menusvc/MenuHints/Unavailable"), color: "#e6a23c", icon: "system_icons/close" }
+    : arc.state === ARC_COMPLETE ? { text: word("UI/Agency/EpicArcComplete", { completeTime: { type: "long", value: String(BigInt(arc.completeTimeMs ?? 0) * 10000n + 116_444_736_000_000_000n) } }), color: "#5fb85f", icon: "system_icons/checkmark" }
     : null);
   const ratio = $derived(arc.missions ? arc.missionsCompleted / arc.missions : 0);
   const security = $derived(systemID === null ? null : $names.systemSecurity?.[systemID] ?? null);
@@ -56,7 +56,11 @@
     {#if arc.factionID}<div class="ea-sub">{resolvedName($names.resolved, "owner", arc.factionID, "")}</div>{/if}
     <div class="ea-title">{arc.nameID ? word(`#${arc.nameID}`) : ""}</div>
   </div>
-  {#if state}<div class="ea-state" style:color={state.color}>{state.icon} {state.text}</div>{/if}
+  {#if state}
+    <div class="ea-state" style:color={state.color}>
+      <img alt="" src={clientTexture(`res:/UI/Texture/eveicon/${state.icon}_16px.png`)} /> {state.text}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -74,5 +78,6 @@
   .ea-middle { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 6px; }
   .ea-sub { padding-bottom: 4px; }
   .ea-title { font-weight: bold; font-size: 16px; max-width: 60%; }
-  .ea-state { font-size: 12px; }
+  .ea-state { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+  .ea-state img { width: 16px; height: 16px; }
 </style>
