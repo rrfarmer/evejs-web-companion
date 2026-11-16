@@ -13,12 +13,13 @@
 // UserError is.
 
 import type { Ask } from "./ask.ts";
-import { isListValue, type JsonValue } from "./wire.ts";
+import { isListValue, readDictPairs, type JsonValue } from "./wire.ts";
 
 export interface CurrentDungeon {
   readonly dungeonID: number;
   readonly roomID: number | null;
   readonly instanceID: number | null;
+  readonly values?: Readonly<Record<string, JsonValue>>;
 }
 
 /** The refusals the client answers with the Ship Restrictions window where it knows the dungeon. */
@@ -29,10 +30,48 @@ const whole = (value: unknown): number | null => {
   return Number.isSafeInteger(number) && number > 0 ? number : null;
 };
 
+function withDungeonValues(dungeon: CurrentDungeon, value: unknown): CurrentDungeon {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return dungeon;
+  const record = value as Record<string, JsonValue>;
+  const pairs = record.type === "dict" ? readDictPairs(record) : Object.entries(record);
+  const values = Object.fromEntries(pairs.filter(([key]) => typeof key === "string"));
+  return Object.keys(values).length ? { ...dungeon, values: { ...dungeon.values, ...values } } : dungeon;
+}
+
+/** OnDungeonValues belongs to the named current dungeon. Other keys survive partial updates. */
+export function dungeonValuesChanged(current: CurrentDungeon | null, args: readonly unknown[]): CurrentDungeon | null {
+  return current !== null && current.dungeonID === whole(args[0]) ? withDungeonValues(current, args[1]) : current;
+}
+
+/** The scalar and ID-list values understood by the web objective tasks. */
+export function dungeonObjectiveContext(dungeon: CurrentDungeon): Readonly<Record<string, number | string | boolean | readonly number[] | null>> {
+  const context: Record<string, number | string | boolean | readonly number[] | null> = Object.create(null);
+  for (const [key, value] of Object.entries(dungeon.values ?? {})) {
+    const sequence = isListValue(value) ? value.items : Array.isArray(value) ? value : null;
+    if (sequence !== null && sequence.every((item) => typeof item === "number" && Number.isSafeInteger(item))) {
+      context[key] = sequence as readonly number[];
+    } else if (value === null || typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+      context[key] = value;
+    }
+  }
+  return { ...context, dungeon_id: dungeon.dungeonID, dungeon_room_id: dungeon.roomID };
+}
+
+/** Once out of warp and outside the lobby, graph 669 sends start_objectives to graph 1065. */
+export function dungeonEntryObjectives(dungeon: CurrentDungeon, rules: readonly { readonly listKey: string; readonly objectiveKey: string }[]): readonly string[] {
+  const lobbyRoom = whole(dungeon.values?.lobby_room_id);
+  if (lobbyRoom !== null && lobbyRoom === dungeon.roomID) return [];
+  return rules.filter(({ listKey }) => {
+    const value = dungeon.values?.[listKey];
+    const ids = Array.isArray(value) ? value : isListValue(value) ? value.items : [];
+    return ids.includes(dungeon.dungeonID);
+  }).map(({ objectiveKey }) => objectiveKey);
+}
+
 /** OnEnteringDungeonRoom's arguments: the dungeon, the room and the instance; null where they cannot be read. */
 export function dungeonEntered(args: readonly unknown[]): CurrentDungeon | null {
   const dungeonID = whole(args[0]);
-  return dungeonID === null ? null : { dungeonID, roomID: whole(args[1]), instanceID: whole(args[3]) };
+  return dungeonID === null ? null : withDungeonValues({ dungeonID, roomID: whole(args[1]), instanceID: whole(args[3]) }, args[4]);
 }
 
 /** The next tracked dungeon on OnEnteringDungeonRoom (OnEnteringDungeonRoom, 124 to 133). */
@@ -54,7 +93,7 @@ export async function readCurrentDungeon(ask: Ask): Promise<CurrentDungeon | nul
   const parts = Array.isArray(answer) ? answer : isListValue(answer) ? answer.items : null;
   if (parts === null) return null;
   const dungeonID = whole(parts[0]);
-  return dungeonID === null ? null : { dungeonID, roomID: whole(parts[1]), instanceID: whole(parts[2]) };
+  return dungeonID === null ? null : withDungeonValues({ dungeonID, roomID: whole(parts[1]), instanceID: whole(parts[2]) }, parts[3]);
 }
 
 /** The Ship Restrictions window's words (ship_restrictions_window.py). */

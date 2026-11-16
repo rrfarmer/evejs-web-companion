@@ -985,7 +985,7 @@ import {
   type ObjectiveChainData,
 } from "../bridge/abyssObjectives.ts";
 import { activateStep } from "../bridge/spaceActivate.ts";
-import { SHIP_RESTRICTION_REFUSALS, decodeShipRestrictions, dungeonEntered, enterDungeonRoom, exitDungeon, readCurrentDungeon, type CurrentDungeon, type ShipRestrictions } from "../bridge/dungeonTracking.ts";
+import { SHIP_RESTRICTION_REFUSALS, decodeShipRestrictions, dungeonEntered, dungeonValuesChanged, enterDungeonRoom, exitDungeon, readCurrentDungeon, type CurrentDungeon, type ShipRestrictions } from "../bridge/dungeonTracking.ts";
 import {
   MENU_WARP_RANGE_M,
   createAutopilot,
@@ -7868,9 +7868,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (exitDungeon(currentDungeon.get(), args) === null) leaveCurrentDungeon();
       return;
     }
+    if (method === "OnDungeonValues") {
+      currentDungeon.set(dungeonValuesChanged(currentDungeon.get(), args));
+      return;
+    }
     if (method === "OnDungeonCompleted") {
       const inside = currentDungeon.get();
-      if (inside?.dungeonID === Number(args[0])) completedDungeon = inside.instanceID;
+      if (inside?.dungeonID === Number(args[0])) {
+        completedDungeon = inside.instanceID;
+        currentDungeon.set(dungeonValuesChanged(inside, [inside.dungeonID, { dungeon_completed: true }]));
+      }
       return;
     }
     if (method === "OnIndustryMaterials") {

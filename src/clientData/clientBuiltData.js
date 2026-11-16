@@ -50,6 +50,7 @@ const TABLES = Object.freeze({
   // difficulty, entry type, content tags. Read by the dungeons asked.
   dungeons: Object.freeze({ loader: "dungeonsLoader", resource: "res:/staticdata/dungeons.fsdbinary", rowsOnly: true }),
   dungeonObjectives: Object.freeze({ loader: "dungeonObjectivesLoader", resource: "res:/staticdata/dungeonobjectives.fsdbinary" }),
+  nodeGraphs: Object.freeze({ loader: "nodeGraphsLoader", resource: "res:/staticdata/nodegraphs.fsdbinary", rowsOnly: true }),
   academyShips: Object.freeze({ loader: "academyShipLoader", resource: "res:/staticdata/academyship.fsdbinary" }),
   conversations: Object.freeze({ loader: "conversationsLoader", resource: "res:/staticdata/conversations.fsdbinary", rowsOnly: true }),
   conversationAgents: Object.freeze({ loader: "conversationAgentsLoader", resource: "res:/staticdata/conversationagents.fsdbinary", rowsOnly: true }),

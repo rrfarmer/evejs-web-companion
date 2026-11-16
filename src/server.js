@@ -18,6 +18,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
+const { WORMHOLE_OBJECTIVE_GRAPH, dungeonObjectiveEntryRules } = require("./clientData/dungeonObjectiveGraph");
 const { createCameraTaskDefinitions, isCameraTaskEvent, recordCameraTaskEvents } = require("./gamePort/cameraTasks");
 const { py27HashOrder } = require("./clientData/py27HashOrder");
 const { createSdeBuiltData } = require("./clientData/sdeBuiltData");
@@ -14366,12 +14367,18 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
     const ORE_TYPES_BY_VALUE = [1230, 1228, 1224, 18, 1227, 20, 1226, 1231, 21, 1229, 1232, 1225, 19, 1223, 22, 11396];
     const ICE_TYPES_BY_VALUE = [16269, 16266, 16267, 16268, 17975, 17976, 17977, 17978, 16264, 16265, 16263, 16262];
     const TYPE_DEADSPACE_SIGNATURE = 19728; // inventorycommon.const.typeDeadspaceSignature
+    const objectivesFor = (d) => objectiveRecords?.[d?.objectivesID]?.clientObjectives;
+    const needsWormholeGraph = ids.some((id) => objectivesFor(rows?.[id])?.nodeGraphID === WORMHOLE_OBJECTIVE_GRAPH);
+    const graphRows = needsWormholeGraph && typeof clientBuiltData.rows === "function"
+      ? await clientBuiltData.rows("nodeGraphs", [WORMHOLE_OBJECTIVE_GRAPH]).catch(() => null) : null;
+    const wormholeRules = dungeonObjectiveEntryRules(graphRows?.[WORMHOLE_OBJECTIVE_GRAPH]);
     const dungeons = {};
     for (const id of ids) {
       const d = rows && rows[id];
       if (!d) { dungeons[id] = null; continue; }
       const arche = archetypes && archetypes[d.archetypeID];
-      const chainID = objectiveRecords?.[d.objectivesID]?.clientObjectives?.objectiveChainID;
+      const objectives = objectivesFor(d);
+      const chainID = objectives?.objectiveChainID;
       const tagIDs = [...(Array.isArray(d.contentTags) ? d.contentTags : []), ...(arche && Array.isArray(arche.contentTags) ? arche.contentTags : []),
         ...(d.entryTypeID === TYPE_DEADSPACE_SIGNATURE ? ["feature_cosmic_signatures"] : []), "feature_dungeons"];
       dungeons[id] = {
@@ -14379,6 +14386,7 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
         archetypeID: d.archetypeID ?? null, archetypeTitleID: arche ? arche.titleID ?? null : null, archetypeDescriptionID: arche ? arche.descriptionID ?? null : null,
         factionID: d.factionID ?? null, difficulty: d.difficulty ?? null, entryTypeID: d.entryTypeID ?? null,
         objectiveChainID: Number.isSafeInteger(chainID) && chainID > 0 ? chainID : null,
+        ...(objectives?.nodeGraphID === WORMHOLE_OBJECTIVE_GRAPH && wormholeRules ? { objectiveEntryRules: wormholeRules } : {}),
         oreTypes: consolidated(staticData.getClientDungeonResourceTypes ? staticData.getClientDungeonResourceTypes(id).ore : [], ORE_TYPES_BY_VALUE),
         iceTypes: consolidated(staticData.getClientDungeonResourceTypes ? staticData.getClientDungeonResourceTypes(id).ice : [], ICE_TYPES_BY_VALUE),
         contentTags: tagIDs.filter((t) => tags && tags[t]).map((t) => ({ id: t, type: tags[t].contentTagType ?? null, title: tags[t].title ?? null, icon: eveiconTexture(tags[t].icon) })),

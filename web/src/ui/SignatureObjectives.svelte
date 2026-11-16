@@ -2,6 +2,7 @@
   import { getContext, tick } from "svelte";
   import type { AppFlow, SignatureDungeonJob } from "../app/flow.ts";
   import { ObjectiveChain, type AbyssObjectiveRow } from "../bridge/abyssObjectives.ts";
+  import { dungeonEntryObjectives, dungeonObjectiveContext } from "../bridge/dungeonTracking.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { holdToOpen } from "../play/radialMenu.ts";
   import type { SpaceView } from "../play/spaceView.ts";
@@ -13,12 +14,15 @@
   let { store, flow, job }: { store: ClientStore; flow: AppFlow; job: SignatureDungeonJob } = $props();
   // svelte-ignore state_referenced_locally
   const { space, station, names, words } = store;
+  // svelte-ignore state_referenced_locally
+  const activeDungeon = flow.activeDungeon;
   const location = "UI/Generic/CurrentLocation";
   const getSpaceView = getContext<() => SpaceView | null>("flightSpaceView");
   let chain = $state.raw<ObjectiveChain | null>(null);
   let rows = $state.raw<readonly AbyssObjectiveRow[]>([]);
   const chainID = $derived(job.data?.objectiveChainID ?? null);
   const pilotID = $derived($station.online?.characterID ?? null);
+  const instanceID = $derived($activeDungeon?.instanceID ?? null);
   const targets = $derived(new Map(($space.snapshot?.entities ?? []).map((entity) => [entity.itemID, entity])));
   let menu: HTMLDivElement;
   let menuEntries = $state.raw<ReturnType<SpaceView["objectiveTargetMenu"]>>([]);
@@ -27,11 +31,13 @@
   $effect(() => {
     chain = null;
     rows = [];
-    if (!chainID || !pilotID) return;
+    if (!chainID || !pilotID || instanceID === null) return;
     let current = true;
     void flow.readObjectiveChain(chainID).then((data) => {
       if (!current || !data) return;
-      const objectives = new ObjectiveChain(data, {}, pilotID);
+      const dungeon = $activeDungeon;
+      if (!dungeon || dungeon.instanceID !== instanceID) return;
+      const objectives = new ObjectiveChain(data, dungeonObjectiveContext(dungeon), pilotID);
       objectives.start([]);
       chain = objectives;
     });
@@ -41,8 +47,11 @@
 
   $effect(() => {
     const snapshot = $space.snapshot;
-    if (!chain || snapshot?.solarSystemID !== job.solarSystemID) return;
+    const dungeon = $activeDungeon;
+    if (!chain || !dungeon || snapshot?.solarSystemID !== job.solarSystemID) return;
+    for (const [key, value] of Object.entries(dungeonObjectiveContext(dungeon))) chain.setContext(key, value);
     chain.observe(snapshot.entities);
+    for (const key of dungeonEntryObjectives(dungeon, job.data?.objectiveEntryRules ?? [])) chain.startObjective(key);
     rows = chain.view().filter((objective) => objective.rows.length > 0);
   });
 
