@@ -783,6 +783,7 @@ import { decodeLockFailure, decodeTargetNotification, decodeTargeterNotification
 import {
   decodeChargeLoadNotification,
   decodeChargeQuantityChanges,
+  shipEffectsInMultiEvent,
 } from "../bridge/reloadNotifications.ts";
 import type { BotScript, WorldRef } from "../bots/botScript.ts";
 import { decodeScriptValue } from "../bots/scriptCodec.ts";
@@ -6288,6 +6289,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         store.apply({ type: "fitting/charge-quantity", changes });
       }
       return;
+    }
+    // godma.OnMultiEvent_: in space the server sends both of the above this way (runtime/dogmaEvents.js), riding a
+    // destiny update or alone, so a gun's rounds and its starting and stopping are read out of it. The round counts
+    // first, then the effects, so a gun that ran dry is empty by the time its stop is taken (autoReloadOnStop).
+    if (method === "OnMultiEvent") {
+      const changes = decodeChargeQuantityChanges(method, args);
+      if (changes.length > 0) {
+        store.apply({ type: "fitting/charge-quantity", changes });
+      }
+      for (const effect of shipEffectsInMultiEvent(method, args)) {
+        applyPushedNotification("OnGodmaShipEffect", effect, receivedAtMs, true);
+      }
     }
     const chargeLoad = decodeChargeLoadNotification(method, args);
     if (chargeLoad !== null) {
