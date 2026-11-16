@@ -29,6 +29,7 @@ import { isNonInteractableWormhole, nonInteractableWormhole, updateWormholePose,
 import { CameraShake } from "./cameraShake.ts";
 import { ObservatoryEnvironment } from "./observatoryEnvironment.ts";
 import { ObservatoryVortex, OBSERVATORY_VORTEX_TYPE } from "../three/observatoryVortex.ts";
+import { CloudShadowAtlas } from "../three/cloudShadowAtlas.ts";
 import { VortexReflectionProbe, type VortexReflection } from "../three/vortexReflection.ts";
 import { CameraTaskGestures, type CameraTaskEvent } from "../bridge/cameraTasks.ts";
 import { initialOrbitDistance, isOwnStargateDeparture, MAX_JUMP_CAMERA_COORDINATE, setCameraDistance, setCameraPose, translateCameraPose, validCameraPosition } from "./spaceCameraPose.ts";
@@ -252,6 +253,7 @@ export class SpaceView {
   private readonly overview: Overview;
   private starfieldObj!: THREE.Points;
   private readonly sunLight = new THREE.DirectionalLight(0xfff6e8, 3);
+  private readonly cloudShadows = new CloudShadowAtlas();
   /** Toward the system's star (from the grid): the sun light sits along it from the point looked at (fitSunShadow). */
   private readonly sunDir = new THREE.Vector3(-1, 0.4, 0.6).normalize();
   private snapshot: Snapshot | null = null;
@@ -756,6 +758,7 @@ export class SpaceView {
     for (const mark of this.marks.values()) (mark.userData.vortex as ObservatoryVortex | undefined)?.dispose();
     this.stopped = true;
     this.renderer.setAnimationLoop(null);
+    this.cloudShadows.dispose();
     this.reflectionProbe?.dispose();
     this.sceneEnv?.dispose();
     this.bloom?.dispose();
@@ -2038,6 +2041,7 @@ export class SpaceView {
     const rendering = spaceRendering(settings);
     const reflectClouds = settings.reflectionQuality >= 3 && settings.shaderQuality >= 2;
     const reflectionSources: VortexReflection[] = [];
+    const shadowClouds: THREE.Mesh[] = [];
     const overviewMask = this.overview.activePreset();
     const bracketMask = this.overview.activeBracketPreset();
     const relations = overviewMask?.filteredStates.length || bracketMask?.filteredStates.length
@@ -2055,6 +2059,7 @@ export class SpaceView {
       const vortex = mark.userData.vortex as ObservatoryVortex | undefined;
       vortex?.update(e.radius, settings.volumetricQuality, this.renderer, this.sunDir, rendering.shadows);
       if (reflectClouds && e.radius > 0 && vortex?.reflection) reflectionSources.push(vortex.reflection);
+      if (rendering.shadows && e.radius > 0 && vortex?.mesh.visible) shadowClouds.push(vortex.mesh);
       // a drone's engines burn always (Drone.py: FitBoosters(alwaysOn=True)); a fighter's do not
       mark.userData.boostersAlwaysOn = e.kind === "drone";
       if (e.maxVelocity || mark.userData.boostersAlwaysOn) setThrust(mark, e.maxVelocity ? Math.hypot(e.velocity.x, e.velocity.y, e.velocity.z) / e.maxVelocity : 0, this.accelOf(mark, e));
@@ -2387,6 +2392,7 @@ export class SpaceView {
     this.missileFx.explosionLimit = settings.lodQuality * 30;
     this.updateReflections(eye, settings.reflectionQuality, reflectionSources);
     this.fitSunShadow();
+    this.cloudShadows.render(this.renderer, this.scene, this.camera, this.sunDir, shadowClouds);
     this.bloom ??= bloomFor(this.renderer, this.scene, this.camera, { exposure: () => this.exposure, toneMap: 0, quality: () => spaceRendering(), depthEffects: () => gfx().shaderQuality === 3 });
     const simDt = dt * (this.options.flightSnapshot?.()?.timeDilation ?? 1);
     const environment = this.observatoryEnvironment.sample(ego ? snap?.entities ?? [] : [], origin, eye, simDt, rendering.postProcess, systemID);
@@ -2480,7 +2486,7 @@ export class SpaceView {
     if (e.groupID === 1975 || e.groupID === 4579) {
       holder.userData = { kind: e.kind, radius: e.radius, nonPickable: true };
       if (e.typeID === OBSERVATORY_VORTEX_TYPE) {
-        void ObservatoryVortex.load(this.sunLight).then((vortex) => {
+        void ObservatoryVortex.load(this.sunLight, this.cloudShadows).then((vortex) => {
           if (this.stopped || this.marks.get(e.itemID) !== holder) {
             vortex.dispose();
             return;

@@ -7,6 +7,7 @@ import { decodeVta } from "./vtaVolume.ts";
 import { VortexLightmap } from "./vortexLightmap.ts";
 import { VortexShadow } from "./vortexShadow.ts";
 import { VortexReflection, type ReflectionColors } from "./vortexReflection.ts";
+import { CLOUD_SHADOW_GLSL, CLOUD_SHADOW_SPLITS, type CloudShadowAtlas } from "./cloudShadowAtlas.ts";
 
 export const OBSERVATORY_VORTEX_TYPE = 77388;
 
@@ -88,10 +89,8 @@ const VERTEX = `
 const FRAGMENT = `
   varying vec3 localPoint;
   uniform highp sampler3D field, lightmap;
-  uniform highp sampler2DShadow occluders;
-  uniform mat4 cloudToShadow;
-  uniform bool lightmapReady, shadowReady;
-  uniform float shadowBias;
+  uniform bool lightmapReady;
+  ${CLOUD_SHADOW_GLSL}
   uniform sampler2D noiseMap, gradientMap;
   uniform vec3 localEye, viewDepthAxis, sunDirection, sunColor, albedo, lightDistanceScale;
   uniform vec4 temperature, lightPosition[4], lightColor[4];
@@ -138,14 +137,7 @@ const FRAGMENT = `
         daylight += lightColor[i].rgb * (falloff * angular * selfShadow);
       }
     }
-    if (shadowReady) {
-      vec4 samplePoint = cloudToShadow * vec4(p, 1.0);
-      vec3 uvz = samplePoint.xyz / samplePoint.w;
-      if (all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThanEqual(uvz, vec3(1.0)))) {
-        daylight *= mix(0.3, 1.0, texture(occluders, vec3(uvz.xy, uvz.z + shadowBias)));
-      }
-    }
-    return daylight;
+    return daylight * cloudShadow(p, dot(p - localEye, viewDepthAxis));
   }
 
   vec3 temperatureAlbedo(float t) {
@@ -197,15 +189,16 @@ export class ObservatoryVortex {
   private readonly nativeSun = new THREE.Vector3();
   private readonly inverse = new THREE.Matrix4();
 
-  private constructor(assets: VortexAssets, sun: THREE.DirectionalLight) {
+  private constructor(assets: VortexAssets, sun: THREE.DirectionalLight, shadows: CloudShadowAtlas) {
     const { data, noise, gradient } = assets;
     this.volume = data;
     const uniforms = {
       ...SOFT_DEPTH,
       field: { value: null as THREE.Data3DTexture | null }, noiseMap: { value: noise }, gradientMap: { value: gradient },
       lightmap: { value: null as THREE.Data3DTexture | null }, lightmapReady: { value: false },
-      occluders: { value: null as THREE.DepthTexture | null }, cloudToShadow: { value: new THREE.Matrix4() },
-      shadowReady: { value: false }, shadowBias: { value: 0 },
+      shadowAtlas: { value: null as THREE.DepthTexture | null },
+      cloudToShadow: { value: Array.from({ length: CLOUD_SHADOW_SPLITS }, () => new THREE.Matrix4()) },
+      firstShadowSplit: { value: 0 }, lastShadowSplit: { value: -1 },
       localEye: { value: new THREE.Vector3() }, viewDepthAxis: { value: new THREE.Vector3() },
       sunDirection: { value: new THREE.Vector3() }, sunColor: { value: new THREE.Color() },
       albedo: { value: new THREE.Vector3(...data.albedo) }, densityScale: { value: data.density },
@@ -237,16 +230,17 @@ export class ObservatoryVortex {
       uniforms.viewDepthAxis.value.set(-t[2]!, -t[6]!, -t[10]!);
       uniforms.sunDirection.value.copy(sun.getWorldPosition(position)).sub(sun.target.getWorldPosition(target)).transformDirection(inverse);
       uniforms.sunColor.value.copy(sun.color).multiplyScalar(sun.intensity);
-      const shadow = sun.castShadow ? sun.shadow.map?.depthTexture : null;
-      uniforms.occluders.value = shadow ?? null;
-      uniforms.shadowReady.value = !!shadow?.compareFunction;
-      uniforms.cloudToShadow.value.multiplyMatrices(sun.shadow.matrix, this.mesh.matrixWorld);
-      uniforms.shadowBias.value = sun.shadow.bias;
+      uniforms.shadowAtlas.value = shadows.texture;
+      uniforms.firstShadowSplit.value = shadows.first;
+      uniforms.lastShadowSplit.value = shadows.last;
+      for (let i = shadows.first; i <= shadows.last; i++) {
+        uniforms.cloudToShadow.value[i]!.multiplyMatrices(shadows.matrix(i), this.mesh.matrixWorld);
+      }
     };
   }
 
-  static async load(sun: THREE.DirectionalLight): Promise<ObservatoryVortex> {
-    return new ObservatoryVortex(await vortexAssets(), sun);
+  static async load(sun: THREE.DirectionalLight, shadows: CloudShadowAtlas): Promise<ObservatoryVortex> {
+    return new ObservatoryVortex(await vortexAssets(), sun, shadows);
   }
 
   update(radius: number, quality: number, renderer: THREE.WebGLRenderer, sunDirection: THREE.Vector3, shadows: boolean): void {
